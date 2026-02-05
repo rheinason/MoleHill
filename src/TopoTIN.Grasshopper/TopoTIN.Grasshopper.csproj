@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <RootNamespace>TopoTIN.Grasshopper</RootNamespace>
+    <AssemblyName>TopoTIN.Grasshopper</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <NoWarn>NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TopoTIN.Core\TopoTIN.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grasshopper" Version="8.9.24194.18121" IncludeAssets="compile;build" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+  </ItemGroup>
+
+  <Target Name="CopyToGrasshopper" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <GHLibDir>$(APPDATA)\McNeel\Rhinoceros\8.0\Plug-ins\Grasshopper\Libraries\TopoTIN\</GHLibDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(GHLibDir)" />
+    <Copy SourceFiles="$(TargetDir)TopoTIN.Grasshopper.dll;$(TargetDir)TopoTIN.Core.dll;$(TargetDir)TriangleNet.dll" DestinationFolder="$(GHLibDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
