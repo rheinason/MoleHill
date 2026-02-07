@@ -38,6 +38,7 @@ public static class RhinoConverter
         }
 
         mesh.Normals.ComputeNormals();
+        mesh.UnifyNormals();
         mesh.Compact();
 
         return mesh;

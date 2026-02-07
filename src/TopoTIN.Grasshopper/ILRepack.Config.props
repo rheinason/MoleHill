@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Override package default to always run ILRepack (not just Release) -->
+    <ILRepackTargetsFile>$(MSBuildThisFileDirectory)ILRepackCustom.targets</ILRepackTargetsFile>
+  </PropertyGroup>
+</Project>

@@ -1,5 +1,6 @@
 using Grasshopper.Kernel;
 using Rhino.Geometry;
+using System.Drawing;
 using TopoTIN.Core.Engine;
 using TopoTIN.Core.Processing;
 using TopoTIN.Grasshopper.Utilities;
@@ -7,7 +8,7 @@ using TopoTIN.Grasshopper.Utilities;
 namespace TopoTIN.Grasshopper.Components;
 
 /// <summary>
-/// Primary TIN component: generates a TIN mesh from points and optional breaklines.
+/// Primary TIN component: generates a TIN mesh from points and/or breaklines.
 /// </summary>
 public class TinFromPointsAndBreaklines : GH_Component
 {
@@ -15,50 +16,48 @@ public class TinFromPointsAndBreaklines : GH_Component
 
     public TinFromPointsAndBreaklines()
         : base("TIN Surface", "TIN",
-               "Generate a TIN surface from points and optional breaklines using constrained Delaunay triangulation.",
-               "Mesh", "Triangulation")
+               "Generate a TIN surface from points and/or breaklines using constrained Delaunay triangulation.",
+               "TopoTIN", "Surface")
     {
     }
+
+    protected override Bitmap? Icon =>
+        TopoTINInfo.LoadIcon("TopoTIN.Grasshopper.Resources.TinSurface.png");
 
     public override Guid ComponentGuid => new("E1A2B3C4-D5E6-7890-ABCD-EF1234567890");
 
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
-        pManager.AddPointParameter("Points", "P", "Survey points for TIN generation.", GH_ParamAccess.list);
-        pManager.AddCurveParameter("Breaklines", "B", "Breakline curves (optional). Mesh edges will follow these exactly.", GH_ParamAccess.list);
+        pManager.AddPointParameter("Points", "P", "Survey points for TIN generation (optional if breaklines provided).", GH_ParamAccess.list);
+        pManager[0].Optional = true;
+        pManager.AddCurveParameter("Breaklines", "B", "Breakline/contour curves (optional). Mesh edges will follow these exactly.", GH_ParamAccess.list);
         pManager[1].Optional = true;
-        pManager.AddNumberParameter("Max Area", "A", "Maximum triangle area for refinement. 0 = no constraint.", GH_ParamAccess.item, 0.0);
+        pManager.AddNumberParameter("Tolerance", "T", "XY deduplication tolerance. Uses document tolerance if 0.", GH_ParamAccess.item, 0.0);
         pManager[2].Optional = true;
-        pManager.AddNumberParameter("Min Angle", "N", "Minimum triangle angle in degrees for refinement. 0 = no constraint.", GH_ParamAccess.item, 0.0);
-        pManager[3].Optional = true;
-        pManager.AddNumberParameter("Tolerance", "T", "Curve tessellation tolerance. Uses document tolerance if 0.", GH_ParamAccess.item, 0.0);
-        pManager[4].Optional = true;
     }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
     {
         pManager.AddMeshParameter("Mesh", "M", "Triangulated mesh.", GH_ParamAccess.item);
+        pManager.AddLineParameter("Edges", "E", "All mesh edges.", GH_ParamAccess.list);
+        pManager.AddLineParameter("Naked Edges", "NE", "Boundary (naked) edges.", GH_ParamAccess.list);
+        pManager.AddPointParameter("Vertices", "V", "Mesh vertices.", GH_ParamAccess.list);
         pManager.AddIntegerParameter("Face Count", "F", "Number of triangular faces.", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Vertex Count", "V", "Number of vertices.", GH_ParamAccess.item);
     }
 
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        // Read inputs
         var points = new List<Point3d>();
-        if (!DA.GetDataList(0, points) || points.Count < 3)
-        {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "At least 3 points are required.");
-            return;
-        }
+        DA.GetDataList(0, points);
 
         var curves = new List<Curve>();
-        DA.GetDataList(1, curves); // optional
+        DA.GetDataList(1, curves);
 
-        double maxArea = 0, minAngle = 0, tolerance = 0;
-        DA.GetData(2, ref maxArea);
-        DA.GetData(3, ref minAngle);
-        DA.GetData(4, ref tolerance);
+        if (points.Count == 0 && curves.Count == 0)
+            return;
+
+        double tolerance = 0;
+        DA.GetData(2, ref tolerance);
 
         if (tolerance <= 0)
             tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
@@ -85,7 +84,12 @@ public class TinFromPointsAndBreaklines : GH_Component
             }
             else
             {
-                var polyCrv = crv.ToPolyline(tolerance, tolerance, 0.05, 1000);
+                var polyCrv = crv.ToPolyline(
+                    tolerance,           // distance tolerance
+                    Math.PI / 36.0,      // 5 degree angle tolerance (radians)
+                    0.0,                 // minimum edge length
+                    0.0                  // maximum edge length (0 = no limit)
+                );
                 if (polyCrv == null || !polyCrv.TryGetPolyline(out pl))
                 {
                     AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Could not tessellate a breakline curve. Skipping.");
@@ -111,31 +115,40 @@ public class TinFromPointsAndBreaklines : GH_Component
         var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, tolerance);
 
         if (merged.DuplicatesRemoved > 0)
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"{merged.DuplicatesRemoved} duplicate points were merged.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, $"{merged.DuplicatesRemoved} duplicate points merged.");
         if (merged.InvalidsSkipped > 0)
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"{merged.InvalidsSkipped} invalid points (NaN/Infinity) were skipped.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"{merged.InvalidsSkipped} invalid points (NaN/Infinity) skipped.");
 
         if (merged.VertexCount < 3)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Fewer than 3 unique points after deduplication.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error,
+                $"Only {merged.VertexCount} unique point(s) after deduplication (need 3+). "
+                + $"Input: {points.Count} points, {curves.Count} curves. "
+                + $"Try reducing the tolerance (currently {tolerance}).");
             return;
         }
 
-        // Build TIN
-        var quality = new QualitySettings { MaxArea = maxArea, MinAngle = minAngle };
-        var result = _engine.Build(merged.XyCoords, merged.ZValues, merged.Segments, quality);
+        // Build TIN (pure CDT, no quality refinement — use Remesh for that)
+        var quality = QualitySettings.None;
+        _engine.InvalidateCache();
+
+        var result = _engine.Build(merged.XyCoords, merged.ZValues, merged.Segments, quality,
+                                   out string? errorMessage);
 
         if (result == null)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Triangulation failed. Points may be collinear.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, errorMessage ?? "Triangulation failed.");
             return;
         }
 
-        // Convert to Rhino mesh
-        var mesh = RhinoConverter.ToRhinoMesh(result);
+        // If there was a warning (e.g. fallback to plain Delaunay)
+        if (errorMessage != null)
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, errorMessage);
 
-        DA.SetData(0, mesh);
-        DA.SetData(1, result.FaceCount);
-        DA.SetData(2, result.VertexCount);
+        DA.SetData(0, RhinoConverter.ToRhinoMesh(result));
+        DA.SetDataList(1, RhinoConverter.ToEdgeLines(result));
+        DA.SetDataList(2, RhinoConverter.ToNakedEdgeLines(result));
+        DA.SetDataList(3, RhinoConverter.ToPoints(result));
+        DA.SetData(4, result.FaceCount);
     }
 }

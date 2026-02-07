@@ -2,11 +2,13 @@
   <PropertyGroup>
     <TargetFramework>net7.0</TargetFramework>
     <RootNamespace>TopoTIN.Grasshopper</RootNamespace>
-    <AssemblyName>TopoTIN.Grasshopper</AssemblyName>
+    <AssemblyName>TopoTIN</AssemblyName>
+    <TargetExt>.gha</TargetExt>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <NoWarn>NU1701</NoWarn>
+    <NoWarn>NU1701;CA1416</NoWarn>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,15 +16,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Grasshopper" Version="8.9.24194.18121" IncludeAssets="compile;build" />
-    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+    <EmbeddedResource Include="Resources\*.png" />
   </ItemGroup>
 
-  <Target Name="CopyToGrasshopper" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+  <ItemGroup>
+    <PackageReference Include="Grasshopper" Version="8.9.24194.18121" IncludeAssets="compile;build" />
+    <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.34.2" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" IncludeAssets="compile;build" />
+  </ItemGroup>
+
+  <Target Name="CopyToGrasshopper" AfterTargets="MergeAssemblies">
     <PropertyGroup>
-      <GHLibDir>$(APPDATA)\McNeel\Rhinoceros\8.0\Plug-ins\Grasshopper\Libraries\TopoTIN\</GHLibDir>
+      <GHLibDir>$(APPDATA)\Grasshopper\Libraries\</GHLibDir>
     </PropertyGroup>
     <MakeDir Directories="$(GHLibDir)" />
-    <Copy SourceFiles="$(TargetDir)TopoTIN.Grasshopper.dll;$(TargetDir)TopoTIN.Core.dll;$(TargetDir)TriangleNet.dll" DestinationFolder="$(GHLibDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(OutputPath)TopoTIN.gha" DestinationFolder="$(GHLibDir)" SkipUnchangedFiles="true" ContinueOnError="true" />
   </Target>
 </Project>

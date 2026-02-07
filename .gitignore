@@ -7,3 +7,15 @@ obj/
 *.log
 *.nupkg
 TestResults/
+
+# Claude Code
+.claude/
+*.tmp.*
+
+# IDE
+.idea/
+*.DotSettings.user
+
+# Build artifacts
+*.gha
+packages/

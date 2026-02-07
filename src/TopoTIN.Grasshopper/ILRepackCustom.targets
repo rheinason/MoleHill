@@ -1,0 +1,20 @@
+<Project>
+  <!-- Use a unique name to avoid being overridden by the NuGet package -->
+  <Target Name="MergeAssemblies" AfterTargets="Build">
+    <ItemGroup>
+      <InputAssemblies Include="$(OutputPath)$(TargetName)$(TargetExt)" />
+      <InputAssemblies Include="$(OutputPath)TopoTIN.Core.dll" />
+      <InputAssemblies Include="$(OutputPath)TriangleNet.dll" />
+    </ItemGroup>
+
+    <ILRepack
+      Parallel="true"
+      DebugInfo="true"
+      AllowDuplicateResources="false"
+      InputAssemblies="@(InputAssemblies)"
+      TargetKind="SameAsPrimaryAssembly"
+      OutputFile="$(OutputPath)$(TargetName)$(TargetExt)" />
+
+    <Delete Files="$(OutputPath)TopoTIN.Core.dll;$(OutputPath)TriangleNet.dll;$(OutputPath)TopoTIN.Core.pdb;$(OutputPath)TriangleNet.pdb;$(OutputPath)TriangleNet.xml" ContinueOnError="true" />
+  </Target>
+</Project>
