@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <RootNamespace>MoleHill.Core</RootNamespace>
+    <AssemblyName>MoleHill.Core</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+<ItemGroup>
+    <ProjectReference Include="..\TriangleNet\TriangleNet.csproj" />
+  </ItemGroup>
+</Project>

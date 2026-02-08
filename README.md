@@ -28,7 +28,7 @@ Built for **Rhino 8** (.NET 7+). Uses [Triangle.NET](https://github.com/wo80/Tri
 
 ## Install
 
-1. Download `TopoTIN.gha` from the [latest release](https://github.com/rheinason/MoleHill/releases/latest)
+1. Download `MoleHill.gha` from the [latest release](https://github.com/rheinason/MoleHill/releases/latest)
 2. Copy to your Grasshopper Libraries folder:
    ```
    %AppData%\Grasshopper\Libraries\
@@ -41,10 +41,10 @@ Built for **Rhino 8** (.NET 7+). Uses [Triangle.NET](https://github.com/wo80/Tri
 Requires .NET 8 SDK.
 
 ```
-dotnet build TopoTIN.sln
+dotnet build MoleHill.sln
 ```
 
-The output `TopoTIN.gha` is in `src/TopoTIN.Grasshopper/bin/Debug/net7.0/`. ILRepack merges all assemblies into the single `.gha` file.
+The output `MoleHill.gha` is in `src/MoleHill.Grasshopper/bin/Debug/net7.0/`. ILRepack merges all assemblies into the single `.gha` file.
 
 ## License
 

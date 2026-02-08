@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <RootNamespace>MoleHill.Grasshopper</RootNamespace>
+    <AssemblyName>MoleHill</AssemblyName>
+    <TargetExt>.gha</TargetExt>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <NoWarn>NU1701;CA1416</NoWarn>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MoleHill.Core\MoleHill.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\*.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grasshopper" Version="8.9.24194.18121" IncludeAssets="compile;build" />
+    <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.34.2" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" IncludeAssets="compile;build" />
+  </ItemGroup>
+
+  <Target Name="CopyToGrasshopper" AfterTargets="MergeAssemblies">
+    <PropertyGroup>
+      <GHLibDir>$(APPDATA)\Grasshopper\Libraries\</GHLibDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(GHLibDir)" />
+    <Copy SourceFiles="$(OutputPath)MoleHill.gha" DestinationFolder="$(GHLibDir)" SkipUnchangedFiles="true" ContinueOnError="true" />
+  </Target>
+</Project>
