@@ -5,14 +5,14 @@ using MoleHill.Core.Grading;
 namespace MoleHill.Grasshopper.Components;
 
 /// <summary>
-/// Laplacian smoothing of mesh vertices within boundary curves.
-/// Per-boundary strength via matching-length lists.
+/// Laplacian smoothing of mesh vertices, optionally within boundary curves.
+/// Breakline curves can be used to hold ridge/valley vertices in place.
 /// </summary>
 public class MeshSmoothComponent : GH_Component
 {
     public MeshSmoothComponent()
         : base("Mesh Smooth", "Smooth",
-               "Smooth mesh vertices within boundary curves using Laplacian smoothing.",
+               "Smooth mesh vertices using Laplacian smoothing. Optionally constrain to boundary regions and fix breakline vertices.",
                "MoleHill", "Surface")
     {
     }
@@ -25,11 +25,16 @@ public class MeshSmoothComponent : GH_Component
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddMeshParameter("Mesh", "M", "Triangle mesh to smooth.", GH_ParamAccess.item);
-        pManager.AddCurveParameter("Boundaries", "B", "Closed curves defining regions to smooth.", GH_ParamAccess.list);
+        pManager.AddCurveParameter("Boundaries", "B", "Closed curves defining regions to smooth. Leave empty to smooth the whole interior.", GH_ParamAccess.list);
+        pManager[1].Optional = true;
         pManager.AddIntegerParameter("Iterations", "I", "Number of smoothing passes.", GH_ParamAccess.item, 3);
         pManager[2].Optional = true;
-        pManager.AddNumberParameter("Strength", "S", "Smoothing strength per boundary (0-1). Shorter lists repeat last value.", GH_ParamAccess.list);
+        pManager.AddNumberParameter("Strength", "S", "Smoothing strength (0-1). When boundaries are provided, one value per boundary. When no boundaries, the first value sets global strength (default 0.5).", GH_ParamAccess.list);
         pManager[3].Optional = true;
+        pManager.AddCurveParameter("Breaklines", "BL", "Curves along ridges or edges whose vertices should resist smoothing.", GH_ParamAccess.list);
+        pManager[4].Optional = true;
+        pManager.AddNumberParameter("Fixity", "F", "How fixed breakline vertices are (0 = free, 1 = fully fixed).", GH_ParamAccess.item, 1.0);
+        pManager[5].Optional = true;
     }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -43,13 +48,19 @@ public class MeshSmoothComponent : GH_Component
         if (!DA.GetData(0, ref mesh) || mesh == null) return;
 
         var boundaryCurves = new List<Curve>();
-        if (!DA.GetDataList(1, boundaryCurves) || boundaryCurves.Count == 0) return;
+        DA.GetDataList(1, boundaryCurves);
 
         int iterations = 3;
         DA.GetData(2, ref iterations);
 
         var strengths = new List<double>();
         DA.GetDataList(3, strengths);
+
+        var breaklineCurves = new List<Curve>();
+        DA.GetDataList(4, breaklineCurves);
+
+        double breaklineFixity = 1.0;
+        DA.GetData(5, ref breaklineFixity);
 
         if (iterations <= 0)
         {
@@ -67,6 +78,9 @@ public class MeshSmoothComponent : GH_Component
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Input mesh has no faces.");
             return;
         }
+
+        if (!mesh.IsValid)
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Input mesh is already invalid (likely degenerate faces from triangulation). Smoothing will not fix this.");
 
         // Extract mesh data
         var vertices = new double[vertexCount * 3];
@@ -127,11 +141,46 @@ public class MeshSmoothComponent : GH_Component
             bIdx++;
         }
 
-        if (boundaries.Count == 0)
+        // Warn only if curves were supplied but none were valid closed curves
+        if (boundaryCurves.Count > 0 && boundaries.Count == 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No valid boundary curves.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No valid boundary curves. Curves must be closed.");
             DA.SetData(0, mesh);
             return;
+        }
+
+        // Global strength used when no boundaries are provided
+        double globalStrength = strengths.Count > 0
+            ? Math.Max(0, Math.Min(1, strengths[0]))
+            : 0.5;
+
+        // Convert breakline curves (open or closed)
+        var breaklineData = new List<(double[] xyPts, int ptCount)>();
+        foreach (var crv in breaklineCurves)
+        {
+            if (crv == null) continue;
+
+            Polyline pl;
+            if (!crv.TryGetPolyline(out pl))
+            {
+                var polyCrv = crv.ToPolyline(tolerance, Math.PI / 36.0, 0.0, 0.0);
+                if (polyCrv == null || !polyCrv.TryGetPolyline(out pl)) continue;
+            }
+
+            if (pl.Count < 2) continue;
+
+            int plCount = pl.Count;
+            if (crv.IsClosed && pl[0].DistanceTo(pl[plCount - 1]) < tolerance)
+                plCount--;
+
+            var xyPts = new double[plCount * 2];
+            for (int i = 0; i < plCount; i++)
+            {
+                xyPts[i * 2] = pl[i].X;
+                xyPts[i * 2 + 1] = pl[i].Y;
+            }
+
+            breaklineData.Add((xyPts, plCount));
         }
 
         // Smooth
@@ -139,6 +188,10 @@ public class MeshSmoothComponent : GH_Component
             vertices, vertexCount,
             faces, faceCount,
             boundaries.ToArray(),
+            globalStrength,
+            breaklineData.ToArray(),
+            breaklineFixity,
+            tolerance,
             iterations);
 
         // Build output mesh

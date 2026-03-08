@@ -1,8 +1,18 @@
 {
   "profiles": {
-    "Rhino 8": {
+    "Rhino 8 (netcore)": {
       "commandName": "Executable",
-      "executablePath": "C:\\Program Files\\Rhino 8\\System\\Rhino.exe"
+      "executablePath": "C:\\Program Files\\Rhino 8\\System\\Rhino.exe",
+      "environmentVariables": {
+        "RHINO_PACKAGE_DIRS": "$(ProjectDir)$(OutputPath)\\"
+      }
+    },
+    "Rhino 8 (netfx)": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\Rhino 8\\System\\Rhino.exe",
+      "environmentVariables": {
+        "RHINO_PACKAGE_DIRS": "$(ProjectDir)$(OutputPath)\\"
+      }
     }
   }
 }

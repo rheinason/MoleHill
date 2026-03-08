@@ -18,6 +18,7 @@ Built for **Rhino 8** (.NET 7+). Uses [Triangle.NET](https://github.com/wo80/Tri
 |-----------|-------------|
 | **Grade Pad** | Flatten terrain at pad elevations with slope transitions and cut/fill reporting |
 | **Grade Path** | Grade roads/paths with width, cross-slope, and slope transitions |
+| **Retaining Wall** | Pair open wall rails, generate wall solids, and grade terrain between toe/top rails |
 
 ### Analysis
 | Component | Description |

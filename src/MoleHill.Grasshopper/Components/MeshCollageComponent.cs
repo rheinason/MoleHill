@@ -1,4 +1,5 @@
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Types;
 using Rhino.Geometry;
 using TriangleNet.Geometry;
 using TriangleNet.Meshing;
@@ -45,6 +46,7 @@ public class MeshCollageComponent : GH_Component
         pManager.AddMeshParameter("Area Meshes", "AM", "Individual mesh per area (for baking to separate layers).", GH_ParamAccess.list);
         pManager.AddNumberParameter("Heights", "H", "Target elevation (Z) per area.", GH_ParamAccess.list);
         pManager.AddIntegerParameter("Face Counts", "F", "Number of faces per area.", GH_ParamAccess.list);
+        pManager.AddGeometryParameter("Hatches", "H", "Solid hatch per area (for baking to 2D drawings).", GH_ParamAccess.list);
     }
 
     private static readonly Color[] DefaultPalette =
@@ -89,6 +91,7 @@ public class MeshCollageComponent : GH_Component
         var areaMeshes = new List<Mesh>();
         var heights = new List<double>();
         var faceCounts = new List<int>();
+        var hatches = new List<GH_Hatch>();
         var combinedMesh = new Mesh();
 
         int areaIdx = 0;
@@ -150,6 +153,8 @@ public class MeshCollageComponent : GH_Component
             areaMeshes.Add(areaMesh);
             heights.Add(targetZ);
             faceCounts.Add(areaMesh.Faces.Count);
+            var h = CreateHatch(crv);
+            if (h != null) hatches.Add(new GH_Hatch(h));
             areaIdx++;
         }
 
@@ -167,6 +172,7 @@ public class MeshCollageComponent : GH_Component
         DA.SetDataList(1, areaMeshes);
         DA.SetDataList(2, heights);
         DA.SetDataList(3, faceCounts);
+        DA.SetDataList(4, hatches);
     }
 
     /// <summary>
@@ -206,6 +212,7 @@ public class MeshCollageComponent : GH_Component
         // Convert curves to boundaries
         var areas = new List<MeshAreaSplitter.AreaBoundary>();
         var heights = new List<double>();
+        var hatches = new List<GH_Hatch>();
 
         foreach (var crv in areaCurves)
         {
@@ -244,6 +251,8 @@ public class MeshCollageComponent : GH_Component
             }
 
             areas.Add(new MeshAreaSplitter.AreaBoundary(xyVerts, plCount));
+            var h = CreateHatch(crv);
+            if (h != null) hatches.Add(new GH_Hatch(h));
         }
 
         if (areas.Count == 0)
@@ -311,6 +320,7 @@ public class MeshCollageComponent : GH_Component
         DA.SetDataList(1, areaMeshes);
         DA.SetDataList(2, heights);
         DA.SetDataList(3, faceCounts);
+        DA.SetDataList(4, hatches);
     }
 
     private Color GetColor(int index, List<Color> userColors)
@@ -361,6 +371,23 @@ public class MeshCollageComponent : GH_Component
         mesh.UnifyNormals();
         mesh.Compact();
         return mesh;
+    }
+
+    private static Hatch? CreateHatch(Curve crv)
+    {
+        var doc = Rhino.RhinoDoc.ActiveDoc;
+        int patternIndex = 0;
+        if (doc != null)
+        {
+#pragma warning disable CS0618
+            int idx = doc.HatchPatterns.Find("Solid", true);
+#pragma warning restore CS0618
+            if (idx >= 0) patternIndex = idx;
+        }
+#pragma warning disable CS0618
+        var hatches = Hatch.Create(crv, patternIndex, 0.0, 1.0);
+#pragma warning restore CS0618
+        return hatches?.Length > 0 ? hatches[0] : null;
     }
 
     private static Mesh? TriangulatePolygon(Polyline pl, int vertCount, double targetZ)

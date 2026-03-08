@@ -1,14 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net7.0</TargetFramework>
+    <TargetFrameworks>net7.0-windows;net7.0</TargetFrameworks>
     <RootNamespace>MoleHill.Grasshopper</RootNamespace>
     <AssemblyName>MoleHill</AssemblyName>
     <TargetExt>.gha</TargetExt>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <NoWarn>NU1701;CA1416</NoWarn>
+    <NoWarn>NU1701;CA1416;NETSDK1086</NoWarn>
     <EnableDynamicLoading>true</EnableDynamicLoading>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ILRepackTargetsFile>$(MSBuildProjectDirectory)\ILRepackCustom.targets</ILRepackTargetsFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Version>0.3.0</Version>
+    <Title>MoleHill</Title>
+    <Company>MoleHill Authors</Company>
+    <Description>Terrain modeling toolkit: TIN surfaces, grading, slope analysis, mesh areas, and collage.</Description>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,16 +33,35 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Grasshopper" Version="8.9.24194.18121" IncludeAssets="compile;build" />
+    <PackageReference Include="Grasshopper" Version="8.9.24194.18121" ExcludeAssets="runtime" />
     <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.34.2" />
-    <PackageReference Include="System.Drawing.Common" Version="8.0.0" IncludeAssets="compile;build" />
   </ItemGroup>
 
-  <Target Name="CopyToGrasshopper" AfterTargets="MergeAssemblies">
+  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <Target Name="CopyToGrasshopper" AfterTargets="MergeAssemblies"
+          Condition="'$(TargetFramework)' == 'net7.0-windows'">
     <PropertyGroup>
       <GHLibDir>$(APPDATA)\Grasshopper\Libraries\</GHLibDir>
     </PropertyGroup>
     <MakeDir Directories="$(GHLibDir)" />
     <Copy SourceFiles="$(OutputPath)MoleHill.gha" DestinationFolder="$(GHLibDir)" SkipUnchangedFiles="true" ContinueOnError="true" />
+  </Target>
+
+  <Target Name="BuildYakPackage" AfterTargets="MergeAssemblies"
+          Condition="'$(TargetFramework)' == 'net7.0-windows'">
+    <PropertyGroup>
+      <YakExecutable Condition="$(YakExecutable) == '' and Exists('C:\Program Files\Rhino 8\System\Yak.exe')">C:\Program Files\Rhino 8\System\Yak.exe</YakExecutable>
+      <BuildYakPackage Condition="$(BuildYakPackage) == '' and $(YakExecutable) != ''">True</BuildYakPackage>
+    </PropertyGroup>
+    <Warning Text="Could not find Yak executable" Condition="$(YakExecutable) == ''" />
+    <ItemGroup>
+      <YakPackagesToDelete Include="$(OutputPath)\*.yak;$(OutputPath)\**\manifest.yml" />
+    </ItemGroup>
+    <Delete Files="@(YakPackagesToDelete)" />
+    <Exec Command="&quot;$(YakExecutable)&quot; spec"  WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
+    <Exec Command="&quot;$(YakExecutable)&quot; build" WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
   </Target>
 </Project>

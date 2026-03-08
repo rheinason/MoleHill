@@ -298,6 +298,127 @@ namespace TriangleNet
             }
         }
 
+        /// <summary>
+        /// Try to incrementally insert a point into the current triangulation.
+        /// </summary>
+        /// <param name="x">X coordinate.</param>
+        /// <param name="y">Y coordinate.</param>
+        /// <param name="vertexId">Inserted vertex id (or -1 on failure).</param>
+        /// <returns>True if insertion succeeded; otherwise false.</returns>
+        public bool TryInsertPoint(double x, double y, out int vertexId)
+        {
+            int newId = hash_vtx++;
+            var newvertex = new Vertex(x, y)
+            {
+                hash = newId,
+                id = newId
+            };
+
+            vertices.Add(newvertex.hash, newvertex);
+
+            Otri searchtri = default;
+            searchtri.tri = dummytri;
+            searchtri.orient = 0;
+            searchtri.Sym();
+
+            Osub splitseg = default;
+            var status = InsertVertex(newvertex, ref searchtri, ref splitseg, false, false);
+
+            if (status == InsertVertexResult.Successful || status == InsertVertexResult.Encroaching)
+            {
+                vertexId = newvertex.id;
+                return true;
+            }
+
+            vertices.Remove(newvertex.hash);
+            newvertex.type = VertexType.DeadVertex;
+            vertexId = -1;
+            return false;
+        }
+
+        /// <summary>
+        /// Check whether a point can be removed with local Delaunay retriangulation.
+        /// </summary>
+        /// <param name="vertexId">Vertex id.</param>
+        /// <returns>True if removable.</returns>
+        public bool CanDeletePoint(int vertexId)
+        {
+            return TryGetDeleteHandle(vertexId, out _);
+        }
+
+        /// <summary>
+        /// Try to incrementally remove a point from the current triangulation.
+        /// </summary>
+        /// <param name="vertexId">Vertex id.</param>
+        /// <returns>True if deletion succeeded.</returns>
+        public bool TryDeletePoint(int vertexId)
+        {
+            if (!TryGetDeleteHandle(vertexId, out Otri deltri))
+            {
+                return false;
+            }
+
+            DeleteVertex(ref deltri);
+            return true;
+        }
+
+        private bool TryGetDeleteHandle(int vertexId, out Otri deltri)
+        {
+            deltri = default;
+
+            if (!vertices.TryGetValue(vertexId, out Vertex target))
+            {
+                return false;
+            }
+
+            bool found = false;
+            foreach (var tri in triangles)
+            {
+                deltri.tri = tri;
+                for (deltri.orient = 0; deltri.orient < 3; deltri.orient++)
+                {
+                    if (ReferenceEquals(deltri.Org(), target))
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (found)
+                {
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                return false;
+            }
+
+            // Only interior vertices not on constrained segments are removable.
+            Otri scan = deltri;
+            Otri neighbor = default;
+            Osub sub = default;
+            do
+            {
+                scan.Pivot(ref sub);
+                if (sub.seg.hash != DUMMY)
+                {
+                    return false;
+                }
+
+                scan.Sym(ref neighbor);
+                if (neighbor.tri.id == DUMMY)
+                {
+                    return false;
+                }
+
+                scan.Onext();
+            } while (!scan.Equals(deltri));
+
+            return true;
+        }
+
         #region Misc
 
         /// <summary>

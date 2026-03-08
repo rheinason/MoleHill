@@ -8,20 +8,29 @@ namespace MoleHill.Core.Grading;
 public static class MeshSmoother
 {
     /// <summary>
-    /// Smooth a triangle mesh within specified closed boundary regions.
-    /// Each boundary carries its own strength value.
+    /// Smooth a triangle mesh, optionally within closed boundary regions.
+    /// If no boundaries are provided, globalStrength is applied to all interior vertices.
+    /// Breakline vertices can be held rigid via breaklineFixity.
     /// </summary>
     /// <param name="vertices">Flat XYZ: [x0,y0,z0, ...]</param>
     /// <param name="vertexCount">Number of vertices.</param>
     /// <param name="faces">Triangle indices: [i0,i1,i2, ...]</param>
     /// <param name="faceCount">Number of faces.</param>
-    /// <param name="boundaries">Closed polygon boundaries with per-boundary strength.</param>
+    /// <param name="boundaries">Closed polygon boundaries with per-boundary strength. Empty = smooth whole interior.</param>
+    /// <param name="globalStrength">Smoothing strength used when no boundaries are provided (0-1).</param>
+    /// <param name="breaklines">XY flat arrays of breakline polylines whose vertices should resist smoothing.</param>
+    /// <param name="breaklineFixity">How fixed breakline vertices are (0 = free, 1 = fully fixed).</param>
+    /// <param name="snapTolerance">Distance tolerance for "is vertex on breakline segment" check.</param>
     /// <param name="iterations">Number of smoothing passes.</param>
     /// <returns>New vertex array with smoothed Z values.</returns>
     public static double[] Smooth(
         double[] vertices, int vertexCount,
         int[] faces, int faceCount,
         (double[] xyVerts, int vertCount, double strength)[] boundaries,
+        double globalStrength,
+        (double[] xyPts, int ptCount)[] breaklines,
+        double breaklineFixity,
+        double snapTolerance,
         int iterations)
     {
         if (iterations <= 0)
@@ -40,17 +49,38 @@ public static class MeshSmoother
             AddEdge(neighbors, c, a);
         }
 
-        // Determine per-vertex strength (last boundary wins for overlapping)
+        // Step 1 — Determine per-vertex strength
         var vertexStrength = new double[vertexCount];
-        for (int i = 0; i < vertexCount; i++)
+        if (boundaries.Length == 0)
         {
-            double px = vertices[i * 3];
-            double py = vertices[i * 3 + 1];
-
-            foreach (var (xyVerts, vertCount, strength) in boundaries)
+            double gs = Math.Max(0, Math.Min(1, globalStrength));
+            for (int i = 0; i < vertexCount; i++)
+                vertexStrength[i] = gs;
+        }
+        else
+        {
+            for (int i = 0; i < vertexCount; i++)
             {
-                if (strength > 0 && PadGrader.PointInPolygon(px, py, xyVerts, vertCount))
-                    vertexStrength[i] = Math.Max(0, Math.Min(1, strength));
+                double px = vertices[i * 3];
+                double py = vertices[i * 3 + 1];
+
+                foreach (var (xyVerts, vertCount, strength) in boundaries)
+                {
+                    if (strength > 0 && PadGrader.PointInPolygon(px, py, xyVerts, vertCount))
+                        vertexStrength[i] = Math.Max(0, Math.Min(1, strength));
+                }
+            }
+        }
+
+        // Step 2 — Breakline fixity: scale down strength for vertices on breaklines
+        if (breaklines.Length > 0 && breaklineFixity > 0)
+        {
+            for (int i = 0; i < vertexCount; i++)
+            {
+                if (vertexStrength[i] <= 0) continue;
+                double px = vertices[i * 3], py = vertices[i * 3 + 1];
+                if (IsOnAnyBreakline(px, py, breaklines, snapTolerance))
+                    vertexStrength[i] *= (1.0 - breaklineFixity);
             }
         }
 
@@ -104,6 +134,30 @@ public static class MeshSmoother
         }
 
         return result;
+    }
+
+    private static bool IsOnAnyBreakline(double px, double py,
+        (double[] xyPts, int ptCount)[] breaklines, double tol)
+    {
+        double tolSq = tol * tol;
+        foreach (var (pts, n) in breaklines)
+        {
+            for (int j = 0; j < n - 1; j++)
+            {
+                double ax = pts[j * 2], ay = pts[j * 2 + 1];
+                double bx = pts[j * 2 + 2], by = pts[j * 2 + 3];
+                double dx = bx - ax, dy = by - ay;
+                double lenSq = dx * dx + dy * dy;
+                double t;
+                if (lenSq < tolSq) // degenerate segment → point check
+                    t = 0;
+                else
+                    t = Math.Max(0, Math.Min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+                double ex = ax + t * dx - px, ey = ay + t * dy - py;
+                if (ex * ex + ey * ey < tolSq) return true;
+            }
+        }
+        return false;
     }
 
     private static void AddEdge(List<int>[] neighbors, int a, int b)

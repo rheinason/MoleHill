@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <RootNamespace>MoleHill.Rhino</RootNamespace>
+    <AssemblyName>MoleHill.Rhino</AssemblyName>
+    <TriangleNetProjectPath>..\TriangleNet\TriangleNet.csproj</TriangleNetProjectPath>
+    <MoleHillCoreProjectPath>..\MoleHill.Core\MoleHill.Core.csproj</MoleHillCoreProjectPath>
+    <Version>0.1.0</Version>
+    <Title>MoleHill Rhino</Title>
+    <Company>MoleHill Authors</Company>
+    <Description>MoleHill Rhino terrain modifier panel plugin.</Description>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <TargetExt>.rhp</TargetExt>
+    <NoWarn>CA1416;NETSDK1086;NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RhinoCommon" Version="8.9.24194.18121" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="MoleHill.Core">
+      <HintPath>..\MoleHill.Core\bin\$(Configuration)\net7.0\MoleHill.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="TriangleNet">
+      <HintPath>..\TriangleNet\bin\$(Configuration)\net7.0\TriangleNet.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="System.Drawing.Common">
+      <HintPath>C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\7.0.20\ref\net7.0\System.Drawing.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="EmbeddedResources\plugin-utility.ico" />
+  </ItemGroup>
+
+  <Target Name="BuildLocalDependencies" BeforeTargets="ResolveReferences">
+    <MakeDir Directories="..\TriangleNet\obj\$(Configuration)\net7.0;..\TriangleNet\bin\$(Configuration)\net7.0;..\MoleHill.Core\obj\$(Configuration)\net7.0;..\MoleHill.Core\bin\$(Configuration)\net7.0" />
+    <MSBuild Projects="$(TriangleNetProjectPath);$(MoleHillCoreProjectPath)"
+             Targets="Build"
+             BuildInParallel="false"
+             Properties="Configuration=$(Configuration)" />
+  </Target>
+</Project>

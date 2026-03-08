@@ -13,6 +13,9 @@ namespace MoleHill.Grasshopper.Components;
 public class TinFromPointsAndBreaklines : GH_Component
 {
     private TinEngine _engine = new();
+    private int _cachedPreprocessHash;
+    private bool _hasCachedMerged;
+    private PointCloudProcessor.MergedData _cachedMerged;
 
     public TinFromPointsAndBreaklines()
         : base("TIN Surface", "TIN",
@@ -62,57 +65,70 @@ public class TinFromPointsAndBreaklines : GH_Component
         if (tolerance <= 0)
             tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
 
-        // Convert spot points to flat XYZ array
-        var spotXyz = new double[points.Count * 3];
-        for (int i = 0; i < points.Count; i++)
+        int preprocessHash = ComputePreprocessHash(points, curves, tolerance);
+        PointCloudProcessor.MergedData merged;
+
+        if (_hasCachedMerged && preprocessHash == _cachedPreprocessHash)
         {
-            spotXyz[i * 3] = points[i].X;
-            spotXyz[i * 3 + 1] = points[i].Y;
-            spotXyz[i * 3 + 2] = points[i].Z;
+            merged = _cachedMerged;
         }
-
-        // Tessellate breakline curves to polylines
-        var polylines = new List<double[]>();
-        foreach (var crv in curves)
+        else
         {
-            if (crv == null) continue;
-
-            Polyline pl;
-            if (crv.TryGetPolyline(out pl))
+            // Convert spot points to flat XYZ array
+            var spotXyz = new double[points.Count * 3];
+            for (int i = 0; i < points.Count; i++)
             {
-                // Already a polyline
+                spotXyz[i * 3] = points[i].X;
+                spotXyz[i * 3 + 1] = points[i].Y;
+                spotXyz[i * 3 + 2] = points[i].Z;
             }
-            else
+
+            // Tessellate breakline curves to polylines
+            var polylines = new List<double[]>();
+            foreach (var crv in curves)
             {
-                var polyCrv = crv.ToPolyline(
-                    tolerance,           // distance tolerance
-                    Math.PI / 36.0,      // 5 degree angle tolerance (radians)
-                    0.0,                 // minimum edge length
-                    0.0                  // maximum edge length (0 = no limit)
-                );
-                if (polyCrv == null || !polyCrv.TryGetPolyline(out pl))
+                if (crv == null) continue;
+
+                Polyline pl;
+                if (crv.TryGetPolyline(out pl))
                 {
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Could not tessellate a breakline curve. Skipping.");
-                    continue;
+                    // Already a polyline
                 }
+                else
+                {
+                    var polyCrv = crv.ToPolyline(
+                        tolerance,           // distance tolerance
+                        Math.PI / 36.0,      // 5 degree angle tolerance (radians)
+                        0.0,                 // minimum edge length
+                        0.0                  // maximum edge length (0 = no limit)
+                    );
+                    if (polyCrv == null || !polyCrv.TryGetPolyline(out pl))
+                    {
+                        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Could not tessellate a breakline curve. Skipping.");
+                        continue;
+                    }
+                }
+
+                if (pl.Count < 2) continue;
+                var flat = new double[pl.Count * 3];
+                for (int i = 0; i < pl.Count; i++)
+                {
+                    flat[i * 3] = pl[i].X;
+                    flat[i * 3 + 1] = pl[i].Y;
+                    flat[i * 3 + 2] = pl[i].Z;
+                }
+                polylines.Add(flat);
             }
 
-            if (pl.Count < 2) continue;
-            var flat = new double[pl.Count * 3];
-            for (int i = 0; i < pl.Count; i++)
-            {
-                flat[i * 3] = pl[i].X;
-                flat[i * 3 + 1] = pl[i].Y;
-                flat[i * 3 + 2] = pl[i].Z;
-            }
-            polylines.Add(flat);
+            // Process breaklines
+            var breaklineData = BreaklineDiscretizer.Process(polylines);
+
+            // Merge and deduplicate
+            merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, tolerance);
+            _cachedMerged = merged;
+            _cachedPreprocessHash = preprocessHash;
+            _hasCachedMerged = true;
         }
-
-        // Process breaklines
-        var breaklineData = BreaklineDiscretizer.Process(polylines);
-
-        // Merge and deduplicate
-        var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, tolerance);
 
         if (merged.DuplicatesRemoved > 0)
             AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, $"{merged.DuplicatesRemoved} duplicate points merged.");
@@ -130,7 +146,6 @@ public class TinFromPointsAndBreaklines : GH_Component
 
         // Build TIN (pure CDT, no quality refinement — use Remesh for that)
         var quality = QualitySettings.None;
-        _engine.InvalidateCache();
 
         var result = _engine.Build(merged.XyCoords, merged.ZValues, merged.Segments, quality,
                                    out string? errorMessage);
@@ -150,5 +165,60 @@ public class TinFromPointsAndBreaklines : GH_Component
         DA.SetDataList(2, RhinoConverter.ToNakedEdgeLines(result));
         DA.SetDataList(3, RhinoConverter.ToPoints(result));
         DA.SetData(4, result.FaceCount);
+    }
+
+    private static int ComputePreprocessHash(IReadOnlyList<Point3d> points, IReadOnlyList<Curve> curves, double tolerance)
+    {
+        var hasher = new HashCode();
+
+        hasher.Add(points.Count);
+        if (points.Count > 0)
+        {
+            var pointKeys = new (long x, long y, long z)[points.Count];
+            for (int i = 0; i < points.Count; i++)
+            {
+                var p = points[i];
+                pointKeys[i] = (
+                    BitConverter.DoubleToInt64Bits(p.X),
+                    BitConverter.DoubleToInt64Bits(p.Y),
+                    BitConverter.DoubleToInt64Bits(p.Z));
+            }
+
+            Array.Sort(pointKeys, static (a, b) =>
+            {
+                int cx = a.x.CompareTo(b.x);
+                if (cx != 0) return cx;
+                int cy = a.y.CompareTo(b.y);
+                if (cy != 0) return cy;
+                return a.z.CompareTo(b.z);
+            });
+
+            foreach (var key in pointKeys)
+            {
+                hasher.Add(key.x);
+                hasher.Add(key.y);
+                hasher.Add(key.z);
+            }
+        }
+
+        hasher.Add(curves.Count);
+        if (curves.Count > 0)
+        {
+            var curveKeys = new int[curves.Count];
+            for (int i = 0; i < curves.Count; i++)
+            {
+                var curve = curves[i];
+                curveKeys[i] = curve == null
+                    ? int.MinValue
+                    : unchecked((int)curve.DataCRC(0u));
+            }
+
+            Array.Sort(curveKeys);
+            foreach (int key in curveKeys)
+                hasher.Add(key);
+        }
+
+        hasher.Add(BitConverter.DoubleToInt64Bits(tolerance));
+        return hasher.ToHashCode();
     }
 }

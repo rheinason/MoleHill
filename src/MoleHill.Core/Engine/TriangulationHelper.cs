@@ -27,6 +27,7 @@ public static class TriangulationHelper
         warning = null;
         bool hasSegs = segments.Count > 0;
         bool hasQuality = maxArea > 0 || minAngle > 0;
+        var mesher = new GenericMesher();
 
         Polygon BuildPolygon(bool includeSegs)
         {
@@ -49,16 +50,18 @@ public static class TriangulationHelper
             return polygon;
         }
 
-        QualityOptions? BuildQuality()
+        var constrainedPolygon = BuildPolygon(includeSegs: true);
+        var unconstrainedPolygon = hasSegs ? BuildPolygon(includeSegs: false) : constrainedPolygon;
+
+        QualityOptions? quality = null;
+        if (hasQuality)
         {
-            if (!hasQuality) return null;
-            var q = new QualityOptions();
-            if (maxArea > 0) q.MaximumArea = maxArea;
-            if (minAngle > 0) q.MinimumAngle = minAngle;
-            return q;
+            quality = new QualityOptions();
+            if (maxArea > 0) quality.MaximumArea = maxArea;
+            if (minAngle > 0) quality.MinimumAngle = minAngle;
         }
 
-        IMesh? TryMesh(Polygon poly, bool conforming, QualityOptions? quality)
+        IMesh? TryMesh(Polygon poly, bool conforming, QualityOptions? qualityOptions)
         {
             var opts = new ConstraintOptions
             {
@@ -67,20 +70,20 @@ public static class TriangulationHelper
             };
             try
             {
-                var mesh = new GenericMesher().Triangulate(poly, opts, quality);
+                var mesh = mesher.Triangulate(poly, opts, qualityOptions);
                 return mesh.Triangles.Count > 0 ? mesh : null;
             }
             catch { return null; }
         }
 
         // Tier 1: Conforming CDT + quality
-        var result = TryMesh(BuildPolygon(true), true, BuildQuality());
+        var result = TryMesh(constrainedPolygon, true, quality);
         if (result != null) return result;
 
         // Tier 2: Non-conforming CDT + quality
         if (hasSegs)
         {
-            result = TryMesh(BuildPolygon(true), false, BuildQuality());
+            result = TryMesh(constrainedPolygon, false, quality);
             if (result != null)
             {
                 warning = "Using non-conforming CDT for tightly spaced constraints.";
@@ -91,7 +94,7 @@ public static class TriangulationHelper
         // Tier 3: Conforming CDT, no quality
         if (hasQuality)
         {
-            result = TryMesh(BuildPolygon(true), true, null);
+            result = TryMesh(constrainedPolygon, true, null);
             if (result != null)
             {
                 warning = "Quality constraints could not be applied.";
@@ -102,7 +105,7 @@ public static class TriangulationHelper
         // Tier 4: Non-conforming CDT, no quality
         if (hasSegs)
         {
-            result = TryMesh(BuildPolygon(true), false, null);
+            result = TryMesh(constrainedPolygon, false, null);
             if (result != null)
             {
                 warning = "Using non-conforming CDT without quality constraints.";
@@ -111,7 +114,7 @@ public static class TriangulationHelper
         }
 
         // Tier 5: Plain Delaunay (drop segments)
-        result = TryMesh(BuildPolygon(false), false, null);
+        result = TryMesh(unconstrainedPolygon, false, null);
         if (result != null)
         {
             warning = hasSegs
