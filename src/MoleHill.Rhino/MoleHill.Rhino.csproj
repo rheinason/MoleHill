@@ -38,6 +38,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="EmbeddedResources\plugin-utility.ico" />
+    <EmbeddedResource Include="Resources\*.png" />
   </ItemGroup>
 
   <Target Name="BuildLocalDependencies" BeforeTargets="ResolveReferences">

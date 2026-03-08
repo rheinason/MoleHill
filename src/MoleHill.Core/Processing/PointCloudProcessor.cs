@@ -9,6 +9,14 @@ namespace MoleHill.Core.Processing;
 /// </summary>
 public static class PointCloudProcessor
 {
+    [Flags]
+    public enum VertexSource : byte
+    {
+        None = 0,
+        Breakline = 1,
+        Spot = 2
+    }
+
     /// <summary>
     /// Merged and deduplicated result ready for TinEngine.
     /// </summary>
@@ -23,6 +31,9 @@ public static class PointCloudProcessor
         /// <summary>Number of unique vertices.</summary>
         public readonly int VertexCount;
 
+        /// <summary>Source flags for each vertex.</summary>
+        public readonly VertexSource[] Sources;
+
         /// <summary>Flat [a,b, …] segment pairs using merged indices.</summary>
         public readonly int[] Segments;
 
@@ -36,12 +47,14 @@ public static class PointCloudProcessor
         public readonly int InvalidsSkipped;
 
         public MergedData(double[] xyCoords, double[] zValues, int vertexCount,
+                          VertexSource[] sources,
                           int[] segments, int segmentCount,
                           int duplicatesRemoved, int invalidsSkipped)
         {
             XyCoords = xyCoords;
             ZValues = zValues;
             VertexCount = vertexCount;
+            Sources = sources;
             Segments = segments;
             SegmentCount = segmentCount;
             DuplicatesRemoved = duplicatesRemoved;
@@ -69,6 +82,7 @@ public static class PointCloudProcessor
         var grid = new Dictionary<(long, long), List<int>>();
         var xyList = new List<double>();
         var zList = new List<double>();
+        var sources = new List<VertexSource>();
         int duplicates = 0;
         int invalids = 0;
 
@@ -89,8 +103,9 @@ public static class PointCloudProcessor
                 continue;
             }
 
-            int merged = TryInsert(grid, xyList, zList, x, y, z, invCell, tolSq, true, tolSq, ref duplicates);
+            int merged = TryInsert(grid, xyList, zList, sources, x, y, z, invCell, tolSq, true, tolSq, ref duplicates);
             breaklineRemap[i] = merged;
+            sources[merged] |= VertexSource.Breakline;
         }
 
         // 2. Add spot points (XY-only dedup against existing points)
@@ -106,7 +121,8 @@ public static class PointCloudProcessor
                 continue;
             }
 
-            TryInsert(grid, xyList, zList, x, y, z, invCell, tolSq, false, 0, ref duplicates);
+            int merged = TryInsert(grid, xyList, zList, sources, x, y, z, invCell, tolSq, false, 0, ref duplicates);
+            sources[merged] |= VertexSource.Spot;
         }
 
         int vertexCount = xyList.Count / 2;
@@ -132,6 +148,7 @@ public static class PointCloudProcessor
             xyList.ToArray(),
             zList.ToArray(),
             vertexCount,
+            sources.ToArray(),
             segList.ToArray(),
             segList.Count / 2,
             duplicates,
@@ -141,7 +158,7 @@ public static class PointCloudProcessor
     /// <param name="checkZ">If true, also require Z proximity for merging (breakline mode).</param>
     /// <param name="zTolSq">Squared Z tolerance when checkZ is true.</param>
     private static int TryInsert(Dictionary<(long, long), List<int>> grid,
-                                  List<double> xyList, List<double> zList,
+                                  List<double> xyList, List<double> zList, List<VertexSource> sources,
                                   double x, double y, double z,
                                   double invCell, double tolSq,
                                   bool checkZ, double zTolSq,
@@ -195,6 +212,7 @@ public static class PointCloudProcessor
         xyList.Add(x);
         xyList.Add(y);
         zList.Add(double.IsNaN(z) || double.IsInfinity(z) ? 0.0 : z);
+        sources.Add(VertexSource.None);
         return newIdx;
     }
 }

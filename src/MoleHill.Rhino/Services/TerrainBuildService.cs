@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
@@ -125,26 +126,100 @@ internal sealed class TerrainBuildService
             return null;
         }
 
-        var result = new TinEngine().Build(
-            merged.XyCoords,
-            merged.ZValues,
-            merged.Segments,
-            QualitySettings.None,
-            out var warning);
-
-        if (result == null)
-        {
-            build.Diagnostics.Add(warning ?? "Triangulation failed.");
-            return null;
-        }
-
-        if (!string.IsNullOrWhiteSpace(warning))
-            build.Diagnostics.Add(warning);
-
+        if (merged.InvalidsSkipped > 0)
+            build.Diagnostics.Add($"{merged.InvalidsSkipped} invalid points skipped during triangulation.");
         if (merged.DuplicatesRemoved > 0)
             build.Diagnostics.Add($"{merged.DuplicatesRemoved} duplicate points merged during triangulation.");
 
-        return RhinoGeometryConversions.ToRhinoMesh(result);
+        if (TryBuildValidatedTinMesh(
+            merged.XyCoords,
+            merged.ZValues,
+            merged.Segments,
+            out var exactMesh,
+            out var exactMessage))
+        {
+            if (!string.IsNullOrWhiteSpace(exactMessage))
+                build.Diagnostics.Add(exactMessage);
+            return exactMesh;
+        }
+
+        var cleanup = TinInputCleaner.Clean(merged, tolerance);
+        if (!cleanup.HasChanges)
+        {
+            build.Diagnostics.Add(exactMessage ?? "Triangulation failed.");
+            build.Diagnostics.Add($"Automatic input cleanup made no safe changes: {cleanup.ToDiagnosticSummary()}.");
+            return null;
+        }
+
+        if (cleanup.VertexCount < 3)
+        {
+            build.Diagnostics.Add(exactMessage ?? "Triangulation failed.");
+            build.Diagnostics.Add($"Automatic input cleanup reduced the dataset below three usable vertices: {cleanup.ToDiagnosticSummary()}.");
+            return null;
+        }
+
+        if (!TryBuildValidatedTinMesh(
+            cleanup.XyCoords,
+            cleanup.ZValues,
+            cleanup.Segments,
+            out var cleanedMesh,
+            out var cleanupMessage))
+        {
+            build.Diagnostics.Add(exactMessage ?? "Triangulation failed.");
+            build.Diagnostics.Add($"Automatic input cleanup retry failed: {cleanup.ToDiagnosticSummary()}.");
+            if (!string.IsNullOrWhiteSpace(cleanupMessage))
+                build.Diagnostics.Add(cleanupMessage);
+            return null;
+        }
+
+        build.Diagnostics.Add($"Automatic input cleanup retry succeeded: {cleanup.ToDiagnosticSummary()}.");
+        if (!string.IsNullOrWhiteSpace(cleanupMessage))
+            build.Diagnostics.Add(cleanupMessage);
+        return cleanedMesh;
+    }
+
+    private static bool TryBuildValidatedTinMesh(
+        double[] xyCoords,
+        double[] zValues,
+        int[] segments,
+        out RhinoMesh? mesh,
+        out string? message)
+    {
+        mesh = null;
+
+        var result = new TinEngine().Build(
+            xyCoords,
+            zValues,
+            segments,
+            QualitySettings.None,
+            out message);
+
+        if (result == null)
+            return false;
+
+        try
+        {
+            mesh = RhinoGeometryConversions.ToRhinoMesh(result);
+        }
+        catch (Exception ex)
+        {
+            message = string.IsNullOrWhiteSpace(message)
+                ? $"Triangulation produced an invalid mesh: {ex.Message}"
+                : $"{message} Triangulation produced an invalid mesh: {ex.Message}";
+            mesh = null;
+            return false;
+        }
+
+        if (mesh.Faces.Count == 0 || mesh.Vertices.Count == 0 || !mesh.IsValid)
+        {
+            message = string.IsNullOrWhiteSpace(message)
+                ? "Triangulation produced an invalid mesh."
+                : $"{message} Triangulation produced an invalid mesh.";
+            mesh = null;
+            return false;
+        }
+
+        return true;
     }
 
     private static RhinoMesh ApplyRemesh(RhinoDoc doc, RhinoMesh mesh, RemeshModifierDefinition modifier, TerrainBuildResult build)
@@ -250,6 +325,7 @@ internal sealed class TerrainBuildService
         if (terrain.Zones.Count == 0)
             return;
 
+        var totalTimer = Stopwatch.StartNew();
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for terrain zones.");
@@ -257,6 +333,7 @@ internal sealed class TerrainBuildService
         }
 
         var entries = new List<ZoneBoundaryEntry>();
+        var resolveTimer = Stopwatch.StartNew();
         for (int zoneIndex = 0; zoneIndex < terrain.Zones.Count; zoneIndex++)
         {
             var zone = terrain.Zones[zoneIndex];
@@ -271,6 +348,7 @@ internal sealed class TerrainBuildService
 
             entries.AddRange(zoneEntries);
         }
+        resolveTimer.Stop();
 
         if (entries.Count == 0)
         {
@@ -281,6 +359,7 @@ internal sealed class TerrainBuildService
         entries.Sort(CompareZoneEntries);
         var boundaries = entries.Select(entry => entry.Boundary).ToArray();
 
+        var splitTimer = Stopwatch.StartNew();
         var result = MeshAreaSplitter.Split(
             vertices,
             mesh.Vertices.Count,
@@ -290,6 +369,7 @@ internal sealed class TerrainBuildService
             0,
             0,
             out var splitWarning);
+        splitTimer.Stop();
 
         if (result == null)
         {
@@ -301,6 +381,7 @@ internal sealed class TerrainBuildService
             build.Diagnostics.Add(splitWarning);
 
         var zoneOutputCounts = new Dictionary<Guid, int>();
+        var outputTimer = Stopwatch.StartNew();
         for (int i = 0; i < entries.Count; i++)
         {
             var subMesh = RhinoGeometryConversions.BuildSubMesh(result, i);
@@ -322,6 +403,15 @@ internal sealed class TerrainBuildService
                 SourceLayerPath = entries[i].InputLayerPath,
                 MaterialName = null
             });
+        }
+        outputTimer.Stop();
+        totalTimer.Stop();
+
+        if (totalTimer.ElapsedMilliseconds >= 1000)
+        {
+            build.Diagnostics.Add(
+                $"Zones: {entries.Count} boundaries over {mesh.Faces.Count:N0} source faces in {totalTimer.Elapsed.TotalSeconds:0.##} s " +
+                $"(resolve {resolveTimer.Elapsed.TotalSeconds:0.##} s, split {splitTimer.Elapsed.TotalSeconds:0.##} s, output {outputTimer.Elapsed.TotalSeconds:0.##} s).");
         }
     }
 

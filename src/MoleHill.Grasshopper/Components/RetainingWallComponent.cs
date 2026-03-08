@@ -15,7 +15,7 @@ public class RetainingWallComponent : GH_Component
     }
 
     protected override System.Drawing.Bitmap? Icon =>
-        MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.GradePath.png");
+        MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.RetainingWall.png");
 
     public override Guid ComponentGuid => new("D4E3F8A1-8B13-4CC1-8E56-5390F6D63C4D");
 

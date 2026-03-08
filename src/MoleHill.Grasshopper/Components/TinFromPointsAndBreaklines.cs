@@ -147,24 +147,96 @@ public class TinFromPointsAndBreaklines : GH_Component
         // Build TIN (pure CDT, no quality refinement — use Remesh for that)
         var quality = QualitySettings.None;
 
-        var result = _engine.Build(merged.XyCoords, merged.ZValues, merged.Segments, quality,
-                                   out string? errorMessage);
-
-        if (result == null)
+        if (TryBuildValidatedTinMesh(merged.XyCoords, merged.ZValues, merged.Segments, quality,
+            out var result, out var mesh, out string? buildMessage))
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, errorMessage ?? "Triangulation failed.");
+            if (!string.IsNullOrWhiteSpace(buildMessage))
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, buildMessage);
+
+            DA.SetData(0, mesh!);
+            DA.SetDataList(1, RhinoConverter.ToEdgeLines(result!));
+            DA.SetDataList(2, RhinoConverter.ToNakedEdgeLines(result!));
+            DA.SetDataList(3, RhinoConverter.ToPoints(result!));
+            DA.SetData(4, result!.FaceCount);
             return;
         }
 
-        // If there was a warning (e.g. fallback to plain Delaunay)
-        if (errorMessage != null)
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, errorMessage);
+        var cleanup = TinInputCleaner.Clean(merged, tolerance);
+        if (!cleanup.HasChanges)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, buildMessage ?? "Triangulation failed.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Automatic input cleanup made no safe changes: {cleanup.ToDiagnosticSummary()}.");
+            return;
+        }
 
-        DA.SetData(0, RhinoConverter.ToRhinoMesh(result));
-        DA.SetDataList(1, RhinoConverter.ToEdgeLines(result));
-        DA.SetDataList(2, RhinoConverter.ToNakedEdgeLines(result));
-        DA.SetDataList(3, RhinoConverter.ToPoints(result));
-        DA.SetData(4, result.FaceCount);
+        if (cleanup.VertexCount < 3)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, buildMessage ?? "Triangulation failed.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Automatic input cleanup reduced the dataset below three usable vertices: {cleanup.ToDiagnosticSummary()}.");
+            return;
+        }
+
+        if (!TryBuildValidatedTinMesh(cleanup.XyCoords, cleanup.ZValues, cleanup.Segments, quality,
+            out result, out mesh, out string? cleanupMessage))
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, buildMessage ?? "Triangulation failed.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Automatic input cleanup retry failed: {cleanup.ToDiagnosticSummary()}.");
+            if (!string.IsNullOrWhiteSpace(cleanupMessage))
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, cleanupMessage);
+            return;
+        }
+
+        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Automatic input cleanup retry succeeded: {cleanup.ToDiagnosticSummary()}.");
+        if (!string.IsNullOrWhiteSpace(cleanupMessage))
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, cleanupMessage);
+
+        DA.SetData(0, mesh!);
+        DA.SetDataList(1, RhinoConverter.ToEdgeLines(result!));
+        DA.SetDataList(2, RhinoConverter.ToNakedEdgeLines(result!));
+        DA.SetDataList(3, RhinoConverter.ToPoints(result!));
+        DA.SetData(4, result!.FaceCount);
+    }
+
+    private bool TryBuildValidatedTinMesh(
+        double[] xyCoords,
+        double[] zValues,
+        int[] segments,
+        QualitySettings quality,
+        out TinResult? result,
+        out Mesh? mesh,
+        out string? message)
+    {
+        result = _engine.Build(xyCoords, zValues, segments, quality, out message);
+        mesh = null;
+
+        if (result == null)
+            return false;
+
+        try
+        {
+            mesh = RhinoConverter.ToRhinoMesh(result);
+        }
+        catch (Exception ex)
+        {
+            message = string.IsNullOrWhiteSpace(message)
+                ? $"Triangulation produced an invalid mesh: {ex.Message}"
+                : $"{message} Triangulation produced an invalid mesh: {ex.Message}";
+            result = null;
+            mesh = null;
+            return false;
+        }
+
+        if (mesh.Faces.Count == 0 || mesh.Vertices.Count == 0 || !mesh.IsValid)
+        {
+            message = string.IsNullOrWhiteSpace(message)
+                ? "Triangulation produced an invalid mesh."
+                : $"{message} Triangulation produced an invalid mesh.";
+            result = null;
+            mesh = null;
+            return false;
+        }
+
+        return true;
     }
 
     private static int ComputePreprocessHash(IReadOnlyList<Point3d> points, IReadOnlyList<Curve> curves, double tolerance)

@@ -20,7 +20,6 @@ public sealed class MoleHillPanel : Panel
     };
 
     private readonly TerrainController _controller = TerrainController.Instance;
-    private readonly DropDown _terrainDropDown = new();
     private readonly TextBox _terrainName = new();
     private readonly CheckBox _liveUpdate = new() { Text = "Live update" };
     private readonly Label _statusLabel = new();
@@ -28,6 +27,11 @@ public sealed class MoleHillPanel : Panel
     private readonly Label _auxLayerLabel = new();
     private readonly Button _visibilityButton = new() { Width = 42 };
     private readonly Button _lockButton = new() { Width = 42 };
+    private Button _dupButton = new();
+    private Button _bakeButton = new();
+    private Button _deleteButton = new();
+    private Button _rebuildButton = new();
+    private Button _detachButton = new();
     private readonly HashSet<Guid> _collapsedModifiers = new();
     private readonly StackLayout _modifierStack = new()
     {
@@ -53,10 +57,14 @@ public sealed class MoleHillPanel : Panel
         Spacing = 0,
         HorizontalContentAlignment = HorizontalAlignment.Stretch
     };
-    private readonly Dictionary<Guid, GroupBox> _modifierCardMap = new();
-    private readonly Dictionary<Guid, Panel>    _modifierSepMap  = new();
-    private readonly Dictionary<Guid, GroupBox> _zoneCardMap     = new();
-    private readonly Dictionary<Guid, Panel>    _zoneSepMap      = new();
+    private readonly Dictionary<Guid, GroupBox> _modifierCardMap     = new();
+    private readonly Dictionary<Guid, Panel>    _modifierSepMap      = new();
+    private readonly Dictionary<Guid, Panel>    _modifierStripMap    = new();
+    private readonly Dictionary<Guid, Color>    _modifierStripColors = new();
+    private readonly Dictionary<Guid, GroupBox> _zoneCardMap         = new();
+    private readonly Dictionary<Guid, Panel>    _zoneSepMap          = new();
+    private readonly Dictionary<Guid, Panel>    _zoneSwatchMap       = new();
+    private readonly Dictionary<Guid, Color>    _zoneSwatchColors    = new();
     private Guid? _dragOverModifierId;
     private Guid? _dragOverZoneId;
     private static readonly Color DragHighlight = Color.FromArgb(80, 120, 200, 255);
@@ -65,22 +73,6 @@ public sealed class MoleHillPanel : Panel
 
     public MoleHillPanel()
     {
-        _terrainDropDown.SelectedIndexChanged += (_, _) =>
-        {
-            if (_isRefreshing)
-                return;
-
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc == null)
-                return;
-
-            var terrains = _controller.GetTerrains(doc);
-            if (_terrainDropDown.SelectedIndex >= 0 && _terrainDropDown.SelectedIndex < terrains.Count)
-                _controller.SetSelectedTerrain(doc, terrains[_terrainDropDown.SelectedIndex].TerrainId);
-
-            RefreshUi();
-        };
-
         ApplyHelp(_terrainName, "Terrain name. Commits when you press Enter or leave the field.");
         BindCommittedText(
             _terrainName,
@@ -119,7 +111,6 @@ public sealed class MoleHillPanel : Panel
             _controller.SetTerrainLocked(doc, terrain.TerrainId, !terrain.IsLocked);
         };
         ApplyHelp(_liveUpdate, "Automatically rebuild when referenced Rhino geometry or layers change.");
-        ApplyHelp(_terrainDropDown, "Choose the active MoleHill terrain in this document.");
         ApplyHelp(_visibilityButton, "Hide or show all generated terrain outputs.");
         ApplyHelp(_lockButton, "Lock or unlock all generated terrain outputs.");
 
@@ -131,33 +122,50 @@ public sealed class MoleHillPanel : Panel
 
     private Control BuildContent()
     {
+        var pickerButton   = new Button { Text = "▾", Width = 26, ToolTip = "Switch terrain" };
+        pickerButton.Click += (_, _) => ShowTerrainPickerMenu(pickerButton);
+
+        var newButton      = MakeIconButton("+",  OnNewTerrain,       "Create a new terrain");
+        _dupButton         = MakeIconButton("⎘",  OnDuplicateTerrain, "Duplicate selected terrain");
+        _bakeButton        = MakeButton("Bake",   OnBakeTerrain,      "Bake terrain mesh to document as regular geometry");
+        _deleteButton      = MakeIconButton("🗑", OnDeleteTerrain,    "Delete selected terrain");
+        _rebuildButton     = MakeButton("Rebuild", OnRebuildTerrain,  "Force rebuild terrain now");
+        _detachButton      = MakeButton("Detach",  OnConvertTerrain,  "Detach terrain from source objects");
+        _visibilityButton.ToolTip = "Toggle terrain visibility";
+        _lockButton.ToolTip       = "Lock terrain to prevent accidental edits";
+        _visibilityButton.Width   = 34;
+        _lockButton.Width         = 34;
+
         var top = new DynamicLayout { DefaultSpacing = new Size(4, 4), Padding = new Padding(6, 6, 6, 2) };
         top.AddSeparateRow(
-            _terrainDropDown,
-            MakeButton("New", OnNewTerrain, "Create a new managed MoleHill terrain, seeded from the current Rhino selection when possible."),
-            MakeButton("Dup", OnDuplicateTerrain, "Duplicate this terrain definition and its modifier stack."),
+            _terrainName,
+            pickerButton,
+            newButton,
+            _dupButton,
             _visibilityButton,
             _lockButton,
-            MakeButton("Bake", OnBakeTerrain, "Copy the current generated result into plain Rhino geometry and keep the MoleHill terrain."),
-            MakeIconButton("🗑", OnDeleteTerrain, "Delete this managed terrain and its generated outputs."));
+            _bakeButton,
+            _deleteButton);
         top.AddSeparateRow(
-            _terrainName,
-            MakeButton("Rebuild", OnRebuildTerrain, "Rebuild this terrain now, even if live update is paused."),
-            MakeButton("Detach", OnConvertTerrain, "Keep the generated Rhino objects, but remove this terrain from MoleHill management."));
+            _rebuildButton,
+            _detachButton,
+            null);
         top.AddSeparateRow(
             CreateHelpLabel("Terrain Layer", "Layer used for the main terrain mesh. If you move the terrain mesh to another Rhino layer, MoleHill will track that change.", 86),
             _terrainLayerLabel,
-            MakeButton("Use Current", OnAssignTerrainLayer, "Assign the current Rhino layer to the terrain mesh output."),
+            MakeButton("Use Current", OnAssignTerrainLayer, "Assign the current Rhino layer to this terrain"),
+            MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.TerrainLayerPath = path, scheduleRebuild: false), "Browse and pick the terrain layer"),
             CreateHelpLabel("Aux Layer", "Layer used for generated wall and auxiliary geometry.", 70),
             _auxLayerLabel,
-            MakeButton("Use Current", OnAssignAuxLayer, "Assign the current Rhino layer to auxiliary outputs like retaining walls."));
+            MakeButton("Use Current", OnAssignAuxLayer, "Assign the current Rhino layer to auxiliary outputs like retaining walls."),
+            MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = path, scheduleRebuild: true), "Browse and pick the auxiliary layer"));
         top.AddSeparateRow(_liveUpdate, _statusLabel, null);
 
         var tabs = new TabControl();
-        tabs.Pages.Add(new TabPage { Text = "Modifiers", Content = BuildScrollable(_modifierStack) });
-        tabs.Pages.Add(new TabPage { Text = "Zones", Content = BuildScrollable(_zonesStack) });
-        tabs.Pages.Add(new TabPage { Text = "Markers", Content = BuildScrollable(_markerStack) });
-        tabs.Pages.Add(new TabPage { Text = "Analysis", Content = BuildScrollable(_analysisStack) });
+        tabs.Pages.Add(new TabPage { Text = "Modifiers", Image = PanelIcons.Load("TabModifiers"), Content = BuildScrollable(_modifierStack) });
+        tabs.Pages.Add(new TabPage { Text = "Zones",     Image = PanelIcons.Load("TabZones"),     Content = BuildScrollable(_zonesStack) });
+        tabs.Pages.Add(new TabPage { Text = "Markers",   Image = PanelIcons.Load("TabMarkers"),   Content = BuildScrollable(_markerStack) });
+        tabs.Pages.Add(new TabPage { Text = "Analysis",  Image = PanelIcons.Load("TabAnalysis"),  Content = BuildScrollable(_analysisStack) });
 
         var layout = new DynamicLayout();
         layout.Add(top, yscale: false);
@@ -261,14 +269,16 @@ public sealed class MoleHillPanel : Panel
         {
             if (doc == null)
             {
-                _terrainDropDown.DataStore = Array.Empty<object>();
                 _terrainName.Text = string.Empty;
                 _liveUpdate.Checked = false;
                 _statusLabel.Text = "No active Rhino document.";
+                _statusLabel.TextColor = SystemColors.ControlText;
                 _terrainLayerLabel.Text = "-";
                 _auxLayerLabel.Text = "-";
                 _visibilityButton.Text = "👁";
                 _lockButton.Text = "🔓";
+                SetActionButtonsEnabled(false);
+                _terrainName.Enabled = false;
                 _modifierStack.Items.Clear();
                 _zonesStack.Items.Clear();
                 _markerStack.Items.Clear();
@@ -277,7 +287,6 @@ public sealed class MoleHillPanel : Panel
             }
 
             var terrains = _controller.GetTerrains(doc).ToList();
-            _terrainDropDown.DataStore = terrains.Select(t => t.Name).Cast<object>().ToList();
 
             var selectedTerrain = _controller.GetSelectedTerrain(doc);
             if (selectedTerrain == null && terrains.Count > 0)
@@ -286,17 +295,18 @@ public sealed class MoleHillPanel : Panel
                 selectedTerrain = terrains[0];
             }
 
-            _terrainDropDown.SelectedIndex = selectedTerrain == null
-                ? -1
-                : terrains.FindIndex(t => t.TerrainId == selectedTerrain.TerrainId);
-
             _terrainName.Text = selectedTerrain?.Name ?? string.Empty;
             _liveUpdate.Checked = selectedTerrain?.LiveUpdateEnabled ?? false;
             _terrainLayerLabel.Text = selectedTerrain?.TerrainLayerPath ?? "(current layer)";
             _auxLayerLabel.Text = selectedTerrain?.AuxiliaryLayerPath ?? "MoleHill::Auxiliary";
-            _statusLabel.Text = selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.";
+            var statusText = selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.";
+            _statusLabel.Text = statusText;
+            _statusLabel.TextColor = GetStatusColor(statusText);
             _visibilityButton.Text = selectedTerrain?.IsVisible != false ? "👁" : "⊘";
             _lockButton.Text = selectedTerrain?.IsLocked == true ? "🔒" : "🔓";
+            bool hasTerrain = selectedTerrain != null;
+            SetActionButtonsEnabled(hasTerrain);
+            _terrainName.Enabled = hasTerrain;
 
             RebuildModifierLayout(selectedTerrain);
             RebuildZonesLayout(selectedTerrain);
@@ -313,6 +323,8 @@ public sealed class MoleHillPanel : Panel
     {
         _modifierCardMap.Clear();
         _modifierSepMap.Clear();
+        _modifierStripMap.Clear();
+        _modifierStripColors.Clear();
         _modifierStack.Items.Clear();
         _modifierStack.Items.Add(new StackLayoutItem(BuildAddModifierBar(terrain), HorizontalAlignment.Stretch));
 
@@ -324,28 +336,46 @@ public sealed class MoleHillPanel : Panel
         {
             var modifierId = modifier.Id;
 
-            var sep = new Panel { Height = 6, BackgroundColor = Colors.Transparent };
-            ApplyHelp(sep, "Drop here to reorder modifiers.");
-            _modifierSepMap[modifierId] = sep;
-            WireModifierSepDragDrop(sep, terrainId, modifierId);
-            _modifierStack.Items.Add(new StackLayoutItem(sep, HorizontalAlignment.Stretch));
+            var innerSep = new Panel { BackgroundColor = Colors.Transparent };
+            var outerSep = new Panel { Height = 8, Padding = new Padding(0, 2), Content = innerSep };
+            ApplyHelp(outerSep, "Drop here to reorder modifiers.");
+            _modifierSepMap[modifierId] = innerSep;
+            WireModifierSepDragDrop(outerSep, innerSep, terrainId, modifierId);
+            _modifierStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
 
             var box = CreateModifierCard(terrain, modifier);
             _modifierCardMap[modifierId] = box;
-            _modifierStack.Items.Add(new StackLayoutItem(box, HorizontalAlignment.Stretch));
+            var kind = GetModifierKind(modifier);
+            var typeColor = ModifierTypeColor(kind);
+            var strip = new Panel { Width = 5, BackgroundColor = typeColor };
+            _modifierStripMap[modifierId] = strip;
+            _modifierStripColors[modifierId] = typeColor;
+            var wrapper = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 0,
+                Padding = new Padding(4, 2),
+                BackgroundColor = SystemColors.Control,
+                Items = { strip, new StackLayoutItem(box, expand: true) }
+            };
+            WireModifierCardDragDrop(wrapper, terrainId, modifierId);
+            _modifierStack.Items.Add(new StackLayoutItem(wrapper, HorizontalAlignment.Stretch));
         }
 
-        var tailSep = new Panel { Height = 6, BackgroundColor = Colors.Transparent };
-        ApplyHelp(tailSep, "Drop here to reorder modifiers.");
-        _modifierSepMap[Guid.Empty] = tailSep;
-        WireModifierSepDragDrop(tailSep, terrainId, Guid.Empty);
-        _modifierStack.Items.Add(new StackLayoutItem(tailSep, HorizontalAlignment.Stretch));
+        var tailInner = new Panel { BackgroundColor = Colors.Transparent };
+        var tailOuter = new Panel { Height = 8, Padding = new Padding(0, 2), Content = tailInner };
+        ApplyHelp(tailOuter, "Drop here to reorder modifiers.");
+        _modifierSepMap[Guid.Empty] = tailInner;
+        WireModifierSepDragDrop(tailOuter, tailInner, terrainId, Guid.Empty);
+        _modifierStack.Items.Add(new StackLayoutItem(tailOuter, HorizontalAlignment.Stretch));
     }
 
     private void RebuildZonesLayout(TerrainDefinition? terrain)
     {
         _zoneCardMap.Clear();
         _zoneSepMap.Clear();
+        _zoneSwatchMap.Clear();
+        _zoneSwatchColors.Clear();
         _zonesStack.Items.Clear();
         _zonesStack.Items.Add(new StackLayoutItem(BuildZonesToolbar(terrain), HorizontalAlignment.Stretch));
 
@@ -367,22 +397,31 @@ public sealed class MoleHillPanel : Panel
         {
             var zoneId = zone.ZoneId;
 
-            var sep = new Panel { Height = 6, BackgroundColor = Colors.Transparent };
-            ApplyHelp(sep, "Drop here to reorder zones.");
-            _zoneSepMap[zoneId] = sep;
-            WireZoneSepDragDrop(sep, terrainId, zoneId);
-            _zonesStack.Items.Add(new StackLayoutItem(sep, HorizontalAlignment.Stretch));
+            var zoneInner = new Panel { BackgroundColor = Colors.Transparent };
+            var zoneOuter = new Panel { Height = 8, Padding = new Padding(0, 2), Content = zoneInner };
+            ApplyHelp(zoneOuter, "Drop here to reorder zones.");
+            _zoneSepMap[zoneId] = zoneInner;
+            WireZoneSepDragDrop(zoneOuter, zoneInner, terrainId, zoneId);
+            _zonesStack.Items.Add(new StackLayoutItem(zoneOuter, HorizontalAlignment.Stretch));
 
             var box = CreateZoneGroup(terrain, zone);
             _zoneCardMap[zoneId] = box;
-            _zonesStack.Items.Add(new StackLayoutItem(box, HorizontalAlignment.Stretch));
+            var zoneWrapper = new Panel
+            {
+                Content = box,
+                Padding = new Padding(4, 2),
+                BackgroundColor = SystemColors.Control
+            };
+            WireZoneCardDragDrop(zoneWrapper, terrainId, zoneId);
+            _zonesStack.Items.Add(new StackLayoutItem(zoneWrapper, HorizontalAlignment.Stretch));
         }
 
-        var tailSep = new Panel { Height = 6, BackgroundColor = Colors.Transparent };
-        ApplyHelp(tailSep, "Drop here to reorder zones.");
-        _zoneSepMap[Guid.Empty] = tailSep;
-        WireZoneSepDragDrop(tailSep, terrainId, Guid.Empty);
-        _zonesStack.Items.Add(new StackLayoutItem(tailSep, HorizontalAlignment.Stretch));
+        var tailZoneInner = new Panel { BackgroundColor = Colors.Transparent };
+        var tailZoneOuter = new Panel { Height = 8, Padding = new Padding(0, 2), Content = tailZoneInner };
+        ApplyHelp(tailZoneOuter, "Drop here to reorder zones.");
+        _zoneSepMap[Guid.Empty] = tailZoneInner;
+        WireZoneSepDragDrop(tailZoneOuter, tailZoneInner, terrainId, Guid.Empty);
+        _zonesStack.Items.Add(new StackLayoutItem(tailZoneOuter, HorizontalAlignment.Stretch));
     }
 
     private void RebuildMarkerLayout(TerrainDefinition? terrain)
@@ -412,9 +451,11 @@ public sealed class MoleHillPanel : Panel
             apply => MutateSelectedTerrain(item => apply(item.EarthworkBoundary), scheduleRebuild: true),
             doc => _controller.GetSelectedCurveObjectIds(doc),
             doc => _controller.GetSelectedLayerPaths(doc)));
+        var localRebuildButton = MakeButton("Rebuild", OnRebuildTerrain, "Force rebuild terrain now");
+        editorLayout.AddSeparateRow(localRebuildButton, null);
         _analysisStack.Items.Add(new StackLayoutItem(new GroupBox
         {
-            Text = "Inputs",
+            Text = "Earthwork Inputs",
             Content = editorLayout
         }, HorizontalAlignment.Stretch));
 
@@ -578,7 +619,7 @@ public sealed class MoleHillPanel : Panel
         bool collapsed = _collapsedModifiers.Contains(modifier.Id);
         var collapseLabel = new Label
         {
-            Text = collapsed ? ">" : "v",
+            Text = collapsed ? "▸" : "▾",
             VerticalAlignment = VerticalAlignment.Center,
             Width = 14
         };
@@ -587,23 +628,15 @@ public sealed class MoleHillPanel : Panel
         enabledCheck.CheckedChanged += (_, _) =>
             MutateModifier(terrain.TerrainId, modifier.Id, item => item.IsEnabled = enabledCheck.Checked == true);
 
-        var nameLabel = new Label
-        {
-            Text = modifier.Label,
-            Font = new Font(SystemFont.Bold),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-
         var capturedModifierId = modifier.Id;
         var capturedTerrainId = terrain.TerrainId;
 
-        var handle = new Label
-        {
-            Text = "\u22EE\u22EE",
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = 16,
-            Cursor = Cursors.Move
-        };
+        var nameBox = new TextBox { Text = modifier.Label, Width = 120 };
+        ApplyHelp(nameBox, "Modifier label. Press Enter or click away to rename.");
+        BindCommittedText(nameBox, () => modifier.Label, text =>
+            MutateModifier(capturedTerrainId, capturedModifierId, item => item.Label = text, scheduleRebuild: false));
+
+        var handle = CreateDragHandle();
         ApplyHelp(handle, "Drag to reorder this modifier.");
         handle.MouseDown += (_, e) =>
         {
@@ -618,29 +651,47 @@ public sealed class MoleHillPanel : Panel
             Orientation = Orientation.Horizontal,
             Spacing = 4,
             Padding = new Padding(6, 3),
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Items =
-            {
-                handle,
-                collapseLabel,
-                enabledCheck,
-                new StackLayoutItem(nameLabel, expand: true),
-                MakeIconButton("^", (_, _) => MoveModifier(capturedTerrainId, capturedModifierId, +1), "Move this modifier up in the stack."),
-                MakeIconButton("v", (_, _) => MoveModifier(capturedTerrainId, capturedModifierId, -1), "Move this modifier down in the stack."),
-                MakeIconButton("Dup", (_, _) =>
-                {
-                    var doc = RhinoDoc.ActiveDoc;
-                    if (doc != null)
-                        _controller.DuplicateModifier(doc, capturedTerrainId, capturedModifierId);
-                }, "Duplicate this modifier."),
-                MakeIconButton("🗑", (_, _) =>
-                {
-                    var doc = RhinoDoc.ActiveDoc;
-                    if (doc != null)
-                        _controller.RemoveModifier(doc, capturedTerrainId, capturedModifierId);
-                }, "Delete this modifier.")
-            }
+            VerticalContentAlignment = VerticalAlignment.Center
         };
+        header.Items.Add(new StackLayoutItem(handle));
+        header.Items.Add(new StackLayoutItem(collapseLabel));
+        header.Items.Add(new StackLayoutItem(enabledCheck));
+        if (collapsed)
+        {
+            header.Items.Add(new StackLayoutItem(new Label
+            {
+                Text = modifier.Label,
+                Font = new Font(SystemFont.Bold),
+                VerticalAlignment = VerticalAlignment.Center
+            }, expand: true));
+        }
+        else
+        {
+            header.Items.Add(new StackLayoutItem(nameBox, expand: true));
+        }
+        if (collapsed)
+        {
+            header.Items.Add(new StackLayoutItem(new Label
+            {
+                Text = GetCollapsedSummary(modifier),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextColor = SystemColors.DisabledText
+            }));
+        }
+        header.Items.Add(new StackLayoutItem(MakeIconButton("↑", (_, _) => MoveModifier(capturedTerrainId, capturedModifierId, +1), "Move this modifier up in the stack.")));
+        header.Items.Add(new StackLayoutItem(MakeIconButton("↓", (_, _) => MoveModifier(capturedTerrainId, capturedModifierId, -1), "Move this modifier down in the stack.")));
+        header.Items.Add(new StackLayoutItem(MakeIconButton("Dup", (_, _) =>
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc != null)
+                _controller.DuplicateModifier(doc, capturedTerrainId, capturedModifierId);
+        }, "Duplicate this modifier.")));
+        header.Items.Add(new StackLayoutItem(MakeIconButton("🗑", (_, _) =>
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc != null)
+                _controller.RemoveModifier(doc, capturedTerrainId, capturedModifierId);
+        }, "Delete this modifier.")));
 
         header.MouseDown += (_, _) =>
         {
@@ -796,23 +847,17 @@ public sealed class MoleHillPanel : Panel
 
         var useInputElevationCheck = new CheckBox
         {
-            Text = "Use input Z",
+            Text = "Priority by elevation",
             Checked = zone.UseInputElevationForPriority
         };
-        ApplyHelp(useInputElevationCheck, "When enabled, higher planar inputs win where zones overlap in top view.");
+        ApplyHelp(useInputElevationCheck, "When enabled, zones with higher source geometry win where two zones overlap. Useful when compositing objects at different elevations (e.g., a raised platform on flat terrain).");
         useInputElevationCheck.CheckedChanged += (_, _) =>
             MutateZone(terrain.TerrainId, zone.ZoneId, item => item.UseInputElevationForPriority = useInputElevationCheck.Checked == true);
 
         var capturedZoneId = zone.ZoneId;
         var capturedTerrainId = terrain.TerrainId;
 
-        var handle = new Label
-        {
-            Text = "\u22EE\u22EE",
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = 16,
-            Cursor = Cursors.Move
-        };
+        var handle = CreateDragHandle();
         ApplyHelp(handle, "Drag to reorder this zone. Later zones win when priorities tie.");
         handle.MouseDown += (_, e) =>
         {
@@ -822,18 +867,26 @@ public sealed class MoleHillPanel : Panel
             handle.DoDragDrop(data, DragEffects.Move);
         };
 
+        int argb = zone.ColorArgb;
+        var zoneColor = Color.FromArgb((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF,
+            (int)((uint)argb >> 24));
+        var swatch = new Panel { Width = 14, Height = 14, BackgroundColor = zoneColor };
+        _zoneSwatchMap[zone.ZoneId] = swatch;
+        _zoneSwatchColors[zone.ZoneId] = zoneColor;
+
         layout.AddSeparateRow(
             handle,
+            swatch,
             enabledCheck,
             nameBox,
-            MakeCompactButton("^", (_, _) => MoveZone(capturedTerrainId, capturedZoneId, -1), "Move this zone earlier in the overlap order."),
-            MakeCompactButton("v", (_, _) => MoveZone(capturedTerrainId, capturedZoneId, +1), "Move this zone later in the overlap order."),
+            MakeCompactButton("↑", (_, _) => MoveZone(capturedTerrainId, capturedZoneId, -1), "Move this zone earlier in the overlap order."),
+            MakeCompactButton("↓", (_, _) => MoveZone(capturedTerrainId, capturedZoneId, +1), "Move this zone later in the overlap order."),
             MakeCompactButton("🗑", (_, _) => RemoveZone(capturedTerrainId, capturedZoneId), "Delete this zone."),
             null);
         layout.AddRow(CreateZoneLayerEditor(terrain, zone));
         layout.AddSeparateRow(useInputElevationCheck, null);
 
-        return new GroupBox { Text = zone.Name, Content = layout };
+        return new GroupBox { Text = string.Empty, Content = layout };
     }
 
     private Control BuildMarkerAddButtons(TerrainDefinition terrain)
@@ -924,9 +977,12 @@ public sealed class MoleHillPanel : Panel
 
         layout.AddSeparateRow(blockCheck, showLabelCheck, null);
         layout.AddSeparateRow(new Label { Text = "Block Def", Width = 82 }, blockNameBox, null);
-        layout.AddRow(CreateNumericEditor("Symbol Scale", marker.BlockScale, value =>
+        var scaleRow = CreateNumericEditor("Symbol Scale", marker.BlockScale, value =>
             MutateMarker(terrain.TerrainId, marker.Id, item => item.BlockScale = value),
-            help: "Scale factor for the block-instance marker symbol. 1.0 is the default; below 1.0 is smaller; above 1.0 is larger."));
+            help: "Scale factor for the block-instance marker symbol. 1.0 is the default; below 1.0 is smaller; above 1.0 is larger.");
+        scaleRow.Enabled = marker.UseBlockInstance;
+        blockCheck.CheckedChanged += (_, _) => scaleRow.Enabled = blockCheck.Checked == true;
+        layout.AddRow(scaleRow);
 
         return new GroupBox { Text = marker.Name, Content = layout };
     }
@@ -951,16 +1007,24 @@ public sealed class MoleHillPanel : Panel
         row.Items.Add(titleLabel);
 
         if (sourceSet.ObjectIds.Count > 0)
-            row.Items.Add(new Label { Text = $"{sourceSet.ObjectIds.Count} obj", VerticalAlignment = VerticalAlignment.Center });
+        {
+            var badge = new Label
+            {
+                Text = $"{sourceSet.ObjectIds.Count} obj",
+                TextColor = Color.FromArgb(25, 118, 210),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            row.Items.Add(badge);
+        }
 
-        row.Items.Add(MakeCompactButton("+Sel", (_, _) =>
+        row.Items.Add(MakeCompactButton("Sel", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc != null)
                 mutateSourceSet(set => set.ReplaceObjects(getObjectIds(doc)));
-        }, "Use the current Rhino selection for this input."));
+        }, "Replace input with current Rhino selection."));
 
-        row.Items.Add(MakeCompactButton("-Sel", (_, _) =>
+        row.Items.Add(MakeCompactButton("✕Sel", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
@@ -976,16 +1040,34 @@ public sealed class MoleHillPanel : Panel
             var display = layerPath.Contains("::", StringComparison.Ordinal)
                 ? layerPath[(layerPath.LastIndexOf("::", StringComparison.Ordinal) + 2)..]
                 : layerPath;
-            row.Items.Add(MakeCompactButton($"{display} x", (_, _) =>
-                mutateSourceSet(set => set.RemoveLayer(capturedPath)), $"Remove layer '{capturedPath}' from this input."));
+            var chip = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 0,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items =
+                {
+                    new Label
+                    {
+                        Text = display,
+                        TextColor = Color.FromArgb(25, 118, 210),
+                        VerticalAlignment = VerticalAlignment.Center
+                    },
+                    MakeIconButton("×", (_, _) =>
+                        mutateSourceSet(set => set.RemoveLayer(capturedPath)),
+                        $"Remove layer '{capturedPath}' from this input.")
+                }
+            };
+            ApplyHelp(chip, $"Layer '{capturedPath}'.");
+            row.Items.Add(chip);
         }
 
-        row.Items.Add(MakeCompactButton("+Layers", (_, _) =>
+        row.Items.Add(MakeCompactButton("Layers", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc != null)
                 mutateSourceSet(set => set.ReplaceLayers(getLayerPaths(doc)));
-        }, "Use the selected Rhino layers for this input."));
+        }, "Replace layers with selected Rhino layers."));
 
         return row;
     }
@@ -1062,7 +1144,7 @@ public sealed class MoleHillPanel : Panel
         ApplyHelp(assignedLayerLabel, layerPath ?? "No input layer assigned.");
         row.Items.Add(assignedLayerLabel);
 
-        row.Items.Add(MakeCompactButton("Use Layers", (_, _) =>
+        row.Items.Add(MakeCompactButton("Use Current", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
@@ -1079,6 +1161,17 @@ public sealed class MoleHillPanel : Panel
                 item.Name = GetLeafLayerName(selectedLayer);
             });
         }, "Assign the first selected Rhino layer to this zone."));
+
+        row.Items.Add(MakeLayerPickerButton(path =>
+        {
+            if (path == null) return;
+            MutateZone(terrain.TerrainId, zone.ZoneId, item =>
+            {
+                item.Boundaries.ObjectIds.Clear();
+                item.Boundaries.ReplaceLayers(new[] { path });
+                item.Name = GetLeafLayerName(path);
+            });
+        }, "Browse and pick a layer for this zone."));
 
         row.Items.Add(MakeCompactButton("Clear", (_, _) =>
         {
@@ -1126,14 +1219,7 @@ public sealed class MoleHillPanel : Panel
             onCommit(doc?.Layers.CurrentLayer?.FullPath);
         }, "Assign Rhino's current layer."));
 
-        row.Items.Add(MakeCompactButton("Use Layers", (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc == null)
-                return;
-
-            onCommit(_controller.GetSelectedLayerPaths(doc).FirstOrDefault());
-        }, "Assign the first selected Rhino layer."));
+        row.Items.Add(MakeLayerPickerButton(path => onCommit(path), "Browse and pick a layer"));
 
         row.Items.Add(MakeCompactButton("Clear", (_, _) => onCommit(null), "Clear the explicit layer assignment and fall back to the default."));
         return row;
@@ -1251,7 +1337,31 @@ public sealed class MoleHillPanel : Panel
     {
         var doc = RhinoDoc.ActiveDoc;
         var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
-        _statusLabel.Text = terrain?.LastBuildMessage ?? "Create a terrain to start.";
+        var text = terrain?.LastBuildMessage ?? "Create a terrain to start.";
+        _statusLabel.Text = text;
+        _statusLabel.TextColor = GetStatusColor(text);
+    }
+
+    private static Color GetStatusColor(string text)
+    {
+        if (text.Contains("Error", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("Failed", StringComparison.OrdinalIgnoreCase))
+            return Colors.Red;
+        if (text.Contains("Scheduled", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("Building", StringComparison.OrdinalIgnoreCase))
+            return Color.FromArgb(200, 120, 0);
+        return SystemColors.ControlText;
+    }
+
+    private void SetActionButtonsEnabled(bool enabled)
+    {
+        _dupButton.Enabled      = enabled;
+        _bakeButton.Enabled     = enabled;
+        _deleteButton.Enabled   = enabled;
+        _rebuildButton.Enabled  = enabled;
+        _detachButton.Enabled   = enabled;
+        _visibilityButton.Enabled = enabled;
+        _lockButton.Enabled     = enabled;
     }
 
     private void MoveModifier(Guid terrainId, Guid modifierId, int direction)
@@ -1349,18 +1459,21 @@ public sealed class MoleHillPanel : Panel
 
     // ── Drag-and-drop: modifier cards ────────────────────────────────────
 
-    private void WireModifierCardDragDrop(GroupBox box, Guid terrainId, Guid modifierId)
+    private void WireModifierCardDragDrop(Control box, Guid terrainId, Guid modifierId)
     {
         box.AllowDrop = true;
+        var cardHighlight = Color.FromArgb(100, 120, 200, 255);
 
         box.DragEnter += (_, e) =>
         {
             if (!e.Data.Contains("modifier-drag")) return;
             e.Effects = DragEffects.Move;
-            if (_dragOverModifierId.HasValue && _modifierCardMap.TryGetValue(_dragOverModifierId.Value, out var prev))
-                prev.BackgroundColor = Colors.Transparent;
+            if (_dragOverModifierId.HasValue && _modifierStripMap.TryGetValue(_dragOverModifierId.Value, out var prevStrip))
+                if (_modifierStripColors.TryGetValue(_dragOverModifierId.Value, out var prevColor))
+                    prevStrip.BackgroundColor = prevColor;
             _dragOverModifierId = modifierId;
-            box.BackgroundColor = DragHighlight;
+            if (_modifierStripMap.TryGetValue(modifierId, out var strip))
+                strip.BackgroundColor = cardHighlight;
             ClearAllSepHighlights(_modifierSepMap);
             if (_modifierSepMap.TryGetValue(modifierId, out var sep))
                 sep.BackgroundColor = SepHighlight;
@@ -1370,7 +1483,9 @@ public sealed class MoleHillPanel : Panel
         {
             if (_dragOverModifierId == modifierId)
             {
-                box.BackgroundColor = Colors.Transparent;
+                if (_modifierStripMap.TryGetValue(modifierId, out var strip))
+                    if (_modifierStripColors.TryGetValue(modifierId, out var origColor))
+                        strip.BackgroundColor = origColor;
                 _dragOverModifierId = null;
                 ClearAllSepHighlights(_modifierSepMap);
             }
@@ -1382,7 +1497,9 @@ public sealed class MoleHillPanel : Panel
             var idStr = e.Data.GetString("modifier-drag");
             if (!Guid.TryParse(idStr, out var sourceId)) return;
 
-            box.BackgroundColor = Colors.Transparent;
+            if (_modifierStripMap.TryGetValue(modifierId, out var strip))
+                if (_modifierStripColors.TryGetValue(modifierId, out var origColor))
+                    strip.BackgroundColor = origColor;
             _dragOverModifierId = null;
             ClearAllSepHighlights(_modifierSepMap);
 
@@ -1401,30 +1518,31 @@ public sealed class MoleHillPanel : Panel
         };
     }
 
-    private void WireModifierSepDragDrop(Panel sep, Guid terrainId, Guid insertBeforeId)
+    private void WireModifierSepDragDrop(Panel outerSep, Panel innerSep, Guid terrainId, Guid insertBeforeId)
     {
-        sep.AllowDrop = true;
+        outerSep.AllowDrop = true;
 
-        sep.DragEnter += (_, e) =>
+        outerSep.DragEnter += (_, e) =>
         {
             if (!e.Data.Contains("modifier-drag")) return;
             e.Effects = DragEffects.Move;
-            if (_dragOverModifierId.HasValue && _modifierCardMap.TryGetValue(_dragOverModifierId.Value, out var prev))
-                prev.BackgroundColor = Colors.Transparent;
+            if (_dragOverModifierId.HasValue && _modifierStripMap.TryGetValue(_dragOverModifierId.Value, out var prevStrip))
+                if (_modifierStripColors.TryGetValue(_dragOverModifierId.Value, out var prevColor))
+                    prevStrip.BackgroundColor = prevColor;
             _dragOverModifierId = null;
             ClearAllSepHighlights(_modifierSepMap);
-            sep.BackgroundColor = SepHighlight;
+            innerSep.BackgroundColor = SepHighlight;
         };
 
-        sep.DragLeave += (_, _) => sep.BackgroundColor = Colors.Transparent;
+        outerSep.DragLeave += (_, _) => innerSep.BackgroundColor = Colors.Transparent;
 
-        sep.DragDrop += (_, e) =>
+        outerSep.DragDrop += (_, e) =>
         {
             if (!e.Data.Contains("modifier-drag")) return;
             var idStr = e.Data.GetString("modifier-drag");
             if (!Guid.TryParse(idStr, out var sourceId)) return;
 
-            sep.BackgroundColor = Colors.Transparent;
+            innerSep.BackgroundColor = Colors.Transparent;
             ClearAllSepHighlights(_modifierSepMap);
 
             var doc = RhinoDoc.ActiveDoc;
@@ -1452,18 +1570,21 @@ public sealed class MoleHillPanel : Panel
 
     // ── Drag-and-drop: zone cards ─────────────────────────────────────────
 
-    private void WireZoneCardDragDrop(GroupBox box, Guid terrainId, Guid zoneId)
+    private void WireZoneCardDragDrop(Control box, Guid terrainId, Guid zoneId)
     {
         box.AllowDrop = true;
+        var cardHighlight = Color.FromArgb(100, 120, 200, 255);
 
         box.DragEnter += (_, e) =>
         {
             if (!e.Data.Contains("zone-drag")) return;
             e.Effects = DragEffects.Move;
-            if (_dragOverZoneId.HasValue && _zoneCardMap.TryGetValue(_dragOverZoneId.Value, out var prev))
-                prev.BackgroundColor = Colors.Transparent;
+            if (_dragOverZoneId.HasValue && _zoneSwatchMap.TryGetValue(_dragOverZoneId.Value, out var prevSwatch))
+                if (_zoneSwatchColors.TryGetValue(_dragOverZoneId.Value, out var prevColor))
+                    prevSwatch.BackgroundColor = prevColor;
             _dragOverZoneId = zoneId;
-            box.BackgroundColor = DragHighlight;
+            if (_zoneSwatchMap.TryGetValue(zoneId, out var swatch))
+                swatch.BackgroundColor = cardHighlight;
             ClearAllSepHighlights(_zoneSepMap);
             if (_zoneSepMap.TryGetValue(zoneId, out var sep))
                 sep.BackgroundColor = SepHighlight;
@@ -1473,7 +1594,9 @@ public sealed class MoleHillPanel : Panel
         {
             if (_dragOverZoneId == zoneId)
             {
-                box.BackgroundColor = Colors.Transparent;
+                if (_zoneSwatchMap.TryGetValue(zoneId, out var swatch))
+                    if (_zoneSwatchColors.TryGetValue(zoneId, out var origColor))
+                        swatch.BackgroundColor = origColor;
                 _dragOverZoneId = null;
                 ClearAllSepHighlights(_zoneSepMap);
             }
@@ -1485,7 +1608,9 @@ public sealed class MoleHillPanel : Panel
             var idStr = e.Data.GetString("zone-drag");
             if (!Guid.TryParse(idStr, out var sourceId)) return;
 
-            box.BackgroundColor = Colors.Transparent;
+            if (_zoneSwatchMap.TryGetValue(zoneId, out var swatch))
+                if (_zoneSwatchColors.TryGetValue(zoneId, out var origColor))
+                    swatch.BackgroundColor = origColor;
             _dragOverZoneId = null;
             ClearAllSepHighlights(_zoneSepMap);
 
@@ -1504,30 +1629,31 @@ public sealed class MoleHillPanel : Panel
         };
     }
 
-    private void WireZoneSepDragDrop(Panel sep, Guid terrainId, Guid insertBeforeId)
+    private void WireZoneSepDragDrop(Panel outerSep, Panel innerSep, Guid terrainId, Guid insertBeforeId)
     {
-        sep.AllowDrop = true;
+        outerSep.AllowDrop = true;
 
-        sep.DragEnter += (_, e) =>
+        outerSep.DragEnter += (_, e) =>
         {
             if (!e.Data.Contains("zone-drag")) return;
             e.Effects = DragEffects.Move;
-            if (_dragOverZoneId.HasValue && _zoneCardMap.TryGetValue(_dragOverZoneId.Value, out var prev))
-                prev.BackgroundColor = Colors.Transparent;
+            if (_dragOverZoneId.HasValue && _zoneSwatchMap.TryGetValue(_dragOverZoneId.Value, out var prevSwatch))
+                if (_zoneSwatchColors.TryGetValue(_dragOverZoneId.Value, out var prevColor))
+                    prevSwatch.BackgroundColor = prevColor;
             _dragOverZoneId = null;
             ClearAllSepHighlights(_zoneSepMap);
-            sep.BackgroundColor = SepHighlight;
+            innerSep.BackgroundColor = SepHighlight;
         };
 
-        sep.DragLeave += (_, _) => sep.BackgroundColor = Colors.Transparent;
+        outerSep.DragLeave += (_, _) => innerSep.BackgroundColor = Colors.Transparent;
 
-        sep.DragDrop += (_, e) =>
+        outerSep.DragDrop += (_, e) =>
         {
             if (!e.Data.Contains("zone-drag")) return;
             var idStr = e.Data.GetString("zone-drag");
             if (!Guid.TryParse(idStr, out var sourceId)) return;
 
-            sep.BackgroundColor = Colors.Transparent;
+            innerSep.BackgroundColor = Colors.Transparent;
             ClearAllSepHighlights(_zoneSepMap);
 
             var doc = RhinoDoc.ActiveDoc;
@@ -1556,5 +1682,127 @@ public sealed class MoleHillPanel : Panel
     {
         foreach (var sep in sepMap.Values)
             sep.BackgroundColor = Colors.Transparent;
+    }
+
+    private static Color ModifierTypeColor(string kind) => kind switch
+    {
+        "triangulate"    => Color.FromArgb(25, 118, 210),
+        "remesh"         => Color.FromArgb(56, 142, 60),
+        "smooth"         => Color.FromArgb(123, 31, 162),
+        "retaining-wall" => Color.FromArgb(230, 74, 25),
+        "grade-pad"      => Color.FromArgb(245, 124, 0),
+        "grade-path"     => Color.FromArgb(93, 64, 55),
+        _                => Color.FromArgb(120, 120, 120)
+    };
+
+    private static string GetModifierKind(ModifierDefinition modifier) => modifier switch
+    {
+        TriangulateModifierDefinition    => "triangulate",
+        RemeshModifierDefinition         => "remesh",
+        SmoothModifierDefinition         => "smooth",
+        RetainingWallModifierDefinition  => "retaining-wall",
+        GradePadModifierDefinition       => "grade-pad",
+        GradePathModifierDefinition      => "grade-path",
+        _                                => string.Empty
+    };
+
+    private static string GetCollapsedSummary(ModifierDefinition modifier)
+    {
+        switch (modifier)
+        {
+            case TriangulateModifierDefinition t:
+                int pts = t.Points.ObjectIds.Count + t.Points.LayerPaths.Count;
+                int bkl = t.Breaklines.ObjectIds.Count + t.Breaklines.LayerPaths.Count;
+                return $"{pts} pts · {bkl} bklines";
+            case RemeshModifierDefinition r:
+                if (r.EdgeLength == 0 && r.MaxArea == 0 && r.MinAngle == 0)
+                    return "(defaults)";
+                var parts = new System.Collections.Generic.List<string>();
+                if (r.EdgeLength > 0) parts.Add($"MaxLen: {r.EdgeLength:G4}");
+                if (r.MinAngle > 0)   parts.Add($"MinAngle: {r.MinAngle:G4}°");
+                return parts.Count > 0 ? string.Join(" · ", parts) : "(defaults)";
+            case SmoothModifierDefinition s:
+                return $"{s.Iterations} iter · Str {s.Strength:G3}";
+            case GradePadModifierDefinition p:
+                int bounds = p.Boundaries.ObjectIds.Count + p.Boundaries.LayerPaths.Count;
+                return $"{bounds} boundaries · Slope {p.SlopeAngle:G4}°";
+            case GradePathModifierDefinition path:
+                int paths = path.Paths.ObjectIds.Count + path.Paths.LayerPaths.Count;
+                return $"{paths} paths · W={path.Width:G4}";
+            case RetainingWallModifierDefinition w:
+                int curves = w.WallCurves.ObjectIds.Count + w.WallCurves.LayerPaths.Count;
+                return $"{curves} curves";
+            default:
+                return string.Empty;
+        }
+    }
+
+    private static Drawable CreateDragHandle()
+    {
+        var handle = new Drawable { Width = 16, Height = 22, Cursor = Cursors.Move };
+        handle.Paint += (_, e) =>
+        {
+            var g = e.Graphics;
+            var ctl = SystemColors.ControlText;
+            var dot = new Color(ctl.R, ctl.G, ctl.B, 0.6f);
+            float[] xs = { 5f, 10f };
+            float[] ys = { 6f, 11f, 16f };
+            foreach (var x in xs)
+                foreach (var y in ys)
+                    g.FillEllipse(dot, x - 1.5f, y - 1.5f, 3f, 3f);
+        };
+        return handle;
+    }
+
+    private void ShowTerrainPickerMenu(Button anchor)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        var terrains = _controller.GetTerrains(doc).ToList();
+        if (terrains.Count == 0)
+            return;
+
+        var menu = new ContextMenu();
+        foreach (var terrain in terrains)
+        {
+            var item = new ButtonMenuItem { Text = terrain.Name };
+            var capturedId = terrain.TerrainId;
+            item.Click += (_, _) =>
+            {
+                _controller.SetSelectedTerrain(doc, capturedId);
+                RefreshUi();
+            };
+            menu.Items.Add(item);
+        }
+        menu.Show(anchor);
+    }
+
+    private void ShowLayerPickerMenu(Button anchor, Action<string?> onPick)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        var menu = new ContextMenu();
+        foreach (var layer in doc.Layers)
+        {
+            if (layer.IsDeleted)
+                continue;
+            var item = new ButtonMenuItem { Text = layer.FullPath };
+            var capturedPath = layer.FullPath;
+            item.Click += (_, _) => onPick(capturedPath);
+            menu.Items.Add(item);
+        }
+        menu.Show(anchor);
+    }
+
+    private Button MakeLayerPickerButton(Action<string?> onPick, string toolTip = "Browse layers")
+    {
+        var btn = new Button { Text = "▾", Width = 26 };
+        btn.ToolTip = toolTip;
+        btn.Click += (_, _) => ShowLayerPickerMenu(btn, onPick);
+        return btn;
     }
 }

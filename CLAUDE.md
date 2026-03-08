@@ -27,6 +27,7 @@ Three source projects, two test projects:
 - **TriangleNet** (`src/TriangleNet/`, net7.0) — Triangle.NET constrained Delaunay library, nullable disabled, included as source and merged into the .gha
 - **MoleHill.Core** (`src/MoleHill.Core/`, net7.0) — Pure terrain logic (no Rhino/GH dependency). Sub-namespaces: `Engine/`, `Processing/`, `Grading/`, `Analysis/`
 - **MoleHill.Grasshopper** (`src/MoleHill.Grasshopper/`, net7.0-windows + net7.0) — GH components, plugin metadata (`MoleHillInfo.cs`), icon resources, `RhinoConverter.cs`. No terrain logic here.
+- **MoleHill.Rhino** (`src/MoleHill.Rhino/`, net7.0) — Native Rhino plugin (.rhp). Dockable panel UI (Eto.Forms in `UI/`), three commands (`MoleHillPanel`, `MoleHillCreateTerrain`, `MoleHillConvertToRhino`), terrain definition model (`Model/`), `TerrainController`/`TerrainBuildService` pipeline (`Services/`). Persists terrain state as JSON in .3dm via WriteDocument/ReadDocument. 16×16 PNG icons in `Resources/` loaded via `PanelIcons.Load()`.
 - **MoleHill.Core.Tests** / **MoleHill.Grasshopper.Tests** (`tests/`, xunit 2.9.2) — Test naming: `MethodName_Scenario_ExpectedResult`
 
 All Rhino/Grasshopper API calls belong in `MoleHill.Grasshopper`. All reusable computation belongs in `MoleHill.Core`.

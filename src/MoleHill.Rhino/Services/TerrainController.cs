@@ -228,6 +228,8 @@ internal sealed class TerrainController
 
     public void RebuildTerrain(RhinoDoc doc, Guid terrainId)
     {
+        _pendingRebuilds.Remove((doc.RuntimeSerialNumber, terrainId));
+
         var state = GetState(doc);
         var terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
         if (terrain == null)
@@ -471,11 +473,17 @@ internal sealed class TerrainController
     private void ScheduleRebuild(RhinoDoc doc, Guid terrainId)
     {
         _pendingRebuilds[(doc.RuntimeSerialNumber, terrainId)] = DateTime.UtcNow.AddMilliseconds(250);
+        var terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
+        if (terrain != null)
+            terrain.LastBuildMessage = "Scheduled rebuild...";
         RaiseStateChanged();
     }
 
     private void RebuildTerrain(RhinoDoc doc, DocumentState state, TerrainDefinition terrain)
     {
+        terrain.LastBuildMessage = "Building terrain...";
+        RaiseStateChanged();
+
         try
         {
             var build = _buildService.Build(doc, terrain);
@@ -806,25 +814,27 @@ internal sealed class TerrainController
             return;
 
         var now = DateTime.UtcNow;
-        var dueItems = _pendingRebuilds
+        var nextItem = _pendingRebuilds
             .Where(item => item.Value <= now)
-            .Select(item => item.Key)
-            .ToList();
+            .OrderBy(item => item.Value)
+            .Select(item => ((uint docSerial, Guid terrainId)?)item.Key)
+            .FirstOrDefault();
 
-        foreach (var key in dueItems)
-        {
-            _pendingRebuilds.Remove(key);
-            var doc = RhinoDoc.FromRuntimeSerialNumber(key.docSerial);
-            if (doc == null)
-                continue;
+        if (!nextItem.HasValue)
+            return;
 
-            var state = GetState(doc);
-            var terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == key.terrainId);
-            if (terrain == null)
-                continue;
+        var key = nextItem.Value;
+        _pendingRebuilds.Remove(key);
+        var doc = RhinoDoc.FromRuntimeSerialNumber(key.docSerial);
+        if (doc == null)
+            return;
 
-            RebuildTerrain(doc, state, terrain);
-        }
+        var state = GetState(doc);
+        var terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == key.terrainId);
+        if (terrain == null)
+            return;
+
+        RebuildTerrain(doc, state, terrain);
     }
 
     private void ScheduleRelevantTerrains(RhinoDoc doc, Guid objectId, params string?[] layerPaths)
