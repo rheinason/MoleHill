@@ -111,6 +111,8 @@ public class RemeshComponent : GH_Component
         var xyList = new List<double>(vertexCount * 2);
         var zList = new List<double>(vertexCount);
         var segList = new List<(int a, int b)>();
+        var segmentKeys = new HashSet<long>();
+        double dedupTolerance = Math.Max(tolerance, 1e-6);
 
         for (int i = 0; i < vertexCount; i++)
         {
@@ -118,6 +120,8 @@ public class RemeshComponent : GH_Component
             xyList.Add(origVerts[i * 3 + 1]);
             zList.Add(origVerts[i * 3 + 2]);
         }
+
+        MeshConstraintTools.AddBoundarySegments(segList, segmentKeys, origFaces, faceCount);
 
         // Add constraint curve vertices + segments
         foreach (var crv in constraints)
@@ -137,7 +141,7 @@ public class RemeshComponent : GH_Component
             for (int i = 0; i < pl.Count; i++)
             {
                 double px = pl[i].X, py = pl[i].Y;
-                int near = PadGrader.FindNearVertex(xyList, px, py, 1e-6);
+                int near = PadGrader.FindNearVertex(xyList, px, py, dedupTolerance);
                 if (near >= 0)
                 {
                     crvIndices[i] = near;
@@ -153,17 +157,14 @@ public class RemeshComponent : GH_Component
 
             for (int i = 0; i < pl.Count - 1; i++)
             {
-                if (crvIndices[i] != crvIndices[i + 1])
-                    segList.Add((crvIndices[i], crvIndices[i + 1]));
+                MeshConstraintTools.TryAddSegment(segList, segmentKeys, crvIndices[i], crvIndices[i + 1]);
             }
 
             if (crv.IsClosed && pl.Count >= 3)
             {
                 int last = pl.Count - 1;
-                if (pl[0].DistanceTo(pl[last]) >= tolerance && crvIndices[0] != crvIndices[last])
-                {
-                    segList.Add((crvIndices[last], crvIndices[0]));
-                }
+                if (pl[0].DistanceTo(pl[last]) >= tolerance)
+                    MeshConstraintTools.TryAddSegment(segList, segmentKeys, crvIndices[last], crvIndices[0]);
             }
         }
 
@@ -173,11 +174,21 @@ public class RemeshComponent : GH_Component
         var triMesh = TriangulationHelper.Triangulate(
             xyList, totalVerts, segList,
             maxArea, minAngle,
-            out string? triWarning);
+            out string? triWarning,
+            convex: false);
 
         if (triMesh == null)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Error, triWarning ?? "Triangulation failed.");
+            return;
+        }
+
+        if (MeshConstraintTools.ConstraintsWereDropped(triWarning))
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Remesh could not preserve the mesh boundary or supplied constraints. Output equals input mesh.");
+            DA.SetData(0, mesh);
+            DA.SetData(1, faceCount);
+            DA.SetData(2, vertexCount);
             return;
         }
 

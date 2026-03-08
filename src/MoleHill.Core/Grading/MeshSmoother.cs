@@ -106,7 +106,9 @@ public static class MeshSmoother
             }
         }
 
-        // Iterative Laplacian smoothing (Z only)
+        // Iterative smoothing: move Z toward a local best-fit plane.
+        // This preserves planar slopes on irregular triangulations, unlike
+        // a plain neighbor-average on Z which can create ripples.
         var result = (double[])vertices.Clone();
 
         for (int iter = 0; iter < iterations; iter++)
@@ -121,12 +123,10 @@ public static class MeshSmoother
                 if (s <= 0 || isMeshBoundary[i]) continue;
                 if (neighbors[i].Count == 0) continue;
 
-                double avgZ = 0;
-                foreach (int n in neighbors[i])
-                    avgZ += result[n * 3 + 2];
-                avgZ /= neighbors[i].Count;
+                if (!TryEstimatePlaneZ(vertices, result, i, neighbors[i], out double targetZ))
+                    continue;
 
-                newZ[i] = result[i * 3 + 2] + s * (avgZ - result[i * 3 + 2]);
+                newZ[i] = result[i * 3 + 2] + s * (targetZ - result[i * 3 + 2]);
             }
 
             for (int i = 0; i < vertexCount; i++)
@@ -158,6 +158,75 @@ public static class MeshSmoother
             }
         }
         return false;
+    }
+
+    private static bool TryEstimatePlaneZ(
+        double[] vertices,
+        double[] current,
+        int vertexIndex,
+        List<int> vertexNeighbors,
+        out double targetZ)
+    {
+        int sampleCount = vertexNeighbors.Count + 1;
+        if (sampleCount < 3)
+        {
+            targetZ = current[vertexIndex * 3 + 2];
+            return false;
+        }
+
+        double meanX = vertices[vertexIndex * 3];
+        double meanY = vertices[vertexIndex * 3 + 1];
+        double meanZ = current[vertexIndex * 3 + 2];
+
+        foreach (int neighborIndex in vertexNeighbors)
+        {
+            meanX += vertices[neighborIndex * 3];
+            meanY += vertices[neighborIndex * 3 + 1];
+            meanZ += current[neighborIndex * 3 + 2];
+        }
+
+        meanX /= sampleCount;
+        meanY /= sampleCount;
+        meanZ /= sampleCount;
+
+        double sxx = 0;
+        double sxy = 0;
+        double syy = 0;
+        double sxz = 0;
+        double syz = 0;
+
+        AccumulatePlaneFit(vertexIndex);
+        foreach (int neighborIndex in vertexNeighbors)
+            AccumulatePlaneFit(neighborIndex);
+
+        double determinant = sxx * syy - sxy * sxy;
+        double scale = Math.Max(1.0, sxx + syy);
+        if (Math.Abs(determinant) <= 1e-12 * scale * scale)
+        {
+            targetZ = current[vertexIndex * 3 + 2];
+            return false;
+        }
+
+        double ax = (sxz * syy - syz * sxy) / determinant;
+        double ay = (syz * sxx - sxz * sxy) / determinant;
+
+        double px = vertices[vertexIndex * 3];
+        double py = vertices[vertexIndex * 3 + 1];
+        targetZ = meanZ + ax * (px - meanX) + ay * (py - meanY);
+        return true;
+
+        void AccumulatePlaneFit(int sampleIndex)
+        {
+            double dx = vertices[sampleIndex * 3] - meanX;
+            double dy = vertices[sampleIndex * 3 + 1] - meanY;
+            double dz = current[sampleIndex * 3 + 2] - meanZ;
+
+            sxx += dx * dx;
+            sxy += dx * dy;
+            syy += dy * dy;
+            sxz += dx * dz;
+            syz += dy * dz;
+        }
     }
 
     private static void AddEdge(List<int>[] neighbors, int a, int b)

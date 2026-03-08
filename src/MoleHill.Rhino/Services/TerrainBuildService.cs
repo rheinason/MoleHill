@@ -170,7 +170,7 @@ internal sealed class TerrainBuildService
         }
 
         double tolerance = doc.ModelAbsoluteTolerance;
-        double effectiveStrength = Math.Clamp(modifier.Strength, 0.0, 1.0) / Math.Max(1, modifier.Iterations);
+        double effectiveStrength = Math.Clamp(modifier.Strength, 0.0, 1.0);
         var boundaries = new List<(double[] xyVerts, int vertCount, double strength)>();
         foreach (var curve in RhinoSourceResolver.ResolveCurves(doc, modifier.Boundaries))
         {
@@ -917,6 +917,8 @@ internal sealed class TerrainBuildService
         var xyList = new List<double>(vertexCount * 2);
         var zList = new List<double>(vertexCount);
         var segments = new List<(int a, int b)>();
+        var segmentKeys = new HashSet<long>();
+        double dedupTolerance = Math.Max(tolerance, 1e-6);
 
         for (int i = 0; i < vertexCount; i++)
         {
@@ -924,6 +926,8 @@ internal sealed class TerrainBuildService
             xyList.Add(origVerts[i * 3 + 1]);
             zList.Add(origVerts[i * 3 + 2]);
         }
+
+        MeshConstraintTools.AddBoundarySegments(segments, segmentKeys, origFaces, faceCount);
 
         foreach (var curve in constraintCurves)
         {
@@ -933,7 +937,7 @@ internal sealed class TerrainBuildService
             var indices = new int[polyline.Count];
             for (int i = 0; i < polyline.Count; i++)
             {
-                int near = PadGrader.FindNearVertex(xyList, polyline[i].X, polyline[i].Y, 1e-6);
+                int near = PadGrader.FindNearVertex(xyList, polyline[i].X, polyline[i].Y, dedupTolerance);
                 if (near >= 0)
                 {
                     indices[i] = near;
@@ -950,12 +954,11 @@ internal sealed class TerrainBuildService
 
             for (int i = 0; i < polyline.Count - 1; i++)
             {
-                if (indices[i] != indices[i + 1])
-                    segments.Add((indices[i], indices[i + 1]));
+                MeshConstraintTools.TryAddSegment(segments, segmentKeys, indices[i], indices[i + 1]);
             }
 
-            if (curve.IsClosed && polyline.Count >= 3 && indices[0] != indices[^1])
-                segments.Add((indices[^1], indices[0]));
+            if (curve.IsClosed && polyline.Count >= 3)
+                MeshConstraintTools.TryAddSegment(segments, segmentKeys, indices[^1], indices[0]);
         }
 
         var triMesh = TriangulationHelper.Triangulate(
@@ -964,11 +967,20 @@ internal sealed class TerrainBuildService
             segments,
             maxArea,
             minAngle,
-            out var triWarning);
+            out var triWarning,
+            convex: false);
 
         if (triMesh == null)
         {
             build.Diagnostics.Add(triWarning ?? $"{label} triangulation failed.");
+            return mesh;
+        }
+
+        if (MeshConstraintTools.ConstraintsWereDropped(triWarning))
+        {
+            build.Diagnostics.Add(!string.IsNullOrWhiteSpace(triWarning)
+                ? $"{label} could not preserve mesh boundaries or constraint curves. {triWarning}"
+                : $"{label} could not preserve mesh boundaries or constraint curves. Original mesh kept.");
             return mesh;
         }
 
