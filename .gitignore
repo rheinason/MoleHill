@@ -5,6 +5,7 @@ obj/
 *.suo
 *.cache
 *.log
+*.binlog
 *.nupkg
 TestResults/
 
