@@ -14,10 +14,14 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>0.3.0</Version>
-    <Title>MoleHill</Title>
+    <Version>0.4.0</Version>
+    <Title>MoleHill Grasshopper</Title>
     <Company>MoleHill Authors</Company>
-    <Description>Terrain modeling toolkit: TIN surfaces, grading, slope analysis, mesh areas, and collage.</Description>
+    <Authors>rheinason</Authors>
+    <Description>Optional Grasshopper components for the MoleHill Rhino terrain workflow.</Description>
+    <RepositoryUrl>https://github.com/rheinason/MoleHill</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/rheinason/MoleHill</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
@@ -65,3 +69,4 @@
     <Exec Command="&quot;$(YakExecutable)&quot; build" WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
   </Target>
 </Project>
+

@@ -5,10 +5,14 @@
     <AssemblyName>MoleHill.Rhino</AssemblyName>
     <TriangleNetProjectPath>..\TriangleNet\TriangleNet.csproj</TriangleNetProjectPath>
     <MoleHillCoreProjectPath>..\MoleHill.Core\MoleHill.Core.csproj</MoleHillCoreProjectPath>
-    <Version>0.1.0</Version>
+    <Version>0.4.0</Version>
     <Title>MoleHill Rhino</Title>
     <Company>MoleHill Authors</Company>
-    <Description>MoleHill Rhino terrain modifier panel plugin.</Description>
+    <Authors>rheinason</Authors>
+    <Description>Primary Rhino plugin for MoleHill terrain creation, grading, and analysis workflows.</Description>
+    <RepositoryUrl>https://github.com/rheinason/MoleHill</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/rheinason/MoleHill</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -49,3 +53,4 @@
              Properties="Configuration=$(Configuration)" />
   </Target>
 </Project>
+
