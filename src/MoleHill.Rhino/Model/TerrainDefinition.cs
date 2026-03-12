@@ -2,7 +2,7 @@ namespace MoleHill.Rhino.Model;
 
 public sealed class TerrainDefinition
 {
-    public const int CurrentSchemaVersion = 7;
+    public const int CurrentSchemaVersion = 10;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
@@ -16,6 +16,10 @@ public sealed class TerrainDefinition
 
     public bool IsLocked { get; set; } = false;
 
+    public bool ProtectOutput { get; set; } = false;
+
+    public int OutputTransparencyPercent { get; set; } = 0;
+
     public bool ShowTerrainMesh { get; set; } = true;
 
     public bool ShowZoneMeshes { get; set; } = true;
@@ -23,6 +27,8 @@ public sealed class TerrainDefinition
     public string? TerrainLayerPath { get; set; }
 
     public string? AuxiliaryLayerPath { get; set; }
+
+    public double GlobalTolerance { get; set; }
 
     public SourceReferenceSet EarthworkReference { get; set; } = new();
 
@@ -73,9 +79,78 @@ public sealed class TerrainDefinition
 
     public void EnsureBaseModifier()
     {
-        if (Modifiers.OfType<TriangulateModifierDefinition>().Any())
+        TriangulateModifierDefinition? baseModifier = null;
+        for (int index = 0; index < Modifiers.Count; index++)
+        {
+            if (Modifiers[index] is not TriangulateModifierDefinition triangulate)
+                continue;
+
+            if (baseModifier == null)
+            {
+                baseModifier = triangulate;
+                continue;
+            }
+
+            Modifiers[index] = AddGeometryModifierDefinition.FromTriangulate(triangulate);
+        }
+
+        if (baseModifier == null)
+        {
+            baseModifier = new TriangulateModifierDefinition();
+            Modifiers.Insert(0, baseModifier);
+        }
+        else
+        {
+            int baseIndex = Modifiers.IndexOf(baseModifier);
+            if (baseIndex > 0)
+            {
+                Modifiers.RemoveAt(baseIndex);
+                Modifiers.Insert(0, baseModifier);
+            }
+        }
+
+        EnsureGeometryInputStagesFollowBase();
+    }
+
+    private void EnsureGeometryInputStagesFollowBase()
+    {
+        if (Modifiers.Count <= 2)
             return;
 
-        Modifiers.Insert(0, new TriangulateModifierDefinition());
+        var ordered = new List<ModifierDefinition>(Modifiers.Count)
+        {
+            Modifiers[0]
+        };
+
+        for (int index = 1; index < Modifiers.Count; index++)
+        {
+            if (Modifiers[index] is GeometryInputModifierDefinition)
+                ordered.Add(Modifiers[index]);
+        }
+
+        for (int index = 1; index < Modifiers.Count; index++)
+        {
+            if (Modifiers[index] is not GeometryInputModifierDefinition)
+                ordered.Add(Modifiers[index]);
+        }
+
+        bool changed = ordered.Count != Modifiers.Count;
+        if (!changed)
+        {
+            for (int index = 0; index < Modifiers.Count; index++)
+            {
+                if (ReferenceEquals(Modifiers[index], ordered[index]))
+                    continue;
+
+                changed = true;
+                break;
+            }
+        }
+
+        if (!changed)
+            return;
+
+        Modifiers.Clear();
+        Modifiers.AddRange(ordered);
     }
 }

@@ -3,6 +3,8 @@ using Eto.Forms;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
+using Rhino.UI;
+using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
 namespace MoleHill.Rhino.UI;
 
@@ -11,27 +13,34 @@ public sealed class MoleHillPanel : Panel
 {
     private static readonly (string Label, string Kind)[] ModifierKinds =
     {
-        ("Triangulate", "triangulate"),
+        ("Add Geometry", "add-geometry"),
         ("Remesh", "remesh"),
         ("Smooth", "smooth"),
         ("Retaining Wall", "retaining-wall"),
         ("Grade Pad", "grade-pad"),
-        ("Grade Path", "grade-path")
+        ("Grade Path", "grade-path"),
+        ("In-Situ Stair", "in-situ-stair")
     };
 
     private readonly TerrainController _controller = TerrainController.Instance;
     private readonly TextBox _terrainName = new();
-    private readonly CheckBox _liveUpdate = new() { Text = "Live update" };
+    private readonly CheckBox _liveUpdate = new() { Text = "Live" };
     private readonly Label _statusLabel = new();
-    private readonly Label _terrainLayerLabel = new();
-    private readonly Label _auxLayerLabel = new();
+    private readonly Label _terrainLayerLabel = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly Label _auxLayerLabel     = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly Label _statusHintLabel   = new() { VerticalAlignment = VerticalAlignment.Center, TextColor = SystemColors.DisabledText };
+    private readonly NumericStepper _toleranceStepper = new();
+    private bool _settingsExpanded = true;
+    private bool _statusExpanded = false;
+    private Panel? _settingsContent;
+    private Panel? _statusContent;
+    private Button? _settingsChevron;
+    private Button? _statusChevron;
     private readonly Button _visibilityButton = new() { Width = 42 };
     private readonly Button _lockButton = new() { Width = 42 };
     private Button _dupButton = new();
-    private Button _bakeButton = new();
     private Button _deleteButton = new();
     private Button _rebuildButton = new();
-    private Button _detachButton = new();
     private readonly HashSet<Guid> _collapsedModifiers = new();
     private readonly StackLayout _modifierStack = new()
     {
@@ -57,22 +66,38 @@ public sealed class MoleHillPanel : Panel
         Spacing = 0,
         HorizontalContentAlignment = HorizontalAlignment.Stretch
     };
-    private readonly Dictionary<Guid, GroupBox> _modifierCardMap     = new();
+    private readonly Dictionary<Guid, Panel>    _modifierCardMap     = new();
     private readonly Dictionary<Guid, Panel>    _modifierSepMap      = new();
     private readonly Dictionary<Guid, Panel>    _modifierStripMap    = new();
     private readonly Dictionary<Guid, Color>    _modifierStripColors = new();
-    private readonly Dictionary<Guid, GroupBox> _zoneCardMap         = new();
+    private readonly Dictionary<Guid, Panel>    _zoneCardMap         = new();
     private readonly Dictionary<Guid, Panel>    _zoneSepMap          = new();
     private readonly Dictionary<Guid, Panel>    _zoneSwatchMap       = new();
     private readonly Dictionary<Guid, Color>    _zoneSwatchColors    = new();
     private Guid? _dragOverModifierId;
     private Guid? _dragOverZoneId;
+    private const int PropertyLabelWidth = 92;
+    private const int NumericLabelWidth = 110;
+    private const int HeaderActionHeight = 22;
+    private static readonly Color CardBackground = Color.FromArgb(65, 65, 65);
+    private static readonly Color HeaderBackground = Color.FromArgb(56, 56, 56);
+    private static readonly Color ToolbarGroupBackground = Color.FromArgb(58, 58, 58);
+    private static readonly Color BaseCardBackground = Color.FromArgb(69, 71, 77);
     private static readonly Color DragHighlight = Color.FromArgb(80, 120, 200, 255);
     private static readonly Color SepHighlight  = Color.FromArgb(120, 180, 255, 255);
+    private static readonly Color MutedText = Color.FromArgb(168, 168, 168);
+    private const int StackedSourceEditorWidth = 430;
+    private const int WrappedModifierHeaderWidth = 560;
+    private readonly EventHandler _stateChangedHandler;
     private bool _isRefreshing;
+    private bool _isPanelLoaded;
+    private bool _isStateChangedSubscribed;
+    private int _responsiveLayoutKey = -1;
 
     public MoleHillPanel()
     {
+        _stateChangedHandler = HandleControllerStateChanged;
+
         ApplyHelp(_terrainName, "Terrain name. Commits when you press Enter or leave the field.");
         BindCommittedText(
             _terrainName,
@@ -89,6 +114,28 @@ public sealed class MoleHillPanel : Panel
                 return;
 
             MutateSelectedTerrain(terrain => terrain.LiveUpdateEnabled = _liveUpdate.Checked == true, scheduleRebuild: false);
+        };
+
+        _toleranceStepper.DecimalPlaces = 3;
+        _toleranceStepper.Increment = 0.1;
+        _toleranceStepper.MinValue = 0;
+        ApplyHelp(_toleranceStepper, "Global Z-snapping tolerance for point deduplication.");
+        var toleranceTimer = new UITimer { Interval = 0.25 };
+        toleranceTimer.Elapsed += (_, _) =>
+        {
+            toleranceTimer.Stop();
+            MutateSelectedTerrain(t => t.GlobalTolerance = _toleranceStepper.Value, scheduleRebuild: true);
+        };
+        _toleranceStepper.ValueChanged += (_, _) =>
+        {
+            if (_isRefreshing) return;
+            toleranceTimer.Stop();
+            toleranceTimer.Start();
+        };
+        _toleranceStepper.LostFocus += (_, _) =>
+        {
+            toleranceTimer.Stop();
+            MutateSelectedTerrain(t => t.GlobalTolerance = _toleranceStepper.Value, scheduleRebuild: true);
         };
 
         _visibilityButton.Click += (_, _) =>
@@ -114,52 +161,218 @@ public sealed class MoleHillPanel : Panel
         ApplyHelp(_visibilityButton, "Hide or show all generated terrain outputs.");
         ApplyHelp(_lockButton, "Lock or unlock all generated terrain outputs.");
 
-        _controller.StateChanged += (_, _) => Application.Instance?.AsyncInvoke(RefreshUi);
+        SubscribeControllerStateChanged();
+        SizeChanged += HandlePanelSizeChanged;
+        LoadComplete += OnPanelLoadComplete;
+        UnLoad += OnPanelUnLoad;
 
         Content = BuildContent();
+        _responsiveLayoutKey = GetResponsiveLayoutKey();
         RefreshUi();
     }
 
     private Control BuildContent()
     {
-        var pickerButton   = new Button { Text = "▾", Width = 26, ToolTip = "Switch terrain" };
-        pickerButton.Click += (_, _) => ShowTerrainPickerMenu(pickerButton);
+        Button? pickerButton = null;
+        pickerButton = MakeToolbarButton("Menu", (_, _) => ShowTerrainPickerMenu(pickerButton!), "Switch terrain", width: 62);
 
-        var newButton      = MakeIconButton("+",  OnNewTerrain,       "Create a new terrain");
-        _dupButton         = MakeIconButton("⎘",  OnDuplicateTerrain, "Duplicate selected terrain");
-        _bakeButton        = MakeButton("Bake",   OnBakeTerrain,      "Bake terrain mesh to document as regular geometry");
-        _deleteButton      = MakeIconButton("🗑", OnDeleteTerrain,    "Delete selected terrain");
-        _rebuildButton     = MakeButton("Rebuild", OnRebuildTerrain,  "Force rebuild terrain now");
-        _detachButton      = MakeButton("Detach",  OnConvertTerrain,  "Detach terrain from source objects");
+        var newButton = MakeToolbarButton("New", OnNewTerrain, "Create a new terrain", width: 54);
+        _dupButton = MakeToolbarButton("Copy", OnDuplicateTerrain, "Duplicate selected terrain", width: 58);
+        _deleteButton = MakeToolbarButton("Delete", OnDeleteTerrain, "Delete selected terrain", width: 66);
+        _rebuildButton = MakeToolbarButton("Rebuild", OnRebuildTerrain, "Force rebuild terrain now", width: 72);
         _visibilityButton.ToolTip = "Toggle terrain visibility";
-        _lockButton.ToolTip       = "Lock terrain to prevent accidental edits";
-        _visibilityButton.Width   = 34;
-        _lockButton.Width         = 34;
+        _lockButton.ToolTip = "Lock terrain to prevent accidental edits";
+        _visibilityButton.Width = 66;
+        _lockButton.Width = 66;
+        _visibilityButton.Height = 26;
+        _lockButton.Height = 26;
+        _liveUpdate.Height = 26;
 
-        var top = new DynamicLayout { DefaultSpacing = new Size(4, 4), Padding = new Padding(6, 6, 6, 2) };
-        top.AddSeparateRow(
-            _terrainName,
-            pickerButton,
-            newButton,
-            _dupButton,
-            _visibilityButton,
-            _lockButton,
-            _bakeButton,
-            _deleteButton);
-        top.AddSeparateRow(
-            _rebuildButton,
-            _detachButton,
-            null);
-        top.AddSeparateRow(
-            CreateHelpLabel("Terrain Layer", "Layer used for the main terrain mesh. If you move the terrain mesh to another Rhino layer, MoleHill will track that change.", 86),
-            _terrainLayerLabel,
-            MakeButton("Use Current", OnAssignTerrainLayer, "Assign the current Rhino layer to this terrain"),
-            MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.TerrainLayerPath = path, scheduleRebuild: false), "Browse and pick the terrain layer"),
-            CreateHelpLabel("Aux Layer", "Layer used for generated wall and auxiliary geometry.", 70),
-            _auxLayerLabel,
-            MakeButton("Use Current", OnAssignAuxLayer, "Assign the current Rhino layer to auxiliary outputs like retaining walls."),
-            MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = path, scheduleRebuild: true), "Browse and pick the auxiliary layer"));
-        top.AddSeparateRow(_liveUpdate, _statusLabel, null);
+        // ── Toolbar (single row) ─────────────────────────────────────
+        var identityRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items =
+            {
+                new Label { Text = "Terrain", TextColor = MutedText, VerticalAlignment = VerticalAlignment.Center },
+                new StackLayoutItem(_terrainName, expand: true),
+                pickerButton
+            }
+        };
+        var identityGroup = new Panel
+        {
+            BackgroundColor = ToolbarGroupBackground,
+            Padding = new Padding(8, 6, 8, 6),
+            Content = identityRow
+        };
+
+        var toolbar = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 4,
+            Padding = new Padding(8, 8, 8, 4),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new Label { Text = "ACTIVE TERRAIN", TextColor = MutedText },
+                new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 6,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Items =
+                    {
+                        new StackLayoutItem(identityGroup, expand: true),
+                        CreateToolbarGroup(newButton, _dupButton),
+                        CreateToolbarGroup(_visibilityButton, _lockButton, _liveUpdate),
+                        CreateToolbarGroup(_rebuildButton, _deleteButton)
+                    }
+                }
+            }
+        };
+
+        // ── Settings card (collapsible, expanded by default) ─────────
+        _settingsChevron = MakeMiniButton("v", (_, _) =>
+        {
+            _settingsExpanded = !_settingsExpanded;
+            _settingsChevron!.Text = _settingsExpanded ? "v" : ">";
+            _settingsContent!.Visible = _settingsExpanded;
+        }, "Collapse terrain settings", width: 24);
+
+        var settingsHeader = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Padding = new Padding(8, 6, 8, 6),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            BackgroundColor = HeaderBackground,
+            Items =
+            {
+                _settingsChevron,
+                new Label { Text = "Terrain Settings", Font = new Font(SystemFont.Bold), VerticalAlignment = VerticalAlignment.Center },
+                new StackLayoutItem(new Label
+                {
+                    Text = "Document defaults and output layers",
+                    TextColor = MutedText,
+                    VerticalAlignment = VerticalAlignment.Center
+                }, expand: true)
+            }
+        };
+
+        var terrainLayerRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal, Spacing = 3,
+            VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
+            Items =
+            {
+                CreateHelpLabel("Terrain Layer", "Output layer for the main terrain mesh.", PropertyLabelWidth),
+                _terrainLayerLabel,
+                MakeCompactButton("Use Current", OnAssignTerrainLayer, "Assign the current Rhino layer."),
+                MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.TerrainLayerPath = path, scheduleRebuild: false), "Browse and pick the terrain layer"),
+                MakeCompactButton("Clear", (_, _) => MutateSelectedTerrain(t => t.TerrainLayerPath = null, scheduleRebuild: false), "Clear the terrain layer assignment.")
+            }
+        };
+        var auxLayerRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal, Spacing = 3,
+            VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
+            Items =
+            {
+                CreateHelpLabel("Aux Layer", "Output layer for auxiliary geometry like retaining walls.", PropertyLabelWidth),
+                _auxLayerLabel,
+                MakeCompactButton("Use Current", OnAssignAuxLayer, "Assign the current Rhino layer."),
+                MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = path, scheduleRebuild: true), "Browse and pick the auxiliary layer"),
+                MakeCompactButton("Clear", (_, _) => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = null, scheduleRebuild: true), "Clear the auxiliary layer assignment.")
+            }
+        };
+        var toleranceRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal, Spacing = 3,
+            VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
+            Items = { CreateHelpLabel("Tolerance", "Global Z-snapping tolerance for point deduplication.", PropertyLabelWidth), _toleranceStepper }
+        };
+        var settingsInner = new StackLayout
+        {
+            Orientation = Orientation.Vertical, Spacing = 6, Padding = new Padding(10, 8, 10, 8),
+            Items =
+            {
+                new StackLayoutItem(terrainLayerRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(auxLayerRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(toleranceRow, HorizontalAlignment.Stretch)
+            }
+        };
+
+        _settingsContent = new Panel { Content = settingsInner, Visible = _settingsExpanded, BackgroundColor = CardBackground };
+
+        var settingsCard = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 0,
+            Padding = new Padding(8, 2),
+            Items =
+            {
+                new StackLayoutItem(settingsHeader, HorizontalAlignment.Stretch),
+                new StackLayoutItem(_settingsContent, HorizontalAlignment.Stretch)
+            }
+        };
+
+        // ── Status card (collapsible, collapsed by default) ───────────
+        _statusChevron = MakeMiniButton(">", (_, _) =>
+        {
+            _statusExpanded = !_statusExpanded;
+            _statusChevron!.Text = _statusExpanded ? "v" : ">";
+            _statusContent!.Visible = _statusExpanded;
+            _statusHintLabel.Visible = !_statusExpanded;
+        }, "Show or hide build status", width: 24);
+
+        var statusHeader = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Padding = new Padding(8, 6, 8, 6),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            BackgroundColor = HeaderBackground,
+            Items =
+            {
+                _statusChevron,
+                new Label { Text = "Status", Font = new Font(SystemFont.Bold), VerticalAlignment = VerticalAlignment.Center },
+                new StackLayoutItem(_statusHintLabel, expand: true)
+            }
+        };
+
+        _statusContent = new Panel
+        {
+            Content = new Panel { Content = _statusLabel, Padding = new Padding(10, 6) },
+            Visible = _statusExpanded,
+            BackgroundColor = CardBackground
+        };
+
+        var statusCard = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 0,
+            Padding = new Padding(8, 2),
+            Items =
+            {
+                new StackLayoutItem(statusHeader, HorizontalAlignment.Stretch),
+                new StackLayoutItem(_statusContent, HorizontalAlignment.Stretch)
+            }
+        };
+
+        var top = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 0,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(toolbar, HorizontalAlignment.Stretch),
+                new StackLayoutItem(settingsCard, HorizontalAlignment.Stretch),
+                new StackLayoutItem(statusCard, HorizontalAlignment.Stretch)
+            }
+        };
 
         var tabs = new TabControl();
         tabs.Pages.Add(new TabPage { Text = "Modifiers", Image = PanelIcons.Load("TabModifiers"), Content = BuildScrollable(_modifierStack) });
@@ -183,6 +396,99 @@ public sealed class MoleHillPanel : Panel
             ExpandContentHeight = false
         };
     }
+
+    private void SubscribeControllerStateChanged()
+    {
+        if (_isStateChangedSubscribed)
+            return;
+
+        _controller.StateChanged += _stateChangedHandler;
+        _isStateChangedSubscribed = true;
+    }
+
+    private void UnsubscribeControllerStateChanged()
+    {
+        if (!_isStateChangedSubscribed)
+            return;
+
+        _controller.StateChanged -= _stateChangedHandler;
+        _isStateChangedSubscribed = false;
+    }
+
+    private void HandleControllerStateChanged(object? sender, EventArgs e)
+    {
+        if (IsDisposed || !_isPanelLoaded)
+            return;
+
+        Application.Instance?.AsyncInvoke(() =>
+        {
+            if (IsDisposed || !_isPanelLoaded)
+                return;
+
+            RefreshUi();
+        });
+    }
+
+    private void OnPanelLoadComplete(object? sender, EventArgs e)
+    {
+        _isPanelLoaded = true;
+        SubscribeControllerStateChanged();
+
+        if (!IsDisposed)
+            Application.Instance?.AsyncInvoke(RefreshUi);
+    }
+
+    private void OnPanelUnLoad(object? sender, EventArgs e)
+    {
+        _isPanelLoaded = false;
+        UnsubscribeControllerStateChanged();
+    }
+
+    private void HandlePanelSizeChanged(object? sender, EventArgs e)
+    {
+        if (IsDisposed || !_isPanelLoaded)
+            return;
+
+        int layoutKey = GetResponsiveLayoutKey();
+        if (layoutKey == _responsiveLayoutKey)
+            return;
+
+        _responsiveLayoutKey = layoutKey;
+        if (_isRefreshing)
+            return;
+
+        Application.Instance?.AsyncInvoke(RefreshUi);
+    }
+
+    private int GetResponsiveLayoutKey()
+    {
+        if (IsDisposed)
+            return _responsiveLayoutKey >= 0 ? _responsiveLayoutKey : 0;
+
+        int width;
+        try
+        {
+            width = ClientSize.Width > 0 ? ClientSize.Width : Width;
+        }
+        catch (ObjectDisposedException)
+        {
+            return _responsiveLayoutKey >= 0 ? _responsiveLayoutKey : 0;
+        }
+
+        if (width <= 0)
+            return 0;
+
+        int key = 0;
+        if (width < StackedSourceEditorWidth)
+            key |= 1;
+        if (width < WrappedModifierHeaderWidth)
+            key |= 2;
+        return key;
+    }
+
+    private bool UseStackedSourceEditors() => (_responsiveLayoutKey & 1) != 0;
+
+    private bool UseWrappedModifierActions() => (_responsiveLayoutKey & 2) != 0;
 
     private void OnNewTerrain(object? sender, EventArgs e)
     {
@@ -263,7 +569,11 @@ public sealed class MoleHillPanel : Panel
 
     private void RefreshUi()
     {
+        if (IsDisposed)
+            return;
+
         var doc = RhinoDoc.ActiveDoc;
+        _responsiveLayoutKey = GetResponsiveLayoutKey();
         _isRefreshing = true;
         try
         {
@@ -271,12 +581,13 @@ public sealed class MoleHillPanel : Panel
             {
                 _terrainName.Text = string.Empty;
                 _liveUpdate.Checked = false;
-                _statusLabel.Text = "No active Rhino document.";
-                _statusLabel.TextColor = SystemColors.ControlText;
+                SetStatusText("No active Rhino document.");
                 _terrainLayerLabel.Text = "-";
                 _auxLayerLabel.Text = "-";
-                _visibilityButton.Text = "👁";
-                _lockButton.Text = "🔓";
+                _statusHintLabel.Text = string.Empty;
+                _toleranceStepper.Value = 0;
+                _visibilityButton.Text = "Shown";
+                _lockButton.Text = "Unlocked";
                 SetActionButtonsEnabled(false);
                 _terrainName.Enabled = false;
                 _modifierStack.Items.Clear();
@@ -297,13 +608,14 @@ public sealed class MoleHillPanel : Panel
 
             _terrainName.Text = selectedTerrain?.Name ?? string.Empty;
             _liveUpdate.Checked = selectedTerrain?.LiveUpdateEnabled ?? false;
-            _terrainLayerLabel.Text = selectedTerrain?.TerrainLayerPath ?? "(current layer)";
-            _auxLayerLabel.Text = selectedTerrain?.AuxiliaryLayerPath ?? "MoleHill::Auxiliary";
+            _terrainLayerLabel.Text = selectedTerrain?.TerrainLayerPath is { } tl ? GetLeafLayerName(tl) : "(current layer)";
+            _auxLayerLabel.Text = selectedTerrain?.AuxiliaryLayerPath is { } al ? GetLeafLayerName(al) : "MoleHill::Auxiliary";
+            _toleranceStepper.Value = selectedTerrain?.GlobalTolerance ?? 0;
             var statusText = selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.";
-            _statusLabel.Text = statusText;
-            _statusLabel.TextColor = GetStatusColor(statusText);
-            _visibilityButton.Text = selectedTerrain?.IsVisible != false ? "👁" : "⊘";
-            _lockButton.Text = selectedTerrain?.IsLocked == true ? "🔒" : "🔓";
+            SetStatusText(statusText);
+            _statusHintLabel.Text = statusText.Length > 45 ? statusText[..45] + "..." : statusText;
+            _visibilityButton.Text = selectedTerrain?.IsVisible != false ? "Shown" : "Hidden";
+            _lockButton.Text = selectedTerrain?.IsLocked == true ? "Locked" : "Unlocked";
             bool hasTerrain = selectedTerrain != null;
             SetActionButtonsEnabled(hasTerrain);
             _terrainName.Enabled = hasTerrain;
@@ -347,6 +659,9 @@ public sealed class MoleHillPanel : Panel
             _modifierCardMap[modifierId] = box;
             var kind = GetModifierKind(modifier);
             var typeColor = ModifierTypeColor(kind);
+            bool isPinnedBaseTriangulate = modifier is TriangulateModifierDefinition &&
+                                           terrain.Modifiers.Count > 0 &&
+                                           terrain.Modifiers[0].Id == modifierId;
             var strip = new Panel { Width = 5, BackgroundColor = typeColor };
             _modifierStripMap[modifierId] = strip;
             _modifierStripColors[modifierId] = typeColor;
@@ -355,7 +670,7 @@ public sealed class MoleHillPanel : Panel
                 Orientation = Orientation.Horizontal,
                 Spacing = 0,
                 Padding = new Padding(4, 2),
-                BackgroundColor = SystemColors.Control,
+                BackgroundColor = isPinnedBaseTriangulate ? BaseCardBackground : CardBackground,
                 Items = { strip, new StackLayoutItem(box, expand: true) }
             };
             WireModifierCardDragDrop(wrapper, terrainId, modifierId);
@@ -410,7 +725,7 @@ public sealed class MoleHillPanel : Panel
             {
                 Content = box,
                 Padding = new Padding(4, 2),
-                BackgroundColor = SystemColors.Control
+                BackgroundColor = CardBackground
             };
             WireZoneCardDragDrop(zoneWrapper, terrainId, zoneId);
             _zonesStack.Items.Add(new StackLayoutItem(zoneWrapper, HorizontalAlignment.Stretch));
@@ -445,11 +760,11 @@ public sealed class MoleHillPanel : Panel
         var editorLayout = new DynamicLayout { DefaultSpacing = new Size(6, 4), Padding = new Padding(6, 4) };
         editorLayout.AddRow(CreateSourceEditor("Compare To", terrain.EarthworkReference,
             apply => MutateSelectedTerrain(item => apply(item.EarthworkReference), scheduleRebuild: true),
-            doc => _controller.GetSelectedMeshObjectIds(doc),
+            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
             doc => _controller.GetSelectedLayerPaths(doc)));
         editorLayout.AddRow(CreateSourceEditor("Boundary", terrain.EarthworkBoundary,
             apply => MutateSelectedTerrain(item => apply(item.EarthworkBoundary), scheduleRebuild: true),
-            doc => _controller.GetSelectedCurveObjectIds(doc),
+            RhinoObjectType.Curve,
             doc => _controller.GetSelectedLayerPaths(doc)));
         var localRebuildButton = MakeButton("Rebuild", OnRebuildTerrain, "Force rebuild terrain now");
         editorLayout.AddSeparateRow(localRebuildButton, null);
@@ -493,13 +808,17 @@ public sealed class MoleHillPanel : Panel
 
     private Control BuildAddModifierBar(TerrainDefinition? terrain)
     {
-        var addButton = new Button { Text = "+ Add Modifier" };
+        var addButton = MakeToolbarButton("Add Modifier", (_, _) => { }, "Add a modifier above the base geometry", width: 110);
         if (terrain != null)
         {
             var menu = new ContextMenu();
             foreach (var (label, kind) in ModifierKinds)
             {
-                var item = new ButtonMenuItem { Text = label };
+                var item = new ButtonMenuItem
+                {
+                    Text = label,
+                    Image = PanelIcons.Load(GetModifierIconName(kind))
+                };
                 var capturedKind = kind;
                 var capturedTerrainId = terrain.TerrainId;
                 item.Click += (_, _) =>
@@ -520,9 +839,28 @@ public sealed class MoleHillPanel : Panel
 
         return new StackLayout
         {
-            Orientation = Orientation.Horizontal,
-            Padding = new Padding(6, 4),
-            Items = { addButton }
+            Orientation = Orientation.Vertical,
+            Spacing = 4,
+            Padding = new Padding(8, 8, 8, 4),
+            Items =
+            {
+                new Label { Text = "MODIFIER STACK", TextColor = MutedText },
+                new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 6,
+                    Items =
+                    {
+                        addButton,
+                        new StackLayoutItem(new Label
+                        {
+                            Text = "Base geometry stays pinned at the bottom.",
+                            TextColor = MutedText,
+                            VerticalAlignment = VerticalAlignment.Center
+                        }, expand: true)
+                    }
+                }
+            }
         };
     }
 
@@ -607,19 +945,28 @@ public sealed class MoleHillPanel : Panel
 
         return new StackLayout
         {
-            Orientation = Orientation.Horizontal,
-            Padding = new Padding(6, 4),
-            Spacing = 8,
-            Items = { addButton, showTerrain, showZones }
+            Orientation = Orientation.Vertical,
+            Padding = new Padding(8, 8, 8, 4),
+            Spacing = 4,
+            Items =
+            {
+                new Label { Text = "ZONE OUTPUT", TextColor = MutedText },
+                new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Items = { addButton, showTerrain, showZones }
+                }
+            }
         };
     }
 
-    private GroupBox CreateModifierCard(TerrainDefinition terrain, ModifierDefinition modifier)
+    private Panel CreateModifierCard(TerrainDefinition terrain, ModifierDefinition modifier)
     {
         bool collapsed = _collapsedModifiers.Contains(modifier.Id);
         var collapseLabel = new Label
         {
-            Text = collapsed ? "▸" : "▾",
+            Text = collapsed ? ">" : "v",
             VerticalAlignment = VerticalAlignment.Center,
             Width = 14
         };
@@ -630,68 +977,163 @@ public sealed class MoleHillPanel : Panel
 
         var capturedModifierId = modifier.Id;
         var capturedTerrainId = terrain.TerrainId;
+        string kind = GetModifierKind(modifier);
+        string typeLabel = GetModifierTypeLabel(modifier);
+        bool isPinnedBaseTriangulate = modifier is TriangulateModifierDefinition &&
+                                       terrain.Modifiers.Count > 0 &&
+                                       terrain.Modifiers[0].Id == modifier.Id;
 
-        var nameBox = new TextBox { Text = modifier.Label, Width = 120 };
+        var nameBox = new TextBox { Text = modifier.Label };
         ApplyHelp(nameBox, "Modifier label. Press Enter or click away to rename.");
         BindCommittedText(nameBox, () => modifier.Label, text =>
             MutateModifier(capturedTerrainId, capturedModifierId, item => item.Label = text, scheduleRebuild: false));
 
         var handle = CreateDragHandle();
-        ApplyHelp(handle, "Drag to reorder this modifier.");
-        handle.MouseDown += (_, e) =>
+        if (isPinnedBaseTriangulate)
         {
-            if (e.Buttons != MouseButtons.Primary) return;
-            var data = new DataObject();
-            data.SetString(capturedModifierId.ToString(), "modifier-drag");
-            handle.DoDragDrop(data, DragEffects.Move);
-        };
-
-        var header = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            Padding = new Padding(6, 3),
-            VerticalContentAlignment = VerticalAlignment.Center
-        };
-        header.Items.Add(new StackLayoutItem(handle));
-        header.Items.Add(new StackLayoutItem(collapseLabel));
-        header.Items.Add(new StackLayoutItem(enabledCheck));
-        if (collapsed)
-        {
-            header.Items.Add(new StackLayoutItem(new Label
-            {
-                Text = modifier.Label,
-                Font = new Font(SystemFont.Bold),
-                VerticalAlignment = VerticalAlignment.Center
-            }, expand: true));
+            handle.Enabled = false;
+            ApplyHelp(handle, "The base triangulate modifier stays at the bottom of the stack.");
         }
         else
         {
-            header.Items.Add(new StackLayoutItem(nameBox, expand: true));
+            ApplyHelp(handle, "Drag to reorder this modifier.");
+            handle.MouseDown += (_, e) =>
+            {
+                if (e.Buttons != MouseButtons.Primary) return;
+                var data = new DataObject();
+                data.SetString(capturedModifierId.ToString(), "modifier-drag");
+                handle.DoDragDrop(data, DragEffects.Move);
+            };
         }
+
+        var iconImage = PanelIcons.Load(GetModifierIconName(kind));
+        Control iconControl = iconImage != null
+            ? new ImageView { Image = iconImage, Size = new Size(16, 16) }
+            : new Label { Text = typeLabel[..1], VerticalAlignment = VerticalAlignment.Center };
+        var accent = ModifierTypeColor(kind);
+        var iconPlate = new Panel
+        {
+            BackgroundColor = new Color(accent.R, accent.G, accent.B, 0.20f),
+            Padding = new Padding(6, 4),
+            Content = iconControl
+        };
+
+        Control titleBlock;
         if (collapsed)
         {
-            header.Items.Add(new StackLayoutItem(new Label
+            titleBlock = new StackLayout
             {
-                Text = GetCollapsedSummary(modifier),
-                VerticalAlignment = VerticalAlignment.Center,
-                TextColor = SystemColors.DisabledText
+                Orientation = Orientation.Vertical,
+                Spacing = 1,
+                Items =
+                {
+                    new Label
+                    {
+                        Text = modifier.Label,
+                        Font = new Font(SystemFont.Bold),
+                        VerticalAlignment = VerticalAlignment.Center
+                    },
+                    new Label
+                    {
+                        Text = GetCollapsedSummary(modifier),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextColor = MutedText
+                    }
+                }
+            };
+        }
+        else
+        {
+            titleBlock = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 2,
+                Items =
+                {
+                    nameBox,
+                    new Label
+                    {
+                        Text = GetModifierSubtitle(modifier, isPinnedBaseTriangulate),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextColor = MutedText
+                    }
+                }
+            };
+        }
+
+        bool wrapActions = UseWrappedModifierActions();
+        var header = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = wrapActions ? 4 : 0,
+            Padding = new Padding(8, 6, 8, 6),
+            BackgroundColor = isPinnedBaseTriangulate ? BaseCardBackground : HeaderBackground
+        };
+
+        var headerTopRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        headerTopRow.Items.Add(new StackLayoutItem(handle));
+        headerTopRow.Items.Add(new StackLayoutItem(collapseLabel));
+        headerTopRow.Items.Add(new StackLayoutItem(iconPlate));
+        headerTopRow.Items.Add(new StackLayoutItem(enabledCheck));
+        headerTopRow.Items.Add(new StackLayoutItem(titleBlock, expand: true));
+
+        if (isPinnedBaseTriangulate)
+        {
+            headerTopRow.Items.Add(new StackLayoutItem(new Label
+            {
+                Text = "Pinned",
+                TextColor = accent,
+                VerticalAlignment = VerticalAlignment.Center
             }));
         }
-        header.Items.Add(new StackLayoutItem(MakeIconButton("↑", (_, _) => MoveModifier(capturedTerrainId, capturedModifierId, +1), "Move this modifier up in the stack.")));
-        header.Items.Add(new StackLayoutItem(MakeIconButton("↓", (_, _) => MoveModifier(capturedTerrainId, capturedModifierId, -1), "Move this modifier down in the stack.")));
-        header.Items.Add(new StackLayoutItem(MakeIconButton("Dup", (_, _) =>
+        else
         {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.DuplicateModifier(doc, capturedTerrainId, capturedModifierId);
-        }, "Duplicate this modifier.")));
-        header.Items.Add(new StackLayoutItem(MakeIconButton("🗑", (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.RemoveModifier(doc, capturedTerrainId, capturedModifierId);
-        }, "Delete this modifier.")));
+            var copyButton = MakeMiniButton("Copy", (_, _) =>
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                if (doc != null)
+                    _controller.DuplicateModifier(doc, capturedTerrainId, capturedModifierId);
+            }, "Duplicate this modifier.", width: 46);
+            var deleteButton = MakeMiniButton("Del", (_, _) =>
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                if (doc != null)
+                    _controller.RemoveModifier(doc, capturedTerrainId, capturedModifierId);
+            }, "Delete this modifier.", width: 38);
+
+            if (wrapActions)
+            {
+                header.Items.Add(new StackLayoutItem(headerTopRow, HorizontalAlignment.Stretch));
+                var actionRow = new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 4,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                    Items =
+                    {
+                        new StackLayoutItem(new Panel(), expand: true),
+                        copyButton,
+                        deleteButton
+                    }
+                };
+                header.Items.Add(new StackLayoutItem(actionRow, HorizontalAlignment.Stretch));
+            }
+            else
+            {
+                headerTopRow.Items.Add(new StackLayoutItem(copyButton));
+                headerTopRow.Items.Add(new StackLayoutItem(deleteButton));
+                header.Items.Add(new StackLayoutItem(headerTopRow, HorizontalAlignment.Stretch));
+            }
+        }
+        if (isPinnedBaseTriangulate)
+            header.Items.Add(new StackLayoutItem(headerTopRow, HorizontalAlignment.Stretch));
 
         header.MouseDown += (_, _) =>
         {
@@ -714,32 +1156,59 @@ public sealed class MoleHillPanel : Panel
         if (!collapsed)
             card.Items.Add(new StackLayoutItem(CreateModifierBody(terrain, modifier), HorizontalAlignment.Stretch));
 
-        return new GroupBox { Content = card };
+        return new Panel
+        {
+            BackgroundColor = isPinnedBaseTriangulate ? BaseCardBackground : CardBackground,
+            Content = card
+        };
     }
 
     private Control CreateModifierBody(TerrainDefinition terrain, ModifierDefinition modifier)
     {
-        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 4), Padding = new Padding(6, 4) };
+        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
 
         switch (modifier)
         {
             case TriangulateModifierDefinition triangulate:
                 layout.AddRow(CreateSourceEditor("Points", triangulate.Points,
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((TriangulateModifierDefinition)item).Points)),
-                    doc => _controller.GetSelectedPointObjectIds(doc),
+                    RhinoObjectType.Point | RhinoObjectType.PointSet,
                     doc => _controller.GetSelectedLayerPaths(doc)));
                 layout.AddRow(CreateSourceEditor("Breaklines", triangulate.Breaklines,
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((TriangulateModifierDefinition)item).Breaklines)),
-                    doc => _controller.GetSelectedCurveObjectIds(doc),
+                    RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
-                layout.AddRow(CreateNumericEditor("Tolerance", triangulate.Tolerance, value =>
-                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((TriangulateModifierDefinition)item).Tolerance = value),
-                    help: "Triangulation cleanup tolerance. Default 0 uses Rhino document tolerance. Very low keeps tiny detail; higher values merge near-duplicate points and gaps more aggressively."));
+                layout.AddRow(CreateSourceEditor("Contours", triangulate.Contours,
+                    apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((TriangulateModifierDefinition)item).Contours)),
+                    RhinoObjectType.Curve,
+                    doc => _controller.GetSelectedLayerPaths(doc)));
+                layout.AddRow(CreateSourceEditor("Boundary", triangulate.Boundary,
+                    apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((TriangulateModifierDefinition)item).Boundary)),
+                    RhinoObjectType.Curve,
+                    doc => _controller.GetSelectedLayerPaths(doc)));
+                break;
+            case AddGeometryModifierDefinition addGeometry:
+                layout.AddRow(CreateSourceEditor("Points", addGeometry.Points,
+                    apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((AddGeometryModifierDefinition)item).Points)),
+                    RhinoObjectType.Point | RhinoObjectType.PointSet,
+                    doc => _controller.GetSelectedLayerPaths(doc)));
+                layout.AddRow(CreateSourceEditor("Breaklines", addGeometry.Breaklines,
+                    apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((AddGeometryModifierDefinition)item).Breaklines)),
+                    RhinoObjectType.Curve,
+                    doc => _controller.GetSelectedLayerPaths(doc)));
+                layout.AddRow(CreateSourceEditor("Contours", addGeometry.Contours,
+                    apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((AddGeometryModifierDefinition)item).Contours)),
+                    RhinoObjectType.Curve,
+                    doc => _controller.GetSelectedLayerPaths(doc)));
+                layout.AddRow(CreateSourceEditor("Boundary", addGeometry.Boundary,
+                    apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((AddGeometryModifierDefinition)item).Boundary)),
+                    RhinoObjectType.Curve,
+                    doc => _controller.GetSelectedLayerPaths(doc)));
                 break;
             case RemeshModifierDefinition remesh:
                 layout.AddRow(CreateSourceEditor("Constraints", remesh.Constraints,
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((RemeshModifierDefinition)item).Constraints)),
-                    doc => _controller.GetSelectedCurveObjectIds(doc),
+                    RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
                 layout.AddRow(CreateNumericEditor("Edge Length", remesh.EdgeLength, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((RemeshModifierDefinition)item).EdgeLength = value),
@@ -754,11 +1223,11 @@ public sealed class MoleHillPanel : Panel
             case SmoothModifierDefinition smooth:
                 layout.AddRow(CreateSourceEditor("Boundaries", smooth.Boundaries,
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((SmoothModifierDefinition)item).Boundaries)),
-                    doc => _controller.GetSelectedCurveObjectIds(doc),
+                    RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
                 layout.AddRow(CreateSourceEditor("Breaklines", smooth.Breaklines,
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((SmoothModifierDefinition)item).Breaklines)),
-                    doc => _controller.GetSelectedCurveObjectIds(doc),
+                    RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
                 layout.AddRow(CreateNumericEditor("Iterations", smooth.Iterations, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((SmoothModifierDefinition)item).Iterations = (int)Math.Round(value)),
@@ -774,7 +1243,7 @@ public sealed class MoleHillPanel : Panel
             case RetainingWallModifierDefinition walls:
                 layout.AddRow(CreateSourceEditor("Wall Curves", walls.WallCurves,
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((RetainingWallModifierDefinition)item).WallCurves)),
-                    doc => _controller.GetSelectedCurveObjectIds(doc),
+                    RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
                 layout.AddRow(CreateLayerAssignmentEditor(
                     "Wall Layer",
@@ -788,11 +1257,11 @@ public sealed class MoleHillPanel : Panel
             case GradePadModifierDefinition gradePad:
                 layout.AddRow(CreateSourceEditor("Boundaries", gradePad.Boundaries,
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((GradePadModifierDefinition)item).Boundaries)),
-                    doc => _controller.GetSelectedCurveObjectIds(doc),
+                    RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
                 layout.AddRow(CreateSourceEditor("Lock Curves", gradePad.LockCurves,
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((GradePadModifierDefinition)item).LockCurves)),
-                    doc => _controller.GetSelectedCurveObjectIds(doc),
+                    RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
                 layout.AddRow(CreateNumericEditor("Slope Angle", gradePad.SlopeAngle, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).SlopeAngle = value),
@@ -810,7 +1279,7 @@ public sealed class MoleHillPanel : Panel
             case GradePathModifierDefinition gradePath:
                 layout.AddRow(CreateSourceEditor("Paths", gradePath.Paths,
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((GradePathModifierDefinition)item).Paths)),
-                    doc => _controller.GetSelectedCurveObjectIds(doc),
+                    RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
                 layout.AddRow(CreateNumericEditor("Width", gradePath.Width, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePathModifierDefinition)item).Width = value),
@@ -822,12 +1291,40 @@ public sealed class MoleHillPanel : Panel
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePathModifierDefinition)item).MaxDistance = value),
                     help: "Maximum grading reach away from the path. 0 means unlimited; lower values constrain the shoulder length."));
                 break;
+            case InSituStairModifierDefinition inSituStair:
+                layout.AddRow(CreateSourceEditor("Reference", inSituStair.ReferenceSurface,
+                    apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((InSituStairModifierDefinition)item).ReferenceSurface)),
+                    RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
+                    doc => _controller.GetSelectedLayerPaths(doc)));
+                layout.AddRow(CreateNumericEditor("Riser Height", inSituStair.RiserHeight, value =>
+                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((InSituStairModifierDefinition)item).RiserHeight = value),
+                    help: "Vertical rise per step. The stair modifier derives tread depth from the supplied walkable surface and this riser height."));
+                layout.AddRow(CreateNumericEditor("Slope Angle", inSituStair.SlopeAngle, value =>
+                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((InSituStairModifierDefinition)item).SlopeAngle = value),
+                    help: "Daylight slope angle where the graded support surface blends back into surrounding terrain."));
+                layout.AddRow(CreateNumericEditor("Max Distance", inSituStair.MaxDistance, value =>
+                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((InSituStairModifierDefinition)item).MaxDistance = value),
+                    help: "Maximum grading reach away from the stair footprint. 0 means unlimited."));
+                layout.AddRow(CreateCheckEditor(
+                    "Show Tread Labels",
+                    inSituStair.ShowTreadLabels,
+                    value => MutateModifier(terrain.TerrainId, modifier.Id, item => ((InSituStairModifierDefinition)item).ShowTreadLabels = value),
+                    "Show one viewport tread-depth label per interpreted stair surface."));
+                layout.AddRow(CreateReadOnlyValueRow(
+                    "Tread Depth",
+                    inSituStair.ComputedTreadDepthSummary ?? "(build to compute)",
+                    "Derived horizontal tread depth summary across the interpreted stair surfaces."));
+                layout.AddRow(CreateReadOnlyValueRow(
+                    "Step Count",
+                    inSituStair.ComputedStepCountSummary ?? "(build to compute)",
+                    "Generated tread-count summary across the interpreted stair surfaces."));
+                break;
         }
 
         return layout;
     }
 
-    private GroupBox CreateZoneGroup(TerrainDefinition terrain, CollageZoneDefinition zone)
+    private Panel CreateZoneGroup(TerrainDefinition terrain, CollageZoneDefinition zone)
     {
         var layout = new DynamicLayout { DefaultSpacing = new Size(4, 4), Padding = new Padding(6, 4) };
 
@@ -879,14 +1376,14 @@ public sealed class MoleHillPanel : Panel
             swatch,
             enabledCheck,
             nameBox,
-            MakeCompactButton("↑", (_, _) => MoveZone(capturedTerrainId, capturedZoneId, -1), "Move this zone earlier in the overlap order."),
-            MakeCompactButton("↓", (_, _) => MoveZone(capturedTerrainId, capturedZoneId, +1), "Move this zone later in the overlap order."),
-            MakeCompactButton("🗑", (_, _) => RemoveZone(capturedTerrainId, capturedZoneId), "Delete this zone."),
+            MakeMiniButton("Up", (_, _) => MoveZone(capturedTerrainId, capturedZoneId, -1), "Move this zone earlier in the overlap order.", width: 40),
+            MakeMiniButton("Down", (_, _) => MoveZone(capturedTerrainId, capturedZoneId, +1), "Move this zone later in the overlap order.", width: 52),
+            MakeMiniButton("Delete", (_, _) => RemoveZone(capturedTerrainId, capturedZoneId), "Delete this zone.", width: 58),
             null);
         layout.AddRow(CreateZoneLayerEditor(terrain, zone));
         layout.AddSeparateRow(useInputElevationCheck, null);
 
-        return new GroupBox { Text = string.Empty, Content = layout };
+        return layout;
     }
 
     private Control BuildMarkerAddButtons(TerrainDefinition terrain)
@@ -907,13 +1404,22 @@ public sealed class MoleHillPanel : Panel
 
         return new StackLayout
         {
-            Orientation = Orientation.Horizontal,
+            Orientation = Orientation.Vertical,
             Spacing = 4,
-            Padding = new Padding(6, 4),
+            Padding = new Padding(8, 8, 8, 4),
             Items =
             {
-                elevationButton,
-                slopeButton
+                new Label { Text = "MARKERS", TextColor = MutedText },
+                new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 4,
+                    Items =
+                    {
+                        elevationButton,
+                        slopeButton
+                    }
+                }
             }
         };
     }
@@ -926,18 +1432,19 @@ public sealed class MoleHillPanel : Panel
             MutateMarker(terrain.TerrainId, marker.Id, item => item.IsEnabled = enabledCheck.Checked == true);
 
         layout.AddSeparateRow(
+            new Label { Text = marker.Name, Font = new Font(SystemFont.Bold), VerticalAlignment = VerticalAlignment.Center },
             enabledCheck,
-            MakeCompactButton("🗑", (_, _) =>
+            MakeMiniButton("Delete", (_, _) =>
             {
                 var doc = RhinoDoc.ActiveDoc;
                 if (doc != null)
                     _controller.RemoveMarker(doc, terrain.TerrainId, marker.Id);
-            }),
+            }, width: 58),
             null);
 
         layout.AddRow(CreateSourceEditor("Sources", marker.Sources,
             apply => MutateMarker(terrain.TerrainId, marker.Id, item => apply(item.Sources)),
-            doc => _controller.GetSelectedPointObjectIds(doc).Concat(_controller.GetSelectedCurveObjectIds(doc)),
+            RhinoObjectType.Point | RhinoObjectType.PointSet | RhinoObjectType.Curve,
             doc => _controller.GetSelectedLayerPaths(doc)));
 
         switch (marker)
@@ -984,92 +1491,144 @@ public sealed class MoleHillPanel : Panel
         blockCheck.CheckedChanged += (_, _) => scaleRow.Enabled = blockCheck.Checked == true;
         layout.AddRow(scaleRow);
 
-        return new GroupBox { Text = marker.Name, Content = layout };
+        return layout;
     }
 
     private Control CreateSourceEditor(
         string label,
         SourceReferenceSet sourceSet,
         Action<Action<SourceReferenceSet>> mutateSourceSet,
-        Func<RhinoDoc, IEnumerable<Guid>> getObjectIds,
+        RhinoObjectType objectFilter,
         Func<RhinoDoc, IEnumerable<string>> getLayerPaths)
     {
-        var row = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 3,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Padding = new Padding(0, 1)
-        };
+        // ── Objects pill ──────────────────────────────────────────
+        var activeDoc = RhinoDoc.ActiveDoc;
+        var liveObjectIds = activeDoc == null
+            ? sourceSet.ObjectIds.Distinct().ToList()
+            : sourceSet.ObjectIds
+                .Where(id => activeDoc.Objects.FindId(id) != null)
+                .Distinct()
+                .ToList();
 
-        var titleLabel = new Label { Text = label, Width = 82, VerticalAlignment = VerticalAlignment.Center };
-        ApplyHelp(titleLabel, $"{label} accepts Rhino object picks and selected layers.");
-        row.Items.Add(titleLabel);
-
-        if (sourceSet.ObjectIds.Count > 0)
-        {
-            var badge = new Label
-            {
-                Text = $"{sourceSet.ObjectIds.Count} obj",
-                TextColor = Color.FromArgb(25, 118, 210),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            row.Items.Add(badge);
-        }
-
-        row.Items.Add(MakeCompactButton("Sel", (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                mutateSourceSet(set => set.ReplaceObjects(getObjectIds(doc)));
-        }, "Replace input with current Rhino selection."));
-
-        row.Items.Add(MakeCompactButton("✕Sel", (_, _) =>
+        string objText = liveObjectIds.Count == 0
+            ? "Add Objects"
+            : $"{liveObjectIds.Count} Object{(liveObjectIds.Count == 1 ? "" : "s")}";
+        var objectsPill = MakePillButton(objText,
+            $"Edit the {label.ToLowerInvariant()} object set. Press Enter to accept.");
+        objectsPill.Click += (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
                 return;
 
-            var ids = getObjectIds(doc).ToList();
-            mutateSourceSet(set => set.RemoveObjects(ids));
-        }, "Remove the current Rhino selection from this input."));
-
-        foreach (var layerPath in sourceSet.LayerPaths)
-        {
-            var capturedPath = layerPath;
-            var display = layerPath.Contains("::", StringComparison.Ordinal)
-                ? layerPath[(layerPath.LastIndexOf("::", StringComparison.Ordinal) + 2)..]
-                : layerPath;
-            var chip = new StackLayout
+            Application.Instance.AsyncInvoke(() =>
             {
-                Orientation = Orientation.Horizontal,
-                Spacing = 0,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                Items =
-                {
-                    new Label
-                    {
-                        Text = display,
-                        TextColor = Color.FromArgb(25, 118, 210),
-                        VerticalAlignment = VerticalAlignment.Center
-                    },
-                    MakeIconButton("×", (_, _) =>
-                        mutateSourceSet(set => set.RemoveLayer(capturedPath)),
-                        $"Remove layer '{capturedPath}' from this input.")
-                }
-            };
-            ApplyHelp(chip, $"Layer '{capturedPath}'.");
-            row.Items.Add(chip);
+                if (IsDisposed)
+                    return;
+
+                var selectedIds = _controller.EditSourceObjectIds(
+                    doc,
+                    sourceSet.ObjectIds,
+                    objectFilter,
+                    $"Adjust {label} selection. Press Enter to accept.");
+                if (selectedIds == null)
+                    return;
+
+                mutateSourceSet(set => set.ReplaceObjects(selectedIds));
+            });
+        };
+
+        var objectsRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = liveObjectIds.Count > 0 ? 0 : 4,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items = { new StackLayoutItem(objectsPill, expand: true) }
+        };
+        if (liveObjectIds.Count > 0)
+        {
+            objectsRow.Items.Add(MakeMiniButton("X", (_, _) =>
+                    mutateSourceSet(set => set.ReplaceObjects(Array.Empty<Guid>())),
+                "Clear all referenced objects.", width: 28));
         }
 
-        row.Items.Add(MakeCompactButton("Layers", (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                mutateSourceSet(set => set.ReplaceLayers(getLayerPaths(doc)));
-        }, "Replace layers with selected Rhino layers."));
+        // ── Layers pill ───────────────────────────────────────────
+        int lc = sourceSet.LayerPaths.Count;
+        string layText = lc == 0 ? "Assign Layers" : $"Layers ({lc})";
+        var layersPill = MakePillButton(layText, "Manage input layers.");
+        layersPill.Click += (_, _) => ShowLayerSourcePopover(
+            layersPill,
+            sourceSet.LayerPaths,
+            path => mutateSourceSet(set => set.AddLayer(path)),
+            path => mutateSourceSet(set => set.RemoveLayer(path)));
 
-        return row;
+        var layersClear = MakeMiniButton("Clear", (_, _) =>
+            mutateSourceSet(set => set.ReplaceLayers(Array.Empty<string>())),
+            "Clear all assigned layers.", width: 48);
+        var layersRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = lc > 0 ? 0 : 4,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items = { new StackLayoutItem(layersPill, expand: true) }
+        };
+        if (lc > 0)
+            layersRow.Items.Add(layersClear);
+
+        // ── Layout ────────────────────────────────────────────────
+        var titleLabel = new Label { Text = label, VerticalAlignment = VerticalAlignment.Center };
+        if (!UseStackedSourceEditors())
+            titleLabel.Width = PropertyLabelWidth;
+        ApplyHelp(titleLabel, $"{label} accepts Rhino object picks and layers.");
+
+        var pillsLayout = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 4,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 4,
+                    Items = { new StackLayoutItem(objectsRow, expand: true) }
+                },
+                new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 4,
+                    Items = { new StackLayoutItem(layersRow, expand: true) }
+                }
+            }
+        };
+
+        if (UseStackedSourceEditors())
+        {
+            return new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 4,
+                Padding = new Padding(0, 3),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    titleLabel,
+                    new StackLayoutItem(pillsLayout, expand: true)
+                }
+            };
+        }
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Padding = new Padding(0, 3),
+            Items = { titleLabel, new StackLayoutItem(pillsLayout, expand: true) }
+        };
     }
 
     private Control CreateNumericEditor(string label, double value, Action<double> onChanged, int decimalPlaces = 3, string? help = null)
@@ -1080,7 +1639,8 @@ public sealed class MoleHillPanel : Panel
             Value = value,
             DecimalPlaces = decimalPlaces,
             Increment = decimalPlaces == 0 ? 1 : 0.1,
-            MinValue = 0
+            MinValue = 0,
+            Width = 110
         };
         ApplyHelp(stepper, help);
         var timer = new UITimer { Interval = 0.25 };
@@ -1108,8 +1668,45 @@ public sealed class MoleHillPanel : Panel
             Spacing = 6,
             Items =
             {
-                CreateHelpLabel(label, help, 110),
+                CreateHelpLabel(label, help, NumericLabelWidth),
                 stepper
+            }
+        };
+    }
+
+    private Control CreateReadOnlyValueRow(string label, string value, string help)
+    {
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Items =
+            {
+                CreateHelpLabel(label, help, NumericLabelWidth),
+                new Label
+                {
+                    Text = value,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextColor = SystemColors.ControlText
+                }
+            }
+        };
+    }
+
+    private Control CreateCheckEditor(string label, bool value, Action<bool> onChanged, string help)
+    {
+        var checkBox = new CheckBox { Checked = value };
+        ApplyHelp(checkBox, help);
+        checkBox.CheckedChanged += (_, _) => onChanged(checkBox.Checked == true);
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Items =
+            {
+                CreateHelpLabel(label, help, NumericLabelWidth),
+                checkBox
             }
         };
     }
@@ -1130,7 +1727,7 @@ public sealed class MoleHillPanel : Panel
         var zoneLayerLabel = new Label
         {
             Text = "Layer",
-            Width = 82,
+            Width = PropertyLabelWidth,
             VerticalAlignment = VerticalAlignment.Center
         };
         ApplyHelp(zoneLayerLabel, "Zones are driven by Rhino layers. The baked output layer is generated automatically.");
@@ -1204,7 +1801,7 @@ public sealed class MoleHillPanel : Panel
             Padding = new Padding(0, 1)
         };
 
-        row.Items.Add(CreateHelpLabel(label, help, 82));
+        row.Items.Add(CreateHelpLabel(label, help, PropertyLabelWidth));
         var assignedLabel = new Label
         {
             Text = string.IsNullOrWhiteSpace(layerPath) ? "(default)" : layerPath,
@@ -1269,9 +1866,20 @@ public sealed class MoleHillPanel : Panel
         return button;
     }
 
+    private static Button MakeToolbarButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null, int width = 0)
+    {
+        var button = new Button { Text = text, Height = 26 };
+        if (width > 0)
+            button.Width = width;
+        if (!string.IsNullOrWhiteSpace(toolTip))
+            button.ToolTip = toolTip;
+        button.Click += onClick;
+        return button;
+    }
+
     private static Button MakeIconButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null)
     {
-        var button = new Button { Text = text, Width = 34, Height = 22 };
+        var button = new Button { Text = text, Width = 34, Height = HeaderActionHeight };
         if (!string.IsNullOrWhiteSpace(toolTip))
             button.ToolTip = toolTip;
         button.Click += onClick;
@@ -1280,16 +1888,57 @@ public sealed class MoleHillPanel : Panel
 
     private static Button MakeCompactButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null)
     {
-        var button = new Button { Text = text, Height = 22 };
+        var button = new Button { Text = text, Height = HeaderActionHeight };
         if (!string.IsNullOrWhiteSpace(toolTip))
             button.ToolTip = toolTip;
         button.Click += onClick;
         return button;
     }
 
+    private static Button MakeMiniButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null, int width = 46)
+    {
+        var button = new Button { Text = text, Width = width, Height = HeaderActionHeight };
+        if (!string.IsNullOrWhiteSpace(toolTip))
+            button.ToolTip = toolTip;
+        button.Click += onClick;
+        return button;
+    }
+
+    private static Button MakePillButton(string text, string? tooltip = null)
+    {
+        return new Button
+        {
+            Text = text,
+            Height = 22,
+            BackgroundColor = Color.FromArgb(55, 55, 55),
+            TextColor = Colors.White,
+            ToolTip = tooltip ?? string.Empty
+        };
+    }
+
+    private static Panel CreateToolbarGroup(params Control[] controls)
+    {
+        var row = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            VerticalContentAlignment = VerticalAlignment.Center
+        };
+
+        foreach (var control in controls)
+            row.Items.Add(control);
+
+        return new Panel
+        {
+            BackgroundColor = ToolbarGroupBackground,
+            Padding = new Padding(6, 6, 6, 6),
+            Content = row
+        };
+    }
+
     private Label CreateHelpLabel(string text, string help, int width)
     {
-        var label = new Label { Text = text, Width = width };
+        var label = new Label { Text = text, Width = width, VerticalAlignment = VerticalAlignment.Center };
         ApplyHelp(label, help);
         return label;
     }
@@ -1338,6 +1987,11 @@ public sealed class MoleHillPanel : Panel
         var doc = RhinoDoc.ActiveDoc;
         var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
         var text = terrain?.LastBuildMessage ?? "Create a terrain to start.";
+        SetStatusText(text);
+    }
+
+    private void SetStatusText(string text)
+    {
         _statusLabel.Text = text;
         _statusLabel.TextColor = GetStatusColor(text);
     }
@@ -1355,13 +2009,12 @@ public sealed class MoleHillPanel : Panel
 
     private void SetActionButtonsEnabled(bool enabled)
     {
-        _dupButton.Enabled      = enabled;
-        _bakeButton.Enabled     = enabled;
-        _deleteButton.Enabled   = enabled;
-        _rebuildButton.Enabled  = enabled;
-        _detachButton.Enabled   = enabled;
-        _visibilityButton.Enabled = enabled;
-        _lockButton.Enabled     = enabled;
+        _dupButton.Enabled             = enabled;
+        _deleteButton.Enabled          = enabled;
+        _rebuildButton.Enabled         = enabled;
+        _visibilityButton.Enabled      = enabled;
+        _lockButton.Enabled            = enabled;
+        _toleranceStepper.Enabled      = enabled;
     }
 
     private void MoveModifier(Guid terrainId, Guid modifierId, int direction)
@@ -1505,16 +2158,7 @@ public sealed class MoleHillPanel : Panel
 
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) return;
-            _controller.MutateTerrain(doc, terrainId, t =>
-            {
-                int fromIdx = t.Modifiers.FindIndex(m => m.Id == sourceId);
-                int toIdx   = t.Modifiers.FindIndex(m => m.Id == modifierId);
-                if (fromIdx < 0 || toIdx < 0 || fromIdx == toIdx) return;
-                var item = t.Modifiers[fromIdx];
-                t.Modifiers.RemoveAt(fromIdx);
-                if (fromIdx < toIdx) toIdx--;
-                t.Modifiers.Insert(toIdx, item);
-            });
+            _controller.MutateTerrain(doc, terrainId, t => MoveModifierToDisplaySeparator(t, sourceId, modifierId));
         };
     }
 
@@ -1547,25 +2191,34 @@ public sealed class MoleHillPanel : Panel
 
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) return;
-            _controller.MutateTerrain(doc, terrainId, t =>
-            {
-                int fromIdx = t.Modifiers.FindIndex(m => m.Id == sourceId);
-                if (fromIdx < 0) return;
-                var item = t.Modifiers[fromIdx];
-                t.Modifiers.RemoveAt(fromIdx);
-
-                if (insertBeforeId == Guid.Empty)
-                {
-                    // tail separator: move to beginning of array (bottom of reversed display)
-                    t.Modifiers.Insert(0, item);
-                }
-                else
-                {
-                    int toIdx = t.Modifiers.FindIndex(m => m.Id == insertBeforeId);
-                    t.Modifiers.Insert(toIdx >= 0 ? toIdx : t.Modifiers.Count, item);
-                }
-            });
+            _controller.MutateTerrain(doc, terrainId, t => MoveModifierToDisplaySeparator(t, sourceId, insertBeforeId));
         };
+    }
+
+    private static void MoveModifierToDisplaySeparator(TerrainDefinition terrain, Guid sourceId, Guid insertAboveId)
+    {
+        if (sourceId == insertAboveId)
+            return;
+
+        int fromIdx = terrain.Modifiers.FindIndex(modifier => modifier.Id == sourceId);
+        if (fromIdx < 0)
+            return;
+
+        var item = terrain.Modifiers[fromIdx];
+        terrain.Modifiers.RemoveAt(fromIdx);
+
+        if (insertAboveId == Guid.Empty)
+        {
+            // Tail separator = visual bottom. Display order is reversed, so model index 0 is the bottom card.
+            terrain.Modifiers.Insert(0, item);
+            return;
+        }
+
+        int anchorIdx = terrain.Modifiers.FindIndex(modifier => modifier.Id == insertAboveId);
+        int insertIdx = anchorIdx >= 0
+            ? Math.Min(anchorIdx + 1, terrain.Modifiers.Count)
+            : terrain.Modifiers.Count;
+        terrain.Modifiers.Insert(insertIdx, item);
     }
 
     // ── Drag-and-drop: zone cards ─────────────────────────────────────────
@@ -1687,23 +2340,66 @@ public sealed class MoleHillPanel : Panel
     private static Color ModifierTypeColor(string kind) => kind switch
     {
         "triangulate"    => Color.FromArgb(25, 118, 210),
+        "add-geometry"   => Color.FromArgb(2, 136, 209),
         "remesh"         => Color.FromArgb(56, 142, 60),
         "smooth"         => Color.FromArgb(123, 31, 162),
         "retaining-wall" => Color.FromArgb(230, 74, 25),
         "grade-pad"      => Color.FromArgb(245, 124, 0),
         "grade-path"     => Color.FromArgb(93, 64, 55),
+        "in-situ-stair"  => Color.FromArgb(0, 121, 107),
         _                => Color.FromArgb(120, 120, 120)
     };
 
     private static string GetModifierKind(ModifierDefinition modifier) => modifier switch
     {
         TriangulateModifierDefinition    => "triangulate",
+        AddGeometryModifierDefinition    => "add-geometry",
         RemeshModifierDefinition         => "remesh",
         SmoothModifierDefinition         => "smooth",
         RetainingWallModifierDefinition  => "retaining-wall",
         GradePadModifierDefinition       => "grade-pad",
         GradePathModifierDefinition      => "grade-path",
+        InSituStairModifierDefinition    => "in-situ-stair",
         _                                => string.Empty
+    };
+
+    private static string GetModifierTypeLabel(ModifierDefinition modifier) => modifier switch
+    {
+        TriangulateModifierDefinition    => "Triangulate",
+        AddGeometryModifierDefinition    => "Add Geometry",
+        RemeshModifierDefinition         => "Remesh",
+        SmoothModifierDefinition         => "Smooth",
+        RetainingWallModifierDefinition  => "Retaining Wall",
+        GradePadModifierDefinition       => "Grade Pad",
+        GradePathModifierDefinition      => "Grade Path",
+        InSituStairModifierDefinition    => "In-Situ Stair",
+        _                                => "Modifier"
+    };
+
+    private static string GetModifierIconName(string kind) => kind switch
+    {
+        "triangulate" => "ModTriangulate",
+        "add-geometry" => "ModAddGeometry",
+        "remesh" => "ModRemesh",
+        "smooth" => "ModSmooth",
+        "retaining-wall" => "ModRetainingWall",
+        "grade-pad" => "ModGradePad",
+        "grade-path" => "ModGradePath",
+        "in-situ-stair" => "ModGradePath",
+        _ => "ModTriangulate"
+    };
+
+    private static string GetModifierSubtitle(ModifierDefinition modifier, bool isPinnedBaseTriangulate) => modifier switch
+    {
+        TriangulateModifierDefinition => isPinnedBaseTriangulate ? "Base geometry" : "Terrain geometry",
+        AddGeometryModifierDefinition => "Adds geometry to the current mesh",
+        RemeshModifierDefinition => "Constraint-preserving remesh",
+        SmoothModifierDefinition => "Z-only smoothing",
+        RetainingWallModifierDefinition => "Hard wall breaklines",
+        GradePadModifierDefinition => "Pad and daylight grading",
+        GradePathModifierDefinition => "Path corridor grading",
+        InSituStairModifierDefinition => "Grades to a support surface and generates stair Breps",
+        _ => "Modifier"
     };
 
     private static string GetCollapsedSummary(ModifierDefinition modifier)
@@ -1713,25 +2409,37 @@ public sealed class MoleHillPanel : Panel
             case TriangulateModifierDefinition t:
                 int pts = t.Points.ObjectIds.Count + t.Points.LayerPaths.Count;
                 int bkl = t.Breaklines.ObjectIds.Count + t.Breaklines.LayerPaths.Count;
-                return $"{pts} pts · {bkl} bklines";
+                int ctr = t.Contours.ObjectIds.Count + t.Contours.LayerPaths.Count;
+                return $"{pts} pts | {bkl} breaks | {ctr} contours";
+            case AddGeometryModifierDefinition a:
+                int addPts = a.Points.ObjectIds.Count + a.Points.LayerPaths.Count;
+                int addBkl = a.Breaklines.ObjectIds.Count + a.Breaklines.LayerPaths.Count;
+                int addCtr = a.Contours.ObjectIds.Count + a.Contours.LayerPaths.Count;
+                return $"{addPts} pts | {addBkl} breaks | {addCtr} contours";
             case RemeshModifierDefinition r:
                 if (r.EdgeLength == 0 && r.MaxArea == 0 && r.MinAngle == 0)
                     return "(defaults)";
                 var parts = new System.Collections.Generic.List<string>();
                 if (r.EdgeLength > 0) parts.Add($"MaxLen: {r.EdgeLength:G4}");
-                if (r.MinAngle > 0)   parts.Add($"MinAngle: {r.MinAngle:G4}°");
-                return parts.Count > 0 ? string.Join(" · ", parts) : "(defaults)";
+                if (r.MaxArea > 0) parts.Add($"MaxArea: {r.MaxArea:G4}");
+                if (r.MinAngle > 0) parts.Add($"MinAngle: {r.MinAngle:G4} deg");
+                return parts.Count > 0 ? string.Join(" | ", parts) : "(defaults)";
             case SmoothModifierDefinition s:
-                return $"{s.Iterations} iter · Str {s.Strength:G3}";
+                return $"{s.Iterations} iter | Str {s.Strength:G3}";
             case GradePadModifierDefinition p:
                 int bounds = p.Boundaries.ObjectIds.Count + p.Boundaries.LayerPaths.Count;
-                return $"{bounds} boundaries · Slope {p.SlopeAngle:G4}°";
+                return $"{bounds} boundaries | Slope {p.SlopeAngle:G4} deg";
             case GradePathModifierDefinition path:
                 int paths = path.Paths.ObjectIds.Count + path.Paths.LayerPaths.Count;
-                return $"{paths} paths · W={path.Width:G4}";
+                return $"{paths} paths | W={path.Width:G4}";
             case RetainingWallModifierDefinition w:
                 int curves = w.WallCurves.ObjectIds.Count + w.WallCurves.LayerPaths.Count;
                 return $"{curves} curves";
+            case InSituStairModifierDefinition stair:
+                int refs = stair.ReferenceSurface.ObjectIds.Count + stair.ReferenceSurface.LayerPaths.Count;
+                return !string.IsNullOrWhiteSpace(stair.ComputedTreadDepthSummary)
+                    ? $"{stair.ComputedSurfaceCount ?? refs} surf | Tread {stair.ComputedTreadDepthSummary}"
+                    : $"{refs} refs | Riser {stair.RiserHeight:G4}";
             default:
                 return string.Empty;
         }
@@ -1776,6 +2484,16 @@ public sealed class MoleHillPanel : Panel
             };
             menu.Items.Add(item);
         }
+        if (doc != null && _controller.GetSelectedTerrain(doc) != null)
+        {
+            menu.Items.AddSeparator();
+            var bakeItem = new ButtonMenuItem { Text = "Bake to document" };
+            bakeItem.Click += OnBakeTerrain;
+            menu.Items.Add(bakeItem);
+            var detachItem = new ButtonMenuItem { Text = "Detach from sources" };
+            detachItem.Click += OnConvertTerrain;
+            menu.Items.Add(detachItem);
+        }
         menu.Show(anchor);
     }
 
@@ -1800,9 +2518,119 @@ public sealed class MoleHillPanel : Panel
 
     private Button MakeLayerPickerButton(Action<string?> onPick, string toolTip = "Browse layers")
     {
-        var btn = new Button { Text = "▾", Width = 26 };
+        Button? btn = null;
+        btn = MakeMiniButton("Browse", (_, _) => ShowLayerPickerMenu(btn!, onPick), toolTip, width: 62);
         btn.ToolTip = toolTip;
-        btn.Click += (_, _) => ShowLayerPickerMenu(btn, onPick);
         return btn;
     }
+
+    private void ShowLayerSourcePopover(
+        Button anchor,
+        IReadOnlyList<string> currentLayerPaths,
+        Action<string> onAddLayer,
+        Action<string> onRemoveLayer)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null) return;
+
+        var popup = new Form
+        {
+            ShowInTaskbar = false,
+            Resizable = false,
+            Minimizable = false,
+            Maximizable = false,
+            Title = string.Empty,
+            Size = new Size(280, 320),
+            Owner = RhinoEtoApp.MainWindowForDocument(doc)
+        };
+        popup.UseRhinoStyle();
+
+        // ── Selected layers ───────────────────────────────────────
+        var selectedStack = new StackLayout { Orientation = Orientation.Vertical, Spacing = 2 };
+        foreach (var path in currentLayerPaths)
+        {
+            var capturedPath = path;
+            var rhinoLayer = doc.Layers.FirstOrDefault(l => !l.IsDeleted &&
+                string.Equals(l.FullPath, path, StringComparison.OrdinalIgnoreCase));
+            var dotColor = rhinoLayer != null ? ToEtoColor(rhinoLayer.Color) : Color.FromArgb(80, 80, 80);
+            var dot = new Panel { Width = 10, Height = 10, BackgroundColor = dotColor };
+            var nameLabel = new Label { Text = GetLeafLayerName(path), VerticalAlignment = VerticalAlignment.Center };
+            var removeBtn = new Button { Text = "Remove", Width = 62, Height = 20 };
+            removeBtn.Click += (_, _) => { onRemoveLayer(capturedPath); popup.Close(); };
+            var row = new StackLayout
+            {
+                Orientation = Orientation.Horizontal, Spacing = 4,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Padding = new Padding(6, 2),
+                Items = { dot, new StackLayoutItem(nameLabel, expand: true), removeBtn }
+            };
+            selectedStack.Items.Add(new StackLayoutItem(row, HorizontalAlignment.Stretch));
+        }
+
+        // ── Search box ────────────────────────────────────────────
+        var searchBox = new TextBox { PlaceholderText = "Find an option..." };
+
+        // ── Available layers ──────────────────────────────────────
+        var availableStack = new StackLayout { Orientation = Orientation.Vertical, Spacing = 2 };
+        var currentSet = new HashSet<string>(currentLayerPaths, StringComparer.OrdinalIgnoreCase);
+        var availableEntries = new List<(StackLayout row, string path)>();
+        foreach (var layer in doc.Layers)
+        {
+            if (layer.IsDeleted || currentSet.Contains(layer.FullPath))
+                continue;
+            var capturedPath = layer.FullPath;
+            var dot = new Panel { Width = 10, Height = 10, BackgroundColor = ToEtoColor(layer.Color) };
+            var nameLabel = new Label { Text = layer.FullPath, VerticalAlignment = VerticalAlignment.Center };
+            var row = new StackLayout
+            {
+                Orientation = Orientation.Horizontal, Spacing = 4,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Padding = new Padding(6, 3),
+                Items = { dot, new StackLayoutItem(nameLabel, expand: true) }
+            };
+            row.MouseDown += (_, e) =>
+            {
+                if (e.Buttons != MouseButtons.Primary) return;
+                onAddLayer(capturedPath);
+                popup.Close();
+            };
+            availableStack.Items.Add(new StackLayoutItem(row, HorizontalAlignment.Stretch));
+            availableEntries.Add((row, capturedPath));
+        }
+
+        searchBox.TextChanged += (_, _) =>
+        {
+            var q = searchBox.Text ?? string.Empty;
+            foreach (var (row, path) in availableEntries)
+                row.Visible = string.IsNullOrEmpty(q) || path.Contains(q, StringComparison.OrdinalIgnoreCase);
+        };
+        searchBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Keys.Escape) popup.Close();
+        };
+
+        // ── Popup layout ──────────────────────────────────────────
+        var innerLayout = new DynamicLayout { DefaultSpacing = new Size(0, 0), Padding = new Padding(0) };
+        if (selectedStack.Items.Count > 0)
+        {
+            innerLayout.Add(selectedStack, yscale: false);
+            innerLayout.Add(new Panel { Height = 1, BackgroundColor = SystemColors.ControlBackground }, yscale: false);
+        }
+        innerLayout.Add(new Panel { Content = searchBox, Padding = new Padding(4) }, yscale: false);
+        innerLayout.Add(new Scrollable
+        {
+            Content = availableStack,
+            Border = BorderType.None,
+            ExpandContentWidth = true,
+            ExpandContentHeight = false
+        }, yscale: true);
+
+        popup.Content = innerLayout;
+
+        var pt = anchor.PointToScreen(new PointF(0, anchor.Height));
+        popup.Location = new Point((int)pt.X, (int)pt.Y);
+        popup.Show();
+    }
+
+    private static Color ToEtoColor(System.Drawing.Color c) => Color.FromArgb(c.R, c.G, c.B);
 }

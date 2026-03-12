@@ -28,9 +28,7 @@ internal static class RhinoGeometryConversions
                 result.Faces[i * 3 + 2]);
         }
 
-        mesh.Normals.ComputeNormals();
-        mesh.UnifyNormals();
-        mesh.Compact();
+        NormalizeMeshInPlace(mesh);
         return mesh;
     }
 
@@ -40,25 +38,28 @@ internal static class RhinoGeometryConversions
         vertices = Array.Empty<double>();
         faces = Array.Empty<int>();
 
-        if (mesh.Faces.Count == 0)
+        var normalized = mesh.DuplicateMesh();
+        NormalizeMeshInPlace(normalized);
+
+        if (normalized.Faces.Count == 0)
         {
             errorMessage = "Mesh has no faces.";
             return false;
         }
 
-        vertices = new double[mesh.Vertices.Count * 3];
-        for (int i = 0; i < mesh.Vertices.Count; i++)
+        vertices = new double[normalized.Vertices.Count * 3];
+        for (int i = 0; i < normalized.Vertices.Count; i++)
         {
-            var pt = mesh.Vertices[i];
+            var pt = normalized.Vertices[i];
             vertices[i * 3] = pt.X;
             vertices[i * 3 + 1] = pt.Y;
             vertices[i * 3 + 2] = pt.Z;
         }
 
-        faces = new int[mesh.Faces.Count * 3];
-        for (int i = 0; i < mesh.Faces.Count; i++)
+        faces = new int[normalized.Faces.Count * 3];
+        for (int i = 0; i < normalized.Faces.Count; i++)
         {
-            var face = mesh.Faces[i];
+            var face = normalized.Faces[i];
             if (face.IsQuad)
             {
                 errorMessage = "Only triangle meshes are supported.";
@@ -95,9 +96,7 @@ internal static class RhinoGeometryConversions
                 faces[i * 3 + 2]);
         }
 
-        mesh.Normals.ComputeNormals();
-        mesh.UnifyNormals();
-        mesh.Compact();
+        NormalizeMeshInPlace(mesh);
         return mesh;
     }
 
@@ -137,10 +136,19 @@ internal static class RhinoGeometryConversions
                 remap[result.Faces[faceIndex * 3 + 2]]);
         }
 
+        NormalizeMeshInPlace(mesh);
+        return mesh;
+    }
+
+    internal static void NormalizeMeshInPlace(Mesh mesh)
+    {
+        mesh.Faces.ConvertQuadsToTriangles();
+        mesh.Vertices.CombineIdentical(true, true);
+        mesh.Vertices.CullUnused();
+        mesh.Faces.CullDegenerateFaces();
         mesh.Normals.ComputeNormals();
         mesh.UnifyNormals();
         mesh.Compact();
-        return mesh;
     }
 
 }

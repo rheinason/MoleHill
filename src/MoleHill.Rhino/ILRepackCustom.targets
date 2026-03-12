@@ -1,0 +1,24 @@
+<Project>
+  <Target Name="MergeAssemblies" AfterTargets="Build" DependsOnTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <InputAssemblies Include="$(OutputPath)$(TargetName)$(TargetExt)" />
+      <InputAssemblies Include="$(OutputPath)MoleHill.Core.dll" />
+      <InputAssemblies Include="$(OutputPath)TriangleNet.dll" />
+      <!-- Collect reference assemblies needed for type resolution during merge -->
+      <_ILRepackRefs Include="@(ReferencePath)" Condition="'%(Filename)' == 'RhinoCommon'" />
+    </ItemGroup>
+
+    <!-- Copy RhinoCommon alongside the primary assembly so Mono.Cecil can resolve Rhino types -->
+    <Copy SourceFiles="@(_ILRepackRefs)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+
+    <ILRepack
+      Parallel="true"
+      DebugInfo="true"
+      AllowDuplicateResources="false"
+      InputAssemblies="@(InputAssemblies)"
+      TargetKind="SameAsPrimaryAssembly"
+      OutputFile="$(OutputPath)$(TargetName)$(TargetExt)" />
+
+    <Delete Files="$(OutputPath)MoleHill.Core.dll;$(OutputPath)TriangleNet.dll;$(OutputPath)MoleHill.Core.pdb;$(OutputPath)TriangleNet.pdb;$(OutputPath)TriangleNet.xml;$(OutputPath)RhinoCommon.dll" ContinueOnError="true" />
+  </Target>
+</Project>

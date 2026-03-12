@@ -5,7 +5,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 7;
+    private const int DocumentSchemaVersion = 10;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -45,6 +45,8 @@ internal static class TerrainSerializer
             terrain.ZoneObjectIds ??= new List<Guid>();
             terrain.AuxiliaryObjectIds ??= new List<Guid>();
             terrain.MarkerObjectIds ??= new List<Guid>();
+            PromoteLegacyTolerance(terrain);
+            PromoteDisplaySettings(terrain);
             MigrateZones(terrain);
             terrain.EnsureBaseModifier();
             terrain.SchemaVersion = TerrainDefinition.CurrentSchemaVersion;
@@ -93,6 +95,24 @@ internal static class TerrainSerializer
 
         if (migrated)
             terrain.SchemaVersion = TerrainDefinition.CurrentSchemaVersion;
+    }
+
+    private static void PromoteLegacyTolerance(TerrainDefinition terrain)
+    {
+        if (terrain.GlobalTolerance > 0)
+            return;
+
+        var triangulate = terrain.Modifiers.OfType<TriangulateModifierDefinition>().FirstOrDefault();
+        if (triangulate == null || triangulate.Tolerance <= 0)
+            return;
+
+        terrain.GlobalTolerance = triangulate.Tolerance;
+        triangulate.Tolerance = 0;
+    }
+
+    private static void PromoteDisplaySettings(TerrainDefinition terrain)
+    {
+        terrain.OutputTransparencyPercent = Math.Clamp(terrain.OutputTransparencyPercent, 0, 100);
     }
 
     private static CollageZoneDefinition CloneZone(CollageZoneDefinition zone)

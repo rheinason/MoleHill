@@ -3,7 +3,6 @@
     <TargetFramework>net7.0</TargetFramework>
     <RootNamespace>MoleHill.Rhino</RootNamespace>
     <AssemblyName>MoleHill.Rhino</AssemblyName>
-    <TriangleNetProjectPath>..\TriangleNet\TriangleNet.csproj</TriangleNetProjectPath>
     <MoleHillCoreProjectPath>..\MoleHill.Core\MoleHill.Core.csproj</MoleHillCoreProjectPath>
     <Version>0.4.0</Version>
     <Title>MoleHill Rhino</Title>
@@ -30,10 +29,6 @@
       <HintPath>..\MoleHill.Core\bin\$(Configuration)\net7.0\MoleHill.Core.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="TriangleNet">
-      <HintPath>..\TriangleNet\bin\$(Configuration)\net7.0\TriangleNet.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
     <Reference Include="System.Drawing.Common">
       <HintPath>C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\7.0.20\ref\net7.0\System.Drawing.Common.dll</HintPath>
       <Private>false</Private>
@@ -45,12 +40,15 @@
     <EmbeddedResource Include="Resources\*.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\MoleHill.Shared\InSituStairReferenceBuilder.cs" Link="Shared\InSituStairReferenceBuilder.cs" />
+  </ItemGroup>
+
   <Target Name="BuildLocalDependencies" BeforeTargets="ResolveReferences">
-    <MakeDir Directories="..\TriangleNet\obj\$(Configuration)\net7.0;..\TriangleNet\bin\$(Configuration)\net7.0;..\MoleHill.Core\obj\$(Configuration)\net7.0;..\MoleHill.Core\bin\$(Configuration)\net7.0" />
-    <MSBuild Projects="$(TriangleNetProjectPath);$(MoleHillCoreProjectPath)"
+    <MakeDir Directories="..\MoleHill.Core\obj\$(Configuration)\net7.0;..\MoleHill.Core\bin\$(Configuration)\net7.0" />
+    <MSBuild Projects="$(MoleHillCoreProjectPath)"
              Targets="Build"
              BuildInParallel="false"
              Properties="Configuration=$(Configuration)" />
   </Target>
 </Project>
-

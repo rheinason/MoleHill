@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Text.Json;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Core.Processing;
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.Geometry;
 using TriangleNet.Meshing;
@@ -13,6 +15,8 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed class TerrainBuildService
 {
+    private const int StageTimingDiagnosticThresholdMs = 250;
+
     private sealed class ZoneBoundaryEntry
     {
         public required CollageZoneDefinition Zone { get; init; }
@@ -28,35 +32,134 @@ internal sealed class TerrainBuildService
         public string? InputLayerPath { get; init; }
     }
 
-    public TerrainBuildResult Build(RhinoDoc doc, TerrainDefinition terrain)
+    private sealed class ResolvedGradePadInputs
     {
+        public required PadGrader.PadBoundary[] Pads { get; init; }
+
+        public required PadGrader.LockCurve[] Locks { get; init; }
+
+        public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
+    }
+
+    public TerrainBuildResult Build(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache)
+    {
+        var totalTimer = Stopwatch.StartNew();
         var build = new TerrainBuildResult();
+        var usedStageKeys = new HashSet<string>(StringComparer.Ordinal);
         RhinoMesh? currentMesh = null;
         RhinoMesh? baseMesh = null;
+        ulong currentMeshFingerprint = 0;
+        ulong baseMeshFingerprint = 0;
 
-        foreach (var modifier in terrain.Modifiers.Where(mod => mod.IsEnabled))
+        foreach (var indexedModifier in terrain.Modifiers.Select((modifier, index) => (modifier, index)).Where(item => item.modifier.IsEnabled))
         {
+            ModifierDefinition modifier = indexedModifier.modifier;
+            string stageKey = CreateModifierStageKey(indexedModifier.index, modifier);
+            usedStageKeys.Add(stageKey);
+
             switch (modifier)
             {
                 case TriangulateModifierDefinition triangulate:
-                    currentMesh = BuildTinMesh(doc, triangulate, build);
+                    currentMesh = BuildTinMesh(doc, terrain, triangulate, build, runtimeCache, stageKey, out currentMeshFingerprint);
                     if (currentMesh != null && baseMesh == null)
+                    {
                         baseMesh = currentMesh.DuplicateMesh();
+                        baseMeshFingerprint = ComputeMeshFingerprint(baseMesh);
+                    }
+                    break;
+                case AddGeometryModifierDefinition addGeometry:
+                    currentMesh = ExecuteCachedMeshStage(
+                        build,
+                        runtimeCache,
+                        stageKey,
+                        "Add Geometry",
+                        ComputeModifierStageFingerprint(doc, terrain, addGeometry, currentMeshFingerprint),
+                        () => currentMesh == null ? WarnMissingMesh(build, addGeometry.Label) : ApplyAddGeometry(doc, terrain, currentMesh, addGeometry, build, runtimeCache),
+                        result => DescribeModifierMeshResult(addGeometry.Label, result),
+                        out currentMeshFingerprint);
                     break;
                 case RemeshModifierDefinition remesh:
-                    currentMesh = currentMesh == null ? WarnMissingMesh(build, remesh.Label) : ApplyRemesh(doc, currentMesh, remesh, build);
+                    currentMesh = ExecuteCachedMeshStage(
+                        build,
+                        runtimeCache,
+                        stageKey,
+                        "Remesh",
+                        ComputeModifierStageFingerprint(doc, terrain, remesh, currentMeshFingerprint),
+                        () => currentMesh == null ? WarnMissingMesh(build, remesh.Label) : ApplyRemesh(doc, terrain, currentMesh, remesh, build),
+                        result => DescribeModifierMeshResult(remesh.Label, result),
+                        out currentMeshFingerprint);
                     break;
                 case SmoothModifierDefinition smooth:
-                    currentMesh = currentMesh == null ? WarnMissingMesh(build, smooth.Label) : ApplySmooth(doc, currentMesh, smooth, build);
+                    currentMesh = ExecuteCachedMeshStage(
+                        build,
+                        runtimeCache,
+                        stageKey,
+                        "Smooth",
+                        ComputeModifierStageFingerprint(doc, terrain, smooth, currentMeshFingerprint),
+                        () => currentMesh == null ? WarnMissingMesh(build, smooth.Label) : ApplySmooth(doc, terrain, currentMesh, smooth, build),
+                        result => DescribeModifierMeshResult(smooth.Label, result),
+                        out currentMeshFingerprint);
                     break;
                 case RetainingWallModifierDefinition retainingWall:
-                    currentMesh = currentMesh == null ? WarnMissingMesh(build, retainingWall.Label) : ApplyRetainingWalls(doc, currentMesh, retainingWall, build);
+                    currentMesh = ExecuteCachedMeshStage(
+                        build,
+                        runtimeCache,
+                        stageKey,
+                        "Retaining Wall",
+                        ComputeModifierStageFingerprint(doc, terrain, retainingWall, currentMeshFingerprint),
+                        () => currentMesh == null ? WarnMissingMesh(build, retainingWall.Label) : ApplyRetainingWalls(doc, terrain, currentMesh, retainingWall, build),
+                        result => DescribeModifierMeshResult(retainingWall.Label, result),
+                        out currentMeshFingerprint);
                     break;
                 case GradePadModifierDefinition gradePad:
-                    currentMesh = currentMesh == null ? WarnMissingMesh(build, gradePad.Label) : ApplyGradePad(doc, currentMesh, gradePad, build);
+                    usedStageKeys.Add(CreateGradePadTopologyStageKey(stageKey));
+                    currentMesh = BuildGradePadMesh(
+                        doc,
+                        terrain,
+                        gradePad,
+                        build,
+                        runtimeCache,
+                        stageKey,
+                        currentMesh,
+                        currentMeshFingerprint,
+                        out currentMeshFingerprint);
                     break;
                 case GradePathModifierDefinition gradePath:
-                    currentMesh = currentMesh == null ? WarnMissingMesh(build, gradePath.Label) : ApplyGradePath(doc, currentMesh, gradePath, build);
+                    currentMesh = ExecuteCachedMeshStage(
+                        build,
+                        runtimeCache,
+                        stageKey,
+                        "Grade Path",
+                        ComputeModifierStageFingerprint(doc, terrain, gradePath, currentMeshFingerprint),
+                        () => currentMesh == null ? WarnMissingMesh(build, gradePath.Label) : ApplyGradePath(doc, terrain, currentMesh, gradePath, build),
+                        result => DescribeModifierMeshResult(gradePath.Label, result),
+                        out currentMeshFingerprint);
+                    break;
+                case InSituStairModifierDefinition inSituStair:
+                    currentMesh = ExecuteCachedMeshStage(
+                        build,
+                        runtimeCache,
+                        stageKey,
+                        "In-Situ Stair",
+                        ComputeModifierStageFingerprint(doc, terrain, inSituStair, currentMeshFingerprint),
+                        () => currentMesh == null ? WarnMissingMesh(build, inSituStair.Label) : ApplyInSituStair(doc, terrain, currentMesh, inSituStair, build),
+                        result => DescribeModifierMeshResult(inSituStair.Label, result),
+                        out currentMeshFingerprint);
+                    if (runtimeCache.StageEntries.TryGetValue(stageKey, out var stairStageEntry))
+                    {
+                        if (!string.IsNullOrWhiteSpace(inSituStair.ComputedTreadDepthSummary))
+                        {
+                            stairStageEntry.StairSurfaceCount = inSituStair.ComputedSurfaceCount;
+                            stairStageEntry.StairTreadDepthSummary = inSituStair.ComputedTreadDepthSummary;
+                            stairStageEntry.StairStepCountSummary = inSituStair.ComputedStepCountSummary;
+                        }
+                        else if (!string.IsNullOrWhiteSpace(stairStageEntry.StairTreadDepthSummary))
+                        {
+                            inSituStair.ComputedSurfaceCount = stairStageEntry.StairSurfaceCount;
+                            inSituStair.ComputedTreadDepthSummary = stairStageEntry.StairTreadDepthSummary;
+                            inSituStair.ComputedStepCountSummary = stairStageEntry.StairStepCountSummary;
+                        }
+                    }
                     break;
             }
         }
@@ -64,12 +167,264 @@ internal sealed class TerrainBuildService
         build.PrimaryMesh = currentMesh;
         if (currentMesh != null)
         {
-            build.Analysis = BuildAnalysis(doc, terrain, baseMesh ?? currentMesh, currentMesh);
-            BuildTerrainZones(doc, currentMesh, terrain, build);
-            BuildMarkers(doc, terrain, currentMesh, build);
+            RhinoMesh analysisMesh = currentMesh;
+            RhinoMesh baselineMesh = baseMesh ?? analysisMesh;
+            string analysisStageKey = "analysis";
+            usedStageKeys.Add(analysisStageKey);
+            build.Analysis = ExecuteCachedAnalysisStage(
+                build,
+                runtimeCache,
+                analysisStageKey,
+                ComputeAnalysisFingerprint(doc, terrain, baselineMesh, analysisMesh, baseMeshFingerprint, currentMeshFingerprint),
+                () => BuildAnalysis(doc, terrain, baselineMesh, analysisMesh),
+                _ => DescribeMesh(analysisMesh));
+
+            string zonesStageKey = "zones";
+            usedStageKeys.Add(zonesStageKey);
+            ExecuteCachedZonesStage(
+                build,
+                runtimeCache,
+                zonesStageKey,
+                ComputeZonesFingerprint(doc, terrain, analysisMesh, build.PersistentHardConstraints, currentMeshFingerprint),
+                () => BuildTerrainZones(doc, analysisMesh, terrain, build),
+                () => $"{build.ZoneObjects.Count:N0} zone outputs");
+
+            string markersStageKey = "markers";
+            usedStageKeys.Add(markersStageKey);
+            ExecuteCachedMarkersStage(
+                build,
+                runtimeCache,
+                markersStageKey,
+                ComputeMarkersFingerprint(doc, terrain, analysisMesh, currentMeshFingerprint),
+                () => BuildMarkers(doc, terrain, analysisMesh, build),
+                () => $"{build.MarkerObjects.Count:N0} marker outputs");
         }
 
+        runtimeCache.PruneUnused(usedStageKeys);
+        totalTimer.Stop();
+        build.RecordTiming("Build pipeline", totalTimer.Elapsed, DescribeBuildOutputs(build));
         return build;
+    }
+
+    private static RhinoMesh? ExecuteCachedMeshStage(
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey,
+        string stageName,
+        ulong stageFingerprint,
+        Func<RhinoMesh?> action,
+        Func<RhinoMesh?, string?> detailFactory,
+        out ulong outputFingerprint)
+    {
+        var timer = Stopwatch.StartNew();
+        if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
+            cachedEntry.PreResolutionFingerprint == stageFingerprint)
+        {
+            RhinoMesh? cachedMesh = RestoreCachedMeshStage(build, cachedEntry, out outputFingerprint);
+            timer.Stop();
+            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory(cachedMesh)));
+            return cachedMesh;
+        }
+
+        int diagnosticsStart = build.Diagnostics.Count;
+        int auxiliaryStart = build.AuxiliaryObjects.Count;
+        RhinoMesh? result = action();
+
+        return StoreMeshStageCache(
+            build,
+            runtimeCache,
+            stageKey,
+            stageName,
+            stageFingerprint,
+            stageFingerprint,
+            result,
+            build.PersistentHardConstraints,
+            build.AuxiliaryObjects.Skip(auxiliaryStart),
+            build.Diagnostics.Skip(diagnosticsStart),
+            detailFactory(result),
+            timer,
+            out outputFingerprint);
+    }
+
+    private static TerrainAnalysisSummary? ExecuteCachedAnalysisStage(
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey,
+        ulong stageFingerprint,
+        Func<TerrainAnalysisSummary?> action,
+        Func<TerrainAnalysisSummary?, string?> detailFactory)
+    {
+        const string stageName = "Analysis";
+        var timer = Stopwatch.StartNew();
+        if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
+            cachedEntry.PreResolutionFingerprint == stageFingerprint)
+        {
+            build.Diagnostics.AddRange(cachedEntry.Diagnostics);
+            TerrainAnalysisSummary? cachedAnalysis = TerrainRuntimeCacheCloner.CloneAnalysis(cachedEntry.AnalysisOutput);
+            timer.Stop();
+            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory(cachedAnalysis)));
+            return cachedAnalysis;
+        }
+
+        int diagnosticsStart = build.Diagnostics.Count;
+        TerrainAnalysisSummary? analysis = action();
+        timer.Stop();
+
+        runtimeCache.StageEntries[stageKey] = new StageCacheEntry
+        {
+            StageName = stageName,
+            PreResolutionFingerprint = stageFingerprint,
+            ResolvedInputFingerprint = stageFingerprint,
+            OutputFingerprint = stageFingerprint,
+            AnalysisOutput = TerrainRuntimeCacheCloner.CloneAnalysis(analysis),
+            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList()
+        };
+
+        build.RecordTiming(stageName, timer.Elapsed, detailFactory(analysis));
+        return analysis;
+    }
+
+    private static void ExecuteCachedZonesStage(
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey,
+        ulong stageFingerprint,
+        Action action,
+        Func<string?> detailFactory)
+    {
+        const string stageName = "Zones";
+        var timer = Stopwatch.StartNew();
+        if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
+            cachedEntry.PreResolutionFingerprint == stageFingerprint)
+        {
+            build.Diagnostics.AddRange(cachedEntry.Diagnostics);
+            build.ZoneObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.ZoneObjects));
+            timer.Stop();
+            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
+            return;
+        }
+
+        int diagnosticsStart = build.Diagnostics.Count;
+        int zoneStart = build.ZoneObjects.Count;
+        action();
+        timer.Stop();
+
+        runtimeCache.StageEntries[stageKey] = new StageCacheEntry
+        {
+            StageName = stageName,
+            PreResolutionFingerprint = stageFingerprint,
+            ResolvedInputFingerprint = stageFingerprint,
+            OutputFingerprint = stageFingerprint,
+            ZoneObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.ZoneObjects.Skip(zoneStart)),
+            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList()
+        };
+
+        build.RecordTiming(stageName, timer.Elapsed, detailFactory());
+    }
+
+    private static void ExecuteCachedMarkersStage(
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey,
+        ulong stageFingerprint,
+        Action action,
+        Func<string?> detailFactory)
+    {
+        const string stageName = "Markers";
+        var timer = Stopwatch.StartNew();
+        if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
+            cachedEntry.PreResolutionFingerprint == stageFingerprint)
+        {
+            build.Diagnostics.AddRange(cachedEntry.Diagnostics);
+            build.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.MarkerObjects));
+            timer.Stop();
+            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
+            return;
+        }
+
+        int diagnosticsStart = build.Diagnostics.Count;
+        int markerStart = build.MarkerObjects.Count;
+        action();
+        timer.Stop();
+
+        runtimeCache.StageEntries[stageKey] = new StageCacheEntry
+        {
+            StageName = stageName,
+            PreResolutionFingerprint = stageFingerprint,
+            ResolvedInputFingerprint = stageFingerprint,
+            OutputFingerprint = stageFingerprint,
+            MarkerObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.MarkerObjects.Skip(markerStart)),
+            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList()
+        };
+
+        build.RecordTiming(stageName, timer.Elapsed, detailFactory());
+    }
+
+    private static RhinoMesh? RestoreCachedMeshStage(TerrainBuildResult build, StageCacheEntry cachedEntry, out ulong outputFingerprint)
+    {
+        build.Diagnostics.AddRange(cachedEntry.Diagnostics);
+        build.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.AuxiliaryObjects));
+        build.PersistentHardConstraints.Clear();
+        build.PersistentHardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(cachedEntry.PersistentHardConstraints));
+        outputFingerprint = cachedEntry.OutputFingerprint;
+        return TerrainRuntimeCacheCloner.CloneMesh(cachedEntry.MeshOutput);
+    }
+
+    private static RhinoMesh? StoreMeshStageCache(
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey,
+        string stageName,
+        ulong preResolutionFingerprint,
+        ulong resolvedInputFingerprint,
+        RhinoMesh? mesh,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints,
+        IEnumerable<GeneratedRhinoObject> auxiliaryObjects,
+        IEnumerable<string> diagnostics,
+        string? detail,
+        Stopwatch timer,
+        out ulong outputFingerprint)
+    {
+        timer.Stop();
+        outputFingerprint = ComputeMeshStageOutputFingerprint(mesh, persistentHardConstraints);
+        runtimeCache.StageEntries[stageKey] = new StageCacheEntry
+        {
+            StageName = stageName,
+            PreResolutionFingerprint = preResolutionFingerprint,
+            ResolvedInputFingerprint = resolvedInputFingerprint,
+            OutputFingerprint = outputFingerprint,
+            MeshOutput = TerrainRuntimeCacheCloner.CloneMesh(mesh),
+            AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(auxiliaryObjects),
+            PersistentHardConstraints = TerrainRuntimeCacheCloner.CloneConstraints(persistentHardConstraints),
+            Diagnostics = diagnostics.ToList()
+        };
+
+        build.RecordTiming(stageName, timer.Elapsed, detail);
+        return mesh;
+    }
+
+    private static StageCacheEntry CloneStageCacheEntry(
+        StageCacheEntry source,
+        ulong preResolutionFingerprint,
+        ulong resolvedInputFingerprint)
+    {
+        return new StageCacheEntry
+        {
+            StageName = source.StageName,
+            PreResolutionFingerprint = preResolutionFingerprint,
+            ResolvedInputFingerprint = resolvedInputFingerprint,
+            OutputFingerprint = source.OutputFingerprint,
+            MeshOutput = source.MeshOutput,
+            AnalysisOutput = source.AnalysisOutput,
+            ZoneObjects = source.ZoneObjects,
+            AuxiliaryObjects = source.AuxiliaryObjects,
+            MarkerObjects = source.MarkerObjects,
+            PersistentHardConstraints = source.PersistentHardConstraints,
+            Diagnostics = source.Diagnostics,
+            StairSurfaceCount = source.StairSurfaceCount,
+            StairTreadDepthSummary = source.StairTreadDepthSummary,
+            StairStepCountSummary = source.StairStepCountSummary
+        };
     }
 
     private static RhinoMesh? WarnMissingMesh(TerrainBuildResult build, string modifierLabel)
@@ -78,20 +433,62 @@ internal sealed class TerrainBuildService
         return null;
     }
 
-    private static RhinoMesh? BuildTinMesh(RhinoDoc doc, TriangulateModifierDefinition modifier, TerrainBuildResult build)
+    private static double GetTerrainTolerance(RhinoDoc doc, TerrainDefinition terrain)
     {
-        var points = RhinoSourceResolver.ResolvePoints(doc, modifier.Points);
-        var curves = RhinoSourceResolver.ResolveCurves(doc, modifier.Breaklines);
+        return terrain.GlobalTolerance > 0
+            ? terrain.GlobalTolerance
+            : doc.ModelAbsoluteTolerance;
+    }
 
-        if (points.Count == 0 && curves.Count == 0)
+    private static RhinoMesh? BuildTinMesh(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        TriangulateModifierDefinition modifier,
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey,
+        out ulong outputFingerprint)
+    {
+        const string stageName = "Triangulate";
+        var timer = Stopwatch.StartNew();
+        ulong preResolutionFingerprint = ComputeTriangulatePreResolutionFingerprint(doc, terrain, modifier);
+        if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
+            cachedEntry.PreResolutionFingerprint == preResolutionFingerprint)
         {
-            build.Diagnostics.Add("Triangulate has no point or breakline sources.");
-            return null;
+            RhinoMesh? cachedMesh = RestoreCachedMeshStage(build, cachedEntry, out outputFingerprint);
+            timer.Stop();
+            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(DescribeModifierMeshResult(modifier.Label, cachedMesh)));
+            return cachedMesh;
+        }
+
+        int diagnosticsStart = build.Diagnostics.Count;
+        var points = RhinoSourceResolver.ResolvePoints(doc, modifier.Points);
+        var breaklineCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Breaklines);
+        var contourCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Contours);
+        var boundaryCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Boundary);
+
+        if (points.Count == 0 && breaklineCurves.Count == 0 && contourCurves.Count == 0)
+        {
+            build.Diagnostics.Add("Triangulate has no point, contour, or breakline sources.");
+            return StoreMeshStageCache(
+                build,
+                runtimeCache,
+                stageKey,
+                stageName,
+                preResolutionFingerprint,
+                0,
+                null,
+                build.PersistentHardConstraints,
+                Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart),
+                DescribeModifierMeshResult(modifier.Label, null),
+                timer,
+                out outputFingerprint);
         }
 
         double tolerance = modifier.Tolerance > 0
             ? modifier.Tolerance
-            : doc.ModelAbsoluteTolerance;
+            : GetTerrainTolerance(doc, terrain);
 
         var spotXyz = new double[points.Count * 3];
         for (int i = 0; i < points.Count; i++)
@@ -101,29 +498,59 @@ internal sealed class TerrainBuildService
             spotXyz[i * 3 + 2] = points[i].Z;
         }
 
-        var polylines = new List<double[]>();
-        foreach (var curve in curves)
-        {
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
-                continue;
+        var persistentHardConstraints = CreateConstraintPolylines(
+            breaklineCurves,
+            tolerance,
+            preserveInputElevation: true);
 
-            var flat = new double[polyline.Count * 3];
-            for (int i = 0; i < polyline.Count; i++)
-            {
-                flat[i * 3] = polyline[i].X;
-                flat[i * 3 + 1] = polyline[i].Y;
-                flat[i * 3 + 2] = polyline[i].Z;
-            }
-
-            polylines.Add(flat);
-        }
+        var polylines = CreateFlatPolylines(breaklineCurves, tolerance);
+        polylines.AddRange(CreateFlatPolylines(contourCurves, tolerance));
+        var boundaryPolylines = CreateBoundaryPolylines(boundaryCurves, tolerance);
 
         var breaklineData = BreaklineDiscretizer.Process(polylines);
         var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, tolerance);
+        ulong resolvedInputFingerprint = ComputeTriangulateResolvedInputFingerprint(
+            terrain,
+            modifier,
+            tolerance,
+            merged.XyCoords,
+            merged.ZValues,
+            merged.Segments,
+            persistentHardConstraints,
+            boundaryPolylines);
+
+        if (cachedEntry != null &&
+            cachedEntry.ResolvedInputFingerprint == resolvedInputFingerprint)
+        {
+            StageCacheEntry refreshedEntry = CloneStageCacheEntry(
+                cachedEntry,
+                preResolutionFingerprint,
+                resolvedInputFingerprint);
+            runtimeCache.StageEntries[stageKey] = refreshedEntry;
+
+            RhinoMesh? resolvedCachedMesh = RestoreCachedMeshStage(build, refreshedEntry, out outputFingerprint);
+            timer.Stop();
+            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(DescribeModifierMeshResult(modifier.Label, resolvedCachedMesh)));
+            return resolvedCachedMesh;
+        }
+
         if (merged.VertexCount < 3)
         {
             build.Diagnostics.Add("Triangulate needs at least three unique points after deduplication.");
-            return null;
+            return StoreMeshStageCache(
+                build,
+                runtimeCache,
+                stageKey,
+                stageName,
+                preResolutionFingerprint,
+                resolvedInputFingerprint,
+                null,
+                build.PersistentHardConstraints,
+                Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart),
+                DescribeModifierMeshResult(modifier.Label, null),
+                timer,
+                out outputFingerprint);
         }
 
         if (merged.InvalidsSkipped > 0)
@@ -135,12 +562,30 @@ internal sealed class TerrainBuildService
             merged.XyCoords,
             merged.ZValues,
             merged.Segments,
+            boundaryPolylines,
+            tolerance,
+            runtimeCache.TinEngine,
             out var exactMesh,
             out var exactMessage))
         {
+            build.PersistentHardConstraints.Clear();
+            build.PersistentHardConstraints.AddRange(persistentHardConstraints);
             if (!string.IsNullOrWhiteSpace(exactMessage))
                 build.Diagnostics.Add(exactMessage);
-            return exactMesh;
+            return StoreMeshStageCache(
+                build,
+                runtimeCache,
+                stageKey,
+                stageName,
+                preResolutionFingerprint,
+                resolvedInputFingerprint,
+                exactMesh,
+                build.PersistentHardConstraints,
+                Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart),
+                DescribeModifierMeshResult(modifier.Label, exactMesh),
+                timer,
+                out outputFingerprint);
         }
 
         var cleanup = TinInputCleaner.Clean(merged, tolerance);
@@ -148,20 +593,49 @@ internal sealed class TerrainBuildService
         {
             build.Diagnostics.Add(exactMessage ?? "Triangulation failed.");
             build.Diagnostics.Add($"Automatic input cleanup made no safe changes: {cleanup.ToDiagnosticSummary()}.");
-            return null;
+            return StoreMeshStageCache(
+                build,
+                runtimeCache,
+                stageKey,
+                stageName,
+                preResolutionFingerprint,
+                resolvedInputFingerprint,
+                null,
+                build.PersistentHardConstraints,
+                Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart),
+                DescribeModifierMeshResult(modifier.Label, null),
+                timer,
+                out outputFingerprint);
         }
 
         if (cleanup.VertexCount < 3)
         {
             build.Diagnostics.Add(exactMessage ?? "Triangulation failed.");
             build.Diagnostics.Add($"Automatic input cleanup reduced the dataset below three usable vertices: {cleanup.ToDiagnosticSummary()}.");
-            return null;
+            return StoreMeshStageCache(
+                build,
+                runtimeCache,
+                stageKey,
+                stageName,
+                preResolutionFingerprint,
+                resolvedInputFingerprint,
+                null,
+                build.PersistentHardConstraints,
+                Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart),
+                DescribeModifierMeshResult(modifier.Label, null),
+                timer,
+                out outputFingerprint);
         }
 
         if (!TryBuildValidatedTinMesh(
             cleanup.XyCoords,
             cleanup.ZValues,
             cleanup.Segments,
+            boundaryPolylines,
+            tolerance,
+            runtimeCache.TinEngine,
             out var cleanedMesh,
             out var cleanupMessage))
         {
@@ -169,30 +643,198 @@ internal sealed class TerrainBuildService
             build.Diagnostics.Add($"Automatic input cleanup retry failed: {cleanup.ToDiagnosticSummary()}.");
             if (!string.IsNullOrWhiteSpace(cleanupMessage))
                 build.Diagnostics.Add(cleanupMessage);
-            return null;
+            return StoreMeshStageCache(
+                build,
+                runtimeCache,
+                stageKey,
+                stageName,
+                preResolutionFingerprint,
+                resolvedInputFingerprint,
+                null,
+                build.PersistentHardConstraints,
+                Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart),
+                DescribeModifierMeshResult(modifier.Label, null),
+                timer,
+                out outputFingerprint);
         }
 
+        build.PersistentHardConstraints.Clear();
+        build.PersistentHardConstraints.AddRange(persistentHardConstraints);
         build.Diagnostics.Add($"Automatic input cleanup retry succeeded: {cleanup.ToDiagnosticSummary()}.");
         if (!string.IsNullOrWhiteSpace(cleanupMessage))
             build.Diagnostics.Add(cleanupMessage);
-        return cleanedMesh;
+        return StoreMeshStageCache(
+            build,
+            runtimeCache,
+            stageKey,
+            stageName,
+            preResolutionFingerprint,
+            resolvedInputFingerprint,
+            cleanedMesh,
+            build.PersistentHardConstraints,
+            Array.Empty<GeneratedRhinoObject>(),
+            build.Diagnostics.Skip(diagnosticsStart),
+            DescribeModifierMeshResult(modifier.Label, cleanedMesh),
+            timer,
+            out outputFingerprint);
+    }
+
+    private static RhinoMesh ApplyAddGeometry(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        RhinoMesh mesh,
+        AddGeometryModifierDefinition modifier,
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache)
+    {
+        var points = RhinoSourceResolver.ResolvePoints(doc, modifier.Points);
+        var breaklineCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Breaklines);
+        var contourCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Contours);
+        var boundaryCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Boundary);
+
+        if (points.Count == 0 && breaklineCurves.Count == 0 && contourCurves.Count == 0 && boundaryCurves.Count == 0)
+        {
+            build.Diagnostics.Add("Add Geometry has no sources.");
+            return mesh.DuplicateMesh();
+        }
+
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var meshVertices, out _, out var errorMessage))
+        {
+            build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for add geometry.");
+            return mesh;
+        }
+
+        double tolerance = modifier.Tolerance > 0
+            ? modifier.Tolerance
+            : GetTerrainTolerance(doc, terrain);
+
+        int existingPointCount = meshVertices.Length / 3;
+        var spotXyz = new double[(existingPointCount + points.Count) * 3];
+        Array.Copy(meshVertices, spotXyz, meshVertices.Length);
+        for (int i = 0; i < points.Count; i++)
+        {
+            int targetIndex = (existingPointCount + i) * 3;
+            spotXyz[targetIndex] = points[i].X;
+            spotXyz[targetIndex + 1] = points[i].Y;
+            spotXyz[targetIndex + 2] = points[i].Z;
+        }
+
+        var newHardConstraints = CreateConstraintPolylines(
+            breaklineCurves,
+            tolerance,
+            preserveInputElevation: true);
+        var persistentHardConstraints = CombineConstraints(build.PersistentHardConstraints, newHardConstraints);
+
+        var polylines = CreateFlatPolylines(build.PersistentHardConstraints);
+        polylines.AddRange(CreateFlatPolylines(breaklineCurves, tolerance));
+        polylines.AddRange(CreateFlatPolylines(contourCurves, tolerance));
+
+        var boundaryPolylines = CombineBoundaryPolylines(
+            CreateBoundaryPolylines(mesh, tolerance),
+            CreateBoundaryPolylines(boundaryCurves, tolerance));
+
+        var breaklineData = BreaklineDiscretizer.Process(polylines);
+        var merged = PointCloudProcessor.Merge(spotXyz, existingPointCount + points.Count, breaklineData, tolerance);
+        if (merged.VertexCount < 3)
+        {
+            build.Diagnostics.Add("Add Geometry needs at least three unique points after deduplication.");
+            return mesh;
+        }
+
+        if (merged.InvalidsSkipped > 0)
+            build.Diagnostics.Add($"{merged.InvalidsSkipped} invalid points skipped during add geometry.");
+        if (merged.DuplicatesRemoved > 0)
+            build.Diagnostics.Add($"{merged.DuplicatesRemoved} duplicate points merged during add geometry.");
+
+        if (TryBuildValidatedTinMesh(
+            merged.XyCoords,
+            merged.ZValues,
+            merged.Segments,
+            boundaryPolylines,
+            tolerance,
+            runtimeCache.TinEngine,
+            out var exactMesh,
+            out var exactMessage))
+        {
+            build.PersistentHardConstraints.Clear();
+            build.PersistentHardConstraints.AddRange(persistentHardConstraints);
+            if (!string.IsNullOrWhiteSpace(exactMessage))
+                build.Diagnostics.Add(exactMessage);
+            return exactMesh!;
+        }
+
+        var cleanup = TinInputCleaner.Clean(merged, tolerance);
+        if (!cleanup.HasChanges)
+        {
+            build.Diagnostics.Add(exactMessage ?? "Add Geometry failed.");
+            build.Diagnostics.Add($"Automatic input cleanup made no safe changes: {cleanup.ToDiagnosticSummary()}.");
+            return mesh;
+        }
+
+        if (cleanup.VertexCount < 3)
+        {
+            build.Diagnostics.Add(exactMessage ?? "Add Geometry failed.");
+            build.Diagnostics.Add($"Automatic input cleanup reduced the dataset below three usable vertices: {cleanup.ToDiagnosticSummary()}.");
+            return mesh;
+        }
+
+        if (!TryBuildValidatedTinMesh(
+            cleanup.XyCoords,
+            cleanup.ZValues,
+            cleanup.Segments,
+            boundaryPolylines,
+            tolerance,
+            runtimeCache.TinEngine,
+            out var cleanedMesh,
+            out var cleanupMessage))
+        {
+            build.Diagnostics.Add(exactMessage ?? "Add Geometry failed.");
+            build.Diagnostics.Add($"Automatic input cleanup retry failed: {cleanup.ToDiagnosticSummary()}.");
+            if (!string.IsNullOrWhiteSpace(cleanupMessage))
+                build.Diagnostics.Add(cleanupMessage);
+            return mesh;
+        }
+
+        build.PersistentHardConstraints.Clear();
+        build.PersistentHardConstraints.AddRange(persistentHardConstraints);
+        build.Diagnostics.Add($"Automatic input cleanup retry succeeded: {cleanup.ToDiagnosticSummary()}.");
+        if (!string.IsNullOrWhiteSpace(cleanupMessage))
+            build.Diagnostics.Add(cleanupMessage);
+        return cleanedMesh!;
     }
 
     private static bool TryBuildValidatedTinMesh(
         double[] xyCoords,
         double[] zValues,
         int[] segments,
+        TinBoundaryPreparer.BoundaryPolyline[] boundaryPolylines,
+        double tolerance,
+        TinEngine engine,
         out RhinoMesh? mesh,
         out string? message)
     {
         mesh = null;
 
-        var result = new TinEngine().Build(
+        var prepared = TinBoundaryPreparer.Prepare(
             xyCoords,
             zValues,
             segments,
+            boundaryPolylines,
+            tolerance);
+
+        var result = engine.Build(
+            prepared.XyCoords,
+            prepared.ZValues,
+            prepared.Segments,
             QualitySettings.None,
-            out message);
+            out message,
+            useConvexHull: prepared.UseConvexHull);
+
+        if (!string.IsNullOrWhiteSpace(prepared.WarningMessage))
+            message = AppendBuildMessage(message, prepared.WarningMessage);
+        if (!string.IsNullOrWhiteSpace(prepared.InfoMessage))
+            message = AppendBuildMessage(message, prepared.InfoMessage);
 
         if (result == null)
             return false;
@@ -222,21 +864,36 @@ internal sealed class TerrainBuildService
         return true;
     }
 
-    private static RhinoMesh ApplyRemesh(RhinoDoc doc, RhinoMesh mesh, RemeshModifierDefinition modifier, TerrainBuildResult build)
+    private static RhinoMesh ApplyRemesh(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh mesh, RemeshModifierDefinition modifier, TerrainBuildResult build)
     {
-        var constraintCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Constraints);
+        double tolerance = GetTerrainTolerance(doc, terrain);
+        var localConstraints = CreateConstraintPolylines(
+            RhinoSourceResolver.ResolveCurves(doc, modifier.Constraints),
+            tolerance,
+            preserveInputElevation: false);
 
-        double maxArea = modifier.MaxArea;
-        if (modifier.EdgeLength > 0 && maxArea <= 0)
-            maxArea = modifier.EdgeLength * modifier.EdgeLength * Math.Sqrt(3.0) / 4.0;
-
-        if (maxArea <= 0 && modifier.MinAngle <= 0)
+        if (modifier.EdgeLength <= 0 && modifier.MaxArea <= 0 && modifier.MinAngle <= 0 && localConstraints.Count == 0)
             return mesh.DuplicateMesh();
 
-        return RemeshWithConstraintCurves(doc, mesh, constraintCurves, maxArea, modifier.MinAngle, "Remesh", build, preserveCurveElevation: false);
+        var constraints = CombineConstraints(build.PersistentHardConstraints, localConstraints);
+        var remeshed = RebuildMeshWithConstraints(
+            doc,
+            terrain,
+            mesh,
+            constraints,
+            modifier.EdgeLength,
+            modifier.MaxArea,
+            modifier.MinAngle,
+            "Remesh",
+            build);
+
+        if (!ReferenceEquals(remeshed, mesh) && localConstraints.Count > 0)
+            build.PersistentHardConstraints.AddRange(localConstraints);
+
+        return remeshed;
     }
 
-    private static RhinoMesh ApplySmooth(RhinoDoc doc, RhinoMesh mesh, SmoothModifierDefinition modifier, TerrainBuildResult build)
+    private static RhinoMesh ApplySmooth(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh mesh, SmoothModifierDefinition modifier, TerrainBuildResult build)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
         {
@@ -244,7 +901,7 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
-        double tolerance = doc.ModelAbsoluteTolerance;
+        double tolerance = GetTerrainTolerance(doc, terrain);
         double effectiveStrength = Math.Clamp(modifier.Strength, 0.0, 1.0);
         var boundaries = new List<(double[] xyVerts, int vertCount, double strength)>();
         foreach (var curve in RhinoSourceResolver.ResolveCurves(doc, modifier.Boundaries))
@@ -333,6 +990,7 @@ internal sealed class TerrainBuildService
         }
 
         var entries = new List<ZoneBoundaryEntry>();
+        double tolerance = GetTerrainTolerance(doc, terrain);
         var resolveTimer = Stopwatch.StartNew();
         for (int zoneIndex = 0; zoneIndex < terrain.Zones.Count; zoneIndex++)
         {
@@ -340,7 +998,7 @@ internal sealed class TerrainBuildService
             if (!zone.IsEnabled)
                 continue;
 
-            var zoneEntries = ResolveZoneBoundaries(doc, zone, zoneIndex);
+            var zoneEntries = ResolveZoneBoundaries(doc, zone, zoneIndex, tolerance);
             if (zone.Boundaries.HasReferences && zoneEntries.Count == 0)
             {
                 build.Diagnostics.Add($"Zone '{zone.Name}' has no valid closed curves or horizontal planar surfaces.");
@@ -366,6 +1024,8 @@ internal sealed class TerrainBuildService
             faces,
             mesh.Faces.Count,
             boundaries,
+            build.PersistentHardConstraints,
+            tolerance,
             0,
             0,
             out var splitWarning);
@@ -407,17 +1067,16 @@ internal sealed class TerrainBuildService
         outputTimer.Stop();
         totalTimer.Stop();
 
-        if (totalTimer.ElapsedMilliseconds >= 1000)
-        {
-            build.Diagnostics.Add(
-                $"Zones: {entries.Count} boundaries over {mesh.Faces.Count:N0} source faces in {totalTimer.Elapsed.TotalSeconds:0.##} s " +
-                $"(resolve {resolveTimer.Elapsed.TotalSeconds:0.##} s, split {splitTimer.Elapsed.TotalSeconds:0.##} s, output {outputTimer.Elapsed.TotalSeconds:0.##} s).");
-        }
+        build.RecordTiming(
+            "Zones",
+            totalTimer.Elapsed,
+            $"{entries.Count} boundaries over {mesh.Faces.Count:N0} source faces; resolve {resolveTimer.Elapsed.TotalSeconds:0.##} s, split {splitTimer.Elapsed.TotalSeconds:0.##} s, output {outputTimer.Elapsed.TotalSeconds:0.##} s",
+            StageTimingDiagnosticThresholdMs);
     }
 
-    private static RhinoMesh ApplyRetainingWalls(RhinoDoc doc, RhinoMesh mesh, RetainingWallModifierDefinition modifier, TerrainBuildResult build)
+    private static RhinoMesh ApplyRetainingWalls(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh mesh, RetainingWallModifierDefinition modifier, TerrainBuildResult build)
     {
-        double wallTolerance = Math.Max(doc.ModelAbsoluteTolerance, modifier.Tolerance);
+        double wallTolerance = Math.Max(GetTerrainTolerance(doc, terrain), modifier.Tolerance);
         var wallCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.WallCurves);
         if (wallCurves.Count == 0)
         {
@@ -429,7 +1088,7 @@ internal sealed class TerrainBuildService
         foreach (var entry in plan.Report)
             build.Diagnostics.Add(entry.ToString());
 
-        var constraintCurves = new List<Curve>(plan.Walls.Count * 2);
+        var wallConstraints = new List<SurfaceRemesher.ConstraintPolyline>(plan.Walls.Count * 2);
         foreach (var wall in plan.Walls)
         {
             if (!IsWallStripUsable(wall.Strip, doc.ModelAbsoluteTolerance, out var stripMessage))
@@ -448,82 +1107,268 @@ internal sealed class TerrainBuildService
                 });
             }
 
-            AddWallConstraintCurves(constraintCurves, wall.Strip);
+            AddWallConstraintCurves(wallConstraints, wall.Strip);
         }
 
-        if (constraintCurves.Count == 0)
+        if (wallConstraints.Count == 0)
         {
             build.Diagnostics.Add("Retaining Wall has no usable wall pairs to insert as breaklines.");
             return mesh;
         }
 
-        return RemeshWithConstraintCurves(doc, mesh, constraintCurves, 0.0, 0.0, "Retaining Wall", build, preserveCurveElevation: true);
+        var remeshed = RebuildMeshWithConstraints(
+            doc,
+            terrain,
+            mesh,
+            CombineConstraints(build.PersistentHardConstraints, wallConstraints),
+            0.0,
+            0.0,
+            0.0,
+            "Retaining Wall",
+            build);
+
+        if (!ReferenceEquals(remeshed, mesh))
+            build.PersistentHardConstraints.AddRange(wallConstraints);
+
+        return remeshed;
     }
 
-    private static RhinoMesh ApplyGradePad(RhinoDoc doc, RhinoMesh mesh, GradePadModifierDefinition modifier, TerrainBuildResult build)
+    private static RhinoMesh? BuildGradePadMesh(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        GradePadModifierDefinition modifier,
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey,
+        RhinoMesh? mesh,
+        ulong upstreamFingerprint,
+        out ulong outputFingerprint)
     {
+        const string stageName = "Grade Pad";
+        string topologyStageKey = CreateGradePadTopologyStageKey(stageKey);
+        var timer = Stopwatch.StartNew();
+        ulong preResolutionFingerprint = ComputeModifierStageFingerprint(doc, terrain, modifier, upstreamFingerprint);
+
+        if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
+            cachedEntry.PreResolutionFingerprint == preResolutionFingerprint)
+        {
+            RhinoMesh? cachedMesh = RestoreCachedMeshStage(build, cachedEntry, out outputFingerprint);
+            timer.Stop();
+            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(DescribeModifierMeshResult(modifier.Label, cachedMesh)));
+            return cachedMesh;
+        }
+
+        int diagnosticsStart = build.Diagnostics.Count;
+        if (mesh == null)
+        {
+            WarnMissingMesh(build, modifier.Label);
+            return StoreMeshStageCache(
+                build,
+                runtimeCache,
+                stageKey,
+                stageName,
+                preResolutionFingerprint,
+                0,
+                null,
+                build.PersistentHardConstraints,
+                Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart),
+                DescribeModifierMeshResult(modifier.Label, null),
+                timer,
+                out outputFingerprint);
+        }
+
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for grade pad.");
-            return mesh;
+            return StoreMeshStageCache(
+                build,
+                runtimeCache,
+                stageKey,
+                stageName,
+                preResolutionFingerprint,
+                preResolutionFingerprint,
+                mesh,
+                build.PersistentHardConstraints,
+                Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart),
+                DescribeModifierMeshResult(modifier.Label, mesh),
+                timer,
+                out outputFingerprint);
         }
 
-        double tolerance = doc.ModelAbsoluteTolerance;
-        var pads = new List<PadGrader.PadBoundary>();
-        foreach (var curve in RhinoSourceResolver.ResolveCurves(doc, modifier.Boundaries))
-        {
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: true, out var polyline))
-                continue;
-
-            int count = polyline.Count;
-            if (polyline[0].DistanceTo(polyline[^1]) < tolerance)
-                count--;
-
-            var xyVerts = new double[count * 2];
-            for (int i = 0; i < count; i++)
-            {
-                xyVerts[i * 2] = polyline[i].X;
-                xyVerts[i * 2 + 1] = polyline[i].Y;
-            }
-
-            var bbox = curve.GetBoundingBox(false);
-            double targetZ = (bbox.Min.Z + bbox.Max.Z) * 0.5;
-            pads.Add(new PadGrader.PadBoundary(xyVerts, count, targetZ, modifier.SlopeAngle, modifier.MaxDistance));
-        }
-
-        if (pads.Count == 0)
+        double tolerance = GetTerrainTolerance(doc, terrain);
+        ResolvedGradePadInputs resolvedInputs = ResolveGradePadInputs(doc, modifier, tolerance);
+        if (resolvedInputs.Pads.Length == 0)
         {
             build.Diagnostics.Add("Grade Pad has no valid closed boundaries.");
-            return mesh;
+            return StoreMeshStageCache(
+                build,
+                runtimeCache,
+                stageKey,
+                stageName,
+                preResolutionFingerprint,
+                preResolutionFingerprint,
+                mesh,
+                build.PersistentHardConstraints,
+                Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart),
+                DescribeModifierMeshResult(modifier.Label, mesh),
+                timer,
+                out outputFingerprint);
         }
 
-        PadGrader.LockCurve[]? locks = null;
-        var lockCurves = new List<PadGrader.LockCurve>();
-        foreach (var curve in RhinoSourceResolver.ResolveCurves(doc, modifier.LockCurves))
-        {
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
-                continue;
+        ulong topologyFingerprint = ComputeGradePadTopologyFingerprint(
+            upstreamFingerprint,
+            tolerance,
+            modifier,
+            resolvedInputs.Pads,
+            resolvedInputs.Locks);
 
-            var xyVerts = new double[polyline.Count * 2];
-            for (int i = 0; i < polyline.Count; i++)
+        PadTopologyCacheEntry? topologyEntry;
+        var topologyTimer = Stopwatch.StartNew();
+        if (runtimeCache.PadTopologyEntries.TryGetValue(topologyStageKey, out var cachedTopologyEntry) &&
+            cachedTopologyEntry.Fingerprint == topologyFingerprint)
+        {
+            topologyEntry = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(cachedTopologyEntry);
+            build.Diagnostics.AddRange(topologyEntry.Diagnostics);
+            topologyTimer.Stop();
+            build.RecordTiming(
+                "Grade Pad Topology",
+                topologyTimer.Elapsed,
+                AppendCacheHitDetail($"{topologyEntry.VertexCount:N0} verts, {topologyEntry.FaceCount:N0} faces"),
+                StageTimingDiagnosticThresholdMs);
+        }
+        else
+        {
+            bool topologySucceeded = PadGrader.TryTriangulateTopology(
+                vertices,
+                mesh.Vertices.Count,
+                faces,
+                mesh.Faces.Count,
+                resolvedInputs.Pads,
+                resolvedInputs.Locks.Length == 0 ? null : resolvedInputs.Locks,
+                modifier.MaxArea,
+                modifier.MinAngle,
+                out var topologyVertices,
+                out var topologyVertexCount,
+                out var topologyFaces,
+                out var topologyFaceCount,
+                out var topologyWarning);
+
+            topologyTimer.Stop();
+            if (!topologySucceeded)
             {
-                xyVerts[i * 2] = polyline[i].X;
-                xyVerts[i * 2 + 1] = polyline[i].Y;
+                build.RecordTiming("Grade Pad Topology", topologyTimer.Elapsed, topologyWarning, StageTimingDiagnosticThresholdMs);
+                build.Diagnostics.Add(string.IsNullOrWhiteSpace(topologyWarning)
+                    ? "Grade Pad optimized topology path failed. Falling back to full grade."
+                    : $"Grade Pad optimized topology path failed ({topologyWarning}). Falling back to full grade.");
+
+                RhinoMesh fallbackMesh = ApplyGradePadLegacy(mesh, vertices, faces, modifier, resolvedInputs, tolerance, build);
+                return StoreMeshStageCache(
+                    build,
+                    runtimeCache,
+                    stageKey,
+                    stageName,
+                    preResolutionFingerprint,
+                    preResolutionFingerprint,
+                    fallbackMesh,
+                    build.PersistentHardConstraints,
+                    Array.Empty<GeneratedRhinoObject>(),
+                    build.Diagnostics.Skip(diagnosticsStart),
+                    DescribeModifierMeshResult(modifier.Label, fallbackMesh),
+                    timer,
+                    out outputFingerprint);
             }
 
-            lockCurves.Add(new PadGrader.LockCurve(xyVerts, polyline.Count));
+            var topologyDiagnostics = new List<string>();
+            if (!string.IsNullOrWhiteSpace(topologyWarning))
+            {
+                topologyDiagnostics.Add(topologyWarning!);
+                build.Diagnostics.Add(topologyWarning!);
+            }
+
+            topologyEntry = new PadTopologyCacheEntry
+            {
+                Fingerprint = topologyFingerprint,
+                OutputFingerprint = ComputePadTopologyOutputFingerprint(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount),
+                Vertices = topologyVertices,
+                VertexCount = topologyVertexCount,
+                Faces = topologyFaces,
+                FaceCount = topologyFaceCount,
+                Diagnostics = topologyDiagnostics
+            };
+            runtimeCache.PadTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(topologyEntry);
+            build.RecordTiming(
+                "Grade Pad Topology",
+                topologyTimer.Elapsed,
+                $"{topologyVertexCount:N0} verts, {topologyFaceCount:N0} faces",
+                StageTimingDiagnosticThresholdMs);
         }
 
-        if (lockCurves.Count > 0)
-            locks = lockCurves.ToArray();
+        ulong resolvedInputFingerprint = ComputeGradePadResolvedInputFingerprint(topologyEntry.OutputFingerprint, resolvedInputs.Pads, modifier);
+        if (cachedEntry != null && cachedEntry.ResolvedInputFingerprint == resolvedInputFingerprint)
+        {
+            StageCacheEntry refreshedEntry = CloneStageCacheEntry(cachedEntry, preResolutionFingerprint, resolvedInputFingerprint);
+            runtimeCache.StageEntries[stageKey] = refreshedEntry;
 
+            RhinoMesh? resolvedCachedMesh = RestoreCachedMeshStage(build, refreshedEntry, out outputFingerprint);
+            timer.Stop();
+            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(DescribeModifierMeshResult(modifier.Label, resolvedCachedMesh)));
+            return resolvedCachedMesh;
+        }
+
+        var filterTimer = Stopwatch.StartNew();
+        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyEntry.Vertices, topologyEntry.VertexCount, resolvedInputs.Pads);
+        filterTimer.Stop();
+        build.RecordTiming(
+            "Grade Pad Filter",
+            filterTimer.Elapsed,
+            $"{topologyEntry.VertexCount:N0} verts",
+            StageTimingDiagnosticThresholdMs);
+
+        var combinedConstraints = CombineConstraints(build.PersistentHardConstraints, resolvedInputs.Constraints);
+        build.PersistentHardConstraints.Clear();
+        build.PersistentHardConstraints.AddRange(combinedConstraints);
+
+        RhinoMesh resultMesh = CleanTinyFaces(
+            RhinoGeometryConversions.BuildMesh(gradedVertices, topologyEntry.VertexCount, topologyEntry.Faces, topologyEntry.FaceCount),
+            tolerance,
+            "Grade Pad",
+            build);
+
+        return StoreMeshStageCache(
+            build,
+            runtimeCache,
+            stageKey,
+            stageName,
+            preResolutionFingerprint,
+            resolvedInputFingerprint,
+            resultMesh,
+            build.PersistentHardConstraints,
+            Array.Empty<GeneratedRhinoObject>(),
+            build.Diagnostics.Skip(diagnosticsStart),
+            DescribeModifierMeshResult(modifier.Label, resultMesh),
+            timer,
+            out outputFingerprint);
+    }
+
+    private static RhinoMesh ApplyGradePadLegacy(
+        RhinoMesh mesh,
+        double[] vertices,
+        int[] faces,
+        GradePadModifierDefinition modifier,
+        ResolvedGradePadInputs resolvedInputs,
+        double tolerance,
+        TerrainBuildResult build)
+    {
         var result = PadGrader.Grade(
             vertices,
             mesh.Vertices.Count,
             faces,
             mesh.Faces.Count,
-            pads.ToArray(),
-            locks,
+            resolvedInputs.Pads,
+            resolvedInputs.Locks.Length == 0 ? null : resolvedInputs.Locks,
             modifier.MaxArea,
             modifier.MinAngle,
             out var warning);
@@ -537,10 +1382,109 @@ internal sealed class TerrainBuildService
         if (!string.IsNullOrWhiteSpace(warning))
             build.Diagnostics.Add(warning);
 
-        return RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount);
+        var combinedConstraints = CombineConstraints(build.PersistentHardConstraints, resolvedInputs.Constraints);
+        build.PersistentHardConstraints.Clear();
+        build.PersistentHardConstraints.AddRange(combinedConstraints);
+
+        return CleanTinyFaces(
+            RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount),
+            tolerance,
+            "Grade Pad",
+            build);
     }
 
-    private static RhinoMesh ApplyGradePath(RhinoDoc doc, RhinoMesh mesh, GradePathModifierDefinition modifier, TerrainBuildResult build)
+    private static ResolvedGradePadInputs ResolveGradePadInputs(
+        RhinoDoc doc,
+        GradePadModifierDefinition modifier,
+        double tolerance)
+    {
+        var pads = new List<PadGrader.PadBoundary>();
+        foreach (var curve in RhinoSourceResolver.ResolveCurves(doc, modifier.Boundaries))
+        {
+            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: true, out var polyline))
+                continue;
+
+            int count = polyline.Count;
+            if (count > 1 && polyline[0].DistanceTo(polyline[^1]) < tolerance)
+                count--;
+            if (count < 3)
+                continue;
+
+            var xyVerts = new double[count * 2];
+            for (int i = 0; i < count; i++)
+            {
+                xyVerts[i * 2] = polyline[i].X;
+                xyVerts[i * 2 + 1] = polyline[i].Y;
+            }
+
+            var bbox = curve.GetBoundingBox(false);
+            double targetZ = (bbox.Min.Z + bbox.Max.Z) * 0.5;
+            pads.Add(new PadGrader.PadBoundary(xyVerts, count, targetZ, modifier.SlopeAngle, modifier.MaxDistance));
+        }
+
+        var locks = new List<PadGrader.LockCurve>();
+        foreach (var curve in RhinoSourceResolver.ResolveCurves(doc, modifier.LockCurves))
+        {
+            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
+                continue;
+            if (polyline.Count < 2)
+                continue;
+
+            var xyVerts = new double[polyline.Count * 2];
+            for (int i = 0; i < polyline.Count; i++)
+            {
+                xyVerts[i * 2] = polyline[i].X;
+                xyVerts[i * 2 + 1] = polyline[i].Y;
+            }
+
+            locks.Add(new PadGrader.LockCurve(xyVerts, polyline.Count));
+        }
+
+        return new ResolvedGradePadInputs
+        {
+            Pads = pads.ToArray(),
+            Locks = locks.ToArray(),
+            Constraints = CreateGradePadConstraints(pads, locks)
+        };
+    }
+
+    private static SurfaceRemesher.ConstraintPolyline[] CreateGradePadConstraints(
+        IReadOnlyList<PadGrader.PadBoundary> pads,
+        IReadOnlyList<PadGrader.LockCurve> locks)
+    {
+        if (pads.Count == 0 && locks.Count == 0)
+            return Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+
+        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(pads.Count + locks.Count);
+        foreach (var pad in pads)
+        {
+            var points = new double[pad.VertexCount * 3];
+            for (int i = 0; i < pad.VertexCount; i++)
+            {
+                points[i * 3] = pad.XyVertices[i * 2];
+                points[i * 3 + 1] = pad.XyVertices[i * 2 + 1];
+                points[i * 3 + 2] = pad.TargetZ;
+            }
+
+            constraints.Add(new SurfaceRemesher.ConstraintPolyline(points, pad.VertexCount, IsClosed: true, PreserveInputElevation: false));
+        }
+
+        foreach (var lockCurve in locks)
+        {
+            var points = new double[lockCurve.VertexCount * 3];
+            for (int i = 0; i < lockCurve.VertexCount; i++)
+            {
+                points[i * 3] = lockCurve.XyVertices[i * 2];
+                points[i * 3 + 1] = lockCurve.XyVertices[i * 2 + 1];
+            }
+
+            constraints.Add(new SurfaceRemesher.ConstraintPolyline(points, lockCurve.VertexCount, IsClosed: false, PreserveInputElevation: false));
+        }
+
+        return constraints.ToArray();
+    }
+
+    private static RhinoMesh ApplyGradePath(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh mesh, GradePathModifierDefinition modifier, TerrainBuildResult build)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
         {
@@ -554,7 +1498,7 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
-        double tolerance = doc.ModelAbsoluteTolerance;
+        double tolerance = GetTerrainTolerance(doc, terrain);
         var paths = new List<PathGrader.PathDefinition>();
         foreach (var curve in RhinoSourceResolver.ResolveCurves(doc, modifier.Paths))
         {
@@ -596,12 +1540,124 @@ internal sealed class TerrainBuildService
         if (!string.IsNullOrWhiteSpace(warning))
             build.Diagnostics.Add(warning);
 
-        return RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount);
+        return CleanTinyFaces(
+            RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount),
+            tolerance,
+            "Grade Path",
+            build);
     }
 
-    private static List<ZoneBoundaryEntry> ResolveZoneBoundaries(RhinoDoc doc, CollageZoneDefinition zone, int zoneOrder)
+    private static RhinoMesh ApplyInSituStair(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh mesh, InSituStairModifierDefinition modifier, TerrainBuildResult build)
     {
-        double tolerance = doc.ModelAbsoluteTolerance;
+        modifier.ComputedSurfaceCount = null;
+        modifier.ComputedTreadDepthSummary = null;
+        modifier.ComputedStepCountSummary = null;
+
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        {
+            build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for in-situ stair grading.");
+            return mesh;
+        }
+
+        if (modifier.RiserHeight <= 0)
+        {
+            build.Diagnostics.Add("In-Situ Stair riser height must be positive.");
+            return mesh;
+        }
+
+        var referenceMeshes = RhinoSourceResolver.ResolveMeshes(doc, modifier.ReferenceSurface);
+        if (referenceMeshes.Count == 0)
+        {
+            build.Diagnostics.Add("In-Situ Stair has no valid reference surface.");
+            return mesh;
+        }
+
+        if (!InSituStairReferenceBuilder.TryBuild(
+                referenceMeshes,
+                modifier.RiserHeight,
+                modifier.SlopeAngle,
+                modifier.MaxDistance,
+                out var stairBuild,
+                out errorMessage))
+        {
+            build.Diagnostics.Add(errorMessage ?? "In-Situ Stair could not interpret the reference surface.");
+            return mesh;
+        }
+
+        double tolerance = GetTerrainTolerance(doc, terrain);
+
+        modifier.ComputedSurfaceCount = stairBuild!.SurfaceCount;
+        modifier.ComputedTreadDepthSummary = stairBuild.TreadDepthSummary;
+        modifier.ComputedStepCountSummary = stairBuild.StepCountSummary;
+
+        double[] currentVertices = vertices;
+        int currentVertexCount = mesh.Vertices.Count;
+        int[] currentFaces = faces;
+        int currentFaceCount = mesh.Faces.Count;
+        var gradingWarnings = new List<string>();
+
+        foreach (var stairReference in stairBuild.References)
+        {
+            var result = SurfaceStripGrader.Grade(
+                currentVertices,
+                currentVertexCount,
+                currentFaces,
+                currentFaceCount,
+                stairReference.SupportSurface,
+                out var gradingWarning);
+
+            if (result == null)
+            {
+                build.Diagnostics.Add(gradingWarning ?? "In-Situ Stair grading failed.");
+                return mesh;
+            }
+
+            currentVertices = result.Vertices;
+            currentVertexCount = result.VertexCount;
+            currentFaces = result.Faces;
+            currentFaceCount = result.FaceCount;
+            if (!string.IsNullOrWhiteSpace(gradingWarning))
+                gradingWarnings.Add(gradingWarning);
+        }
+
+        foreach (var stairReference in stairBuild.References)
+        {
+            foreach (var stairBrep in stairReference.StairBreps)
+            {
+                build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+                {
+                    Geometry = stairBrep,
+                    Name = "Stair",
+                    LayerPath = terrain.AuxiliaryLayerPath
+                });
+            }
+
+            if (modifier.ShowTreadLabels)
+            {
+                build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+                {
+                    Geometry = new TextDot($"Tread {stairReference.TreadDepth:G4}", stairReference.TreadDepthLabelPoint),
+                    Name = "Stair Tread Depth",
+                    LayerPath = terrain.AuxiliaryLayerPath
+                });
+            }
+        }
+
+        build.Diagnostics.Add(stairBuild.StatusSummary);
+        foreach (var warning in stairBuild.Warnings)
+            build.Diagnostics.Add(warning);
+        foreach (var gradingWarning in gradingWarnings)
+            build.Diagnostics.Add(gradingWarning);
+
+        return CleanTinyFaces(
+            RhinoGeometryConversions.BuildMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount),
+            tolerance,
+            "In-Situ Stair",
+            build);
+    }
+
+    private static List<ZoneBoundaryEntry> ResolveZoneBoundaries(RhinoDoc doc, CollageZoneDefinition zone, int zoneOrder, double tolerance)
+    {
         var result = new List<ZoneBoundaryEntry>();
         int sourceOrder = 0;
 
@@ -771,6 +1827,12 @@ internal sealed class TerrainBuildService
 
     private static void BuildMarkers(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh mesh, TerrainBuildResult build)
     {
+        int enabledMarkerCount = terrain.Markers.Count(marker => marker.IsEnabled);
+        if (enabledMarkerCount == 0)
+            return;
+
+        int outputCountBefore = build.MarkerObjects.Count;
+        var timer = Stopwatch.StartNew();
         mesh.Normals.ComputeNormals();
 
         foreach (var marker in terrain.Markers.Where(marker => marker.IsEnabled))
@@ -826,6 +1888,14 @@ internal sealed class TerrainBuildService
                 });
             }
         }
+
+        timer.Stop();
+        int addedOutputs = build.MarkerObjects.Count - outputCountBefore;
+        build.RecordTiming(
+            "Markers",
+            timer.Elapsed,
+            $"{enabledMarkerCount:N0} enabled markers produced {addedOutputs:N0} outputs on {mesh.Faces.Count:N0} faces",
+            StageTimingDiagnosticThresholdMs);
     }
 
     private static TerrainAnalysisSummary? BuildAnalysis(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh fallbackBaseMesh, RhinoMesh currentMesh)
@@ -961,18 +2031,18 @@ internal sealed class TerrainBuildService
         return true;
     }
 
-    private static void AddWallConstraintCurves(List<Curve> curves, RetainingWallMeshGrader.WallStripDefinition strip)
+    private static void AddWallConstraintCurves(List<SurfaceRemesher.ConstraintPolyline> curves, RetainingWallMeshGrader.WallStripDefinition strip)
     {
-        Curve? toeCurve = CreateWallRailCurve(strip.ToeXy, strip.ToeZ, strip.StationCount);
+        Polyline? toeCurve = CreateWallRailCurve(strip.ToeXy, strip.ToeZ, strip.StationCount);
         if (toeCurve != null)
-            curves.Add(toeCurve);
+            curves.Add(ToConstraintPolyline(toeCurve, isClosed: false, preserveInputElevation: true));
 
-        Curve? topCurve = CreateWallRailCurve(strip.TopXy, strip.TopZ, strip.StationCount);
+        Polyline? topCurve = CreateWallRailCurve(strip.TopXy, strip.TopZ, strip.StationCount);
         if (topCurve != null)
-            curves.Add(topCurve);
+            curves.Add(ToConstraintPolyline(topCurve, isClosed: false, preserveInputElevation: true));
     }
 
-    private static Curve? CreateWallRailCurve(double[] xy, double[] z, int count)
+    private static Polyline? CreateWallRailCurve(double[] xy, double[] z, int count)
     {
         if (count < 2)
             return null;
@@ -981,130 +2051,521 @@ internal sealed class TerrainBuildService
         for (int i = 0; i < count; i++)
             points[i] = new Point3d(xy[i * 2], xy[i * 2 + 1], z[i]);
 
-        return new PolylineCurve(points);
+        return new Polyline(points);
     }
 
-    private static RhinoMesh RemeshWithConstraintCurves(
+    private static RhinoMesh RebuildMeshWithConstraints(
         RhinoDoc doc,
+        TerrainDefinition terrain,
         RhinoMesh mesh,
-        IReadOnlyList<Curve> constraintCurves,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        double requestedEdgeLength,
         double maxArea,
         double minAngle,
         string label,
-        TerrainBuildResult build,
-        bool preserveCurveElevation)
+        TerrainBuildResult build)
     {
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var origVerts, out var origFaces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var originalVertices, out var originalFaces, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? $"Could not extract mesh data for {label.ToLowerInvariant()}.");
             return mesh;
         }
 
-        double tolerance = doc.ModelAbsoluteTolerance;
-        int vertexCount = mesh.Vertices.Count;
-        int faceCount = mesh.Faces.Count;
+        double tolerance = GetTerrainTolerance(doc, terrain);
+        var remeshResult = SurfaceRemesher.Remesh(
+            originalVertices,
+            originalFaces,
+            constraints,
+            new SurfaceRemesher.Options
+            {
+                Tolerance = tolerance,
+                RequestedEdgeLength = requestedEdgeLength,
+                MaxArea = maxArea,
+                MinAngle = minAngle,
+                ProtectSharpEdges = true
+            });
 
-        var xyList = new List<double>(vertexCount * 2);
-        var zList = new List<double>(vertexCount);
-        var segments = new List<(int a, int b)>();
-        var segmentKeys = new HashSet<long>();
-        double dedupTolerance = Math.Max(tolerance, 1e-6);
-
-        for (int i = 0; i < vertexCount; i++)
+        if (!remeshResult.Success)
         {
-            xyList.Add(origVerts[i * 3]);
-            xyList.Add(origVerts[i * 3 + 1]);
-            zList.Add(origVerts[i * 3 + 2]);
+            build.Diagnostics.Add(remeshResult.Warning ?? $"{label} triangulation failed.");
+            return mesh;
         }
 
-        MeshConstraintTools.AddBoundarySegments(segments, segmentKeys, origFaces, faceCount);
+        if (remeshResult.AddedProtectedVertices > 0)
+            build.Diagnostics.Add($"{label} added {remeshResult.AddedProtectedVertices} protected-edge vertices before triangulation.");
 
-        foreach (var curve in constraintCurves)
+        if (remeshResult.UsedReducedSeedFallback)
+            build.Diagnostics.Add($"{label} retried from boundary and hard-constraint seeds because carried mesh vertices prevented refinement.");
+
+        if (!string.IsNullOrWhiteSpace(remeshResult.Warning))
+            build.Diagnostics.Add(remeshResult.Warning);
+
+        return CleanTinyFaces(BuildMeshFromArrays(remeshResult.Vertices, remeshResult.Faces), tolerance, label, build);
+    }
+
+    private static List<SurfaceRemesher.ConstraintPolyline> CombineConstraints(
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentConstraints,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> additionalConstraints)
+    {
+        var result = new List<SurfaceRemesher.ConstraintPolyline>(persistentConstraints.Count + additionalConstraints.Count);
+        result.AddRange(persistentConstraints);
+        result.AddRange(additionalConstraints);
+        return result;
+    }
+
+    private static List<SurfaceRemesher.ConstraintPolyline> CreateConstraintPolylines(
+        IReadOnlyList<Curve> curves,
+        double tolerance,
+        bool preserveInputElevation)
+    {
+        var result = new List<SurfaceRemesher.ConstraintPolyline>();
+        foreach (var curve in curves)
         {
+            if (curve == null)
+                continue;
+
             if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
                 continue;
 
-            var indices = new int[polyline.Count];
+            result.Add(ToConstraintPolyline(polyline, curve.IsClosed, preserveInputElevation));
+        }
+
+        return result;
+    }
+
+    private static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)
+    {
+        var result = new List<double[]>();
+        foreach (var curve in curves)
+        {
+            if (curve == null)
+                continue;
+
+            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
+                continue;
+
+            result.Add(ToFlatPolyline(polyline));
+        }
+
+        return result;
+    }
+
+    private static List<double[]> CreateFlatPolylines(IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    {
+        var result = new List<double[]>(constraints.Count);
+        foreach (var constraint in constraints)
+        {
+            if (constraint.PointCount < 2)
+                continue;
+
+            result.Add((double[])constraint.Points.Clone());
+        }
+
+        return result;
+    }
+
+    private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed, bool preserveInputElevation = false)
+    {
+        var points = new double[polyline.Count * 3];
+        for (int i = 0; i < polyline.Count; i++)
+        {
+            points[i * 3] = polyline[i].X;
+            points[i * 3 + 1] = polyline[i].Y;
+            points[i * 3 + 2] = polyline[i].Z;
+        }
+
+        return new SurfaceRemesher.ConstraintPolyline(points, polyline.Count, isClosed, preserveInputElevation);
+    }
+
+    private static double[] ToFlatPolyline(Polyline polyline)
+    {
+        var flat = new double[polyline.Count * 3];
+        for (int i = 0; i < polyline.Count; i++)
+        {
+            flat[i * 3] = polyline[i].X;
+            flat[i * 3 + 1] = polyline[i].Y;
+            flat[i * 3 + 2] = polyline[i].Z;
+        }
+
+        return flat;
+    }
+
+    private static TinBoundaryPreparer.BoundaryPolyline[] CreateBoundaryPolylines(IReadOnlyList<Curve> curves, double tolerance)
+    {
+        var result = new List<TinBoundaryPreparer.BoundaryPolyline>();
+        foreach (var curve in curves)
+        {
+            if (curve == null)
+                continue;
+
+            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
+                continue;
+
+            var flat = new double[polyline.Count * 3];
             for (int i = 0; i < polyline.Count; i++)
             {
-                int near = PadGrader.FindNearVertex(xyList, polyline[i].X, polyline[i].Y, dedupTolerance);
-                if (near >= 0)
-                {
-                    indices[i] = near;
-                    continue;
-                }
-
-                indices[i] = zList.Count;
-                xyList.Add(polyline[i].X);
-                xyList.Add(polyline[i].Y);
-                zList.Add(preserveCurveElevation
-                    ? polyline[i].Z
-                    : PadGrader.InterpolateZ(origVerts, origFaces, faceCount, polyline[i].X, polyline[i].Y));
+                flat[i * 3] = polyline[i].X;
+                flat[i * 3 + 1] = polyline[i].Y;
+                flat[i * 3 + 2] = polyline[i].Z;
             }
 
-            for (int i = 0; i < polyline.Count - 1; i++)
-            {
-                MeshConstraintTools.TryAddSegment(segments, segmentKeys, indices[i], indices[i + 1]);
-            }
-
-            if (curve.IsClosed && polyline.Count >= 3)
-                MeshConstraintTools.TryAddSegment(segments, segmentKeys, indices[^1], indices[0]);
+            result.Add(new TinBoundaryPreparer.BoundaryPolyline(flat, polyline.Count, curve.IsClosed));
         }
 
-        var triMesh = TriangulationHelper.Triangulate(
-            xyList,
-            zList.Count,
-            segments,
-            maxArea,
-            minAngle,
-            out var triWarning,
-            convex: false);
+        return result.ToArray();
+    }
 
-        if (triMesh == null)
+    private static TinBoundaryPreparer.BoundaryPolyline[] CreateBoundaryPolylines(RhinoMesh mesh, double tolerance)
+    {
+        var nakedEdges = mesh.GetNakedEdges();
+        if (nakedEdges == null || nakedEdges.Length == 0)
+            return Array.Empty<TinBoundaryPreparer.BoundaryPolyline>();
+
+        var result = new List<TinBoundaryPreparer.BoundaryPolyline>(nakedEdges.Length);
+        foreach (var polyline in nakedEdges)
         {
-            build.Diagnostics.Add(triWarning ?? $"{label} triangulation failed.");
-            return mesh;
+            if (polyline.Count < 2)
+                continue;
+
+            bool isClosed = polyline.IsClosed || polyline[0].DistanceTo(polyline[^1]) <= tolerance;
+            result.Add(new TinBoundaryPreparer.BoundaryPolyline(ToFlatPolyline(polyline), polyline.Count, isClosed));
         }
 
-        if (MeshConstraintTools.ConstraintsWereDropped(triWarning))
+        return result.ToArray();
+    }
+
+    private static TinBoundaryPreparer.BoundaryPolyline[] CombineBoundaryPolylines(
+        IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> primary,
+        IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> additional)
+    {
+        if (primary.Count == 0 && additional.Count == 0)
+            return Array.Empty<TinBoundaryPreparer.BoundaryPolyline>();
+
+        var result = new TinBoundaryPreparer.BoundaryPolyline[primary.Count + additional.Count];
+        for (int i = 0; i < primary.Count; i++)
+            result[i] = primary[i];
+        for (int i = 0; i < additional.Count; i++)
+            result[primary.Count + i] = additional[i];
+        return result;
+    }
+
+    private static string AppendBuildMessage(string? current, string next)
+    {
+        return string.IsNullOrWhiteSpace(current)
+            ? next
+            : $"{current} {next}";
+    }
+
+    private static string CreateModifierStageKey(int modifierIndex, ModifierDefinition modifier)
+    {
+        return $"modifier:{modifierIndex}:{modifier.GetType().Name}:{modifier.Id:N}";
+    }
+
+    private static string CreateGradePadTopologyStageKey(string stageKey)
+    {
+        return $"{stageKey}:topology";
+    }
+
+    private static string? AppendCacheHitDetail(string? detail)
+    {
+        return string.IsNullOrWhiteSpace(detail)
+            ? "cache hit"
+            : $"{detail}; cache hit";
+    }
+
+    private static ulong ComputeModifierStageFingerprint(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        ModifierDefinition modifier,
+        ulong upstreamFingerprint)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add(upstreamFingerprint);
+        builder.Add(modifier.GetType().FullName);
+        builder.Add(doc.ModelAbsoluteTolerance);
+        builder.Add(terrain.GlobalTolerance);
+        AddSerializedFingerprint(ref builder, modifier, modifier.GetType());
+
+        int sourceIndex = 0;
+        foreach (var sourceSet in modifier.EnumerateSourceSets())
         {
-            build.Diagnostics.Add(!string.IsNullOrWhiteSpace(triWarning)
-                ? $"{label} could not preserve mesh boundaries or constraint curves. {triWarning}"
-                : $"{label} could not preserve mesh boundaries or constraint curves. Original mesh kept.");
-            return mesh;
+            builder.Add(sourceIndex++);
+            builder.Add(ComputeSourceSetFingerprint(doc, sourceSet));
         }
 
-        if (!string.IsNullOrWhiteSpace(triWarning))
-            build.Diagnostics.Add(triWarning);
+        return builder.ToUInt64();
+    }
 
-        var outVertices = triMesh.Vertices.ToList();
-        var outFaces = triMesh.Triangles.ToList();
-        var outMesh = new RhinoMesh();
-        var idToIndex = new Dictionary<int, int>(outVertices.Count);
+    private static ulong ComputeTriangulatePreResolutionFingerprint(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        TriangulateModifierDefinition modifier)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("Triangulate");
+        builder.Add(doc.ModelAbsoluteTolerance);
+        builder.Add(terrain.GlobalTolerance);
+        AddSerializedFingerprint(ref builder, modifier, modifier.GetType());
+        builder.Add(ComputeSourceSetFingerprint(doc, modifier.Points));
+        builder.Add(ComputeSourceSetFingerprint(doc, modifier.Breaklines));
+        builder.Add(ComputeSourceSetFingerprint(doc, modifier.Contours));
+        builder.Add(ComputeSourceSetFingerprint(doc, modifier.Boundary));
+        return builder.ToUInt64();
+    }
 
-        for (int i = 0; i < outVertices.Count; i++)
+    private static ulong ComputeTriangulateResolvedInputFingerprint(
+        TerrainDefinition terrain,
+        TriangulateModifierDefinition modifier,
+        double tolerance,
+        double[] xyCoords,
+        double[] zValues,
+        int[] segments,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints,
+        IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> boundaryPolylines)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("TriangulateResolved");
+        builder.Add(terrain.GlobalTolerance);
+        builder.Add(tolerance);
+        AddSerializedFingerprint(ref builder, modifier, modifier.GetType());
+        AddDoubleArrayFingerprint(ref builder, xyCoords);
+        AddDoubleArrayFingerprint(ref builder, zValues);
+        AddIntArrayFingerprint(ref builder, segments);
+        builder.Add(ComputeConstraintsFingerprint(persistentHardConstraints));
+        builder.Add(ComputeBoundaryPolylinesFingerprint(boundaryPolylines));
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputeGradePadTopologyFingerprint(
+        ulong upstreamFingerprint,
+        double tolerance,
+        GradePadModifierDefinition modifier,
+        IReadOnlyList<PadGrader.PadBoundary> pads,
+        IReadOnlyList<PadGrader.LockCurve> locks)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("GradePadTopology");
+        builder.Add(upstreamFingerprint);
+        builder.Add(tolerance);
+        builder.Add(modifier.MaxArea);
+        builder.Add(modifier.MinAngle);
+        builder.Add(pads.Count);
+        foreach (var pad in pads)
         {
-            var vertex = outVertices[i];
-            idToIndex[vertex.ID] = i;
-            double z = vertex.ID >= 0 && vertex.ID < zList.Count
-                ? zList[vertex.ID]
-                : PadGrader.InterpolateZ(origVerts, origFaces, faceCount, vertex.X, vertex.Y);
-
-            outMesh.Vertices.Add(vertex.X, vertex.Y, z);
+            builder.Add(pad.VertexCount);
+            AddDoubleArrayFingerprint(ref builder, pad.XyVertices);
         }
 
-        foreach (var tri in outFaces)
+        builder.Add(locks.Count);
+        foreach (var lockCurve in locks)
         {
-            outMesh.Faces.AddFace(
-                idToIndex.GetValueOrDefault(tri.GetVertex(0).ID, 0),
-                idToIndex.GetValueOrDefault(tri.GetVertex(1).ID, 0),
-                idToIndex.GetValueOrDefault(tri.GetVertex(2).ID, 0));
+            builder.Add(lockCurve.VertexCount);
+            AddDoubleArrayFingerprint(ref builder, lockCurve.XyVertices);
         }
 
-        outMesh.Normals.ComputeNormals();
-        outMesh.UnifyNormals();
-        outMesh.Compact();
-        return CleanTinyFaces(outMesh, tolerance, label, build);
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputeGradePadResolvedInputFingerprint(
+        ulong topologyOutputFingerprint,
+        IReadOnlyList<PadGrader.PadBoundary> pads,
+        GradePadModifierDefinition modifier)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("GradePadResolved");
+        builder.Add(topologyOutputFingerprint);
+        builder.Add(modifier.SlopeAngle);
+        builder.Add(modifier.MaxDistance);
+        builder.Add(pads.Count);
+        foreach (var pad in pads)
+        {
+            builder.Add(pad.VertexCount);
+            AddDoubleArrayFingerprint(ref builder, pad.XyVertices);
+            builder.Add(pad.TargetZ);
+        }
+
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputeAnalysisFingerprint(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        RhinoMesh baseMesh,
+        RhinoMesh currentMesh,
+        ulong baseMeshFingerprint,
+        ulong currentMeshFingerprint)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("Analysis");
+        builder.Add(doc.ModelAbsoluteTolerance);
+        builder.Add(baseMeshFingerprint != 0 ? baseMeshFingerprint : ComputeMeshFingerprint(baseMesh));
+        builder.Add(currentMeshFingerprint != 0 ? currentMeshFingerprint : ComputeMeshFingerprint(currentMesh));
+        builder.Add(ComputeSourceSetFingerprint(doc, terrain.EarthworkReference));
+        builder.Add(ComputeSourceSetFingerprint(doc, terrain.EarthworkBoundary));
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputeZonesFingerprint(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        RhinoMesh mesh,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints,
+        ulong currentMeshFingerprint)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("Zones");
+        builder.Add(doc.ModelAbsoluteTolerance);
+        builder.Add(GetTerrainTolerance(doc, terrain));
+        builder.Add(currentMeshFingerprint != 0 ? currentMeshFingerprint : ComputeMeshFingerprint(mesh));
+        builder.Add(ComputeConstraintsFingerprint(persistentHardConstraints));
+
+        foreach (var zone in terrain.Zones.Where(zone => zone.IsEnabled))
+        {
+            AddSerializedFingerprint(ref builder, zone, zone.GetType());
+            builder.Add(ComputeSourceSetFingerprint(doc, zone.Boundaries));
+        }
+
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputeMarkersFingerprint(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        RhinoMesh mesh,
+        ulong currentMeshFingerprint)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("Markers");
+        builder.Add(doc.ModelAbsoluteTolerance);
+        builder.Add(currentMeshFingerprint != 0 ? currentMeshFingerprint : ComputeMeshFingerprint(mesh));
+
+        foreach (var marker in terrain.Markers.Where(marker => marker.IsEnabled))
+        {
+            AddSerializedFingerprint(ref builder, marker, marker.GetType());
+            builder.Add(ComputeSourceSetFingerprint(doc, marker.Sources));
+        }
+
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputeSourceSetFingerprint(RhinoDoc doc, SourceReferenceSet sourceSet)
+    {
+        var builder = new FingerprintBuilder();
+
+        foreach (Guid objectId in sourceSet.ObjectIds.OrderBy(id => id))
+            builder.Add(objectId);
+
+        foreach (string layerPath in sourceSet.LayerPaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            builder.Add(layerPath);
+
+        var objects = RhinoSourceResolver.ResolveObjects(doc, sourceSet)
+            .OrderBy(obj => obj.Id)
+            .ToList();
+        builder.Add(objects.Count);
+        foreach (var obj in objects)
+        {
+            builder.Add(obj.Id);
+            builder.Add((int)obj.ObjectType);
+            builder.Add(obj.Attributes.LayerIndex);
+            builder.Add(GetObjectLayerPath(doc, obj));
+            builder.Add(obj.Geometry?.DataCRC(0u) ?? 0u);
+        }
+
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputeMeshStageOutputFingerprint(
+        RhinoMesh? mesh,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add(ComputeMeshFingerprint(mesh));
+        builder.Add(ComputeConstraintsFingerprint(persistentHardConstraints));
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputePadTopologyOutputFingerprint(
+        IReadOnlyList<double> vertices,
+        int vertexCount,
+        IReadOnlyList<int> faces,
+        int faceCount)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("GradePadTopologyOutput");
+        builder.Add(vertexCount);
+        AddDoubleArrayFingerprint(ref builder, vertices);
+        builder.Add(faceCount);
+        AddIntArrayFingerprint(ref builder, faces);
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputeMeshFingerprint(RhinoMesh? mesh)
+    {
+        return mesh == null ? 0UL : mesh.DataCRC(0u);
+    }
+
+    private static ulong ComputeConstraintsFingerprint(IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add(constraints.Count);
+        foreach (var constraint in constraints)
+        {
+            builder.Add(constraint.PointCount);
+            builder.Add(constraint.IsClosed);
+            builder.Add(constraint.PreserveInputElevation);
+            AddDoubleArrayFingerprint(ref builder, constraint.Points);
+        }
+
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputeBoundaryPolylinesFingerprint(IReadOnlyList<TinBoundaryPreparer.BoundaryPolyline> boundaries)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add(boundaries.Count);
+        foreach (var boundary in boundaries)
+        {
+            builder.Add(boundary.PointCount);
+            builder.Add(boundary.IsClosed);
+            AddDoubleArrayFingerprint(ref builder, boundary.Points);
+        }
+
+        return builder.ToUInt64();
+    }
+
+    private static void AddSerializedFingerprint(ref FingerprintBuilder builder, object value, Type type)
+    {
+        builder.AddBytes(JsonSerializer.SerializeToUtf8Bytes(value, type));
+    }
+
+    private static void AddDoubleArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<double> values)
+    {
+        builder.Add(values.Count);
+        for (int i = 0; i < values.Count; i++)
+            builder.Add(values[i]);
+    }
+
+    private static void AddIntArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<int> values)
+    {
+        builder.Add(values.Count);
+        for (int i = 0; i < values.Count; i++)
+            builder.Add(values[i]);
+    }
+
+    private static RhinoMesh BuildMeshFromArrays(double[] vertices, int[] faces)
+    {
+        var mesh = new RhinoMesh();
+        mesh.Vertices.Capacity = vertices.Length / 3;
+        mesh.Faces.Capacity = faces.Length / 3;
+
+        for (int i = 0; i < vertices.Length / 3; i++)
+            mesh.Vertices.Add(vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]);
+
+        for (int i = 0; i < faces.Length / 3; i++)
+            mesh.Faces.AddFace(faces[i * 3], faces[i * 3 + 1], faces[i * 3 + 2]);
+
+        RhinoGeometryConversions.NormalizeMeshInPlace(mesh);
+        return mesh;
     }
 
     private static RhinoMesh CleanTinyFaces(RhinoMesh mesh, double tolerance, string sourceLabel, TerrainBuildResult build)
@@ -1169,6 +2630,41 @@ internal sealed class TerrainBuildService
             compactFaces[i] = remap[faces[i]];
 
         return RhinoGeometryConversions.BuildMesh(compactVertices, used.Count, compactFaces, compactFaces.Length / 3);
+    }
+
+    private static T MeasureStage<T>(
+        TerrainBuildResult build,
+        string stage,
+        Func<T> action,
+        Func<T, string?> detailFactory,
+        int diagnosticThresholdMs = StageTimingDiagnosticThresholdMs)
+    {
+        var timer = Stopwatch.StartNew();
+        T result = action();
+        timer.Stop();
+        build.RecordTiming(stage, timer.Elapsed, detailFactory(result), diagnosticThresholdMs);
+        return result;
+    }
+
+    private static string DescribeBuildOutputs(TerrainBuildResult build)
+    {
+        return $"{DescribeMesh(build.PrimaryMesh) ?? "no mesh"}; " +
+               $"{build.ZoneObjects.Count:N0} zone outputs, {build.AuxiliaryObjects.Count:N0} auxiliary outputs, {build.MarkerObjects.Count:N0} marker outputs";
+    }
+
+    private static string DescribeModifierMeshResult(string label, RhinoMesh? mesh)
+    {
+        string meshDetail = DescribeMesh(mesh) ?? "no mesh";
+        return string.IsNullOrWhiteSpace(label)
+            ? meshDetail
+            : $"modifier '{label}', {meshDetail}";
+    }
+
+    private static string? DescribeMesh(RhinoMesh? mesh)
+    {
+        return mesh == null
+            ? null
+            : $"{mesh.Vertices.Count:N0} verts, {mesh.Faces.Count:N0} faces";
     }
 
     private static MarkerBlockTemplate GetMarkerBlockTemplate(MarkerDefinition marker)
