@@ -37,6 +37,17 @@ public class MeshConstraintToolsTests
         Assert.Equal(expected, MeshConstraintTools.ConstraintsWereDropped(warning));
     }
 
+    [Theory]
+    [InlineData("Quality constraints could not be applied.", true)]
+    [InlineData("Using non-conforming CDT without quality constraints.", true)]
+    [InlineData("Using non-conforming CDT for tightly spaced constraints.", false)]
+    [InlineData("Constraints could not be enforced. Using plain Delaunay.", false)]
+    [InlineData(null, false)]
+    public void QualityWasDropped_MatchesOnlyQualityLossWarnings(string? warning, bool expected)
+    {
+        Assert.Equal(expected, MeshConstraintTools.QualityWasDropped(warning));
+    }
+
     private static bool MatchesEdge((int a, int b) segment, int a, int b)
     {
         return (segment.a == a && segment.b == b) || (segment.a == b && segment.b == a);

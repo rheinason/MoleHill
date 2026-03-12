@@ -27,23 +27,27 @@ public class TinEngine
         public Dictionary<XyKey, int> VertexIdByKey { get; }
         public HashSet<XyKey> ProtectedKeys { get; }
         public bool QualityConstrained { get; }
+        public bool UseConvexHull { get; }
 
         public IncrementalTopologyState(
             int[] segments,
             Dictionary<XyKey, int> vertexIdByKey,
             HashSet<XyKey> protectedKeys,
-            bool qualityConstrained)
+            bool qualityConstrained,
+            bool useConvexHull)
         {
             Segments = segments;
             VertexIdByKey = vertexIdByKey;
             ProtectedKeys = protectedKeys;
             QualityConstrained = qualityConstrained;
+            UseConvexHull = useConvexHull;
         }
     }
 
     public TinResult? Build(double[] xyCoords, double[] zValues,
                             int[] segments, QualitySettings quality,
-                            out string? errorMessage)
+                            out string? errorMessage,
+                            bool useConvexHull = true)
     {
         errorMessage = null;
         int vertexCount = xyCoords.Length / 2;
@@ -59,7 +63,7 @@ public class TinEngine
             return null;
         }
 
-        int xyHash = InputSnapshot.ComputeXyHash(xyCoords, segments, quality);
+        int xyHash = InputSnapshot.ComputeXyHash(xyCoords, segments, quality, useConvexHull);
 
         if (_cachedSnapshot != null && _cachedResult != null &&
             xyHash == _cachedSnapshot.XyHash &&
@@ -76,7 +80,7 @@ public class TinEngine
             return _cachedResult;
         }
 
-        if (TryApplyIncrementalEdit(xyCoords, zValues, segments, quality, out var incrementalResult))
+        if (TryApplyIncrementalEdit(xyCoords, zValues, segments, quality, useConvexHull, out var incrementalResult))
         {
             int zHash = InputSnapshot.ComputeZHash(zValues);
             _cachedSnapshot = new InputSnapshot(xyHash, zHash);
@@ -87,14 +91,14 @@ public class TinEngine
 
         var result = FullRebuild(
             xyCoords, zValues, segments, quality,
-            out errorMessage, out IMesh? builtMesh);
+            out errorMessage, out IMesh? builtMesh, useConvexHull);
         if (result != null)
         {
             _cachedSnapshot = new InputSnapshot(xyHash, InputSnapshot.ComputeZHash(zValues));
             _cachedResult = result;
             _cachedMesh = builtMesh as Mesh;
             _topologyState = _cachedMesh != null
-                ? CreateTopologyState(_cachedMesh, xyCoords, segments, quality)
+                ? CreateTopologyState(_cachedMesh, xyCoords, segments, quality, useConvexHull)
                 : null;
         }
         return result;
@@ -132,7 +136,7 @@ public class TinEngine
     }
 
     private static IncrementalTopologyState? CreateTopologyState(
-        Mesh mesh, double[] xyCoords, int[] segments, QualitySettings quality)
+        Mesh mesh, double[] xyCoords, int[] segments, QualitySettings quality, bool useConvexHull)
     {
         var inputIndexByKey = BuildInputIndexByKey(xyCoords);
         if (inputIndexByKey.Count != xyCoords.Length / 2)
@@ -176,11 +180,12 @@ public class TinEngine
             (int[])segments.Clone(),
             vertexIdByKey,
             protectedKeys,
-            quality.HasConstraints);
+            quality.HasConstraints,
+            useConvexHull);
     }
 
     private bool TryApplyIncrementalEdit(
-        double[] xyCoords, double[] zValues, int[] segments, QualitySettings quality,
+        double[] xyCoords, double[] zValues, int[] segments, QualitySettings quality, bool useConvexHull,
         out TinResult? result)
     {
         result = null;
@@ -191,6 +196,11 @@ public class TinEngine
         }
 
         if (quality.HasConstraints || _topologyState.QualityConstrained)
+        {
+            return false;
+        }
+
+        if (_topologyState.UseConvexHull != useConvexHull)
         {
             return false;
         }
@@ -311,7 +321,8 @@ public class TinEngine
 
     private static TinResult? FullRebuild(double[] xyCoords, double[] zValues,
                                            int[] segments, QualitySettings quality,
-                                           out string? errorMessage, out IMesh? builtMesh)
+                                           out string? errorMessage, out IMesh? builtMesh,
+                                           bool useConvexHull)
     {
         builtMesh = null;
         errorMessage = null;
@@ -345,7 +356,7 @@ public class TinEngine
         }
 
         // Attempt 1: Conforming CDT with quality
-        var result = TryTriangulate(polygon, segCount, quality, conforming: true, out errorMessage);
+        var result = TryTriangulate(polygon, segCount, quality, conforming: true, out errorMessage, useConvexHull);
         if (result != null)
         {
             builtMesh = result;
@@ -355,7 +366,7 @@ public class TinEngine
         // Attempt 2: Non-conforming CDT with quality
         if (segCount > 0)
         {
-            var ncResult = TryTriangulate(polygon, segCount, quality, conforming: false, out _);
+            var ncResult = TryTriangulate(polygon, segCount, quality, conforming: false, out _, useConvexHull);
             if (ncResult != null)
             {
                 builtMesh = ncResult;
@@ -367,7 +378,7 @@ public class TinEngine
         // Attempt 3: Conforming CDT without quality
         if (quality.HasConstraints)
         {
-            var fallback = TryTriangulate(polygon, segCount, QualitySettings.None, conforming: true, out _);
+            var fallback = TryTriangulate(polygon, segCount, QualitySettings.None, conforming: true, out _, useConvexHull);
             if (fallback != null)
             {
                 builtMesh = fallback;
@@ -379,7 +390,7 @@ public class TinEngine
         // Attempt 4: Non-conforming CDT without quality
         if (segCount > 0)
         {
-            var ncFallback = TryTriangulate(polygon, segCount, QualitySettings.None, conforming: false, out _);
+            var ncFallback = TryTriangulate(polygon, segCount, QualitySettings.None, conforming: false, out _, useConvexHull);
             if (ncFallback != null)
             {
                 builtMesh = ncFallback;
@@ -432,14 +443,15 @@ public class TinEngine
     private static IMesh? TryTriangulate(Polygon polygon, int segCount,
                                           QualitySettings quality,
                                           bool conforming,
-                                          out string? errorMessage)
+                                          out string? errorMessage,
+                                          bool useConvexHull)
     {
         errorMessage = null;
 
         var constraintOpts = new ConstraintOptions
         {
             ConformingDelaunay = conforming && segCount > 0,
-            Convex = true
+            Convex = useConvexHull
         };
 
         TriangleNet.Meshing.QualityOptions? qualityOpts = null;
@@ -499,7 +511,7 @@ public class TinEngine
             outVerts[outIndex * 3] = v.X;
             outVerts[outIndex * 3 + 1] = v.Y;
 
-            if (inputZByKey.TryGetValue(XyKey.FromValues(v.X, v.Y), out double z))
+            if (inputZByKey.TryGetValue(XyKey.FromValues(v.X, v.Y), out double z) && !double.IsNaN(z))
             {
                 outVerts[outIndex * 3 + 2] = z;
             }

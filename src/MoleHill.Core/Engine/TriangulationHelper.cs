@@ -22,7 +22,8 @@ public static class TriangulationHelper
         List<(int a, int b)> segments,
         double maxArea, double minAngle,
         out string? warning,
-        bool convex = true)
+        bool convex = true,
+        int segmentSplitting = 0)
     {
         warning = null;
         bool hasSegs = segments.Count > 0;
@@ -59,6 +60,10 @@ public static class TriangulationHelper
             quality = new QualityOptions();
             if (maxArea > 0) quality.MaximumArea = maxArea;
             if (minAngle > 0) quality.MinimumAngle = minAngle;
+            // Cap Steiner points to prevent runaway refinement when segmentSplitting=0
+            // is used as a fallback for tight parallel constraints. Without the cap,
+            // Triangle.NET can cascade indefinitely splitting already-short boundary segments.
+            quality.SteinerPoints = Math.Max(vertexCount * 50, 50_000);
         }
 
         IMesh? TryMesh(Polygon poly, bool conforming, QualityOptions? qualityOptions)
@@ -66,7 +71,8 @@ public static class TriangulationHelper
             var opts = new ConstraintOptions
             {
                 ConformingDelaunay = conforming && hasSegs,
-                Convex = convex
+                Convex = convex,
+                SegmentSplitting = segmentSplitting
             };
             try
             {

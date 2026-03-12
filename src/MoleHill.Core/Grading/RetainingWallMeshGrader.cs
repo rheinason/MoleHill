@@ -158,17 +158,13 @@ public static class RetainingWallMeshGrader
         }
         averageWidth /= n;
 
-        double maxArea = averageWidth > 1e-6
-            ? averageWidth * averageWidth * 0.35
-            : 0.0;
-
         int totalVerts = zList.Count;
         if (totalVerts < 3)
             return new RetainingWallGradeOutcome(false, null, "Too few vertices for retaining wall triangulation.");
 
         var triMesh = TriangulationHelper.Triangulate(
             xyList, totalVerts, segList,
-            maxArea, 20.0,
+            0.0, 0.0,
             out string? triWarning,
             convex: false);
 

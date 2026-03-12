@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
 
@@ -19,6 +20,8 @@ public class MeshAreaSplitterTests
                     new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
                     4)
             },
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            0.001,
             0,
             0,
             out _);
@@ -44,6 +47,8 @@ public class MeshAreaSplitterTests
             CreateMeshFaces(),
             2,
             new[] { outer, inner },
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            0.001,
             0,
             0,
             out _);
@@ -93,6 +98,8 @@ public class MeshAreaSplitterTests
                     new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
                     4)
             },
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            0.001,
             0,
             0,
             out _);
@@ -103,6 +110,46 @@ public class MeshAreaSplitterTests
         AssertVertexZ(result, 3.0, 1.0, 4.0);
         AssertVertexZ(result, 3.0, 3.0, 6.0);
         AssertVertexZ(result, 1.0, 3.0, 4.0);
+    }
+
+    [Fact]
+    public void Split_PersistentHardConstraint_PreservesConstraintElevation()
+    {
+        var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
+            new[]
+            {
+                0.0, 2.0, 3.0,
+                4.0, 2.0, 3.0
+            },
+            PointCount: 2,
+            IsClosed: false,
+            PreserveInputElevation: true);
+
+        var result = MeshAreaSplitter.Split(
+            CreatePlanarMeshVertices(),
+            4,
+            CreateMeshFaces(),
+            2,
+            new[]
+            {
+                new MeshAreaSplitter.AreaBoundary(
+                    new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
+                    4)
+            },
+            new[] { hardConstraint },
+            0.001,
+            0,
+            0,
+            out _);
+
+        Assert.NotNull(result);
+
+        var constraintVertices = Enumerable.Range(0, result!.VertexCount)
+            .Where(index => Math.Abs(result.Vertices[index * 3 + 1] - 2.0) < 1e-6)
+            .ToList();
+
+        Assert.NotEmpty(constraintVertices);
+        Assert.All(constraintVertices, index => Assert.Equal(3.0, result.Vertices[index * 3 + 2], 6));
     }
 
     private static double[] CreatePlanarMeshVertices()

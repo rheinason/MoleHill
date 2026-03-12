@@ -21,7 +21,9 @@ public class TinInputCleanerTests
 
         Assert.Equal(1, cleaned.DuplicateSegmentsRemoved);
         Assert.Equal(1, cleaned.DegenerateSegmentsRemoved);
-        Assert.Equal(2, cleaned.SegmentCount);
+        Assert.Equal(1, cleaned.CollinearVerticesCollapsed);
+        Assert.Equal(1, cleaned.SegmentCount);
+        Assert.Equal(2, cleaned.VertexCount);
     }
 
     [Fact]

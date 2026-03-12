@@ -8,7 +8,7 @@ namespace MoleHill.Core.Engine;
 /// </summary>
 public sealed class InputSnapshot
 {
-    /// <summary>Hash of XY coordinates + segment definitions + quality settings.</summary>
+    /// <summary>Hash of XY coordinates + segment definitions + quality settings + domain mode.</summary>
     public int XyHash { get; }
 
     /// <summary>Hash of Z values only.</summary>
@@ -21,9 +21,9 @@ public sealed class InputSnapshot
     }
 
     /// <summary>
-    /// Compute hash of XY coordinates + segment definitions + quality settings.
+    /// Compute hash of XY coordinates + segment definitions + quality settings + domain mode.
     /// </summary>
-    public static int ComputeXyHash(double[] xyCoords, int[] segments, QualitySettings quality)
+    public static int ComputeXyHash(double[] xyCoords, int[] segments, QualitySettings quality, bool useConvexHull = true)
     {
         var xyHasher = new HashCode();
         xyHasher.AddBytes(MemoryMarshal.AsBytes(xyCoords.AsSpan()));
@@ -33,6 +33,7 @@ public sealed class InputSnapshot
         qualityBuf[0] = quality.MaxArea;
         qualityBuf[1] = quality.MinAngle;
         xyHasher.AddBytes(MemoryMarshal.AsBytes(qualityBuf));
+        xyHasher.Add(useConvexHull);
 
         return xyHasher.ToHashCode();
     }

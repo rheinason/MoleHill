@@ -1,6 +1,3 @@
-using TriangleNet;
-using TriangleNet.Geometry;
-using TriangleNet.Meshing;
 using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
@@ -154,12 +151,13 @@ public static class MeshAreaSplitter
         int[] faces,
         int faceCount,
         AreaBoundary[] areas,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentConstraints,
+        double tolerance,
         double maxArea,
         double minAngle,
         out string? errorMessage)
     {
         errorMessage = null;
-        const double dedupTol = 1e-6;
 
         if (areas.Length == 0)
         {
@@ -167,119 +165,47 @@ public static class MeshAreaSplitter
             return null;
         }
 
-        var xyList = new List<double>(vertexCount * 2);
-        var zList = new List<double>(vertexCount);
-        var segList = new List<(int a, int b)>();
-        var vertHash = new PadGrader.SpatialHash(dedupTol);
-        var faceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
-
-        for (int i = 0; i < vertexCount; i++)
+        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(persistentConstraints.Count + areas.Length);
+        constraints.AddRange(persistentConstraints);
+        for (int i = 0; i < areas.Length; i++)
         {
-            double x = vertices[i * 3];
-            double y = vertices[i * 3 + 1];
-
-            xyList.Add(x);
-            xyList.Add(y);
-            zList.Add(vertices[i * 3 + 2]);
-            vertHash.Insert(i, x, y);
+            constraints.Add(ToConstraintPolyline(areas[i]));
         }
 
-        foreach (var area in areas)
-        {
-            var areaIndices = new int[area.VertexCount];
-            for (int i = 0; i < area.VertexCount; i++)
+        var remeshResult = SurfaceRemesher.Remesh(
+            vertices,
+            faces,
+            constraints,
+            new SurfaceRemesher.Options
             {
-                double px = area.XyVertices[i * 2];
-                double py = area.XyVertices[i * 2 + 1];
+                Tolerance = tolerance,
+                MaxArea = maxArea,
+                MinAngle = minAngle,
+                ProtectSharpEdges = true
+            });
 
-                int near = vertHash.FindNearest(xyList, px, py, dedupTol);
-                if (near >= 0)
-                {
-                    areaIndices[i] = near;
-                }
-                else
-                {
-                    areaIndices[i] = zList.Count;
-                    xyList.Add(px);
-                    xyList.Add(py);
-                    zList.Add(faceGrid.InterpolateZ(px, py));
-                    vertHash.Insert(areaIndices[i], px, py);
-                }
-            }
-
-            for (int i = 0; i < area.VertexCount; i++)
-            {
-                int a = areaIndices[i];
-                int b = areaIndices[(i + 1) % area.VertexCount];
-                if (a != b)
-                    segList.Add((a, b));
-            }
-        }
-
-        int totalVerts = zList.Count;
-        if (totalVerts < 3)
+        if (!remeshResult.Success)
         {
-            errorMessage = "Too few vertices for triangulation.";
+            errorMessage = remeshResult.Warning ?? "Triangulation failed.";
             return null;
         }
 
-        var triMesh = TriangulationHelper.Triangulate(
-            xyList,
-            totalVerts,
-            segList,
-            maxArea,
-            minAngle,
-            out string? triWarning);
+        if (!string.IsNullOrWhiteSpace(remeshResult.Warning))
+            errorMessage = remeshResult.Warning;
 
-        if (triMesh == null)
-        {
-            errorMessage = triWarning ?? "Triangulation failed.";
-            return null;
-        }
-
-        if (triWarning != null)
-            errorMessage = triWarning;
-
-        var outVerts = triMesh.Vertices.ToList();
-        var outTris = triMesh.Triangles.ToList();
-        int outVertCount = outVerts.Count;
-        int outFaceCount = outTris.Count;
-
-        var finalVerts = new double[outVertCount * 3];
-        var idToIdx = new Dictionary<int, int>(outVertCount);
-
-        for (int i = 0; i < outVertCount; i++)
-        {
-            var meshVertex = outVerts[i];
-            idToIdx[meshVertex.ID] = i;
-            finalVerts[i * 3] = meshVertex.X;
-            finalVerts[i * 3 + 1] = meshVertex.Y;
-
-            if (meshVertex.ID >= 0 && meshVertex.ID < totalVerts)
-            {
-                finalVerts[i * 3 + 2] = zList[meshVertex.ID];
-            }
-            else
-            {
-                finalVerts[i * 3 + 2] = faceGrid.InterpolateZ(meshVertex.X, meshVertex.Y);
-            }
-        }
-
-        var finalFaces = new int[outFaceCount * 3];
+        var finalVerts = remeshResult.Vertices;
+        var finalFaces = remeshResult.Faces;
+        int outVertCount = finalVerts.Length / 3;
+        int outFaceCount = finalFaces.Length / 3;
         var faceAreaIndex = new int[outFaceCount];
         var indexedAreas = BuildIndexedAreas(areas);
         var areaIndex = new AreaSpatialIndex(indexedAreas);
 
         System.Threading.Tasks.Parallel.For(0, outFaceCount, () => new List<int>(8), (faceIndex, _, candidates) =>
         {
-            var triangle = outTris[faceIndex];
-            int i0 = idToIdx.GetValueOrDefault(triangle.GetVertex(0).ID, 0);
-            int i1 = idToIdx.GetValueOrDefault(triangle.GetVertex(1).ID, 0);
-            int i2 = idToIdx.GetValueOrDefault(triangle.GetVertex(2).ID, 0);
-
-            finalFaces[faceIndex * 3] = i0;
-            finalFaces[faceIndex * 3 + 1] = i1;
-            finalFaces[faceIndex * 3 + 2] = i2;
+            int i0 = finalFaces[faceIndex * 3];
+            int i1 = finalFaces[faceIndex * 3 + 1];
+            int i2 = finalFaces[faceIndex * 3 + 2];
 
             double cx = (finalVerts[i0 * 3] + finalVerts[i1 * 3] + finalVerts[i2 * 3]) / 3.0;
             double cy = (finalVerts[i0 * 3 + 1] + finalVerts[i1 * 3 + 1] + finalVerts[i2 * 3 + 1]) / 3.0;
@@ -311,6 +237,19 @@ public static class MeshAreaSplitter
             outFaceCount,
             faceAreaIndex,
             areas.Length);
+    }
+
+    private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(AreaBoundary area)
+    {
+        var points = new double[area.VertexCount * 3];
+        for (int i = 0; i < area.VertexCount; i++)
+        {
+            points[i * 3] = area.XyVertices[i * 2];
+            points[i * 3 + 1] = area.XyVertices[i * 2 + 1];
+            points[i * 3 + 2] = 0.0;
+        }
+
+        return new SurfaceRemesher.ConstraintPolyline(points, area.VertexCount, IsClosed: true, PreserveInputElevation: false);
     }
 
     private static IndexedArea[] BuildIndexedAreas(AreaBoundary[] areas)

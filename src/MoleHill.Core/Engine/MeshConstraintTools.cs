@@ -57,6 +57,15 @@ public static class MeshConstraintTools
                warning.Contains("plain Delaunay", StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool QualityWasDropped(string? warning)
+    {
+        if (string.IsNullOrWhiteSpace(warning))
+            return false;
+
+        return warning.Contains("Quality constraints could not be applied", StringComparison.OrdinalIgnoreCase) ||
+               warning.Contains("without quality constraints", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void CountEdge(Dictionary<long, int> edgeFaceCount, int a, int b)
     {
         long edgeKey = GetEdgeKey(a, b);
