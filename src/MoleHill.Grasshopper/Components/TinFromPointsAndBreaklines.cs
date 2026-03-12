@@ -35,8 +35,10 @@ public class TinFromPointsAndBreaklines : GH_Component
         pManager[0].Optional = true;
         pManager.AddCurveParameter("Breaklines", "B", "Breakline/contour curves (optional). Mesh edges will follow these exactly.", GH_ParamAccess.list);
         pManager[1].Optional = true;
-        pManager.AddNumberParameter("Tolerance", "T", "XY deduplication tolerance. Uses document tolerance if 0.", GH_ParamAccess.item, 0.0);
+        pManager.AddCurveParameter("Boundary", "D", "Optional closed terrain boundary. When omitted, MoleHill may infer a broad footprint from open breakline endpoints.", GH_ParamAccess.list);
         pManager[2].Optional = true;
+        pManager.AddNumberParameter("Tolerance", "T", "XY deduplication tolerance. Uses document tolerance if 0.", GH_ParamAccess.item, 0.0);
+        pManager[3].Optional = true;
     }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -56,11 +58,14 @@ public class TinFromPointsAndBreaklines : GH_Component
         var curves = new List<Curve>();
         DA.GetDataList(1, curves);
 
+        var boundaryCurves = new List<Curve>();
+        DA.GetDataList(2, boundaryCurves);
+
         if (points.Count == 0 && curves.Count == 0)
             return;
 
         double tolerance = 0;
-        DA.GetData(2, ref tolerance);
+        DA.GetData(3, ref tolerance);
 
         if (tolerance <= 0)
             tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
@@ -147,7 +152,7 @@ public class TinFromPointsAndBreaklines : GH_Component
         // Build TIN (pure CDT, no quality refinement — use Remesh for that)
         var quality = QualitySettings.None;
 
-        if (TryBuildValidatedTinMesh(merged.XyCoords, merged.ZValues, merged.Segments, quality,
+        if (TryBuildValidatedTinMesh(merged.XyCoords, merged.ZValues, merged.Segments, boundaryCurves, tolerance, quality,
             out var result, out var mesh, out string? buildMessage))
         {
             if (!string.IsNullOrWhiteSpace(buildMessage))
@@ -176,7 +181,7 @@ public class TinFromPointsAndBreaklines : GH_Component
             return;
         }
 
-        if (!TryBuildValidatedTinMesh(cleanup.XyCoords, cleanup.ZValues, cleanup.Segments, quality,
+        if (!TryBuildValidatedTinMesh(cleanup.XyCoords, cleanup.ZValues, cleanup.Segments, boundaryCurves, tolerance, quality,
             out result, out mesh, out string? cleanupMessage))
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Error, buildMessage ?? "Triangulation failed.");
@@ -201,13 +206,34 @@ public class TinFromPointsAndBreaklines : GH_Component
         double[] xyCoords,
         double[] zValues,
         int[] segments,
+        IReadOnlyList<Curve> boundaryCurves,
+        double tolerance,
         QualitySettings quality,
         out TinResult? result,
         out Mesh? mesh,
         out string? message)
     {
-        result = _engine.Build(xyCoords, zValues, segments, quality, out message);
+        var prepared = TinBoundaryPreparer.Prepare(
+            xyCoords,
+            zValues,
+            segments,
+            CreateBoundaryPolylines(boundaryCurves, tolerance),
+            tolerance);
+
         mesh = null;
+
+        result = _engine.Build(
+            prepared.XyCoords,
+            prepared.ZValues,
+            prepared.Segments,
+            quality,
+            out message,
+            useConvexHull: prepared.UseConvexHull);
+
+        if (!string.IsNullOrWhiteSpace(prepared.WarningMessage))
+            message = AppendMessage(message, prepared.WarningMessage);
+        if (!string.IsNullOrWhiteSpace(prepared.InfoMessage))
+            message = AppendMessage(message, prepared.InfoMessage);
 
         if (result == null)
             return false;
@@ -237,6 +263,49 @@ public class TinFromPointsAndBreaklines : GH_Component
         }
 
         return true;
+    }
+
+    private static TinBoundaryPreparer.BoundaryPolyline[] CreateBoundaryPolylines(IReadOnlyList<Curve> curves, double tolerance)
+    {
+        var result = new List<TinBoundaryPreparer.BoundaryPolyline>();
+        foreach (var curve in curves)
+        {
+            if (curve == null)
+                continue;
+
+            Polyline polyline;
+            if (curve.TryGetPolyline(out polyline))
+            {
+            }
+            else
+            {
+                var polyCurve = curve.ToPolyline(tolerance, Math.PI / 36.0, 0.0, 0.0);
+                if (polyCurve == null || !polyCurve.TryGetPolyline(out polyline))
+                    continue;
+            }
+
+            if (polyline.Count < 2)
+                continue;
+
+            var flat = new double[polyline.Count * 3];
+            for (int i = 0; i < polyline.Count; i++)
+            {
+                flat[i * 3] = polyline[i].X;
+                flat[i * 3 + 1] = polyline[i].Y;
+                flat[i * 3 + 2] = polyline[i].Z;
+            }
+
+            result.Add(new TinBoundaryPreparer.BoundaryPolyline(flat, polyline.Count, curve.IsClosed));
+        }
+
+        return result.ToArray();
+    }
+
+    private static string AppendMessage(string? current, string next)
+    {
+        return string.IsNullOrWhiteSpace(current)
+            ? next
+            : $"{current} {next}";
     }
 
     private static int ComputePreprocessHash(IReadOnlyList<Point3d> points, IReadOnlyList<Curve> curves, double tolerance)

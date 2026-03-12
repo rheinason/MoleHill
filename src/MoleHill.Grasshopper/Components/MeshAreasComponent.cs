@@ -1,6 +1,7 @@
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
+using MoleHill.Core.Engine;
 using Rhino.Geometry;
 using MoleHill.Core.Grading;
 
@@ -138,6 +139,8 @@ public class MeshAreasComponent : GH_Component
             vertices, vertexCount,
             faces, faceCount,
             areas.ToArray(),
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            tolerance,
             maxArea, minAngle,
             out string? errorMessage);
 

@@ -1,5 +1,6 @@
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Types;
+using MoleHill.Core.Engine;
 using Rhino.Geometry;
 using TriangleNet.Geometry;
 using TriangleNet.Meshing;
@@ -264,7 +265,12 @@ public class MeshCollageComponent : GH_Component
         // Split mesh by areas
         var result = MeshAreaSplitter.Split(
             vertices, vertexCount, faces, faceCount,
-            areas.ToArray(), 0, 0, out string? errorMessage);
+            areas.ToArray(),
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            tolerance,
+            0,
+            0,
+            out string? errorMessage);
 
         if (result == null)
         {
