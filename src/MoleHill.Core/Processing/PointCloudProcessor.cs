@@ -71,7 +71,8 @@ public static class PointCloudProcessor
     /// <param name="tolerance">XY deduplication tolerance.</param>
     public static MergedData Merge(double[] spotXyz, int spotCount,
                                     BreaklineDiscretizer.BreaklineData breaklineData,
-                                    double tolerance)
+                                    double tolerance,
+                                    Func<bool>? shouldCancel = null)
     {
         double tol = Math.Max(tolerance, 1e-12);
         double tolSq = tol * tol;
@@ -92,6 +93,9 @@ public static class PointCloudProcessor
         //    Z-aware: only merge breakline-to-breakline if BOTH XY and Z are close
         for (int i = 0; i < breaklineData.VertexCount; i++)
         {
+            if ((i & 255) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
             double x = breaklineData.Vertices[i * 3];
             double y = breaklineData.Vertices[i * 3 + 1];
             double z = breaklineData.Vertices[i * 3 + 2];
@@ -111,6 +115,9 @@ public static class PointCloudProcessor
         // 2. Add spot points (XY-only dedup against existing points)
         for (int i = 0; i < spotCount; i++)
         {
+            if ((i & 255) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
             double x = spotXyz[i * 3];
             double y = spotXyz[i * 3 + 1];
             double z = spotXyz[i * 3 + 2];
@@ -131,6 +138,9 @@ public static class PointCloudProcessor
         var segList = new List<int>();
         for (int i = 0; i < breaklineData.SegmentCount; i++)
         {
+            if ((i & 255) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
             int a = breaklineData.Segments[i * 2];
             int b = breaklineData.Segments[i * 2 + 1];
 
@@ -153,6 +163,12 @@ public static class PointCloudProcessor
             segList.Count / 2,
             duplicates,
             invalids);
+    }
+
+    private static void ThrowIfCancellationRequested(Func<bool>? shouldCancel)
+    {
+        if (shouldCancel?.Invoke() == true)
+            throw new OperationCanceledException("Point merge cancelled.");
     }
 
     /// <param name="checkZ">If true, also require Z proximity for merging (breakline mode).</param>

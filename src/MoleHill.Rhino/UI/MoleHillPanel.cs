@@ -22,14 +22,24 @@ public sealed class MoleHillPanel : Panel
         ("In-Situ Stair", "in-situ-stair")
     };
 
+    private static readonly (string Label, string Kind)[] AnalysisKinds =
+    {
+        ("Slope", "slope"),
+        ("Elevation", "elevation"),
+        ("Cut / Fill", "cut-fill")
+    };
+
     private readonly TerrainController _controller = TerrainController.Instance;
     private readonly TextBox _terrainName = new();
     private readonly CheckBox _liveUpdate = new() { Text = "Live" };
     private readonly Label _statusLabel = new();
     private readonly Label _terrainLayerLabel = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Label _auxLayerLabel     = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly Panel _terrainColorSwatch = new() { Width = 18, Height = 18 };
+    private readonly Label _terrainColorLabel = new() { VerticalAlignment = VerticalAlignment.Center, TextColor = MutedText };
     private readonly Label _statusHintLabel   = new() { VerticalAlignment = VerticalAlignment.Center, TextColor = SystemColors.DisabledText };
     private readonly NumericStepper _toleranceStepper = new();
+    private readonly NumericStepper _terrainOpacityStepper = new();
     private bool _settingsExpanded = true;
     private bool _statusExpanded = false;
     private Panel? _settingsContent;
@@ -136,6 +146,27 @@ public sealed class MoleHillPanel : Panel
         {
             toleranceTimer.Stop();
             MutateSelectedTerrain(t => t.GlobalTolerance = _toleranceStepper.Value, scheduleRebuild: true);
+        };
+
+        _terrainOpacityStepper.DecimalPlaces = 0;
+        _terrainOpacityStepper.Increment = 5;
+        _terrainOpacityStepper.MinValue = 0;
+        _terrainOpacityStepper.MaxValue = 100;
+        ApplyHelp(_terrainOpacityStepper, "Terrain opacity used for the preview and the baked terrain mesh.");
+        _terrainOpacityStepper.ValueChanged += (_, _) =>
+        {
+            if (_isRefreshing)
+                return;
+
+            int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
+            MutateSelectedTerrain(
+                terrain => terrain.TerrainColorArgb = WithOpacityPercent(terrain.TerrainColorArgb, opacityPercent),
+                scheduleRebuild: false);
+
+            var doc = RhinoDoc.ActiveDoc;
+            var selectedTerrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+            if (doc != null && selectedTerrain != null)
+                _controller.RefreshTerrainDisplay(doc, selectedTerrain.TerrainId);
         };
 
         _visibilityButton.Click += (_, _) =>
@@ -254,7 +285,7 @@ public sealed class MoleHillPanel : Panel
                 new Label { Text = "Terrain Settings", Font = new Font(SystemFont.Bold), VerticalAlignment = VerticalAlignment.Center },
                 new StackLayoutItem(new Label
                 {
-                    Text = "Document defaults and output layers",
+                    Text = "Document defaults, layers, and terrain display",
                     TextColor = MutedText,
                     VerticalAlignment = VerticalAlignment.Center
                 }, expand: true)
@@ -293,6 +324,21 @@ public sealed class MoleHillPanel : Panel
             VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
             Items = { CreateHelpLabel("Tolerance", "Global Z-snapping tolerance for point deduplication.", PropertyLabelWidth), _toleranceStepper }
         };
+        var terrainColorRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal, Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
+            Items =
+            {
+                CreateHelpLabel("Terrain Color", "Base display color for the terrain preview and baked terrain. Opacity affects this terrain mesh only.", PropertyLabelWidth),
+                _terrainColorSwatch,
+                _terrainColorLabel,
+                CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake.", 52),
+                _terrainOpacityStepper,
+                MakeCompactButton("Pick...", OnPickTerrainColor, "Pick the terrain display color."),
+                MakeCompactButton("Reset", (_, _) => ResetTerrainColor(), "Restore the default terrain display color.")
+            }
+        };
         var settingsInner = new StackLayout
         {
             Orientation = Orientation.Vertical, Spacing = 6, Padding = new Padding(10, 8, 10, 8),
@@ -300,6 +346,7 @@ public sealed class MoleHillPanel : Panel
             {
                 new StackLayoutItem(terrainLayerRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(auxLayerRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(terrainColorRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(toleranceRow, HorizontalAlignment.Stretch)
             }
         };
@@ -567,6 +614,35 @@ public sealed class MoleHillPanel : Panel
         RefreshUi();
     }
 
+    private void OnPickTerrainColor(object? sender, EventArgs e)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+        if (doc == null || terrain == null)
+            return;
+
+        var colorDialog = new ColorDialog
+        {
+            Color = ToEtoColor(System.Drawing.Color.FromArgb(terrain.TerrainColorArgb))
+        };
+
+        if (colorDialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok)
+            return;
+
+        int opacityPercent = GetOpacityPercent(terrain.TerrainColorArgb);
+        MutateSelectedTerrain(item => item.TerrainColorArgb = WithOpacityPercent(ToArgb(colorDialog.Color), opacityPercent), scheduleRebuild: false);
+        _controller.RefreshTerrainDisplay(doc, terrain.TerrainId);
+    }
+
+    private void ResetTerrainColor()
+    {
+        MutateSelectedTerrain(terrain => terrain.TerrainColorArgb = TerrainDefinition.DefaultTerrainColorArgb, scheduleRebuild: false);
+        var doc = RhinoDoc.ActiveDoc;
+        var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+        if (doc != null && terrain != null)
+            _controller.RefreshTerrainDisplay(doc, terrain.TerrainId);
+    }
+
     private void RefreshUi()
     {
         if (IsDisposed)
@@ -584,7 +660,10 @@ public sealed class MoleHillPanel : Panel
                 SetStatusText("No active Rhino document.");
                 _terrainLayerLabel.Text = "-";
                 _auxLayerLabel.Text = "-";
+                _terrainColorSwatch.BackgroundColor = Color.FromArgb(80, 80, 80);
+                _terrainColorLabel.Text = "-";
                 _statusHintLabel.Text = string.Empty;
+                _terrainOpacityStepper.Value = 100;
                 _toleranceStepper.Value = 0;
                 _visibilityButton.Text = "Shown";
                 _lockButton.Text = "Unlocked";
@@ -610,6 +689,11 @@ public sealed class MoleHillPanel : Panel
             _liveUpdate.Checked = selectedTerrain?.LiveUpdateEnabled ?? false;
             _terrainLayerLabel.Text = selectedTerrain?.TerrainLayerPath is { } tl ? GetLeafLayerName(tl) : "(current layer)";
             _auxLayerLabel.Text = selectedTerrain?.AuxiliaryLayerPath is { } al ? GetLeafLayerName(al) : "MoleHill::Auxiliary";
+            int terrainColorArgb = selectedTerrain?.TerrainColorArgb ?? TerrainDefinition.DefaultTerrainColorArgb;
+            var terrainColor = ToEtoColor(System.Drawing.Color.FromArgb(terrainColorArgb));
+            _terrainColorSwatch.BackgroundColor = terrainColor;
+            _terrainColorLabel.Text = DescribeTerrainColor(terrainColorArgb);
+            _terrainOpacityStepper.Value = GetOpacityPercent(terrainColorArgb);
             _toleranceStepper.Value = selectedTerrain?.GlobalTolerance ?? 0;
             var statusText = selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.";
             SetStatusText(statusText);
@@ -773,6 +857,27 @@ public sealed class MoleHillPanel : Panel
             Text = "Earthwork Inputs",
             Content = editorLayout
         }, HorizontalAlignment.Stretch));
+
+        _analysisStack.Items.Add(new StackLayoutItem(BuildAnalysisToolbar(terrain), HorizontalAlignment.Stretch));
+        _analysisStack.Items.Add(new StackLayoutItem(new Panel
+        {
+            Padding = new Padding(6, 0, 6, 4),
+            Content = new Label
+            {
+                Text = "The topmost enabled analysis card drives the terrain mesh color in the viewport and on bake.",
+                TextColor = SystemColors.DisabledText
+            }
+        }, HorizontalAlignment.Stretch));
+
+        bool hasActiveAnalysis = false;
+        foreach (var analysisItem in terrain.Analyses)
+        {
+            bool isActive = !hasActiveAnalysis && analysisItem.IsEnabled;
+            if (isActive)
+                hasActiveAnalysis = true;
+
+            _analysisStack.Items.Add(new StackLayoutItem(CreateAnalysisCard(terrain, analysisItem, isActive), HorizontalAlignment.Stretch));
+        }
 
         var analysis = terrain.LastAnalysis;
         if (analysis == null)
@@ -959,6 +1064,162 @@ public sealed class MoleHillPanel : Panel
                 }
             }
         };
+    }
+
+    private Control BuildAnalysisToolbar(TerrainDefinition terrain)
+    {
+        var buttons = AnalysisKinds
+            .Select(item => MakeButton($"+ {item.Label}", (_, _) => AddAnalysis(item.Kind), $"Add a {item.Label.ToLowerInvariant()} analysis card."))
+            .ToArray();
+        return CreateToolbarGroup(buttons);
+    }
+
+    private Panel CreateAnalysisCard(TerrainDefinition terrain, AnalysisDefinition analysis, bool isActive)
+    {
+        var layout = new DynamicLayout { DefaultSpacing = new Size(4, 4), Padding = new Padding(6, 4) };
+
+        var nameBox = new TextBox { Text = analysis.Label };
+        ApplyHelp(nameBox, "Friendly analysis name shown in the panel.");
+        BindCommittedText(nameBox, () => analysis.Label, text =>
+            MutateAnalysis(terrain.TerrainId, analysis.Id, item => item.Label = text, scheduleRebuild: false));
+
+        var enabledCheck = new CheckBox
+        {
+            Text = "On",
+            Checked = analysis.IsEnabled
+        };
+        ApplyHelp(enabledCheck, "Enable or disable this analysis card without deleting it.");
+        enabledCheck.CheckedChanged += (_, _) =>
+        {
+            MutateAnalysis(terrain.TerrainId, analysis.Id, item => item.IsEnabled = enabledCheck.Checked == true, scheduleRebuild: false);
+            RefreshTerrainPreview(terrain.TerrainId);
+        };
+
+        string typeLabel = GetAnalysisTypeLabel(analysis);
+        string statusText = isActive
+            ? "ACTIVE PREVIEW"
+            : analysis.IsEnabled ? "Enabled" : "Disabled";
+        var badge = new Label
+        {
+            Text = statusText,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextColor = isActive ? Color.FromArgb(255, 210, 80) : MutedText
+        };
+
+        layout.AddSeparateRow(
+            enabledCheck,
+            nameBox,
+            new Label { Text = typeLabel, TextColor = MutedText, VerticalAlignment = VerticalAlignment.Center },
+            badge,
+            MakeMiniButton("Up", (_, _) =>
+            {
+                MoveAnalysis(terrain.TerrainId, analysis.Id, -1);
+                RefreshTerrainPreview(terrain.TerrainId);
+            }, "Move this analysis card toward the top of the stack.", width: 40),
+            MakeMiniButton("Down", (_, _) =>
+            {
+                MoveAnalysis(terrain.TerrainId, analysis.Id, +1);
+                RefreshTerrainPreview(terrain.TerrainId);
+            }, "Move this analysis card lower in the stack.", width: 52),
+            MakeMiniButton("Delete", (_, _) =>
+            {
+                RemoveAnalysis(terrain.TerrainId, analysis.Id);
+                RefreshTerrainPreview(terrain.TerrainId);
+            }, "Delete this analysis card.", width: 58),
+            null);
+
+        switch (analysis)
+        {
+            case SlopeAnalysisDefinition slope:
+                layout.AddRow(CreateAnalysisPaletteEditor(
+                    terrain.TerrainId,
+                    slope,
+                    "Color ramp used for the slope analysis preview."));
+                layout.AddRow(CreateAnalysisRangeEditor(
+                    "Low %",
+                    slope.RangeLow,
+                    value => MutateAndRefreshAnalysis(terrain.TerrainId, slope.Id, item => item.RangeLow = value),
+                    "Values at or below this slope percent use the low end of the selected palette."));
+                layout.AddRow(CreateAnalysisRangeEditor(
+                    "High %",
+                    slope.RangeHigh,
+                    value => MutateAndRefreshAnalysis(terrain.TerrainId, slope.Id, item => item.RangeHigh = value),
+                    "Values at or above this slope percent use the high end of the selected palette. Leave at 0 to auto-fit."));
+                if (terrain.LastAnalysis != null)
+                {
+                    layout.AddRow(CreateReadOnlyValueRow("Min / Avg / Max",
+                        $"{terrain.LastAnalysis.SlopeMinPercent:F1}% / {terrain.LastAnalysis.SlopeAveragePercent:F1}% / {terrain.LastAnalysis.SlopeMaxPercent:F1}%",
+                        "Current terrain slope summary from the last build."));
+                }
+                layout.AddRow(CreateSlopeLegendView(
+                    SlopePreviewPaletteCatalog.Resolve(slope.PalettePreset),
+                    slope.RangeLow,
+                    slope.RangeHigh > slope.RangeLow ? slope.RangeHigh : Math.Max(slope.RangeLow + 1.0, terrain.LastAnalysis?.SlopeMaxPercent ?? slope.RangeLow + 1.0)));
+                break;
+            case ElevationAnalysisDefinition elevation:
+                layout.AddRow(CreateAnalysisPaletteEditor(
+                    terrain.TerrainId,
+                    elevation,
+                    "Color ramp used for the elevation analysis preview."));
+                layout.AddRow(CreateAnalysisRangeEditor(
+                    "Low Z",
+                    elevation.RangeLow,
+                    value => MutateAndRefreshAnalysis(terrain.TerrainId, elevation.Id, item => item.RangeLow = value),
+                    "Values at or below this elevation use the low end of the selected palette."));
+                layout.AddRow(CreateAnalysisRangeEditor(
+                    "High Z",
+                    elevation.RangeHigh,
+                    value => MutateAndRefreshAnalysis(terrain.TerrainId, elevation.Id, item => item.RangeHigh = value),
+                    "Values at or above this elevation use the high end of the selected palette. Leave at 0 to auto-fit."));
+                break;
+            case CutFillAnalysisDefinition cutFill:
+                layout.AddRow(CreateAnalysisPaletteEditor(
+                    terrain.TerrainId,
+                    cutFill,
+                    "Color ramp used for cut/fill analysis. Negative values map toward cut, positive values toward fill."));
+                layout.AddRow(CreateAnalysisRangeEditor(
+                    "Cut Min",
+                    cutFill.RangeLow,
+                    value => MutateAndRefreshAnalysis(terrain.TerrainId, cutFill.Id, item => item.RangeLow = value),
+                    "Lower bound for signed cut/fill values. Leave the range invalid to auto-fit symmetrically."));
+                layout.AddRow(CreateAnalysisRangeEditor(
+                    "Fill Max",
+                    cutFill.RangeHigh,
+                    value => MutateAndRefreshAnalysis(terrain.TerrainId, cutFill.Id, item => item.RangeHigh = value),
+                    "Upper bound for signed cut/fill values. Leave the range invalid to auto-fit symmetrically."));
+                if (terrain.LastAnalysis != null)
+                {
+                    layout.AddRow(CreateReadOnlyValueRow("Cut / Fill / Net",
+                        $"{terrain.LastAnalysis.CutVolume:F2} / {terrain.LastAnalysis.FillVolume:F2} / {terrain.LastAnalysis.NetVolume:F2}",
+                        "Current earthworks summary from the last build."));
+                }
+                break;
+        }
+
+        return new Panel
+        {
+            Padding = new Padding(4, 2),
+            BackgroundColor = CardBackground,
+            Content = layout
+        };
+    }
+
+    private Control CreateAnalysisPaletteEditor(Guid terrainId, AnalysisDefinition analysis, string help)
+    {
+        var paletteOptions = SlopePreviewPaletteCatalog.All
+            .Select(item => (item.Key, item.Label))
+            .ToList();
+        return CreateDropDownEditor(
+            "Palette",
+            paletteOptions,
+            analysis.PalettePreset,
+            value => MutateAndRefreshAnalysis(terrainId, analysis.Id, item => item.PalettePreset = value),
+            help);
+    }
+
+    private Control CreateAnalysisRangeEditor(string label, double value, Action<double> onChanged, string help)
+    {
+        return CreateNumericEditor(label, value, onChanged, decimalPlaces: 2, help: help);
     }
 
     private Panel CreateModifierCard(TerrainDefinition terrain, ModifierDefinition modifier)
@@ -1711,6 +1972,173 @@ public sealed class MoleHillPanel : Panel
         };
     }
 
+    private Control CreateDropDownEditor(
+        string label,
+        IReadOnlyList<(string Key, string Label)> options,
+        string selectedKey,
+        Action<string> onChanged,
+        string help)
+    {
+        var dropDown = new DropDown { Width = 180 };
+        foreach (var option in options)
+            dropDown.Items.Add(new ListItem { Text = option.Label });
+
+        int selectedIndex = options
+            .Select((option, index) => (option, index))
+            .FirstOrDefault(item => string.Equals(item.option.Key, selectedKey, StringComparison.OrdinalIgnoreCase))
+            .index;
+        dropDown.SelectedIndex = selectedIndex >= 0 && selectedIndex < options.Count ? selectedIndex : 0;
+        ApplyHelp(dropDown, help);
+        dropDown.SelectedIndexChanged += (_, _) =>
+        {
+            if (_isRefreshing)
+                return;
+
+            int index = dropDown.SelectedIndex;
+            if (index < 0 || index >= options.Count)
+                return;
+
+            onChanged(options[index].Key);
+        };
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Items =
+            {
+                CreateHelpLabel(label, help, NumericLabelWidth),
+                dropDown
+            }
+        };
+    }
+
+    private GroupBox CreateSlopePreviewGroup(TerrainDefinition terrain, TerrainAnalysisSummary? analysis)
+    {
+        var palette = SlopePreviewPaletteCatalog.Resolve(terrain.SlopePalettePreset);
+        double displayLow = analysis?.SlopeDisplayLowPercent ?? terrain.SlopeColorLowPercent;
+        double displayHigh = analysis?.SlopeDisplayHighPercent ?? terrain.SlopeColorHighPercent;
+        if (displayHigh <= displayLow)
+            displayHigh = displayLow + 1.0;
+
+        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 4), Padding = new Padding(6, 4) };
+        var paletteOptions = SlopePreviewPaletteCatalog.All
+            .Select(item => (item.Key, item.Label))
+            .ToList();
+
+        layout.AddRow(CreateDropDownEditor(
+            "Palette",
+            paletteOptions,
+            terrain.SlopePalettePreset,
+            value => MutateSelectedTerrain(item => item.SlopePalettePreset = value, scheduleRebuild: true),
+            "Color ramp used for the slope preview mesh and legend."));
+        layout.AddRow(CreateNumericEditor(
+            "Low %",
+            terrain.SlopeColorLowPercent,
+            value => MutateSelectedTerrain(item => item.SlopeColorLowPercent = value, scheduleRebuild: true),
+            decimalPlaces: 1,
+            help: "Values at or below this percent use the cool end of the selected palette."));
+        layout.AddRow(CreateNumericEditor(
+            "High %",
+            terrain.SlopeColorHighPercent,
+            value => MutateSelectedTerrain(item => item.SlopeColorHighPercent = value, scheduleRebuild: true),
+            decimalPlaces: 1,
+            help: "Values at or above this percent use the hot end of the palette. Leave at 0 to auto-fit the terrain."));
+        layout.AddRow(CreateReadOnlyValueRow(
+            "Mapped",
+            $"{displayLow:F1}% to {displayHigh:F1}%",
+            "Actual percent range currently mapped across the selected palette."));
+        layout.AddRow(CreateSlopeLegendView(palette, displayLow, displayHigh));
+
+        return new GroupBox
+        {
+            Text = "Slope Preview",
+            Content = layout
+        };
+    }
+
+    private static Control CreateSlopeLegendView(SlopePreviewPalette palette, double displayLow, double displayHigh)
+    {
+        const int sampleCount = 12;
+        var swatches = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 0,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+
+        for (int i = 0; i < sampleCount; i++)
+        {
+            double t = sampleCount == 1 ? 0.0 : i / (double)(sampleCount - 1);
+            swatches.Items.Add(new StackLayoutItem(new Panel
+            {
+                Height = 16,
+                BackgroundColor = SamplePaletteColor(palette.Stops, t)
+            }, expand: true));
+        }
+
+        var labels = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items =
+            {
+                new Label { Text = $"{displayLow:F1}%", TextColor = MutedText },
+                new StackLayoutItem(new Label
+                {
+                    Text = palette.Label,
+                    TextColor = MutedText,
+                    TextAlignment = TextAlignment.Center
+                }, expand: true),
+                new Label { Text = $"{displayHigh:F1}%", TextColor = MutedText }
+            }
+        };
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 4,
+            Padding = new Padding(0, 2, 0, 0),
+            Items = { swatches, labels }
+        };
+    }
+
+    private static Color SamplePaletteColor(IReadOnlyList<MoleHill.Core.Analysis.SlopeAnalyzer.ColorStop> stops, double position)
+    {
+        if (stops.Count == 0)
+            return Color.FromArgb(0, 200, 0);
+
+        if (position <= stops[0].Position)
+            return Color.FromArgb(stops[0].R, stops[0].G, stops[0].B);
+
+        for (int index = 1; index < stops.Count; index++)
+        {
+            var previous = stops[index - 1];
+            var current = stops[index];
+            if (position > current.Position)
+                continue;
+
+            double segment = current.Position - previous.Position;
+            if (segment <= 1e-9)
+                return Color.FromArgb(current.R, current.G, current.B);
+
+            double localT = Math.Clamp((position - previous.Position) / segment, 0.0, 1.0);
+            return Color.FromArgb(
+                InterpolateChannel(previous.R, current.R, localT),
+                InterpolateChannel(previous.G, current.G, localT),
+                InterpolateChannel(previous.B, current.B, localT));
+        }
+
+        var last = stops[^1];
+        return Color.FromArgb(last.R, last.G, last.B);
+    }
+
+    private static int InterpolateChannel(byte start, byte end, double t)
+    {
+        return (int)Math.Round(start + ((end - start) * Math.Clamp(t, 0.0, 1.0)));
+    }
+
     private Control CreateZoneLayerEditor(TerrainDefinition terrain, CollageZoneDefinition zone)
     {
         string? layerPath = zone.Boundaries.LayerPaths.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
@@ -2046,6 +2474,28 @@ public sealed class MoleHillPanel : Panel
         });
     }
 
+    private void MoveAnalysis(Guid terrainId, Guid analysisId, int direction)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        _controller.MutateTerrain(doc, terrainId, terrain =>
+        {
+            int index = terrain.Analyses.FindIndex(item => item.Id == analysisId);
+            if (index < 0)
+                return;
+
+            int targetIndex = Math.Clamp(index + direction, 0, terrain.Analyses.Count - 1);
+            if (targetIndex == index)
+                return;
+
+            var analysis = terrain.Analyses[index];
+            terrain.Analyses.RemoveAt(index);
+            terrain.Analyses.Insert(targetIndex, analysis);
+        }, scheduleRebuild: false);
+    }
+
     private void RemoveZone(Guid terrainId, Guid zoneId)
     {
         var doc = RhinoDoc.ActiveDoc;
@@ -2056,6 +2506,40 @@ public sealed class MoleHillPanel : Panel
         {
             terrain.Zones.RemoveAll(zone => zone.ZoneId == zoneId);
         });
+    }
+
+    private void RemoveAnalysis(Guid terrainId, Guid analysisId)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        _controller.MutateTerrain(doc, terrainId, terrain =>
+        {
+            terrain.Analyses.RemoveAll(item => item.Id == analysisId);
+        }, scheduleRebuild: false);
+    }
+
+    private void AddAnalysis(string kind)
+    {
+        MutateSelectedTerrain(terrain =>
+        {
+            AnalysisDefinition? analysis = kind switch
+            {
+                "slope" => new SlopeAnalysisDefinition(),
+                "elevation" => new ElevationAnalysisDefinition(),
+                "cut-fill" => new CutFillAnalysisDefinition(),
+                _ => null
+            };
+
+            if (analysis != null)
+                terrain.Analyses.Insert(0, analysis);
+        }, scheduleRebuild: false);
+
+        var doc = RhinoDoc.ActiveDoc;
+        var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+        if (terrain != null)
+            RefreshTerrainPreview(terrain.TerrainId);
     }
 
     private void MutateSelectedTerrain(Action<TerrainDefinition> mutator, bool scheduleRebuild = true)
@@ -2108,6 +2592,44 @@ public sealed class MoleHillPanel : Panel
             if (marker != null)
                 mutator(marker);
         }, scheduleRebuild);
+    }
+
+    private void MutateAnalysis(Guid terrainId, Guid analysisId, Action<AnalysisDefinition> mutator, bool scheduleRebuild = false)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        _controller.MutateTerrain(doc, terrainId, terrain =>
+        {
+            var analysis = terrain.Analyses.FirstOrDefault(item => item.Id == analysisId);
+            if (analysis != null)
+                mutator(analysis);
+        }, scheduleRebuild);
+    }
+
+    private void MutateAndRefreshAnalysis(Guid terrainId, Guid analysisId, Action<AnalysisDefinition> mutator)
+    {
+        MutateAnalysis(terrainId, analysisId, mutator, scheduleRebuild: false);
+        RefreshTerrainPreview(terrainId);
+    }
+
+    private void RefreshTerrainPreview(Guid terrainId)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc != null)
+            _controller.RefreshTerrainDisplay(doc, terrainId);
+    }
+
+    private static string GetAnalysisTypeLabel(AnalysisDefinition analysis)
+    {
+        return analysis switch
+        {
+            SlopeAnalysisDefinition => "Slope",
+            ElevationAnalysisDefinition => "Elevation",
+            CutFillAnalysisDefinition => "Cut / Fill",
+            _ => "Analysis"
+        };
     }
 
     // ── Drag-and-drop: modifier cards ────────────────────────────────────
@@ -2632,5 +3154,33 @@ public sealed class MoleHillPanel : Panel
         popup.Show();
     }
 
-    private static Color ToEtoColor(System.Drawing.Color c) => Color.FromArgb(c.R, c.G, c.B);
+    private static int GetOpacityPercent(int argb)
+    {
+        int alpha = System.Drawing.Color.FromArgb(argb).A;
+        return (int)Math.Round((alpha / 255.0) * 100.0);
+    }
+
+    private static int WithOpacityPercent(int argb, int opacityPercent)
+    {
+        var color = System.Drawing.Color.FromArgb(argb);
+        int alpha = (int)Math.Round(Math.Clamp(opacityPercent, 0, 100) / 100.0 * 255.0);
+        return System.Drawing.Color.FromArgb(alpha, color.R, color.G, color.B).ToArgb();
+    }
+
+    private static int ToArgb(Color color)
+    {
+        int alpha = (int)Math.Round(Math.Clamp(color.A, 0f, 1f) * 255.0);
+        int red = (int)Math.Round(Math.Clamp(color.R, 0f, 1f) * 255.0);
+        int green = (int)Math.Round(Math.Clamp(color.G, 0f, 1f) * 255.0);
+        int blue = (int)Math.Round(Math.Clamp(color.B, 0f, 1f) * 255.0);
+        return System.Drawing.Color.FromArgb(alpha, red, green, blue).ToArgb();
+    }
+
+    private static string DescribeTerrainColor(int argb)
+    {
+        var color = System.Drawing.Color.FromArgb(argb);
+        return $"#{color.R:X2}{color.G:X2}{color.B:X2} · {GetOpacityPercent(argb)}%";
+    }
+
+    private static Color ToEtoColor(System.Drawing.Color c) => Color.FromArgb(c.R, c.G, c.B, c.A);
 }

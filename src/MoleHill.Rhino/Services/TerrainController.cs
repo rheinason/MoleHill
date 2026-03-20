@@ -6,6 +6,7 @@ using MoleHill.Rhino.Model;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.DocObjects.Tables;
+using Rhino.Display;
 using Rhino.Geometry;
 using Rhino.Input.Custom;
 
@@ -15,16 +16,19 @@ internal sealed class TerrainController
 {
     private const string OutputOwnerKey = "MoleHillTerrainId";
     private const string OutputBaseMaterialNameKey = "MoleHillBaseMaterialName";
+    private const string OutputKindKey = "MoleHillOutputKind";
     private const string OutputDisplayMaterialPrefix = "__MoleHillDisplay__";
     private const int StageTimingDiagnosticThresholdMs = 250;
     private const int MinorTimingDiagnosticThresholdMs = 100;
     private const int TotalTimingDiagnosticThresholdMs = 750;
     private readonly TerrainDocumentStore _documentStore = new();
     private readonly TerrainBuildService _buildService = new();
+    private readonly TerrainDisplayConduit _displayConduit = new();
     private readonly Dictionary<uint, DocumentState> _states = new();
     private readonly Dictionary<(uint docSerial, Guid terrainId), DateTime> _pendingRebuilds = new();
     private readonly HashSet<uint> _pendingSourceReferencePrunes = new();
     private readonly Dictionary<(uint docSerial, Guid terrainId), TerrainRuntimeCache> _runtimeCaches = new();
+    private readonly Dictionary<(uint docSerial, Guid terrainId), TerrainRebuildState> _rebuildStates = new();
     private bool _initialized;
     private int _suppressDocEvents;
 
@@ -42,6 +46,19 @@ internal sealed class TerrainController
             return $"{DeletedObjectCount:N0} old -> {AddedObjectCount:N0} new objects " +
                    $"({OutputCount:N0} terrain, {ZoneCount:N0} zones, {AuxiliaryCount:N0} auxiliary, {MarkerCount:N0} markers)";
         }
+    }
+
+    private sealed class TerrainRebuildState
+    {
+        public long RequestedVersion { get; set; }
+
+        public long AppliedVersion { get; set; }
+
+        public long RunningVersion { get; set; }
+
+        public bool IsBuilding { get; set; }
+
+        public bool CancelRequested { get; set; }
     }
 
     public static TerrainController Instance { get; } = new();
@@ -62,6 +79,7 @@ internal sealed class TerrainController
         RhinoDoc.ModifyObjectAttributes += OnModifyObjectAttributes;
         RhinoDoc.LayerTableEvent += OnLayerTableEvent;
         RhinoApp.Idle += OnIdle;
+        _displayConduit.Enabled = true;
     }
 
     public IReadOnlyList<TerrainDefinition> GetTerrains(RhinoDoc doc) => GetState(doc).Terrains;
@@ -70,7 +88,28 @@ internal sealed class TerrainController
     {
         _states.Remove(doc.RuntimeSerialNumber);
         ClearRuntimeCaches(doc.RuntimeSerialNumber);
+        ClearRebuildStates(doc.RuntimeSerialNumber);
+        doc.Views.Redraw();
         RaiseStateChanged();
+    }
+
+    internal IReadOnlyList<TerrainPreviewView> GetPreviewViews(RhinoDoc doc)
+    {
+        var views = new List<TerrainPreviewView>();
+        foreach (var terrain in GetState(doc).Terrains)
+        {
+            var runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId);
+            if (runtimeCache.DisplayState == null)
+                continue;
+
+            views.Add(new TerrainPreviewView
+            {
+                Terrain = terrain,
+                DisplayState = runtimeCache.DisplayState
+            });
+        }
+
+        return views;
     }
 
     public Guid? GetSelectedTerrainId(RhinoDoc doc) => GetState(doc).SelectedTerrainId;
@@ -127,11 +166,13 @@ internal sealed class TerrainController
 
         DeleteOwnedObjects(doc, terrain);
         RemoveRuntimeCache(doc.RuntimeSerialNumber, terrainId);
+        RemoveRebuildState(doc.RuntimeSerialNumber, terrainId);
         state.Terrains.Remove(terrain);
         if (state.SelectedTerrainId == terrainId)
             state.SelectedTerrainId = state.Terrains.FirstOrDefault()?.TerrainId;
 
         Save(doc, state);
+        doc.Views.Redraw();
     }
 
     public void ConvertToRhino(RhinoDoc doc, Guid terrainId)
@@ -144,16 +185,15 @@ internal sealed class TerrainController
         uint undoRecord = doc.BeginUndoRecord("Detach MoleHill Terrain");
         doc.AddCustomUndoEvent("Detach MoleHill Terrain", OnRestoreStateUndo, CaptureUndoState(state));
 
-        ClearOwnership(doc, terrain.OutputObjectIds);
-        ClearOwnership(doc, terrain.ZoneObjectIds);
-        ClearOwnership(doc, terrain.AuxiliaryObjectIds);
-        ClearOwnership(doc, terrain.MarkerObjectIds);
+        BakeTerrain(doc, terrainId);
         RemoveRuntimeCache(doc.RuntimeSerialNumber, terrainId);
+        RemoveRebuildState(doc.RuntimeSerialNumber, terrainId);
         state.Terrains.Remove(terrain);
         if (state.SelectedTerrainId == terrainId)
             state.SelectedTerrainId = state.Terrains.FirstOrDefault()?.TerrainId;
 
         Save(doc, state);
+        doc.Views.Redraw();
         if (undoRecord > 0)
             doc.EndUndoRecord(undoRecord);
     }
@@ -270,14 +310,22 @@ internal sealed class TerrainController
 
     public void RebuildTerrain(RhinoDoc doc, Guid terrainId)
     {
-        _pendingRebuilds.Remove((doc.RuntimeSerialNumber, terrainId));
-
         var state = GetState(doc);
         var terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
         if (terrain == null)
             return;
 
-        RebuildTerrain(doc, state, terrain);
+        _pendingRebuilds.Remove((doc.RuntimeSerialNumber, terrainId));
+        long buildVersion = RequestRebuild(doc.RuntimeSerialNumber, terrainId, isImmediate: true);
+        var rebuildState = GetRebuildState(doc.RuntimeSerialNumber, terrainId);
+        if (rebuildState.IsBuilding)
+        {
+            terrain.LastBuildMessage = $"Queued rebuild #{buildVersion:N0}; current build will stop at the next safe checkpoint.";
+            RaiseStateChanged();
+            return;
+        }
+
+        RebuildTerrain(doc, state, terrain, buildVersion);
     }
 
     public TerrainDefinition DuplicateTerrain(RhinoDoc doc, Guid terrainId)
@@ -304,6 +352,8 @@ internal sealed class TerrainController
             marker.Id = Guid.NewGuid();
         foreach (var zone in clone.Zones)
             zone.ZoneId = Guid.NewGuid();
+        foreach (var analysis in clone.Analyses)
+            analysis.Id = Guid.NewGuid();
 
         state.Terrains.Add(clone);
         state.SelectedTerrainId = clone.TerrainId;
@@ -322,27 +372,46 @@ internal sealed class TerrainController
         if (terrain == null)
             return;
 
-        using var _ = new EventSuppression(this);
-        foreach (var objectId in terrain.OutputObjectIds.Concat(terrain.ZoneObjectIds).Concat(terrain.AuxiliaryObjectIds))
+        var runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId);
+        if (runtimeCache.DisplayState?.TerrainMesh == null)
         {
-            var obj = doc.Objects.FindId(objectId);
-            if (obj?.Geometry == null)
-                continue;
+            RebuildTerrain(doc, state, terrain);
+            runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId);
+        }
 
-            var attributes = obj.Attributes.Duplicate();
-            attributes.DeleteUserString(OutputOwnerKey);
-            attributes.DeleteUserString(OutputBaseMaterialNameKey);
+        var displayState = runtimeCache.DisplayState;
+        if (displayState == null || !terrain.IsVisible)
+            return;
 
-            switch (obj.Geometry)
+        using var _ = new EventSuppression(this);
+        if (terrain.ShowTerrainMesh)
+        {
+            Mesh? terrainMesh = displayState.ActiveAnalysisId.HasValue
+                ? displayState.PreviewTerrainMesh
+                : displayState.TerrainMesh;
+            if (terrainMesh != null)
             {
-                case Mesh mesh:
-                    doc.Objects.AddMesh(mesh, attributes);
-                    break;
-                case Brep brep:
-                    doc.Objects.AddBrep(brep, attributes);
-                    break;
+                AddBakedObject(doc, terrain, new GeneratedRhinoObject
+                {
+                    Geometry = terrainMesh.DuplicateMesh(),
+                    Name = terrain.Name,
+                    LayerPath = terrain.TerrainLayerPath,
+                    ColorArgb = terrain.TerrainColorArgb
+                });
             }
         }
+
+        if (terrain.ShowZoneMeshes)
+        {
+            foreach (var zoneObject in displayState.ZoneObjects)
+                AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(zoneObject));
+        }
+
+        foreach (var auxiliary in displayState.AuxiliaryObjects)
+            AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(auxiliary));
+
+        foreach (var marker in displayState.MarkerObjects)
+            AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(marker));
 
         doc.Views.Redraw();
     }
@@ -355,19 +424,7 @@ internal sealed class TerrainController
             return;
 
         terrain.IsVisible = visible;
-
-        using var _ = new EventSuppression(this);
-        foreach (var id in AllOwnedIds(terrain))
-        {
-            if (visible)
-                doc.Objects.Show(id, ignoreLayerMode: true);
-            else
-                doc.Objects.Hide(id, ignoreLayerMode: true);
-        }
-
         Save(doc, state);
-        if (terrain.ProtectOutput)
-            UnselectProtectedOwnedObjects(doc, terrain);
         doc.Views.Redraw();
     }
 
@@ -379,19 +436,7 @@ internal sealed class TerrainController
             return;
 
         terrain.IsLocked = locked;
-
-        using var _ = new EventSuppression(this);
-        foreach (var id in AllOwnedIds(terrain))
-        {
-            if (locked)
-                doc.Objects.Lock(id, ignoreLayerMode: true);
-            else
-                doc.Objects.Unlock(id, ignoreLayerMode: true);
-        }
-
         Save(doc, state);
-        if (terrain.ProtectOutput)
-            UnselectProtectedOwnedObjects(doc, terrain);
         doc.Views.Redraw();
     }
 
@@ -402,10 +447,7 @@ internal sealed class TerrainController
         if (terrain == null)
             return;
 
-        using var _ = new EventSuppression(this);
-        ResetOwnedObjectModes(doc, terrain);
-        ApplyDisplayState(doc, terrain);
-        Save(doc, state);
+        UpdateRuntimePreview(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrainId));
         doc.Views.Redraw();
     }
 
@@ -571,44 +613,57 @@ internal sealed class TerrainController
 
         _states[doc.RuntimeSerialNumber] = restoredState;
         ClearRuntimeCaches(doc.RuntimeSerialNumber);
+        ClearRebuildStates(doc.RuntimeSerialNumber);
         Save(doc, restoredState);
+        doc.Views.Redraw();
     }
 
     private void ScheduleRebuild(RhinoDoc doc, Guid terrainId)
     {
+        long requestedVersion = RequestRebuild(doc.RuntimeSerialNumber, terrainId, isImmediate: false);
         _pendingRebuilds[(doc.RuntimeSerialNumber, terrainId)] = DateTime.UtcNow.AddMilliseconds(250);
         var terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
         if (terrain != null)
-            terrain.LastBuildMessage = "Scheduled rebuild...";
+            terrain.LastBuildMessage = GetRebuildState(doc.RuntimeSerialNumber, terrainId).IsBuilding
+                ? $"Queued rebuild #{requestedVersion:N0}; current build will stop at the next safe checkpoint."
+                : $"Scheduled rebuild #{requestedVersion:N0}...";
         RaiseStateChanged();
     }
 
-    private void RebuildTerrain(RhinoDoc doc, DocumentState state, TerrainDefinition terrain)
+    private void RebuildTerrain(RhinoDoc doc, DocumentState state, TerrainDefinition terrain, long? requestedBuildVersion = null)
     {
-        terrain.LastBuildMessage = "Building terrain...";
+        var rebuildState = GetRebuildState(doc.RuntimeSerialNumber, terrain.TerrainId);
+        long buildVersion = requestedBuildVersion ?? Math.Max(rebuildState.RequestedVersion, rebuildState.AppliedVersion + 1);
+        rebuildState.RequestedVersion = Math.Max(rebuildState.RequestedVersion, buildVersion);
+        rebuildState.RunningVersion = buildVersion;
+        rebuildState.CancelRequested = false;
+        rebuildState.IsBuilding = true;
+
+        terrain.LastBuildMessage = $"Building terrain #{buildVersion:N0}...";
         RaiseStateChanged();
 
         try
         {
             var rebuildTimer = Stopwatch.StartNew();
 
-            var build = _buildService.Build(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId));
+            var build = _buildService.Build(
+                doc,
+                terrain,
+                GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId),
+                () => ShouldCancelRebuild(doc.RuntimeSerialNumber, terrain.TerrainId, buildVersion));
+            if (ShouldCancelRebuild(doc.RuntimeSerialNumber, terrain.TerrainId, buildVersion))
+                throw new OperationCanceledException("A newer terrain rebuild request superseded this build.");
             var buildTiming = build.Timings.LastOrDefault(timing => string.Equals(timing.Stage, "Build pipeline", StringComparison.Ordinal));
             TimeSpan buildElapsed = buildTiming?.Elapsed ?? TimeSpan.Zero;
 
             terrain.LastBuildUtc = DateTimeOffset.UtcNow;
             terrain.LastAnalysis = build.Analysis;
+            ClearLegacyOutputState(doc, terrain);
 
-            var syncTimer = Stopwatch.StartNew();
-            OutputSyncMetrics syncMetrics = SyncOutputs(doc, terrain, build);
-            syncTimer.Stop();
-            build.RecordTiming("Output sync", syncTimer.Elapsed, syncMetrics.ToDetail(), StageTimingDiagnosticThresholdMs);
-
-            int ownedObjectCount = AllOwnedIds(terrain).Distinct().Count();
             var displayTimer = Stopwatch.StartNew();
-            ApplyDisplayState(doc, terrain);
+            UpdateDisplayState(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), build);
             displayTimer.Stop();
-            build.RecordTiming("Display refresh", displayTimer.Elapsed, $"{ownedObjectCount:N0} owned objects", StageTimingDiagnosticThresholdMs);
+            build.RecordTiming("Display refresh", displayTimer.Elapsed, DescribeDisplayState(GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).DisplayState), StageTimingDiagnosticThresholdMs);
 
             terrain.LastBuildMessage = build.Diagnostics.Count == 0
                 ? "Build succeeded."
@@ -628,12 +683,21 @@ internal sealed class TerrainController
             build.RecordTiming(
                 "Rebuild total",
                 rebuildTimer.Elapsed,
-                $"build {FormatElapsed(buildElapsed)}, sync {FormatElapsed(syncTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}, save {FormatElapsed(saveTimer.Elapsed)}, redraw {FormatElapsed(redrawTimer.Elapsed)}; {syncMetrics.ToDetail()}",
+                $"build {FormatElapsed(buildElapsed)}, display {FormatElapsed(displayTimer.Elapsed)}, save {FormatElapsed(saveTimer.Elapsed)}, redraw {FormatElapsed(redrawTimer.Elapsed)}; {DescribeDisplayState(GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).DisplayState)}",
                 TotalTimingDiagnosticThresholdMs);
 
             terrain.LastBuildMessage = build.Diagnostics.Count == 0
                 ? "Build succeeded."
                 : string.Join(System.Environment.NewLine, build.Diagnostics.Take(8));
+            rebuildState.AppliedVersion = buildVersion;
+            RaiseStateChanged();
+        }
+        catch (OperationCanceledException)
+        {
+            terrain.LastBuildUtc = DateTimeOffset.UtcNow;
+            terrain.LastBuildMessage = rebuildState.RequestedVersion > buildVersion
+                ? $"Rebuild #{buildVersion:N0} cancelled; newer request queued."
+                : $"Rebuild #{buildVersion:N0} cancelled.";
             RaiseStateChanged();
         }
         catch (Exception ex)
@@ -642,6 +706,14 @@ internal sealed class TerrainController
             terrain.LastBuildMessage = $"Build failed: {ex.Message}";
             RhinoApp.WriteLine($"[MoleHill] Rebuild failed for '{terrain.Name}': {ex}");
             Save(doc, state);
+        }
+        finally
+        {
+            rebuildState.IsBuilding = false;
+            rebuildState.RunningVersion = 0;
+
+            if (rebuildState.RequestedVersion > rebuildState.AppliedVersion)
+                _pendingRebuilds[(doc.RuntimeSerialNumber, terrain.TerrainId)] = DateTime.UtcNow.AddMilliseconds(75);
         }
     }
 
@@ -716,7 +788,7 @@ internal sealed class TerrainController
 
     private Guid AddGeneratedObject(RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject generated)
     {
-        var attributes = CreateAttributes(doc, terrain, generated);
+        var attributes = CreateAttributes(doc, terrain, generated, trackOwnership: true);
 
         if (!string.IsNullOrWhiteSpace(generated.InstanceDefinitionName))
         {
@@ -779,28 +851,97 @@ internal sealed class TerrainController
 
     private ObjectAttributes CreateAttributes(RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject generated)
     {
+        return CreateAttributes(doc, terrain, generated, trackOwnership: true);
+    }
+
+    private ObjectAttributes CreateAttributes(RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject generated, bool trackOwnership)
+    {
         var attributes = new ObjectAttributes
         {
             Name = $"{terrain.Name} :: {generated.Name}"
         };
 
-        attributes.SetUserString(OutputOwnerKey, terrain.TerrainId.ToString());
-        if (!string.IsNullOrWhiteSpace(generated.MaterialName))
-            attributes.SetUserString(OutputBaseMaterialNameKey, generated.MaterialName!);
+        if (trackOwnership)
+        {
+            attributes.SetUserString(OutputOwnerKey, terrain.TerrainId.ToString());
+            if (!string.IsNullOrWhiteSpace(generated.MaterialName))
+                attributes.SetUserString(OutputBaseMaterialNameKey, generated.MaterialName!);
+            else
+                attributes.DeleteUserString(OutputBaseMaterialNameKey);
+
+            if (generated.Kind != GeneratedObjectKind.Default)
+                attributes.SetUserString(OutputKindKey, generated.Kind.ToString());
+            else
+                attributes.DeleteUserString(OutputKindKey);
+        }
         else
+        {
+            attributes.DeleteUserString(OutputOwnerKey);
             attributes.DeleteUserString(OutputBaseMaterialNameKey);
+            attributes.DeleteUserString(OutputKindKey);
+        }
 
         if (generated.ColorArgb.HasValue)
         {
             attributes.ColorSource = ObjectColorSource.ColorFromObject;
-            attributes.ObjectColor = System.Drawing.Color.FromArgb(generated.ColorArgb.Value);
+            attributes.ObjectColor = GetOpaqueColor(System.Drawing.Color.FromArgb(generated.ColorArgb.Value));
+            if (!trackOwnership)
+                ApplyBakedColorTransparency(doc, generated.ColorArgb.Value, attributes);
         }
 
         if (!string.IsNullOrWhiteSpace(generated.LayerPath))
             attributes.LayerIndex = EnsureLayer(doc, generated.LayerPath!, generated.SourceLayerPath);
 
-        ApplyOutputRenderAttributes(doc, terrain, attributes);
+        if (trackOwnership)
+            ApplyOutputRenderAttributes(doc, terrain, attributes);
         return attributes;
+    }
+
+    private Guid AddBakedObject(RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject generated)
+    {
+        var attributes = CreateAttributes(doc, terrain, generated, trackOwnership: false);
+
+        if (!string.IsNullOrWhiteSpace(generated.InstanceDefinitionName))
+        {
+            int definitionIndex = EnsureBlockDefinition(doc, generated.InstanceDefinitionName!, generated.MarkerBlockTemplate);
+            if (definitionIndex >= 0)
+                return doc.Objects.AddInstanceObject(definitionIndex, generated.InstanceTransform, attributes);
+        }
+
+        return generated.Geometry switch
+        {
+            Mesh mesh => doc.Objects.AddMesh(mesh, attributes),
+            Brep brep => doc.Objects.AddBrep(brep, attributes),
+            TextDot textDot => doc.Objects.AddTextDot(textDot, attributes),
+            _ => Guid.Empty
+        };
+    }
+
+    private static void ApplyBakedColorTransparency(RhinoDoc doc, int colorArgb, ObjectAttributes attributes)
+    {
+        var color = System.Drawing.Color.FromArgb(colorArgb);
+        double transparency = 1.0 - (color.A / 255.0);
+        if (transparency <= 0.0)
+            return;
+
+        var material = new Material
+        {
+            DiffuseColor = GetOpaqueColor(color),
+            Transparency = transparency,
+            Name = $"__MoleHillBakedColor__{colorArgb:X8}"
+        };
+
+        int materialIndex = doc.Materials.Find(material.Name, true);
+        if (materialIndex >= 0)
+            doc.Materials.Modify(material, materialIndex, quiet: true);
+        else
+            materialIndex = doc.Materials.Add(material);
+
+        if (materialIndex >= 0)
+        {
+            attributes.MaterialSource = ObjectMaterialSource.MaterialFromObject;
+            attributes.MaterialIndex = materialIndex;
+        }
     }
 
     private int EnsureLayer(RhinoDoc doc, string fullPath, string? sourceLayerPath = null)
@@ -1010,14 +1151,24 @@ internal sealed class TerrainController
         _pendingRebuilds.Remove(key);
         var doc = RhinoDoc.FromRuntimeSerialNumber(key.docSerial);
         if (doc == null)
+        {
+            RemoveRebuildState(key.docSerial, key.terrainId);
             return;
+        }
 
         var state = GetState(doc);
         var terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == key.terrainId);
         if (terrain == null)
+        {
+            RemoveRebuildState(key.docSerial, key.terrainId);
+            return;
+        }
+
+        var rebuildState = GetRebuildState(key.docSerial, key.terrainId);
+        if (rebuildState.IsBuilding)
             return;
 
-        RebuildTerrain(doc, state, terrain);
+        RebuildTerrain(doc, state, terrain, rebuildState.RequestedVersion);
     }
 
     private void ScheduleRelevantTerrains(RhinoDoc doc, Guid objectId, params string?[] layerPaths)
@@ -1206,9 +1357,98 @@ internal sealed class TerrainController
             _runtimeCaches.Remove(key);
     }
 
+    private TerrainRebuildState GetRebuildState(uint docSerial, Guid terrainId)
+    {
+        if (_rebuildStates.TryGetValue((docSerial, terrainId), out var state))
+            return state;
+
+        state = new TerrainRebuildState();
+        _rebuildStates[(docSerial, terrainId)] = state;
+        return state;
+    }
+
+    private long RequestRebuild(uint docSerial, Guid terrainId, bool isImmediate)
+    {
+        var rebuildState = GetRebuildState(docSerial, terrainId);
+        rebuildState.RequestedVersion++;
+        if (rebuildState.IsBuilding)
+            rebuildState.CancelRequested = true;
+        return rebuildState.RequestedVersion;
+    }
+
+    private bool ShouldCancelRebuild(uint docSerial, Guid terrainId, long buildVersion)
+    {
+        if (!_rebuildStates.TryGetValue((docSerial, terrainId), out var state))
+            return true;
+
+        return state.CancelRequested || state.RequestedVersion > buildVersion;
+    }
+
+    private void RemoveRebuildState(uint docSerial, Guid terrainId)
+    {
+        _rebuildStates.Remove((docSerial, terrainId));
+        _pendingRebuilds.Remove((docSerial, terrainId));
+    }
+
+    private void ClearRebuildStates(uint docSerial)
+    {
+        foreach (var key in _rebuildStates.Keys.Where(key => key.docSerial == docSerial).ToList())
+            _rebuildStates.Remove(key);
+
+        foreach (var key in _pendingRebuilds.Keys.Where(key => key.docSerial == docSerial).ToList())
+            _pendingRebuilds.Remove(key);
+    }
+
+    private void UpdateDisplayState(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache, TerrainBuildResult build)
+    {
+        var displayState = new TerrainDisplayState
+        {
+            TerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(build.PrimaryMesh),
+            BaseTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(build.BaseMesh),
+            Summary = TerrainRuntimeCacheCloner.CloneAnalysis(build.Analysis)
+        };
+        displayState.ZoneObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.ZoneObjects));
+        displayState.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.AuxiliaryObjects));
+        displayState.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.MarkerObjects));
+        runtimeCache.DisplayState = displayState;
+        UpdateRuntimePreview(doc, terrain, runtimeCache);
+    }
+
+    private void UpdateRuntimePreview(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache)
+    {
+        if (runtimeCache.DisplayState == null)
+            return;
+
+        TerrainAnalysisPreviewBuilder.UpdatePreviewMesh(doc, terrain, runtimeCache.DisplayState);
+        terrain.LastAnalysis = TerrainRuntimeCacheCloner.CloneAnalysis(runtimeCache.DisplayState.Summary);
+    }
+
+    private static string DescribeDisplayState(TerrainDisplayState? displayState)
+    {
+        if (displayState == null)
+            return "no preview";
+
+        int outputCount = (displayState.PreviewTerrainMesh != null ? 1 : 0) +
+                          displayState.ZoneObjects.Count +
+                          displayState.AuxiliaryObjects.Count +
+                          displayState.MarkerObjects.Count;
+        return $"{outputCount:N0} preview outputs";
+    }
+
+    private void ClearLegacyOutputState(RhinoDoc doc, TerrainDefinition terrain)
+    {
+        if (AllOwnedIds(terrain).Any())
+            DeleteOwnedObjects(doc, terrain);
+
+        terrain.OutputObjectIds.Clear();
+        terrain.ZoneObjectIds.Clear();
+        terrain.AuxiliaryObjectIds.Clear();
+        terrain.MarkerObjectIds.Clear();
+    }
+
     private void ApplyVisibilityAndLock(RhinoDoc doc, TerrainDefinition terrain)
     {
-        if (terrain.IsVisible && !terrain.IsLocked && terrain.ShowTerrainMesh && terrain.ShowZoneMeshes)
+        if (terrain.IsVisible && !terrain.IsLocked && terrain.ShowTerrainMesh && terrain.ShowZoneMeshes && terrain.ShowSlopePreview)
             return;
 
         foreach (var id in terrain.OutputObjectIds)
@@ -1227,7 +1467,17 @@ internal sealed class TerrainController
                 doc.Objects.Lock(id, ignoreLayerMode: true);
         }
 
-        foreach (var id in terrain.AuxiliaryObjectIds.Concat(terrain.MarkerObjectIds))
+        foreach (var id in terrain.AuxiliaryObjectIds)
+        {
+            var obj = doc.Objects.FindId(id);
+            bool shouldHide = !terrain.IsVisible || (!terrain.ShowSlopePreview && IsSlopePreviewObject(obj));
+            if (shouldHide)
+                doc.Objects.Hide(id, ignoreLayerMode: true);
+            else if (terrain.IsLocked)
+                doc.Objects.Lock(id, ignoreLayerMode: true);
+        }
+
+        foreach (var id in terrain.MarkerObjectIds)
         {
             if (!terrain.IsVisible)
                 doc.Objects.Hide(id, ignoreLayerMode: true);
@@ -1397,6 +1647,22 @@ internal sealed class TerrainController
             return null;
 
         return material.Name;
+    }
+
+    private static bool IsSlopePreviewObject(global::Rhino.DocObjects.RhinoObject? obj)
+    {
+        return GetGeneratedObjectKind(obj?.Attributes) == GeneratedObjectKind.SlopePreview;
+    }
+
+    private static GeneratedObjectKind GetGeneratedObjectKind(ObjectAttributes? attributes)
+    {
+        if (attributes == null)
+            return GeneratedObjectKind.Default;
+
+        string? kind = attributes.GetUserString(OutputKindKey);
+        return Enum.TryParse(kind, ignoreCase: true, out GeneratedObjectKind parsed)
+            ? parsed
+            : GeneratedObjectKind.Default;
     }
 
     private int EnsureDisplayMaterial(

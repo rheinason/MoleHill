@@ -37,7 +37,7 @@ public static class BreaklineDiscretizer
     /// Process a list of polylines into breakline data.
     /// Each polyline is a flat XYZ array: [x0,y0,z0, x1,y1,z1, …].
     /// </summary>
-    public static BreaklineData Process(IReadOnlyList<double[]> polylines)
+    public static BreaklineData Process(IReadOnlyList<double[]> polylines, Func<bool>? shouldCancel = null)
     {
         if (polylines.Count == 0)
             return new BreaklineData(Array.Empty<double>(), 0, Array.Empty<int>(), 0);
@@ -45,8 +45,12 @@ public static class BreaklineDiscretizer
         // Count totals
         int totalVerts = 0;
         int totalSegs = 0;
-        foreach (var pl in polylines)
+        for (int polylineIndex = 0; polylineIndex < polylines.Count; polylineIndex++)
         {
+            if ((polylineIndex & 31) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
+            var pl = polylines[polylineIndex];
             int n = pl.Length / 3;
             if (n < 2) continue;
             totalVerts += n;
@@ -59,8 +63,12 @@ public static class BreaklineDiscretizer
         int si = 0; // segment write index
         int baseIdx = 0; // base vertex index for current polyline
 
-        foreach (var pl in polylines)
+        for (int polylineIndex = 0; polylineIndex < polylines.Count; polylineIndex++)
         {
+            if ((polylineIndex & 31) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
+            var pl = polylines[polylineIndex];
             int n = pl.Length / 3;
             if (n < 2) continue;
 
@@ -68,6 +76,9 @@ public static class BreaklineDiscretizer
 
             for (int i = 0; i < n - 1; i++)
             {
+                if ((i & 255) == 0)
+                    ThrowIfCancellationRequested(shouldCancel);
+
                 segs[si++] = baseIdx + i;
                 segs[si++] = baseIdx + i + 1;
             }
@@ -77,5 +88,11 @@ public static class BreaklineDiscretizer
         }
 
         return new BreaklineData(verts, totalVerts, segs, totalSegs);
+    }
+
+    private static void ThrowIfCancellationRequested(Func<bool>? shouldCancel)
+    {
+        if (shouldCancel?.Invoke() == true)
+            throw new OperationCanceledException("Breakline processing cancelled.");
     }
 }

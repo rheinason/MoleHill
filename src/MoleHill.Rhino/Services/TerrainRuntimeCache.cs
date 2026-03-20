@@ -15,10 +15,13 @@ internal sealed class TerrainRuntimeCache
 
     public Dictionary<string, PadTopologyCacheEntry> PadTopologyEntries { get; } = new(StringComparer.Ordinal);
 
+    public TerrainDisplayState? DisplayState { get; set; }
+
     public void Clear()
     {
         StageEntries.Clear();
         PadTopologyEntries.Clear();
+        DisplayState = null;
         TinEngine.InvalidateCache();
     }
 
@@ -171,6 +174,8 @@ internal static class TerrainRuntimeCacheCloner
             SlopeMinPercent = analysis.SlopeMinPercent,
             SlopeMaxPercent = analysis.SlopeMaxPercent,
             SlopeAveragePercent = analysis.SlopeAveragePercent,
+            SlopeDisplayLowPercent = analysis.SlopeDisplayLowPercent,
+            SlopeDisplayHighPercent = analysis.SlopeDisplayHighPercent,
             CutVolume = analysis.CutVolume,
             FillVolume = analysis.FillVolume,
             NetVolume = analysis.NetVolume,
@@ -189,6 +194,7 @@ internal static class TerrainRuntimeCacheCloner
         {
             Geometry = generated.Geometry?.Duplicate(),
             Name = generated.Name,
+            Kind = generated.Kind,
             ColorArgb = generated.ColorArgb,
             LayerPath = generated.LayerPath,
             SourceLayerPath = generated.SourceLayerPath,

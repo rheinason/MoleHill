@@ -10,6 +10,10 @@ public sealed class TerrainAnalysisSummary
 
     public double SlopeAveragePercent { get; set; }
 
+    public double SlopeDisplayLowPercent { get; set; }
+
+    public double SlopeDisplayHighPercent { get; set; }
+
     public double CutVolume { get; set; }
 
     public double FillVolume { get; set; }

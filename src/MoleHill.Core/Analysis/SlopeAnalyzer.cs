@@ -5,6 +5,32 @@ namespace MoleHill.Core.Analysis;
 /// </summary>
 public static class SlopeAnalyzer
 {
+    public readonly struct ColorStop
+    {
+        public ColorStop(double position, byte r, byte g, byte b)
+        {
+            Position = double.IsNaN(position) ? 0.0 : Math.Clamp(position, 0.0, 1.0);
+            R = r;
+            G = g;
+            B = b;
+        }
+
+        public double Position { get; }
+
+        public byte R { get; }
+
+        public byte G { get; }
+
+        public byte B { get; }
+    }
+
+    private static readonly ColorStop[] DefaultPalette =
+    {
+        new(0.0, 0, 200, 0),
+        new(0.5, 255, 255, 0),
+        new(1.0, 255, 0, 0)
+    };
+
     public enum SlopeUnit
     {
         Ratio = 0,
@@ -29,14 +55,27 @@ public static class SlopeAnalyzer
         /// <summary>Area-weighted average slope.</summary>
         public double Average { get; }
 
-        /// <summary>Per-face RGB colors (flat: [r0,g0,b0, r1,g1,b1, …], 0–255).</summary>
+        /// <summary>Per-face RGB colors (flat: [r0,g0,b0, r1,g1,b1, ...], 0-255).</summary>
         public byte[] FaceColors { get; }
 
         /// <summary>Number of faces.</summary>
         public int FaceCount { get; }
 
-        public SlopeResult(double[] slopes, double min, double max, double average,
-                           byte[] faceColors, int faceCount)
+        /// <summary>Low end of the display range actually used for color mapping.</summary>
+        public double ColorLow { get; }
+
+        /// <summary>High end of the display range actually used for color mapping.</summary>
+        public double ColorHigh { get; }
+
+        public SlopeResult(
+            double[] slopes,
+            double min,
+            double max,
+            double average,
+            byte[] faceColors,
+            int faceCount,
+            double colorLow,
+            double colorHigh)
         {
             Slopes = slopes;
             Min = min;
@@ -44,24 +83,31 @@ public static class SlopeAnalyzer
             Average = average;
             FaceColors = faceColors;
             FaceCount = faceCount;
+            ColorLow = colorLow;
+            ColorHigh = colorHigh;
         }
     }
 
     /// <summary>
     /// Compute per-face slopes for a triangle mesh.
     /// </summary>
-    /// <param name="vertices">Flat XYZ: [x0,y0,z0, x1,y1,z1, …]</param>
+    /// <param name="vertices">Flat XYZ: [x0,y0,z0, x1,y1,z1, ...]</param>
     /// <param name="vertexCount">Number of vertices.</param>
-    /// <param name="faces">Triangle indices: [i0,i1,i2, …]</param>
+    /// <param name="faces">Triangle indices: [i0,i1,i2, ...]</param>
     /// <param name="faceCount">Number of triangles.</param>
     /// <param name="unit">Slope unit (ratio, percent, degrees).</param>
-    /// <param name="colorLow">Low end of color range (in the chosen unit). Values at or below → green.</param>
-    /// <param name="colorHigh">High end of color range (in the chosen unit). Values at or above → red. 0 = auto.</param>
-    public static SlopeResult Analyze(double[] vertices, int vertexCount,
-                                       int[] faces, int faceCount,
-                                       SlopeUnit unit,
-                                       double colorLow = 0,
-                                       double colorHigh = 0)
+    /// <param name="colorLow">Low end of color range (in the chosen unit). Values at or below use the first palette stop.</param>
+    /// <param name="colorHigh">High end of color range (in the chosen unit). Values at or above use the last palette stop. 0 = auto.</param>
+    /// <param name="palette">Optional normalized color stops. Null falls back to the default green-yellow-red ramp.</param>
+    public static SlopeResult Analyze(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        SlopeUnit unit,
+        double colorLow = 0,
+        double colorHigh = 0,
+        IReadOnlyList<ColorStop>? palette = null)
     {
         var slopes = new double[faceCount];
         var colors = new byte[faceCount * 3];
@@ -76,30 +122,34 @@ public static class SlopeAnalyzer
             int i1 = faces[f * 3 + 1];
             int i2 = faces[f * 3 + 2];
 
-            double ax = vertices[i0 * 3], ay = vertices[i0 * 3 + 1], az = vertices[i0 * 3 + 2];
-            double bx = vertices[i1 * 3], by = vertices[i1 * 3 + 1], bz = vertices[i1 * 3 + 2];
-            double cx = vertices[i2 * 3], cy = vertices[i2 * 3 + 1], cz = vertices[i2 * 3 + 2];
+            double ax = vertices[i0 * 3];
+            double ay = vertices[i0 * 3 + 1];
+            double az = vertices[i0 * 3 + 2];
+            double bx = vertices[i1 * 3];
+            double by = vertices[i1 * 3 + 1];
+            double bz = vertices[i1 * 3 + 2];
+            double cx = vertices[i2 * 3];
+            double cy = vertices[i2 * 3 + 1];
+            double cz = vertices[i2 * 3 + 2];
 
-            // Edge vectors
-            double e1x = bx - ax, e1y = by - ay, e1z = bz - az;
-            double e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+            double e1x = bx - ax;
+            double e1y = by - ay;
+            double e1z = bz - az;
+            double e2x = cx - ax;
+            double e2y = cy - ay;
+            double e2z = cz - az;
 
-            // Normal = e1 × e2
             double nx = e1y * e2z - e1z * e2y;
             double ny = e1z * e2x - e1x * e2z;
             double nz = e1x * e2y - e1y * e2x;
 
-            // 3D face area = 0.5 * |normal|
             double normalLen = Math.Sqrt(nx * nx + ny * ny + nz * nz);
             double area = normalLen * 0.5;
 
-            // Slope ratio = sqrt(Nx² + Ny²) / |Nz|
             double absNz = Math.Abs(nz);
-            double slopeRatio;
-            if (absNz < 1e-12)
-                slopeRatio = double.PositiveInfinity; // vertical face
-            else
-                slopeRatio = Math.Sqrt(nx * nx + ny * ny) / absNz;
+            double slopeRatio = absNz < 1e-12
+                ? double.PositiveInfinity
+                : Math.Sqrt(nx * nx + ny * ny) / absNz;
 
             double slope = unit switch
             {
@@ -113,71 +163,130 @@ public static class SlopeAnalyzer
 
             if (!double.IsInfinity(slope) && !double.IsNaN(slope))
             {
-                if (slope < min) min = slope;
-                if (slope > max) max = slope;
+                if (slope < min)
+                    min = slope;
+
+                if (slope > max)
+                    max = slope;
+
                 weightedSum += slope * area;
                 totalArea += area;
             }
         }
 
-        if (min == double.MaxValue) min = 0;
-        if (max == double.MinValue) max = 0;
+        if (min == double.MaxValue)
+            min = 0;
+
+        if (max == double.MinValue)
+            max = 0;
 
         double average = totalArea > 0 ? weightedSum / totalArea : 0;
-
-        // Determine color range
         double lo = colorLow;
         double hi = colorHigh > lo ? colorHigh : max;
-        if (hi <= lo) hi = lo + 1; // avoid division by zero
+        if (hi <= lo)
+            hi = lo + 1;
 
-        // Apply colors with the determined range
+        var effectivePalette = ResolvePalette(palette);
         for (int f = 0; f < faceCount; f++)
         {
-            SlopeToColor(slopes[f], lo, hi, out byte r, out byte g, out byte b);
+            SlopeToColor(slopes[f], lo, hi, effectivePalette, out byte r, out byte g, out byte b);
             colors[f * 3] = r;
             colors[f * 3 + 1] = g;
             colors[f * 3 + 2] = b;
         }
 
-        return new SlopeResult(slopes, min, max, average, colors, faceCount);
+        return new SlopeResult(slopes, min, max, average, colors, faceCount, lo, hi);
     }
 
     /// <summary>
-    /// Map slope value to green→yellow→red gradient within the given range.
+    /// Map slope value to the supplied gradient within the given range.
     /// </summary>
-    private static void SlopeToColor(double slope, double lo, double hi,
-                                      out byte r, out byte g, out byte b)
+    private static void SlopeToColor(
+        double slope,
+        double lo,
+        double hi,
+        IReadOnlyList<ColorStop> palette,
+        out byte r,
+        out byte g,
+        out byte b)
     {
+        if (palette.Count == 0)
+        {
+            r = 0;
+            g = 200;
+            b = 0;
+            return;
+        }
+
         if (double.IsInfinity(slope) || double.IsNaN(slope) || slope >= hi)
         {
-            r = 255; g = 0; b = 0;
+            var last = palette[^1];
+            r = last.R;
+            g = last.G;
+            b = last.B;
             return;
         }
 
         if (slope <= lo)
         {
-            r = 0; g = 200; b = 0;
+            var first = palette[0];
+            r = first.R;
+            g = first.G;
+            b = first.B;
             return;
         }
 
-        // Normalize to 0..1 within the range
         double t = (slope - lo) / (hi - lo);
+        ColorStop previous = palette[0];
 
-        if (t <= 0.5)
+        for (int i = 1; i < palette.Count; i++)
         {
-            // Green → Yellow (0→0.5)
-            double s = t / 0.5;
-            r = (byte)(s * 255);
-            g = (byte)(200 + s * 55); // 200→255
-            b = 0;
+            ColorStop current = palette[i];
+            if (t > current.Position)
+            {
+                previous = current;
+                continue;
+            }
+
+            double segment = current.Position - previous.Position;
+            if (segment <= 1e-9)
+            {
+                r = current.R;
+                g = current.G;
+                b = current.B;
+                return;
+            }
+
+            double localT = (t - previous.Position) / segment;
+            r = InterpolateChannel(previous.R, current.R, localT);
+            g = InterpolateChannel(previous.G, current.G, localT);
+            b = InterpolateChannel(previous.B, current.B, localT);
+            return;
         }
-        else
-        {
-            // Yellow → Red (0.5→1.0)
-            double s = (t - 0.5) / 0.5;
-            r = 255;
-            g = (byte)(255 * (1.0 - s));
-            b = 0;
-        }
+
+        var fallback = palette[^1];
+        r = fallback.R;
+        g = fallback.G;
+        b = fallback.B;
+    }
+
+    private static IReadOnlyList<ColorStop> ResolvePalette(IReadOnlyList<ColorStop>? palette)
+    {
+        if (palette == null || palette.Count == 0)
+            return DefaultPalette;
+
+        if (palette.Count == 1)
+            return new[] { new ColorStop(0.0, palette[0].R, palette[0].G, palette[0].B) };
+
+        return palette
+            .OrderBy(stop => stop.Position)
+            .Select(stop => new ColorStop(stop.Position, stop.R, stop.G, stop.B))
+            .ToArray();
+    }
+
+    private static byte InterpolateChannel(byte a, byte b, double t)
+    {
+        double clamped = Math.Clamp(t, 0.0, 1.0);
+        return (byte)Math.Round(a + ((b - a) * clamped));
     }
 }

@@ -41,7 +41,7 @@ internal sealed class TerrainBuildService
         public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
     }
 
-    public TerrainBuildResult Build(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache)
+    public TerrainBuildResult Build(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache, Func<bool>? shouldCancel = null)
     {
         var totalTimer = Stopwatch.StartNew();
         var build = new TerrainBuildResult();
@@ -53,6 +53,7 @@ internal sealed class TerrainBuildService
 
         foreach (var indexedModifier in terrain.Modifiers.Select((modifier, index) => (modifier, index)).Where(item => item.modifier.IsEnabled))
         {
+            ThrowIfCancellationRequested(shouldCancel);
             ModifierDefinition modifier = indexedModifier.modifier;
             string stageKey = CreateModifierStageKey(indexedModifier.index, modifier);
             usedStageKeys.Add(stageKey);
@@ -60,7 +61,7 @@ internal sealed class TerrainBuildService
             switch (modifier)
             {
                 case TriangulateModifierDefinition triangulate:
-                    currentMesh = BuildTinMesh(doc, terrain, triangulate, build, runtimeCache, stageKey, out currentMeshFingerprint);
+                    currentMesh = BuildTinMesh(doc, terrain, triangulate, build, runtimeCache, stageKey, out currentMeshFingerprint, shouldCancel);
                     if (currentMesh != null && baseMesh == null)
                     {
                         baseMesh = currentMesh.DuplicateMesh();
@@ -74,9 +75,10 @@ internal sealed class TerrainBuildService
                         stageKey,
                         "Add Geometry",
                         ComputeModifierStageFingerprint(doc, terrain, addGeometry, currentMeshFingerprint),
-                        () => currentMesh == null ? WarnMissingMesh(build, addGeometry.Label) : ApplyAddGeometry(doc, terrain, currentMesh, addGeometry, build, runtimeCache),
+                        () => currentMesh == null ? WarnMissingMesh(build, addGeometry.Label) : ApplyAddGeometry(doc, terrain, currentMesh, addGeometry, build, runtimeCache, shouldCancel),
                         result => DescribeModifierMeshResult(addGeometry.Label, result),
-                        out currentMeshFingerprint);
+                        out currentMeshFingerprint,
+                        shouldCancel);
                     break;
                 case RemeshModifierDefinition remesh:
                     currentMesh = ExecuteCachedMeshStage(
@@ -87,7 +89,8 @@ internal sealed class TerrainBuildService
                         ComputeModifierStageFingerprint(doc, terrain, remesh, currentMeshFingerprint),
                         () => currentMesh == null ? WarnMissingMesh(build, remesh.Label) : ApplyRemesh(doc, terrain, currentMesh, remesh, build),
                         result => DescribeModifierMeshResult(remesh.Label, result),
-                        out currentMeshFingerprint);
+                        out currentMeshFingerprint,
+                        shouldCancel);
                     break;
                 case SmoothModifierDefinition smooth:
                     currentMesh = ExecuteCachedMeshStage(
@@ -98,7 +101,8 @@ internal sealed class TerrainBuildService
                         ComputeModifierStageFingerprint(doc, terrain, smooth, currentMeshFingerprint),
                         () => currentMesh == null ? WarnMissingMesh(build, smooth.Label) : ApplySmooth(doc, terrain, currentMesh, smooth, build),
                         result => DescribeModifierMeshResult(smooth.Label, result),
-                        out currentMeshFingerprint);
+                        out currentMeshFingerprint,
+                        shouldCancel);
                     break;
                 case RetainingWallModifierDefinition retainingWall:
                     currentMesh = ExecuteCachedMeshStage(
@@ -109,7 +113,8 @@ internal sealed class TerrainBuildService
                         ComputeModifierStageFingerprint(doc, terrain, retainingWall, currentMeshFingerprint),
                         () => currentMesh == null ? WarnMissingMesh(build, retainingWall.Label) : ApplyRetainingWalls(doc, terrain, currentMesh, retainingWall, build),
                         result => DescribeModifierMeshResult(retainingWall.Label, result),
-                        out currentMeshFingerprint);
+                        out currentMeshFingerprint,
+                        shouldCancel);
                     break;
                 case GradePadModifierDefinition gradePad:
                     usedStageKeys.Add(CreateGradePadTopologyStageKey(stageKey));
@@ -122,7 +127,8 @@ internal sealed class TerrainBuildService
                         stageKey,
                         currentMesh,
                         currentMeshFingerprint,
-                        out currentMeshFingerprint);
+                        out currentMeshFingerprint,
+                        shouldCancel);
                     break;
                 case GradePathModifierDefinition gradePath:
                     currentMesh = ExecuteCachedMeshStage(
@@ -133,7 +139,8 @@ internal sealed class TerrainBuildService
                         ComputeModifierStageFingerprint(doc, terrain, gradePath, currentMeshFingerprint),
                         () => currentMesh == null ? WarnMissingMesh(build, gradePath.Label) : ApplyGradePath(doc, terrain, currentMesh, gradePath, build),
                         result => DescribeModifierMeshResult(gradePath.Label, result),
-                        out currentMeshFingerprint);
+                        out currentMeshFingerprint,
+                        shouldCancel);
                     break;
                 case InSituStairModifierDefinition inSituStair:
                     currentMesh = ExecuteCachedMeshStage(
@@ -144,7 +151,8 @@ internal sealed class TerrainBuildService
                         ComputeModifierStageFingerprint(doc, terrain, inSituStair, currentMeshFingerprint),
                         () => currentMesh == null ? WarnMissingMesh(build, inSituStair.Label) : ApplyInSituStair(doc, terrain, currentMesh, inSituStair, build),
                         result => DescribeModifierMeshResult(inSituStair.Label, result),
-                        out currentMeshFingerprint);
+                        out currentMeshFingerprint,
+                        shouldCancel);
                     if (runtimeCache.StageEntries.TryGetValue(stageKey, out var stairStageEntry))
                     {
                         if (!string.IsNullOrWhiteSpace(inSituStair.ComputedTreadDepthSummary))
@@ -165,8 +173,10 @@ internal sealed class TerrainBuildService
         }
 
         build.PrimaryMesh = currentMesh;
+        build.BaseMesh = baseMesh ?? currentMesh;
         if (currentMesh != null)
         {
+            ThrowIfCancellationRequested(shouldCancel);
             RhinoMesh analysisMesh = currentMesh;
             RhinoMesh baselineMesh = baseMesh ?? analysisMesh;
             string analysisStageKey = "analysis";
@@ -176,8 +186,9 @@ internal sealed class TerrainBuildService
                 runtimeCache,
                 analysisStageKey,
                 ComputeAnalysisFingerprint(doc, terrain, baselineMesh, analysisMesh, baseMeshFingerprint, currentMeshFingerprint),
-                () => BuildAnalysis(doc, terrain, baselineMesh, analysisMesh),
-                _ => DescribeMesh(analysisMesh));
+                () => BuildAnalysis(doc, terrain, baselineMesh, analysisMesh, build, shouldCancel),
+                _ => DescribeMesh(analysisMesh),
+                shouldCancel);
 
             string zonesStageKey = "zones";
             usedStageKeys.Add(zonesStageKey);
@@ -187,7 +198,8 @@ internal sealed class TerrainBuildService
                 zonesStageKey,
                 ComputeZonesFingerprint(doc, terrain, analysisMesh, build.PersistentHardConstraints, currentMeshFingerprint),
                 () => BuildTerrainZones(doc, analysisMesh, terrain, build),
-                () => $"{build.ZoneObjects.Count:N0} zone outputs");
+                () => $"{build.ZoneObjects.Count:N0} zone outputs",
+                shouldCancel);
 
             string markersStageKey = "markers";
             usedStageKeys.Add(markersStageKey);
@@ -196,10 +208,12 @@ internal sealed class TerrainBuildService
                 runtimeCache,
                 markersStageKey,
                 ComputeMarkersFingerprint(doc, terrain, analysisMesh, currentMeshFingerprint),
-                () => BuildMarkers(doc, terrain, analysisMesh, build),
-                () => $"{build.MarkerObjects.Count:N0} marker outputs");
+                () => BuildMarkers(doc, terrain, analysisMesh, build, shouldCancel),
+                () => $"{build.MarkerObjects.Count:N0} marker outputs",
+                shouldCancel);
         }
 
+        ThrowIfCancellationRequested(shouldCancel);
         runtimeCache.PruneUnused(usedStageKeys);
         totalTimer.Stop();
         build.RecordTiming("Build pipeline", totalTimer.Elapsed, DescribeBuildOutputs(build));
@@ -214,9 +228,11 @@ internal sealed class TerrainBuildService
         ulong stageFingerprint,
         Func<RhinoMesh?> action,
         Func<RhinoMesh?, string?> detailFactory,
-        out ulong outputFingerprint)
+        out ulong outputFingerprint,
+        Func<bool>? shouldCancel)
     {
         var timer = Stopwatch.StartNew();
+        ThrowIfCancellationRequested(shouldCancel);
         if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
@@ -229,6 +245,7 @@ internal sealed class TerrainBuildService
         int diagnosticsStart = build.Diagnostics.Count;
         int auxiliaryStart = build.AuxiliaryObjects.Count;
         RhinoMesh? result = action();
+        ThrowIfCancellationRequested(shouldCancel);
 
         return StoreMeshStageCache(
             build,
@@ -243,7 +260,8 @@ internal sealed class TerrainBuildService
             build.Diagnostics.Skip(diagnosticsStart),
             detailFactory(result),
             timer,
-            out outputFingerprint);
+            out outputFingerprint,
+            shouldCancel);
     }
 
     private static TerrainAnalysisSummary? ExecuteCachedAnalysisStage(
@@ -252,22 +270,27 @@ internal sealed class TerrainBuildService
         string stageKey,
         ulong stageFingerprint,
         Func<TerrainAnalysisSummary?> action,
-        Func<TerrainAnalysisSummary?, string?> detailFactory)
+        Func<TerrainAnalysisSummary?, string?> detailFactory,
+        Func<bool>? shouldCancel)
     {
         const string stageName = "Analysis";
         var timer = Stopwatch.StartNew();
+        ThrowIfCancellationRequested(shouldCancel);
         if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
             build.Diagnostics.AddRange(cachedEntry.Diagnostics);
             TerrainAnalysisSummary? cachedAnalysis = TerrainRuntimeCacheCloner.CloneAnalysis(cachedEntry.AnalysisOutput);
+            build.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.AuxiliaryObjects));
             timer.Stop();
             build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory(cachedAnalysis)));
             return cachedAnalysis;
         }
 
         int diagnosticsStart = build.Diagnostics.Count;
+        int auxiliaryStart = build.AuxiliaryObjects.Count;
         TerrainAnalysisSummary? analysis = action();
+        ThrowIfCancellationRequested(shouldCancel);
         timer.Stop();
 
         runtimeCache.StageEntries[stageKey] = new StageCacheEntry
@@ -277,6 +300,7 @@ internal sealed class TerrainBuildService
             ResolvedInputFingerprint = stageFingerprint,
             OutputFingerprint = stageFingerprint,
             AnalysisOutput = TerrainRuntimeCacheCloner.CloneAnalysis(analysis),
+            AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.AuxiliaryObjects.Skip(auxiliaryStart)),
             Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList()
         };
 
@@ -290,10 +314,12 @@ internal sealed class TerrainBuildService
         string stageKey,
         ulong stageFingerprint,
         Action action,
-        Func<string?> detailFactory)
+        Func<string?> detailFactory,
+        Func<bool>? shouldCancel)
     {
         const string stageName = "Zones";
         var timer = Stopwatch.StartNew();
+        ThrowIfCancellationRequested(shouldCancel);
         if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
@@ -307,6 +333,7 @@ internal sealed class TerrainBuildService
         int diagnosticsStart = build.Diagnostics.Count;
         int zoneStart = build.ZoneObjects.Count;
         action();
+        ThrowIfCancellationRequested(shouldCancel);
         timer.Stop();
 
         runtimeCache.StageEntries[stageKey] = new StageCacheEntry
@@ -328,10 +355,12 @@ internal sealed class TerrainBuildService
         string stageKey,
         ulong stageFingerprint,
         Action action,
-        Func<string?> detailFactory)
+        Func<string?> detailFactory,
+        Func<bool>? shouldCancel)
     {
         const string stageName = "Markers";
         var timer = Stopwatch.StartNew();
+        ThrowIfCancellationRequested(shouldCancel);
         if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
@@ -345,6 +374,7 @@ internal sealed class TerrainBuildService
         int diagnosticsStart = build.Diagnostics.Count;
         int markerStart = build.MarkerObjects.Count;
         action();
+        ThrowIfCancellationRequested(shouldCancel);
         timer.Stop();
 
         runtimeCache.StageEntries[stageKey] = new StageCacheEntry
@@ -383,9 +413,11 @@ internal sealed class TerrainBuildService
         IEnumerable<string> diagnostics,
         string? detail,
         Stopwatch timer,
-        out ulong outputFingerprint)
+        out ulong outputFingerprint,
+        Func<bool>? shouldCancel = null)
     {
         timer.Stop();
+        ThrowIfCancellationRequested(shouldCancel);
         outputFingerprint = ComputeMeshStageOutputFingerprint(mesh, persistentHardConstraints);
         runtimeCache.StageEntries[stageKey] = new StageCacheEntry
         {
@@ -447,7 +479,8 @@ internal sealed class TerrainBuildService
         TerrainBuildResult build,
         TerrainRuntimeCache runtimeCache,
         string stageKey,
-        out ulong outputFingerprint)
+        out ulong outputFingerprint,
+        Func<bool>? shouldCancel = null)
     {
         const string stageName = "Triangulate";
         var timer = Stopwatch.StartNew();
@@ -462,6 +495,7 @@ internal sealed class TerrainBuildService
         }
 
         int diagnosticsStart = build.Diagnostics.Count;
+        ThrowIfCancellationRequested(shouldCancel);
         var points = RhinoSourceResolver.ResolvePoints(doc, modifier.Points);
         var breaklineCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Breaklines);
         var contourCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Contours);
@@ -503,12 +537,14 @@ internal sealed class TerrainBuildService
             tolerance,
             preserveInputElevation: true);
 
+        ThrowIfCancellationRequested(shouldCancel);
         var polylines = CreateFlatPolylines(breaklineCurves, tolerance);
         polylines.AddRange(CreateFlatPolylines(contourCurves, tolerance));
         var boundaryPolylines = CreateBoundaryPolylines(boundaryCurves, tolerance);
 
-        var breaklineData = BreaklineDiscretizer.Process(polylines);
-        var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, tolerance);
+        var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
+        var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, tolerance, shouldCancel);
+        ThrowIfCancellationRequested(shouldCancel);
         ulong resolvedInputFingerprint = ComputeTriangulateResolvedInputFingerprint(
             terrain,
             modifier,
@@ -566,7 +602,8 @@ internal sealed class TerrainBuildService
             tolerance,
             runtimeCache.TinEngine,
             out var exactMesh,
-            out var exactMessage))
+            out var exactMessage,
+            shouldCancel))
         {
             build.PersistentHardConstraints.Clear();
             build.PersistentHardConstraints.AddRange(persistentHardConstraints);
@@ -588,7 +625,29 @@ internal sealed class TerrainBuildService
                 out outputFingerprint);
         }
 
+        if (!ShouldAttemptTriangulationCleanupRetry(merged.VertexCount, merged.SegmentCount, shouldCancel, out var cleanupSkipMessage))
+        {
+            build.Diagnostics.Add(exactMessage ?? "Triangulation failed.");
+            build.Diagnostics.Add(cleanupSkipMessage);
+            return StoreMeshStageCache(
+                build,
+                runtimeCache,
+                stageKey,
+                stageName,
+                preResolutionFingerprint,
+                resolvedInputFingerprint,
+                null,
+                build.PersistentHardConstraints,
+                Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart),
+                DescribeModifierMeshResult(modifier.Label, null),
+                timer,
+                out outputFingerprint,
+                shouldCancel);
+        }
+
         var cleanup = TinInputCleaner.Clean(merged, tolerance);
+        ThrowIfCancellationRequested(shouldCancel);
         if (!cleanup.HasChanges)
         {
             build.Diagnostics.Add(exactMessage ?? "Triangulation failed.");
@@ -629,6 +688,7 @@ internal sealed class TerrainBuildService
                 out outputFingerprint);
         }
 
+        ThrowIfCancellationRequested(shouldCancel);
         if (!TryBuildValidatedTinMesh(
             cleanup.XyCoords,
             cleanup.ZValues,
@@ -637,7 +697,8 @@ internal sealed class TerrainBuildService
             tolerance,
             runtimeCache.TinEngine,
             out var cleanedMesh,
-            out var cleanupMessage))
+            out var cleanupMessage,
+            shouldCancel))
         {
             build.Diagnostics.Add(exactMessage ?? "Triangulation failed.");
             build.Diagnostics.Add($"Automatic input cleanup retry failed: {cleanup.ToDiagnosticSummary()}.");
@@ -686,8 +747,10 @@ internal sealed class TerrainBuildService
         RhinoMesh mesh,
         AddGeometryModifierDefinition modifier,
         TerrainBuildResult build,
-        TerrainRuntimeCache runtimeCache)
+        TerrainRuntimeCache runtimeCache,
+        Func<bool>? shouldCancel = null)
     {
+        ThrowIfCancellationRequested(shouldCancel);
         var points = RhinoSourceResolver.ResolvePoints(doc, modifier.Points);
         var breaklineCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Breaklines);
         var contourCurves = RhinoSourceResolver.ResolveCurves(doc, modifier.Contours);
@@ -726,6 +789,7 @@ internal sealed class TerrainBuildService
             preserveInputElevation: true);
         var persistentHardConstraints = CombineConstraints(build.PersistentHardConstraints, newHardConstraints);
 
+        ThrowIfCancellationRequested(shouldCancel);
         var polylines = CreateFlatPolylines(build.PersistentHardConstraints);
         polylines.AddRange(CreateFlatPolylines(breaklineCurves, tolerance));
         polylines.AddRange(CreateFlatPolylines(contourCurves, tolerance));
@@ -734,8 +798,8 @@ internal sealed class TerrainBuildService
             CreateBoundaryPolylines(mesh, tolerance),
             CreateBoundaryPolylines(boundaryCurves, tolerance));
 
-        var breaklineData = BreaklineDiscretizer.Process(polylines);
-        var merged = PointCloudProcessor.Merge(spotXyz, existingPointCount + points.Count, breaklineData, tolerance);
+        var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
+        var merged = PointCloudProcessor.Merge(spotXyz, existingPointCount + points.Count, breaklineData, tolerance, shouldCancel);
         if (merged.VertexCount < 3)
         {
             build.Diagnostics.Add("Add Geometry needs at least three unique points after deduplication.");
@@ -755,13 +819,21 @@ internal sealed class TerrainBuildService
             tolerance,
             runtimeCache.TinEngine,
             out var exactMesh,
-            out var exactMessage))
+            out var exactMessage,
+            shouldCancel))
         {
             build.PersistentHardConstraints.Clear();
             build.PersistentHardConstraints.AddRange(persistentHardConstraints);
             if (!string.IsNullOrWhiteSpace(exactMessage))
                 build.Diagnostics.Add(exactMessage);
             return exactMesh!;
+        }
+
+        if (!ShouldAttemptTriangulationCleanupRetry(merged.VertexCount, merged.SegmentCount, shouldCancel, out var cleanupSkipMessage))
+        {
+            build.Diagnostics.Add(exactMessage ?? "Add Geometry failed.");
+            build.Diagnostics.Add(cleanupSkipMessage);
+            return mesh;
         }
 
         var cleanup = TinInputCleaner.Clean(merged, tolerance);
@@ -787,7 +859,8 @@ internal sealed class TerrainBuildService
             tolerance,
             runtimeCache.TinEngine,
             out var cleanedMesh,
-            out var cleanupMessage))
+            out var cleanupMessage,
+            shouldCancel))
         {
             build.Diagnostics.Add(exactMessage ?? "Add Geometry failed.");
             build.Diagnostics.Add($"Automatic input cleanup retry failed: {cleanup.ToDiagnosticSummary()}.");
@@ -812,9 +885,11 @@ internal sealed class TerrainBuildService
         double tolerance,
         TinEngine engine,
         out RhinoMesh? mesh,
-        out string? message)
+        out string? message,
+        Func<bool>? shouldCancel = null)
     {
         mesh = null;
+        ThrowIfCancellationRequested(shouldCancel);
 
         var prepared = TinBoundaryPreparer.Prepare(
             xyCoords,
@@ -822,6 +897,7 @@ internal sealed class TerrainBuildService
             segments,
             boundaryPolylines,
             tolerance);
+        ThrowIfCancellationRequested(shouldCancel);
 
         var result = engine.Build(
             prepared.XyCoords,
@@ -829,7 +905,9 @@ internal sealed class TerrainBuildService
             prepared.Segments,
             QualitySettings.None,
             out message,
-            useConvexHull: prepared.UseConvexHull);
+            useConvexHull: prepared.UseConvexHull,
+            shouldCancel: shouldCancel);
+        ThrowIfCancellationRequested(shouldCancel);
 
         if (!string.IsNullOrWhiteSpace(prepared.WarningMessage))
             message = AppendBuildMessage(message, prepared.WarningMessage);
@@ -861,6 +939,24 @@ internal sealed class TerrainBuildService
             return false;
         }
 
+        return true;
+    }
+
+    private static bool ShouldAttemptTriangulationCleanupRetry(
+        int vertexCount,
+        int segmentCount,
+        Func<bool>? shouldCancel,
+        out string message)
+    {
+        ThrowIfCancellationRequested(shouldCancel);
+
+        if (vertexCount > 120_000 || segmentCount > 180_000)
+        {
+            message = $"Automatic triangulation cleanup retry skipped for large input ({vertexCount:N0} verts, {segmentCount:N0} segments) to keep rebuilds responsive.";
+            return false;
+        }
+
+        message = string.Empty;
         return true;
     }
 
@@ -1142,7 +1238,8 @@ internal sealed class TerrainBuildService
         string stageKey,
         RhinoMesh? mesh,
         ulong upstreamFingerprint,
-        out ulong outputFingerprint)
+        out ulong outputFingerprint,
+        Func<bool>? shouldCancel = null)
     {
         const string stageName = "Grade Pad";
         string topologyStageKey = CreateGradePadTopologyStageKey(stageKey);
@@ -1159,6 +1256,7 @@ internal sealed class TerrainBuildService
         }
 
         int diagnosticsStart = build.Diagnostics.Count;
+        ThrowIfCancellationRequested(shouldCancel);
         if (mesh == null)
         {
             WarnMissingMesh(build, modifier.Label);
@@ -1199,6 +1297,7 @@ internal sealed class TerrainBuildService
 
         double tolerance = GetTerrainTolerance(doc, terrain);
         ResolvedGradePadInputs resolvedInputs = ResolveGradePadInputs(doc, modifier, tolerance);
+        ThrowIfCancellationRequested(shouldCancel);
         if (resolvedInputs.Pads.Length == 0)
         {
             build.Diagnostics.Add("Grade Pad has no valid closed boundaries.");
@@ -1241,6 +1340,7 @@ internal sealed class TerrainBuildService
         }
         else
         {
+            ThrowIfCancellationRequested(shouldCancel);
             bool topologySucceeded = PadGrader.TryTriangulateTopology(
                 vertices,
                 mesh.Vertices.Count,
@@ -1321,6 +1421,7 @@ internal sealed class TerrainBuildService
         var filterTimer = Stopwatch.StartNew();
         double[] gradedVertices = PadGrader.ApplyGradingZ(topologyEntry.Vertices, topologyEntry.VertexCount, resolvedInputs.Pads);
         filterTimer.Stop();
+        ThrowIfCancellationRequested(shouldCancel);
         build.RecordTiming(
             "Grade Pad Filter",
             filterTimer.Elapsed,
@@ -1825,7 +1926,7 @@ internal sealed class TerrainBuildService
         return (bbox.Min.Z + bbox.Max.Z) * 0.5;
     }
 
-    private static void BuildMarkers(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh mesh, TerrainBuildResult build)
+    private static void BuildMarkers(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh mesh, TerrainBuildResult build, Func<bool>? shouldCancel)
     {
         int enabledMarkerCount = terrain.Markers.Count(marker => marker.IsEnabled);
         if (enabledMarkerCount == 0)
@@ -1837,9 +1938,14 @@ internal sealed class TerrainBuildService
 
         foreach (var marker in terrain.Markers.Where(marker => marker.IsEnabled))
         {
+            ThrowIfCancellationRequested(shouldCancel);
             var samplePoints = RhinoSourceResolver.ResolveMarkerSamplePoints(doc, marker.Sources);
-            foreach (var samplePoint in samplePoints)
+            for (int sampleIndex = 0; sampleIndex < samplePoints.Count; sampleIndex++)
             {
+                if ((sampleIndex & 31) == 0)
+                    ThrowIfCancellationRequested(shouldCancel);
+
+                var samplePoint = samplePoints[sampleIndex];
                 var meshPoint = mesh.ClosestMeshPoint(samplePoint, 0.0);
                 if (meshPoint == null)
                     continue;
@@ -1898,21 +2004,32 @@ internal sealed class TerrainBuildService
             StageTimingDiagnosticThresholdMs);
     }
 
-    private static TerrainAnalysisSummary? BuildAnalysis(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh fallbackBaseMesh, RhinoMesh currentMesh)
+    private static TerrainAnalysisSummary? BuildAnalysis(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        RhinoMesh fallbackBaseMesh,
+        RhinoMesh currentMesh,
+        TerrainBuildResult build,
+        Func<bool>? shouldCancel)
     {
+        ThrowIfCancellationRequested(shouldCancel);
         if (!RhinoGeometryConversions.TryExtractMeshData(currentMesh, out var currentVertices, out var currentFaces, out _))
             return null;
 
+        var palette = SlopePreviewPaletteCatalog.Resolve(terrain.SlopePalettePreset);
         var slope = SlopeAnalyzer.Analyze(
             currentVertices,
             currentMesh.Vertices.Count,
             currentFaces,
             currentMesh.Faces.Count,
-            SlopeAnalyzer.SlopeUnit.Percent);
+            SlopeAnalyzer.SlopeUnit.Percent,
+            0.0,
+            0.0,
+            palette.Stops);
 
         RhinoMesh baseMesh = ResolveEarthworkReferenceMesh(doc, terrain) ?? fallbackBaseMesh;
         var boundaries = RhinoSourceResolver.ResolveCurves(doc, terrain.EarthworkBoundary);
-        EstimateEarthworks(baseMesh, currentMesh, boundaries, out double cutVolume, out double fillVolume);
+        EstimateEarthworks(baseMesh, currentMesh, boundaries, out double cutVolume, out double fillVolume, shouldCancel);
 
         return new TerrainAnalysisSummary
         {
@@ -1920,6 +2037,8 @@ internal sealed class TerrainBuildService
             SlopeMinPercent = slope.Min,
             SlopeMaxPercent = slope.Max,
             SlopeAveragePercent = slope.Average,
+            SlopeDisplayLowPercent = slope.ColorLow,
+            SlopeDisplayHighPercent = slope.ColorHigh,
             CutVolume = cutVolume,
             FillVolume = fillVolume,
             NetVolume = cutVolume - fillVolume,
@@ -1927,7 +2046,45 @@ internal sealed class TerrainBuildService
         };
     }
 
-    private static void EstimateEarthworks(RhinoMesh baseMesh, RhinoMesh currentMesh, IReadOnlyList<Curve> boundaries, out double cutVolume, out double fillVolume)
+    private static RhinoMesh BuildSlopePreviewMesh(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        SlopeAnalyzer.SlopeResult slope)
+    {
+        var coloredMesh = new RhinoMesh();
+        coloredMesh.Vertices.Capacity = faceCount * 3;
+        coloredMesh.Faces.Capacity = faceCount;
+        coloredMesh.VertexColors.Capacity = faceCount * 3;
+
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int i0 = faces[faceIndex * 3];
+            int i1 = faces[faceIndex * 3 + 1];
+            int i2 = faces[faceIndex * 3 + 2];
+            int vertexIndex = coloredMesh.Vertices.Count;
+
+            coloredMesh.Vertices.Add(vertices[i0 * 3], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]);
+            coloredMesh.Vertices.Add(vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]);
+            coloredMesh.Vertices.Add(vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]);
+            coloredMesh.Faces.AddFace(vertexIndex, vertexIndex + 1, vertexIndex + 2);
+
+            var color = System.Drawing.Color.FromArgb(
+                slope.FaceColors[faceIndex * 3],
+                slope.FaceColors[faceIndex * 3 + 1],
+                slope.FaceColors[faceIndex * 3 + 2]);
+            coloredMesh.VertexColors.Add(color);
+            coloredMesh.VertexColors.Add(color);
+            coloredMesh.VertexColors.Add(color);
+        }
+
+        coloredMesh.Normals.ComputeNormals();
+        coloredMesh.UnifyNormals();
+        coloredMesh.Compact();
+        return coloredMesh;
+    }
+
+    private static void EstimateEarthworks(RhinoMesh baseMesh, RhinoMesh currentMesh, IReadOnlyList<Curve> boundaries, out double cutVolume, out double fillVolume, Func<bool>? shouldCancel)
     {
         cutVolume = 0.0;
         fillVolume = 0.0;
@@ -1937,6 +2094,9 @@ internal sealed class TerrainBuildService
 
         for (int faceIndex = 0; faceIndex < currentMesh.Faces.Count; faceIndex++)
         {
+            if ((faceIndex & 127) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
             int a = currentFaces[faceIndex * 3];
             int b = currentFaces[faceIndex * 3 + 1];
             int c = currentFaces[faceIndex * 3 + 2];
@@ -1988,6 +2148,12 @@ internal sealed class TerrainBuildService
         combined.UnifyNormals();
         combined.Compact();
         return combined;
+    }
+
+    private static void ThrowIfCancellationRequested(Func<bool>? shouldCancel)
+    {
+        if (shouldCancel?.Invoke() == true)
+            throw new OperationCanceledException("Terrain rebuild cancelled.");
     }
 
     private static bool IsInsideBoundaries(Point3d point, IReadOnlyList<Curve> boundaries)

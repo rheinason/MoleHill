@@ -10,6 +10,12 @@ namespace MoleHill.Core.Engine;
 /// </summary>
 public class TinEngine
 {
+    private const int MinSteinerPointCap = 25_000;
+    private const int MaxSteinerPointCap = 250_000;
+    private const int SteinerPointCapMultiplier = 12;
+    private const int PlainFallbackVertexLimit = 100_000;
+    private const int PlainFallbackSegmentLimit = 150_000;
+
     private InputSnapshot? _cachedSnapshot;
     private TinResult? _cachedResult;
     private Mesh? _cachedMesh;
@@ -47,7 +53,8 @@ public class TinEngine
     public TinResult? Build(double[] xyCoords, double[] zValues,
                             int[] segments, QualitySettings quality,
                             out string? errorMessage,
-                            bool useConvexHull = true)
+                            bool useConvexHull = true,
+                            Func<bool>? shouldCancel = null)
     {
         errorMessage = null;
         int vertexCount = xyCoords.Length / 2;
@@ -62,6 +69,8 @@ public class TinEngine
             errorMessage = "All points are collinear (lie on a single line). A TIN requires non-collinear points.";
             return null;
         }
+
+        ThrowIfCancellationRequested(shouldCancel);
 
         int xyHash = InputSnapshot.ComputeXyHash(xyCoords, segments, quality, useConvexHull);
 
@@ -89,9 +98,10 @@ public class TinEngine
             return incrementalResult;
         }
 
+        ThrowIfCancellationRequested(shouldCancel);
         var result = FullRebuild(
             xyCoords, zValues, segments, quality,
-            out errorMessage, out IMesh? builtMesh, useConvexHull);
+            out errorMessage, out IMesh? builtMesh, useConvexHull, shouldCancel);
         if (result != null)
         {
             _cachedSnapshot = new InputSnapshot(xyHash, InputSnapshot.ComputeZHash(zValues));
@@ -322,7 +332,8 @@ public class TinEngine
     private static TinResult? FullRebuild(double[] xyCoords, double[] zValues,
                                            int[] segments, QualitySettings quality,
                                            out string? errorMessage, out IMesh? builtMesh,
-                                           bool useConvexHull)
+                                           bool useConvexHull,
+                                           Func<bool>? shouldCancel = null)
     {
         builtMesh = null;
         errorMessage = null;
@@ -338,6 +349,9 @@ public class TinEngine
 
         for (int i = 0; i < vertexCount; i++)
         {
+            if ((i & 255) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
             var v = new Vertex(xyCoords[i * 2], xyCoords[i * 2 + 1]);
             v.ID = i;
             vertices[i] = v;
@@ -347,6 +361,9 @@ public class TinEngine
         int segCount = segments.Length / 2;
         for (int i = 0; i < segCount; i++)
         {
+            if ((i & 255) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
             int a = segments[i * 2];
             int b = segments[i * 2 + 1];
             if (a >= 0 && a < vertexCount && b >= 0 && b < vertexCount && a != b)
@@ -356,7 +373,8 @@ public class TinEngine
         }
 
         // Attempt 1: Conforming CDT with quality
-        var result = TryTriangulate(polygon, segCount, quality, conforming: true, out errorMessage, useConvexHull);
+        ThrowIfCancellationRequested(shouldCancel);
+        var result = TryTriangulate(polygon, vertexCount, segCount, quality, conforming: true, out errorMessage, useConvexHull, shouldCancel);
         if (result != null)
         {
             builtMesh = result;
@@ -366,7 +384,8 @@ public class TinEngine
         // Attempt 2: Non-conforming CDT with quality
         if (segCount > 0)
         {
-            var ncResult = TryTriangulate(polygon, segCount, quality, conforming: false, out _, useConvexHull);
+            ThrowIfCancellationRequested(shouldCancel);
+            var ncResult = TryTriangulate(polygon, vertexCount, segCount, quality, conforming: false, out _, useConvexHull, shouldCancel);
             if (ncResult != null)
             {
                 builtMesh = ncResult;
@@ -378,7 +397,8 @@ public class TinEngine
         // Attempt 3: Conforming CDT without quality
         if (quality.HasConstraints)
         {
-            var fallback = TryTriangulate(polygon, segCount, QualitySettings.None, conforming: true, out _, useConvexHull);
+            ThrowIfCancellationRequested(shouldCancel);
+            var fallback = TryTriangulate(polygon, vertexCount, segCount, QualitySettings.None, conforming: true, out _, useConvexHull, shouldCancel);
             if (fallback != null)
             {
                 builtMesh = fallback;
@@ -388,9 +408,10 @@ public class TinEngine
         }
 
         // Attempt 4: Non-conforming CDT without quality
-        if (segCount > 0)
+        if (segCount > 0 && quality.HasConstraints)
         {
-            var ncFallback = TryTriangulate(polygon, segCount, QualitySettings.None, conforming: false, out _, useConvexHull);
+            ThrowIfCancellationRequested(shouldCancel);
+            var ncFallback = TryTriangulate(polygon, vertexCount, segCount, QualitySettings.None, conforming: false, out _, useConvexHull, shouldCancel);
             if (ncFallback != null)
             {
                 builtMesh = ncFallback;
@@ -400,14 +421,29 @@ public class TinEngine
         }
 
         // Attempt 5: Plain Delaunay (drops segments)
+        if (segCount > 0)
         {
+            ThrowIfCancellationRequested(shouldCancel);
+            if (vertexCount > PlainFallbackVertexLimit || segCount > PlainFallbackSegmentLimit)
+            {
+                errorMessage = AppendBuildMessage(
+                    errorMessage,
+                    $"Skipped plain Delaunay fallback for large constrained input ({vertexCount:N0} verts, {segCount:N0} segments) to keep rebuilds responsive.");
+                return null;
+            }
+
             var plainOpts = new ConstraintOptions { ConformingDelaunay = false, Convex = false };
             var mesher = new GenericMesher();
             try
             {
                 var plainPoly = new Polygon(vertexCount);
                 for (int i = 0; i < vertexCount; i++)
+                {
+                    if ((i & 255) == 0)
+                        ThrowIfCancellationRequested(shouldCancel);
+
                     plainPoly.Add(new Vertex(xyCoords[i * 2], xyCoords[i * 2 + 1]) { ID = i });
+                }
 
                 var mesh = mesher.Triangulate(plainPoly, plainOpts, null);
                 if (mesh.Triangles.Count > 0)
@@ -440,28 +476,32 @@ public class TinEngine
         return null;
     }
 
-    private static IMesh? TryTriangulate(Polygon polygon, int segCount,
+    private static IMesh? TryTriangulate(Polygon polygon, int vertexCount, int segCount,
                                           QualitySettings quality,
                                           bool conforming,
                                           out string? errorMessage,
-                                          bool useConvexHull)
+                                          bool useConvexHull,
+                                          Func<bool>? shouldCancel = null)
     {
         errorMessage = null;
+        ThrowIfCancellationRequested(shouldCancel);
 
         var constraintOpts = new ConstraintOptions
         {
             ConformingDelaunay = conforming && segCount > 0,
-            Convex = useConvexHull
+            Convex = useConvexHull,
+            SegmentSplitting = 0
         };
 
         TriangleNet.Meshing.QualityOptions? qualityOpts = null;
-        if (quality.HasConstraints)
+        if (quality.HasConstraints || (conforming && segCount > 0))
         {
             qualityOpts = new TriangleNet.Meshing.QualityOptions();
             if (quality.MaxArea > 0)
                 qualityOpts.MaximumArea = quality.MaxArea;
             if (quality.MinAngle > 0)
                 qualityOpts.MinimumAngle = quality.MinAngle;
+            qualityOpts.SteinerPoints = ComputeSteinerPointCap(vertexCount, segCount, quality, conforming);
         }
 
         var mesher = new GenericMesher();
@@ -483,6 +523,34 @@ public class TinEngine
         }
 
         return mesh;
+    }
+
+    private static int ComputeSteinerPointCap(int vertexCount, int segCount, QualitySettings quality, bool conforming)
+    {
+        int complexity = Math.Max(vertexCount + Math.Max(segCount, 0), vertexCount);
+        int multiplier = quality.HasConstraints ? SteinerPointCapMultiplier : Math.Max(4, SteinerPointCapMultiplier / 2);
+        if (!conforming)
+            multiplier = Math.Max(2, multiplier / 2);
+
+        long cap = (long)complexity * multiplier;
+        cap = Math.Max(cap, MinSteinerPointCap);
+        cap = Math.Min(cap, MaxSteinerPointCap);
+        return (int)cap;
+    }
+
+    private static string AppendBuildMessage(string? existing, string addition)
+    {
+        if (string.IsNullOrWhiteSpace(existing))
+            return addition;
+        if (string.IsNullOrWhiteSpace(addition))
+            return existing;
+        return $"{existing} {addition}";
+    }
+
+    private static void ThrowIfCancellationRequested(Func<bool>? shouldCancel)
+    {
+        if (shouldCancel?.Invoke() == true)
+            throw new OperationCanceledException("Triangulation cancelled.");
     }
 
     private static TinResult BuildResult(IMesh mesh, double[] xyCoords, double[] zValues, int[] segments)

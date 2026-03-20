@@ -5,7 +5,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 10;
+    private const int DocumentSchemaVersion = 12;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -41,6 +41,7 @@ internal static class TerrainSerializer
             terrain.Modifiers ??= new List<ModifierDefinition>();
             terrain.Markers ??= new List<MarkerDefinition>();
             terrain.Zones ??= new List<CollageZoneDefinition>();
+            terrain.Analyses ??= new List<AnalysisDefinition>();
             terrain.OutputObjectIds ??= new List<Guid>();
             terrain.ZoneObjectIds ??= new List<Guid>();
             terrain.AuxiliaryObjectIds ??= new List<Guid>();
@@ -48,6 +49,7 @@ internal static class TerrainSerializer
             PromoteLegacyTolerance(terrain);
             PromoteDisplaySettings(terrain);
             MigrateZones(terrain);
+            MigrateAnalyses(terrain);
             terrain.EnsureBaseModifier();
             terrain.SchemaVersion = TerrainDefinition.CurrentSchemaVersion;
         }
@@ -113,6 +115,41 @@ internal static class TerrainSerializer
     private static void PromoteDisplaySettings(TerrainDefinition terrain)
     {
         terrain.OutputTransparencyPercent = Math.Clamp(terrain.OutputTransparencyPercent, 0, 100);
+        if (terrain.TerrainColorArgb == 0)
+        {
+            var defaultColor = System.Drawing.Color.FromArgb(TerrainDefinition.DefaultTerrainColorArgb);
+            int alpha = (int)Math.Round(255.0 * (1.0 - (terrain.OutputTransparencyPercent / 100.0)));
+            terrain.TerrainColorArgb = System.Drawing.Color.FromArgb(
+                Math.Clamp(alpha, 0, 255),
+                defaultColor.R,
+                defaultColor.G,
+                defaultColor.B).ToArgb();
+        }
+        terrain.SlopePalettePreset = SlopePreviewPaletteCatalog.Resolve(terrain.SlopePalettePreset).Key;
+        terrain.SlopeColorLowPercent = Math.Max(0.0, terrain.SlopeColorLowPercent);
+        terrain.SlopeColorHighPercent = Math.Max(0.0, terrain.SlopeColorHighPercent);
+    }
+
+    private static void MigrateAnalyses(TerrainDefinition terrain)
+    {
+        if (terrain.Analyses.Count > 0)
+        {
+            foreach (var analysis in terrain.Analyses)
+                analysis.PalettePreset = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset).Key;
+            return;
+        }
+
+        if (!terrain.ShowSlopePreview)
+            return;
+
+        terrain.Analyses.Add(new SlopeAnalysisDefinition
+        {
+            IsEnabled = true,
+            PalettePreset = SlopePreviewPaletteCatalog.Resolve(terrain.SlopePalettePreset).Key,
+            RangeLow = terrain.SlopeColorLowPercent,
+            RangeHigh = terrain.SlopeColorHighPercent
+        });
+        terrain.ShowSlopePreview = false;
     }
 
     private static CollageZoneDefinition CloneZone(CollageZoneDefinition zone)

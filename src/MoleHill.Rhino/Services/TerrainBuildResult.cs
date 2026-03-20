@@ -10,6 +10,8 @@ internal sealed class TerrainBuildResult
 {
     public Mesh? PrimaryMesh { get; set; }
 
+    public Mesh? BaseMesh { get; set; }
+
     public List<GeneratedRhinoObject> ZoneObjects { get; } = new();
 
     public List<GeneratedRhinoObject> AuxiliaryObjects { get; } = new();

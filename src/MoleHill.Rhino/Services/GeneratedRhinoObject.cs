@@ -8,6 +8,8 @@ internal sealed class GeneratedRhinoObject
 
     public required string Name { get; init; }
 
+    public GeneratedObjectKind Kind { get; init; }
+
     public int? ColorArgb { get; init; }
 
     public string? LayerPath { get; init; }
