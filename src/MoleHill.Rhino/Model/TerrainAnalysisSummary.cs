@@ -14,6 +14,12 @@ public sealed class TerrainAnalysisSummary
 
     public double SlopeDisplayHighPercent { get; set; }
 
+    public double ElevationMinZ { get; set; }
+
+    public double ElevationMaxZ { get; set; }
+
+    public double CutFillDisplayAbsMax { get; set; }
+
     public double CutVolume { get; set; }
 
     public double FillVolume { get; set; }

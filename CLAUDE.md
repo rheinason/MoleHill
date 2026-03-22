@@ -18,6 +18,8 @@ pwsh ./generate-icons.ps1           # Regenerate 24x24 PNG icon assets
 
 Close Rhino before rebuilding — Rhino holds a lock on the `.gha` file in `%AppData%\Grasshopper\Libraries\`.
 
+After a rebuild, Windows may block the new `.rhp` (Mark of the Web). If Rhino fails to load the plugin, unblock the file: right-click the `.rhp` → Properties → check **Unblock** → OK. The `.rhp` is at `src/MoleHill.Rhino/bin/Debug/net7.0/MoleHill.Rhino.rhp`.
+
 The Grasshopper project builds two output dirs (`bin/Debug/net7.0/` and `bin/Debug/net7.0-windows/`). ILRepack merges `MoleHill.Core.dll` + `TriangleNet.dll` into the primary `MoleHill.gha` and deletes the intermediate DLLs. The Windows TFM also copies the merged `.gha` to `%AppData%\Grasshopper\Libraries\` and runs Yak to produce `manifest.yml` + `.yak`.
 
 ## Project Structure

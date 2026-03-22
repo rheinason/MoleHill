@@ -38,8 +38,8 @@ public sealed class MoleHillPanel : Panel
     private readonly Label _terrainLayerLabel = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Label _auxLayerLabel     = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Panel _terrainColorSwatch = new() { Width = 18, Height = 18 };
-    private readonly Label _terrainColorLabel = new() { VerticalAlignment = VerticalAlignment.Center, TextColor = MutedText };
-    private readonly Label _statusHintLabel   = new() { VerticalAlignment = VerticalAlignment.Center, TextColor = SystemColors.DisabledText };
+    private readonly Label _terrainColorLabel = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly Label _statusHintLabel   = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly NumericStepper _toleranceStepper = new();
     private readonly NumericStepper _terrainOpacityStepper = new();
     private readonly Slider _terrainOpacitySlider = new() { MinValue = 0, MaxValue = 100, Width = 120 };
@@ -98,15 +98,6 @@ public sealed class MoleHillPanel : Panel
     private const int PropertyLabelWidth = 92;
     private const int NumericLabelWidth = 110;
     private const int HeaderActionHeight = 22;
-    private static readonly Color CardBackground = Color.FromArgb(65, 65, 65);
-    private static readonly Color HeaderBackground = Color.FromArgb(56, 56, 56);
-    private static readonly Color ToolbarGroupBackground = Color.FromArgb(58, 58, 58);
-    private static readonly Color BaseCardBackground = Color.FromArgb(69, 71, 77);
-    private static readonly Color DragHighlight = Color.FromArgb(80, 120, 200, 255);
-    private static readonly Color SepHighlight  = Color.FromArgb(120, 180, 255, 255);
-    private static readonly Color MutedText = Color.FromArgb(168, 168, 168);
-    private static readonly Color EditorBackground = Color.FromArgb(54, 54, 54);
-    private static readonly Color EditorText = Colors.White;
     private const int StackedSourceEditorWidth = 430;
     private const int WrappedModifierHeaderWidth = 560;
     private readonly EventHandler _stateChangedHandler;
@@ -239,6 +230,8 @@ public sealed class MoleHillPanel : Panel
         SizeChanged += HandlePanelSizeChanged;
         LoadComplete += OnPanelLoadComplete;
         UnLoad += OnPanelUnLoad;
+        RhinoApp.AppSettingsChanged += OnAppSettingsChanged;
+        RhinoApp.AppSettingsChanged += OnAppSettingsChanged;
 
         Content = BuildContent();
         _responsiveLayoutKey = GetResponsiveLayoutKey();
@@ -250,19 +243,20 @@ public sealed class MoleHillPanel : Panel
         Button? pickerButton = null;
         pickerButton = MakeToolbarButton("Menu", (_, _) => ShowTerrainPickerMenu(pickerButton!), "Switch terrain", width: 62);
 
-        var newButton = MakeToolbarButton("New", OnNewTerrain, "Create a new terrain", width: 54);
-        _dupButton = MakeToolbarButton("Copy", OnDuplicateTerrain, "Duplicate selected terrain", width: 58);
-        _deleteButton = MakeToolbarButton("Delete", OnDeleteTerrain, "Delete selected terrain", width: 66);
-        _rebuildButton = MakeToolbarButton("Rebuild", OnRebuildTerrain, "Force rebuild terrain now", width: 72);
+        var newButton = MakeToolbarButton("New", OnNewTerrain, "Create a new terrain", width: 46);
+        _dupButton = MakeToolbarButton("Copy", OnDuplicateTerrain, "Duplicate selected terrain", width: 50);
+        _deleteButton = MakeToolbarButton("Del", OnDeleteTerrain, "Delete selected terrain", width: 38);
+        _rebuildButton = MakeToolbarButton("Rebuild", OnRebuildTerrain, "Force rebuild terrain now", width: 62);
         _visibilityButton.ToolTip = "Toggle terrain visibility";
         _lockButton.ToolTip = "Lock terrain to prevent accidental edits";
-        _visibilityButton.Width = 66;
-        _lockButton.Width = 66;
+        _visibilityButton.Width = 58;
+        _lockButton.Width = 58;
         _visibilityButton.Height = 26;
         _lockButton.Height = 26;
         _liveUpdate.Height = 26;
 
-        // ── Toolbar (single row) ─────────────────────────────────────
+        // ── Toolbar (two rows) ────────────────────────────────────────
+        // Row 1: identity
         var identityRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
@@ -270,16 +264,31 @@ public sealed class MoleHillPanel : Panel
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
-                new Label { Text = "Terrain", TextColor = MutedText, VerticalAlignment = VerticalAlignment.Center },
+                new Label { Text = "Terrain", TextColor = UiTheme.MutedText, VerticalAlignment = VerticalAlignment.Center },
                 new StackLayoutItem(_terrainName, expand: true),
                 pickerButton
             }
         };
         var identityGroup = new Panel
         {
-            BackgroundColor = ToolbarGroupBackground,
+            BackgroundColor = UiTheme.ToolbarBackground,
             Padding = new Padding(8, 6, 8, 6),
             Content = identityRow
+        };
+
+        // Row 2: actions (New / Copy / Del | Rebuild / Live | Shown / Locked)
+        var actionsRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items =
+            {
+                CreateToolbarGroup(newButton, _dupButton, _deleteButton),
+                CreateToolbarGroup(_rebuildButton, _liveUpdate),
+                new StackLayoutItem(new Panel(), expand: true),
+                CreateToolbarGroup(_visibilityButton, _lockButton)
+            }
         };
 
         var toolbar = new StackLayout
@@ -290,28 +299,16 @@ public sealed class MoleHillPanel : Panel
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
-                new Label { Text = "ACTIVE TERRAIN", TextColor = MutedText },
-                new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 6,
-                    VerticalContentAlignment = VerticalAlignment.Center,
-                    Items =
-                    {
-                        new StackLayoutItem(identityGroup, expand: true),
-                        CreateToolbarGroup(newButton, _dupButton),
-                        CreateToolbarGroup(_visibilityButton, _lockButton, _liveUpdate),
-                        CreateToolbarGroup(_rebuildButton, _deleteButton)
-                    }
-                }
+                new StackLayoutItem(identityGroup, HorizontalAlignment.Stretch),
+                new StackLayoutItem(actionsRow, HorizontalAlignment.Stretch)
             }
         };
 
         // ── Settings card (collapsible, expanded by default) ─────────
-        _settingsChevron = MakeMiniButton("v", (_, _) =>
+        _settingsChevron = MakeMiniButton("▼", (_, _) =>
         {
             _settingsExpanded = !_settingsExpanded;
-            _settingsChevron!.Text = _settingsExpanded ? "v" : ">";
+            _settingsChevron!.Text = _settingsExpanded ? "▼" : "▶";
             _settingsContent!.Visible = _settingsExpanded;
         }, "Collapse terrain settings", width: 24);
 
@@ -321,7 +318,7 @@ public sealed class MoleHillPanel : Panel
             Spacing = 6,
             Padding = new Padding(8, 6, 8, 6),
             VerticalContentAlignment = VerticalAlignment.Center,
-            BackgroundColor = HeaderBackground,
+            BackgroundColor = UiTheme.HeaderBackground,
             Items =
             {
                 _settingsChevron,
@@ -329,7 +326,7 @@ public sealed class MoleHillPanel : Panel
                 new StackLayoutItem(new Label
                 {
                     Text = "Document defaults, layers, and terrain display",
-                    TextColor = MutedText,
+                    TextColor = UiTheme.MutedText,
                     VerticalAlignment = VerticalAlignment.Center
                 }, expand: true)
             }
@@ -337,7 +334,7 @@ public sealed class MoleHillPanel : Panel
 
         var terrainLayerRow = new StackLayout
         {
-            Orientation = Orientation.Horizontal, Spacing = 3,
+            Orientation = Orientation.Horizontal, Spacing = 4,
             VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
             Items =
             {
@@ -345,12 +342,12 @@ public sealed class MoleHillPanel : Panel
                 _terrainLayerLabel,
                 MakeCompactButton("Use Current", OnAssignTerrainLayer, "Assign the current Rhino layer."),
                 MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.TerrainLayerPath = path, scheduleRebuild: false), "Browse and pick the terrain layer"),
-                MakeCompactButton("Clear", (_, _) => MutateSelectedTerrain(t => t.TerrainLayerPath = null, scheduleRebuild: false), "Clear the terrain layer assignment.")
+                MakeCompactButton("Clear", (_, _) => { MutateSelectedTerrain(t => t.TerrainLayerPath = null, scheduleRebuild: false); RefreshUi(); }, "Clear the terrain layer assignment.")
             }
         };
         var auxLayerRow = new StackLayout
         {
-            Orientation = Orientation.Horizontal, Spacing = 3,
+            Orientation = Orientation.Horizontal, Spacing = 4,
             VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
             Items =
             {
@@ -358,44 +355,53 @@ public sealed class MoleHillPanel : Panel
                 _auxLayerLabel,
                 MakeCompactButton("Use Current", OnAssignAuxLayer, "Assign the current Rhino layer for retaining walls and other auxiliary outputs."),
                 MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = path, scheduleRebuild: true), "Browse and pick the walls / auxiliary layer"),
-                MakeCompactButton("Clear", (_, _) => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = null, scheduleRebuild: true), "Clear the walls / auxiliary layer assignment.")
+                MakeCompactButton("Clear", (_, _) => { MutateSelectedTerrain(t => t.AuxiliaryLayerPath = null, scheduleRebuild: true); RefreshUi(); }, "Clear the walls / auxiliary layer assignment.")
             }
         };
         var toleranceRow = new StackLayout
         {
-            Orientation = Orientation.Horizontal, Spacing = 3,
+            Orientation = Orientation.Horizontal, Spacing = 4,
             VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
             Items = { CreateHelpLabel("Tolerance", "Global Z-snapping tolerance for point deduplication.", PropertyLabelWidth), _toleranceStepper }
         };
         var terrainColorRow = new StackLayout
         {
-            Orientation = Orientation.Horizontal, Spacing = 6,
+            Orientation = Orientation.Horizontal, Spacing = 4,
             VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
             Items =
             {
-                CreateHelpLabel("Terrain Color", "Base display color for the terrain preview and baked terrain. Opacity affects this terrain mesh only.", PropertyLabelWidth),
+                CreateHelpLabel("Terrain Color", "Base display color for the terrain preview and baked terrain. Click the swatch to change. Opacity affects this terrain mesh only.", PropertyLabelWidth),
                 _terrainColorSwatch,
-                _terrainColorLabel,
                 CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake.", 52),
                 _terrainOpacitySlider,
                 _terrainOpacityStepper,
-                _showWiresCheck,
                 MakeCompactButton("Reset", (_, _) => ResetTerrainColor(), "Restore the default terrain display color.")
+            }
+        };
+        var terrainDisplayRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal, Spacing = 4,
+            VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
+            Items =
+            {
+                new Panel { Width = PropertyLabelWidth },
+                _showWiresCheck
             }
         };
         var settingsInner = new StackLayout
         {
-            Orientation = Orientation.Vertical, Spacing = 6, Padding = new Padding(10, 8, 10, 8),
+            Orientation = Orientation.Vertical, Spacing = 4, Padding = new Padding(10, 8, 10, 8),
             Items =
             {
                 new StackLayoutItem(terrainLayerRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(auxLayerRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(terrainColorRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(terrainDisplayRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(toleranceRow, HorizontalAlignment.Stretch)
             }
         };
 
-        _settingsContent = new Panel { Content = settingsInner, Visible = _settingsExpanded, BackgroundColor = CardBackground };
+        _settingsContent = new Panel { Content = settingsInner, Visible = _settingsExpanded, BackgroundColor = UiTheme.CardBackground };
 
         var settingsCard = new StackLayout
         {
@@ -410,10 +416,10 @@ public sealed class MoleHillPanel : Panel
         };
 
         // ── Status card (collapsible, collapsed by default) ───────────
-        _statusChevron = MakeMiniButton(">", (_, _) =>
+        _statusChevron = MakeMiniButton("▶", (_, _) =>
         {
             _statusExpanded = !_statusExpanded;
-            _statusChevron!.Text = _statusExpanded ? "v" : ">";
+            _statusChevron!.Text = _statusExpanded ? "▼" : "▶";
             _statusContent!.Visible = _statusExpanded;
             _statusHintLabel.Visible = !_statusExpanded;
         }, "Show or hide build status", width: 24);
@@ -424,7 +430,7 @@ public sealed class MoleHillPanel : Panel
             Spacing = 6,
             Padding = new Padding(8, 6, 8, 6),
             VerticalContentAlignment = VerticalAlignment.Center,
-            BackgroundColor = HeaderBackground,
+            BackgroundColor = UiTheme.HeaderBackground,
             Items =
             {
                 _statusChevron,
@@ -437,7 +443,7 @@ public sealed class MoleHillPanel : Panel
         {
             Content = new Panel { Content = _statusLabel, Padding = new Padding(10, 6) },
             Visible = _statusExpanded,
-            BackgroundColor = CardBackground
+            BackgroundColor = UiTheme.CardBackground
         };
 
         var statusCard = new StackLayout
@@ -528,10 +534,31 @@ public sealed class MoleHillPanel : Panel
             Application.Instance?.AsyncInvoke(RefreshUi);
     }
 
+    private void OnAppSettingsChanged(object? sender, EventArgs e)
+    {
+        if (IsDisposed || !_isPanelLoaded)
+            return;
+
+        Application.Instance?.AsyncInvoke(() =>
+        {
+            if (IsDisposed)
+                return;
+
+            // Rebuild the full content tree so static surfaces (toolbar, settings
+            // card) pick up the new theme colors alongside the dynamic card stacks.
+            _terrainColorLabel.TextColor = UiTheme.MutedText;
+            _statusHintLabel.TextColor   = UiTheme.MutedText;
+            Content = BuildContent();
+            _responsiveLayoutKey = GetResponsiveLayoutKey();
+            RefreshUi();
+        });
+    }
+
     private void OnPanelUnLoad(object? sender, EventArgs e)
     {
         _isPanelLoaded = false;
         UnsubscribeControllerStateChanged();
+        RhinoApp.AppSettingsChanged -= OnAppSettingsChanged;
     }
 
     private void HandlePanelSizeChanged(object? sender, EventArgs e)
@@ -717,6 +744,10 @@ public sealed class MoleHillPanel : Panel
         if (IsDisposed)
             return;
 
+        // Keep shared label instances in sync with the current theme.
+        _terrainColorLabel.TextColor = UiTheme.MutedText;
+        _statusHintLabel.TextColor   = UiTheme.MutedText;
+
         var doc = RhinoDoc.ActiveDoc;
         _responsiveLayoutKey = GetResponsiveLayoutKey();
         _isRefreshing = true;
@@ -825,7 +856,7 @@ public sealed class MoleHillPanel : Panel
                 Orientation = Orientation.Horizontal,
                 Spacing = 0,
                 Padding = new Padding(4, 2),
-                BackgroundColor = isPinnedBaseTriangulate ? BaseCardBackground : CardBackground,
+                BackgroundColor = isPinnedBaseTriangulate ? UiTheme.BaseCardBackground : UiTheme.CardBackground,
                 Items = { strip, new StackLayoutItem(box, expand: true) }
             };
             WireModifierCardDragDrop(wrapper, terrainId, modifierId);
@@ -856,7 +887,7 @@ public sealed class MoleHillPanel : Panel
             Content = new Label
             {
                 Text = "Later zones win when priorities tie. Enable Use input Z for planar composition from vertically stacked inputs.",
-                TextColor = SystemColors.DisabledText
+                TextColor = UiTheme.MutedText
             }
         }, HorizontalAlignment.Stretch));
 
@@ -873,11 +904,17 @@ public sealed class MoleHillPanel : Panel
             _zonesStack.Items.Add(new StackLayoutItem(zoneOuter, HorizontalAlignment.Stretch));
 
             var box = CreateZoneGroup(terrain, zone);
+            var zoneStrip = new Panel { Width = 5, BackgroundColor = UiTheme.ZoneStripColor };
             var zoneWrapper = new Panel
             {
-                Content = box,
                 Padding = new Padding(4, 2),
-                BackgroundColor = CardBackground
+                BackgroundColor = UiTheme.CardBackground,
+                Content = new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 0,
+                    Items = { zoneStrip, new StackLayoutItem(box, expand: true) }
+                }
             };
             _zoneCardMap[zoneId] = zoneWrapper;
             WireZoneCardDragDrop(zoneWrapper, terrainId, zoneId);
@@ -921,7 +958,8 @@ public sealed class MoleHillPanel : Panel
             Content = new Label
             {
                 Text = "The topmost enabled analysis card that supports terrain preview drives the terrain mesh color in the viewport and on bake.",
-                TextColor = SystemColors.DisabledText
+                TextColor = UiTheme.MutedText,
+                Wrap = WrapMode.Word
             }
         }, HorizontalAlignment.Stretch));
 
@@ -933,7 +971,8 @@ public sealed class MoleHillPanel : Panel
                 Content = new Label
                 {
                     Text = "No analyses yet. Add one to inspect slope, elevation, cut/fill, or earthworks.",
-                    TextColor = SystemColors.DisabledText
+                    TextColor = UiTheme.MutedText,
+                    Wrap = WrapMode.Word
                 }
             }, HorizontalAlignment.Stretch));
             return;
@@ -969,7 +1008,7 @@ public sealed class MoleHillPanel : Panel
                 Orientation = Orientation.Horizontal,
                 Spacing = 0,
                 Padding = new Padding(4, 2),
-                BackgroundColor = CardBackground,
+                BackgroundColor = UiTheme.CardBackground,
                 Items = { strip, new StackLayoutItem(box, expand: true) }
             };
             WireAnalysisCardDragDrop(wrapper, terrainId, analysisId);
@@ -1022,7 +1061,7 @@ public sealed class MoleHillPanel : Panel
             Padding = new Padding(8, 8, 8, 4),
             Items =
             {
-                new Label { Text = "MODIFIER STACK", TextColor = MutedText },
+                new Label { Text = "MODIFIER STACK", TextColor = UiTheme.MutedText },
                 new StackLayout
                 {
                     Orientation = Orientation.Horizontal,
@@ -1033,7 +1072,7 @@ public sealed class MoleHillPanel : Panel
                         new StackLayoutItem(new Label
                         {
                             Text = "Base geometry stays pinned at the bottom.",
-                            TextColor = MutedText,
+                            TextColor = UiTheme.MutedText,
                             VerticalAlignment = VerticalAlignment.Center
                         }, expand: true)
                     }
@@ -1138,7 +1177,7 @@ public sealed class MoleHillPanel : Panel
             Spacing = 4,
             Items =
             {
-                new Label { Text = "ZONE OUTPUT", TextColor = MutedText },
+                new Label { Text = "ZONE OUTPUT", TextColor = UiTheme.MutedText },
                 new StackLayout
                 {
                     Orientation = Orientation.Horizontal,
@@ -1146,7 +1185,7 @@ public sealed class MoleHillPanel : Panel
                     Items =
                     {
                         addButton,
-                        new Label { Text = "View", TextColor = MutedText, VerticalAlignment = VerticalAlignment.Center },
+                        new Label { Text = "View", TextColor = UiTheme.MutedText, VerticalAlignment = VerticalAlignment.Center },
                         terrainView,
                         zonesView
                     }
@@ -1179,7 +1218,7 @@ public sealed class MoleHillPanel : Panel
         bool collapsed = _collapsedAnalyses.Contains(analysis.Id);
         var collapseLabel = new Label
         {
-            Text = collapsed ? ">" : "v",
+            Text = collapsed ? "▶" : "▼",
             VerticalAlignment = VerticalAlignment.Center,
             Width = 14
         };
@@ -1213,7 +1252,7 @@ public sealed class MoleHillPanel : Panel
         {
             Text = statusText,
             VerticalAlignment = VerticalAlignment.Center,
-            TextColor = isActive ? Color.FromArgb(255, 210, 80) : MutedText
+            TextColor = isActive ? UiTheme.ActiveBadge : UiTheme.MutedText
         };
 
         var handle = CreateDragHandle();
@@ -1257,7 +1296,7 @@ public sealed class MoleHillPanel : Panel
                     {
                         Text = GetAnalysisCollapsedSummary(terrain, analysis),
                         VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = MutedText
+                        TextColor = UiTheme.MutedText
                     }
                 }
             }
@@ -1272,7 +1311,7 @@ public sealed class MoleHillPanel : Panel
                     {
                         Text = GetAnalysisSubtitle(analysis, isActive),
                         VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = MutedText
+                        TextColor = UiTheme.MutedText
                     }
                 }
             };
@@ -1283,7 +1322,7 @@ public sealed class MoleHillPanel : Panel
             Orientation = Orientation.Vertical,
             Spacing = wrapActions ? 4 : 0,
             Padding = new Padding(8, 6, 8, 6),
-            BackgroundColor = HeaderBackground
+            BackgroundColor = UiTheme.HeaderBackground
         };
 
         var headerTopRow = new StackLayout
@@ -1301,7 +1340,7 @@ public sealed class MoleHillPanel : Panel
         headerTopRow.Items.Add(new StackLayoutItem(new Label
         {
             Text = typeLabel,
-            TextColor = MutedText,
+            TextColor = UiTheme.MutedText,
             VerticalAlignment = VerticalAlignment.Center
         }));
         headerTopRow.Items.Add(new StackLayoutItem(badge));
@@ -1367,7 +1406,7 @@ public sealed class MoleHillPanel : Panel
 
         return new Panel
         {
-            BackgroundColor = CardBackground,
+            BackgroundColor = UiTheme.CardBackground,
             Content = card
         };
     }
@@ -1405,7 +1444,7 @@ public sealed class MoleHillPanel : Panel
                         "Summary",
                         "Rebuild required",
                         "Rebuild the terrain to populate earthwork values.",
-                        minHeight: 52));
+                        minHeight: 42));
                 }
                 break;
 
@@ -1436,14 +1475,19 @@ public sealed class MoleHillPanel : Panel
                         $"{FormatSlopeSummaryValue(terrain.LastAnalysis.SlopeDisplayLowPercent, slope.Unit)} to {FormatSlopeSummaryValue(terrain.LastAnalysis.SlopeDisplayHighPercent, slope.Unit)}",
                         "Actual slope range currently mapped across the selected palette."));
                 }
-                layout.AddRow(CreateSlopeLegendView(
-                    SlopePreviewPaletteCatalog.Resolve(slope.PalettePreset),
-                    displayLowLabel: FormatSlopeValue(slope.RangeLow, slope.Unit),
-                    displayHighLabel: FormatSlopeValue(
-                        slope.RangeHigh > slope.RangeLow
-                            ? slope.RangeHigh
-                            : ConvertPercentToSlopeUnit(terrain.LastAnalysis?.SlopeMaxPercent ?? SlopeAnalyzer.ConvertRatioToUnit(1.0, slope.Unit), slope.Unit),
-                        slope.Unit)));
+                // Legend shows the actual mapped range from the last build
+                {
+                    string sLow  = terrain.LastAnalysis != null
+                        ? FormatSlopeValue(ConvertPercentToSlopeUnit(terrain.LastAnalysis.SlopeDisplayLowPercent, slope.Unit), slope.Unit)
+                        : FormatSlopeValue(slope.RangeLow, slope.Unit);
+                    string sHigh = terrain.LastAnalysis != null
+                        ? FormatSlopeValue(ConvertPercentToSlopeUnit(terrain.LastAnalysis.SlopeDisplayHighPercent, slope.Unit), slope.Unit)
+                        : FormatSlopeValue(slope.RangeHigh, slope.Unit);
+                    layout.AddRow(CreateSlopeLegendView(
+                        SlopePreviewPaletteCatalog.Resolve(slope.PalettePreset),
+                        displayLowLabel: sLow,
+                        displayHighLabel: sHigh));
+                }
                 break;
 
             case ElevationAnalysisDefinition elevation:
@@ -1455,45 +1499,53 @@ public sealed class MoleHillPanel : Panel
                     "Low Z",
                     elevation.RangeLow,
                     value => MutateAndRefreshAnalysis(terrain.TerrainId, elevation.Id, item => item.RangeLow = value),
-                    "Values at or below this elevation use the low end of the selected palette."));
+                    "Values at or below this elevation use the low end of the selected palette. Set to 0 to auto-fit."));
                 layout.AddRow(CreateAnalysisRangeEditor(
                     "High Z",
                     elevation.RangeHigh,
                     value => MutateAndRefreshAnalysis(terrain.TerrainId, elevation.Id, item => item.RangeHigh = value),
-                    "Values at or above this elevation use the high end of the selected palette. Leave at 0 to auto-fit."));
+                    "Values at or above this elevation use the high end of the selected palette. Set to 0 to auto-fit."));
                 if (terrain.LastAnalysis != null)
                     layout.AddRow(CreateReadOnlyValueRow("Area", $"{terrain.LastAnalysis.SurfaceArea:F2} sq units", "Terrain surface area from the last build."));
+                {
+                    // Actual low/high Z driven by either the configured range or auto-fit from last build
+                    var a = terrain.LastAnalysis;
+                    double eLow  = (a != null && elevation.RangeLow == 0 && elevation.RangeHigh <= elevation.RangeLow)
+                        ? a.ElevationMinZ : (elevation.RangeLow != 0 ? elevation.RangeLow : a?.ElevationMinZ ?? 0);
+                    double eHigh = (a != null && elevation.RangeHigh <= elevation.RangeLow)
+                        ? a.ElevationMaxZ : (elevation.RangeHigh > elevation.RangeLow ? elevation.RangeHigh : a?.ElevationMaxZ ?? 0);
+                    layout.AddRow(CreateSlopeLegendView(
+                        SlopePreviewPaletteCatalog.Resolve(elevation.PalettePreset),
+                        displayLowLabel:  a != null ? $"{eLow:F1}" : "Low Z",
+                        displayHighLabel: a != null ? $"{eHigh:F1}" : "High Z"));
+                }
                 break;
 
             case CutFillAnalysisDefinition cutFill:
                 layout.AddRow(CreateAnalysisPaletteEditor(
                     terrain.TerrainId,
                     cutFill,
-                    "Color ramp used for cut/fill analysis. Negative values map toward cut, positive values toward fill."));
-                layout.AddRow(CreateAnalysisRangeEditor(
-                    "Cut Min",
-                    cutFill.RangeLow,
-                    value => MutateAndRefreshAnalysis(terrain.TerrainId, cutFill.Id, item => item.RangeLow = value),
-                    "Lower bound for signed cut/fill values. Leave the range invalid to auto-fit symmetrically."));
-                layout.AddRow(CreateAnalysisRangeEditor(
-                    "Fill Max",
-                    cutFill.RangeHigh,
-                    value => MutateAndRefreshAnalysis(terrain.TerrainId, cutFill.Id, item => item.RangeHigh = value),
-                    "Upper bound for signed cut/fill values. Leave the range invalid to auto-fit symmetrically."));
+                    "Color ramp used for cut/fill analysis. Auto-fits symmetrically to the largest delta."));
                 if (terrain.LastAnalysis != null)
                 {
                     layout.AddRow(CreateReadOnlyValueRow("Cut / Fill / Net",
                         $"{terrain.LastAnalysis.CutVolume:F2} / {terrain.LastAnalysis.FillVolume:F2} / {terrain.LastAnalysis.NetVolume:F2}",
                         "Current earthworks summary from the last build."));
                 }
+                {
+                    var a = terrain.LastAnalysis;
+                    double absMax = a?.CutFillDisplayAbsMax ?? 0.0;
+                    string cfLow  = a != null ? $"{-absMax:F2}" : "Cut";
+                    string cfHigh = a != null ? $"+{absMax:F2}" : "Fill";
+                    layout.AddRow(CreateSlopeLegendView(
+                        SlopePreviewPaletteCatalog.Resolve(cutFill.PalettePreset),
+                        displayLowLabel: cfLow,
+                        displayHighLabel: cfHigh));
+                }
                 break;
         }
 
-        return new Panel
-        {
-            BackgroundColor = CardBackground,
-            Content = layout
-        };
+        return layout;
     }
 
     private Control CreateAnalysisPaletteEditor(Guid terrainId, AnalysisDefinition analysis, string help)
@@ -1519,7 +1571,7 @@ public sealed class MoleHillPanel : Panel
         bool collapsed = _collapsedModifiers.Contains(modifier.Id);
         var collapseLabel = new Label
         {
-            Text = collapsed ? ">" : "v",
+            Text = collapsed ? "▶" : "▼",
             VerticalAlignment = VerticalAlignment.Center,
             Width = 14
         };
@@ -1591,7 +1643,7 @@ public sealed class MoleHillPanel : Panel
                     {
                         Text = GetCollapsedSummary(modifier),
                         VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = MutedText
+                        TextColor = UiTheme.MutedText
                     }
                 }
             };
@@ -1609,7 +1661,7 @@ public sealed class MoleHillPanel : Panel
                     {
                         Text = GetModifierSubtitle(modifier, isPinnedBaseTriangulate),
                         VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = MutedText
+                        TextColor = UiTheme.MutedText
                     }
                 }
             };
@@ -1621,7 +1673,7 @@ public sealed class MoleHillPanel : Panel
             Orientation = Orientation.Vertical,
             Spacing = wrapActions ? 4 : 0,
             Padding = new Padding(8, 6, 8, 6),
-            BackgroundColor = isPinnedBaseTriangulate ? BaseCardBackground : HeaderBackground
+            BackgroundColor = isPinnedBaseTriangulate ? UiTheme.BaseCardBackground : UiTheme.HeaderBackground
         };
 
         var headerTopRow = new StackLayout
@@ -1712,7 +1764,7 @@ public sealed class MoleHillPanel : Panel
 
         return new Panel
         {
-            BackgroundColor = isPinnedBaseTriangulate ? BaseCardBackground : CardBackground,
+            BackgroundColor = isPinnedBaseTriangulate ? UiTheme.BaseCardBackground : UiTheme.CardBackground,
             Content = card
         };
     }
@@ -1954,7 +2006,7 @@ public sealed class MoleHillPanel : Panel
             Padding = new Padding(8, 8, 8, 4),
             Items =
             {
-                new Label { Text = "MARKERS", TextColor = MutedText },
+                new Label { Text = "MARKERS", TextColor = UiTheme.MutedText },
                 new StackLayout
                 {
                     Orientation = Orientation.Horizontal,
@@ -2235,19 +2287,19 @@ public sealed class MoleHillPanel : Panel
                 {
                     Text = value,
                     VerticalAlignment = VerticalAlignment.Center,
-                    TextColor = EditorText
+                    TextColor = UiTheme.InputText
                 }
             }
         };
     }
 
-    private Control CreateSelectableSummaryEditor(string label, string value, string help, int minHeight = 72)
+    private Control CreateSelectableSummaryEditor(string label, string value, string help, int minHeight = 110)
     {
         var textArea = new TextArea
         {
             Text = value,
             ReadOnly = true,
-            Wrap = false,
+            Wrap = true,
             Height = minHeight
         };
         StyleTextArea(textArea);
@@ -2257,10 +2309,11 @@ public sealed class MoleHillPanel : Panel
         {
             Orientation = Orientation.Vertical,
             Spacing = 4,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
                 CreateHelpLabel(label, help, NumericLabelWidth),
-                textArea
+                new StackLayoutItem(textArea, HorizontalAlignment.Stretch)
             }
         };
     }
@@ -2375,48 +2428,70 @@ public sealed class MoleHillPanel : Panel
         string? displayLowLabel = null,
         string? displayHighLabel = null)
     {
-        const int sampleCount = 12;
-        var swatches = new StackLayout
+        const int barHeight = 22;
+        const int tickHeight = 4;
+        const int numTicks = 5;
+
+        string lowLabel  = displayLowLabel  ?? $"{displayLow:F1}%";
+        string highLabel = displayHighLabel ?? $"{displayHigh:F1}%";
+
+        // Gradient bar painted smoothly via Drawable
+        var gradientBar = new Drawable { Height = barHeight };
+        gradientBar.Paint += (sender, e) =>
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 0,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch
+            var g = e.Graphics;
+            var ctrl = (Drawable)sender!;
+            int w = ctrl.Width;
+            if (w <= 0) return;
+
+            const int steps = 256;
+            for (int i = 0; i < steps; i++)
+            {
+                double t  = i / (double)(steps - 1);
+                var c     = SamplePaletteColor(palette.Stops, t);
+                float x0  = (float)i / steps * w;
+                float x1  = (float)(i + 1) / steps * w;
+                g.FillRectangle(c, x0, 0f, Math.Max(1f, x1 - x0), barHeight);
+            }
+
+            // Tick marks at evenly spaced positions
+            var tickBrush = new SolidBrush(UiTheme.MutedText);
+            for (int i = 0; i < numTicks; i++)
+            {
+                float t = i / (float)(numTicks - 1);
+                float x = t * (w - 1);
+                g.FillRectangle(tickBrush, x, barHeight - tickHeight, 1f, tickHeight);
+            }
         };
 
-        for (int i = 0; i < sampleCount; i++)
-        {
-            double t = sampleCount == 1 ? 0.0 : i / (double)(sampleCount - 1);
-            swatches.Items.Add(new StackLayoutItem(new Panel
-            {
-                Height = 16,
-                BackgroundColor = SamplePaletteColor(palette.Stops, t)
-            }, expand: true));
-        }
-
-        var labels = new StackLayout
+        // Labels: low on left, high on right, palette name centered
+        var labelsRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
-                new Label { Text = displayLowLabel ?? $"{displayLow:F1}%", TextColor = MutedText },
+                new Label { Text = lowLabel,  TextColor = UiTheme.MutedText },
                 new StackLayoutItem(new Label
                 {
                     Text = palette.Label,
-                    TextColor = MutedText,
+                    TextColor = UiTheme.MutedText,
                     TextAlignment = TextAlignment.Center
                 }, expand: true),
-                new Label { Text = displayHighLabel ?? $"{displayHigh:F1}%", TextColor = MutedText }
+                new Label { Text = highLabel, TextColor = UiTheme.MutedText }
             }
         };
 
         return new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 4,
-            Padding = new Padding(0, 2, 0, 0),
-            Items = { swatches, labels }
+            Spacing = 2,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Padding(0, 4, 0, 0),
+            Items =
+            {
+                new StackLayoutItem(gradientBar, HorizontalAlignment.Stretch),
+                new StackLayoutItem(labelsRow,   HorizontalAlignment.Stretch)
+            }
         };
     }
 
@@ -2527,7 +2602,7 @@ public sealed class MoleHillPanel : Panel
         {
             Text = $"Bake -> {bakedLayer}",
             VerticalAlignment = VerticalAlignment.Center,
-            TextColor = SystemColors.DisabledText
+            TextColor = UiTheme.MutedText
         };
         ApplyHelp(bakedLayerLabel, "Generated zone meshes preview using the source layer color and bake under this output layer.");
         row.Items.Add(bakedLayerLabel);
@@ -2603,14 +2678,14 @@ public sealed class MoleHillPanel : Panel
 
     private static void StyleTextBox(TextBox textBox)
     {
-        textBox.BackgroundColor = EditorBackground;
-        textBox.TextColor = EditorText;
+        textBox.BackgroundColor = UiTheme.InputBackground;
+        textBox.TextColor = UiTheme.InputText;
     }
 
     private static void StyleTextArea(TextArea textArea)
     {
-        textArea.BackgroundColor = EditorBackground;
-        textArea.TextColor = EditorText;
+        textArea.BackgroundColor = UiTheme.InputBackground;
+        textArea.TextColor = UiTheme.InputText;
     }
 
     private static Button MakeButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null)
@@ -2666,8 +2741,8 @@ public sealed class MoleHillPanel : Panel
         {
             Text = text,
             Height = 22,
-            BackgroundColor = Color.FromArgb(55, 55, 55),
-            TextColor = Colors.White,
+            BackgroundColor = UiTheme.PillBackground,
+            TextColor = UiTheme.InputText,
             ToolTip = tooltip ?? string.Empty
         };
     }
@@ -2686,7 +2761,7 @@ public sealed class MoleHillPanel : Panel
 
         return new Panel
         {
-            BackgroundColor = ToolbarGroupBackground,
+            BackgroundColor = UiTheme.ToolbarBackground,
             Padding = new Padding(6, 6, 6, 6),
             Content = row
         };
@@ -2760,7 +2835,7 @@ public sealed class MoleHillPanel : Panel
         if (text.Contains("Scheduled", StringComparison.OrdinalIgnoreCase) ||
             text.Contains("Building", StringComparison.OrdinalIgnoreCase))
             return Color.FromArgb(200, 120, 0);
-        return SystemColors.ControlText;
+        return UiTheme.PrimaryText;
     }
 
     private void SetActionButtonsEnabled(bool enabled)
@@ -3153,7 +3228,7 @@ public sealed class MoleHillPanel : Panel
                 strip.BackgroundColor = cardHighlight;
             ClearAllSepHighlights(_analysisSepMap);
             if (_analysisSepMap.TryGetValue(analysisId, out var sep))
-                sep.BackgroundColor = SepHighlight;
+                sep.BackgroundColor = UiTheme.SepHighlight;
         };
 
         box.DragLeave += (_, _) =>
@@ -3200,7 +3275,7 @@ public sealed class MoleHillPanel : Panel
                     prevStrip.BackgroundColor = prevColor;
             _dragOverAnalysisId = null;
             ClearAllSepHighlights(_analysisSepMap);
-            innerSep.BackgroundColor = SepHighlight;
+            innerSep.BackgroundColor = UiTheme.SepHighlight;
         };
 
         outerSep.DragLeave += (_, _) => innerSep.BackgroundColor = Colors.Transparent;
@@ -3262,7 +3337,7 @@ public sealed class MoleHillPanel : Panel
                 strip.BackgroundColor = cardHighlight;
             ClearAllSepHighlights(_modifierSepMap);
             if (_modifierSepMap.TryGetValue(modifierId, out var sep))
-                sep.BackgroundColor = SepHighlight;
+                sep.BackgroundColor = UiTheme.SepHighlight;
         };
 
         box.DragLeave += (_, _) =>
@@ -3308,7 +3383,7 @@ public sealed class MoleHillPanel : Panel
                     prevStrip.BackgroundColor = prevColor;
             _dragOverModifierId = null;
             ClearAllSepHighlights(_modifierSepMap);
-            innerSep.BackgroundColor = SepHighlight;
+            innerSep.BackgroundColor = UiTheme.SepHighlight;
         };
 
         outerSep.DragLeave += (_, _) => innerSep.BackgroundColor = Colors.Transparent;
@@ -3359,20 +3434,20 @@ public sealed class MoleHillPanel : Panel
     private void WireZoneCardDragDrop(Control box, Guid terrainId, Guid zoneId)
     {
         box.AllowDrop = true;
-        var cardHighlight = DragHighlight;
+        var cardHighlight = UiTheme.DragHighlight;
 
         box.DragEnter += (_, e) =>
         {
             if (!e.Data.Contains("zone-drag")) return;
             e.Effects = DragEffects.Move;
             if (_dragOverZoneId.HasValue && _zoneCardMap.TryGetValue(_dragOverZoneId.Value, out var prevCard))
-                prevCard.BackgroundColor = CardBackground;
+                prevCard.BackgroundColor = UiTheme.CardBackground;
             _dragOverZoneId = zoneId;
             if (_zoneCardMap.TryGetValue(zoneId, out var card))
                 card.BackgroundColor = cardHighlight;
             ClearAllSepHighlights(_zoneSepMap);
             if (_zoneSepMap.TryGetValue(zoneId, out var sep))
-                sep.BackgroundColor = SepHighlight;
+                sep.BackgroundColor = UiTheme.SepHighlight;
         };
 
         box.DragLeave += (_, _) =>
@@ -3380,7 +3455,7 @@ public sealed class MoleHillPanel : Panel
             if (_dragOverZoneId == zoneId)
             {
                 if (_zoneCardMap.TryGetValue(zoneId, out var card))
-                    card.BackgroundColor = CardBackground;
+                    card.BackgroundColor = UiTheme.CardBackground;
                 _dragOverZoneId = null;
                 ClearAllSepHighlights(_zoneSepMap);
             }
@@ -3393,7 +3468,7 @@ public sealed class MoleHillPanel : Panel
             if (!Guid.TryParse(idStr, out var sourceId)) return;
 
             if (_zoneCardMap.TryGetValue(zoneId, out var card))
-                card.BackgroundColor = CardBackground;
+                card.BackgroundColor = UiTheme.CardBackground;
             _dragOverZoneId = null;
             ClearAllSepHighlights(_zoneSepMap);
 
@@ -3412,10 +3487,10 @@ public sealed class MoleHillPanel : Panel
             if (!e.Data.Contains("zone-drag")) return;
             e.Effects = DragEffects.Move;
             if (_dragOverZoneId.HasValue && _zoneCardMap.TryGetValue(_dragOverZoneId.Value, out var prevCard))
-                prevCard.BackgroundColor = CardBackground;
+                prevCard.BackgroundColor = UiTheme.CardBackground;
             _dragOverZoneId = null;
             ClearAllSepHighlights(_zoneSepMap);
-            innerSep.BackgroundColor = SepHighlight;
+            innerSep.BackgroundColor = UiTheme.SepHighlight;
         };
 
         outerSep.DragLeave += (_, _) => innerSep.BackgroundColor = Colors.Transparent;

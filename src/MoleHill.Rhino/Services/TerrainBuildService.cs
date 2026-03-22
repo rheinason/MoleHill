@@ -2138,9 +2138,48 @@ internal sealed class TerrainBuildService
             0.0,
             palette.Stops);
 
+        // Elevation Z range from vertex data
+        double elevMinZ = double.MaxValue;
+        double elevMaxZ = double.MinValue;
+        int vCount = currentMesh.Vertices.Count;
+        for (int i = 0; i < vCount; i++)
+        {
+            double z = currentVertices[i * 3 + 2];
+            if (z < elevMinZ) elevMinZ = z;
+            if (z > elevMaxZ) elevMaxZ = z;
+        }
+        if (elevMinZ == double.MaxValue) elevMinZ = 0.0;
+        if (elevMaxZ == double.MinValue) elevMaxZ = 0.0;
+
         RhinoMesh baseMesh = ResolveEarthworkReferenceMesh(doc, terrain) ?? fallbackBaseMesh;
         var boundaries = RhinoSourceResolver.ResolveCurves(doc, terrain.EarthworkBoundary);
         EstimateEarthworks(baseMesh, currentMesh, boundaries, out double cutVolume, out double fillVolume, shouldCancel);
+
+        // Cut/fill symmetric range: largest per-face |delta| against base mesh
+        double cutFillAbsMax = 0.0;
+        if (RhinoGeometryConversions.TryExtractMeshData(baseMesh, out _, out _, out _))
+        {
+            int faceCount = currentMesh.Faces.Count;
+            if (currentFaces != null)
+            {
+                for (int fi = 0; fi < faceCount; fi++)
+                {
+                    int a = currentFaces[fi * 3];
+                    int b = currentFaces[fi * 3 + 1];
+                    int c = currentFaces[fi * 3 + 2];
+                    var centroid = new global::Rhino.Geometry.Point3d(
+                        (currentVertices[a * 3]     + currentVertices[b * 3]     + currentVertices[c * 3])     / 3.0,
+                        (currentVertices[a * 3 + 1] + currentVertices[b * 3 + 1] + currentVertices[c * 3 + 1]) / 3.0,
+                        (currentVertices[a * 3 + 2] + currentVertices[b * 3 + 2] + currentVertices[c * 3 + 2]) / 3.0);
+                    var mp = baseMesh.ClosestMeshPoint(centroid, 0.0);
+                    if (mp != null)
+                    {
+                        double delta = Math.Abs(centroid.Z - baseMesh.PointAt(mp).Z);
+                        if (delta > cutFillAbsMax) cutFillAbsMax = delta;
+                    }
+                }
+            }
+        }
 
         return new TerrainAnalysisSummary
         {
@@ -2150,6 +2189,9 @@ internal sealed class TerrainBuildService
             SlopeAveragePercent = slope.Average,
             SlopeDisplayLowPercent = slope.ColorLow,
             SlopeDisplayHighPercent = slope.ColorHigh,
+            ElevationMinZ = elevMinZ,
+            ElevationMaxZ = elevMaxZ,
+            CutFillDisplayAbsMax = cutFillAbsMax,
             CutVolume = cutVolume,
             FillVolume = fillVolume,
             NetVolume = cutVolume - fillVolume,
