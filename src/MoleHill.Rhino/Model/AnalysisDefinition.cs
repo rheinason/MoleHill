@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 namespace MoleHill.Rhino.Model;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(EarthworkAnalysisDefinition), "earthwork")]
 [JsonDerivedType(typeof(SlopeAnalysisDefinition), "slope")]
 [JsonDerivedType(typeof(ElevationAnalysisDefinition), "elevation")]
 [JsonDerivedType(typeof(CutFillAnalysisDefinition), "cut-fill")]

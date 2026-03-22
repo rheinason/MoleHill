@@ -5,7 +5,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 12;
+    private const int DocumentSchemaVersion = 13;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -136,20 +136,39 @@ internal static class TerrainSerializer
         {
             foreach (var analysis in terrain.Analyses)
                 analysis.PalettePreset = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset).Key;
+            EnsureEarthworkAnalysis(terrain);
             return;
         }
 
         if (!terrain.ShowSlopePreview)
+            EnsureEarthworkAnalysis(terrain);
+        else
+            terrain.Analyses.Add(new SlopeAnalysisDefinition
+            {
+                IsEnabled = true,
+                PalettePreset = SlopePreviewPaletteCatalog.Resolve(terrain.SlopePalettePreset).Key,
+                RangeLow = terrain.SlopeColorLowPercent,
+                RangeHigh = terrain.SlopeColorHighPercent
+            });
+
+        terrain.ShowSlopePreview = false;
+        EnsureEarthworkAnalysis(terrain);
+    }
+
+    private static void EnsureEarthworkAnalysis(TerrainDefinition terrain)
+    {
+        if (terrain.Analyses.OfType<EarthworkAnalysisDefinition>().Any())
             return;
 
-        terrain.Analyses.Add(new SlopeAnalysisDefinition
+        if (!terrain.EarthworkReference.HasReferences &&
+            !terrain.EarthworkBoundary.HasReferences &&
+            terrain.LastAnalysis == null)
+            return;
+
+        terrain.Analyses.Add(new EarthworkAnalysisDefinition
         {
-            IsEnabled = true,
-            PalettePreset = SlopePreviewPaletteCatalog.Resolve(terrain.SlopePalettePreset).Key,
-            RangeLow = terrain.SlopeColorLowPercent,
-            RangeHigh = terrain.SlopeColorHighPercent
+            IsEnabled = false
         });
-        terrain.ShowSlopePreview = false;
     }
 
     private static CollageZoneDefinition CloneZone(CollageZoneDefinition zone)

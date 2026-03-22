@@ -413,32 +413,27 @@ public class MeshCollageComponent : GH_Component
                 polygon.Add(new Segment(verts[i], verts[(i + 1) % vertCount], 1), false);
 
             var opts = new ConstraintOptions { ConformingDelaunay = false, Convex = false };
-            var mesh = new GenericMesher().Triangulate(polygon, opts, null);
+            var mesh = new GenericMesher().Triangulate(polygon, opts, new QualityOptions());
 
             if (mesh.Triangles.Count == 0) return null;
 
-            var outVerts = mesh.Vertices.ToList();
-            var outTris = mesh.Triangles.ToList();
+            var extracted = TriangleNetExtractor.Extract(mesh);
 
             var rhinoMesh = new Mesh();
-            rhinoMesh.Vertices.Capacity = outVerts.Count;
-            rhinoMesh.Faces.Capacity = outTris.Count;
+            rhinoMesh.Vertices.Capacity = extracted.VertexCount;
+            rhinoMesh.Faces.Capacity = extracted.FaceCount;
 
-            var idToIdx = new Dictionary<int, int>(outVerts.Count);
-            for (int i = 0; i < outVerts.Count; i++)
+            for (int i = 0; i < extracted.VertexCount; i++)
             {
-                var v = outVerts[i];
-                idToIdx[v.ID] = i;
-                rhinoMesh.Vertices.Add(v.X, v.Y, targetZ);
+                rhinoMesh.Vertices.Add(extracted.Xy[i * 2], extracted.Xy[i * 2 + 1], targetZ);
             }
 
-            for (int i = 0; i < outTris.Count; i++)
+            for (int i = 0; i < extracted.FaceCount; i++)
             {
-                var tri = outTris[i];
                 rhinoMesh.Faces.AddFace(
-                    idToIdx.GetValueOrDefault(tri.GetVertex(0).ID, 0),
-                    idToIdx.GetValueOrDefault(tri.GetVertex(1).ID, 0),
-                    idToIdx.GetValueOrDefault(tri.GetVertex(2).ID, 0));
+                    extracted.Faces[i * 3],
+                    extracted.Faces[i * 3 + 1],
+                    extracted.Faces[i * 3 + 2]);
             }
 
             rhinoMesh.Normals.ComputeNormals();

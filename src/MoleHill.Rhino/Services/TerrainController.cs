@@ -268,6 +268,28 @@ internal sealed class TerrainController
         });
     }
 
+    public void DuplicateAnalysis(RhinoDoc doc, Guid terrainId, Guid analysisId)
+    {
+        MutateTerrain(doc, terrainId, terrain =>
+        {
+            int index = terrain.Analyses.FindIndex(item => item.Id == analysisId);
+            if (index < 0)
+                return;
+
+            var analysis = terrain.Analyses[index];
+            if (analysis is EarthworkAnalysisDefinition)
+                return;
+
+            var clone = CloneAnalysis(analysis);
+            if (clone == null)
+                return;
+
+            clone.Id = Guid.NewGuid();
+            clone.Label += " Copy";
+            terrain.Analyses.Insert(index + 1, clone);
+        }, scheduleRebuild: false);
+    }
+
     public void AddMarker(RhinoDoc doc, Guid terrainId, string markerKind)
     {
         MutateTerrain(doc, terrainId, terrain =>
@@ -448,6 +470,7 @@ internal sealed class TerrainController
             return;
 
         UpdateRuntimePreview(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrainId));
+        ApplyDisplayState(doc, terrain);
         doc.Views.Redraw();
     }
 
@@ -892,6 +915,7 @@ internal sealed class TerrainController
         if (!string.IsNullOrWhiteSpace(generated.LayerPath))
             attributes.LayerIndex = EnsureLayer(doc, generated.LayerPath!, generated.SourceLayerPath);
 
+        ApplyOutputWireAttributes(terrain, attributes);
         if (trackOwnership)
             ApplyOutputRenderAttributes(doc, terrain, attributes);
         return attributes;
@@ -946,19 +970,16 @@ internal sealed class TerrainController
 
     private int EnsureLayer(RhinoDoc doc, string fullPath, string? sourceLayerPath = null)
     {
+        global::Rhino.DocObjects.Layer? sourceLayer = TryGetSourceLayer(doc, sourceLayerPath);
         int existingIndex = doc.Layers.FindByFullPath(fullPath, -1);
         if (existingIndex >= 0)
+        {
+            SyncLayerAppearance(doc, existingIndex, sourceLayer);
             return existingIndex;
+        }
 
         int parentIndex = -1;
         string currentPath = string.Empty;
-        global::Rhino.DocObjects.Layer? sourceLayer = null;
-        if (!string.IsNullOrWhiteSpace(sourceLayerPath))
-        {
-            int sourceIndex = doc.Layers.FindByFullPath(sourceLayerPath, -1);
-            if (sourceIndex >= 0)
-                sourceLayer = doc.Layers[sourceIndex];
-        }
 
         foreach (var segment in fullPath.Split(new[] { "::" }, StringSplitOptions.None))
         {
@@ -984,6 +1005,32 @@ internal sealed class TerrainController
         }
 
         return parentIndex >= 0 ? parentIndex : doc.Layers.CurrentLayerIndex;
+    }
+
+    private static global::Rhino.DocObjects.Layer? TryGetSourceLayer(RhinoDoc doc, string? sourceLayerPath)
+    {
+        if (string.IsNullOrWhiteSpace(sourceLayerPath))
+            return null;
+
+        int sourceIndex = doc.Layers.FindByFullPath(sourceLayerPath, -1);
+        return sourceIndex >= 0 ? doc.Layers[sourceIndex] : null;
+    }
+
+    private static void SyncLayerAppearance(RhinoDoc doc, int layerIndex, global::Rhino.DocObjects.Layer? sourceLayer)
+    {
+        if (sourceLayer == null || layerIndex < 0 || layerIndex >= doc.Layers.Count)
+            return;
+
+        var existing = doc.Layers[layerIndex];
+        if (existing == null ||
+            existing.Color == sourceLayer.Color &&
+            existing.PlotColor == sourceLayer.PlotColor)
+            return;
+
+        var updated = existing;
+        updated.Color = sourceLayer.Color;
+        updated.PlotColor = sourceLayer.PlotColor;
+        doc.Layers.Modify(updated, layerIndex, quiet: true);
     }
 
     private void DeleteOwnedObjects(RhinoDoc doc, TerrainDefinition terrain)
@@ -1326,6 +1373,12 @@ internal sealed class TerrainController
         return JsonSerializer.Deserialize(json, modifier.GetType()) as ModifierDefinition;
     }
 
+    private static AnalysisDefinition? CloneAnalysis(AnalysisDefinition analysis)
+    {
+        string json = JsonSerializer.Serialize(analysis, analysis.GetType());
+        return JsonSerializer.Deserialize(json, analysis.GetType()) as AnalysisDefinition;
+    }
+
     private static string NextTerrainName(IEnumerable<TerrainDefinition> terrains)
     {
         int index = 1;
@@ -1573,6 +1626,7 @@ internal sealed class TerrainController
 
     private void ApplyOutputRenderAttributes(RhinoDoc doc, TerrainDefinition terrain, ObjectAttributes attributes)
     {
+        ApplyOutputWireAttributes(terrain, attributes);
         string? baseMaterialName = attributes.GetUserString(OutputBaseMaterialNameKey);
         if (string.IsNullOrWhiteSpace(baseMaterialName))
         {
@@ -1632,6 +1686,11 @@ internal sealed class TerrainController
             attributes.MaterialSource = ObjectMaterialSource.MaterialFromObject;
             attributes.MaterialIndex = colorMaterialIndex;
         }
+    }
+
+    private static void ApplyOutputWireAttributes(TerrainDefinition terrain, ObjectAttributes attributes)
+    {
+        attributes.WireDensity = terrain.ShowMeshWires ? 1 : -1;
     }
 
     private static string? TryInferBaseMaterialName(RhinoDoc doc, ObjectAttributes attributes)

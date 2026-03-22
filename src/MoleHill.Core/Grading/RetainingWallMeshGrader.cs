@@ -174,31 +174,30 @@ public static class RetainingWallMeshGrader
         if (HasConstraintFailureWarning(triWarning))
             return new RetainingWallGradeOutcome(false, null, triWarning);
 
-        var outVerts = triMesh.Vertices.ToList();
-        var outTris = triMesh.Triangles.ToList();
-        int outVertCount = outVerts.Count;
-        int outFaceCount = outTris.Count;
+        var extracted = TriangleNetExtractor.Extract(triMesh);
+        int outVertCount = extracted.VertexCount;
+        int outFaceCount = extracted.FaceCount;
 
         var outXy = new double[outVertCount * 2];
         var origZ = new double[outVertCount];
         var newZ = new double[outVertCount];
-        var idToIdx = new Dictionary<int, int>(outVertCount);
 
         for (int i = 0; i < outVertCount; i++)
         {
-            var mv = outVerts[i];
-            idToIdx[mv.ID] = i;
-            outXy[i * 2] = mv.X;
-            outXy[i * 2 + 1] = mv.Y;
+            double x = extracted.Xy[i * 2];
+            double y = extracted.Xy[i * 2 + 1];
+            int sourceId = extracted.SourceIds[i];
+            outXy[i * 2] = x;
+            outXy[i * 2 + 1] = y;
 
-            if (mv.ID >= 0 && mv.ID < totalVerts)
+            if (sourceId >= 0 && sourceId < totalVerts)
             {
-                origZ[i] = zList[mv.ID];
-                newZ[i] = zList[mv.ID];
+                origZ[i] = zList[sourceId];
+                newZ[i] = zList[sourceId];
             }
             else
             {
-                double iz = faceGrid.InterpolateZ(mv.X, mv.Y);
+                double iz = faceGrid.InterpolateZ(x, y);
                 origZ[i] = iz;
                 newZ[i] = iz;
             }
@@ -260,13 +259,25 @@ public static class RetainingWallMeshGrader
             finalVerts[i * 3 + 2] = newZ[i];
         }
 
-        var finalFaces = new int[outFaceCount * 3];
-        for (int i = 0; i < outFaceCount; i++)
+        var finalFaces = extracted.Faces;
+        var cullResult = TriangleBoundaryCuller.Cull(
+            finalVerts,
+            outVertCount,
+            finalFaces,
+            outFaceCount,
+            xyList.ToArray(),
+            IndexedMeshTools.FlattenSegments(segList),
+            0);
+
+        if (cullResult.Changed)
         {
-            var tri = outTris[i];
-            finalFaces[i * 3] = idToIdx.GetValueOrDefault(tri.GetVertex(0).ID, 0);
-            finalFaces[i * 3 + 1] = idToIdx.GetValueOrDefault(tri.GetVertex(1).ID, 0);
-            finalFaces[i * 3 + 2] = idToIdx.GetValueOrDefault(tri.GetVertex(2).ID, 0);
+            outXy = IndexedMeshTools.CompactDoubleData(outXy, 2, cullResult.NewToOld, cullResult.VertexCount);
+            origZ = IndexedMeshTools.CompactDoubleData(origZ, 1, cullResult.NewToOld, cullResult.VertexCount);
+            newZ = IndexedMeshTools.CompactDoubleData(newZ, 1, cullResult.NewToOld, cullResult.VertexCount);
+            finalVerts = IndexedMeshTools.CompactDoubleData(finalVerts, 3, cullResult.NewToOld, cullResult.VertexCount);
+            finalFaces = cullResult.Faces;
+            outVertCount = cullResult.VertexCount;
+            outFaceCount = cullResult.FaceCount;
         }
 
         GradingResult result = BuildResult(outXy, origZ, newZ, finalVerts, outVertCount, finalFaces, outFaceCount);

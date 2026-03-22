@@ -56,4 +56,83 @@ public class TinEngineTests
         Assert.Equal(z2[2], second.Vertices[8]);
         Assert.Equal(z2[3], second.Vertices[11]);
     }
+
+    [Fact]
+    public void Build_MaxBoundaryEdgeLengthDisabled_KeepsBoundarySliver()
+    {
+        var engine = new TinEngine();
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 0.02,
+            100.0, 0.0001
+        };
+        double[] z = { 0.0, 0.0, 0.0, 0.0 };
+
+        TinResult? result = engine.Build(
+            xy,
+            z,
+            Array.Empty<int>(),
+            QualitySettings.None,
+            out string? error,
+            useConvexHull: true,
+            maxBoundaryEdgeLength: -1);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.Equal(2, result!.FaceCount);
+    }
+
+    [Fact]
+    public void Build_MaxBoundaryEdgeLengthAuto_RemovesBoundarySliverAndRebuildsTopology()
+    {
+        var engine = new TinEngine();
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 0.02,
+            100.0, 0.0001
+        };
+        double[] z = { 0.0, 0.0, 0.0, 0.0 };
+
+        TinResult? result = engine.Build(
+            xy,
+            z,
+            Array.Empty<int>(),
+            QualitySettings.None,
+            out string? error,
+            useConvexHull: true,
+            maxBoundaryEdgeLength: 0);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.Equal(1, result!.FaceCount);
+        Assert.Equal(3, result.EdgeCount);
+        Assert.Equal(3, result.NakedEdgeCount);
+    }
+
+    [Fact]
+    public void Build_MaxBoundaryEdgeLengthChange_InvalidatesCachedTopologyResult()
+    {
+        var engine = new TinEngine();
+        double[] xy =
+        {
+            0.0, 0.0,
+            10.0, 0.0,
+            10.0, 10.0,
+            0.0, 10.0
+        };
+        double[] z = { 0.0, 1.0, 2.0, 3.0 };
+
+        TinResult? first = engine.Build(xy, z, Array.Empty<int>(), QualitySettings.None, out string? firstError, useConvexHull: true, maxBoundaryEdgeLength: 0);
+        TinResult? second = engine.Build(xy, z, Array.Empty<int>(), QualitySettings.None, out string? secondError, useConvexHull: true, maxBoundaryEdgeLength: 5.0);
+
+        Assert.Null(firstError);
+        Assert.Null(secondError);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.NotSame(first, second);
+    }
 }

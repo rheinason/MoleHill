@@ -1,4 +1,5 @@
 using MoleHill.Core.Analysis;
+using Xunit;
 
 namespace MoleHill.Core.Tests;
 
@@ -89,6 +90,25 @@ public class SlopeAnalyzerTests
         Assert.Equal(200, result.FaceColors[0]);
         Assert.Equal(210, result.FaceColors[1]);
         Assert.Equal(220, result.FaceColors[2]);
+    }
+
+    [Fact]
+    public void ConvertRatioToUnit_AndBack_PreservesSlopeAcrossUnits()
+    {
+        const double slopeRatio = 0.5;
+
+        foreach (var unit in new[]
+                 {
+                     SlopeAnalyzer.SlopeUnit.Ratio,
+                     SlopeAnalyzer.SlopeUnit.Percent,
+                     SlopeAnalyzer.SlopeUnit.Promille,
+                     SlopeAnalyzer.SlopeUnit.Degrees
+                 })
+        {
+            double unitValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, unit);
+            double roundTrip = SlopeAnalyzer.ConvertUnitToRatio(unitValue, unit);
+            Assert.InRange(roundTrip, slopeRatio - 1e-9, slopeRatio + 1e-9);
+        }
     }
 
     private static double[] CreateHalfSlopeVertices()

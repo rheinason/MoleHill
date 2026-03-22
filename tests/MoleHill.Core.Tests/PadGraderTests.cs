@@ -166,6 +166,46 @@ public class PadGraderTests
             Assert.Equal(splitVertices[i], legacy.Vertices[i], 6);
     }
 
+    [Fact]
+    public void TryTriangulateTopology_InsertsShoulderVertices_WhenOffsetFitsInsideBoundary()
+    {
+        double[] vertices = BuildGridVertices(9, 1.0);
+        int[] faces = BuildGridFaces(9);
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    3.0, 3.0,
+                    5.0, 3.0,
+                    5.0, 5.0,
+                    3.0, 5.0
+                },
+                4,
+                2.0,
+                slopeAngleDeg: 33.0,
+                maxDistance: 1.5)
+        };
+
+        bool success = PadGrader.TryTriangulateTopology(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null,
+            0.0,
+            0.0,
+            out var topologyVertices,
+            out _,
+            out _,
+            out _,
+            out var warning);
+
+        Assert.True(success, warning);
+        Assert.True(ContainsVertex(topologyVertices, 1.5, 1.5));
+    }
+
     private static PadGrader.PadBoundary[] BuildPads()
     {
         return new[]
@@ -248,5 +288,20 @@ public class PadGraderTests
         }
 
         throw new Xunit.Sdk.XunitException($"Could not find vertex at ({x}, {y}).");
+    }
+
+    private static bool ContainsVertex(double[] vertices, double x, double y)
+    {
+        int vertexCount = vertices.Length / 3;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            if (Math.Abs(vertices[i * 3] - x) <= 1e-6 &&
+                Math.Abs(vertices[i * 3 + 1] - y) <= 1e-6)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -35,7 +35,8 @@ public static class SlopeAnalyzer
     {
         Ratio = 0,
         Percent = 1,
-        Degrees = 2
+        Degrees = 2,
+        Promille = 3
     }
 
     /// <summary>
@@ -151,13 +152,7 @@ public static class SlopeAnalyzer
                 ? double.PositiveInfinity
                 : Math.Sqrt(nx * nx + ny * ny) / absNz;
 
-            double slope = unit switch
-            {
-                SlopeUnit.Ratio => slopeRatio,
-                SlopeUnit.Percent => slopeRatio * 100.0,
-                SlopeUnit.Degrees => Math.Atan(slopeRatio) * (180.0 / Math.PI),
-                _ => slopeRatio
-            };
+            double slope = ConvertRatioToUnit(slopeRatio, unit);
 
             slopes[f] = slope;
 
@@ -196,6 +191,30 @@ public static class SlopeAnalyzer
         }
 
         return new SlopeResult(slopes, min, max, average, colors, faceCount, lo, hi);
+    }
+
+    public static double ConvertRatioToUnit(double slopeRatio, SlopeUnit unit)
+    {
+        return unit switch
+        {
+            SlopeUnit.Ratio => slopeRatio,
+            SlopeUnit.Percent => slopeRatio * 100.0,
+            SlopeUnit.Degrees => Math.Atan(slopeRatio) * (180.0 / Math.PI),
+            SlopeUnit.Promille => slopeRatio * 1000.0,
+            _ => slopeRatio
+        };
+    }
+
+    public static double ConvertUnitToRatio(double slopeValue, SlopeUnit unit)
+    {
+        return unit switch
+        {
+            SlopeUnit.Ratio => slopeValue,
+            SlopeUnit.Percent => slopeValue / 100.0,
+            SlopeUnit.Degrees => Math.Tan(slopeValue * (Math.PI / 180.0)),
+            SlopeUnit.Promille => slopeValue / 1000.0,
+            _ => slopeValue
+        };
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using Eto.Drawing;
 using Eto.Forms;
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -24,6 +25,7 @@ public sealed class MoleHillPanel : Panel
 
     private static readonly (string Label, string Kind)[] AnalysisKinds =
     {
+        ("Earthworks", "earthwork"),
         ("Slope", "slope"),
         ("Elevation", "elevation"),
         ("Cut / Fill", "cut-fill")
@@ -40,8 +42,11 @@ public sealed class MoleHillPanel : Panel
     private readonly Label _statusHintLabel   = new() { VerticalAlignment = VerticalAlignment.Center, TextColor = SystemColors.DisabledText };
     private readonly NumericStepper _toleranceStepper = new();
     private readonly NumericStepper _terrainOpacityStepper = new();
+    private readonly Slider _terrainOpacitySlider = new() { MinValue = 0, MaxValue = 100, Width = 120 };
+    private readonly CheckBox _showWiresCheck = new() { Text = "Show Wires" };
     private bool _settingsExpanded = true;
     private bool _statusExpanded = false;
+    private bool _isUpdatingOpacityControls;
     private Panel? _settingsContent;
     private Panel? _statusContent;
     private Button? _settingsChevron;
@@ -76,15 +81,19 @@ public sealed class MoleHillPanel : Panel
         Spacing = 0,
         HorizontalContentAlignment = HorizontalAlignment.Stretch
     };
+    private readonly HashSet<Guid> _collapsedAnalyses = new();
     private readonly Dictionary<Guid, Panel>    _modifierCardMap     = new();
     private readonly Dictionary<Guid, Panel>    _modifierSepMap      = new();
     private readonly Dictionary<Guid, Panel>    _modifierStripMap    = new();
     private readonly Dictionary<Guid, Color>    _modifierStripColors = new();
+    private readonly Dictionary<Guid, Panel>    _analysisCardMap     = new();
+    private readonly Dictionary<Guid, Panel>    _analysisSepMap      = new();
+    private readonly Dictionary<Guid, Panel>    _analysisStripMap    = new();
+    private readonly Dictionary<Guid, Color>    _analysisStripColors = new();
     private readonly Dictionary<Guid, Panel>    _zoneCardMap         = new();
     private readonly Dictionary<Guid, Panel>    _zoneSepMap          = new();
-    private readonly Dictionary<Guid, Panel>    _zoneSwatchMap       = new();
-    private readonly Dictionary<Guid, Color>    _zoneSwatchColors    = new();
     private Guid? _dragOverModifierId;
+    private Guid? _dragOverAnalysisId;
     private Guid? _dragOverZoneId;
     private const int PropertyLabelWidth = 92;
     private const int NumericLabelWidth = 110;
@@ -96,6 +105,8 @@ public sealed class MoleHillPanel : Panel
     private static readonly Color DragHighlight = Color.FromArgb(80, 120, 200, 255);
     private static readonly Color SepHighlight  = Color.FromArgb(120, 180, 255, 255);
     private static readonly Color MutedText = Color.FromArgb(168, 168, 168);
+    private static readonly Color EditorBackground = Color.FromArgb(54, 54, 54);
+    private static readonly Color EditorText = Colors.White;
     private const int StackedSourceEditorWidth = 430;
     private const int WrappedModifierHeaderWidth = 560;
     private readonly EventHandler _stateChangedHandler;
@@ -109,6 +120,7 @@ public sealed class MoleHillPanel : Panel
         _stateChangedHandler = HandleControllerStateChanged;
 
         ApplyHelp(_terrainName, "Terrain name. Commits when you press Enter or leave the field.");
+        StyleTextBox(_terrainName);
         BindCommittedText(
             _terrainName,
             () =>
@@ -153,20 +165,51 @@ public sealed class MoleHillPanel : Panel
         _terrainOpacityStepper.MinValue = 0;
         _terrainOpacityStepper.MaxValue = 100;
         ApplyHelp(_terrainOpacityStepper, "Terrain opacity used for the preview and the baked terrain mesh.");
+        ApplyHelp(_terrainOpacitySlider, "Drag to adjust terrain opacity for preview and bake.");
+        ApplyHelp(_terrainColorSwatch, "Click to pick the terrain display color.");
+        _terrainColorSwatch.MouseDown += (_, e) =>
+        {
+            if (e.Buttons == MouseButtons.Primary)
+                OnPickTerrainColor(_, EventArgs.Empty);
+        };
         _terrainOpacityStepper.ValueChanged += (_, _) =>
+        {
+            if (_isRefreshing || _isUpdatingOpacityControls)
+                return;
+
+            int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
+            SetTerrainOpacityControls(opacityPercent);
+            ApplyTerrainOpacity(opacityPercent);
+        };
+        _terrainOpacityStepper.LostFocus += (_, _) =>
         {
             if (_isRefreshing)
                 return;
 
             int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
-            MutateSelectedTerrain(
-                terrain => terrain.TerrainColorArgb = WithOpacityPercent(terrain.TerrainColorArgb, opacityPercent),
-                scheduleRebuild: false);
+            SetTerrainOpacityControls(opacityPercent);
+            ApplyTerrainOpacity(opacityPercent);
+        };
+        _terrainOpacitySlider.ValueChanged += (_, _) =>
+        {
+            if (_isRefreshing || _isUpdatingOpacityControls)
+                return;
 
+            int opacityPercent = _terrainOpacitySlider.Value;
+            SetTerrainOpacityControls(opacityPercent);
+            ApplyTerrainOpacity(opacityPercent);
+        };
+        ApplyHelp(_showWiresCheck, "Show or hide MoleHill terrain mesh wires in preview and generated terrain meshes.");
+        _showWiresCheck.CheckedChanged += (_, _) =>
+        {
+            if (_isRefreshing)
+                return;
+
+            MutateSelectedTerrain(terrain => terrain.ShowMeshWires = _showWiresCheck.Checked == true, scheduleRebuild: false);
             var doc = RhinoDoc.ActiveDoc;
-            var selectedTerrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
-            if (doc != null && selectedTerrain != null)
-                _controller.RefreshTerrainDisplay(doc, selectedTerrain.TerrainId);
+            var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+            if (doc != null && terrain != null)
+                _controller.RefreshTerrainDisplay(doc, terrain.TerrainId);
         };
 
         _visibilityButton.Click += (_, _) =>
@@ -311,11 +354,11 @@ public sealed class MoleHillPanel : Panel
             VerticalContentAlignment = VerticalAlignment.Center, Padding = new Padding(0, 1),
             Items =
             {
-                CreateHelpLabel("Aux Layer", "Output layer for auxiliary geometry like retaining walls.", PropertyLabelWidth),
+                CreateHelpLabel("Walls / Aux", "Output layer for retaining walls, stair solids, and other auxiliary geometry.", PropertyLabelWidth),
                 _auxLayerLabel,
-                MakeCompactButton("Use Current", OnAssignAuxLayer, "Assign the current Rhino layer."),
-                MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = path, scheduleRebuild: true), "Browse and pick the auxiliary layer"),
-                MakeCompactButton("Clear", (_, _) => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = null, scheduleRebuild: true), "Clear the auxiliary layer assignment.")
+                MakeCompactButton("Use Current", OnAssignAuxLayer, "Assign the current Rhino layer for retaining walls and other auxiliary outputs."),
+                MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = path, scheduleRebuild: true), "Browse and pick the walls / auxiliary layer"),
+                MakeCompactButton("Clear", (_, _) => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = null, scheduleRebuild: true), "Clear the walls / auxiliary layer assignment.")
             }
         };
         var toleranceRow = new StackLayout
@@ -334,8 +377,9 @@ public sealed class MoleHillPanel : Panel
                 _terrainColorSwatch,
                 _terrainColorLabel,
                 CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake.", 52),
+                _terrainOpacitySlider,
                 _terrainOpacityStepper,
-                MakeCompactButton("Pick...", OnPickTerrainColor, "Pick the terrain display color."),
+                _showWiresCheck,
                 MakeCompactButton("Reset", (_, _) => ResetTerrainColor(), "Restore the default terrain display color.")
             }
         };
@@ -424,7 +468,6 @@ public sealed class MoleHillPanel : Panel
         var tabs = new TabControl();
         tabs.Pages.Add(new TabPage { Text = "Modifiers", Image = PanelIcons.Load("TabModifiers"), Content = BuildScrollable(_modifierStack) });
         tabs.Pages.Add(new TabPage { Text = "Zones",     Image = PanelIcons.Load("TabZones"),     Content = BuildScrollable(_zonesStack) });
-        tabs.Pages.Add(new TabPage { Text = "Markers",   Image = PanelIcons.Load("TabMarkers"),   Content = BuildScrollable(_markerStack) });
         tabs.Pages.Add(new TabPage { Text = "Analysis",  Image = PanelIcons.Load("TabAnalysis"),  Content = BuildScrollable(_analysisStack) });
 
         var layout = new DynamicLayout();
@@ -614,6 +657,32 @@ public sealed class MoleHillPanel : Panel
         RefreshUi();
     }
 
+    private void ApplyTerrainOpacity(int opacityPercent)
+    {
+        MutateSelectedTerrain(
+            terrain => terrain.TerrainColorArgb = WithOpacityPercent(terrain.TerrainColorArgb, opacityPercent),
+            scheduleRebuild: false);
+
+        var doc = RhinoDoc.ActiveDoc;
+        var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+        if (doc != null && terrain != null)
+            _controller.RefreshTerrainDisplay(doc, terrain.TerrainId);
+    }
+
+    private void SetTerrainOpacityControls(int opacityPercent)
+    {
+        _isUpdatingOpacityControls = true;
+        try
+        {
+            _terrainOpacityStepper.Value = opacityPercent;
+            _terrainOpacitySlider.Value = opacityPercent;
+        }
+        finally
+        {
+            _isUpdatingOpacityControls = false;
+        }
+    }
+
     private void OnPickTerrainColor(object? sender, EventArgs e)
     {
         var doc = RhinoDoc.ActiveDoc;
@@ -663,7 +732,8 @@ public sealed class MoleHillPanel : Panel
                 _terrainColorSwatch.BackgroundColor = Color.FromArgb(80, 80, 80);
                 _terrainColorLabel.Text = "-";
                 _statusHintLabel.Text = string.Empty;
-                _terrainOpacityStepper.Value = 100;
+                SetTerrainOpacityControls(100);
+                _showWiresCheck.Checked = true;
                 _toleranceStepper.Value = 0;
                 _visibilityButton.Text = "Shown";
                 _lockButton.Text = "Unlocked";
@@ -693,7 +763,8 @@ public sealed class MoleHillPanel : Panel
             var terrainColor = ToEtoColor(System.Drawing.Color.FromArgb(terrainColorArgb));
             _terrainColorSwatch.BackgroundColor = terrainColor;
             _terrainColorLabel.Text = DescribeTerrainColor(terrainColorArgb);
-            _terrainOpacityStepper.Value = GetOpacityPercent(terrainColorArgb);
+            SetTerrainOpacityControls(GetOpacityPercent(terrainColorArgb));
+            _showWiresCheck.Checked = selectedTerrain?.ShowMeshWires ?? true;
             _toleranceStepper.Value = selectedTerrain?.GlobalTolerance ?? 0;
             var statusText = selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.";
             SetStatusText(statusText);
@@ -773,8 +844,6 @@ public sealed class MoleHillPanel : Panel
     {
         _zoneCardMap.Clear();
         _zoneSepMap.Clear();
-        _zoneSwatchMap.Clear();
-        _zoneSwatchColors.Clear();
         _zonesStack.Items.Clear();
         _zonesStack.Items.Add(new StackLayoutItem(BuildZonesToolbar(terrain), HorizontalAlignment.Stretch));
 
@@ -804,13 +873,13 @@ public sealed class MoleHillPanel : Panel
             _zonesStack.Items.Add(new StackLayoutItem(zoneOuter, HorizontalAlignment.Stretch));
 
             var box = CreateZoneGroup(terrain, zone);
-            _zoneCardMap[zoneId] = box;
             var zoneWrapper = new Panel
             {
                 Content = box,
                 Padding = new Padding(4, 2),
                 BackgroundColor = CardBackground
             };
+            _zoneCardMap[zoneId] = zoneWrapper;
             WireZoneCardDragDrop(zoneWrapper, terrainId, zoneId);
             _zonesStack.Items.Add(new StackLayoutItem(zoneWrapper, HorizontalAlignment.Stretch));
         }
@@ -836,27 +905,14 @@ public sealed class MoleHillPanel : Panel
 
     private void RebuildAnalysisLayout(TerrainDefinition? terrain)
     {
+        _analysisCardMap.Clear();
+        _analysisSepMap.Clear();
+        _analysisStripMap.Clear();
+        _analysisStripColors.Clear();
         _analysisStack.Items.Clear();
 
         if (terrain == null)
             return;
-
-        var editorLayout = new DynamicLayout { DefaultSpacing = new Size(6, 4), Padding = new Padding(6, 4) };
-        editorLayout.AddRow(CreateSourceEditor("Compare To", terrain.EarthworkReference,
-            apply => MutateSelectedTerrain(item => apply(item.EarthworkReference), scheduleRebuild: true),
-            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
-            doc => _controller.GetSelectedLayerPaths(doc)));
-        editorLayout.AddRow(CreateSourceEditor("Boundary", terrain.EarthworkBoundary,
-            apply => MutateSelectedTerrain(item => apply(item.EarthworkBoundary), scheduleRebuild: true),
-            RhinoObjectType.Curve,
-            doc => _controller.GetSelectedLayerPaths(doc)));
-        var localRebuildButton = MakeButton("Rebuild", OnRebuildTerrain, "Force rebuild terrain now");
-        editorLayout.AddSeparateRow(localRebuildButton, null);
-        _analysisStack.Items.Add(new StackLayoutItem(new GroupBox
-        {
-            Text = "Earthwork Inputs",
-            Content = editorLayout
-        }, HorizontalAlignment.Stretch));
 
         _analysisStack.Items.Add(new StackLayoutItem(BuildAnalysisToolbar(terrain), HorizontalAlignment.Stretch));
         _analysisStack.Items.Add(new StackLayoutItem(new Panel
@@ -864,51 +920,68 @@ public sealed class MoleHillPanel : Panel
             Padding = new Padding(6, 0, 6, 4),
             Content = new Label
             {
-                Text = "The topmost enabled analysis card drives the terrain mesh color in the viewport and on bake.",
+                Text = "The topmost enabled analysis card that supports terrain preview drives the terrain mesh color in the viewport and on bake.",
                 TextColor = SystemColors.DisabledText
             }
         }, HorizontalAlignment.Stretch));
 
-        bool hasActiveAnalysis = false;
-        foreach (var analysisItem in terrain.Analyses)
-        {
-            bool isActive = !hasActiveAnalysis && analysisItem.IsEnabled;
-            if (isActive)
-                hasActiveAnalysis = true;
-
-            _analysisStack.Items.Add(new StackLayoutItem(CreateAnalysisCard(terrain, analysisItem, isActive), HorizontalAlignment.Stretch));
-        }
-
-        var analysis = terrain.LastAnalysis;
-        if (analysis == null)
+        if (terrain.Analyses.Count == 0)
         {
             _analysisStack.Items.Add(new StackLayoutItem(new Panel
             {
                 Padding = new Padding(8),
                 Content = new Label
                 {
-                    Text = "No analysis yet. Rebuild the terrain to populate slope and earthworks.",
+                    Text = "No analyses yet. Add one to inspect slope, elevation, cut/fill, or earthworks.",
                     TextColor = SystemColors.DisabledText
                 }
             }, HorizontalAlignment.Stretch));
             return;
         }
 
-        _analysisStack.Items.Add(new StackLayoutItem(CreateAnalysisGroup("Earthworks", new[]
+        bool hasActiveAnalysis = false;
+        var terrainId = terrain.TerrainId;
+        foreach (var analysisItem in terrain.Analyses)
         {
-            ("Cut", FormatVolume(analysis.CutVolume)),
-            ("Fill", FormatVolume(analysis.FillVolume)),
-            ("Net", FormatVolume(analysis.NetVolume)),
-            ("Mode", analysis.EarthworkIsEstimated ? "Estimated from terrain delta" : "Exact")
-        }), HorizontalAlignment.Stretch));
+            bool isActive = !hasActiveAnalysis &&
+                            analysisItem.IsEnabled &&
+                            TerrainAnalysisPreviewBuilder.SupportsTerrainPreview(analysisItem);
+            if (isActive)
+                hasActiveAnalysis = true;
 
-        _analysisStack.Items.Add(new StackLayoutItem(CreateAnalysisGroup("Slope", new[]
-        {
-            ("Min", $"{analysis.SlopeMinPercent:F1}%"),
-            ("Average", $"{analysis.SlopeAveragePercent:F1}%"),
-            ("Max", $"{analysis.SlopeMaxPercent:F1}%"),
-            ("Area", $"{analysis.SurfaceArea:F2} sq units")
-        }), HorizontalAlignment.Stretch));
+            var analysisId = analysisItem.Id;
+            var innerSep = new Panel { BackgroundColor = Colors.Transparent };
+            var outerSep = new Panel { Height = 8, Padding = new Padding(0, 2), Content = innerSep };
+            ApplyHelp(outerSep, "Drop here to reorder analyses.");
+            _analysisSepMap[analysisId] = innerSep;
+            WireAnalysisSepDragDrop(outerSep, innerSep, terrainId, analysisId);
+            _analysisStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
+
+            var box = CreateAnalysisCard(terrain, analysisItem, isActive);
+            _analysisCardMap[analysisId] = box;
+            var kind = GetAnalysisKind(analysisItem);
+            var typeColor = AnalysisTypeColor(kind);
+            var strip = new Panel { Width = 5, BackgroundColor = typeColor };
+            _analysisStripMap[analysisId] = strip;
+            _analysisStripColors[analysisId] = typeColor;
+            var wrapper = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 0,
+                Padding = new Padding(4, 2),
+                BackgroundColor = CardBackground,
+                Items = { strip, new StackLayoutItem(box, expand: true) }
+            };
+            WireAnalysisCardDragDrop(wrapper, terrainId, analysisId);
+            _analysisStack.Items.Add(new StackLayoutItem(wrapper, HorizontalAlignment.Stretch));
+        }
+
+        var tailInner = new Panel { BackgroundColor = Colors.Transparent };
+        var tailOuter = new Panel { Height = 8, Padding = new Padding(0, 2), Content = tailInner };
+        ApplyHelp(tailOuter, "Drop here to reorder analyses.");
+        _analysisSepMap[Guid.Empty] = tailInner;
+        WireAnalysisSepDragDrop(tailOuter, tailInner, terrainId, Guid.Empty);
+        _analysisStack.Items.Add(new StackLayoutItem(tailOuter, HorizontalAlignment.Stretch));
     }
 
     private Control BuildAddModifierBar(TerrainDefinition? terrain)
@@ -975,7 +1048,7 @@ public sealed class MoleHillPanel : Panel
         {
             Text = "+ From Layers"
         };
-        ApplyHelp(addButton, "Create one zone per selected Rhino layer. Zone output bakes to Baked<LayerName>.");
+        ApplyHelp(addButton, "Create one zone per selected Rhino layer. Zone preview uses the source layer color and baked output goes under MoleHill::Zones::<SourceLayer>.");
         addButton.Enabled = terrain != null;
         addButton.Click += (_, _) =>
         {
@@ -1014,35 +1087,45 @@ public sealed class MoleHillPanel : Panel
             });
         };
 
-        var showTerrain = new CheckBox
+        bool showZonesOnly = terrain?.ShowZoneMeshes == true && terrain?.ShowTerrainMesh != true;
+        var terrainView = new RadioButton
         {
-            Text = "Show Terrain",
-            Checked = terrain?.ShowTerrainMesh ?? true
+            Text = "Terrain",
+            Checked = !showZonesOnly
         };
-        ApplyHelp(showTerrain, "Show or hide the full terrain mesh while keeping the terrain definition intact.");
-        showTerrain.CheckedChanged += (_, _) =>
+        var zonesView = new RadioButton(terrainView)
         {
-            if (terrain == null)
+            Text = "Zones",
+            Checked = showZonesOnly
+        };
+        terrainView.Enabled = terrain != null;
+        zonesView.Enabled = terrain != null;
+        ApplyHelp(terrainView, "Show the terrain mesh and hide split zones.");
+        ApplyHelp(zonesView, "Show split zones and hide the full terrain mesh.");
+        terrainView.CheckedChanged += (_, _) =>
+        {
+            if (terrain == null || terrainView.Checked != true)
                 return;
 
-            MutateSelectedTerrain(selected => selected.ShowTerrainMesh = showTerrain.Checked == true, scheduleRebuild: false);
+            MutateSelectedTerrain(selected =>
+            {
+                selected.ShowTerrainMesh = true;
+                selected.ShowZoneMeshes = false;
+            }, scheduleRebuild: false);
             var doc = RhinoDoc.ActiveDoc;
             if (doc != null)
                 _controller.RefreshTerrainDisplay(doc, terrain.TerrainId);
         };
-
-        var showZones = new CheckBox
+        zonesView.CheckedChanged += (_, _) =>
         {
-            Text = "Show Zones",
-            Checked = terrain?.ShowZoneMeshes ?? true
-        };
-        ApplyHelp(showZones, "Show or hide the split zone meshes independently of the terrain mesh.");
-        showZones.CheckedChanged += (_, _) =>
-        {
-            if (terrain == null)
+            if (terrain == null || zonesView.Checked != true)
                 return;
 
-            MutateSelectedTerrain(selected => selected.ShowZoneMeshes = showZones.Checked == true, scheduleRebuild: false);
+            MutateSelectedTerrain(selected =>
+            {
+                selected.ShowTerrainMesh = false;
+                selected.ShowZoneMeshes = true;
+            }, scheduleRebuild: false);
             var doc = RhinoDoc.ActiveDoc;
             if (doc != null)
                 _controller.RefreshTerrainDisplay(doc, terrain.TerrainId);
@@ -1060,7 +1143,13 @@ public sealed class MoleHillPanel : Panel
                 {
                     Orientation = Orientation.Horizontal,
                     Spacing = 8,
-                    Items = { addButton, showTerrain, showZones }
+                    Items =
+                    {
+                        addButton,
+                        new Label { Text = "View", TextColor = MutedText, VerticalAlignment = VerticalAlignment.Center },
+                        terrainView,
+                        zonesView
+                    }
                 }
             }
         };
@@ -1068,24 +1157,41 @@ public sealed class MoleHillPanel : Panel
 
     private Control BuildAnalysisToolbar(TerrainDefinition terrain)
     {
+        bool hasEarthwork = terrain.Analyses.OfType<EarthworkAnalysisDefinition>().Any();
         var buttons = AnalysisKinds
-            .Select(item => MakeButton($"+ {item.Label}", (_, _) => AddAnalysis(item.Kind), $"Add a {item.Label.ToLowerInvariant()} analysis card."))
+            .Select(item =>
+            {
+                var button = MakeButton($"+ {item.Label}", (_, _) => AddAnalysis(item.Kind), $"Add a {item.Label.ToLowerInvariant()} analysis card.");
+                if (item.Kind == "earthwork" && hasEarthwork)
+                {
+                    button.Enabled = false;
+                    button.ToolTip = "Only one earthworks analysis card is supported.";
+                }
+
+                return button;
+            })
             .ToArray();
         return CreateToolbarGroup(buttons);
     }
 
     private Panel CreateAnalysisCard(TerrainDefinition terrain, AnalysisDefinition analysis, bool isActive)
     {
-        var layout = new DynamicLayout { DefaultSpacing = new Size(4, 4), Padding = new Padding(6, 4) };
+        bool collapsed = _collapsedAnalyses.Contains(analysis.Id);
+        var collapseLabel = new Label
+        {
+            Text = collapsed ? ">" : "v",
+            VerticalAlignment = VerticalAlignment.Center,
+            Width = 14
+        };
 
         var nameBox = new TextBox { Text = analysis.Label };
+        StyleTextBox(nameBox);
         ApplyHelp(nameBox, "Friendly analysis name shown in the panel.");
         BindCommittedText(nameBox, () => analysis.Label, text =>
             MutateAnalysis(terrain.TerrainId, analysis.Id, item => item.Label = text, scheduleRebuild: false));
 
         var enabledCheck = new CheckBox
         {
-            Text = "On",
             Checked = analysis.IsEnabled
         };
         ApplyHelp(enabledCheck, "Enable or disable this analysis card without deleting it.");
@@ -1095,10 +1201,14 @@ public sealed class MoleHillPanel : Panel
             RefreshTerrainPreview(terrain.TerrainId);
         };
 
+        string kind = GetAnalysisKind(analysis);
         string typeLabel = GetAnalysisTypeLabel(analysis);
+        bool supportsPreview = TerrainAnalysisPreviewBuilder.SupportsTerrainPreview(analysis);
         string statusText = isActive
             ? "ACTIVE PREVIEW"
-            : analysis.IsEnabled ? "Enabled" : "Disabled";
+            : analysis.IsEnabled
+                ? supportsPreview ? "Enabled" : "Summary only"
+                : "Disabled";
         var badge = new Label
         {
             Text = statusText,
@@ -1106,56 +1216,236 @@ public sealed class MoleHillPanel : Panel
             TextColor = isActive ? Color.FromArgb(255, 210, 80) : MutedText
         };
 
-        layout.AddSeparateRow(
-            enabledCheck,
-            nameBox,
-            new Label { Text = typeLabel, TextColor = MutedText, VerticalAlignment = VerticalAlignment.Center },
-            badge,
-            MakeMiniButton("Up", (_, _) =>
+        var handle = CreateDragHandle();
+        ApplyHelp(handle, "Drag to reorder this analysis.");
+        handle.MouseDown += (_, e) =>
+        {
+            if (e.Buttons != MouseButtons.Primary)
+                return;
+
+            var data = new DataObject();
+            data.SetString(analysis.Id.ToString(), "analysis-drag");
+            handle.DoDragDrop(data, DragEffects.Move);
+        };
+
+        var accent = AnalysisTypeColor(kind);
+        var iconPlate = new Panel
+        {
+            BackgroundColor = new Color(accent.R, accent.G, accent.B, 0.20f),
+            Padding = new Padding(6, 4),
+            Content = new Label
             {
-                MoveAnalysis(terrain.TerrainId, analysis.Id, -1);
-                RefreshTerrainPreview(terrain.TerrainId);
-            }, "Move this analysis card toward the top of the stack.", width: 40),
-            MakeMiniButton("Down", (_, _) =>
+                Text = GetAnalysisIconLabel(analysis),
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+
+        Control titleBlock = collapsed
+            ? new StackLayout
             {
-                MoveAnalysis(terrain.TerrainId, analysis.Id, +1);
-                RefreshTerrainPreview(terrain.TerrainId);
-            }, "Move this analysis card lower in the stack.", width: 52),
-            MakeMiniButton("Delete", (_, _) =>
+                Orientation = Orientation.Vertical,
+                Spacing = 1,
+                Items =
+                {
+                    new Label
+                    {
+                        Text = analysis.Label,
+                        Font = new Font(SystemFont.Bold),
+                        VerticalAlignment = VerticalAlignment.Center
+                    },
+                    new Label
+                    {
+                        Text = GetAnalysisCollapsedSummary(terrain, analysis),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextColor = MutedText
+                    }
+                }
+            }
+            : new StackLayout
             {
-                RemoveAnalysis(terrain.TerrainId, analysis.Id);
-                RefreshTerrainPreview(terrain.TerrainId);
-            }, "Delete this analysis card.", width: 58),
-            null);
+                Orientation = Orientation.Vertical,
+                Spacing = 2,
+                Items =
+                {
+                    nameBox,
+                    new Label
+                    {
+                        Text = GetAnalysisSubtitle(analysis, isActive),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextColor = MutedText
+                    }
+                }
+            };
+
+        bool wrapActions = UseWrappedModifierActions();
+        var header = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = wrapActions ? 4 : 0,
+            Padding = new Padding(8, 6, 8, 6),
+            BackgroundColor = HeaderBackground
+        };
+
+        var headerTopRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        headerTopRow.Items.Add(new StackLayoutItem(handle));
+        headerTopRow.Items.Add(new StackLayoutItem(collapseLabel));
+        headerTopRow.Items.Add(new StackLayoutItem(iconPlate));
+        headerTopRow.Items.Add(new StackLayoutItem(enabledCheck));
+        headerTopRow.Items.Add(new StackLayoutItem(titleBlock, expand: true));
+        headerTopRow.Items.Add(new StackLayoutItem(new Label
+        {
+            Text = typeLabel,
+            TextColor = MutedText,
+            VerticalAlignment = VerticalAlignment.Center
+        }));
+        headerTopRow.Items.Add(new StackLayoutItem(badge));
+
+        var copyButton = MakeMiniButton("Copy", (_, _) =>
+        {
+            DuplicateAnalysis(terrain.TerrainId, analysis.Id);
+            RefreshTerrainPreview(terrain.TerrainId);
+        }, "Duplicate this analysis card.", width: 46);
+        var deleteButton = MakeMiniButton("Del", (_, _) =>
+        {
+            RemoveAnalysis(terrain.TerrainId, analysis.Id);
+            RefreshTerrainPreview(terrain.TerrainId);
+        }, "Delete this analysis card.", width: 38);
+
+        if (analysis is EarthworkAnalysisDefinition)
+            copyButton.Enabled = false;
+
+        if (wrapActions)
+        {
+            header.Items.Add(new StackLayoutItem(headerTopRow, HorizontalAlignment.Stretch));
+            var actionRow = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayoutItem(new Panel(), expand: true),
+                    copyButton,
+                    deleteButton
+                }
+            };
+            header.Items.Add(new StackLayoutItem(actionRow, HorizontalAlignment.Stretch));
+        }
+        else
+        {
+            headerTopRow.Items.Add(new StackLayoutItem(copyButton));
+            headerTopRow.Items.Add(new StackLayoutItem(deleteButton));
+            header.Items.Add(new StackLayoutItem(headerTopRow, HorizontalAlignment.Stretch));
+        }
+
+        header.MouseDown += (_, _) =>
+        {
+            if (_collapsedAnalyses.Contains(analysis.Id))
+                _collapsedAnalyses.Remove(analysis.Id);
+            else
+                _collapsedAnalyses.Add(analysis.Id);
+
+            var doc = RhinoDoc.ActiveDoc;
+            RebuildAnalysisLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
+        };
+
+        var card = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 0
+        };
+        card.Items.Add(new StackLayoutItem(header, HorizontalAlignment.Stretch));
+        if (!collapsed)
+            card.Items.Add(new StackLayoutItem(CreateAnalysisBody(terrain, analysis), HorizontalAlignment.Stretch));
+
+        return new Panel
+        {
+            BackgroundColor = CardBackground,
+            Content = card
+        };
+    }
+
+    private Control CreateAnalysisBody(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
 
         switch (analysis)
         {
+            case EarthworkAnalysisDefinition:
+                layout.AddRow(CreateSourceEditor("Compare To", terrain.EarthworkReference,
+                    apply => MutateSelectedTerrain(item => apply(item.EarthworkReference), scheduleRebuild: true),
+                    RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
+                    doc => _controller.GetSelectedLayerPaths(doc)));
+                layout.AddRow(CreateSourceEditor("Boundary", terrain.EarthworkBoundary,
+                    apply => MutateSelectedTerrain(item => apply(item.EarthworkBoundary), scheduleRebuild: true),
+                    RhinoObjectType.Curve,
+                    doc => _controller.GetSelectedLayerPaths(doc)));
+                if (terrain.LastAnalysis != null)
+                {
+                    string summary =
+                        $"Cut: {FormatVolume(terrain.LastAnalysis.CutVolume)}{Environment.NewLine}" +
+                        $"Fill: {FormatVolume(terrain.LastAnalysis.FillVolume)}{Environment.NewLine}" +
+                        $"Net: {FormatVolume(terrain.LastAnalysis.NetVolume)}{Environment.NewLine}" +
+                        $"Mode: {(terrain.LastAnalysis.EarthworkIsEstimated ? "Estimated from terrain delta" : "Exact")}";
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        summary,
+                        "Earthwork summary from the last terrain build. Click into the field to select and copy values."));
+                }
+                else
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to populate earthwork values.",
+                        minHeight: 52));
+                }
+                break;
+
             case SlopeAnalysisDefinition slope:
+                layout.AddRow(CreateSlopeUnitEditor(terrain.TerrainId, slope));
                 layout.AddRow(CreateAnalysisPaletteEditor(
                     terrain.TerrainId,
                     slope,
                     "Color ramp used for the slope analysis preview."));
                 layout.AddRow(CreateAnalysisRangeEditor(
-                    "Low %",
+                    $"Low {GetSlopeUnitSuffixLabel(slope.Unit)}",
                     slope.RangeLow,
                     value => MutateAndRefreshAnalysis(terrain.TerrainId, slope.Id, item => item.RangeLow = value),
-                    "Values at or below this slope percent use the low end of the selected palette."));
+                    "Values at or below this slope use the low end of the selected palette."));
                 layout.AddRow(CreateAnalysisRangeEditor(
-                    "High %",
+                    $"High {GetSlopeUnitSuffixLabel(slope.Unit)}",
                     slope.RangeHigh,
                     value => MutateAndRefreshAnalysis(terrain.TerrainId, slope.Id, item => item.RangeHigh = value),
-                    "Values at or above this slope percent use the high end of the selected palette. Leave at 0 to auto-fit."));
+                    "Values at or above this slope use the high end of the selected palette. Leave at 0 to auto-fit."));
                 if (terrain.LastAnalysis != null)
                 {
-                    layout.AddRow(CreateReadOnlyValueRow("Min / Avg / Max",
-                        $"{terrain.LastAnalysis.SlopeMinPercent:F1}% / {terrain.LastAnalysis.SlopeAveragePercent:F1}% / {terrain.LastAnalysis.SlopeMaxPercent:F1}%",
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Min / Avg / Max",
+                        $"{FormatSlopeSummaryValue(terrain.LastAnalysis.SlopeMinPercent, slope.Unit)} / {FormatSlopeSummaryValue(terrain.LastAnalysis.SlopeAveragePercent, slope.Unit)} / {FormatSlopeSummaryValue(terrain.LastAnalysis.SlopeMaxPercent, slope.Unit)}",
                         "Current terrain slope summary from the last build."));
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Mapped",
+                        $"{FormatSlopeSummaryValue(terrain.LastAnalysis.SlopeDisplayLowPercent, slope.Unit)} to {FormatSlopeSummaryValue(terrain.LastAnalysis.SlopeDisplayHighPercent, slope.Unit)}",
+                        "Actual slope range currently mapped across the selected palette."));
                 }
                 layout.AddRow(CreateSlopeLegendView(
                     SlopePreviewPaletteCatalog.Resolve(slope.PalettePreset),
-                    slope.RangeLow,
-                    slope.RangeHigh > slope.RangeLow ? slope.RangeHigh : Math.Max(slope.RangeLow + 1.0, terrain.LastAnalysis?.SlopeMaxPercent ?? slope.RangeLow + 1.0)));
+                    displayLowLabel: FormatSlopeValue(slope.RangeLow, slope.Unit),
+                    displayHighLabel: FormatSlopeValue(
+                        slope.RangeHigh > slope.RangeLow
+                            ? slope.RangeHigh
+                            : ConvertPercentToSlopeUnit(terrain.LastAnalysis?.SlopeMaxPercent ?? SlopeAnalyzer.ConvertRatioToUnit(1.0, slope.Unit), slope.Unit),
+                        slope.Unit)));
                 break;
+
             case ElevationAnalysisDefinition elevation:
                 layout.AddRow(CreateAnalysisPaletteEditor(
                     terrain.TerrainId,
@@ -1171,7 +1461,10 @@ public sealed class MoleHillPanel : Panel
                     elevation.RangeHigh,
                     value => MutateAndRefreshAnalysis(terrain.TerrainId, elevation.Id, item => item.RangeHigh = value),
                     "Values at or above this elevation use the high end of the selected palette. Leave at 0 to auto-fit."));
+                if (terrain.LastAnalysis != null)
+                    layout.AddRow(CreateReadOnlyValueRow("Area", $"{terrain.LastAnalysis.SurfaceArea:F2} sq units", "Terrain surface area from the last build."));
                 break;
+
             case CutFillAnalysisDefinition cutFill:
                 layout.AddRow(CreateAnalysisPaletteEditor(
                     terrain.TerrainId,
@@ -1198,7 +1491,6 @@ public sealed class MoleHillPanel : Panel
 
         return new Panel
         {
-            Padding = new Padding(4, 2),
             BackgroundColor = CardBackground,
             Content = layout
         };
@@ -1245,6 +1537,7 @@ public sealed class MoleHillPanel : Panel
                                        terrain.Modifiers[0].Id == modifier.Id;
 
         var nameBox = new TextBox { Text = modifier.Label };
+        StyleTextBox(nameBox);
         ApplyHelp(nameBox, "Modifier label. Press Enter or click away to rename.");
         BindCommittedText(nameBox, () => modifier.Label, text =>
             MutateModifier(capturedTerrainId, capturedModifierId, item => item.Label = text, scheduleRebuild: false));
@@ -1590,6 +1883,7 @@ public sealed class MoleHillPanel : Panel
         var layout = new DynamicLayout { DefaultSpacing = new Size(4, 4), Padding = new Padding(6, 4) };
 
         var nameBox = new TextBox { Text = zone.Name };
+        StyleTextBox(nameBox);
         ApplyHelp(nameBox, "Friendly zone name shown in the panel and on generated output objects.");
         BindCommittedText(nameBox, () => zone.Name, text =>
             MutateZone(terrain.TerrainId, zone.ZoneId, item => item.Name = text, scheduleRebuild: false));
@@ -1625,20 +1919,10 @@ public sealed class MoleHillPanel : Panel
             handle.DoDragDrop(data, DragEffects.Move);
         };
 
-        int argb = zone.ColorArgb;
-        var zoneColor = Color.FromArgb((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF,
-            (int)((uint)argb >> 24));
-        var swatch = new Panel { Width = 14, Height = 14, BackgroundColor = zoneColor };
-        _zoneSwatchMap[zone.ZoneId] = swatch;
-        _zoneSwatchColors[zone.ZoneId] = zoneColor;
-
         layout.AddSeparateRow(
             handle,
-            swatch,
             enabledCheck,
             nameBox,
-            MakeMiniButton("Up", (_, _) => MoveZone(capturedTerrainId, capturedZoneId, -1), "Move this zone earlier in the overlap order.", width: 40),
-            MakeMiniButton("Down", (_, _) => MoveZone(capturedTerrainId, capturedZoneId, +1), "Move this zone later in the overlap order.", width: 52),
             MakeMiniButton("Delete", (_, _) => RemoveZone(capturedTerrainId, capturedZoneId), "Delete this zone.", width: 58),
             null);
         layout.AddRow(CreateZoneLayerEditor(terrain, zone));
@@ -1712,6 +1996,7 @@ public sealed class MoleHillPanel : Panel
         {
             case ElevationMarkerDefinition elevation:
                 var formatBox = new TextBox { Text = elevation.Format };
+                StyleTextBox(formatBox);
                 ApplyHelp(formatBox, "Numeric format string for elevation labels. Default F2 gives two decimals.");
                 BindCommittedText(formatBox, () => elevation.Format, text =>
                     MutateMarker(terrain.TerrainId, marker.Id, item => ((ElevationMarkerDefinition)item).Format = text, scheduleRebuild: true), trim: false);
@@ -1719,6 +2004,7 @@ public sealed class MoleHillPanel : Panel
                 break;
             case SlopeMarkerDefinition slope:
                 var slopeFormatBox = new TextBox { Text = slope.Format };
+                StyleTextBox(slopeFormatBox);
                 ApplyHelp(slopeFormatBox, "Numeric format string for slope labels. Default F1 is usually enough.");
                 BindCommittedText(slopeFormatBox, () => slope.Format, text =>
                     MutateMarker(terrain.TerrainId, marker.Id, item => ((SlopeMarkerDefinition)item).Format = text, scheduleRebuild: true), trim: false);
@@ -1739,6 +2025,7 @@ public sealed class MoleHillPanel : Panel
             MutateMarker(terrain.TerrainId, marker.Id, item => item.ShowValueLabel = showLabelCheck.Checked == true, scheduleRebuild: true);
 
         var blockNameBox = new TextBox { Text = marker.BlockDefinitionName ?? string.Empty };
+        StyleTextBox(blockNameBox);
         ApplyHelp(blockNameBox, "Rhino block definition used for this marker set. Leave blank to use the default MoleHill marker block.");
         BindCommittedText(blockNameBox, () => marker.BlockDefinitionName ?? string.Empty, text =>
             MutateMarker(terrain.TerrainId, marker.Id, item => item.BlockDefinitionName = string.IsNullOrWhiteSpace(text) ? null : text, scheduleRebuild: true), trim: true);
@@ -1948,8 +2235,32 @@ public sealed class MoleHillPanel : Panel
                 {
                     Text = value,
                     VerticalAlignment = VerticalAlignment.Center,
-                    TextColor = SystemColors.ControlText
+                    TextColor = EditorText
                 }
+            }
+        };
+    }
+
+    private Control CreateSelectableSummaryEditor(string label, string value, string help, int minHeight = 72)
+    {
+        var textArea = new TextArea
+        {
+            Text = value,
+            ReadOnly = true,
+            Wrap = false,
+            Height = minHeight
+        };
+        StyleTextArea(textArea);
+        ApplyHelp(textArea, help);
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 4,
+            Items =
+            {
+                CreateHelpLabel(label, help, NumericLabelWidth),
+                textArea
             }
         };
     }
@@ -2057,7 +2368,12 @@ public sealed class MoleHillPanel : Panel
         };
     }
 
-    private static Control CreateSlopeLegendView(SlopePreviewPalette palette, double displayLow, double displayHigh)
+    private static Control CreateSlopeLegendView(
+        SlopePreviewPalette palette,
+        double displayLow = 0.0,
+        double displayHigh = 0.0,
+        string? displayLowLabel = null,
+        string? displayHighLabel = null)
     {
         const int sampleCount = 12;
         var swatches = new StackLayout
@@ -2084,14 +2400,14 @@ public sealed class MoleHillPanel : Panel
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
-                new Label { Text = $"{displayLow:F1}%", TextColor = MutedText },
+                new Label { Text = displayLowLabel ?? $"{displayLow:F1}%", TextColor = MutedText },
                 new StackLayoutItem(new Label
                 {
                     Text = palette.Label,
                     TextColor = MutedText,
                     TextAlignment = TextAlignment.Center
                 }, expand: true),
-                new Label { Text = $"{displayHigh:F1}%", TextColor = MutedText }
+                new Label { Text = displayHighLabel ?? $"{displayHigh:F1}%", TextColor = MutedText }
             }
         };
 
@@ -2142,7 +2458,7 @@ public sealed class MoleHillPanel : Panel
     private Control CreateZoneLayerEditor(TerrainDefinition terrain, CollageZoneDefinition zone)
     {
         string? layerPath = zone.Boundaries.LayerPaths.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
-        string bakedLayer = string.IsNullOrWhiteSpace(layerPath) ? "None" : $"Baked{GetLeafLayerName(layerPath)}";
+        string bakedLayer = TerrainBuildService.GetBakedLayerPath(layerPath) ?? "None";
 
         var row = new StackLayout
         {
@@ -2213,7 +2529,7 @@ public sealed class MoleHillPanel : Panel
             VerticalAlignment = VerticalAlignment.Center,
             TextColor = SystemColors.DisabledText
         };
-        ApplyHelp(bakedLayerLabel, "Generated zone meshes are placed on this baked layer and inherit that layer's properties.");
+        ApplyHelp(bakedLayerLabel, "Generated zone meshes preview using the source layer color and bake under this output layer.");
         row.Items.Add(bakedLayerLabel);
 
         return row;
@@ -2283,6 +2599,18 @@ public sealed class MoleHillPanel : Panel
         return layerPath.Contains("::", StringComparison.Ordinal)
             ? layerPath[(layerPath.LastIndexOf("::", StringComparison.Ordinal) + 2)..]
             : layerPath;
+    }
+
+    private static void StyleTextBox(TextBox textBox)
+    {
+        textBox.BackgroundColor = EditorBackground;
+        textBox.TextColor = EditorText;
+    }
+
+    private static void StyleTextArea(TextArea textArea)
+    {
+        textArea.BackgroundColor = EditorBackground;
+        textArea.TextColor = EditorText;
     }
 
     private static Button MakeButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null)
@@ -2526,6 +2854,7 @@ public sealed class MoleHillPanel : Panel
         {
             AnalysisDefinition? analysis = kind switch
             {
+                "earthwork" => terrain.Analyses.OfType<EarthworkAnalysisDefinition>().Any() ? null : new EarthworkAnalysisDefinition(),
                 "slope" => new SlopeAnalysisDefinition(),
                 "elevation" => new ElevationAnalysisDefinition(),
                 "cut-fill" => new CutFillAnalysisDefinition(),
@@ -2625,11 +2954,293 @@ public sealed class MoleHillPanel : Panel
     {
         return analysis switch
         {
+            EarthworkAnalysisDefinition => "Earthworks",
             SlopeAnalysisDefinition => "Slope",
             ElevationAnalysisDefinition => "Elevation",
             CutFillAnalysisDefinition => "Cut / Fill",
             _ => "Analysis"
         };
+    }
+
+    private static string GetAnalysisKind(AnalysisDefinition analysis) => analysis switch
+    {
+        EarthworkAnalysisDefinition => "earthwork",
+        SlopeAnalysisDefinition => "slope",
+        ElevationAnalysisDefinition => "elevation",
+        CutFillAnalysisDefinition => "cut-fill",
+        _ => string.Empty
+    };
+
+    private static Color AnalysisTypeColor(string kind) => kind switch
+    {
+        "earthwork" => Color.FromArgb(141, 110, 99),
+        "slope" => Color.FromArgb(67, 160, 71),
+        "elevation" => Color.FromArgb(30, 136, 229),
+        "cut-fill" => Color.FromArgb(239, 108, 0),
+        _ => Color.FromArgb(120, 120, 120)
+    };
+
+    private static string GetAnalysisIconLabel(AnalysisDefinition analysis) => analysis switch
+    {
+        EarthworkAnalysisDefinition => "EW",
+        SlopeAnalysisDefinition => "%",
+        ElevationAnalysisDefinition => "Z",
+        CutFillAnalysisDefinition => "+/-",
+        _ => "A"
+    };
+
+    private static string GetAnalysisSubtitle(AnalysisDefinition analysis, bool isActive)
+    {
+        return analysis switch
+        {
+            EarthworkAnalysisDefinition => "Reference inputs and earthwork summary",
+            SlopeAnalysisDefinition => isActive ? "Driving terrain preview" : "Slope preview available",
+            ElevationAnalysisDefinition => isActive ? "Driving terrain preview" : "Elevation preview available",
+            CutFillAnalysisDefinition => isActive ? "Driving terrain preview" : "Signed delta preview available",
+            _ => "Analysis"
+        };
+    }
+
+    private static string GetAnalysisCollapsedSummary(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        return analysis switch
+        {
+            EarthworkAnalysisDefinition => terrain.LastAnalysis != null
+                ? $"Net {FormatVolume(terrain.LastAnalysis.NetVolume)} | {(terrain.LastAnalysis.EarthworkIsEstimated ? "Estimated" : "Exact")}"
+                : $"{CountReferences(terrain.EarthworkReference)} refs | {CountReferences(terrain.EarthworkBoundary)} bounds",
+            SlopeAnalysisDefinition slope => $"{FormatSlopeValue(slope.RangeLow, slope.Unit)} to {(slope.RangeHigh > slope.RangeLow ? FormatSlopeValue(slope.RangeHigh, slope.Unit) : "Auto")}",
+            ElevationAnalysisDefinition elevation => $"{elevation.RangeLow:G4} to {(elevation.RangeHigh > elevation.RangeLow ? elevation.RangeHigh.ToString("G4") : "Auto")}",
+            CutFillAnalysisDefinition cutFill => $"{cutFill.RangeLow:G4} to {(cutFill.RangeHigh > cutFill.RangeLow ? cutFill.RangeHigh.ToString("G4") : "Auto")}",
+            _ => string.Empty
+        };
+    }
+
+    private void DuplicateAnalysis(Guid terrainId, Guid analysisId)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc != null)
+            _controller.DuplicateAnalysis(doc, terrainId, analysisId);
+    }
+
+    private Control CreateSlopeUnitEditor(Guid terrainId, SlopeAnalysisDefinition slope)
+    {
+        var options = new[]
+        {
+            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
+            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Promille), "Promille"),
+            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Ratio), "Ratio"),
+            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Degrees), "Degrees")
+        };
+
+        return CreateDropDownEditor(
+            "Units",
+            options,
+            GetSlopeUnitKey(slope.Unit),
+            value =>
+            {
+                var nextUnit = ParseSlopeUnit(value);
+                if (nextUnit == slope.Unit)
+                    return;
+
+                double rangeLow = ConvertSlopeValue(slope.RangeLow, slope.Unit, nextUnit);
+                double rangeHigh = ConvertSlopeValue(slope.RangeHigh, slope.Unit, nextUnit);
+                MutateAndRefreshAnalysis(terrainId, slope.Id, item =>
+                {
+                    if (item is not SlopeAnalysisDefinition target)
+                        return;
+
+                    target.Unit = nextUnit;
+                    target.RangeLow = rangeLow;
+                    target.RangeHigh = rangeHigh;
+                });
+            },
+            "Show slope values as percent, promille, rise/run ratio, or degrees.");
+    }
+
+    private static string GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit unit) => unit switch
+    {
+        SlopeAnalyzer.SlopeUnit.Percent => "percent",
+        SlopeAnalyzer.SlopeUnit.Promille => "promille",
+        SlopeAnalyzer.SlopeUnit.Ratio => "ratio",
+        SlopeAnalyzer.SlopeUnit.Degrees => "degrees",
+        _ => "percent"
+    };
+
+    private static SlopeAnalyzer.SlopeUnit ParseSlopeUnit(string key) => key switch
+    {
+        "promille" => SlopeAnalyzer.SlopeUnit.Promille,
+        "ratio" => SlopeAnalyzer.SlopeUnit.Ratio,
+        "degrees" => SlopeAnalyzer.SlopeUnit.Degrees,
+        _ => SlopeAnalyzer.SlopeUnit.Percent
+    };
+
+    private static string GetSlopeUnitSuffixLabel(SlopeAnalyzer.SlopeUnit unit) => unit switch
+    {
+        SlopeAnalyzer.SlopeUnit.Percent => "%",
+        SlopeAnalyzer.SlopeUnit.Promille => "promille",
+        SlopeAnalyzer.SlopeUnit.Ratio => "ratio",
+        SlopeAnalyzer.SlopeUnit.Degrees => "deg",
+        _ => "%"
+    };
+
+    private static string FormatSlopeSummaryValue(double percentValue, SlopeAnalyzer.SlopeUnit unit)
+    {
+        return FormatSlopeValue(ConvertPercentToSlopeUnit(percentValue, unit), unit);
+    }
+
+    private static string FormatSlopeValue(double value, SlopeAnalyzer.SlopeUnit unit)
+    {
+        if (double.IsNaN(value))
+            return "n/a";
+
+        if (double.IsPositiveInfinity(value))
+        {
+            return unit switch
+            {
+                SlopeAnalyzer.SlopeUnit.Degrees => "90.0 deg",
+                SlopeAnalyzer.SlopeUnit.Percent => "inf %",
+                SlopeAnalyzer.SlopeUnit.Promille => "inf promille",
+                SlopeAnalyzer.SlopeUnit.Ratio => "inf",
+                _ => "inf"
+            };
+        }
+
+        return unit switch
+        {
+            SlopeAnalyzer.SlopeUnit.Percent => $"{value:F1}%",
+            SlopeAnalyzer.SlopeUnit.Promille => $"{value:F1} promille",
+            SlopeAnalyzer.SlopeUnit.Ratio => $"{value:F3}",
+            SlopeAnalyzer.SlopeUnit.Degrees => $"{value:F1} deg",
+            _ => value.ToString("F1")
+        };
+    }
+
+    private static double ConvertPercentToSlopeUnit(double percentValue, SlopeAnalyzer.SlopeUnit unit)
+    {
+        return ConvertSlopeValue(percentValue, SlopeAnalyzer.SlopeUnit.Percent, unit);
+    }
+
+    private static double ConvertSlopeValue(double value, SlopeAnalyzer.SlopeUnit fromUnit, SlopeAnalyzer.SlopeUnit toUnit)
+    {
+        if (fromUnit == toUnit || Math.Abs(value) <= 1e-9)
+            return value;
+
+        double ratio = SlopeAnalyzer.ConvertUnitToRatio(value, fromUnit);
+        return SlopeAnalyzer.ConvertRatioToUnit(ratio, toUnit);
+    }
+
+    private static int CountReferences(SourceReferenceSet sourceSet)
+    {
+        return sourceSet.ObjectIds.Count + sourceSet.LayerPaths.Count;
+    }
+
+    // ── Drag-and-drop: analysis cards ────────────────────────────────────
+
+    private void WireAnalysisCardDragDrop(Control box, Guid terrainId, Guid analysisId)
+    {
+        box.AllowDrop = true;
+        var cardHighlight = Color.FromArgb(100, 120, 200, 255);
+
+        box.DragEnter += (_, e) =>
+        {
+            if (!e.Data.Contains("analysis-drag")) return;
+            e.Effects = DragEffects.Move;
+            if (_dragOverAnalysisId.HasValue && _analysisStripMap.TryGetValue(_dragOverAnalysisId.Value, out var prevStrip))
+                if (_analysisStripColors.TryGetValue(_dragOverAnalysisId.Value, out var prevColor))
+                    prevStrip.BackgroundColor = prevColor;
+            _dragOverAnalysisId = analysisId;
+            if (_analysisStripMap.TryGetValue(analysisId, out var strip))
+                strip.BackgroundColor = cardHighlight;
+            ClearAllSepHighlights(_analysisSepMap);
+            if (_analysisSepMap.TryGetValue(analysisId, out var sep))
+                sep.BackgroundColor = SepHighlight;
+        };
+
+        box.DragLeave += (_, _) =>
+        {
+            if (_dragOverAnalysisId != analysisId)
+                return;
+
+            if (_analysisStripMap.TryGetValue(analysisId, out var strip))
+                if (_analysisStripColors.TryGetValue(analysisId, out var origColor))
+                    strip.BackgroundColor = origColor;
+            _dragOverAnalysisId = null;
+            ClearAllSepHighlights(_analysisSepMap);
+        };
+
+        box.DragDrop += (_, e) =>
+        {
+            if (!e.Data.Contains("analysis-drag")) return;
+            var idStr = e.Data.GetString("analysis-drag");
+            if (!Guid.TryParse(idStr, out var sourceId)) return;
+
+            if (_analysisStripMap.TryGetValue(analysisId, out var strip))
+                if (_analysisStripColors.TryGetValue(analysisId, out var origColor))
+                    strip.BackgroundColor = origColor;
+            _dragOverAnalysisId = null;
+            ClearAllSepHighlights(_analysisSepMap);
+
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc == null) return;
+            _controller.MutateTerrain(doc, terrainId, t => MoveAnalysisToDisplaySeparator(t, sourceId, analysisId), scheduleRebuild: false);
+            RefreshTerrainPreview(terrainId);
+        };
+    }
+
+    private void WireAnalysisSepDragDrop(Panel outerSep, Panel innerSep, Guid terrainId, Guid insertBeforeId)
+    {
+        outerSep.AllowDrop = true;
+
+        outerSep.DragEnter += (_, e) =>
+        {
+            if (!e.Data.Contains("analysis-drag")) return;
+            e.Effects = DragEffects.Move;
+            if (_dragOverAnalysisId.HasValue && _analysisStripMap.TryGetValue(_dragOverAnalysisId.Value, out var prevStrip))
+                if (_analysisStripColors.TryGetValue(_dragOverAnalysisId.Value, out var prevColor))
+                    prevStrip.BackgroundColor = prevColor;
+            _dragOverAnalysisId = null;
+            ClearAllSepHighlights(_analysisSepMap);
+            innerSep.BackgroundColor = SepHighlight;
+        };
+
+        outerSep.DragLeave += (_, _) => innerSep.BackgroundColor = Colors.Transparent;
+
+        outerSep.DragDrop += (_, e) =>
+        {
+            if (!e.Data.Contains("analysis-drag")) return;
+            var idStr = e.Data.GetString("analysis-drag");
+            if (!Guid.TryParse(idStr, out var sourceId)) return;
+
+            innerSep.BackgroundColor = Colors.Transparent;
+            ClearAllSepHighlights(_analysisSepMap);
+
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc == null) return;
+            _controller.MutateTerrain(doc, terrainId, t => MoveAnalysisToDisplaySeparator(t, sourceId, insertBeforeId), scheduleRebuild: false);
+            RefreshTerrainPreview(terrainId);
+        };
+    }
+
+    private static void MoveAnalysisToDisplaySeparator(TerrainDefinition terrain, Guid sourceId, Guid insertBeforeId)
+    {
+        if (sourceId == insertBeforeId)
+            return;
+
+        int fromIdx = terrain.Analyses.FindIndex(analysis => analysis.Id == sourceId);
+        if (fromIdx < 0)
+            return;
+
+        var item = terrain.Analyses[fromIdx];
+        terrain.Analyses.RemoveAt(fromIdx);
+
+        if (insertBeforeId == Guid.Empty)
+        {
+            terrain.Analyses.Add(item);
+            return;
+        }
+
+        int insertIdx = terrain.Analyses.FindIndex(analysis => analysis.Id == insertBeforeId);
+        terrain.Analyses.Insert(insertIdx >= 0 ? insertIdx : terrain.Analyses.Count, item);
     }
 
     // ── Drag-and-drop: modifier cards ────────────────────────────────────
@@ -2748,18 +3359,17 @@ public sealed class MoleHillPanel : Panel
     private void WireZoneCardDragDrop(Control box, Guid terrainId, Guid zoneId)
     {
         box.AllowDrop = true;
-        var cardHighlight = Color.FromArgb(100, 120, 200, 255);
+        var cardHighlight = DragHighlight;
 
         box.DragEnter += (_, e) =>
         {
             if (!e.Data.Contains("zone-drag")) return;
             e.Effects = DragEffects.Move;
-            if (_dragOverZoneId.HasValue && _zoneSwatchMap.TryGetValue(_dragOverZoneId.Value, out var prevSwatch))
-                if (_zoneSwatchColors.TryGetValue(_dragOverZoneId.Value, out var prevColor))
-                    prevSwatch.BackgroundColor = prevColor;
+            if (_dragOverZoneId.HasValue && _zoneCardMap.TryGetValue(_dragOverZoneId.Value, out var prevCard))
+                prevCard.BackgroundColor = CardBackground;
             _dragOverZoneId = zoneId;
-            if (_zoneSwatchMap.TryGetValue(zoneId, out var swatch))
-                swatch.BackgroundColor = cardHighlight;
+            if (_zoneCardMap.TryGetValue(zoneId, out var card))
+                card.BackgroundColor = cardHighlight;
             ClearAllSepHighlights(_zoneSepMap);
             if (_zoneSepMap.TryGetValue(zoneId, out var sep))
                 sep.BackgroundColor = SepHighlight;
@@ -2769,9 +3379,8 @@ public sealed class MoleHillPanel : Panel
         {
             if (_dragOverZoneId == zoneId)
             {
-                if (_zoneSwatchMap.TryGetValue(zoneId, out var swatch))
-                    if (_zoneSwatchColors.TryGetValue(zoneId, out var origColor))
-                        swatch.BackgroundColor = origColor;
+                if (_zoneCardMap.TryGetValue(zoneId, out var card))
+                    card.BackgroundColor = CardBackground;
                 _dragOverZoneId = null;
                 ClearAllSepHighlights(_zoneSepMap);
             }
@@ -2783,24 +3392,14 @@ public sealed class MoleHillPanel : Panel
             var idStr = e.Data.GetString("zone-drag");
             if (!Guid.TryParse(idStr, out var sourceId)) return;
 
-            if (_zoneSwatchMap.TryGetValue(zoneId, out var swatch))
-                if (_zoneSwatchColors.TryGetValue(zoneId, out var origColor))
-                    swatch.BackgroundColor = origColor;
+            if (_zoneCardMap.TryGetValue(zoneId, out var card))
+                card.BackgroundColor = CardBackground;
             _dragOverZoneId = null;
             ClearAllSepHighlights(_zoneSepMap);
 
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) return;
-            _controller.MutateTerrain(doc, terrainId, t =>
-            {
-                int fromIdx = t.Zones.FindIndex(z => z.ZoneId == sourceId);
-                int toIdx   = t.Zones.FindIndex(z => z.ZoneId == zoneId);
-                if (fromIdx < 0 || toIdx < 0 || fromIdx == toIdx) return;
-                var item = t.Zones[fromIdx];
-                t.Zones.RemoveAt(fromIdx);
-                if (fromIdx < toIdx) toIdx--;
-                t.Zones.Insert(toIdx, item);
-            });
+            _controller.MutateTerrain(doc, terrainId, t => MoveZoneToDisplaySeparator(t, sourceId, zoneId));
         };
     }
 
@@ -2812,9 +3411,8 @@ public sealed class MoleHillPanel : Panel
         {
             if (!e.Data.Contains("zone-drag")) return;
             e.Effects = DragEffects.Move;
-            if (_dragOverZoneId.HasValue && _zoneSwatchMap.TryGetValue(_dragOverZoneId.Value, out var prevSwatch))
-                if (_zoneSwatchColors.TryGetValue(_dragOverZoneId.Value, out var prevColor))
-                    prevSwatch.BackgroundColor = prevColor;
+            if (_dragOverZoneId.HasValue && _zoneCardMap.TryGetValue(_dragOverZoneId.Value, out var prevCard))
+                prevCard.BackgroundColor = CardBackground;
             _dragOverZoneId = null;
             ClearAllSepHighlights(_zoneSepMap);
             innerSep.BackgroundColor = SepHighlight;
@@ -2833,23 +3431,7 @@ public sealed class MoleHillPanel : Panel
 
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) return;
-            _controller.MutateTerrain(doc, terrainId, t =>
-            {
-                int fromIdx = t.Zones.FindIndex(z => z.ZoneId == sourceId);
-                if (fromIdx < 0) return;
-                var item = t.Zones[fromIdx];
-                t.Zones.RemoveAt(fromIdx);
-
-                if (insertBeforeId == Guid.Empty)
-                {
-                    t.Zones.Insert(0, item);
-                }
-                else
-                {
-                    int toIdx = t.Zones.FindIndex(z => z.ZoneId == insertBeforeId);
-                    t.Zones.Insert(toIdx >= 0 ? toIdx : t.Zones.Count, item);
-                }
-            });
+            _controller.MutateTerrain(doc, terrainId, t => MoveZoneToDisplaySeparator(t, sourceId, insertBeforeId));
         };
     }
 
@@ -2857,6 +3439,28 @@ public sealed class MoleHillPanel : Panel
     {
         foreach (var sep in sepMap.Values)
             sep.BackgroundColor = Colors.Transparent;
+    }
+
+    private static void MoveZoneToDisplaySeparator(TerrainDefinition terrain, Guid sourceId, Guid insertBeforeId)
+    {
+        if (sourceId == insertBeforeId)
+            return;
+
+        int fromIdx = terrain.Zones.FindIndex(zone => zone.ZoneId == sourceId);
+        if (fromIdx < 0)
+            return;
+
+        var item = terrain.Zones[fromIdx];
+        terrain.Zones.RemoveAt(fromIdx);
+
+        if (insertBeforeId == Guid.Empty)
+        {
+            terrain.Zones.Add(item);
+            return;
+        }
+
+        int insertIdx = terrain.Zones.FindIndex(zone => zone.ZoneId == insertBeforeId);
+        terrain.Zones.Insert(insertIdx >= 0 ? insertIdx : terrain.Zones.Count, item);
     }
 
     private static Color ModifierTypeColor(string kind) => kind switch
@@ -3066,6 +3670,14 @@ public sealed class MoleHillPanel : Panel
             Owner = RhinoEtoApp.MainWindowForDocument(doc)
         };
         popup.UseRhinoStyle();
+        popup.LostFocus += (_, _) =>
+        {
+            Application.Instance.AsyncInvoke(() =>
+            {
+                if (!popup.HasFocus)
+                    popup.Close();
+            });
+        };
 
         // ── Selected layers ───────────────────────────────────────
         var selectedStack = new StackLayout { Orientation = Orientation.Vertical, Spacing = 2 };
@@ -3091,6 +3703,7 @@ public sealed class MoleHillPanel : Panel
 
         // ── Search box ────────────────────────────────────────────
         var searchBox = new TextBox { PlaceholderText = "Find an option..." };
+        StyleTextBox(searchBox);
 
         // ── Available layers ──────────────────────────────────────
         var availableStack = new StackLayout { Orientation = Orientation.Vertical, Spacing = 2 };

@@ -16,6 +16,8 @@ namespace MoleHill.Rhino.Services;
 internal sealed class TerrainBuildService
 {
     private const int StageTimingDiagnosticThresholdMs = 250;
+    private const int MaxLegacyPathTriangulationVertices = 25_000;
+    private const int MaxLegacyPathTriangulationFaces = 50_000;
 
     private sealed class ZoneBoundaryEntry
     {
@@ -40,6 +42,21 @@ internal sealed class TerrainBuildService
 
         public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
     }
+
+    private sealed class ResolvedGradePathInputs
+    {
+        public required PathGrader.PathDefinition[] Paths { get; init; }
+
+        public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
+
+        public required double SuggestedEdgeLength { get; init; }
+    }
+
+    private readonly record struct ConstraintSignature(
+        ulong Fingerprint,
+        int PointCount,
+        bool IsClosed,
+        bool PreserveInputElevation);
 
     public TerrainBuildResult Build(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache, Func<bool>? shouldCancel = null)
     {
@@ -199,17 +216,6 @@ internal sealed class TerrainBuildService
                 ComputeZonesFingerprint(doc, terrain, analysisMesh, build.PersistentHardConstraints, currentMeshFingerprint),
                 () => BuildTerrainZones(doc, analysisMesh, terrain, build),
                 () => $"{build.ZoneObjects.Count:N0} zone outputs",
-                shouldCancel);
-
-            string markersStageKey = "markers";
-            usedStageKeys.Add(markersStageKey);
-            ExecuteCachedMarkersStage(
-                build,
-                runtimeCache,
-                markersStageKey,
-                ComputeMarkersFingerprint(doc, terrain, analysisMesh, currentMeshFingerprint),
-                () => BuildMarkers(doc, terrain, analysisMesh, build, shouldCancel),
-                () => $"{build.MarkerObjects.Count:N0} marker outputs",
                 shouldCancel);
         }
 
@@ -906,6 +912,7 @@ internal sealed class TerrainBuildService
             QualitySettings.None,
             out message,
             useConvexHull: prepared.UseConvexHull,
+            maxBoundaryEdgeLength: 0,
             shouldCancel: shouldCancel);
         ThrowIfCancellationRequested(shouldCancel);
 
@@ -1600,6 +1607,120 @@ internal sealed class TerrainBuildService
         }
 
         double tolerance = GetTerrainTolerance(doc, terrain);
+        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(doc, vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, modifier, tolerance);
+        if (resolvedInputs.Paths.Length == 0)
+        {
+            build.Diagnostics.Add("Grade Path has no valid paths.");
+            return mesh;
+        }
+
+        var combinedConstraints = CombineConstraints(build.PersistentHardConstraints, resolvedInputs.Constraints);
+        if (CanUseLegacyPathTriangulation(mesh))
+        {
+            RhinoMesh? legacyMesh = ApplyGradePathLegacy(mesh, vertices, faces, resolvedInputs, tolerance, build);
+            if (legacyMesh != null)
+            {
+                bool apronTopologyAdded =
+                    resolvedInputs.Constraints.Length == 0 ||
+                    legacyMesh.Vertices.Count > mesh.Vertices.Count ||
+                    legacyMesh.Faces.Count > mesh.Faces.Count;
+
+                if (apronTopologyAdded)
+                {
+                    build.PersistentHardConstraints.Clear();
+                    build.PersistentHardConstraints.AddRange(combinedConstraints);
+                    return legacyMesh;
+                }
+
+                build.Diagnostics.Add("Grade Path legacy insertion did not add apron topology; retrying with remesh topology mode.");
+            }
+        }
+        else
+        {
+            build.Diagnostics.Add(
+                $"Grade Path used remesh topology mode on a dense upstream mesh ({mesh.Vertices.Count:N0} verts, {mesh.Faces.Count:N0} faces) to avoid a full point-insertion re-triangulation stall.");
+        }
+
+        RhinoMesh topologyMesh = mesh;
+        if (resolvedInputs.Constraints.Length > 0)
+        {
+            topologyMesh = RebuildMeshWithConstraints(
+                doc,
+                terrain,
+                mesh,
+                combinedConstraints,
+                resolvedInputs.SuggestedEdgeLength,
+                0,
+                0,
+                "Grade Path",
+                build);
+
+            build.PersistentHardConstraints.Clear();
+            build.PersistentHardConstraints.AddRange(combinedConstraints);
+        }
+
+        if (!RhinoGeometryConversions.TryExtractMeshData(topologyMesh, out var topologyVertices, out var topologyFaces, out errorMessage))
+        {
+            build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for grade path topology.");
+            return topologyMesh;
+        }
+
+        double[] gradedVertices = PathGrader.ApplyGradingZ(topologyVertices, topologyMesh.Vertices.Count, resolvedInputs.Paths);
+
+        return CleanTinyFaces(
+            RhinoGeometryConversions.BuildMesh(gradedVertices, topologyMesh.Vertices.Count, topologyFaces, topologyMesh.Faces.Count),
+            tolerance,
+            "Grade Path",
+            build);
+    }
+
+    private static bool CanUseLegacyPathTriangulation(RhinoMesh mesh)
+    {
+        return mesh.Vertices.Count <= MaxLegacyPathTriangulationVertices &&
+               mesh.Faces.Count <= MaxLegacyPathTriangulationFaces;
+    }
+
+    private static RhinoMesh? ApplyGradePathLegacy(
+        RhinoMesh mesh,
+        double[] vertices,
+        int[] faces,
+        ResolvedGradePathInputs resolvedInputs,
+        double tolerance,
+        TerrainBuildResult build)
+    {
+        var result = PathGrader.Grade(
+            vertices,
+            mesh.Vertices.Count,
+            faces,
+            mesh.Faces.Count,
+            resolvedInputs.Paths,
+            out var warning);
+
+        if (result == null)
+        {
+            build.Diagnostics.Add(warning ?? "Grade Path failed.");
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(warning))
+            build.Diagnostics.Add(warning);
+
+        return CleanTinyFaces(
+            RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount),
+            tolerance,
+            "Grade Path",
+            build);
+    }
+
+    private static ResolvedGradePathInputs ResolveGradePathInputs(
+        RhinoDoc doc,
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        GradePathModifierDefinition modifier,
+        double tolerance)
+    {
         var paths = new List<PathGrader.PathDefinition>();
         foreach (var curve in RhinoSourceResolver.ResolveCurves(doc, modifier.Paths))
         {
@@ -1618,34 +1739,21 @@ internal sealed class TerrainBuildService
             paths.Add(new PathGrader.PathDefinition(pathXy, pathZ, polyline.Count, modifier.Width, modifier.SlopeAngle, modifier.MaxDistance));
         }
 
-        if (paths.Count == 0)
+        var pathArray = paths.ToArray();
+        var constraintSet = pathArray.Length == 0
+            ? new PathGrader.ConstraintSet
+            {
+                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                SuggestedEdgeLength = 0.0
+            }
+            : PathGrader.CreateConstraints(vertices, vertexCount, faces, faceCount, pathArray, tolerance);
+
+        return new ResolvedGradePathInputs
         {
-            build.Diagnostics.Add("Grade Path has no valid paths.");
-            return mesh;
-        }
-
-        var result = PathGrader.Grade(
-            vertices,
-            mesh.Vertices.Count,
-            faces,
-            mesh.Faces.Count,
-            paths.ToArray(),
-            out var warning);
-
-        if (result == null)
-        {
-            build.Diagnostics.Add(warning ?? "Grade Path failed.");
-            return mesh;
-        }
-
-        if (!string.IsNullOrWhiteSpace(warning))
-            build.Diagnostics.Add(warning);
-
-        return CleanTinyFaces(
-            RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount),
-            tolerance,
-            "Grade Path",
-            build);
+            Paths = pathArray,
+            Constraints = constraintSet.Constraints,
+            SuggestedEdgeLength = constraintSet.SuggestedEdgeLength
+        };
     }
 
     private static RhinoMesh ApplyInSituStair(RhinoDoc doc, TerrainDefinition terrain, RhinoMesh mesh, InSituStairModifierDefinition modifier, TerrainBuildResult build)
@@ -1908,16 +2016,19 @@ internal sealed class TerrainBuildService
         return doc.Layers[layerIndex].FullPath;
     }
 
-    private static string? GetBakedLayerPath(string? inputLayerPath)
+    internal static string? GetBakedLayerPath(string? inputLayerPath)
     {
         if (string.IsNullOrWhiteSpace(inputLayerPath))
             return null;
 
-        string leaf = inputLayerPath.Contains("::", StringComparison.Ordinal)
-            ? inputLayerPath[(inputLayerPath.LastIndexOf("::", StringComparison.Ordinal) + 2)..]
-            : inputLayerPath;
+        var segments = inputLayerPath
+            .Split(new[] { "::" }, StringSplitOptions.None)
+            .Where(segment => !string.IsNullOrWhiteSpace(segment))
+            .ToArray();
+        if (segments.Length == 0)
+            return "MoleHill::Zones";
 
-        return $"Baked{leaf}";
+        return $"MoleHill::Zones::{string.Join("::", segments)}";
     }
 
     private static double GetCurvePriorityZ(Curve curve)
@@ -2273,10 +2384,44 @@ internal sealed class TerrainBuildService
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentConstraints,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> additionalConstraints)
     {
+        var seen = new HashSet<ConstraintSignature>();
         var result = new List<SurfaceRemesher.ConstraintPolyline>(persistentConstraints.Count + additionalConstraints.Count);
-        result.AddRange(persistentConstraints);
-        result.AddRange(additionalConstraints);
+        AppendUniqueConstraints(result, seen, persistentConstraints);
+        AppendUniqueConstraints(result, seen, additionalConstraints);
         return result;
+    }
+
+    private static void AppendUniqueConstraints(
+        List<SurfaceRemesher.ConstraintPolyline> destination,
+        HashSet<ConstraintSignature> seen,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    {
+        foreach (var constraint in constraints)
+        {
+            if (constraint.PointCount < 2)
+                continue;
+
+            if (seen.Add(CreateConstraintSignature(constraint)))
+                destination.Add(constraint);
+        }
+    }
+
+    private static ConstraintSignature CreateConstraintSignature(SurfaceRemesher.ConstraintPolyline constraint)
+    {
+        var fingerprint = new FingerprintBuilder();
+        fingerprint.Add(constraint.PointCount);
+        fingerprint.Add(constraint.IsClosed);
+        fingerprint.Add(constraint.PreserveInputElevation);
+
+        int pointValueCount = Math.Min(constraint.Points.Length, constraint.PointCount * 3);
+        for (int i = 0; i < pointValueCount; i++)
+            fingerprint.Add(constraint.Points[i]);
+
+        return new ConstraintSignature(
+            fingerprint.ToUInt64(),
+            constraint.PointCount,
+            constraint.IsClosed,
+            constraint.PreserveInputElevation);
     }
 
     private static List<SurfaceRemesher.ConstraintPolyline> CreateConstraintPolylines(
@@ -2739,8 +2884,14 @@ internal sealed class TerrainBuildService
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
             return mesh;
 
-        double minEdgeLength = Math.Max(tolerance * 2.0, 0.01);
-        double minProjectedArea = Math.Max(tolerance * tolerance * 2.0, 1e-5);
+        double medianEdgeLength = ComputeMedianUndirectedEdgeLength(vertices, faces, mesh.Faces.Count);
+        double effectiveCleanupTolerance = Math.Max(
+            1e-6,
+            Math.Min(
+                Math.Max(tolerance, 1e-6),
+                medianEdgeLength > 0 ? medianEdgeLength * 0.01 : 0.01));
+        double minEdgeLength = Math.Max(effectiveCleanupTolerance * 2.0, 1e-5);
+        double minProjectedArea = Math.Max(effectiveCleanupTolerance * effectiveCleanupTolerance * 2.0, 1e-10);
         var keptFaces = new List<int>(faces.Length);
         int removed = 0;
 
@@ -2775,6 +2926,45 @@ internal sealed class TerrainBuildService
 
         build.Diagnostics.Add($"{sourceLabel} removed {removed} tiny faces.");
         return BuildRemappedMesh(vertices, keptFaces);
+    }
+
+    private static double ComputeMedianUndirectedEdgeLength(double[] vertices, int[] faces, int faceCount)
+    {
+        var edgeLengths = new List<double>(faceCount * 3);
+        var seen = new HashSet<long>();
+
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[faceIndex * 3 + 1];
+            int c = faces[faceIndex * 3 + 2];
+            AddEdgeLength(a, b);
+            AddEdgeLength(b, c);
+            AddEdgeLength(c, a);
+        }
+
+        if (edgeLengths.Count == 0)
+            return 0.0;
+
+        edgeLengths.Sort();
+        int middle = edgeLengths.Count / 2;
+        return edgeLengths.Count % 2 == 0
+            ? (edgeLengths[middle - 1] + edgeLengths[middle]) * 0.5
+            : edgeLengths[middle];
+
+        void AddEdgeLength(int a, int b)
+        {
+            long key = a < b
+                ? ((long)a << 32) | (uint)b
+                : ((long)b << 32) | (uint)a;
+            if (!seen.Add(key))
+                return;
+
+            double dx = vertices[a * 3] - vertices[b * 3];
+            double dy = vertices[a * 3 + 1] - vertices[b * 3 + 1];
+            double dz = vertices[a * 3 + 2] - vertices[b * 3 + 2];
+            edgeLengths.Add(Math.Sqrt(dx * dx + dy * dy + dz * dz));
+        }
     }
 
     private static RhinoMesh BuildRemappedMesh(double[] vertices, List<int> faces)
@@ -2815,7 +3005,7 @@ internal sealed class TerrainBuildService
     private static string DescribeBuildOutputs(TerrainBuildResult build)
     {
         return $"{DescribeMesh(build.PrimaryMesh) ?? "no mesh"}; " +
-               $"{build.ZoneObjects.Count:N0} zone outputs, {build.AuxiliaryObjects.Count:N0} auxiliary outputs, {build.MarkerObjects.Count:N0} marker outputs";
+               $"{build.ZoneObjects.Count:N0} zone outputs, {build.AuxiliaryObjects.Count:N0} auxiliary outputs";
     }
 
     private static string DescribeModifierMeshResult(string label, RhinoMesh? mesh)

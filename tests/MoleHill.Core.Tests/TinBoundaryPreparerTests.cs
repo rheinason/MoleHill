@@ -6,7 +6,7 @@ namespace MoleHill.Core.Tests;
 public class TinBoundaryPreparerTests
 {
     [Fact]
-    public void Prepare_OpenBreaklines_InferSimpleEndpointHull()
+    public void Prepare_OpenBreaklines_UsesEndpointHullWithoutAddingSyntheticBoundaryVertices()
     {
         var xy = new[]
         {
@@ -37,16 +37,10 @@ public class TinBoundaryPreparerTests
 
         Assert.Equal(TinBoundaryPreparer.BoundaryMode.InferredEndpointHull, prepared.Mode);
         Assert.False(prepared.UseConvexHull);
-        Assert.True(prepared.ZValues.Length > z.Length);
-        Assert.True(prepared.ZValues.Any(double.IsNaN));
+        Assert.Equal(z.Length, prepared.ZValues.Length);
+        Assert.DoesNotContain(prepared.ZValues, double.IsNaN);
         Assert.Equal((segments.Length / 2) + 4, prepared.Segments.Length / 2);
-
-        double[] addedXy = prepared.XyCoords.Skip(xy.Length).ToArray();
-        Assert.Equal(8, addedXy.Length);
-        Assert.True(addedXy.Where((_, index) => index % 2 == 0).Min() < 1.0);
-        Assert.True(addedXy.Where((_, index) => index % 2 == 0).Max() > 9.0);
-        Assert.True(addedXy.Where((_, index) => index % 2 == 1).Min() < 2.0);
-        Assert.True(addedXy.Where((_, index) => index % 2 == 1).Max() > 8.0);
+        Assert.Equal(xy.Length, prepared.XyCoords.Length);
     }
 
     [Fact]

@@ -127,10 +127,8 @@ public static class SurfaceRemesher
             };
         }
 
-        var meshVertices = triangulation.Mesh.Vertices.ToList();
-        var meshTriangles = triangulation.Mesh.Triangles.ToList();
-
-        if (meshTriangles.Count == 0)
+        var mesh = triangulation.Mesh;
+        if (mesh.Triangles.Count == 0)
         {
             return new Result
             {
@@ -141,59 +139,28 @@ public static class SurfaceRemesher
             };
         }
 
-        // Build vertex list using reference equality so split vertices created by segmentSplitting
-        // that are not in mesh.Vertices (Triangle.NET bug) are still handled correctly.
-        var vertRefToIdx = new Dictionary<Vertex, int>(ReferenceEqualityComparer.Instance);
-        var allVerts = new List<Vertex>(meshVertices.Count);
+        var extracted = TriangleNetExtractor.Extract(mesh);
+        var outputVertices = new double[extracted.VertexCount * 3];
 
-        foreach (var v in meshVertices)
+        for (int i = 0; i < extracted.VertexCount; i++)
         {
-            vertRefToIdx[v] = allVerts.Count;
-            allVerts.Add(v);
-        }
-
-        // Collect any triangle-referenced vertices missing from mesh.Vertices.
-        foreach (var tri in meshTriangles)
-        {
-            for (int k = 0; k < 3; k++)
-            {
-                var v = tri.GetVertex(k);
-                if (!vertRefToIdx.ContainsKey(v))
-                {
-                    vertRefToIdx[v] = allVerts.Count;
-                    allVerts.Add(v);
-                }
-            }
-        }
-
-        var outputVertices = new double[allVerts.Count * 3];
-
-        for (int i = 0; i < allVerts.Count; i++)
-        {
-            var vertex = allVerts[i];
-            outputVertices[i * 3] = vertex.X;
-            outputVertices[i * 3 + 1] = vertex.Y;
-            outputVertices[i * 3 + 2] = vertex.ID >= 0 && vertex.ID < prepared.Z.Count
-                ? prepared.Z[vertex.ID]
-                : PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, vertex.X, vertex.Y);
+            double x = extracted.Xy[i * 2];
+            double y = extracted.Xy[i * 2 + 1];
+            int sourceId = extracted.SourceIds[i];
+            outputVertices[i * 3] = x;
+            outputVertices[i * 3 + 1] = y;
+            outputVertices[i * 3 + 2] = sourceId >= 0 && sourceId < prepared.Z.Count
+                ? prepared.Z[sourceId]
+                : PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
         }
 
         ApplyPreservedConstraintElevations(outputVertices, constraints, options.Tolerance);
-
-        var outputFaces = new int[meshTriangles.Count * 3];
-        for (int i = 0; i < meshTriangles.Count; i++)
-        {
-            var tri = meshTriangles[i];
-            outputFaces[i * 3] = vertRefToIdx[tri.GetVertex(0)];
-            outputFaces[i * 3 + 1] = vertRefToIdx[tri.GetVertex(1)];
-            outputFaces[i * 3 + 2] = vertRefToIdx[tri.GetVertex(2)];
-        }
 
         return new Result
         {
             Success = true,
             Vertices = outputVertices,
-            Faces = outputFaces,
+            Faces = extracted.Faces,
             Warning = triangulation.Warning,
             UsedReducedSeedFallback = usedReducedSeedFallback,
             AddedProtectedVertices = prepared.AddedProtectedVertices
@@ -507,6 +474,78 @@ public static class SurfaceRemesher
         }
     }
 
+    private static double[] BuildCumulativeLengths(ConstraintPolyline constraint, int pointCount)
+    {
+        var cumulative = new double[pointCount];
+        for (int i = 1; i < pointCount; i++)
+        {
+            double x0 = constraint.Points[(i - 1) * 3];
+            double y0 = constraint.Points[(i - 1) * 3 + 1];
+            double x1 = constraint.Points[i * 3];
+            double y1 = constraint.Points[i * 3 + 1];
+            cumulative[i] = cumulative[i - 1] + Math.Sqrt(DistanceSquared(x0, y0, x1, y1));
+        }
+
+        return cumulative;
+    }
+
+    private static double SamplePairDistance(
+        ConstraintPolyline constraintA,
+        int pointCountA,
+        double[] cumulativeA,
+        ConstraintPolyline constraintB,
+        int pointCountB,
+        double[] cumulativeB,
+        bool reverseB,
+        double fraction)
+    {
+        SampleConstraintPoint(constraintA, pointCountA, cumulativeA, fraction, reverse: false, out double ax, out double ay);
+        SampleConstraintPoint(constraintB, pointCountB, cumulativeB, fraction, reverseB, out double bx, out double by);
+        return Math.Sqrt(DistanceSquared(ax, ay, bx, by));
+    }
+
+    private static void SampleConstraintPoint(
+        ConstraintPolyline constraint,
+        int pointCount,
+        double[] cumulativeLengths,
+        double fraction,
+        bool reverse,
+        out double x,
+        out double y)
+    {
+        double totalLength = cumulativeLengths[^1];
+        if (totalLength <= 1e-12)
+        {
+            int index = reverse ? pointCount - 1 : 0;
+            x = constraint.Points[index * 3];
+            y = constraint.Points[index * 3 + 1];
+            return;
+        }
+
+        double along = Math.Clamp(fraction, 0.0, 1.0) * totalLength;
+        double sourceAlong = reverse ? totalLength - along : along;
+
+        int segmentIndex = 1;
+        while (segmentIndex < pointCount && cumulativeLengths[segmentIndex] < sourceAlong)
+            segmentIndex++;
+
+        if (segmentIndex >= pointCount)
+            segmentIndex = pointCount - 1;
+
+        double segmentStart = cumulativeLengths[segmentIndex - 1];
+        double segmentEnd = cumulativeLengths[segmentIndex];
+        double t = segmentEnd <= segmentStart + 1e-12
+            ? 0.0
+            : (sourceAlong - segmentStart) / (segmentEnd - segmentStart);
+
+        double ax = constraint.Points[(segmentIndex - 1) * 3];
+        double ay = constraint.Points[(segmentIndex - 1) * 3 + 1];
+        double bx = constraint.Points[segmentIndex * 3];
+        double by = constraint.Points[segmentIndex * 3 + 1];
+        x = Lerp(ax, bx, t);
+        y = Lerp(ay, by, t);
+    }
+
     private static bool TryMatchOpenConstraintPair(
         ConstraintPolyline constraintA,
         int pointCountA,
@@ -600,78 +639,6 @@ public static class SurfaceRemesher
                 zList.Add(z);
             }
         }
-    }
-
-    private static double[] BuildCumulativeLengths(ConstraintPolyline constraint, int pointCount)
-    {
-        var cumulative = new double[pointCount];
-        for (int i = 1; i < pointCount; i++)
-        {
-            double x0 = constraint.Points[(i - 1) * 3];
-            double y0 = constraint.Points[(i - 1) * 3 + 1];
-            double x1 = constraint.Points[i * 3];
-            double y1 = constraint.Points[i * 3 + 1];
-            cumulative[i] = cumulative[i - 1] + Math.Sqrt(DistanceSquared(x0, y0, x1, y1));
-        }
-
-        return cumulative;
-    }
-
-    private static double SamplePairDistance(
-        ConstraintPolyline constraintA,
-        int pointCountA,
-        double[] cumulativeA,
-        ConstraintPolyline constraintB,
-        int pointCountB,
-        double[] cumulativeB,
-        bool reverseB,
-        double fraction)
-    {
-        SampleConstraintPoint(constraintA, pointCountA, cumulativeA, fraction, reverse: false, out double ax, out double ay);
-        SampleConstraintPoint(constraintB, pointCountB, cumulativeB, fraction, reverseB, out double bx, out double by);
-        return Math.Sqrt(DistanceSquared(ax, ay, bx, by));
-    }
-
-    private static void SampleConstraintPoint(
-        ConstraintPolyline constraint,
-        int pointCount,
-        double[] cumulativeLengths,
-        double fraction,
-        bool reverse,
-        out double x,
-        out double y)
-    {
-        double totalLength = cumulativeLengths[^1];
-        if (totalLength <= 1e-12)
-        {
-            int index = reverse ? pointCount - 1 : 0;
-            x = constraint.Points[index * 3];
-            y = constraint.Points[index * 3 + 1];
-            return;
-        }
-
-        double along = Math.Clamp(fraction, 0.0, 1.0) * totalLength;
-        double sourceAlong = reverse ? totalLength - along : along;
-
-        int segmentIndex = 1;
-        while (segmentIndex < pointCount && cumulativeLengths[segmentIndex] < sourceAlong)
-            segmentIndex++;
-
-        if (segmentIndex >= pointCount)
-            segmentIndex = pointCount - 1;
-
-        double segmentStart = cumulativeLengths[segmentIndex - 1];
-        double segmentEnd = cumulativeLengths[segmentIndex];
-        double t = segmentEnd <= segmentStart + 1e-12
-            ? 0.0
-            : (sourceAlong - segmentStart) / (segmentEnd - segmentStart);
-
-        double ax = constraint.Points[(segmentIndex - 1) * 3];
-        double ay = constraint.Points[(segmentIndex - 1) * 3 + 1];
-        double bx = constraint.Points[segmentIndex * 3];
-        double by = constraint.Points[segmentIndex * 3 + 1];
-        x = Lerp(ax, bx, t);
-        y = Lerp(ay, by, t);
     }
 
     private static void AddBoundarySegmentChain(

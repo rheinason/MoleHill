@@ -39,6 +39,8 @@ public class TinFromPointsAndBreaklines : GH_Component
         pManager[2].Optional = true;
         pManager.AddNumberParameter("Tolerance", "T", "XY deduplication tolerance. Uses document tolerance if 0.", GH_ParamAccess.item, 0.0);
         pManager[3].Optional = true;
+        pManager.AddNumberParameter("Max Edge", "L", "Maximum triangle edge length. 0 = auto-remove outlier boundary triangles. Negative = keep all triangles.", GH_ParamAccess.item, 0.0);
+        pManager[4].Optional = true;
     }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -66,6 +68,9 @@ public class TinFromPointsAndBreaklines : GH_Component
 
         double tolerance = 0;
         DA.GetData(3, ref tolerance);
+
+        double maxBoundaryEdgeLength = 0;
+        DA.GetData(4, ref maxBoundaryEdgeLength);
 
         if (tolerance <= 0)
             tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
@@ -152,7 +157,7 @@ public class TinFromPointsAndBreaklines : GH_Component
         // Build TIN (pure CDT, no quality refinement — use Remesh for that)
         var quality = QualitySettings.None;
 
-        if (TryBuildValidatedTinMesh(merged.XyCoords, merged.ZValues, merged.Segments, boundaryCurves, tolerance, quality,
+        if (TryBuildValidatedTinMesh(merged.XyCoords, merged.ZValues, merged.Segments, boundaryCurves, tolerance, quality, maxBoundaryEdgeLength,
             out var result, out var mesh, out string? buildMessage))
         {
             if (!string.IsNullOrWhiteSpace(buildMessage))
@@ -181,7 +186,7 @@ public class TinFromPointsAndBreaklines : GH_Component
             return;
         }
 
-        if (!TryBuildValidatedTinMesh(cleanup.XyCoords, cleanup.ZValues, cleanup.Segments, boundaryCurves, tolerance, quality,
+        if (!TryBuildValidatedTinMesh(cleanup.XyCoords, cleanup.ZValues, cleanup.Segments, boundaryCurves, tolerance, quality, maxBoundaryEdgeLength,
             out result, out mesh, out string? cleanupMessage))
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Error, buildMessage ?? "Triangulation failed.");
@@ -209,6 +214,7 @@ public class TinFromPointsAndBreaklines : GH_Component
         IReadOnlyList<Curve> boundaryCurves,
         double tolerance,
         QualitySettings quality,
+        double maxBoundaryEdgeLength,
         out TinResult? result,
         out Mesh? mesh,
         out string? message)
@@ -228,7 +234,8 @@ public class TinFromPointsAndBreaklines : GH_Component
             prepared.Segments,
             quality,
             out message,
-            useConvexHull: prepared.UseConvexHull);
+            useConvexHull: prepared.UseConvexHull,
+            maxBoundaryEdgeLength: maxBoundaryEdgeLength);
 
         if (!string.IsNullOrWhiteSpace(prepared.WarningMessage))
             message = AppendMessage(message, prepared.WarningMessage);

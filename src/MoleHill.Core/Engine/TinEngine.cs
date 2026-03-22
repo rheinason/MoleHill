@@ -54,6 +54,7 @@ public class TinEngine
                             int[] segments, QualitySettings quality,
                             out string? errorMessage,
                             bool useConvexHull = true,
+                            double maxBoundaryEdgeLength = 0,
                             Func<bool>? shouldCancel = null)
     {
         errorMessage = null;
@@ -72,7 +73,7 @@ public class TinEngine
 
         ThrowIfCancellationRequested(shouldCancel);
 
-        int xyHash = InputSnapshot.ComputeXyHash(xyCoords, segments, quality, useConvexHull);
+        int xyHash = InputSnapshot.ComputeXyHash(xyCoords, segments, quality, useConvexHull, maxBoundaryEdgeLength);
 
         if (_cachedSnapshot != null && _cachedResult != null &&
             xyHash == _cachedSnapshot.XyHash &&
@@ -89,7 +90,7 @@ public class TinEngine
             return _cachedResult;
         }
 
-        if (TryApplyIncrementalEdit(xyCoords, zValues, segments, quality, useConvexHull, out var incrementalResult))
+        if (TryApplyIncrementalEdit(xyCoords, zValues, segments, quality, useConvexHull, maxBoundaryEdgeLength, out var incrementalResult))
         {
             int zHash = InputSnapshot.ComputeZHash(zValues);
             _cachedSnapshot = new InputSnapshot(xyHash, zHash);
@@ -101,7 +102,7 @@ public class TinEngine
         ThrowIfCancellationRequested(shouldCancel);
         var result = FullRebuild(
             xyCoords, zValues, segments, quality,
-            out errorMessage, out IMesh? builtMesh, useConvexHull, shouldCancel);
+            out errorMessage, out IMesh? builtMesh, useConvexHull, maxBoundaryEdgeLength, shouldCancel);
         if (result != null)
         {
             _cachedSnapshot = new InputSnapshot(xyHash, InputSnapshot.ComputeZHash(zValues));
@@ -196,6 +197,7 @@ public class TinEngine
 
     private bool TryApplyIncrementalEdit(
         double[] xyCoords, double[] zValues, int[] segments, QualitySettings quality, bool useConvexHull,
+        double maxBoundaryEdgeLength,
         out TinResult? result)
     {
         result = null;
@@ -293,7 +295,7 @@ public class TinEngine
             previousMap[key] = vertexId;
         }
 
-        result = BuildResult(_cachedMesh, xyCoords, zValues, segments);
+        result = BuildResult(_cachedMesh, xyCoords, zValues, segments, maxBoundaryEdgeLength);
         return true;
     }
 
@@ -333,6 +335,7 @@ public class TinEngine
                                            int[] segments, QualitySettings quality,
                                            out string? errorMessage, out IMesh? builtMesh,
                                            bool useConvexHull,
+                                           double maxBoundaryEdgeLength,
                                            Func<bool>? shouldCancel = null)
     {
         builtMesh = null;
@@ -378,7 +381,7 @@ public class TinEngine
         if (result != null)
         {
             builtMesh = result;
-            return BuildResult(result, xyCoords, zValues, segments);
+            return BuildResult(result, xyCoords, zValues, segments, maxBoundaryEdgeLength);
         }
 
         // Attempt 2: Non-conforming CDT with quality
@@ -390,7 +393,7 @@ public class TinEngine
             {
                 builtMesh = ncResult;
                 errorMessage = "Using non-conforming CDT for tightly spaced breaklines. Edges follow breaklines but mesh is not strictly Delaunay.";
-                return BuildResult(ncResult, xyCoords, zValues, segments);
+                return BuildResult(ncResult, xyCoords, zValues, segments, maxBoundaryEdgeLength);
             }
         }
 
@@ -403,7 +406,7 @@ public class TinEngine
             {
                 builtMesh = fallback;
                 errorMessage = "Quality constraints (max area / min angle) could not be applied. Using CDT without refinement.";
-                return BuildResult(fallback, xyCoords, zValues, segments);
+                return BuildResult(fallback, xyCoords, zValues, segments, maxBoundaryEdgeLength);
             }
         }
 
@@ -416,7 +419,7 @@ public class TinEngine
             {
                 builtMesh = ncFallback;
                 errorMessage = "Using non-conforming CDT without quality constraints. Breakline edges preserved but no refinement.";
-                return BuildResult(ncFallback, xyCoords, zValues, segments);
+                return BuildResult(ncFallback, xyCoords, zValues, segments, maxBoundaryEdgeLength);
             }
         }
 
@@ -452,7 +455,7 @@ public class TinEngine
                     errorMessage = segCount > 0
                         ? "Breakline constraints could not be enforced. Falling back to plain Delaunay."
                         : null;
-                    return BuildResult(mesh, xyCoords, zValues, Array.Empty<int>());
+                    return BuildResult(mesh, xyCoords, zValues, Array.Empty<int>(), maxBoundaryEdgeLength);
                 }
             }
             catch { }
@@ -553,11 +556,10 @@ public class TinEngine
             throw new OperationCanceledException("Triangulation cancelled.");
     }
 
-    private static TinResult BuildResult(IMesh mesh, double[] xyCoords, double[] zValues, int[] segments)
+    private static TinResult BuildResult(IMesh mesh, double[] xyCoords, double[] zValues, int[] segments, double maxBoundaryEdgeLength)
     {
-        var meshVertices = mesh.Vertices;
-        var triangles = mesh.Triangles;
-        int outVertexCount = meshVertices.Count;
+        var extracted = TriangleNetExtractor.Extract(mesh);
+        int outVertexCount = extracted.VertexCount;
         var outVerts = new double[outVertexCount * 3];
         int inputVertexCount = xyCoords.Length / 2;
 
@@ -568,18 +570,16 @@ public class TinEngine
             inputZByKey[key] = zValues[i];
         }
 
-        var idToOutIndex = new Dictionary<int, int>(outVertexCount);
         var steinerIndices = new List<int>();
-
-        int outIndex = 0;
-        foreach (var v in meshVertices)
+        for (int outIndex = 0; outIndex < outVertexCount; outIndex++)
         {
-            idToOutIndex[v.ID] = outIndex;
+            double x = extracted.Xy[outIndex * 2];
+            double y = extracted.Xy[outIndex * 2 + 1];
 
-            outVerts[outIndex * 3] = v.X;
-            outVerts[outIndex * 3 + 1] = v.Y;
+            outVerts[outIndex * 3] = x;
+            outVerts[outIndex * 3 + 1] = y;
 
-            if (inputZByKey.TryGetValue(XyKey.FromValues(v.X, v.Y), out double z) && !double.IsNaN(z))
+            if (inputZByKey.TryGetValue(XyKey.FromValues(x, y), out double z) && !double.IsNaN(z))
             {
                 outVerts[outIndex * 3 + 2] = z;
             }
@@ -588,69 +588,48 @@ public class TinEngine
                 outVerts[outIndex * 3 + 2] = double.NaN;
                 steinerIndices.Add(outIndex);
             }
-
-            outIndex++;
         }
 
-        int faceCount = triangles.Count;
-        var outFaces = new int[faceCount * 3];
-
-        int faceIndex = 0;
-        foreach (var tri in triangles)
-        {
-            outFaces[faceIndex * 3] = idToOutIndex.GetValueOrDefault(tri.GetVertex(0).ID, 0);
-            outFaces[faceIndex * 3 + 1] = idToOutIndex.GetValueOrDefault(tri.GetVertex(1).ID, 0);
-            outFaces[faceIndex * 3 + 2] = idToOutIndex.GetValueOrDefault(tri.GetVertex(2).ID, 0);
-            faceIndex++;
-        }
-
-        var edges = mesh.Edges.ToList();
-        var edgeList = new int[edges.Count * 2];
-        for (int i = 0; i < edges.Count; i++)
-        {
-            edgeList[i * 2] = idToOutIndex.GetValueOrDefault(edges[i].P0, 0);
-            edgeList[i * 2 + 1] = idToOutIndex.GetValueOrDefault(edges[i].P1, 0);
-        }
+        int faceCount = extracted.FaceCount;
+        int[] outFaces = extracted.Faces;
+        var topology = IndexedMeshTools.BuildEdgeTopology(outFaces, faceCount);
+        int[] edgeList = topology.Edges;
+        int edgeCount = topology.EdgeCount;
 
         if (steinerIndices.Count > 0)
         {
             InterpolateSteinerZ(outVerts, outVertexCount,
-                                edgeList, edges.Count,
+                                edgeList, edgeCount,
                                 outFaces, faceCount,
                                 steinerIndices,
                                 xyCoords, zValues, segments);
         }
 
-        // Build naked edge list
-        var nakedEdgeList = new List<int>();
-        var edgeTriCount = new Dictionary<(int, int), int>();
-        foreach (var tri in triangles)
-        {
-            for (int e = 0; e < 3; e++)
-            {
-                var va = tri.GetVertex(e);
-                var vb = tri.GetVertex((e + 1) % 3);
-                var key = va.ID < vb.ID ? (va.ID, vb.ID) : (vb.ID, va.ID);
-                edgeTriCount[key] = edgeTriCount.GetValueOrDefault(key, 0) + 1;
-            }
-        }
+        var cullResult = TriangleBoundaryCuller.Cull(
+            outVerts,
+            outVertexCount,
+            outFaces,
+            faceCount,
+            xyCoords,
+            segments,
+            maxBoundaryEdgeLength);
 
-        for (int i = 0; i < edges.Count; i++)
+        if (cullResult.Changed)
         {
-            var edge = edges[i];
-            var key = edge.P0 < edge.P1 ? (edge.P0, edge.P1) : (edge.P1, edge.P0);
-            if (edgeTriCount.GetValueOrDefault(key, 0) < 2)
-            {
-                nakedEdgeList.Add(edgeList[i * 2]);
-                nakedEdgeList.Add(edgeList[i * 2 + 1]);
-            }
+            outVerts = IndexedMeshTools.CompactDoubleData(outVerts, 3, cullResult.NewToOld, cullResult.VertexCount);
+            outFaces = cullResult.Faces;
+            outVertexCount = cullResult.VertexCount;
+            faceCount = cullResult.FaceCount;
+            topology = IndexedMeshTools.BuildEdgeTopology(outFaces, faceCount);
+            edgeList = topology.Edges;
+            edgeCount = topology.EdgeCount;
         }
 
         return new TinResult(
             outVerts, outVertexCount,
             outFaces, faceCount,
-            edgeList, edges.Count,
-            nakedEdgeList.ToArray(), nakedEdgeList.Count / 2);
+            edgeList, edgeCount,
+            topology.NakedEdges, topology.NakedEdgeCount);
     }
 
     private static void InterpolateSteinerZ(double[] verts, int vertCount,

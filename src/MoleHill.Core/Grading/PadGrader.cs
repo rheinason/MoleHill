@@ -201,6 +201,7 @@ public static class PadGrader
         }
 
         var faceGrid = new FaceGrid(vertices, vertexCount, faces, faceCount);
+        bool hasBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
 
         // Add mesh boundary edges as constraints (keeps triangulation within original mesh).
         var edgeFaceCount = new Dictionary<long, int>();
@@ -254,6 +255,19 @@ public static class PadGrader
                 if (a != b)
                     segList.Add((a, b));
             }
+
+            double shoulderDistance = ComputePadTransitionDistance(vertices, vertexCount, pad);
+            AddPadShoulderConstraint(
+                pad,
+                shoulderDistance,
+                xyList,
+                zList,
+                vertHash,
+                faceGrid,
+                segList,
+                dedupTol,
+                hasBoundaryLoop ? boundaryLoop : null,
+                hasBoundaryLoop ? boundaryVertexCount : 0);
         }
 
         if (lockCurves != null)
@@ -317,35 +331,42 @@ public static class PadGrader
         if (!string.IsNullOrWhiteSpace(triWarning))
             warningOrError = triWarning;
 
-        var outVerts = triMesh.Vertices.ToList();
-        var outTris = triMesh.Triangles.ToList();
-        int outVertCount = outVerts.Count;
-        int outFaceCount = outTris.Count;
+        var extracted = TriangleNetExtractor.Extract(triMesh);
+        int outVertCount = extracted.VertexCount;
+        int outFaceCount = extracted.FaceCount;
 
         var topologyVertices = new double[outVertCount * 3];
-        var idToIdx = new Dictionary<int, int>(outVertCount);
-
         for (int i = 0; i < outVertCount; i++)
         {
-            var mv = outVerts[i];
-            idToIdx[mv.ID] = i;
+            double x = extracted.Xy[i * 2];
+            double y = extracted.Xy[i * 2 + 1];
+            int sourceId = extracted.SourceIds[i];
 
-            double originalZ = mv.ID >= 0 && mv.ID < totalVerts
-                ? zList[mv.ID]
-                : faceGrid.InterpolateZ(mv.X, mv.Y);
+            double originalZ = sourceId >= 0 && sourceId < totalVerts
+                ? zList[sourceId]
+                : faceGrid.InterpolateZ(x, y);
 
-            topologyVertices[i * 3] = mv.X;
-            topologyVertices[i * 3 + 1] = mv.Y;
+            topologyVertices[i * 3] = x;
+            topologyVertices[i * 3 + 1] = y;
             topologyVertices[i * 3 + 2] = originalZ;
         }
 
-        var topologyFaces = new int[outFaceCount * 3];
-        for (int i = 0; i < outFaceCount; i++)
+        var topologyFaces = extracted.Faces;
+        var cullResult = TriangleBoundaryCuller.Cull(
+            topologyVertices,
+            outVertCount,
+            topologyFaces,
+            outFaceCount,
+            xyList.ToArray(),
+            IndexedMeshTools.FlattenSegments(segList),
+            0);
+
+        if (cullResult.Changed)
         {
-            var tri = outTris[i];
-            topologyFaces[i * 3] = idToIdx.GetValueOrDefault(tri.GetVertex(0).ID, 0);
-            topologyFaces[i * 3 + 1] = idToIdx.GetValueOrDefault(tri.GetVertex(1).ID, 0);
-            topologyFaces[i * 3 + 2] = idToIdx.GetValueOrDefault(tri.GetVertex(2).ID, 0);
+            topologyVertices = IndexedMeshTools.CompactDoubleData(topologyVertices, 3, cullResult.NewToOld, cullResult.VertexCount);
+            topologyFaces = cullResult.Faces;
+            outVertCount = cullResult.VertexCount;
+            outFaceCount = cullResult.FaceCount;
         }
 
         return new PadTopologyResult
@@ -459,6 +480,278 @@ public static class PadGrader
             if (rise < absDz)
                 gradedVertices[i * 3 + 2] = pad.TargetZ + Math.Sign(dz) * rise;
         }
+    }
+
+    private static double ComputePadTransitionDistance(double[] vertices, int vertexCount, PadBoundary pad)
+    {
+        double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
+        double maxZDiff = 0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double dz = Math.Abs(vertices[i * 3 + 2] - pad.TargetZ);
+            if (dz > maxZDiff)
+                maxZDiff = dz;
+        }
+
+        double transitionDistance = slopeRatio > 1e-12 ? maxZDiff / slopeRatio : 100.0;
+        if (pad.MaxDistance > 0)
+            transitionDistance = Math.Min(transitionDistance, pad.MaxDistance);
+        return transitionDistance;
+    }
+
+    private static void AddPadShoulderConstraint(
+        PadBoundary pad,
+        double shoulderDistance,
+        List<double> xyList,
+        List<double> zList,
+        SpatialHash vertHash,
+        FaceGrid faceGrid,
+        List<(int a, int b)> segList,
+        double dedupTol,
+        double[]? boundaryLoop,
+        int boundaryVertexCount)
+    {
+        if (shoulderDistance <= dedupTol)
+            return;
+
+        if (!TryBuildOffsetPolygon(pad.XyVertices, pad.VertexCount, shoulderDistance, out var shoulderXy))
+            return;
+
+        if (boundaryLoop != null && !AllPointsInsideOrOnBoundary(shoulderXy, pad.VertexCount, boundaryLoop, boundaryVertexCount, dedupTol))
+            return;
+
+        var shoulderIndices = new int[pad.VertexCount];
+        for (int i = 0; i < pad.VertexCount; i++)
+        {
+            double px = shoulderXy[i * 2];
+            double py = shoulderXy[i * 2 + 1];
+
+            int near = vertHash.FindNearest(xyList, px, py, dedupTol);
+            if (near >= 0)
+            {
+                shoulderIndices[i] = near;
+            }
+            else
+            {
+                shoulderIndices[i] = zList.Count;
+                xyList.Add(px);
+                xyList.Add(py);
+                zList.Add(faceGrid.InterpolateZ(px, py));
+                vertHash.Insert(shoulderIndices[i], px, py);
+            }
+        }
+
+        for (int i = 0; i < pad.VertexCount; i++)
+        {
+            int a = shoulderIndices[i];
+            int b = shoulderIndices[(i + 1) % pad.VertexCount];
+            if (a != b)
+                segList.Add((a, b));
+        }
+    }
+
+    private static bool TryBuildOffsetPolygon(double[] polygonXy, int vertexCount, double distance, out double[] offsetXy)
+    {
+        offsetXy = Array.Empty<double>();
+        if (vertexCount < 3 || distance <= 1e-9)
+            return false;
+
+        double signedArea = 0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int next = (i + 1) % vertexCount;
+            double x0 = polygonXy[i * 2];
+            double y0 = polygonXy[i * 2 + 1];
+            double x1 = polygonXy[next * 2];
+            double y1 = polygonXy[next * 2 + 1];
+            signedArea += x0 * y1 - x1 * y0;
+        }
+
+        if (Math.Abs(signedArea) < 1e-12)
+            return false;
+
+        bool ccw = signedArea > 0;
+        offsetXy = new double[vertexCount * 2];
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int prev = (i + vertexCount - 1) % vertexCount;
+            int next = (i + 1) % vertexCount;
+
+            double x0 = polygonXy[prev * 2];
+            double y0 = polygonXy[prev * 2 + 1];
+            double x1 = polygonXy[i * 2];
+            double y1 = polygonXy[i * 2 + 1];
+            double x2 = polygonXy[next * 2];
+            double y2 = polygonXy[next * 2 + 1];
+
+            double dx0 = x1 - x0;
+            double dy0 = y1 - y0;
+            double dx1 = x2 - x1;
+            double dy1 = y2 - y1;
+            double len0 = Math.Sqrt(dx0 * dx0 + dy0 * dy0);
+            double len1 = Math.Sqrt(dx1 * dx1 + dy1 * dy1);
+            if (len0 < 1e-12 || len1 < 1e-12)
+                return false;
+
+            double n0x = ccw ? dy0 / len0 : -dy0 / len0;
+            double n0y = ccw ? -dx0 / len0 : dx0 / len0;
+            double n1x = ccw ? dy1 / len1 : -dy1 / len1;
+            double n1y = ccw ? -dx1 / len1 : dx1 / len1;
+
+            double line0x = x1 + n0x * distance;
+            double line0y = y1 + n0y * distance;
+            double line1x = x1 + n1x * distance;
+            double line1y = y1 + n1y * distance;
+
+            if (TryIntersectLines(line0x, line0y, dx0, dy0, line1x, line1y, dx1, dy1, out double ix, out double iy))
+            {
+                double offsetLen = Math.Sqrt((ix - x1) * (ix - x1) + (iy - y1) * (iy - y1));
+                if (offsetLen <= distance * 4.0 && !double.IsNaN(offsetLen) && !double.IsInfinity(offsetLen))
+                {
+                    offsetXy[i * 2] = ix;
+                    offsetXy[i * 2 + 1] = iy;
+                    continue;
+                }
+            }
+
+            double bisX = n0x + n1x;
+            double bisY = n0y + n1y;
+            double bisLen = Math.Sqrt(bisX * bisX + bisY * bisY);
+            if (bisLen < 1e-12)
+            {
+                bisX = n0x;
+                bisY = n0y;
+                bisLen = Math.Sqrt(bisX * bisX + bisY * bisY);
+            }
+
+            offsetXy[i * 2] = x1 + bisX / bisLen * distance;
+            offsetXy[i * 2 + 1] = y1 + bisY / bisLen * distance;
+        }
+
+        return true;
+    }
+
+    internal static bool TryBuildBoundaryLoop(double[] vertices, int[] faces, int faceCount, out double[] boundaryXy, out int boundaryVertexCount)
+    {
+        boundaryXy = Array.Empty<double>();
+        boundaryVertexCount = 0;
+
+        var edgeFaceCount = new Dictionary<long, int>();
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3];
+            int b = faces[f * 3 + 1];
+            int c = faces[f * 3 + 2];
+            IncrEdge(edgeFaceCount, a, b);
+            IncrEdge(edgeFaceCount, b, c);
+            IncrEdge(edgeFaceCount, c, a);
+        }
+
+        var adjacency = new Dictionary<int, List<int>>();
+        int segmentCount = 0;
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            AddBoundaryNeighbor(adjacency, a, b);
+            AddBoundaryNeighbor(adjacency, b, a);
+            segmentCount++;
+        }
+
+        if (segmentCount < 3 || adjacency.Count == 0)
+            return false;
+
+        foreach (var neighbors in adjacency.Values)
+        {
+            if (neighbors.Count != 2)
+                return false;
+        }
+
+        int start = adjacency.Keys.Min();
+        var order = new List<int>(adjacency.Count);
+        int previous = -1;
+        int current = start;
+
+        while (true)
+        {
+            order.Add(current);
+            var neighbors = adjacency[current];
+            int next = neighbors[0] != previous ? neighbors[0] : neighbors[1];
+            previous = current;
+            current = next;
+
+            if (current == start)
+                break;
+
+            if (order.Count > adjacency.Count)
+                return false;
+        }
+
+        if (order.Count < 3 || order.Count != adjacency.Count)
+            return false;
+
+        boundaryVertexCount = order.Count;
+        boundaryXy = new double[boundaryVertexCount * 2];
+        for (int i = 0; i < boundaryVertexCount; i++)
+        {
+            int vertexIndex = order[i];
+            boundaryXy[i * 2] = vertices[vertexIndex * 3];
+            boundaryXy[i * 2 + 1] = vertices[vertexIndex * 3 + 1];
+        }
+
+        return true;
+    }
+
+    private static void AddBoundaryNeighbor(Dictionary<int, List<int>> adjacency, int from, int to)
+    {
+        if (!adjacency.TryGetValue(from, out var list))
+        {
+            list = new List<int>(2);
+            adjacency[from] = list;
+        }
+
+        list.Add(to);
+    }
+
+    internal static bool AllPointsInsideOrOnBoundary(double[] xy, int vertexCount, double[] boundaryLoop, int boundaryVertexCount, double tolerance)
+    {
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double px = xy[i * 2];
+            double py = xy[i * 2 + 1];
+            if (PointInPolygon(px, py, boundaryLoop, boundaryVertexCount))
+                continue;
+
+            if (DistToPolygon(px, py, boundaryLoop, boundaryVertexCount) <= tolerance)
+                continue;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryIntersectLines(
+        double ax, double ay, double adx, double ady,
+        double bx, double by, double bdx, double bdy,
+        out double ix, out double iy)
+    {
+        double denom = adx * bdy - ady * bdx;
+        if (Math.Abs(denom) < 1e-12)
+        {
+            ix = 0;
+            iy = 0;
+            return false;
+        }
+
+        double t = ((bx - ax) * bdy - (by - ay) * bdx) / denom;
+        ix = ax + t * adx;
+        iy = ay + t * ady;
+        return true;
     }
 
     private static GradingResult BuildResult(

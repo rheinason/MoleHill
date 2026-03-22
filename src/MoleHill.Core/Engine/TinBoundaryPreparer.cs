@@ -162,29 +162,53 @@ public static class TinBoundaryPreparer
         if (hull.Count < 3)
             return false;
 
-        var offsetHull = BuildOffsetHull(hull, xyCoords, tolerance, hullDiagonal);
+        var directHull = new double[hull.Count * 2];
+        for (int i = 0; i < hull.Count; i++)
+        {
+            directHull[i * 2] = xyCoords[hull[i] * 2];
+            directHull[i * 2 + 1] = xyCoords[hull[i] * 2 + 1];
+        }
+
+        bool useDirectHull = true;
         for (int i = 0; i < vertexCount; i++)
         {
-            if (!IsInsideOrOnBoundary(xyCoords[i * 2], xyCoords[i * 2 + 1], offsetHull, tolerance))
-                return false;
+            if (!IsInsideOrOnBoundary(xyCoords[i * 2], xyCoords[i * 2 + 1], directHull, tolerance))
+            {
+                useDirectHull = false;
+                break;
+            }
         }
 
         var xyList = xyCoords.ToList();
         var zList = zValues.ToList();
-        var segmentList = new List<(int a, int b)>(segments.Length / 2 + offsetHull.Length / 2);
+        var segmentList = new List<(int a, int b)>(segments.Length / 2 + hull.Count);
         var segmentKeys = new HashSet<long>();
         CopySegments(segments, vertexCount, segmentList, segmentKeys);
 
-        var loop = new List<int>(offsetHull.Length / 2);
-        for (int i = 0; i < offsetHull.Length / 2; i++)
+        if (useDirectHull)
         {
-            loop.Add(zList.Count);
-            xyList.Add(offsetHull[i * 2]);
-            xyList.Add(offsetHull[i * 2 + 1]);
-            zList.Add(double.NaN);
+            AddClosedLoop(segmentList, segmentKeys, hull);
         }
+        else
+        {
+            var offsetHull = BuildOffsetHull(hull, xyCoords, tolerance, hullDiagonal);
+            for (int i = 0; i < vertexCount; i++)
+            {
+                if (!IsInsideOrOnBoundary(xyCoords[i * 2], xyCoords[i * 2 + 1], offsetHull, tolerance))
+                    return false;
+            }
 
-        AddClosedLoop(segmentList, segmentKeys, loop);
+            var loop = new List<int>(offsetHull.Length / 2);
+            for (int i = 0; i < offsetHull.Length / 2; i++)
+            {
+                loop.Add(zList.Count);
+                xyList.Add(offsetHull[i * 2]);
+                xyList.Add(offsetHull[i * 2 + 1]);
+                zList.Add(double.NaN);
+            }
+
+            AddClosedLoop(segmentList, segmentKeys, loop);
+        }
 
         prepared = new PreparedTinInput
         {

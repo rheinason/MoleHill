@@ -22,7 +22,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             return;
 
         if (terrain.ShowTerrainMesh && displayState.PreviewTerrainMesh != null)
-            DrawGeneratedMesh(e, doc, terrain, displayState.PreviewTerrainMesh, terrain.TerrainLayerPath, terrain.TerrainColorArgb);
+            DrawGeneratedMesh(e, doc, terrain, displayState.PreviewTerrainMesh, terrain.TerrainLayerPath, null, terrain.TerrainColorArgb);
 
         if (terrain.ShowZoneMeshes)
         {
@@ -41,20 +41,20 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
     {
         if (generated.Geometry is Mesh mesh)
         {
-            DrawGeneratedMesh(e, doc, terrain, mesh, generated.LayerPath, generated.ColorArgb);
+            DrawGeneratedMesh(e, doc, terrain, mesh, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
             return;
         }
 
         if (generated.Geometry is Brep brep)
         {
-            var material = CreateDisplayMaterial(doc, terrain, generated.LayerPath, generated.ColorArgb);
+            var material = CreateDisplayMaterial(doc, terrain, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
             e.Display.DrawBrepShaded(brep, material);
             return;
         }
 
         if (generated.Geometry is TextDot textDot)
         {
-            var color = ResolveColor(doc, generated.LayerPath, generated.ColorArgb);
+            var color = ResolveColor(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
             e.Display.DrawDot(textDot.Point, textDot.Text, color, Color.White);
             return;
         }
@@ -63,21 +63,25 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             DrawMarkerTemplate(e, generated);
     }
 
-    private static void DrawGeneratedMesh(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, Mesh mesh, string? layerPath, int? colorArgb)
+    private static void DrawGeneratedMesh(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, Mesh mesh, string? layerPath, string? sourceLayerPath, int? colorArgb)
     {
         if (mesh.VertexColors.Count == mesh.Vertices.Count && mesh.VertexColors.Count > 0)
         {
             e.Display.DrawMeshFalseColors(mesh);
+            if (terrain.ShowMeshWires)
+                e.Display.DrawMeshWires(mesh, ResolveWireColor(doc, layerPath, sourceLayerPath, colorArgb));
             return;
         }
 
-        var material = CreateDisplayMaterial(doc, terrain, layerPath, colorArgb);
+        var material = CreateDisplayMaterial(doc, terrain, layerPath, sourceLayerPath, colorArgb);
         e.Display.DrawMeshShaded(mesh, material);
+        if (terrain.ShowMeshWires)
+            e.Display.DrawMeshWires(mesh, ResolveWireColor(doc, layerPath, sourceLayerPath, colorArgb));
     }
 
-    private static DisplayMaterial CreateDisplayMaterial(global::Rhino.RhinoDoc doc, TerrainDefinition terrain, string? layerPath, int? colorArgb)
+    private static DisplayMaterial CreateDisplayMaterial(global::Rhino.RhinoDoc doc, TerrainDefinition terrain, string? layerPath, string? sourceLayerPath, int? colorArgb)
     {
-        var color = GetOpaqueColor(ResolveColor(doc, layerPath, colorArgb));
+        var color = GetOpaqueColor(ResolveColor(doc, layerPath, sourceLayerPath, colorArgb));
         var material = new DisplayMaterial(color)
         {
             Transparency = ResolveTransparency(terrain, colorArgb)
@@ -85,19 +89,34 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         return material;
     }
 
-    private static Color ResolveColor(global::Rhino.RhinoDoc doc, string? layerPath, int? colorArgb)
+    private static Color ResolveColor(global::Rhino.RhinoDoc doc, string? layerPath, string? sourceLayerPath, int? colorArgb)
     {
         if (colorArgb.HasValue)
             return Color.FromArgb(colorArgb.Value);
 
+        if (TryResolveLayerColor(doc, sourceLayerPath, out var sourceColor))
+            return sourceColor;
+
+        if (TryResolveLayerColor(doc, layerPath, out var layerColor))
+            return layerColor;
+
+        return Color.FromArgb(180, 180, 180);
+    }
+
+    private static bool TryResolveLayerColor(global::Rhino.RhinoDoc doc, string? layerPath, out Color color)
+    {
         if (!string.IsNullOrWhiteSpace(layerPath))
         {
             int layerIndex = doc.Layers.FindByFullPath(layerPath, -1);
             if (layerIndex >= 0 && layerIndex < doc.Layers.Count)
-                return doc.Layers[layerIndex].Color;
+            {
+                color = doc.Layers[layerIndex].Color;
+                return true;
+            }
         }
 
-        return Color.FromArgb(180, 180, 180);
+        color = default;
+        return false;
     }
 
     private static double ResolveTransparency(TerrainDefinition terrain, int? colorArgb)
@@ -111,6 +130,15 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
     private static Color GetOpaqueColor(Color color)
     {
         return Color.FromArgb(color.R, color.G, color.B);
+    }
+
+    private static Color ResolveWireColor(global::Rhino.RhinoDoc doc, string? layerPath, string? sourceLayerPath, int? colorArgb)
+    {
+        var baseColor = GetOpaqueColor(ResolveColor(doc, layerPath, sourceLayerPath, colorArgb));
+        return Color.FromArgb(
+            Math.Max(0, (int)Math.Round(baseColor.R * 0.45)),
+            Math.Max(0, (int)Math.Round(baseColor.G * 0.45)),
+            Math.Max(0, (int)Math.Round(baseColor.B * 0.45)));
     }
 
     private static void DrawMarkerTemplate(DrawEventArgs e, GeneratedRhinoObject generated)

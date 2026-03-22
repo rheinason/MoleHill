@@ -259,6 +259,93 @@ public class SurfaceRemesherTests
             $"Expected no coarse island between inferred-boundary breaklines, got max strip triangle area {maxStripTriangleArea:F3}. Build: {buildMessage} Remesh: {remesh.Warning}");
     }
 
+    [Fact]
+    public void Remesh_UserReportedOpenBreaklines_DoesNotCreateHolesOrCoarseApronTriangles()
+    {
+        var constraints = CreateUserReportedBreaklines();
+        var (xy, z, segments) = CreateTinInputs(constraints);
+        var prepared = TinBoundaryPreparer.Prepare(
+            xy,
+            z,
+            segments,
+            Array.Empty<TinBoundaryPreparer.BoundaryPolyline>(),
+            0.001);
+
+        var engine = new TinEngine();
+        var tin = engine.Build(
+            prepared.XyCoords,
+            prepared.ZValues,
+            prepared.Segments,
+            QualitySettings.None,
+            out string? buildMessage,
+            useConvexHull: prepared.UseConvexHull);
+
+        Assert.NotNull(tin);
+
+        var remesh = SurfaceRemesher.Remesh(
+            tin!.Vertices,
+            tin.Faces,
+            constraints,
+            new SurfaceRemesher.Options
+            {
+                Tolerance = 0.001,
+                RequestedEdgeLength = 4.0,
+                MinAngle = 20.0,
+                ProtectSharpEdges = true
+            });
+
+        Assert.True(remesh.Success, buildMessage ?? remesh.Warning);
+
+        int boundaryLoopCount = CountBoundaryLoops(remesh.Faces);
+        var maxApronTriangle = GetMaxTriangleInBounds(
+            remesh.Vertices,
+            remesh.Faces,
+            minX: 18.0,
+            maxX: 53.5,
+            minY: 29.0,
+            maxY: 50.5);
+
+        Assert.Equal(
+            1,
+            boundaryLoopCount);
+        Assert.True(
+            maxApronTriangle.Area <= 30.0,
+            $"Expected no very large apron triangles, got max area {maxApronTriangle.Area:F3} at centroid ({maxApronTriangle.CentroidX:F3}, {maxApronTriangle.CentroidY:F3}) with vertices ({maxApronTriangle.Ax:F3}, {maxApronTriangle.Ay:F3}) / ({maxApronTriangle.Bx:F3}, {maxApronTriangle.By:F3}) / ({maxApronTriangle.Cx:F3}, {maxApronTriangle.Cy:F3}). Build: {buildMessage} Remesh: {remesh.Warning}");
+    }
+
+    [Fact(Skip = "Known repro: user-reported open-breakline remesh still leaves coarse apron triangles on a coarse envelope mesh.")]
+    public void Remesh_UserReportedOpenBreaklines_OnCoarseEnvelope_DoesNotLeaveVeryLargeApronTriangles()
+    {
+        var constraints = CreateUserReportedBreaklines();
+        var remesh = SurfaceRemesher.Remesh(
+            CreateUserReportedEnvelopeVertices(),
+            CreateSquareFaces(),
+            constraints,
+            new SurfaceRemesher.Options
+            {
+                Tolerance = 0.001,
+                RequestedEdgeLength = 4.0,
+                MinAngle = 20.0,
+                ProtectSharpEdges = true
+            });
+
+        Assert.True(remesh.Success, remesh.Warning);
+
+        int boundaryLoopCount = CountBoundaryLoops(remesh.Faces);
+        var maxApronTriangle = GetMaxTriangleInBounds(
+            remesh.Vertices,
+            remesh.Faces,
+            minX: 18.0,
+            maxX: 53.5,
+            minY: 29.0,
+            maxY: 50.5);
+
+        Assert.Equal(1, boundaryLoopCount);
+        Assert.True(
+            maxApronTriangle.Area <= 30.0,
+            $"Expected no very large apron triangles on coarse envelope, got max area {maxApronTriangle.Area:F3} at centroid ({maxApronTriangle.CentroidX:F3}, {maxApronTriangle.CentroidY:F3}) with vertices ({maxApronTriangle.Ax:F3}, {maxApronTriangle.Ay:F3}) / ({maxApronTriangle.Bx:F3}, {maxApronTriangle.By:F3}) / ({maxApronTriangle.Cx:F3}, {maxApronTriangle.Cy:F3}). Remesh: {remesh.Warning}");
+    }
+
     private static double[] CreateSlopedSquareVertices()
     {
         return new[]
@@ -278,6 +365,17 @@ public class SurfaceRemesherTests
             20.0, 0.0, 0.0,
             20.0, 20.0, 10.0,
             0.0, 20.0, 10.0
+        };
+    }
+
+    private static double[] CreateUserReportedEnvelopeVertices()
+    {
+        return new[]
+        {
+            0.0, 0.0, 0.0,
+            53.30, 0.0, 0.0,
+            53.30, 76.79, 10.62,
+            0.0, 76.79, 10.62
         };
     }
 
@@ -383,6 +481,60 @@ public class SurfaceRemesherTests
         return points;
     }
 
+    private static SurfaceRemesher.ConstraintPolyline[] CreateUserReportedBreaklines()
+    {
+        return new[]
+        {
+            new SurfaceRemesher.ConstraintPolyline(
+                new[]
+                {
+                    0.0, 0.0, 0.0,
+                    53.30, 0.0, 0.0
+                },
+                PointCount: 2,
+                IsClosed: false,
+                PreserveInputElevation: true),
+            new SurfaceRemesher.ConstraintPolyline(
+                new[]
+                {
+                    0.0, 76.79, 10.62,
+                    53.30, 76.79, 10.62
+                },
+                PointCount: 2,
+                IsClosed: false,
+                PreserveInputElevation: true),
+            new SurfaceRemesher.ConstraintPolyline(
+                new[]
+                {
+                    22.70, 41.88, 2.17,
+                    34.55, 29.92, 0.52,
+                    44.42, 29.92, 0.52
+                },
+                PointCount: 3,
+                IsClosed: false,
+                PreserveInputElevation: true),
+            new SurfaceRemesher.ConstraintPolyline(
+                new[]
+                {
+                    0.0, 49.93, 6.90,
+                    53.30, 49.93, 6.90
+                },
+                PointCount: 2,
+                IsClosed: false,
+                PreserveInputElevation: true),
+            new SurfaceRemesher.ConstraintPolyline(
+                new[]
+                {
+                    22.84, 42.02, 2.78,
+                    34.63, 30.12, 4.71,
+                    44.42, 30.12, 1.40
+                },
+                PointCount: 3,
+                IsClosed: false,
+                PreserveInputElevation: true)
+        };
+    }
+
     private static bool IsStrictlyInsideRegularLoop(double x, double y, double centerX, double centerY, double radius, int sides, double margin)
     {
         var polygon = Enumerable.Range(0, sides)
@@ -474,6 +626,127 @@ public class SurfaceRemesherTests
         }
 
         return maxArea;
+    }
+
+    private readonly record struct TriangleStat(
+        double Area,
+        double CentroidX,
+        double CentroidY,
+        double Ax,
+        double Ay,
+        double Bx,
+        double By,
+        double Cx,
+        double Cy);
+
+    private static TriangleStat GetMaxTriangleInBounds(
+        double[] vertices,
+        int[] faces,
+        double minX,
+        double maxX,
+        double minY,
+        double maxY)
+    {
+        double maxArea = 0.0;
+        double centroidAtMaxX = 0.0;
+        double centroidAtMaxY = 0.0;
+        double axAtMax = 0.0;
+        double ayAtMax = 0.0;
+        double bxAtMax = 0.0;
+        double byAtMax = 0.0;
+        double cxAtMax = 0.0;
+        double cyAtMax = 0.0;
+        for (int i = 0; i < faces.Length / 3; i++)
+        {
+            int a = faces[i * 3];
+            int b = faces[i * 3 + 1];
+            int c = faces[i * 3 + 2];
+            double centroidX = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
+            double centroidY = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0;
+            if (centroidX < minX || centroidX > maxX || centroidY < minY || centroidY > maxY)
+                continue;
+
+            double area = TriangleArea(vertices, a, b, c);
+            if (area > maxArea)
+            {
+                maxArea = area;
+                centroidAtMaxX = centroidX;
+                centroidAtMaxY = centroidY;
+                axAtMax = vertices[a * 3];
+                ayAtMax = vertices[a * 3 + 1];
+                bxAtMax = vertices[b * 3];
+                byAtMax = vertices[b * 3 + 1];
+                cxAtMax = vertices[c * 3];
+                cyAtMax = vertices[c * 3 + 1];
+            }
+        }
+
+        return new TriangleStat(maxArea, centroidAtMaxX, centroidAtMaxY, axAtMax, ayAtMax, bxAtMax, byAtMax, cxAtMax, cyAtMax);
+    }
+
+    private static int CountBoundaryLoops(int[] faces)
+    {
+        var edgeCounts = new Dictionary<long, int>();
+        for (int i = 0; i < faces.Length / 3; i++)
+        {
+            CountEdge(edgeCounts, faces[i * 3], faces[i * 3 + 1]);
+            CountEdge(edgeCounts, faces[i * 3 + 1], faces[i * 3 + 2]);
+            CountEdge(edgeCounts, faces[i * 3 + 2], faces[i * 3]);
+        }
+
+        var adjacency = new Dictionary<int, List<int>>();
+        foreach (var (key, count) in edgeCounts)
+        {
+            if (count != 1)
+                continue;
+
+            int a = (int)(key >> 32);
+            int b = (int)(key & 0xFFFFFFFFL);
+            AddBoundaryNeighbor(adjacency, a, b);
+            AddBoundaryNeighbor(adjacency, b, a);
+        }
+
+        var visited = new HashSet<int>();
+        int loops = 0;
+        foreach (int start in adjacency.Keys)
+        {
+            if (!visited.Add(start))
+                continue;
+
+            loops++;
+            var stack = new Stack<int>();
+            stack.Push(start);
+            while (stack.Count > 0)
+            {
+                int current = stack.Pop();
+                foreach (int next in adjacency[current])
+                {
+                    if (visited.Add(next))
+                        stack.Push(next);
+                }
+            }
+        }
+
+        return loops;
+    }
+
+    private static void CountEdge(Dictionary<long, int> edgeCounts, int a, int b)
+    {
+        int min = Math.Min(a, b);
+        int max = Math.Max(a, b);
+        long key = ((long)min << 32) | (uint)max;
+        edgeCounts[key] = edgeCounts.GetValueOrDefault(key, 0) + 1;
+    }
+
+    private static void AddBoundaryNeighbor(Dictionary<int, List<int>> adjacency, int from, int to)
+    {
+        if (!adjacency.TryGetValue(from, out var neighbors))
+        {
+            neighbors = new List<int>(2);
+            adjacency[from] = neighbors;
+        }
+
+        neighbors.Add(to);
     }
 
     private static double TriangleArea(double[] vertices, int a, int b, int c)

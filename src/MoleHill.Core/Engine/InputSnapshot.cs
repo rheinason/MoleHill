@@ -23,7 +23,12 @@ public sealed class InputSnapshot
     /// <summary>
     /// Compute hash of XY coordinates + segment definitions + quality settings + domain mode.
     /// </summary>
-    public static int ComputeXyHash(double[] xyCoords, int[] segments, QualitySettings quality, bool useConvexHull = true)
+    public static int ComputeXyHash(
+        double[] xyCoords,
+        int[] segments,
+        QualitySettings quality,
+        bool useConvexHull = true,
+        double maxBoundaryEdgeLength = 0)
     {
         var xyHasher = new HashCode();
         xyHasher.AddBytes(MemoryMarshal.AsBytes(xyCoords.AsSpan()));
@@ -34,6 +39,7 @@ public sealed class InputSnapshot
         qualityBuf[1] = quality.MinAngle;
         xyHasher.AddBytes(MemoryMarshal.AsBytes(qualityBuf));
         xyHasher.Add(useConvexHull);
+        xyHasher.Add(maxBoundaryEdgeLength);
 
         return xyHasher.ToHashCode();
     }

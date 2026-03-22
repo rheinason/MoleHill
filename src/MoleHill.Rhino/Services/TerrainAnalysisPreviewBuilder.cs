@@ -19,7 +19,7 @@ internal static class TerrainAnalysisPreviewBuilder
             return;
         }
 
-        AnalysisDefinition? activeAnalysis = terrain.Analyses.FirstOrDefault(analysis => analysis.IsEnabled);
+        AnalysisDefinition? activeAnalysis = terrain.Analyses.FirstOrDefault(analysis => analysis.IsEnabled && SupportsTerrainPreview(analysis));
         if (activeAnalysis == null)
         {
             state.PreviewTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(state.TerrainMesh);
@@ -50,11 +50,16 @@ internal static class TerrainAnalysisPreviewBuilder
             mesh.Vertices.Count,
             faces,
             mesh.Faces.Count,
-            SlopeAnalyzer.SlopeUnit.Percent,
+            analysis.Unit,
             Math.Max(0.0, analysis.RangeLow),
             Math.Max(0.0, analysis.RangeHigh),
             palette.Stops);
         return BuildFaceColorMesh(vertices, faces, mesh.Faces.Count, slope.FaceColors, alpha);
+    }
+
+    internal static bool SupportsTerrainPreview(AnalysisDefinition analysis)
+    {
+        return analysis is SlopeAnalysisDefinition or ElevationAnalysisDefinition or CutFillAnalysisDefinition;
     }
 
     private static RhinoMesh? BuildElevationPreviewMesh(RhinoMesh mesh, ElevationAnalysisDefinition analysis, byte alpha)

@@ -2,7 +2,7 @@ namespace MoleHill.Rhino.Model;
 
 public sealed class TerrainDefinition
 {
-    public const int CurrentSchemaVersion = 12;
+    public const int CurrentSchemaVersion = 13;
     public const int DefaultTerrainColorArgb = unchecked((int)0xFFC7D2C2);
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -26,6 +26,8 @@ public sealed class TerrainDefinition
     public bool ShowTerrainMesh { get; set; } = true;
 
     public bool ShowZoneMeshes { get; set; } = true;
+
+    public bool ShowMeshWires { get; set; } = true;
 
     public bool ShowSlopePreview { get; set; }
 
