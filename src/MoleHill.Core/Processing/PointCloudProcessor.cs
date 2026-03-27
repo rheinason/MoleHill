@@ -43,13 +43,21 @@ public static class PointCloudProcessor
         /// <summary>Number of duplicate points that were removed.</summary>
         public readonly int DuplicatesRemoved;
 
+        /// <summary>Number of points skipped because XY coordinates were invalid.</summary>
+        public readonly int InvalidCoordinatesSkipped;
+
+        /// <summary>Number of points skipped because Z coordinates were invalid.</summary>
+        public readonly int InvalidElevationsSkipped;
+
         /// <summary>Number of invalid points (NaN/Inf) that were skipped.</summary>
-        public readonly int InvalidsSkipped;
+        public int InvalidsSkipped => InvalidCoordinatesSkipped + InvalidElevationsSkipped;
 
         public MergedData(double[] xyCoords, double[] zValues, int vertexCount,
                           VertexSource[] sources,
                           int[] segments, int segmentCount,
-                          int duplicatesRemoved, int invalidsSkipped)
+                          int duplicatesRemoved,
+                          int invalidCoordinatesSkipped,
+                          int invalidElevationsSkipped = 0)
         {
             XyCoords = xyCoords;
             ZValues = zValues;
@@ -58,7 +66,25 @@ public static class PointCloudProcessor
             Segments = segments;
             SegmentCount = segmentCount;
             DuplicatesRemoved = duplicatesRemoved;
-            InvalidsSkipped = invalidsSkipped;
+            InvalidCoordinatesSkipped = invalidCoordinatesSkipped;
+            InvalidElevationsSkipped = invalidElevationsSkipped;
+        }
+
+        public string DescribeInvalidPoints(string noun = "points")
+        {
+            if (InvalidsSkipped == 0)
+                return $"0 invalid {noun} skipped";
+
+            if (InvalidCoordinatesSkipped > 0 && InvalidElevationsSkipped > 0)
+            {
+                return $"{InvalidsSkipped} invalid {noun} skipped " +
+                       $"({InvalidCoordinatesSkipped} with invalid XY, {InvalidElevationsSkipped} with invalid Z)";
+            }
+
+            if (InvalidCoordinatesSkipped > 0)
+                return $"{InvalidCoordinatesSkipped} invalid {noun} skipped due to invalid XY coordinates";
+
+            return $"{InvalidElevationsSkipped} invalid {noun} skipped due to invalid Z values";
         }
     }
 
@@ -85,7 +111,8 @@ public static class PointCloudProcessor
         var zList = new List<double>();
         var sources = new List<VertexSource>();
         int duplicates = 0;
-        int invalids = 0;
+        int invalidCoordinates = 0;
+        int invalidElevations = 0;
 
         var breaklineRemap = new int[breaklineData.VertexCount];
 
@@ -100,9 +127,16 @@ public static class PointCloudProcessor
             double y = breaklineData.Vertices[i * 3 + 1];
             double z = breaklineData.Vertices[i * 3 + 2];
 
-            if (double.IsNaN(x) || double.IsNaN(y) || double.IsInfinity(x) || double.IsInfinity(y))
+            if (!double.IsFinite(x) || !double.IsFinite(y))
             {
-                invalids++;
+                invalidCoordinates++;
+                breaklineRemap[i] = -1;
+                continue;
+            }
+
+            if (!double.IsFinite(z))
+            {
+                invalidElevations++;
                 breaklineRemap[i] = -1;
                 continue;
             }
@@ -122,9 +156,15 @@ public static class PointCloudProcessor
             double y = spotXyz[i * 3 + 1];
             double z = spotXyz[i * 3 + 2];
 
-            if (double.IsNaN(x) || double.IsNaN(y) || double.IsInfinity(x) || double.IsInfinity(y))
+            if (!double.IsFinite(x) || !double.IsFinite(y))
             {
-                invalids++;
+                invalidCoordinates++;
+                continue;
+            }
+
+            if (!double.IsFinite(z))
+            {
+                invalidElevations++;
                 continue;
             }
 
@@ -162,7 +202,8 @@ public static class PointCloudProcessor
             segList.ToArray(),
             segList.Count / 2,
             duplicates,
-            invalids);
+            invalidCoordinates,
+            invalidElevations);
     }
 
     private static void ThrowIfCancellationRequested(Func<bool>? shouldCancel)
@@ -227,7 +268,7 @@ public static class PointCloudProcessor
 
         xyList.Add(x);
         xyList.Add(y);
-        zList.Add(double.IsNaN(z) || double.IsInfinity(z) ? 0.0 : z);
+        zList.Add(z);
         sources.Add(VertexSource.None);
         return newIdx;
     }

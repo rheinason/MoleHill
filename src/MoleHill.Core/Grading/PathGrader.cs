@@ -1,3 +1,4 @@
+using System.Buffers;
 using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
@@ -132,49 +133,62 @@ public static class PathGrader
             var constraintPath = BuildConstraintPolyline(path, segmentLength, dedupTol);
             AddConstraintPolyline(constraints, constraintPath.XyVertices, constraintPath.ZValues, constraintPath.VertexCount);
 
-            var leftRoadXy = new double[constraintPath.VertexCount * 2];
-            var rightRoadXy = new double[constraintPath.VertexCount * 2];
-            double[]? leftShoulderXy = shoulderDistance > dedupTol ? new double[constraintPath.VertexCount * 2] : null;
-            double[]? rightShoulderXy = shoulderDistance > dedupTol ? new double[constraintPath.VertexCount * 2] : null;
+            int xyBufferLength = constraintPath.VertexCount * 2;
+            var leftRoadXy = ArrayPool<double>.Shared.Rent(xyBufferLength);
+            var rightRoadXy = ArrayPool<double>.Shared.Rent(xyBufferLength);
+            double[]? leftShoulderXy = shoulderDistance > dedupTol ? ArrayPool<double>.Shared.Rent(xyBufferLength) : null;
+            double[]? rightShoulderXy = shoulderDistance > dedupTol ? ArrayPool<double>.Shared.Rent(xyBufferLength) : null;
 
-            for (int i = 0; i < constraintPath.VertexCount; i++)
+            try
             {
-                double cx = constraintPath.XyVertices[i * 2];
-                double cy = constraintPath.XyVertices[i * 2 + 1];
-                ComputeDirection(constraintPath.XyVertices, constraintPath.VertexCount, i, out double dx, out double dy);
-
-                double roadPx = -dy * halfWidth;
-                double roadPy = dx * halfWidth;
-                leftRoadXy[i * 2] = cx + roadPx;
-                leftRoadXy[i * 2 + 1] = cy + roadPy;
-                rightRoadXy[i * 2] = cx - roadPx;
-                rightRoadXy[i * 2 + 1] = cy - roadPy;
-
-                if (leftShoulderXy != null && rightShoulderXy != null)
+                for (int i = 0; i < constraintPath.VertexCount; i++)
                 {
-                    double shoulderOffset = halfWidth + shoulderDistance;
-                    double shoulderPx = -dy * shoulderOffset;
-                    double shoulderPy = dx * shoulderOffset;
-                    leftShoulderXy[i * 2] = cx + shoulderPx;
-                    leftShoulderXy[i * 2 + 1] = cy + shoulderPy;
-                    rightShoulderXy[i * 2] = cx - shoulderPx;
-                    rightShoulderXy[i * 2 + 1] = cy - shoulderPy;
+                    double cx = constraintPath.XyVertices[i * 2];
+                    double cy = constraintPath.XyVertices[i * 2 + 1];
+                    ComputeDirection(constraintPath.XyVertices, constraintPath.VertexCount, i, out double dx, out double dy);
+
+                    double roadPx = -dy * halfWidth;
+                    double roadPy = dx * halfWidth;
+                    leftRoadXy[i * 2] = cx + roadPx;
+                    leftRoadXy[i * 2 + 1] = cy + roadPy;
+                    rightRoadXy[i * 2] = cx - roadPx;
+                    rightRoadXy[i * 2 + 1] = cy - roadPy;
+
+                    if (leftShoulderXy != null && rightShoulderXy != null)
+                    {
+                        double shoulderOffset = halfWidth + shoulderDistance;
+                        double shoulderPx = -dy * shoulderOffset;
+                        double shoulderPy = dx * shoulderOffset;
+                        leftShoulderXy[i * 2] = cx + shoulderPx;
+                        leftShoulderXy[i * 2 + 1] = cy + shoulderPy;
+                        rightShoulderXy[i * 2] = cx - shoulderPx;
+                        rightShoulderXy[i * 2 + 1] = cy - shoulderPy;
+                    }
+                }
+
+                AddConstraintPolyline(constraints, leftRoadXy, constraintPath.ZValues, constraintPath.VertexCount);
+                AddConstraintPolyline(constraints, rightRoadXy, constraintPath.ZValues, constraintPath.VertexCount);
+
+                if (leftShoulderXy != null)
+                {
+                    foreach (var run in CreateBoundaryClippedRuns(leftShoulderXy, constraintPath.ZValues, constraintPath.VertexCount, hasBoundaryLoop, boundaryLoop, boundaryVertexCount, dedupTol))
+                        AddConstraintPolyline(constraints, run.XyVertices, run.ZValues, run.VertexCount);
+                }
+
+                if (rightShoulderXy != null)
+                {
+                    foreach (var run in CreateBoundaryClippedRuns(rightShoulderXy, constraintPath.ZValues, constraintPath.VertexCount, hasBoundaryLoop, boundaryLoop, boundaryVertexCount, dedupTol))
+                        AddConstraintPolyline(constraints, run.XyVertices, run.ZValues, run.VertexCount);
                 }
             }
-
-            AddConstraintPolyline(constraints, leftRoadXy, constraintPath.ZValues, constraintPath.VertexCount);
-            AddConstraintPolyline(constraints, rightRoadXy, constraintPath.ZValues, constraintPath.VertexCount);
-
-            if (leftShoulderXy != null)
+            finally
             {
-                foreach (var run in CreateBoundaryClippedRuns(leftShoulderXy, constraintPath.ZValues, constraintPath.VertexCount, hasBoundaryLoop, boundaryLoop, boundaryVertexCount, dedupTol))
-                    AddConstraintPolyline(constraints, run.XyVertices, run.ZValues, run.VertexCount);
-            }
-
-            if (rightShoulderXy != null)
-            {
-                foreach (var run in CreateBoundaryClippedRuns(rightShoulderXy, constraintPath.ZValues, constraintPath.VertexCount, hasBoundaryLoop, boundaryLoop, boundaryVertexCount, dedupTol))
-                    AddConstraintPolyline(constraints, run.XyVertices, run.ZValues, run.VertexCount);
+                ArrayPool<double>.Shared.Return(leftRoadXy);
+                ArrayPool<double>.Shared.Return(rightRoadXy);
+                if (leftShoulderXy != null)
+                    ArrayPool<double>.Shared.Return(leftShoulderXy);
+                if (rightShoulderXy != null)
+                    ArrayPool<double>.Shared.Return(rightShoulderXy);
             }
         }
 
@@ -261,55 +275,65 @@ public static class PathGrader
             var centerIdx = new int[n];
             var leftIdx = new int[n];
             var rightIdx = new int[n];
-            double[]? leftShoulderXy = shoulderDistance > dedupTol ? new double[n * 2] : null;
-            double[]? rightShoulderXy = shoulderDistance > dedupTol ? new double[n * 2] : null;
+            double[]? leftShoulderXy = shoulderDistance > dedupTol ? ArrayPool<double>.Shared.Rent(n * 2) : null;
+            double[]? rightShoulderXy = shoulderDistance > dedupTol ? ArrayPool<double>.Shared.Rent(n * 2) : null;
             int[]? leftShoulderIdx = shoulderDistance > dedupTol ? new int[n] : null;
             int[]? rightShoulderIdx = shoulderDistance > dedupTol ? new int[n] : null;
 
-            for (int i = 0; i < n; i++)
+            try
             {
-                double cx = constraintPath.XyVertices[i * 2], cy = constraintPath.XyVertices[i * 2 + 1];
-                ComputeDirection(constraintPath.XyVertices, constraintPath.VertexCount, i, out double dx, out double dy);
-
-                // Perpendicular offset
-                double roadPx = -dy * halfWidth, roadPy = dx * halfWidth;
-
-                centerIdx[i] = AddVertex(cx, cy);
-                leftIdx[i] = AddVertex(cx + roadPx, cy + roadPy);
-                rightIdx[i] = AddVertex(cx - roadPx, cy - roadPy);
-
-                if (leftShoulderIdx != null && rightShoulderIdx != null)
+                for (int i = 0; i < n; i++)
                 {
-                    double shoulderOffset = halfWidth + shoulderDistance;
-                    double shoulderPx = -dy * shoulderOffset;
-                    double shoulderPy = dx * shoulderOffset;
-                    leftShoulderXy![i * 2] = cx + shoulderPx;
-                    leftShoulderXy[i * 2 + 1] = cy + shoulderPy;
-                    rightShoulderXy![i * 2] = cx - shoulderPx;
-                    rightShoulderXy[i * 2 + 1] = cy - shoulderPy;
+                    double cx = constraintPath.XyVertices[i * 2], cy = constraintPath.XyVertices[i * 2 + 1];
+                    ComputeDirection(constraintPath.XyVertices, constraintPath.VertexCount, i, out double dx, out double dy);
+
+                    // Perpendicular offset
+                    double roadPx = -dy * halfWidth, roadPy = dx * halfWidth;
+
+                    centerIdx[i] = AddVertex(cx, cy);
+                    leftIdx[i] = AddVertex(cx + roadPx, cy + roadPy);
+                    rightIdx[i] = AddVertex(cx - roadPx, cy - roadPy);
+
+                    if (leftShoulderIdx != null && rightShoulderIdx != null)
+                    {
+                        double shoulderOffset = halfWidth + shoulderDistance;
+                        double shoulderPx = -dy * shoulderOffset;
+                        double shoulderPy = dx * shoulderOffset;
+                        leftShoulderXy![i * 2] = cx + shoulderPx;
+                        leftShoulderXy[i * 2 + 1] = cy + shoulderPy;
+                        rightShoulderXy![i * 2] = cx - shoulderPx;
+                        rightShoulderXy[i * 2 + 1] = cy - shoulderPy;
+                    }
+                }
+
+                if (leftShoulderIdx != null && leftShoulderXy != null)
+                    leftShoulderIdx = AddShoulderConstraint(leftShoulderXy, n, hasBoundaryLoop, boundaryLoop, boundaryVertexCount, dedupTol, AddVertex);
+
+                if (rightShoulderIdx != null && rightShoulderXy != null)
+                    rightShoulderIdx = AddShoulderConstraint(rightShoulderXy, n, hasBoundaryLoop, boundaryLoop, boundaryVertexCount, dedupTol, AddVertex);
+
+                // Add constrained segments (open polylines, NOT closed)
+                for (int i = 0; i < n - 1; i++)
+                {
+                    if (centerIdx[i] != centerIdx[i + 1])
+                        segList.Add((centerIdx[i], centerIdx[i + 1]));
+                    if (leftIdx[i] != leftIdx[i + 1])
+                        segList.Add((leftIdx[i], leftIdx[i + 1]));
+                    if (rightIdx[i] != rightIdx[i + 1])
+                        segList.Add((rightIdx[i], rightIdx[i + 1]));
+
+                    if (leftShoulderIdx != null && leftShoulderIdx[i] >= 0 && leftShoulderIdx[i + 1] >= 0 && leftShoulderIdx[i] != leftShoulderIdx[i + 1])
+                        segList.Add((leftShoulderIdx[i], leftShoulderIdx[i + 1]));
+                    if (rightShoulderIdx != null && rightShoulderIdx[i] >= 0 && rightShoulderIdx[i + 1] >= 0 && rightShoulderIdx[i] != rightShoulderIdx[i + 1])
+                        segList.Add((rightShoulderIdx[i], rightShoulderIdx[i + 1]));
                 }
             }
-
-            if (leftShoulderIdx != null && leftShoulderXy != null)
-                leftShoulderIdx = AddShoulderConstraint(leftShoulderXy, n, hasBoundaryLoop, boundaryLoop, boundaryVertexCount, dedupTol, AddVertex);
-
-            if (rightShoulderIdx != null && rightShoulderXy != null)
-                rightShoulderIdx = AddShoulderConstraint(rightShoulderXy, n, hasBoundaryLoop, boundaryLoop, boundaryVertexCount, dedupTol, AddVertex);
-
-            // Add constrained segments (open polylines, NOT closed)
-            for (int i = 0; i < n - 1; i++)
+            finally
             {
-                if (centerIdx[i] != centerIdx[i + 1])
-                    segList.Add((centerIdx[i], centerIdx[i + 1]));
-                if (leftIdx[i] != leftIdx[i + 1])
-                    segList.Add((leftIdx[i], leftIdx[i + 1]));
-                if (rightIdx[i] != rightIdx[i + 1])
-                    segList.Add((rightIdx[i], rightIdx[i + 1]));
-
-                if (leftShoulderIdx != null && leftShoulderIdx[i] >= 0 && leftShoulderIdx[i + 1] >= 0 && leftShoulderIdx[i] != leftShoulderIdx[i + 1])
-                    segList.Add((leftShoulderIdx[i], leftShoulderIdx[i + 1]));
-                if (rightShoulderIdx != null && rightShoulderIdx[i] >= 0 && rightShoulderIdx[i + 1] >= 0 && rightShoulderIdx[i] != rightShoulderIdx[i + 1])
-                    segList.Add((rightShoulderIdx[i], rightShoulderIdx[i + 1]));
+                if (leftShoulderXy != null)
+                    ArrayPool<double>.Shared.Return(leftShoulderXy);
+                if (rightShoulderXy != null)
+                    ArrayPool<double>.Shared.Return(rightShoulderXy);
             }
         }
 
@@ -321,22 +345,21 @@ public static class PathGrader
             return null;
         }
 
-        var triMesh = TriangulationHelper.Triangulate(
+        TriangulationOutcome triangulation = TriangulationHelper.Triangulate(
             xyList, totalVerts, segList,
             0, 0, // no quality refinement
-            out string? triWarning,
             convex: false);
 
-        if (triMesh == null)
+        if (triangulation.Mesh == null)
         {
-            errorMessage = triWarning ?? "Triangulation failed.";
+            errorMessage = triangulation.WarningMessage ?? "Triangulation failed.";
             return null;
         }
 
-        if (triWarning != null)
-            errorMessage = triWarning;
+        if (triangulation.WarningMessage != null)
+            errorMessage = triangulation.WarningMessage;
 
-        var extracted = TriangleNetExtractor.Extract(triMesh);
+        var extracted = TriangleNetExtractor.Extract(triangulation.Mesh);
         int outVertCount = extracted.VertexCount;
         int outFaceCount = extracted.FaceCount;
 
@@ -464,28 +487,28 @@ public static class PathGrader
             mnX -= maxInfluence; mxX += maxInfluence;
             mnY -= maxInfluence; mxY += maxInfluence;
 
-            for (int i = 0; i < vertCount; i++)
+            System.Threading.Tasks.Parallel.For(0, vertCount, i =>
             {
                 double px = outXy[i * 2], py = outXy[i * 2 + 1];
 
-                if (px < mnX || px > mxX || py < mnY || py > mxY) continue;
+                if (px < mnX || px > mxX || py < mnY || py > mxY)
+                    return;
 
                 if (!TryFindClosestPathSample(path, px, py, out double closestDist, out double closestPathZ))
-                    continue;
+                    return;
 
                 if (closestDist <= halfWidth + 1e-6)
                 {
-                    // Inside road — use path Z
                     newZ[i] = closestPathZ;
                 }
                 else
                 {
-                    // Transition zone (same as pad transition)
                     double distFromEdge = closestDist - halfWidth;
                     double dz = origZ[i] - closestPathZ;
                     double absDz = Math.Abs(dz);
                     double neededDist = slopeRatio > 1e-12 ? absDz / slopeRatio : double.MaxValue;
-                    if (path.MaxDistance > 0) neededDist = Math.Min(neededDist, path.MaxDistance);
+                    if (path.MaxDistance > 0)
+                        neededDist = Math.Min(neededDist, path.MaxDistance);
 
                     if (distFromEdge < neededDist)
                     {
@@ -494,7 +517,7 @@ public static class PathGrader
                             newZ[i] = closestPathZ + Math.Sign(dz) * rise;
                     }
                 }
-            }
+            });
         }
     }
 
@@ -649,7 +672,7 @@ public static class PathGrader
     {
         if (!hasBoundaryLoop)
         {
-            yield return new ConstraintPath((double[])xyVertices.Clone(), (double[])zValues.Clone(), vertexCount);
+            yield return new ConstraintPath(CopyLeadingDoubles(xyVertices, vertexCount * 2), CopyLeadingDoubles(zValues, vertexCount), vertexCount);
             yield break;
         }
 
@@ -704,6 +727,13 @@ public static class PathGrader
         }
 
         constraints.Add(new SurfaceRemesher.ConstraintPolyline(points, vertexCount, IsClosed: false, PreserveInputElevation: false));
+    }
+
+    private static double[] CopyLeadingDoubles(double[] values, int length)
+    {
+        var copy = new double[length];
+        Array.Copy(values, copy, length);
+        return copy;
     }
 
     private static int[]? AddShoulderConstraint(

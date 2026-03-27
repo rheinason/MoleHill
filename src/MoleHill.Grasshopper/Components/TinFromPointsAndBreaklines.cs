@@ -143,7 +143,7 @@ public class TinFromPointsAndBreaklines : GH_Component
         if (merged.DuplicatesRemoved > 0)
             AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, $"{merged.DuplicatesRemoved} duplicate points merged.");
         if (merged.InvalidsSkipped > 0)
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"{merged.InvalidsSkipped} invalid points (NaN/Infinity) skipped.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, merged.DescribeInvalidPoints());
 
         if (merged.VertexCount < 3)
         {

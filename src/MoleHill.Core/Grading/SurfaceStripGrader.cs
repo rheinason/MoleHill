@@ -98,25 +98,24 @@ public static class SurfaceStripGrader
             return null;
         }
 
-        var triMesh = TriangulationHelper.Triangulate(
+        TriangulationOutcome triangulation = TriangulationHelper.Triangulate(
             xyList,
             totalVerts,
             segList,
             0,
             0,
-            out string? triWarning,
             convex: false);
 
-        if (triMesh == null)
+        if (triangulation.Mesh == null)
         {
-            errorMessage = triWarning ?? "Triangulation failed.";
+            errorMessage = triangulation.WarningMessage ?? "Triangulation failed.";
             return null;
         }
 
-        if (!string.IsNullOrWhiteSpace(triWarning))
-            errorMessage = triWarning;
+        if (!string.IsNullOrWhiteSpace(triangulation.WarningMessage))
+            errorMessage = triangulation.WarningMessage;
 
-        var extracted = TriangleNetExtractor.Extract(triMesh);
+        var extracted = TriangleNetExtractor.Extract(triangulation.Mesh);
         int outVertCount = extracted.VertexCount;
         int outFaceCount = extracted.FaceCount;
 
@@ -243,7 +242,7 @@ public static class SurfaceStripGrader
                 continue;
             }
 
-            double boundaryDistance = DistToBoundaryWithZ(px, py, surface.BoundaryVertices, surface.BoundaryVertexCount, out double boundaryZ);
+            double boundaryDistance = PadGrader.DistToBoundaryWithZ(px, py, surface.BoundaryVertices, surface.BoundaryVertexCount, out double boundaryZ);
             double dz = origZ[i] - boundaryZ;
             double absDz = Math.Abs(dz);
             double neededDist = slopeRatio > 1e-12 ? absDz / slopeRatio : double.MaxValue;
@@ -320,50 +319,6 @@ public static class SurfaceStripGrader
             if (a != b)
                 segList.Add((a, b));
         }
-    }
-
-    private static double DistToBoundaryWithZ(
-        double px,
-        double py,
-        double[] boundaryVertices,
-        int boundaryVertexCount,
-        out double boundaryZ)
-    {
-        boundaryZ = 0;
-        double minDist = double.MaxValue;
-
-        for (int i = 0; i < boundaryVertexCount; i++)
-        {
-            int next = (i + 1) % boundaryVertexCount;
-            double ax = boundaryVertices[i * 3];
-            double ay = boundaryVertices[i * 3 + 1];
-            double az = boundaryVertices[i * 3 + 2];
-            double bx = boundaryVertices[next * 3];
-            double by = boundaryVertices[next * 3 + 1];
-            double bz = boundaryVertices[next * 3 + 2];
-
-            double dx = bx - ax;
-            double dy = by - ay;
-            double lenSq = dx * dx + dy * dy;
-            double t = 0;
-            double cx = ax;
-            double cy = ay;
-            if (lenSq > 1e-20)
-            {
-                t = Math.Clamp(((px - ax) * dx + (py - ay) * dy) / lenSq, 0.0, 1.0);
-                cx = ax + t * dx;
-                cy = ay + t * dy;
-            }
-
-            double dist = Math.Sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
-            if (dist >= minDist)
-                continue;
-
-            minDist = dist;
-            boundaryZ = az + (bz - az) * t;
-        }
-
-        return minDist;
     }
 
     private static void CheckDaylightEdge(

@@ -6,28 +6,112 @@ using MoleHill.Core.Engine;
 namespace MoleHill.Core.Grading;
 
 /// <summary>
-/// Grades a terrain mesh by flattening areas inside boundary curves
-/// to a target elevation, with controlled slope transitions.
+/// Grades a terrain mesh by assigning a planar finished surface inside
+/// boundary curves, with controlled slope transitions.
 /// Re-triangulates the entire mesh with pad boundaries as constrained edges.
 /// </summary>
 public static class PadGrader
 {
+    private readonly record struct PadInfluenceBounds(
+        PadBoundary Pad,
+        double MinX,
+        double MaxX,
+        double MinY,
+        double MaxY,
+        double InfluenceMinX,
+        double InfluenceMaxX,
+        double InfluenceMinY,
+        double InfluenceMaxY);
+
     public sealed class PadBoundary
     {
         public double[] XyVertices { get; }
         public int VertexCount { get; }
-        public double TargetZ { get; }
+        public double[] BoundaryVertices { get; }
+        public double PlaneXCoeff { get; }
+        public double PlaneYCoeff { get; }
+        public double PlaneConstant { get; }
         public double SlopeAngleDeg { get; }
         public double MaxDistance { get; }
 
         public PadBoundary(double[] xyVertices, int vertexCount, double targetZ,
-                           double slopeAngleDeg = 33.0, double maxDistance = 0.0)
+            double slopeAngleDeg = 33.0, double maxDistance = 0.0)
         {
-            XyVertices = xyVertices;
+            XyVertices = (double[])xyVertices.Clone();
             VertexCount = vertexCount;
-            TargetZ = targetZ;
+            BoundaryVertices = BuildBoundaryVertices(XyVertices, vertexCount, targetZ);
+            PlaneXCoeff = 0.0;
+            PlaneYCoeff = 0.0;
+            PlaneConstant = targetZ;
             SlopeAngleDeg = Math.Max(0.1, Math.Min(89.9, slopeAngleDeg));
             MaxDistance = maxDistance;
+        }
+
+        public static PadBoundary CreatePlanar(
+            double[] boundaryVertices,
+            int vertexCount,
+            double planeXCoeff,
+            double planeYCoeff,
+            double planeConstant,
+            double slopeAngleDeg = 33.0,
+            double maxDistance = 0.0)
+        {
+            return new PadBoundary(
+                ExtractXyVertices(boundaryVertices, vertexCount),
+                boundaryVertices,
+                vertexCount,
+                planeXCoeff,
+                planeYCoeff,
+                planeConstant,
+                slopeAngleDeg,
+                maxDistance);
+        }
+
+        public double EvaluateZ(double x, double y) => PlaneXCoeff * x + PlaneYCoeff * y + PlaneConstant;
+
+        private PadBoundary(
+            double[] xyVertices,
+            double[] boundaryVertices,
+            int vertexCount,
+            double planeXCoeff,
+            double planeYCoeff,
+            double planeConstant,
+            double slopeAngleDeg,
+            double maxDistance)
+        {
+            XyVertices = (double[])xyVertices.Clone();
+            BoundaryVertices = (double[])boundaryVertices.Clone();
+            VertexCount = vertexCount;
+            PlaneXCoeff = planeXCoeff;
+            PlaneYCoeff = planeYCoeff;
+            PlaneConstant = planeConstant;
+            SlopeAngleDeg = Math.Max(0.1, Math.Min(89.9, slopeAngleDeg));
+            MaxDistance = maxDistance;
+        }
+
+        private static double[] BuildBoundaryVertices(double[] xyVertices, int vertexCount, double targetZ)
+        {
+            var boundaryVertices = new double[vertexCount * 3];
+            for (int i = 0; i < vertexCount; i++)
+            {
+                boundaryVertices[i * 3] = xyVertices[i * 2];
+                boundaryVertices[i * 3 + 1] = xyVertices[i * 2 + 1];
+                boundaryVertices[i * 3 + 2] = targetZ;
+            }
+
+            return boundaryVertices;
+        }
+
+        private static double[] ExtractXyVertices(double[] boundaryVertices, int vertexCount)
+        {
+            var xyVertices = new double[vertexCount * 2];
+            for (int i = 0; i < vertexCount; i++)
+            {
+                xyVertices[i * 2] = boundaryVertices[i * 3];
+                xyVertices[i * 2 + 1] = boundaryVertices[i * 3 + 1];
+            }
+
+            return xyVertices;
         }
     }
 
@@ -162,9 +246,19 @@ public static class PadGrader
 
         foreach (var pad in pads)
         {
-            if (pad.VertexCount < 3 || pad.XyVertices.Length < pad.VertexCount * 2)
+            if (pad.VertexCount < 3 ||
+                pad.XyVertices.Length < pad.VertexCount * 2 ||
+                pad.BoundaryVertices.Length < pad.VertexCount * 3)
             {
                 errorMessage = "Each pad must have at least 3 valid vertices.";
+                return false;
+            }
+
+            if (!double.IsFinite(pad.PlaneXCoeff) ||
+                !double.IsFinite(pad.PlaneYCoeff) ||
+                !double.IsFinite(pad.PlaneConstant))
+            {
+                errorMessage = "Each pad must define a valid finished plane.";
                 return false;
             }
         }
@@ -313,25 +407,24 @@ public static class PadGrader
             return null;
         }
 
-        IMesh? triMesh = TriangulationHelper.Triangulate(
+        TriangulationOutcome triangulation = TriangulationHelper.Triangulate(
             xyList,
             totalVerts,
             segList,
             maxArea,
             minAngle,
-            out string? triWarning,
             convex: false);
 
-        if (triMesh == null)
+        if (triangulation.Mesh == null)
         {
-            warningOrError = triWarning ?? "Triangulation failed.";
+            warningOrError = triangulation.WarningMessage ?? "Triangulation failed.";
             return null;
         }
 
-        if (!string.IsNullOrWhiteSpace(triWarning))
-            warningOrError = triWarning;
+        if (!string.IsNullOrWhiteSpace(triangulation.WarningMessage))
+            warningOrError = triangulation.WarningMessage;
 
-        var extracted = TriangleNetExtractor.Extract(triMesh);
+        var extracted = TriangleNetExtractor.Extract(triangulation.Mesh);
         int outVertCount = extracted.VertexCount;
         int outFaceCount = extracted.FaceCount;
 
@@ -384,89 +477,130 @@ public static class PadGrader
         int vertexCount,
         PadBoundary[] pads)
     {
+        if (pads.Length == 0)
+            return;
+
         double globalMinX = double.MaxValue;
         double globalMaxX = double.MinValue;
         double globalMinY = double.MaxValue;
         double globalMaxY = double.MinValue;
-        double globalMaxTrans = 0;
+        var padBounds = new PadInfluenceBounds[pads.Length];
+        var interiorBounds = new Bounds2D[pads.Length];
+        var influenceBounds = new Bounds2D[pads.Length];
 
         for (int p = 0; p < pads.Length; p++)
         {
             var pad = pads[p];
-            double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
+            double minX = double.MaxValue;
+            double maxX = double.MinValue;
+            double minY = double.MaxValue;
+            double maxY = double.MinValue;
 
             for (int i = 0; i < pad.VertexCount; i++)
             {
                 double vx = pad.XyVertices[i * 2];
                 double vy = pad.XyVertices[i * 2 + 1];
-                if (vx < globalMinX) globalMinX = vx;
-                if (vx > globalMaxX) globalMaxX = vx;
-                if (vy < globalMinY) globalMinY = vy;
-                if (vy > globalMaxY) globalMaxY = vy;
+                if (vx < minX) minX = vx;
+                if (vx > maxX) maxX = vx;
+                if (vy < minY) minY = vy;
+                if (vy > maxY) maxY = vy;
             }
 
-            double maxZDiff = 0;
-            for (int i = 0; i < vertexCount; i++)
-            {
-                double dz = Math.Abs(originalVertices[i * 3 + 2] - pad.TargetZ);
-                if (dz > maxZDiff)
-                    maxZDiff = dz;
-            }
+            double transitionDistance = ComputePadTransitionDistance(originalVertices, vertexCount, pad);
+            double influenceMinX = minX - transitionDistance;
+            double influenceMaxX = maxX + transitionDistance;
+            double influenceMinY = minY - transitionDistance;
+            double influenceMaxY = maxY + transitionDistance;
+            padBounds[p] = new PadInfluenceBounds(
+                pad,
+                minX,
+                maxX,
+                minY,
+                maxY,
+                influenceMinX,
+                influenceMaxX,
+                influenceMinY,
+                influenceMaxY);
+            interiorBounds[p] = new Bounds2D(minX, maxX, minY, maxY);
+            influenceBounds[p] = new Bounds2D(influenceMinX, influenceMaxX, influenceMinY, influenceMaxY);
 
-            double transitionDistance = slopeRatio > 1e-12 ? maxZDiff / slopeRatio : 100.0;
-            if (pad.MaxDistance > 0)
-                transitionDistance = Math.Min(transitionDistance, pad.MaxDistance);
-            if (transitionDistance > globalMaxTrans)
-                globalMaxTrans = transitionDistance;
+            if (influenceMinX < globalMinX) globalMinX = influenceMinX;
+            if (influenceMaxX > globalMaxX) globalMaxX = influenceMaxX;
+            if (influenceMinY < globalMinY) globalMinY = influenceMinY;
+            if (influenceMaxY > globalMaxY) globalMaxY = influenceMaxY;
         }
 
-        globalMinX -= globalMaxTrans;
-        globalMaxX += globalMaxTrans;
-        globalMinY -= globalMaxTrans;
-        globalMaxY += globalMaxTrans;
+        var interiorIndex = SpatialHashGrid2D.Build(interiorBounds);
+        var influenceIndex = SpatialHashGrid2D.Build(influenceBounds);
 
-        for (int i = 0; i < vertexCount; i++)
+        System.Threading.Tasks.Parallel.For(
+            0,
+            vertexCount,
+            () => (
+                InteriorScratch: new SpatialHashGrid2D.QueryScratch(pads.Length),
+                InfluenceScratch: new SpatialHashGrid2D.QueryScratch(pads.Length),
+                InteriorCandidates: new List<int>(8),
+                InfluenceCandidates: new List<int>(8)),
+            (i, _, state) =>
         {
             double px = gradedVertices[i * 3];
             double py = gradedVertices[i * 3 + 1];
 
             if (px < globalMinX || px > globalMaxX || py < globalMinY || py > globalMaxY)
-                continue;
+                return state;
+
+            interiorIndex.GatherCandidates(
+                Bounds2D.FromPoint(px, py),
+                state.InteriorCandidates,
+                state.InteriorScratch);
 
             int insidePadIdx = -1;
-            for (int p = pads.Length - 1; p >= 0; p--)
+            foreach (int p in state.InteriorCandidates)
             {
-                if (PointInPolygon(px, py, pads[p].XyVertices, pads[p].VertexCount))
-                {
-                    insidePadIdx = p;
-                    break;
-                }
+                var bounds = padBounds[p];
+                if (px < bounds.MinX || px > bounds.MaxX || py < bounds.MinY || py > bounds.MaxY)
+                    continue;
+
+                if (PointInPolygon(px, py, bounds.Pad.XyVertices, bounds.Pad.VertexCount))
+                    insidePadIdx = Math.Max(insidePadIdx, p);
             }
 
             if (insidePadIdx >= 0)
             {
-                gradedVertices[i * 3 + 2] = pads[insidePadIdx].TargetZ;
-                continue;
+                gradedVertices[i * 3 + 2] = pads[insidePadIdx].EvaluateZ(px, py);
+                return state;
             }
+
+            influenceIndex.GatherCandidates(
+                Bounds2D.FromPoint(px, py),
+                state.InfluenceCandidates,
+                state.InfluenceScratch);
 
             double nearestDist = double.MaxValue;
             int nearestPadIdx = -1;
-            for (int p = 0; p < pads.Length; p++)
+            double nearestBoundaryZ = 0.0;
+            foreach (int p in state.InfluenceCandidates)
             {
-                double dist = DistToPolygon(px, py, pads[p].XyVertices, pads[p].VertexCount);
-                if (dist < nearestDist)
+                var bounds = padBounds[p];
+                if (px < bounds.InfluenceMinX || px > bounds.InfluenceMaxX || py < bounds.InfluenceMinY || py > bounds.InfluenceMaxY)
+                    continue;
+
+                double dist = DistToBoundaryWithZ(px, py, bounds.Pad.BoundaryVertices, bounds.Pad.VertexCount, out double boundaryZ);
+                if (dist < nearestDist - 1e-12 ||
+                    (Math.Abs(dist - nearestDist) <= 1e-12 && (nearestPadIdx < 0 || p < nearestPadIdx)))
                 {
                     nearestDist = dist;
                     nearestPadIdx = p;
+                    nearestBoundaryZ = boundaryZ;
                 }
             }
 
             if (nearestPadIdx < 0)
-                continue;
+                return state;
 
             var pad = pads[nearestPadIdx];
             double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
-            double dz = originalVertices[i * 3 + 2] - pad.TargetZ;
+            double dz = originalVertices[i * 3 + 2] - nearestBoundaryZ;
             double absDz = Math.Abs(dz);
 
             double neededDist = slopeRatio > 1e-12 ? absDz / slopeRatio : double.MaxValue;
@@ -474,12 +608,13 @@ public static class PadGrader
                 neededDist = Math.Min(neededDist, pad.MaxDistance);
 
             if (nearestDist >= neededDist)
-                continue;
+                return state;
 
             double rise = nearestDist * slopeRatio;
             if (rise < absDz)
-                gradedVertices[i * 3 + 2] = pad.TargetZ + Math.Sign(dz) * rise;
-        }
+                gradedVertices[i * 3 + 2] = nearestBoundaryZ + Math.Sign(dz) * rise;
+            return state;
+        }, _ => { });
     }
 
     private static double ComputePadTransitionDistance(double[] vertices, int vertexCount, PadBoundary pad)
@@ -488,7 +623,7 @@ public static class PadGrader
         double maxZDiff = 0;
         for (int i = 0; i < vertexCount; i++)
         {
-            double dz = Math.Abs(vertices[i * 3 + 2] - pad.TargetZ);
+            double dz = Math.Abs(vertices[i * 3 + 2] - pad.EvaluateZ(vertices[i * 3], vertices[i * 3 + 1]));
             if (dz > maxZDiff)
                 maxZDiff = dz;
         }
@@ -752,6 +887,50 @@ public static class PadGrader
         ix = ax + t * adx;
         iy = ay + t * ady;
         return true;
+    }
+
+    internal static double DistToBoundaryWithZ(
+        double px,
+        double py,
+        double[] boundaryVertices,
+        int boundaryVertexCount,
+        out double boundaryZ)
+    {
+        boundaryZ = 0;
+        double minDist = double.MaxValue;
+
+        for (int i = 0; i < boundaryVertexCount; i++)
+        {
+            int next = (i + 1) % boundaryVertexCount;
+            double ax = boundaryVertices[i * 3];
+            double ay = boundaryVertices[i * 3 + 1];
+            double az = boundaryVertices[i * 3 + 2];
+            double bx = boundaryVertices[next * 3];
+            double by = boundaryVertices[next * 3 + 1];
+            double bz = boundaryVertices[next * 3 + 2];
+
+            double dx = bx - ax;
+            double dy = by - ay;
+            double lenSq = dx * dx + dy * dy;
+            double t = 0;
+            double cx = ax;
+            double cy = ay;
+            if (lenSq > 1e-20)
+            {
+                t = Math.Clamp(((px - ax) * dx + (py - ay) * dy) / lenSq, 0.0, 1.0);
+                cx = ax + t * dx;
+                cy = ay + t * dy;
+            }
+
+            double dist = Math.Sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+            if (dist >= minDist)
+                continue;
+
+            minDist = dist;
+            boundaryZ = az + (bz - az) * t;
+        }
+
+        return minDist;
     }
 
     private static GradingResult BuildResult(

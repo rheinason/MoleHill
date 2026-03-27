@@ -22,68 +22,6 @@ public static class MeshAreaSplitter
         public required double MaxY { get; init; }
     }
 
-    private sealed class AreaSpatialIndex
-    {
-        private readonly double _minX;
-        private readonly double _maxX;
-        private readonly double _minY;
-        private readonly double _maxY;
-        private readonly double _invCell;
-        private readonly Dictionary<long, List<int>> _grid = new();
-
-        public AreaSpatialIndex(IndexedArea[] areas)
-        {
-            _minX = areas.Min(area => area.MinX);
-            _maxX = areas.Max(area => area.MaxX);
-            _minY = areas.Min(area => area.MinY);
-            _maxY = areas.Max(area => area.MaxY);
-
-            double span = Math.Max(_maxX - _minX, _maxY - _minY);
-            int gridResolution = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(areas.Length * 2.0)));
-            double cellSize = Math.Max(span / gridResolution, 1e-6);
-            _invCell = 1.0 / cellSize;
-
-            for (int areaIndex = 0; areaIndex < areas.Length; areaIndex++)
-            {
-                var area = areas[areaIndex];
-                long minCellX = ToCell(area.MinX);
-                long maxCellX = ToCell(area.MaxX);
-                long minCellY = ToCell(area.MinY);
-                long maxCellY = ToCell(area.MaxY);
-
-                for (long cellY = minCellY; cellY <= maxCellY; cellY++)
-                {
-                    for (long cellX = minCellX; cellX <= maxCellX; cellX++)
-                    {
-                        long key = PackKey(cellX, cellY);
-                        if (!_grid.TryGetValue(key, out var list))
-                        {
-                            list = new List<int>();
-                            _grid[key] = list;
-                        }
-
-                        list.Add(areaIndex);
-                    }
-                }
-            }
-        }
-
-        public void GatherCandidates(double x, double y, List<int> candidates)
-        {
-            candidates.Clear();
-            if (x < _minX || x > _maxX || y < _minY || y > _maxY)
-                return;
-
-            if (_grid.TryGetValue(PackKey(ToCell(x), ToCell(y)), out var list))
-                candidates.AddRange(list);
-        }
-
-        private long ToCell(double value) => (long)Math.Floor(value * _invCell);
-
-        private static long PackKey(long cellX, long cellY) =>
-            (cellX * 0x100000001L) ^ (cellY * 0x27d4eb2dL);
-    }
-
     /// <summary>
     /// Closed polygon boundary defining an area.
     /// </summary>
@@ -195,46 +133,39 @@ public static class MeshAreaSplitter
 
         var finalVerts = remeshResult.Vertices;
         var finalFaces = remeshResult.Faces;
-        int outVertCount = finalVerts.Length / 3;
-        int outFaceCount = finalFaces.Length / 3;
-        var faceAreaIndex = new int[outFaceCount];
-        var indexedAreas = BuildIndexedAreas(areas);
-        var areaIndex = new AreaSpatialIndex(indexedAreas);
-
-        System.Threading.Tasks.Parallel.For(0, outFaceCount, () => new List<int>(8), (faceIndex, _, candidates) =>
-        {
-            int i0 = finalFaces[faceIndex * 3];
-            int i1 = finalFaces[faceIndex * 3 + 1];
-            int i2 = finalFaces[faceIndex * 3 + 2];
-
-            double cx = (finalVerts[i0 * 3] + finalVerts[i1 * 3] + finalVerts[i2 * 3]) / 3.0;
-            double cy = (finalVerts[i0 * 3 + 1] + finalVerts[i1 * 3 + 1] + finalVerts[i2 * 3 + 1]) / 3.0;
-
-            areaIndex.GatherCandidates(cx, cy, candidates);
-
-            faceAreaIndex[faceIndex] = -1;
-            for (int candidateIndex = candidates.Count - 1; candidateIndex >= 0; candidateIndex--)
-            {
-                int areaNumber = candidates[candidateIndex];
-                var area = indexedAreas[areaNumber];
-                if (cx < area.MinX || cx > area.MaxX || cy < area.MinY || cy > area.MaxY)
-                    continue;
-
-                if (PadGrader.PointInPolygon(cx, cy, area.Boundary.XyVertices, area.Boundary.VertexCount))
-                {
-                    faceAreaIndex[faceIndex] = areaNumber;
-                    break;
-                }
-            }
-
-            return candidates;
-        }, _ => { });
-
-        return new SplitResult(
+        return Classify(
             finalVerts,
-            outVertCount,
+            finalVerts.Length / 3,
             finalFaces,
-            outFaceCount,
+            finalFaces.Length / 3,
+            areas,
+            tolerance,
+            out _);
+    }
+
+    public static SplitResult? Classify(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        AreaBoundary[] areas,
+        double boundaryTolerance,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+
+        if (areas.Length == 0)
+        {
+            errorMessage = "No area boundaries provided.";
+            return null;
+        }
+
+        var faceAreaIndex = BuildFaceAreaIndex(vertices, faces, areas, boundaryTolerance);
+        return new SplitResult(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
             faceAreaIndex,
             areas.Length);
     }
@@ -284,5 +215,89 @@ public static class MeshAreaSplitter
         }
 
         return result;
+    }
+
+    private static int[] BuildFaceAreaIndex(
+        double[] vertices,
+        int[] faces,
+        AreaBoundary[] areas,
+        double boundaryTolerance)
+    {
+        int faceCount = faces.Length / 3;
+        var faceAreaIndex = new int[faceCount];
+        var indexedAreas = BuildIndexedAreas(areas);
+        var areaBounds = new Bounds2D[indexedAreas.Length];
+        for (int i = 0; i < indexedAreas.Length; i++)
+            areaBounds[i] = new Bounds2D(indexedAreas[i].MinX, indexedAreas[i].MaxX, indexedAreas[i].MinY, indexedAreas[i].MaxY);
+
+        var areaIndex = SpatialHashGrid2D.Build(areaBounds);
+        double tolerance = Math.Max(boundaryTolerance, 0.0);
+
+        System.Threading.Tasks.Parallel.For(
+            0,
+            faceCount,
+            () => (Scratch: new SpatialHashGrid2D.QueryScratch(indexedAreas.Length), Candidates: new List<int>(8)),
+            (faceIndex, _, state) =>
+        {
+            int i0 = faces[faceIndex * 3];
+            int i1 = faces[faceIndex * 3 + 1];
+            int i2 = faces[faceIndex * 3 + 2];
+
+            double cx = (vertices[i0 * 3] + vertices[i1 * 3] + vertices[i2 * 3]) / 3.0;
+            double cy = (vertices[i0 * 3 + 1] + vertices[i1 * 3 + 1] + vertices[i2 * 3 + 1]) / 3.0;
+
+            areaIndex.GatherCandidates(Bounds2D.FromPoint(cx, cy, tolerance), state.Candidates, state.Scratch);
+
+            faceAreaIndex[faceIndex] = -1;
+            for (int candidateIndex = state.Candidates.Count - 1; candidateIndex >= 0; candidateIndex--)
+            {
+                int areaNumber = state.Candidates[candidateIndex];
+                var area = indexedAreas[areaNumber];
+                if (cx < area.MinX - tolerance || cx > area.MaxX + tolerance || cy < area.MinY - tolerance || cy > area.MaxY + tolerance)
+                    continue;
+
+                if ((tolerance > 0 && DistanceToBoundary(cx, cy, area.Boundary) <= tolerance) ||
+                    PadGrader.PointInPolygon(cx, cy, area.Boundary.XyVertices, area.Boundary.VertexCount))
+                {
+                    faceAreaIndex[faceIndex] = areaNumber;
+                    break;
+                }
+            }
+
+            return state;
+        }, _ => { });
+
+        return faceAreaIndex;
+    }
+
+    private static double DistanceToBoundary(double x, double y, AreaBoundary area)
+    {
+        double best = double.PositiveInfinity;
+        for (int i = 0; i < area.VertexCount; i++)
+        {
+            int next = (i + 1) % area.VertexCount;
+            double ax = area.XyVertices[i * 2];
+            double ay = area.XyVertices[i * 2 + 1];
+            double bx = area.XyVertices[next * 2];
+            double by = area.XyVertices[next * 2 + 1];
+            best = Math.Min(best, DistanceToSegment(x, y, ax, ay, bx, by));
+        }
+
+        return best;
+    }
+
+    private static double DistanceToSegment(double px, double py, double ax, double ay, double bx, double by)
+    {
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lengthSquared = (dx * dx) + (dy * dy);
+        double t = lengthSquared <= 1e-20
+            ? 0.0
+            : Math.Clamp((((px - ax) * dx) + ((py - ay) * dy)) / lengthSquared, 0.0, 1.0);
+        double closestX = ax + (dx * t);
+        double closestY = ay + (dy * t);
+        double offsetX = px - closestX;
+        double offsetY = py - closestY;
+        return Math.Sqrt((offsetX * offsetX) + (offsetY * offsetY));
     }
 }

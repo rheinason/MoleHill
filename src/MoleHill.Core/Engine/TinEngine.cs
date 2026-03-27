@@ -50,6 +50,82 @@ public class TinEngine
         }
     }
 
+    private readonly struct SegmentInfo
+    {
+        public readonly int A;
+        public readonly int B;
+        public readonly double X0;
+        public readonly double Y0;
+        public readonly double Dx;
+        public readonly double Dy;
+        public readonly double LengthSquared;
+        public readonly double ToleranceSquared;
+        public readonly Bounds2D Bounds;
+
+        public SegmentInfo(
+            int a,
+            int b,
+            double x0,
+            double y0,
+            double dx,
+            double dy,
+            double lengthSquared,
+            double toleranceSquared,
+            Bounds2D bounds)
+        {
+            A = a;
+            B = b;
+            X0 = x0;
+            Y0 = y0;
+            Dx = dx;
+            Dy = dy;
+            LengthSquared = lengthSquared;
+            ToleranceSquared = toleranceSquared;
+            Bounds = bounds;
+        }
+    }
+
+    private readonly struct FaceInfo
+    {
+        public readonly int I0;
+        public readonly int I1;
+        public readonly int I2;
+        public readonly double X0;
+        public readonly double Y0;
+        public readonly double X1;
+        public readonly double Y1;
+        public readonly double X2;
+        public readonly double Y2;
+        public readonly double Denominator;
+        public readonly Bounds2D Bounds;
+
+        public FaceInfo(
+            int i0,
+            int i1,
+            int i2,
+            double x0,
+            double y0,
+            double x1,
+            double y1,
+            double x2,
+            double y2,
+            double denominator,
+            Bounds2D bounds)
+        {
+            I0 = i0;
+            I1 = i1;
+            I2 = i2;
+            X0 = x0;
+            Y0 = y0;
+            X1 = x1;
+            Y1 = y1;
+            X2 = x2;
+            Y2 = y2;
+            Denominator = denominator;
+            Bounds = bounds;
+        }
+    }
+
     public TinResult? Build(double[] xyCoords, double[] zValues,
                             int[] segments, QualitySettings quality,
                             out string? errorMessage,
@@ -645,134 +721,27 @@ public class TinEngine
         if (steinerIndices.Count == 0)
             return;
 
-        double minX = double.MaxValue, maxX = double.MinValue;
-        double minY = double.MaxValue, maxY = double.MinValue;
-        for (int i = 0; i < vertCount; i++)
+        void GatherCandidatesOrAll(
+            SpatialHashGrid2D index,
+            in Bounds2D queryBounds,
+            List<int> candidates,
+            SpatialHashGrid2D.QueryScratch scratch,
+            int itemCount)
         {
-            double x = verts[i * 3];
-            double y = verts[i * 3 + 1];
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-        }
-
-        double ChooseCellSize(int candidateCount)
-        {
-            if (candidateCount <= 0) return 1.0;
-
-            double spanX = maxX - minX;
-            double spanY = maxY - minY;
-            double span = Math.Max(spanX, spanY);
-            if (span <= 0 || double.IsNaN(span) || double.IsInfinity(span))
-                return 1.0;
-
-            return Math.Max(span / Math.Max(8.0, Math.Sqrt(candidateCount)), 1e-9);
-        }
-
-        Dictionary<(long, long), List<int>> BuildSpatialIndex(
-            double[] minXs, double[] maxXs, double[] minYs, double[] maxYs,
-            bool[] valid, int count, double invCell)
-        {
-            var index = new Dictionary<(long, long), List<int>>(Math.Max(16, count));
-            for (int i = 0; i < count; i++)
-            {
-                if (!valid[i]) continue;
-
-                long cminX = (long)Math.Floor((minXs[i] - minX) * invCell);
-                long cmaxX = (long)Math.Floor((maxXs[i] - minX) * invCell);
-                long cminY = (long)Math.Floor((minYs[i] - minY) * invCell);
-                long cmaxY = (long)Math.Floor((maxYs[i] - minY) * invCell);
-
-                for (long cx = cminX; cx <= cmaxX; cx++)
-                {
-                    for (long cy = cminY; cy <= cmaxY; cy++)
-                    {
-                        var key = (cx, cy);
-                        if (!index.TryGetValue(key, out var list))
-                        {
-                            list = new List<int>(4);
-                            index[key] = list;
-                        }
-                        list.Add(i);
-                    }
-                }
-            }
-            return index;
-        }
-
-        void FillCandidates(
-            Dictionary<(long, long), List<int>> index,
-            double x, double y, double invCell,
-            int[] marks, ref int stamp, int totalCount,
-            List<int> candidates)
-        {
-            candidates.Clear();
-            if (totalCount == 0)
-                return;
-
-            if (index.Count == 0)
-            {
-                for (int i = 0; i < totalCount; i++) candidates.Add(i);
-                return;
-            }
-
-            if (stamp == int.MaxValue)
-            {
-                Array.Clear(marks, 0, marks.Length);
-                stamp = 1;
-            }
-            else
-            {
-                stamp++;
-            }
-
-            long cx = (long)Math.Floor((x - minX) * invCell);
-            long cy = (long)Math.Floor((y - minY) * invCell);
-            int currentStamp = stamp;
-
-            for (long dx = -1; dx <= 1; dx++)
-            {
-                for (long dy = -1; dy <= 1; dy++)
-                {
-                    if (!index.TryGetValue((cx + dx, cy + dy), out var list))
-                        continue;
-
-                    foreach (int candidate in list)
-                    {
-                        if (marks[candidate] == currentStamp) continue;
-                        marks[candidate] = currentStamp;
-                        candidates.Add(candidate);
-                    }
-                }
-            }
-
+            index.GatherCandidates(queryBounds, candidates, scratch);
             if (candidates.Count == 0)
             {
-                for (int i = 0; i < totalCount; i++) candidates.Add(i);
+                for (int i = 0; i < itemCount; i++)
+                    candidates.Add(i);
             }
         }
 
-        var inputSegValid = new bool[inputSegCount];
-        var inputSegA = new int[inputSegCount];
-        var inputSegB = new int[inputSegCount];
-        var inputSegX0 = new double[inputSegCount];
-        var inputSegY0 = new double[inputSegCount];
-        var inputSegDx = new double[inputSegCount];
-        var inputSegDy = new double[inputSegCount];
-        var inputSegLenSq = new double[inputSegCount];
-        var inputSegTolSq = new double[inputSegCount];
-        var inputSegMinX = new double[inputSegCount];
-        var inputSegMaxX = new double[inputSegCount];
-        var inputSegMinY = new double[inputSegCount];
-        var inputSegMaxY = new double[inputSegCount];
+        var inputSegmentInfos = new List<SegmentInfo>(inputSegCount);
 
         for (int s = 0; s < inputSegCount; s++)
         {
             int a = inputSegments[s * 2];
             int b = inputSegments[s * 2 + 1];
-            inputSegA[s] = a;
-            inputSegB[s] = b;
 
             if (a < 0 || a >= inputVertCount || b < 0 || b >= inputVertCount || a == b)
                 continue;
@@ -787,43 +756,29 @@ public class TinEngine
             if (lenSq < eps * eps)
                 continue;
 
-            inputSegX0[s] = x0;
-            inputSegY0[s] = y0;
-            inputSegDx[s] = dx;
-            inputSegDy[s] = dy;
-            inputSegLenSq[s] = lenSq;
-
             double tol = Math.Sqrt(lenSq) * 1e-6 + 1e-8;
-            double tolSq = tol * tol;
-            inputSegTolSq[s] = tolSq;
-
-            inputSegMinX[s] = Math.Min(x0, x1) - tol;
-            inputSegMaxX[s] = Math.Max(x0, x1) + tol;
-            inputSegMinY[s] = Math.Min(y0, y1) - tol;
-            inputSegMaxY[s] = Math.Max(y0, y1) + tol;
-            inputSegValid[s] = true;
+            inputSegmentInfos.Add(new SegmentInfo(
+                a,
+                b,
+                x0,
+                y0,
+                dx,
+                dy,
+                lenSq,
+                tol * tol,
+                new Bounds2D(
+                    Math.Min(x0, x1) - tol,
+                    Math.Max(x0, x1) + tol,
+                    Math.Min(y0, y1) - tol,
+                    Math.Max(y0, y1) + tol)));
         }
 
-        var edgeValid = new bool[edgeCount];
-        var edgeI0 = new int[edgeCount];
-        var edgeI1 = new int[edgeCount];
-        var edgeX0 = new double[edgeCount];
-        var edgeY0 = new double[edgeCount];
-        var edgeDx = new double[edgeCount];
-        var edgeDy = new double[edgeCount];
-        var edgeLenSq = new double[edgeCount];
-        var edgeTolSq = new double[edgeCount];
-        var edgeMinX = new double[edgeCount];
-        var edgeMaxX = new double[edgeCount];
-        var edgeMinY = new double[edgeCount];
-        var edgeMaxY = new double[edgeCount];
+        var edgeInfos = new List<SegmentInfo>(edgeCount);
 
         for (int e = 0; e < edgeCount; e++)
         {
             int i0 = edges[e * 2];
             int i1 = edges[e * 2 + 1];
-            edgeI0[e] = i0;
-            edgeI1[e] = i1;
 
             if (i0 < 0 || i0 >= vertCount || i1 < 0 || i1 >= vertCount || i0 == i1)
                 continue;
@@ -838,47 +793,30 @@ public class TinEngine
             if (lenSq < eps * eps)
                 continue;
 
-            edgeX0[e] = x0;
-            edgeY0[e] = y0;
-            edgeDx[e] = dx;
-            edgeDy[e] = dy;
-            edgeLenSq[e] = lenSq;
-
             double tol = eps * (Math.Sqrt(lenSq) + 1.0);
-            double tolSq = tol * tol;
-            edgeTolSq[e] = tolSq;
-
-            edgeMinX[e] = Math.Min(x0, x1) - tol;
-            edgeMaxX[e] = Math.Max(x0, x1) + tol;
-            edgeMinY[e] = Math.Min(y0, y1) - tol;
-            edgeMaxY[e] = Math.Max(y0, y1) + tol;
-            edgeValid[e] = true;
+            edgeInfos.Add(new SegmentInfo(
+                i0,
+                i1,
+                x0,
+                y0,
+                dx,
+                dy,
+                lenSq,
+                tol * tol,
+                new Bounds2D(
+                    Math.Min(x0, x1) - tol,
+                    Math.Max(x0, x1) + tol,
+                    Math.Min(y0, y1) - tol,
+                    Math.Max(y0, y1) + tol)));
         }
 
-        var faceValid = new bool[faceCount];
-        var faceI0 = new int[faceCount];
-        var faceI1 = new int[faceCount];
-        var faceI2 = new int[faceCount];
-        var faceX0 = new double[faceCount];
-        var faceY0 = new double[faceCount];
-        var faceX1 = new double[faceCount];
-        var faceY1 = new double[faceCount];
-        var faceX2 = new double[faceCount];
-        var faceY2 = new double[faceCount];
-        var faceDenom = new double[faceCount];
-        var faceMinX = new double[faceCount];
-        var faceMaxX = new double[faceCount];
-        var faceMinY = new double[faceCount];
-        var faceMaxY = new double[faceCount];
+        var faceInfos = new List<FaceInfo>(faceCount);
 
         for (int f = 0; f < faceCount; f++)
         {
             int i0 = faces[f * 3];
             int i1 = faces[f * 3 + 1];
             int i2 = faces[f * 3 + 2];
-            faceI0[f] = i0;
-            faceI1[f] = i1;
-            faceI2[f] = i2;
 
             if (i0 < 0 || i0 >= vertCount || i1 < 0 || i1 >= vertCount || i2 < 0 || i2 >= vertCount)
                 continue;
@@ -894,39 +832,42 @@ public class TinEngine
             if (Math.Abs(denom) < eps)
                 continue;
 
-            faceX0[f] = x0;
-            faceY0[f] = y0;
-            faceX1[f] = x1;
-            faceY1[f] = y1;
-            faceX2[f] = x2;
-            faceY2[f] = y2;
-            faceDenom[f] = denom;
-
-            faceMinX[f] = Math.Min(x0, Math.Min(x1, x2)) - eps;
-            faceMaxX[f] = Math.Max(x0, Math.Max(x1, x2)) + eps;
-            faceMinY[f] = Math.Min(y0, Math.Min(y1, y2)) - eps;
-            faceMaxY[f] = Math.Max(y0, Math.Max(y1, y2)) + eps;
-            faceValid[f] = true;
+            faceInfos.Add(new FaceInfo(
+                i0,
+                i1,
+                i2,
+                x0,
+                y0,
+                x1,
+                y1,
+                x2,
+                y2,
+                denom,
+                new Bounds2D(
+                    Math.Min(x0, Math.Min(x1, x2)) - eps,
+                    Math.Max(x0, Math.Max(x1, x2)) + eps,
+                    Math.Min(y0, Math.Min(y1, y2)) - eps,
+                    Math.Max(y0, Math.Max(y1, y2)) + eps)));
         }
 
-        double inputSegInvCell = 1.0 / ChooseCellSize(inputSegCount);
-        double edgeInvCell = 1.0 / ChooseCellSize(edgeCount);
-        double faceInvCell = 1.0 / ChooseCellSize(faceCount);
+        var inputSegBounds = new Bounds2D[inputSegmentInfos.Count];
+        for (int i = 0; i < inputSegmentInfos.Count; i++)
+            inputSegBounds[i] = inputSegmentInfos[i].Bounds;
 
-        var inputSegIndex = BuildSpatialIndex(
-            inputSegMinX, inputSegMaxX, inputSegMinY, inputSegMaxY,
-            inputSegValid, inputSegCount, inputSegInvCell);
-        var edgeIndex = BuildSpatialIndex(
-            edgeMinX, edgeMaxX, edgeMinY, edgeMaxY,
-            edgeValid, edgeCount, edgeInvCell);
-        var faceIndex = BuildSpatialIndex(
-            faceMinX, faceMaxX, faceMinY, faceMaxY,
-            faceValid, faceCount, faceInvCell);
+        var edgeBounds = new Bounds2D[edgeInfos.Count];
+        for (int i = 0; i < edgeInfos.Count; i++)
+            edgeBounds[i] = edgeInfos[i].Bounds;
 
-        var inputSegMarks = new int[inputSegCount];
-        var edgeMarks = new int[edgeCount];
-        var faceMarks = new int[faceCount];
-        int inputSegStamp = 0, edgeStamp = 0, faceStamp = 0;
+        var faceBounds = new Bounds2D[faceInfos.Count];
+        for (int i = 0; i < faceInfos.Count; i++)
+            faceBounds[i] = faceInfos[i].Bounds;
+
+        var inputSegIndex = SpatialHashGrid2D.Build(inputSegBounds);
+        var edgeIndex = SpatialHashGrid2D.Build(edgeBounds);
+        var faceIndex = SpatialHashGrid2D.Build(faceBounds);
+        var inputSegScratch = new SpatialHashGrid2D.QueryScratch(inputSegmentInfos.Count);
+        var edgeScratch = new SpatialHashGrid2D.QueryScratch(edgeInfos.Count);
+        var faceScratch = new SpatialHashGrid2D.QueryScratch(faceInfos.Count);
 
         var inputSegCandidates = new List<int>(32);
         var edgeCandidates = new List<int>(32);
@@ -934,33 +875,35 @@ public class TinEngine
 
         bool TryResolveFromInputSegments(int si)
         {
-            if (inputSegCount == 0)
+            if (inputSegmentInfos.Count == 0)
                 return false;
 
             double px = verts[si * 3];
             double py = verts[si * 3 + 1];
-            FillCandidates(
-                inputSegIndex, px, py, inputSegInvCell,
-                inputSegMarks, ref inputSegStamp, inputSegCount,
-                inputSegCandidates);
+            GatherCandidatesOrAll(
+                inputSegIndex,
+                Bounds2D.FromPoint(px, py),
+                inputSegCandidates,
+                inputSegScratch,
+                inputSegmentInfos.Count);
 
             foreach (int s in inputSegCandidates)
             {
-                if (!inputSegValid[s]) continue;
+                SegmentInfo segment = inputSegmentInfos[s];
 
-                double t = ((px - inputSegX0[s]) * inputSegDx[s] + (py - inputSegY0[s]) * inputSegDy[s]) / inputSegLenSq[s];
+                double t = ((px - segment.X0) * segment.Dx + (py - segment.Y0) * segment.Dy) / segment.LengthSquared;
                 if (t < -0.001 || t > 1.001) continue;
 
-                double projX = inputSegX0[s] + t * inputSegDx[s];
-                double projY = inputSegY0[s] + t * inputSegDy[s];
+                double projX = segment.X0 + t * segment.Dx;
+                double projY = segment.Y0 + t * segment.Dy;
                 double ddx = px - projX;
                 double ddy = py - projY;
                 double distSq = ddx * ddx + ddy * ddy;
-                if (distSq >= inputSegTolSq[s]) continue;
+                if (distSq >= segment.ToleranceSquared) continue;
 
                 t = Math.Max(0, Math.Min(1, t));
-                int a = inputSegA[s];
-                int b = inputSegB[s];
+                int a = segment.A;
+                int b = segment.B;
                 verts[si * 3 + 2] = inputZ[a] + t * (inputZ[b] - inputZ[a]);
                 return true;
             }
@@ -970,35 +913,37 @@ public class TinEngine
 
         bool TryResolveFromEdges(int si)
         {
-            if (edgeCount == 0)
+            if (edgeInfos.Count == 0)
                 return false;
 
             double px = verts[si * 3];
             double py = verts[si * 3 + 1];
-            FillCandidates(
-                edgeIndex, px, py, edgeInvCell,
-                edgeMarks, ref edgeStamp, edgeCount,
-                edgeCandidates);
+            GatherCandidatesOrAll(
+                edgeIndex,
+                Bounds2D.FromPoint(px, py),
+                edgeCandidates,
+                edgeScratch,
+                edgeInfos.Count);
 
             foreach (int e in edgeCandidates)
             {
-                if (!edgeValid[e]) continue;
+                SegmentInfo segment = edgeInfos[e];
 
-                int i0 = edgeI0[e];
-                int i1 = edgeI1[e];
+                int i0 = segment.A;
+                int i1 = segment.B;
                 double z0 = verts[i0 * 3 + 2];
                 double z1 = verts[i1 * 3 + 2];
                 if (double.IsNaN(z0) || double.IsNaN(z1)) continue;
 
-                double t = ((px - edgeX0[e]) * edgeDx[e] + (py - edgeY0[e]) * edgeDy[e]) / edgeLenSq[e];
+                double t = ((px - segment.X0) * segment.Dx + (py - segment.Y0) * segment.Dy) / segment.LengthSquared;
                 if (t < -eps || t > 1.0 + eps) continue;
 
-                double projX = edgeX0[e] + t * edgeDx[e];
-                double projY = edgeY0[e] + t * edgeDy[e];
+                double projX = segment.X0 + t * segment.Dx;
+                double projY = segment.Y0 + t * segment.Dy;
                 double ddx = px - projX;
                 double ddy = py - projY;
                 double distSq = ddx * ddx + ddy * ddy;
-                if (distSq >= edgeTolSq[e]) continue;
+                if (distSq >= segment.ToleranceSquared) continue;
 
                 t = Math.Max(0, Math.Min(1, t));
                 verts[si * 3 + 2] = z0 + t * (z1 - z0);
@@ -1010,31 +955,33 @@ public class TinEngine
 
         bool TryResolveFromFaces(int si)
         {
-            if (faceCount == 0)
+            if (faceInfos.Count == 0)
                 return false;
 
             double px = verts[si * 3];
             double py = verts[si * 3 + 1];
-            FillCandidates(
-                faceIndex, px, py, faceInvCell,
-                faceMarks, ref faceStamp, faceCount,
-                faceCandidates);
+            GatherCandidatesOrAll(
+                faceIndex,
+                Bounds2D.FromPoint(px, py),
+                faceCandidates,
+                faceScratch,
+                faceInfos.Count);
 
             foreach (int f in faceCandidates)
             {
-                if (!faceValid[f]) continue;
+                FaceInfo face = faceInfos[f];
 
-                int i0 = faceI0[f];
-                int i1 = faceI1[f];
-                int i2 = faceI2[f];
+                int i0 = face.I0;
+                int i1 = face.I1;
+                int i2 = face.I2;
                 double z0 = verts[i0 * 3 + 2];
                 double z1 = verts[i1 * 3 + 2];
                 double z2 = verts[i2 * 3 + 2];
                 if (double.IsNaN(z0) || double.IsNaN(z1) || double.IsNaN(z2)) continue;
 
-                double denom = faceDenom[f];
-                double w0 = ((faceY1[f] - faceY2[f]) * (px - faceX2[f]) + (faceX2[f] - faceX1[f]) * (py - faceY2[f])) / denom;
-                double w1 = ((faceY2[f] - faceY0[f]) * (px - faceX2[f]) + (faceX0[f] - faceX2[f]) * (py - faceY2[f])) / denom;
+                double denom = face.Denominator;
+                double w0 = ((face.Y1 - face.Y2) * (px - face.X2) + (face.X2 - face.X1) * (py - face.Y2)) / denom;
+                double w1 = ((face.Y2 - face.Y0) * (px - face.X2) + (face.X0 - face.X2) * (py - face.Y2)) / denom;
                 double w2 = 1.0 - w0 - w1;
 
                 if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;

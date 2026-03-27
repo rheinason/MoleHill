@@ -250,45 +250,31 @@ internal static class TriangleBoundaryCuller
 
     private sealed class ConstraintSpatialIndex
     {
-        private readonly double[] _minXs;
-        private readonly double[] _maxXs;
-        private readonly double[] _minYs;
-        private readonly double[] _maxYs;
+        private readonly Bounds2D[] _bounds;
         private readonly bool[] _valid;
-        private readonly Dictionary<(long, long), List<int>> _cells;
+        private readonly SpatialHashGrid2D _grid;
+        private readonly SpatialHashGrid2D.QueryScratch _scratch;
+        private readonly List<int> _queryCandidates = new(16);
+        private readonly List<int> _candidates = new(16);
         private readonly double[] _xy;
         private readonly int[] _segments;
-        private readonly double _minX;
-        private readonly double _minY;
-        private readonly double _invCellSize;
 
         public int Count { get; }
 
         private ConstraintSpatialIndex(
             double[] xy,
             int[] segments,
-            double[] minXs,
-            double[] maxXs,
-            double[] minYs,
-            double[] maxYs,
+            Bounds2D[] bounds,
             bool[] valid,
-            Dictionary<(long, long), List<int>> cells,
-            double minX,
-            double minY,
-            double invCellSize,
+            SpatialHashGrid2D grid,
             int count)
         {
             _xy = xy;
             _segments = segments;
-            _minXs = minXs;
-            _maxXs = maxXs;
-            _minYs = minYs;
-            _maxYs = maxYs;
+            _bounds = bounds;
             _valid = valid;
-            _cells = cells;
-            _minX = minX;
-            _minY = minY;
-            _invCellSize = invCellSize;
+            _grid = grid;
+            _scratch = new SpatialHashGrid2D.QueryScratch(bounds.Length);
             Count = count;
         }
 
@@ -296,24 +282,20 @@ internal static class TriangleBoundaryCuller
         {
             int vertexCount = xy.Length / 2;
             int segmentCount = segments.Length / 2;
-            var minXs = new double[segmentCount];
-            var maxXs = new double[segmentCount];
-            var minYs = new double[segmentCount];
-            var maxYs = new double[segmentCount];
+            var bounds = new Bounds2D[segmentCount];
             var valid = new bool[segmentCount];
 
             if (segmentCount == 0 || vertexCount == 0)
             {
                 return new ConstraintSpatialIndex(
-                    xy, segments, minXs, maxXs, minYs, maxYs, valid,
-                    new Dictionary<(long, long), List<int>>(),
-                    0, 0, 1, 0);
+                    xy,
+                    segments,
+                    bounds,
+                    valid,
+                    SpatialHashGrid2D.Build(bounds, valid),
+                    0);
             }
 
-            double minX = double.MaxValue;
-            double minY = double.MaxValue;
-            double maxX = double.MinValue;
-            double maxY = double.MinValue;
             int validCount = 0;
 
             for (int i = 0; i < segmentCount; i++)
@@ -330,100 +312,56 @@ internal static class TriangleBoundaryCuller
                 if ((Math.Abs(ax - bx) + Math.Abs(ay - by)) <= 1e-12)
                     continue;
 
-                minXs[i] = Math.Min(ax, bx);
-                maxXs[i] = Math.Max(ax, bx);
-                minYs[i] = Math.Min(ay, by);
-                maxYs[i] = Math.Max(ay, by);
+                bounds[i] = new Bounds2D(
+                    Math.Min(ax, bx),
+                    Math.Max(ax, bx),
+                    Math.Min(ay, by),
+                    Math.Max(ay, by));
                 valid[i] = true;
                 validCount++;
-
-                if (minXs[i] < minX) minX = minXs[i];
-                if (maxXs[i] > maxX) maxX = maxXs[i];
-                if (minYs[i] < minY) minY = minYs[i];
-                if (maxYs[i] > maxY) maxY = maxYs[i];
             }
 
             if (validCount == 0)
             {
                 return new ConstraintSpatialIndex(
-                    xy, segments, minXs, maxXs, minYs, maxYs, valid,
-                    new Dictionary<(long, long), List<int>>(),
-                    0, 0, 1, 0);
-            }
-
-            double span = Math.Max(maxX - minX, maxY - minY);
-            double cellSize = span > 0 ? Math.Max(span / Math.Max(8.0, Math.Sqrt(validCount)), 1e-9) : 1.0;
-            double invCellSize = 1.0 / cellSize;
-            var cells = new Dictionary<(long, long), List<int>>(Math.Max(16, validCount));
-
-            for (int i = 0; i < segmentCount; i++)
-            {
-                if (!valid[i])
-                    continue;
-
-                long cminX = (long)Math.Floor((minXs[i] - minX) * invCellSize);
-                long cmaxX = (long)Math.Floor((maxXs[i] - minX) * invCellSize);
-                long cminY = (long)Math.Floor((minYs[i] - minY) * invCellSize);
-                long cmaxY = (long)Math.Floor((maxYs[i] - minY) * invCellSize);
-
-                for (long cx = cminX; cx <= cmaxX; cx++)
-                {
-                    for (long cy = cminY; cy <= cmaxY; cy++)
-                    {
-                        var key = (cx, cy);
-                        if (!cells.TryGetValue(key, out var list))
-                        {
-                            list = new List<int>(4);
-                            cells[key] = list;
-                        }
-                        list.Add(i);
-                    }
-                }
+                    xy,
+                    segments,
+                    bounds,
+                    valid,
+                    SpatialHashGrid2D.Build(bounds, valid),
+                    0);
             }
 
             return new ConstraintSpatialIndex(
-                xy, segments, minXs, maxXs, minYs, maxYs, valid,
-                cells, minX, minY, invCellSize, validCount);
+                xy,
+                segments,
+                bounds,
+                valid,
+                SpatialHashGrid2D.Build(bounds, valid),
+                validCount);
         }
 
-        public IEnumerable<int> Query(double ax, double ay, double bx, double by)
+        public IReadOnlyList<int> Query(double ax, double ay, double bx, double by)
         {
+            _candidates.Clear();
             if (Count == 0)
-                yield break;
+                return _candidates;
 
-            double minSegX = Math.Min(ax, bx);
-            double maxSegX = Math.Max(ax, bx);
-            double minSegY = Math.Min(ay, by);
-            double maxSegY = Math.Max(ay, by);
-
-            long cminX = (long)Math.Floor((minSegX - _minX) * _invCellSize);
-            long cmaxX = (long)Math.Floor((maxSegX - _minX) * _invCellSize);
-            long cminY = (long)Math.Floor((minSegY - _minY) * _invCellSize);
-            long cmaxY = (long)Math.Floor((maxSegY - _minY) * _invCellSize);
-
-            var visited = new HashSet<int>();
-            for (long cx = cminX; cx <= cmaxX; cx++)
+            Bounds2D queryBounds = new(
+                Math.Min(ax, bx),
+                Math.Max(ax, bx),
+                Math.Min(ay, by),
+                Math.Max(ay, by));
+            _grid.GatherCandidates(queryBounds, _queryCandidates, _scratch);
+            foreach (int segIndex in _queryCandidates)
             {
-                for (long cy = cminY; cy <= cmaxY; cy++)
-                {
-                    if (!_cells.TryGetValue((cx, cy), out var list))
-                        continue;
+                if (!_valid[segIndex] || !_bounds[segIndex].Intersects(queryBounds))
+                    continue;
 
-                    foreach (int segIndex in list)
-                    {
-                        if (!_valid[segIndex] || !visited.Add(segIndex))
-                            continue;
-
-                        if (_maxXs[segIndex] < minSegX || _minXs[segIndex] > maxSegX ||
-                            _maxYs[segIndex] < minSegY || _minYs[segIndex] > maxSegY)
-                        {
-                            continue;
-                        }
-
-                        yield return segIndex;
-                    }
-                }
+                _candidates.Add(segIndex);
             }
+
+            return _candidates;
         }
 
         public void GetSegment(int segIndex, out double ax, out double ay, out double bx, out double by)

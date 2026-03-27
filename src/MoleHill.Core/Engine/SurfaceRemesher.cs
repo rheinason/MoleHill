@@ -35,7 +35,9 @@ public static class SurfaceRemesher
 
         public string? Warning { get; init; }
 
-        public bool UsedReducedSeedFallback { get; init; }
+        public bool UsedBoundaryAndGuideSeedFallback { get; init; }
+
+        public bool ReturnedInputMesh { get; init; }
 
         public int AddedProtectedVertices { get; init; }
     }
@@ -53,7 +55,35 @@ public static class SurfaceRemesher
         public required bool UsesFullOriginalVertexSeed { get; init; }
     }
 
-    private readonly record struct TriangulationAttempt(IMesh? Mesh, string? Warning);
+    private readonly record struct TriangulationAttempt(IMesh? Mesh, string? Warning, TriangulationWarningFlags Flags);
+    private readonly record struct Segment2D(double Ax, double Ay, double Bx, double By);
+
+    private sealed class AttemptEvaluation
+    {
+        public required PreparedInput Prepared { get; init; }
+
+        public double[] Vertices { get; init; } = Array.Empty<double>();
+
+        public int[] Faces { get; init; } = Array.Empty<int>();
+
+        public string? Warning { get; init; }
+
+        public bool ConstraintsDropped { get; init; }
+
+        public bool QualityDropped { get; init; }
+
+        public bool TopologyInvalid { get; init; }
+
+        public bool ConstraintApronInvalid { get; init; }
+
+        public bool PerimeterApronInvalid { get; init; }
+
+        public double MaxConstraintTriangleArea { get; init; }
+
+        public double MaxPerimeterTriangleArea { get; init; }
+
+        public bool Accepted { get; init; }
+    }
 
     public static Result Remesh(
         double[] originalVertices,
@@ -73,98 +103,50 @@ public static class SurfaceRemesher
             };
         }
 
-        double effectiveMaxArea = GetEffectiveMaxArea(options);
-        bool requiresQuality = effectiveMaxArea > 0 || options.MinAngle > 0;
-        var prepared = PrepareInput(originalVertices, originalFaces, constraints, options, seedInteriorVertices: true);
-        var triangulation = TriangulatePrepared(prepared, effectiveMaxArea, options);
-        bool usedReducedSeedFallback = false;
+        var firstAttempt = EvaluateAttempt(
+            originalVertices,
+            originalFaces,
+            faceCount,
+            constraints,
+            options,
+            seedInteriorVertices: true);
 
-        if (requiresQuality && !IsAcceptableTriangulation(triangulation, requiresQuality))
+        AttemptEvaluation? fallbackAttempt = null;
+        var fallbackOptions = CreateBoundaryAndGuideSeedFallbackOptions(options);
+        var preparedFallback = PrepareInput(originalVertices, originalFaces, constraints, fallbackOptions, seedInteriorVertices: false);
+        if (!preparedFallback.UsesFullOriginalVertexSeed)
         {
-            var reducedPrepared = PrepareInput(originalVertices, originalFaces, constraints, options, seedInteriorVertices: false);
-            if (!reducedPrepared.UsesFullOriginalVertexSeed)
+            fallbackAttempt = EvaluateAttempt(
+                originalVertices,
+                originalFaces,
+                faceCount,
+                constraints,
+                fallbackOptions,
+                seedInteriorVertices: false,
+                precomputedPrepared: preparedFallback);
+
+            if (!firstAttempt.Accepted && fallbackAttempt.Accepted)
+                return BuildAcceptedResult(fallbackAttempt, usedBoundaryAndGuideSeedFallback: true);
+        }
+
+        if (firstAttempt.Accepted)
+        {
+            if (fallbackAttempt is not null &&
+                fallbackAttempt.Accepted &&
+                ShouldPreferBoundaryAndGuideSeedFallback(firstAttempt, fallbackAttempt))
             {
-                var reducedTriangulation = TriangulatePrepared(reducedPrepared, effectiveMaxArea, options);
-                if (IsAcceptableTriangulation(reducedTriangulation, requiresQuality))
-                {
-                    prepared = reducedPrepared;
-                    triangulation = reducedTriangulation;
-                    usedReducedSeedFallback = true;
-                }
+                return BuildAcceptedResult(fallbackAttempt, usedBoundaryAndGuideSeedFallback: true);
             }
+
+            return BuildAcceptedResult(firstAttempt, usedBoundaryAndGuideSeedFallback: false);
         }
 
-        if (triangulation.Mesh == null)
-        {
-            return new Result
-            {
-                Success = false,
-                Warning = triangulation.Warning ?? "Triangulation failed.",
-                UsedReducedSeedFallback = usedReducedSeedFallback,
-                AddedProtectedVertices = prepared.AddedProtectedVertices
-            };
-        }
-
-        if (MeshConstraintTools.ConstraintsWereDropped(triangulation.Warning))
-        {
-            return new Result
-            {
-                Success = false,
-                Warning = triangulation.Warning ?? "Constraints could not be preserved.",
-                UsedReducedSeedFallback = usedReducedSeedFallback,
-                AddedProtectedVertices = prepared.AddedProtectedVertices
-            };
-        }
-
-        if (requiresQuality && MeshConstraintTools.QualityWasDropped(triangulation.Warning))
-        {
-            return new Result
-            {
-                Success = false,
-                Warning = triangulation.Warning ?? "Requested remesh refinement could not be satisfied.",
-                UsedReducedSeedFallback = usedReducedSeedFallback,
-                AddedProtectedVertices = prepared.AddedProtectedVertices
-            };
-        }
-
-        var mesh = triangulation.Mesh;
-        if (mesh.Triangles.Count == 0)
-        {
-            return new Result
-            {
-                Success = false,
-                Warning = "Triangulation produced 0 triangles.",
-                UsedReducedSeedFallback = usedReducedSeedFallback,
-                AddedProtectedVertices = prepared.AddedProtectedVertices
-            };
-        }
-
-        var extracted = TriangleNetExtractor.Extract(mesh);
-        var outputVertices = new double[extracted.VertexCount * 3];
-
-        for (int i = 0; i < extracted.VertexCount; i++)
-        {
-            double x = extracted.Xy[i * 2];
-            double y = extracted.Xy[i * 2 + 1];
-            int sourceId = extracted.SourceIds[i];
-            outputVertices[i * 3] = x;
-            outputVertices[i * 3 + 1] = y;
-            outputVertices[i * 3 + 2] = sourceId >= 0 && sourceId < prepared.Z.Count
-                ? prepared.Z[sourceId]
-                : PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
-        }
-
-        ApplyPreservedConstraintElevations(outputVertices, constraints, options.Tolerance);
-
-        return new Result
-        {
-            Success = true,
-            Vertices = outputVertices,
-            Faces = extracted.Faces,
-            Warning = triangulation.Warning,
-            UsedReducedSeedFallback = usedReducedSeedFallback,
-            AddedProtectedVertices = prepared.AddedProtectedVertices
-        };
+        return BuildPreservedInputResult(
+            originalVertices,
+            originalFaces,
+            firstAttempt,
+            fallbackAttempt,
+            !preparedFallback.UsesFullOriginalVertexSeed);
     }
 
     private static PreparedInput PrepareInput(
@@ -349,6 +331,18 @@ public static class SurfaceRemesher
             floorLength,
             dedupTolerance);
 
+        if (!usesFullOriginalVertexSeed)
+        {
+            AddReducedInteriorGuideSeeds(
+                xyList,
+                zList,
+                originalVertices,
+                originalFaces,
+                faceCount,
+                targetLength,
+                options.Tolerance);
+        }
+
         return new PreparedInput
         {
             XY = xyList,
@@ -364,17 +358,15 @@ public static class SurfaceRemesher
         double effectiveMaxArea,
         Options options)
     {
-        string? warning;
         // segmentSplitting=2 when ProtectSharpEdges: pre-subdivision already placed vertices
         // at target spacing so Triangle.NET doesn't need to split them further. This prevents
         // the cascade that occurs with free splitting near narrow corridors (retaining walls).
-        var mesh = TriangulationHelper.Triangulate(
+        var triangulation = TriangulationHelper.Triangulate(
             prepared.XY,
             prepared.Z.Count,
             prepared.Segments,
             effectiveMaxArea,
             options.MinAngle,
-            out warning,
             convex: false,
             segmentSplitting: options.ProtectSharpEdges ? 2 : 0);
 
@@ -383,27 +375,445 @@ public static class SurfaceRemesher
         // Triangle.NET's split-vertex bug; the SteinerPoints cap in TriangulationHelper
         // prevents cascade freezing in the fallback path.
         if (options.ProtectSharpEdges &&
-            (mesh == null || MeshConstraintTools.ConstraintsWereDropped(warning)))
+            (triangulation.Mesh == null || MeshConstraintTools.ConstraintsWereDropped(triangulation.Flags)))
         {
-            mesh = TriangulationHelper.Triangulate(
+            triangulation = TriangulationHelper.Triangulate(
                 prepared.XY,
                 prepared.Z.Count,
                 prepared.Segments,
                 effectiveMaxArea,
                 options.MinAngle,
-                out warning,
                 convex: false,
                 segmentSplitting: 0);
         }
 
-        return new TriangulationAttempt(mesh, warning);
+        return new TriangulationAttempt(triangulation.Mesh, triangulation.WarningMessage, triangulation.Flags);
     }
 
-    private static bool IsAcceptableTriangulation(TriangulationAttempt triangulation, bool requiresQuality)
+    private static Result BuildAcceptedResult(AttemptEvaluation attempt, bool usedBoundaryAndGuideSeedFallback)
     {
-        return triangulation.Mesh != null &&
-               !MeshConstraintTools.ConstraintsWereDropped(triangulation.Warning) &&
-               (!requiresQuality || !MeshConstraintTools.QualityWasDropped(triangulation.Warning));
+        return new Result
+        {
+            Success = true,
+            Vertices = attempt.Vertices,
+            Faces = attempt.Faces,
+            Warning = attempt.Warning,
+            UsedBoundaryAndGuideSeedFallback = usedBoundaryAndGuideSeedFallback,
+            AddedProtectedVertices = attempt.Prepared.AddedProtectedVertices
+        };
+    }
+
+    private static Result BuildPreservedInputResult(
+        double[] originalVertices,
+        int[] originalFaces,
+        AttemptEvaluation firstAttempt,
+        AttemptEvaluation? fallbackAttempt,
+        bool attemptedBoundaryAndGuideSeedFallback)
+    {
+        return new Result
+        {
+            Success = false,
+            Vertices = originalVertices.ToArray(),
+            Faces = originalFaces.ToArray(),
+            Warning = BuildPreservedInputWarning(firstAttempt, fallbackAttempt, attemptedBoundaryAndGuideSeedFallback),
+            UsedBoundaryAndGuideSeedFallback = attemptedBoundaryAndGuideSeedFallback,
+            ReturnedInputMesh = true,
+            AddedProtectedVertices = fallbackAttempt is null
+                ? firstAttempt.Prepared.AddedProtectedVertices
+                : fallbackAttempt.Prepared.AddedProtectedVertices
+        };
+    }
+
+    private static AttemptEvaluation EvaluateAttempt(
+        double[] originalVertices,
+        int[] originalFaces,
+        int faceCount,
+        IReadOnlyList<ConstraintPolyline> constraints,
+        Options options,
+        bool seedInteriorVertices,
+        PreparedInput? precomputedPrepared = null)
+    {
+        double effectiveMaxArea = GetEffectiveMaxArea(options);
+        bool requiresQuality = effectiveMaxArea > 0 || options.MinAngle > 0;
+        var prepared = precomputedPrepared ?? PrepareInput(originalVertices, originalFaces, constraints, options, seedInteriorVertices);
+        var triangulation = TriangulatePrepared(prepared, effectiveMaxArea, options);
+
+        if (triangulation.Mesh == null)
+        {
+            return new AttemptEvaluation
+            {
+                Prepared = prepared,
+                Warning = triangulation.Warning ?? "Triangulation failed."
+            };
+        }
+
+        if (MeshConstraintTools.ConstraintsWereDropped(triangulation.Flags))
+        {
+            return new AttemptEvaluation
+            {
+                Prepared = prepared,
+                Warning = triangulation.Warning ?? "Constraints could not be preserved.",
+                ConstraintsDropped = true
+            };
+        }
+
+        if (requiresQuality && MeshConstraintTools.QualityWasDropped(triangulation.Flags))
+        {
+            return new AttemptEvaluation
+            {
+                Prepared = prepared,
+                Warning = triangulation.Warning ?? "Requested remesh refinement could not be satisfied.",
+                QualityDropped = true
+            };
+        }
+
+        var mesh = triangulation.Mesh;
+        if (mesh.Triangles.Count == 0)
+        {
+            return new AttemptEvaluation
+            {
+                Prepared = prepared,
+                Warning = "Triangulation produced 0 triangles."
+            };
+        }
+
+        var extracted = TriangleNetExtractor.Extract(mesh);
+        var outputVertices = new double[extracted.VertexCount * 3];
+        for (int i = 0; i < extracted.VertexCount; i++)
+        {
+            double x = extracted.Xy[i * 2];
+            double y = extracted.Xy[i * 2 + 1];
+            int sourceId = extracted.SourceIds[i];
+            outputVertices[i * 3] = x;
+            outputVertices[i * 3 + 1] = y;
+            outputVertices[i * 3 + 2] = sourceId >= 0 && sourceId < prepared.Z.Count
+                ? prepared.Z[sourceId]
+                : PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
+        }
+
+        ApplyPreservedConstraintElevations(outputVertices, constraints, options.Tolerance);
+
+        var topology = MeshTopologyValidator.AnalyzeBoundaryGraph(extracted.Faces, extracted.FaceCount);
+        bool topologyInvalid = !topology.HasSingleClosedBoundaryLoop;
+        bool constraintApronInvalid = false;
+        bool perimeterApronInvalid = false;
+        double maxConstraintTriangleArea = 0.0;
+        double maxPerimeterTriangleArea = 0.0;
+        double qualityLength = GetProtectedEdgeLength(options);
+
+        if (qualityLength > 0 && effectiveMaxArea > 0)
+        {
+            var perimeterSegments = BuildPerimeterSegments(originalVertices, originalFaces, faceCount);
+            var constraintSegments = BuildNonPerimeterConstraintSegments(constraints, perimeterSegments, options.Tolerance);
+            EvaluateTriangleAreaChecks(
+                outputVertices,
+                extracted.Faces,
+                qualityLength,
+                effectiveMaxArea,
+                perimeterSegments,
+                constraintSegments,
+                ref maxPerimeterTriangleArea,
+                ref maxConstraintTriangleArea,
+                ref perimeterApronInvalid,
+                ref constraintApronInvalid);
+        }
+
+        bool accepted = !topologyInvalid && !constraintApronInvalid && !perimeterApronInvalid;
+
+        return new AttemptEvaluation
+        {
+            Prepared = prepared,
+            Vertices = outputVertices,
+            Faces = extracted.Faces,
+            Warning = accepted ? triangulation.Warning : BuildAttemptFailureWarning(triangulation.Warning, topologyInvalid, constraintApronInvalid, perimeterApronInvalid),
+            TopologyInvalid = topologyInvalid,
+            ConstraintApronInvalid = constraintApronInvalid,
+            PerimeterApronInvalid = perimeterApronInvalid,
+            MaxConstraintTriangleArea = maxConstraintTriangleArea,
+            MaxPerimeterTriangleArea = maxPerimeterTriangleArea,
+            Accepted = accepted
+        };
+    }
+
+    private static Options CreateBoundaryAndGuideSeedFallbackOptions(Options options)
+    {
+        double requestedEdgeLength = options.RequestedEdgeLength;
+        double maxArea = options.MaxArea;
+
+        if (requestedEdgeLength > 0)
+        {
+            requestedEdgeLength *= 1.5;
+            if (maxArea > 0)
+                maxArea *= 2.25;
+        }
+        else if (maxArea > 0)
+        {
+            maxArea *= 2.25;
+        }
+
+        return new Options
+        {
+            Tolerance = options.Tolerance,
+            RequestedEdgeLength = requestedEdgeLength,
+            MaxArea = maxArea,
+            MinAngle = 0.0,
+            ProtectSharpEdges = options.ProtectSharpEdges
+        };
+    }
+
+    private static string BuildPreservedInputWarning(
+        AttemptEvaluation firstAttempt,
+        AttemptEvaluation? fallbackAttempt,
+        bool attemptedBoundaryAndGuideSeedFallback)
+    {
+        var parts = new List<string>
+        {
+            "Remesh kept the upstream mesh unchanged."
+        };
+
+        parts.Add($"Initial pass failed: {DescribeAttemptFailure(firstAttempt)}.");
+        if (attemptedBoundaryAndGuideSeedFallback)
+        {
+            parts.Add(fallbackAttempt is null
+                ? "Boundary-and-guide seed fallback could not be prepared."
+                : $"Boundary-and-guide seed fallback failed: {DescribeAttemptFailure(fallbackAttempt)}.");
+        }
+
+        return string.Join(" ", parts);
+    }
+
+    private static string DescribeAttemptFailure(AttemptEvaluation attempt)
+    {
+        var reasons = new List<string>();
+
+        if (attempt.ConstraintsDropped)
+            reasons.Add("constraints could not be preserved");
+
+        if (attempt.QualityDropped)
+            reasons.Add("requested remesh refinement could not be satisfied");
+
+        if (attempt.TopologyInvalid)
+            reasons.Add("output would create extra boundary loops or open naked-edge chains");
+
+        if (attempt.ConstraintApronInvalid)
+            reasons.Add("oversized triangles remained near remesh constraints");
+
+        if (attempt.PerimeterApronInvalid)
+            reasons.Add("oversized triangles remained near the terrain perimeter");
+
+        if (reasons.Count == 0)
+            reasons.Add(attempt.Warning ?? "triangulation failed");
+        else if (!string.IsNullOrWhiteSpace(attempt.Warning))
+            reasons.Add(attempt.Warning);
+
+        return string.Join("; ", reasons);
+    }
+
+    private static string BuildAttemptFailureWarning(
+        string? warning,
+        bool topologyInvalid,
+        bool constraintApronInvalid,
+        bool perimeterApronInvalid)
+    {
+        var reasons = new List<string>();
+
+        if (topologyInvalid)
+            reasons.Add("Remesh output would create extra boundary loops or open naked-edge chains.");
+
+        if (constraintApronInvalid)
+            reasons.Add("Remesh output left oversized triangles near remesh constraints.");
+
+        if (perimeterApronInvalid)
+            reasons.Add("Remesh output left oversized triangles near the terrain perimeter.");
+
+        if (!string.IsNullOrWhiteSpace(warning))
+            reasons.Add(warning);
+
+        return reasons.Count == 0
+            ? "Triangulation failed."
+            : string.Join(" ", reasons);
+    }
+
+    private static void EvaluateTriangleAreaChecks(
+        double[] vertices,
+        int[] faces,
+        double qualityLength,
+        double targetArea,
+        IReadOnlyList<Segment2D> perimeterSegments,
+        IReadOnlyList<Segment2D> constraintSegments,
+        ref double maxPerimeterTriangleArea,
+        ref double maxConstraintTriangleArea,
+        ref bool perimeterApronInvalid,
+        ref bool constraintApronInvalid)
+    {
+        double perimeterDistanceSquared = qualityLength * qualityLength * 9.0;
+        double constraintAreaLimit = targetArea * 12.0;
+        double perimeterAreaLimit = targetArea * 16.0;
+
+        for (int faceIndex = 0; faceIndex < faces.Length / 3; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[faceIndex * 3 + 1];
+            int c = faces[faceIndex * 3 + 2];
+            double area = TriangleArea(vertices, a, b, c);
+            double centroidX = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
+            double centroidY = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0;
+
+            if (constraintSegments.Count > 0 &&
+                DistanceSquaredToAnySegment(centroidX, centroidY, constraintSegments) <= perimeterDistanceSquared)
+            {
+                if (area > maxConstraintTriangleArea)
+                    maxConstraintTriangleArea = area;
+
+                if (!constraintApronInvalid && area > constraintAreaLimit)
+                    constraintApronInvalid = true;
+            }
+
+            if (perimeterSegments.Count > 0 &&
+                DistanceSquaredToAnySegment(centroidX, centroidY, perimeterSegments) <= perimeterDistanceSquared)
+            {
+                if (area > maxPerimeterTriangleArea)
+                    maxPerimeterTriangleArea = area;
+
+                if (!perimeterApronInvalid && area > perimeterAreaLimit)
+                    perimeterApronInvalid = true;
+            }
+
+            if (constraintApronInvalid && perimeterApronInvalid)
+                return;
+        }
+    }
+
+    private static bool ShouldPreferBoundaryAndGuideSeedFallback(AttemptEvaluation initialAttempt, AttemptEvaluation fallbackAttempt)
+    {
+        double initialScore = Math.Max(initialAttempt.MaxConstraintTriangleArea, initialAttempt.MaxPerimeterTriangleArea);
+        double fallbackScore = Math.Max(fallbackAttempt.MaxConstraintTriangleArea, fallbackAttempt.MaxPerimeterTriangleArea);
+
+        if (initialScore <= 0.0 || fallbackScore <= 0.0)
+            return false;
+
+        return fallbackScore < initialScore * 0.85;
+    }
+
+    private static List<Segment2D> BuildPerimeterSegments(double[] originalVertices, int[] originalFaces, int faceCount)
+    {
+        var boundaryEdges = new List<(int a, int b)>();
+        MeshConstraintTools.AddBoundarySegments(boundaryEdges, new HashSet<long>(), originalFaces, faceCount);
+        var segments = new List<Segment2D>(boundaryEdges.Count);
+
+        foreach (var (a, b) in boundaryEdges)
+        {
+            segments.Add(new Segment2D(
+                originalVertices[a * 3],
+                originalVertices[a * 3 + 1],
+                originalVertices[b * 3],
+                originalVertices[b * 3 + 1]));
+        }
+
+        return segments;
+    }
+
+    private static List<Segment2D> BuildNonPerimeterConstraintSegments(
+        IReadOnlyList<ConstraintPolyline> constraints,
+        IReadOnlyList<Segment2D> perimeterSegments,
+        double tolerance)
+    {
+        var result = new List<Segment2D>();
+
+        foreach (var constraint in constraints)
+        {
+            int pointCount = NormalizePointCount(constraint, tolerance);
+            if (pointCount < 2)
+                continue;
+
+            if (IsPerimeterConstraint(constraint, pointCount, perimeterSegments, tolerance))
+                continue;
+
+            for (int pointIndex = 1; pointIndex < pointCount; pointIndex++)
+                result.Add(ToSegment(constraint, pointIndex - 1, pointIndex));
+
+            if (constraint.IsClosed)
+                result.Add(ToSegment(constraint, pointCount - 1, 0));
+        }
+
+        return result;
+    }
+
+    private static bool IsPerimeterConstraint(
+        ConstraintPolyline constraint,
+        int pointCount,
+        IReadOnlyList<Segment2D> perimeterSegments,
+        double tolerance)
+    {
+        if (perimeterSegments.Count == 0)
+            return false;
+
+        double distanceToleranceSquared = Math.Max(tolerance, 1e-9);
+        distanceToleranceSquared *= distanceToleranceSquared;
+
+        for (int pointIndex = 1; pointIndex < pointCount; pointIndex++)
+        {
+            if (!SegmentLiesOnPerimeter(constraint, pointIndex - 1, pointIndex, perimeterSegments, distanceToleranceSquared))
+                return false;
+        }
+
+        return !constraint.IsClosed || SegmentLiesOnPerimeter(constraint, pointCount - 1, 0, perimeterSegments, distanceToleranceSquared);
+    }
+
+    private static bool SegmentLiesOnPerimeter(
+        ConstraintPolyline constraint,
+        int startPointIndex,
+        int endPointIndex,
+        IReadOnlyList<Segment2D> perimeterSegments,
+        double distanceToleranceSquared)
+    {
+        double ax = constraint.Points[startPointIndex * 3];
+        double ay = constraint.Points[startPointIndex * 3 + 1];
+        double bx = constraint.Points[endPointIndex * 3];
+        double by = constraint.Points[endPointIndex * 3 + 1];
+        double mx = (ax + bx) * 0.5;
+        double my = (ay + by) * 0.5;
+
+        return DistanceSquaredToAnySegment(ax, ay, perimeterSegments) <= distanceToleranceSquared &&
+               DistanceSquaredToAnySegment(mx, my, perimeterSegments) <= distanceToleranceSquared &&
+               DistanceSquaredToAnySegment(bx, by, perimeterSegments) <= distanceToleranceSquared;
+    }
+
+    private static Segment2D ToSegment(ConstraintPolyline constraint, int startPointIndex, int endPointIndex)
+    {
+        return new Segment2D(
+            constraint.Points[startPointIndex * 3],
+            constraint.Points[startPointIndex * 3 + 1],
+            constraint.Points[endPointIndex * 3],
+            constraint.Points[endPointIndex * 3 + 1]);
+    }
+
+    private static double DistanceSquaredToAnySegment(double x, double y, IReadOnlyList<Segment2D> segments)
+    {
+        double best = double.PositiveInfinity;
+        for (int i = 0; i < segments.Count; i++)
+        {
+            best = Math.Min(best, DistanceSquaredToSegment(x, y, segments[i]));
+            if (best <= 0.0)
+                return 0.0;
+        }
+
+        return best;
+    }
+
+    private static double DistanceSquaredToSegment(double x, double y, Segment2D segment)
+    {
+        double dx = segment.Bx - segment.Ax;
+        double dy = segment.By - segment.Ay;
+        double lengthSquared = (dx * dx) + (dy * dy);
+        double t = lengthSquared <= 1e-12
+            ? 0.0
+            : Math.Clamp((((x - segment.Ax) * dx) + ((y - segment.Ay) * dy)) / lengthSquared, 0.0, 1.0);
+        double closestX = segment.Ax + (dx * t);
+        double closestY = segment.Ay + (dy * t);
+        double offsetX = x - closestX;
+        double offsetY = y - closestY;
+        return (offsetX * offsetX) + (offsetY * offsetY);
     }
 
     private static void AddConstraintCorridorSeeds(
@@ -472,6 +882,174 @@ public static class SurfaceRemesher
             paired[i] = true;
             paired[bestMatch] = true;
         }
+    }
+
+    private static void AddReducedInteriorGuideSeeds(
+        List<double> xyList,
+        List<double> zList,
+        double[] originalVertices,
+        int[] originalFaces,
+        int faceCount,
+        double targetLength,
+        double modelTolerance)
+    {
+        int originalVertexCount = originalVertices.Length / 3;
+        if (originalVertexCount == 0)
+            return;
+
+        double reuseTolerance = Math.Max(modelTolerance, 1e-9);
+        double maxTerrainSpan = GetMaxTerrainSpan(originalVertices);
+        double spacing = targetLength > 0
+            ? Math.Max(targetLength, reuseTolerance * 8.0)
+            : Math.Max(Math.Max(reuseTolerance * 64.0, maxTerrainSpan / 128.0), 1.0);
+        double minSpacing = Math.Max(spacing * 0.6, reuseTolerance * 4.0);
+        double minSpacingSq = minSpacing * minSpacing;
+        double invCell = 1.0 / spacing;
+        var grid = new Dictionary<long, List<int>>();
+
+        void InsertSeed(int index)
+        {
+            long key = PackCellKey(
+                (long)Math.Floor(xyList[index * 2] * invCell),
+                (long)Math.Floor(xyList[index * 2 + 1] * invCell));
+            if (!grid.TryGetValue(key, out var indices))
+            {
+                indices = new List<int>();
+                grid[key] = indices;
+            }
+
+            indices.Add(index);
+        }
+
+        bool HasNearbySeed(double x, double y)
+        {
+            long cx = (long)Math.Floor(x * invCell);
+            long cy = (long)Math.Floor(y * invCell);
+            for (long dx = -1; dx <= 1; dx++)
+            {
+                for (long dy = -1; dy <= 1; dy++)
+                {
+                    long key = PackCellKey(cx + dx, cy + dy);
+                    if (!grid.TryGetValue(key, out var indices))
+                        continue;
+
+                    foreach (int index in indices)
+                    {
+                        double seedX = xyList[index * 2];
+                        double seedY = xyList[index * 2 + 1];
+                        double offsetX = seedX - x;
+                        double offsetY = seedY - y;
+                        if ((offsetX * offsetX) + (offsetY * offsetY) < minSpacingSq)
+                            return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        int existingSeedCount = xyList.Count / 2;
+        for (int i = 0; i < existingSeedCount; i++)
+            InsertSeed(i);
+
+        for (int originalIndex = 0; originalIndex < originalVertexCount; originalIndex++)
+        {
+            double x = originalVertices[originalIndex * 3];
+            double y = originalVertices[originalIndex * 3 + 1];
+            if (HasNearbySeed(x, y))
+                continue;
+
+            int newIndex = zList.Count;
+            xyList.Add(x);
+            xyList.Add(y);
+            zList.Add(originalVertices[originalIndex * 3 + 2]);
+            InsertSeed(newIndex);
+        }
+
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = originalFaces[faceIndex * 3];
+            int b = originalFaces[faceIndex * 3 + 1];
+            int c = originalFaces[faceIndex * 3 + 2];
+
+            double ax = originalVertices[a * 3];
+            double ay = originalVertices[a * 3 + 1];
+            double az = originalVertices[a * 3 + 2];
+            double bx = originalVertices[b * 3];
+            double by = originalVertices[b * 3 + 1];
+            double bz = originalVertices[b * 3 + 2];
+            double cx = originalVertices[c * 3];
+            double cy = originalVertices[c * 3 + 1];
+            double cz = originalVertices[c * 3 + 2];
+
+            double minX = Math.Min(ax, Math.Min(bx, cx));
+            double maxX = Math.Max(ax, Math.Max(bx, cx));
+            double minY = Math.Min(ay, Math.Min(by, cy));
+            double maxY = Math.Max(ay, Math.Max(by, cy));
+            long minCellX = (long)Math.Floor(minX * invCell);
+            long maxCellX = (long)Math.Floor(maxX * invCell);
+            long minCellY = (long)Math.Floor(minY * invCell);
+            long maxCellY = (long)Math.Floor(maxY * invCell);
+            bool addedInteriorSeed = false;
+
+            for (long cellY = minCellY; cellY <= maxCellY; cellY++)
+            {
+                for (long cellX = minCellX; cellX <= maxCellX; cellX++)
+                {
+                    double sampleX = (cellX + 0.5) / invCell;
+                    double sampleY = (cellY + 0.5) / invCell;
+                    if (!PointInTriangle(sampleX, sampleY, ax, ay, bx, by, cx, cy))
+                        continue;
+
+                    if (HasNearbySeed(sampleX, sampleY))
+                        continue;
+
+                    int newIndex = zList.Count;
+                    xyList.Add(sampleX);
+                    xyList.Add(sampleY);
+                    zList.Add(InterpolateTriangleZ(sampleX, sampleY, ax, ay, az, bx, by, bz, cx, cy, cz));
+                    InsertSeed(newIndex);
+                    addedInteriorSeed = true;
+                }
+            }
+
+            if (addedInteriorSeed)
+                continue;
+
+            double centroidX = (ax + bx + cx) / 3.0;
+            double centroidY = (ay + by + cy) / 3.0;
+            if (HasNearbySeed(centroidX, centroidY))
+                continue;
+
+            int centroidIndex = zList.Count;
+            xyList.Add(centroidX);
+            xyList.Add(centroidY);
+            zList.Add((az + bz + cz) / 3.0);
+            InsertSeed(centroidIndex);
+        }
+    }
+
+    private static double GetMaxTerrainSpan(double[] originalVertices)
+    {
+        if (originalVertices.Length < 3)
+            return 0.0;
+
+        double minX = originalVertices[0];
+        double maxX = originalVertices[0];
+        double minY = originalVertices[1];
+        double maxY = originalVertices[1];
+
+        for (int i = 1; i < originalVertices.Length / 3; i++)
+        {
+            double x = originalVertices[i * 3];
+            double y = originalVertices[i * 3 + 1];
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+
+        return Math.Max(maxX - minX, maxY - minY);
     }
 
     private static double[] BuildCumulativeLengths(ConstraintPolyline constraint, int pointCount)
@@ -969,6 +1547,75 @@ public static class SurfaceRemesher
         double dy = ay - by;
         return dx * dx + dy * dy;
     }
+
+    private static bool PointInTriangle(
+        double px,
+        double py,
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        double cx,
+        double cy)
+    {
+        double v0x = cx - ax;
+        double v0y = cy - ay;
+        double v1x = bx - ax;
+        double v1y = by - ay;
+        double v2x = px - ax;
+        double v2y = py - ay;
+
+        double dot00 = (v0x * v0x) + (v0y * v0y);
+        double dot01 = (v0x * v1x) + (v0y * v1y);
+        double dot02 = (v0x * v2x) + (v0y * v2y);
+        double dot11 = (v1x * v1x) + (v1y * v1y);
+        double dot12 = (v1x * v2x) + (v1y * v2y);
+        double denominator = (dot00 * dot11) - (dot01 * dot01);
+        if (Math.Abs(denominator) <= 1e-20)
+            return false;
+
+        double invDenominator = 1.0 / denominator;
+        double u = ((dot11 * dot02) - (dot01 * dot12)) * invDenominator;
+        double v = ((dot00 * dot12) - (dot01 * dot02)) * invDenominator;
+        return u >= -1e-9 && v >= -1e-9 && (u + v) <= 1.0 + 1e-9;
+    }
+
+    private static double InterpolateTriangleZ(
+        double px,
+        double py,
+        double ax,
+        double ay,
+        double az,
+        double bx,
+        double by,
+        double bz,
+        double cx,
+        double cy,
+        double cz)
+    {
+        double denominator = ((by - cy) * (ax - cx)) + ((cx - bx) * (ay - cy));
+        if (Math.Abs(denominator) <= 1e-20)
+            return (az + bz + cz) / 3.0;
+
+        double w0 = (((by - cy) * (px - cx)) + ((cx - bx) * (py - cy))) / denominator;
+        double w1 = (((cy - ay) * (px - cx)) + ((ax - cx) * (py - cy))) / denominator;
+        double w2 = 1.0 - w0 - w1;
+        return (w0 * az) + (w1 * bz) + (w2 * cz);
+    }
+
+    private static double TriangleArea(double[] vertices, int a, int b, int c)
+    {
+        double ax = vertices[a * 3];
+        double ay = vertices[a * 3 + 1];
+        double bx = vertices[b * 3];
+        double by = vertices[b * 3 + 1];
+        double cx = vertices[c * 3];
+        double cy = vertices[c * 3 + 1];
+        return Math.Abs(((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax))) * 0.5;
+    }
+
+    private static long PackCellKey(long cx, long cy) =>
+        (cx * 0x100000001L) ^ (cy * 0x27d4eb2dL);
 
     private static double Lerp(double a, double b, double t) => a + ((b - a) * t);
 }

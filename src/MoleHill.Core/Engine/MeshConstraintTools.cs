@@ -48,22 +48,14 @@ public static class MeshConstraintTools
         return true;
     }
 
-    public static bool ConstraintsWereDropped(string? warning)
+    public static bool ConstraintsWereDropped(TriangulationWarningFlags flags)
     {
-        if (string.IsNullOrWhiteSpace(warning))
-            return false;
-
-        return warning.Contains("Constraints could not be enforced", StringComparison.OrdinalIgnoreCase) ||
-               warning.Contains("plain Delaunay", StringComparison.OrdinalIgnoreCase);
+        return (flags & TriangulationWarningFlags.DroppedSegments) != 0;
     }
 
-    public static bool QualityWasDropped(string? warning)
+    public static bool QualityWasDropped(TriangulationWarningFlags flags)
     {
-        if (string.IsNullOrWhiteSpace(warning))
-            return false;
-
-        return warning.Contains("Quality constraints could not be applied", StringComparison.OrdinalIgnoreCase) ||
-               warning.Contains("without quality constraints", StringComparison.OrdinalIgnoreCase);
+        return (flags & TriangulationWarningFlags.DroppedQualityConstraints) != 0;
     }
 
     private static void CountEdge(Dictionary<long, int> edgeFaceCount, int a, int b)

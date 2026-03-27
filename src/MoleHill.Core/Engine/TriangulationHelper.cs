@@ -3,6 +3,27 @@ using TriangleNet.Meshing;
 
 namespace MoleHill.Core.Engine;
 
+[Flags]
+public enum TriangulationWarningFlags
+{
+    None = 0,
+    UsedNonConformingCdt = 1 << 0,
+    DroppedQualityConstraints = 1 << 1,
+    DroppedSegments = 1 << 2,
+    UsedPlainDelaunayFallback = 1 << 3
+}
+
+public sealed class TriangulationOutcome
+{
+    public IMesh? Mesh { get; init; }
+
+    public string? WarningMessage { get; init; }
+
+    public TriangulationWarningFlags Flags { get; init; }
+
+    public IReadOnlyList<string> FailureDetails { get; init; } = Array.Empty<string>();
+}
+
 /// <summary>
 /// Shared triangulation with multi-tier fallback.
 /// Used by TinEngine, PadGrader, RemeshComponent, MeshAreaSplitter.
@@ -17,18 +38,17 @@ public static class TriangulationHelper
     /// 4. Non-conforming CDT, no quality
     /// 5. Plain Delaunay (drops segments)
     /// </summary>
-    public static IMesh? Triangulate(
+    public static TriangulationOutcome Triangulate(
         List<double> xyList, int vertexCount,
         List<(int a, int b)> segments,
         double maxArea, double minAngle,
-        out string? warning,
         bool convex = true,
         int segmentSplitting = 0)
     {
-        warning = null;
         bool hasSegs = segments.Count > 0;
         bool hasQuality = maxArea > 0 || minAngle > 0;
         var mesher = new GenericMesher();
+        var failureDetails = new List<string>(5);
 
         Polygon BuildPolygon(bool includeSegs)
         {
@@ -51,6 +71,17 @@ public static class TriangulationHelper
             return polygon;
         }
 
+        static string FormatFailure(string attemptName, Exception? ex, string? detail = null)
+        {
+            if (!string.IsNullOrWhiteSpace(detail))
+                return $"{attemptName}: {detail}";
+
+            if (ex == null)
+                return $"{attemptName}: failed.";
+
+            return $"{attemptName}: {ex.GetType().Name}: {ex.Message}";
+        }
+
         var constrainedPolygon = BuildPolygon(includeSegs: true);
         var unconstrainedPolygon = hasSegs ? BuildPolygon(includeSegs: false) : constrainedPolygon;
 
@@ -66,7 +97,7 @@ public static class TriangulationHelper
             quality.SteinerPoints = Math.Max(vertexCount * 50, 50_000);
         }
 
-        IMesh? TryMesh(Polygon poly, bool conforming, QualityOptions? qualityOptions)
+        IMesh? TryMesh(Polygon poly, bool conforming, QualityOptions? qualityOptions, string attemptName)
         {
             var opts = new ConstraintOptions
             {
@@ -77,59 +108,103 @@ public static class TriangulationHelper
             try
             {
                 var mesh = mesher.Triangulate(poly, opts, qualityOptions);
-                return mesh.Triangles.Count > 0 ? mesh : null;
+                if (mesh.Triangles.Count > 0)
+                    return mesh;
+
+                failureDetails.Add(FormatFailure(attemptName, null, "produced 0 triangles"));
+                return null;
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                failureDetails.Add(FormatFailure(attemptName, ex));
+                return null;
+            }
         }
 
         // Tier 1: Conforming CDT + quality
-        var result = TryMesh(constrainedPolygon, true, quality);
-        if (result != null) return result;
+        var result = TryMesh(constrainedPolygon, true, quality, "Conforming CDT + quality");
+        if (result != null)
+        {
+            return new TriangulationOutcome
+            {
+                Mesh = result
+            };
+        }
 
         // Tier 2: Non-conforming CDT + quality
         if (hasSegs)
         {
-            result = TryMesh(constrainedPolygon, false, quality);
+            result = TryMesh(constrainedPolygon, false, quality, "Non-conforming CDT + quality");
             if (result != null)
             {
-                warning = "Using non-conforming CDT for tightly spaced constraints.";
-                return result;
+                return new TriangulationOutcome
+                {
+                    Mesh = result,
+                    WarningMessage = "Using non-conforming CDT for tightly spaced constraints.",
+                    Flags = TriangulationWarningFlags.UsedNonConformingCdt
+                };
             }
         }
 
         // Tier 3: Conforming CDT, no quality
         if (hasQuality)
         {
-            result = TryMesh(constrainedPolygon, true, null);
+            result = TryMesh(constrainedPolygon, true, null, "Conforming CDT without quality");
             if (result != null)
             {
-                warning = "Quality constraints could not be applied.";
-                return result;
+                return new TriangulationOutcome
+                {
+                    Mesh = result,
+                    WarningMessage = "Quality constraints could not be applied.",
+                    Flags = TriangulationWarningFlags.DroppedQualityConstraints
+                };
             }
         }
 
         // Tier 4: Non-conforming CDT, no quality
         if (hasSegs)
         {
-            result = TryMesh(constrainedPolygon, false, null);
+            result = TryMesh(constrainedPolygon, false, null, "Non-conforming CDT without quality");
             if (result != null)
             {
-                warning = "Using non-conforming CDT without quality constraints.";
-                return result;
+                return new TriangulationOutcome
+                {
+                    Mesh = result,
+                    WarningMessage = "Using non-conforming CDT without quality constraints.",
+                    Flags = TriangulationWarningFlags.UsedNonConformingCdt | TriangulationWarningFlags.DroppedQualityConstraints
+                };
             }
         }
 
         // Tier 5: Plain Delaunay (drop segments)
-        result = TryMesh(unconstrainedPolygon, false, null);
+        result = TryMesh(unconstrainedPolygon, false, null, hasSegs ? "Plain Delaunay fallback" : "Delaunay");
         if (result != null)
         {
-            warning = hasSegs
-                ? "Constraints could not be enforced. Using plain Delaunay."
-                : null;
-            return result;
+            TriangulationWarningFlags flags = TriangulationWarningFlags.None;
+            if (hasSegs)
+                flags |= TriangulationWarningFlags.DroppedSegments | TriangulationWarningFlags.UsedPlainDelaunayFallback;
+            if (hasQuality)
+                flags |= TriangulationWarningFlags.DroppedQualityConstraints;
+
+            return new TriangulationOutcome
+            {
+                Mesh = result,
+                WarningMessage = hasSegs
+                    ? "Constraints could not be enforced. Using plain Delaunay."
+                    : null,
+                Flags = flags
+            };
         }
 
-        warning = "All triangulation attempts failed.";
-        return null;
+        string? failureSummary = failureDetails.Count > 0
+            ? string.Join(" | ", failureDetails)
+            : null;
+        return new TriangulationOutcome
+        {
+            WarningMessage = failureSummary == null
+                ? "All triangulation attempts failed."
+                : $"All triangulation attempts failed. {failureSummary}",
+            FailureDetails = failureDetails
+        };
     }
 }

@@ -162,19 +162,18 @@ public static class RetainingWallMeshGrader
         if (totalVerts < 3)
             return new RetainingWallGradeOutcome(false, null, "Too few vertices for retaining wall triangulation.");
 
-        var triMesh = TriangulationHelper.Triangulate(
+        TriangulationOutcome triangulation = TriangulationHelper.Triangulate(
             xyList, totalVerts, segList,
             0.0, 0.0,
-            out string? triWarning,
             convex: false);
 
-        if (triMesh == null)
-            return new RetainingWallGradeOutcome(false, null, triWarning ?? "Retaining wall triangulation failed.");
+        if (triangulation.Mesh == null)
+            return new RetainingWallGradeOutcome(false, null, triangulation.WarningMessage ?? "Retaining wall triangulation failed.");
 
-        if (HasConstraintFailureWarning(triWarning))
-            return new RetainingWallGradeOutcome(false, null, triWarning);
+        if (MeshConstraintTools.ConstraintsWereDropped(triangulation.Flags))
+            return new RetainingWallGradeOutcome(false, null, triangulation.WarningMessage);
 
-        var extracted = TriangleNetExtractor.Extract(triMesh);
+        var extracted = TriangleNetExtractor.Extract(triangulation.Mesh);
         int outVertCount = extracted.VertexCount;
         int outFaceCount = extracted.FaceCount;
 
@@ -215,7 +214,7 @@ public static class RetainingWallMeshGrader
                 strip.TopZ[i], strip.TopZ[i + 1]);
         }
 
-        for (int i = 0; i < outVertCount; i++)
+        System.Threading.Tasks.Parallel.For(0, outVertCount, i =>
         {
             var p = new Point2(outXy[i * 2], outXy[i * 2 + 1]);
             bool inside = false;
@@ -233,7 +232,7 @@ public static class RetainingWallMeshGrader
             }
 
             if (inside || shoulderWidth <= 0)
-                continue;
+                return;
 
             bool hasToe = ClosestPolylineSample(p, strip.ToeXy, strip.ToeZ, n, out double dToe, out double zToeRail);
             bool hasTop = ClosestPolylineSample(p, strip.TopXy, strip.TopZ, n, out double dTop, out double zTopRail);
@@ -241,7 +240,7 @@ public static class RetainingWallMeshGrader
             bool toeIn = hasToe && dToe <= shoulderWidth;
             bool topIn = hasTop && dTop <= shoulderWidth;
             if (!toeIn && !topIn)
-                continue;
+                return;
 
             bool useToe = toeIn && (!topIn || dToe <= dTop);
             double d = useToe ? dToe : dTop;
@@ -249,7 +248,7 @@ public static class RetainingWallMeshGrader
             double ratio = d / shoulderWidth;
             double falloff = 1.0 - ratio * ratio;
             newZ[i] = origZ[i] + falloff * (zRail - origZ[i]);
-        }
+        });
 
         var finalVerts = new double[outVertCount * 3];
         for (int i = 0; i < outVertCount; i++)
@@ -281,7 +280,7 @@ public static class RetainingWallMeshGrader
         }
 
         GradingResult result = BuildResult(outXy, origZ, newZ, finalVerts, outVertCount, finalFaces, outFaceCount);
-        return new RetainingWallGradeOutcome(true, result, triWarning);
+        return new RetainingWallGradeOutcome(true, result, triangulation.WarningMessage);
     }
 
     private static bool ValidateStrip(WallStripDefinition strip, out string? error)
@@ -302,13 +301,6 @@ public static class RetainingWallMeshGrader
         }
 
         return true;
-    }
-
-    private static bool HasConstraintFailureWarning(string? warning)
-    {
-        if (warning == null) return false;
-        return warning.Contains("Constraints could not be enforced", StringComparison.OrdinalIgnoreCase) ||
-               warning.Contains("plain Delaunay", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void AddBoundarySegments(List<(int a, int b)> segments, int[] faces, int faceCount)

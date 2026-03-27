@@ -28,24 +28,25 @@ public class MeshConstraintToolsTests
     }
 
     [Theory]
-    [InlineData("Constraints could not be enforced. Using plain Delaunay.", true)]
-    [InlineData("Using non-conforming CDT for tightly spaced constraints.", false)]
-    [InlineData("Quality constraints could not be applied.", false)]
-    [InlineData(null, false)]
-    public void ConstraintsWereDropped_MatchesOnlyConstraintLossWarnings(string? warning, bool expected)
+    [InlineData(TriangulationWarningFlags.DroppedSegments, true)]
+    [InlineData(TriangulationWarningFlags.UsedPlainDelaunayFallback | TriangulationWarningFlags.DroppedSegments, true)]
+    [InlineData(TriangulationWarningFlags.UsedNonConformingCdt, false)]
+    [InlineData(TriangulationWarningFlags.DroppedQualityConstraints, false)]
+    [InlineData(TriangulationWarningFlags.None, false)]
+    public void ConstraintsWereDropped_MatchesOnlyConstraintLossFlags(TriangulationWarningFlags flags, bool expected)
     {
-        Assert.Equal(expected, MeshConstraintTools.ConstraintsWereDropped(warning));
+        Assert.Equal(expected, MeshConstraintTools.ConstraintsWereDropped(flags));
     }
 
     [Theory]
-    [InlineData("Quality constraints could not be applied.", true)]
-    [InlineData("Using non-conforming CDT without quality constraints.", true)]
-    [InlineData("Using non-conforming CDT for tightly spaced constraints.", false)]
-    [InlineData("Constraints could not be enforced. Using plain Delaunay.", false)]
-    [InlineData(null, false)]
-    public void QualityWasDropped_MatchesOnlyQualityLossWarnings(string? warning, bool expected)
+    [InlineData(TriangulationWarningFlags.DroppedQualityConstraints, true)]
+    [InlineData(TriangulationWarningFlags.UsedNonConformingCdt | TriangulationWarningFlags.DroppedQualityConstraints, true)]
+    [InlineData(TriangulationWarningFlags.UsedNonConformingCdt, false)]
+    [InlineData(TriangulationWarningFlags.DroppedSegments, false)]
+    [InlineData(TriangulationWarningFlags.None, false)]
+    public void QualityWasDropped_MatchesOnlyQualityLossFlags(TriangulationWarningFlags flags, bool expected)
     {
-        Assert.Equal(expected, MeshConstraintTools.QualityWasDropped(warning));
+        Assert.Equal(expected, MeshConstraintTools.QualityWasDropped(flags));
     }
 
     private static bool MatchesEdge((int a, int b) segment, int a, int b)
