@@ -10,7 +10,7 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed class TerrainRuntimeCache
 {
-    public TinEngine TinEngine { get; } = new();
+    public TinEngine TinEngine { get; init; } = new();
 
     public Dictionary<string, StageCacheEntry> StageEntries { get; } = new(StringComparer.Ordinal);
 
@@ -28,6 +28,7 @@ internal sealed class TerrainRuntimeCache
     {
         var copy = new TerrainRuntimeCache
         {
+            TinEngine = TinEngine,
             LastPreviewDuration = LastPreviewDuration,
             LastFinalDuration = LastFinalDuration
         };
@@ -36,10 +37,10 @@ internal sealed class TerrainRuntimeCache
             copy.StageEntries[entry.Key] = TerrainRuntimeCacheCloner.CloneStageCacheEntry(entry.Value);
 
         foreach (var entry in PadTopologyEntries)
-            copy.PadTopologyEntries[entry.Key] = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(entry.Value);
+            copy.PadTopologyEntries[entry.Key] = entry.Value;
 
         foreach (var entry in SmoothEntries)
-            copy.SmoothEntries[entry.Key] = TerrainRuntimeCacheCloner.CloneSmoothStageCacheEntry(entry.Value);
+            copy.SmoothEntries[entry.Key] = entry.Value;
 
         return copy;
     }
@@ -48,15 +49,18 @@ internal sealed class TerrainRuntimeCache
     {
         StageEntries.Clear();
         foreach (var entry in source.StageEntries)
-            StageEntries[entry.Key] = TerrainRuntimeCacheCloner.CloneStageCacheEntry(entry.Value);
+            StageEntries[entry.Key] = entry.Value;
+        source.StageEntries.Clear();
 
         PadTopologyEntries.Clear();
         foreach (var entry in source.PadTopologyEntries)
-            PadTopologyEntries[entry.Key] = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(entry.Value);
+            PadTopologyEntries[entry.Key] = entry.Value;
+        source.PadTopologyEntries.Clear();
 
         SmoothEntries.Clear();
         foreach (var entry in source.SmoothEntries)
-            SmoothEntries[entry.Key] = TerrainRuntimeCacheCloner.CloneSmoothStageCacheEntry(entry.Value);
+            SmoothEntries[entry.Key] = entry.Value;
+        source.SmoothEntries.Clear();
     }
 
     public void Clear()
@@ -331,13 +335,13 @@ internal static class TerrainRuntimeCacheCloner
             PreResolutionFingerprint = entry.PreResolutionFingerprint,
             ResolvedInputFingerprint = entry.ResolvedInputFingerprint,
             OutputFingerprint = entry.OutputFingerprint,
-            MeshOutput = CloneMesh(entry.MeshOutput),
-            AnalysisOutput = CloneAnalyses(entry.AnalysisOutput),
-            ZoneObjects = CloneGeneratedObjects(entry.ZoneObjects),
-            AuxiliaryObjects = CloneGeneratedObjects(entry.AuxiliaryObjects),
-            MarkerObjects = CloneGeneratedObjects(entry.MarkerObjects),
-            PersistentHardConstraints = CloneConstraints(entry.PersistentHardConstraints),
-            Diagnostics = entry.Diagnostics.ToList(),
+            MeshOutput = entry.MeshOutput,
+            AnalysisOutput = entry.AnalysisOutput,
+            ZoneObjects = entry.ZoneObjects,
+            AuxiliaryObjects = entry.AuxiliaryObjects,
+            MarkerObjects = entry.MarkerObjects,
+            PersistentHardConstraints = entry.PersistentHardConstraints,
+            Diagnostics = entry.Diagnostics,
             StairSurfaceCount = entry.StairSurfaceCount,
             StairTreadDepthSummary = entry.StairTreadDepthSummary,
             StairStepCountSummary = entry.StairStepCountSummary

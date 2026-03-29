@@ -5,14 +5,12 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainBuildSnapshotResolver
 {
-    public static List<ResolvedSourceObject> ResolveObjects(TerrainBuildSnapshot snapshot, SourceReferenceSet sourceSet)
+    public static IReadOnlyList<ResolvedSourceObject> ResolveObjects(TerrainBuildSnapshot snapshot, SourceReferenceSet sourceSet)
     {
         if (!snapshot.SourceObjects.TryGetValue(sourceSet, out var objects) || objects.Count == 0)
-            return new List<ResolvedSourceObject>();
+            return Array.Empty<ResolvedSourceObject>();
 
-        return objects
-            .Select(CloneResolvedSourceObject)
-            .ToList();
+        return objects;
     }
 
     public static List<Point3d> ResolvePoints(TerrainBuildSnapshot snapshot, SourceReferenceSet sourceSet)
@@ -111,20 +109,5 @@ internal static class TerrainBuildSnapshotResolver
         return snapshot.SourceFingerprints.TryGetValue(sourceSet, out ulong fingerprint)
             ? fingerprint
             : 0UL;
-    }
-
-    private static ResolvedSourceObject CloneResolvedSourceObject(ResolvedSourceObject obj)
-    {
-        return new ResolvedSourceObject
-        {
-            ObjectId = obj.ObjectId,
-            LayerPath = obj.LayerPath,
-            Geometry = obj.Geometry.Duplicate(),
-            LocalBoundingBox = obj.LocalBoundingBox,
-            WorldBoundingBox = obj.WorldBoundingBox,
-            SourceTransform = obj.SourceTransform,
-            HasSourceTransform = obj.HasSourceTransform,
-            GeometryDataCrc = obj.GeometryDataCrc
-        };
     }
 }

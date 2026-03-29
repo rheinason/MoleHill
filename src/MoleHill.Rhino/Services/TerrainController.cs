@@ -76,6 +76,8 @@ internal sealed class TerrainController
         TerrainDefinition SnapshotTerrain,
         TerrainBuildResult? Build,
         TerrainRuntimeCache WorkerCache,
+        TimeSpan SnapshotElapsed,
+        TimeSpan WorkerCacheCloneElapsed,
         TimeSpan BuildElapsed,
         bool WasCanceled,
         Exception? Error);
@@ -997,8 +999,13 @@ internal sealed class TerrainController
         if (!ConfirmLongRunningBuild(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), rebuildState, mode, buildVersion))
             return;
 
+        var snapshotTimer = Stopwatch.StartNew();
         TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
+        snapshotTimer.Stop();
+
+        var workerCacheTimer = Stopwatch.StartNew();
         TerrainRuntimeCache workerCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).CreateWorkerCopy();
+        workerCacheTimer.Stop();
         var cancellation = new CancellationTokenSource();
 
         rebuildState.RunningVersion = buildVersion;
@@ -1007,7 +1014,14 @@ internal sealed class TerrainController
         rebuildState.IsBuilding = true;
         rebuildState.WorkerCancellation?.Dispose();
         rebuildState.WorkerCancellation = cancellation;
-        rebuildState.WorkerTask = Task.Run(() => ExecuteBackgroundBuild(snapshot, workerCache, mode, buildVersion, cancellation.Token));
+        rebuildState.WorkerTask = Task.Run(() => ExecuteBackgroundBuild(
+            snapshot,
+            workerCache,
+            mode,
+            buildVersion,
+            snapshotTimer.Elapsed,
+            workerCacheTimer.Elapsed,
+            cancellation.Token));
 
         terrain.LastBuildMessage = mode == TerrainBuildMode.Preview
             ? $"Previewing terrain #{buildVersion:N0}..."
@@ -1044,9 +1058,22 @@ internal sealed class TerrainController
 
         try
         {
+            var snapshotTimer = Stopwatch.StartNew();
             TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
+            snapshotTimer.Stop();
+
+            var workerCacheTimer = Stopwatch.StartNew();
             TerrainRuntimeCache workerCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).CreateWorkerCopy();
-            BackgroundBuildResult result = ExecuteBackgroundBuild(snapshot, workerCache, mode, buildVersion, CancellationToken.None);
+            workerCacheTimer.Stop();
+
+            BackgroundBuildResult result = ExecuteBackgroundBuild(
+                snapshot,
+                workerCache,
+                mode,
+                buildVersion,
+                snapshotTimer.Elapsed,
+                workerCacheTimer.Elapsed,
+                CancellationToken.None);
             if (result.WasCanceled || rebuildState.RequestedVersion > buildVersion)
             {
                 terrain.LastBuildMessage = rebuildState.RequestedVersion > buildVersion
@@ -1085,6 +1112,8 @@ internal sealed class TerrainController
         TerrainRuntimeCache workerCache,
         TerrainBuildMode mode,
         long buildVersion,
+        TimeSpan snapshotElapsed,
+        TimeSpan workerCacheCloneElapsed,
         CancellationToken cancellationToken)
     {
         var timer = Stopwatch.StartNew();
@@ -1102,6 +1131,8 @@ internal sealed class TerrainController
                 snapshot.Terrain,
                 build,
                 workerCache,
+                snapshotElapsed,
+                workerCacheCloneElapsed,
                 timer.Elapsed,
                 WasCanceled: false,
                 Error: null);
@@ -1115,6 +1146,8 @@ internal sealed class TerrainController
                 snapshot.Terrain,
                 Build: null,
                 WorkerCache: workerCache,
+                SnapshotElapsed: snapshotElapsed,
+                WorkerCacheCloneElapsed: workerCacheCloneElapsed,
                 BuildElapsed: timer.Elapsed,
                 WasCanceled: true,
                 Error: null);
@@ -1128,6 +1161,8 @@ internal sealed class TerrainController
                 snapshot.Terrain,
                 Build: null,
                 WorkerCache: workerCache,
+                SnapshotElapsed: snapshotElapsed,
+                WorkerCacheCloneElapsed: workerCacheCloneElapsed,
                 BuildElapsed: timer.Elapsed,
                 WasCanceled: false,
                 Error: ex);
@@ -1186,10 +1221,17 @@ internal sealed class TerrainController
         TerrainRebuildState rebuildState,
         BackgroundBuildResult result)
     {
+        TerrainBuildResult build = result.Build!;
+        build.RecordTiming("Snapshot build", result.SnapshotElapsed, $"{result.SnapshotTerrain.Modifiers.Count:N0} modifiers", MinorTimingDiagnosticThresholdMs);
+        build.RecordTiming("Worker cache clone", result.WorkerCacheCloneElapsed, null, MinorTimingDiagnosticThresholdMs);
+
+        var cacheMergeTimer = Stopwatch.StartNew();
         runtimeCache.ReplaceBuildCachesFrom(result.WorkerCache);
+        cacheMergeTimer.Stop();
+        build.RecordTiming("Worker cache merge", cacheMergeTimer.Elapsed, null, MinorTimingDiagnosticThresholdMs);
+
         SyncComputedModifierState(terrain, result.SnapshotTerrain);
 
-        TerrainBuildResult build = result.Build!;
         TimeSpan buildElapsed = result.BuildElapsed;
         if (result.Mode == TerrainBuildMode.Final)
         {
@@ -1229,8 +1271,8 @@ internal sealed class TerrainController
 
             build.RecordTiming(
                 "Rebuild total",
-                buildElapsed + displayTimer.Elapsed + saveTimer.Elapsed + redrawTimer.Elapsed,
-                $"build {FormatElapsed(buildElapsed)}, display {FormatElapsed(displayTimer.Elapsed)}, save {FormatElapsed(saveTimer.Elapsed)}, redraw {FormatElapsed(redrawTimer.Elapsed)}; {DescribeDisplayState(runtimeCache.DisplayState)}",
+                result.SnapshotElapsed + result.WorkerCacheCloneElapsed + buildElapsed + cacheMergeTimer.Elapsed + displayTimer.Elapsed + saveTimer.Elapsed + redrawTimer.Elapsed,
+                $"snapshot {FormatElapsed(result.SnapshotElapsed)}, clone {FormatElapsed(result.WorkerCacheCloneElapsed)}, build {FormatElapsed(buildElapsed)}, merge {FormatElapsed(cacheMergeTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}, save {FormatElapsed(saveTimer.Elapsed)}, redraw {FormatElapsed(redrawTimer.Elapsed)}; {DescribeDisplayState(runtimeCache.DisplayState)}",
                 TotalTimingDiagnosticThresholdMs);
 
             terrain.LastBuildMessage = build.Diagnostics.Count == 0
@@ -1241,8 +1283,8 @@ internal sealed class TerrainController
         {
             build.RecordTiming(
                 "Preview total",
-                buildElapsed + displayTimer.Elapsed,
-                $"build {FormatElapsed(buildElapsed)}, display {FormatElapsed(displayTimer.Elapsed)}; {DescribeDisplayState(runtimeCache.DisplayState)}",
+                result.SnapshotElapsed + result.WorkerCacheCloneElapsed + buildElapsed + cacheMergeTimer.Elapsed + displayTimer.Elapsed,
+                $"snapshot {FormatElapsed(result.SnapshotElapsed)}, clone {FormatElapsed(result.WorkerCacheCloneElapsed)}, build {FormatElapsed(buildElapsed)}, merge {FormatElapsed(cacheMergeTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}; {DescribeDisplayState(runtimeCache.DisplayState)}",
                 TotalTimingDiagnosticThresholdMs);
 
             terrain.LastBuildMessage = build.Diagnostics.Count == 0
@@ -2499,16 +2541,16 @@ internal sealed class TerrainController
         {
             IsPreview = build.Mode == TerrainBuildMode.Preview,
             HasDeferredOutputs = build.HasDeferredOutputs,
-            TerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(build.PrimaryMesh),
-            BaseTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(build.BaseMesh)
+            TerrainMesh = build.PrimaryMesh,
+            BaseTerrainMesh = build.BaseMesh
         };
         if (build.Mode == TerrainBuildMode.Final)
-            displayState.AnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneAnalyses(build.AnalysisResults));
+            displayState.AnalysisResults.AddRange(build.AnalysisResults);
         if (build.Mode == TerrainBuildMode.Final)
         {
-            displayState.ZoneObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.ZoneObjects));
-            displayState.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.AuxiliaryObjects));
-            displayState.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.MarkerObjects));
+            displayState.ZoneObjects.AddRange(build.ZoneObjects);
+            displayState.AuxiliaryObjects.AddRange(build.AuxiliaryObjects);
+            displayState.MarkerObjects.AddRange(build.MarkerObjects);
         }
         runtimeCache.DisplayState = displayState;
         UpdateRuntimePreview(doc, terrain, runtimeCache);
@@ -2521,7 +2563,7 @@ internal sealed class TerrainController
 
         if (runtimeCache.DisplayState.IsPreview)
         {
-            runtimeCache.DisplayState.PreviewTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(runtimeCache.DisplayState.TerrainMesh);
+            runtimeCache.DisplayState.PreviewTerrainMesh = runtimeCache.DisplayState.TerrainMesh;
             runtimeCache.DisplayState.ActiveAnalysisId = null;
             runtimeCache.DisplayState.ActiveAnalysisLabel = null;
             terrain.LastAnalysisResults.Clear();

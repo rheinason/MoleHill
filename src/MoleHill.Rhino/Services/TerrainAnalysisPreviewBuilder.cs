@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using Rhino;
@@ -8,6 +9,8 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainAnalysisPreviewBuilder
 {
+    private const int ParallelColorThreshold = 20_000;
+
     public static void UpdatePreviewMesh(RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState state)
     {
         state.ActiveAnalysisId = null;
@@ -22,7 +25,7 @@ internal static class TerrainAnalysisPreviewBuilder
         AnalysisDefinition? activeAnalysis = terrain.Analyses.FirstOrDefault(analysis => analysis.IsEnabled && SupportsTerrainPreview(analysis));
         if (activeAnalysis == null)
         {
-            state.PreviewTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(state.TerrainMesh);
+            state.PreviewTerrainMesh = state.TerrainMesh;
             return;
         }
 
@@ -31,10 +34,10 @@ internal static class TerrainAnalysisPreviewBuilder
             SlopeAnalysisDefinition slope => BuildSlopePreviewMesh(state.TerrainMesh, slope, GetAlpha(terrain.TerrainColorArgb)),
             ElevationAnalysisDefinition elevation => BuildElevationPreviewMesh(state.TerrainMesh, elevation, GetAlpha(terrain.TerrainColorArgb)),
             CutFillAnalysisDefinition cutFill => BuildCutFillPreviewMesh(doc, terrain, state, cutFill, GetAlpha(terrain.TerrainColorArgb)),
-            _ => TerrainRuntimeCacheCloner.CloneMesh(state.TerrainMesh)
+            _ => state.TerrainMesh
         };
 
-        state.PreviewTerrainMesh = previewMesh ?? TerrainRuntimeCacheCloner.CloneMesh(state.TerrainMesh);
+        state.PreviewTerrainMesh = previewMesh ?? state.TerrainMesh;
         state.ActiveAnalysisId = activeAnalysis.Id;
         state.ActiveAnalysisLabel = activeAnalysis.Label;
     }
@@ -87,18 +90,49 @@ internal static class TerrainAnalysisPreviewBuilder
         var values = new double[faceCount];
         double min = double.MaxValue;
         double max = double.MinValue;
-        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        if (faceCount >= ParallelColorThreshold)
         {
-            int a = faces[faceIndex * 3];
-            int b = faces[faceIndex * 3 + 1];
-            int c = faces[faceIndex * 3 + 2];
-            double value =
-                (vertices[a * 3 + 2] +
-                 vertices[b * 3 + 2] +
-                 vertices[c * 3 + 2]) / 3.0;
-            values[faceIndex] = value;
-            min = Math.Min(min, value);
-            max = Math.Max(max, value);
+            object gate = new();
+            Parallel.For<(double LocalMin, double LocalMax)>(0, faceCount,
+                () => (double.MaxValue, double.MinValue),
+                (faceIndex, _, local) =>
+                {
+                    int a = faces[faceIndex * 3];
+                    int b = faces[faceIndex * 3 + 1];
+                    int c = faces[faceIndex * 3 + 2];
+                    double value =
+                        (vertices[a * 3 + 2] +
+                         vertices[b * 3 + 2] +
+                         vertices[c * 3 + 2]) / 3.0;
+                    values[faceIndex] = value;
+                    local.LocalMin = Math.Min(local.LocalMin, value);
+                    local.LocalMax = Math.Max(local.LocalMax, value);
+                    return local;
+                },
+                local =>
+                {
+                    lock (gate)
+                    {
+                        min = Math.Min(min, local.LocalMin);
+                        max = Math.Max(max, local.LocalMax);
+                    }
+                });
+        }
+        else
+        {
+            for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+            {
+                int a = faces[faceIndex * 3];
+                int b = faces[faceIndex * 3 + 1];
+                int c = faces[faceIndex * 3 + 2];
+                double value =
+                    (vertices[a * 3 + 2] +
+                     vertices[b * 3 + 2] +
+                     vertices[c * 3 + 2]) / 3.0;
+                values[faceIndex] = value;
+                min = Math.Min(min, value);
+                max = Math.Max(max, value);
+            }
         }
 
         if (min == double.MaxValue)
@@ -126,7 +160,7 @@ internal static class TerrainAnalysisPreviewBuilder
 
         RhinoMesh? referenceMesh = ResolveReferenceMesh(doc, analysis.Reference) ?? state.BaseTerrainMesh;
         if (referenceMesh == null)
-            return TerrainRuntimeCacheCloner.CloneMesh(terrainMesh);
+            return terrainMesh;
 
         var boundaries = RhinoSourceResolver.ResolveCurves(doc, analysis.Boundary);
         int faceCount = terrainMesh.Faces.Count;
@@ -266,6 +300,16 @@ internal static class TerrainAnalysisPreviewBuilder
     private static byte[] BuildFaceColors(double[] values, double low, double high, IReadOnlyList<SlopeAnalyzer.ColorStop> palette)
     {
         var colors = new byte[values.Length * 3];
+        if (values.Length >= ParallelColorThreshold)
+        {
+            Parallel.For(0, values.Length, index =>
+            {
+                SamplePaletteColor(values[index], low, high, palette, out byte r, out byte g, out byte b);
+                WriteColor(colors, index, r, g, b);
+            });
+            return colors;
+        }
+
         for (int index = 0; index < values.Length; index++)
         {
             SamplePaletteColor(values[index], low, high, palette, out byte r, out byte g, out byte b);

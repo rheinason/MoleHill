@@ -1,11 +1,25 @@
+using System.Runtime.CompilerServices;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
 
+internal sealed class ExtractedMeshData
+{
+    public required double[] Vertices { get; init; }
+
+    public required int VertexCount { get; init; }
+
+    public required int[] Faces { get; init; }
+
+    public required int FaceCount { get; init; }
+}
+
 internal static class RhinoGeometryConversions
 {
+    private static readonly ConditionalWeakTable<Mesh, ExtractedMeshData> MeshDataCache = new();
+
     public static Mesh ToRhinoMesh(TinResult result)
     {
         var mesh = new Mesh();
@@ -32,45 +46,41 @@ internal static class RhinoGeometryConversions
         return mesh;
     }
 
-    public static bool TryExtractMeshData(Mesh mesh, out double[] vertices, out int[] faces, out string? errorMessage)
+    public static bool TryGetMeshData(Mesh mesh, out ExtractedMeshData data, out string? errorMessage)
     {
         errorMessage = null;
-        vertices = Array.Empty<double>();
-        faces = Array.Empty<int>();
+        if (MeshDataCache.TryGetValue(mesh, out data!))
+            return true;
 
         var normalized = mesh.DuplicateMesh();
         NormalizeMeshInPlace(normalized);
 
         if (normalized.Faces.Count == 0)
         {
+            data = null!;
             errorMessage = "Mesh has no faces.";
             return false;
         }
 
-        vertices = new double[normalized.Vertices.Count * 3];
-        for (int i = 0; i < normalized.Vertices.Count; i++)
+        if (!TryBuildMeshData(normalized, out data, out errorMessage))
         {
-            var pt = normalized.Vertices[i];
-            vertices[i * 3] = pt.X;
-            vertices[i * 3 + 1] = pt.Y;
-            vertices[i * 3 + 2] = pt.Z;
+            data = null!;
+            return false;
         }
 
-        faces = new int[normalized.Faces.Count * 3];
-        for (int i = 0; i < normalized.Faces.Count; i++)
-        {
-            var face = normalized.Faces[i];
-            if (face.IsQuad)
-            {
-                errorMessage = "Only triangle meshes are supported.";
-                return false;
-            }
+        CacheMeshData(mesh, data);
+        return true;
+    }
 
-            faces[i * 3] = face.A;
-            faces[i * 3 + 1] = face.B;
-            faces[i * 3 + 2] = face.C;
-        }
+    public static bool TryExtractMeshData(Mesh mesh, out double[] vertices, out int[] faces, out string? errorMessage)
+    {
+        vertices = Array.Empty<double>();
+        faces = Array.Empty<int>();
+        if (!TryGetMeshData(mesh, out var data, out errorMessage))
+            return false;
 
+        vertices = data.Vertices;
+        faces = data.Faces;
         return true;
     }
 
@@ -149,6 +159,54 @@ internal static class RhinoGeometryConversions
         mesh.Normals.ComputeNormals();
         mesh.UnifyNormals();
         mesh.Compact();
+        CacheMeshData(mesh, BuildMeshData(mesh));
     }
 
+    private static bool TryBuildMeshData(Mesh mesh, out ExtractedMeshData data, out string? errorMessage)
+    {
+        errorMessage = null;
+        data = BuildMeshData(mesh);
+        if (data.FaceCount == 0)
+        {
+            errorMessage = "Mesh has no faces.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static ExtractedMeshData BuildMeshData(Mesh mesh)
+    {
+        var vertices = new double[mesh.Vertices.Count * 3];
+        for (int i = 0; i < mesh.Vertices.Count; i++)
+        {
+            var pt = mesh.Vertices[i];
+            vertices[i * 3] = pt.X;
+            vertices[i * 3 + 1] = pt.Y;
+            vertices[i * 3 + 2] = pt.Z;
+        }
+
+        var faces = new int[mesh.Faces.Count * 3];
+        for (int i = 0; i < mesh.Faces.Count; i++)
+        {
+            var face = mesh.Faces[i];
+            faces[i * 3] = face.A;
+            faces[i * 3 + 1] = face.B;
+            faces[i * 3 + 2] = face.C;
+        }
+
+        return new ExtractedMeshData
+        {
+            Vertices = vertices,
+            VertexCount = mesh.Vertices.Count,
+            Faces = faces,
+            FaceCount = mesh.Faces.Count
+        };
+    }
+
+    private static void CacheMeshData(Mesh mesh, ExtractedMeshData data)
+    {
+        MeshDataCache.Remove(mesh);
+        MeshDataCache.Add(mesh, data);
+    }
 }

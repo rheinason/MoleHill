@@ -20,6 +20,7 @@ public class TinEngine
     private TinResult? _cachedResult;
     private Mesh? _cachedMesh;
     private IncrementalTopologyState? _topologyState;
+    private readonly object _gate = new();
 
     private readonly record struct XyKey(long XBits, long YBits)
     {
@@ -133,70 +134,76 @@ public class TinEngine
                             double maxBoundaryEdgeLength = 0,
                             Func<bool>? shouldCancel = null)
     {
-        errorMessage = null;
-        int vertexCount = xyCoords.Length / 2;
-        if (vertexCount < 3)
+        lock (_gate)
         {
-            errorMessage = $"Only {vertexCount} vertices provided (need at least 3).";
-            return null;
-        }
-
-        if (ArePointsCollinear(xyCoords, vertexCount))
-        {
-            errorMessage = "All points are collinear (lie on a single line). A TIN requires non-collinear points.";
-            return null;
-        }
-
-        ThrowIfCancellationRequested(shouldCancel);
-
-        int xyHash = InputSnapshot.ComputeXyHash(xyCoords, segments, quality, useConvexHull, maxBoundaryEdgeLength);
-
-        if (_cachedSnapshot != null && _cachedResult != null &&
-            xyHash == _cachedSnapshot.XyHash &&
-            zValues.Length == _cachedResult.VertexCount)
-        {
-            int zHash = InputSnapshot.ComputeZHash(zValues);
-            if (zHash == _cachedSnapshot.ZHash)
+            errorMessage = null;
+            int vertexCount = xyCoords.Length / 2;
+            if (vertexCount < 3)
             {
+                errorMessage = $"Only {vertexCount} vertices provided (need at least 3).";
+                return null;
+            }
+
+            if (ArePointsCollinear(xyCoords, vertexCount))
+            {
+                errorMessage = "All points are collinear (lie on a single line). A TIN requires non-collinear points.";
+                return null;
+            }
+
+            ThrowIfCancellationRequested(shouldCancel);
+
+            int xyHash = InputSnapshot.ComputeXyHash(xyCoords, segments, quality, useConvexHull, maxBoundaryEdgeLength);
+
+            if (_cachedSnapshot != null && _cachedResult != null &&
+                xyHash == _cachedSnapshot.XyHash &&
+                zValues.Length == _cachedResult.VertexCount)
+            {
+                int zHash = InputSnapshot.ComputeZHash(zValues);
+                if (zHash == _cachedSnapshot.ZHash)
+                {
+                    return _cachedResult;
+                }
+
+                _cachedSnapshot = new InputSnapshot(xyHash, zHash);
+                _cachedResult = _cachedResult.WithUpdatedZ(zValues);
                 return _cachedResult;
             }
 
-            _cachedSnapshot = new InputSnapshot(xyHash, zHash);
-            _cachedResult = _cachedResult.WithUpdatedZ(zValues);
-            return _cachedResult;
-        }
+            if (TryApplyIncrementalEdit(xyCoords, zValues, segments, quality, useConvexHull, maxBoundaryEdgeLength, out var incrementalResult))
+            {
+                int zHash = InputSnapshot.ComputeZHash(zValues);
+                _cachedSnapshot = new InputSnapshot(xyHash, zHash);
+                _cachedResult = incrementalResult;
+                errorMessage = null;
+                return incrementalResult;
+            }
 
-        if (TryApplyIncrementalEdit(xyCoords, zValues, segments, quality, useConvexHull, maxBoundaryEdgeLength, out var incrementalResult))
-        {
-            int zHash = InputSnapshot.ComputeZHash(zValues);
-            _cachedSnapshot = new InputSnapshot(xyHash, zHash);
-            _cachedResult = incrementalResult;
-            errorMessage = null;
-            return incrementalResult;
+            ThrowIfCancellationRequested(shouldCancel);
+            var result = FullRebuild(
+                xyCoords, zValues, segments, quality,
+                out errorMessage, out IMesh? builtMesh, useConvexHull, maxBoundaryEdgeLength, shouldCancel);
+            if (result != null)
+            {
+                _cachedSnapshot = new InputSnapshot(xyHash, InputSnapshot.ComputeZHash(zValues));
+                _cachedResult = result;
+                _cachedMesh = builtMesh as Mesh;
+                _topologyState = _cachedMesh != null
+                    ? CreateTopologyState(_cachedMesh, xyCoords, segments, quality, useConvexHull)
+                    : null;
+            }
+            return result;
         }
-
-        ThrowIfCancellationRequested(shouldCancel);
-        var result = FullRebuild(
-            xyCoords, zValues, segments, quality,
-            out errorMessage, out IMesh? builtMesh, useConvexHull, maxBoundaryEdgeLength, shouldCancel);
-        if (result != null)
-        {
-            _cachedSnapshot = new InputSnapshot(xyHash, InputSnapshot.ComputeZHash(zValues));
-            _cachedResult = result;
-            _cachedMesh = builtMesh as Mesh;
-            _topologyState = _cachedMesh != null
-                ? CreateTopologyState(_cachedMesh, xyCoords, segments, quality, useConvexHull)
-                : null;
-        }
-        return result;
     }
 
     public void InvalidateCache()
     {
-        _cachedSnapshot = null;
-        _cachedResult = null;
-        _cachedMesh = null;
-        _topologyState = null;
+        lock (_gate)
+        {
+            _cachedSnapshot = null;
+            _cachedResult = null;
+            _cachedMesh = null;
+            _topologyState = null;
+        }
     }
 
     private static Dictionary<XyKey, int> BuildInputIndexByKey(double[] xyCoords)
