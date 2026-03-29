@@ -98,6 +98,10 @@ dotnet test tests/MoleHill.Grasshopper.Tests/MoleHill.Grasshopper.Tests.csproj
 
 ## License
 
-GNU GPL v3.0
+This repository is mixed-license.
 
-This project is distributed under the terms of the GNU General Public License v3.0. See `LICENSE` for the full text.
+- MoleHill-authored code outside `src/TriangleNet/` is licensed under `GPL-3.0-only`.
+- `src/TriangleNet/` is excluded and retains its upstream notices and original terms.
+- The MoleHill code is intended to be reciprocal: if you distribute modified versions, you need to provide the corresponding source under GPL terms.
+
+See `LICENSE` and the files under `LICENSES/` for the details that apply to each part of the repository.

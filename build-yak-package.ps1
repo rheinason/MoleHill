@@ -81,6 +81,7 @@ $grasshopperOutput = Join-Path $buildRoot "grasshopper"
 $stageRoot = Join-Path $repoRoot ".artifacts\yak\MoleHill-$version"
 $packageContentRoot = Join-Path $stageRoot "net7.0"
 $miscDirectory = Join-Path $packageContentRoot "misc"
+$miscLicensesDirectory = Join-Path $miscDirectory "licenses"
 
 Invoke-Step "dotnet" @(
     "build",
@@ -107,6 +108,7 @@ if (Test-Path $stageRoot) {
 }
 
 New-Item -ItemType Directory -Path $miscDirectory -Force | Out-Null
+New-Item -ItemType Directory -Path $miscLicensesDirectory -Force | Out-Null
 
 $filesToCopy = @(
     @{ Source = Join-Path $rhinoOutput "MoleHill.Rhino.rhp"; Destination = Join-Path $packageContentRoot "MoleHill.Rhino.rhp" }
@@ -128,6 +130,8 @@ foreach ($file in $filesToCopy) {
 
     Copy-Item -Path $file.Source -Destination $file.Destination -Force
 }
+
+Copy-Item -Path (Join-Path $repoRoot "LICENSES\*") -Destination $miscLicensesDirectory -Recurse -Force
 
 $manifest = @"
 ---
