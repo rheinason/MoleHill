@@ -13,7 +13,7 @@
     <Description>Primary Rhino plugin for MoleHill terrain creation, grading, and analysis workflows.</Description>
     <RepositoryUrl>https://github.com/rheinason/MoleHill</RepositoryUrl>
     <PackageProjectUrl>https://github.com/rheinason/MoleHill</PackageProjectUrl>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>

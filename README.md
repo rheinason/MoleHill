@@ -98,4 +98,6 @@ dotnet test tests/MoleHill.Grasshopper.Tests/MoleHill.Grasshopper.Tests.csproj
 
 ## License
 
-MIT
+GNU GPL v3.0
+
+This project is distributed under the terms of the GNU General Public License v3.0. See `LICENSE` for the full text.

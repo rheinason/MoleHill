@@ -23,7 +23,7 @@
     <Description>Optional Grasshopper components for the MoleHill Rhino terrain workflow.</Description>
     <RepositoryUrl>https://github.com/rheinason/MoleHill</RepositoryUrl>
     <PackageProjectUrl>https://github.com/rheinason/MoleHill</PackageProjectUrl>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
