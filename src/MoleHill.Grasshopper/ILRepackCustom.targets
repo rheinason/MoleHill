@@ -4,7 +4,6 @@
     <ItemGroup>
       <InputAssemblies Include="$(OutputPath)$(TargetName)$(TargetExt)" />
       <InputAssemblies Include="$(OutputPath)MoleHill.Core.dll" />
-      <InputAssemblies Include="$(OutputPath)TriangleNet.dll" />
     </ItemGroup>
 
     <ILRepack
@@ -15,6 +14,6 @@
       TargetKind="SameAsPrimaryAssembly"
       OutputFile="$(OutputPath)$(TargetName)$(TargetExt)" />
 
-    <Delete Files="$(OutputPath)MoleHill.Core.dll;$(OutputPath)TriangleNet.dll;$(OutputPath)MoleHill.Core.pdb;$(OutputPath)TriangleNet.pdb;$(OutputPath)TriangleNet.xml" ContinueOnError="true" />
+    <Delete Files="$(OutputPath)MoleHill.Core.dll;$(OutputPath)MoleHill.Core.pdb" ContinueOnError="true" />
   </Target>
 </Project>

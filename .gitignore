@@ -5,12 +5,18 @@ obj/
 *.suo
 *.cache
 *.log
+*.binlog
 *.nupkg
 TestResults/
 
 # Claude Code
 .claude/
 *.tmp.*
+.agents/
+.codex-build/
+.codex-dotnet/
+.tmp_build/
+.artifacts/
 
 # IDE
 .idea/
@@ -19,3 +25,12 @@ TestResults/
 # Build artifacts
 *.gha
 packages/
+artifacts/
+
+# Local SDK state
+.dotnet/
+.dotnet-cli/
+
+# Local skill state
+skills/
+skills-lock.json

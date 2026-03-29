@@ -8,29 +8,28 @@ namespace MoleHill.Core.Engine;
 /// </summary>
 public sealed class InputSnapshot
 {
-    /// <summary>Hash of XY coordinates + segment definitions + quality settings.</summary>
+    /// <summary>Hash of XY coordinates + segment definitions + quality settings + domain mode.</summary>
     public int XyHash { get; }
 
     /// <summary>Hash of Z values only.</summary>
     public int ZHash { get; }
 
-    /// <summary>Z values in vertex order, for Z-update shortcut.</summary>
-    public double[] ZValues { get; }
-
-    public InputSnapshot(int xyHash, int zHash, double[] zValues)
+    public InputSnapshot(int xyHash, int zHash)
     {
         XyHash = xyHash;
         ZHash = zHash;
-        ZValues = zValues;
     }
 
     /// <summary>
-    /// Build a snapshot from input data.
+    /// Compute hash of XY coordinates + segment definitions + quality settings + domain mode.
     /// </summary>
-    public static InputSnapshot Create(double[] xyCoords, double[] zValues,
-                                       int[] segments, QualitySettings quality)
+    public static int ComputeXyHash(
+        double[] xyCoords,
+        int[] segments,
+        QualitySettings quality,
+        bool useConvexHull = true,
+        double maxBoundaryEdgeLength = 0)
     {
-        // XY hash: XY coords + segments + quality
         var xyHasher = new HashCode();
         xyHasher.AddBytes(MemoryMarshal.AsBytes(xyCoords.AsSpan()));
         xyHasher.AddBytes(MemoryMarshal.AsBytes(segments.AsSpan()));
@@ -39,14 +38,19 @@ public sealed class InputSnapshot
         qualityBuf[0] = quality.MaxArea;
         qualityBuf[1] = quality.MinAngle;
         xyHasher.AddBytes(MemoryMarshal.AsBytes(qualityBuf));
+        xyHasher.Add(useConvexHull);
+        xyHasher.Add(maxBoundaryEdgeLength);
 
-        int xyHash = xyHasher.ToHashCode();
+        return xyHasher.ToHashCode();
+    }
 
-        // Z hash
+    /// <summary>
+    /// Compute hash of Z values only.
+    /// </summary>
+    public static int ComputeZHash(double[] zValues)
+    {
         var zHasher = new HashCode();
         zHasher.AddBytes(MemoryMarshal.AsBytes(zValues.AsSpan()));
-        int zHash = zHasher.ToHashCode();
-
-        return new InputSnapshot(xyHash, zHash, (double[])zValues.Clone());
+        return zHasher.ToHashCode();
     }
 }

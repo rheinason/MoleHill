@@ -9,6 +9,14 @@ namespace MoleHill.Core.Processing;
 /// </summary>
 public static class PointCloudProcessor
 {
+    [Flags]
+    public enum VertexSource : byte
+    {
+        None = 0,
+        Breakline = 1,
+        Spot = 2
+    }
+
     /// <summary>
     /// Merged and deduplicated result ready for TinEngine.
     /// </summary>
@@ -23,6 +31,9 @@ public static class PointCloudProcessor
         /// <summary>Number of unique vertices.</summary>
         public readonly int VertexCount;
 
+        /// <summary>Source flags for each vertex.</summary>
+        public readonly VertexSource[] Sources;
+
         /// <summary>Flat [a,b, …] segment pairs using merged indices.</summary>
         public readonly int[] Segments;
 
@@ -32,20 +43,48 @@ public static class PointCloudProcessor
         /// <summary>Number of duplicate points that were removed.</summary>
         public readonly int DuplicatesRemoved;
 
+        /// <summary>Number of points skipped because XY coordinates were invalid.</summary>
+        public readonly int InvalidCoordinatesSkipped;
+
+        /// <summary>Number of points skipped because Z coordinates were invalid.</summary>
+        public readonly int InvalidElevationsSkipped;
+
         /// <summary>Number of invalid points (NaN/Inf) that were skipped.</summary>
-        public readonly int InvalidsSkipped;
+        public int InvalidsSkipped => InvalidCoordinatesSkipped + InvalidElevationsSkipped;
 
         public MergedData(double[] xyCoords, double[] zValues, int vertexCount,
+                          VertexSource[] sources,
                           int[] segments, int segmentCount,
-                          int duplicatesRemoved, int invalidsSkipped)
+                          int duplicatesRemoved,
+                          int invalidCoordinatesSkipped,
+                          int invalidElevationsSkipped = 0)
         {
             XyCoords = xyCoords;
             ZValues = zValues;
             VertexCount = vertexCount;
+            Sources = sources;
             Segments = segments;
             SegmentCount = segmentCount;
             DuplicatesRemoved = duplicatesRemoved;
-            InvalidsSkipped = invalidsSkipped;
+            InvalidCoordinatesSkipped = invalidCoordinatesSkipped;
+            InvalidElevationsSkipped = invalidElevationsSkipped;
+        }
+
+        public string DescribeInvalidPoints(string noun = "points")
+        {
+            if (InvalidsSkipped == 0)
+                return $"0 invalid {noun} skipped";
+
+            if (InvalidCoordinatesSkipped > 0 && InvalidElevationsSkipped > 0)
+            {
+                return $"{InvalidsSkipped} invalid {noun} skipped " +
+                       $"({InvalidCoordinatesSkipped} with invalid XY, {InvalidElevationsSkipped} with invalid Z)";
+            }
+
+            if (InvalidCoordinatesSkipped > 0)
+                return $"{InvalidCoordinatesSkipped} invalid {noun} skipped due to invalid XY coordinates";
+
+            return $"{InvalidElevationsSkipped} invalid {noun} skipped due to invalid Z values";
         }
     }
 
@@ -58,7 +97,8 @@ public static class PointCloudProcessor
     /// <param name="tolerance">XY deduplication tolerance.</param>
     public static MergedData Merge(double[] spotXyz, int spotCount,
                                     BreaklineDiscretizer.BreaklineData breaklineData,
-                                    double tolerance)
+                                    double tolerance,
+                                    Func<bool>? shouldCancel = null)
     {
         double tol = Math.Max(tolerance, 1e-12);
         double tolSq = tol * tol;
@@ -69,8 +109,10 @@ public static class PointCloudProcessor
         var grid = new Dictionary<(long, long), List<int>>();
         var xyList = new List<double>();
         var zList = new List<double>();
+        var sources = new List<VertexSource>();
         int duplicates = 0;
-        int invalids = 0;
+        int invalidCoordinates = 0;
+        int invalidElevations = 0;
 
         var breaklineRemap = new int[breaklineData.VertexCount];
 
@@ -78,35 +120,56 @@ public static class PointCloudProcessor
         //    Z-aware: only merge breakline-to-breakline if BOTH XY and Z are close
         for (int i = 0; i < breaklineData.VertexCount; i++)
         {
+            if ((i & 255) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
             double x = breaklineData.Vertices[i * 3];
             double y = breaklineData.Vertices[i * 3 + 1];
             double z = breaklineData.Vertices[i * 3 + 2];
 
-            if (double.IsNaN(x) || double.IsNaN(y) || double.IsInfinity(x) || double.IsInfinity(y))
+            if (!double.IsFinite(x) || !double.IsFinite(y))
             {
-                invalids++;
+                invalidCoordinates++;
                 breaklineRemap[i] = -1;
                 continue;
             }
 
-            int merged = TryInsert(grid, xyList, zList, x, y, z, invCell, tolSq, true, tolSq, ref duplicates);
+            if (!double.IsFinite(z))
+            {
+                invalidElevations++;
+                breaklineRemap[i] = -1;
+                continue;
+            }
+
+            int merged = TryInsert(grid, xyList, zList, sources, x, y, z, invCell, tolSq, true, tolSq, ref duplicates);
             breaklineRemap[i] = merged;
+            sources[merged] |= VertexSource.Breakline;
         }
 
         // 2. Add spot points (XY-only dedup against existing points)
         for (int i = 0; i < spotCount; i++)
         {
+            if ((i & 255) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
             double x = spotXyz[i * 3];
             double y = spotXyz[i * 3 + 1];
             double z = spotXyz[i * 3 + 2];
 
-            if (double.IsNaN(x) || double.IsNaN(y) || double.IsInfinity(x) || double.IsInfinity(y))
+            if (!double.IsFinite(x) || !double.IsFinite(y))
             {
-                invalids++;
+                invalidCoordinates++;
                 continue;
             }
 
-            TryInsert(grid, xyList, zList, x, y, z, invCell, tolSq, false, 0, ref duplicates);
+            if (!double.IsFinite(z))
+            {
+                invalidElevations++;
+                continue;
+            }
+
+            int merged = TryInsert(grid, xyList, zList, sources, x, y, z, invCell, tolSq, false, 0, ref duplicates);
+            sources[merged] |= VertexSource.Spot;
         }
 
         int vertexCount = xyList.Count / 2;
@@ -115,6 +178,9 @@ public static class PointCloudProcessor
         var segList = new List<int>();
         for (int i = 0; i < breaklineData.SegmentCount; i++)
         {
+            if ((i & 255) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
             int a = breaklineData.Segments[i * 2];
             int b = breaklineData.Segments[i * 2 + 1];
 
@@ -132,16 +198,24 @@ public static class PointCloudProcessor
             xyList.ToArray(),
             zList.ToArray(),
             vertexCount,
+            sources.ToArray(),
             segList.ToArray(),
             segList.Count / 2,
             duplicates,
-            invalids);
+            invalidCoordinates,
+            invalidElevations);
+    }
+
+    private static void ThrowIfCancellationRequested(Func<bool>? shouldCancel)
+    {
+        if (shouldCancel?.Invoke() == true)
+            throw new OperationCanceledException("Point merge cancelled.");
     }
 
     /// <param name="checkZ">If true, also require Z proximity for merging (breakline mode).</param>
     /// <param name="zTolSq">Squared Z tolerance when checkZ is true.</param>
     private static int TryInsert(Dictionary<(long, long), List<int>> grid,
-                                  List<double> xyList, List<double> zList,
+                                  List<double> xyList, List<double> zList, List<VertexSource> sources,
                                   double x, double y, double z,
                                   double invCell, double tolSq,
                                   bool checkZ, double zTolSq,
@@ -194,7 +268,8 @@ public static class PointCloudProcessor
 
         xyList.Add(x);
         xyList.Add(y);
-        zList.Add(double.IsNaN(z) || double.IsInfinity(z) ? 0.0 : z);
+        zList.Add(z);
+        sources.Add(VertexSource.None);
         return newIdx;
     }
 }

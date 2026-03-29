@@ -1,9 +1,7 @@
 using Grasshopper.Kernel;
-using Rhino.Geometry;
-using TriangleNet.Geometry;
-using TriangleNet.Meshing;
 using MoleHill.Core.Engine;
-using MoleHill.Core.Grading;
+using MoleHill.Shared;
+using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Grasshopper.Components;
@@ -107,133 +105,96 @@ public class RemeshComponent : GH_Component
             origFaces[i * 3 + 2] = face.C;
         }
 
-        // Build vertex + segment lists
-        var xyList = new List<double>(vertexCount * 2);
-        var zList = new List<double>(vertexCount);
-        var segList = new List<(int a, int b)>();
-
-        for (int i = 0; i < vertexCount; i++)
-        {
-            xyList.Add(origVerts[i * 3]);
-            xyList.Add(origVerts[i * 3 + 1]);
-            zList.Add(origVerts[i * 3 + 2]);
-        }
-
-        // Add constraint curve vertices + segments
+        var remeshConstraints = new List<SurfaceRemesher.ConstraintPolyline>();
         foreach (var crv in constraints)
         {
-            if (crv == null) continue;
+            if (crv == null)
+                continue;
 
-            Polyline pl;
-            if (!crv.TryGetPolyline(out pl))
-            {
-                var polyCrv = crv.ToPolyline(tolerance, Math.PI / 36.0, 0.0, 0.0);
-                if (polyCrv == null || !polyCrv.TryGetPolyline(out pl)) continue;
-            }
+            if (!TryGetPolyline(crv, tolerance, edgeLength, maxArea, out var polyline))
+                continue;
 
-            if (pl.Count < 2) continue;
-
-            var crvIndices = new int[pl.Count];
-            for (int i = 0; i < pl.Count; i++)
-            {
-                double px = pl[i].X, py = pl[i].Y;
-                int near = PadGrader.FindNearVertex(xyList, px, py, 1e-6);
-                if (near >= 0)
-                {
-                    crvIndices[i] = near;
-                }
-                else
-                {
-                    crvIndices[i] = zList.Count;
-                    xyList.Add(px);
-                    xyList.Add(py);
-                    zList.Add(PadGrader.InterpolateZ(origVerts, origFaces, faceCount, px, py));
-                }
-            }
-
-            for (int i = 0; i < pl.Count - 1; i++)
-            {
-                if (crvIndices[i] != crvIndices[i + 1])
-                    segList.Add((crvIndices[i], crvIndices[i + 1]));
-            }
-
-            if (crv.IsClosed && pl.Count >= 3)
-            {
-                int last = pl.Count - 1;
-                if (pl[0].DistanceTo(pl[last]) >= tolerance && crvIndices[0] != crvIndices[last])
-                {
-                    segList.Add((crvIndices[last], crvIndices[0]));
-                }
-            }
+            remeshConstraints.Add(ToConstraintPolyline(polyline, crv.IsClosed));
         }
 
-        // Triangulate with fallback
-        int totalVerts = zList.Count;
+        var remeshResult = SurfaceRemesher.Remesh(
+            origVerts,
+            origFaces,
+            remeshConstraints,
+            new SurfaceRemesher.Options
+            {
+                Tolerance = tolerance,
+                RequestedEdgeLength = edgeLength,
+                MaxArea = maxArea,
+                MinAngle = minAngle,
+                ProtectSharpEdges = true
+            });
 
-        var triMesh = TriangulationHelper.Triangulate(
-            xyList, totalVerts, segList,
-            maxArea, minAngle,
-            out string? triWarning);
-
-        if (triMesh == null)
+        if (!remeshResult.Success)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, triWarning ?? "Triangulation failed.");
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, remeshResult.Warning ?? "Remesh could not preserve the mesh boundary or supplied constraints. Output equals input mesh.");
+            DA.SetData(0, mesh);
+            DA.SetData(1, faceCount);
+            DA.SetData(2, vertexCount);
             return;
         }
 
-        if (triWarning != null)
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, triWarning);
+        if (!string.IsNullOrWhiteSpace(remeshResult.Warning))
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, remeshResult.Warning);
 
-        if (triMesh.Triangles.Count == 0)
-        {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Triangulation produced 0 triangles.");
-            return;
-        }
-
-        // Build output mesh
-        var outVerts = triMesh.Vertices.ToList();
-        var outTris = triMesh.Triangles.ToList();
-        int outVertCount = outVerts.Count;
-        int outFaceCount = outTris.Count;
-
-        var outMesh = new RhinoMesh();
-        outMesh.Vertices.Capacity = outVertCount;
-        outMesh.Faces.Capacity = outFaceCount;
-
-        var idToIdx = new Dictionary<int, int>(outVertCount);
-        for (int i = 0; i < outVertCount; i++)
-        {
-            var mv = outVerts[i];
-            idToIdx[mv.ID] = i;
-
-            double z;
-            if (mv.ID >= 0 && mv.ID < totalVerts)
-            {
-                z = zList[mv.ID];
-            }
-            else
-            {
-                z = PadGrader.InterpolateZ(origVerts, origFaces, faceCount, mv.X, mv.Y);
-            }
-
-            outMesh.Vertices.Add(mv.X, mv.Y, z);
-        }
-
-        for (int i = 0; i < outFaceCount; i++)
-        {
-            var tri = outTris[i];
-            outMesh.Faces.AddFace(
-                idToIdx.GetValueOrDefault(tri.GetVertex(0).ID, 0),
-                idToIdx.GetValueOrDefault(tri.GetVertex(1).ID, 0),
-                idToIdx.GetValueOrDefault(tri.GetVertex(2).ID, 0));
-        }
-
-        outMesh.Normals.ComputeNormals();
-        outMesh.UnifyNormals();
-        outMesh.Compact();
+        var outMesh = BuildMesh(remeshResult.Vertices, remeshResult.Faces);
+        int outVertCount = remeshResult.Vertices.Length / 3;
+        int outFaceCount = remeshResult.Faces.Length / 3;
 
         DA.SetData(0, outMesh);
         DA.SetData(1, outFaceCount);
         DA.SetData(2, outVertCount);
+    }
+
+    private static bool TryGetPolyline(
+        Curve curve,
+        double tolerance,
+        double requestedEdgeLength,
+        double maxArea,
+        out Polyline polyline)
+    {
+        return AdaptivePolylineBuilder.TryGetPolyline(
+            curve,
+            tolerance,
+            requireClosed: false,
+            requestedEdgeLength,
+            maxArea,
+            out polyline);
+    }
+
+    private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)
+    {
+        var points = new double[polyline.Count * 3];
+        for (int i = 0; i < polyline.Count; i++)
+        {
+            points[i * 3] = polyline[i].X;
+            points[i * 3 + 1] = polyline[i].Y;
+            points[i * 3 + 2] = polyline[i].Z;
+        }
+
+        return new SurfaceRemesher.ConstraintPolyline(points, polyline.Count, isClosed);
+    }
+
+    private static RhinoMesh BuildMesh(double[] vertices, int[] faces)
+    {
+        var mesh = new RhinoMesh();
+        mesh.Vertices.Capacity = vertices.Length / 3;
+        mesh.Faces.Capacity = faces.Length / 3;
+
+        for (int i = 0; i < vertices.Length / 3; i++)
+            mesh.Vertices.Add(vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]);
+
+        for (int i = 0; i < faces.Length / 3; i++)
+            mesh.Faces.AddFace(faces[i * 3], faces[i * 3 + 1], faces[i * 3 + 2]);
+
+        mesh.Normals.ComputeNormals();
+        mesh.UnifyNormals();
+        mesh.Compact();
+        return mesh;
     }
 }

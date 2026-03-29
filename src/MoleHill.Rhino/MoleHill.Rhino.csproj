@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <RootNamespace>MoleHill.Rhino</RootNamespace>
+    <AssemblyName>MoleHill.Rhino</AssemblyName>
+    <MoleHillCoreProjectPath>..\MoleHill.Core\MoleHill.Core.csproj</MoleHillCoreProjectPath>
+    <Version>$(MoleHillVersion)</Version>
+    <InformationalVersion>$(MoleHillVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Title>MoleHill Rhino</Title>
+    <Company>MoleHill Authors</Company>
+    <Authors>rheinason</Authors>
+    <Description>Primary Rhino plugin for MoleHill terrain creation, grading, and analysis workflows.</Description>
+    <RepositoryUrl>https://github.com/rheinason/MoleHill</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/rheinason/MoleHill</PackageProjectUrl>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <TargetExt>.rhp</TargetExt>
+    <NoWarn>CA1416;NETSDK1086;NU1701</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RhinoCommon" Version="8.9.24194.18121" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="MoleHill.Core">
+      <HintPath>..\MoleHill.Core\bin\$(Configuration)\net7.0\MoleHill.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="System.Drawing.Common">
+      <HintPath>C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.App.Ref\7.0.20\ref\net7.0\System.Drawing.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="EmbeddedResources\plugin-utility.ico" />
+    <EmbeddedResource Include="Resources\*.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\MoleHill.Shared\InSituStairReferenceBuilder.cs" Link="Shared\InSituStairReferenceBuilder.cs" />
+    <Compile Include="..\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
+    <Compile Include="..\MoleHill.Shared\RetainingWallBrepBuilder.cs" Link="Shared\RetainingWallBrepBuilder.cs" />
+  </ItemGroup>
+
+  <Target Name="BuildLocalDependencies" BeforeTargets="ResolveReferences">
+    <MakeDir Directories="..\MoleHill.Core\obj\$(Configuration)\net7.0;..\MoleHill.Core\bin\$(Configuration)\net7.0" />
+    <MSBuild Projects="$(MoleHillCoreProjectPath)"
+             Targets="Build"
+             BuildInParallel="false"
+             Properties="Configuration=$(Configuration)" />
+  </Target>
+</Project>

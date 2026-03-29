@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Rhino 8 (netcore)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "C:\\Program Files\\Rhino 8\\System\\Rhino.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RHINO_PACKAGE_DIRS": "${workspaceFolder}/src/MoleHill.Grasshopper/bin/Debug/net7.0-windows"
+      }
+    },
+    {
+      "name": "Rhino 8 (netfx)",
+      "type": "clr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "C:\\Program Files\\Rhino 8\\System\\Rhino.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RHINO_PACKAGE_DIRS": "${workspaceFolder}/src/MoleHill.Grasshopper/bin/Debug/net7.0-windows"
+      }
+    }
+  ]
+}

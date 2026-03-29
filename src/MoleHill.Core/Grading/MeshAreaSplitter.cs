@@ -1,6 +1,3 @@
-using TriangleNet;
-using TriangleNet.Geometry;
-using TriangleNet.Meshing;
 using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
@@ -12,12 +9,25 @@ namespace MoleHill.Core.Grading;
 /// </summary>
 public static class MeshAreaSplitter
 {
+    private sealed class IndexedArea
+    {
+        public required AreaBoundary Boundary { get; init; }
+
+        public required double MinX { get; init; }
+
+        public required double MaxX { get; init; }
+
+        public required double MinY { get; init; }
+
+        public required double MaxY { get; init; }
+    }
+
     /// <summary>
     /// Closed polygon boundary defining an area.
     /// </summary>
     public sealed class AreaBoundary
     {
-        /// <summary>Flat XY polygon vertices: [x0,y0, x1,y1, …]</summary>
+        /// <summary>Flat XY polygon vertices: [x0,y0, x1,y1, ...]</summary>
         public double[] XyVertices { get; }
 
         /// <summary>Number of polygon vertices.</summary>
@@ -53,9 +63,13 @@ public static class MeshAreaSplitter
         /// <summary>Number of area boundaries.</summary>
         public int AreaCount { get; }
 
-        public SplitResult(double[] vertices, int vertexCount,
-                           int[] faces, int faceCount,
-                           int[] faceAreaIndex, int areaCount)
+        public SplitResult(
+            double[] vertices,
+            int vertexCount,
+            int[] faces,
+            int faceCount,
+            int[] faceAreaIndex,
+            int areaCount)
         {
             Vertices = vertices;
             VertexCount = vertexCount;
@@ -70,14 +84,18 @@ public static class MeshAreaSplitter
     /// Split a mesh into areas defined by closed boundary curves.
     /// </summary>
     public static SplitResult? Split(
-        double[] vertices, int vertexCount,
-        int[] faces, int faceCount,
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
         AreaBoundary[] areas,
-        double maxArea, double minAngle,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentConstraints,
+        double tolerance,
+        double maxArea,
+        double minAngle,
         out string? errorMessage)
     {
         errorMessage = null;
-        const double dedupTol = 1e-6;
 
         if (areas.Length == 0)
         {
@@ -85,130 +103,224 @@ public static class MeshAreaSplitter
             return null;
         }
 
-        // ── Step 1: Build combined vertex + segment set ──
-        var xyList = new List<double>(vertexCount * 2);
-        var zList = new List<double>(vertexCount);
-        var segList = new List<(int a, int b)>();
-
-        for (int i = 0; i < vertexCount; i++)
+        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(persistentConstraints.Count + areas.Length);
+        constraints.AddRange(persistentConstraints);
+        for (int i = 0; i < areas.Length; i++)
         {
-            xyList.Add(vertices[i * 3]);
-            xyList.Add(vertices[i * 3 + 1]);
-            zList.Add(vertices[i * 3 + 2]);
+            constraints.Add(ToConstraintPolyline(areas[i]));
         }
 
-        // Add area boundary vertices + constrained segments
-        foreach (var area in areas)
-        {
-            var areaIndices = new int[area.VertexCount];
-            for (int i = 0; i < area.VertexCount; i++)
+        var remeshResult = SurfaceRemesher.Remesh(
+            vertices,
+            faces,
+            constraints,
+            new SurfaceRemesher.Options
             {
-                double px = area.XyVertices[i * 2];
-                double py = area.XyVertices[i * 2 + 1];
+                Tolerance = tolerance,
+                MaxArea = maxArea,
+                MinAngle = minAngle,
+                ProtectSharpEdges = true
+            });
 
-                int near = PadGrader.FindNearVertex(xyList, px, py, dedupTol);
-                if (near >= 0)
-                {
-                    areaIndices[i] = near;
-                }
-                else
-                {
-                    areaIndices[i] = zList.Count;
-                    xyList.Add(px);
-                    xyList.Add(py);
-                    zList.Add(PadGrader.InterpolateZ(vertices, faces, faceCount, px, py));
-                }
-            }
-
-            // Closed polygon segments
-            for (int i = 0; i < area.VertexCount; i++)
-            {
-                int a = areaIndices[i];
-                int b = areaIndices[(i + 1) % area.VertexCount];
-                if (a != b) segList.Add((a, b));
-            }
-        }
-
-        // ── Step 2: Triangulate with fallback ──
-        int totalVerts = zList.Count;
-        if (totalVerts < 3)
+        if (!remeshResult.Success)
         {
-            errorMessage = "Too few vertices for triangulation.";
+            errorMessage = remeshResult.Warning ?? "Triangulation failed.";
             return null;
         }
 
-        var triMesh = TriangulationHelper.Triangulate(
-            xyList, totalVerts, segList,
-            maxArea, minAngle,
-            out string? triWarning);
+        if (!string.IsNullOrWhiteSpace(remeshResult.Warning))
+            errorMessage = remeshResult.Warning;
 
-        if (triMesh == null)
+        var finalVerts = remeshResult.Vertices;
+        var finalFaces = remeshResult.Faces;
+        return Classify(
+            finalVerts,
+            finalVerts.Length / 3,
+            finalFaces,
+            finalFaces.Length / 3,
+            areas,
+            tolerance,
+            out _);
+    }
+
+    /// <summary>
+    /// Split a mesh into exact area boundaries while preserving the original
+    /// terrain triangles everywhere the boundaries do not touch.
+    /// </summary>
+    public static SplitResult? SplitPreservingTopology(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        AreaBoundary[] areas,
+        double boundaryTolerance,
+        out string? errorMessage)
+    {
+        return MeshAreaTopologySplitter.Split(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            areas,
+            boundaryTolerance,
+            out errorMessage);
+    }
+
+    public static SplitResult? Classify(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        AreaBoundary[] areas,
+        double boundaryTolerance,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+
+        if (areas.Length == 0)
         {
-            errorMessage = triWarning ?? "Triangulation failed.";
+            errorMessage = "No area boundaries provided.";
             return null;
         }
 
-        if (triWarning != null)
-            errorMessage = triWarning;
-
-        // ── Step 3: Build output ──
-        var outVerts = triMesh.Vertices.ToList();
-        var outTris = triMesh.Triangles.ToList();
-        int outVertCount = outVerts.Count;
-        int outFaceCount = outTris.Count;
-
-        var finalVerts = new double[outVertCount * 3];
-        var idToIdx = new Dictionary<int, int>(outVertCount);
-
-        for (int i = 0; i < outVertCount; i++)
-        {
-            var mv = outVerts[i];
-            idToIdx[mv.ID] = i;
-            finalVerts[i * 3] = mv.X;
-            finalVerts[i * 3 + 1] = mv.Y;
-
-            if (mv.ID >= 0 && mv.ID < totalVerts)
-            {
-                finalVerts[i * 3 + 2] = zList[mv.ID];
-            }
-            else
-            {
-                finalVerts[i * 3 + 2] = PadGrader.InterpolateZ(vertices, faces, faceCount, mv.X, mv.Y);
-            }
-        }
-
-        var finalFaces = new int[outFaceCount * 3];
-        var faceAreaIndex = new int[outFaceCount];
-
-        for (int f = 0; f < outFaceCount; f++)
-        {
-            var tri = outTris[f];
-            int i0 = idToIdx.GetValueOrDefault(tri.GetVertex(0).ID, 0);
-            int i1 = idToIdx.GetValueOrDefault(tri.GetVertex(1).ID, 0);
-            int i2 = idToIdx.GetValueOrDefault(tri.GetVertex(2).ID, 0);
-
-            finalFaces[f * 3] = i0;
-            finalFaces[f * 3 + 1] = i1;
-            finalFaces[f * 3 + 2] = i2;
-
-            // Classify by centroid
-            double cx = (finalVerts[i0 * 3] + finalVerts[i1 * 3] + finalVerts[i2 * 3]) / 3.0;
-            double cy = (finalVerts[i0 * 3 + 1] + finalVerts[i1 * 3 + 1] + finalVerts[i2 * 3 + 1]) / 3.0;
-
-            faceAreaIndex[f] = -1;
-
-            for (int a = 0; a < areas.Length; a++)
-            {
-                if (PadGrader.PointInPolygon(cx, cy, areas[a].XyVertices, areas[a].VertexCount))
-                {
-                    faceAreaIndex[f] = a;
-                }
-            }
-        }
-
+        var faceAreaIndex = BuildFaceAreaIndex(vertices, faces, areas, boundaryTolerance);
         return new SplitResult(
-            finalVerts, outVertCount,
-            finalFaces, outFaceCount,
-            faceAreaIndex, areas.Length);
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            faceAreaIndex,
+            areas.Length);
+    }
+
+    private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(AreaBoundary area)
+    {
+        var points = new double[area.VertexCount * 3];
+        for (int i = 0; i < area.VertexCount; i++)
+        {
+            points[i * 3] = area.XyVertices[i * 2];
+            points[i * 3 + 1] = area.XyVertices[i * 2 + 1];
+            points[i * 3 + 2] = 0.0;
+        }
+
+        return new SurfaceRemesher.ConstraintPolyline(points, area.VertexCount, IsClosed: true, PreserveInputElevation: false);
+    }
+
+    private static IndexedArea[] BuildIndexedAreas(AreaBoundary[] areas)
+    {
+        var result = new IndexedArea[areas.Length];
+        for (int areaIndex = 0; areaIndex < areas.Length; areaIndex++)
+        {
+            double minX = double.MaxValue;
+            double maxX = double.MinValue;
+            double minY = double.MaxValue;
+            double maxY = double.MinValue;
+
+            var area = areas[areaIndex];
+            for (int vertexIndex = 0; vertexIndex < area.VertexCount; vertexIndex++)
+            {
+                double x = area.XyVertices[vertexIndex * 2];
+                double y = area.XyVertices[vertexIndex * 2 + 1];
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+
+            result[areaIndex] = new IndexedArea
+            {
+                Boundary = area,
+                MinX = minX,
+                MaxX = maxX,
+                MinY = minY,
+                MaxY = maxY
+            };
+        }
+
+        return result;
+    }
+
+    private static int[] BuildFaceAreaIndex(
+        double[] vertices,
+        int[] faces,
+        AreaBoundary[] areas,
+        double boundaryTolerance)
+    {
+        int faceCount = faces.Length / 3;
+        var faceAreaIndex = new int[faceCount];
+        var indexedAreas = BuildIndexedAreas(areas);
+        var areaBounds = new Bounds2D[indexedAreas.Length];
+        for (int i = 0; i < indexedAreas.Length; i++)
+            areaBounds[i] = new Bounds2D(indexedAreas[i].MinX, indexedAreas[i].MaxX, indexedAreas[i].MinY, indexedAreas[i].MaxY);
+
+        var areaIndex = SpatialHashGrid2D.Build(areaBounds);
+        double tolerance = Math.Max(boundaryTolerance, 0.0);
+
+        System.Threading.Tasks.Parallel.For(
+            0,
+            faceCount,
+            () => (Scratch: new SpatialHashGrid2D.QueryScratch(indexedAreas.Length), Candidates: new List<int>(8)),
+            (faceIndex, _, state) =>
+        {
+            int i0 = faces[faceIndex * 3];
+            int i1 = faces[faceIndex * 3 + 1];
+            int i2 = faces[faceIndex * 3 + 2];
+
+            double cx = (vertices[i0 * 3] + vertices[i1 * 3] + vertices[i2 * 3]) / 3.0;
+            double cy = (vertices[i0 * 3 + 1] + vertices[i1 * 3 + 1] + vertices[i2 * 3 + 1]) / 3.0;
+
+            areaIndex.GatherCandidates(Bounds2D.FromPoint(cx, cy, tolerance), state.Candidates, state.Scratch);
+
+            faceAreaIndex[faceIndex] = -1;
+            for (int candidateIndex = state.Candidates.Count - 1; candidateIndex >= 0; candidateIndex--)
+            {
+                int areaNumber = state.Candidates[candidateIndex];
+                var area = indexedAreas[areaNumber];
+                if (cx < area.MinX - tolerance || cx > area.MaxX + tolerance || cy < area.MinY - tolerance || cy > area.MaxY + tolerance)
+                    continue;
+
+                if ((tolerance > 0 && DistanceToBoundary(cx, cy, area.Boundary) <= tolerance) ||
+                    PadGrader.PointInPolygon(cx, cy, area.Boundary.XyVertices, area.Boundary.VertexCount))
+                {
+                    faceAreaIndex[faceIndex] = areaNumber;
+                    break;
+                }
+            }
+
+            return state;
+        }, _ => { });
+
+        return faceAreaIndex;
+    }
+
+    private static double DistanceToBoundary(double x, double y, AreaBoundary area)
+    {
+        double best = double.PositiveInfinity;
+        for (int i = 0; i < area.VertexCount; i++)
+        {
+            int next = (i + 1) % area.VertexCount;
+            double ax = area.XyVertices[i * 2];
+            double ay = area.XyVertices[i * 2 + 1];
+            double bx = area.XyVertices[next * 2];
+            double by = area.XyVertices[next * 2 + 1];
+            best = Math.Min(best, DistanceToSegment(x, y, ax, ay, bx, by));
+        }
+
+        return best;
+    }
+
+    private static double DistanceToSegment(double px, double py, double ax, double ay, double bx, double by)
+    {
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lengthSquared = (dx * dx) + (dy * dy);
+        double t = lengthSquared <= 1e-20
+            ? 0.0
+            : Math.Clamp((((px - ax) * dx) + ((py - ay) * dy)) / lengthSquared, 0.0, 1.0);
+        double closestX = ax + (dx * t);
+        double closestY = ay + (dy * t);
+        double offsetX = px - closestX;
+        double offsetY = py - closestY;
+        return Math.Sqrt((offsetX * offsetX) + (offsetY * offsetY));
     }
 }
