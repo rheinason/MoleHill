@@ -19,6 +19,15 @@ public static class PathGrader
     }
 
     private readonly record struct ConstraintPath(double[] XyVertices, double[] ZValues, int VertexCount);
+    private readonly record struct PreparedPath(
+        PathDefinition Path,
+        double HalfWidth,
+        double SlopeRatio,
+        double MaxInfluence,
+        double MinX,
+        double MaxX,
+        double MinY,
+        double MaxY);
 
     public sealed class PathDefinition
     {
@@ -43,12 +52,23 @@ public static class PathGrader
 
     /// <summary>
     /// Apply path grading to a terrain mesh.
-    /// Later paths in the array override earlier ones in overlapping zones.
+    /// Overlapping paths are blended by proximity so junction behavior is stable
+    /// regardless of the input order.
     /// </summary>
     public static GradingResult? Grade(
         double[] vertices, int vertexCount,
         int[] faces, int faceCount,
         PathDefinition[] paths,
+        out string? errorMessage)
+    {
+        return Grade(vertices, vertexCount, faces, faceCount, paths, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out errorMessage);
+    }
+
+    public static GradingResult? Grade(
+        double[] vertices, int vertexCount,
+        int[] faces, int faceCount,
+        PathDefinition[] paths,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
         out string? errorMessage)
     {
         errorMessage = null;
@@ -74,7 +94,7 @@ public static class PathGrader
         }
 
         // Try re-triangulation with road edge constraints
-        var result = GradeWithEdges(vertices, vertexCount, faces, faceCount, paths, out errorMessage);
+        var result = GradeWithEdges(vertices, vertexCount, faces, faceCount, paths, hardConstraints, out errorMessage);
         if (result != null) return result;
 
         // Fallback: just modify Z of existing mesh
@@ -83,6 +103,11 @@ public static class PathGrader
     }
 
     public static double[] ApplyGradingZ(double[] topologyVertices, int vertexCount, PathDefinition[] paths)
+    {
+        return ApplyGradingZ(topologyVertices, vertexCount, paths, out _);
+    }
+
+    public static double[] ApplyGradingZ(double[] topologyVertices, int vertexCount, PathDefinition[] paths, out int changedVertexCount)
     {
         var outXy = new double[vertexCount * 2];
         var origZ = new double[vertexCount];
@@ -99,11 +124,14 @@ public static class PathGrader
         ApplyPathGrading(paths, outXy, origZ, newZ, vertexCount);
 
         var gradedVertices = new double[vertexCount * 3];
+        changedVertexCount = 0;
         for (int i = 0; i < vertexCount; i++)
         {
             gradedVertices[i * 3] = topologyVertices[i * 3];
             gradedVertices[i * 3 + 1] = topologyVertices[i * 3 + 1];
             gradedVertices[i * 3 + 2] = newZ[i];
+            if (Math.Abs(newZ[i] - origZ[i]) > 1e-9)
+                changedVertexCount++;
         }
 
         return gradedVertices;
@@ -206,6 +234,7 @@ public static class PathGrader
         double[] vertices, int vertexCount,
         int[] faces, int faceCount,
         PathDefinition[] paths,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
         out string? errorMessage)
     {
         errorMessage = null;
@@ -259,6 +288,66 @@ public static class PathGrader
             zList.Add(faceGrid.InterpolateZ(x, y)); // always terrain Z
             vertHash.Insert(idx, x, y);
             return idx;
+        }
+
+        int AddConstraintVertex(SurfaceRemesher.ConstraintPolyline constraint, int pointIndex)
+        {
+            double x = constraint.Points[pointIndex * 3];
+            double y = constraint.Points[pointIndex * 3 + 1];
+            double z = constraint.PreserveInputElevation
+                ? constraint.Points[pointIndex * 3 + 2]
+                : faceGrid.InterpolateZ(x, y);
+
+            int near = vertHash.FindNearest(xyList, x, y, dedupTol);
+            if (near >= 0)
+            {
+                if (constraint.PreserveInputElevation)
+                    zList[near] = z;
+                return near;
+            }
+
+            int idx = zList.Count;
+            xyList.Add(x);
+            xyList.Add(y);
+            zList.Add(z);
+            vertHash.Insert(idx, x, y);
+            return idx;
+        }
+
+        static int NormalizeConstraintPointCount(SurfaceRemesher.ConstraintPolyline constraint, double tolerance)
+        {
+            if (!constraint.IsClosed || constraint.PointCount < 3)
+                return constraint.PointCount;
+
+            int last = constraint.PointCount - 1;
+            double dx = constraint.Points[last * 3] - constraint.Points[0];
+            double dy = constraint.Points[last * 3 + 1] - constraint.Points[1];
+            return dx * dx + dy * dy <= tolerance * tolerance
+                ? last
+                : constraint.PointCount;
+        }
+
+        foreach (var hardConstraint in hardConstraints)
+        {
+            int pointCount = NormalizeConstraintPointCount(hardConstraint, dedupTol);
+            if (pointCount < 2)
+                continue;
+
+            var indices = new int[pointCount];
+            for (int pointIndex = 0; pointIndex < pointCount; pointIndex++)
+                indices[pointIndex] = AddConstraintVertex(hardConstraint, pointIndex);
+
+            for (int pointIndex = 0; pointIndex < pointCount - 1; pointIndex++)
+            {
+                if (indices[pointIndex] != indices[pointIndex + 1])
+                    segList.Add((indices[pointIndex], indices[pointIndex + 1]));
+            }
+
+            if (hardConstraint.IsClosed &&
+                indices[pointCount - 1] != indices[0])
+            {
+                segList.Add((indices[pointCount - 1], indices[0]));
+            }
         }
 
         // For each path, compute road edges and add as open constrained polylines
@@ -461,18 +550,20 @@ public static class PathGrader
     }
 
     /// <summary>
-    /// Shared grading logic: for each vertex, find nearest path and assign Z.
+    /// Shared grading logic: evaluate all nearby paths per vertex so overlapping
+    /// corridors blend by proximity instead of depending on input order.
     /// </summary>
     private static void ApplyPathGrading(
         PathDefinition[] paths,
         double[] outXy, double[] origZ, double[] newZ, int vertCount)
     {
-        foreach (var path in paths)
+        var preparedPaths = new PreparedPath[paths.Length];
+        for (int pathIndex = 0; pathIndex < paths.Length; pathIndex++)
         {
+            PathDefinition path = paths[pathIndex];
             double halfWidth = path.Width * 0.5;
             double slopeRatio = Math.Tan(path.SlopeAngleDeg * Math.PI / 180.0);
 
-            // Compute bbox for fast filtering
             double mnX = double.MaxValue, mxX = double.MinValue;
             double mnY = double.MaxValue, mxY = double.MinValue;
             for (int i = 0; i < path.VertexCount; i++)
@@ -483,42 +574,126 @@ public static class PathGrader
             }
 
             double maxInfluence = halfWidth + ComputePathShoulderDistance(outXy, origZ, vertCount, path);
+            preparedPaths[pathIndex] = new PreparedPath(
+                path,
+                halfWidth,
+                slopeRatio,
+                maxInfluence,
+                mnX - maxInfluence,
+                mxX + maxInfluence,
+                mnY - maxInfluence,
+                mxY + maxInfluence);
+        }
 
-            mnX -= maxInfluence; mxX += maxInfluence;
-            mnY -= maxInfluence; mxY += maxInfluence;
+        System.Threading.Tasks.Parallel.For(0, vertCount, i =>
+        {
+            double px = outXy[i * 2];
+            double py = outXy[i * 2 + 1];
+            double originalZ = origZ[i];
 
-            System.Threading.Tasks.Parallel.For(0, vertCount, i =>
+            double roadWeightSum = 0.0;
+            double roadZSum = 0.0;
+            double shoulderWeightSum = 0.0;
+            double shoulderDeltaSum = 0.0;
+
+            foreach (var preparedPath in preparedPaths)
             {
-                double px = outXy[i * 2], py = outXy[i * 2 + 1];
+                if (!TryComputePathInfluence(preparedPath, px, py, originalZ, out bool insideRoad, out double candidateZ, out double weight))
+                    continue;
 
-                if (px < mnX || px > mxX || py < mnY || py > mxY)
-                    return;
-
-                if (!TryFindClosestPathSample(path, px, py, out double closestDist, out double closestPathZ))
-                    return;
-
-                if (closestDist <= halfWidth + 1e-6)
+                if (insideRoad)
                 {
-                    newZ[i] = closestPathZ;
+                    roadWeightSum += weight;
+                    roadZSum += candidateZ * weight;
                 }
                 else
                 {
-                    double distFromEdge = closestDist - halfWidth;
-                    double dz = origZ[i] - closestPathZ;
-                    double absDz = Math.Abs(dz);
-                    double neededDist = slopeRatio > 1e-12 ? absDz / slopeRatio : double.MaxValue;
-                    if (path.MaxDistance > 0)
-                        neededDist = Math.Min(neededDist, path.MaxDistance);
-
-                    if (distFromEdge < neededDist)
-                    {
-                        double rise = distFromEdge * slopeRatio;
-                        if (rise < absDz)
-                            newZ[i] = closestPathZ + Math.Sign(dz) * rise;
-                    }
+                    shoulderWeightSum += weight;
+                    shoulderDeltaSum += (candidateZ - originalZ) * weight;
                 }
-            });
+            }
+
+            if (roadWeightSum > 1e-12)
+            {
+                newZ[i] = roadZSum / roadWeightSum;
+            }
+            else if (shoulderWeightSum > 1e-12)
+            {
+                newZ[i] = originalZ + (shoulderDeltaSum / shoulderWeightSum);
+            }
+        });
+    }
+
+    private static bool TryComputePathInfluence(
+        PreparedPath preparedPath,
+        double px,
+        double py,
+        double originalZ,
+        out bool insideRoad,
+        out double candidateZ,
+        out double weight)
+    {
+        insideRoad = false;
+        candidateZ = 0.0;
+        weight = 0.0;
+
+        if (px < preparedPath.MinX || px > preparedPath.MaxX || py < preparedPath.MinY || py > preparedPath.MaxY)
+            return false;
+
+        if (!TryFindClosestPathSample(preparedPath.Path, px, py, out double closestDist, out double closestPathZ))
+            return false;
+
+        if (closestDist > preparedPath.MaxInfluence + 1e-6)
+            return false;
+
+        if (closestDist <= preparedPath.HalfWidth + 1e-6)
+        {
+            insideRoad = true;
+            candidateZ = closestPathZ;
+            weight = ComputeRoadBlendWeight(preparedPath.HalfWidth, closestDist);
+            return true;
         }
+
+        double distFromEdge = closestDist - preparedPath.HalfWidth;
+        double dz = originalZ - closestPathZ;
+        double absDz = Math.Abs(dz);
+        if (absDz <= 1e-12)
+            return false;
+
+        double neededDist = preparedPath.SlopeRatio > 1e-12
+            ? absDz / preparedPath.SlopeRatio
+            : double.MaxValue;
+        if (preparedPath.Path.MaxDistance > 0)
+            neededDist = Math.Min(neededDist, preparedPath.Path.MaxDistance);
+
+        if (distFromEdge >= neededDist)
+            return false;
+
+        double rise = distFromEdge * preparedPath.SlopeRatio;
+        if (rise >= absDz)
+            return false;
+
+        candidateZ = closestPathZ + Math.Sign(dz) * rise;
+        weight = ComputeShoulderBlendWeight(distFromEdge, neededDist);
+        return weight > 1e-12;
+    }
+
+    private static double ComputeRoadBlendWeight(double halfWidth, double closestDist)
+    {
+        if (halfWidth <= 1e-9)
+            return 4.0;
+
+        double closeness = 1.0 - Math.Clamp(closestDist / halfWidth, 0.0, 1.0);
+        return 1.0 + (closeness * closeness * 3.0);
+    }
+
+    private static double ComputeShoulderBlendWeight(double distFromEdge, double neededDist)
+    {
+        if (neededDist <= 1e-9)
+            return 0.0;
+
+        double closeness = 1.0 - Math.Clamp(distFromEdge / neededDist, 0.0, 1.0);
+        return closeness * closeness;
     }
 
     private static double ComputePathShoulderDistance(double[] vertices, int vertexCount, PathDefinition path)

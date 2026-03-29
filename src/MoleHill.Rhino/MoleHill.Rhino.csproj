@@ -4,7 +4,9 @@
     <RootNamespace>MoleHill.Rhino</RootNamespace>
     <AssemblyName>MoleHill.Rhino</AssemblyName>
     <MoleHillCoreProjectPath>..\MoleHill.Core\MoleHill.Core.csproj</MoleHillCoreProjectPath>
-    <Version>0.4.0</Version>
+    <Version>$(MoleHillVersion)</Version>
+    <InformationalVersion>$(MoleHillVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Title>MoleHill Rhino</Title>
     <Company>MoleHill Authors</Company>
     <Authors>rheinason</Authors>
@@ -42,6 +44,8 @@
 
   <ItemGroup>
     <Compile Include="..\MoleHill.Shared\InSituStairReferenceBuilder.cs" Link="Shared\InSituStairReferenceBuilder.cs" />
+    <Compile Include="..\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
+    <Compile Include="..\MoleHill.Shared\RetainingWallBrepBuilder.cs" Link="Shared\RetainingWallBrepBuilder.cs" />
   </ItemGroup>
 
   <Target Name="BuildLocalDependencies" BeforeTargets="ResolveReferences">

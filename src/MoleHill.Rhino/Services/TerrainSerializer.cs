@@ -5,7 +5,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 13;
+    private const int DocumentSchemaVersion = 19;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -40,12 +40,17 @@ internal static class TerrainSerializer
 
             terrain.Modifiers ??= new List<ModifierDefinition>();
             terrain.Markers ??= new List<MarkerDefinition>();
+            terrain.Objects ??= new List<TerrainObjectDefinition>();
             terrain.Zones ??= new List<CollageZoneDefinition>();
             terrain.Analyses ??= new List<AnalysisDefinition>();
             terrain.OutputObjectIds ??= new List<Guid>();
             terrain.ZoneObjectIds ??= new List<Guid>();
             terrain.AuxiliaryObjectIds ??= new List<Guid>();
             terrain.MarkerObjectIds ??= new List<Guid>();
+            terrain.BakedObjectIds ??= new List<Guid>();
+            terrain.BakedObjectIds.RemoveAll(id => id == Guid.Empty);
+            terrain.LastAnalysisResults ??= new List<TerrainAnalysisSummary>();
+            NormalizeObjects(terrain);
             PromoteLegacyTolerance(terrain);
             PromoteDisplaySettings(terrain);
             MigrateZones(terrain);
@@ -112,6 +117,46 @@ internal static class TerrainSerializer
         triangulate.Tolerance = 0;
     }
 
+    private static void NormalizeObjects(TerrainDefinition terrain)
+    {
+        terrain.Objects ??= new List<TerrainObjectDefinition>();
+        foreach (var obj in terrain.Objects)
+        {
+            obj.Sources ??= new SourceReferenceSet();
+            obj.RandomRotationMinDegrees = Math.Clamp(obj.RandomRotationMinDegrees, 0.0, 360.0);
+            obj.RandomRotationMaxDegrees = Math.Clamp(obj.RandomRotationMaxDegrees, 0.0, 360.0);
+            if (obj.RandomRotationMaxDegrees < obj.RandomRotationMinDegrees)
+                obj.RandomRotationMaxDegrees = obj.RandomRotationMinDegrees;
+            obj.RandomScaleMin = Math.Max(0.01, obj.RandomScaleMin);
+            obj.RandomScaleMax = Math.Max(0.01, obj.RandomScaleMax);
+            if (obj.RandomScaleMax < obj.RandomScaleMin)
+                obj.RandomScaleMax = obj.RandomScaleMin;
+            obj.PlacementStates ??= new List<TerrainObjectPlacementState>();
+            obj.PlacementStates.RemoveAll(state => state.ObjectId == Guid.Empty);
+            foreach (var state in obj.PlacementStates)
+            {
+                state.LastAppliedTransform ??= new[]
+                {
+                    1.0, 0.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0, 0.0,
+                    0.0, 0.0, 1.0, 0.0,
+                    0.0, 0.0, 0.0, 1.0
+                };
+
+                if (state.LastAppliedTransform.Length != 16)
+                {
+                    state.LastAppliedTransform =
+                    [
+                        1.0, 0.0, 0.0, 0.0,
+                        0.0, 1.0, 0.0, 0.0,
+                        0.0, 0.0, 1.0, 0.0,
+                        0.0, 0.0, 0.0, 1.0
+                    ];
+                }
+            }
+        }
+    }
+
     private static void PromoteDisplaySettings(TerrainDefinition terrain)
     {
         terrain.OutputTransparencyPercent = Math.Clamp(terrain.OutputTransparencyPercent, 0, 100);
@@ -135,8 +180,39 @@ internal static class TerrainSerializer
         if (terrain.Analyses.Count > 0)
         {
             foreach (var analysis in terrain.Analyses)
+            {
                 analysis.PalettePreset = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset).Key;
+                switch (analysis)
+                {
+                    case ContourAnalysisDefinition contour:
+                        contour.Interval = Math.Max(contour.Interval, 0.01);
+                        break;
+                    case ReferenceComparisonAnalysisDefinition comparison:
+                        comparison.Reference ??= new SourceReferenceSet();
+                        comparison.Boundary ??= new SourceReferenceSet();
+                        break;
+                case CurveSlopeLabelAnalysisDefinition curveSlope:
+                    NormalizeBlockAttributeAnalysis(curveSlope);
+                    curveSlope.Interval = Math.Max(curveSlope.Interval, 0.01);
+                    if (string.IsNullOrWhiteSpace(curveSlope.ValueFormat))
+                        curveSlope.ValueFormat = "F1";
+                    break;
+                case PointSlopeLabelAnalysisDefinition pointSlope:
+                    NormalizeBlockAttributeAnalysis(pointSlope);
+                    if (string.IsNullOrWhiteSpace(pointSlope.ValueFormat))
+                        pointSlope.ValueFormat = "F1";
+                    break;
+                    case ProjectedElevationLabelAnalysisDefinition projectedElevation:
+                        NormalizeBlockAttributeAnalysis(projectedElevation);
+                        if (string.IsNullOrWhiteSpace(projectedElevation.ValueFormat))
+                            projectedElevation.ValueFormat = "F2";
+                        break;
+                }
+            }
+
             EnsureEarthworkAnalysis(terrain);
+            PromoteLegacyEarthworkSources(terrain);
+            PromoteLegacyAnalysisResults(terrain);
             return;
         }
 
@@ -152,7 +228,18 @@ internal static class TerrainSerializer
             });
 
         terrain.ShowSlopePreview = false;
+        PromoteLegacyEarthworkSources(terrain);
         EnsureEarthworkAnalysis(terrain);
+        PromoteLegacyAnalysisResults(terrain);
+    }
+
+    private static void NormalizeBlockAttributeAnalysis(BlockAttributeAnalysisDefinition analysis)
+    {
+        analysis.Sources ??= new SourceReferenceSet();
+        analysis.BlockScale = Math.Max(0.01, analysis.BlockScale);
+        analysis.AttributePrefix ??= string.Empty;
+        analysis.AttributeSuffix ??= string.Empty;
+        analysis.ValueFormat ??= string.Empty;
     }
 
     private static void EnsureEarthworkAnalysis(TerrainDefinition terrain)
@@ -160,15 +247,60 @@ internal static class TerrainSerializer
         if (terrain.Analyses.OfType<EarthworkAnalysisDefinition>().Any())
             return;
 
-        if (!terrain.EarthworkReference.HasReferences &&
-            !terrain.EarthworkBoundary.HasReferences &&
-            terrain.LastAnalysis == null)
+        bool hasLegacyReferences = terrain.LegacyEarthworkReference?.HasReferences == true ||
+                                   terrain.LegacyEarthworkBoundary?.HasReferences == true;
+        if (!hasLegacyReferences &&
+            terrain.LegacyLastAnalysis == null &&
+            terrain.LastAnalysisResults.Count == 0)
             return;
 
-        terrain.Analyses.Add(new EarthworkAnalysisDefinition
+        var analysis = new EarthworkAnalysisDefinition
         {
             IsEnabled = false
-        });
+        };
+        ApplyLegacyEarthworkSources(terrain, analysis);
+        terrain.Analyses.Add(analysis);
+    }
+
+    private static void PromoteLegacyEarthworkSources(TerrainDefinition terrain)
+    {
+        foreach (var analysis in terrain.Analyses.OfType<ReferenceComparisonAnalysisDefinition>())
+        {
+            if (analysis.Reference.HasReferences || analysis.Boundary.HasReferences)
+                continue;
+
+            ApplyLegacyEarthworkSources(terrain, analysis);
+        }
+
+        terrain.LegacyEarthworkReference = null;
+        terrain.LegacyEarthworkBoundary = null;
+    }
+
+    private static void ApplyLegacyEarthworkSources(TerrainDefinition terrain, ReferenceComparisonAnalysisDefinition analysis)
+    {
+        if (terrain.LegacyEarthworkReference?.HasReferences == true)
+            analysis.Reference = CloneSourceSet(terrain.LegacyEarthworkReference);
+
+        if (terrain.LegacyEarthworkBoundary?.HasReferences == true)
+            analysis.Boundary = CloneSourceSet(terrain.LegacyEarthworkBoundary);
+    }
+
+    private static void PromoteLegacyAnalysisResults(TerrainDefinition terrain)
+    {
+        if (terrain.LastAnalysisResults.Count == 0 && terrain.LegacyLastAnalysis != null)
+        {
+            foreach (var analysis in terrain.Analyses)
+            {
+                var clone = TerrainRuntimeCacheCloner.CloneAnalysis(terrain.LegacyLastAnalysis);
+                if (clone == null)
+                    continue;
+
+                clone.AnalysisId = analysis.Id;
+                terrain.LastAnalysisResults.Add(clone);
+            }
+        }
+
+        terrain.LegacyLastAnalysis = null;
     }
 
     private static CollageZoneDefinition CloneZone(CollageZoneDefinition zone)

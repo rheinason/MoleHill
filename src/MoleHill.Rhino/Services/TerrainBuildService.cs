@@ -1212,13 +1212,16 @@ internal sealed class TerrainBuildService
         var boundaries = entries.Select(entry => entry.Boundary).ToArray();
 
         var splitTimer = Stopwatch.StartNew();
-        var result = MeshAreaSplitter.Classify(
+        var result = MeshAreaSplitter.Split(
             vertices,
             mesh.Vertices.Count,
             faces,
             mesh.Faces.Count,
             boundaries,
+            build.PersistentHardConstraints,
             tolerance,
+            0,
+            0,
             out var splitWarning);
         splitTimer.Stop();
 
@@ -1822,9 +1825,9 @@ internal sealed class TerrainBuildService
 
         var combinedConstraints = CombineConstraints(build.PersistentHardConstraints, resolvedInputs.Constraints);
         bool hasPersistentHardConstraints = build.PersistentHardConstraints.Count > 0;
-        if (!hasPersistentHardConstraints && (mode == TerrainBuildMode.Preview || CanUseLegacyPathTriangulation(mesh)))
+        if (mode == TerrainBuildMode.Preview || CanUseLegacyPathTriangulation(mesh))
         {
-            RhinoMesh? legacyMesh = ApplyGradePathLegacy(mesh, vertices, faces, resolvedInputs, tolerance, build);
+            RhinoMesh? legacyMesh = ApplyGradePathLegacy(mesh, vertices, faces, resolvedInputs, tolerance, build, build.PersistentHardConstraints);
             if (legacyMesh != null)
             {
                 bool apronTopologyAdded =
@@ -1869,7 +1872,12 @@ internal sealed class TerrainBuildService
             return topologyMesh;
         }
 
-        double[] gradedVertices = PathGrader.ApplyGradingZ(topologyVertices, topologyMesh.Vertices.Count, resolvedInputs.Paths);
+        double[] gradedVertices = PathGrader.ApplyGradingZ(topologyVertices, topologyMesh.Vertices.Count, resolvedInputs.Paths, out int changedVertexCount);
+        if (changedVertexCount == 0)
+        {
+            build.Diagnostics.Add(
+                "Grade Path did not change any mesh vertices. Curve Z defines the finished road elevation; a path already lying on the terrain, or a topology rebuild that could not add road-band vertices, can leave the result visually unchanged.");
+        }
 
         return CleanTinyFaces(
             RhinoGeometryConversions.BuildMesh(gradedVertices, topologyMesh.Vertices.Count, topologyFaces, topologyMesh.Faces.Count),
@@ -1890,7 +1898,8 @@ internal sealed class TerrainBuildService
         int[] faces,
         ResolvedGradePathInputs resolvedInputs,
         double tolerance,
-        TerrainBuildResult build)
+        TerrainBuildResult build,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints)
     {
         var result = PathGrader.Grade(
             vertices,
@@ -1898,6 +1907,7 @@ internal sealed class TerrainBuildService
             faces,
             mesh.Faces.Count,
             resolvedInputs.Paths,
+            persistentHardConstraints,
             out var warning);
 
         if (result == null)
@@ -3249,6 +3259,24 @@ internal sealed class TerrainBuildService
                     ElevationMinZ = elevMinZ,
                     ElevationMaxZ = elevMaxZ
                 },
+                CurveSlopeLabelAnalysisDefinition curveSlope => TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(
+                    snapshot,
+                    currentMesh,
+                    curveSlope,
+                    build,
+                    shouldCancel),
+                ProjectedElevationLabelAnalysisDefinition projectedElevation => TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(
+                    snapshot,
+                    currentMesh,
+                    projectedElevation,
+                    build,
+                    shouldCancel),
+                PointSlopeLabelAnalysisDefinition pointSlope => TerrainAnalysisAnnotationBuilder.BuildPointSlopeSummary(
+                    snapshot,
+                    currentMesh,
+                    pointSlope,
+                    build,
+                    shouldCancel),
                 CutFillAnalysisDefinition cutFill => BuildCutFillSummary(
                     snapshot,
                     fallbackBaseMesh,

@@ -289,7 +289,7 @@ public class SurfaceRemesherTests
             new SurfaceRemesher.Options
             {
                 Tolerance = 0.001,
-                RequestedEdgeLength = 4.0,
+                RequestedEdgeLength = 1.0,
                 MinAngle = 20.0,
                 ProtectSharpEdges = true
             });
@@ -313,7 +313,7 @@ public class SurfaceRemesherTests
             $"Expected no very large apron triangles, got max area {maxApronTriangle.Area:F3} at centroid ({maxApronTriangle.CentroidX:F3}, {maxApronTriangle.CentroidY:F3}) with vertices ({maxApronTriangle.Ax:F3}, {maxApronTriangle.Ay:F3}) / ({maxApronTriangle.Bx:F3}, {maxApronTriangle.By:F3}) / ({maxApronTriangle.Cx:F3}, {maxApronTriangle.Cy:F3}). Build: {buildMessage} Remesh: {remesh.Warning}");
     }
 
-    [Fact(Skip = "Known repro: user-reported open-breakline remesh still leaves coarse apron triangles on a coarse envelope mesh.")]
+    [Fact]
     public void Remesh_UserReportedOpenBreaklines_OnCoarseEnvelope_DoesNotLeaveVeryLargeApronTriangles()
     {
         var constraints = CreateUserReportedBreaklines();
@@ -331,7 +331,7 @@ public class SurfaceRemesherTests
 
         Assert.True(remesh.Success, remesh.Warning);
 
-        int boundaryLoopCount = CountBoundaryLoops(remesh.Faces);
+        var boundary = MeshTopologyValidator.AnalyzeBoundaryGraph(remesh.Faces, remesh.Faces.Length / 3);
         var maxApronTriangle = GetMaxTriangleInBounds(
             remesh.Vertices,
             remesh.Faces,
@@ -340,10 +340,143 @@ public class SurfaceRemesherTests
             minY: 29.0,
             maxY: 50.5);
 
-        Assert.Equal(1, boundaryLoopCount);
+        Assert.True(boundary.HasSingleClosedBoundaryLoop, remesh.Warning);
+        Assert.True(remesh.UsedBoundaryAndGuideSeedFallback, "Expected coarse-envelope remesh to prefer the boundary-and-guide fallback.");
         Assert.True(
             maxApronTriangle.Area <= 30.0,
             $"Expected no very large apron triangles on coarse envelope, got max area {maxApronTriangle.Area:F3} at centroid ({maxApronTriangle.CentroidX:F3}, {maxApronTriangle.CentroidY:F3}) with vertices ({maxApronTriangle.Ax:F3}, {maxApronTriangle.Ay:F3}) / ({maxApronTriangle.Bx:F3}, {maxApronTriangle.By:F3}) / ({maxApronTriangle.Cx:F3}, {maxApronTriangle.Cy:F3}). Remesh: {remesh.Warning}");
+    }
+
+    [Fact]
+    public void Remesh_DisconnectedSourceMesh_KeepsInputMeshWhenBothPassesFail()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            10.0, 0.0, 0.0,
+            10.0, 10.0, 10.0,
+            0.0, 10.0, 10.0,
+            20.0, 0.0, 0.0,
+            30.0, 0.0, 0.0,
+            30.0, 10.0, 10.0,
+            20.0, 10.0, 10.0
+        };
+
+        int[] faces =
+        {
+            0, 1, 2,
+            0, 2, 3,
+            4, 5, 6,
+            4, 6, 7
+        };
+
+        var remesh = SurfaceRemesher.Remesh(
+            vertices,
+            faces,
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            new SurfaceRemesher.Options
+            {
+                Tolerance = 0.001,
+                RequestedEdgeLength = 1.0,
+                MinAngle = 20.0,
+                ProtectSharpEdges = true
+            });
+
+        Assert.False(remesh.Success);
+        Assert.True(remesh.ReturnedInputMesh, remesh.Warning);
+        Assert.Equal(vertices, remesh.Vertices);
+        Assert.Equal(faces, remesh.Faces);
+        Assert.Contains("kept the upstream mesh unchanged", remesh.Warning ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Remesh_BranchedBoundary_KeepsInputMeshWhenTopologyWouldContainOpenChains()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            8.0, 0.0, 0.0,
+            0.0, 8.0, 8.0,
+            -8.0, 0.0, 0.0,
+            0.0, -8.0, -8.0
+        };
+        int[] faces =
+        {
+            0, 1, 2,
+            0, 3, 4
+        };
+
+        var remesh = SurfaceRemesher.Remesh(
+            vertices,
+            faces,
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            new SurfaceRemesher.Options
+            {
+                Tolerance = 0.001,
+                RequestedEdgeLength = 1.0,
+                MinAngle = 20.0,
+                ProtectSharpEdges = true
+            });
+
+        Assert.False(remesh.Success);
+        Assert.True(remesh.ReturnedInputMesh, remesh.Warning);
+        Assert.Contains("open naked-edge chains", remesh.Warning ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Remesh_ClosedConstraintBand_OnVeryCoarseEnvelope_PrefersBoundaryAndGuideFallback()
+    {
+        const double centerX = 100.0;
+        const double centerY = 100.0;
+        const int sides = 6;
+        const double outerRadius = 50.0;
+        const double innerRadius = 15.0;
+        double[] envelope =
+        {
+            0.0, 0.0, 0.0,
+            200.0, 0.0, 0.0,
+            200.0, 200.0, 10.0,
+            0.0, 200.0, 10.0
+        };
+
+        var outerConstraint = new SurfaceRemesher.ConstraintPolyline(
+            CreateRegularLoopPoints(centerX, centerY, outerRadius, sides, z: 6.0),
+            PointCount: sides,
+            IsClosed: true,
+            PreserveInputElevation: true);
+        var innerConstraint = new SurfaceRemesher.ConstraintPolyline(
+            CreateRegularLoopPoints(centerX, centerY, innerRadius, sides, z: 4.0),
+            PointCount: sides,
+            IsClosed: true,
+            PreserveInputElevation: true);
+
+        var remesh = SurfaceRemesher.Remesh(
+            envelope,
+            CreateSquareFaces(),
+            new[] { outerConstraint, innerConstraint },
+            new SurfaceRemesher.Options
+            {
+                Tolerance = 0.001,
+                RequestedEdgeLength = 1.0,
+                MinAngle = 20.0,
+                ProtectSharpEdges = true
+            });
+
+        Assert.True(remesh.Success, remesh.Warning);
+        Assert.True(remesh.UsedBoundaryAndGuideSeedFallback, "Expected the closed-constraint band to prefer the boundary-and-guide fallback.");
+
+        int bandVertexCount = Enumerable.Range(0, remesh.Vertices.Length / 3)
+            .Count(index =>
+            {
+                double x = remesh.Vertices[index * 3];
+                double y = remesh.Vertices[index * 3 + 1];
+                return IsStrictlyInsideRegularLoop(x, y, centerX, centerY, outerRadius, sides, margin: 0.5) &&
+                       !IsStrictlyInsideRegularLoop(x, y, centerX, centerY, innerRadius, sides, margin: 0.5);
+            });
+
+        Assert.True(
+            bandVertexCount >= 20,
+            $"Expected fallback to seed the closed-constraint band, got {bandVertexCount} band vertices. Warning: {remesh.Warning}");
     }
 
     private static double[] CreateSlopedSquareVertices()

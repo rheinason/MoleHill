@@ -1,11 +1,11 @@
 using MoleHill.Core.Grading;
+using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
 
 internal static class RhinoRetainingWallPlanner
 {
-    private const double LoftKinkAngleDegrees = 20.0;
     private const double CornerSplitAngleDegrees = 25.0;
 
     internal enum ReportLevel
@@ -143,8 +143,10 @@ internal static class RhinoRetainingWallPlanner
             if (pair.Failed) continue;
             pairLines.Add(new Line(pair.EndMid(true), pair.EndMid(false)));
 
-            foreach (Map map in BuildMaps(pair, tolerance, report))
+            var maps = BuildMaps(pair, tolerance, report).ToList();
+            for (int m = 0; m < maps.Count; m++)
             {
+                Map map = maps[m];
                 if (map.Count < 2) continue;
 
                 bool aIsToe = DetermineToe(map, pair, report);
@@ -358,22 +360,32 @@ internal static class RhinoRetainingWallPlanner
 
     private static void ResolveCorners(List<Pair> pairs, double tolerance, List<ReportEntry> report)
     {
-        foreach (var pair in pairs.Where(p => !p.Failed))
+        for (int i = 0; i < pairs.Count; i++)
         {
-            foreach (var other in pairs.Where(p => !p.Failed && !ReferenceEquals(p, pair)))
+            Pair pair = pairs[i];
+            if (pair.Failed)
+                continue;
+
+            for (int j = i + 1; j < pairs.Count; j++)
             {
+                Pair other = pairs[j];
+                if (other.Failed)
+                    continue;
+
                 foreach (bool s0 in new[] { true, false })
                 {
                     foreach (bool s1 in new[] { true, false })
                     {
                         Point3d p0 = pair.EndMid(s0);
                         Point3d p1 = other.EndMid(s1);
-                        if (Distance2D(p0, p1) > tolerance) continue;
+                        if (Distance2D(p0, p1) > tolerance)
+                            continue;
 
                         if (!ResolveRailCorner(pair, s0, other, s1, tolerance))
                             continue;
 
                         SnapZ(pair, s0, other, s1);
+
                         report.Add(new ReportEntry(ReportLevel.Info,
                             $"Corner resolved between pairs ({pair.A.SourceIndex}, {pair.B.SourceIndex}) and ({other.A.SourceIndex}, {other.B.SourceIndex}) with preserved wall width."));
                     }
@@ -396,8 +408,20 @@ internal static class RhinoRetainingWallPlanner
         var match0 = directMatch ? otherA : otherB;
         var match1 = directMatch ? otherB : otherA;
 
-        Point2d corner0 = IntersectOrAverage(pairA.Point, pairA.Direction, match0.Point, match0.Direction);
-        Point2d corner1 = IntersectOrAverage(pairB.Point, pairB.Direction, match1.Point, match1.Direction);
+        double wallWidth = (
+            Distance2D(pairA.Point, pairB.Point) +
+            Distance2D(otherA.Point, otherB.Point)) * 0.5;
+
+        Point2d corner0 = LimitCornerPoint(
+            IntersectOrAverage(pairA.Point, pairA.Direction, match0.Point, match0.Direction),
+            pairA.Point,
+            match0.Point,
+            LocalExtensionBudget(pairA, match0, wallWidth, tolerance));
+        Point2d corner1 = LimitCornerPoint(
+            IntersectOrAverage(pairB.Point, pairB.Direction, match1.Point, match1.Direction),
+            pairB.Point,
+            match1.Point,
+            LocalExtensionBudget(pairB, match1, wallWidth, tolerance));
 
         double cornerWidth = Math.Sqrt(
             (corner0.X - corner1.X) * (corner0.X - corner1.X) +
@@ -436,61 +460,7 @@ internal static class RhinoRetainingWallPlanner
             topPts[i] = aIsToe ? map.B[i] : map.A[i];
         }
 
-        double minHeight = Math.Max(tolerance * 0.01, 1e-6);
-        var allBreps = new List<Brep>();
-        foreach (var (start, end) in GetLoftSpans(toePts, topPts))
-        {
-            int trimStart = start;
-            while (trimStart <= end && Math.Abs(toePts[trimStart].Z - topPts[trimStart].Z) < minHeight)
-                trimStart++;
-            int trimEnd = end;
-            while (trimEnd >= trimStart && Math.Abs(toePts[trimEnd].Z - topPts[trimEnd].Z) < minHeight)
-                trimEnd--;
-
-            int count = trimEnd - trimStart + 1;
-            if (count < 2) continue;
-
-            var sections = new List<Curve>(count);
-            for (int i = trimStart; i <= trimEnd; i++)
-            {
-                double low = Math.Min(toePts[i].Z, topPts[i].Z);
-                double high = Math.Max(toePts[i].Z, topPts[i].Z);
-                var pl = new Polyline(new[]
-                {
-                    new Point3d(toePts[i].X, toePts[i].Y, low),
-                    new Point3d(toePts[i].X, toePts[i].Y, high),
-                    new Point3d(topPts[i].X, topPts[i].Y, high),
-                    new Point3d(topPts[i].X, topPts[i].Y, low),
-                    new Point3d(toePts[i].X, toePts[i].Y, low)
-                });
-                sections.Add(new PolylineCurve(pl));
-            }
-
-            Brep[] loft = Brep.CreateFromLoft(sections, Point3d.Unset, Point3d.Unset, LoftType.Straight, false);
-            if (loft == null || loft.Length == 0) continue;
-
-            var spanBreps = new List<Brep> { loft[0] };
-            AddPlanarCap(spanBreps, sections[0], tolerance);
-            AddPlanarCap(spanBreps, sections[sections.Count - 1], tolerance);
-
-            Brep[] joined = Brep.JoinBreps(spanBreps, tolerance);
-            if (joined != null && joined.Length > 0)
-                allBreps.Add(ChooseBestWallBrep(joined));
-            else
-                allBreps.Add(loft[0]);
-        }
-
-        if (allBreps.Count == 0)
-            return null;
-
-        if (allBreps.Count == 1)
-            return allBreps[0];
-
-        Brep[] finalJoin = Brep.JoinBreps(allBreps, tolerance);
-        if (finalJoin != null && finalJoin.Length > 0)
-            return ChooseBestWallBrep(finalJoin);
-
-        return ChooseBestWallBrep(allBreps);
+        return RetainingWallBrepBuilder.Build(toePts, topPts, tolerance);
     }
 
     private static IEnumerable<Map> BuildMaps(Pair pair, double tolerance, List<ReportEntry> report)
@@ -620,75 +590,6 @@ internal static class RhinoRetainingWallPlanner
         return new RetainingWallMeshGrader.WallStripDefinition(toeXy, toeZ, topXy, topZ, n);
     }
 
-    private static void AddPlanarCap(List<Brep> breps, Curve section, double tolerance)
-    {
-        Brep[]? planar = Brep.CreatePlanarBreps(section, tolerance);
-        if (planar != null && planar.Length > 0) { breps.Add(planar[0]); return; }
-        if (!section.TryGetPolyline(out Polyline pl) || pl.Count < 4) return;
-        Brep? cap = Brep.CreateFromCornerPoints(pl[0], pl[1], pl[2], pl[3], tolerance);
-        if (cap != null) breps.Add(cap);
-    }
-
-    private static IEnumerable<(int Start, int End)> GetLoftSpans(IReadOnlyList<Point3d> toeRail, IReadOnlyList<Point3d> topRail)
-    {
-        if (toeRail.Count < 2 || topRail.Count < 2)
-            yield break;
-
-        int start = 0;
-        for (int i = 1; i < toeRail.Count - 1; i++)
-        {
-            if (!HasHardKink(toeRail, topRail, i))
-                continue;
-
-            if (i > start)
-                yield return (start, i);
-
-            start = i;
-        }
-
-        if (toeRail.Count - 1 > start)
-            yield return (start, toeRail.Count - 1);
-    }
-
-    private static bool HasHardKink(IReadOnlyList<Point3d> toeRail, IReadOnlyList<Point3d> topRail, int index)
-    {
-        double toeAngle = TurnAngleDegrees(toeRail[index - 1], toeRail[index], toeRail[index + 1]);
-        double topAngle = TurnAngleDegrees(topRail[index - 1], topRail[index], topRail[index + 1]);
-        double midAngle = TurnAngleDegrees(
-            Midpoint(toeRail[index - 1], topRail[index - 1]),
-            Midpoint(toeRail[index], topRail[index]),
-            Midpoint(toeRail[index + 1], topRail[index + 1]));
-
-        return Math.Max(toeAngle, Math.Max(topAngle, midAngle)) >= LoftKinkAngleDegrees;
-    }
-
-    private static Brep ChooseBestWallBrep(IReadOnlyList<Brep> breps)
-    {
-        Brep best = breps[0];
-        double bestScore = GetBrepScore(best);
-
-        for (int i = 1; i < breps.Count; i++)
-        {
-            double score = GetBrepScore(breps[i]);
-            if (score <= bestScore)
-                continue;
-
-            best = breps[i];
-            bestScore = score;
-        }
-
-        return best;
-    }
-
-    private static double GetBrepScore(Brep brep)
-    {
-        double solidBias = brep.IsSolid ? 1e15 : 0.0;
-        double volume = VolumeMassProperties.Compute(brep)?.Volume ?? 0.0;
-        double area = AreaMassProperties.Compute(brep)?.Area ?? 0.0;
-        return solidBias + volume + area * 1e-3;
-    }
-
-
     private static bool[] MarkLongRuns(bool[] fail)
     {
         var mask = new bool[fail.Length];
@@ -722,18 +623,7 @@ internal static class RhinoRetainingWallPlanner
         b.B.SetEnd(bStart, new Point2d(b.B.Points[bj].X, b.B.Points[bj].Y), z[3] <= mid ? low : high);
     }
 
-    private static Point2d PairDirection(Pair pair, bool start)
-    {
-        Point3d a0 = pair.A.Points[start ? 0 : pair.A.Points.Length - 1];
-        Point3d a1 = pair.A.Points[start ? 1 : pair.A.Points.Length - 2];
-        Point3d b0 = pair.B.Points[start ? 0 : pair.B.Points.Length - 1];
-        Point3d b1 = pair.B.Points[start ? 1 : pair.B.Points.Length - 2];
-        Point2d d = new(((a1.X + b1.X) - (a0.X + b0.X)) * 0.5, ((a1.Y + b1.Y) - (a0.Y + b0.Y)) * 0.5);
-        if (!start) d = new(-d.X, -d.Y);
-        return Unit(d);
-    }
-
-    private static (Point2d Point, Point2d Direction) GetCurveEnd(PreparedCurve curve, bool atStart)
+    private static (Point2d Point, Point2d Direction, double SegmentLength) GetCurveEnd(PreparedCurve curve, bool atStart)
     {
         int i0 = atStart ? 0 : curve.Points.Length - 1;
         int i1 = atStart ? 1 : curve.Points.Length - 2;
@@ -743,7 +633,7 @@ internal static class RhinoRetainingWallPlanner
         if (!atStart)
             direction = new Point2d(-direction.X, -direction.Y);
 
-        return (new Point2d(p0.X, p0.Y), direction);
+        return (new Point2d(p0.X, p0.Y), direction, Distance2D(p0, p1));
     }
 
     private static Point2d IntersectOrAverage(Point2d p, Point2d d, Point2d q, Point2d e)
@@ -752,6 +642,16 @@ internal static class RhinoRetainingWallPlanner
             return x;
 
         return new Point2d((p.X + q.X) * 0.5, (p.Y + q.Y) * 0.5);
+    }
+
+    private static double LocalExtensionBudget(
+        (Point2d Point, Point2d Direction, double SegmentLength) a,
+        (Point2d Point, Point2d Direction, double SegmentLength) b,
+        double wallWidth,
+        double tolerance)
+    {
+        double local = Math.Max(a.SegmentLength, b.SegmentLength);
+        return Math.Max(tolerance * 4.0, Math.Max(local * 2.0, wallWidth * 2.0));
     }
 
     private static Point2d LimitCornerPoint(Point2d candidate, Point2d a, Point2d b, double maxExtension)
@@ -1004,9 +904,6 @@ internal static class RhinoRetainingWallPlanner
         double dy = a.Y - b.Y;
         return Math.Sqrt(dx * dx + dy * dy);
     }
-
-    private static Point3d Midpoint(Point3d a, Point3d b) =>
-        new((a.X + b.X) * 0.5, (a.Y + b.Y) * 0.5, (a.Z + b.Z) * 0.5);
 
     private static double TurnAngleDegrees(Point3d prev, Point3d current, Point3d next)
     {

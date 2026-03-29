@@ -1,4 +1,5 @@
 using MoleHill.Core.Grading;
+using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Grading;
@@ -145,7 +146,7 @@ internal static class RetainingWallPlanner
 
                 bool aIsToe = DetermineToe(map, pair, report);
                 var strip = BuildStrip(map, aIsToe);
-                Brep? brep = BuildBrep(map);
+                Brep? brep = BuildBrep(map, aIsToe, tolerance);
                 if (brep == null)
                 {
                     report.Add(new ReportEntry(ReportLevel.Warning,
@@ -309,30 +310,33 @@ internal static class RetainingWallPlanner
 
     private static void ResolveCorners(List<Pair> pairs, double tolerance, List<ReportEntry> report)
     {
-        foreach (var pair in pairs.Where(p => !p.Failed))
+        for (int i = 0; i < pairs.Count; i++)
         {
-            foreach (var other in pairs.Where(p => !p.Failed && !ReferenceEquals(p, pair)))
+            Pair pair = pairs[i];
+            if (pair.Failed)
+                continue;
+
+            for (int j = i + 1; j < pairs.Count; j++)
             {
+                Pair other = pairs[j];
+                if (other.Failed)
+                    continue;
+
                 foreach (bool s0 in new[] { true, false })
                 {
                     foreach (bool s1 in new[] { true, false })
                     {
                         Point3d p0 = pair.EndMid(s0);
                         Point3d p1 = other.EndMid(s1);
-                        if (Distance2D(p0, p1) > tolerance) continue;
+                        if (Distance2D(p0, p1) > tolerance)
+                            continue;
 
-                        Point2d d0 = PairDirection(pair, s0);
-                        Point2d d1 = PairDirection(other, s1);
-                        if (!IntersectLines(new Point2d(p0.X, p0.Y), d0, new Point2d(p1.X, p1.Y), d1, out Point2d x)) continue;
-
-                        pair.A.SetEnd(s0, x);
-                        pair.B.SetEnd(s0, x);
-                        other.A.SetEnd(s1, x);
-                        other.B.SetEnd(s1, x);
+                        if (!ResolveRailCorner(pair, s0, other, s1, tolerance))
+                            continue;
 
                         SnapZ(pair, s0, other, s1);
                         report.Add(new ReportEntry(ReportLevel.Info,
-                            $"Corner resolved between pairs ({pair.A.SourceIndex}, {pair.B.SourceIndex}) and ({other.A.SourceIndex}, {other.B.SourceIndex})."));
+                            $"Corner resolved between pairs ({pair.A.SourceIndex}, {pair.B.SourceIndex}) and ({other.A.SourceIndex}, {other.B.SourceIndex}) with preserved wall width."));
                     }
                 }
             }
@@ -466,43 +470,71 @@ internal static class RetainingWallPlanner
         return new RetainingWallMeshGrader.WallStripDefinition(toeXy, toeZ, topXy, topZ, n);
     }
 
-    private static Brep? BuildBrep(Map map)
+    private static bool ResolveRailCorner(Pair pair, bool pairStart, Pair other, bool otherStart, double tolerance)
     {
-        var sections = new List<Curve>(map.Count);
-        for (int i = 0; i < map.Count; i++)
+        var pairA = GetCurveEnd(pair.A, pairStart);
+        var pairB = GetCurveEnd(pair.B, pairStart);
+        var otherA = GetCurveEnd(other.A, otherStart);
+        var otherB = GetCurveEnd(other.B, otherStart);
+
+        bool directMatch =
+            Distance2D(pairA.Point, otherA.Point) + Distance2D(pairB.Point, otherB.Point) <=
+            Distance2D(pairA.Point, otherB.Point) + Distance2D(pairB.Point, otherA.Point);
+
+        var match0 = directMatch ? otherA : otherB;
+        var match1 = directMatch ? otherB : otherA;
+
+        double wallWidth = (
+            Distance2D(pairA.Point, pairB.Point) +
+            Distance2D(otherA.Point, otherB.Point)) * 0.5;
+
+        Point2d corner0 = LimitCornerPoint(
+            IntersectOrAverage(pairA.Point, pairA.Direction, match0.Point, match0.Direction),
+            pairA.Point,
+            match0.Point,
+            LocalExtensionBudget(pairA, match0, wallWidth, tolerance));
+
+        Point2d corner1 = LimitCornerPoint(
+            IntersectOrAverage(pairB.Point, pairB.Direction, match1.Point, match1.Direction),
+            pairB.Point,
+            match1.Point,
+            LocalExtensionBudget(pairB, match1, wallWidth, tolerance));
+
+        double cornerWidth = Math.Sqrt(
+            (corner0.X - corner1.X) * (corner0.X - corner1.X) +
+            (corner0.Y - corner1.Y) * (corner0.Y - corner1.Y));
+
+        if (cornerWidth < tolerance * 0.1)
+            return false;
+
+        pair.A.SetEnd(pairStart, corner0);
+        pair.B.SetEnd(pairStart, corner1);
+
+        if (directMatch)
         {
-            Point3d a = map.A[i];
-            Point3d b = map.B[i];
-            double low = Math.Min(a.Z, b.Z);
-            double high = Math.Max(a.Z, b.Z);
-            var pl = new Polyline(new[]
-            {
-                new Point3d(a.X, a.Y, low),
-                new Point3d(a.X, a.Y, high),
-                new Point3d(b.X, b.Y, high),
-                new Point3d(b.X, b.Y, low),
-                new Point3d(a.X, a.Y, low)
-            });
-            sections.Add(new PolylineCurve(pl));
+            other.A.SetEnd(otherStart, corner0);
+            other.B.SetEnd(otherStart, corner1);
+        }
+        else
+        {
+            other.B.SetEnd(otherStart, corner0);
+            other.A.SetEnd(otherStart, corner1);
         }
 
-        Brep[] loft = Brep.CreateFromLoft(sections, Point3d.Unset, Point3d.Unset, LoftType.Straight, false);
-        if (loft == null || loft.Length == 0) return null;
-
-        var join = new List<Brep> { loft[0] };
-        AddCap(sections[0], join, 1e-3);
-        AddCap(sections[sections.Count - 1], join, 1e-3);
-        Brep[] joined = Brep.JoinBreps(join, 1e-3);
-        return joined != null && joined.Length > 0 ? joined[0] : loft[0];
+        return true;
     }
 
-    private static void AddCap(Curve section, List<Brep> join, double tol)
+    private static Brep? BuildBrep(Map map, bool aIsToe, double tolerance)
     {
-        Brep[]? planar = Brep.CreatePlanarBreps(section, tol);
-        if (planar != null && planar.Length > 0) { join.Add(planar[0]); return; }
-        if (!section.TryGetPolyline(out Polyline pl) || pl.Count < 4) return;
-        Brep? cap = Brep.CreateFromCornerPoints(pl[0], pl[1], pl[2], pl[3], tol);
-        if (cap != null) join.Add(cap);
+        var toePts = new Point3d[map.Count];
+        var topPts = new Point3d[map.Count];
+        for (int i = 0; i < map.Count; i++)
+        {
+            toePts[i] = aIsToe ? map.A[i] : map.B[i];
+            topPts[i] = aIsToe ? map.B[i] : map.A[i];
+        }
+
+        return RetainingWallBrepBuilder.Build(toePts, topPts, tolerance);
     }
 
     private static bool[] MarkLongRuns(bool[] fail)
@@ -538,15 +570,47 @@ internal static class RetainingWallPlanner
         b.B.SetEnd(bStart, new Point2d(b.B.Points[bj].X, b.B.Points[bj].Y), z[3] <= mid ? low : high);
     }
 
-    private static Point2d PairDirection(Pair pair, bool start)
+    private static (Point2d Point, Point2d Direction, double SegmentLength) GetCurveEnd(PreparedCurve curve, bool atStart)
     {
-        Point3d a0 = pair.A.Points[start ? 0 : pair.A.Points.Length - 1];
-        Point3d a1 = pair.A.Points[start ? 1 : pair.A.Points.Length - 2];
-        Point3d b0 = pair.B.Points[start ? 0 : pair.B.Points.Length - 1];
-        Point3d b1 = pair.B.Points[start ? 1 : pair.B.Points.Length - 2];
-        Point2d d = new(((a1.X + b1.X) - (a0.X + b0.X)) * 0.5, ((a1.Y + b1.Y) - (a0.Y + b0.Y)) * 0.5);
-        if (!start) d = new(-d.X, -d.Y);
-        return Unit(d);
+        int i0 = atStart ? 0 : curve.Points.Length - 1;
+        int i1 = atStart ? 1 : curve.Points.Length - 2;
+        Point3d p0 = curve.Points[i0];
+        Point3d p1 = curve.Points[i1];
+        Point2d direction = Unit(new Point2d(p1.X - p0.X, p1.Y - p0.Y));
+        if (!atStart)
+            direction = new Point2d(-direction.X, -direction.Y);
+
+        return (new Point2d(p0.X, p0.Y), direction, Distance2D(p0, p1));
+    }
+
+    private static Point2d IntersectOrAverage(Point2d p, Point2d d, Point2d q, Point2d e)
+    {
+        if (IntersectLines(p, d, q, e, out Point2d x))
+            return x;
+
+        return new Point2d((p.X + q.X) * 0.5, (p.Y + q.Y) * 0.5);
+    }
+
+    private static double LocalExtensionBudget(
+        (Point2d Point, Point2d Direction, double SegmentLength) a,
+        (Point2d Point, Point2d Direction, double SegmentLength) b,
+        double wallWidth,
+        double tolerance)
+    {
+        double local = Math.Max(a.SegmentLength, b.SegmentLength);
+        return Math.Max(tolerance * 4.0, Math.Max(local * 2.0, wallWidth * 2.0));
+    }
+
+    private static Point2d LimitCornerPoint(Point2d candidate, Point2d a, Point2d b, double maxExtension)
+    {
+        if (maxExtension > 1e-9 &&
+            Distance2D(candidate, a) <= maxExtension &&
+            Distance2D(candidate, b) <= maxExtension)
+        {
+            return candidate;
+        }
+
+        return new Point2d((a.X + b.X) * 0.5, (a.Y + b.Y) * 0.5);
     }
 
     private static bool ShouldFlip(PreparedCurve a, PreparedCurve b)
@@ -788,6 +852,13 @@ internal static class RetainingWallPlanner
     }
 
     private static double Distance2D(Point3d a, Point3d b)
+    {
+        double dx = a.X - b.X;
+        double dy = a.Y - b.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    private static double Distance2D(Point2d a, Point2d b)
     {
         double dx = a.X - b.X;
         double dy = a.Y - b.Y;

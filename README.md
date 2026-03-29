@@ -47,6 +47,13 @@ The Rhino plugin provides the panel-driven workflow for creating, editing, analy
 
 ## Install
 
+### Rhino Package Manager
+
+1. In Rhino 8, run `_PackageManager`.
+2. Search for `MoleHill`.
+3. Install the package to get the Rhino plugin and the optional Grasshopper companion together.
+4. Enable prerelease packages when testing Yak prerelease builds.
+
 ### Rhino Plugin
 
 1. Download `MoleHill.Rhino.rhp` from the [latest release](https://github.com/rheinason/MoleHill/releases/latest).
@@ -71,14 +78,16 @@ Requires .NET 8 SDK or newer and access to Rhino and Grasshopper NuGet packages.
 dotnet build MoleHill.sln
 dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj -c Release
 dotnet build src/MoleHill.Grasshopper/MoleHill.Grasshopper.csproj -c Release -f net7.0-windows
+pwsh ./build-yak-package.ps1
 ```
 
 Release outputs:
 
 - `src/MoleHill.Rhino/bin/Release/net7.0/MoleHill.Rhino.rhp`
 - `src/MoleHill.Grasshopper/bin/Release/net7.0-windows/MoleHill.gha`
+- `.artifacts/yak/MoleHill-<version>/molehill-<version>-rh8_9-win.yak`
 
-When Yak is installed, the Grasshopper build can also emit a `.yak` package from the release output directory.
+`build-yak-package.ps1` stages a Rhino 8 Windows Yak package that includes both the Rhino plugin and the optional Grasshopper companion under `net7.0/`.
 
 ## Test
 

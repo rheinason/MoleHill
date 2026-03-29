@@ -62,6 +62,22 @@ internal static class TerrainAnalysisPreviewBuilder
         return analysis is SlopeAnalysisDefinition or ElevationAnalysisDefinition or CutFillAnalysisDefinition;
     }
 
+    internal static bool ProducesGeneratedOutput(AnalysisDefinition analysis)
+    {
+        return analysis is ContourAnalysisDefinition
+            or CurveSlopeLabelAnalysisDefinition
+            or ProjectedElevationLabelAnalysisDefinition
+            or PointSlopeLabelAnalysisDefinition;
+    }
+
+    internal static bool ShouldDisplayGeneratedOutput(TerrainDefinition terrain, GeneratedRhinoObject generated)
+    {
+        if (!generated.AnalysisId.HasValue)
+            return true;
+
+        return terrain.Analyses.Any(analysis => analysis.Id == generated.AnalysisId.Value && analysis.IsEnabled);
+    }
+
     private static RhinoMesh? BuildElevationPreviewMesh(RhinoMesh mesh, ElevationAnalysisDefinition analysis, byte alpha)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
@@ -108,11 +124,11 @@ internal static class TerrainAnalysisPreviewBuilder
         if (terrainMesh == null || !RhinoGeometryConversions.TryExtractMeshData(terrainMesh, out var vertices, out var faces, out _))
             return null;
 
-        RhinoMesh? referenceMesh = ResolveReferenceMesh(doc, terrain) ?? state.BaseTerrainMesh;
+        RhinoMesh? referenceMesh = ResolveReferenceMesh(doc, analysis.Reference) ?? state.BaseTerrainMesh;
         if (referenceMesh == null)
             return TerrainRuntimeCacheCloner.CloneMesh(terrainMesh);
 
-        var boundaries = RhinoSourceResolver.ResolveCurves(doc, terrain.EarthworkBoundary);
+        var boundaries = RhinoSourceResolver.ResolveCurves(doc, analysis.Boundary);
         int faceCount = terrainMesh.Faces.Count;
         var values = new double[faceCount];
         var colors = new byte[faceCount * 3];
@@ -174,9 +190,9 @@ internal static class TerrainAnalysisPreviewBuilder
         return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
     }
 
-    private static RhinoMesh? ResolveReferenceMesh(RhinoDoc doc, TerrainDefinition terrain)
+    private static RhinoMesh? ResolveReferenceMesh(RhinoDoc doc, SourceReferenceSet referenceSet)
     {
-        var meshes = RhinoSourceResolver.ResolveMeshes(doc, terrain.EarthworkReference);
+        var meshes = RhinoSourceResolver.ResolveMeshes(doc, referenceSet);
         if (meshes.Count == 0)
             return null;
         if (meshes.Count == 1)

@@ -1,5 +1,7 @@
 using MoleHill.Rhino.Services;
 using MoleHill.Rhino.UI;
+using System.Drawing;
+using System.Reflection;
 using Rhino;
 using Rhino.FileIO;
 using Rhino.PlugIns;
@@ -10,6 +12,7 @@ namespace MoleHill.Rhino;
 public sealed class MoleHillRhinoPlugin : PlugIn
 {
     private readonly TerrainDocumentStore _documentStore = new();
+    private static Icon? _panelIcon;
 
     public static MoleHillRhinoPlugin Instance { get; private set; } = null!;
 
@@ -23,7 +26,7 @@ public sealed class MoleHillRhinoPlugin : PlugIn
     protected override LoadReturnCode OnLoad(ref string errorMessage)
     {
         TerrainController.Instance.Initialize();
-        Panels.RegisterPanel(this, typeof(MoleHillPanel), "MoleHill", null);
+        Panels.RegisterPanel(this, typeof(MoleHillPanel), "MoleHill", GetPanelIcon());
         return LoadReturnCode.Success;
     }
 
@@ -46,5 +49,22 @@ public sealed class MoleHillRhinoPlugin : PlugIn
             _documentStore.SaveJson(doc, json);
 
         TerrainController.Instance.ReloadDocumentState(doc);
+    }
+
+    private static Icon? GetPanelIcon()
+    {
+        if (_panelIcon != null)
+            return _panelIcon;
+
+        using Stream? stream = Assembly.GetExecutingAssembly()
+            .GetManifestResourceStream("MoleHill.Rhino.EmbeddedResources.plugin-utility.ico");
+        if (stream == null)
+            return null;
+
+        using var copy = new MemoryStream();
+        stream.CopyTo(copy);
+        copy.Position = 0;
+        _panelIcon = new Icon(copy);
+        return _panelIcon;
     }
 }

@@ -1,9 +1,13 @@
+using System.Text.Json.Serialization;
+
 namespace MoleHill.Rhino.Model;
 
 public sealed class TerrainDefinition
 {
-    public const int CurrentSchemaVersion = 13;
+    public const int CurrentSchemaVersion = 19;
     public const int DefaultTerrainColorArgb = unchecked((int)0xFFC7D2C2);
+    public const string DefaultTerrainLayerPath = "MoleHill::Terrain";
+    public const string DefaultAuxiliaryLayerPath = "MoleHill::Auxiliary";
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
@@ -29,6 +33,8 @@ public sealed class TerrainDefinition
 
     public bool ShowMeshWires { get; set; } = true;
 
+    public bool ShowSlowBuildWarning { get; set; } = true;
+
     public bool ShowSlopePreview { get; set; }
 
     public string? TerrainLayerPath { get; set; }
@@ -43,13 +49,19 @@ public sealed class TerrainDefinition
 
     public double GlobalTolerance { get; set; }
 
-    public SourceReferenceSet EarthworkReference { get; set; } = new();
+    [JsonPropertyName("earthworkReference")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceReferenceSet? LegacyEarthworkReference { get; set; }
 
-    public SourceReferenceSet EarthworkBoundary { get; set; } = new();
+    [JsonPropertyName("earthworkBoundary")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceReferenceSet? LegacyEarthworkBoundary { get; set; }
 
     public List<ModifierDefinition> Modifiers { get; set; } = new();
 
     public List<MarkerDefinition> Markers { get; set; } = new();
+
+    public List<TerrainObjectDefinition> Objects { get; set; } = new();
 
     public List<CollageZoneDefinition> Zones { get; set; } = new();
 
@@ -63,11 +75,29 @@ public sealed class TerrainDefinition
 
     public List<Guid> MarkerObjectIds { get; set; } = new();
 
+    public bool ReplacePreviouslyBaked { get; set; }
+
+    public List<Guid> BakedObjectIds { get; set; } = new();
+
     public string? LastBuildMessage { get; set; }
 
     public DateTimeOffset? LastBuildUtc { get; set; }
 
-    public TerrainAnalysisSummary? LastAnalysis { get; set; }
+    [JsonPropertyName("lastAnalysis")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TerrainAnalysisSummary? LegacyLastAnalysis { get; set; }
+
+    public List<TerrainAnalysisSummary> LastAnalysisResults { get; set; } = new();
+
+    public static string ResolveTerrainLayerPath(string? layerPath)
+    {
+        return string.IsNullOrWhiteSpace(layerPath) ? DefaultTerrainLayerPath : layerPath;
+    }
+
+    public static string ResolveAuxiliaryLayerPath(string? layerPath)
+    {
+        return string.IsNullOrWhiteSpace(layerPath) ? DefaultAuxiliaryLayerPath : layerPath;
+    }
 
     public IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {
@@ -83,13 +113,22 @@ public sealed class TerrainDefinition
                 yield return sourceSet;
         }
 
+        foreach (var obj in Objects)
+        {
+            foreach (var sourceSet in obj.EnumerateSourceSets())
+                yield return sourceSet;
+        }
+
         foreach (var zone in Zones)
         {
             yield return zone.Boundaries;
         }
 
-        yield return EarthworkReference;
-        yield return EarthworkBoundary;
+        foreach (var analysis in Analyses)
+        {
+            foreach (var sourceSet in analysis.EnumerateSourceSets())
+                yield return sourceSet;
+        }
     }
 
     public void EnsureBaseModifier()

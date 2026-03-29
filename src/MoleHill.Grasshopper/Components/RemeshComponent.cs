@@ -1,5 +1,6 @@
 using Grasshopper.Kernel;
 using MoleHill.Core.Engine;
+using MoleHill.Shared;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
@@ -110,7 +111,7 @@ public class RemeshComponent : GH_Component
             if (crv == null)
                 continue;
 
-            if (!TryGetPolyline(crv, tolerance, out var polyline))
+            if (!TryGetPolyline(crv, tolerance, edgeLength, maxArea, out var polyline))
                 continue;
 
             remeshConstraints.Add(ToConstraintPolyline(polyline, crv.IsClosed));
@@ -150,14 +151,20 @@ public class RemeshComponent : GH_Component
         DA.SetData(2, outVertCount);
     }
 
-    private static bool TryGetPolyline(Curve curve, double tolerance, out Polyline polyline)
+    private static bool TryGetPolyline(
+        Curve curve,
+        double tolerance,
+        double requestedEdgeLength,
+        double maxArea,
+        out Polyline polyline)
     {
-        polyline = new Polyline();
-        if (curve.TryGetPolyline(out polyline))
-            return polyline.Count >= 2;
-
-        var polyCurve = curve.ToPolyline(tolerance, Math.PI / 36.0, 0.0, 0.0);
-        return polyCurve != null && polyCurve.TryGetPolyline(out polyline) && polyline.Count >= 2;
+        return AdaptivePolylineBuilder.TryGetPolyline(
+            curve,
+            tolerance,
+            requireClosed: false,
+            requestedEdgeLength,
+            maxArea,
+            out polyline);
     }
 
     private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)

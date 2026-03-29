@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
@@ -136,18 +137,23 @@ internal static class RhinoSourceResolver
 
     public static bool TryGetPolyline(Curve curve, double tolerance, bool requireClosed, out Polyline polyline)
     {
-        polyline = new Polyline();
+        return TryGetPolyline(curve, tolerance, requireClosed, requestedEdgeLength: 0.0, maxArea: 0.0, out polyline);
+    }
 
-        if (requireClosed && !curve.IsClosed)
-            return false;
-
-        if (curve.TryGetPolyline(out polyline))
-            return polyline.Count >= (requireClosed ? 3 : 2);
-
-        var polyCurve = curve.ToPolyline(tolerance, Math.PI / 36.0, 0.0, 0.0);
-        if (polyCurve == null || !polyCurve.TryGetPolyline(out polyline))
-            return false;
-
-        return polyline.Count >= (requireClosed ? 3 : 2);
+    public static bool TryGetPolyline(
+        Curve curve,
+        double tolerance,
+        bool requireClosed,
+        double requestedEdgeLength,
+        double maxArea,
+        out Polyline polyline)
+    {
+        return AdaptivePolylineBuilder.TryGetPolyline(
+            curve,
+            tolerance,
+            requireClosed,
+            requestedEdgeLength,
+            maxArea,
+            out polyline);
     }
 }

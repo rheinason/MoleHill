@@ -152,6 +152,48 @@ public class MeshAreaSplitterTests
         Assert.All(constraintVertices, index => Assert.Equal(3.0, result.Vertices[index * 3 + 2], 6));
     }
 
+    [Fact]
+    public void Classify_CentroidNearBoundaryWithinTolerance_TreatsFaceAsInside()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            1.0, 1.0, 0.0,
+            0.0, 1.0, 0.0
+        };
+        int[] faces =
+        {
+            0, 1, 2,
+            0, 2, 3
+        };
+        var boundary = new MeshAreaSplitter.AreaBoundary(
+            new[] { 0.34, 0.0, 1.0, 0.0, 1.0, 1.0, 0.34, 1.0 },
+            4);
+
+        var strict = MeshAreaSplitter.Classify(
+            vertices,
+            4,
+            faces,
+            2,
+            new[] { boundary },
+            0.0,
+            out _);
+        var tolerant = MeshAreaSplitter.Classify(
+            vertices,
+            4,
+            faces,
+            2,
+            new[] { boundary },
+            0.01,
+            out _);
+
+        Assert.NotNull(strict);
+        Assert.NotNull(tolerant);
+        Assert.Equal(-1, strict!.FaceAreaIndex[1]);
+        Assert.Equal(0, tolerant!.FaceAreaIndex[1]);
+    }
+
     private static double[] CreatePlanarMeshVertices()
     {
         return new[]

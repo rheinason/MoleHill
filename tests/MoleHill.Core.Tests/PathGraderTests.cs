@@ -126,6 +126,38 @@ public class PathGraderTests
         Assert.True(shoulderVertexCount >= 5, $"Expected remesh constraints to create an apron band, found {shoulderVertexCount} shoulder vertices.");
     }
 
+    [Fact]
+    public void CreateConstraints_WithoutBoundaryLoop_StillBuildsRoadAndShoulderPolylines()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 0.0, 5.0, 10.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 33.0,
+            maxDistance: 1.5);
+
+        var constraints = PathGrader.CreateConstraints(
+            new[]
+            {
+                0.0, 0.0, 0.0,
+                10.0, 0.0, 0.0
+            },
+            2,
+            Array.Empty<int>(),
+            0,
+            new[] { path },
+            tolerance: 1e-3);
+
+        Assert.Equal(5, constraints.Constraints.Length);
+        Assert.True(constraints.SuggestedEdgeLength > 0.0);
+        Assert.All(constraints.Constraints, constraint =>
+        {
+            Assert.True(constraint.PointCount >= 2);
+            Assert.Equal(constraint.PointCount * 3, constraint.Points.Length);
+        });
+    }
+
     private static IEnumerable<(double x, double y, double z)> EnumerateVertices(GradingResult result)
     {
         for (int i = 0; i < result.VertexCount; i++)

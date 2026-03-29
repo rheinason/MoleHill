@@ -5,15 +5,17 @@ using MoleHill.Core.Grading;
 namespace MoleHill.Grasshopper.Components;
 
 /// <summary>
-/// Flatten terrain to a target elevation within boundary curves,
+/// Grade terrain to a planar surface defined by 3D boundary curves,
 /// with controlled slope transitions. Reports cut/fill volumes.
 /// Per-pad settings via matching-length lists.
 /// </summary>
 public class GradePadComponent : GH_Component
 {
+    private const double MinRepresentablePlaneNormalZ = 1e-3;
+
     public GradePadComponent()
         : base("Grade Pad", "GradePad",
-               "Flatten terrain within boundary curves to a target elevation with slope transitions. Curve Z = target elevation.",
+               "Grade terrain within boundary curves to a planar surface with slope transitions. Flat curves make flat pads; 3D curves define angled pads.",
                "MoleHill", "Grading")
     {
     }
@@ -26,7 +28,7 @@ public class GradePadComponent : GH_Component
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
         pManager.AddMeshParameter("Mesh", "M", "Existing terrain mesh.", GH_ParamAccess.item);
-        pManager.AddCurveParameter("Boundaries", "B", "Closed curves defining pad areas. Curve Z = target elevation.", GH_ParamAccess.list);
+        pManager.AddCurveParameter("Boundaries", "B", "Closed curves defining pad areas. Flat curves make flat pads; 3D curves define the finished pad plane.", GH_ParamAccess.list);
         pManager.AddNumberParameter("Slope Angle", "S", "Transition slope angle in degrees per boundary. Shorter lists repeat last value.", GH_ParamAccess.list);
         pManager[2].Optional = true;
         pManager.AddNumberParameter("Max Distance", "D", "Max horizontal transition distance per boundary. 0 = auto. Shorter lists repeat last value.", GH_ParamAccess.list);
@@ -122,9 +124,6 @@ public class GradePadComponent : GH_Component
                 continue;
             }
 
-            var bbox = crv.GetBoundingBox(false);
-            double targetZ = (bbox.Min.Z + bbox.Max.Z) * 0.5;
-
             Polyline pl;
             if (!crv.TryGetPolyline(out pl))
             {
@@ -143,16 +142,16 @@ public class GradePadComponent : GH_Component
             if (pl[0].DistanceTo(pl[plCount - 1]) < tolerance)
                 plCount--;
 
-            var xyVerts = new double[plCount * 2];
-            for (int i = 0; i < plCount; i++)
-            {
-                xyVerts[i * 2] = pl[i].X;
-                xyVerts[i * 2 + 1] = pl[i].Y;
-            }
-
             double slope = GetListValue(slopeAngles, padIdx, 33.0);
             double dist = GetListValue(maxDists, padIdx, 0.0);
-            pads.Add(new PadGrader.PadBoundary(xyVerts, plCount, targetZ, slope, dist));
+            if (!TryCreatePadBoundary(pl, plCount, slope, dist, out var pad, out string? warning))
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning ?? "Boundary curve did not define a stable pad plane. Skipping.");
+                padIdx++;
+                continue;
+            }
+
+            pads.Add(pad!);
             padIdx++;
         }
 
@@ -238,5 +237,75 @@ public class GradePadComponent : GH_Component
         DA.SetData(1, result.CutVolume);
         DA.SetData(2, result.FillVolume);
         DA.SetData(3, result.NetVolume);
+    }
+
+    private static bool TryCreatePadBoundary(
+        Polyline polyline,
+        int vertexCount,
+        double slopeAngle,
+        double maxDistance,
+        out PadGrader.PadBoundary? pad,
+        out string? warning)
+    {
+        pad = null;
+        warning = null;
+
+        var boundaryVertices = new double[vertexCount * 3];
+        var points = new Point3d[vertexCount];
+        for (int i = 0; i < vertexCount; i++)
+        {
+            Point3d point = polyline[i];
+            points[i] = point;
+            boundaryVertices[i * 3] = point.X;
+            boundaryVertices[i * 3 + 1] = point.Y;
+            boundaryVertices[i * 3 + 2] = point.Z;
+        }
+
+        if (!TryGetPlaneCoefficients(points, out double planeXCoeff, out double planeYCoeff, out double planeConstant, out warning))
+            return false;
+
+        pad = PadGrader.PadBoundary.CreatePlanar(
+            boundaryVertices,
+            vertexCount,
+            planeXCoeff,
+            planeYCoeff,
+            planeConstant,
+            slopeAngle,
+            maxDistance);
+        return true;
+    }
+
+    private static bool TryGetPlaneCoefficients(
+        IReadOnlyList<Point3d> points,
+        out double planeXCoeff,
+        out double planeYCoeff,
+        out double planeConstant,
+        out string? warning)
+    {
+        planeXCoeff = 0.0;
+        planeYCoeff = 0.0;
+        planeConstant = 0.0;
+        warning = null;
+
+        if (points.Count < 3)
+        {
+            warning = "Boundary curve must have at least 3 vertices to define a pad plane.";
+            return false;
+        }
+
+        PlaneFitResult fit = Plane.FitPlaneToPoints(points, out Plane plane);
+        if (fit == PlaneFitResult.Failure || Math.Abs(plane.Normal.Z) < MinRepresentablePlaneNormalZ)
+        {
+            warning = "Boundary curve does not define a stable planar pad.";
+            return false;
+        }
+
+        if (plane.Normal.Z < 0)
+            plane.Flip();
+
+        planeXCoeff = -plane.Normal.X / plane.Normal.Z;
+        planeYCoeff = -plane.Normal.Y / plane.Normal.Z;
+        planeConstant = plane.Origin.Z + (plane.Normal.X * plane.Origin.X + plane.Normal.Y * plane.Origin.Y) / plane.Normal.Z;
+        return true;
     }
 }

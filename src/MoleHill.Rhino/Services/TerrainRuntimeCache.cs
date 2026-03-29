@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using MoleHill.Core.Engine;
+using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
@@ -15,30 +16,89 @@ internal sealed class TerrainRuntimeCache
 
     public Dictionary<string, PadTopologyCacheEntry> PadTopologyEntries { get; } = new(StringComparer.Ordinal);
 
+    public Dictionary<string, SmoothStageCacheEntry> SmoothEntries { get; } = new(StringComparer.Ordinal);
+
     public TerrainDisplayState? DisplayState { get; set; }
+
+    public TimeSpan? LastPreviewDuration { get; set; }
+
+    public TimeSpan? LastFinalDuration { get; set; }
+
+    public TerrainRuntimeCache CreateWorkerCopy()
+    {
+        var copy = new TerrainRuntimeCache
+        {
+            LastPreviewDuration = LastPreviewDuration,
+            LastFinalDuration = LastFinalDuration
+        };
+
+        foreach (var entry in StageEntries)
+            copy.StageEntries[entry.Key] = TerrainRuntimeCacheCloner.CloneStageCacheEntry(entry.Value);
+
+        foreach (var entry in PadTopologyEntries)
+            copy.PadTopologyEntries[entry.Key] = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(entry.Value);
+
+        foreach (var entry in SmoothEntries)
+            copy.SmoothEntries[entry.Key] = TerrainRuntimeCacheCloner.CloneSmoothStageCacheEntry(entry.Value);
+
+        return copy;
+    }
+
+    public void ReplaceBuildCachesFrom(TerrainRuntimeCache source)
+    {
+        StageEntries.Clear();
+        foreach (var entry in source.StageEntries)
+            StageEntries[entry.Key] = TerrainRuntimeCacheCloner.CloneStageCacheEntry(entry.Value);
+
+        PadTopologyEntries.Clear();
+        foreach (var entry in source.PadTopologyEntries)
+            PadTopologyEntries[entry.Key] = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(entry.Value);
+
+        SmoothEntries.Clear();
+        foreach (var entry in source.SmoothEntries)
+            SmoothEntries[entry.Key] = TerrainRuntimeCacheCloner.CloneSmoothStageCacheEntry(entry.Value);
+    }
 
     public void Clear()
     {
         StageEntries.Clear();
         PadTopologyEntries.Clear();
+        SmoothEntries.Clear();
         DisplayState = null;
+        LastPreviewDuration = null;
+        LastFinalDuration = null;
         TinEngine.InvalidateCache();
     }
 
-    public void PruneUnused(IReadOnlySet<string> usedStageKeys)
+    public void PruneUnused(IReadOnlySet<string> usedStageKeys, TerrainBuildMode mode)
     {
+        string stagePrefix = GetStagePrefix(mode);
         if (usedStageKeys.Count == 0)
         {
-            StageEntries.Clear();
-            PadTopologyEntries.Clear();
+            foreach (string stageKey in StageEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
+                StageEntries.Remove(stageKey);
+
+            foreach (string stageKey in PadTopologyEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
+                PadTopologyEntries.Remove(stageKey);
+
+            foreach (string stageKey in SmoothEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
+                SmoothEntries.Remove(stageKey);
             return;
         }
 
-        foreach (string stageKey in StageEntries.Keys.Where(key => !usedStageKeys.Contains(key)).ToList())
+        foreach (string stageKey in StageEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
             StageEntries.Remove(stageKey);
 
-        foreach (string stageKey in PadTopologyEntries.Keys.Where(key => !usedStageKeys.Contains(key)).ToList())
+        foreach (string stageKey in PadTopologyEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
             PadTopologyEntries.Remove(stageKey);
+
+        foreach (string stageKey in SmoothEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
+            SmoothEntries.Remove(stageKey);
+    }
+
+    public static string GetStagePrefix(TerrainBuildMode mode)
+    {
+        return mode == TerrainBuildMode.Preview ? "preview:" : "final:";
     }
 }
 
@@ -54,7 +114,7 @@ internal sealed class StageCacheEntry
 
     public RhinoMesh? MeshOutput { get; init; }
 
-    public TerrainAnalysisSummary? AnalysisOutput { get; init; }
+    public List<TerrainAnalysisSummary> AnalysisOutput { get; init; } = new();
 
     public List<GeneratedRhinoObject> ZoneObjects { get; init; } = new();
 
@@ -88,6 +148,13 @@ internal sealed class PadTopologyCacheEntry
     public int FaceCount { get; init; }
 
     public List<string> Diagnostics { get; init; } = new();
+}
+
+internal sealed class SmoothStageCacheEntry
+{
+    public ulong Fingerprint { get; init; }
+
+    public required MeshSmoother.PreparedSmoothingData Prepared { get; init; }
 }
 
 internal struct FingerprintBuilder
@@ -170,17 +237,39 @@ internal static class TerrainRuntimeCacheCloner
 
         return new TerrainAnalysisSummary
         {
+            AnalysisId = analysis.AnalysisId,
             SurfaceArea = analysis.SurfaceArea,
             SlopeMinPercent = analysis.SlopeMinPercent,
             SlopeMaxPercent = analysis.SlopeMaxPercent,
             SlopeAveragePercent = analysis.SlopeAveragePercent,
             SlopeDisplayLowPercent = analysis.SlopeDisplayLowPercent,
             SlopeDisplayHighPercent = analysis.SlopeDisplayHighPercent,
+            ElevationMinZ = analysis.ElevationMinZ,
+            ElevationMaxZ = analysis.ElevationMaxZ,
+            CutFillDisplayAbsMax = analysis.CutFillDisplayAbsMax,
             CutVolume = analysis.CutVolume,
             FillVolume = analysis.FillVolume,
             NetVolume = analysis.NetVolume,
-            EarthworkIsEstimated = analysis.EarthworkIsEstimated
+            EarthworkIsEstimated = analysis.EarthworkIsEstimated,
+            ContourCurveCount = analysis.ContourCurveCount,
+            ContourLevelCount = analysis.ContourLevelCount,
+            ContourFirstLevel = analysis.ContourFirstLevel,
+            ContourLastLevel = analysis.ContourLastLevel,
+            GeneratedOutputCount = analysis.GeneratedOutputCount,
+            SampleSourceCount = analysis.SampleSourceCount,
+            SampleMinValue = analysis.SampleMinValue,
+            SampleMaxValue = analysis.SampleMaxValue,
+            SampleAverageValue = analysis.SampleAverageValue
         };
+    }
+
+    public static List<TerrainAnalysisSummary> CloneAnalyses(IEnumerable<TerrainAnalysisSummary> analyses)
+    {
+        return analyses
+            .Select(CloneAnalysis)
+            .Where(analysis => analysis != null)
+            .Cast<TerrainAnalysisSummary>()
+            .ToList();
     }
 
     public static List<GeneratedRhinoObject> CloneGeneratedObjects(IEnumerable<GeneratedRhinoObject> objects)
@@ -195,12 +284,16 @@ internal static class TerrainRuntimeCacheCloner
             Geometry = generated.Geometry?.Duplicate(),
             Name = generated.Name,
             Kind = generated.Kind,
+            AnalysisId = generated.AnalysisId,
             ColorArgb = generated.ColorArgb,
             LayerPath = generated.LayerPath,
             SourceLayerPath = generated.SourceLayerPath,
             MaterialName = generated.MaterialName,
             InstanceDefinitionName = generated.InstanceDefinitionName,
             MarkerBlockTemplate = generated.MarkerBlockTemplate,
+            InstanceUserStrings = generated.InstanceUserStrings == null
+                ? null
+                : new Dictionary<string, string>(generated.InstanceUserStrings, StringComparer.Ordinal),
             InstanceTransform = generated.InstanceTransform
         };
     }
@@ -227,6 +320,49 @@ internal static class TerrainRuntimeCacheCloner
             Faces = (int[])entry.Faces.Clone(),
             FaceCount = entry.FaceCount,
             Diagnostics = entry.Diagnostics.ToList()
+        };
+    }
+
+    public static StageCacheEntry CloneStageCacheEntry(StageCacheEntry entry)
+    {
+        return new StageCacheEntry
+        {
+            StageName = entry.StageName,
+            PreResolutionFingerprint = entry.PreResolutionFingerprint,
+            ResolvedInputFingerprint = entry.ResolvedInputFingerprint,
+            OutputFingerprint = entry.OutputFingerprint,
+            MeshOutput = CloneMesh(entry.MeshOutput),
+            AnalysisOutput = CloneAnalyses(entry.AnalysisOutput),
+            ZoneObjects = CloneGeneratedObjects(entry.ZoneObjects),
+            AuxiliaryObjects = CloneGeneratedObjects(entry.AuxiliaryObjects),
+            MarkerObjects = CloneGeneratedObjects(entry.MarkerObjects),
+            PersistentHardConstraints = CloneConstraints(entry.PersistentHardConstraints),
+            Diagnostics = entry.Diagnostics.ToList(),
+            StairSurfaceCount = entry.StairSurfaceCount,
+            StairTreadDepthSummary = entry.StairTreadDepthSummary,
+            StairStepCountSummary = entry.StairStepCountSummary
+        };
+    }
+
+    public static SmoothStageCacheEntry CloneSmoothStageCacheEntry(SmoothStageCacheEntry entry)
+    {
+        return new SmoothStageCacheEntry
+        {
+            Fingerprint = entry.Fingerprint,
+            Prepared = ClonePreparedSmoothingData(entry.Prepared)
+        };
+    }
+
+    private static MeshSmoother.PreparedSmoothingData ClonePreparedSmoothingData(MeshSmoother.PreparedSmoothingData prepared)
+    {
+        return new MeshSmoother.PreparedSmoothingData
+        {
+            VertexCount = prepared.VertexCount,
+            NeighborOffsets = (int[])prepared.NeighborOffsets.Clone(),
+            NeighborIndices = (int[])prepared.NeighborIndices.Clone(),
+            IsMeshBoundary = (bool[])prepared.IsMeshBoundary.Clone(),
+            InsideBoundaries = (bool[])prepared.InsideBoundaries.Clone(),
+            IsOnBreakline = (bool[])prepared.IsOnBreakline.Clone()
         };
     }
 }

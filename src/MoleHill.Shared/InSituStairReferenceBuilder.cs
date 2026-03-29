@@ -99,6 +99,37 @@ internal static class InSituStairReferenceBuilder
         public required Point3d RightTop { get; init; }
     }
 
+    private sealed class RunDirectionInterpretation
+    {
+        public required Vector3d RunDir { get; init; }
+
+        public required Vector3d WidthDir { get; init; }
+
+        public required List<(double s, double t)> LocalBoundary { get; init; }
+
+        public required double MinS { get; init; }
+
+        public required double MaxS { get; init; }
+
+        public required double StartMinT { get; init; }
+
+        public required double StartMaxT { get; init; }
+
+        public required double EndMinT { get; init; }
+
+        public required double EndMaxT { get; init; }
+
+        public required double StartZ { get; init; }
+
+        public required double EndZ { get; init; }
+
+        public required double TotalRise { get; init; }
+
+        public required double TotalRun { get; init; }
+
+        public required double TreadDepth { get; init; }
+    }
+
     public static bool TryBuild(
         IEnumerable<Mesh> sourceMeshes,
         double riserHeight,
@@ -204,67 +235,55 @@ internal static class InSituStairReferenceBuilder
             plane.Flip();
 
         var anchor = new Point3d(boundary[0].X, boundary[0].Y, 0.0);
-        Vector3d runDir = new(-plane.Normal.X, -plane.Normal.Y, 0.0);
-        if (!runDir.Unitize())
+        Vector3d gradientRunDir = new(-plane.Normal.X, -plane.Normal.Y, 0.0);
+        if (!gradientRunDir.Unitize())
         {
             errorMessage = "The reference surface is too flat to derive a stair run direction.";
             return false;
         }
 
-        Vector3d widthDir = new(-runDir.Y, runDir.X, 0.0);
-        widthDir.Unitize();
+        bool hasForward = TryInterpretRunDirection(
+            boundary,
+            anchor,
+            plane,
+            gradientRunDir,
+            tolerance,
+            riserHeight,
+            out RunDirectionInterpretation? forwardInterpretation,
+            out string? forwardError);
+        bool hasReverse = TryInterpretRunDirection(
+            boundary,
+            anchor,
+            plane,
+            -gradientRunDir,
+            tolerance,
+            riserHeight,
+            out RunDirectionInterpretation? reverseInterpretation,
+            out string? reverseError);
 
-        var localBoundary = ToLocalBoundary(boundary, anchor, runDir, widthDir);
-        GetRange(localBoundary, out double minS, out double maxS);
-        if (maxS - minS <= tolerance)
+        if (!hasForward && !hasReverse)
         {
-            errorMessage = "The reference surface has no usable horizontal run.";
+            errorMessage = forwardError ?? reverseError ?? "The reference surface could not be interpreted as a stair strip.";
             return false;
         }
 
-        if (!TryGetInterval(localBoundary, minS + tolerance, out double startMinT, out double startMaxT) ||
-            !TryGetInterval(localBoundary, maxS - tolerance, out double endMinT, out double endMaxT))
-        {
-            errorMessage = "The reference surface footprint is not a single stair strip.";
-            return false;
-        }
+        var interpretation = hasForward && hasReverse
+            ? ChoosePreferredInterpretation(forwardInterpretation!, reverseInterpretation!, tolerance)
+            : (forwardInterpretation ?? reverseInterpretation)!;
 
-        double startZ = EvaluatePlaneZ(plane, LocalToWorld(anchor, runDir, widthDir, minS, (startMinT + startMaxT) * 0.5));
-        double endZ = EvaluatePlaneZ(plane, LocalToWorld(anchor, runDir, widthDir, maxS, (endMinT + endMaxT) * 0.5));
-        if (endZ < startZ)
-        {
-            runDir *= -1.0;
-            widthDir = new Vector3d(-runDir.Y, runDir.X, 0.0);
-            widthDir.Unitize();
-            localBoundary = ToLocalBoundary(boundary, anchor, runDir, widthDir);
-            GetRange(localBoundary, out minS, out maxS);
-
-            if (!TryGetInterval(localBoundary, minS + tolerance, out startMinT, out startMaxT) ||
-                !TryGetInterval(localBoundary, maxS - tolerance, out endMinT, out endMaxT))
-            {
-                errorMessage = "The reference surface footprint is not a single stair strip.";
-                return false;
-            }
-
-            startZ = EvaluatePlaneZ(plane, LocalToWorld(anchor, runDir, widthDir, minS, (startMinT + startMaxT) * 0.5));
-            endZ = EvaluatePlaneZ(plane, LocalToWorld(anchor, runDir, widthDir, maxS, (endMinT + endMaxT) * 0.5));
-        }
-
-        double totalRise = endZ - startZ;
-        if (totalRise <= tolerance)
-        {
-            errorMessage = "The reference surface is too flat to create stairs.";
-            return false;
-        }
-
-        double totalRun = maxS - minS;
-        double grade = totalRise / totalRun;
-        double treadDepth = riserHeight / grade;
-        if (double.IsNaN(treadDepth) || double.IsInfinity(treadDepth) || treadDepth <= tolerance * 4)
-        {
-            errorMessage = "The implied tread depth is too small for stable stair geometry.";
-            return false;
-        }
+        Vector3d runDir = interpretation.RunDir;
+        Vector3d widthDir = interpretation.WidthDir;
+        var localBoundary = interpretation.LocalBoundary;
+        double minS = interpretation.MinS;
+        double maxS = interpretation.MaxS;
+        double startMinT = interpretation.StartMinT;
+        double startMaxT = interpretation.StartMaxT;
+        double endMinT = interpretation.EndMinT;
+        double endMaxT = interpretation.EndMaxT;
+        double startZ = interpretation.StartZ;
+        double endZ = interpretation.EndZ;
+        double totalRise = interpretation.TotalRise;
+        double treadDepth = interpretation.TreadDepth;
 
         double rmsResidual = ComputePlaneResidual(topSkin, plane);
         if (rmsResidual > Math.Max(riserHeight * 0.5, tolerance * 20))
@@ -349,6 +368,106 @@ internal static class InSituStairReferenceBuilder
             stepCount,
             labelPoint);
         return true;
+    }
+
+    private static bool TryInterpretRunDirection(
+        IReadOnlyList<Point3d> boundary,
+        Point3d anchor,
+        Plane plane,
+        Vector3d candidateRunDir,
+        double tolerance,
+        double riserHeight,
+        out RunDirectionInterpretation? interpretation,
+        out string? errorMessage)
+    {
+        interpretation = null;
+        errorMessage = null;
+
+        Vector3d runDir = candidateRunDir;
+        if (!runDir.Unitize())
+        {
+            errorMessage = "The reference surface is too flat to derive a stair run direction.";
+            return false;
+        }
+
+        Vector3d widthDir = new(-runDir.Y, runDir.X, 0.0);
+        if (!widthDir.Unitize())
+        {
+            errorMessage = "The reference surface is too flat to derive a stair run width.";
+            return false;
+        }
+
+        var localBoundary = ToLocalBoundary(boundary, anchor, runDir, widthDir);
+        GetRange(localBoundary, out double minS, out double maxS);
+        if (maxS - minS <= tolerance)
+        {
+            errorMessage = "The reference surface has no usable horizontal run.";
+            return false;
+        }
+
+        if (!TryGetInterval(localBoundary, minS + tolerance, out double startMinT, out double startMaxT) ||
+            !TryGetInterval(localBoundary, maxS - tolerance, out double endMinT, out double endMaxT))
+        {
+            errorMessage = "The reference surface footprint is not a single stair strip.";
+            return false;
+        }
+
+        double startZ = EvaluatePlaneZ(plane, LocalToWorld(anchor, runDir, widthDir, minS, (startMinT + startMaxT) * 0.5));
+        double endZ = EvaluatePlaneZ(plane, LocalToWorld(anchor, runDir, widthDir, maxS, (endMinT + endMaxT) * 0.5));
+        double totalRise = endZ - startZ;
+        if (totalRise <= tolerance)
+        {
+            errorMessage = "The reference surface is too flat to create stairs.";
+            return false;
+        }
+
+        double totalRun = maxS - minS;
+        if (totalRun <= tolerance)
+        {
+            errorMessage = "The reference surface has no usable horizontal run.";
+            return false;
+        }
+
+        double grade = totalRise / totalRun;
+        double treadDepth = riserHeight / grade;
+        if (double.IsNaN(treadDepth) || double.IsInfinity(treadDepth) || treadDepth <= tolerance * 4)
+        {
+            errorMessage = "The implied tread depth is too small for stable stair geometry.";
+            return false;
+        }
+
+        interpretation = new RunDirectionInterpretation
+        {
+            RunDir = runDir,
+            WidthDir = widthDir,
+            LocalBoundary = localBoundary,
+            MinS = minS,
+            MaxS = maxS,
+            StartMinT = startMinT,
+            StartMaxT = startMaxT,
+            EndMinT = endMinT,
+            EndMaxT = endMaxT,
+            StartZ = startZ,
+            EndZ = endZ,
+            TotalRise = totalRise,
+            TotalRun = totalRun,
+            TreadDepth = treadDepth
+        };
+        return true;
+    }
+
+    private static RunDirectionInterpretation ChoosePreferredInterpretation(
+        RunDirectionInterpretation forward,
+        RunDirectionInterpretation reverse,
+        double tolerance)
+    {
+        if (Math.Abs(forward.TotalRise - reverse.TotalRise) > tolerance)
+            return forward.TotalRise > reverse.TotalRise ? forward : reverse;
+
+        if (Math.Abs(forward.TotalRun - reverse.TotalRun) > tolerance)
+            return forward.TotalRun > reverse.TotalRun ? forward : reverse;
+
+        return forward;
     }
 
     private static Mesh? MergeMeshes(IEnumerable<Mesh> sourceMeshes)

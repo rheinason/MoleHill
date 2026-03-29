@@ -143,6 +143,29 @@ public static class MeshAreaSplitter
             out _);
     }
 
+    /// <summary>
+    /// Split a mesh into exact area boundaries while preserving the original
+    /// terrain triangles everywhere the boundaries do not touch.
+    /// </summary>
+    public static SplitResult? SplitPreservingTopology(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        AreaBoundary[] areas,
+        double boundaryTolerance,
+        out string? errorMessage)
+    {
+        return MeshAreaTopologySplitter.Split(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            areas,
+            boundaryTolerance,
+            out errorMessage);
+    }
+
     public static SplitResult? Classify(
         double[] vertices,
         int vertexCount,

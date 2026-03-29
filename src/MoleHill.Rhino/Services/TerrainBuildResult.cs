@@ -6,8 +6,26 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed record TerrainBuildTiming(string Stage, TimeSpan Elapsed, string? Detail);
 
+internal sealed class TerrainObjectPlacement
+{
+    public Guid ObjectId { get; init; }
+
+    public Transform AppliedTransform { get; init; } = Transform.Identity;
+}
+
+internal sealed class TerrainObjectPlacementGroup
+{
+    public Guid DefinitionId { get; init; }
+
+    public List<TerrainObjectPlacement> Placements { get; } = new();
+}
+
 internal sealed class TerrainBuildResult
 {
+    public TerrainBuildMode Mode { get; set; } = TerrainBuildMode.Final;
+
+    public bool HasDeferredOutputs { get; set; }
+
     public Mesh? PrimaryMesh { get; set; }
 
     public Mesh? BaseMesh { get; set; }
@@ -18,9 +36,11 @@ internal sealed class TerrainBuildResult
 
     public List<GeneratedRhinoObject> MarkerObjects { get; } = new();
 
+    public List<TerrainObjectPlacementGroup> ObjectPlacements { get; } = new();
+
     public List<string> Diagnostics { get; } = new();
 
-    public TerrainAnalysisSummary? Analysis { get; set; }
+    public List<TerrainAnalysisSummary> AnalysisResults { get; } = new();
 
     public List<TerrainBuildTiming> Timings { get; } = new();
 

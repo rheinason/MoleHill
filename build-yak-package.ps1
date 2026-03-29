@@ -1,0 +1,170 @@
+[CmdletBinding()]
+param(
+    [string]$Configuration = "Release",
+    [switch]$Push,
+    [string]$Source = "https://yak.rhino3d.com/",
+    [string]$YakExecutable = "C:\Program Files\Rhino 8\System\Yak.exe"
+)
+
+$ErrorActionPreference = "Stop"
+
+function Invoke-Step {
+    param(
+        [string]$FilePath,
+        [string[]]$ArgumentList
+    )
+
+    & $FilePath @ArgumentList
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed: $FilePath $($ArgumentList -join ' ')"
+    }
+}
+
+function Invoke-StepWithRetry {
+    param(
+        [string]$FilePath,
+        [string[]]$ArgumentList,
+        [int]$MaxAttempts = 3,
+        [int]$DelaySeconds = 2
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            Invoke-Step $FilePath $ArgumentList
+            return
+        }
+        catch {
+            if ($attempt -eq $MaxAttempts) {
+                throw
+            }
+
+            Start-Sleep -Seconds $DelaySeconds
+        }
+    }
+}
+
+$repoRoot = $PSScriptRoot
+$propsPath = Join-Path $repoRoot "Directory.Build.props"
+$dotnetCliHome = Join-Path $repoRoot ".dotnet-home"
+$nugetPackages = Join-Path $repoRoot ".dotnet\.nuget\packages"
+
+if (-not (Test-Path $YakExecutable)) {
+    throw "Yak executable not found at '$YakExecutable'."
+}
+
+if (-not (Test-Path $propsPath)) {
+    throw "Version file not found at '$propsPath'."
+}
+
+[xml]$props = Get-Content -Path $propsPath
+$version = $props.Project.PropertyGroup.MoleHillVersion
+
+if ([string]::IsNullOrWhiteSpace($version)) {
+    throw "MoleHillVersion is missing from '$propsPath'."
+}
+
+New-Item -ItemType Directory -Path $dotnetCliHome -Force | Out-Null
+$env:DOTNET_CLI_HOME = $dotnetCliHome
+$env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
+$env:DOTNET_NOLOGO = "1"
+
+if (Test-Path $nugetPackages) {
+    $env:NUGET_PACKAGES = $nugetPackages
+}
+
+$rhinoProject = Join-Path $repoRoot "src\MoleHill.Rhino\MoleHill.Rhino.csproj"
+$grasshopperProject = Join-Path $repoRoot "src\MoleHill.Grasshopper\MoleHill.Grasshopper.csproj"
+
+$buildRoot = Join-Path $repoRoot ".artifacts\yak-build\$version-$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))"
+$rhinoOutput = Join-Path $buildRoot "rhino"
+$grasshopperOutput = Join-Path $buildRoot "grasshopper"
+$stageRoot = Join-Path $repoRoot ".artifacts\yak\MoleHill-$version"
+$packageContentRoot = Join-Path $stageRoot "net7.0"
+$miscDirectory = Join-Path $packageContentRoot "misc"
+
+Invoke-Step "dotnet" @(
+    "build",
+    $rhinoProject,
+    "-c", $Configuration,
+    "--no-restore",
+    "-p:OutputPath=$rhinoOutput\",
+    "-p:AppendTargetFrameworkToOutputPath=false"
+)
+Invoke-StepWithRetry "dotnet" @(
+    "build",
+    $grasshopperProject,
+    "-c", $Configuration,
+    "-f", "net7.0-windows",
+    "--no-restore",
+    "-p:OutputPath=$grasshopperOutput\",
+    "-p:AppendTargetFrameworkToOutputPath=false",
+    "-p:BuildYakPackage=false",
+    "-p:SkipGrasshopperLibraryCopy=True"
+)
+
+if (Test-Path $stageRoot) {
+    Remove-Item -Path $stageRoot -Recurse -Force
+}
+
+New-Item -ItemType Directory -Path $miscDirectory -Force | Out-Null
+
+$filesToCopy = @(
+    @{ Source = Join-Path $rhinoOutput "MoleHill.Rhino.rhp"; Destination = Join-Path $packageContentRoot "MoleHill.Rhino.rhp" }
+    @{ Source = Join-Path $rhinoOutput "MoleHill.Core.dll"; Destination = Join-Path $packageContentRoot "MoleHill.Core.dll" }
+    @{ Source = Join-Path $rhinoOutput "MoleHill.Rhino.deps.json"; Destination = Join-Path $packageContentRoot "MoleHill.Rhino.deps.json" }
+    @{ Source = Join-Path $rhinoOutput "MoleHill.Rhino.runtimeconfig.json"; Destination = Join-Path $packageContentRoot "MoleHill.Rhino.runtimeconfig.json" }
+    @{ Source = Join-Path $grasshopperOutput "MoleHill.gha"; Destination = Join-Path $packageContentRoot "MoleHill.gha" }
+    @{ Source = Join-Path $grasshopperOutput "MoleHill.deps.json"; Destination = Join-Path $packageContentRoot "MoleHill.deps.json" }
+    @{ Source = Join-Path $grasshopperOutput "MoleHill.runtimeconfig.json"; Destination = Join-Path $packageContentRoot "MoleHill.runtimeconfig.json" }
+    @{ Source = Join-Path $repoRoot "README.md"; Destination = Join-Path $miscDirectory "README.md" }
+    @{ Source = Join-Path $repoRoot "LICENSE"; Destination = Join-Path $miscDirectory "LICENSE.txt" }
+    @{ Source = Join-Path $repoRoot "src\MoleHill.Grasshopper\Resources\MoleHill.png"; Destination = Join-Path $stageRoot "icon.png" }
+)
+
+foreach ($file in $filesToCopy) {
+    if (-not (Test-Path $file.Source)) {
+        throw "Missing required file '$($file.Source)'."
+    }
+
+    Copy-Item -Path $file.Source -Destination $file.Destination -Force
+}
+
+$manifest = @"
+---
+name: MoleHill
+version: $version
+authors:
+- rheinason
+description: Rhino terrain modeling plugin with optional Grasshopper components for TIN creation, grading, and analysis workflows.
+url: https://github.com/rheinason/MoleHill
+icon: icon.png
+keywords:
+- molehill
+- rhino
+- grasshopper
+- terrain
+- grading
+- tin
+- mesh
+"@
+
+Set-Content -Path (Join-Path $stageRoot "manifest.yml") -Value $manifest -Encoding ascii
+
+Push-Location $stageRoot
+try {
+    Invoke-Step $YakExecutable @("build", "--platform", "win")
+
+    $package = Get-ChildItem -Path $stageRoot -Filter "*.yak" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($null -eq $package) {
+        throw "Yak build did not produce a package."
+    }
+
+    if ($Push) {
+        Invoke-Step $YakExecutable @("push", "--source", $Source, $package.FullName)
+    }
+
+    Write-Host "Yak package ready: $($package.FullName)"
+}
+finally {
+    Pop-Location
+}

@@ -119,6 +119,69 @@ public class PadGraderTests
     }
 
     [Fact]
+    public void ApplyGradingZ_EvaluatesPlanarPadSurfaceInsideBoundary()
+    {
+        double[] vertices = BuildGridVertices(5, 1.0);
+        int[] faces = BuildGridFaces(5);
+        var pads = new[] { BuildAngledPad() };
+
+        bool success = PadGrader.TryTriangulateTopology(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null,
+            0.0,
+            0.0,
+            out var topologyVertices,
+            out var topologyVertexCount,
+            out _,
+            out _,
+            out var warning);
+
+        Assert.True(success, warning);
+
+        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, pads);
+
+        int interiorIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 2.0, 2.0);
+        int boundaryIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 3.0, 2.0);
+
+        Assert.Equal(1.0, gradedVertices[interiorIndex * 3 + 2], 6);
+        Assert.Equal(2.0, gradedVertices[boundaryIndex * 3 + 2], 6);
+    }
+
+    [Fact]
+    public void ApplyGradingZ_UsesBoundaryZForAngledDaylight()
+    {
+        double[] vertices = BuildGridVertices(5, 1.0);
+        int[] faces = BuildGridFaces(5);
+        var pads = new[] { BuildAngledPad() };
+
+        bool success = PadGrader.TryTriangulateTopology(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null,
+            0.0,
+            0.0,
+            out var topologyVertices,
+            out var topologyVertexCount,
+            out _,
+            out _,
+            out var warning);
+
+        Assert.True(success, warning);
+
+        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, pads);
+
+        int outsideIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 4.0, 2.0);
+        Assert.Equal(1.0, gradedVertices[outsideIndex * 3 + 2], 6);
+    }
+
+    [Fact]
     public void Grade_ProducesSameResultAs_SplitPath_ForIdenticalInputs()
     {
         var vertices = BuildGridVertices(5, 0.75);
@@ -206,6 +269,55 @@ public class PadGraderTests
         Assert.True(ContainsVertex(topologyVertices, 1.5, 1.5));
     }
 
+    [Fact]
+    public void TryTriangulateTopology_LockCurve_PreservesConstraintIntersections()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            4.0, 0.0, 0.0,
+            4.0, 4.0, 0.0,
+            0.0, 4.0, 0.0
+        };
+        int[] faces = BuildSquareFaces();
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    1.0, 1.0,
+                    3.0, 1.0,
+                    3.0, 3.0,
+                    1.0, 3.0
+                },
+                4,
+                1.0)
+        };
+        var locks = new[]
+        {
+            new PadGrader.LockCurve(new[] { 0.0, 2.0, 4.0, 2.0 }, 2)
+        };
+
+        bool success = PadGrader.TryTriangulateTopology(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            locks,
+            0.0,
+            0.0,
+            out var topologyVertices,
+            out _,
+            out _,
+            out _,
+            out var warning);
+
+        Assert.True(success, warning);
+        Assert.True(ContainsVertex(topologyVertices, 1.0, 2.0));
+        Assert.True(ContainsVertex(topologyVertices, 3.0, 2.0));
+    }
+
     private static PadGrader.PadBoundary[] BuildPads()
     {
         return new[]
@@ -231,6 +343,23 @@ public class PadGraderTests
                 4,
                 2.0)
         };
+    }
+
+    private static PadGrader.PadBoundary BuildAngledPad()
+    {
+        return PadGrader.PadBoundary.CreatePlanar(
+            new[]
+            {
+                1.0, 1.0, 0.0,
+                3.0, 1.0, 2.0,
+                3.0, 3.0, 2.0,
+                1.0, 3.0, 0.0
+            },
+            4,
+            planeXCoeff: 1.0,
+            planeYCoeff: 0.0,
+            planeConstant: -1.0,
+            slopeAngleDeg: 45.0);
     }
 
     private static double[] BuildGridVertices(int size, double spacing)
@@ -274,6 +403,15 @@ public class PadGraderTests
         }
 
         return faces.ToArray();
+    }
+
+    private static int[] BuildSquareFaces()
+    {
+        return new[]
+        {
+            0, 1, 2,
+            0, 2, 3
+        };
     }
 
     private static int FindVertexIndex(double[] vertices, int vertexCount, double x, double y)

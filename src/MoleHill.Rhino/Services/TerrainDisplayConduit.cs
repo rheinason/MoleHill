@@ -22,7 +22,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             return;
 
         if (terrain.ShowTerrainMesh && displayState.PreviewTerrainMesh != null)
-            DrawGeneratedMesh(e, doc, terrain, displayState.PreviewTerrainMesh, terrain.TerrainLayerPath, null, terrain.TerrainColorArgb);
+            DrawGeneratedMesh(e, doc, terrain, displayState.PreviewTerrainMesh, TerrainDefinition.ResolveTerrainLayerPath(terrain.TerrainLayerPath), null, terrain.TerrainColorArgb);
 
         if (terrain.ShowZoneMeshes)
         {
@@ -31,7 +31,10 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         }
 
         foreach (var auxiliary in displayState.AuxiliaryObjects)
-            DrawGeneratedObject(e, doc, terrain, auxiliary);
+        {
+            if (TerrainAnalysisPreviewBuilder.ShouldDisplayGeneratedOutput(terrain, auxiliary))
+                DrawGeneratedObject(e, doc, terrain, auxiliary);
+        }
 
         foreach (var marker in displayState.MarkerObjects)
             DrawGeneratedObject(e, doc, terrain, marker);
@@ -59,8 +62,35 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             return;
         }
 
+        if (generated.Geometry is Curve curve)
+        {
+            var color = ResolveColor(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+            e.Display.DrawCurve(curve, color, 2);
+            return;
+        }
+
         if (!string.IsNullOrWhiteSpace(generated.InstanceDefinitionName))
-            DrawMarkerTemplate(e, generated);
+        {
+            bool drawOnTop = generated.AnalysisId.HasValue;
+            if (drawOnTop)
+            {
+                e.Display.PushDepthTesting(false);
+                e.Display.PushDepthWriting(false);
+            }
+
+            try
+            {
+                DrawMarkerTemplate(e, doc, generated);
+            }
+            finally
+            {
+                if (drawOnTop)
+                {
+                    e.Display.PopDepthWriting();
+                    e.Display.PopDepthTesting();
+                }
+            }
+        }
     }
 
     private static void DrawGeneratedMesh(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, Mesh mesh, string? layerPath, string? sourceLayerPath, int? colorArgb)
@@ -141,45 +171,106 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             Math.Max(0, (int)Math.Round(baseColor.B * 0.45)));
     }
 
-    private static void DrawMarkerTemplate(DrawEventArgs e, GeneratedRhinoObject generated)
+    private static void DrawMarkerTemplate(DrawEventArgs e, global::Rhino.RhinoDoc doc, GeneratedRhinoObject generated)
     {
-        var color = generated.ColorArgb.HasValue
-            ? Color.FromArgb(generated.ColorArgb.Value)
-            : Color.FromArgb(30, 30, 30);
+        var color = ResolveColor(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+
+        if (TryDrawBlockDefinitionGeometry(e, doc, generated, color))
+            return;
 
         foreach (var geometry in CreateMarkerBlockGeometry(generated.MarkerBlockTemplate))
+            DrawMarkerGeometry(e, generated, geometry, color, substituteDisplayText: true);
+    }
+
+    private static bool TryDrawBlockDefinitionGeometry(DrawEventArgs e, global::Rhino.RhinoDoc doc, GeneratedRhinoObject generated, Color color)
+    {
+        if (string.IsNullOrWhiteSpace(generated.InstanceDefinitionName))
+            return false;
+
+        var definition = doc.InstanceDefinitions.Find(generated.InstanceDefinitionName!);
+        if (definition == null)
+            return false;
+
+        bool drewGeometry = false;
+        foreach (var instanceObject in definition.GetObjects())
         {
-            if (geometry is Curve curve)
+            if (instanceObject?.Geometry == null)
+                continue;
+
+            if (DrawMarkerGeometry(e, generated, instanceObject.Geometry, color, substituteDisplayText: true))
+                drewGeometry = true;
+        }
+
+        return drewGeometry;
+    }
+
+    private static bool DrawMarkerGeometry(
+        DrawEventArgs e,
+        GeneratedRhinoObject generated,
+        GeometryBase geometry,
+        Color color,
+        bool substituteDisplayText)
+    {
+        switch (geometry)
+        {
+            case Curve curve:
             {
                 var transformed = curve.DuplicateCurve();
                 transformed.Transform(generated.InstanceTransform);
                 e.Display.DrawCurve(transformed, color, 2);
+                return true;
             }
+            case TextEntity text:
+            {
+                if (text.Duplicate() is not TextEntity transformedText)
+                    return false;
+
+                if (substituteDisplayText &&
+                    TryBuildPreviewDisplayText(generated.InstanceUserStrings, out var displayText))
+                {
+                    transformedText.TextFormula = string.Empty;
+                    transformedText.PlainText = displayText;
+                }
+
+                transformedText.Transform(generated.InstanceTransform);
+                e.Display.DrawText(transformedText, color);
+                return true;
+            }
+            default:
+                return false;
         }
+    }
+
+    private static bool TryBuildPreviewDisplayText(
+        IReadOnlyDictionary<string, string>? userStrings,
+        out string displayText)
+    {
+        displayText = string.Empty;
+        if (userStrings == null || userStrings.Count == 0)
+            return false;
+
+        string prefix = GetUserString(userStrings, GeneratedBlockCatalog.PrefixToken);
+        string value = GetUserString(userStrings, GeneratedBlockCatalog.ValueToken);
+        string suffix = GetUserString(userStrings, GeneratedBlockCatalog.SuffixToken);
+        displayText = string.Concat(prefix, value, suffix);
+        if (!string.IsNullOrWhiteSpace(displayText))
+            return true;
+
+        displayText = GetUserString(userStrings, GeneratedBlockCatalog.DisplayToken);
+        return !string.IsNullOrWhiteSpace(displayText);
+    }
+
+    private static string GetUserString(IReadOnlyDictionary<string, string> userStrings, string key)
+    {
+        if (!userStrings.TryGetValue(key, out var value) || value == null)
+            return string.Empty;
+
+        return value;
     }
 
     private static IEnumerable<GeometryBase> CreateMarkerBlockGeometry(MarkerBlockTemplate template)
     {
-        switch (template)
-        {
-            case MarkerBlockTemplate.Elevation:
-                yield return new Circle(Plane.WorldXY, 0.8).ToNurbsCurve();
-                yield return new LineCurve(new Point3d(-0.8, 0.0, 0.0), new Point3d(0.8, 0.0, 0.0));
-                yield return new LineCurve(new Point3d(0.0, -0.8, 0.0), new Point3d(0.0, 0.8, 0.0));
-                yield break;
-            case MarkerBlockTemplate.Slope:
-                yield return new PolylineCurve(new[]
-                {
-                    new Point3d(-0.8, -0.2, 0.0),
-                    new Point3d(0.4, -0.2, 0.0),
-                    new Point3d(0.4, -0.6, 0.0),
-                    new Point3d(0.9, 0.0, 0.0),
-                    new Point3d(0.4, 0.6, 0.0),
-                    new Point3d(0.4, 0.2, 0.0),
-                    new Point3d(-0.8, 0.2, 0.0)
-                });
-                yield return new LineCurve(new Point3d(-0.8, 0.0, 0.0), new Point3d(0.9, 0.0, 0.0));
-                yield break;
-        }
+        foreach (var geometry in GeneratedBlockCatalog.CreateBlockGeometry(template))
+            yield return geometry;
     }
 }

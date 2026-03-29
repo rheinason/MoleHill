@@ -1,6 +1,6 @@
 namespace MoleHill.Rhino.Model;
 
-public sealed class CutFillAnalysisDefinition : AnalysisDefinition
+public sealed class CutFillAnalysisDefinition : ReferenceComparisonAnalysisDefinition
 {
     public CutFillAnalysisDefinition()
     {

@@ -14,7 +14,9 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>0.4.0</Version>
+    <Version>$(MoleHillVersion)</Version>
+    <InformationalVersion>$(MoleHillVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Title>MoleHill Grasshopper</Title>
     <Company>MoleHill Authors</Company>
     <Authors>rheinason</Authors>
@@ -38,6 +40,8 @@
 
   <ItemGroup>
     <Compile Include="..\MoleHill.Shared\InSituStairReferenceBuilder.cs" Link="Shared\InSituStairReferenceBuilder.cs" />
+    <Compile Include="..\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
+    <Compile Include="..\MoleHill.Shared\RetainingWallBrepBuilder.cs" Link="Shared\RetainingWallBrepBuilder.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -50,7 +54,7 @@
   </ItemGroup>
 
   <Target Name="CopyToGrasshopper" AfterTargets="MergeAssemblies"
-          Condition="'$(TargetFramework)' == 'net7.0-windows'">
+          Condition="'$(TargetFramework)' == 'net7.0-windows' and '$(SkipGrasshopperLibraryCopy)' != 'True'">
     <PropertyGroup>
       <GHLibDir>$(APPDATA)\Grasshopper\Libraries\</GHLibDir>
     </PropertyGroup>
@@ -62,14 +66,14 @@
           Condition="'$(TargetFramework)' == 'net7.0-windows'">
     <PropertyGroup>
       <YakExecutable Condition="$(YakExecutable) == '' and Exists('C:\Program Files\Rhino 8\System\Yak.exe')">C:\Program Files\Rhino 8\System\Yak.exe</YakExecutable>
-      <BuildYakPackage Condition="$(BuildYakPackage) == '' and $(YakExecutable) != ''">True</BuildYakPackage>
+      <BuildYakPackage Condition="$(BuildYakPackage) == '' and $(YakExecutable) != ''">False</BuildYakPackage>
     </PropertyGroup>
     <Warning Text="Could not find Yak executable" Condition="$(YakExecutable) == ''" />
     <ItemGroup>
       <YakPackagesToDelete Include="$(OutputPath)\*.yak;$(OutputPath)\**\manifest.yml" />
     </ItemGroup>
     <Delete Files="@(YakPackagesToDelete)" />
-    <Exec Command="&quot;$(YakExecutable)&quot; spec"  WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
-    <Exec Command="&quot;$(YakExecutable)&quot; build" WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
+    <Exec Command="&quot;$(YakExecutable)&quot; spec --input &quot;$(OutputPath)MoleHill.gha&quot; --output &quot;$(OutputPath)&quot;" WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
+    <Exec Command="&quot;$(YakExecutable)&quot; build --platform win" WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
   </Target>
 </Project>

@@ -10,6 +10,8 @@ internal sealed class GeneratedRhinoObject
 
     public GeneratedObjectKind Kind { get; init; }
 
+    public Guid? AnalysisId { get; init; }
+
     public int? ColorArgb { get; init; }
 
     public string? LayerPath { get; init; }
@@ -21,6 +23,8 @@ internal sealed class GeneratedRhinoObject
     public string? InstanceDefinitionName { get; init; }
 
     public MarkerBlockTemplate MarkerBlockTemplate { get; init; }
+
+    public IReadOnlyDictionary<string, string>? InstanceUserStrings { get; init; }
 
     public Transform InstanceTransform { get; init; } = Transform.Identity;
 }

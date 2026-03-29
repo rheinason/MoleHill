@@ -5,6 +5,10 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed class TerrainDisplayState
 {
+    public bool IsPreview { get; set; }
+
+    public bool HasDeferredOutputs { get; set; }
+
     public Mesh? TerrainMesh { get; set; }
 
     public Mesh? BaseTerrainMesh { get; set; }
@@ -15,7 +19,7 @@ internal sealed class TerrainDisplayState
 
     public string? ActiveAnalysisLabel { get; set; }
 
-    public TerrainAnalysisSummary? Summary { get; set; }
+    public List<TerrainAnalysisSummary> AnalysisResults { get; } = new();
 
     public List<GeneratedRhinoObject> ZoneObjects { get; } = new();
 
@@ -27,13 +31,15 @@ internal sealed class TerrainDisplayState
     {
         var clone = new TerrainDisplayState
         {
+            IsPreview = IsPreview,
+            HasDeferredOutputs = HasDeferredOutputs,
             TerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(TerrainMesh),
             BaseTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(BaseTerrainMesh),
             PreviewTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(PreviewTerrainMesh),
             ActiveAnalysisId = ActiveAnalysisId,
-            ActiveAnalysisLabel = ActiveAnalysisLabel,
-            Summary = TerrainRuntimeCacheCloner.CloneAnalysis(Summary)
+            ActiveAnalysisLabel = ActiveAnalysisLabel
         };
+        clone.AnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneAnalyses(AnalysisResults));
         clone.ZoneObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(ZoneObjects));
         clone.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(AuxiliaryObjects));
         clone.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(MarkerObjects));
