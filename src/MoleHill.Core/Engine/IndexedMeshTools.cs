@@ -45,39 +45,62 @@ internal static class IndexedMeshTools
 
     public static EdgeTopology BuildEdgeTopology(int[] faces, int faceCount)
     {
-        var edgeCounts = new Dictionary<long, int>(Math.Max(faceCount * 2, 8));
-        var edgeOrder = new List<long>(Math.Max(faceCount * 2, 8));
+        if (faceCount == 0)
+            return new EdgeTopology(Array.Empty<int>(), 0, Array.Empty<int>(), 0);
 
-        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        // Build a flat array of all edge keys (3 per face), sort it, then do a linear scan.
+        // This avoids Dictionary<long, int> whose default hash (a ^ b) collapses to a narrow
+        // range for small vertex indices, causing severe collision chains at scale.
+        int totalEdgeRefs = faceCount * 3;
+        var sortedKeys = new long[totalEdgeRefs];
+        for (int f = 0; f < faceCount; f++)
         {
-            int a = faces[faceIndex * 3];
-            int b = faces[faceIndex * 3 + 1];
-            int c = faces[faceIndex * 3 + 2];
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            sortedKeys[f * 3]     = GetEdgeKey(a, b);
+            sortedKeys[f * 3 + 1] = GetEdgeKey(b, c);
+            sortedKeys[f * 3 + 2] = GetEdgeKey(c, a);
+        }
+        Array.Sort(sortedKeys);
 
-            CountEdge(edgeCounts, edgeOrder, a, b);
-            CountEdge(edgeCounts, edgeOrder, b, c);
-            CountEdge(edgeCounts, edgeOrder, c, a);
+        // Count unique edges and naked edges in one linear pass.
+        int uniqueEdges = 0;
+        int i = 0;
+        while (i < totalEdgeRefs)
+        {
+            long key = sortedKeys[i];
+            int run = 1;
+            while (i + run < totalEdgeRefs && sortedKeys[i + run] == key)
+                run++;
+            uniqueEdges++;
+            i += run;
         }
 
-        var edges = new int[edgeOrder.Count * 2];
-        var nakedEdges = new List<int>(edgeOrder.Count * 2);
-
-        for (int i = 0; i < edgeOrder.Count; i++)
+        var edges = new int[uniqueEdges * 2];
+        var nakedEdges = new List<int>();
+        int edgeIdx = 0;
+        i = 0;
+        while (i < totalEdgeRefs)
         {
-            long edgeKey = edgeOrder[i];
-            int a = (int)(edgeKey >> 32);
-            int b = (int)(edgeKey & 0xFFFFFFFFL);
-            edges[i * 2] = a;
-            edges[i * 2 + 1] = b;
+            long key = sortedKeys[i];
+            int run = 1;
+            while (i + run < totalEdgeRefs && sortedKeys[i + run] == key)
+                run++;
 
-            if (edgeCounts[edgeKey] == 1)
+            int a = (int)(key >> 32);
+            int b = (int)(key & 0xFFFFFFFFL);
+            edges[edgeIdx * 2]     = a;
+            edges[edgeIdx * 2 + 1] = b;
+            edgeIdx++;
+
+            if (run == 1)
             {
                 nakedEdges.Add(a);
                 nakedEdges.Add(b);
             }
+            i += run;
         }
 
-        return new EdgeTopology(edges, edgeOrder.Count, nakedEdges.ToArray(), nakedEdges.Count / 2);
+        return new EdgeTopology(edges, uniqueEdges, nakedEdges.ToArray(), nakedEdges.Count / 2);
     }
 
     public static CompactionResult Compact(int vertexCount, int[] faces, int faceCount)
@@ -156,5 +179,18 @@ internal static class IndexedMeshTools
         return a < b
             ? ((long)a << 32) | (uint)b
             : ((long)b << 32) | (uint)a;
+    }
+
+    /// <summary>
+    /// Use instead of the default long comparer for edge key dictionaries.
+    /// The default long.GetHashCode() = (int)value ^ (int)(value >> 32) = a ^ b,
+    /// which collapses to a narrow range for small vertex indices, causing O(n) chains.
+    /// HashCode.Combine spreads bits much better.
+    /// </summary>
+    internal sealed class EdgeKeyComparer : IEqualityComparer<long>
+    {
+        internal static readonly EdgeKeyComparer Instance = new();
+        public bool Equals(long x, long y) => x == y;
+        public int GetHashCode(long key) => HashCode.Combine((int)(key >> 32), (int)(key & 0xFFFFFFFF));
     }
 }

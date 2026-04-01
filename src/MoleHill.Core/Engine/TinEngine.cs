@@ -572,15 +572,19 @@ public class TinEngine
         errorMessage = null;
         ThrowIfCancellationRequested(shouldCancel);
 
+        // ConformingDelaunay inserts Steiner points to make the mesh globally Delaunay across
+        // constrained edges. This is expensive and unnecessary for plain terrain CDT — non-conforming
+        // CDT still respects all segment constraints, just without extra Steiner insertion.
+        // Only enable conforming when quality refinement is also requested (e.g. Remesh component).
         var constraintOpts = new ConstraintOptions
         {
-            ConformingDelaunay = conforming && segCount > 0,
+            ConformingDelaunay = conforming && segCount > 0 && quality.HasConstraints,
             Convex = useConvexHull,
             SegmentSplitting = 0
         };
 
         TriangleNet.Meshing.QualityOptions? qualityOpts = null;
-        if (quality.HasConstraints || (conforming && segCount > 0))
+        if (quality.HasConstraints)
         {
             qualityOpts = new TriangleNet.Meshing.QualityOptions();
             if (quality.MaxArea > 0)
@@ -646,25 +650,21 @@ public class TinEngine
         var outVerts = new double[outVertexCount * 3];
         int inputVertexCount = xyCoords.Length / 2;
 
-        var inputZByKey = new Dictionary<XyKey, double>(inputVertexCount);
-        for (int i = 0; i < inputVertexCount; i++)
-        {
-            var key = XyKey.FromValues(xyCoords[i * 2], xyCoords[i * 2 + 1]);
-            inputZByKey[key] = zValues[i];
-        }
-
+        // Use sourceIds (= original Vertex.ID = input index) for direct Z lookup.
+        // This avoids building a coordinate-keyed dictionary for every output vertex.
+        // Any vertex whose sourceId is out of range is a Steiner point needing interpolation.
         var steinerIndices = new List<int>();
         for (int outIndex = 0; outIndex < outVertexCount; outIndex++)
         {
             double x = extracted.Xy[outIndex * 2];
             double y = extracted.Xy[outIndex * 2 + 1];
-
             outVerts[outIndex * 3] = x;
             outVerts[outIndex * 3 + 1] = y;
 
-            if (inputZByKey.TryGetValue(XyKey.FromValues(x, y), out double z) && !double.IsNaN(z))
+            int srcId = extracted.SourceIds[outIndex];
+            if (srcId >= 0 && srcId < inputVertexCount && !double.IsNaN(zValues[srcId]))
             {
-                outVerts[outIndex * 3 + 2] = z;
+                outVerts[outIndex * 3 + 2] = zValues[srcId];
             }
             else
             {
@@ -688,6 +688,12 @@ public class TinEngine
                                 xyCoords, zValues, segments);
         }
 
+        // When auto-threshold is requested (maxBoundaryEdgeLength == 0), compute it from the
+        // topology we already built rather than letting Cull rebuild edge topology internally.
+        double effectiveBoundaryEdgeLength = maxBoundaryEdgeLength == 0
+            ? TriangleBoundaryCuller.ComputeAutoThreshold(outVerts, topology)
+            : maxBoundaryEdgeLength;
+
         var cullResult = TriangleBoundaryCuller.Cull(
             outVerts,
             outVertexCount,
@@ -695,7 +701,7 @@ public class TinEngine
             faceCount,
             xyCoords,
             segments,
-            maxBoundaryEdgeLength);
+            effectiveBoundaryEdgeLength);
 
         if (cullResult.Changed)
         {
@@ -1048,6 +1054,9 @@ public class TinEngine
         foreach (int si in steinerIndices)
         {
             if (!double.IsNaN(verts[si * 3 + 2])) continue;
+
+            if (knownVertexIndices.Count == 0)
+                continue;
 
             double px = verts[si * 3];
             double py = verts[si * 3 + 1];

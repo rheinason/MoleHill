@@ -16,7 +16,7 @@ public static class MeshTopologyValidator
 
     public static BoundaryGraphAnalysis AnalyzeBoundaryGraph(int[] faces, int faceCount)
     {
-        var edgeCounts = new Dictionary<long, int>();
+        var edgeCounts = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             int a = faces[faceIndex * 3];

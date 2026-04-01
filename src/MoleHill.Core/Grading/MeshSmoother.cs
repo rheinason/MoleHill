@@ -1,3 +1,5 @@
+using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Grading;
 
 /// <summary>
@@ -7,6 +9,8 @@ namespace MoleHill.Core.Grading;
 /// </summary>
 public static class MeshSmoother
 {
+    private readonly record struct IndexedBreaklineSegment(double Ax, double Ay, double Bx, double By);
+
     public sealed class PreparedSmoothingData
     {
         public required int VertexCount { get; init; }
@@ -53,45 +57,19 @@ public static class MeshSmoother
 
         BuildNeighborGraph(vertexCount, faces, faceCount, out var neighborOffsets, out var neighborIndices, out var isMeshBoundary);
 
-        // Step 1 — Determine per-vertex strength
-        var vertexStrength = new double[vertexCount];
-        if (boundaries.Length == 0)
-        {
-            double gs = Math.Max(0, Math.Min(1, globalStrength));
-            for (int i = 0; i < vertexCount; i++)
-                vertexStrength[i] = gs;
-        }
-        else
-        {
-            for (int i = 0; i < vertexCount; i++)
-            {
-                double px = vertices[i * 3];
-                double py = vertices[i * 3 + 1];
+        var vertexStrength = BuildVertexStrengths(vertices, vertexCount, boundaries, globalStrength);
 
-                foreach (var (xyVerts, vertCount, strength) in boundaries)
-                {
-                    if (strength > 0 && PadGrader.PointInPolygon(px, py, xyVerts, vertCount))
-                        vertexStrength[i] = Math.Max(0, Math.Min(1, strength));
-                }
-            }
-        }
-
-        // Step 2 — Breakline fixity: scale down strength for vertices on breaklines
         if (breaklines.Length > 0 && breaklineFixity > 0)
         {
+            var isOnBreakline = BuildBreaklineMask(vertices, vertexCount, breaklines, snapTolerance, vertexStrength: vertexStrength);
+            double breaklineScale = 1.0 - Math.Clamp(breaklineFixity, 0.0, 1.0);
             for (int i = 0; i < vertexCount; i++)
             {
-                if (vertexStrength[i] <= 0) continue;
-                double px = vertices[i * 3], py = vertices[i * 3 + 1];
-                if (IsOnAnyBreakline(px, py, breaklines, snapTolerance))
-                    vertexStrength[i] *= (1.0 - breaklineFixity);
+                if (isOnBreakline[i])
+                    vertexStrength[i] *= breaklineScale;
             }
         }
 
-        // Find naked (boundary) edges — vertices on mesh boundary should not move
-        // Iterative smoothing: move Z toward a local best-fit plane.
-        // This preserves planar slopes on irregular triangulations, unlike
-        // a plain neighbor-average on Z which can create ripples.
         var result = (double[])vertices.Clone();
 
         for (int iter = 0; iter < iterations; iter++)
@@ -100,22 +78,25 @@ public static class MeshSmoother
             for (int i = 0; i < vertexCount; i++)
                 newZ[i] = result[i * 3 + 2];
 
-            for (int i = 0; i < vertexCount; i++)
+            System.Threading.Tasks.Parallel.For(0, vertexCount, i =>
             {
                 double s = vertexStrength[i];
-                if (s <= 0 || isMeshBoundary[i]) continue;
+                if (s <= 0 || isMeshBoundary[i])
+                    return;
+
                 int start = neighborOffsets[i];
                 int end = neighborOffsets[i + 1];
-                if (end <= start) continue;
+                if (end <= start)
+                    return;
 
                 if (!TryEstimatePlaneZ(vertices, result, i, neighborIndices, start, end, out double targetZ) &&
                     !TryGetNeighborAverageZ(result, neighborIndices, start, end, out targetZ))
                 {
-                    continue;
+                    return;
                 }
 
                 newZ[i] = result[i * 3 + 2] + s * (targetZ - result[i * 3 + 2]);
-            }
+            });
 
             for (int i = 0; i < vertexCount; i++)
                 result[i * 3 + 2] = newZ[i];
@@ -135,41 +116,10 @@ public static class MeshSmoother
     {
         BuildNeighborGraph(vertexCount, faces, faceCount, out var neighborOffsets, out var neighborIndices, out var isMeshBoundary);
 
-        var insideBoundaries = new bool[vertexCount];
-        if (boundaries.Length == 0)
-        {
-            Array.Fill(insideBoundaries, true);
-        }
-        else
-        {
-            for (int i = 0; i < vertexCount; i++)
-            {
-                double px = vertices[i * 3];
-                double py = vertices[i * 3 + 1];
-                foreach (var (xyVerts, vertCount) in boundaries)
-                {
-                    if (PadGrader.PointInPolygon(px, py, xyVerts, vertCount))
-                    {
-                        insideBoundaries[i] = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        var isOnBreakline = new bool[vertexCount];
-        if (breaklines.Length > 0)
-        {
-            for (int i = 0; i < vertexCount; i++)
-            {
-                if (!insideBoundaries[i])
-                    continue;
-
-                double px = vertices[i * 3];
-                double py = vertices[i * 3 + 1];
-                isOnBreakline[i] = IsOnAnyBreakline(px, py, breaklines, snapTolerance);
-            }
-        }
+        var insideBoundaries = BuildInsideBoundaryMask(vertices, vertexCount, boundaries);
+        var isOnBreakline = breaklines.Length > 0
+            ? BuildBreaklineMask(vertices, vertexCount, breaklines, snapTolerance, insideBoundaries: insideBoundaries)
+            : new bool[vertexCount];
 
         return new PreparedSmoothingData
         {
@@ -237,27 +187,245 @@ public static class MeshSmoother
         return result;
     }
 
-    private static bool IsOnAnyBreakline(double px, double py,
-        (double[] xyPts, int ptCount)[] breaklines, double tol)
+    private static double[] BuildVertexStrengths(
+        double[] vertices,
+        int vertexCount,
+        (double[] xyVerts, int vertCount, double strength)[] boundaries,
+        double globalStrength)
     {
-        double tolSq = tol * tol;
-        foreach (var (pts, n) in breaklines)
+        var vertexStrength = new double[vertexCount];
+        if (boundaries.Length == 0)
         {
-            for (int j = 0; j < n - 1; j++)
+            Array.Fill(vertexStrength, Math.Clamp(globalStrength, 0.0, 1.0));
+            return vertexStrength;
+        }
+
+        var boundaryBounds = BuildBoundaryBounds(boundaries);
+        var boundaryIndex = SpatialHashGrid2D.Build(boundaryBounds);
+        var boundaryScratch = new SpatialHashGrid2D.QueryScratch(boundaries.Length);
+        var boundaryCandidates = new List<int>(8);
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double px = vertices[i * 3];
+            double py = vertices[i * 3 + 1];
+            int boundaryIndexHit = FindLastContainingBoundary(px, py, boundaries, boundaryBounds, boundaryIndex, boundaryCandidates, boundaryScratch);
+            if (boundaryIndexHit >= 0)
+                vertexStrength[i] = Math.Clamp(boundaries[boundaryIndexHit].strength, 0.0, 1.0);
+        }
+
+        return vertexStrength;
+    }
+
+    private static bool[] BuildInsideBoundaryMask(
+        double[] vertices,
+        int vertexCount,
+        (double[] xyVerts, int vertCount)[] boundaries)
+    {
+        var insideBoundaries = new bool[vertexCount];
+        if (boundaries.Length == 0)
+        {
+            Array.Fill(insideBoundaries, true);
+            return insideBoundaries;
+        }
+
+        var boundaryBounds = BuildBoundaryBounds(boundaries);
+        var boundaryIndex = SpatialHashGrid2D.Build(boundaryBounds);
+        var boundaryScratch = new SpatialHashGrid2D.QueryScratch(boundaries.Length);
+        var boundaryCandidates = new List<int>(8);
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double px = vertices[i * 3];
+            double py = vertices[i * 3 + 1];
+            if (IsPointInsideAnyBoundary(px, py, boundaries, boundaryBounds, boundaryIndex, boundaryCandidates, boundaryScratch))
+                insideBoundaries[i] = true;
+        }
+
+        return insideBoundaries;
+    }
+
+    private static int FindLastContainingBoundary(
+        double px,
+        double py,
+        (double[] xyVerts, int vertCount, double strength)[] boundaries,
+        Bounds2D[] boundaryBounds,
+        SpatialHashGrid2D boundaryIndex,
+        List<int> boundaryCandidates,
+        SpatialHashGrid2D.QueryScratch boundaryScratch)
+    {
+        boundaryIndex.GatherCandidates(Bounds2D.FromPoint(px, py), boundaryCandidates, boundaryScratch);
+
+        int bestMatch = -1;
+        var pointBounds = Bounds2D.FromPoint(px, py);
+        for (int i = 0; i < boundaryCandidates.Count; i++)
+        {
+            int boundaryIndexHit = boundaryCandidates[i];
+            if (boundaryIndexHit <= bestMatch || !boundaryBounds[boundaryIndexHit].Intersects(pointBounds))
+                continue;
+
+            var boundary = boundaries[boundaryIndexHit];
+            if (PadGrader.PointInPolygon(px, py, boundary.xyVerts, boundary.vertCount))
+                bestMatch = boundaryIndexHit;
+        }
+
+        return bestMatch;
+    }
+
+    private static bool IsPointInsideAnyBoundary(
+        double px,
+        double py,
+        (double[] xyVerts, int vertCount)[] boundaries,
+        Bounds2D[] boundaryBounds,
+        SpatialHashGrid2D boundaryIndex,
+        List<int> boundaryCandidates,
+        SpatialHashGrid2D.QueryScratch boundaryScratch)
+    {
+        boundaryIndex.GatherCandidates(Bounds2D.FromPoint(px, py), boundaryCandidates, boundaryScratch);
+
+        var pointBounds = Bounds2D.FromPoint(px, py);
+        for (int i = 0; i < boundaryCandidates.Count; i++)
+        {
+            int boundaryIndexHit = boundaryCandidates[i];
+            if (!boundaryBounds[boundaryIndexHit].Intersects(pointBounds))
+                continue;
+
+            var boundary = boundaries[boundaryIndexHit];
+            if (PadGrader.PointInPolygon(px, py, boundary.xyVerts, boundary.vertCount))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static Bounds2D[] BuildBoundaryBounds((double[] xyVerts, int vertCount, double strength)[] boundaries)
+    {
+        var result = new Bounds2D[boundaries.Length];
+        for (int i = 0; i < boundaries.Length; i++)
+            result[i] = ComputeBounds(boundaries[i].xyVerts, boundaries[i].vertCount);
+
+        return result;
+    }
+
+    private static Bounds2D[] BuildBoundaryBounds((double[] xyVerts, int vertCount)[] boundaries)
+    {
+        var result = new Bounds2D[boundaries.Length];
+        for (int i = 0; i < boundaries.Length; i++)
+            result[i] = ComputeBounds(boundaries[i].xyVerts, boundaries[i].vertCount);
+
+        return result;
+    }
+
+    private static bool[] BuildBreaklineMask(
+        double[] vertices,
+        int vertexCount,
+        (double[] xyPts, int ptCount)[] breaklines,
+        double snapTolerance,
+        bool[]? insideBoundaries = null,
+        double[]? vertexStrength = null)
+    {
+        var result = new bool[vertexCount];
+        if (breaklines.Length == 0)
+            return result;
+
+        var breaklineSegments = BuildBreaklineSegments(breaklines, out var breaklineIndex);
+        if (breaklineSegments.Length == 0)
+            return result;
+
+        var breaklineScratch = new SpatialHashGrid2D.QueryScratch(breaklineSegments.Length);
+        var breaklineCandidates = new List<int>(8);
+        double tolerance = Math.Max(snapTolerance, 0.0);
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            if (insideBoundaries != null && !insideBoundaries[i])
+                continue;
+            if (vertexStrength != null && vertexStrength[i] <= 0)
+                continue;
+
+            double px = vertices[i * 3];
+            double py = vertices[i * 3 + 1];
+            breaklineIndex.GatherCandidates(Bounds2D.FromPoint(px, py, tolerance), breaklineCandidates, breaklineScratch);
+            result[i] = IsOnAnyBreakline(px, py, breaklineSegments, breaklineCandidates, tolerance);
+        }
+
+        return result;
+    }
+
+    private static IndexedBreaklineSegment[] BuildBreaklineSegments(
+        (double[] xyPts, int ptCount)[] breaklines,
+        out SpatialHashGrid2D breaklineIndex)
+    {
+        var segments = new List<IndexedBreaklineSegment>();
+        var bounds = new List<Bounds2D>();
+
+        foreach (var (pts, pointCount) in breaklines)
+        {
+            for (int i = 0; i < pointCount - 1; i++)
             {
-                double ax = pts[j * 2], ay = pts[j * 2 + 1];
-                double bx = pts[j * 2 + 2], by = pts[j * 2 + 3];
-                double dx = bx - ax, dy = by - ay;
-                double lenSq = dx * dx + dy * dy;
-                double t;
-                if (lenSq < tolSq) // degenerate segment → point check
-                    t = 0;
-                else
-                    t = Math.Max(0, Math.Min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
-                double ex = ax + t * dx - px, ey = ay + t * dy - py;
-                if (ex * ex + ey * ey < tolSq) return true;
+                double ax = pts[i * 2];
+                double ay = pts[i * 2 + 1];
+                double bx = pts[i * 2 + 2];
+                double by = pts[i * 2 + 3];
+                segments.Add(new IndexedBreaklineSegment(ax, ay, bx, by));
+                bounds.Add(new Bounds2D(
+                    Math.Min(ax, bx),
+                    Math.Max(ax, bx),
+                    Math.Min(ay, by),
+                    Math.Max(ay, by)));
             }
         }
+
+        breaklineIndex = SpatialHashGrid2D.Build(bounds.ToArray());
+        return segments.ToArray();
+    }
+
+    private static Bounds2D ComputeBounds(double[] xyVerts, int vertCount)
+    {
+        double minX = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity;
+        double minY = double.PositiveInfinity;
+        double maxY = double.NegativeInfinity;
+
+        for (int i = 0; i < vertCount; i++)
+        {
+            double x = xyVerts[i * 2];
+            double y = xyVerts[i * 2 + 1];
+            minX = Math.Min(minX, x);
+            maxX = Math.Max(maxX, x);
+            minY = Math.Min(minY, y);
+            maxY = Math.Max(maxY, y);
+        }
+
+        return new Bounds2D(minX, maxX, minY, maxY);
+    }
+
+    private static bool IsOnAnyBreakline(
+        double px,
+        double py,
+        IndexedBreaklineSegment[] breaklineSegments,
+        List<int> breaklineCandidates,
+        double tol)
+    {
+        double tolSq = tol * tol;
+        for (int i = 0; i < breaklineCandidates.Count; i++)
+        {
+            var segment = breaklineSegments[breaklineCandidates[i]];
+            double dx = segment.Bx - segment.Ax;
+            double dy = segment.By - segment.Ay;
+            double lenSq = dx * dx + dy * dy;
+            double t;
+            if (lenSq < tolSq)
+                t = 0.0;
+            else
+                t = Math.Max(0.0, Math.Min(1.0, ((px - segment.Ax) * dx + (py - segment.Ay) * dy) / lenSq));
+
+            double ex = segment.Ax + t * dx - px;
+            double ey = segment.Ay + t * dy - py;
+            if ((ex * ex) + (ey * ey) < tolSq)
+                return true;
+        }
+
         return false;
     }
 
@@ -341,7 +509,7 @@ public static class MeshSmoother
         out int[] neighborIndices,
         out bool[] isMeshBoundary)
     {
-        var edgeCount = new Dictionary<long, int>(faceCount * 3);
+        var edgeCount = new Dictionary<long, int>(faceCount * 3, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int f = 0; f < faceCount; f++)
         {
             int a = faces[f * 3];

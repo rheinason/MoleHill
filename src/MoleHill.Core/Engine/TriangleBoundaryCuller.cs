@@ -48,49 +48,87 @@ internal static class TriangleBoundaryCuller
         var spatialIndex = ConstraintSpatialIndex.Build(inputXy, inputSegments);
         var active = new bool[faceCount];
         Array.Fill(active, true);
-
-        bool changed = false;
         int activeFaceCount = faceCount;
 
-        while (activeFaceCount > 0)
+        // Build edge counts and edge→face map in one pass (O(n), no per-iteration rebuild)
+        var edgeCounts = new Dictionary<long, int>(faceCount * 3, IndexedMeshTools.EdgeKeyComparer.Instance);
+        var edgeToFaces = new Dictionary<long, (int F0, int F1)>(faceCount * 3, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int f = 0; f < faceCount; f++)
         {
-            var edgeCounts = BuildActiveEdgeCounts(faces, faceCount, active);
-            var toRemove = new List<int>();
-
-            for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+            for (int e = 0; e < 3; e++)
             {
-                if (!active[faceIndex])
-                    continue;
-
-                int i0 = faces[faceIndex * 3];
-                int i1 = faces[faceIndex * 3 + 1];
-                int i2 = faces[faceIndex * 3 + 2];
-
-                bool hasBoundaryEdge =
-                    edgeCounts.GetValueOrDefault(IndexedMeshTools.GetEdgeKey(i0, i1), 0) == 1 ||
-                    edgeCounts.GetValueOrDefault(IndexedMeshTools.GetEdgeKey(i1, i2), 0) == 1 ||
-                    edgeCounts.GetValueOrDefault(IndexedMeshTools.GetEdgeKey(i2, i0), 0) == 1;
-
-                if (!hasBoundaryEdge)
-                    continue;
-
-                if (TriangleCrossesConstraint(vertices, i0, i1, i2, spatialIndex) ||
-                    IsDegenerateBoundaryTriangle(vertices, i0, i1, i2, effectiveThreshold))
-                {
-                    toRemove.Add(faceIndex);
-                }
+                int a = faces[f * 3 + e];
+                int b = faces[f * 3 + (e + 1) % 3];
+                long key = IndexedMeshTools.GetEdgeKey(a, b);
+                edgeCounts[key] = edgeCounts.GetValueOrDefault(key, 0) + 1;
+                if (!edgeToFaces.TryGetValue(key, out var pair))
+                    edgeToFaces[key] = (f, -1);
+                else if (pair.F1 < 0)
+                    edgeToFaces[key] = (pair.F0, f);
             }
+        }
 
-            if (toRemove.Count == 0 || toRemove.Count == activeFaceCount)
+        // Seed queue with boundary faces that meet cull criteria
+        var inQueue = new bool[faceCount];
+        var queue = new Queue<int>();
+        for (int f = 0; f < faceCount; f++)
+        {
+            int i0 = faces[f * 3], i1 = faces[f * 3 + 1], i2 = faces[f * 3 + 2];
+            if (HasNakedEdge(i0, i1, i2, edgeCounts) &&
+                (TriangleCrossesConstraint(vertices, i0, i1, i2, spatialIndex) ||
+                 IsDegenerateBoundaryTriangle(vertices, i0, i1, i2, effectiveThreshold)))
+            {
+                queue.Enqueue(f);
+                inQueue[f] = true;
+            }
+        }
+
+        bool changed = false;
+        while (queue.Count > 0)
+        {
+            int f = queue.Dequeue();
+            inQueue[f] = false;
+
+            if (!active[f])
+                continue;
+
+            // Don't remove the very last face (mirrors original "don't remove all" guard)
+            if (activeFaceCount <= 1)
                 break;
 
-            foreach (int faceIndex in toRemove)
-            {
-                active[faceIndex] = false;
-            }
-
-            activeFaceCount -= toRemove.Count;
+            active[f] = false;
             changed = true;
+            activeFaceCount--;
+
+            // Incrementally update edge counts; enqueue neighbors that become newly boundary
+            for (int e = 0; e < 3; e++)
+            {
+                int a = faces[f * 3 + e];
+                int b = faces[f * 3 + (e + 1) % 3];
+                long key = IndexedMeshTools.GetEdgeKey(a, b);
+
+                int oldCount = edgeCounts.GetValueOrDefault(key, 0);
+                if (oldCount <= 1)
+                    edgeCounts.Remove(key);
+                else
+                    edgeCounts[key] = oldCount - 1;
+
+                // Edge just became naked — the other face sharing it is now a boundary face
+                if (oldCount == 2)
+                {
+                    int neighbor = GetNeighborFace(edgeToFaces, key, f);
+                    if (neighbor >= 0 && active[neighbor] && !inQueue[neighbor])
+                    {
+                        int n0 = faces[neighbor * 3], n1 = faces[neighbor * 3 + 1], n2 = faces[neighbor * 3 + 2];
+                        if (TriangleCrossesConstraint(vertices, n0, n1, n2, spatialIndex) ||
+                            IsDegenerateBoundaryTriangle(vertices, n0, n1, n2, effectiveThreshold))
+                        {
+                            queue.Enqueue(neighbor);
+                            inQueue[neighbor] = true;
+                        }
+                    }
+                }
+            }
         }
 
         if (!changed)
@@ -111,9 +149,8 @@ internal static class TriangleBoundaryCuller
         return new Result(true, compact.Faces, compact.FaceCount, compact.NewToOld, compact.VertexCount);
     }
 
-    private static double ComputeAutoThreshold(double[] vertices, int[] faces, int faceCount)
+    internal static double ComputeAutoThreshold(double[] vertices, IndexedMeshTools.EdgeTopology topology)
     {
-        var topology = IndexedMeshTools.BuildEdgeTopology(faces, faceCount);
         if (topology.EdgeCount == 0)
             return 0;
 
@@ -130,9 +167,15 @@ internal static class TriangleBoundaryCuller
         return median * 4.0;
     }
 
+    private static double ComputeAutoThreshold(double[] vertices, int[] faces, int faceCount)
+    {
+        var topology = IndexedMeshTools.BuildEdgeTopology(faces, faceCount);
+        return ComputeAutoThreshold(vertices, topology);
+    }
+
     private static Dictionary<long, int> BuildActiveEdgeCounts(int[] faces, int faceCount, bool[] active)
     {
-        var edgeCounts = new Dictionary<long, int>(Math.Max(faceCount * 2, 8));
+        var edgeCounts = new Dictionary<long, int>(Math.Max(faceCount * 2, 8), IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             if (!active[faceIndex])
@@ -148,6 +191,20 @@ internal static class TriangleBoundaryCuller
         }
 
         return edgeCounts;
+    }
+
+    private static bool HasNakedEdge(int i0, int i1, int i2, Dictionary<long, int> edgeCounts)
+    {
+        return edgeCounts.GetValueOrDefault(IndexedMeshTools.GetEdgeKey(i0, i1), 0) == 1 ||
+               edgeCounts.GetValueOrDefault(IndexedMeshTools.GetEdgeKey(i1, i2), 0) == 1 ||
+               edgeCounts.GetValueOrDefault(IndexedMeshTools.GetEdgeKey(i2, i0), 0) == 1;
+    }
+
+    private static int GetNeighborFace(Dictionary<long, (int F0, int F1)> edgeToFaces, long key, int excludeFace)
+    {
+        if (!edgeToFaces.TryGetValue(key, out var pair))
+            return -1;
+        return pair.F0 == excludeFace ? pair.F1 : pair.F0;
     }
 
     private static void CountEdge(Dictionary<long, int> edgeCounts, int a, int b)

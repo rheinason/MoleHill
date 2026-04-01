@@ -115,6 +115,28 @@ public static class RetainingWallMeshGrader
         }
 
         var faceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
+        bool hasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
+        if (hasBoundaryLoop &&
+            (!BoundaryClipper.IsPolylineInsideBoundary(
+                strip.ToeXy,
+                strip.StationCount,
+                isClosed: false,
+                hasBoundaryLoop,
+                boundaryLoop,
+                boundaryVertexCount,
+                dedupTol) ||
+             !BoundaryClipper.IsPolylineInsideBoundary(
+                strip.TopXy,
+                strip.StationCount,
+                isClosed: false,
+                hasBoundaryLoop,
+                boundaryLoop,
+                boundaryVertexCount,
+                dedupTol)))
+        {
+            return new RetainingWallGradeOutcome(false, null, "Retaining wall strip must lie within the terrain boundary.");
+        }
+
         AddBoundarySegments(segList, faces, faceCount);
 
         int AddVertex(double x, double y)
@@ -305,7 +327,7 @@ public static class RetainingWallMeshGrader
 
     private static void AddBoundarySegments(List<(int a, int b)> segments, int[] faces, int faceCount)
     {
-        var edgeFaceCount = new Dictionary<long, int>();
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int f = 0; f < faceCount; f++)
         {
             int a = faces[f * 3];

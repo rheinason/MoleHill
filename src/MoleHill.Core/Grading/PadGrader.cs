@@ -23,6 +23,15 @@ public static class PadGrader
         double InfluenceMinY,
         double InfluenceMaxY);
 
+    public sealed class ConstraintSet
+    {
+        public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
+
+        public required double SuggestedEdgeLength { get; init; }
+
+        public required string[] Diagnostics { get; init; }
+    }
+
     public sealed class PadBoundary
     {
         public double[] XyVertices { get; }
@@ -133,6 +142,7 @@ public static class PadGrader
         public required int VertexCount { get; init; }
         public required int[] Faces { get; init; }
         public required int FaceCount { get; init; }
+        public required OutputPolyline[] PadPolylines { get; init; }
     }
 
     /// <summary>
@@ -174,8 +184,11 @@ public static class PadGrader
         if (!string.IsNullOrWhiteSpace(topologyMessage))
             errorMessage = topologyMessage;
 
-        double[] gradedVertices = ApplyGradingZ(topology.Vertices, topology.VertexCount, pads);
-        return BuildResult(topology.Vertices, topology.VertexCount, topology.Faces, topology.FaceCount, gradedVertices);
+        PreparedBarriers gradingBarriers = lockCurves != null && lockCurves.Length > 0
+            ? GradingBarriers.BuildFromLockCurves(lockCurves)
+            : PreparedBarriers.Empty;
+        double[] gradedVertices = ApplyGradingZWithBarriers(topology.Vertices, topology.VertexCount, pads, gradingBarriers);
+        return BuildResult(topology.Vertices, topology.VertexCount, topology.Faces, topology.FaceCount, gradedVertices, topology.PadPolylines);
     }
 
     public static bool TryTriangulateTopology(
@@ -224,14 +237,127 @@ public static class PadGrader
     public static double[] ApplyGradingZ(
         double[] topologyVertices,
         int vertexCount,
-        PadBoundary[] pads)
+        PadBoundary[] pads,
+        LockCurve[]? lockCurves = null)
+    {
+        if (pads.Length == 0)
+            return (double[])topologyVertices.Clone();
+
+        PreparedBarriers barriers = lockCurves != null && lockCurves.Length > 0
+            ? GradingBarriers.BuildFromLockCurves(lockCurves)
+            : PreparedBarriers.Empty;
+
+        var gradedVertices = (double[])topologyVertices.Clone();
+        ApplyGradingToVertices(gradedVertices, topologyVertices, vertexCount, pads, barriers);
+        return gradedVertices;
+    }
+
+    internal static double[] ApplyGradingZWithBarriers(
+        double[] topologyVertices,
+        int vertexCount,
+        PadBoundary[] pads,
+        PreparedBarriers barriers)
     {
         if (pads.Length == 0)
             return (double[])topologyVertices.Clone();
 
         var gradedVertices = (double[])topologyVertices.Clone();
-        ApplyGradingToVertices(gradedVertices, topologyVertices, vertexCount, pads);
+        ApplyGradingToVertices(gradedVertices, topologyVertices, vertexCount, pads, barriers);
         return gradedVertices;
+    }
+
+    public static ConstraintSet CreateConstraints(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        PadBoundary[] pads,
+        LockCurve[]? lockCurves)
+    {
+        const double dedupTol = 1e-3;
+        if (!ValidatePads(pads, out _))
+        {
+            return new ConstraintSet
+            {
+                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                SuggestedEdgeLength = 0.0,
+                Diagnostics = Array.Empty<string>()
+            };
+        }
+
+        bool hasBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
+        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(pads.Length * 2 + (lockCurves?.Length ?? 0));
+        var diagnostics = new List<string>();
+        double suggestedEdgeLength = double.MaxValue;
+
+        var faceGridForConstraints = new FaceGrid(vertices, vertexCount, faces, faceCount);
+        foreach (var pad in pads)
+        {
+            double shoulderDistance = ComputePadTransitionDistance(vertices, vertexCount, pad);
+            double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance);
+            var padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, dedupTol);
+            constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                CreateConstraintPoints(padLoop.XyVertices, padLoop.VertexCount),
+                padLoop.VertexCount,
+                IsClosed: true,
+                PreserveInputElevation: false));
+            suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, padLoop.XyVertices, padLoop.VertexCount, stride: 2, isClosed: true);
+
+            double[] shoulderDistances = ComputePadBoundaryDistances(padLoop.XyVertices, padLoop.VertexCount, faceGridForConstraints, pad);
+            if (TryBuildShoulderLoop(
+                padLoop.XyVertices,
+                padLoop.VertexCount,
+                shoulderDistances,
+                hasBoundaryLoop ? boundaryLoop : null,
+                hasBoundaryLoop ? boundaryVertexCount : 0,
+                dedupTol,
+                out var shoulderXy,
+                out string? skipReason))
+            {
+                int shoulderVertexCount = shoulderXy.Length / 2;
+                constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                    CreateConstraintPoints(shoulderXy, shoulderVertexCount),
+                    shoulderVertexCount,
+                    IsClosed: true,
+                    PreserveInputElevation: false));
+                suggestedEdgeLength = Math.Min(suggestedEdgeLength, segmentLength);
+                suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, shoulderXy, shoulderVertexCount, stride: 2, isClosed: true);
+            }
+            else if (!string.IsNullOrWhiteSpace(skipReason))
+            {
+                diagnostics.Add(skipReason!);
+            }
+        }
+
+        if (lockCurves != null)
+        {
+            foreach (var lockCurve in lockCurves)
+            {
+                if (lockCurve.VertexCount < 2 || lockCurve.XyVertices.Length < lockCurve.VertexCount * 2)
+                    continue;
+
+                var points = new double[lockCurve.VertexCount * 3];
+                for (int i = 0; i < lockCurve.VertexCount; i++)
+                {
+                    points[i * 3] = lockCurve.XyVertices[i * 2];
+                    points[i * 3 + 1] = lockCurve.XyVertices[i * 2 + 1];
+                }
+
+                constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                    points,
+                    lockCurve.VertexCount,
+                    IsClosed: false,
+                    PreserveInputElevation: false));
+                suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, points, lockCurve.VertexCount, stride: 3, isClosed: false);
+            }
+        }
+
+        return new ConstraintSet
+        {
+            Constraints = constraints.ToArray(),
+            SuggestedEdgeLength = suggestedEdgeLength < double.MaxValue ? suggestedEdgeLength : 0.0,
+            Diagnostics = diagnostics.ToArray()
+        };
     }
 
     private static bool ValidatePads(PadBoundary[] pads, out string? errorMessage)
@@ -297,8 +423,22 @@ public static class PadGrader
         var faceGrid = new FaceGrid(vertices, vertexCount, faces, faceCount);
         bool hasBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
 
+        int AddVertex(double x, double y)
+        {
+            int near = vertHash.FindNearest(xyList, x, y, dedupTol);
+            if (near >= 0)
+                return near;
+
+            int idx = zList.Count;
+            xyList.Add(x);
+            xyList.Add(y);
+            zList.Add(faceGrid.InterpolateZ(x, y));
+            vertHash.Insert(idx, x, y);
+            return idx;
+        }
+
         // Add mesh boundary edges as constraints (keeps triangulation within original mesh).
-        var edgeFaceCount = new Dictionary<long, int>();
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int f = 0; f < faceCount; f++)
         {
             int a = faces[f * 3];
@@ -319,41 +459,42 @@ public static class PadGrader
             }
         }
 
+        // Build barriers from lock curves so shoulder rings are clipped at hard constraints.
+        PreparedBarriers padBarriers = lockCurves != null && lockCurves.Length > 0
+            ? GradingBarriers.BuildFromLockCurves(lockCurves)
+            : PreparedBarriers.Empty;
+        var padBarrierScratch = new SpatialHashGrid2D.QueryScratch(Math.Max(padBarriers.Segments.Length, 1));
+        var padBarrierCandidates = new List<int>(8);
+
+        var padPolylines = new List<OutputPolyline>(pads.Length);
+
         foreach (var pad in pads)
         {
-            var padIndices = new int[pad.VertexCount];
-            for (int i = 0; i < pad.VertexCount; i++)
+            double[] shoulderDistances = ComputePadBoundaryDistances(pad.XyVertices, pad.VertexCount, faceGrid, pad);
+            double shoulderDistance = 0; foreach (double d in shoulderDistances) if (d > shoulderDistance) shoulderDistance = d;
+            double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance);
+            var padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, dedupTol);
+            // Re-sample distances at padLoop resolution (which may have more vertices than the original pad)
+            shoulderDistances = ComputePadBoundaryDistances(padLoop.XyVertices, padLoop.VertexCount, faceGrid, pad);
+            AddClosedLoopSegments(padLoop.XyVertices, padLoop.VertexCount, AddVertex, segList);
+
+            // Build pad boundary output polyline with graded Z (pad plane Z at each vertex)
+            int loopN = padLoop.VertexCount;
+            var padPolyXyz = new double[loopN * 3];
+            for (int i = 0; i < loopN; i++)
             {
-                double px = pad.XyVertices[i * 2];
-                double py = pad.XyVertices[i * 2 + 1];
-
-                int near = vertHash.FindNearest(xyList, px, py, dedupTol);
-                if (near >= 0)
-                {
-                    padIndices[i] = near;
-                }
-                else
-                {
-                    padIndices[i] = zList.Count;
-                    xyList.Add(px);
-                    xyList.Add(py);
-                    zList.Add(faceGrid.InterpolateZ(px, py));
-                    vertHash.Insert(padIndices[i], px, py);
-                }
+                double bx = padLoop.XyVertices[i * 2];
+                double by = padLoop.XyVertices[i * 2 + 1];
+                padPolyXyz[i * 3]     = bx;
+                padPolyXyz[i * 3 + 1] = by;
+                padPolyXyz[i * 3 + 2] = pad.EvaluateZ(bx, by);
             }
+            padPolylines.Add(new OutputPolyline(padPolyXyz, loopN, isClosed: true));
 
-            for (int i = 0; i < pad.VertexCount; i++)
-            {
-                int a = padIndices[i];
-                int b = padIndices[(i + 1) % pad.VertexCount];
-                if (a != b)
-                    segList.Add((a, b));
-            }
-
-            double shoulderDistance = ComputePadTransitionDistance(vertices, vertexCount, pad);
-            AddPadShoulderConstraint(
-                pad,
-                shoulderDistance,
+            double[]? shoulderXy = AddPadShoulderConstraint(
+                padLoop.XyVertices,
+                padLoop.VertexCount,
+                shoulderDistances,
                 xyList,
                 zList,
                 vertHash,
@@ -361,7 +502,10 @@ public static class PadGrader
                 segList,
                 dedupTol,
                 hasBoundaryLoop ? boundaryLoop : null,
-                hasBoundaryLoop ? boundaryVertexCount : 0);
+                hasBoundaryLoop ? boundaryVertexCount : 0,
+                padBarriers,
+                padBarrierScratch,
+                padBarrierCandidates);
         }
 
         if (lockCurves != null)
@@ -467,7 +611,8 @@ public static class PadGrader
             Vertices = topologyVertices,
             VertexCount = outVertCount,
             Faces = topologyFaces,
-            FaceCount = outFaceCount
+            FaceCount = outFaceCount,
+            PadPolylines = padPolylines.ToArray()
         };
     }
 
@@ -475,7 +620,8 @@ public static class PadGrader
         double[] gradedVertices,
         double[] originalVertices,
         int vertexCount,
-        PadBoundary[] pads)
+        PadBoundary[] pads,
+        PreparedBarriers barriers)
     {
         if (pads.Length == 0)
             return;
@@ -533,14 +679,17 @@ public static class PadGrader
         var interiorIndex = SpatialHashGrid2D.Build(interiorBounds);
         var influenceIndex = SpatialHashGrid2D.Build(influenceBounds);
 
+        int barrierCount = Math.Max(barriers.Segments.Length, 1);
         System.Threading.Tasks.Parallel.For(
             0,
             vertexCount,
             () => (
                 InteriorScratch: new SpatialHashGrid2D.QueryScratch(pads.Length),
                 InfluenceScratch: new SpatialHashGrid2D.QueryScratch(pads.Length),
+                BarrierScratch: new SpatialHashGrid2D.QueryScratch(barrierCount),
                 InteriorCandidates: new List<int>(8),
-                InfluenceCandidates: new List<int>(8)),
+                InfluenceCandidates: new List<int>(8),
+                BarrierCandidates: new List<int>(8)),
             (i, _, state) =>
         {
             double px = gradedVertices[i * 3];
@@ -579,23 +728,35 @@ public static class PadGrader
             double nearestDist = double.MaxValue;
             int nearestPadIdx = -1;
             double nearestBoundaryZ = 0.0;
+            double nearestBoundaryPx = px;
+            double nearestBoundaryPy = py;
             foreach (int p in state.InfluenceCandidates)
             {
                 var bounds = padBounds[p];
                 if (px < bounds.InfluenceMinX || px > bounds.InfluenceMaxX || py < bounds.InfluenceMinY || py > bounds.InfluenceMaxY)
                     continue;
 
-                double dist = DistToBoundaryWithZ(px, py, bounds.Pad.BoundaryVertices, bounds.Pad.VertexCount, out double boundaryZ);
+                double dist = DistToBoundaryWithZ(px, py, bounds.Pad.BoundaryVertices, bounds.Pad.VertexCount,
+                    out double boundaryZ, out double bpx, out double bpy);
                 if (dist < nearestDist - 1e-12 ||
                     (Math.Abs(dist - nearestDist) <= 1e-12 && (nearestPadIdx < 0 || p < nearestPadIdx)))
                 {
                     nearestDist = dist;
                     nearestPadIdx = p;
                     nearestBoundaryZ = boundaryZ;
+                    nearestBoundaryPx = bpx;
+                    nearestBoundaryPy = bpy;
                 }
             }
 
             if (nearestPadIdx < 0)
+                return state;
+
+            // Skip grading if a barrier lies between this vertex and its nearest pad boundary point.
+            if (barriers.Segments.Length > 0 &&
+                GradingBarriers.IsCrossedByBarrier(
+                    barriers, px, py, nearestBoundaryPx, nearestBoundaryPy,
+                    state.BarrierScratch, state.BarrierCandidates))
                 return state;
 
             var pad = pads[nearestPadIdx];
@@ -634,9 +795,10 @@ public static class PadGrader
         return transitionDistance;
     }
 
-    private static void AddPadShoulderConstraint(
-        PadBoundary pad,
-        double shoulderDistance,
+    private static double[]? AddPadShoulderConstraint(
+        double[] padLoopXy,
+        int padLoopVertexCount,
+        double[] shoulderDistances,
         List<double> xyList,
         List<double> zList,
         SpatialHash vertHash,
@@ -644,19 +806,27 @@ public static class PadGrader
         List<(int a, int b)> segList,
         double dedupTol,
         double[]? boundaryLoop,
-        int boundaryVertexCount)
+        int boundaryVertexCount,
+        PreparedBarriers barriers,
+        SpatialHashGrid2D.QueryScratch barrierScratch,
+        List<int> barrierCandidates)
     {
-        if (shoulderDistance <= dedupTol)
-            return;
+        if (!TryBuildShoulderLoop(
+            padLoopXy,
+            padLoopVertexCount,
+            shoulderDistances,
+            boundaryLoop,
+            boundaryVertexCount,
+            dedupTol,
+            out var shoulderXy,
+            out _))
+        {
+            return null;
+        }
 
-        if (!TryBuildOffsetPolygon(pad.XyVertices, pad.VertexCount, shoulderDistance, out var shoulderXy))
-            return;
-
-        if (boundaryLoop != null && !AllPointsInsideOrOnBoundary(shoulderXy, pad.VertexCount, boundaryLoop, boundaryVertexCount, dedupTol))
-            return;
-
-        var shoulderIndices = new int[pad.VertexCount];
-        for (int i = 0; i < pad.VertexCount; i++)
+        int shoulderVertexCount = shoulderXy.Length / 2;
+        var shoulderIndices = new int[shoulderVertexCount];
+        for (int i = 0; i < shoulderVertexCount; i++)
         {
             double px = shoulderXy[i * 2];
             double py = shoulderXy[i * 2 + 1];
@@ -676,20 +846,223 @@ public static class PadGrader
             }
         }
 
-        for (int i = 0; i < pad.VertexCount; i++)
+        int AddVertex(double x, double y)
         {
-            int a = shoulderIndices[i];
-            int b = shoulderIndices[(i + 1) % pad.VertexCount];
-            if (a != b)
-                segList.Add((a, b));
+            int near = vertHash.FindNearest(xyList, x, y, dedupTol);
+            if (near >= 0)
+                return near;
+            int idx = zList.Count;
+            xyList.Add(x);
+            xyList.Add(y);
+            zList.Add(faceGrid.InterpolateZ(x, y));
+            vertHash.Insert(idx, x, y);
+            return idx;
         }
+
+        // Add shoulder ring segments, clipping each at the first barrier hit.
+        // When clipped, the arc terminates at the barrier intersection — producing
+        // open support runs instead of a single closed ring.
+        for (int i = 0; i < shoulderVertexCount; i++)
+        {
+            int next = (i + 1) % shoulderVertexCount;
+            double ax = shoulderXy[i * 2],    ay = shoulderXy[i * 2 + 1];
+            double bx = shoulderXy[next * 2], by = shoulderXy[next * 2 + 1];
+
+            bool clipped = GradingBarriers.TryClipSegment(
+                barriers, ax, ay, bx, by,
+                barrierScratch, barrierCandidates,
+                out double cbx, out double cby);
+
+            int startIdx = shoulderIndices[i];
+            int endIdx = clipped ? AddVertex(cbx, cby) : shoulderIndices[next];
+
+            if (startIdx != endIdx)
+                segList.Add((startIdx, endIdx));
+        }
+
+        return shoulderXy;
     }
 
-    private static bool TryBuildOffsetPolygon(double[] polygonXy, int vertexCount, double distance, out double[] offsetXy)
+    /// <summary>
+    /// For each vertex of the pad boundary, interpolates the terrain Z and computes the
+    /// horizontal distance the slope transition needs to travel to reach the terrain surface.
+    /// Capped at MaxDistance when set.
+    /// </summary>
+    private static double[] ComputePadBoundaryDistances(
+        double[] padLoopXy,
+        int padLoopVertexCount,
+        FaceGrid faceGrid,
+        PadBoundary pad)
+    {
+        double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
+        var distances = new double[padLoopVertexCount];
+        for (int i = 0; i < padLoopVertexCount; i++)
+        {
+            double bx = padLoopXy[i * 2];
+            double by = padLoopXy[i * 2 + 1];
+            double terrainZ = faceGrid.InterpolateZ(bx, by);
+            double padZ = pad.EvaluateZ(bx, by);
+            double dz = Math.Abs(terrainZ - padZ);
+            double d = slopeRatio > 1e-12 ? dz / slopeRatio : 100.0;
+            if (pad.MaxDistance > 0)
+                d = Math.Min(d, pad.MaxDistance);
+            distances[i] = d;
+        }
+
+        return distances;
+    }
+
+    private static bool TryBuildShoulderLoop(
+        double[] padLoopXy,
+        int padLoopVertexCount,
+        double[] shoulderDistances,
+        double[]? boundaryLoop,
+        int boundaryVertexCount,
+        double tolerance,
+        out double[] shoulderXy,
+        out string? skipReason)
+    {
+        shoulderXy = Array.Empty<double>();
+        skipReason = null;
+        double maxDist = 0;
+        foreach (double d in shoulderDistances) if (d > maxDist) maxDist = d;
+        if (maxDist <= tolerance)
+            return false;
+
+        if (!TryBuildOffsetPolygon(padLoopXy, padLoopVertexCount, shoulderDistances, out shoulderXy))
+        {
+            skipReason = "Grade Pad shoulder ring was skipped because the daylight offset could not be constructed cleanly.";
+            return false;
+        }
+
+        if (boundaryLoop != null &&
+            !AllPointsInsideOrOnBoundary(shoulderXy, padLoopVertexCount, boundaryLoop, boundaryVertexCount, tolerance))
+        {
+            shoulderXy = Array.Empty<double>();
+            skipReason = "Grade Pad shoulder ring was skipped because the daylight offset reached the terrain boundary.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static double UpdateSuggestedEdgeLength(
+        double current,
+        double[] points,
+        int pointCount,
+        int stride,
+        bool isClosed)
+    {
+        if (pointCount < 2)
+            return current;
+
+        int segmentCount = isClosed ? pointCount : pointCount - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            int next = (i + 1) % pointCount;
+            double dx = points[next * stride] - points[i * stride];
+            double dy = points[next * stride + 1] - points[i * stride + 1];
+            double length = Math.Sqrt(dx * dx + dy * dy);
+            if (length > 1e-9)
+                current = Math.Min(current, length);
+        }
+
+        return current;
+    }
+
+    private static double ComputePadConstraintSegmentLength(double shoulderDistance)
+    {
+        if (shoulderDistance <= 1e-9)
+            return 1.0;
+
+        return Math.Clamp(shoulderDistance * 0.5, 0.5, 5.0);
+    }
+
+    private readonly record struct ConstraintLoop(double[] XyVertices, int VertexCount);
+
+    private static ConstraintLoop BuildClosedConstraintLoop(double[] xyVertices, int vertexCount, double maxSegmentLength, double tolerance)
+    {
+        if (vertexCount < 3 || maxSegmentLength <= tolerance)
+            return new ConstraintLoop((double[])xyVertices.Clone(), vertexCount);
+
+        var points = new List<double>(vertexCount * 4);
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int next = (i + 1) % vertexCount;
+            double ax = xyVertices[i * 2];
+            double ay = xyVertices[i * 2 + 1];
+            double bx = xyVertices[next * 2];
+            double by = xyVertices[next * 2 + 1];
+            double length = Math.Sqrt(((bx - ax) * (bx - ax)) + ((by - ay) * (by - ay)));
+            int divisions = Math.Max(1, (int)Math.Ceiling(length / maxSegmentLength));
+
+            for (int step = 0; step < divisions; step++)
+            {
+                double t = step / (double)divisions;
+                AddLoopPoint(points, ax + ((bx - ax) * t), ay + ((by - ay) * t), tolerance);
+            }
+        }
+
+        return new ConstraintLoop(points.ToArray(), points.Count / 2);
+    }
+
+    private static void AddLoopPoint(List<double> points, double x, double y, double tolerance)
+    {
+        if (points.Count >= 2)
+        {
+            double dx = x - points[^2];
+            double dy = y - points[^1];
+            if ((dx * dx) + (dy * dy) <= tolerance * tolerance)
+                return;
+        }
+
+        points.Add(x);
+        points.Add(y);
+    }
+
+    private static double[] CreateConstraintPoints(double[] xyVertices, int vertexCount)
+    {
+        var points = new double[vertexCount * 3];
+        for (int i = 0; i < vertexCount; i++)
+        {
+            points[i * 3] = xyVertices[i * 2];
+            points[i * 3 + 1] = xyVertices[i * 2 + 1];
+        }
+
+        return points;
+    }
+
+    private static void AddClosedLoopSegments(
+        double[] xyVertices,
+        int vertexCount,
+        Func<double, double, int> addVertex,
+        List<(int a, int b)> segList)
+    {
+        if (vertexCount < 3)
+            return;
+
+        int first = addVertex(xyVertices[0], xyVertices[1]);
+        int previous = first;
+        for (int i = 1; i < vertexCount; i++)
+        {
+            int current = addVertex(xyVertices[i * 2], xyVertices[i * 2 + 1]);
+            if (previous != current)
+                segList.Add((previous, current));
+            previous = current;
+        }
+
+        if (previous != first)
+            segList.Add((previous, first));
+    }
+
+    private static bool TryBuildOffsetPolygon(double[] polygonXy, int vertexCount, double[] distances, out double[] offsetXy)
     {
         offsetXy = Array.Empty<double>();
-        if (vertexCount < 3 || distance <= 1e-9)
+        if (vertexCount < 3 || distances.Length < vertexCount)
             return false;
+        bool anyPositive = false;
+        for (int i = 0; i < vertexCount; i++) if (distances[i] > 1e-9) { anyPositive = true; break; }
+        if (!anyPositive) return false;
 
         double signedArea = 0;
         for (int i = 0; i < vertexCount; i++)
@@ -734,15 +1107,16 @@ public static class PadGrader
             double n1x = ccw ? dy1 / len1 : -dy1 / len1;
             double n1y = ccw ? -dx1 / len1 : dx1 / len1;
 
-            double line0x = x1 + n0x * distance;
-            double line0y = y1 + n0y * distance;
-            double line1x = x1 + n1x * distance;
-            double line1y = y1 + n1y * distance;
+            double d = distances[i];
+            double line0x = x1 + n0x * d;
+            double line0y = y1 + n0y * d;
+            double line1x = x1 + n1x * d;
+            double line1y = y1 + n1y * d;
 
             if (TryIntersectLines(line0x, line0y, dx0, dy0, line1x, line1y, dx1, dy1, out double ix, out double iy))
             {
                 double offsetLen = Math.Sqrt((ix - x1) * (ix - x1) + (iy - y1) * (iy - y1));
-                if (offsetLen <= distance * 4.0 && !double.IsNaN(offsetLen) && !double.IsInfinity(offsetLen))
+                if (offsetLen <= d * 4.0 && !double.IsNaN(offsetLen) && !double.IsInfinity(offsetLen))
                 {
                     offsetXy[i * 2] = ix;
                     offsetXy[i * 2 + 1] = iy;
@@ -760,8 +1134,8 @@ public static class PadGrader
                 bisLen = Math.Sqrt(bisX * bisX + bisY * bisY);
             }
 
-            offsetXy[i * 2] = x1 + bisX / bisLen * distance;
-            offsetXy[i * 2 + 1] = y1 + bisY / bisLen * distance;
+            offsetXy[i * 2] = x1 + bisX / bisLen * d;
+            offsetXy[i * 2 + 1] = y1 + bisY / bisLen * d;
         }
 
         return true;
@@ -772,7 +1146,7 @@ public static class PadGrader
         boundaryXy = Array.Empty<double>();
         boundaryVertexCount = 0;
 
-        var edgeFaceCount = new Dictionary<long, int>();
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int f = 0; f < faceCount; f++)
         {
             int a = faces[f * 3];
@@ -894,9 +1268,13 @@ public static class PadGrader
         double py,
         double[] boundaryVertices,
         int boundaryVertexCount,
-        out double boundaryZ)
+        out double boundaryZ,
+        out double closestBx,
+        out double closestBy)
     {
         boundaryZ = 0;
+        closestBx = px;
+        closestBy = py;
         double minDist = double.MaxValue;
 
         for (int i = 0; i < boundaryVertexCount; i++)
@@ -928,6 +1306,8 @@ public static class PadGrader
 
             minDist = dist;
             boundaryZ = az + (bz - az) * t;
+            closestBx = cx;
+            closestBy = cy;
         }
 
         return minDist;
@@ -938,7 +1318,8 @@ public static class PadGrader
         int vertexCount,
         int[] faces,
         int faceCount,
-        double[] gradedVertices)
+        double[] gradedVertices,
+        IReadOnlyList<OutputPolyline>? outputPolylines = null)
     {
         double cutVol = 0;
         double fillVol = 0;
@@ -986,7 +1367,8 @@ public static class PadGrader
             cutVol,
             fillVol,
             daylightPts.ToArray(),
-            daylightPts.Count / 3);
+            daylightPts.Count / 3,
+            outputPolylines);
     }
 
     private static void CheckDaylightEdge(

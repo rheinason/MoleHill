@@ -88,6 +88,21 @@ public static class SurfaceStripGrader
         }
 
         var faceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
+        bool hasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
+        if (hasBoundaryLoop &&
+            !BoundaryClipper.IsPolylineInsideBoundary(
+                surface.FootprintXy,
+                surface.FootprintVertexCount,
+                isClosed: true,
+                hasBoundaryLoop,
+                boundaryLoop,
+                boundaryVertexCount,
+                dedupTol))
+        {
+            errorMessage = "The graded surface footprint must lie within the terrain boundary.";
+            return null;
+        }
+
         AddBoundarySegments(faces, faceCount, segList);
         AddPolygonConstraint(surface.FootprintXy, surface.FootprintVertexCount, xyList, zList, vertHash, faceGrid, segList, dedupTol);
 
@@ -242,7 +257,7 @@ public static class SurfaceStripGrader
                 continue;
             }
 
-            double boundaryDistance = PadGrader.DistToBoundaryWithZ(px, py, surface.BoundaryVertices, surface.BoundaryVertexCount, out double boundaryZ);
+            double boundaryDistance = PadGrader.DistToBoundaryWithZ(px, py, surface.BoundaryVertices, surface.BoundaryVertexCount, out double boundaryZ, out _, out _);
             double dz = origZ[i] - boundaryZ;
             double absDz = Math.Abs(dz);
             double neededDist = slopeRatio > 1e-12 ? absDz / slopeRatio : double.MaxValue;
@@ -260,7 +275,7 @@ public static class SurfaceStripGrader
 
     private static void AddBoundarySegments(int[] faces, int faceCount, List<(int a, int b)> segList)
     {
-        var edgeFaceCount = new Dictionary<long, int>();
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int f = 0; f < faceCount; f++)
         {
             int a = faces[f * 3];

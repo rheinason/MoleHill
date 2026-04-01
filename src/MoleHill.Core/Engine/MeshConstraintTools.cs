@@ -8,7 +8,7 @@ public static class MeshConstraintTools
         int[] faces,
         int faceCount)
     {
-        var edgeFaceCount = new Dictionary<long, int>();
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             int a = faces[faceIndex * 3];

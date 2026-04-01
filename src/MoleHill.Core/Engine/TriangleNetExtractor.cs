@@ -67,52 +67,15 @@ public static class TriangleNetExtractor
         }
 
         int faceCount = meshTriangles.Count;
-        var normalizedFaces = new (int A, int B, int C)[faceCount];
-        for (int i = 0; i < faceCount; i++)
-        {
-            var tri = meshTriangles[i];
-            int a = vertRefToIdx[tri.GetVertex(0)];
-            int b = vertRefToIdx[tri.GetVertex(1)];
-            int c = vertRefToIdx[tri.GetVertex(2)];
-            RotateFaceToMinimumFirst(ref a, ref b, ref c);
-            normalizedFaces[i] = (a, b, c);
-        }
-
-        Array.Sort(normalizedFaces, CompareFaces);
-
         var faces = new int[faceCount * 3];
         for (int i = 0; i < faceCount; i++)
         {
-            faces[i * 3] = normalizedFaces[i].A;
-            faces[i * 3 + 1] = normalizedFaces[i].B;
-            faces[i * 3 + 2] = normalizedFaces[i].C;
+            var tri = meshTriangles[i];
+            faces[i * 3]     = vertRefToIdx[tri.GetVertex(0)];
+            faces[i * 3 + 1] = vertRefToIdx[tri.GetVertex(1)];
+            faces[i * 3 + 2] = vertRefToIdx[tri.GetVertex(2)];
         }
 
         return new Result(xy, sourceIds, vertexCount, faces, faceCount);
-    }
-
-    private static void RotateFaceToMinimumFirst(ref int a, ref int b, ref int c)
-    {
-        if (b < a && b < c)
-        {
-            (a, b, c) = (b, c, a);
-        }
-        else if (c < a && c < b)
-        {
-            (a, b, c) = (c, a, b);
-        }
-    }
-
-    private static int CompareFaces((int A, int B, int C) left, (int A, int B, int C) right)
-    {
-        int compare = left.A.CompareTo(right.A);
-        if (compare != 0)
-            return compare;
-
-        compare = left.B.CompareTo(right.B);
-        if (compare != 0)
-            return compare;
-
-        return left.C.CompareTo(right.C);
     }
 }
