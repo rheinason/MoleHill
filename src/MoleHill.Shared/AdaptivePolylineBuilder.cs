@@ -24,6 +24,7 @@ internal static class AdaptivePolylineBuilder
         double qualityLength = GetQualityLength(requestedEdgeLength, maxArea);
         double chordTolerance = GetInitialChordTolerance(modelTolerance, qualityLength);
         double simplifyTolerance = GetSimplificationTolerance(modelTolerance, qualityLength);
+        double maxSegmentLength = qualityLength > 0 ? qualityLength : 0.0;
 
         if (curve.TryGetPolyline(out polyline))
         {
@@ -33,7 +34,7 @@ internal static class AdaptivePolylineBuilder
 
         for (int attempt = 0; attempt <= MaxPolylineRetryCount; attempt++)
         {
-            var polyCurve = curve.ToPolyline(chordTolerance, AngleToleranceRadians, 0.0, 0.0);
+            var polyCurve = curve.ToPolyline(chordTolerance, AngleToleranceRadians, 0.0, maxSegmentLength);
             if (polyCurve == null || !polyCurve.TryGetPolyline(out polyline))
                 return false;
 
@@ -42,6 +43,8 @@ internal static class AdaptivePolylineBuilder
                 return polyline.Count >= (requireClosed ? 3 : 2);
 
             chordTolerance *= 2.0;
+            if (maxSegmentLength > 0.0)
+                maxSegmentLength *= 2.0;
         }
 
         return polyline.Count >= (requireClosed ? 3 : 2);

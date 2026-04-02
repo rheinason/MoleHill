@@ -33,6 +33,74 @@ public static class TinBoundaryPreparer
 
     private readonly record struct IndexedPoint(int Index, double X, double Y);
 
+    private sealed class VertexReuseLookup
+    {
+        private readonly List<double> _xyList;
+        private readonly double _toleranceSquared;
+        private readonly double _inverseCellSize;
+        private readonly Dictionary<long, List<int>> _cells = new();
+
+        public VertexReuseLookup(List<double> xyList, double tolerance)
+        {
+            _xyList = xyList;
+            double resolvedTolerance = Math.Max(tolerance, 1e-9);
+            _toleranceSquared = resolvedTolerance * resolvedTolerance;
+            _inverseCellSize = 1.0 / resolvedTolerance;
+
+            int vertexCount = xyList.Count / 2;
+            for (int i = 0; i < vertexCount; i++)
+                Register(i, xyList[i * 2], xyList[i * 2 + 1]);
+        }
+
+        public bool TryFind(double x, double y, out int index)
+        {
+            long cellX = ToCell(x);
+            long cellY = ToCell(y);
+            double bestDistanceSquared = double.MaxValue;
+            int bestIndex = -1;
+
+            for (long dx = -1; dx <= 1; dx++)
+            {
+                for (long dy = -1; dy <= 1; dy++)
+                {
+                    if (!_cells.TryGetValue(PackCellKey(cellX + dx, cellY + dy), out var list))
+                        continue;
+
+                    foreach (int candidate in list)
+                    {
+                        double vx = _xyList[candidate * 2];
+                        double vy = _xyList[candidate * 2 + 1];
+                        double deltaX = vx - x;
+                        double deltaY = vy - y;
+                        double distanceSquared = (deltaX * deltaX) + (deltaY * deltaY);
+                        if (distanceSquared >= _toleranceSquared || distanceSquared >= bestDistanceSquared)
+                            continue;
+
+                        bestDistanceSquared = distanceSquared;
+                        bestIndex = candidate;
+                    }
+                }
+            }
+
+            index = bestIndex;
+            return bestIndex >= 0;
+        }
+
+        public void Register(int index, double x, double y)
+        {
+            long key = PackCellKey(ToCell(x), ToCell(y));
+            if (!_cells.TryGetValue(key, out var list))
+            {
+                list = new List<int>(4);
+                _cells[key] = list;
+            }
+
+            list.Add(index);
+        }
+
+        private long ToCell(double value) => (long)Math.Floor(value * _inverseCellSize);
+    }
+
     public static PreparedTinInput Prepare(
         double[] xyCoords,
         double[] zValues,
@@ -89,22 +157,24 @@ public static class TinBoundaryPreparer
         int normalizedCount = NormalizeBoundaryCount(boundary, tolerance);
         double reuseTolerance = Math.Max(Math.Min(tolerance, 1e-3), 1e-9);
         var loop = new List<int>(normalizedCount);
+        var vertexLookup = new VertexReuseLookup(xyList, reuseTolerance);
 
         for (int i = 0; i < normalizedCount; i++)
         {
             double x = boundary.Points[i * 3];
             double y = boundary.Points[i * 3 + 1];
-            int existing = FindNearVertex(xyList, x, y, reuseTolerance);
-            if (existing >= 0)
+            if (vertexLookup.TryFind(x, y, out int existing))
             {
                 loop.Add(existing);
                 continue;
             }
 
-            loop.Add(zList.Count);
+            int newIndex = zList.Count;
+            loop.Add(newIndex);
             xyList.Add(x);
             xyList.Add(y);
             zList.Add(double.NaN);
+            vertexLookup.Register(newIndex, x, y);
         }
 
         AddClosedLoop(segmentList, segmentKeys, loop);
@@ -637,21 +707,6 @@ public static class TinBoundaryPreparer
         return inside;
     }
 
-    private static int FindNearVertex(List<double> xyList, double px, double py, double tolerance)
-    {
-        double tolSq = tolerance * tolerance;
-        int count = xyList.Count / 2;
-        for (int i = 0; i < count; i++)
-        {
-            double dx = xyList[i * 2] - px;
-            double dy = xyList[i * 2 + 1] - py;
-            if (dx * dx + dy * dy < tolSq)
-                return i;
-        }
-
-        return -1;
-    }
-
     private static PreparedTinInput WithWarning(PreparedTinInput input, string? warning)
     {
         if (string.IsNullOrWhiteSpace(warning))
@@ -676,5 +731,10 @@ public static class TinBoundaryPreparer
         return a < b
             ? ((long)a << 32) | (uint)b
             : ((long)b << 32) | (uint)a;
+    }
+
+    private static long PackCellKey(long cellX, long cellY)
+    {
+        return (cellX * 0x100000001L) ^ (cellY * 0x27d4eb2dL);
     }
 }

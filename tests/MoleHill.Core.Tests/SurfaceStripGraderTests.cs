@@ -65,6 +65,38 @@ public class SurfaceStripGraderTests
         Assert.Contains("footprint", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Grade_FootprintOutsideTerrainBoundary_ReturnsFailure()
+    {
+        var surface = new SurfaceStripGrader.SurfaceDefinition(
+            footprintXy: new[] { 3.0, 0.0, 4.5, 0.0, 4.5, 1.0, 3.0, 1.0 },
+            footprintVertexCount: 4,
+            boundaryVertices: new[]
+            {
+                3.0, 0.0, 0.0,
+                4.5, 0.0, 0.0,
+                4.5, 1.0, 0.0,
+                3.0, 1.0, 0.0
+            },
+            boundaryVertexCount: 4,
+            planeXCoeff: 0.0,
+            planeYCoeff: 0.0,
+            planeConstant: 0.0,
+            slopeAngleDeg: 33.0,
+            maxDistance: 0.0);
+
+        var result = SurfaceStripGrader.Grade(
+            BuildGridVertices(),
+            15,
+            BuildGridFaces(),
+            16,
+            surface,
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("terrain boundary", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static IEnumerable<(double x, double y, double z)> EnumerateVertices(GradingResult result)
     {
         for (int i = 0; i < result.VertexCount; i++)

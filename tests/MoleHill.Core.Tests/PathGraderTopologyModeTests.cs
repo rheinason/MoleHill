@@ -25,6 +25,45 @@ public class PathGraderTopologyModeTests
     }
 
     [Fact]
+    public void ApplyGradingZ_WithPreservedBreaklineBetweenRoadAndVertex_StopsShoulderPropagation()
+    {
+        const int size = 11;
+        double[] vertices = BuildGridVertices(size, spacing: 10.0);
+        int blockedVertexIndex = GetVertexIndex(size, x: 5, y: 6);
+
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 20.0, 55.0, 80.0, 55.0 },
+            zValues: new[] { 5.0, 5.0 },
+            vertexCount: 2,
+            width: 4.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 10.0);
+
+        double[] withoutBarrier = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, new[] { path });
+        Assert.Equal(2.0, withoutBarrier[(blockedVertexIndex * 3) + 2], 6);
+
+        var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
+            new[]
+            {
+                20.0, 58.0, 0.0,
+                80.0, 58.0, 0.0
+            },
+            PointCount: 2,
+            IsClosed: false,
+            PreserveInputElevation: true);
+
+        double[] withBarrier = PathGrader.ApplyGradingZ(
+            vertices,
+            vertices.Length / 3,
+            new[] { path },
+            new[] { hardConstraint },
+            out int changedVertexCount);
+
+        Assert.True(changedVertexCount > 0);
+        Assert.Equal(0.0, withBarrier[(blockedVertexIndex * 3) + 2], 6);
+    }
+
+    [Fact]
     public void RemeshTopologyMode_WithAdditionalHardConstraint_GradesInsertedRoadBand()
     {
         double[] vertices = BuildGridVertices(size: 11, spacing: 10.0);
@@ -204,6 +243,86 @@ public class PathGraderTopologyModeTests
     }
 
     [Fact]
+    public void CreateConstraints_OnCoarseEnvelope_AddsShoulderGuideCrossSections()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            100.0, 0.0, 0.0,
+            100.0, 100.0, 0.0,
+            0.0, 100.0, 0.0
+        };
+        int[] faces =
+        {
+            0, 1, 2,
+            0, 2, 3
+        };
+
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 20.0, 55.0, 80.0, 55.0 },
+            zValues: new[] { 5.0, 5.0 },
+            vertexCount: 2,
+            width: 4.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 10.0);
+
+        PathGrader.ConstraintSet pathConstraints = PathGrader.CreateConstraints(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            new[] { path },
+            tolerance: 1e-3);
+
+        Assert.Contains(
+            pathConstraints.Constraints,
+            constraint => constraint.PointCount == 2 &&
+                          ContainsVertex(constraint.Points, 50.0, 57.0) &&
+                          ContainsVertex(constraint.Points, 50.0, 67.0));
+    }
+
+    [Fact]
+    public void Grade_OnCoarseEnvelope_AddsShoulderGuideEdgesToTopology()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            100.0, 0.0, 0.0,
+            100.0, 100.0, 0.0,
+            0.0, 100.0, 0.0
+        };
+        int[] faces =
+        {
+            0, 1, 2,
+            0, 2, 3
+        };
+
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 20.0, 55.0, 80.0, 55.0 },
+            zValues: new[] { 5.0, 5.0 },
+            vertexCount: 2,
+            width: 4.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 10.0);
+
+        GradingResult? result = PathGrader.Grade(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            new[] { path },
+            out string? warning);
+
+        Assert.NotNull(result);
+        Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));
+
+        // Per-vertex shoulder: terrain z=0, path z=5, slope=45° → d=5, shoulder at y=55+2+5=62.
+        int roadIndex = FindVertexIndex(result!.Vertices, 50.0, 57.0);
+        int shoulderIndex = FindVertexIndex(result.Vertices, 50.0, 62.0);
+        Assert.True(HasMeshEdge(result.Faces, result.FaceCount, roadIndex, shoulderIndex));
+    }
+
+    [Fact]
     public void Grade_WithNearbyParallelHardBreakline_PreservesRoadCenterlineVertices()
     {
         double[] vertices =
@@ -315,6 +434,43 @@ public class PathGraderTopologyModeTests
         Assert.InRange(blendedZ, 6.0, 9.0);
     }
 
+    [Fact]
+    public void ApplyGradingZ_WithNoisyShoulderTerrain_BuildsContinuousShoulderBand()
+    {
+        const int size = 21;
+        double[] vertices = BuildGridVertices(size, spacing: 1.0);
+        for (int y = 12; y <= 14; y++)
+        {
+            for (int x = 2; x <= 18; x++)
+                vertices[(GetVertexIndex(size, x, y) * 3) + 2] = (x % 4) < 2 ? 4.0 : 0.0;
+        }
+
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 10.0, 18.0, 10.0 },
+            zValues: new[] { 0.0, 0.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 4.0);
+
+        double[] graded = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, new[] { path }, out int changedVertexCount);
+
+        Assert.True(changedVertexCount > 0);
+
+        double minZ = double.MaxValue;
+        double maxZ = double.MinValue;
+        for (int x = 6; x <= 14; x++)
+        {
+            double z = graded[(GetVertexIndex(size, x, 12) * 3) + 2];
+            if (z < minZ) minZ = z;
+            if (z > maxZ) maxZ = z;
+        }
+
+        Assert.InRange(minZ, 0.6, 1.4);
+        Assert.InRange(maxZ, 0.6, 1.4);
+        Assert.True(maxZ - minZ < 0.2, $"Expected a continuous shoulder band, found row variation from {minZ} to {maxZ}.");
+    }
+
 
     private static List<int> FindVerticesNearLine(double[] vertices, double y, double targetZ, double tolerance)
     {
@@ -329,6 +485,53 @@ public class PathGraderTopologyModeTests
         }
 
         return matches;
+    }
+
+    private static int FindVertexIndex(double[] vertices, double x, double y)
+    {
+        for (int i = 0; i < vertices.Length / 3; i++)
+        {
+            if (Math.Abs(vertices[i * 3] - x) <= 1e-6 &&
+                Math.Abs(vertices[i * 3 + 1] - y) <= 1e-6)
+            {
+                return i;
+            }
+        }
+
+        throw new Xunit.Sdk.XunitException($"Could not find vertex at ({x}, {y}).");
+    }
+
+    private static bool ContainsVertex(double[] vertices, double x, double y)
+    {
+        for (int i = 0; i < vertices.Length / 3; i++)
+        {
+            if (Math.Abs(vertices[i * 3] - x) <= 1e-6 &&
+                Math.Abs(vertices[i * 3 + 1] - y) <= 1e-6)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasMeshEdge(int[] faces, int faceCount, int a, int b)
+    {
+        for (int i = 0; i < faceCount; i++)
+        {
+            int i0 = faces[i * 3];
+            int i1 = faces[i * 3 + 1];
+            int i2 = faces[i * 3 + 2];
+            if (HasEdge(i0, i1, a, b) || HasEdge(i1, i2, a, b) || HasEdge(i2, i0, a, b))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasEdge(int start, int end, int a, int b)
+    {
+        return (start == a && end == b) || (start == b && end == a);
     }
 
     private static void AssertVerticesEqual(double[] expected, double[] actual, double tolerance)

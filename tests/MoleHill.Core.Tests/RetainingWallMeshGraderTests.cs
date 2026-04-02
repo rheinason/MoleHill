@@ -66,6 +66,30 @@ public class RetainingWallMeshGraderTests
     }
 
     [Fact]
+    public void GradeSingleWall_OffMeshStrip_ReturnsFailure()
+    {
+        var strip = new RetainingWallMeshGrader.WallStripDefinition(
+            toeXy: new[] { -0.2, 0.25, 1.0, 0.25 },
+            toeZ: new[] { 0.0, 0.0 },
+            topXy: new[] { -0.2, 0.75, 1.0, 0.75 },
+            topZ: new[] { 2.0, 2.0 },
+            stationCount: 2);
+
+        var outcome = RetainingWallMeshGrader.GradeSingleWall(
+            BuildFlatMeshVertices(),
+            4,
+            BuildFlatMeshFaces(),
+            2,
+            strip,
+            sharpness: 0.5,
+            shoulderWidth: 1.0);
+
+        Assert.False(outcome.GradeApplied);
+        Assert.Null(outcome.MeshResult);
+        Assert.Contains("terrain boundary", outcome.WarningOrError ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void GradeSingleWall_SharpnessAffectsProfile()
     {
         var strip = new RetainingWallMeshGrader.WallStripDefinition(

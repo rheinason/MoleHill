@@ -1,6 +1,29 @@
 namespace MoleHill.Core.Grading;
 
 /// <summary>
+/// A graded 3-D polyline (flat XYZ) that is part of a grading result —
+/// e.g. a road edge or a pad boundary curve.
+/// </summary>
+public sealed class OutputPolyline
+{
+    /// <summary>Flat XYZ vertices: [x0,y0,z0, x1,y1,z1, …]</summary>
+    public double[] Vertices { get; }
+
+    /// <summary>Number of vertices.</summary>
+    public int VertexCount { get; }
+
+    /// <summary>True if the polyline forms a closed loop (first vertex == last vertex logically).</summary>
+    public bool IsClosed { get; }
+
+    public OutputPolyline(double[] vertices, int vertexCount, bool isClosed = false)
+    {
+        Vertices = vertices;
+        VertexCount = vertexCount;
+        IsClosed = isClosed;
+    }
+}
+
+/// <summary>
 /// Result of a grading operation (pad, path, surface).
 /// Contains the modified mesh and volume metrics.
 /// </summary>
@@ -33,10 +56,17 @@ public sealed class GradingResult
     /// <summary>Number of daylight line vertices.</summary>
     public int DaylightVertexCount { get; }
 
+    /// <summary>
+    /// Graded polylines derived from the operation: road edges for Grade Path,
+    /// pad boundary curves for Grade Pad. Each polyline carries graded Z values.
+    /// </summary>
+    public IReadOnlyList<OutputPolyline> OutputPolylines { get; }
+
     public GradingResult(double[] vertices, int vertexCount,
                          int[] faces, int faceCount,
                          double cutVolume, double fillVolume,
-                         double[] daylightVertices, int daylightVertexCount)
+                         double[] daylightVertices, int daylightVertexCount,
+                         IReadOnlyList<OutputPolyline>? outputPolylines = null)
     {
         Vertices = vertices;
         VertexCount = vertexCount;
@@ -46,5 +76,6 @@ public sealed class GradingResult
         FillVolume = fillVolume;
         DaylightVertices = daylightVertices;
         DaylightVertexCount = daylightVertexCount;
+        OutputPolylines = outputPolylines ?? Array.Empty<OutputPolyline>();
     }
 }

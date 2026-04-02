@@ -84,7 +84,45 @@ public class TinBoundaryPreparerTests
         Assert.Equal(TinBoundaryPreparer.BoundaryMode.Explicit, prepared.Mode);
         Assert.False(prepared.UseConvexHull);
         Assert.True(prepared.ZValues.Length > z.Length);
-        Assert.True(prepared.ZValues.Any(double.IsNaN));
+        Assert.Contains(prepared.ZValues, double.IsNaN);
         Assert.Equal((segments.Length / 2) + 4, prepared.Segments.Length / 2);
+    }
+
+    [Fact]
+    public void Prepare_ExplicitBoundary_ReusesCoincidentExistingVertices()
+    {
+        var xy = new[]
+        {
+            0.0, 0.0,
+            10.0, 0.0,
+            10.0, 10.0,
+            0.0, 10.0
+        };
+        var z = Enumerable.Repeat(0.0, xy.Length / 2).ToArray();
+        var boundary = new TinBoundaryPreparer.BoundaryPolyline(
+            new[]
+            {
+                0.0, 0.0, 0.0,
+                10.0, 0.0, 0.0,
+                10.0, 10.0, 0.0,
+                0.0, 10.0, 0.0,
+                0.0, 0.0, 0.0
+            },
+            PointCount: 5,
+            IsClosed: true);
+
+        var prepared = TinBoundaryPreparer.Prepare(
+            xy,
+            z,
+            Array.Empty<int>(),
+            new[] { boundary },
+            0.1);
+
+        Assert.Equal(TinBoundaryPreparer.BoundaryMode.Explicit, prepared.Mode);
+        Assert.False(prepared.UseConvexHull);
+        Assert.Equal(xy.Length, prepared.XyCoords.Length);
+        Assert.Equal(z.Length, prepared.ZValues.Length);
+        Assert.DoesNotContain(prepared.ZValues, double.IsNaN);
+        Assert.Equal(4, prepared.Segments.Length / 2);
     }
 }

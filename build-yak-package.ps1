@@ -131,6 +131,11 @@ foreach ($file in $filesToCopy) {
     Copy-Item -Path $file.Source -Destination $file.Destination -Force
 }
 
+$rhinoToolbarDirectory = Join-Path $rhinoOutput "Toolbars"
+if (Test-Path $rhinoToolbarDirectory) {
+    Copy-Item -Path $rhinoToolbarDirectory -Destination (Join-Path $packageContentRoot "Toolbars") -Recurse -Force
+}
+
 Copy-Item -Path (Join-Path $repoRoot "LICENSES\*") -Destination $miscLicensesDirectory -Recurse -Force
 
 $manifest = @"

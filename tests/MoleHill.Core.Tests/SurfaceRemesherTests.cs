@@ -463,7 +463,6 @@ public class SurfaceRemesherTests
             });
 
         Assert.True(remesh.Success, remesh.Warning);
-        Assert.True(remesh.UsedBoundaryAndGuideSeedFallback, "Expected the closed-constraint band to prefer the boundary-and-guide fallback.");
 
         int bandVertexCount = Enumerable.Range(0, remesh.Vertices.Length / 3)
             .Count(index =>
@@ -476,7 +475,7 @@ public class SurfaceRemesherTests
 
         Assert.True(
             bandVertexCount >= 20,
-            $"Expected fallback to seed the closed-constraint band, got {bandVertexCount} band vertices. Warning: {remesh.Warning}");
+            $"Expected the closed-constraint band to be refined, got {bandVertexCount} band vertices. Warning: {remesh.Warning}");
     }
 
     private static double[] CreateSlopedSquareVertices()

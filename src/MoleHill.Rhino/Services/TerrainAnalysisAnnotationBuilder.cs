@@ -340,23 +340,25 @@ internal static class TerrainAnalysisAnnotationBuilder
         return Transform.PlaneToPlane(Plane.WorldXY, plane) * scaleTransform;
     }
 
-    private static Vector3d GetCurveSlopeDirection(Point3d a, Point3d b, double tolerance, bool flip)
-    {
-        Vector3d direction = b.Z <= a.Z + tolerance
-            ? b - a
-            : a - b;
-        direction.Z = 0.0;
-        if (flip)
-            direction = -direction;
-        return direction;
-    }
-
     private static Vector3d GetTerrainSlopeDirection(Vector3d normal, double tolerance, bool flip)
     {
         if (normal.Z < 0.0)
             normal = -normal;
 
         var direction = new Vector3d(-normal.X, -normal.Y, 0.0);
+        if (flip)
+            direction = -direction;
+        return direction.Length <= tolerance
+            ? Vector3d.Unset
+            : direction;
+    }
+
+    private static Vector3d GetCurveSlopeDirection(Point3d a, Point3d b, double tolerance, bool flip)
+    {
+        Vector3d direction = b.Z <= a.Z + tolerance
+            ? b - a
+            : a - b;
+        direction.Z = 0.0;
         if (flip)
             direction = -direction;
         return direction.Length <= tolerance

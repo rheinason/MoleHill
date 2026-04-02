@@ -91,17 +91,44 @@ public static class TriangulationHelper
             quality = new QualityOptions();
             if (maxArea > 0) quality.MaximumArea = maxArea;
             if (minAngle > 0) quality.MinimumAngle = minAngle;
-            // Cap Steiner points to prevent runaway refinement when segmentSplitting=0
-            // is used as a fallback for tight parallel constraints. Without the cap,
-            // Triangle.NET can cascade indefinitely splitting already-short boundary segments.
-            quality.SteinerPoints = Math.Max(vertexCount * 50, 50_000);
+            // Cap Steiner points to prevent runaway refinement.
+            // Derive the cap from the expected output triangle count (bbox area / maxArea)
+            // rather than input vertex count, since vertex count is uncorrelated with output size.
+            // Without a cap, Triangle.NET can cascade indefinitely when quality options are active.
+            int steinCap;
+            if (maxArea > 0 && vertexCount > 0)
+            {
+                double minX = double.MaxValue, maxX = double.MinValue;
+                double minY = double.MaxValue, maxY = double.MinValue;
+                for (int i = 0; i < vertexCount; i++)
+                {
+                    double x = xyList[i * 2], y = xyList[i * 2 + 1];
+                    if (x < minX) minX = x; if (x > maxX) maxX = x;
+                    if (y < minY) minY = y; if (y > maxY) maxY = y;
+                }
+                double bboxArea = (maxX - minX) * (maxY - minY);
+                // Allow 3× the expected triangle count as a safety margin.
+                int expectedTriangles = (int)Math.Min(3.0 * bboxArea / maxArea, 2_000_000.0);
+                steinCap = Math.Max(expectedTriangles, vertexCount * 4);
+            }
+            else
+            {
+                // minAngle-only quality: bound loosely by vertex count
+                steinCap = vertexCount * 10;
+            }
+            quality.SteinerPoints = Math.Min(steinCap, 2_000_000);
         }
 
         IMesh? TryMesh(Polygon poly, bool conforming, QualityOptions? qualityOptions, string attemptName)
         {
             var opts = new ConstraintOptions
             {
-                ConformingDelaunay = conforming && hasSegs,
+                // ConformingDelaunay inserts Steiner points along segments to enforce the
+                // Voronoi/Delaunay property — independently of the QualityOptions.SteinerPoints cap.
+                // With tight parallel constraints (e.g. road edges near a retaining wall) this
+                // cascades indefinitely.  Only enable it when quality refinement is also active so
+                // the SteinerPoints cap actually governs the conforming pass too.
+                ConformingDelaunay = conforming && hasSegs && hasQuality,
                 Convex = convex,
                 SegmentSplitting = segmentSplitting
             };

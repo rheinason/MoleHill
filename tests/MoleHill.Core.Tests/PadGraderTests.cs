@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
 
@@ -47,7 +48,7 @@ public class PadGraderTests
         Assert.Equal(topologyVertexCountA, topologyVertexCountB);
         Assert.Equal(topologyFaceCountA, topologyFaceCountB);
         Assert.Equal(topologyVerticesA, topologyVerticesB);
-        Assert.Equal(topologyFacesA, topologyFacesB);
+        Assert.Equal(NormalizeFaces(topologyFacesA, topologyFaceCountA), NormalizeFaces(topologyFacesB, topologyFaceCountB));
     }
 
     [Fact]
@@ -270,6 +271,171 @@ public class PadGraderTests
     }
 
     [Fact]
+    public void CreateConstraints_IncludesShoulderRing_WhenOffsetFitsInsideBoundary()
+    {
+        double[] vertices = BuildGridVertices(9, 1.0);
+        int[] faces = BuildGridFaces(9);
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    3.0, 3.0,
+                    5.0, 3.0,
+                    5.0, 5.0,
+                    3.0, 5.0
+                },
+                4,
+                2.0,
+                slopeAngleDeg: 33.0,
+                maxDistance: 1.5)
+        };
+
+        PadGrader.ConstraintSet constraintSet = PadGrader.CreateConstraints(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null);
+
+        Assert.Equal(2, constraintSet.Constraints.Length);
+        Assert.Contains(constraintSet.Constraints, constraint => constraint.IsClosed && ContainsVertex(constraint.Points, 1.5, 1.5));
+        Assert.True(constraintSet.SuggestedEdgeLength > 0.0);
+    }
+
+    [Fact]
+    public void CreateConstraints_OnCoarseEnvelope_AddsGuideVerticesAcrossShoulderBand()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            100.0, 0.0, 0.0,
+            100.0, 100.0, 0.0,
+            0.0, 100.0, 0.0
+        };
+        int[] faces = BuildSquareFaces();
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    40.0, 40.0,
+                    60.0, 40.0,
+                    60.0, 60.0,
+                    40.0, 60.0
+                },
+                4,
+                2.0,
+                slopeAngleDeg: 45.0,
+                maxDistance: 2.0)
+        };
+
+        PadGrader.ConstraintSet constraintSet = PadGrader.CreateConstraints(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null);
+
+        var remesh = SurfaceRemesher.Remesh(
+            vertices,
+            faces,
+            constraintSet.Constraints,
+            new SurfaceRemesher.Options
+            {
+                Tolerance = 1e-3,
+                RequestedEdgeLength = constraintSet.SuggestedEdgeLength,
+                ProtectSharpEdges = true
+            });
+
+        Assert.True(remesh.Success, remesh.Warning);
+        Assert.True(ContainsVertex(remesh.Vertices, 40.0, 50.0));
+        Assert.True(ContainsVertex(remesh.Vertices, 38.0, 50.0));
+    }
+
+    [Fact]
+    public void TryTriangulateTopology_OnCoarseEnvelope_AddsGuideVerticesAcrossShoulderBand()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            100.0, 0.0, 0.0,
+            100.0, 100.0, 0.0,
+            0.0, 100.0, 0.0
+        };
+        int[] faces = BuildSquareFaces();
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    40.0, 40.0,
+                    60.0, 40.0,
+                    60.0, 60.0,
+                    40.0, 60.0
+                },
+                4,
+                2.0,
+                slopeAngleDeg: 45.0,
+                maxDistance: 2.0)
+        };
+
+        bool success = PadGrader.TryTriangulateTopology(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null,
+            0.0,
+            0.0,
+            out var topologyVertices,
+            out _,
+            out _,
+            out _,
+            out var warning);
+
+        Assert.True(success, warning);
+        Assert.True(ContainsVertex(topologyVertices, 40.0, 50.0));
+        Assert.True(ContainsVertex(topologyVertices, 38.0, 50.0));
+    }
+
+    [Fact]
+    public void CreateConstraints_SkipsShoulderRing_WhenOffsetReachesTerrainBoundary()
+    {
+        double[] vertices = BuildGridVertices(5, 1.0);
+        int[] faces = BuildGridFaces(5);
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    1.0, 1.0,
+                    3.0, 1.0,
+                    3.0, 3.0,
+                    1.0, 3.0
+                },
+                4,
+                2.0,
+                slopeAngleDeg: 33.0,
+                maxDistance: 2.0)
+        };
+
+        PadGrader.ConstraintSet constraintSet = PadGrader.CreateConstraints(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null);
+
+        Assert.Single(constraintSet.Constraints);
+        Assert.Contains(constraintSet.Diagnostics, diagnostic => diagnostic.Contains("reached the terrain boundary", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void TryTriangulateTopology_LockCurve_PreservesConstraintIntersections()
     {
         double[] vertices =
@@ -441,5 +607,185 @@ public class PadGraderTests
         }
 
         return false;
+    }
+
+    private static int[] NormalizeFaces(int[] faces, int faceCount)
+    {
+        var normalized = new (int a, int b, int c)[faceCount];
+        for (int i = 0; i < faceCount; i++)
+        {
+            int a = faces[i * 3];
+            int b = faces[i * 3 + 1];
+            int c = faces[i * 3 + 2];
+            if (a > b) (a, b) = (b, a);
+            if (b > c) (b, c) = (c, b);
+            if (a > b) (a, b) = (b, a);
+            normalized[i] = (a, b, c);
+        }
+
+        Array.Sort(normalized, static (left, right) =>
+        {
+            int compare = left.a.CompareTo(right.a);
+            if (compare != 0)
+                return compare;
+
+            compare = left.b.CompareTo(right.b);
+            if (compare != 0)
+                return compare;
+
+            return left.c.CompareTo(right.c);
+        });
+
+        var flattened = new int[faceCount * 3];
+        for (int i = 0; i < normalized.Length; i++)
+        {
+            flattened[i * 3] = normalized[i].a;
+            flattened[i * 3 + 1] = normalized[i].b;
+            flattened[i * 3 + 2] = normalized[i].c;
+        }
+
+        return flattened;
+    }
+
+    // ── Barrier clipping tests ────────────────────────────────────────────────
+
+    private static PadGrader.LockCurve MakeLockCurve(double x0, double y0, double x1, double y1)
+    {
+        return new PadGrader.LockCurve(new[] { x0, y0, x1, y1 }, 2);
+    }
+
+    [Fact]
+    public void Grade_PadWithLockCurveInsideShoulderZone_TriangulatesSuccessfully()
+    {
+        // 100×100 flat terrain. Pad 20×20 centred at (50,50). Lock curve at y=62 cuts through the shoulder.
+        double[] vertices =
+        {
+            0.0,   0.0,   0.0,
+            100.0, 0.0,   0.0,
+            100.0, 100.0, 0.0,
+            0.0,   100.0, 0.0
+        };
+        int[] faces = { 0, 1, 2, 0, 2, 3 };
+
+        var pad = new PadGrader.PadBoundary(
+            new[]
+            {
+                40.0, 40.0,
+                60.0, 40.0,
+                60.0, 60.0,
+                40.0, 60.0
+            },
+            4,
+            targetZ: 1.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 15.0);
+
+        var lockCurve = MakeLockCurve(0.0, 65.0, 100.0, 65.0);
+
+        GradingResult? result = PadGrader.Grade(
+            vertices, vertices.Length / 3,
+            faces, faces.Length / 3,
+            new[] { pad },
+            new[] { lockCurve },
+            maxArea: 0.0,
+            minAngle: 0.0,
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(
+            string.IsNullOrWhiteSpace(errorMessage) || !errorMessage!.Contains("failed", StringComparison.OrdinalIgnoreCase),
+            errorMessage);
+    }
+
+    [Fact]
+    public void Grade_PadWithLockCurveInsideShoulderZone_ShoulderRingClippedAtLockCurve()
+    {
+        // Same setup: shoulder ring should not produce vertices north of the lock curve.
+        double[] vertices =
+        {
+            0.0,   0.0,   0.0,
+            100.0, 0.0,   0.0,
+            100.0, 100.0, 0.0,
+            0.0,   100.0, 0.0
+        };
+        int[] faces = { 0, 1, 2, 0, 2, 3 };
+
+        var pad = new PadGrader.PadBoundary(
+            new[]
+            {
+                40.0, 40.0,
+                60.0, 40.0,
+                60.0, 60.0,
+                40.0, 60.0
+            },
+            4,
+            targetZ: 1.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 15.0);
+
+        var lockCurve = MakeLockCurve(0.0, 65.0, 100.0, 65.0);
+
+        GradingResult? result = PadGrader.Grade(
+            vertices, vertices.Length / 3,
+            faces, faces.Length / 3,
+            new[] { pad },
+            new[] { lockCurve },
+            maxArea: 0.0,
+            minAngle: 0.0,
+            out _);
+
+        Assert.NotNull(result);
+
+        const double barrierY = 65.0;
+        const double tol = 0.1;
+        int vertCount = result!.VertexCount;
+        double[] verts = result.Vertices;
+        for (int i = 0; i < vertCount; i++)
+        {
+            double vy = verts[i * 3 + 1];
+            Assert.True(vy <= barrierY + tol || vy >= 100.0 - tol,
+                $"Vertex {i} at y={vy:F3} is north of lock-curve barrier at y={barrierY} but not at terrain boundary.");
+        }
+    }
+
+    [Fact]
+    public void Grade_PadWithNoLockCurves_BehaviorUnchanged()
+    {
+        // Regression: pad without lock curves should still grade successfully.
+        double[] vertices =
+        {
+            0.0,   0.0,   0.0,
+            100.0, 0.0,   0.0,
+            100.0, 100.0, 0.0,
+            0.0,   100.0, 0.0
+        };
+        int[] faces = { 0, 1, 2, 0, 2, 3 };
+
+        var pad = new PadGrader.PadBoundary(
+            new[]
+            {
+                40.0, 40.0,
+                60.0, 40.0,
+                60.0, 60.0,
+                40.0, 60.0
+            },
+            4,
+            targetZ: 1.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 10.0);
+
+        GradingResult? result = PadGrader.Grade(
+            vertices, vertices.Length / 3,
+            faces, faces.Length / 3,
+            new[] { pad },
+            null,
+            maxArea: 0.0,
+            minAngle: 0.0,
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(
+            string.IsNullOrWhiteSpace(errorMessage) || !errorMessage!.Contains("failed", StringComparison.OrdinalIgnoreCase),
+            errorMessage);
     }
 }

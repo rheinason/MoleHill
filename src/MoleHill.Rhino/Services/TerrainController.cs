@@ -215,6 +215,7 @@ internal sealed class TerrainController
 
         RestoreTerrainObjectPlacements(doc, terrain);
         DeleteOwnedObjects(doc, terrain);
+        PurgeOrphanedOwnedObjects(doc, terrain);
         RemoveRuntimeCache(doc.RuntimeSerialNumber, terrainId);
         RemoveRebuildState(doc.RuntimeSerialNumber, terrainId);
         state.Terrains.Remove(terrain);
@@ -490,6 +491,7 @@ internal sealed class TerrainController
             rebuildState.CancelRequested = false;
         }
 
+        PurgeOrphanedOwnedObjects(doc, terrain);
         terrain.LastBuildMessage = "Build reset. Rebuild to resume terrain outputs.";
         Save(doc, state);
         doc.Views.Redraw();
@@ -859,6 +861,104 @@ internal sealed class TerrainController
         ClearRuntimeCaches(doc.RuntimeSerialNumber);
         ClearRebuildStates(doc.RuntimeSerialNumber);
         Save(doc, restoredState);
+        doc.Views.Redraw();
+    }
+
+    public void RebuildContourAnalysis(RhinoDoc doc, Guid terrainId, Guid analysisId)
+    {
+        var state = GetState(doc);
+        var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
+        if (terrain == null)
+            return;
+
+        var analysis = terrain.Analyses.OfType<ContourAnalysisDefinition>().FirstOrDefault(a => a.Id == analysisId);
+        if (analysis == null)
+            return;
+
+        var runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId);
+        var mesh = runtimeCache.DisplayState?.TerrainMesh;
+        if (mesh == null)
+        {
+            ScheduleRebuild(doc, terrainId);
+            return;
+        }
+
+        string terrainIdString = terrainId.ToString();
+        string analysisIdString = analysisId.ToString();
+        var toDelete = doc.Objects
+            .GetObjectList(new ObjectEnumeratorSettings
+            {
+                ActiveObjects = true,
+                DeletedObjects = false,
+                HiddenObjects = true,
+                LockedObjects = true,
+                NormalObjects = true,
+                ReferenceObjects = false
+            })
+            .Where(obj =>
+                obj?.Attributes?.GetUserString(OutputOwnerKey) == terrainIdString &&
+                obj?.Attributes?.GetUserString(OutputAnalysisIdKey) == analysisIdString)
+            .Select(obj => obj.Id)
+            .ToList();
+
+        using var _ = new EventSuppression(this);
+        DeleteObjects(doc, toDelete);
+
+        var (newObjects, summary) = TerrainBuildService.BuildContourObjects(mesh, analysis);
+        foreach (var obj in newObjects)
+            AddGeneratedObject(doc, terrain, obj);
+
+        var existing = terrain.LastAnalysisResults.FirstOrDefault(r => r.AnalysisId == analysisId);
+        if (existing != null)
+            terrain.LastAnalysisResults.Remove(existing);
+        terrain.LastAnalysisResults.Add(summary);
+
+        var displayState = runtimeCache.DisplayState;
+        if (displayState != null)
+        {
+            displayState.AuxiliaryObjects.RemoveAll(o => o.AnalysisId == analysisId);
+            displayState.AuxiliaryObjects.AddRange(newObjects);
+            displayState.AnalysisResults.RemoveAll(r => r.AnalysisId == analysisId);
+            displayState.AnalysisResults.Add(summary);
+        }
+
+        Save(doc, state, raiseStateChanged: true);
+        doc.Views.Redraw();
+    }
+
+    public void RefreshContourColor(RhinoDoc doc, Guid terrainId, Guid analysisId, int? colorArgb)
+    {
+        string terrainIdString = terrainId.ToString();
+        string analysisIdString = analysisId.ToString();
+
+        using var _ = new EventSuppression(this);
+        foreach (var obj in doc.Objects
+            .GetObjectList(new ObjectEnumeratorSettings
+            {
+                ActiveObjects = true,
+                DeletedObjects = false,
+                HiddenObjects = true,
+                LockedObjects = true,
+                NormalObjects = true,
+                ReferenceObjects = false
+            })
+            .Where(obj =>
+                obj?.Attributes?.GetUserString(OutputOwnerKey) == terrainIdString &&
+                obj?.Attributes?.GetUserString(OutputAnalysisIdKey) == analysisIdString))
+        {
+            var attributes = obj.Attributes.Duplicate();
+            if (colorArgb.HasValue)
+            {
+                attributes.ColorSource = ObjectColorSource.ColorFromObject;
+                attributes.ObjectColor = GetOpaqueColor(System.Drawing.Color.FromArgb(colorArgb.Value));
+            }
+            else
+            {
+                attributes.ColorSource = ObjectColorSource.ColorFromLayer;
+            }
+            doc.Objects.ModifyAttributes(obj, attributes, quiet: true);
+        }
+
         doc.Views.Redraw();
     }
 
@@ -1269,15 +1369,20 @@ internal sealed class TerrainController
             redrawTimer.Stop();
             build.RecordTiming("Viewport redraw", redrawTimer.Elapsed, null, MinorTimingDiagnosticThresholdMs);
 
+            var totalTimingDetail = $"snapshot {FormatElapsed(result.SnapshotElapsed)}, clone {FormatElapsed(result.WorkerCacheCloneElapsed)}, build {FormatElapsed(buildElapsed)}, merge {FormatElapsed(cacheMergeTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}, save {FormatElapsed(saveTimer.Elapsed)}, redraw {FormatElapsed(redrawTimer.Elapsed)}; {DescribeDisplayState(runtimeCache.DisplayState)}";
             build.RecordTiming(
                 "Rebuild total",
                 result.SnapshotElapsed + result.WorkerCacheCloneElapsed + buildElapsed + cacheMergeTimer.Elapsed + displayTimer.Elapsed + saveTimer.Elapsed + redrawTimer.Elapsed,
-                $"snapshot {FormatElapsed(result.SnapshotElapsed)}, clone {FormatElapsed(result.WorkerCacheCloneElapsed)}, build {FormatElapsed(buildElapsed)}, merge {FormatElapsed(cacheMergeTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}, save {FormatElapsed(saveTimer.Elapsed)}, redraw {FormatElapsed(redrawTimer.Elapsed)}; {DescribeDisplayState(runtimeCache.DisplayState)}",
+                totalTimingDetail,
                 TotalTimingDiagnosticThresholdMs);
 
-            terrain.LastBuildMessage = build.Diagnostics.Count == 0
-                ? "Build succeeded."
-                : string.Join(System.Environment.NewLine, build.Diagnostics.Take(8));
+            var stageTimings = string.Join(", ", build.Timings
+                .Where(t => t.Stage != "Rebuild total")
+                .Select(t => $"{t.Stage}: {FormatElapsed(t.Elapsed)}"));
+            terrain.LastBuildMessage = string.Join(System.Environment.NewLine,
+                new[] { build.Diagnostics.Count == 0 ? "Build succeeded." : string.Join(System.Environment.NewLine, build.Diagnostics.Take(8)) }
+                .Append($"[{totalTimingDetail}]")
+                .Append($"[stages: {stageTimings}]"));
         }
         else
         {
@@ -1919,6 +2024,34 @@ internal sealed class TerrainController
         }
     }
 
+    private void PurgeOrphanedOwnedObjects(RhinoDoc doc, TerrainDefinition terrain)
+    {
+        var protectedIds = new HashSet<Guid>(AllOwnedIds(terrain).Concat(terrain.BakedObjectIds));
+        string terrainIdString = terrain.TerrainId.ToString();
+
+        var orphanedIds = doc.Objects
+            .GetObjectList(new ObjectEnumeratorSettings
+            {
+                ActiveObjects = true,
+                DeletedObjects = false,
+                HiddenObjects = true,
+                LockedObjects = true,
+                NormalObjects = true,
+                ReferenceObjects = false
+            })
+            .Where(obj =>
+                obj?.Attributes?.GetUserString(OutputOwnerKey) == terrainIdString &&
+                !protectedIds.Contains(obj.Id))
+            .Select(obj => obj.Id)
+            .ToList();
+
+        if (orphanedIds.Count > 0)
+        {
+            using var _ = new EventSuppression(this);
+            DeleteObjects(doc, orphanedIds);
+        }
+    }
+
     private static void DeleteObjects(RhinoDoc doc, IEnumerable<Guid> objectIds)
     {
         var ids = objectIds.Where(id => id != Guid.Empty).Distinct().ToList();
@@ -2463,6 +2596,8 @@ internal sealed class TerrainController
 
     private void RemoveRuntimeCache(uint docSerial, Guid terrainId)
     {
+        if (_runtimeCaches.TryGetValue((docSerial, terrainId), out var cache))
+            cache.Clear();
         _runtimeCaches.Remove((docSerial, terrainId));
     }
 
@@ -2809,6 +2944,7 @@ internal sealed class TerrainController
             var obj = doc.Objects.FindId(id);
             bool shouldHide = !terrain.IsVisible ||
                               (!terrain.ShowSlopePreview && IsSlopePreviewObject(obj)) ||
+                              (!terrain.ShowAnalysisOutputs && IsSlopePreviewObject(obj)) ||
                               !ShouldDisplayOwnedAnalysisOutput(terrain, obj?.Attributes);
             if (shouldHide)
                 doc.Objects.Hide(id, ignoreLayerMode: true);
@@ -3005,6 +3141,9 @@ internal sealed class TerrainController
         Guid? analysisId = GetGeneratedAnalysisId(attributes);
         if (!analysisId.HasValue)
             return true;
+
+        if (!terrain.ShowAnalysisOutputs)
+            return false;
 
         return terrain.Analyses.Any(analysis => analysis.Id == analysisId.Value && analysis.IsEnabled);
     }

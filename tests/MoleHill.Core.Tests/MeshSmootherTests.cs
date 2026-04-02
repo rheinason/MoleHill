@@ -202,6 +202,70 @@ public class MeshSmootherTests
     }
 
     [Fact]
+    public void Smooth_WithBoundaryAndBreakline_MatchesPreparedOutput()
+    {
+        var vertices = new[]
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            1.0, 1.0, 0.0,
+            0.0, 1.0, 0.0,
+            0.5, 0.5, 1.0
+        };
+        var faces = new[]
+        {
+            0, 1, 4,
+            1, 2, 4,
+            2, 3, 4,
+            3, 0, 4
+        };
+        var boundaryWithStrength = new[]
+        {
+            (xyVerts: new[] { 0.1, 0.1, 0.9, 0.1, 0.9, 0.9, 0.1, 0.9 }, vertCount: 4, strength: 0.35)
+        };
+        var boundary = new[]
+        {
+            (xyVerts: new[] { 0.1, 0.1, 0.9, 0.1, 0.9, 0.9, 0.1, 0.9 }, vertCount: 4)
+        };
+        var breaklines = new[]
+        {
+            (xyPts: new[] { 0.0, 0.5, 1.0, 0.5 }, ptCount: 2)
+        };
+
+        var direct = MeshSmoother.Smooth(
+            vertices,
+            5,
+            faces,
+            4,
+            boundaryWithStrength,
+            1.0,
+            breaklines,
+            0.25,
+            1e-6,
+            2);
+
+        var prepared = MeshSmoother.Prepare(
+            vertices,
+            5,
+            faces,
+            4,
+            boundary,
+            breaklines,
+            1e-6);
+
+        var cached = MeshSmoother.SmoothPrepared(
+            vertices,
+            prepared,
+            0.35,
+            0.25,
+            2);
+
+        Assert.Equal(direct.Length, cached.Length);
+        for (int i = 0; i < direct.Length; i++)
+            Assert.Equal(direct[i], cached[i], 6);
+    }
+
+    [Fact]
     public void Prepare_MarksOnlyNakedEdgeVerticesAsMeshBoundary()
     {
         var vertices = new[]

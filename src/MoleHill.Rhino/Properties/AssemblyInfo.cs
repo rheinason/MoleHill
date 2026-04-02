@@ -1,6 +1,8 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Rhino.PlugIns;
 
+[assembly: InternalsVisibleTo("MoleHill.Rhino.Tests")]
 [assembly: PlugInDescription(DescriptionType.Address, "")]
 [assembly: PlugInDescription(DescriptionType.Country, "")]
 [assembly: PlugInDescription(DescriptionType.Email, "")]

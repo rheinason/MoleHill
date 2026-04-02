@@ -12,9 +12,12 @@ namespace MoleHill.Rhino;
 public sealed class MoleHillRhinoPlugin : PlugIn
 {
     private readonly TerrainDocumentStore _documentStore = new();
+    private readonly LayerTemplateStore _layerTemplateStore = new();
     private static Icon? _panelIcon;
 
     public static MoleHillRhinoPlugin Instance { get; private set; } = null!;
+
+    internal LayerTemplateStore LayerTemplateStore => _layerTemplateStore;
 
     public override PlugInLoadTime LoadTime => PlugInLoadTime.AtStartup;
 
@@ -27,6 +30,7 @@ public sealed class MoleHillRhinoPlugin : PlugIn
     {
         TerrainController.Instance.Initialize();
         Panels.RegisterPanel(this, typeof(MoleHillPanel), "MoleHill", GetPanelIcon());
+        ToolbarInstaller.EnsureInstalled();
         return LoadReturnCode.Success;
     }
 

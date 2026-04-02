@@ -17,8 +17,6 @@ namespace MoleHill.Rhino.Services;
 internal sealed class TerrainBuildService
 {
     private const int StageTimingDiagnosticThresholdMs = 250;
-    private const int MaxLegacyPathTriangulationVertices = 25_000;
-    private const int MaxLegacyPathTriangulationFaces = 50_000;
     private const double MinRepresentablePadPlaneNormalZ = 1e-3;
 
     private sealed class ZoneBoundaryEntry
@@ -53,6 +51,8 @@ internal sealed class TerrainBuildService
 
         public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
 
+        public required double SuggestedEdgeLength { get; init; }
+
         public required string[] Diagnostics { get; init; }
     }
 
@@ -70,6 +70,14 @@ internal sealed class TerrainBuildService
         int PointCount,
         bool IsClosed,
         bool PreserveInputElevation);
+
+    internal readonly record struct TinyFaceCleanupResult(
+        int[] Faces,
+        int RemovedFaceCount,
+        int BlockedFaceCount)
+    {
+        public bool HasChanges => RemovedFaceCount > 0;
+    }
 
     public TerrainBuildResult Build(
         RhinoDoc doc,
@@ -584,11 +592,11 @@ internal sealed class TerrainBuildService
 
         ThrowIfCancellationRequested(shouldCancel);
         var polylines = CreateFlatPolylines(breaklineCurves, tolerance);
-        polylines.AddRange(CreateFlatPolylines(contourCurves, tolerance));
         var boundaryPolylines = CreateBoundaryPolylines(boundaryCurves, tolerance);
 
         var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
-        var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, tolerance, shouldCancel);
+        (double[] contourSpotXyz, int contourSpotCount) = AppendContourPoints(spotXyz, points.Count, contourCurves, tolerance);
+        var merged = PointCloudProcessor.Merge(contourSpotXyz, contourSpotCount, breaklineData, tolerance, shouldCancel);
         ThrowIfCancellationRequested(shouldCancel);
         ulong resolvedInputFingerprint = ComputeTriangulateResolvedInputFingerprint(
             terrain,
@@ -837,14 +845,14 @@ internal sealed class TerrainBuildService
         ThrowIfCancellationRequested(shouldCancel);
         var polylines = CreateFlatPolylines(build.PersistentHardConstraints);
         polylines.AddRange(CreateFlatPolylines(breaklineCurves, tolerance));
-        polylines.AddRange(CreateFlatPolylines(contourCurves, tolerance));
 
         var boundaryPolylines = CombineBoundaryPolylines(
             CreateBoundaryPolylines(mesh, tolerance),
             CreateBoundaryPolylines(boundaryCurves, tolerance));
 
         var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
-        var merged = PointCloudProcessor.Merge(spotXyz, existingPointCount + points.Count, breaklineData, tolerance, shouldCancel);
+        (double[] contourSpotXyz, int contourSpotCount) = AppendContourPoints(spotXyz, existingPointCount + points.Count, contourCurves, tolerance);
+        var merged = PointCloudProcessor.Merge(contourSpotXyz, contourSpotCount, breaklineData, tolerance, shouldCancel);
         if (merged.VertexCount < 3)
         {
             build.Diagnostics.Add("Add Geometry needs at least three unique points after deduplication.");
@@ -1048,7 +1056,8 @@ internal sealed class TerrainBuildService
             previewMaxArea,
             previewMinAngle,
             "Remesh",
-            build);
+            build,
+            out _);
 
         return remeshed;
     }
@@ -1325,7 +1334,8 @@ internal sealed class TerrainBuildService
             0.0,
             0.0,
             "Retaining Wall",
-            build);
+            build,
+            out _);
 
         if (!ReferenceEquals(remeshed, mesh))
             build.PersistentHardConstraints.AddRange(wallConstraints);
@@ -1401,8 +1411,14 @@ internal sealed class TerrainBuildService
         }
 
         double tolerance = GetTerrainTolerance(snapshot, terrain);
-        ResolvedGradePadInputs resolvedInputs = ResolveGradePadInputs(snapshot, modifier, tolerance);
-        PadGrader.LockCurve[] effectiveLocks = CombinePadLockCurves(resolvedInputs.Locks, build.PersistentHardConstraints);
+        ResolvedGradePadInputs resolvedInputs = ResolveGradePadInputs(
+            snapshot,
+            vertices,
+            mesh.Vertices.Count,
+            faces,
+            mesh.Faces.Count,
+            modifier,
+            tolerance);
         build.Diagnostics.AddRange(resolvedInputs.Diagnostics);
         ThrowIfCancellationRequested(shouldCancel);
         if (resolvedInputs.Pads.Length == 0)
@@ -1424,6 +1440,7 @@ internal sealed class TerrainBuildService
                 out outputFingerprint);
         }
 
+        var effectiveLocks = CombinePadLockCurves(resolvedInputs.Locks, build.PersistentHardConstraints);
         ulong topologyFingerprint = ComputeGradePadTopologyFingerprint(
             upstreamFingerprint,
             tolerance,
@@ -1448,90 +1465,102 @@ internal sealed class TerrainBuildService
         else
         {
             ThrowIfCancellationRequested(shouldCancel);
-            double[] topologyVertices = Array.Empty<double>();
-            int topologyVertexCount = 0;
-            int[] topologyFaces = Array.Empty<int>();
-            int topologyFaceCount = 0;
-            string? topologyWarning;
-            bool topologySucceeded;
+            var topologyDiagnostics = new List<string>();
             if (mode == TerrainBuildMode.Preview)
             {
-                topologyWarning = "Preview skipped optimized topology rebuild.";
-                topologySucceeded = false;
+                const string previewDiagnostic = "Grade Pad preview used direct grading without topology rebuild.";
+                topologyDiagnostics.Add(previewDiagnostic);
+                build.Diagnostics.Add(previewDiagnostic);
+                topologyTimer.Stop();
+
+                topologyEntry = new PadTopologyCacheEntry
+                {
+                    Fingerprint = topologyFingerprint,
+                    OutputFingerprint = ComputePadTopologyOutputFingerprint(vertices, mesh.Vertices.Count, faces, mesh.Faces.Count),
+                    Vertices = (double[])vertices.Clone(),
+                    VertexCount = mesh.Vertices.Count,
+                    Faces = (int[])faces.Clone(),
+                    FaceCount = mesh.Faces.Count,
+                    Diagnostics = topologyDiagnostics
+                };
+                runtimeCache.PadTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(topologyEntry);
+                build.RecordTiming(
+                    "Grade Pad Topology",
+                    topologyTimer.Elapsed,
+                    "Preview used existing mesh topology.",
+                    StageTimingDiagnosticThresholdMs);
             }
             else
             {
-                topologySucceeded = PadGrader.TryTriangulateTopology(
+                // Focused CDT insertion: add pad boundary vertices to the existing mesh and
+                // re-triangulate — same approach as Grade Path. Does NOT do a global quality
+                // remesh via SurfaceRemesher, so the upstream path topology is preserved.
+                // Do NOT forward MaxArea/MinAngle here — those are global Triangle.NET quality
+                // constraints that would refine the entire terrain mesh, not just the pad area.
+                // Focused insertion uses plain CDT (no quality refinement).
+                var gradeResult = PadGrader.Grade(
                     vertices,
                     mesh.Vertices.Count,
                     faces,
                     mesh.Faces.Count,
                     resolvedInputs.Pads,
-                    effectiveLocks.Length == 0 ? null : effectiveLocks,
-                    modifier.MaxArea,
-                    modifier.MinAngle,
-                    out topologyVertices,
-                    out topologyVertexCount,
-                    out topologyFaces,
-                    out topologyFaceCount,
-                    out topologyWarning);
-            }
+                    effectiveLocks.Length > 0 ? effectiveLocks : null,
+                    maxArea: 0,
+                    minAngle: 0,
+                    out var gradeWarning);
+                ThrowIfCancellationRequested(shouldCancel);
 
-            topologyTimer.Stop();
-            if (!topologySucceeded)
-            {
-                build.RecordTiming("Grade Pad Topology", topologyTimer.Elapsed, topologyWarning, StageTimingDiagnosticThresholdMs);
-                if (mode == TerrainBuildMode.Preview)
+                if (!string.IsNullOrWhiteSpace(gradeWarning))
+                    topologyDiagnostics.Add(gradeWarning!);
+
+                double[] topologyVertices;
+                int topologyVertexCount;
+                int[] topologyFaces;
+                int topologyFaceCount;
+                if (gradeResult == null)
                 {
-                    build.Diagnostics.Add("Grade Pad preview used direct grading without topology rebuild.");
+                    topologyDiagnostics.Add(gradeWarning ?? "Grade Pad focused insertion failed; using upstream mesh.");
+                    build.Diagnostics.AddRange(topologyDiagnostics);
+                    topologyVertices = (double[])vertices.Clone();
+                    topologyVertexCount = mesh.Vertices.Count;
+                    topologyFaces = (int[])faces.Clone();
+                    topologyFaceCount = mesh.Faces.Count;
                 }
                 else
                 {
-                    build.Diagnostics.Add(string.IsNullOrWhiteSpace(topologyWarning)
-                        ? "Grade Pad optimized topology path failed. Falling back to full grade."
-                        : $"Grade Pad optimized topology path failed ({topologyWarning}). Falling back to full grade.");
+                    build.Diagnostics.AddRange(topologyDiagnostics);
+                    AddOutputPolylinesAsBreaklines(gradeResult.OutputPolylines, build);
+                    topologyVertices = gradeResult.Vertices;
+                    topologyVertexCount = gradeResult.VertexCount;
+                    topologyFaces = gradeResult.Faces;
+                    topologyFaceCount = gradeResult.FaceCount;
                 }
 
-                RhinoMesh fallbackMesh = ApplyGradePadLegacy(mesh, vertices, faces, modifier, resolvedInputs, effectiveLocks, tolerance, build);
-                return StoreMeshStageCache(
-                    build,
-                    runtimeCache,
-                    stageKey,
-                    stageName,
-                    preResolutionFingerprint,
-                    preResolutionFingerprint,
-                    fallbackMesh,
-                    build.PersistentHardConstraints,
-                    Array.Empty<GeneratedRhinoObject>(),
-                    build.Diagnostics.Skip(diagnosticsStart),
-                    DescribeModifierMeshResult(modifier.Label, fallbackMesh),
-                    timer,
-                    out outputFingerprint);
-            }
+                topologyTimer.Stop();
 
-            var topologyDiagnostics = new List<string>();
-            if (!string.IsNullOrWhiteSpace(topologyWarning))
-            {
-                topologyDiagnostics.Add(topologyWarning!);
-                build.Diagnostics.Add(topologyWarning!);
+                topologyEntry = new PadTopologyCacheEntry
+                {
+                    Fingerprint = topologyFingerprint,
+                    OutputFingerprint = ComputePadTopologyOutputFingerprint(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount),
+                    Vertices = topologyVertices,
+                    VertexCount = topologyVertexCount,
+                    Faces = topologyFaces,
+                    FaceCount = topologyFaceCount,
+                    Diagnostics = topologyDiagnostics
+                };
+                runtimeCache.PadTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(topologyEntry);
+                build.RecordTiming(
+                    "Grade Pad",
+                    topologyTimer.Elapsed,
+                    $"{topologyVertexCount:N0} verts, {topologyFaceCount:N0} faces",
+                    StageTimingDiagnosticThresholdMs);
             }
+        }
 
-            topologyEntry = new PadTopologyCacheEntry
-            {
-                Fingerprint = topologyFingerprint,
-                OutputFingerprint = ComputePadTopologyOutputFingerprint(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount),
-                Vertices = topologyVertices,
-                VertexCount = topologyVertexCount,
-                Faces = topologyFaces,
-                FaceCount = topologyFaceCount,
-                Diagnostics = topologyDiagnostics
-            };
-            runtimeCache.PadTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(topologyEntry);
-            build.RecordTiming(
-                "Grade Pad Topology",
-                topologyTimer.Elapsed,
-                $"{topologyVertexCount:N0} verts, {topologyFaceCount:N0} faces",
-                StageTimingDiagnosticThresholdMs);
+        if (mode != TerrainBuildMode.Preview)
+        {
+            build.Diagnostics.Add(
+                $"Grade Pad focused insertion ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)}).");
         }
 
         ulong resolvedInputFingerprint = ComputeGradePadResolvedInputFingerprint(topologyEntry.OutputFingerprint, resolvedInputs.Pads, modifier);
@@ -1547,7 +1576,12 @@ internal sealed class TerrainBuildService
         }
 
         var filterTimer = Stopwatch.StartNew();
-        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyEntry.Vertices, topologyEntry.VertexCount, resolvedInputs.Pads);
+        // Preview uses raw topology + Z-only grading. Full mode topology already has graded vertices
+        // from PadGrader.Grade, so no second pass is needed.
+        double[] gradedVertices = mode == TerrainBuildMode.Preview
+            ? PadGrader.ApplyGradingZ(topologyEntry.Vertices, topologyEntry.VertexCount, resolvedInputs.Pads,
+                effectiveLocks.Length > 0 ? effectiveLocks : null)
+            : topologyEntry.Vertices;
         filterTimer.Stop();
         ThrowIfCancellationRequested(shouldCancel);
         build.RecordTiming(
@@ -1617,6 +1651,10 @@ internal sealed class TerrainBuildService
 
     private static ResolvedGradePadInputs ResolveGradePadInputs(
         TerrainBuildSnapshot snapshot,
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
         GradePadModifierDefinition modifier,
         double tolerance)
     {
@@ -1661,12 +1699,33 @@ internal sealed class TerrainBuildService
             locks.Add(new PadGrader.LockCurve(xyVerts, polyline.Count));
         }
 
+        PadGrader.PadBoundary[] padArray = pads.ToArray();
+        PadGrader.LockCurve[] lockArray = locks.ToArray();
+        PadGrader.ConstraintSet constraintSet = padArray.Length == 0
+            ? new PadGrader.ConstraintSet
+            {
+                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                SuggestedEdgeLength = 0.0,
+                Diagnostics = Array.Empty<string>()
+            }
+            : PadGrader.CreateConstraints(
+                vertices,
+                vertexCount,
+                faces,
+                faceCount,
+                padArray,
+                lockArray.Length == 0 ? null : lockArray);
+        var allDiagnostics = new List<string>(diagnostics.Count + constraintSet.Diagnostics.Length);
+        allDiagnostics.AddRange(diagnostics);
+        allDiagnostics.AddRange(constraintSet.Diagnostics);
+
         return new ResolvedGradePadInputs
         {
-            Pads = pads.ToArray(),
-            Locks = locks.ToArray(),
-            Constraints = CreateGradePadConstraints(pads, locks),
-            Diagnostics = diagnostics.ToArray()
+            Pads = padArray,
+            Locks = lockArray,
+            Constraints = constraintSet.Constraints,
+            SuggestedEdgeLength = constraintSet.SuggestedEdgeLength,
+            Diagnostics = allDiagnostics.ToArray()
         };
     }
 
@@ -1823,9 +1882,27 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
+        if (build.PersistentHardConstraints.Count > 0 && resolvedInputs.Constraints.Length > 0)
+        {
+            var pathConstraintData = resolvedInputs.Constraints
+                .Select(static constraint => new ConstraintConflictDiagnostics.PolylineData(constraint.Points, constraint.PointCount, constraint.IsClosed))
+                .ToArray();
+            var hardConstraintData = build.PersistentHardConstraints
+                .Select(static constraint => new ConstraintConflictDiagnostics.PolylineData(constraint.Points, constraint.PointCount, constraint.IsClosed))
+                .ToArray();
+            var conflictSummary = ConstraintConflictDiagnostics.Analyze(pathConstraintData, hardConstraintData, tolerance);
+            build.Diagnostics.Add(conflictSummary.CreateSummaryMessage());
+            if (conflictSummary.CreateSampleMessage() is string sampleMessage)
+                build.Diagnostics.Add(sampleMessage);
+        }
+
         var combinedConstraints = CombineConstraints(build.PersistentHardConstraints, resolvedInputs.Constraints);
         bool hasPersistentHardConstraints = build.PersistentHardConstraints.Count > 0;
-        if (mode == TerrainBuildMode.Preview || CanUseLegacyPathTriangulation(mesh))
+        if (TerrainBuildHeuristics.ShouldUseLegacyPathTriangulation(
+            mode,
+            hasPersistentHardConstraints,
+            mesh.Vertices.Count,
+            mesh.Faces.Count))
         {
             RhinoMesh? legacyMesh = ApplyGradePathLegacy(mesh, vertices, faces, resolvedInputs, tolerance, build, build.PersistentHardConstraints);
             if (legacyMesh != null)
@@ -1851,6 +1928,8 @@ internal sealed class TerrainBuildService
                 $"Grade Path used remesh topology mode on a dense upstream mesh ({mesh.Vertices.Count:N0} verts, {mesh.Faces.Count:N0} faces) to avoid a full point-insertion re-triangulation stall.");
         }
 
+        var topologyTimer = Stopwatch.StartNew();
+        bool keptInputTopology = false;
         RhinoMesh topologyMesh = mesh;
         if (resolvedInputs.Constraints.Length > 0)
         {
@@ -1863,8 +1942,10 @@ internal sealed class TerrainBuildService
                 0,
                 0,
                 "Grade Path",
-                build);
+                build,
+                out keptInputTopology);
         }
+        topologyTimer.Stop();
 
         if (!RhinoGeometryConversions.TryExtractMeshData(topologyMesh, out var topologyVertices, out var topologyFaces, out errorMessage))
         {
@@ -1872,7 +1953,30 @@ internal sealed class TerrainBuildService
             return topologyMesh;
         }
 
-        double[] gradedVertices = PathGrader.ApplyGradingZ(topologyVertices, topologyMesh.Vertices.Count, resolvedInputs.Paths, out int changedVertexCount);
+        string topologyMode = resolvedInputs.Constraints.Length > 0
+            ? (keptInputTopology ? "remesh attempted, input mesh kept" : "remesh")
+            : "existing mesh";
+        build.Diagnostics.Add(
+            $"Grade Path topology mode: {topologyMode} ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyMesh.Vertices.Count, topologyMesh.Faces.Count)}; edge {resolvedInputs.SuggestedEdgeLength:0.###}, max area 0, min angle 0).");
+        build.RecordTiming(
+            "Grade Path Topology",
+            topologyTimer.Elapsed,
+            $"{DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyMesh.Vertices.Count, topologyMesh.Faces.Count)} ({topologyMode})",
+            StageTimingDiagnosticThresholdMs);
+
+        var filterTimer = Stopwatch.StartNew();
+        double[] gradedVertices = PathGrader.ApplyGradingZ(
+            topologyVertices,
+            topologyMesh.Vertices.Count,
+            resolvedInputs.Paths,
+            combinedConstraints,
+            out int changedVertexCount);
+        filterTimer.Stop();
+        build.RecordTiming(
+            "Grade Path Filter",
+            filterTimer.Elapsed,
+            $"{topologyMesh.Vertices.Count:N0} verts",
+            StageTimingDiagnosticThresholdMs);
         if (changedVertexCount == 0)
         {
             build.Diagnostics.Add(
@@ -1886,12 +1990,6 @@ internal sealed class TerrainBuildService
             build);
     }
 
-    private static bool CanUseLegacyPathTriangulation(RhinoMesh mesh)
-    {
-        return mesh.Vertices.Count <= MaxLegacyPathTriangulationVertices &&
-               mesh.Faces.Count <= MaxLegacyPathTriangulationFaces;
-    }
-
     private static RhinoMesh? ApplyGradePathLegacy(
         RhinoMesh mesh,
         double[] vertices,
@@ -1901,6 +1999,7 @@ internal sealed class TerrainBuildService
         TerrainBuildResult build,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints)
     {
+        var legacyTimer = Stopwatch.StartNew();
         var result = PathGrader.Grade(
             vertices,
             mesh.Vertices.Count,
@@ -1909,21 +2008,49 @@ internal sealed class TerrainBuildService
             resolvedInputs.Paths,
             persistentHardConstraints,
             out var warning);
+        legacyTimer.Stop();
 
         if (result == null)
         {
+            build.RecordTiming("Grade Path Legacy", legacyTimer.Elapsed, "failed", StageTimingDiagnosticThresholdMs);
             build.Diagnostics.Add(warning ?? "Grade Path failed.");
             return null;
         }
 
+        build.Diagnostics.Add(
+            $"Grade Path topology mode: legacy point insertion ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, result.VertexCount, result.FaceCount)}).");
+        build.RecordTiming(
+            "Grade Path Legacy",
+            legacyTimer.Elapsed,
+            DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, result.VertexCount, result.FaceCount),
+            StageTimingDiagnosticThresholdMs);
+
         if (!string.IsNullOrWhiteSpace(warning))
             build.Diagnostics.Add(warning);
+
+        AddOutputPolylinesAsBreaklines(result.OutputPolylines, build);
 
         return CleanTinyFaces(
             RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount),
             tolerance,
             "Grade Path",
             build);
+    }
+
+    private static void AddOutputPolylinesAsBreaklines(
+        IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> polylines,
+        TerrainBuildResult build)
+    {
+        foreach (var poly in polylines)
+        {
+            if (poly.VertexCount < 2)
+                continue;
+            build.PersistentHardConstraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                poly.Vertices,
+                poly.VertexCount,
+                poly.IsClosed,
+                PreserveInputElevation: true));
+        }
     }
 
     private static ResolvedGradePathInputs ResolveGradePathInputs(
@@ -1936,10 +2063,19 @@ internal sealed class TerrainBuildService
         double tolerance)
     {
         var paths = new List<PathGrader.PathDefinition>();
+        double requestedEdgeLength = TerrainBuildHeuristics.GetGradePathCurveSamplingLength(modifier.Width);
         foreach (var curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Paths))
         {
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
+            if (!RhinoSourceResolver.TryGetPolyline(
+                    curve,
+                    tolerance,
+                    requireClosed: false,
+                    requestedEdgeLength,
+                    maxArea: 0.0,
+                    out var polyline))
+            {
                 continue;
+            }
 
             var pathXy = new double[polyline.Count * 2];
             var pathZ = new double[polyline.Count];
@@ -3416,6 +3552,29 @@ internal sealed class TerrainBuildService
         double elevMaxZ,
         TerrainBuildResult build)
     {
+        var (objects, summary) = BuildContourCore(currentMesh, analysis, elevMinZ, elevMaxZ);
+        build.AuxiliaryObjects.AddRange(objects);
+        return summary;
+    }
+
+    internal static (List<GeneratedRhinoObject> Objects, TerrainAnalysisSummary Summary) BuildContourObjects(
+        RhinoMesh mesh,
+        ContourAnalysisDefinition analysis)
+    {
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out _))
+            return (new List<GeneratedRhinoObject>(), new TerrainAnalysisSummary { AnalysisId = analysis.Id });
+
+        GetElevationRange(vertices, mesh.Vertices.Count, out double minZ, out double maxZ);
+        return BuildContourCore(mesh, analysis, minZ, maxZ);
+    }
+
+    private static (List<GeneratedRhinoObject> Objects, TerrainAnalysisSummary Summary) BuildContourCore(
+        RhinoMesh mesh,
+        ContourAnalysisDefinition analysis,
+        double elevMinZ,
+        double elevMaxZ)
+    {
+        var objects = new List<GeneratedRhinoObject>();
         var levels = BuildContourLevels(elevMinZ, elevMaxZ, analysis.StartZ, Math.Max(analysis.Interval, 0.01));
         int contourCurveCount = 0;
         int contourLevelCount = 0;
@@ -3425,7 +3584,7 @@ internal sealed class TerrainBuildService
         foreach (double level in levels)
         {
             var plane = new Plane(new Point3d(0.0, 0.0, level), Vector3d.ZAxis);
-            Polyline[]? polylines = Intersection.MeshPlane(currentMesh, plane);
+            Polyline[]? polylines = Intersection.MeshPlane(mesh, plane);
             if (polylines == null || polylines.Length == 0)
                 continue;
 
@@ -3442,7 +3601,7 @@ internal sealed class TerrainBuildService
                     continue;
 
                 levelCurveIndex++;
-                build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+                objects.Add(new GeneratedRhinoObject
                 {
                     Geometry = new PolylineCurve(polyline),
                     Name = levelCurveIndex == 1
@@ -3463,7 +3622,7 @@ internal sealed class TerrainBuildService
             lastLevel = level;
         }
 
-        return new TerrainAnalysisSummary
+        var summary = new TerrainAnalysisSummary
         {
             AnalysisId = analysis.Id,
             ContourCurveCount = contourCurveCount,
@@ -3471,6 +3630,7 @@ internal sealed class TerrainBuildService
             ContourFirstLevel = contourLevelCount > 0 ? firstLevel : 0.0,
             ContourLastLevel = contourLevelCount > 0 ? lastLevel : 0.0
         };
+        return (objects, summary);
     }
 
     private static ReferenceComparisonStats ComputeReferenceComparisonStats(
@@ -3754,8 +3914,10 @@ internal sealed class TerrainBuildService
         double maxArea,
         double minAngle,
         string label,
-        TerrainBuildResult build)
+        TerrainBuildResult build,
+        out bool keptInputMesh)
     {
+        keptInputMesh = false;
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var originalVertices, out var originalFaces, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? $"Could not extract mesh data for {label.ToLowerInvariant()}.");
@@ -3773,11 +3935,20 @@ internal sealed class TerrainBuildService
                 RequestedEdgeLength = requestedEdgeLength,
                 MaxArea = maxArea,
                 MinAngle = minAngle,
-                ProtectSharpEdges = true
+                ProtectSharpEdges = true,
+                // When no quality params are set, RequestedEdgeLength controls only constraint
+                // pre-densification spacing — do not use it to drive Steiner interior refinement.
+                ConstraintInsertionOnly = maxArea <= 0 && minAngle <= 0
             });
 
         if (!remeshResult.Success)
         {
+            keptInputMesh = remeshResult.ReturnedInputMesh;
+            if (remeshResult.ReturnedInputMesh)
+            {
+                build.Diagnostics.Add(
+                    $"{label} remesh attempted constraint insertion but kept the upstream mesh unchanged; grading will continue on the existing topology.");
+            }
             build.Diagnostics.Add(remeshResult.Warning ?? $"{label} triangulation failed.");
             return mesh;
         }
@@ -3792,6 +3963,11 @@ internal sealed class TerrainBuildService
             build.Diagnostics.Add(remeshResult.Warning);
 
         return CleanTinyFaces(BuildMeshFromArrays(remeshResult.Vertices, remeshResult.Faces), tolerance, label, build);
+    }
+
+    private static string DescribeTopologyCounts(int inputVertexCount, int inputFaceCount, int outputVertexCount, int outputFaceCount)
+    {
+        return $"{inputVertexCount:N0} verts/{inputFaceCount:N0} faces -> {outputVertexCount:N0} verts/{outputFaceCount:N0} faces";
     }
 
     private static List<SurfaceRemesher.ConstraintPolyline> CombineConstraints(
@@ -3858,6 +4034,37 @@ internal sealed class TerrainBuildService
         }
 
         return result;
+    }
+
+    private static (double[] xyz, int count) AppendContourPoints(double[] spotXyz, int spotCount, IReadOnlyList<Curve> contourCurves, double tolerance)
+    {
+        if (contourCurves.Count == 0)
+            return (spotXyz, spotCount);
+
+        var extra = new List<double>();
+        foreach (var curve in contourCurves)
+        {
+            if (curve == null)
+                continue;
+            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
+                continue;
+            foreach (var pt in polyline)
+            {
+                extra.Add(pt.X);
+                extra.Add(pt.Y);
+                extra.Add(pt.Z);
+            }
+        }
+
+        if (extra.Count == 0)
+            return (spotXyz, spotCount);
+
+        int contourCount = extra.Count / 3;
+        var combined = new double[spotCount * 3 + extra.Count];
+        Array.Copy(spotXyz, combined, spotCount * 3);
+        for (int i = 0; i < extra.Count; i++)
+            combined[spotCount * 3 + i] = extra[i];
+        return (combined, spotCount + contourCount);
     }
 
     private static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)
@@ -4078,26 +4285,30 @@ internal sealed class TerrainBuildService
         double tolerance,
         GradePadModifierDefinition modifier,
         IReadOnlyList<PadGrader.PadBoundary> pads,
-        IReadOnlyList<PadGrader.LockCurve> locks)
+        IReadOnlyList<PadGrader.LockCurve> lockCurves)
     {
         var builder = new FingerprintBuilder();
-        builder.Add("GradePadTopology");
+        builder.Add("GradePadTopologyV3");
         builder.Add(upstreamFingerprint);
         builder.Add(tolerance);
-        builder.Add(modifier.MaxArea);
-        builder.Add(modifier.MinAngle);
+        builder.Add(modifier.SlopeAngle);
+        builder.Add(modifier.MaxDistance);
         builder.Add(pads.Count);
         foreach (var pad in pads)
         {
             builder.Add(pad.VertexCount);
             AddDoubleArrayFingerprint(ref builder, pad.XyVertices);
+            AddDoubleArrayFingerprint(ref builder, pad.BoundaryVertices);
+            builder.Add(pad.PlaneXCoeff);
+            builder.Add(pad.PlaneYCoeff);
+            builder.Add(pad.PlaneConstant);
         }
 
-        builder.Add(locks.Count);
-        foreach (var lockCurve in locks)
+        builder.Add(lockCurves.Count);
+        foreach (var lc in lockCurves)
         {
-            builder.Add(lockCurve.VertexCount);
-            AddDoubleArrayFingerprint(ref builder, lockCurve.XyVertices);
+            builder.Add(lc.VertexCount);
+            AddDoubleArrayFingerprint(ref builder, lc.XyVertices);
         }
 
         return builder.ToUInt64();
@@ -4312,8 +4523,35 @@ internal sealed class TerrainBuildService
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
             return mesh;
 
-        var originalTopology = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, mesh.Faces.Count);
-        double medianEdgeLength = ComputeMedianUndirectedEdgeLength(vertices, faces, mesh.Faces.Count);
+        TinyFaceCleanupResult cleanup = ComputeTinyFaceCleanup(vertices, faces, mesh.Faces.Count, tolerance);
+        if (!cleanup.HasChanges)
+        {
+            if (cleanup.BlockedFaceCount > 0)
+                build.Diagnostics.Add($"{sourceLabel} kept the pre-cleanup mesh because tiny-face cleanup would create extra boundary loops or open naked-edge chains.");
+            return mesh;
+        }
+
+        if (cleanup.BlockedFaceCount > 0)
+        {
+            build.Diagnostics.Add(
+                $"{sourceLabel} removed {cleanup.RemovedFaceCount} tiny faces and kept {cleanup.BlockedFaceCount} because removing them would create extra boundary loops or open naked-edge chains.");
+        }
+        else
+        {
+            build.Diagnostics.Add($"{sourceLabel} removed {cleanup.RemovedFaceCount} tiny faces.");
+        }
+
+        return BuildRemappedMesh(vertices, new List<int>(cleanup.Faces));
+    }
+
+    internal static TinyFaceCleanupResult ComputeTinyFaceCleanup(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        double tolerance)
+    {
+        var originalTopology = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
+        double medianEdgeLength = ComputeMedianUndirectedEdgeLength(vertices, faces, faceCount);
         double effectiveCleanupTolerance = Math.Max(
             1e-6,
             Math.Min(
@@ -4321,14 +4559,13 @@ internal sealed class TerrainBuildService
                 medianEdgeLength > 0 ? medianEdgeLength * 0.01 : 0.01));
         double minEdgeLength = Math.Max(effectiveCleanupTolerance * 2.0, 1e-5);
         double minProjectedArea = Math.Max(effectiveCleanupTolerance * effectiveCleanupTolerance * 2.0, 1e-10);
-        var keptFaces = new List<int>(faces.Length);
-        int removed = 0;
 
-        for (int i = 0; i < mesh.Faces.Count; i++)
+        var candidates = new List<(int FaceIndex, double Area, double SmallestEdge)>();
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
-            int a = faces[i * 3];
-            int b = faces[i * 3 + 1];
-            int c = faces[i * 3 + 2];
+            int a = faces[faceIndex * 3];
+            int b = faces[faceIndex * 3 + 1];
+            int c = faces[faceIndex * 3 + 2];
 
             var pa = new Point3d(vertices[a * 3], vertices[a * 3 + 1], vertices[a * 3 + 2]);
             var pb = new Point3d(vertices[b * 3], vertices[b * 3 + 1], vertices[b * 3 + 2]);
@@ -4338,31 +4575,56 @@ internal sealed class TerrainBuildService
             double l1 = pb.DistanceTo(pc);
             double l2 = pc.DistanceTo(pa);
             double area = Math.Abs((pb.X - pa.X) * (pc.Y - pa.Y) - (pb.Y - pa.Y) * (pc.X - pa.X)) * 0.5;
+            double smallestEdge = Math.Min(l0, Math.Min(l1, l2));
 
-            if (Math.Min(l0, Math.Min(l1, l2)) < minEdgeLength || area < minProjectedArea)
+            if (smallestEdge < minEdgeLength || area < minProjectedArea)
+                candidates.Add((faceIndex, area, smallestEdge));
+        }
+
+        if (candidates.Count == 0)
+            return new TinyFaceCleanupResult((int[])faces.Clone(), 0, 0);
+
+        candidates.Sort(static (left, right) =>
+        {
+            int compare = left.Area.CompareTo(right.Area);
+            if (compare != 0)
+                return compare;
+
+            return left.SmallestEdge.CompareTo(right.SmallestEdge);
+        });
+
+        bool[] keepFace = new bool[faceCount];
+        Array.Fill(keepFace, true);
+
+        int removedCount = 0;
+        int blockedCount = 0;
+        bool enforceSingleClosedBoundaryLoop = originalTopology.HasSingleClosedBoundaryLoop;
+
+        foreach (var candidate in candidates)
+        {
+            keepFace[candidate.FaceIndex] = false;
+            if (enforceSingleClosedBoundaryLoop)
             {
-                removed++;
-                continue;
+                int[] proposedFaces = BuildFilteredFaces(faces, faceCount, keepFace, removedCount + 1);
+                var proposedTopology = MeshTopologyValidator.AnalyzeBoundaryGraph(proposedFaces, proposedFaces.Length / 3);
+                if (!proposedTopology.HasSingleClosedBoundaryLoop)
+                {
+                    keepFace[candidate.FaceIndex] = true;
+                    blockedCount++;
+                    continue;
+                }
             }
 
-            keptFaces.Add(a);
-            keptFaces.Add(b);
-            keptFaces.Add(c);
+            removedCount++;
         }
 
-        if (removed == 0)
-            return mesh;
+        if (removedCount == 0)
+            return new TinyFaceCleanupResult((int[])faces.Clone(), 0, blockedCount);
 
-        var cleanedFaces = keptFaces.ToArray();
-        var cleanedTopology = MeshTopologyValidator.AnalyzeBoundaryGraph(cleanedFaces, cleanedFaces.Length / 3);
-        if (originalTopology.HasSingleClosedBoundaryLoop && !cleanedTopology.HasSingleClosedBoundaryLoop)
-        {
-            build.Diagnostics.Add($"{sourceLabel} kept the pre-cleanup mesh because tiny-face cleanup would create extra boundary loops or open naked-edge chains.");
-            return mesh;
-        }
-
-        build.Diagnostics.Add($"{sourceLabel} removed {removed} tiny faces.");
-        return BuildRemappedMesh(vertices, keptFaces);
+        return new TinyFaceCleanupResult(
+            BuildFilteredFaces(faces, faceCount, keepFace, removedCount),
+            removedCount,
+            blockedCount);
     }
 
     private static double ComputeMedianUndirectedEdgeLength(double[] vertices, int[] faces, int faceCount)
@@ -4423,6 +4685,23 @@ internal sealed class TerrainBuildService
             compactFaces[i] = remap[faces[i]];
 
         return RhinoGeometryConversions.BuildMesh(compactVertices, used.Count, compactFaces, compactFaces.Length / 3);
+    }
+
+    private static int[] BuildFilteredFaces(int[] faces, int faceCount, bool[] keepFace, int removedFaceCount)
+    {
+        var filteredFaces = new int[(faceCount - removedFaceCount) * 3];
+        int outputIndex = 0;
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            if (!keepFace[faceIndex])
+                continue;
+
+            filteredFaces[outputIndex++] = faces[faceIndex * 3];
+            filteredFaces[outputIndex++] = faces[faceIndex * 3 + 1];
+            filteredFaces[outputIndex++] = faces[faceIndex * 3 + 2];
+        }
+
+        return filteredFaces;
     }
 
     private static T MeasureStage<T>(

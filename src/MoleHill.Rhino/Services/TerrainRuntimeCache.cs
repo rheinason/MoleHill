@@ -47,6 +47,20 @@ internal sealed class TerrainRuntimeCache
 
     public void ReplaceBuildCachesFrom(TerrainRuntimeCache source)
     {
+        // Dispose old mesh outputs before clearing — Rhino meshes wrap native C++ objects
+        // that the .NET GC cannot account for; explicitly disposing releases them immediately.
+        // IMPORTANT: only dispose meshes that are NOT being carried back from the worker.
+        // The worker holds shallow refs to unchanged entries; disposing them would corrupt
+        // the objects the worker copied in. Use reference equality to detect carry-overs.
+        var incomingMeshes = new HashSet<RhinoMesh>(ReferenceEqualityComparer.Instance);
+        foreach (var entry in source.StageEntries.Values)
+            if (entry.MeshOutput != null)
+                incomingMeshes.Add(entry.MeshOutput);
+
+        foreach (var entry in StageEntries.Values)
+            if (entry.MeshOutput != null && !incomingMeshes.Contains(entry.MeshOutput))
+                entry.MeshOutput.Dispose();
+
         StageEntries.Clear();
         foreach (var entry in source.StageEntries)
             StageEntries[entry.Key] = entry.Value;
@@ -65,6 +79,7 @@ internal sealed class TerrainRuntimeCache
 
     public void Clear()
     {
+        DisposeAllMeshOutputs(StageEntries);
         StageEntries.Clear();
         PadTopologyEntries.Clear();
         SmoothEntries.Clear();
@@ -80,7 +95,10 @@ internal sealed class TerrainRuntimeCache
         if (usedStageKeys.Count == 0)
         {
             foreach (string stageKey in StageEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
+            {
+                // Do not Dispose — see comment in the non-empty branch below.
                 StageEntries.Remove(stageKey);
+            }
 
             foreach (string stageKey in PadTopologyEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
                 PadTopologyEntries.Remove(stageKey);
@@ -91,13 +109,24 @@ internal sealed class TerrainRuntimeCache
         }
 
         foreach (string stageKey in StageEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
+        {
+            // Do not Dispose here — PruneUnused runs on the worker cache, which holds shallow
+            // mesh refs copied from the main cache. Disposing would corrupt the main cache's
+            // live meshes. ReplaceBuildCachesFrom disposes main cache entries on merge.
             StageEntries.Remove(stageKey);
+        }
 
         foreach (string stageKey in PadTopologyEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
             PadTopologyEntries.Remove(stageKey);
 
         foreach (string stageKey in SmoothEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
             SmoothEntries.Remove(stageKey);
+    }
+
+    private static void DisposeAllMeshOutputs(Dictionary<string, StageCacheEntry> entries)
+    {
+        foreach (var entry in entries.Values)
+            entry.MeshOutput?.Dispose();
     }
 
     public static string GetStagePrefix(TerrainBuildMode mode)

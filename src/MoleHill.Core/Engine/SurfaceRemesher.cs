@@ -23,6 +23,14 @@ public static class SurfaceRemesher
         public double MinAngle { get; init; }
 
         public bool ProtectSharpEdges { get; init; } = true;
+
+        /// <summary>
+        /// When true, <see cref="RequestedEdgeLength"/> controls only constraint pre-densification
+        /// spacing; it does NOT drive quality interior refinement (Steiner insertions).
+        /// Use this for topology-insertion passes (Grade Path, Grade Pad) where the goal is to
+        /// embed constraint edges into the mesh without re-triangulating the entire terrain.
+        /// </summary>
+        public bool ConstraintInsertionOnly { get; init; }
     }
 
     public sealed class Result
@@ -555,6 +563,7 @@ public static class SurfaceRemesher
         {
             Tolerance = options.Tolerance,
             RequestedEdgeLength = requestedEdgeLength,
+            ConstraintInsertionOnly = options.ConstraintInsertionOnly,
             MaxArea = maxArea,
             MinAngle = 0.0,
             ProtectSharpEdges = options.ProtectSharpEdges
@@ -1369,6 +1378,9 @@ public static class SurfaceRemesher
 
     private static double GetEffectiveMaxArea(Options options)
     {
+        if (options.ConstraintInsertionOnly)
+            return 0.0;
+
         if (options.MaxArea > 0)
             return options.MaxArea;
 

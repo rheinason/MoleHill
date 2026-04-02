@@ -22,6 +22,12 @@ internal static class TerrainAnalysisPreviewBuilder
             return;
         }
 
+        if (!terrain.ShowAnalysisOutputs)
+        {
+            state.PreviewTerrainMesh = state.TerrainMesh;
+            return;
+        }
+
         AnalysisDefinition? activeAnalysis = terrain.Analyses.FirstOrDefault(analysis => analysis.IsEnabled && SupportsTerrainPreview(analysis));
         if (activeAnalysis == null)
         {
@@ -75,8 +81,14 @@ internal static class TerrainAnalysisPreviewBuilder
 
     internal static bool ShouldDisplayGeneratedOutput(TerrainDefinition terrain, GeneratedRhinoObject generated)
     {
+        if (generated.Kind == GeneratedObjectKind.SlopePreview)
+            return terrain.ShowAnalysisOutputs && terrain.ShowSlopePreview;
+
         if (!generated.AnalysisId.HasValue)
             return true;
+
+        if (!terrain.ShowAnalysisOutputs)
+            return false;
 
         return terrain.Analyses.Any(analysis => analysis.Id == generated.AnalysisId.Value && analysis.IsEnabled);
     }

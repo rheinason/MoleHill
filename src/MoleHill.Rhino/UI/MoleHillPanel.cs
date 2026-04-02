@@ -40,8 +40,8 @@ public sealed class MoleHillPanel : Panel
     private readonly TextBox _terrainName = new();
     private readonly CheckBox _liveUpdate = new() { Text = "Live" };
     private readonly Label _statusLabel = new();
-    private readonly Label _terrainLayerLabel = new() { VerticalAlignment = VerticalAlignment.Center };
-    private readonly Label _auxLayerLabel     = new() { VerticalAlignment = VerticalAlignment.Center };
+    private readonly Label _terrainLayerLabel = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
+    private readonly Label _auxLayerLabel     = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
     private readonly Panel _terrainColorSwatch = new() { Width = 18, Height = 18 };
     private readonly Label _terrainColorLabel = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Label _statusHintLabel   = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -66,6 +66,9 @@ public sealed class MoleHillPanel : Panel
     private Button _deleteButton = new();
     private Button _rebuildButton = new();
     private Button _resetBuildButton = new();
+    private Button _bakeButton = new();
+    private readonly DropDown _terrainPickerDropDown = new();
+    private bool _isUpdatingTerrainPicker;
     private readonly HashSet<Guid> _collapsedModifiers = new();
     private readonly HashSet<Guid> _collapsedObjects = new();
     private readonly HashSet<Guid> _collapsedZones = new();
@@ -116,10 +119,10 @@ public sealed class MoleHillPanel : Panel
     private const int PropertyLabelWidth = 84;
     private const int NumericLabelWidth = 96;
     private const int HeaderActionHeight = 22;
-    private const int StackedSourceEditorWidth = 820;
-    private const int StackedFormRowWidth = 760;
-    private const int WrappedModifierHeaderWidth = 940;
-    private const int CompactCardHeaderWidth = 820;
+    private const int StackedSourceEditorWidth = 390;
+    private const int StackedFormRowWidth = 350;
+    private const int WrappedModifierHeaderWidth = 390;
+    private const int CompactCardHeaderWidth = 360;
     private const int LayerPickerMinHeight = 160;
     private const int LayerPickerMargin = 6;
     private const int LayerPickerRowHeight = 28;
@@ -131,7 +134,11 @@ public sealed class MoleHillPanel : Panel
     private int _deferredControllerRefreshDepth;
     private bool _hasDeferredControllerRefresh;
     private int _selectedTabIndex;
-    private TabControl? _tabs;
+    private Panel? _tabContentPanel;
+    private Label? _zonesEyeButton;
+    private Label? _analysisEyeButton;
+    private readonly Dictionary<int, Panel> _tabChipMap = new();
+    private readonly Dictionary<int, Label> _tabChipLabelMap = new();
 
     private enum LayerPickerMode
     {
@@ -148,7 +155,7 @@ public sealed class MoleHillPanel : Panel
         public required Control IconPlate { get; init; }
         public required Control EnabledControl { get; init; }
         public required Control TitleBlock { get; init; }
-        public required Action ToggleCollapsed { get; init; }
+        public required Action<bool> ToggleCollapsed { get; init; }
         public required bool Collapsed { get; init; }
         public Color CardBackground { get; init; } = UiTheme.CardBackground;
         public Color HeaderBackground { get; init; } = UiTheme.HeaderBackground;
@@ -183,12 +190,29 @@ public sealed class MoleHillPanel : Panel
         _toleranceStepper.DecimalPlaces = 3;
         _toleranceStepper.Increment = 0.1;
         _toleranceStepper.MinValue = 0;
-        ApplyHelp(_toleranceStepper, "Global Z-snapping tolerance for point deduplication.");
+        ApplyHelp(_toleranceStepper, "Vertex merge tolerance. Two points closer than this distance in XY (and Z for breakline-to-breakline) are treated as the same vertex. Lower = more detail preserved. Higher = more aggressive merging.");
+        void CommitTolerance()
+        {
+            if (_isRefreshing)
+                return;
+
+            var doc = RhinoDoc.ActiveDoc;
+            var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+            if (terrain == null)
+                return;
+
+            double value = _toleranceStepper.Value;
+            if (!TerrainCommitGuard.HasMeaningfulNumericChange(terrain.GlobalTolerance, value))
+                return;
+
+            MutateSelectedTerrain(t => t.GlobalTolerance = value, scheduleRebuild: true);
+        }
+
         var toleranceTimer = new UITimer { Interval = 0.25 };
         toleranceTimer.Elapsed += (_, _) =>
         {
             toleranceTimer.Stop();
-            MutateSelectedTerrain(t => t.GlobalTolerance = _toleranceStepper.Value, scheduleRebuild: true);
+            CommitTolerance();
         };
         _toleranceStepper.ValueChanged += (_, _) =>
         {
@@ -199,7 +223,7 @@ public sealed class MoleHillPanel : Panel
         _toleranceStepper.LostFocus += (_, _) =>
         {
             toleranceTimer.Stop();
-            MutateSelectedTerrain(t => t.GlobalTolerance = _toleranceStepper.Value, scheduleRebuild: true);
+            CommitTolerance();
         };
 
         _terrainOpacityStepper.DecimalPlaces = 0;
@@ -312,14 +336,13 @@ public sealed class MoleHillPanel : Panel
     private Control BuildContent()
     {
         bool stackFormRows = UseStackedFormRows();
-        Button? pickerButton = null;
-        pickerButton = MakeToolbarButton("Menu", (_, _) => ShowTerrainPickerMenu(pickerButton!), "Switch terrain", width: 62);
 
         var newButton = MakeToolbarButton("New", OnNewTerrain, "Create a new terrain", width: 46);
         _dupButton = MakeToolbarButton("Copy", OnDuplicateTerrain, "Duplicate selected terrain", width: 50);
         _deleteButton = MakeToolbarButton("Del", OnDeleteTerrain, "Delete selected terrain", width: 38);
         _rebuildButton = MakeToolbarButton("Rebuild", OnRebuildTerrain, "Force rebuild terrain now", width: 62);
         _resetBuildButton = MakeToolbarButton("Reset Build", OnResetTerrainBuild, "Cancel the current worker, clear queued rebuilds, and drop cached preview state.", width: 82);
+        _bakeButton = MakeToolbarButton("Bake", OnBakeTerrain, "Bake the terrain to document objects", width: 46);
         _visibilityButton.ToolTip = "Toggle terrain visibility";
         _lockButton.ToolTip = "Lock terrain to prevent accidental edits";
         _visibilityButton.Width = 58;
@@ -328,8 +351,14 @@ public sealed class MoleHillPanel : Panel
         _lockButton.Height = 26;
         _liveUpdate.Height = 26;
 
+        _terrainPickerDropDown.ToolTip = "Select the active terrain";
+        _terrainPickerDropDown.Height = 26;
+        _isUpdatingTerrainPicker = false;
+        _terrainPickerDropDown.SelectedIndexChanged -= OnTerrainPickerDropDownChanged;
+        _terrainPickerDropDown.SelectedIndexChanged += OnTerrainPickerDropDownChanged;
+
         // ── Toolbar (two rows) ────────────────────────────────────────
-        // Row 1: identity
+        // Row 1: Terrain label | name | New / Copy / Del | picker dropdown
         var identityRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
@@ -339,7 +368,8 @@ public sealed class MoleHillPanel : Panel
             {
                 new Label { Text = "Terrain", TextColor = UiTheme.MutedText, VerticalAlignment = VerticalAlignment.Center },
                 new StackLayoutItem(_terrainName, expand: true),
-                pickerButton
+                CreateToolbarGroup(newButton, _dupButton, _deleteButton),
+                new StackLayoutItem(_terrainPickerDropDown, HorizontalAlignment.Right)
             }
         };
         var identityGroup = new Panel
@@ -349,7 +379,7 @@ public sealed class MoleHillPanel : Panel
             Content = identityRow
         };
 
-        // Row 2: actions (New / Copy / Del | Rebuild / Live | Shown / Locked)
+        // Row 2: Rebuild / Reset / Live | spacer | Bake | Shown / Locked
         var actionsRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
@@ -357,9 +387,9 @@ public sealed class MoleHillPanel : Panel
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
-                CreateToolbarGroup(newButton, _dupButton, _deleteButton),
                 CreateToolbarGroup(_rebuildButton, _resetBuildButton, _liveUpdate),
                 new StackLayoutItem(new Panel(), expand: true),
+                _bakeButton,
                 CreateToolbarGroup(_visibilityButton, _lockButton)
             }
         };
@@ -405,20 +435,19 @@ public sealed class MoleHillPanel : Panel
             }
         };
 
-        var terrainLayerControls = new StackLayout
+        var terrainLayerUseCurrentButton = MakeCompactButton("Use Current", OnAssignTerrainLayer, "Assign the current Rhino layer.");
+        var terrainLayerBrowseButton = MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.TerrainLayerPath = path, scheduleRebuild: false), "Browse and pick the terrain layer");
+        var terrainLayerDefaultButton = MakeCompactButton("Default", (_, _) =>
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(_terrainLayerLabel, expand: true),
-                MakeCompactButton("Use Current", OnAssignTerrainLayer, "Assign the current Rhino layer."),
-                MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.TerrainLayerPath = path, scheduleRebuild: false), "Browse and pick the terrain layer"),
-                MakeCompactButton("Default", (_, _) => { MutateSelectedTerrain(t => t.TerrainLayerPath = null, scheduleRebuild: false); RefreshUi(); }, "Use the default MoleHill terrain layer.")
-            }
-        };
+            MutateSelectedTerrain(t => t.TerrainLayerPath = null, scheduleRebuild: false);
+            RefreshUi();
+        }, "Use the default MoleHill terrain layer.");
+        var terrainLayerControls = CreateResponsivePrimaryActionRow(
+            _terrainLayerLabel,
+            4,
+            terrainLayerUseCurrentButton,
+            terrainLayerBrowseButton,
+            terrainLayerDefaultButton);
         var terrainLayerRow = stackFormRows
             ? new StackLayout
             {
@@ -444,20 +473,19 @@ public sealed class MoleHillPanel : Panel
                     new StackLayoutItem(terrainLayerControls, expand: true)
                 }
             };
-        var auxLayerControls = new StackLayout
+        var auxLayerUseCurrentButton = MakeCompactButton("Use Current", OnAssignAuxLayer, "Assign the current Rhino layer for retaining walls and other auxiliary outputs.");
+        var auxLayerBrowseButton = MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = path, scheduleRebuild: true), "Browse and pick the walls / auxiliary layer");
+        var auxLayerClearButton = MakeCompactButton("Clear", (_, _) =>
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(_auxLayerLabel, expand: true),
-                MakeCompactButton("Use Current", OnAssignAuxLayer, "Assign the current Rhino layer for retaining walls and other auxiliary outputs."),
-                MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = path, scheduleRebuild: true), "Browse and pick the walls / auxiliary layer"),
-                MakeCompactButton("Clear", (_, _) => { MutateSelectedTerrain(t => t.AuxiliaryLayerPath = null, scheduleRebuild: true); RefreshUi(); }, "Clear the walls / auxiliary layer assignment.")
-            }
-        };
+            MutateSelectedTerrain(t => t.AuxiliaryLayerPath = null, scheduleRebuild: true);
+            RefreshUi();
+        }, "Clear the walls / auxiliary layer assignment.");
+        var auxLayerControls = CreateResponsivePrimaryActionRow(
+            _auxLayerLabel,
+            4,
+            auxLayerUseCurrentButton,
+            auxLayerBrowseButton,
+            auxLayerClearButton);
         var auxLayerRow = stackFormRows
             ? new StackLayout
             {
@@ -504,21 +532,47 @@ public sealed class MoleHillPanel : Panel
                 Padding = new Padding(0, 1),
                 Items = { CreateHelpLabel("Tolerance", "Global Z-snapping tolerance for point deduplication.", PropertyLabelWidth), _toleranceStepper }
             };
-        var terrainColorControls = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
+        var opacityLabel = CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake.", stackFormRows ? 0 : 52);
+        var resetTerrainColorButton = MakeCompactButton("Reset", (_, _) => ResetTerrainColor(), "Restore the default terrain display color.");
+        var terrainColorControls = stackFormRows
+            ? new StackLayout
             {
-                _terrainColorSwatch,
-                CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake.", 52),
-                new StackLayoutItem(_terrainOpacitySlider, expand: true),
-                _terrainOpacityStepper,
-                MakeCompactButton("Reset", (_, _) => ResetTerrainColor(), "Restore the default terrain display color.")
+                Orientation = Orientation.Vertical,
+                Spacing = 4,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayoutItem(new StackLayout
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 4,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                        Items =
+                        {
+                            _terrainColorSwatch,
+                            opacityLabel,
+                            new StackLayoutItem(_terrainOpacitySlider, expand: true)
+                        }
+                    }, HorizontalAlignment.Stretch),
+                    new StackLayoutItem(CreateResponsiveControlGroup(4, _terrainOpacityStepper, resetTerrainColorButton), HorizontalAlignment.Stretch)
+                }
             }
-        };
+            : new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    _terrainColorSwatch,
+                    opacityLabel,
+                    new StackLayoutItem(_terrainOpacitySlider, expand: true),
+                    _terrainOpacityStepper,
+                    resetTerrainColorButton
+                }
+            };
         var terrainColorRow = stackFormRows
             ? new StackLayout
             {
@@ -568,19 +622,31 @@ public sealed class MoleHillPanel : Panel
                     _showSlowBuildWarningCheck
                 }
             };
-        var bakeTrackingControls = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
+        var bakeTrackingControls = stackFormRows
+            ? new StackLayout
             {
-                _replacePreviousBakesCheck,
-                _untrackSelectedBakesButton,
-                _untrackAllBakesButton
+                Orientation = Orientation.Vertical,
+                Spacing = 4,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    _replacePreviousBakesCheck,
+                    new StackLayoutItem(CreateResponsiveControlGroup(4, _untrackSelectedBakesButton, _untrackAllBakesButton), HorizontalAlignment.Stretch)
+                }
             }
-        };
+            : new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    _replacePreviousBakesCheck,
+                    _untrackSelectedBakesButton,
+                    _untrackAllBakesButton
+                }
+            };
         var bakeTrackingRow = stackFormRows
             ? new StackLayout
             {
@@ -690,22 +756,231 @@ public sealed class MoleHillPanel : Panel
             }
         };
 
-        var tabs = new TabControl();
-        tabs.Pages.Add(new TabPage { Text = "Modifiers", Image = PanelIcons.Load("TabModifiers"), Content = BuildScrollable(_modifierStack) });
-        tabs.Pages.Add(new TabPage { Text = "Objects",   Image = PanelIcons.Load("TabMarkers"),   Content = BuildScrollable(_objectsStack) });
-        tabs.Pages.Add(new TabPage { Text = "Zones",     Image = PanelIcons.Load("TabZones"),     Content = BuildScrollable(_zonesStack) });
-        tabs.Pages.Add(new TabPage { Text = "Analysis",  Image = PanelIcons.Load("TabAnalysis"),  Content = BuildScrollable(_analysisStack) });
-        tabs.SelectedIndex = Math.Clamp(_selectedTabIndex, 0, tabs.Pages.Count - 1);
-        tabs.SelectedIndexChanged += (_, _) =>
+        // ── Custom tab strip with eye toggles on Zones and Analysis ──────
+        var tabScrollables = new[]
         {
-            if (tabs.SelectedIndex >= 0)
-                _selectedTabIndex = tabs.SelectedIndex;
+            BuildScrollable(_modifierStack),
+            BuildScrollable(_objectsStack),
+            BuildScrollable(_zonesStack),
+            BuildScrollable(_analysisStack)
         };
-        _tabs = tabs;
+
+        _tabContentPanel = new Panel { Content = tabScrollables[Math.Clamp(_selectedTabIndex, 0, tabScrollables.Length - 1)] };
+
+        void SelectTab(int index)
+        {
+            _selectedTabIndex = Math.Clamp(index, 0, tabScrollables.Length - 1);
+            _tabContentPanel.Content = tabScrollables[_selectedTabIndex];
+        }
+
+        _tabChipMap.Clear();
+        _tabChipLabelMap.Clear();
+
+        void UpdateTabSelectionStyles()
+        {
+            foreach (var (tabIndex, panel) in _tabChipMap)
+                panel.BackgroundColor = tabIndex == _selectedTabIndex ? UiTheme.ListSelectionBackground : UiTheme.ToolbarBackground;
+
+            foreach (var (tabIndex, label) in _tabChipLabelMap)
+                label.TextColor = tabIndex == _selectedTabIndex ? UiTheme.PrimaryText : UiTheme.MutedText;
+        }
+
+        Label MakeTabToggleLabel(string toolTip, Action onClick)
+        {
+            var label = new Label
+            {
+                TextAlignment = TextAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Width = 12
+            };
+            ApplyHelp(label, toolTip);
+            label.MouseDown += (_, e) =>
+            {
+                if (e.Buttons != MouseButtons.Primary)
+                    return;
+
+                onClick();
+            };
+            return label;
+        }
+
+        Control MakeTabHeader(string text, string iconName, int tabIndex, Label? toggleLabel = null)
+        {
+            var textLabel = new Label
+            {
+                Text = text,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var mainRow = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch
+            };
+
+            var icon = PanelIcons.Load(iconName);
+            ImageView? iconView = null;
+            if (icon != null)
+            {
+                iconView = new ImageView
+                {
+                    Image = icon,
+                    Width = 16,
+                    Height = 16,
+                    Size = new Size(16, 16)
+                };
+                mainRow.Items.Add(iconView);
+            }
+
+            mainRow.Items.Add(textLabel);
+            var mainPanel = new Panel
+            {
+                Padding = toggleLabel == null ? new Padding(8, 5) : new Padding(8, 5, 6, 5),
+                Content = mainRow
+            };
+
+            var row = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 0,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayoutItem(mainPanel, expand: true)
+                }
+            };
+
+            if (toggleLabel != null)
+            {
+                var divider = new Panel
+                {
+                    Width = 1,
+                    BackgroundColor = UiTheme.MutedText
+                };
+                var togglePanel = new Panel
+                {
+                    Padding = new Padding(6, 5, 8, 5),
+                    Content = toggleLabel
+                };
+
+                row.Items.Add(divider);
+                row.Items.Add(togglePanel);
+            }
+
+            var inner = new Panel
+            {
+                Content = row
+            };
+            var outer = new Panel
+            {
+                BackgroundColor = UiTheme.HeaderBackground,
+                Padding = new Padding(1),
+                Content = inner
+            };
+
+            void SelectThisTab()
+            {
+                SelectTab(tabIndex);
+                UpdateTabSelectionStyles();
+            }
+
+            mainPanel.MouseDown += (_, e) =>
+            {
+                if (e.Buttons == MouseButtons.Primary)
+                    SelectThisTab();
+            };
+            mainRow.MouseDown += (_, e) =>
+            {
+                if (e.Buttons == MouseButtons.Primary)
+                    SelectThisTab();
+            };
+            textLabel.MouseDown += (_, e) =>
+            {
+                if (e.Buttons == MouseButtons.Primary)
+                    SelectThisTab();
+            };
+            if (iconView != null)
+            {
+                iconView.MouseDown += (_, e) =>
+                {
+                    if (e.Buttons == MouseButtons.Primary)
+                        SelectThisTab();
+                };
+            }
+
+            _tabChipMap[tabIndex] = inner;
+            _tabChipLabelMap[tabIndex] = textLabel;
+
+            return outer;
+        }
+
+        Label MakeZonesViewButton()
+        {
+            var label = MakeTabToggleLabel("Toggle between terrain mesh and zone meshes.", () =>
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+                if (doc == null || terrain == null)
+                    return;
+
+                bool showZonesOnly = terrain.ShowZoneMeshes && !terrain.ShowTerrainMesh;
+                MutateSelectedTerrain(t =>
+                {
+                    t.ShowTerrainMesh = showZonesOnly;
+                    t.ShowZoneMeshes = !showZonesOnly;
+                }, scheduleRebuild: false);
+                _controller.RefreshTerrainDisplay(doc, terrain.TerrainId);
+                RefreshUi();
+            });
+            return label;
+        }
+
+        Label MakeAnalysisVisibilityButton()
+        {
+            var label = MakeTabToggleLabel("Toggle analysis colors and analysis-owned outputs.", () =>
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+                if (doc == null || terrain == null)
+                    return;
+
+                bool showAnalysis = !terrain.ShowAnalysisOutputs;
+                MutateSelectedTerrain(t => t.ShowAnalysisOutputs = showAnalysis, scheduleRebuild: false);
+                RefreshTerrainPreview(terrain.TerrainId);
+                RefreshUi();
+            });
+            return label;
+        }
+
+        _zonesEyeButton = MakeZonesViewButton();
+        _analysisEyeButton = MakeAnalysisVisibilityButton();
+
+        var tabStrip = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 2,
+            Padding = new Padding(4, 2, 4, 0),
+            VerticalContentAlignment = VerticalAlignment.Bottom,
+            Items =
+            {
+                MakeTabHeader("Modifiers", "TabModifiers", 0),
+                MakeTabHeader("Objects", "TabMarkers", 1),
+                MakeTabHeader("Zones", "TabZones", 2, _zonesEyeButton),
+                MakeTabHeader("Analysis", "TabAnalysis", 3, _analysisEyeButton),
+                new StackLayoutItem(new Panel(), expand: true)
+            }
+        };
+        UpdateTabSelectionStyles();
+
+        var tabsContainer = new DynamicLayout();
+        tabsContainer.Add(tabStrip, yscale: false);
+        tabsContainer.Add(_tabContentPanel, yscale: true);
 
         var layout = new DynamicLayout();
         layout.Add(top, yscale: false);
-        layout.Add(tabs, yscale: true);
+        layout.Add(tabsContainer, yscale: true);
         return layout;
     }
 
@@ -722,8 +997,7 @@ public sealed class MoleHillPanel : Panel
 
     private void CaptureSelectedTabIndex()
     {
-        if (_tabs?.SelectedIndex >= 0)
-            _selectedTabIndex = _tabs.SelectedIndex;
+        // Tab index is now tracked directly in _selectedTabIndex via the custom tab strip.
     }
 
     private void SubscribeControllerStateChanged()
@@ -891,6 +1165,24 @@ public sealed class MoleHillPanel : Panel
     private bool UseCompactCardHeaders() => (_responsiveLayoutKey & 8) != 0;
 
     private bool UseWrappedModifierActions() => (_responsiveLayoutKey & 2) != 0;
+
+    private void OnTerrainPickerDropDownChanged(object? sender, EventArgs e)
+    {
+        if (_isUpdatingTerrainPicker || _isRefreshing)
+            return;
+
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        int index = _terrainPickerDropDown.SelectedIndex;
+        var terrains = _controller.GetTerrains(doc).ToList();
+        if (index >= 0 && index < terrains.Count)
+        {
+            _controller.SetSelectedTerrain(doc, terrains[index].TerrainId);
+            RefreshUi();
+        }
+    }
 
     private void OnNewTerrain(object? sender, EventArgs e)
     {
@@ -1097,6 +1389,10 @@ public sealed class MoleHillPanel : Panel
                 _untrackSelectedBakesButton.Enabled = false;
                 _untrackAllBakesButton.Enabled = false;
                 _toleranceStepper.Value = 0;
+                _isUpdatingTerrainPicker = true;
+                _terrainPickerDropDown.Items.Clear();
+                _terrainPickerDropDown.SelectedIndex = -1;
+                _isUpdatingTerrainPicker = false;
                 _visibilityButton.Text = "Shown";
                 _lockButton.Text = "Unlocked";
                 SetActionButtonsEnabled(false);
@@ -1117,6 +1413,19 @@ public sealed class MoleHillPanel : Panel
                 _controller.SetSelectedTerrain(doc, terrains[0].TerrainId);
                 selectedTerrain = terrains[0];
             }
+
+            _isUpdatingTerrainPicker = true;
+            _terrainPickerDropDown.Items.Clear();
+            int selectedPickerIndex = 0;
+            for (int ti = 0; ti < terrains.Count; ti++)
+            {
+                _terrainPickerDropDown.Items.Add(terrains[ti].Name);
+                if (selectedTerrain != null && terrains[ti].TerrainId == selectedTerrain.TerrainId)
+                    selectedPickerIndex = ti;
+            }
+            _terrainPickerDropDown.SelectedIndex = terrains.Count > 0 ? selectedPickerIndex : -1;
+            _terrainPickerDropDown.Enabled = terrains.Count > 1;
+            _isUpdatingTerrainPicker = false;
 
             _terrainName.Text = selectedTerrain?.Name ?? string.Empty;
             _liveUpdate.Checked = selectedTerrain?.LiveUpdateEnabled ?? false;
@@ -1148,6 +1457,9 @@ public sealed class MoleHillPanel : Panel
             _untrackSelectedBakesButton.Enabled = hasTerrain && hasTrackedBakes;
             _untrackAllBakesButton.Enabled = hasTerrain && hasTrackedBakes;
             _terrainName.Enabled = hasTerrain;
+
+            UpdateZonesTabButton(_zonesEyeButton, selectedTerrain);
+            UpdateAnalysisTabButton(_analysisEyeButton, selectedTerrain);
 
             RebuildModifierLayout(selectedTerrain);
             RebuildObjectsLayout(selectedTerrain);
@@ -1311,16 +1623,6 @@ public sealed class MoleHillPanel : Panel
             return;
 
         _analysisStack.Items.Add(new StackLayoutItem(BuildAnalysisToolbar(terrain), HorizontalAlignment.Stretch));
-        _analysisStack.Items.Add(new StackLayoutItem(new Panel
-        {
-            Padding = new Padding(6, 0, 6, 4),
-            Content = new Label
-            {
-                Text = "The first enabled preview analysis drives terrain colors. Other enabled analyses can still report summaries or emit outputs.",
-                TextColor = UiTheme.MutedText,
-                Wrap = WrapMode.Word
-            }
-        }, HorizontalAlignment.Stretch));
 
         if (terrain.Analyses.Count == 0)
         {
@@ -1462,6 +1764,67 @@ public sealed class MoleHillPanel : Panel
         };
     }
 
+    private StackLayout CreateResponsiveControlGroup(int spacing, params Control[] controls)
+    {
+        bool stackVertically = UseStackedFormRows();
+        var group = new StackLayout
+        {
+            Orientation = stackVertically ? Orientation.Vertical : Orientation.Horizontal,
+            Spacing = spacing,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+
+        foreach (var control in controls)
+        {
+            if (stackVertically)
+                group.Items.Add(new StackLayoutItem(control, HorizontalAlignment.Stretch));
+            else
+                group.Items.Add(control);
+        }
+
+        return group;
+    }
+
+    private Control CreateResponsivePrimaryActionRow(Control primaryControl, int spacing, params Control[] actionControls)
+    {
+        if (UseStackedFormRows())
+        {
+            var layout = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = spacing,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayoutItem(primaryControl, HorizontalAlignment.Stretch)
+                }
+            };
+
+            if (actionControls.Length > 0)
+                layout.Items.Add(new StackLayoutItem(CreateResponsiveControlGroup(spacing, actionControls), HorizontalAlignment.Stretch));
+
+            return layout;
+        }
+
+        var row = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = spacing,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(primaryControl, expand: true)
+            }
+        };
+
+        foreach (var actionControl in actionControls)
+            row.Items.Add(actionControl);
+
+        return row;
+    }
+
     private static Label CreateCardStatusLabel(string text, Color? textColor = null)
     {
         return new Label
@@ -1469,6 +1832,17 @@ public sealed class MoleHillPanel : Panel
             Text = text,
             TextColor = textColor ?? UiTheme.MutedText,
             VerticalAlignment = VerticalAlignment.Center,
+            Wrap = WrapMode.Word
+        };
+    }
+
+    private static Label CreateCardMetaLabel(string text)
+    {
+        return new Label
+        {
+            Text = text,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextColor = UiTheme.MutedText,
             Wrap = WrapMode.Word
         };
     }
@@ -1571,7 +1945,7 @@ public sealed class MoleHillPanel : Panel
                 header.Items.Add(new StackLayoutItem(CreateCardActionRow(options.ActionControls), HorizontalAlignment.Stretch));
         }
 
-        header.MouseDown += (_, _) => options.ToggleCollapsed();
+        header.MouseDown += (_, e) => options.ToggleCollapsed(e.Modifiers.HasFlag(Keys.Control));
 
         var card = new StackLayout
         {
@@ -1662,22 +2036,30 @@ public sealed class MoleHillPanel : Panel
 
         return CreateSectionToolbar(
             "MODIFIER STACK",
-            addButton,
-            helperText: "Base geometry stays pinned at the bottom.");
+            addButton);
     }
 
     private Control BuildZonesToolbar(TerrainDefinition? terrain)
     {
-        var addButton = MakeToolbarButton("Add Zone", (_, _) => { }, "Add a zone definition from the current Rhino layer selection.", width: 94);
-        ApplyHelp(addButton, "Create one zone per selected Rhino layer. Zone preview uses the source layer color and baked output goes under MoleHill::Zones::<SourceLayer>.");
+        var addButton = MakeToolbarButton("Add Zone", (_, _) => { }, "Add a zone definition.", width: 94);
+        ApplyHelp(addButton, "Add a blank zone, or create zones from highlighted layers.");
         addButton.Enabled = terrain != null;
         if (terrain != null)
         {
+            var capturedTerrainId = terrain.TerrainId;
             var menu = new ContextMenu();
-            var addFromLayersItem = new ButtonMenuItem
+
+            var addBlankItem = new ButtonMenuItem { Text = "Add Zone" };
+            addBlankItem.Click += (_, _) =>
             {
-                Text = "From Selected Layers"
+                MutateSelectedTerrain(selected =>
+                {
+                    selected.Zones.Add(new CollageZoneDefinition { Name = "Zone" });
+                });
             };
+            menu.Items.Add(addBlankItem);
+
+            var addFromLayersItem = new ButtonMenuItem { Text = "From Highlighted Layers" };
             addFromLayersItem.Click += (_, _) =>
             {
                 var doc = RhinoDoc.ActiveDoc;
@@ -1691,7 +2073,7 @@ public sealed class MoleHillPanel : Panel
                 MutateSelectedTerrain(selected =>
                 {
                     var existing = selected.Zones
-                        .Select(zone => zone.Boundaries.LayerPaths.FirstOrDefault())
+                        .SelectMany(zone => zone.Boundaries.LayerPaths)
                         .Where(path => !string.IsNullOrWhiteSpace(path))
                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -1867,12 +2249,7 @@ public sealed class MoleHillPanel : Panel
                         Font = new Font(SystemFont.Bold),
                         VerticalAlignment = VerticalAlignment.Center
                     },
-                    new Label
-                    {
-                        Text = GetAnalysisCollapsedSummary(terrain, analysis),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = UiTheme.MutedText
-                    }
+                    CreateCardMetaLabel(GetAnalysisCollapsedSummary(terrain, analysis))
                 }
             }
             : new StackLayout
@@ -1882,12 +2259,7 @@ public sealed class MoleHillPanel : Panel
                 Items =
                 {
                     nameBox,
-                    new Label
-                    {
-                        Text = GetAnalysisSubtitle(analysis, isActive),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = UiTheme.MutedText
-                    }
+                    CreateCardMetaLabel(GetAnalysisSubtitle(analysis, isActive))
                 }
             };
 
@@ -1902,12 +2274,28 @@ public sealed class MoleHillPanel : Panel
             RefreshTerrainPreview(terrain.TerrainId);
         }, "Delete this analysis card.", width: 38);
 
-        void ToggleCollapsed()
+        void ToggleCollapsed(bool ctrlHeld)
         {
-            if (_collapsedAnalyses.Contains(analysis.Id))
-                _collapsedAnalyses.Remove(analysis.Id);
+            bool nowCollapsed = !_collapsedAnalyses.Contains(analysis.Id);
+            if (ctrlHeld)
+            {
+                var doc2 = RhinoDoc.ActiveDoc;
+                var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
+                if (t != null)
+                {
+                    if (nowCollapsed)
+                        foreach (var item in t.Analyses) _collapsedAnalyses.Add(item.Id);
+                    else
+                        _collapsedAnalyses.Clear();
+                }
+            }
             else
-                _collapsedAnalyses.Add(analysis.Id);
+            {
+                if (nowCollapsed)
+                    _collapsedAnalyses.Add(analysis.Id);
+                else
+                    _collapsedAnalyses.Remove(analysis.Id);
+            }
 
             var doc = RhinoDoc.ActiveDoc;
             RebuildAnalysisLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
@@ -2245,24 +2633,45 @@ public sealed class MoleHillPanel : Panel
             }
 
             case ContourAnalysisDefinition contour:
+            {
+                Guid capturedContourTerrainId = terrain.TerrainId;
+                Guid capturedContourId = contour.Id;
                 layout.AddRow(CreateNumericEditor(
                     "Interval",
                     contour.Interval,
-                    value => MutateAnalysis(terrain.TerrainId, contour.Id, item => ((ContourAnalysisDefinition)item).Interval = Math.Max(0.01, value), scheduleRebuild: true),
+                    value =>
+                    {
+                        MutateAnalysis(capturedContourTerrainId, capturedContourId, item => ((ContourAnalysisDefinition)item).Interval = Math.Max(0.01, value), scheduleRebuild: false);
+                        var doc = RhinoDoc.ActiveDoc;
+                        if (doc != null)
+                            _controller.RebuildContourAnalysis(doc, capturedContourTerrainId, capturedContourId);
+                    },
                     decimalPlaces: 3,
                     help: "Vertical spacing between generated contour levels.",
                     minValue: 0.01));
                 layout.AddRow(CreateNumericEditor(
                     "Start Z",
                     contour.StartZ,
-                    value => MutateAnalysis(terrain.TerrainId, contour.Id, item => ((ContourAnalysisDefinition)item).StartZ = value, scheduleRebuild: true),
+                    value =>
+                    {
+                        MutateAnalysis(capturedContourTerrainId, capturedContourId, item => ((ContourAnalysisDefinition)item).StartZ = value, scheduleRebuild: false);
+                        var doc = RhinoDoc.ActiveDoc;
+                        if (doc != null)
+                            _controller.RebuildContourAnalysis(doc, capturedContourTerrainId, capturedContourId);
+                    },
                     decimalPlaces: 3,
                     help: "Base elevation offset from which contour levels are stepped.",
                     minValue: null));
                 layout.AddRow(CreateLayerAssignmentEditor(
                     "Output Layer",
                     contour.OutputLayerPath,
-                    path => MutateAnalysis(terrain.TerrainId, contour.Id, item => ((ContourAnalysisDefinition)item).OutputLayerPath = path, scheduleRebuild: true),
+                    path =>
+                    {
+                        MutateAnalysis(capturedContourTerrainId, capturedContourId, item => ((ContourAnalysisDefinition)item).OutputLayerPath = path, scheduleRebuild: false);
+                        var doc = RhinoDoc.ActiveDoc;
+                        if (doc != null)
+                            _controller.RebuildContourAnalysis(doc, capturedContourTerrainId, capturedContourId);
+                    },
                     "Layer used for generated contour curves. Leave empty to use the terrain auxiliary layer."));
                 string defaultColorText = string.IsNullOrWhiteSpace(contour.OutputLayerPath)
                     ? string.IsNullOrWhiteSpace(terrain.AuxiliaryLayerPath)
@@ -2272,7 +2681,13 @@ public sealed class MoleHillPanel : Panel
                 layout.AddRow(CreateOptionalColorEditor(
                     "Color",
                     contour.ColorArgb,
-                    value => MutateAnalysis(terrain.TerrainId, contour.Id, item => ((ContourAnalysisDefinition)item).ColorArgb = value, scheduleRebuild: true),
+                    value =>
+                    {
+                        MutateAnalysis(capturedContourTerrainId, capturedContourId, item => ((ContourAnalysisDefinition)item).ColorArgb = value, scheduleRebuild: false);
+                        var doc = RhinoDoc.ActiveDoc;
+                        if (doc != null)
+                            _controller.RefreshContourColor(doc, capturedContourTerrainId, capturedContourId, value);
+                    },
                     "Explicit display and bake color for generated contour curves. Clear to use the output layer color.",
                     ResolveLayerColorArgb(contour.OutputLayerPath ?? terrain.AuxiliaryLayerPath),
                     defaultColorText));
@@ -2298,6 +2713,7 @@ public sealed class MoleHillPanel : Panel
                         minHeight: 42));
                 }
                 break;
+            }
         }
 
         return layout;
@@ -2389,12 +2805,7 @@ public sealed class MoleHillPanel : Panel
                         Font = new Font(SystemFont.Bold),
                         VerticalAlignment = VerticalAlignment.Center
                     },
-                    new Label
-                    {
-                        Text = GetCollapsedSummary(modifier),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = UiTheme.MutedText
-                    }
+                    CreateCardMetaLabel(GetCollapsedSummary(modifier))
                 }
             };
         }
@@ -2407,12 +2818,7 @@ public sealed class MoleHillPanel : Panel
                 Items =
                 {
                     nameBox,
-                    new Label
-                    {
-                        Text = GetModifierSubtitle(modifier, isPinnedBaseTriangulate),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = UiTheme.MutedText
-                    }
+                    CreateCardMetaLabel(GetModifierSubtitle(modifier, isPinnedBaseTriangulate))
                 }
             };
         }
@@ -2446,12 +2852,28 @@ public sealed class MoleHillPanel : Panel
             actionControls = new Control[] { copyButton, deleteButton };
         }
 
-        void ToggleCollapsed()
+        void ToggleCollapsed(bool ctrlHeld)
         {
-            if (_collapsedModifiers.Contains(capturedModifierId))
-                _collapsedModifiers.Remove(capturedModifierId);
+            bool nowCollapsed = !_collapsedModifiers.Contains(capturedModifierId);
+            if (ctrlHeld)
+            {
+                var doc2 = RhinoDoc.ActiveDoc;
+                var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
+                if (t != null)
+                {
+                    if (nowCollapsed)
+                        foreach (var m in t.Modifiers) _collapsedModifiers.Add(m.Id);
+                    else
+                        _collapsedModifiers.Clear();
+                }
+            }
             else
-                _collapsedModifiers.Add(capturedModifierId);
+            {
+                if (nowCollapsed)
+                    _collapsedModifiers.Add(capturedModifierId);
+                else
+                    _collapsedModifiers.Remove(capturedModifierId);
+            }
 
             var doc = RhinoDoc.ActiveDoc;
             RebuildModifierLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
@@ -2720,12 +3142,7 @@ public sealed class MoleHillPanel : Panel
                         Font = new Font(SystemFont.Bold),
                         VerticalAlignment = VerticalAlignment.Center
                     },
-                    new Label
-                    {
-                        Text = GetZoneCollapsedSummary(zone),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = UiTheme.MutedText
-                    }
+                    CreateCardMetaLabel(GetZoneCollapsedSummary(zone))
                 }
             }
             : new StackLayout
@@ -2735,26 +3152,37 @@ public sealed class MoleHillPanel : Panel
                 Items =
                 {
                     nameBox,
-                    new Label
-                    {
-                        Text = zone.UseInputElevationForPriority
-                            ? "Higher inputs win where zones overlap"
-                            : "Later zones win where priorities tie",
-                        VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = UiTheme.MutedText
-                    }
+                    CreateCardMetaLabel(zone.UseInputElevationForPriority
+                        ? "Higher inputs win overlaps"
+                        : "Later zones win ties")
                 }
             };
 
         var badge = CreateCardStatusLabel(zone.IsEnabled ? "Enabled" : "Disabled");
 
         var deleteButton = MakeMiniButton("Del", (_, _) => RemoveZone(capturedTerrainId, capturedZoneId), "Delete this zone.", width: 38);
-        void ToggleCollapsed()
+        void ToggleCollapsed(bool ctrlHeld)
         {
-            if (_collapsedZones.Contains(capturedZoneId))
-                _collapsedZones.Remove(capturedZoneId);
+            bool nowCollapsed = !_collapsedZones.Contains(capturedZoneId);
+            if (ctrlHeld)
+            {
+                var doc2 = RhinoDoc.ActiveDoc;
+                var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
+                if (t != null)
+                {
+                    if (nowCollapsed)
+                        foreach (var item in t.Zones) _collapsedZones.Add(item.ZoneId);
+                    else
+                        _collapsedZones.Clear();
+                }
+            }
             else
-                _collapsedZones.Add(capturedZoneId);
+            {
+                if (nowCollapsed)
+                    _collapsedZones.Add(capturedZoneId);
+                else
+                    _collapsedZones.Remove(capturedZoneId);
+            }
 
             var doc = RhinoDoc.ActiveDoc;
             RebuildZonesLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
@@ -2794,7 +3222,13 @@ public sealed class MoleHillPanel : Panel
         useInputElevationCheck.CheckedChanged += (_, _) =>
             MutateZone(terrain.TerrainId, zone.ZoneId, item => item.UseInputElevationForPriority = useInputElevationCheck.Checked == true);
 
-        layout.AddRow(CreateZoneLayerEditor(terrain, zone));
+        layout.AddRow(CreateSourceEditor(
+            "Zone Area",
+            zone.Boundaries,
+            apply => MutateZone(terrain.TerrainId, zone.ZoneId, z => apply(z.Boundaries)),
+            RhinoObjectType.Curve,
+            doc => _controller.GetSelectedLayerPaths(doc),
+            "Assign the curves and layers that define this zone's area."));
         layout.AddSeparateRow(useInputElevationCheck, null);
         return layout;
     }
@@ -2856,7 +3290,7 @@ public sealed class MoleHillPanel : Panel
 
         var projectItem = new ButtonMenuItem
         {
-            Text = "Project"
+            Text = "Plant"
         };
         projectItem.Click += (_, _) =>
         {
@@ -2868,7 +3302,7 @@ public sealed class MoleHillPanel : Panel
 
         var surfaceItem = new ButtonMenuItem
         {
-            Text = "Surface"
+            Text = "Orient"
         };
         surfaceItem.Click += (_, _) =>
         {
@@ -2881,8 +3315,7 @@ public sealed class MoleHillPanel : Panel
 
         return CreateSectionToolbar(
             "TERRAIN OBJECTS",
-            addButton,
-            helperText: "Objects keep their Rhino layers. Explicit picks and watched layers can both drive membership; overlapping matches are skipped.");
+            addButton);
     }
 
     private Panel CreateObjectCard(TerrainDefinition terrain, TerrainObjectDefinition definition)
@@ -2935,12 +3368,7 @@ public sealed class MoleHillPanel : Panel
                         Font = new Font(SystemFont.Bold),
                         VerticalAlignment = VerticalAlignment.Center
                     },
-                    new Label
-                    {
-                        Text = GetTerrainObjectCollapsedSummary(definition),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = UiTheme.MutedText
-                    }
+                    CreateCardMetaLabel(GetTerrainObjectCollapsedSummary(definition))
                 }
             }
             : new StackLayout
@@ -2950,12 +3378,7 @@ public sealed class MoleHillPanel : Panel
                 Items =
                 {
                     nameBox,
-                    new Label
-                    {
-                        Text = GetTerrainObjectSubtitle(definition),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        TextColor = UiTheme.MutedText
-                    }
+                    CreateCardMetaLabel(GetTerrainObjectSubtitle(definition))
                 }
             };
 
@@ -2972,12 +3395,28 @@ public sealed class MoleHillPanel : Panel
                 _controller.RemoveObjectDefinition(doc, capturedTerrainId, capturedDefinitionId);
         }, "Delete this object definition and restore any currently placed objects.", width: 38);
 
-        void ToggleCollapsed()
+        void ToggleCollapsed(bool ctrlHeld)
         {
-            if (_collapsedObjects.Contains(capturedDefinitionId))
-                _collapsedObjects.Remove(capturedDefinitionId);
+            bool nowCollapsed = !_collapsedObjects.Contains(capturedDefinitionId);
+            if (ctrlHeld)
+            {
+                var doc2 = RhinoDoc.ActiveDoc;
+                var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
+                if (t != null)
+                {
+                    if (nowCollapsed)
+                        foreach (var item in t.Objects) _collapsedObjects.Add(item.Id);
+                    else
+                        _collapsedObjects.Clear();
+                }
+            }
             else
-                _collapsedObjects.Add(capturedDefinitionId);
+            {
+                if (nowCollapsed)
+                    _collapsedObjects.Add(capturedDefinitionId);
+                else
+                    _collapsedObjects.Remove(capturedDefinitionId);
+            }
 
             var doc = RhinoDoc.ActiveDoc;
             RebuildObjectsLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
@@ -3304,11 +3743,17 @@ public sealed class MoleHillPanel : Panel
             stepper.MaxValue = maxValue.Value;
         ApplyHelp(stepper, help);
         var timer = new UITimer { Interval = 0.25 };
-        timer.Elapsed += (_, _) =>
+        double committedValue = value;
+        void Commit(double numericValue)
         {
             timer.Stop();
-            onChanged(stepper.Value);
-        };
+            if (!TerrainCommitGuard.HasMeaningfulNumericChange(committedValue, numericValue))
+                return;
+
+            committedValue = numericValue;
+            onChanged(numericValue);
+        }
+        timer.Elapsed += (_, _) => Commit(stepper.Value);
         stepper.ValueChanged += (_, _) =>
         {
             if (_isRefreshing)
@@ -3319,8 +3764,11 @@ public sealed class MoleHillPanel : Panel
         };
         stepper.LostFocus += (_, _) =>
         {
+            if (_isRefreshing)
+                return;
+
             timer.Stop();
-            onChanged(stepper.Value);
+            Commit(stepper.Value);
         };
         if (UseStackedFormRows())
         {
@@ -3447,9 +3895,12 @@ public sealed class MoleHillPanel : Panel
         {
             timer.Stop();
             numericValue = ClampSliderValue(numericValue, hardMin, hardMax);
-            committedValue = numericValue;
             pendingValue = numericValue;
             SyncControls(numericValue);
+            if (!TerrainCommitGuard.HasMeaningfulNumericChange(committedValue, numericValue))
+                return;
+
+            committedValue = numericValue;
             onChanged(numericValue);
         }
 
@@ -4161,20 +4612,7 @@ public sealed class MoleHillPanel : Panel
             Wrap = WrapMode.Word
         };
         ApplyHelp(bakedLayerLabel, "Generated zone meshes preview using the source layer color and bake under this output layer.");
-        var buttonRow = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 3,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                useCurrentButton,
-                browseButton,
-                clearButton,
-                new StackLayoutItem(new Panel(), expand: true)
-            }
-        };
+        var buttonRow = CreateResponsiveControlGroup(3, useCurrentButton, browseButton, clearButton);
 
         if (UseStackedFormRows())
         {
@@ -4231,20 +4669,7 @@ public sealed class MoleHillPanel : Panel
         var browseButton = MakeLayerPickerButton(path => onCommit(path), "Browse and pick a layer");
 
         var clearButton = MakeCompactButton("Clear", (_, _) => onCommit(null), "Clear the explicit layer assignment and fall back to the default.");
-        var buttonRow = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 3,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                useCurrentButton,
-                browseButton,
-                clearButton,
-                new StackLayoutItem(new Panel(), expand: true)
-            }
-        };
+        var buttonRow = CreateResponsiveControlGroup(3, useCurrentButton, browseButton, clearButton);
 
         if (UseStackedFormRows())
         {
@@ -4343,19 +4768,7 @@ public sealed class MoleHillPanel : Panel
                 new StackLayoutItem(assignedLabel, expand: true)
             }
         };
-        var buttonRow = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                pickButton,
-                clearButton,
-                new StackLayoutItem(new Panel(), expand: true)
-            }
-        };
+        var buttonRow = CreateResponsiveControlGroup(4, pickButton, clearButton);
         if (UseStackedFormRows())
         {
             return new StackLayout
@@ -4560,6 +4973,32 @@ public sealed class MoleHillPanel : Panel
         return $"{prefix}{Math.Abs(value):F2} cu units";
     }
 
+    private static void UpdateZonesTabButton(Label? button, TerrainDefinition? terrain)
+    {
+        if (button == null)
+            return;
+
+        bool showZonesOnly = terrain?.ShowZoneMeshes == true && terrain.ShowTerrainMesh != true;
+        button.Text = showZonesOnly ? "\u25A6" : "\u25A0";
+        button.TextColor = terrain == null ? UiTheme.MutedText : UiTheme.PrimaryText;
+        button.ToolTip = showZonesOnly
+            ? "Showing zone meshes. Click to show the terrain mesh."
+            : "Showing the terrain mesh. Click to show zone meshes.";
+    }
+
+    private static void UpdateAnalysisTabButton(Label? button, TerrainDefinition? terrain)
+    {
+        if (button == null)
+            return;
+
+        bool isVisible = terrain?.ShowAnalysisOutputs != false;
+        button.Text = isVisible ? "\u25CF" : "\u25CB";
+        button.TextColor = isVisible ? UiTheme.PrimaryText : UiTheme.MutedText;
+        button.ToolTip = isVisible
+            ? "Analysis preview is visible. Click to hide analysis colors and outputs."
+            : "Analysis preview is hidden. Click to show analysis colors and outputs.";
+    }
+
     private void ApplyHelp(Control control, string help)
     {
         control.ToolTip = help;
@@ -4596,6 +5035,7 @@ public sealed class MoleHillPanel : Panel
         _deleteButton.Enabled          = enabled;
         _rebuildButton.Enabled         = enabled;
         _resetBuildButton.Enabled      = enabled;
+        _bakeButton.Enabled            = enabled;
         _visibilityButton.Enabled      = enabled;
         _lockButton.Enabled            = enabled;
         _toleranceStepper.Enabled      = enabled;
@@ -4674,6 +5114,7 @@ public sealed class MoleHillPanel : Panel
         {
             terrain.Analyses.RemoveAll(item => item.Id == analysisId);
         }, scheduleRebuild: false);
+        RefreshUi();
     }
 
     private void AddAnalysis(string kind)
@@ -4700,7 +5141,10 @@ public sealed class MoleHillPanel : Panel
         var doc = RhinoDoc.ActiveDoc;
         var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
         if (terrain != null)
+        {
+            RefreshUi();
             RefreshTerrainPreview(terrain.TerrainId);
+        }
     }
 
     private void MutateSelectedTerrain(Action<TerrainDefinition> mutator, bool scheduleRebuild = true)
@@ -4827,8 +5271,8 @@ public sealed class MoleHillPanel : Panel
     {
         return definition switch
         {
-            LowestPointObjectDefinition => "Project",
-            SurfaceOrientedObjectDefinition => "Surface",
+            LowestPointObjectDefinition => "Plant",
+            SurfaceOrientedObjectDefinition => "Orient",
             _ => "Objects"
         };
     }
@@ -4856,8 +5300,8 @@ public sealed class MoleHillPanel : Panel
 
     private static string GetTerrainObjectSubtitle(TerrainObjectDefinition definition) => definition switch
     {
-        LowestPointObjectDefinition => "Projects the lowest point to the terrain",
-        SurfaceOrientedObjectDefinition => "Orients the bottom XY box to the terrain",
+        LowestPointObjectDefinition => "Place lowest point on terrain",
+        SurfaceOrientedObjectDefinition => "Orient to terrain slope",
         _ => "Terrain objects"
     };
 
@@ -4942,14 +5386,14 @@ public sealed class MoleHillPanel : Panel
     {
         return analysis switch
         {
-            EarthworkAnalysisDefinition => "Reference inputs and summary",
+            EarthworkAnalysisDefinition => "Refs + summary",
             SlopeAnalysisDefinition => isActive ? "Preview colors" : "Slope preview",
             ElevationAnalysisDefinition => isActive ? "Preview colors" : "Elevation preview",
             CutFillAnalysisDefinition => isActive ? "Preview colors" : "Signed delta preview",
-            ContourAnalysisDefinition => "Contour line output",
-            CurveSlopeLabelAnalysisDefinition => "Terrain-projected curve grade blocks",
-            ProjectedElevationLabelAnalysisDefinition => "Projected edit-point elevation blocks",
-            PointSlopeLabelAnalysisDefinition => "Local terrain slope blocks",
+            ContourAnalysisDefinition => "Contour output",
+            CurveSlopeLabelAnalysisDefinition => "Curve grade blocks",
+            ProjectedElevationLabelAnalysisDefinition => "Projected elevation blocks",
+            PointSlopeLabelAnalysisDefinition => "Point slope blocks",
             _ => "Analysis"
         };
     }
@@ -4993,7 +5437,10 @@ public sealed class MoleHillPanel : Panel
     {
         var doc = RhinoDoc.ActiveDoc;
         if (doc != null)
+        {
             _controller.DuplicateAnalysis(doc, terrainId, analysisId);
+            RefreshUi();
+        }
     }
 
     private Control CreateSlopeUnitEditor(Guid terrainId, SlopeAnalysisDefinition slope)
@@ -5505,13 +5952,13 @@ public sealed class MoleHillPanel : Panel
     private static string GetModifierSubtitle(ModifierDefinition modifier, bool isPinnedBaseTriangulate) => modifier switch
     {
         TriangulateModifierDefinition => isPinnedBaseTriangulate ? "Base geometry" : "Terrain geometry",
-        AddGeometryModifierDefinition => "Adds geometry to the current mesh",
+        AddGeometryModifierDefinition => "Add source geometry",
         RemeshModifierDefinition => "Constraint-preserving remesh",
         SmoothModifierDefinition => "Z-only smoothing",
-        RetainingWallModifierDefinition => "Hard wall breaklines",
-        GradePadModifierDefinition => "Planar pad and daylight grading",
+        RetainingWallModifierDefinition => "Wall breaklines",
+        GradePadModifierDefinition => "Pad + daylight grading",
         GradePathModifierDefinition => "Path corridor grading",
-        InSituStairModifierDefinition => "Grades to a support surface and generates stair Breps",
+        InSituStairModifierDefinition => "Support surface + stair Breps",
         _ => "Modifier"
     };
 

@@ -1,0 +1,582 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RhinoUI major_ver="3" minor_ver="0" guid="2a2c43ad-453a-4741-bf48-80250c0c2471" localize="False" default_language_id="1033" dpi_scale="100">
+  <extend_rhino_menus>
+    <menu guid="d58ceae7-fdb0-4104-80da-274b94ad44a9">
+      <text>
+        <locale_1033>Extend Rhino Menus</locale_1033>
+      </text>
+    </menu>
+  </extend_rhino_menus>
+  <menus />
+  <tool_bar_groups>
+    <tool_bar_group guid="a7d349f6-a963-4a08-887e-27229777d77e" dock_bar_guid32="00000000-0000-0000-0000-000000000000" dock_bar_guid64="da5aa751-a25f-447a-a02b-4e178bc1abd8" active_tool_bar_group="9e1f62d5-a58e-41ef-812d-a367461d97e6" single_file="False" hide_single_tab="False" point_floating="1495,206">
+      <text>
+        <locale_1033>MoleHill</locale_1033>
+      </text>
+      <tool_bar_group_item guid="3cd05182-d432-4677-984d-bca90d5ddcf5" major_version="1" minor_version="1">
+        <text>
+          <locale_1033>Terrain</locale_1033>
+        </text>
+        <tool_bar_id>a48c6e59-9911-4f59-9c18-3757dcf7a844</tool_bar_id>
+      </tool_bar_group_item>
+      <tool_bar_group_item guid="9e1f62d5-a58e-41ef-812d-a367461d97e6" major_version="1" minor_version="1">
+        <text>
+          <locale_1033>Geometry</locale_1033>
+        </text>
+        <tool_bar_id>42386c1a-baa6-4d01-a852-7ffb1b810b1c</tool_bar_id>
+      </tool_bar_group_item>
+      <tool_bar_group_item guid="e21001cc-f149-4fc8-913e-c3996ccc6362" major_version="1" minor_version="1">
+        <text>
+          <locale_1033>Blocks</locale_1033>
+        </text>
+        <tool_bar_id>a157feda-b0cf-439d-90a9-d8420f3d11a7</tool_bar_id>
+      </tool_bar_group_item>
+      <tool_bar_group_item guid="cec267b4-b8ed-47ab-bf08-b2990cf4b2c9" major_version="1" minor_version="1">
+        <text>
+          <locale_1033>Document</locale_1033>
+        </text>
+        <tool_bar_id>d7327ec8-fc68-4179-aac0-f449a71f4fc2</tool_bar_id>
+      </tool_bar_group_item>
+      <dock_bar_info dpi_scale="100" dock_bar="False" docking="True" horz="False" visible="True" floating="False" mru_float_style="8192" bar_id="59495" mru_width="868" point_pos="2466,124" float_point="1495,206" rect_mru_dock_pos="2466,124,3440,190" dock_location_u="59419" dock_location="top" float_size="199,62" />
+    </tool_bar_group>
+  </tool_bar_groups>
+  <tool_bars>
+    <tool_bar guid="42386c1a-baa6-4d01-a852-7ffb1b810b1c">
+      <text>
+        <locale_1033>Geometry</locale_1033>
+      </text>
+      <tool_bar_item guid="dc48f3ee-7a06-4da3-9a81-d02054ced5bf">
+        <text>
+          <locale_1033>Toolbar item</locale_1033>
+        </text>
+        <left_macro_id>f5f39d48-e5ff-45a4-ae67-e0d82620d5ed</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="5ef95caa-522f-4d18-8027-2c4c8a93823c">
+        <left_macro_id>fbf02868-7f22-477b-8d8d-a9d53a15c1bd</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="71c93574-8099-4302-bd2c-7b339a8aca8b">
+        <left_macro_id>d4d0d5b9-d0a9-4d16-8d02-197bce584ffe</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="47b7e071-9bec-4b76-a3e6-b57b292ad3dc">
+        <left_macro_id>54b0756a-0bd3-4189-8cc2-ea9c4a33d48d</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="05f3e470-afbf-458b-80e3-a74a3627c78a">
+        <left_macro_id>7aa74b8f-6d9f-4857-88e4-daf51b370660</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="765e6b43-4ac4-415c-ae79-8fb5adadc12f">
+        <left_macro_id>6634b10d-42a6-441e-b53e-060124138df3</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="c1839378-9037-416d-90c8-a8cebccd7c61">
+        <left_macro_id>bbb7ecdc-0a4e-4244-ba4f-8f796d6b5749</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="d7b2d060-4a90-4af1-a442-aa4b86c809de">
+        <left_macro_id>62d5e781-f096-4c08-849b-f724b9e193b8</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="458befc9-d48e-4a4f-9e0a-92726e8a4414">
+        <left_macro_id>095de3e9-d0f6-4ab5-986c-f86454b8264d</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="0cad5ac8-48b7-4d65-8996-ef7f60e1bb04">
+        <left_macro_id>fc1a3e9a-dec8-4a8f-bb17-e3fd1b8ad46d</left_macro_id>
+      </tool_bar_item>
+    </tool_bar>
+    <tool_bar guid="d7327ec8-fc68-4179-aac0-f449a71f4fc2">
+      <text>
+        <locale_1033>Document</locale_1033>
+      </text>
+      <tool_bar_item guid="25031650-174a-41a0-8cee-9d10914e637f">
+        <left_macro_id>94413b0c-00ec-4718-8450-79dbb3917c1c</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="03f70e61-4101-40e5-b446-5c60c85516d2">
+        <left_macro_id>9b1e4fe2-dd5c-48d7-9a26-e8cd1163a966</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="e4a1ebb0-dc7d-4e74-8d77-bcd228cc263f">
+        <left_macro_id>5de3309b-4fd2-481b-9e61-c7210ecb7e59</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="056f2e7b-2c4f-4cf8-a775-b6501b6824f8">
+        <left_macro_id>ac106061-6408-4919-936d-5d07dab803c9</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="38384f78-6581-49e6-9e6f-df044c064bed">
+        <left_macro_id>b8e52fee-0bd4-4f88-9ef3-cae47d6358aa</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="fa7ce0d5-2773-4fb8-99e5-c07297de9591">
+        <left_macro_id>2ac2a520-cf80-4cf4-b0df-151560bc2603</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="63d49dda-df23-48b2-9402-3d7e32d350a7">
+        <left_macro_id>59d69b4e-0bc4-46c5-a8c6-b653a83e7b7a</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="9bdd03a5-ac08-4b9f-8dbd-43f221dde027">
+        <left_macro_id>cdbe3426-b422-4639-aa6a-2fba66861de8</left_macro_id>
+        <right_macro_id>d6041c6f-c21e-4e11-9343-72a48a2226f5</right_macro_id>
+      </tool_bar_item>
+    </tool_bar>
+    <tool_bar guid="a157feda-b0cf-439d-90a9-d8420f3d11a7">
+      <text>
+        <locale_1033>Blocks</locale_1033>
+      </text>
+      <tool_bar_item guid="9b7fed74-141d-4d5d-a231-d9ca80bd450d">
+        <text>
+          <locale_1033>Toolbar item</locale_1033>
+        </text>
+        <left_macro_id>6224be50-3b6e-4af1-a290-e38c8cce1e12</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="9db493f9-5540-495f-a887-ff0374dbf8fd">
+        <left_macro_id>5543714b-a958-48d8-9166-58296bba1057</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="26724193-423f-452f-a9c2-24cab93500ab">
+        <left_macro_id>82105592-20b2-4d3f-8204-b306b263c57c</left_macro_id>
+        <right_macro_id>d1c8af16-7ea5-444c-b72c-aacc2ceaceeb</right_macro_id>
+      </tool_bar_item>
+    </tool_bar>
+    <tool_bar guid="a48c6e59-9911-4f59-9c18-3757dcf7a844">
+      <text>
+        <locale_1033>Terrain</locale_1033>
+      </text>
+      <tool_bar_item guid="ae3c7879-8552-42ee-9534-95e530e3882e">
+        <text>
+          <locale_1033>Toolbar item</locale_1033>
+        </text>
+        <left_macro_id>03e52941-ad7c-496f-8753-5c513c2c1d8b</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="dee7db27-c229-4337-a738-5c8be61b0883">
+        <left_macro_id>8e64d1e5-64e0-45ad-ab6f-e364364529e4</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="28b97bda-c0c8-486c-a1fd-dd63ff4409f7">
+        <left_macro_id>b48d996e-6222-4c01-b00b-2489c38f9ac2</left_macro_id>
+      </tool_bar_item>
+      <tool_bar_item guid="64bcb879-73f5-425e-aec5-5a799d9a9d48">
+        <left_macro_id>ca1d6110-837d-4693-b074-0c24fdf83974</left_macro_id>
+      </tool_bar_item>
+    </tool_bar>
+  </tool_bars>
+  <macros>
+    <macro_item guid="f5f39d48-e5ff-45a4-ae67-e0d82620d5ed" bitmap_id="cad94496-f19d-4aa9-bede-e052775d9546">
+      <text>
+        <locale_1033>MoleHillTwoPointInterpolation</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>2 Point Interpolation</locale_1033>
+      </tooltip>
+      <script>MoleHillTwoPointInterpolation</script>
+    </macro_item>
+    <macro_item guid="fbf02868-7f22-477b-8d8d-a9d53a15c1bd" bitmap_id="bd1f3cca-e024-41ae-aec4-cf35fbeeea61">
+      <text>
+        <locale_1033>MoleHillGradientInterpolation</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Gradient Interpolation</locale_1033>
+      </tooltip>
+      <script>MoleHillGradientInterpolation</script>
+    </macro_item>
+    <macro_item guid="d4d0d5b9-d0a9-4d16-8d02-197bce584ffe" bitmap_id="9a0090c8-9c64-4d2a-884b-f771da06b691">
+      <text>
+        <locale_1033>MoleHillOffset3dPolyline</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Offset 3D Polyline</locale_1033>
+      </tooltip>
+      <script>MoleHillOffset3dPolyline</script>
+    </macro_item>
+    <macro_item guid="54b0756a-0bd3-4189-8cc2-ea9c4a33d48d" bitmap_id="ad51912c-5d02-44b9-b796-dc14109818f2">
+      <text>
+        <locale_1033>MoleHillReplaceCurveSection</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Replace Curve Section</locale_1033>
+      </tooltip>
+      <script>MoleHillReplaceCurveSection</script>
+    </macro_item>
+    <macro_item guid="7aa74b8f-6d9f-4857-88e4-daf51b370660" bitmap_id="b8598fe0-1a80-4a18-a9a0-0c723405f8cb">
+      <text>
+        <locale_1033>MoleHillSlopeCurve</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Slope Curve</locale_1033>
+      </tooltip>
+      <script>MoleHillSlopeCurve</script>
+    </macro_item>
+    <macro_item guid="fc1a3e9a-dec8-4a8f-bb17-e3fd1b8ad46d" bitmap_id="8efa40ef-fcaf-4231-a72e-5bbc0996c307">
+      <text>
+        <locale_1033>MoleHillTrimBoundary</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Trim Boundary</locale_1033>
+      </tooltip>
+      <script>MoleHillTrimBoundary</script>
+    </macro_item>
+    <macro_item guid="62d5e781-f096-4c08-849b-f724b9e193b8" bitmap_id="94088d95-cb72-4353-ac02-bc5028bbc504">
+      <text>
+        <locale_1033>MoleHillSlopeCheckAndMark</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Slope Check and Mark</locale_1033>
+      </tooltip>
+      <script>MoleHillSlopeCheckAndMark</script>
+    </macro_item>
+    <macro_item guid="fac125dd-d249-454a-b279-ff83b67eb997" ImportedFromFileGuid="c7da84fc-2991-4824-832a-4f2509bd0ede" ImportedFromItemGuid="c34a4892-472f-4405-9478-72b8f59e8fe6" bitmap_id="1ae591bd-3575-4540-81c4-ccb9b90c06b1">
+      <text>
+        <locale_1033>Polyline Through Points</locale_1033>
+        <locale_1031>Polylinie: Durch Punkte</locale_1031>
+        <locale_1034>Polilínea a través de puntos</locale_1034>
+        <locale_1036>Polyligne au travers de points</locale_1036>
+        <locale_1040>Polilinea attraverso i punti</locale_1040>
+        <locale_1041>ポリライン: 指定点通過</locale_1041>
+        <locale_1042>점 통과하는 폴리라인</locale_1042>
+        <locale_2052>多重直线: 通过数个点</locale_2052>
+        <locale_1028>多重直線: 通過數個點</locale_1028>
+        <locale_1029>Lomená čára proložená body</locale_1029>
+        <locale_1045>Polilinia Przez Punkty</locale_1045>
+        <locale_2070>Polilinha Ao Longo de Pontos</locale_2070>
+        <locale_1049>Полилиния через точки</locale_1049>
+      </text>
+      <script>! _CurveThroughPt
+_Pause
+_Degree=1
+_CurveType=_Interpolated</script>
+    </macro_item>
+    <macro_item guid="94413b0c-00ec-4718-8450-79dbb3917c1c" bitmap_id="b1e48602-4823-42b4-ae0b-4fc694e6006f">
+      <text>
+        <locale_1033>MoleHillOrientToOrigin</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Orient To Origin</locale_1033>
+      </tooltip>
+      <script>MoleHillOrientToOrigin</script>
+    </macro_item>
+    <macro_item guid="cdbe3426-b422-4639-aa6a-2fba66861de8" bitmap_id="126ab2d9-4097-4c7b-bd96-4abf90a89bdc">
+      <text>
+        <locale_1033>MoleHillApplyLayerTemplate</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Apply Layer Template</locale_1033>
+      </tooltip>
+      <script>MoleHillApplyLayerTemplate</script>
+    </macro_item>
+    <macro_item guid="6634b10d-42a6-441e-b53e-060124138df3" bitmap_id="e6053608-177e-4443-8078-278fa6fb0b18">
+      <text>
+        <locale_1033>MoleHillSoftEditCurves</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Soft Edit Curves</locale_1033>
+      </tooltip>
+      <script>MoleHillSoftEditCurves</script>
+    </macro_item>
+    <macro_item guid="6224be50-3b6e-4af1-a290-e38c8cce1e12" bitmap_id="d8ed26d6-8478-4d14-9d5f-807e8e99684f">
+      <text>
+        <locale_1033>MoleHillExternalizeBlock</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Externalize Block</locale_1033>
+      </tooltip>
+      <script>MoleHillExternalizeBlock</script>
+    </macro_item>
+    <macro_item guid="5543714b-a958-48d8-9166-58296bba1057" bitmap_id="7efdf381-7d44-4c5c-8ee3-3b17bfd00688">
+      <text>
+        <locale_1033>MoleHillUpdateAllLinkedBlocks</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Update all linked blocks</locale_1033>
+      </tooltip>
+      <script>MoleHillUpdateAllLinkedBlocks</script>
+    </macro_item>
+    <macro_item guid="2ac2a520-cf80-4cf4-b0df-151560bc2603" bitmap_id="049c5b36-cf1f-4401-9af0-17b8430bb923">
+      <text>
+        <locale_1033>MoleHillSetSunNorth</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Set sun north</locale_1033>
+      </tooltip>
+      <script>MoleHillSetSunNorth</script>
+    </macro_item>
+    <macro_item guid="d6041c6f-c21e-4e11-9343-72a48a2226f5" bitmap_id="d141fe51-0d32-4369-b920-23aeffa8740b">
+      <text>
+        <locale_1033>MoleHillEditLayerTemplates</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Edit Layer Templates</locale_1033>
+      </tooltip>
+      <script>MoleHillEditLayerTemplates</script>
+    </macro_item>
+    <macro_item guid="ac106061-6408-4919-936d-5d07dab803c9" bitmap_id="1dd63bc3-91ac-44cc-b8b5-78fdd15365c6">
+      <text>
+        <locale_1033>MoleHillImportWithGeoref</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Import With Georef</locale_1033>
+      </tooltip>
+      <script>MoleHillImportWithGeoref</script>
+    </macro_item>
+    <macro_item guid="b8e52fee-0bd4-4f88-9ef3-cae47d6358aa" bitmap_id="8efa019e-175c-4e2b-929c-57e53faa7913">
+      <text>
+        <locale_1033>MoleHillExportWithGeoref</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Export With Georef</locale_1033>
+      </tooltip>
+      <script>MoleHillExportWithGeoref</script>
+    </macro_item>
+    <macro_item guid="bbb7ecdc-0a4e-4244-ba4f-8f796d6b5749" bitmap_id="766733f4-4213-442c-977b-10bcd0fa0450">
+      <text>
+        <locale_1033>MoleHillLiftCurvesWithLine</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Lift Curves with Line</locale_1033>
+      </tooltip>
+      <script>MoleHillLiftCurvesWithLine</script>
+    </macro_item>
+    <macro_item guid="5de3309b-4fd2-481b-9e61-c7210ecb7e59" bitmap_id="2ca2ba4c-f2a0-4956-8e7e-8af51f567d0b">
+      <text>
+        <locale_1033>MoleHillRemoveSavedGeoref</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Remove Saved Georef</locale_1033>
+      </tooltip>
+      <script>MoleHillRemoveSavedGeoref</script>
+    </macro_item>
+    <macro_item guid="fba46a89-5660-4757-a0a0-204e3b7fda10" bitmap_id="2336a80a-90d8-4fa5-a64d-70a82aa2c319">
+      <text>
+        <locale_1033>MoleHillCreateTerrain</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Create Terrain</locale_1033>
+      </tooltip>
+      <script>MoleHillCreateTerrain</script>
+    </macro_item>
+    <macro_item guid="59d69b4e-0bc4-46c5-a8c6-b653a83e7b7a" bitmap_id="d80287b8-25dc-452d-a5cc-f55a967cce8b">
+      <text>
+        <locale_1033>MoleHillImportGeoTiff</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>ImportGeoTiff</locale_1033>
+      </tooltip>
+      <script>MoleHillImportGeoTiff</script>
+    </macro_item>
+    <macro_item guid="9b1e4fe2-dd5c-48d7-9a26-e8cd1163a966" bitmap_id="a74a9017-01e5-4fa3-a0be-4aa0811c1bf3">
+      <text>
+        <locale_1033>MoleHillApplySavedGeoref</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Apply Saved Georef</locale_1033>
+      </tooltip>
+      <script>MoleHillApplySavedGeoref</script>
+    </macro_item>
+    <macro_item guid="095de3e9-d0f6-4ab5-986c-f86454b8264d" bitmap_id="be6f3e52-998b-418b-a21a-8fa3a59f8a3f">
+      <text>
+        <locale_1033>MoleHillTrimBoundary</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Trim Boundary</locale_1033>
+      </tooltip>
+      <script>MoleHillTrimBoundary</script>
+    </macro_item>
+    <macro_item guid="03e52941-ad7c-496f-8753-5c513c2c1d8b" bitmap_id="a8a08603-9061-42e4-bb8f-cb8f6d1bb1b8">
+      <text>
+        <locale_1033>MoleHillPanel</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>MoleHill Panel</locale_1033>
+      </tooltip>
+      <script>MoleHillPanel</script>
+    </macro_item>
+    <macro_item guid="8e64d1e5-64e0-45ad-ab6f-e364364529e4" bitmap_id="63a75e2a-40a3-4e42-aa38-5c45b4c7aab2">
+      <text>
+        <locale_1033>MoleHillCreateTerrain</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Create Terrain</locale_1033>
+      </tooltip>
+      <script>MoleHillCreateTerrain</script>
+    </macro_item>
+    <macro_item guid="b48d996e-6222-4c01-b00b-2489c38f9ac2" bitmap_id="bdafa79c-308e-471f-82a5-36858c1f2040">
+      <text>
+        <locale_1033>MoleHillConvertToRhino</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Convert To Rhino</locale_1033>
+      </tooltip>
+      <script>MoleHillConvertToRhino</script>
+    </macro_item>
+    <macro_item guid="ca1d6110-837d-4693-b074-0c24fdf83974" bitmap_id="8634d698-e2e0-43ec-a9c8-8c6e4f5c91bb">
+      <text>
+        <locale_1033>MoleHillResetTerrainBuild</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Reset Terrain Build</locale_1033>
+      </tooltip>
+      <script>MoleHillResetTerrainBuild</script>
+    </macro_item>
+    <macro_item guid="82105592-20b2-4d3f-8204-b306b263c57c" bitmap_id="b14ce923-981f-4379-af49-b8072e420254">
+      <text>
+        <locale_1033>MoleHillAddMarkerParentheses</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Add Marker Parentheses</locale_1033>
+      </tooltip>
+      <script>MoleHillAddMarkerParentheses</script>
+    </macro_item>
+    <macro_item guid="d1c8af16-7ea5-444c-b72c-aacc2ceaceeb" bitmap_id="543feee0-c0a4-463c-a19c-b7380bad5ea5">
+      <text>
+        <locale_1033>MoleHillRemoveMarkerParentheses</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Remove Marker Parentheses</locale_1033>
+      </tooltip>
+      <script>MoleHillRemoveMarkerParentheses</script>
+    </macro_item>
+    <macro_item guid="e47a9151-96da-42bc-8b6f-4551e8971da6" bitmap_id="60d9040f-0513-4222-858f-62eda1a61610">
+      <text>
+        <locale_1033>Macro 27</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Update Elevation Markers</locale_1033>
+      </tooltip>
+      <button_text>
+        <locale_1033>Macro 23</locale_1033>
+      </button_text>
+      <script>UpdateElevationMarkers</script>
+    </macro_item>
+    <macro_item guid="93385d45-fd4c-4d38-8297-0dc01bd7418e" bitmap_id="0eeb1699-338f-4d8f-a81f-4e45b1dca63d">
+      <text>
+        <locale_1033>Macro 28</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033 />
+      </tooltip>
+      <help_text>
+        <locale_1033 />
+      </help_text>
+      <button_text>
+        <locale_1033 />
+      </button_text>
+      <menu_text>
+        <locale_1033 />
+      </menu_text>
+      <script>SetPathwidth</script>
+    </macro_item>
+    <macro_item guid="fa7b2a98-21d8-4b33-9b67-8306851ac248" bitmap_id="9fa5451f-a9b1-4bf5-966b-3673858721ba">
+      <text>
+        <locale_1033>Macro 29</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Set Path Width</locale_1033>
+      </tooltip>
+      <help_text>
+        <locale_1033 />
+      </help_text>
+      <button_text>
+        <locale_1033 />
+      </button_text>
+      <menu_text>
+        <locale_1033 />
+      </menu_text>
+      <script>SetPathWidth</script>
+    </macro_item>
+  </macros>
+  <bitmaps>
+    <small_bitmap item_width="16" item_height="16">
+      <bitmap_item guid="cad94496-f19d-4aa9-bede-e052775d9546" index="0" />
+      <bitmap_item guid="bd1f3cca-e024-41ae-aec4-cf35fbeeea61" index="1" />
+      <bitmap_item guid="9a0090c8-9c64-4d2a-884b-f771da06b691" index="2" />
+      <bitmap_item guid="ad51912c-5d02-44b9-b796-dc14109818f2" index="3" />
+      <bitmap_item guid="b8598fe0-1a80-4a18-a9a0-0c723405f8cb" index="4" />
+      <bitmap_item guid="8efa40ef-fcaf-4231-a72e-5bbc0996c307" index="5" />
+      <bitmap_item guid="94088d95-cb72-4353-ac02-bc5028bbc504" index="6" />
+      <bitmap_item guid="1ae591bd-3575-4540-81c4-ccb9b90c06b1" index="7" />
+      <bitmap_item guid="b1e48602-4823-42b4-ae0b-4fc694e6006f" index="8" />
+      <bitmap_item guid="126ab2d9-4097-4c7b-bd96-4abf90a89bdc" index="9" />
+      <bitmap_item guid="e6053608-177e-4443-8078-278fa6fb0b18" index="10" />
+      <bitmap_item guid="d8ed26d6-8478-4d14-9d5f-807e8e99684f" index="11" />
+      <bitmap_item guid="7efdf381-7d44-4c5c-8ee3-3b17bfd00688" index="12" />
+      <bitmap_item guid="049c5b36-cf1f-4401-9af0-17b8430bb923" index="13" />
+      <bitmap_item guid="d141fe51-0d32-4369-b920-23aeffa8740b" index="14" />
+      <bitmap_item guid="1dd63bc3-91ac-44cc-b8b5-78fdd15365c6" index="15" />
+      <bitmap_item guid="8efa019e-175c-4e2b-929c-57e53faa7913" index="16" />
+      <bitmap_item guid="766733f4-4213-442c-977b-10bcd0fa0450" index="17" />
+      <bitmap_item guid="2ca2ba4c-f2a0-4956-8e7e-8af51f567d0b" index="18" />
+      <bitmap_item guid="2336a80a-90d8-4fa5-a64d-70a82aa2c319" index="19" />
+      <bitmap_item guid="d80287b8-25dc-452d-a5cc-f55a967cce8b" index="20" />
+      <bitmap_item guid="a74a9017-01e5-4fa3-a0be-4aa0811c1bf3" index="21" />
+      <bitmap_item guid="be6f3e52-998b-418b-a21a-8fa3a59f8a3f" index="22" />
+      <bitmap_item guid="a8a08603-9061-42e4-bb8f-cb8f6d1bb1b8" index="23" />
+      <bitmap_item guid="63a75e2a-40a3-4e42-aa38-5c45b4c7aab2" index="24" />
+      <bitmap_item guid="bdafa79c-308e-471f-82a5-36858c1f2040" index="25" />
+      <bitmap_item guid="8634d698-e2e0-43ec-a9c8-8c6e4f5c91bb" index="26" />
+      <bitmap_item guid="b14ce923-981f-4379-af49-b8072e420254" index="27" />
+      <bitmap_item guid="543feee0-c0a4-463c-a19c-b7380bad5ea5" index="28" />
+      <bitmap_item guid="60d9040f-0513-4222-858f-62eda1a61610" index="29" />
+      <bitmap_item guid="0eeb1699-338f-4d8f-a81f-4e45b1dca63d" index="30" />
+      <bitmap_item guid="9fa5451f-a9b1-4bf5-966b-3673858721ba" index="31" />
+      <bitmap>iVBORw0KGgoAAAANSUhEUgAAABAAAAIACAYAAACLuuzTAAAANklEQVR42u3BAQEAAACCIP+vbkhAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB8G4IAAAFjdVCkAAAAAElFTkSuQmCC</bitmap>
+    </small_bitmap>
+    <normal_bitmap item_width="24" item_height="24">
+      <bitmap_item guid="cad94496-f19d-4aa9-bede-e052775d9546" index="0" />
+      <bitmap_item guid="bd1f3cca-e024-41ae-aec4-cf35fbeeea61" index="1" />
+      <bitmap_item guid="9a0090c8-9c64-4d2a-884b-f771da06b691" index="2" />
+      <bitmap_item guid="ad51912c-5d02-44b9-b796-dc14109818f2" index="3" />
+      <bitmap_item guid="b8598fe0-1a80-4a18-a9a0-0c723405f8cb" index="4" />
+      <bitmap_item guid="8efa40ef-fcaf-4231-a72e-5bbc0996c307" index="5" />
+      <bitmap_item guid="94088d95-cb72-4353-ac02-bc5028bbc504" index="6" />
+      <bitmap_item guid="1ae591bd-3575-4540-81c4-ccb9b90c06b1" index="7" />
+      <bitmap_item guid="b1e48602-4823-42b4-ae0b-4fc694e6006f" index="8" />
+      <bitmap_item guid="126ab2d9-4097-4c7b-bd96-4abf90a89bdc" index="9" />
+      <bitmap_item guid="e6053608-177e-4443-8078-278fa6fb0b18" index="10" />
+      <bitmap_item guid="d8ed26d6-8478-4d14-9d5f-807e8e99684f" index="11" />
+      <bitmap_item guid="7efdf381-7d44-4c5c-8ee3-3b17bfd00688" index="12" />
+      <bitmap_item guid="049c5b36-cf1f-4401-9af0-17b8430bb923" index="13" />
+      <bitmap_item guid="d141fe51-0d32-4369-b920-23aeffa8740b" index="14" />
+      <bitmap_item guid="1dd63bc3-91ac-44cc-b8b5-78fdd15365c6" index="15" />
+      <bitmap_item guid="8efa019e-175c-4e2b-929c-57e53faa7913" index="16" />
+      <bitmap_item guid="766733f4-4213-442c-977b-10bcd0fa0450" index="17" />
+      <bitmap_item guid="2ca2ba4c-f2a0-4956-8e7e-8af51f567d0b" index="18" />
+      <bitmap_item guid="2336a80a-90d8-4fa5-a64d-70a82aa2c319" index="19" />
+      <bitmap_item guid="d80287b8-25dc-452d-a5cc-f55a967cce8b" index="20" />
+      <bitmap_item guid="a74a9017-01e5-4fa3-a0be-4aa0811c1bf3" index="21" />
+      <bitmap_item guid="be6f3e52-998b-418b-a21a-8fa3a59f8a3f" index="22" />
+      <bitmap_item guid="a8a08603-9061-42e4-bb8f-cb8f6d1bb1b8" index="23" />
+      <bitmap_item guid="63a75e2a-40a3-4e42-aa38-5c45b4c7aab2" index="24" />
+      <bitmap_item guid="bdafa79c-308e-471f-82a5-36858c1f2040" index="25" />
+      <bitmap_item guid="8634d698-e2e0-43ec-a9c8-8c6e4f5c91bb" index="26" />
+      <bitmap_item guid="b14ce923-981f-4379-af49-b8072e420254" index="27" />
+      <bitmap_item guid="543feee0-c0a4-463c-a19c-b7380bad5ea5" index="28" />
+      <bitmap_item guid="60d9040f-0513-4222-858f-62eda1a61610" index="29" />
+      <bitmap_item guid="0eeb1699-338f-4d8f-a81f-4e45b1dca63d" index="30" />
+      <bitmap_item guid="9fa5451f-a9b1-4bf5-966b-3673858721ba" index="31" />
+      <bitmap>iVBORw0KGgoAAAANSUhEUgAAABgAAAMACAYAAAA+GqeTAAAAX0lEQVR42u3BAQ0AAADCoPdPbQ43oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAL4NIw8AAZ6J7pYAAAAASUVORK5CYII=</bitmap>
+    </normal_bitmap>
+    <large_bitmap item_width="32" item_height="32">
+      <bitmap_item guid="cad94496-f19d-4aa9-bede-e052775d9546" index="0" />
+      <bitmap_item guid="bd1f3cca-e024-41ae-aec4-cf35fbeeea61" index="1" />
+      <bitmap_item guid="9a0090c8-9c64-4d2a-884b-f771da06b691" index="2" />
+      <bitmap_item guid="ad51912c-5d02-44b9-b796-dc14109818f2" index="3" />
+      <bitmap_item guid="b8598fe0-1a80-4a18-a9a0-0c723405f8cb" index="4" />
+      <bitmap_item guid="8efa40ef-fcaf-4231-a72e-5bbc0996c307" index="5" />
+      <bitmap_item guid="94088d95-cb72-4353-ac02-bc5028bbc504" index="6" />
+      <bitmap_item guid="1ae591bd-3575-4540-81c4-ccb9b90c06b1" index="7" />
+      <bitmap_item guid="b1e48602-4823-42b4-ae0b-4fc694e6006f" index="8" />
+      <bitmap_item guid="126ab2d9-4097-4c7b-bd96-4abf90a89bdc" index="9" />
+      <bitmap_item guid="e6053608-177e-4443-8078-278fa6fb0b18" index="10" />
+      <bitmap_item guid="d8ed26d6-8478-4d14-9d5f-807e8e99684f" index="11" />
+      <bitmap_item guid="7efdf381-7d44-4c5c-8ee3-3b17bfd00688" index="12" />
+      <bitmap_item guid="049c5b36-cf1f-4401-9af0-17b8430bb923" index="13" />
+      <bitmap_item guid="d141fe51-0d32-4369-b920-23aeffa8740b" index="14" />
+      <bitmap_item guid="1dd63bc3-91ac-44cc-b8b5-78fdd15365c6" index="15" />
+      <bitmap_item guid="8efa019e-175c-4e2b-929c-57e53faa7913" index="16" />
+      <bitmap_item guid="766733f4-4213-442c-977b-10bcd0fa0450" index="17" />
+      <bitmap_item guid="2ca2ba4c-f2a0-4956-8e7e-8af51f567d0b" index="18" />
+      <bitmap_item guid="2336a80a-90d8-4fa5-a64d-70a82aa2c319" index="19" />
+      <bitmap_item guid="d80287b8-25dc-452d-a5cc-f55a967cce8b" index="20" />
+      <bitmap_item guid="a74a9017-01e5-4fa3-a0be-4aa0811c1bf3" index="21" />
+      <bitmap_item guid="be6f3e52-998b-418b-a21a-8fa3a59f8a3f" index="22" />
+      <bitmap_item guid="a8a08603-9061-42e4-bb8f-cb8f6d1bb1b8" index="23" />
+      <bitmap_item guid="63a75e2a-40a3-4e42-aa38-5c45b4c7aab2" index="24" />
+      <bitmap_item guid="bdafa79c-308e-471f-82a5-36858c1f2040" index="25" />
+      <bitmap_item guid="8634d698-e2e0-43ec-a9c8-8c6e4f5c91bb" index="26" />
+      <bitmap_item guid="b14ce923-981f-4379-af49-b8072e420254" index="27" />
+      <bitmap_item guid="543feee0-c0a4-463c-a19c-b7380bad5ea5" index="28" />
+      <bitmap_item guid="60d9040f-0513-4222-858f-62eda1a61610" index="29" />
+      <bitmap_item guid="0eeb1699-338f-4d8f-a81f-4e45b1dca63d" index="30" />
+      <bitmap_item guid="9fa5451f-a9b1-4bf5-966b-3673858721ba" index="31" />
+      <bitmap>iVBORw0KGgoAAAANSUhEUgAAACAAAAQACAYAAACAmVvRAAAAlklEQVR42u3BAQEAAACCIP+vbkhAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADvBgQeAAEN3jhkAAAAAElFTkSuQmCC</bitmap>
+    </large_bitmap>
+  </bitmaps>
+  <scripts />
+</RhinoUI>

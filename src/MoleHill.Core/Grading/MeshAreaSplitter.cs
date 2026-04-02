@@ -9,6 +9,8 @@ namespace MoleHill.Core.Grading;
 /// </summary>
 public static class MeshAreaSplitter
 {
+    private readonly record struct BoundarySegment(double Ax, double Ay, double Bx, double By);
+
     private sealed class IndexedArea
     {
         public required AreaBoundary Boundary { get; init; }
@@ -20,6 +22,10 @@ public static class MeshAreaSplitter
         public required double MinY { get; init; }
 
         public required double MaxY { get; init; }
+
+        public required BoundarySegment[] Segments { get; init; }
+
+        public required SpatialHashGrid2D SegmentIndex { get; init; }
     }
 
     /// <summary>
@@ -217,6 +223,8 @@ public static class MeshAreaSplitter
             double maxY = double.MinValue;
 
             var area = areas[areaIndex];
+            var segments = new BoundarySegment[area.VertexCount];
+            var segmentBounds = new Bounds2D[area.VertexCount];
             for (int vertexIndex = 0; vertexIndex < area.VertexCount; vertexIndex++)
             {
                 double x = area.XyVertices[vertexIndex * 2];
@@ -225,6 +233,16 @@ public static class MeshAreaSplitter
                 if (x > maxX) maxX = x;
                 if (y < minY) minY = y;
                 if (y > maxY) maxY = y;
+
+                int next = (vertexIndex + 1) % area.VertexCount;
+                double nx = area.XyVertices[next * 2];
+                double ny = area.XyVertices[next * 2 + 1];
+                segments[vertexIndex] = new BoundarySegment(x, y, nx, ny);
+                segmentBounds[vertexIndex] = new Bounds2D(
+                    Math.Min(x, nx),
+                    Math.Max(x, nx),
+                    Math.Min(y, ny),
+                    Math.Max(y, ny));
             }
 
             result[areaIndex] = new IndexedArea
@@ -233,7 +251,9 @@ public static class MeshAreaSplitter
                 MinX = minX,
                 MaxX = maxX,
                 MinY = minY,
-                MaxY = maxY
+                MaxY = maxY,
+                Segments = segments,
+                SegmentIndex = SpatialHashGrid2D.Build(segmentBounds)
             };
         }
 
@@ -259,7 +279,11 @@ public static class MeshAreaSplitter
         System.Threading.Tasks.Parallel.For(
             0,
             faceCount,
-            () => (Scratch: new SpatialHashGrid2D.QueryScratch(indexedAreas.Length), Candidates: new List<int>(8)),
+            () => (
+                AreaScratch: new SpatialHashGrid2D.QueryScratch(indexedAreas.Length),
+                AreaCandidates: new List<int>(8),
+                SegmentScratch: new SpatialHashGrid2D.QueryScratch(),
+                SegmentCandidates: new List<int>(8)),
             (faceIndex, _, state) =>
         {
             int i0 = faces[faceIndex * 3];
@@ -269,17 +293,17 @@ public static class MeshAreaSplitter
             double cx = (vertices[i0 * 3] + vertices[i1 * 3] + vertices[i2 * 3]) / 3.0;
             double cy = (vertices[i0 * 3 + 1] + vertices[i1 * 3 + 1] + vertices[i2 * 3 + 1]) / 3.0;
 
-            areaIndex.GatherCandidates(Bounds2D.FromPoint(cx, cy, tolerance), state.Candidates, state.Scratch);
+            areaIndex.GatherCandidates(Bounds2D.FromPoint(cx, cy, tolerance), state.AreaCandidates, state.AreaScratch);
 
             faceAreaIndex[faceIndex] = -1;
-            for (int candidateIndex = state.Candidates.Count - 1; candidateIndex >= 0; candidateIndex--)
+            for (int candidateIndex = state.AreaCandidates.Count - 1; candidateIndex >= 0; candidateIndex--)
             {
-                int areaNumber = state.Candidates[candidateIndex];
+                int areaNumber = state.AreaCandidates[candidateIndex];
                 var area = indexedAreas[areaNumber];
                 if (cx < area.MinX - tolerance || cx > area.MaxX + tolerance || cy < area.MinY - tolerance || cy > area.MaxY + tolerance)
                     continue;
 
-                if ((tolerance > 0 && DistanceToBoundary(cx, cy, area.Boundary) <= tolerance) ||
+                if ((tolerance > 0 && IsNearBoundary(cx, cy, tolerance, area, state.SegmentCandidates, state.SegmentScratch)) ||
                     PadGrader.PointInPolygon(cx, cy, area.Boundary.XyVertices, area.Boundary.VertexCount))
                 {
                     faceAreaIndex[faceIndex] = areaNumber;
@@ -293,20 +317,26 @@ public static class MeshAreaSplitter
         return faceAreaIndex;
     }
 
-    private static double DistanceToBoundary(double x, double y, AreaBoundary area)
+    private static bool IsNearBoundary(
+        double x,
+        double y,
+        double tolerance,
+        IndexedArea area,
+        List<int> segmentCandidates,
+        SpatialHashGrid2D.QueryScratch segmentScratch)
     {
-        double best = double.PositiveInfinity;
-        for (int i = 0; i < area.VertexCount; i++)
+        area.SegmentIndex.GatherCandidates(Bounds2D.FromPoint(x, y, tolerance), segmentCandidates, segmentScratch);
+        double toleranceSquared = tolerance * tolerance;
+
+        for (int i = 0; i < segmentCandidates.Count; i++)
         {
-            int next = (i + 1) % area.VertexCount;
-            double ax = area.XyVertices[i * 2];
-            double ay = area.XyVertices[i * 2 + 1];
-            double bx = area.XyVertices[next * 2];
-            double by = area.XyVertices[next * 2 + 1];
-            best = Math.Min(best, DistanceToSegment(x, y, ax, ay, bx, by));
+            var segment = area.Segments[segmentCandidates[i]];
+            double distance = DistanceToSegment(x, y, segment.Ax, segment.Ay, segment.Bx, segment.By);
+            if (distance * distance <= toleranceSquared)
+                return true;
         }
 
-        return best;
+        return false;
     }
 
     private static double DistanceToSegment(double px, double py, double ax, double ay, double bx, double by)

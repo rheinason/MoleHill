@@ -31,6 +31,8 @@ public sealed class TerrainDefinition
 
     public bool ShowZoneMeshes { get; set; } = true;
 
+    public bool ShowAnalysisOutputs { get; set; } = true;
+
     public bool ShowMeshWires { get; set; } = true;
 
     public bool ShowSlowBuildWarning { get; set; } = true;
@@ -75,7 +77,7 @@ public sealed class TerrainDefinition
 
     public List<Guid> MarkerObjectIds { get; set; } = new();
 
-    public bool ReplacePreviouslyBaked { get; set; }
+    public bool ReplacePreviouslyBaked { get; set; } = true;
 
     public List<Guid> BakedObjectIds { get; set; } = new();
 

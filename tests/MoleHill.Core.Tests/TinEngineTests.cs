@@ -58,6 +58,27 @@ public class TinEngineTests
     }
 
     [Fact]
+    public void Build_AllNaNInput_PreservesUnresolvedVertexZAsNaN()
+    {
+        var engine = new TinEngine();
+        double[] xy =
+        {
+            0.0, 0.0,
+            10.0, 0.0,
+            10.0, 10.0,
+            0.0, 10.0
+        };
+        double[] z = { double.NaN, double.NaN, double.NaN, double.NaN };
+
+        TinResult? result = engine.Build(xy, z, Array.Empty<int>(), QualitySettings.None, out string? error, useConvexHull: true);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        for (int i = 0; i < result!.VertexCount; i++)
+            Assert.True(double.IsNaN(result.Vertices[i * 3 + 2]), $"Expected vertex {i} to remain unresolved (NaN).");
+    }
+
+    [Fact]
     public void Build_MaxBoundaryEdgeLengthDisabled_KeepsBoundarySliver()
     {
         var engine = new TinEngine();
