@@ -18,7 +18,12 @@ public static class PathGrader
         public required double SuggestedEdgeLength { get; init; }
     }
 
-    private readonly record struct ConstraintPath(double[] XyVertices, double[] ZValues, int VertexCount);
+    private readonly record struct ConstraintPath(
+        double[] XyVertices,
+        double[] ZValues,
+        int VertexCount,
+        double[] TangentX,
+        double[] TangentY);
     private readonly record struct ClosestPathLocation(
         int SegmentIndex,
         double SegmentT,
@@ -185,6 +190,14 @@ public static class PathGrader
             suggestedEdgeLength = Math.Min(suggestedEdgeLength, segmentLength);
 
             var constraintPath = BuildConstraintPolyline(path, segmentLength, dedupTol);
+            ComputeInsideCornerGuideSuppression(
+                constraintPath.XyVertices,
+                constraintPath.VertexCount,
+                out bool[] suppressLeftGuides,
+                out bool[] suppressRightGuides);
+            double guideSpacing = ComputeGuideSpacing(path.Width, shoulderDistance);
+            bool[] keepLeftGuides = ComputeGuideSelection(constraintPath.XyVertices, constraintPath.VertexCount, guideSpacing, suppressLeftGuides);
+            bool[] keepRightGuides = ComputeGuideSelection(constraintPath.XyVertices, constraintPath.VertexCount, guideSpacing, suppressRightGuides);
             AddConstraintPolyline(constraints, constraintPath.XyVertices, constraintPath.ZValues, constraintPath.VertexCount);
 
             int xyBufferLength = constraintPath.VertexCount * 2;
@@ -199,10 +212,11 @@ public static class PathGrader
                 {
                     double cx = constraintPath.XyVertices[i * 2];
                     double cy = constraintPath.XyVertices[i * 2 + 1];
-                    ComputeDirection(constraintPath.XyVertices, constraintPath.VertexCount, i, out double dx, out double dy);
+                    ComputeDirection(constraintPath.XyVertices, constraintPath.VertexCount, i, out double roadDx, out double roadDy);
+                    GetConstraintPathTangent(constraintPath, i, out double shoulderDx, out double shoulderDy);
 
-                    double roadPx = -dy * halfWidth;
-                    double roadPy = dx * halfWidth;
+                    double roadPx = -roadDy * halfWidth;
+                    double roadPy = roadDx * halfWidth;
                     leftRoadXy[i * 2] = cx + roadPx;
                     leftRoadXy[i * 2 + 1] = cy + roadPy;
                     rightRoadXy[i * 2] = cx - roadPx;
@@ -211,8 +225,8 @@ public static class PathGrader
                     if (leftShoulderXy != null && rightShoulderXy != null)
                     {
                         double shoulderOffset = halfWidth + shoulderDistance;
-                        double shoulderPx = -dy * shoulderOffset;
-                        double shoulderPy = dx * shoulderOffset;
+                        double shoulderPx = -shoulderDy * shoulderOffset;
+                        double shoulderPy = shoulderDx * shoulderOffset;
                         leftShoulderXy[i * 2] = cx + shoulderPx;
                         leftShoulderXy[i * 2 + 1] = cy + shoulderPy;
                         rightShoulderXy[i * 2] = cx - shoulderPx;
@@ -234,6 +248,7 @@ public static class PathGrader
                         leftShoulderXy,
                         constraintPath.ZValues,
                         constraintPath.VertexCount,
+                        keepLeftGuides,
                         hasBoundaryLoop,
                         boundaryLoop,
                         boundaryVertexCount,
@@ -251,6 +266,7 @@ public static class PathGrader
                         rightShoulderXy,
                         constraintPath.ZValues,
                         constraintPath.VertexCount,
+                        keepRightGuides,
                         hasBoundaryLoop,
                         boundaryLoop,
                         boundaryVertexCount,
@@ -435,6 +451,11 @@ public static class PathGrader
                 ComputeConstraintSegmentLength(path, globalShoulderDistance),
                 dedupTol);
             int n = constraintPath.VertexCount;
+            ComputeInsideCornerGuideSuppression(
+                constraintPath.XyVertices,
+                n,
+                out bool[] suppressLeftGuides,
+                out bool[] suppressRightGuides);
 
             // Per-vertex shoulder distances: slope-cast from road edge to terrain at each sample.
             var shoulderDistances = new double[n];
@@ -449,6 +470,9 @@ public static class PathGrader
                 shoulderDistances[i] = d;
                 if (d > maxShoulderDistance) maxShoulderDistance = d;
             }
+            double guideSpacing = ComputeGuideSpacing(path.Width, maxShoulderDistance);
+            bool[] keepLeftGuides = ComputeGuideSelection(constraintPath.XyVertices, n, guideSpacing, suppressLeftGuides);
+            bool[] keepRightGuides = ComputeGuideSelection(constraintPath.XyVertices, n, guideSpacing, suppressRightGuides);
 
             var centerIdx = new int[n];
             var leftIdx = new int[n];
@@ -468,10 +492,11 @@ public static class PathGrader
                 {
                     double cx = constraintPath.XyVertices[i * 2], cy = constraintPath.XyVertices[i * 2 + 1];
                     double cz = constraintPath.ZValues[i];
-                    ComputeDirection(constraintPath.XyVertices, constraintPath.VertexCount, i, out double dx, out double dy);
+                    ComputeDirection(constraintPath.XyVertices, constraintPath.VertexCount, i, out double roadDx, out double roadDy);
+                    GetConstraintPathTangent(constraintPath, i, out double shoulderDx, out double shoulderDy);
 
                     // Perpendicular offset
-                    double roadPx = -dy * halfWidth, roadPy = dx * halfWidth;
+                    double roadPx = -roadDy * halfWidth, roadPy = roadDx * halfWidth;
 
                     centerIdx[i] = AddVertex(cx, cy);
                     leftIdx[i] = AddVertex(cx + roadPx, cy + roadPy);
@@ -487,8 +512,8 @@ public static class PathGrader
                     if (leftShoulderIdx != null && rightShoulderIdx != null)
                     {
                         double shoulderOffset = halfWidth + shoulderDistances[i];
-                        double shoulderPx = -dy * shoulderOffset;
-                        double shoulderPy = dx * shoulderOffset;
+                        double shoulderPx = -shoulderDy * shoulderOffset;
+                        double shoulderPy = shoulderDx * shoulderOffset;
                         leftShoulderXy![i * 2] = cx + shoulderPx;
                         leftShoulderXy[i * 2 + 1] = cy + shoulderPy;
                         rightShoulderXy![i * 2] = cx - shoulderPx;
@@ -561,12 +586,14 @@ public static class PathGrader
 
                 AddShoulderGuideSegments(
                     xyList, leftIdx, leftShoulderXy, leftShoulderIdx, n,
+                    keepLeftGuides,
                     hasBoundaryLoop, boundaryLoop, boundaryVertexCount,
                     dedupTol, AddVertex, segList,
                     roadBarriers, barrierScratch, barrierCandidates);
 
                 AddShoulderGuideSegments(
                     xyList, rightIdx, rightShoulderXy, rightShoulderIdx, n,
+                    keepRightGuides,
                     hasBoundaryLoop, boundaryLoop, boundaryVertexCount,
                     dedupTol, AddVertex, segList,
                     roadBarriers, barrierScratch, barrierCandidates);
@@ -631,8 +658,21 @@ public static class PathGrader
             }
         }
 
-        // Grade Z
-        ApplyPathGrading(paths, hardConstraints, outXy, origZ, newZ, outVertCount);
+        // Grade Z — pass original terrain sampler so reference profile is derived
+        // directly from the pre-grading field rather than from sparse new vertices.
+        Func<double, double, double> interpolateOriginalZ = (x, y) => faceGrid.InterpolateZ(x, y);
+        ApplyPathGrading(
+            paths,
+            hardConstraints,
+            outXy,
+            origZ,
+            newZ,
+            outVertCount,
+            interpolateOriginalZ,
+            hasBoundaryLoop,
+            boundaryLoop,
+            boundaryVertexCount,
+            dedupTol);
 
         // Build output
         var finalVerts = new double[outVertCount * 3];
@@ -691,6 +731,7 @@ public static class PathGrader
         var outXy = new double[vertexCount * 2];
         var origZ = new double[vertexCount];
         var newZ = new double[vertexCount];
+        bool hasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out double[] boundaryLoop, out int boundaryVertexCount);
 
         for (int i = 0; i < vertexCount; i++)
         {
@@ -700,7 +741,16 @@ public static class PathGrader
             newZ[i] = vertices[i * 3 + 2];
         }
 
-        ApplyPathGrading(paths, hardConstraints, outXy, origZ, newZ, vertexCount);
+        ApplyPathGrading(
+            paths,
+            hardConstraints,
+            outXy,
+            origZ,
+            newZ,
+            vertexCount,
+            hasBoundaryLoop: hasBoundaryLoop,
+            boundaryLoop: boundaryLoop,
+            boundaryVertexCount: boundaryVertexCount);
 
         var finalVerts = new double[vertexCount * 3];
         for (int i = 0; i < vertexCount; i++)
@@ -717,32 +767,70 @@ public static class PathGrader
     /// Shared grading logic: evaluate all nearby paths per vertex so overlapping
     /// corridors blend by proximity instead of depending on input order.
     /// </summary>
+    /// <param name="interpolateOriginalZ">
+    /// Optional sampler returning original terrain Z at any XY point.
+    /// Must represent the unmodified input terrain — not any already-graded
+    /// or remeshed geometry. When null, falls back to vertex-accumulation
+    /// for the reference shoulder profile.
+    /// </param>
     private static void ApplyPathGrading(
         PathDefinition[] paths,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
-        double[] outXy, double[] origZ, double[] newZ, int vertCount)
+        double[] outXy, double[] origZ, double[] newZ, int vertCount,
+        Func<double, double, double>? interpolateOriginalZ = null,
+        bool hasBoundaryLoop = false,
+        double[]? boundaryLoop = null,
+        int boundaryVertexCount = 0,
+        double boundaryTolerance = 1e-3)
     {
         PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);
+        var setupScratch = new SpatialHashGrid2D.QueryScratch(Math.Max(preparedBarriers.Segments.Length, 1));
+        var setupCandidates = new List<int>(8);
         var preparedPaths = new PreparedPath[paths.Length];
         for (int pathIndex = 0; pathIndex < paths.Length; pathIndex++)
         {
             PathDefinition path = paths[pathIndex];
             double halfWidth = path.Width * 0.5;
             double slopeRatio = Math.Tan(path.SlopeAngleDeg * Math.PI / 180.0);
-            double shoulderDistance = ComputePathShoulderDistance(outXy, origZ, vertCount, path);
+            double shoulderDistance = ComputePathShoulderDistance(outXy, origZ, vertCount, path, preparedBarriers, setupScratch, setupCandidates);
             var samplePath = BuildConstraintPolyline(
                 path,
                 ComputeConstraintSegmentLength(path, shoulderDistance),
                 dedupTol: 1e-6);
-            BuildShoulderReferenceProfile(
-                samplePath,
-                halfWidth,
-                shoulderDistance,
-                outXy,
-                origZ,
-                vertCount,
-                out double[] leftReferenceDz,
-                out double[] rightReferenceDz);
+
+            double[] leftReferenceDz, rightReferenceDz;
+            if (interpolateOriginalZ != null)
+            {
+                BuildShoulderReferenceProfileDirect(
+                    samplePath,
+                    halfWidth,
+                    shoulderDistance,
+                    interpolateOriginalZ,
+                    preparedBarriers,
+                    setupScratch,
+                    setupCandidates,
+                    hasBoundaryLoop,
+                    boundaryLoop ?? Array.Empty<double>(),
+                    boundaryVertexCount,
+                    boundaryTolerance,
+                    out leftReferenceDz,
+                    out rightReferenceDz);
+            }
+            else
+            {
+                BuildShoulderReferenceProfile(
+                    samplePath,
+                    halfWidth,
+                    shoulderDistance,
+                    outXy,
+                    origZ,
+                    vertCount,
+                    preparedBarriers,
+                    setupScratch,
+                    setupCandidates,
+                    out leftReferenceDz,
+                    out rightReferenceDz);
+            }
 
             double mnX = double.MaxValue, mxX = double.MinValue;
             double mnY = double.MaxValue, mxY = double.MinValue;
@@ -865,11 +953,18 @@ public static class PathGrader
         if (IsBlockedByBarrier(preparedBarriers, preparedPath.HalfWidth, closest, px, py, barrierScratch, barrierCandidates))
             return false;
 
-        double dz = originalZ - closest.PathZ;
+        double dzActual = originalZ - closest.PathZ;
+        double dz = dzActual;
         if (TryGetShoulderReferenceDz(preparedPath, closest, out double referenceDz) &&
             Math.Abs(referenceDz) > 1e-12)
         {
-            dz = referenceDz;
+            // Only use the reference when it agrees with the vertex's actual terrain
+            // direction (same sign) or when dzActual is near-zero (flat terrain dip/bump
+            // that needs lifting/lowering by the smooth profile).
+            // Opposite-sign means the reference profile came from the wrong side
+            // (SideSign flip) — using it would push the vertex in the wrong direction.
+            if (referenceDz * dzActual >= -1e-12)
+                dz = referenceDz;
         }
 
         double absDz = Math.Abs(dz);
@@ -892,6 +987,7 @@ public static class PathGrader
             return false;
 
         candidateZ = closest.PathZ + Math.Sign(dz) * rise;
+
         weight = ComputeShoulderBlendWeight(distFromEdge, neededDist);
         return weight > 1e-12;
     }
@@ -921,6 +1017,9 @@ public static class PathGrader
         double[] xy,
         double[] z,
         int vertexCount,
+        PreparedBarriers barriers,
+        SpatialHashGrid2D.QueryScratch barrierScratch,
+        List<int> barrierCandidates,
         out double[] leftReferenceDz,
         out double[] rightReferenceDz)
     {
@@ -945,6 +1044,9 @@ public static class PathGrader
             if (distFromEdge <= 1e-6 || distFromEdge > shoulderDistance + 1e-6)
                 continue;
 
+            if (barriers.Segments.Length > 0 && IsBlockedByBarrier(barriers, halfWidth, closest, px, py, barrierScratch, barrierCandidates))
+                continue;
+
             double dz = z[i] - closest.PathZ;
             if (Math.Abs(dz) <= 1e-9)
                 continue;
@@ -959,6 +1061,177 @@ public static class PathGrader
 
         FinalizeReferenceProfile(leftSum, leftWeight, leftReferenceDz);
         FinalizeReferenceProfile(rightSum, rightWeight, rightReferenceDz);
+    }
+
+    /// <summary>
+    /// Builds the shoulder reference dz profile by directly sampling the original
+    /// terrain field at each path station, rather than accumulating from sparse
+    /// mesh vertices. Uses a 3-point transverse aggregate (50 %, 75 %, 100 % of
+    /// the shoulder reach) with equal weights to reduce sensitivity to local terrain
+    /// anomalies at any single offset. Retains one smoothing pass for longitudinal
+    /// continuity. Produces no NaN gaps so gap-filling is not required.
+    /// </summary>
+    private static void BuildShoulderReferenceProfileDirect(
+        ConstraintPath samplePath,
+        double halfWidth,
+        double shoulderDistance,
+        Func<double, double, double> interpolateOriginalZ,
+        PreparedBarriers barriers,
+        SpatialHashGrid2D.QueryScratch barrierScratch,
+        List<int> barrierCandidates,
+        bool hasBoundaryLoop,
+        double[] boundaryLoop,
+        int boundaryVertexCount,
+        double boundaryTolerance,
+        out double[] leftReferenceDz,
+        out double[] rightReferenceDz)
+    {
+        int n = samplePath.VertexCount;
+        leftReferenceDz  = new double[n];
+        rightReferenceDz = new double[n];
+
+        if (n < 2 || shoulderDistance <= 1e-9)
+            return;
+
+        for (int i = 0; i < n; i++)
+        {
+            double cx = samplePath.XyVertices[i * 2];
+            double cy = samplePath.XyVertices[i * 2 + 1];
+            double pathZ = samplePath.ZValues[i];
+
+            // Use smooth tangent when available; fall back to ComputeDirection.
+            double dx, dy;
+            if (samplePath.TangentX != null && samplePath.TangentX.Length == n)
+            { dx = samplePath.TangentX[i]; dy = samplePath.TangentY[i]; }
+            else
+            { ComputeDirection(samplePath.XyVertices, n, i, out dx, out dy); }
+            double nx = -dy;  // left normal
+            double ny =  dx;
+
+            // Sample at 50 %, 75 %, 100 % of the shoulder reach measured from the road edge.
+            for (int side = -1; side <= 1; side += 2)  // -1 = right, +1 = left
+            {
+                double roadEdgeX = cx + side * nx * halfWidth;
+                double roadEdgeY = cy + side * ny * halfWidth;
+                double s0 = SampleOriginalTerrainAlongShoulderRay(
+                    interpolateOriginalZ,
+                    barriers,
+                    barrierScratch,
+                    barrierCandidates,
+                    hasBoundaryLoop,
+                    boundaryLoop,
+                    boundaryVertexCount,
+                    boundaryTolerance,
+                    roadEdgeX,
+                    roadEdgeY,
+                    roadEdgeX + side * nx * (shoulderDistance * 0.50),
+                    roadEdgeY + side * ny * (shoulderDistance * 0.50));
+                double s1 = SampleOriginalTerrainAlongShoulderRay(
+                    interpolateOriginalZ,
+                    barriers,
+                    barrierScratch,
+                    barrierCandidates,
+                    hasBoundaryLoop,
+                    boundaryLoop,
+                    boundaryVertexCount,
+                    boundaryTolerance,
+                    roadEdgeX,
+                    roadEdgeY,
+                    roadEdgeX + side * nx * (shoulderDistance * 0.75),
+                    roadEdgeY + side * ny * (shoulderDistance * 0.75));
+                double s2 = SampleOriginalTerrainAlongShoulderRay(
+                    interpolateOriginalZ,
+                    barriers,
+                    barrierScratch,
+                    barrierCandidates,
+                    hasBoundaryLoop,
+                    boundaryLoop,
+                    boundaryVertexCount,
+                    boundaryTolerance,
+                    roadEdgeX,
+                    roadEdgeY,
+                    roadEdgeX + side * nx * shoulderDistance,
+                    roadEdgeY + side * ny * shoulderDistance);
+                double dz = (s0 + s1 + s2) / 3.0 - pathZ;
+
+                if (side > 0)
+                    leftReferenceDz[i]  = dz;
+                else
+                    rightReferenceDz[i] = dz;
+            }
+        }
+
+        // One smoothing pass to avoid raw terrain frequency becoming grading oscillation.
+        SmoothReferenceSamples(leftReferenceDz,  1);
+        SmoothReferenceSamples(rightReferenceDz, 1);
+    }
+
+    private static double SampleOriginalTerrainAlongShoulderRay(
+        Func<double, double, double> interpolateOriginalZ,
+        PreparedBarriers barriers,
+        SpatialHashGrid2D.QueryScratch barrierScratch,
+        List<int> barrierCandidates,
+        bool hasBoundaryLoop,
+        double[] boundaryLoop,
+        int boundaryVertexCount,
+        double boundaryTolerance,
+        double startX,
+        double startY,
+        double targetX,
+        double targetY)
+    {
+        if (barriers.Segments.Length > 0)
+        {
+            GradingBarriers.TryClipSegment(
+                barriers,
+                startX,
+                startY,
+                targetX,
+                targetY,
+                barrierScratch,
+                barrierCandidates,
+                out targetX,
+                out targetY);
+        }
+
+        if (hasBoundaryLoop)
+        {
+            List<ClippedSegment> pieces = BoundaryClipper.ClipSegmentToBoundary(
+                startX,
+                startY,
+                0.0,
+                targetX,
+                targetY,
+                0.0,
+                hasBoundaryLoop,
+                boundaryLoop,
+                boundaryVertexCount,
+                boundaryTolerance);
+
+            double furthestEndT = double.MinValue;
+            bool foundPiece = false;
+            foreach (ClippedSegment piece in pieces)
+            {
+                if (piece.StartT > 1e-9 || piece.EndT <= furthestEndT)
+                    continue;
+
+                targetX = piece.EndX;
+                targetY = piece.EndY;
+                furthestEndT = piece.EndT;
+                foundPiece = true;
+            }
+
+            if (!foundPiece)
+            {
+                if (!BoundaryClipper.IsInsideOrOnBoundary(startX, startY, hasBoundaryLoop, boundaryLoop, boundaryVertexCount, boundaryTolerance))
+                    return interpolateOriginalZ(startX, startY);
+
+                targetX = startX;
+                targetY = startY;
+            }
+        }
+
+        return interpolateOriginalZ(targetX, targetY);
     }
 
     private static void AccumulateReferenceSample(
@@ -1129,10 +1402,12 @@ public static class PathGrader
             z[i] = vertices[i * 3 + 2];
         }
 
-        return ComputePathShoulderDistance(xy, z, vertexCount, path);
+        var scratch = new SpatialHashGrid2D.QueryScratch(1);
+        return ComputePathShoulderDistance(xy, z, vertexCount, path, PreparedBarriers.Empty, scratch, new List<int>());
     }
 
-    private static double ComputePathShoulderDistance(double[] xy, double[] z, int vertexCount, PathDefinition path)
+    private static double ComputePathShoulderDistance(double[] xy, double[] z, int vertexCount, PathDefinition path,
+        PreparedBarriers barriers, SpatialHashGrid2D.QueryScratch barrierScratch, List<int> barrierCandidates)
     {
         if (path.MaxDistance > 0)
             return path.MaxDistance;
@@ -1141,6 +1416,7 @@ public static class PathGrader
         if (slopeRatio <= 1e-12)
             return 100.0;
 
+        double halfWidth = path.Width * 0.5;
         double mnX = double.MaxValue, mxX = double.MinValue;
         double mnY = double.MaxValue, mxY = double.MinValue;
         for (int i = 0; i < path.VertexCount; i++)
@@ -1161,12 +1437,15 @@ public static class PathGrader
             if (px < mnX - 200 || px > mxX + 200 || py < mnY - 200 || py > mxY + 200)
                 continue;
 
-            if (TryFindClosestPathSample(path, px, py, out _, out double pathZ))
-            {
-                double dz = Math.Abs(z[i] - pathZ);
-                if (dz > maxZDiff)
-                    maxZDiff = dz;
-            }
+            if (!TryFindClosestPathLocation(path.XyVertices, path.ZValues, path.VertexCount, px, py, out ClosestPathLocation closest))
+                continue;
+
+            if (barriers.Segments.Length > 0 && IsBlockedByBarrier(barriers, halfWidth, closest, px, py, barrierScratch, barrierCandidates))
+                continue;
+
+            double dz = Math.Abs(z[i] - closest.PathZ);
+            if (dz > maxZDiff)
+                maxZDiff = dz;
         }
 
         return maxZDiff / slopeRatio;
@@ -1180,10 +1459,18 @@ public static class PathGrader
         return Math.Clamp(baseSpacing, minSpacing, maxSpacing);
     }
 
+    private static ConstraintPath MakeGeometryConstraintPath(double[] xy, double[] z, int count)
+        => new ConstraintPath(xy, z, count, Array.Empty<double>(), Array.Empty<double>());
+
     private static ConstraintPath BuildConstraintPolyline(PathDefinition path, double maxSegmentLength, double dedupTol)
     {
         if (path.VertexCount < 2 || maxSegmentLength <= dedupTol)
-            return new ConstraintPath((double[])path.XyVertices.Clone(), (double[])path.ZValues.Clone(), path.VertexCount);
+        {
+            double[] xyOut = (double[])path.XyVertices.Clone();
+            int n = path.VertexCount;
+            ComputeSmoothedTangents(xyOut, n, out double[] tx, out double[] ty);
+            return new ConstraintPath(xyOut, (double[])path.ZValues.Clone(), n, tx, ty);
+        }
 
         var xy = new List<double>(path.VertexCount * 4);
         var z = new List<double>(path.VertexCount * 2);
@@ -1214,7 +1501,252 @@ public static class PathGrader
             path.ZValues[path.VertexCount - 1],
             dedupTol);
 
-        return new ConstraintPath(xy.ToArray(), z.ToArray(), xy.Count / 2);
+        double[] xyArr = xy.ToArray();
+        int count = xy.Count / 2;
+        ComputeSmoothedTangents(xyArr, count, out double[] tangentX, out double[] tangentY);
+        return new ConstraintPath(xyArr, z.ToArray(), count, tangentX, tangentY);
+    }
+
+    /// <summary>
+    /// Computes a smooth unit tangent at each station of a polyline.
+    /// Uses length-weighted averaging of adjacent segment directions.
+    /// Zero-length segments are skipped. If adjacent segments are nearly
+    /// anti-parallel (dot &lt; -0.7, i.e. ≥ 135° reversal), only the longer
+    /// segment contributes to avoid spurious bisector normals at tight U-turns.
+    /// Falls back to the longer adjacent segment if the weighted sum is degenerate.
+    /// </summary>
+    private static void ComputeSmoothedTangents(
+        double[] xyVertices,
+        int vertexCount,
+        out double[] tangentX,
+        out double[] tangentY)
+    {
+        tangentX = new double[vertexCount];
+        tangentY = new double[vertexCount];
+
+        if (vertexCount < 2)
+            return;
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double sumX = 0.0, sumY = 0.0;
+
+            // Previous segment: from i-1 to i
+            double prevDx = 0, prevDy = 0, prevLen = 0;
+            if (i > 0)
+            {
+                prevDx = xyVertices[i * 2]     - xyVertices[(i - 1) * 2];
+                prevDy = xyVertices[i * 2 + 1] - xyVertices[(i - 1) * 2 + 1];
+                prevLen = Math.Sqrt(prevDx * prevDx + prevDy * prevDy);
+                if (prevLen < 1e-9) prevLen = 0; // zero-length — skip
+            }
+
+            // Next segment: from i to i+1
+            double nextDx = 0, nextDy = 0, nextLen = 0;
+            if (i < vertexCount - 1)
+            {
+                nextDx = xyVertices[(i + 1) * 2]     - xyVertices[i * 2];
+                nextDy = xyVertices[(i + 1) * 2 + 1] - xyVertices[i * 2 + 1];
+                nextLen = Math.Sqrt(nextDx * nextDx + nextDy * nextDy);
+                if (nextLen < 1e-9) nextLen = 0;
+            }
+
+            bool hasPrev = prevLen > 1e-9;
+            bool hasNext = nextLen > 1e-9;
+
+            if (hasPrev && hasNext)
+            {
+                // Normalized directions
+                double pnx = prevDx / prevLen, pny = prevDy / prevLen;
+                double nnx = nextDx / nextLen, nny = nextDy / nextLen;
+
+                // Check for near-U-turn (dot < -0.7, roughly ≥ 135°)
+                double dot = pnx * nnx + pny * nny;
+                if (dot < -0.7)
+                {
+                    // Use only the longer segment to avoid bisector artifacts
+                    if (prevLen >= nextLen) { sumX = pnx * prevLen; sumY = pny * prevLen; }
+                    else                    { sumX = nnx * nextLen; sumY = nny * nextLen; }
+                }
+                else
+                {
+                    // Length-weighted blend of both segments
+                    sumX = pnx * prevLen + nnx * nextLen;
+                    sumY = pny * prevLen + nny * nextLen;
+                }
+            }
+            else if (hasPrev)
+            {
+                sumX = prevDx; sumY = prevDy;
+            }
+            else if (hasNext)
+            {
+                sumX = nextDx; sumY = nextDy;
+            }
+
+            double len = Math.Sqrt(sumX * sumX + sumY * sumY);
+            if (len < 1e-9)
+            {
+                // Fully degenerate — fall back to whichever segment is longer
+                if (prevLen >= nextLen && prevLen > 1e-9)      { len = prevLen; sumX = prevDx; sumY = prevDy; }
+                else if (nextLen > 1e-9)                        { len = nextLen; sumX = nextDx; sumY = nextDy; }
+                else                                            { tangentX[i] = 1.0; tangentY[i] = 0.0; continue; }
+                len = Math.Sqrt(sumX * sumX + sumY * sumY);
+            }
+
+            tangentX[i] = sumX / len;
+            tangentY[i] = sumY / len;
+        }
+    }
+
+    private static void ComputeInsideCornerGuideSuppression(
+        double[] xyVertices,
+        int vertexCount,
+        out bool[] suppressLeftGuides,
+        out bool[] suppressRightGuides)
+    {
+        suppressLeftGuides = new bool[vertexCount];
+        suppressRightGuides = new bool[vertexCount];
+
+        if (vertexCount < 3)
+            return;
+
+        const double minTurnAngleDeg = 30.0;
+        double dotThreshold = Math.Cos(minTurnAngleDeg * Math.PI / 180.0);
+
+        for (int i = 1; i < vertexCount - 1; i++)
+        {
+            double prevDx = xyVertices[i * 2] - xyVertices[(i - 1) * 2];
+            double prevDy = xyVertices[i * 2 + 1] - xyVertices[(i - 1) * 2 + 1];
+            double nextDx = xyVertices[(i + 1) * 2] - xyVertices[i * 2];
+            double nextDy = xyVertices[(i + 1) * 2 + 1] - xyVertices[i * 2 + 1];
+
+            double prevLen = Math.Sqrt(prevDx * prevDx + prevDy * prevDy);
+            double nextLen = Math.Sqrt(nextDx * nextDx + nextDy * nextDy);
+            if (prevLen <= 1e-9 || nextLen <= 1e-9)
+                continue;
+
+            prevDx /= prevLen;
+            prevDy /= prevLen;
+            nextDx /= nextLen;
+            nextDy /= nextLen;
+
+            double dot = Math.Clamp((prevDx * nextDx) + (prevDy * nextDy), -1.0, 1.0);
+            if (dot >= dotThreshold)
+                continue;
+
+            double turn = (prevDx * nextDy) - (prevDy * nextDx);
+            if (Math.Abs(turn) <= 1e-9)
+                continue;
+
+            bool[] target = turn > 0.0 ? suppressLeftGuides : suppressRightGuides;
+            int window = dot <= 0.5 ? 2 : 1;
+            int start = Math.Max(0, i - window);
+            int end = Math.Min(vertexCount - 1, i + window);
+            for (int j = start; j <= end; j++)
+                target[j] = true;
+        }
+    }
+
+    private static double ComputeGuideSpacing(double width, double shoulderDistance)
+    {
+        double baseSpacing = Math.Max(width * 2.0, shoulderDistance * 2.0);
+        return Math.Clamp(baseSpacing, 4.0, 15.0);
+    }
+
+    private static bool[] ComputeGuideSelection(
+        double[] xyVertices,
+        int vertexCount,
+        double targetSpacing,
+        bool[] suppressGuides)
+    {
+        var keepGuides = new bool[vertexCount];
+        if (vertexCount == 0)
+            return keepGuides;
+
+        keepGuides[0] = true;
+        if (vertexCount == 1)
+            return keepGuides;
+
+        int last = vertexCount - 1;
+        keepGuides[last] = true;
+        if (vertexCount == 2)
+            return keepGuides;
+
+        var cumulativeLength = new double[vertexCount];
+        for (int i = 1; i < vertexCount; i++)
+        {
+            double dx = xyVertices[i * 2] - xyVertices[(i - 1) * 2];
+            double dy = xyVertices[i * 2 + 1] - xyVertices[(i - 1) * 2 + 1];
+            cumulativeLength[i] = cumulativeLength[i - 1] + Math.Sqrt((dx * dx) + (dy * dy));
+        }
+
+        double lastKeptLength = cumulativeLength[0];
+        int keptInteriorCount = 0;
+        for (int i = 1; i < last; i++)
+        {
+            if (suppressGuides[i])
+                continue;
+
+            if (cumulativeLength[i] - lastKeptLength < targetSpacing - 1e-9)
+                continue;
+
+            keepGuides[i] = true;
+            lastKeptLength = cumulativeLength[i];
+            keptInteriorCount++;
+        }
+
+        double totalLength = cumulativeLength[last];
+        if ((totalLength - lastKeptLength) > targetSpacing * 1.5)
+        {
+            double targetLength = totalLength - targetSpacing;
+            int bestIndex = -1;
+            double bestError = double.MaxValue;
+            for (int i = 1; i < last; i++)
+            {
+                if (suppressGuides[i] || keepGuides[i])
+                    continue;
+
+                double fromPrevious = cumulativeLength[i] - lastKeptLength;
+                double toEnd = totalLength - cumulativeLength[i];
+                if (fromPrevious < targetSpacing * 0.5 || toEnd < targetSpacing * 0.5)
+                    continue;
+
+                double error = Math.Abs(cumulativeLength[i] - targetLength);
+                if (error < bestError)
+                {
+                    bestError = error;
+                    bestIndex = i;
+                }
+            }
+
+            if (bestIndex >= 0)
+                keepGuides[bestIndex] = true;
+        }
+
+        if (keptInteriorCount == 0)
+        {
+            int bestIndex = -1;
+            double bestError = double.MaxValue;
+            double targetLength = totalLength * 0.5;
+            for (int i = 1; i < last; i++)
+            {
+                if (suppressGuides[i])
+                    continue;
+
+                double error = Math.Abs(cumulativeLength[i] - targetLength);
+                if (error < bestError)
+                {
+                    bestError = error;
+                    bestIndex = i;
+                }
+            }
+
+            if (bestIndex >= 0)
+                keepGuides[bestIndex] = true;
+        }
+
+        return keepGuides;
     }
 
     private static void AddConstraintSample(List<double> xy, List<double> z, double x, double y, double elevation, double dedupTol)
@@ -1258,6 +1790,21 @@ public static class PathGrader
         dy /= len;
     }
 
+    private static void GetConstraintPathTangent(ConstraintPath path, int index, out double dx, out double dy)
+    {
+        if (path.TangentX.Length == path.VertexCount &&
+            path.TangentY.Length == path.VertexCount &&
+            index >= 0 &&
+            index < path.VertexCount)
+        {
+            dx = path.TangentX[index];
+            dy = path.TangentY[index];
+            return;
+        }
+
+        ComputeDirection(path.XyVertices, path.VertexCount, index, out dx, out dy);
+    }
+
     private static IEnumerable<ConstraintPath> CreateBoundaryClippedRuns(
         double[] xyVertices,
         double[] zValues,
@@ -1269,7 +1816,7 @@ public static class PathGrader
     {
         if (!hasBoundaryLoop)
         {
-            yield return new ConstraintPath(CopyLeadingDoubles(xyVertices, vertexCount * 2), CopyLeadingDoubles(zValues, vertexCount), vertexCount);
+            yield return MakeGeometryConstraintPath(CopyLeadingDoubles(xyVertices, vertexCount * 2), CopyLeadingDoubles(zValues, vertexCount), vertexCount);
             yield break;
         }
 
@@ -1293,7 +1840,7 @@ public static class PathGrader
             if (pieces.Count == 0)
             {
                 if (runZ.Count >= 2)
-                    yield return new ConstraintPath(runXy.ToArray(), runZ.ToArray(), runZ.Count);
+                    yield return MakeGeometryConstraintPath(runXy.ToArray(), runZ.ToArray(), runZ.Count);
 
                 runXy.Clear();
                 runZ.Clear();
@@ -1308,7 +1855,7 @@ public static class PathGrader
                     double dy = runXy[^1] - piece.StartY;
                     if ((dx * dx) + (dy * dy) > tolerance * tolerance)
                     {
-                        yield return new ConstraintPath(runXy.ToArray(), runZ.ToArray(), runZ.Count);
+                        yield return MakeGeometryConstraintPath(runXy.ToArray(), runZ.ToArray(), runZ.Count);
                         runXy.Clear();
                         runZ.Clear();
                     }
@@ -1320,7 +1867,7 @@ public static class PathGrader
         }
 
         if (runZ.Count >= 2)
-            yield return new ConstraintPath(runXy.ToArray(), runZ.ToArray(), runZ.Count);
+            yield return MakeGeometryConstraintPath(runXy.ToArray(), runZ.ToArray(), runZ.Count);
     }
 
     private static void AppendRunPoint(
@@ -1474,6 +2021,7 @@ public static class PathGrader
         double[] shoulderXy,
         double[] zValues,
         int vertexCount,
+        bool[]? keepGuides,
         bool hasBoundaryLoop,
         double[] boundaryLoop,
         int boundaryVertexCount,
@@ -1481,6 +2029,9 @@ public static class PathGrader
     {
         for (int i = 0; i < vertexCount; i++)
         {
+            if (keepGuides != null && !keepGuides[i])
+                continue;
+
             double roadX = roadXy[i * 2];
             double roadY = roadXy[i * 2 + 1];
             double shoulderX = shoulderXy[i * 2];
@@ -1523,6 +2074,7 @@ public static class PathGrader
         double[]? shoulderXy,
         int[]? shoulderIndices,
         int vertexCount,
+        bool[]? keepGuides,
         bool hasBoundaryLoop,
         double[] boundaryLoop,
         int boundaryVertexCount,
@@ -1538,6 +2090,9 @@ public static class PathGrader
 
         for (int i = 0; i < vertexCount; i++)
         {
+            if (keepGuides != null && !keepGuides[i])
+                continue;
+
             double roadX = xyList[roadIndices[i] * 2];
             double roadY = xyList[roadIndices[i] * 2 + 1];
             double shoulderX = shoulderXy[i * 2];
@@ -1615,13 +2170,42 @@ public static class PathGrader
         double py,
         out ClosestPathLocation closest)
     {
-        return TryFindClosestPathLocation(path.XyVertices, path.ZValues, path.VertexCount, px, py, out closest);
+        return TryFindClosestPathLocation(
+            path.XyVertices, path.ZValues, path.VertexCount,
+            path.TangentX, path.TangentY,
+            px, py, out closest);
     }
 
     private static bool TryFindClosestPathLocation(
         double[] xyVertices,
         double[] zValues,
         int vertexCount,
+        double px,
+        double py,
+        out ClosestPathLocation closest)
+    {
+        return TryFindClosestPathLocation(
+            xyVertices, zValues, vertexCount,
+            null, null,
+            px, py, out closest);
+    }
+
+    /// <summary>
+    /// Finds the closest point on the path polyline and returns a
+    /// <see cref="ClosestPathLocation"/>. When smooth tangent arrays are
+    /// provided, <c>SideSign</c> and <c>DirectionX/Y</c> are computed from
+    /// the smoothly interpolated tangent at the closest position rather than
+    /// the raw segment direction. This eliminates the discrete SideSign flip
+    /// that occurs at segment-ownership (Voronoi) boundaries near path bends,
+    /// which was the primary cause of cut/fill polarity inversions in the
+    /// shoulder reference-profile lookup.
+    /// </summary>
+    private static bool TryFindClosestPathLocation(
+        double[] xyVertices,
+        double[] zValues,
+        int vertexCount,
+        double[]? tangentX,
+        double[]? tangentY,
         double px,
         double py,
         out ClosestPathLocation closest)
@@ -1654,17 +2238,49 @@ public static class PathGrader
             if (distSq < closestDistSq)
             {
                 double segLength = Math.Sqrt(segLen);
+
+                // Compute direction and SideSign from smooth tangent when available.
+                // Linearly interpolate station tangents at parameter t, then normalize.
+                // Falls back to raw segment direction when no tangents are provided.
+                double dirX, dirY, sideSign;
+                if (tangentX != null && tangentY != null &&
+                    s < tangentX.Length && s + 1 < tangentX.Length)
+                {
+                    double blendX = tangentX[s] + t * (tangentX[s + 1] - tangentX[s]);
+                    double blendY = tangentY[s] + t * (tangentY[s + 1] - tangentY[s]);
+                    double blendLen = Math.Sqrt(blendX * blendX + blendY * blendY);
+                    if (blendLen > 1e-9)
+                    {
+                        dirX = blendX / blendLen;
+                        dirY = blendY / blendLen;
+                    }
+                    else
+                    {
+                        // Interpolated tangent degenerate — fall back to segment direction
+                        dirX = sdx / segLength;
+                        dirY = sdy / segLength;
+                    }
+                    // SideSign: cross product of smooth tangent with (query − projected)
+                    sideSign = dirX * (py - projY) - dirY * (px - projX);
+                }
+                else
+                {
+                    dirX = sdx / segLength;
+                    dirY = sdy / segLength;
+                    sideSign = (sdx * (py - ay)) - (sdy * (px - ax));
+                }
+
                 closestDistSq = distSq;
                 closest = new ClosestPathLocation(
                     s,
                     t,
                     Math.Sqrt(distSq),
                     zValues[s] + t * (zValues[s + 1] - zValues[s]),
-                    (sdx * (py - ay)) - (sdy * (px - ax)),
+                    sideSign,
                     projX,
                     projY,
-                    sdx / segLength,
-                    sdy / segLength);
+                    dirX,
+                    dirY);
             }
         }
 
