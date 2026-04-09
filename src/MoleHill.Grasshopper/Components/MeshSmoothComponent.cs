@@ -169,9 +169,11 @@ public class MeshSmoothComponent : GH_Component
 
             if (pl.Count < 2) continue;
 
+            // Keep the duplicate closing point for closed breaklines so that
+            // BuildBreaklineSegments generates the closing segment [n-1 → 0].
+            // (Boundaries strip the duplicate because PointInPolygon wraps around
+            // implicitly, but breakline segment generation needs the explicit repeat.)
             int plCount = pl.Count;
-            if (crv.IsClosed && pl[0].DistanceTo(pl[plCount - 1]) < tolerance)
-                plCount--;
 
             var xyPts = new double[plCount * 2];
             for (int i = 0; i < plCount; i++)

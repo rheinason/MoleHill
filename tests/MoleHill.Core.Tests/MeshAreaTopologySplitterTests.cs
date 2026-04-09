@@ -106,6 +106,51 @@ public class MeshAreaTopologySplitterTests
     }
 
     [Fact]
+    public void SplitPreservingTopology_SharedCutOnSlopedSurface_KeepsSingleInterpolatedBoundary()
+    {
+        var result = MeshAreaSplitter.SplitPreservingTopology(
+            new[]
+            {
+                0.0, 0.0, 0.0,
+                2.0, 0.0, 2.0,
+                2.0, 2.0, 4.0,
+                0.0, 2.0, 2.0
+            },
+            4,
+            new[]
+            {
+                0, 1, 2,
+                0, 2, 3
+            },
+            2,
+            new[]
+            {
+                new MeshAreaSplitter.AreaBoundary(
+                    new[] { 0.0, 0.0, 1.0, 0.0, 1.0, 2.0, 0.0, 2.0 },
+                    4),
+                new MeshAreaSplitter.AreaBoundary(
+                    new[] { 1.0, 0.0, 2.0, 0.0, 2.0, 2.0, 1.0, 2.0 },
+                    4)
+            },
+            0.001,
+            out var errorMessage);
+
+        Assert.True(result != null, errorMessage);
+        Assert.Null(errorMessage);
+
+        AssertContainsEdge(result!, (1.0, 0.0), (1.0, 1.0));
+        AssertContainsEdge(result, (1.0, 1.0), (1.0, 2.0));
+
+        AssertVertexZ(result, 1.0, 0.0, 1.0);
+        AssertVertexZ(result, 1.0, 1.0, 2.0);
+        AssertVertexZ(result, 1.0, 2.0, 3.0);
+
+        Assert.Equal(1, CountVertices(result, 1.0, 0.0, 1e-9));
+        Assert.Equal(1, CountVertices(result, 1.0, 1.0, 1e-9));
+        Assert.Equal(1, CountVertices(result, 1.0, 2.0, 1e-9));
+    }
+
+    [Fact]
     public void SplitPreservingTopology_OverlappingAreas_LaterAreaWinsInOverlap()
     {
         double[] vertices =
@@ -232,6 +277,20 @@ public class MeshAreaTopologySplitterTests
         }
 
         return -1;
+    }
+
+    private static int CountVertices(MeshAreaSplitter.SplitResult result, double x, double y, double tolerance)
+    {
+        int count = 0;
+        for (int i = 0; i < result.VertexCount; i++)
+        {
+            double dx = result.Vertices[i * 3] - x;
+            double dy = result.Vertices[i * 3 + 1] - y;
+            if (Math.Abs(dx) <= tolerance && Math.Abs(dy) <= tolerance)
+                count++;
+        }
+
+        return count;
     }
 
     private static void AssertContainsFace(MeshAreaSplitter.SplitResult result, params (double X, double Y)[] expectedVertices)

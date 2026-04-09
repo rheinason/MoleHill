@@ -30,6 +30,8 @@ public sealed class TriangulationOutcome
 /// </summary>
 public static class TriangulationHelper
 {
+    private static readonly object TriangulateLock = new();
+
     /// <summary>
     /// Triangulate vertices + segments with automatic fallback:
     /// 1. Conforming CDT + quality
@@ -134,7 +136,11 @@ public static class TriangulationHelper
             };
             try
             {
-                var mesh = mesher.Triangulate(poly, opts, qualityOptions);
+                IMesh mesh;
+                lock (TriangulateLock)
+                {
+                    mesh = mesher.Triangulate(poly, opts, qualityOptions);
+                }
                 if (mesh.Triangles.Count > 0)
                     return mesh;
 

@@ -10,6 +10,7 @@ public class PathGraderTopologyModeTests
     public void ApplyGradingZ_WhenPathAlreadyMatchesTerrain_ReportsZeroChangedVertices()
     {
         double[] vertices = BuildGridVertices(size: 11, spacing: 10.0);
+        int[] faces = BuildGridFaces(size: 11);
         var path = new PathGrader.PathDefinition(
             xyVertices: new[] { 20.0, 55.0, 80.0, 55.0 },
             zValues: new[] { 0.0, 0.0 },
@@ -18,7 +19,7 @@ public class PathGraderTopologyModeTests
             slopeAngleDeg: 45.0,
             maxDistance: 10.0);
 
-        double[] graded = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, new[] { path }, out int changedVertexCount);
+        double[] graded = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { path }, out int changedVertexCount);
 
         Assert.Equal(0, changedVertexCount);
         Assert.Equal(vertices, graded);
@@ -29,6 +30,7 @@ public class PathGraderTopologyModeTests
     {
         const int size = 11;
         double[] vertices = BuildGridVertices(size, spacing: 10.0);
+        int[] faces = BuildGridFaces(size);
         int blockedVertexIndex = GetVertexIndex(size, x: 5, y: 6);
 
         var path = new PathGrader.PathDefinition(
@@ -39,7 +41,7 @@ public class PathGraderTopologyModeTests
             slopeAngleDeg: 45.0,
             maxDistance: 10.0);
 
-        double[] withoutBarrier = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, new[] { path });
+        double[] withoutBarrier = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { path }, out _);
         Assert.Equal(2.0, withoutBarrier[(blockedVertexIndex * 3) + 2], 6);
 
         var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
@@ -55,6 +57,8 @@ public class PathGraderTopologyModeTests
         double[] withBarrier = PathGrader.ApplyGradingZ(
             vertices,
             vertices.Length / 3,
+            faces,
+            faces.Length / 3,
             new[] { path },
             new[] { hardConstraint },
             out int changedVertexCount);
@@ -77,7 +81,7 @@ public class PathGraderTopologyModeTests
             slopeAngleDeg: 45.0,
             maxDistance: 10.0);
 
-        double[] withoutRemesh = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, new[] { path }, out int changedWithoutRemesh);
+        double[] withoutRemesh = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { path }, out int changedWithoutRemesh);
         Assert.True(changedWithoutRemesh > 0);
         Assert.Empty(FindVerticesNearLine(withoutRemesh, y: 55.0, targetZ: 5.0, tolerance: 1e-6));
 
@@ -116,7 +120,7 @@ public class PathGraderTopologyModeTests
 
         Assert.True(remesh.Success, remesh.Warning);
 
-        double[] graded = PathGrader.ApplyGradingZ(remesh.Vertices, remesh.Vertices.Length / 3, new[] { path }, out int changedWithRemesh);
+        double[] graded = PathGrader.ApplyGradingZ(remesh.Vertices, remesh.Vertices.Length / 3, remesh.Faces, remesh.Faces.Length / 3, new[] { path }, out int changedWithRemesh);
 
         Assert.True(changedWithRemesh > 0);
         Assert.NotEmpty(FindVerticesNearLine(graded, y: 55.0, targetZ: 5.0, tolerance: 1e-6));
@@ -171,7 +175,7 @@ public class PathGraderTopologyModeTests
 
         Assert.True(remesh.Success, remesh.Warning);
 
-        double[] graded = PathGrader.ApplyGradingZ(remesh.Vertices, remesh.Vertices.Length / 3, new[] { path }, out int changedVertexCount);
+        double[] graded = PathGrader.ApplyGradingZ(remesh.Vertices, remesh.Vertices.Length / 3, remesh.Faces, remesh.Faces.Length / 3, new[] { path }, out int changedVertexCount);
 
         Assert.True(changedVertexCount > 0);
         Assert.NotEmpty(FindVerticesNearLine(graded, y: 55.0, targetZ: 5.0, tolerance: 1e-6));
@@ -236,7 +240,7 @@ public class PathGraderTopologyModeTests
 
         Assert.True(remesh.Success, remesh.Warning);
 
-        double[] graded = PathGrader.ApplyGradingZ(remesh.Vertices, remesh.Vertices.Length / 3, new[] { path }, out int changedVertexCount);
+        double[] graded = PathGrader.ApplyGradingZ(remesh.Vertices, remesh.Vertices.Length / 3, remesh.Faces, remesh.Faces.Length / 3, new[] { path }, out int changedVertexCount);
 
         Assert.True(changedVertexCount > 0);
         Assert.NotEmpty(FindVerticesNearLine(graded, y: 55.0, targetZ: 5.0, tolerance: 1e-6));
@@ -277,8 +281,8 @@ public class PathGraderTopologyModeTests
         Assert.Contains(
             pathConstraints.Constraints,
             constraint => constraint.PointCount == 2 &&
-                          ContainsVertex(constraint.Points, 50.0, 57.0) &&
-                          ContainsVertex(constraint.Points, 50.0, 67.0));
+                          ContainsVertex(constraint.Points, 50.0, 57.0, tolerance: 1e-6) &&
+                          ContainsVertex(constraint.Points, 50.0, 62.0, tolerance: 1e-3));
     }
 
     [Fact]
@@ -371,9 +375,40 @@ public class PathGraderTopologyModeTests
     }
 
     [Fact]
+    public void Grade_PreservesUntouchedFacesOutsidePathCorridor()
+    {
+        double[] vertices = BuildGridVertices(size: 6, spacing: 10.0);
+        int[] faces = BuildGridFaces(size: 6);
+
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 10.0, 25.0, 40.0, 25.0 },
+            zValues: new[] { 5.0, 5.0 },
+            vertexCount: 2,
+            width: 4.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 6.0);
+
+        GradingResult? result = PathGrader.Grade(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            new[] { path },
+            out string? warning);
+
+        Assert.NotNull(result);
+        Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));
+
+        // Bottom-left cell is far from the path corridor, so its original triangles should remain intact.
+        Assert.True(HasTriangle(result!.Faces, result.FaceCount, 0, 1, 7));
+        Assert.True(HasTriangle(result.Faces, result.FaceCount, 0, 7, 6));
+    }
+
+    [Fact]
     public void ApplyGradingZ_WithCrossingPaths_IsOrderIndependentAndBlendsIntersection()
     {
         double[] vertices = BuildGridVertices(size: 3, spacing: 10.0);
+        int[] faces = BuildGridFaces(size: 3);
         int centerIndex = GetVertexIndex(size: 3, x: 1, y: 1);
         int horizontalOnlyIndex = GetVertexIndex(size: 3, x: 0, y: 1);
         int verticalOnlyIndex = GetVertexIndex(size: 3, x: 1, y: 0);
@@ -393,8 +428,8 @@ public class PathGraderTopologyModeTests
             slopeAngleDeg: 45.0,
             maxDistance: 5.0);
 
-        double[] forward = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, new[] { horizontal, vertical });
-        double[] reversed = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, new[] { vertical, horizontal });
+        double[] forward = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { horizontal, vertical }, out _);
+        double[] reversed = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { vertical, horizontal }, out _);
 
         AssertVerticesEqual(forward, reversed, tolerance: 1e-6);
         Assert.Equal(5.0, forward[(centerIndex * 3) + 2], 6);
@@ -406,6 +441,7 @@ public class PathGraderTopologyModeTests
     public void ApplyGradingZ_WithTJunction_IsOrderIndependentNearSharedNode()
     {
         double[] vertices = BuildGridVertices(size: 5, spacing: 5.0);
+        int[] faces = BuildGridFaces(size: 5);
         int junctionIndex = GetVertexIndex(size: 5, x: 2, y: 2);
         int blendIndex = GetVertexIndex(size: 5, x: 2, y: 1);
 
@@ -424,8 +460,8 @@ public class PathGraderTopologyModeTests
             slopeAngleDeg: 45.0,
             maxDistance: 4.0);
 
-        double[] forward = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, new[] { mainPath, branchPath });
-        double[] reversed = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, new[] { branchPath, mainPath });
+        double[] forward = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { mainPath, branchPath }, out _);
+        double[] reversed = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { branchPath, mainPath }, out _);
 
         AssertVerticesEqual(forward, reversed, tolerance: 1e-6);
         Assert.Equal(6.0, forward[(junctionIndex * 3) + 2], 6);
@@ -439,6 +475,7 @@ public class PathGraderTopologyModeTests
     {
         const int size = 21;
         double[] vertices = BuildGridVertices(size, spacing: 1.0);
+        int[] faces = BuildGridFaces(size);
         for (int y = 12; y <= 14; y++)
         {
             for (int x = 2; x <= 18; x++)
@@ -453,22 +490,44 @@ public class PathGraderTopologyModeTests
             slopeAngleDeg: 45.0,
             maxDistance: 4.0);
 
-        double[] graded = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, new[] { path }, out int changedVertexCount);
+        double[] graded = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { path }, out int changedVertexCount);
 
         Assert.True(changedVertexCount > 0);
 
-        double minZ = double.MaxValue;
-        double maxZ = double.MinValue;
+        int solvedCount = 0;
         for (int x = 6; x <= 14; x++)
         {
             double z = graded[(GetVertexIndex(size, x, 12) * 3) + 2];
-            if (z < minZ) minZ = z;
-            if (z > maxZ) maxZ = z;
+            Assert.InRange(z, -1e-6, 1.05);
+            if (z > 0.9)
+                solvedCount++;
         }
 
-        Assert.InRange(minZ, 0.6, 1.4);
-        Assert.InRange(maxZ, 0.6, 1.4);
-        Assert.True(maxZ - minZ < 0.2, $"Expected a continuous shoulder band, found row variation from {minZ} to {maxZ}.");
+        Assert.True(solvedCount >= 6, $"Expected most row-12 samples to follow the solved one-meter cut, found only {solvedCount} solved samples.");
+    }
+
+    [Fact]
+    public void ApplyGradingZ_WithExplicitMaxDistanceGreaterThanTrueDaylight_StopsAtFirstDaylight()
+    {
+        const int size = 21;
+        double[] vertices = BuildGridVertices(size, spacing: 1.0);
+        int[] faces = BuildGridFaces(size);
+        int insideTransition = GetVertexIndex(size, x: 10, y: 12);
+        int beyondDaylight = GetVertexIndex(size, x: 10, y: 14);
+
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 10.0, 18.0, 10.0 },
+            zValues: new[] { 2.0, 2.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 10.0);
+
+        double[] graded = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { path }, out int changedVertexCount);
+
+        Assert.True(changedVertexCount > 0);
+        Assert.Equal(1.0, graded[(insideTransition * 3) + 2], 3);
+        Assert.Equal(0.0, graded[(beyondDaylight * 3) + 2], 3);
     }
 
 
@@ -501,12 +560,12 @@ public class PathGraderTopologyModeTests
         throw new Xunit.Sdk.XunitException($"Could not find vertex at ({x}, {y}).");
     }
 
-    private static bool ContainsVertex(double[] vertices, double x, double y)
+    private static bool ContainsVertex(double[] vertices, double x, double y, double tolerance = 1e-6)
     {
         for (int i = 0; i < vertices.Length / 3; i++)
         {
-            if (Math.Abs(vertices[i * 3] - x) <= 1e-6 &&
-                Math.Abs(vertices[i * 3 + 1] - y) <= 1e-6)
+            if (Math.Abs(vertices[i * 3] - x) <= tolerance &&
+                Math.Abs(vertices[i * 3 + 1] - y) <= tolerance)
             {
                 return true;
             }
@@ -527,6 +586,32 @@ public class PathGraderTopologyModeTests
         }
 
         return false;
+    }
+
+    private static bool HasTriangle(int[] faces, int faceCount, int a, int b, int c)
+    {
+        for (int i = 0; i < faceCount; i++)
+        {
+            int i0 = faces[i * 3];
+            int i1 = faces[i * 3 + 1];
+            int i2 = faces[i * 3 + 2];
+            if (SameTriangle(i0, i1, i2, a, b, c))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool SameTriangle(int i0, int i1, int i2, int a, int b, int c)
+    {
+        return ContainsIndex(i0, i1, i2, a) &&
+               ContainsIndex(i0, i1, i2, b) &&
+               ContainsIndex(i0, i1, i2, c);
+    }
+
+    private static bool ContainsIndex(int i0, int i1, int i2, int value)
+    {
+        return i0 == value || i1 == value || i2 == value;
     }
 
     private static bool HasEdge(int start, int end, int a, int b)

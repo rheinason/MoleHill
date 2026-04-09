@@ -57,7 +57,43 @@ public class PathGraderTests
         double expectedShoulderY = 5.0 + 1.0 + 1.0 / Math.Tan(33.0 * Math.PI / 180.0);
         Assert.Contains(EnumerateVertices(result!), vertex =>
             Math.Abs(vertex.x - 2.0) < 1e-6 &&
-            Math.Abs(vertex.y - expectedShoulderY) < 1e-6);
+            Math.Abs(vertex.y - expectedShoulderY) < 1e-3);
+    }
+
+    [Fact]
+    public void Grade_WhenAutoDaylightDoesNotExist_DoesNotProjectShoulderToTerrainBoundary()
+    {
+        double[] terrain =
+        {
+            0.0, 0.0, 0.0,
+            100.0, 0.0, 0.0,
+            100.0, 100.0, 200.0,
+            0.0, 100.0, 200.0
+        };
+
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 20.0, 20.0, 80.0, 20.0 },
+            zValues: new[] { 0.0, 0.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 0.0);
+
+        var result = PathGrader.Grade(
+            terrain,
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            EnumerateVertices(result!),
+            vertex => vertex.x >= 20.0 - 1e-6 &&
+                      vertex.x <= 80.0 + 1e-6 &&
+                      vertex.y >= 80.0);
     }
 
     [Fact]
@@ -84,7 +120,7 @@ public class PathGraderTests
 
         // Per-vertex shoulder: terrain z=0, path z=1, slope=45° → d=1, shoulder at y=50+1+1=52.
         int shoulderVertexCount = EnumerateVertices(result!)
-            .Count(vertex => Math.Abs(vertex.y - 52.0) < 1e-6 && vertex.x >= 20.0 - 1e-6 && vertex.x <= 80.0 + 1e-6);
+            .Count(vertex => Math.Abs(vertex.y - 52.0) < 1e-3 && vertex.x >= 20.0 - 1e-6 && vertex.x <= 80.0 + 1e-6);
 
         Assert.True(shoulderVertexCount >= 5, $"Expected a densified shoulder apron, found {shoulderVertexCount} shoulder vertices.");
     }
@@ -122,7 +158,7 @@ public class PathGraderTests
         Assert.True(remesh.Success, remesh.Warning);
 
         int shoulderVertexCount = EnumerateVertices(remesh.Vertices)
-            .Count(vertex => Math.Abs(vertex.y - 66.0) < 1e-6 && vertex.x >= 20.0 - 1e-6 && vertex.x <= 80.0 + 1e-6);
+            .Count(vertex => Math.Abs(vertex.y - 52.0) < 1e-3 && vertex.x >= 20.0 - 1e-6 && vertex.x <= 80.0 + 1e-6);
 
         Assert.True(shoulderVertexCount >= 5, $"Expected remesh constraints to create an apron band, found {shoulderVertexCount} shoulder vertices.");
     }

@@ -296,7 +296,7 @@ public static class MeshAreaSplitter
             areaIndex.GatherCandidates(Bounds2D.FromPoint(cx, cy, tolerance), state.AreaCandidates, state.AreaScratch);
 
             faceAreaIndex[faceIndex] = -1;
-            for (int candidateIndex = state.AreaCandidates.Count - 1; candidateIndex >= 0; candidateIndex--)
+            for (int candidateIndex = 0; candidateIndex < state.AreaCandidates.Count; candidateIndex++)
             {
                 int areaNumber = state.AreaCandidates[candidateIndex];
                 var area = indexedAreas[areaNumber];
@@ -306,8 +306,8 @@ public static class MeshAreaSplitter
                 if ((tolerance > 0 && IsNearBoundary(cx, cy, tolerance, area, state.SegmentCandidates, state.SegmentScratch)) ||
                     PadGrader.PointInPolygon(cx, cy, area.Boundary.XyVertices, area.Boundary.VertexCount))
                 {
-                    faceAreaIndex[faceIndex] = areaNumber;
-                    break;
+                    if (areaNumber > faceAreaIndex[faceIndex])
+                        faceAreaIndex[faceIndex] = areaNumber;
                 }
             }
 

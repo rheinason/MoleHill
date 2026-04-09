@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
 
@@ -97,6 +98,67 @@ public class SurfaceStripGraderTests
         Assert.Contains("terrain boundary", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Grade_HardBarrier_BlocksGradingAcrossRetainingWall()
+    {
+        var surface = new SurfaceStripGrader.SurfaceDefinition(
+            footprintXy: new[] { 0.0, 0.0, 1.2, 0.0, 1.2, 1.0, 0.0, 1.0 },
+            footprintVertexCount: 4,
+            boundaryVertices: new[]
+            {
+                0.0, 0.0, 1.0,
+                1.2, 0.0, 1.0,
+                1.2, 1.0, 1.0,
+                0.0, 1.0, 1.0
+            },
+            boundaryVertexCount: 4,
+            planeXCoeff: 0.0,
+            planeYCoeff: 0.0,
+            planeConstant: 1.0,
+            slopeAngleDeg: 33.0,
+            maxDistance: 0.0);
+
+        var withoutBarrier = SurfaceStripGrader.Grade(
+            BuildGridVertices(),
+            15,
+            BuildGridFaces(),
+            16,
+            surface,
+            out string? withoutBarrierWarning);
+
+        var barrier = new SurfaceRemesher.ConstraintPolyline(
+            new[]
+            {
+                1.4, -1.0, 0.0,
+                1.4,  2.0, 0.0
+            },
+            2,
+            IsClosed: false,
+            PreserveInputElevation: true);
+
+        var withBarrier = SurfaceStripGrader.Grade(
+            BuildGridVertices(),
+            15,
+            BuildGridFaces(),
+            16,
+            surface,
+            new[] { barrier },
+            out string? withBarrierWarning);
+
+        Assert.NotNull(withoutBarrier);
+        Assert.NotNull(withBarrier);
+        Assert.True(string.IsNullOrWhiteSpace(withoutBarrierWarning) || !withoutBarrierWarning.Contains("failed", StringComparison.OrdinalIgnoreCase));
+        Assert.True(string.IsNullOrWhiteSpace(withBarrierWarning) || !withBarrierWarning.Contains("failed", StringComparison.OrdinalIgnoreCase));
+
+        double rightWithoutBarrier = FindVertexZ(withoutBarrier!, 2.0, 0.5);
+        double rightWithBarrier = FindVertexZ(withBarrier!, 2.0, 0.5);
+        double leftWithBarrier = FindVertexZ(withBarrier, -1.0, 0.5);
+
+        Assert.True(rightWithoutBarrier > 0.2, $"Expected right-side grading without barrier, got {rightWithoutBarrier:G6}.");
+        Assert.True(Math.Abs(rightWithBarrier) < 1e-6, $"Expected wall-blocked right side to remain unchanged, got {rightWithBarrier:G6}.");
+        Assert.True(leftWithBarrier > 0.2, $"Expected unblocked left side to keep grading, got {leftWithBarrier:G6}.");
+    }
+
     private static IEnumerable<(double x, double y, double z)> EnumerateVertices(GradingResult result)
     {
         for (int i = 0; i < result.VertexCount; i++)
@@ -104,6 +166,17 @@ public class SurfaceStripGraderTests
                 result.Vertices[i * 3],
                 result.Vertices[i * 3 + 1],
                 result.Vertices[i * 3 + 2]);
+    }
+
+    private static double FindVertexZ(GradingResult result, double x, double y)
+    {
+        foreach (var vertex in EnumerateVertices(result))
+        {
+            if (Math.Abs(vertex.x - x) <= 1e-6 && Math.Abs(vertex.y - y) <= 1e-6)
+                return vertex.z;
+        }
+
+        throw new Xunit.Sdk.XunitException($"Could not find vertex at ({x}, {y}).");
     }
 
     private static double[] BuildGridVertices()

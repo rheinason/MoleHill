@@ -18,6 +18,7 @@ internal sealed class TerrainBuildService
 {
     private const int StageTimingDiagnosticThresholdMs = 250;
     private const double MinRepresentablePadPlaneNormalZ = 1e-3;
+    private const int TriangulateCacheVersion = 2;
 
     private sealed class ZoneBoundaryEntry
     {
@@ -591,12 +592,14 @@ internal sealed class TerrainBuildService
             preserveInputElevation: true);
 
         ThrowIfCancellationRequested(shouldCancel);
-        var polylines = CreateFlatPolylines(breaklineCurves, tolerance);
+        var polylines = TerrainTriangulationInputBuilder.CreateTriangulationPolylines(
+            breaklineCurves,
+            contourCurves,
+            tolerance);
         var boundaryPolylines = CreateBoundaryPolylines(boundaryCurves, tolerance);
 
         var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
-        (double[] contourSpotXyz, int contourSpotCount) = AppendContourPoints(spotXyz, points.Count, contourCurves, tolerance);
-        var merged = PointCloudProcessor.Merge(contourSpotXyz, contourSpotCount, breaklineData, tolerance, shouldCancel);
+        var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, tolerance, shouldCancel);
         ThrowIfCancellationRequested(shouldCancel);
         ulong resolvedInputFingerprint = ComputeTriangulateResolvedInputFingerprint(
             terrain,
@@ -844,15 +847,17 @@ internal sealed class TerrainBuildService
 
         ThrowIfCancellationRequested(shouldCancel);
         var polylines = CreateFlatPolylines(build.PersistentHardConstraints);
-        polylines.AddRange(CreateFlatPolylines(breaklineCurves, tolerance));
+        polylines.AddRange(TerrainTriangulationInputBuilder.CreateTriangulationPolylines(
+            breaklineCurves,
+            contourCurves,
+            tolerance));
 
         var boundaryPolylines = CombineBoundaryPolylines(
             CreateBoundaryPolylines(mesh, tolerance),
             CreateBoundaryPolylines(boundaryCurves, tolerance));
 
         var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
-        (double[] contourSpotXyz, int contourSpotCount) = AppendContourPoints(spotXyz, existingPointCount + points.Count, contourCurves, tolerance);
-        var merged = PointCloudProcessor.Merge(contourSpotXyz, contourSpotCount, breaklineData, tolerance, shouldCancel);
+        var merged = PointCloudProcessor.Merge(spotXyz, existingPointCount + points.Count, breaklineData, tolerance, shouldCancel);
         if (merged.VertexCount < 3)
         {
             build.Diagnostics.Add("Add Geometry needs at least three unique points after deduplication.");
@@ -1221,16 +1226,13 @@ internal sealed class TerrainBuildService
         var boundaries = entries.Select(entry => entry.Boundary).ToArray();
 
         var splitTimer = Stopwatch.StartNew();
-        var result = MeshAreaSplitter.Split(
+        var result = MeshAreaSplitter.SplitPreservingTopology(
             vertices,
             mesh.Vertices.Count,
             faces,
             mesh.Faces.Count,
             boundaries,
-            build.PersistentHardConstraints,
             tolerance,
-            0,
-            0,
             out var splitWarning);
         splitTimer.Stop();
 
@@ -1579,7 +1581,12 @@ internal sealed class TerrainBuildService
         // Preview uses raw topology + Z-only grading. Full mode topology already has graded vertices
         // from PadGrader.Grade, so no second pass is needed.
         double[] gradedVertices = mode == TerrainBuildMode.Preview
-            ? PadGrader.ApplyGradingZ(topologyEntry.Vertices, topologyEntry.VertexCount, resolvedInputs.Pads,
+            ? PadGrader.ApplyGradingZ(
+                topologyEntry.Vertices,
+                topologyEntry.VertexCount,
+                topologyEntry.Faces,
+                topologyEntry.FaceCount,
+                resolvedInputs.Pads,
                 effectiveLocks.Length > 0 ? effectiveLocks : null)
             : topologyEntry.Vertices;
         filterTimer.Stop();
@@ -1968,6 +1975,8 @@ internal sealed class TerrainBuildService
         double[] gradedVertices = PathGrader.ApplyGradingZ(
             topologyVertices,
             topologyMesh.Vertices.Count,
+            topologyFaces,
+            topologyMesh.Faces.Count,
             resolvedInputs.Paths,
             combinedConstraints,
             out int changedVertexCount);
@@ -2175,6 +2184,7 @@ internal sealed class TerrainBuildService
                 currentFaces,
                 currentFaceCount,
                 stairReference.SupportSurface,
+                build.PersistentHardConstraints,
                 out var gradingWarning);
 
             if (result == null)
@@ -4036,52 +4046,9 @@ internal sealed class TerrainBuildService
         return result;
     }
 
-    private static (double[] xyz, int count) AppendContourPoints(double[] spotXyz, int spotCount, IReadOnlyList<Curve> contourCurves, double tolerance)
-    {
-        if (contourCurves.Count == 0)
-            return (spotXyz, spotCount);
-
-        var extra = new List<double>();
-        foreach (var curve in contourCurves)
-        {
-            if (curve == null)
-                continue;
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
-                continue;
-            foreach (var pt in polyline)
-            {
-                extra.Add(pt.X);
-                extra.Add(pt.Y);
-                extra.Add(pt.Z);
-            }
-        }
-
-        if (extra.Count == 0)
-            return (spotXyz, spotCount);
-
-        int contourCount = extra.Count / 3;
-        var combined = new double[spotCount * 3 + extra.Count];
-        Array.Copy(spotXyz, combined, spotCount * 3);
-        for (int i = 0; i < extra.Count; i++)
-            combined[spotCount * 3 + i] = extra[i];
-        return (combined, spotCount + contourCount);
-    }
-
     private static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)
     {
-        var result = new List<double[]>();
-        foreach (var curve in curves)
-        {
-            if (curve == null)
-                continue;
-
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
-                continue;
-
-            result.Add(ToFlatPolyline(polyline));
-        }
-
-        return result;
+        return TerrainTriangulationInputBuilder.CreateFlatPolylines(curves, tolerance);
     }
 
     private static List<double[]> CreateFlatPolylines(IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
@@ -4113,15 +4080,7 @@ internal sealed class TerrainBuildService
 
     private static double[] ToFlatPolyline(Polyline polyline)
     {
-        var flat = new double[polyline.Count * 3];
-        for (int i = 0; i < polyline.Count; i++)
-        {
-            flat[i * 3] = polyline[i].X;
-            flat[i * 3 + 1] = polyline[i].Y;
-            flat[i * 3 + 2] = polyline[i].Z;
-        }
-
-        return flat;
+        return TerrainTriangulationInputBuilder.ToFlatPolyline(polyline);
     }
 
     private static TinBoundaryPreparer.BoundaryPolyline[] CreateBoundaryPolylines(IReadOnlyList<Curve> curves, double tolerance)
@@ -4247,6 +4206,7 @@ internal sealed class TerrainBuildService
     {
         var builder = new FingerprintBuilder();
         builder.Add("Triangulate");
+        builder.Add(TriangulateCacheVersion);
         builder.Add(snapshot.ModelAbsoluteTolerance);
         builder.Add(terrain.GlobalTolerance);
         AddSerializedFingerprint(ref builder, modifier, modifier.GetType());
@@ -4269,6 +4229,7 @@ internal sealed class TerrainBuildService
     {
         var builder = new FingerprintBuilder();
         builder.Add("TriangulateResolved");
+        builder.Add(TriangulateCacheVersion);
         builder.Add(terrain.GlobalTolerance);
         builder.Add(tolerance);
         AddSerializedFingerprint(ref builder, modifier, modifier.GetType());

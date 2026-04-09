@@ -1566,7 +1566,7 @@ public sealed class MoleHillPanel : Panel
             Padding = new Padding(6, 0, 6, 4),
             Content = new Label
             {
-                Text = "Later zones win when priorities tie. Enable Use input Z when vertically stacked inputs should resolve by elevation instead.",
+                Text = "Later zones win. Use input Z when stacked inputs should resolve by elevation.",
                 TextColor = UiTheme.MutedText,
                 Wrap = WrapMode.Word
             }

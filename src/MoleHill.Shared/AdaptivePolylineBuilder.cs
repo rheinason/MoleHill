@@ -28,7 +28,7 @@ internal static class AdaptivePolylineBuilder
 
         if (curve.TryGetPolyline(out polyline))
         {
-            SimplifyPolylineInPlace(polyline, simplifyTolerance);
+            SimplifyPolylineInPlace(polyline, simplifyTolerance, collapseCollinearVertices: false);
             return polyline.Count >= (requireClosed ? 3 : 2);
         }
 
@@ -38,7 +38,7 @@ internal static class AdaptivePolylineBuilder
             if (polyCurve == null || !polyCurve.TryGetPolyline(out polyline))
                 return false;
 
-            SimplifyPolylineInPlace(polyline, simplifyTolerance);
+            SimplifyPolylineInPlace(polyline, simplifyTolerance, collapseCollinearVertices: true);
             if (polyline.Count <= MaxPolylineVertexCount)
                 return polyline.Count >= (requireClosed ? 3 : 2);
 
@@ -79,7 +79,7 @@ internal static class AdaptivePolylineBuilder
         return Math.Max(Math.Min(normalizedModelTolerance, qualityLength * 0.1), 1e-9);
     }
 
-    private static void SimplifyPolylineInPlace(Polyline polyline, double xyTolerance)
+    private static void SimplifyPolylineInPlace(Polyline polyline, double xyTolerance, bool collapseCollinearVertices)
     {
         if (polyline.Count < 3)
             return;
@@ -101,16 +101,22 @@ internal static class AdaptivePolylineBuilder
                     continue;
             }
 
-            while (simplified.Count >= 2 && IsNearlyCollinear(simplified[^2], simplified[^1], current, xyToleranceSquared))
-                simplified.RemoveAt(simplified.Count - 1);
+            if (collapseCollinearVertices)
+            {
+                while (simplified.Count >= 2 && IsNearlyCollinear(simplified[^2], simplified[^1], current, xyToleranceSquared))
+                    simplified.RemoveAt(simplified.Count - 1);
+            }
 
             simplified.Add(current);
         }
 
         if (isClosed && simplified.Count >= 3)
         {
-            while (simplified.Count >= 3 && IsNearlyCollinear(simplified[^2], simplified[^1], simplified[0], xyToleranceSquared))
-                simplified.RemoveAt(simplified.Count - 1);
+            if (collapseCollinearVertices)
+            {
+                while (simplified.Count >= 3 && IsNearlyCollinear(simplified[^2], simplified[^1], simplified[0], xyToleranceSquared))
+                    simplified.RemoveAt(simplified.Count - 1);
+            }
 
             if (simplified[0].DistanceToSquared(simplified[^1]) > xyToleranceSquared)
                 simplified.Add(simplified[0]);

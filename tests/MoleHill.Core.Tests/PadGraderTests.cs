@@ -75,7 +75,7 @@ public class PadGraderTests
 
         Assert.True(success, warning);
 
-        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, pads);
+        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
 
         Assert.Equal(topologyVertices.Length, gradedVertices.Length);
         Assert.Equal(topologyFaceCount * 3, topologyFaces.Length);
@@ -104,13 +104,13 @@ public class PadGraderTests
             0.0,
             out var topologyVertices,
             out var topologyVertexCount,
-            out _,
-            out _,
+            out var topologyFaces,
+            out var topologyFaceCount,
             out var warning);
 
         Assert.True(success, warning);
 
-        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, pads);
+        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
 
         int centerIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 1.5, 1.5);
         int outerOnlyIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 0.75, 0.75);
@@ -137,13 +137,13 @@ public class PadGraderTests
             0.0,
             out var topologyVertices,
             out var topologyVertexCount,
-            out _,
-            out _,
+            out var topologyFaces,
+            out var topologyFaceCount,
             out var warning);
 
         Assert.True(success, warning);
 
-        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, pads);
+        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
 
         int interiorIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 2.0, 2.0);
         int boundaryIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 3.0, 2.0);
@@ -170,13 +170,13 @@ public class PadGraderTests
             0.0,
             out var topologyVertices,
             out var topologyVertexCount,
-            out _,
-            out _,
+            out var topologyFaces,
+            out var topologyFaceCount,
             out var warning);
 
         Assert.True(success, warning);
 
-        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, pads);
+        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
 
         int outsideIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 4.0, 2.0);
         Assert.Equal(1.0, gradedVertices[outsideIndex * 3 + 2], 6);
@@ -220,7 +220,7 @@ public class PadGraderTests
 
         Assert.True(success, splitWarning);
 
-        double[] splitVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, pads);
+        double[] splitVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
 
         Assert.Equal(topologyVertexCount, legacy!.VertexCount);
         Assert.Equal(topologyFaceCount, legacy.FaceCount);

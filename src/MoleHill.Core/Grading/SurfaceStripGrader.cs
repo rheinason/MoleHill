@@ -57,6 +57,25 @@ public static class SurfaceStripGrader
         SurfaceDefinition surface,
         out string? errorMessage)
     {
+        return Grade(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            surface,
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            out errorMessage);
+    }
+
+    public static GradingResult? Grade(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        SurfaceDefinition surface,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        out string? errorMessage)
+    {
         errorMessage = null;
         const double dedupTol = 1e-3;
 
@@ -88,6 +107,7 @@ public static class SurfaceStripGrader
         }
 
         var faceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
+        PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);
         bool hasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
         if (hasBoundaryLoop &&
             !BoundaryClipper.IsPolylineInsideBoundary(
@@ -104,6 +124,7 @@ public static class SurfaceStripGrader
         }
 
         AddBoundarySegments(faces, faceCount, segList);
+        AddBarrierConstraints(barrierConstraints, xyList, zList, vertHash, segList, dedupTol);
         AddPolygonConstraint(surface.FootprintXy, surface.FootprintVertexCount, xyList, zList, vertHash, faceGrid, segList, dedupTol);
 
         int totalVerts = zList.Count;
@@ -159,7 +180,7 @@ public static class SurfaceStripGrader
             }
         }
 
-        ApplySurfaceHeights(surface, outXy, origZ, newZ, outVertCount);
+        ApplySurfaceHeights(surface, outXy, origZ, newZ, outVertCount, preparedBarriers);
 
         var finalVerts = new double[outVertCount * 3];
         for (int i = 0; i < outVertCount; i++)
@@ -242,9 +263,12 @@ public static class SurfaceStripGrader
         double[] outXy,
         double[] origZ,
         double[] newZ,
-        int outVertCount)
+        int outVertCount,
+        PreparedBarriers barriers)
     {
         double slopeRatio = Math.Tan(surface.SlopeAngleDeg * Math.PI / 180.0);
+        var barrierScratch = barriers.Segments.Length > 0 ? new SpatialHashGrid2D.QueryScratch(Math.Max(barriers.Segments.Length, 1)) : null;
+        var barrierCandidates = barriers.Segments.Length > 0 ? new List<int>(8) : null;
 
         for (int i = 0; i < outVertCount; i++)
         {
@@ -257,7 +281,20 @@ public static class SurfaceStripGrader
                 continue;
             }
 
-            double boundaryDistance = PadGrader.DistToBoundaryWithZ(px, py, surface.BoundaryVertices, surface.BoundaryVertexCount, out double boundaryZ, out _, out _);
+            if (!TryFindNearestVisibleBoundaryLocation(
+                    px,
+                    py,
+                    surface.BoundaryVertices,
+                    surface.BoundaryVertexCount,
+                    barriers,
+                    barrierScratch,
+                    barrierCandidates,
+                    out double boundaryDistance,
+                    out double boundaryZ))
+            {
+                continue;
+            }
+
             double dz = origZ[i] - boundaryZ;
             double absDz = Math.Abs(dz);
             double neededDist = slopeRatio > 1e-12 ? absDz / slopeRatio : double.MaxValue;
@@ -271,6 +308,69 @@ public static class SurfaceStripGrader
                     newZ[i] = boundaryZ + Math.Sign(dz) * rise;
             }
         }
+    }
+
+    private static bool TryFindNearestVisibleBoundaryLocation(
+        double px,
+        double py,
+        double[] boundaryVertices,
+        int boundaryVertexCount,
+        PreparedBarriers barriers,
+        SpatialHashGrid2D.QueryScratch? barrierScratch,
+        List<int>? barrierCandidates,
+        out double boundaryDistance,
+        out double boundaryZ)
+    {
+        boundaryDistance = double.MaxValue;
+        boundaryZ = 0.0;
+
+        for (int i = 0; i < boundaryVertexCount; i++)
+        {
+            int next = (i + 1) % boundaryVertexCount;
+            double ax = boundaryVertices[i * 3];
+            double ay = boundaryVertices[i * 3 + 1];
+            double az = boundaryVertices[i * 3 + 2];
+            double bx = boundaryVertices[next * 3];
+            double by = boundaryVertices[next * 3 + 1];
+            double bz = boundaryVertices[next * 3 + 2];
+
+            double dx = bx - ax;
+            double dy = by - ay;
+            double lenSq = dx * dx + dy * dy;
+            double t = 0.0;
+            double cx = ax;
+            double cy = ay;
+            if (lenSq > 1e-20)
+            {
+                t = Math.Clamp(((px - ax) * dx + (py - ay) * dy) / lenSq, 0.0, 1.0);
+                cx = ax + t * dx;
+                cy = ay + t * dy;
+            }
+
+            if (barriers.Segments.Length > 0 &&
+                barrierScratch != null &&
+                barrierCandidates != null &&
+                GradingBarriers.IsCrossedByBarrier(
+                    barriers,
+                    px,
+                    py,
+                    cx,
+                    cy,
+                    barrierScratch,
+                    barrierCandidates))
+            {
+                continue;
+            }
+
+            double dist = Math.Sqrt(((px - cx) * (px - cx)) + ((py - cy) * (py - cy)));
+            if (dist >= boundaryDistance)
+                continue;
+
+            boundaryDistance = dist;
+            boundaryZ = az + ((bz - az) * t);
+        }
+
+        return boundaryDistance < double.MaxValue;
     }
 
     private static void AddBoundarySegments(int[] faces, int faceCount, List<(int a, int b)> segList)
@@ -334,6 +434,80 @@ public static class SurfaceStripGrader
             if (a != b)
                 segList.Add((a, b));
         }
+    }
+
+    private static void AddBarrierConstraints(
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        List<double> xyList,
+        List<double> zList,
+        PadGrader.SpatialHash vertHash,
+        List<(int a, int b)> segList,
+        double dedupTol)
+    {
+        foreach (var constraint in barrierConstraints)
+        {
+            if (!constraint.PreserveInputElevation)
+                continue;
+
+            int pointCount = NormalizeConstraintPointCount(constraint, dedupTol);
+            if (pointCount < 2)
+                continue;
+
+            var pointIndices = new int[pointCount];
+            for (int i = 0; i < pointCount; i++)
+            {
+                double px = constraint.Points[i * 3];
+                double py = constraint.Points[i * 3 + 1];
+                double pz = constraint.Points[i * 3 + 2];
+                int near = vertHash.FindNearest(xyList, px, py, dedupTol);
+                if (near >= 0)
+                {
+                    pointIndices[i] = near;
+                }
+                else
+                {
+                    pointIndices[i] = zList.Count;
+                    xyList.Add(px);
+                    xyList.Add(py);
+                    zList.Add(pz);
+                    vertHash.Insert(pointIndices[i], px, py);
+                }
+            }
+
+            for (int i = 0; i < pointCount - 1; i++)
+            {
+                int a = pointIndices[i];
+                int b = pointIndices[i + 1];
+                if (a != b)
+                    segList.Add((a, b));
+            }
+
+            if (!constraint.IsClosed)
+                continue;
+
+            int last = pointIndices[pointCount - 1];
+            int first = pointIndices[0];
+            if (last != first)
+                segList.Add((last, first));
+        }
+    }
+
+    private static int NormalizeConstraintPointCount(SurfaceRemesher.ConstraintPolyline constraint, double tolerance)
+    {
+        int count = constraint.PointCount;
+        if (!constraint.IsClosed || count < 2)
+            return count;
+
+        double lastX = constraint.Points[(count - 1) * 3];
+        double lastY = constraint.Points[(count - 1) * 3 + 1];
+        double firstX = constraint.Points[0];
+        double firstY = constraint.Points[1];
+        double dx = lastX - firstX;
+        double dy = lastY - firstY;
+        if (((dx * dx) + (dy * dy)) <= tolerance * tolerance)
+            return count - 1;
+
+        return count;
     }
 
     private static void CheckDaylightEdge(
