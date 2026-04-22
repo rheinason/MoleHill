@@ -55,4 +55,40 @@ public class TerrainBuildHeuristicsTests
         Assert.Equal(0.0, TerrainBuildHeuristics.GetGradePathCurveSamplingLength(0.0), 6);
         Assert.Equal(0.0, TerrainBuildHeuristics.GetGradePathCurveSamplingLength(-2.0), 6);
     }
+
+    [Fact]
+    public void GetGradePathGeometryTolerance_CoarseTerrainTolerance_ClampsToPathLocalMaximum()
+    {
+        double tolerance = TerrainBuildHeuristics.GetGradePathGeometryTolerance(0.25);
+
+        Assert.Equal(2e-3, tolerance, 9);
+    }
+
+    [Fact]
+    public void GetGradePathGeometryTolerance_TinyTerrainTolerance_ClampsToMinimum()
+    {
+        double tolerance = TerrainBuildHeuristics.GetGradePathGeometryTolerance(1e-9);
+
+        Assert.Equal(1e-6, tolerance, 12);
+    }
+
+    [Fact]
+    public void ShouldPreferLocalizedGradePathRoadEdgeFallback_CoarseMesh_ReturnsTrue()
+    {
+        bool preferLocalized = TerrainBuildHeuristics.ShouldPreferLocalizedGradePathRoadEdgeFallback(
+            vertexCount: 25,
+            faceCount: 41);
+
+        Assert.True(preferLocalized);
+    }
+
+    [Fact]
+    public void ShouldPreferLocalizedGradePathRoadEdgeFallback_DenseMesh_ReturnsFalse()
+    {
+        bool preferLocalized = TerrainBuildHeuristics.ShouldPreferLocalizedGradePathRoadEdgeFallback(
+            vertexCount: 2_500,
+            faceCount: 5_000);
+
+        Assert.False(preferLocalized);
+    }
 }

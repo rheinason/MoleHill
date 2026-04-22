@@ -177,13 +177,14 @@ internal sealed class TerrainBuildService
                         shouldCancel);
                     break;
                 case GradePadModifierDefinition gradePad:
-                    usedStageKeys.Add(CreateGradePadTopologyStageKey(stageKey));
+                    usedStageKeys.Add(CreateGradingTopologyStageKey(stageKey, "Pad"));
                     currentMesh = BuildGradePadMesh(
                         snapshot,
                         terrain,
                         gradePad,
                         build,
                         runtimeCache,
+                        indexedModifier.index,
                         stageKey,
                         currentMesh,
                         currentMeshFingerprint,
@@ -192,13 +193,14 @@ internal sealed class TerrainBuildService
                         shouldCancel);
                     break;
                 case GradePathModifierDefinition gradePath:
+                    usedStageKeys.Add(CreateGradingTopologyStageKey(stageKey, "Path"));
                     currentMesh = ExecuteCachedMeshStage(
                         build,
                         runtimeCache,
                         stageKey,
                         "Grade Path",
                         ComputeModifierStageFingerprint(snapshot, terrain, gradePath, currentMeshFingerprint),
-                        () => currentMesh == null ? WarnMissingMesh(build, gradePath.Label) : ApplyGradePath(snapshot, terrain, currentMesh, gradePath, build, mode),
+                        () => currentMesh == null ? WarnMissingMesh(build, gradePath.Label) : ApplyGradePath(snapshot, terrain, currentMesh, gradePath, build, runtimeCache, indexedModifier.index, stageKey, mode),
                         result => DescribeModifierMeshResult(gradePath.Label, result),
                         out currentMeshFingerprint,
                         shouldCancel);
@@ -451,7 +453,7 @@ internal sealed class TerrainBuildService
         build.PersistentHardConstraints.Clear();
         build.PersistentHardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(cachedEntry.PersistentHardConstraints));
         outputFingerprint = cachedEntry.OutputFingerprint;
-        return TerrainRuntimeCacheCloner.CloneMesh(cachedEntry.MeshOutput);
+        return NormalizeTerrainMesh(TerrainRuntimeCacheCloner.CloneMesh(cachedEntry.MeshOutput));
     }
 
     private static RhinoMesh? StoreMeshStageCache(
@@ -472,6 +474,7 @@ internal sealed class TerrainBuildService
     {
         timer.Stop();
         ThrowIfCancellationRequested(shouldCancel);
+        mesh = NormalizeTerrainMesh(mesh);
         outputFingerprint = ComputeMeshStageOutputFingerprint(mesh, persistentHardConstraints);
         runtimeCache.StageEntries[stageKey] = new StageCacheEntry
         {
@@ -486,6 +489,15 @@ internal sealed class TerrainBuildService
         };
 
         build.RecordTiming(stageName, timer.Elapsed, detail);
+        return mesh;
+    }
+
+    private static RhinoMesh? NormalizeTerrainMesh(RhinoMesh? mesh)
+    {
+        if (mesh == null || mesh.Faces.Count == 0)
+            return mesh;
+
+        RhinoGeometryConversions.NormalizeMeshInPlace(mesh);
         return mesh;
     }
 
@@ -1351,6 +1363,7 @@ internal sealed class TerrainBuildService
         GradePadModifierDefinition modifier,
         TerrainBuildResult build,
         TerrainRuntimeCache runtimeCache,
+        int modifierIndex,
         string stageKey,
         RhinoMesh? mesh,
         ulong upstreamFingerprint,
@@ -1359,7 +1372,7 @@ internal sealed class TerrainBuildService
         Func<bool>? shouldCancel = null)
     {
         const string stageName = "Grade Pad";
-        string topologyStageKey = CreateGradePadTopologyStageKey(stageKey);
+        string topologyStageKey = CreateGradingTopologyStageKey(stageKey, "Pad");
         var timer = Stopwatch.StartNew();
         ulong preResolutionFingerprint = ComputeModifierStageFingerprint(snapshot, terrain, modifier, upstreamFingerprint);
 
@@ -1443,6 +1456,19 @@ internal sealed class TerrainBuildService
         }
 
         var effectiveLocks = CombinePadLockCurves(resolvedInputs.Locks, build.PersistentHardConstraints);
+        List<GradingPatch> patchSummaries = BuildPadPatchSummaries(resolvedInputs.Pads);
+        List<string> dirtyStageKeys = runtimeCache.FindIntersectingGradingStageKeys(
+            TerrainRuntimeCache.GetStagePrefix(mode),
+            modifierIndex,
+            patchSummaries,
+            topologyStageKey);
+        if (dirtyStageKeys.Count > 0)
+        {
+            runtimeCache.InvalidateStages(dirtyStageKeys);
+            build.Diagnostics.Add(
+                $"Grade Pad invalidated {dirtyStageKeys.Count} overlapping downstream grading stage(s): {string.Join(", ", dirtyStageKeys.Select(TerrainRuntimeCache.GetBaseStageKey))}.");
+        }
+
         ulong topologyFingerprint = ComputeGradePadTopologyFingerprint(
             upstreamFingerprint,
             tolerance,
@@ -1450,12 +1476,13 @@ internal sealed class TerrainBuildService
             resolvedInputs.Pads,
             effectiveLocks);
 
-        PadTopologyCacheEntry? topologyEntry;
+        GradingTopologyCacheEntry? topologyEntry;
         var topologyTimer = Stopwatch.StartNew();
-        if (runtimeCache.PadTopologyEntries.TryGetValue(topologyStageKey, out var cachedTopologyEntry) &&
+        if (runtimeCache.GradingTopologyEntries.TryGetValue(topologyStageKey, out var cachedTopologyEntry) &&
+            string.Equals(cachedTopologyEntry.GraderKind, "Pad", StringComparison.Ordinal) &&
             cachedTopologyEntry.Fingerprint == topologyFingerprint)
         {
-            topologyEntry = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(cachedTopologyEntry);
+            topologyEntry = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(cachedTopologyEntry);
             build.Diagnostics.AddRange(topologyEntry.Diagnostics);
             topologyTimer.Stop();
             build.RecordTiming(
@@ -1475,17 +1502,19 @@ internal sealed class TerrainBuildService
                 build.Diagnostics.Add(previewDiagnostic);
                 topologyTimer.Stop();
 
-                topologyEntry = new PadTopologyCacheEntry
+                topologyEntry = new GradingTopologyCacheEntry
                 {
+                    GraderKind = "Pad",
                     Fingerprint = topologyFingerprint,
-                    OutputFingerprint = ComputePadTopologyOutputFingerprint(vertices, mesh.Vertices.Count, faces, mesh.Faces.Count),
+                    OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Pad", vertices, mesh.Vertices.Count, faces, mesh.Faces.Count),
                     Vertices = (double[])vertices.Clone(),
                     VertexCount = mesh.Vertices.Count,
                     Faces = (int[])faces.Clone(),
                     FaceCount = mesh.Faces.Count,
+                    PatchSummaries = patchSummaries,
                     Diagnostics = topologyDiagnostics
                 };
-                runtimeCache.PadTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(topologyEntry);
+                runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(topologyEntry);
                 build.RecordTiming(
                     "Grade Pad Topology",
                     topologyTimer.Elapsed,
@@ -1530,6 +1559,9 @@ internal sealed class TerrainBuildService
                 }
                 else
                 {
+                    if (gradeResult.Diagnostics.Count > 0)
+                        topologyDiagnostics.AddRange(gradeResult.Diagnostics);
+
                     build.Diagnostics.AddRange(topologyDiagnostics);
                     AddOutputPolylinesAsBreaklines(gradeResult.OutputPolylines, build);
                     topologyVertices = gradeResult.Vertices;
@@ -1540,17 +1572,21 @@ internal sealed class TerrainBuildService
 
                 topologyTimer.Stop();
 
-                topologyEntry = new PadTopologyCacheEntry
+                topologyEntry = new GradingTopologyCacheEntry
                 {
+                    GraderKind = "Pad",
                     Fingerprint = topologyFingerprint,
-                    OutputFingerprint = ComputePadTopologyOutputFingerprint(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount),
+                    OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Pad", topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount),
                     Vertices = topologyVertices,
                     VertexCount = topologyVertexCount,
                     Faces = topologyFaces,
                     FaceCount = topologyFaceCount,
+                    PatchSummaries = gradeResult?.PatchSummaries.Count > 0
+                        ? ClonePatchSummaries(gradeResult.PatchSummaries)
+                        : patchSummaries,
                     Diagnostics = topologyDiagnostics
                 };
-                runtimeCache.PadTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.ClonePadTopologyEntry(topologyEntry);
+                runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(topologyEntry);
                 build.RecordTiming(
                     "Grade Pad",
                     topologyTimer.Elapsed,
@@ -1597,9 +1633,8 @@ internal sealed class TerrainBuildService
             $"{topologyEntry.VertexCount:N0} verts",
             StageTimingDiagnosticThresholdMs);
 
-        RhinoMesh resultMesh = CleanTinyFaces(
+        RhinoMesh resultMesh = FinalizeGradingMesh(
             RhinoGeometryConversions.BuildMesh(gradedVertices, topologyEntry.VertexCount, topologyEntry.Faces, topologyEntry.FaceCount),
-            tolerance,
             "Grade Pad",
             build);
 
@@ -1649,9 +1684,11 @@ internal sealed class TerrainBuildService
         if (!string.IsNullOrWhiteSpace(warning))
             build.Diagnostics.Add(warning);
 
-        return CleanTinyFaces(
+        if (result.Diagnostics.Count > 0)
+            build.Diagnostics.AddRange(result.Diagnostics);
+
+        return FinalizeGradingMesh(
             RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount),
-            tolerance,
             "Grade Pad",
             build);
     }
@@ -1867,6 +1904,9 @@ internal sealed class TerrainBuildService
         RhinoMesh mesh,
         GradePathModifierDefinition modifier,
         TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        int modifierIndex,
+        string stageKey,
         TerrainBuildMode mode)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
@@ -1882,11 +1922,36 @@ internal sealed class TerrainBuildService
         }
 
         double tolerance = GetTerrainTolerance(snapshot, terrain);
-        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, modifier, tolerance);
+        double gradePathTolerance = TerrainBuildHeuristics.GetGradePathGeometryTolerance(tolerance);
+        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, modifier, gradePathTolerance);
         if (resolvedInputs.Paths.Length == 0)
         {
             build.Diagnostics.Add("Grade Path has no valid paths.");
+            runtimeCache.GradingTopologyEntries[CreateGradingTopologyStageKey(stageKey, "Path")] = new GradingTopologyCacheEntry
+            {
+                GraderKind = "Path",
+                Fingerprint = 0,
+                OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Path", vertices, mesh.Vertices.Count, faces, mesh.Faces.Count),
+                Vertices = (double[])vertices.Clone(),
+                VertexCount = mesh.Vertices.Count,
+                Faces = (int[])faces.Clone(),
+                FaceCount = mesh.Faces.Count,
+                PatchSummaries = new List<GradingPatch>(),
+                Diagnostics = new List<string>()
+            };
             return mesh;
+        }
+
+        List<GradingPatch> patchSummaries = BuildPathPatchSummaries(resolvedInputs.Paths);
+        List<string> dirtyStageKeys = runtimeCache.FindIntersectingGradingStageKeys(
+            TerrainRuntimeCache.GetStagePrefix(mode),
+            modifierIndex,
+            patchSummaries);
+        if (dirtyStageKeys.Count > 0)
+        {
+            runtimeCache.InvalidateStages(dirtyStageKeys);
+            build.Diagnostics.Add(
+                $"Grade Path invalidated {dirtyStageKeys.Count} overlapping downstream grading stage(s): {string.Join(", ", dirtyStageKeys.Select(TerrainRuntimeCache.GetBaseStageKey))}.");
         }
 
         if (build.PersistentHardConstraints.Count > 0 && resolvedInputs.Constraints.Length > 0)
@@ -1903,58 +1968,270 @@ internal sealed class TerrainBuildService
                 build.Diagnostics.Add(sampleMessage);
         }
 
-        var combinedConstraints = CombineConstraints(build.PersistentHardConstraints, resolvedInputs.Constraints);
-        bool hasPersistentHardConstraints = build.PersistentHardConstraints.Count > 0;
-        if (TerrainBuildHeuristics.ShouldUseLegacyPathTriangulation(
-            mode,
-            hasPersistentHardConstraints,
+        string topologyStageKey = CreateGradingTopologyStageKey(stageKey, "Path");
+        var coreTimer = Stopwatch.StartNew();
+        GradingResult? gradingResult = PathGrader.Grade(
+            vertices,
             mesh.Vertices.Count,
-            mesh.Faces.Count))
-        {
-            RhinoMesh? legacyMesh = ApplyGradePathLegacy(mesh, vertices, faces, resolvedInputs, tolerance, build, build.PersistentHardConstraints);
-            if (legacyMesh != null)
-            {
-                bool apronTopologyAdded =
-                    resolvedInputs.Constraints.Length == 0 ||
-                    legacyMesh.Vertices.Count > mesh.Vertices.Count ||
-                    legacyMesh.Faces.Count > mesh.Faces.Count;
+            faces,
+            mesh.Faces.Count,
+            resolvedInputs.Paths,
+            build.PersistentHardConstraints,
+            out string? warning);
+        coreTimer.Stop();
 
-                if (apronTopologyAdded)
-                    return legacyMesh;
+        if (gradingResult == null)
+        {
+            build.RecordTiming("Grade Path Core", coreTimer.Elapsed, "failed", StageTimingDiagnosticThresholdMs);
+            build.Diagnostics.Add(warning ?? "Grade Path failed.");
+            runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologyEntryFromMesh(
+                mesh,
+                patchSummaries,
+                build.Diagnostics);
+            return mesh;
+        }
 
-                build.Diagnostics.Add("Grade Path legacy insertion did not add apron topology; retrying with remesh topology mode.");
-            }
-        }
-        else if (hasPersistentHardConstraints)
-        {
-            build.Diagnostics.Add("Grade Path used remesh topology mode to preserve persistent hard constraints.");
-        }
-        else
-        {
-            build.Diagnostics.Add(
-                $"Grade Path used remesh topology mode on a dense upstream mesh ({mesh.Vertices.Count:N0} verts, {mesh.Faces.Count:N0} faces) to avoid a full point-insertion re-triangulation stall.");
-        }
+        build.RecordTiming(
+            "Grade Path Core",
+            coreTimer.Elapsed,
+            DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, gradingResult.VertexCount, gradingResult.FaceCount),
+            StageTimingDiagnosticThresholdMs);
+        if (!string.IsNullOrWhiteSpace(warning))
+            build.Diagnostics.Add(warning);
+        foreach (string diagnostic in gradingResult.Diagnostics)
+            build.Diagnostics.Add(diagnostic);
+
+        AddOutputPolylinesAsBreaklines(gradingResult.OutputPolylines, build);
+        runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologyEntry(
+            vertices,
+            mesh.Vertices.Count,
+            faces,
+            mesh.Faces.Count,
+            gradingResult,
+            patchSummaries,
+            build.Diagnostics);
+        return FinalizeGradingMesh(
+            RhinoGeometryConversions.BuildMesh(gradingResult.Vertices, gradingResult.VertexCount, gradingResult.Faces, gradingResult.FaceCount),
+            "Grade Path",
+            build);
+    }
+
+    private static RhinoMesh ApplyGradePathRemeshFallback(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        RhinoMesh mesh,
+        double[] vertices,
+        int[] faces,
+        ResolvedGradePathInputs resolvedInputs,
+        TerrainBuildResult build,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints)
+    {
+        build.Diagnostics.Add("Grade Path fallback pipeline rev: 2026-04-21-path-tolerance-v21.");
+        double terrainTolerance = TerrainBuildHeuristics.GetGradePathGeometryTolerance(GetTerrainTolerance(snapshot, terrain));
+        var gradingConstraints = CombineConstraints(persistentHardConstraints, resolvedInputs.Constraints);
+        double topologyEdgeLength = resolvedInputs.SuggestedEdgeLength;
+        double topologyMaxArea = 0.0;
 
         var topologyTimer = Stopwatch.StartNew();
         bool keptInputTopology = false;
         RhinoMesh topologyMesh = mesh;
         if (resolvedInputs.Constraints.Length > 0)
         {
+            IReadOnlyList<SurfaceRemesher.ConstraintPolyline> remeshConstraints = gradingConstraints;
             topologyMesh = RebuildMeshWithConstraints(
                 snapshot,
                 terrain,
                 mesh,
-                combinedConstraints,
-                resolvedInputs.SuggestedEdgeLength,
-                0,
+                remeshConstraints,
+                topologyEdgeLength,
+                topologyMaxArea,
                 0,
                 "Grade Path",
                 build,
-                out keptInputTopology);
+                out keptInputTopology,
+                toleranceOverride: terrainTolerance);
+
+            if (keptInputTopology && resolvedInputs.Paths.Length > 0)
+            {
+                PathGrader.ConstraintSet simplifiedConstraintSet = PathGrader.CreateRemeshFallbackConstraints(
+                    vertices,
+                    mesh.Vertices.Count,
+                    faces,
+                    mesh.Faces.Count,
+                    resolvedInputs.Paths,
+                    terrainTolerance);
+                if (simplifiedConstraintSet.Constraints.Length > 0)
+                {
+                    build.Diagnostics.Add("Grade Path remesh retrying with simplified path constraints after full constraint insertion kept the upstream mesh unchanged.");
+                    double simplifiedEdgeLength = simplifiedConstraintSet.SuggestedEdgeLength > 0.0
+                        ? simplifiedConstraintSet.SuggestedEdgeLength
+                        : resolvedInputs.SuggestedEdgeLength;
+                    var simplifiedCombinedConstraints = CombineConstraints(persistentHardConstraints, simplifiedConstraintSet.Constraints);
+                    RhinoMesh retriedMesh = RebuildMeshWithConstraints(
+                        snapshot,
+                        terrain,
+                        mesh,
+                        simplifiedCombinedConstraints,
+                        simplifiedEdgeLength,
+                        0,
+                        0,
+                        "Grade Path (simplified fallback)",
+                        build,
+                        out bool simplifiedKeptInputTopology,
+                        toleranceOverride: terrainTolerance);
+                    if (!simplifiedKeptInputTopology)
+                    {
+                        topologyMesh = retriedMesh;
+                        keptInputTopology = false;
+                        remeshConstraints = simplifiedCombinedConstraints;
+                        topologyEdgeLength = simplifiedEdgeLength;
+                    }
+                    else
+                    {
+                        build.Diagnostics.Add("Grade Path remesh retrying with path-only simplified constraints after combined hard constraints still kept the upstream mesh unchanged.");
+                        RhinoMesh pathOnlyRetryMesh = RebuildMeshWithConstraints(
+                            snapshot,
+                            terrain,
+                            mesh,
+                            simplifiedConstraintSet.Constraints,
+                            simplifiedEdgeLength,
+                            0,
+                            0,
+                            "Grade Path (path-only fallback)",
+                            build,
+                            out bool pathOnlyKeptInputTopology,
+                            toleranceOverride: terrainTolerance);
+                        if (!pathOnlyKeptInputTopology)
+                        {
+                            topologyMesh = pathOnlyRetryMesh;
+                            keptInputTopology = false;
+                            remeshConstraints = simplifiedConstraintSet.Constraints;
+                            topologyEdgeLength = simplifiedEdgeLength;
+                            build.Diagnostics.Add("Grade Path remesh path-only fallback succeeded; grading will still respect persistent hard constraints during Z filtering.");
+                        }
+                        else
+                        {
+                            double corridorEdgeLength = ComputePathCorridorFallbackEdgeLength(
+                                resolvedInputs.Paths,
+                                simplifiedEdgeLength,
+                                terrainTolerance);
+                            double corridorMaxArea = ComputePathCorridorFallbackMaxArea(
+                                corridorEdgeLength,
+                                terrainTolerance);
+
+                            build.Diagnostics.Add("Grade Path remesh retrying with corridor-focused reduced-seed path constraints after path-only insertion still kept the upstream mesh unchanged.");
+                            RhinoMesh corridorRetryMesh = RebuildMeshWithConstraints(
+                                snapshot,
+                                terrain,
+                                mesh,
+                                simplifiedConstraintSet.Constraints,
+                                corridorEdgeLength,
+                                corridorMaxArea,
+                                0,
+                                "Grade Path (corridor fallback)",
+                                build,
+                                out bool corridorKeptInputTopology,
+                                preferReducedInteriorSeed: true,
+                                addReducedInteriorGuideSeeds: false,
+                                toleranceOverride: terrainTolerance);
+                            if (!corridorKeptInputTopology)
+                            {
+                                topologyMesh = corridorRetryMesh;
+                                keptInputTopology = false;
+                                remeshConstraints = simplifiedConstraintSet.Constraints;
+                                topologyEdgeLength = corridorEdgeLength;
+                                topologyMaxArea = corridorMaxArea;
+                                build.Diagnostics.Add("Grade Path remesh corridor fallback succeeded; grading will still respect persistent hard constraints during Z filtering.");
+                            }
+                            else
+                            {
+                                if (TerrainBuildHeuristics.ShouldPreferLocalizedGradePathRoadEdgeFallback(mesh.Vertices.Count, mesh.Faces.Count))
+                                {
+                                    build.Diagnostics.Add("Grade Path remesh retrying with localized substrate road-edge fallback before whole-mesh road-edge fallback after corridor fallback still kept the upstream mesh unchanged.");
+                                    if (TryBuildLocalizedGradePathFallbackMesh(
+                                            snapshot,
+                                            terrain,
+                                            mesh,
+                                            resolvedInputs.Paths,
+                                            corridorEdgeLength,
+                                            corridorMaxArea,
+                                            build,
+                                            out RhinoMesh localizedFallbackMesh,
+                                            out double localizedEdgeLength,
+                                            out double localizedMaxArea))
+                                    {
+                                        topologyMesh = localizedFallbackMesh;
+                                        keptInputTopology = false;
+                                        topologyEdgeLength = localizedEdgeLength;
+                                        topologyMaxArea = localizedMaxArea;
+                                        build.Diagnostics.Add("Grade Path localized substrate road-edge fallback succeeded; grading will still respect persistent hard constraints during Z filtering.");
+                                    }
+                                    else
+                                    {
+                                        build.Diagnostics.Add("Grade Path localized substrate road-edge fallback did not produce a usable local corridor remesh; retrying whole-mesh road-edge fallback.");
+                                    }
+                                }
+
+                                if (keptInputTopology)
+                                {
+                                    build.Diagnostics.Add("Grade Path remesh retrying with road-edge-only reduced-seed path constraints after corridor fallback still kept the upstream mesh unchanged.");
+                                    PathGrader.ConstraintSet roadEdgeConstraintSet = PathGrader.CreateRoadEdgeRemeshFallbackConstraints(
+                                        vertices,
+                                        mesh.Vertices.Count,
+                                        faces,
+                                        mesh.Faces.Count,
+                                        resolvedInputs.Paths,
+                                        terrainTolerance);
+                                    if (roadEdgeConstraintSet.Constraints.Length > 0)
+                                    {
+                                        double roadEdgeLength = roadEdgeConstraintSet.SuggestedEdgeLength > 0.0
+                                            ? roadEdgeConstraintSet.SuggestedEdgeLength
+                                            : corridorEdgeLength;
+                                        double roadEdgeMaxArea = ComputePathCorridorFallbackMaxArea(
+                                            roadEdgeLength,
+                                            terrainTolerance);
+                                        RhinoMesh roadEdgeRetryMesh = RebuildMeshWithConstraints(
+                                            snapshot,
+                                            terrain,
+                                            mesh,
+                                            roadEdgeConstraintSet.Constraints,
+                                            roadEdgeLength,
+                                            roadEdgeMaxArea,
+                                            0,
+                                            "Grade Path (road-edge fallback)",
+                                            build,
+                                            out bool roadEdgeKeptInputTopology,
+                                            preferReducedInteriorSeed: true,
+                                            addReducedInteriorGuideSeeds: false,
+                                            toleranceOverride: terrainTolerance);
+                                        if (!roadEdgeKeptInputTopology)
+                                        {
+                                            topologyMesh = roadEdgeRetryMesh;
+                                            keptInputTopology = false;
+                                            remeshConstraints = roadEdgeConstraintSet.Constraints;
+                                            topologyEdgeLength = roadEdgeLength;
+                                            topologyMaxArea = roadEdgeMaxArea;
+                                            build.Diagnostics.Add("Grade Path remesh road-edge fallback succeeded; grading will still respect persistent hard constraints during Z filtering.");
+                                        }
+                                        else
+                                        {
+                                            build.Diagnostics.Add("Grade Path remesh road-edge fallback still kept the upstream mesh unchanged.");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        build.Diagnostics.Add("Grade Path road-edge fallback could not build any usable constraints.");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         topologyTimer.Stop();
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(topologyMesh, out var topologyVertices, out var topologyFaces, out errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(topologyMesh, out var topologyVertices, out var topologyFaces, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for grade path topology.");
             return topologyMesh;
@@ -1964,7 +2241,7 @@ internal sealed class TerrainBuildService
             ? (keptInputTopology ? "remesh attempted, input mesh kept" : "remesh")
             : "existing mesh";
         build.Diagnostics.Add(
-            $"Grade Path topology mode: {topologyMode} ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyMesh.Vertices.Count, topologyMesh.Faces.Count)}; edge {resolvedInputs.SuggestedEdgeLength:0.###}, max area 0, min angle 0).");
+            $"Grade Path topology mode: {topologyMode} ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyMesh.Vertices.Count, topologyMesh.Faces.Count)}; edge {topologyEdgeLength:0.###}, max area {topologyMaxArea:0.###}, min angle 0).");
         build.RecordTiming(
             "Grade Path Topology",
             topologyTimer.Elapsed,
@@ -1978,7 +2255,7 @@ internal sealed class TerrainBuildService
             topologyFaces,
             topologyMesh.Faces.Count,
             resolvedInputs.Paths,
-            combinedConstraints,
+            gradingConstraints,
             out int changedVertexCount);
         filterTimer.Stop();
         build.RecordTiming(
@@ -1992,56 +2269,8 @@ internal sealed class TerrainBuildService
                 "Grade Path did not change any mesh vertices. Curve Z defines the finished road elevation; a path already lying on the terrain, or a topology rebuild that could not add road-band vertices, can leave the result visually unchanged.");
         }
 
-        return CleanTinyFaces(
+        return FinalizeGradingMesh(
             RhinoGeometryConversions.BuildMesh(gradedVertices, topologyMesh.Vertices.Count, topologyFaces, topologyMesh.Faces.Count),
-            tolerance,
-            "Grade Path",
-            build);
-    }
-
-    private static RhinoMesh? ApplyGradePathLegacy(
-        RhinoMesh mesh,
-        double[] vertices,
-        int[] faces,
-        ResolvedGradePathInputs resolvedInputs,
-        double tolerance,
-        TerrainBuildResult build,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints)
-    {
-        var legacyTimer = Stopwatch.StartNew();
-        var result = PathGrader.Grade(
-            vertices,
-            mesh.Vertices.Count,
-            faces,
-            mesh.Faces.Count,
-            resolvedInputs.Paths,
-            persistentHardConstraints,
-            out var warning);
-        legacyTimer.Stop();
-
-        if (result == null)
-        {
-            build.RecordTiming("Grade Path Legacy", legacyTimer.Elapsed, "failed", StageTimingDiagnosticThresholdMs);
-            build.Diagnostics.Add(warning ?? "Grade Path failed.");
-            return null;
-        }
-
-        build.Diagnostics.Add(
-            $"Grade Path topology mode: legacy point insertion ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, result.VertexCount, result.FaceCount)}).");
-        build.RecordTiming(
-            "Grade Path Legacy",
-            legacyTimer.Elapsed,
-            DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, result.VertexCount, result.FaceCount),
-            StageTimingDiagnosticThresholdMs);
-
-        if (!string.IsNullOrWhiteSpace(warning))
-            build.Diagnostics.Add(warning);
-
-        AddOutputPolylinesAsBreaklines(result.OutputPolylines, build);
-
-        return CleanTinyFaces(
-            RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount),
-            tolerance,
             "Grade Path",
             build);
     }
@@ -3411,6 +3640,12 @@ internal sealed class TerrainBuildService
                     curveSlope,
                     build,
                     shouldCancel),
+                CurveElevationLabelAnalysisDefinition curveElevation => TerrainAnalysisAnnotationBuilder.BuildCurveElevationSummary(
+                    snapshot,
+                    currentMesh,
+                    curveElevation,
+                    build,
+                    shouldCancel),
                 ProjectedElevationLabelAnalysisDefinition projectedElevation => TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(
                     snapshot,
                     currentMesh,
@@ -3839,9 +4074,7 @@ internal sealed class TerrainBuildService
         foreach (var mesh in meshes)
             combined.Append(mesh);
 
-        combined.Normals.ComputeNormals();
-        combined.UnifyNormals();
-        combined.Compact();
+        RhinoGeometryConversions.NormalizeMeshInPlace(combined);
         return combined;
     }
 
@@ -3925,7 +4158,12 @@ internal sealed class TerrainBuildService
         double minAngle,
         string label,
         TerrainBuildResult build,
-        out bool keptInputMesh)
+        out bool keptInputMesh,
+        bool preferReducedInteriorSeed = false,
+        bool addReducedInteriorGuideSeeds = true,
+        bool addConstraintCorridorSeeds = true,
+        double? toleranceOverride = null,
+        bool protectSharpEdges = true)
     {
         keptInputMesh = false;
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var originalVertices, out var originalFaces, out var errorMessage))
@@ -3934,7 +4172,7 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
-        double tolerance = GetTerrainTolerance(snapshot, terrain);
+        double tolerance = toleranceOverride ?? GetTerrainTolerance(snapshot, terrain);
         var remeshResult = SurfaceRemesher.Remesh(
             originalVertices,
             originalFaces,
@@ -3945,11 +4183,21 @@ internal sealed class TerrainBuildService
                 RequestedEdgeLength = requestedEdgeLength,
                 MaxArea = maxArea,
                 MinAngle = minAngle,
-                ProtectSharpEdges = true,
+                ProtectSharpEdges = protectSharpEdges,
+                PreferReducedInteriorSeed = preferReducedInteriorSeed,
+                AddReducedInteriorGuideSeeds = addReducedInteriorGuideSeeds,
+                AddConstraintCorridorSeeds = addConstraintCorridorSeeds,
                 // When no quality params are set, RequestedEdgeLength controls only constraint
                 // pre-densification spacing — do not use it to drive Steiner interior refinement.
                 ConstraintInsertionOnly = maxArea <= 0 && minAngle <= 0
             });
+
+        if (remeshResult.Profile is not null)
+        {
+            string remeshTimingReport = remeshResult.Profile.FormatReport($"{label} remesh timing");
+            build.Diagnostics.Add(remeshTimingReport);
+            Debug.WriteLine(remeshTimingReport);
+        }
 
         if (!remeshResult.Success)
         {
@@ -3978,6 +4226,722 @@ internal sealed class TerrainBuildService
     private static string DescribeTopologyCounts(int inputVertexCount, int inputFaceCount, int outputVertexCount, int outputFaceCount)
     {
         return $"{inputVertexCount:N0} verts/{inputFaceCount:N0} faces -> {outputVertexCount:N0} verts/{outputFaceCount:N0} faces";
+    }
+
+    private static double ComputePathCorridorFallbackEdgeLength(
+        IReadOnlyList<PathGrader.PathDefinition> paths,
+        double suggestedEdgeLength,
+        double tolerance)
+    {
+        double minWidth = double.MaxValue;
+        for (int i = 0; i < paths.Count; i++)
+        {
+            double width = paths[i].Width;
+            if (width > 0.0)
+                minWidth = Math.Min(minWidth, width);
+        }
+
+        double widthBasedEdgeLength = minWidth < double.MaxValue
+            ? Math.Max(minWidth * 0.5, Math.Max(tolerance * 8.0, 0.25))
+            : 0.0;
+
+        if (suggestedEdgeLength > 0.0 && widthBasedEdgeLength > 0.0)
+            return Math.Min(suggestedEdgeLength, widthBasedEdgeLength);
+        if (widthBasedEdgeLength > 0.0)
+            return widthBasedEdgeLength;
+        if (suggestedEdgeLength > 0.0)
+            return suggestedEdgeLength;
+        return Math.Max(tolerance * 8.0, 0.25);
+    }
+
+    private static double ComputePathCorridorFallbackMaxArea(double edgeLength, double tolerance)
+    {
+        double clampedEdgeLength = edgeLength > 0.0 ? edgeLength : Math.Max(tolerance * 8.0, 0.25);
+        return Math.Max(clampedEdgeLength * clampedEdgeLength * (Math.Sqrt(3.0) / 4.0), tolerance * tolerance * 16.0);
+    }
+
+    private static bool TryBuildLocalizedGradePathFallbackMesh(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        RhinoMesh mesh,
+        IReadOnlyList<PathGrader.PathDefinition> paths,
+        double fallbackEdgeLength,
+        double fallbackMaxArea,
+        TerrainBuildResult build,
+        out RhinoMesh mergedMesh,
+        out double localizedEdgeLength,
+        out double localizedMaxArea)
+    {
+        mergedMesh = mesh;
+        localizedEdgeLength = fallbackEdgeLength;
+        localizedMaxArea = fallbackMaxArea;
+
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        {
+            build.Diagnostics.Add(errorMessage ?? "Grade Path localized substrate fallback could not extract the upstream mesh.");
+            return false;
+        }
+
+        double tolerance = TerrainBuildHeuristics.GetGradePathGeometryTolerance(GetTerrainTolerance(snapshot, terrain));
+        MeshAreaSplitter.AreaBoundary[] localBoundaries = BuildGradePathFallbackBoundaries(
+            vertices,
+            mesh.Vertices.Count,
+            paths,
+            tolerance,
+            out int pathFollowingBoundaryCount,
+            out int conservativeBoundaryCount);
+        build.Diagnostics.Add(
+            $"Grade Path localized substrate fallback prepared corridor split boundaries: path-following={pathFollowingBoundaryCount}, conservative={conservativeBoundaryCount}.");
+        var classified = MeshAreaSplitter.Classify(
+            vertices,
+            mesh.Vertices.Count,
+            faces,
+            mesh.Faces.Count,
+            localBoundaries,
+            tolerance,
+            out string? classificationWarning);
+        if (classified == null)
+        {
+            build.Diagnostics.Add(classificationWarning ?? "Grade Path localized substrate fallback could not classify the path-owned region.");
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(classificationWarning))
+            build.Diagnostics.Add(classificationWarning);
+
+        List<int> selectedFaceIndices = GetFaceIndices(classified, static areaIndex => areaIndex >= 0);
+        List<int> outsideFaceIndices = GetFaceIndices(classified, static areaIndex => areaIndex < 0);
+        RhinoMesh localMesh = BuildSubMesh(classified, selectedFaceIndices);
+        RhinoMesh outsideMesh = BuildSubMesh(classified, outsideFaceIndices);
+        bool useWholeFaceSelection = false;
+        if (localMesh.Faces.Count > 0 &&
+            RhinoGeometryConversions.TryExtractMeshData(localMesh, out var selectedVertices, out var selectedFaces, out _))
+        {
+            SelectedFaceAnalysis selectedAnalysis = AnalyzeSelectedFaceIndices(classified, selectedFaceIndices);
+            if (selectedAnalysis.ComponentCount > 1 &&
+                TryReconnectSelectedFaceIndices(
+                    classified,
+                    selectedFaceIndices,
+                    Math.Max(8, selectedFaceIndices.Count / 2),
+                    out List<int> reconnectedFaceIndices,
+                    out int addedFaceCount))
+            {
+                build.Diagnostics.Add(
+                    $"Grade Path localized substrate fallback whole-face corridor selection was fragmented (components {selectedAnalysis.ComponentCount}, boundary edges {selectedAnalysis.BoundaryEdgeCount}); reconnecting it with adjacent coarse faces ({selectedFaceIndices.Count} faces -> {reconnectedFaceIndices.Count}, added {addedFaceCount}).");
+                selectedFaceIndices = reconnectedFaceIndices;
+                HashSet<int> selectedFaceIndexSet = new(selectedFaceIndices);
+                outsideFaceIndices = Enumerable.Range(0, classified.FaceCount)
+                    .Where(faceIndex => !selectedFaceIndexSet.Contains(faceIndex))
+                    .ToList();
+                localMesh = BuildSubMesh(classified, selectedFaceIndices);
+                outsideMesh = BuildSubMesh(classified, outsideFaceIndices);
+                if (!RhinoGeometryConversions.TryExtractMeshData(localMesh, out selectedVertices, out selectedFaces, out _))
+                {
+                    build.Diagnostics.Add("Grade Path localized substrate fallback could not analyze the cleaned whole-face corridor selection; retrying exact topology split.");
+                }
+            }
+            else if (selectedAnalysis.ComponentCount > 1)
+            {
+                build.Diagnostics.Add(
+                    $"Grade Path localized substrate fallback whole-face corridor selection was fragmented (components {selectedAnalysis.ComponentCount}, boundary edges {selectedAnalysis.BoundaryEdgeCount}); bounded bridge-face growth could not reconnect it, so retrying exact topology split.");
+            }
+
+            if (selectedFaces.Length > 0)
+            {
+                MeshArtifactCleaner.Metrics selectedMetrics = MeshArtifactCleaner.Analyze(
+                    selectedVertices,
+                    localMesh.Vertices.Count,
+                    selectedFaces,
+                    localMesh.Faces.Count);
+                int selectedBoundaryLoops = CountBoundaryLoops(selectedFaces, localMesh.Faces.Count);
+                if (selectedMetrics.ComponentCount == 1 && selectedBoundaryLoops == 1)
+                {
+                    useWholeFaceSelection = true;
+                    build.Diagnostics.Add(
+                        $"Grade Path localized substrate fallback selected whole faces ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, localMesh.Vertices.Count, localMesh.Faces.Count)} inside {localBoundaries.Length} local corridor area(s)).");
+                }
+                else
+                {
+                    build.Diagnostics.Add(
+                        $"Grade Path localized substrate fallback whole-face corridor selection was too fragmented (components {selectedMetrics.ComponentCount}, boundary loops {selectedBoundaryLoops}, boundary edges {selectedMetrics.BoundaryEdgeCount}); retrying exact topology split.");
+                }
+            }
+        }
+        else if (localMesh.Faces.Count > 0)
+        {
+            build.Diagnostics.Add("Grade Path localized substrate fallback could not analyze the whole-face corridor selection; retrying exact topology split.");
+        }
+
+        if (!useWholeFaceSelection)
+        {
+            if (localMesh.Faces.Count == 0)
+                build.Diagnostics.Add("Grade Path localized substrate fallback whole-face corridor selection found no local faces; retrying exact topology split.");
+            var split = MeshAreaSplitter.SplitPreservingTopology(
+                vertices,
+                mesh.Vertices.Count,
+                faces,
+                mesh.Faces.Count,
+                localBoundaries,
+                tolerance,
+                out string? splitWarning);
+            if (split == null)
+            {
+                build.Diagnostics.Add(splitWarning ?? "Grade Path localized substrate fallback could not split the path-owned region.");
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(splitWarning))
+                build.Diagnostics.Add(splitWarning);
+
+            localMesh = BuildSubMesh(split, static areaIndex => areaIndex >= 0);
+            outsideMesh = BuildSubMesh(split, static areaIndex => areaIndex < 0);
+            if (localMesh.Faces.Count == 0)
+            {
+                build.Diagnostics.Add("Grade Path localized substrate fallback found no faces inside the path-owned region.");
+                return false;
+            }
+
+            build.Diagnostics.Add(
+                $"Grade Path localized substrate fallback split ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, localMesh.Vertices.Count, localMesh.Faces.Count)} inside {localBoundaries.Length} local corridor area(s)).");
+        }
+
+        RhinoMesh substrateInput = localMesh;
+        if (useWholeFaceSelection)
+        {
+            build.Diagnostics.Add(
+                "Grade Path localized substrate fallback is using the coherent whole-face corridor directly as the local substrate.");
+        }
+        else
+        {
+            build.Diagnostics.Add(
+                "Grade Path localized substrate fallback is skipping protected-edge subdivision on the corridor prepass because the split boundary is synthetic.");
+            RhinoMesh substrateMesh = RebuildMeshWithConstraints(
+                snapshot,
+                terrain,
+                localMesh,
+                Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                fallbackEdgeLength,
+                fallbackMaxArea,
+                0,
+                "Grade Path (local substrate prepass)",
+                build,
+                out bool substrateKeptInputTopology,
+                preferReducedInteriorSeed: true,
+                addReducedInteriorGuideSeeds: false,
+                toleranceOverride: tolerance,
+                protectSharpEdges: false);
+            substrateInput = substrateKeptInputTopology ? localMesh : substrateMesh;
+            if (!ReferenceEquals(substrateInput, localMesh))
+            {
+                build.Diagnostics.Add(
+                    $"Grade Path localized substrate fallback prepared local substrate ({DescribeTopologyCounts(localMesh.Vertices.Count, localMesh.Faces.Count, substrateInput.Vertices.Count, substrateInput.Faces.Count)}).");
+            }
+        }
+
+        if (!RhinoGeometryConversions.TryExtractMeshData(substrateInput, out var substrateVertices, out var substrateFaces, out _))
+        {
+            build.Diagnostics.Add("Grade Path localized substrate fallback could not extract the local substrate mesh.");
+            return false;
+        }
+
+        PathGrader.ConstraintSet roadEdgeConstraintSet = PathGrader.CreateRoadEdgeRemeshFallbackConstraints(
+            substrateVertices,
+            substrateInput.Vertices.Count,
+            substrateFaces,
+            substrateInput.Faces.Count,
+            paths.ToArray(),
+            tolerance);
+        if (roadEdgeConstraintSet.Constraints.Length == 0)
+        {
+            build.Diagnostics.Add("Grade Path localized substrate fallback could not build any usable local road-edge constraints.");
+            return false;
+        }
+
+        int localRoadEdgeConstraintPointCount = 0;
+        for (int i = 0; i < roadEdgeConstraintSet.Constraints.Length; i++)
+            localRoadEdgeConstraintPointCount += roadEdgeConstraintSet.Constraints[i].PointCount;
+        build.Diagnostics.Add(
+            $"Grade Path localized substrate road-edge fallback constraints: {roadEdgeConstraintSet.Constraints.Length} polylines, {localRoadEdgeConstraintPointCount} points.");
+
+        localizedEdgeLength = roadEdgeConstraintSet.SuggestedEdgeLength > 0.0
+            ? roadEdgeConstraintSet.SuggestedEdgeLength
+            : fallbackEdgeLength;
+        localizedMaxArea = ComputePathCorridorFallbackMaxArea(localizedEdgeLength, tolerance);
+
+        build.Diagnostics.Add(
+            "Grade Path localized substrate road-edge fallback is skipping extra corridor seed injection because the fallback rails are already resampled.");
+        RhinoMesh localizedRoadEdgeMesh = RebuildMeshWithConstraints(
+            snapshot,
+            terrain,
+            substrateInput,
+            roadEdgeConstraintSet.Constraints,
+            localizedEdgeLength,
+            localizedMaxArea,
+            0,
+            "Grade Path (local road-edge fallback)",
+            build,
+            out bool localizedKeptInputTopology,
+            preferReducedInteriorSeed: true,
+            addReducedInteriorGuideSeeds: false,
+            addConstraintCorridorSeeds: false,
+            toleranceOverride: tolerance);
+        if (localizedKeptInputTopology)
+        {
+            build.Diagnostics.Add("Grade Path localized substrate road-edge fallback still kept the local corridor mesh unchanged.");
+            return false;
+        }
+
+        build.Diagnostics.Add(
+            $"Grade Path localized substrate road-edge fallback produced local corridor mesh ({DescribeTopologyCounts(substrateInput.Vertices.Count, substrateInput.Faces.Count, localizedRoadEdgeMesh.Vertices.Count, localizedRoadEdgeMesh.Faces.Count)}).");
+
+        double[] outsideVertices = Array.Empty<double>();
+        int[] outsideFaces = Array.Empty<int>();
+        if (outsideMesh.Faces.Count > 0 &&
+            !RhinoGeometryConversions.TryExtractMeshData(outsideMesh, out outsideVertices, out outsideFaces, out _))
+        {
+            build.Diagnostics.Add("Grade Path localized substrate fallback could not extract the untouched outside mesh for merge.");
+            return false;
+        }
+
+        if (!RhinoGeometryConversions.TryExtractMeshData(localizedRoadEdgeMesh, out var localVertices, out var localFaces, out _))
+        {
+            build.Diagnostics.Add("Grade Path localized substrate fallback could not extract the remeshed local corridor for merge.");
+            return false;
+        }
+
+        MergeMeshes(
+            outsideVertices,
+            outsideVertices.Length / 3,
+            outsideFaces,
+            outsideFaces.Length / 3,
+            localVertices,
+            localizedRoadEdgeMesh.Vertices.Count,
+            localFaces,
+            localizedRoadEdgeMesh.Faces.Count,
+            tolerance,
+            out double[] mergedVertices,
+            out int mergedVertexCount,
+            out int[] mergedFaces,
+            out int mergedFaceCount);
+
+        mergedMesh = BuildMeshFromArrays(mergedVertices, mergedFaces);
+        build.Diagnostics.Add($"Grade Path localized substrate fallback merged untouched outside terrain back in ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, mergedVertexCount, mergedFaceCount)}).");
+        return true;
+    }
+
+    private static MeshAreaSplitter.AreaBoundary[] BuildGradePathFallbackBoundaries(
+        double[] vertices,
+        int vertexCount,
+        IReadOnlyList<PathGrader.PathDefinition> paths,
+        double tolerance,
+        out int pathFollowingBoundaryCount,
+        out int conservativeBoundaryCount)
+    {
+        var boundaries = new List<MeshAreaSplitter.AreaBoundary>(paths.Count);
+        pathFollowingBoundaryCount = 0;
+        conservativeBoundaryCount = 0;
+
+        for (int pathIndex = 0; pathIndex < paths.Count; pathIndex++)
+        {
+            PathGrader.PathDefinition path = paths[pathIndex];
+            if (PathGrader.TryBuildLocalizedFallbackBoundary(vertices, vertexCount, path, tolerance, out double[] corridorLoopXy))
+            {
+                boundaries.Add(new MeshAreaSplitter.AreaBoundary(corridorLoopXy, corridorLoopXy.Length / 2));
+                pathFollowingBoundaryCount++;
+            }
+            else
+            {
+                boundaries.Add(BuildConservativeGradePathFallbackBoundary(path));
+                conservativeBoundaryCount++;
+            }
+        }
+
+        return boundaries.ToArray();
+    }
+
+    private static MeshAreaSplitter.AreaBoundary BuildConservativeGradePathFallbackBoundary(PathGrader.PathDefinition path)
+    {
+        double minX = double.MaxValue;
+        double maxX = double.MinValue;
+        double minY = double.MaxValue;
+        double maxY = double.MinValue;
+        for (int vertexIndex = 0; vertexIndex < path.VertexCount; vertexIndex++)
+        {
+            double x = path.XyVertices[vertexIndex * 2];
+            double y = path.XyVertices[vertexIndex * 2 + 1];
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+
+        double halfWidth = path.Width * 0.5;
+        double shoulderAllowance = path.MaxDistance > 0.0
+            ? path.MaxDistance
+            : Math.Max(path.Width * 2.0, halfWidth);
+        double expansion = halfWidth + shoulderAllowance;
+        double[] xy =
+        {
+            minX - expansion, minY - expansion,
+            maxX + expansion, minY - expansion,
+            maxX + expansion, maxY + expansion,
+            minX - expansion, maxY + expansion
+        };
+        return new MeshAreaSplitter.AreaBoundary(xy, 4);
+    }
+
+    private static List<int> GetFaceIndices(MeshAreaSplitter.SplitResult result, Predicate<int> includeArea)
+    {
+        var faceIndices = new List<int>();
+        for (int faceIndex = 0; faceIndex < result.FaceCount; faceIndex++)
+        {
+            if (includeArea(result.FaceAreaIndex[faceIndex]))
+                faceIndices.Add(faceIndex);
+        }
+
+        return faceIndices;
+    }
+
+    private static RhinoMesh BuildSubMesh(MeshAreaSplitter.SplitResult result, Predicate<int> includeArea)
+    {
+        return BuildSubMesh(result, GetFaceIndices(result, includeArea));
+    }
+
+    private static RhinoMesh BuildSubMesh(MeshAreaSplitter.SplitResult result, IReadOnlyCollection<int> faceIndices)
+    {
+        if (faceIndices.Count == 0)
+            return new RhinoMesh();
+
+        var usedVertices = new HashSet<int>();
+        foreach (int faceIndex in faceIndices)
+        {
+            usedVertices.Add(result.Faces[faceIndex * 3]);
+            usedVertices.Add(result.Faces[faceIndex * 3 + 1]);
+            usedVertices.Add(result.Faces[faceIndex * 3 + 2]);
+        }
+
+        var remap = new Dictionary<int, int>(usedVertices.Count);
+        var mesh = new RhinoMesh();
+        foreach (int vertexIndex in usedVertices)
+        {
+            remap[vertexIndex] = mesh.Vertices.Count;
+            mesh.Vertices.Add(
+                result.Vertices[vertexIndex * 3],
+                result.Vertices[vertexIndex * 3 + 1],
+                result.Vertices[vertexIndex * 3 + 2]);
+        }
+
+        foreach (int faceIndex in faceIndices)
+        {
+            mesh.Faces.AddFace(
+                remap[result.Faces[faceIndex * 3]],
+                remap[result.Faces[faceIndex * 3 + 1]],
+                remap[result.Faces[faceIndex * 3 + 2]]);
+        }
+
+        RhinoGeometryConversions.NormalizeMeshInPlace(mesh);
+        return mesh;
+    }
+
+    private static SelectedFaceAnalysis AnalyzeSelectedFaceIndices(
+        MeshAreaSplitter.SplitResult result,
+        IReadOnlyList<int> faceIndices)
+    {
+        var analysis = new SelectedFaceAnalysis();
+        if (faceIndices.Count == 0)
+            return analysis;
+
+        var adjacency = new Dictionary<int, List<int>>(faceIndices.Count);
+        var edgeToFaces = new Dictionary<long, List<int>>(faceIndices.Count * 3, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int i = 0; i < faceIndices.Count; i++)
+            adjacency[faceIndices[i]] = new List<int>(3);
+
+        for (int i = 0; i < faceIndices.Count; i++)
+        {
+            int faceIndex = faceIndices[i];
+            AddSelectedFaceEdge(edgeToFaces, result.Faces[faceIndex * 3], result.Faces[faceIndex * 3 + 1], faceIndex);
+            AddSelectedFaceEdge(edgeToFaces, result.Faces[faceIndex * 3 + 1], result.Faces[faceIndex * 3 + 2], faceIndex);
+            AddSelectedFaceEdge(edgeToFaces, result.Faces[faceIndex * 3 + 2], result.Faces[faceIndex * 3], faceIndex);
+        }
+
+        foreach (var pair in edgeToFaces)
+        {
+            List<int> sharingFaces = pair.Value;
+            if (sharingFaces.Count == 1)
+            {
+                analysis.BoundaryEdgeCount++;
+                continue;
+            }
+
+            for (int i = 0; i < sharingFaces.Count; i++)
+            {
+                for (int j = i + 1; j < sharingFaces.Count; j++)
+                {
+                    adjacency[sharingFaces[i]].Add(sharingFaces[j]);
+                    adjacency[sharingFaces[j]].Add(sharingFaces[i]);
+                }
+            }
+        }
+
+        var visited = new HashSet<int>();
+        foreach (int faceIndex in faceIndices)
+        {
+            if (!visited.Add(faceIndex))
+                continue;
+
+            int componentIndex = analysis.ComponentCount;
+            analysis.ComponentCount++;
+            var componentFaceIndices = new List<int>();
+            var queue = new Queue<int>();
+            queue.Enqueue(faceIndex);
+            while (queue.Count > 0)
+            {
+                int current = queue.Dequeue();
+                analysis.ComponentByFace[current] = componentIndex;
+                componentFaceIndices.Add(current);
+                foreach (int next in adjacency[current])
+                {
+                    if (visited.Add(next))
+                        queue.Enqueue(next);
+                }
+            }
+
+            if (componentFaceIndices.Count > analysis.LargestComponentFaceIndices.Count)
+                analysis.LargestComponentFaceIndices = componentFaceIndices;
+        }
+
+        return analysis;
+    }
+
+    private static bool TryReconnectSelectedFaceIndices(
+        MeshAreaSplitter.SplitResult result,
+        IReadOnlyList<int> initialFaceIndices,
+        int maxAdditionalFaces,
+        out List<int> connectedFaceIndices,
+        out int addedFaceCount)
+    {
+        connectedFaceIndices = initialFaceIndices
+            .Distinct()
+            .OrderBy(static faceIndex => faceIndex)
+            .ToList();
+        addedFaceCount = 0;
+        if (connectedFaceIndices.Count == 0)
+            return false;
+
+        Dictionary<int, List<int>> fullAdjacency = BuildFaceAdjacency(result);
+        int maxFaceCount = connectedFaceIndices.Count + Math.Max(1, maxAdditionalFaces);
+        while (connectedFaceIndices.Count < maxFaceCount)
+        {
+            SelectedFaceAnalysis analysis = AnalyzeSelectedFaceIndices(result, connectedFaceIndices);
+            if (analysis.ComponentCount <= 1)
+                return true;
+
+            HashSet<int> selectedFaceSet = new(connectedFaceIndices);
+            var candidateComponentCounts = new Dictionary<int, HashSet<int>>();
+            var candidateNeighborCounts = new Dictionary<int, int>();
+            foreach (int selectedFaceIndex in connectedFaceIndices)
+            {
+                if (!fullAdjacency.TryGetValue(selectedFaceIndex, out List<int>? neighbors))
+                    continue;
+
+                int componentIndex = analysis.ComponentByFace.TryGetValue(selectedFaceIndex, out int value)
+                    ? value
+                    : 0;
+                foreach (int neighborFaceIndex in neighbors)
+                {
+                    if (selectedFaceSet.Contains(neighborFaceIndex))
+                        continue;
+
+                    if (!candidateComponentCounts.TryGetValue(neighborFaceIndex, out HashSet<int>? adjacentComponents))
+                    {
+                        adjacentComponents = new HashSet<int>();
+                        candidateComponentCounts[neighborFaceIndex] = adjacentComponents;
+                    }
+
+                    adjacentComponents.Add(componentIndex);
+                    candidateNeighborCounts[neighborFaceIndex] = candidateNeighborCounts.TryGetValue(neighborFaceIndex, out int neighborCount)
+                        ? neighborCount + 1
+                        : 1;
+                }
+            }
+
+            if (candidateComponentCounts.Count == 0)
+                return false;
+
+            int bestCandidateFaceIndex = candidateComponentCounts
+                .Select(pair => new
+                {
+                    FaceIndex = pair.Key,
+                    DistinctComponentCount = pair.Value.Count,
+                    SelectedNeighborCount = candidateNeighborCounts[pair.Key]
+                })
+                .OrderByDescending(static candidate => candidate.DistinctComponentCount)
+                .ThenByDescending(static candidate => candidate.SelectedNeighborCount)
+                .ThenBy(static candidate => candidate.FaceIndex)
+                .Select(static candidate => candidate.FaceIndex)
+                .First();
+
+            selectedFaceSet.Add(bestCandidateFaceIndex);
+            connectedFaceIndices = selectedFaceSet
+                .OrderBy(static faceIndex => faceIndex)
+                .ToList();
+            addedFaceCount++;
+        }
+
+        return AnalyzeSelectedFaceIndices(result, connectedFaceIndices).ComponentCount <= 1;
+    }
+
+    private static Dictionary<int, List<int>> BuildFaceAdjacency(MeshAreaSplitter.SplitResult result)
+    {
+        var adjacency = new Dictionary<int, HashSet<int>>(result.FaceCount);
+        var edgeToFaces = new Dictionary<long, List<int>>(result.FaceCount * 3, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int faceIndex = 0; faceIndex < result.FaceCount; faceIndex++)
+        {
+            adjacency[faceIndex] = new HashSet<int>();
+            AddSelectedFaceEdge(edgeToFaces, result.Faces[faceIndex * 3], result.Faces[faceIndex * 3 + 1], faceIndex);
+            AddSelectedFaceEdge(edgeToFaces, result.Faces[faceIndex * 3 + 1], result.Faces[faceIndex * 3 + 2], faceIndex);
+            AddSelectedFaceEdge(edgeToFaces, result.Faces[faceIndex * 3 + 2], result.Faces[faceIndex * 3], faceIndex);
+        }
+
+        foreach ((_, List<int> sharingFaces) in edgeToFaces)
+        {
+            if (sharingFaces.Count < 2)
+                continue;
+
+            for (int i = 0; i < sharingFaces.Count; i++)
+            {
+                for (int j = i + 1; j < sharingFaces.Count; j++)
+                {
+                    adjacency[sharingFaces[i]].Add(sharingFaces[j]);
+                    adjacency[sharingFaces[j]].Add(sharingFaces[i]);
+                }
+            }
+        }
+
+        return adjacency.ToDictionary(
+            static pair => pair.Key,
+            static pair => pair.Value.OrderBy(static neighborFaceIndex => neighborFaceIndex).ToList());
+    }
+
+    private static void AddSelectedFaceEdge(Dictionary<long, List<int>> edgeToFaces, int a, int b, int faceIndex)
+    {
+        long key = IndexedMeshTools.GetEdgeKey(a, b);
+        if (!edgeToFaces.TryGetValue(key, out List<int>? faces))
+        {
+            faces = new List<int>(2);
+            edgeToFaces[key] = faces;
+        }
+
+        faces.Add(faceIndex);
+    }
+
+    private sealed class SelectedFaceAnalysis
+    {
+        public int ComponentCount { get; set; }
+
+        public int BoundaryEdgeCount { get; set; }
+
+        public List<int> LargestComponentFaceIndices { get; set; } = new();
+
+        public Dictionary<int, int> ComponentByFace { get; } = new();
+    }
+
+    private static void MergeMeshes(
+        double[] firstVertices,
+        int firstVertexCount,
+        int[] firstFaces,
+        int firstFaceCount,
+        double[] secondVertices,
+        int secondVertexCount,
+        int[] secondFaces,
+        int secondFaceCount,
+        double tolerance,
+        out double[] mergedVertices,
+        out int mergedVertexCount,
+        out int[] mergedFaces,
+        out int mergedFaceCount)
+    {
+        var xyList = new List<double>(firstVertexCount * 2 + secondVertexCount * 2);
+        var zList = new List<double>(firstVertexCount + secondVertexCount);
+        var vertHash = new PadGrader.SpatialHash(tolerance);
+        var seenFaces = new HashSet<ulong>();
+
+        int AddVertex(double x, double y, double z)
+        {
+            int near = vertHash.FindNearest(xyList, x, y, tolerance);
+            if (near >= 0)
+            {
+                zList[near] = z;
+                return near;
+            }
+
+            int index = zList.Count;
+            xyList.Add(x);
+            xyList.Add(y);
+            zList.Add(z);
+            vertHash.Insert(index, x, y);
+            return index;
+        }
+
+        static ulong FaceKey(int a, int b, int c)
+        {
+            if (a > b) (a, b) = (b, a);
+            if (b > c) (b, c) = (c, b);
+            if (a > b) (a, b) = (b, a);
+            return ((ulong)(uint)a << 42) | ((ulong)(uint)b << 21) | (uint)c;
+        }
+
+        bool TryAddFace(List<int> faceList, int a, int b, int c)
+        {
+            if (a == b || b == c || c == a)
+                return false;
+
+            double ax = xyList[a * 2];
+            double ay = xyList[a * 2 + 1];
+            double bx = xyList[b * 2];
+            double by = xyList[b * 2 + 1];
+            double cx = xyList[c * 2];
+            double cy = xyList[c * 2 + 1];
+            double area2 = ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
+            if (Math.Abs(area2) <= tolerance * tolerance)
+                return false;
+
+            ulong key = FaceKey(a, b, c);
+            if (!seenFaces.Add(key))
+                return false;
+
+            faceList.Add(a);
+            faceList.Add(b);
+            faceList.Add(c);
+            return true;
+        }
+
+        var faceList = new List<int>((firstFaceCount + secondFaceCount) * 3);
+        var firstRemap = new int[firstVertexCount];
+        for (int i = 0; i < firstVertexCount; i++)
+            firstRemap[i] = AddVertex(firstVertices[i * 3], firstVertices[i * 3 + 1], firstVertices[i * 3 + 2]);
+
+        for (int i = 0; i < firstFaceCount; i++)
+            TryAddFace(faceList, firstRemap[firstFaces[i * 3]], firstRemap[firstFaces[i * 3 + 1]], firstRemap[firstFaces[i * 3 + 2]]);
+
+        var secondRemap = new int[secondVertexCount];
+        for (int i = 0; i < secondVertexCount; i++)
+            secondRemap[i] = AddVertex(secondVertices[i * 3], secondVertices[i * 3 + 1], secondVertices[i * 3 + 2]);
+
+        for (int i = 0; i < secondFaceCount; i++)
+            TryAddFace(faceList, secondRemap[secondFaces[i * 3]], secondRemap[secondFaces[i * 3 + 1]], secondRemap[secondFaces[i * 3 + 2]]);
+
+        mergedVertexCount = zList.Count;
+        mergedFaceCount = faceList.Count / 3;
+        mergedVertices = new double[mergedVertexCount * 3];
+        for (int i = 0; i < mergedVertexCount; i++)
+        {
+            mergedVertices[i * 3] = xyList[i * 2];
+            mergedVertices[i * 3 + 1] = xyList[i * 2 + 1];
+            mergedVertices[i * 3 + 2] = zList[i];
+        }
+
+        mergedFaces = faceList.ToArray();
     }
 
     private static List<SurfaceRemesher.ConstraintPolyline> CombineConstraints(
@@ -4159,9 +5123,9 @@ internal sealed class TerrainBuildService
         return TerrainRuntimeCache.GetStagePrefix(mode) + stageKey;
     }
 
-    private static string CreateGradePadTopologyStageKey(string stageKey)
+    private static string CreateGradingTopologyStageKey(string stageKey, string graderKind)
     {
-        return $"{stageKey}:topology";
+        return $"{stageKey}:topology:{graderKind}";
     }
 
     private static string CreateSmoothPreparedStageKey(string stageKey)
@@ -4315,6 +5279,176 @@ internal sealed class TerrainBuildService
         return builder.ToUInt64();
     }
 
+    private static List<GradingPatch> BuildPadPatchSummaries(IReadOnlyList<PadGrader.PadBoundary> pads)
+    {
+        var patches = new List<GradingPatch>(pads.Count);
+        for (int i = 0; i < pads.Count; i++)
+        {
+            var pad = pads[i];
+            double priority = ComputePadOwnershipPriority(pad);
+            patches.Add(new GradingPatch
+            {
+                OwnerKey = $"pad:{i}",
+                Kind = GradingPatchKind.Pad,
+                Priority = priority,
+                OwnedRegionLoopXy = (double[])pad.XyVertices.Clone(),
+                DaylightLoopXy = Array.Empty<double>(),
+                StitchLoopXy = Array.Empty<double>(),
+                DirtyBounds = GradingPatch.ComputeBounds(pad.XyVertices),
+                UsesFallbackBand = false
+            });
+        }
+
+        return patches;
+    }
+
+    private static double ComputePadOwnershipPriority(PadGrader.PadBoundary pad)
+    {
+        double sumX = 0.0;
+        double sumY = 0.0;
+        for (int i = 0; i < pad.VertexCount; i++)
+        {
+            sumX += pad.XyVertices[i * 2];
+            sumY += pad.XyVertices[i * 2 + 1];
+        }
+
+        double cx = sumX / pad.VertexCount;
+        double cy = sumY / pad.VertexCount;
+        return pad.EvaluateZ(cx, cy);
+    }
+
+    private static List<GradingPatch> BuildPathPatchSummaries(IReadOnlyList<PathGrader.PathDefinition> paths)
+    {
+        var patches = new List<GradingPatch>(paths.Count);
+        for (int i = 0; i < paths.Count; i++)
+        {
+            var path = paths[i];
+            double minX = double.MaxValue;
+            double maxX = double.MinValue;
+            double minY = double.MaxValue;
+            double maxY = double.MinValue;
+            for (int v = 0; v < path.VertexCount; v++)
+            {
+                double x = path.XyVertices[v * 2];
+                double y = path.XyVertices[v * 2 + 1];
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+
+            double halfWidth = path.Width * 0.5;
+            double shoulderAllowance = path.MaxDistance > 0.0
+                ? path.MaxDistance
+                : Math.Max(path.Width * 2.0, halfWidth);
+            double expansion = halfWidth + shoulderAllowance;
+            double[] ownedLoop =
+            {
+                minX - expansion, minY - expansion,
+                maxX + expansion, minY - expansion,
+                maxX + expansion, maxY + expansion,
+                minX - expansion, maxY + expansion
+            };
+
+            patches.Add(new GradingPatch
+            {
+                OwnerKey = $"path:{i}",
+                Kind = GradingPatchKind.Path,
+                Priority = i,
+                OwnedRegionLoopXy = ownedLoop,
+                DaylightLoopXy = Array.Empty<double>(),
+                StitchLoopXy = Array.Empty<double>(),
+                DirtyBounds = GradingPatch.ComputeBounds(ownedLoop),
+                UsesFallbackBand = false
+            });
+        }
+
+        return patches;
+    }
+
+    private static GradingTopologyCacheEntry BuildPathTopologyEntry(
+        IReadOnlyList<double> inputVertices,
+        int inputVertexCount,
+        IReadOnlyList<int> inputFaces,
+        int inputFaceCount,
+        GradingResult? gradingResult,
+        IReadOnlyList<GradingPatch> conservativePatchSummaries,
+        IReadOnlyList<string> diagnostics)
+    {
+        IReadOnlyList<double> vertices = gradingResult?.Vertices ?? inputVertices;
+        int vertexCount = gradingResult?.VertexCount ?? inputVertexCount;
+        IReadOnlyList<int> faces = gradingResult?.Faces ?? inputFaces;
+        int faceCount = gradingResult?.FaceCount ?? inputFaceCount;
+        List<GradingPatch> patchSummaries = gradingResult?.PatchSummaries.Count > 0
+            ? ClonePatchSummaries(gradingResult.PatchSummaries)
+            : ClonePatchSummaries(conservativePatchSummaries);
+
+        return new GradingTopologyCacheEntry
+        {
+            GraderKind = "Path",
+            Fingerprint = 0,
+            OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Path", vertices, vertexCount, faces, faceCount),
+            Vertices = vertices.ToArray(),
+            VertexCount = vertexCount,
+            Faces = faces.ToArray(),
+            FaceCount = faceCount,
+            PatchSummaries = patchSummaries,
+            Diagnostics = diagnostics.ToList()
+        };
+    }
+
+    private static GradingTopologyCacheEntry BuildPathTopologyEntryFromMesh(
+        RhinoMesh mesh,
+        IReadOnlyList<GradingPatch> conservativePatchSummaries,
+        IReadOnlyList<string> diagnostics)
+    {
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
+        {
+            return new GradingTopologyCacheEntry
+            {
+                GraderKind = "Path",
+                Fingerprint = 0,
+                OutputFingerprint = 0,
+                Vertices = Array.Empty<double>(),
+                VertexCount = 0,
+                Faces = Array.Empty<int>(),
+                FaceCount = 0,
+                PatchSummaries = ClonePatchSummaries(conservativePatchSummaries),
+                Diagnostics = diagnostics.ToList()
+            };
+        }
+
+        return new GradingTopologyCacheEntry
+        {
+            GraderKind = "Path",
+            Fingerprint = 0,
+            OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Path", vertices, mesh.Vertices.Count, faces, mesh.Faces.Count),
+            Vertices = vertices,
+            VertexCount = mesh.Vertices.Count,
+            Faces = faces,
+            FaceCount = mesh.Faces.Count,
+            PatchSummaries = ClonePatchSummaries(conservativePatchSummaries),
+            Diagnostics = diagnostics.ToList()
+        };
+    }
+
+    private static List<GradingPatch> ClonePatchSummaries(IReadOnlyList<GradingPatch> patchSummaries)
+    {
+        return patchSummaries
+            .Select(static patch => new GradingPatch
+            {
+                OwnerKey = patch.OwnerKey,
+                Kind = patch.Kind,
+                Priority = patch.Priority,
+                OwnedRegionLoopXy = (double[])patch.OwnedRegionLoopXy.Clone(),
+                DaylightLoopXy = patch.DaylightLoopXy != null ? (double[])patch.DaylightLoopXy.Clone() : Array.Empty<double>(),
+                StitchLoopXy = patch.StitchLoopXy != null ? (double[])patch.StitchLoopXy.Clone() : Array.Empty<double>(),
+                DirtyBounds = patch.DirtyBounds,
+                UsesFallbackBand = patch.UsesFallbackBand
+            })
+            .ToList();
+    }
+
     private static ulong ComputeAnalysisFingerprint(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
@@ -4395,14 +5529,16 @@ internal sealed class TerrainBuildService
         return builder.ToUInt64();
     }
 
-    private static ulong ComputePadTopologyOutputFingerprint(
+    private static ulong ComputeGradingTopologyOutputFingerprint(
+        string graderKind,
         IReadOnlyList<double> vertices,
         int vertexCount,
         IReadOnlyList<int> faces,
         int faceCount)
     {
         var builder = new FingerprintBuilder();
-        builder.Add("GradePadTopologyOutput");
+        builder.Add("GradingTopologyOutput");
+        builder.Add(graderKind);
         builder.Add(vertexCount);
         AddDoubleArrayFingerprint(ref builder, vertices);
         builder.Add(faceCount);
@@ -4479,6 +5615,109 @@ internal sealed class TerrainBuildService
         return mesh;
     }
 
+    private static RhinoMesh FinalizeGradingMesh(RhinoMesh mesh, string sourceLabel, TerrainBuildResult build)
+    {
+        RhinoGeometryConversions.NormalizeMeshInPlace(mesh);
+        build.Diagnostics.Add($"{sourceLabel} skipped tiny-face deletion; grading output must not introduce holes.");
+        return mesh;
+    }
+
+    private static int CountBoundaryEdgesNearLoop(
+        IReadOnlyList<double> vertices,
+        IReadOnlyList<int> faces,
+        int faceCount,
+        double[] loopXy,
+        double distanceTolerance)
+    {
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int f = 0; f < faceCount; f++)
+        {
+            IncrementEdge(edgeFaceCount, faces[f * 3], faces[f * 3 + 1]);
+            IncrementEdge(edgeFaceCount, faces[f * 3 + 1], faces[f * 3 + 2]);
+            IncrementEdge(edgeFaceCount, faces[f * 3 + 2], faces[f * 3]);
+        }
+
+        int boundaryNearLoop = 0;
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            double mx = (vertices[a * 3] + vertices[b * 3]) * 0.5;
+            double my = (vertices[a * 3 + 1] + vertices[b * 3 + 1]) * 0.5;
+            if (PadGrader.DistToPolygon(mx, my, loopXy, loopXy.Length / 2) <= distanceTolerance)
+                boundaryNearLoop++;
+        }
+
+        return boundaryNearLoop;
+    }
+
+    private static int CountBoundaryLoops(IReadOnlyList<int> faces, int faceCount)
+    {
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int f = 0; f < faceCount; f++)
+        {
+            IncrementEdge(edgeFaceCount, faces[f * 3], faces[f * 3 + 1]);
+            IncrementEdge(edgeFaceCount, faces[f * 3 + 1], faces[f * 3 + 2]);
+            IncrementEdge(edgeFaceCount, faces[f * 3 + 2], faces[f * 3]);
+        }
+
+        var adjacency = new Dictionary<int, HashSet<int>>();
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            AddBoundaryNeighbor(adjacency, a, b);
+            AddBoundaryNeighbor(adjacency, b, a);
+        }
+
+        int loops = 0;
+        var visited = new HashSet<int>();
+        foreach (int vertex in adjacency.Keys)
+        {
+            if (!visited.Add(vertex))
+                continue;
+
+            loops++;
+            var queue = new Queue<int>();
+            queue.Enqueue(vertex);
+            while (queue.Count > 0)
+            {
+                int current = queue.Dequeue();
+                foreach (int next in adjacency[current])
+                {
+                    if (visited.Add(next))
+                        queue.Enqueue(next);
+                }
+            }
+        }
+
+        return loops;
+    }
+
+    private static void IncrementEdge(Dictionary<long, int> edgeFaceCount, int a, int b)
+    {
+        long key = IndexedMeshTools.GetEdgeKey(a, b);
+        edgeFaceCount.TryGetValue(key, out int value);
+        edgeFaceCount[key] = value + 1;
+    }
+
+    private static void AddBoundaryNeighbor(Dictionary<int, HashSet<int>> adjacency, int from, int to)
+    {
+        if (!adjacency.TryGetValue(from, out HashSet<int>? neighbors))
+        {
+            neighbors = new HashSet<int>();
+            adjacency[from] = neighbors;
+        }
+
+        neighbors.Add(to);
+    }
+
     private static RhinoMesh CleanTinyFaces(RhinoMesh mesh, double tolerance, string sourceLabel, TerrainBuildResult build)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
@@ -4521,7 +5760,7 @@ internal sealed class TerrainBuildService
         double minEdgeLength = Math.Max(effectiveCleanupTolerance * 2.0, 1e-5);
         double minProjectedArea = Math.Max(effectiveCleanupTolerance * effectiveCleanupTolerance * 2.0, 1e-10);
 
-        var candidates = new List<(int FaceIndex, double Area, double SmallestEdge)>();
+        var candidates = new List<(int FaceIndex, double Area, double SmallestEdge, double MinProjectedAltitude)>();
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             int a = faces[faceIndex * 3];
@@ -4537,9 +5776,21 @@ internal sealed class TerrainBuildService
             double l2 = pc.DistanceTo(pa);
             double area = Math.Abs((pb.X - pa.X) * (pc.Y - pa.Y) - (pb.Y - pa.Y) * (pc.X - pa.X)) * 0.5;
             double smallestEdge = Math.Min(l0, Math.Min(l1, l2));
+            double projectedL0 = Math.Sqrt(((pb.X - pa.X) * (pb.X - pa.X)) + ((pb.Y - pa.Y) * (pb.Y - pa.Y)));
+            double projectedL1 = Math.Sqrt(((pc.X - pb.X) * (pc.X - pb.X)) + ((pc.Y - pb.Y) * (pc.Y - pb.Y)));
+            double projectedL2 = Math.Sqrt(((pa.X - pc.X) * (pa.X - pc.X)) + ((pa.Y - pc.Y) * (pa.Y - pc.Y)));
+            double longestProjectedEdge = Math.Max(projectedL0, Math.Max(projectedL1, projectedL2));
+            double shortestProjectedEdge = Math.Min(projectedL0, Math.Min(projectedL1, projectedL2));
+            double minProjectedAltitude = longestProjectedEdge > 1e-12
+                ? (2.0 * area) / longestProjectedEdge
+                : 0.0;
+            bool projectedDuplicate = shortestProjectedEdge <= effectiveCleanupTolerance * 0.5;
+            bool projectedSliver =
+                longestProjectedEdge > effectiveCleanupTolerance * 8.0 &&
+                minProjectedAltitude < Math.Max(effectiveCleanupTolerance * 0.5, longestProjectedEdge * 0.001);
 
-            if (smallestEdge < minEdgeLength || area < minProjectedArea)
-                candidates.Add((faceIndex, area, smallestEdge));
+            if (smallestEdge < minEdgeLength || area < minProjectedArea || projectedDuplicate || projectedSliver)
+                candidates.Add((faceIndex, area, smallestEdge, minProjectedAltitude));
         }
 
         if (candidates.Count == 0)
@@ -4550,6 +5801,10 @@ internal sealed class TerrainBuildService
             int compare = left.Area.CompareTo(right.Area);
             if (compare != 0)
                 return compare;
+
+            int altitudeCompare = left.MinProjectedAltitude.CompareTo(right.MinProjectedAltitude);
+            if (altitudeCompare != 0)
+                return altitudeCompare;
 
             return left.SmallestEdge.CompareTo(right.SmallestEdge);
         });

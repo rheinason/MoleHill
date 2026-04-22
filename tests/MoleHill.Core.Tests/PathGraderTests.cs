@@ -186,14 +186,13 @@ public class PathGraderTests
             new[] { path },
             tolerance: 1e-3);
 
-        Assert.True(constraints.Constraints.Length > 5);
+        Assert.True(constraints.Constraints.Length >= 5);
         Assert.True(constraints.SuggestedEdgeLength > 0.0);
         Assert.All(constraints.Constraints, constraint =>
         {
             Assert.True(constraint.PointCount >= 2);
             Assert.Equal(constraint.PointCount * 3, constraint.Points.Length);
         });
-        Assert.Contains(constraints.Constraints, constraint => constraint.PointCount == 2);
     }
 
     // ── Fix 1 regression tests ───────────────────────────────────────────────
@@ -229,9 +228,9 @@ public class PathGraderTests
             BuildSquareVertices(), 4,
             BuildSquareFaces(), 2,
             new[] { path },
-            out _);
+            out string? errorMessage);
 
-        Assert.NotNull(result);
+        Assert.True(result != null, errorMessage);
 
         bool anyChecked = false;
         foreach (var (x, y, z) in EnumerateVertices(result!))
@@ -336,9 +335,9 @@ public class PathGraderTests
             BuildSquareVertices(), 4,
             BuildSquareFaces(), 2,
             new[] { path },
-            out _);
+            out string? errorMessage);
 
-        Assert.NotNull(result);
+        Assert.True(result != null, errorMessage);
 
         // Collect road-edge vertices on the left side (x ≈ 4.5 ± 0.15), sort by Y.
         const double maxZRateAlongY = 0.25; // expected 0.1875 /m + margin
@@ -450,7 +449,334 @@ public class PathGraderTests
                 tolerance: 1e-6));
 
         int guideCount = constraints.Constraints.Count(constraint => constraint.PointCount == 2);
-        Assert.InRange(guideCount, 2, 8);
+        Assert.Equal(0, guideCount);
+    }
+
+    [Fact]
+    public void CreateConstraints_UsesDaylightZForShoulderRuns()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 1.0);
+
+        PathGrader.ConstraintSet constraints = PathGrader.CreateConstraints(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            tolerance: 1e-3);
+
+        Assert.Contains(
+            constraints.Constraints,
+            constraint => constraint.PointCount >= 2 &&
+                          Enumerable.Range(0, constraint.PointCount).All(i =>
+                              Math.Abs(constraint.Points[i * 3 + 1] - 7.0) <= 1e-6 &&
+                              Math.Abs(constraint.Points[i * 3 + 2]) <= 1e-6));
+    }
+
+    [Fact]
+    public void ApplyGradingZ_DoesNotAdjustShoulderVertexWithinTolerance()
+    {
+        const int size = 11;
+        double[] vertices = BuildGridVertices(size, spacing: 1.0);
+        int[] faces = BuildGridFaces(size);
+        int nearGradeIndex = GetGridVertexIndex(size, x: 5, y: 7);
+        vertices[(nearGradeIndex * 3) + 2] = 5e-4;
+
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 1.0);
+
+        double[] graded = PathGrader.ApplyGradingZ(vertices, vertices.Length / 3, faces, faces.Length / 3, new[] { path }, out _);
+
+        Assert.Equal(5e-4, graded[(nearGradeIndex * 3) + 2], 6);
+    }
+
+    [Fact]
+    public void Grade_OpenPath_ProducesSingleBoundaryLoop()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 2.0);
+
+        GradingResult? result = PathGrader.Grade(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
+        Assert.Equal(1, CountBoundaryLoops(result!.Faces, result.FaceCount));
+    }
+
+    [Fact]
+    public void Grade_OpenPath_AddsFiniteAreaCapsBeyondBothEnds()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 2.0);
+
+        GradingResult? result = PathGrader.Grade(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
+        Assert.Contains(EnumerateFaceCentroids(result!), face => face.x < 2.0 - 1e-3);
+        Assert.Contains(EnumerateFaceCentroids(result!), face => face.x > 8.0 + 1e-3);
+    }
+
+    [Fact]
+    public void Grade_OpenPath_ReportsSectionStatusDiagnostics()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 2.0);
+
+        GradingResult? result = PathGrader.Grade(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
+        Assert.Contains(result!.Diagnostics, diagnostic => diagnostic.Contains("left sections:", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("right sections:", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Grade_OpenPath_ReportsTopologyModeDiagnostic()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 2.0);
+
+        GradingResult? result = PathGrader.Grade(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
+        Assert.Contains(result!.Diagnostics, diagnostic => diagnostic.Contains("topology mode:", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Grade_OpenPathOnSlopedTerrain_ProducesSingleBoundaryLoop()
+    {
+        double[] terrain =
+        {
+            0.0, 0.0, 0.0,
+            10.0, 0.0, 0.0,
+            10.0, 10.0, 1.0,
+            0.0, 10.0, 1.0
+        };
+
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 0.5, 0.5 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 33.0,
+            maxDistance: 2.0);
+
+        GradingResult? result = PathGrader.Grade(
+            terrain,
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
+        Assert.True(
+            CountBoundaryLoops(result!.Faces, result.FaceCount) == 1,
+            string.Join(Environment.NewLine, result.Diagnostics));
+    }
+
+    [Fact]
+    public void IsIsoElevationStrip_WhenRailsMatch_ReturnsTrue()
+    {
+        bool isPlanar = PathGrader.IsIsoElevationStrip(
+            innerZ: new[] { 5.0, 5.0, 4.0 },
+            outerZ: new[] { 5.0, 5.0, 4.0 },
+            vertexCount: 3,
+            tolerance: 1e-3);
+
+        Assert.True(isPlanar);
+    }
+
+    [Fact]
+    public void IsIsoElevationStrip_WhenRailsDiffer_ReturnsFalse()
+    {
+        bool isPlanar = PathGrader.IsIsoElevationStrip(
+            innerZ: new[] { 5.0, 5.0, 4.0 },
+            outerZ: new[] { 5.0, 4.5, 4.0 },
+            vertexCount: 3,
+            tolerance: 1e-3);
+
+        Assert.False(isPlanar);
+    }
+
+    [Fact]
+    public void TryBuildLocalizedFallbackBoundary_DiagonalPath_IsTighterThanConservativeBox()
+    {
+        double[] vertices = BuildGridVertices(11, 10.0);
+        int vertexCount = vertices.Length / 3;
+        var path = new PathGrader.PathDefinition(
+            new[] { 10.0, 10.0, 90.0, 90.0 },
+            new[] { 0.0, 0.0 },
+            vertexCount: 2,
+            width: 10.0,
+            slopeAngleDeg: 33.0,
+            maxDistance: 20.0);
+
+        bool built = PathGrader.TryBuildLocalizedFallbackBoundary(
+            vertices,
+            vertexCount,
+            path,
+            tolerance: 1e-3,
+            out double[] boundaryLoopXy);
+
+        Assert.True(built);
+        Assert.True(boundaryLoopXy.Length >= 8);
+
+        double localizedArea = Math.Abs(ComputeSignedArea(boundaryLoopXy));
+        double conservativeArea = ComputeConservativePathOwnedBoxArea(path);
+        Assert.True(localizedArea < conservativeArea, $"localized={localizedArea:0.###}, conservative={conservativeArea:0.###}");
+    }
+
+    [Fact]
+    public void CreateRoadEdgeRemeshFallbackConstraints_DensePath_ResamplesPrimaryRails()
+    {
+        const int sampleCount = 81;
+        var pathXy = new double[sampleCount * 2];
+        var pathZ = new double[sampleCount];
+        for (int i = 0; i < sampleCount; i++)
+        {
+            double x = 10.0 + i;
+            pathXy[i * 2] = x;
+            pathXy[(i * 2) + 1] = 50.0;
+            pathZ[i] = 0.0;
+        }
+
+        var path = new PathGrader.PathDefinition(
+            pathXy,
+            pathZ,
+            sampleCount,
+            width: 10.0,
+            slopeAngleDeg: 33.0,
+            maxDistance: 0.0);
+
+        PathGrader.ConstraintSet constraints = PathGrader.CreateRoadEdgeRemeshFallbackConstraints(
+            BuildLargeSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            tolerance: 1e-3);
+
+        Assert.NotEmpty(constraints.Constraints);
+        Assert.All(
+            constraints.Constraints,
+            constraint => Assert.True(
+                constraint.PointCount < sampleCount,
+                $"Expected fallback rail resampling to reduce point count below {sampleCount}, got {constraint.PointCount}."));
+    }
+
+    [Fact]
+    public void TryValidatePathPatchForStitching_FragmentedSeamBoundary_RejectsPatch()
+    {
+        var seamPoints = new List<double>();
+        for (int i = 0; i < 10; i++)
+            seamPoints.AddRange(new[] { i, 0.0 });
+        for (int i = 0; i < 10; i++)
+            seamPoints.AddRange(new[] { 10.0, i });
+        for (int i = 10; i > 0; i--)
+            seamPoints.AddRange(new[] { i, 10.0 });
+        for (int i = 10; i > 0; i--)
+            seamPoints.AddRange(new[] { 0.0, i });
+        double[] seamLoopXy = seamPoints.ToArray();
+
+        const int triangleCount = 24;
+        var patchVertices = new double[triangleCount * 9];
+        var patchFaces = new int[triangleCount * 3];
+        for (int triangleIndex = 0; triangleIndex < triangleCount; triangleIndex++)
+        {
+            double startX = 0.15 + (triangleIndex * 0.38);
+            int vertexBase = triangleIndex * 3;
+            int pointBase = triangleIndex * 9;
+            patchVertices[pointBase] = startX;
+            patchVertices[pointBase + 1] = 10.0;
+            patchVertices[pointBase + 2] = 0.0;
+            patchVertices[pointBase + 3] = startX + 0.24;
+            patchVertices[pointBase + 4] = 10.0;
+            patchVertices[pointBase + 5] = 0.0;
+            patchVertices[pointBase + 6] = startX + 0.12;
+            patchVertices[pointBase + 7] = 9.998;
+            patchVertices[pointBase + 8] = 0.0;
+
+            patchFaces[triangleIndex * 3] = vertexBase;
+            patchFaces[(triangleIndex * 3) + 1] = vertexBase + 1;
+            patchFaces[(triangleIndex * 3) + 2] = vertexBase + 2;
+        }
+
+        bool valid = PathGrader.TryValidatePathPatchForStitching(
+            seamLoopXy,
+            patchVertices,
+            patchFaces,
+            patchFaceCount: triangleCount,
+            BuildSquareVertices(),
+            BuildSquareFaces(),
+            outsideFaceCount: 2,
+            tolerance: 1e-3,
+            out double[] patchBoundaryLoopXy,
+            out SeamGraph? seamGraph,
+            out string? errorMessage);
+
+        Assert.False(valid);
+        Assert.Empty(patchBoundaryLoopXy);
+        Assert.NotNull(seamGraph);
+        Assert.Contains("fragmentation", errorMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<(double x, double y, double z)> EnumerateVertices(GradingResult result)
@@ -469,6 +795,20 @@ public class PathGraderTests
                 vertices[i * 3],
                 vertices[i * 3 + 1],
                 vertices[i * 3 + 2]);
+    }
+
+    private static IEnumerable<(double x, double y, double z)> EnumerateFaceCentroids(GradingResult result)
+    {
+        for (int faceIndex = 0; faceIndex < result.FaceCount; faceIndex++)
+        {
+            int a = result.Faces[faceIndex * 3];
+            int b = result.Faces[faceIndex * 3 + 1];
+            int c = result.Faces[faceIndex * 3 + 2];
+            yield return (
+                (result.Vertices[a * 3] + result.Vertices[b * 3] + result.Vertices[c * 3]) / 3.0,
+                (result.Vertices[a * 3 + 1] + result.Vertices[b * 3 + 1] + result.Vertices[c * 3 + 1]) / 3.0,
+                (result.Vertices[a * 3 + 2] + result.Vertices[b * 3 + 2] + result.Vertices[c * 3 + 2]) / 3.0);
+        }
     }
 
     private static double[] BuildSquareVertices()
@@ -544,6 +884,43 @@ public class PathGraderTests
         return faces;
     }
 
+    private static double ComputeSignedArea(double[] loopXy)
+    {
+        double area = 0.0;
+        int count = loopXy.Length / 2;
+        for (int i = 0; i < count; i++)
+        {
+            int next = (i + 1) % count;
+            area += (loopXy[i * 2] * loopXy[next * 2 + 1]) - (loopXy[next * 2] * loopXy[i * 2 + 1]);
+        }
+
+        return area * 0.5;
+    }
+
+    private static double ComputeConservativePathOwnedBoxArea(PathGrader.PathDefinition path)
+    {
+        double minX = double.MaxValue;
+        double maxX = double.MinValue;
+        double minY = double.MaxValue;
+        double maxY = double.MinValue;
+        for (int i = 0; i < path.VertexCount; i++)
+        {
+            double x = path.XyVertices[i * 2];
+            double y = path.XyVertices[i * 2 + 1];
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+
+        double halfWidth = path.Width * 0.5;
+        double shoulderAllowance = path.MaxDistance > 0.0
+            ? path.MaxDistance
+            : Math.Max(path.Width * 2.0, halfWidth);
+        double expansion = halfWidth + shoulderAllowance;
+        return ((maxX - minX) + (expansion * 2.0)) * ((maxY - minY) + (expansion * 2.0));
+    }
+
     private static int GetGridVertexIndex(int size, int x, int y)
     {
         return (y * size) + x;
@@ -580,9 +957,100 @@ public class PathGraderTests
                 PointMatches(constraint.Points, 1, ax, ay, tolerance));
     }
 
+    private static bool SegmentMatchesWithZ(
+        SurfaceRemesher.ConstraintPolyline constraint,
+        double ax,
+        double ay,
+        double az,
+        double bx,
+        double by,
+        double bz,
+        double tolerance)
+    {
+        if (constraint.PointCount != 2)
+            return false;
+
+        return (PointMatchesWithZ(constraint.Points, 0, ax, ay, az, tolerance) &&
+                PointMatchesWithZ(constraint.Points, 1, bx, by, bz, tolerance)) ||
+               (PointMatchesWithZ(constraint.Points, 0, bx, by, bz, tolerance) &&
+                PointMatchesWithZ(constraint.Points, 1, ax, ay, az, tolerance));
+    }
+
     private static bool PointMatches(double[] points, int pointIndex, double x, double y, double tolerance)
     {
         return Math.Abs(points[pointIndex * 3] - x) <= tolerance &&
                Math.Abs(points[(pointIndex * 3) + 1] - y) <= tolerance;
     }
+
+    private static bool PointMatchesWithZ(double[] points, int pointIndex, double x, double y, double z, double tolerance)
+    {
+        return Math.Abs(points[pointIndex * 3] - x) <= tolerance &&
+               Math.Abs(points[(pointIndex * 3) + 1] - y) <= tolerance &&
+               Math.Abs(points[(pointIndex * 3) + 2] - z) <= tolerance;
+    }
+
+    private static int CountBoundaryLoops(int[] faces, int faceCount)
+    {
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            IncrementEdge(edgeFaceCount, faces[faceIndex * 3], faces[faceIndex * 3 + 1]);
+            IncrementEdge(edgeFaceCount, faces[faceIndex * 3 + 1], faces[faceIndex * 3 + 2]);
+            IncrementEdge(edgeFaceCount, faces[faceIndex * 3 + 2], faces[faceIndex * 3]);
+        }
+
+        var adjacency = new Dictionary<int, HashSet<int>>();
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            AddBoundaryNeighbor(adjacency, a, b);
+            AddBoundaryNeighbor(adjacency, b, a);
+        }
+
+        int loops = 0;
+        var visited = new HashSet<int>();
+        foreach (int vertex in adjacency.Keys)
+        {
+            if (!visited.Add(vertex))
+                continue;
+
+            loops++;
+            var queue = new Queue<int>();
+            queue.Enqueue(vertex);
+            while (queue.Count > 0)
+            {
+                int current = queue.Dequeue();
+                foreach (int next in adjacency[current])
+                {
+                    if (visited.Add(next))
+                        queue.Enqueue(next);
+                }
+            }
+        }
+
+        return loops;
+    }
+
+    private static void IncrementEdge(Dictionary<long, int> edgeFaceCount, int a, int b)
+    {
+        long key = IndexedMeshTools.GetEdgeKey(a, b);
+        edgeFaceCount.TryGetValue(key, out int value);
+        edgeFaceCount[key] = value + 1;
+    }
+
+    private static void AddBoundaryNeighbor(Dictionary<int, HashSet<int>> adjacency, int from, int to)
+    {
+        if (!adjacency.TryGetValue(from, out HashSet<int>? neighbors))
+        {
+            neighbors = new HashSet<int>();
+            adjacency[from] = neighbors;
+        }
+
+        neighbors.Add(to);
+    }
+
 }
