@@ -22,6 +22,13 @@ internal static class MeshConstraintTopologyInserter
         public required double Cz { get; init; }
         public required Bounds2D Bounds { get; init; }
 
+        public Point2D GetVertex(int index) => index switch
+        {
+            0 => A,
+            1 => B,
+            _ => C
+        };
+
         public Point2D GetEdgeStart(int edgeIndex) => edgeIndex switch
         {
             0 => A,
@@ -501,15 +508,15 @@ internal static class MeshConstraintTopologyInserter
 
                 result[faceIndex] ??= new FaceCutData();
                 foreach (EdgePoint edgePoint in edgePoints)
-                    AddUniqueEdgePoint(result[faceIndex].EdgePoints, edgePoint, tolerance);
+                    AddUniqueEdgePoint(result[faceIndex].EdgePoints, edgePoint, face, tolerance);
 
                 foreach (SegmentPiece clippedPiece in clippedPieces)
                 {
                     int edgeIndex = GetPieceEdgeIndex(face, clippedPiece, tolerance);
                     if (edgeIndex >= 0)
                     {
-                        AddUniqueEdgePoint(result[faceIndex].EdgePoints, new EdgePoint(edgeIndex, clippedPiece.Start), tolerance);
-                        AddUniqueEdgePoint(result[faceIndex].EdgePoints, new EdgePoint(edgeIndex, clippedPiece.End), tolerance);
+                        AddUniqueEdgePoint(result[faceIndex].EdgePoints, new EdgePoint(edgeIndex, clippedPiece.Start), face, tolerance);
+                        AddUniqueEdgePoint(result[faceIndex].EdgePoints, new EdgePoint(edgeIndex, clippedPiece.End), face, tolerance);
                         continue;
                     }
 
@@ -634,6 +641,10 @@ internal static class MeshConstraintTopologyInserter
             if (g0 == g1 || g1 == g2 || g2 == g0)
                 continue;
 
+            double cross = Math.Abs((p1.X - p0.X) * (p2.Y - p0.Y) - (p1.Y - p0.Y) * (p2.X - p0.X));
+            if (cross < tolerance * tolerance * 1e-3)
+                continue;
+
             globalFaces.Add(g0);
             globalFaces.Add(g1);
             globalFaces.Add(g2);
@@ -748,11 +759,11 @@ internal static class MeshConstraintTopologyInserter
     {
         int startEdge = face.GetEdgeIndex(piece.Start, tolerance);
         if (startEdge >= 0)
-            AddUniqueEdgePoint(edgePoints, new EdgePoint(startEdge, piece.Start), tolerance);
+            AddUniqueEdgePoint(edgePoints, new EdgePoint(startEdge, piece.Start), face, tolerance);
 
         int endEdge = face.GetEdgeIndex(piece.End, tolerance);
         if (endEdge >= 0)
-            AddUniqueEdgePoint(edgePoints, new EdgePoint(endEdge, piece.End), tolerance);
+            AddUniqueEdgePoint(edgePoints, new EdgePoint(endEdge, piece.End), face, tolerance);
     }
 
     private static void AddEdgeTouchPoint(List<EdgePoint> destination, FaceData face, int edgeIndex, Point2D point, double tolerance)
@@ -761,20 +772,31 @@ internal static class MeshConstraintTopologyInserter
         if (face.IsNearVertex(snapped, tolerance))
             return;
 
-        AddUniqueEdgePoint(destination, new EdgePoint(edgeIndex, snapped), tolerance);
+        AddUniqueEdgePoint(destination, new EdgePoint(edgeIndex, snapped), face, tolerance);
     }
 
-    private static void AddUniqueEdgePoint(List<EdgePoint> destination, EdgePoint candidate, double tolerance)
+    private static void AddUniqueEdgePoint(List<EdgePoint> destination, EdgePoint candidate, FaceData face, double tolerance)
     {
         double toleranceSquared = tolerance * tolerance;
+        double vertexToleranceSquared = 4.0 * toleranceSquared;
         for (int i = 0; i < destination.Count; i++)
         {
             EdgePoint existing = destination[i];
-            if (existing.EdgeIndex != candidate.EdgeIndex)
+            if (DistanceSquared(existing.Point, candidate.Point) > toleranceSquared)
                 continue;
 
-            if (DistanceSquared(existing.Point, candidate.Point) <= toleranceSquared)
+            if (existing.EdgeIndex == candidate.EdgeIndex)
                 return;
+
+            for (int vertexIndex = 0; vertexIndex < 3; vertexIndex++)
+            {
+                Point2D vertex = face.GetVertex(vertexIndex);
+                if (DistanceSquared(existing.Point, vertex) <= vertexToleranceSquared &&
+                    DistanceSquared(candidate.Point, vertex) <= vertexToleranceSquared)
+                {
+                    return;
+                }
+            }
         }
 
         destination.Add(candidate);

@@ -14,7 +14,7 @@ internal sealed class TerrainRuntimeCache
 
     public Dictionary<string, StageCacheEntry> StageEntries { get; } = new(StringComparer.Ordinal);
 
-    public Dictionary<string, PadTopologyCacheEntry> PadTopologyEntries { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, GradingTopologyCacheEntry> GradingTopologyEntries { get; } = new(StringComparer.Ordinal);
 
     public Dictionary<string, SmoothStageCacheEntry> SmoothEntries { get; } = new(StringComparer.Ordinal);
 
@@ -36,8 +36,8 @@ internal sealed class TerrainRuntimeCache
         foreach (var entry in StageEntries)
             copy.StageEntries[entry.Key] = TerrainRuntimeCacheCloner.CloneStageCacheEntry(entry.Value);
 
-        foreach (var entry in PadTopologyEntries)
-            copy.PadTopologyEntries[entry.Key] = entry.Value;
+        foreach (var entry in GradingTopologyEntries)
+            copy.GradingTopologyEntries[entry.Key] = entry.Value;
 
         foreach (var entry in SmoothEntries)
             copy.SmoothEntries[entry.Key] = entry.Value;
@@ -66,10 +66,10 @@ internal sealed class TerrainRuntimeCache
             StageEntries[entry.Key] = entry.Value;
         source.StageEntries.Clear();
 
-        PadTopologyEntries.Clear();
-        foreach (var entry in source.PadTopologyEntries)
-            PadTopologyEntries[entry.Key] = entry.Value;
-        source.PadTopologyEntries.Clear();
+        GradingTopologyEntries.Clear();
+        foreach (var entry in source.GradingTopologyEntries)
+            GradingTopologyEntries[entry.Key] = entry.Value;
+        source.GradingTopologyEntries.Clear();
 
         SmoothEntries.Clear();
         foreach (var entry in source.SmoothEntries)
@@ -81,7 +81,7 @@ internal sealed class TerrainRuntimeCache
     {
         DisposeAllMeshOutputs(StageEntries);
         StageEntries.Clear();
-        PadTopologyEntries.Clear();
+        GradingTopologyEntries.Clear();
         SmoothEntries.Clear();
         DisplayState = null;
         LastPreviewDuration = null;
@@ -100,8 +100,8 @@ internal sealed class TerrainRuntimeCache
                 StageEntries.Remove(stageKey);
             }
 
-            foreach (string stageKey in PadTopologyEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
-                PadTopologyEntries.Remove(stageKey);
+            foreach (string stageKey in GradingTopologyEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
+                GradingTopologyEntries.Remove(stageKey);
 
             foreach (string stageKey in SmoothEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
                 SmoothEntries.Remove(stageKey);
@@ -116,17 +116,235 @@ internal sealed class TerrainRuntimeCache
             StageEntries.Remove(stageKey);
         }
 
-        foreach (string stageKey in PadTopologyEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
-            PadTopologyEntries.Remove(stageKey);
+        foreach (string stageKey in GradingTopologyEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
+            GradingTopologyEntries.Remove(stageKey);
 
         foreach (string stageKey in SmoothEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
             SmoothEntries.Remove(stageKey);
+    }
+
+    public List<string> FindIntersectingGradingStageKeys(
+        string stagePrefix,
+        int currentModifierIndex,
+        IReadOnlyList<GradingPatch> candidatePatches,
+        string? excludeTopologyStageKey = null)
+    {
+        if (candidatePatches.Count == 0)
+            return new List<string>();
+
+        var topologyEntries = new List<(string StageKey, string BaseStageKey, int ModifierIndex, IReadOnlyList<GradingPatch> Patches)>();
+        foreach (var entry in GradingTopologyEntries)
+        {
+            if (!entry.Key.StartsWith(stagePrefix, StringComparison.Ordinal))
+                continue;
+
+            if (excludeTopologyStageKey != null && string.Equals(entry.Key, excludeTopologyStageKey, StringComparison.Ordinal))
+                continue;
+
+            if (!TryParseModifierIndex(entry.Key, out int modifierIndex) || modifierIndex <= currentModifierIndex)
+                continue;
+
+            topologyEntries.Add((entry.Key, GetBaseStageKey(entry.Key), modifierIndex, entry.Value.PatchSummaries));
+        }
+
+        if (topologyEntries.Count == 0)
+            return new List<string>();
+
+        var seeds = new Queue<int>();
+        var visited = new HashSet<int>();
+        for (int i = 0; i < topologyEntries.Count; i++)
+        {
+            if (!HasPatchOverlap(candidatePatches, topologyEntries[i].Patches))
+                continue;
+
+            visited.Add(i);
+            seeds.Enqueue(i);
+        }
+
+        if (seeds.Count == 0)
+            return new List<string>();
+
+        while (seeds.Count > 0)
+        {
+            int current = seeds.Dequeue();
+            for (int next = 0; next < topologyEntries.Count; next++)
+            {
+                if (visited.Contains(next))
+                    continue;
+
+                if (!HasPatchOverlap(topologyEntries[current].Patches, topologyEntries[next].Patches))
+                    continue;
+
+                visited.Add(next);
+                seeds.Enqueue(next);
+            }
+        }
+
+        var results = new HashSet<string>(StringComparer.Ordinal);
+        foreach (int index in visited)
+            results.Add(topologyEntries[index].BaseStageKey);
+
+        return results.ToList();
+    }
+
+    public void InvalidateStages(IEnumerable<string> stageKeys)
+    {
+        foreach (string stageKey in stageKeys.Distinct(StringComparer.Ordinal))
+        {
+            StageEntries.Remove(stageKey);
+
+            foreach (string topologyStageKey in GradingTopologyEntries.Keys
+                         .Where(key => string.Equals(GetBaseStageKey(key), stageKey, StringComparison.Ordinal))
+                         .ToList())
+            {
+                GradingTopologyEntries.Remove(topologyStageKey);
+            }
+
+            foreach (string smoothStageKey in SmoothEntries.Keys
+                         .Where(key => string.Equals(GetBaseStageKey(key), stageKey, StringComparison.Ordinal))
+                         .ToList())
+            {
+                SmoothEntries.Remove(smoothStageKey);
+            }
+        }
     }
 
     private static void DisposeAllMeshOutputs(Dictionary<string, StageCacheEntry> entries)
     {
         foreach (var entry in entries.Values)
             entry.MeshOutput?.Dispose();
+    }
+
+    internal static string GetBaseStageKey(string stageKey)
+    {
+        int topologyIndex = stageKey.IndexOf(":topology:", StringComparison.Ordinal);
+        if (topologyIndex >= 0)
+            return stageKey[..topologyIndex];
+
+        int preparedIndex = stageKey.IndexOf(":prepared", StringComparison.Ordinal);
+        if (preparedIndex >= 0)
+            return stageKey[..preparedIndex];
+
+        return stageKey;
+    }
+
+    internal static bool TryParseModifierIndex(string stageKey, out int modifierIndex)
+    {
+        modifierIndex = -1;
+        const string token = "modifier:";
+        int modifierOffset = stageKey.IndexOf(token, StringComparison.Ordinal);
+        if (modifierOffset < 0)
+            return false;
+
+        int start = modifierOffset + token.Length;
+        int end = stageKey.IndexOf(':', start);
+        if (end <= start)
+            return false;
+
+        return int.TryParse(stageKey[start..end], out modifierIndex);
+    }
+
+    private static bool HasPatchOverlap(IReadOnlyList<GradingPatch> left, IReadOnlyList<GradingPatch> right)
+    {
+        for (int i = 0; i < left.Count; i++)
+        {
+            double[] leftLoop = GetComparisonLoop(left[i]);
+            Bounds2D leftBounds = GradingPatch.ComputeBounds(leftLoop);
+            for (int j = 0; j < right.Count; j++)
+            {
+                double[] rightLoop = GetComparisonLoop(right[j]);
+                Bounds2D rightBounds = GradingPatch.ComputeBounds(rightLoop);
+                if (!leftBounds.Intersects(rightBounds))
+                    continue;
+
+                if (LoopsOverlap(leftLoop, rightLoop))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static double[] GetComparisonLoop(GradingPatch patch)
+    {
+        if (patch.StitchLoopXy is { Length: >= 6 })
+            return patch.StitchLoopXy;
+        if (patch.DaylightLoopXy is { Length: >= 6 })
+            return patch.DaylightLoopXy;
+        return patch.OwnedRegionLoopXy;
+    }
+
+    private static bool LoopsOverlap(double[] leftLoop, double[] rightLoop)
+    {
+        int leftVertexCount = leftLoop.Length / 2;
+        int rightVertexCount = rightLoop.Length / 2;
+        if (leftVertexCount < 3 || rightVertexCount < 3)
+            return false;
+
+        for (int i = 0; i < leftVertexCount; i++)
+        {
+            if (PadGrader.PointInPolygon(leftLoop[i * 2], leftLoop[i * 2 + 1], rightLoop, rightVertexCount))
+                return true;
+        }
+
+        for (int i = 0; i < rightVertexCount; i++)
+        {
+            if (PadGrader.PointInPolygon(rightLoop[i * 2], rightLoop[i * 2 + 1], leftLoop, leftVertexCount))
+                return true;
+        }
+
+        for (int i = 0; i < leftVertexCount; i++)
+        {
+            int leftNext = (i + 1) % leftVertexCount;
+            double ax = leftLoop[i * 2];
+            double ay = leftLoop[i * 2 + 1];
+            double bx = leftLoop[leftNext * 2];
+            double by = leftLoop[leftNext * 2 + 1];
+
+            for (int j = 0; j < rightVertexCount; j++)
+            {
+                int rightNext = (j + 1) % rightVertexCount;
+                double cx = rightLoop[j * 2];
+                double cy = rightLoop[j * 2 + 1];
+                double dx = rightLoop[rightNext * 2];
+                double dy = rightLoop[rightNext * 2 + 1];
+
+                if (SegmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool SegmentsIntersect(double ax, double ay, double bx, double by, double cx, double cy, double dx, double dy)
+    {
+        double o1 = Orient(ax, ay, bx, by, cx, cy);
+        double o2 = Orient(ax, ay, bx, by, dx, dy);
+        double o3 = Orient(cx, cy, dx, dy, ax, ay);
+        double o4 = Orient(cx, cy, dx, dy, bx, by);
+
+        if ((o1 > 0) != (o2 > 0) && (o3 > 0) != (o4 > 0))
+            return true;
+
+        const double epsilon = 1e-12;
+        return Math.Abs(o1) <= epsilon && OnSegment(ax, ay, bx, by, cx, cy) ||
+               Math.Abs(o2) <= epsilon && OnSegment(ax, ay, bx, by, dx, dy) ||
+               Math.Abs(o3) <= epsilon && OnSegment(cx, cy, dx, dy, ax, ay) ||
+               Math.Abs(o4) <= epsilon && OnSegment(cx, cy, dx, dy, bx, by);
+    }
+
+    private static double Orient(double ax, double ay, double bx, double by, double cx, double cy)
+    {
+        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    }
+
+    private static bool OnSegment(double ax, double ay, double bx, double by, double px, double py)
+    {
+        return px >= Math.Min(ax, bx) - 1e-12 &&
+               px <= Math.Max(ax, bx) + 1e-12 &&
+               py >= Math.Min(ay, by) - 1e-12 &&
+               py <= Math.Max(ay, by) + 1e-12;
     }
 
     public static string GetStagePrefix(TerrainBuildMode mode)
@@ -166,8 +384,10 @@ internal sealed class StageCacheEntry
     public string? StairStepCountSummary { get; set; }
 }
 
-internal sealed class PadTopologyCacheEntry
+internal sealed class GradingTopologyCacheEntry
 {
+    public string GraderKind { get; init; } = string.Empty;
+
     public ulong Fingerprint { get; init; }
 
     public required ulong OutputFingerprint { get; init; }
@@ -179,6 +399,8 @@ internal sealed class PadTopologyCacheEntry
     public int[] Faces { get; init; } = Array.Empty<int>();
 
     public int FaceCount { get; init; }
+
+    public List<GradingPatch> PatchSummaries { get; init; } = new();
 
     public List<string> Diagnostics { get; init; } = new();
 }
@@ -342,16 +564,30 @@ internal static class TerrainRuntimeCacheCloner
             .ToList();
     }
 
-    public static PadTopologyCacheEntry ClonePadTopologyEntry(PadTopologyCacheEntry entry)
+    public static GradingTopologyCacheEntry CloneGradingTopologyEntry(GradingTopologyCacheEntry entry)
     {
-        return new PadTopologyCacheEntry
+        return new GradingTopologyCacheEntry
         {
+            GraderKind = entry.GraderKind,
             Fingerprint = entry.Fingerprint,
             OutputFingerprint = entry.OutputFingerprint,
             Vertices = (double[])entry.Vertices.Clone(),
             VertexCount = entry.VertexCount,
             Faces = (int[])entry.Faces.Clone(),
             FaceCount = entry.FaceCount,
+            PatchSummaries = entry.PatchSummaries
+                .Select(static patch => new GradingPatch
+                {
+                    OwnerKey = patch.OwnerKey,
+                    Kind = patch.Kind,
+                    Priority = patch.Priority,
+                    OwnedRegionLoopXy = (double[])patch.OwnedRegionLoopXy.Clone(),
+                    DaylightLoopXy = patch.DaylightLoopXy != null ? (double[])patch.DaylightLoopXy.Clone() : Array.Empty<double>(),
+                    StitchLoopXy = patch.StitchLoopXy != null ? (double[])patch.StitchLoopXy.Clone() : Array.Empty<double>(),
+                    DirtyBounds = patch.DirtyBounds,
+                    UsesFallbackBand = patch.UsesFallbackBand
+                })
+                .ToList(),
             Diagnostics = entry.Diagnostics.ToList()
         };
     }

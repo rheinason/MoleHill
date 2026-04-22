@@ -46,6 +46,50 @@ public class PathGraderBoundaryClippingTests
             vertex.x < 9.9);
     }
 
+    [Fact]
+    public void Grade_WhenShoulderCrossesBoundary_ProducesSingleBoundaryLoop()
+    {
+        var path = BuildBoundaryCrossingPath();
+
+        GradingResult? result = PathGrader.Grade(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
+        Assert.Equal(1, CountBoundaryLoops(result!.Faces, result.FaceCount));
+    }
+
+    [Fact]
+    public void CreateConstraints_WhenPathExtendsBeyondBoundary_ClipsAllConstraintPointsToBoundary()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 5.0, 8.0, 5.0, 12.0 },
+            zValues: new[] { 5.0, 5.0 },
+            vertexCount: 2,
+            width: 2.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 2.0);
+
+        PathGrader.ConstraintSet constraints = PathGrader.CreateConstraints(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            tolerance: 1e-3);
+
+        Assert.NotEmpty(constraints.Constraints);
+        Assert.All(constraints.Constraints, AssertConstraintPointsInsideSquare);
+        Assert.Contains(
+            constraints.Constraints,
+            constraint => ContainsInteriorBoundaryVertex(constraint.Points, boundaryY: 10.0, tolerance: 1e-3));
+    }
+
     private static PathGrader.PathDefinition BuildBoundaryCrossingPath()
     {
         // Path Z = 5, terrain Z = 0 → slope-cast distance = 5, capped at maxDistance = 2.
@@ -106,6 +150,17 @@ public class PathGraderBoundaryClippingTests
         return false;
     }
 
+    private static void AssertConstraintPointsInsideSquare(SurfaceRemesher.ConstraintPolyline constraint)
+    {
+        for (int i = 0; i < constraint.PointCount; i++)
+        {
+            double x = constraint.Points[i * 3];
+            double y = constraint.Points[(i * 3) + 1];
+            Assert.InRange(x, -1e-6, 10.0 + 1e-6);
+            Assert.InRange(y, -1e-6, 10.0 + 1e-6);
+        }
+    }
+
     private static IEnumerable<(double x, double y, double z)> EnumerateVertices(GradingResult result)
     {
         for (int i = 0; i < result.VertexCount; i++)
@@ -113,6 +168,70 @@ public class PathGraderBoundaryClippingTests
                 result.Vertices[i * 3],
                 result.Vertices[i * 3 + 1],
                 result.Vertices[i * 3 + 2]);
+    }
+
+    private static int CountBoundaryLoops(int[] faces, int faceCount)
+    {
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            IncrementEdge(edgeFaceCount, faces[faceIndex * 3], faces[faceIndex * 3 + 1]);
+            IncrementEdge(edgeFaceCount, faces[faceIndex * 3 + 1], faces[faceIndex * 3 + 2]);
+            IncrementEdge(edgeFaceCount, faces[faceIndex * 3 + 2], faces[faceIndex * 3]);
+        }
+
+        var adjacency = new Dictionary<int, HashSet<int>>();
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            AddBoundaryNeighbor(adjacency, a, b);
+            AddBoundaryNeighbor(adjacency, b, a);
+        }
+
+        int loops = 0;
+        var visited = new HashSet<int>();
+        foreach (int vertex in adjacency.Keys)
+        {
+            if (!visited.Add(vertex))
+                continue;
+
+            loops++;
+            var queue = new Queue<int>();
+            queue.Enqueue(vertex);
+            while (queue.Count > 0)
+            {
+                int current = queue.Dequeue();
+                foreach (int next in adjacency[current])
+                {
+                    if (visited.Add(next))
+                        queue.Enqueue(next);
+                }
+            }
+        }
+
+        return loops;
+    }
+
+    private static void IncrementEdge(Dictionary<long, int> edgeFaceCount, int a, int b)
+    {
+        long key = IndexedMeshTools.GetEdgeKey(a, b);
+        edgeFaceCount.TryGetValue(key, out int value);
+        edgeFaceCount[key] = value + 1;
+    }
+
+    private static void AddBoundaryNeighbor(Dictionary<int, HashSet<int>> adjacency, int from, int to)
+    {
+        if (!adjacency.TryGetValue(from, out HashSet<int>? neighbors))
+        {
+            neighbors = new HashSet<int>();
+            adjacency[from] = neighbors;
+        }
+
+        neighbors.Add(to);
     }
 
     private static double[] BuildSquareVertices()

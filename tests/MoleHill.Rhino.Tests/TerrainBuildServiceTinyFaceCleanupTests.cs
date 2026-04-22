@@ -84,6 +84,40 @@ public class TerrainBuildServiceTinyFaceCleanupTests
         Assert.Equal(faces, cleanup.Faces);
     }
 
+    [Fact]
+    public void ComputeTinyFaceCleanup_WhenFaceIsProjectedSliver_RemovesNearColinearTriangle()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            4.0, 0.0, 0.0,
+            4.0, 4.0, 0.0,
+            0.0, 4.0, 0.0,
+            2.0, 0.001, 1.0,
+            2.01, 2.0, 0.0,
+            2.0, 2.01, 0.0
+        };
+        int[] faces =
+        {
+            0, 1, 4,
+            1, 2, 5,
+            2, 6, 5,
+            2, 3, 6,
+            3, 4, 6,
+            3, 0, 4,
+            4, 5, 6
+        };
+
+        TerrainBuildService.TinyFaceCleanupResult cleanup = TerrainBuildService.ComputeTinyFaceCleanup(
+            vertices,
+            faces,
+            faceCount: faces.Length / 3,
+            tolerance: 0.01);
+
+        Assert.Equal(1, cleanup.RemovedFaceCount);
+        Assert.False(ContainsFace(cleanup.Faces, 0, 1, 4));
+    }
+
     private static bool ContainsFace(int[] faces, int a, int b, int c)
     {
         SortFace(ref a, ref b, ref c);

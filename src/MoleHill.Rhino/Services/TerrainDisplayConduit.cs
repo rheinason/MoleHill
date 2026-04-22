@@ -228,8 +228,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
                 if (substituteDisplayText &&
                     TryBuildPreviewDisplayText(generated.InstanceUserStrings, out var displayText))
                 {
-                    transformedText.TextFormula = string.Empty;
-                    transformedText.PlainText = displayText;
+                    transformedText.RichText = displayText;
                 }
 
                 transformedText.Transform(generated.InstanceTransform);

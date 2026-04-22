@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using Eto.Drawing;
 using Eto.Forms;
 using MoleHill.Core.Analysis;
@@ -31,6 +32,7 @@ public sealed class MoleHillPanel : Panel
         ("Elevation", "elevation"),
         ("Cut / Fill", "cut-fill"),
         ("Contours", "contour"),
+        ("Curve Elevation Labels", "curve-elevation-label"),
         ("Curve Slope Labels", "curve-slope-label"),
         ("Projected Elevation Labels", "projected-elevation-label"),
         ("Point Slope Labels", "point-slope-label")
@@ -39,7 +41,7 @@ public sealed class MoleHillPanel : Panel
     private readonly TerrainController _controller = TerrainController.Instance;
     private readonly TextBox _terrainName = new();
     private readonly CheckBox _liveUpdate = new() { Text = "Live" };
-    private readonly Label _statusLabel = new();
+    private readonly TextArea _statusTextArea = new() { ReadOnly = true, Wrap = true, Height = 180 };
     private readonly Label _terrainLayerLabel = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
     private readonly Label _auxLayerLabel     = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
     private readonly Panel _terrainColorSwatch = new() { Width = 18, Height = 18 };
@@ -325,7 +327,6 @@ public sealed class MoleHillPanel : Panel
         SizeChanged += HandlePanelSizeChanged;
         LoadComplete += OnPanelLoadComplete;
         UnLoad += OnPanelUnLoad;
-        RhinoApp.AppSettingsChanged += OnAppSettingsChanged;
         RhinoApp.AppSettingsChanged += OnAppSettingsChanged;
 
         _responsiveLayoutKey = GetResponsiveLayoutKey();
@@ -724,9 +725,23 @@ public sealed class MoleHillPanel : Panel
             }
         };
 
+        StyleTextArea(_statusTextArea);
+        var copyStatusButton = MakeMiniButton("Copy Log", (_, _) => CopyStatusLog(), "Copy the full build log to the clipboard.", width: 74);
+        var copyCaseButton = MakeMiniButton("Copy Case", (_, _) => CopyCaseBundle(), "Export a repro case bundle with the current terrain inputs, outputs, and build log, then copy the bundle path.", width: 82);
         _statusContent = new Panel
         {
-            Content = new Panel { Content = _statusLabel, Padding = new Padding(10, 6) },
+            Content = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 6,
+                Padding = new Padding(10, 6),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayoutItem(_statusTextArea, HorizontalAlignment.Stretch),
+                    CreateResponsiveControlGroup(4, copyStatusButton, copyCaseButton)
+                }
+            },
             Visible = _statusExpanded,
             BackgroundColor = UiTheme.CardBackground
         };
@@ -1383,7 +1398,7 @@ public sealed class MoleHillPanel : Panel
                 _terrainColorLabel.Text = "-";
                 _statusHintLabel.Text = string.Empty;
                 SetTerrainOpacityControls(100);
-                _showWiresCheck.Checked = true;
+                _showWiresCheck.Checked = false;
                 _showSlowBuildWarningCheck.Checked = true;
                 _replacePreviousBakesCheck.Checked = false;
                 _untrackSelectedBakesButton.Enabled = false;
@@ -1442,13 +1457,13 @@ public sealed class MoleHillPanel : Panel
             _terrainColorSwatch.BackgroundColor = terrainColor;
             _terrainColorLabel.Text = DescribeTerrainColor(terrainColorArgb);
             SetTerrainOpacityControls(GetOpacityPercent(terrainColorArgb));
-            _showWiresCheck.Checked = selectedTerrain?.ShowMeshWires ?? true;
+            _showWiresCheck.Checked = selectedTerrain?.ShowMeshWires ?? false;
             _showSlowBuildWarningCheck.Checked = selectedTerrain?.ShowSlowBuildWarning ?? true;
             _replacePreviousBakesCheck.Checked = selectedTerrain?.ReplacePreviouslyBaked ?? false;
             _toleranceStepper.Value = selectedTerrain?.GlobalTolerance ?? 0;
             var statusText = selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.";
             SetStatusText(statusText);
-            _statusHintLabel.Text = statusText.Length > 45 ? statusText[..45] + "..." : statusText;
+            _statusHintLabel.Text = GetStatusHintText(statusText);
             _visibilityButton.Text = selectedTerrain?.IsVisible != false ? "Shown" : "Hidden";
             _lockButton.Text = selectedTerrain?.IsLocked == true ? "Locked" : "Unlocked";
             bool hasTerrain = selectedTerrain != null;
@@ -2465,6 +2480,61 @@ public sealed class MoleHillPanel : Panel
                         displayHighLabel: cfHigh));
                 }
                 break;
+
+            case CurveElevationLabelAnalysisDefinition curveElevation:
+            {
+                void MutateCurveElevation(Action<CurveElevationLabelAnalysisDefinition> apply)
+                {
+                    MutateAnalysis(
+                        terrain.TerrainId,
+                        curveElevation.Id,
+                        item => apply((CurveElevationLabelAnalysisDefinition)item),
+                        scheduleRebuild: true);
+                }
+
+                AddBlockAttributeAnalysisRows(
+                    layout,
+                    terrain,
+                    curveElevation,
+                    RhinoObjectType.Curve,
+                    MutateCurveElevation,
+                    "Curve objects or layers sampled along the terrain at regular stations for elevation labels.",
+                    "Numeric format string applied to sampled elevation values, for example F2 or 0.00.",
+                    extraRows: extraLayout =>
+                    {
+                        extraLayout.AddRow(CreateNumericEditor(
+                            "Interval",
+                            curveElevation.Interval,
+                            value => MutateCurveElevation(item => item.Interval = Math.Max(0.01, value)),
+                            decimalPlaces: 3,
+                            help: "Distance along each source curve between elevation sample stations.",
+                            minValue: 0.01));
+                    });
+
+                if (summary != null)
+                {
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Curves / Labels",
+                        $"{summary.SampleSourceCount} curve(s) -> {summary.GeneratedOutputCount} label(s)",
+                        "Curve sources resolved and elevation annotation blocks emitted by the last build."));
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Min / Max",
+                        summary.GeneratedOutputCount > 0
+                            ? $"{FormatAnalysisValue(summary.SampleMinValue, curveElevation.ValueFormat)} / {FormatAnalysisValue(summary.SampleMaxValue, curveElevation.ValueFormat)}"
+                            : "No samples",
+                        "Terrain elevations sampled along the source curves during the last build."));
+                }
+                else
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to generate curve elevation annotation blocks.",
+                        minHeight: 42));
+                }
+
+                break;
+            }
 
             case CurveSlopeLabelAnalysisDefinition curveSlope:
             {
@@ -5014,8 +5084,42 @@ public sealed class MoleHillPanel : Panel
 
     private void SetStatusText(string text)
     {
-        _statusLabel.Text = text;
-        _statusLabel.TextColor = GetStatusColor(text);
+        var statusColor = GetStatusColor(text);
+        _statusTextArea.Text = text;
+        _statusTextArea.TextColor = statusColor;
+        _statusHintLabel.Text = GetStatusHintText(text);
+    }
+
+    private void CopyStatusLog()
+    {
+        string text = _statusTextArea.Text ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        Clipboard.Instance.Text = text;
+    }
+
+    private void CopyCaseBundle()
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+        if (doc == null || terrain == null)
+            return;
+
+        if (_controller.TryExportTerrainCaseBundle(doc, terrain.TerrainId, out string? archivePath, out string? errorMessage) &&
+            !string.IsNullOrWhiteSpace(archivePath))
+        {
+            Clipboard.Instance.Text = archivePath;
+            RhinoApp.WriteLine($"MoleHill copied case bundle path: {archivePath}");
+            return;
+        }
+
+        MessageBox.Show(
+            RhinoEtoApp.MainWindowForDocument(doc),
+            errorMessage ?? "Could not export the selected terrain case bundle.",
+            "Copy Case",
+            MessageBoxButtons.OK,
+            MessageBoxType.Error);
     }
 
     private static Color GetStatusColor(string text)
@@ -5027,6 +5131,19 @@ public sealed class MoleHillPanel : Panel
             text.Contains("Building", StringComparison.OrdinalIgnoreCase))
             return Color.FromArgb(200, 120, 0);
         return UiTheme.PrimaryText;
+    }
+
+    private static string GetStatusHintText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        string firstLine = text
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault() ?? text;
+
+        return firstLine.Length > 45 ? firstLine[..45] + "..." : firstLine;
     }
 
     private void SetActionButtonsEnabled(bool enabled)
@@ -5128,6 +5245,7 @@ public sealed class MoleHillPanel : Panel
                 "elevation" => new ElevationAnalysisDefinition(),
                 "cut-fill" => new CutFillAnalysisDefinition(),
                 "contour" => new ContourAnalysisDefinition(),
+                "curve-elevation-label" => new CurveElevationLabelAnalysisDefinition(),
                 "curve-slope-label" => new CurveSlopeLabelAnalysisDefinition(),
                 "projected-elevation-label" => new ProjectedElevationLabelAnalysisDefinition(),
                 "point-slope-label" => new PointSlopeLabelAnalysisDefinition(),
@@ -5260,6 +5378,7 @@ public sealed class MoleHillPanel : Panel
             ElevationAnalysisDefinition => "Elevation",
             CutFillAnalysisDefinition => "Cut / Fill",
             ContourAnalysisDefinition => "Contours",
+            CurveElevationLabelAnalysisDefinition => "Curve Elevation",
             CurveSlopeLabelAnalysisDefinition => "Curve Slope",
             ProjectedElevationLabelAnalysisDefinition => "Proj. Elevation",
             PointSlopeLabelAnalysisDefinition => "Point Slope",
@@ -5350,6 +5469,7 @@ public sealed class MoleHillPanel : Panel
         ElevationAnalysisDefinition => "elevation",
         CutFillAnalysisDefinition => "cut-fill",
         ContourAnalysisDefinition => "contour",
+        CurveElevationLabelAnalysisDefinition => "curve-elevation-label",
         CurveSlopeLabelAnalysisDefinition => "curve-slope-label",
         ProjectedElevationLabelAnalysisDefinition => "projected-elevation-label",
         PointSlopeLabelAnalysisDefinition => "point-slope-label",
@@ -5363,6 +5483,7 @@ public sealed class MoleHillPanel : Panel
         "elevation" => Color.FromArgb(30, 136, 229),
         "cut-fill" => Color.FromArgb(239, 108, 0),
         "contour" => Color.FromArgb(0, 121, 107),
+        "curve-elevation-label" => Color.FromArgb(21, 101, 192),
         "curve-slope-label" => Color.FromArgb(46, 125, 50),
         "projected-elevation-label" => Color.FromArgb(21, 101, 192),
         "point-slope-label" => Color.FromArgb(2, 136, 209),
@@ -5376,6 +5497,7 @@ public sealed class MoleHillPanel : Panel
         ElevationAnalysisDefinition => "Z",
         CutFillAnalysisDefinition => "+/-",
         ContourAnalysisDefinition => "CT",
+        CurveElevationLabelAnalysisDefinition => "CE",
         CurveSlopeLabelAnalysisDefinition => "C%",
         ProjectedElevationLabelAnalysisDefinition => "PZ",
         PointSlopeLabelAnalysisDefinition => "P%",
@@ -5391,6 +5513,7 @@ public sealed class MoleHillPanel : Panel
             ElevationAnalysisDefinition => isActive ? "Preview colors" : "Elevation preview",
             CutFillAnalysisDefinition => isActive ? "Preview colors" : "Signed delta preview",
             ContourAnalysisDefinition => "Contour output",
+            CurveElevationLabelAnalysisDefinition => "Curve elevation blocks",
             CurveSlopeLabelAnalysisDefinition => "Curve grade blocks",
             ProjectedElevationLabelAnalysisDefinition => "Projected elevation blocks",
             PointSlopeLabelAnalysisDefinition => "Point slope blocks",
@@ -5414,6 +5537,11 @@ public sealed class MoleHillPanel : Panel
             ContourAnalysisDefinition contour => summary != null
                 ? $"{summary.ContourCurveCount} curves | {contour.Interval:G4} @ {contour.StartZ:G4}"
                 : $"{contour.Interval:G4} every | start {contour.StartZ:G4}",
+            CurveElevationLabelAnalysisDefinition curveElevation => summary != null
+                ? summary.GeneratedOutputCount > 0
+                    ? $"{summary.GeneratedOutputCount} labels | {FormatAnalysisValue(summary.SampleAverageValue, curveElevation.ValueFormat)} avg"
+                    : "0 labels"
+                : $"{CountReferences(curveElevation.Sources)} refs | {curveElevation.Interval:G4} every",
             CurveSlopeLabelAnalysisDefinition curveSlope => summary != null
                 ? summary.GeneratedOutputCount > 0
                     ? $"{summary.GeneratedOutputCount} labels | {FormatSlopeValue(summary.SampleAverageValue, curveSlope.Unit)} avg"

@@ -506,6 +506,18 @@ internal static class InSituStairReferenceBuilder
         errorMessage = null;
 
         mesh.FaceNormals.ComputeFaceNormals();
+
+        // If the surface was supplied with downward-facing normals, flip it so the
+        // upward-face filter below finds walkable geometry regardless of input orientation.
+        double normalZSum = 0.0;
+        for (int fi = 0; fi < mesh.Faces.Count; fi++)
+            normalZSum += mesh.FaceNormals[fi].Z;
+        if (normalZSum < 0)
+        {
+            mesh.Flip(true, true, true);
+            mesh.FaceNormals.ComputeFaceNormals();
+        }
+
         var upwardMesh = new Mesh();
         var vertexMap = new Dictionary<int, int>();
         for (int faceIndex = 0; faceIndex < mesh.Faces.Count; faceIndex++)

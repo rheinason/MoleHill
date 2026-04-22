@@ -77,7 +77,7 @@ internal static class GeneratedBlockCatalog
         return new TextEntity
         {
             Plane = new Plane(origin, Vector3d.XAxis, Vector3d.YAxis),
-            TextFormula = CreateDisplayFormula(template),
+            RichText = CreateDisplayFormula(template),
             TextHeight = 1.0,
             Justification = TextJustification.MiddleLeft,
             MaskFrame = DimensionStyle.MaskFrame.NoFrame

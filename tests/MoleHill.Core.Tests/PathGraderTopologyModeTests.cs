@@ -247,7 +247,7 @@ public class PathGraderTopologyModeTests
     }
 
     [Fact]
-    public void CreateConstraints_OnCoarseEnvelope_AddsShoulderGuideCrossSections()
+    public void CreateConstraints_OnCoarseEnvelope_DoesNotEmitShoulderGuideCrossSections()
     {
         double[] vertices =
         {
@@ -278,15 +278,11 @@ public class PathGraderTopologyModeTests
             new[] { path },
             tolerance: 1e-3);
 
-        Assert.Contains(
-            pathConstraints.Constraints,
-            constraint => constraint.PointCount == 2 &&
-                          ContainsVertex(constraint.Points, 50.0, 57.0, tolerance: 1e-6) &&
-                          ContainsVertex(constraint.Points, 50.0, 62.0, tolerance: 1e-3));
+        Assert.DoesNotContain(pathConstraints.Constraints, constraint => constraint.PointCount == 2);
     }
 
     [Fact]
-    public void Grade_OnCoarseEnvelope_AddsShoulderGuideEdgesToTopology()
+    public void Grade_OnCoarseEnvelope_DoesNotRequireShoulderGuideEdgesInTopology()
     {
         double[] vertices =
         {
@@ -321,9 +317,8 @@ public class PathGraderTopologyModeTests
         Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));
 
         // Per-vertex shoulder: terrain z=0, path z=5, slope=45° → d=5, shoulder at y=55+2+5=62.
-        int roadIndex = FindVertexIndex(result!.Vertices, 50.0, 57.0);
-        int shoulderIndex = FindVertexIndex(result.Vertices, 50.0, 62.0);
-        Assert.True(HasMeshEdge(result.Faces, result.FaceCount, roadIndex, shoulderIndex));
+        Assert.True(ContainsVertex(result!.Vertices, 50.0, 57.0, tolerance: 1e-6));
+        Assert.True(ContainsVertex(result.Vertices, 50.0, 62.0, tolerance: 1e-6));
     }
 
     [Fact]

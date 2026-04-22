@@ -1,4 +1,5 @@
 using Rhino.Geometry;
+using MoleHill.Core.Processing;
 
 namespace MoleHill.Rhino.Services;
 
@@ -9,9 +10,10 @@ internal static class TerrainTriangulationInputBuilder
         IReadOnlyList<Curve> contourCurves,
         double tolerance)
     {
-        var result = CreateFlatPolylines(breaklineCurves, tolerance);
-        result.AddRange(CreateFlatPolylines(contourCurves, tolerance));
-        return result;
+        return TerrainConstraintPreprocessor.Process(
+            CreateFlatPolylines(breaklineCurves, tolerance),
+            CreateFlatPolylines(contourCurves, tolerance),
+            tolerance);
     }
 
     public static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)

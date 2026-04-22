@@ -33,7 +33,7 @@ public sealed class TerrainDefinition
 
     public bool ShowAnalysisOutputs { get; set; } = true;
 
-    public bool ShowMeshWires { get; set; } = true;
+    public bool ShowMeshWires { get; set; } = false;
 
     public bool ShowSlowBuildWarning { get; set; } = true;
 

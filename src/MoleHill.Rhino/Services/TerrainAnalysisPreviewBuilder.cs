@@ -74,6 +74,7 @@ internal static class TerrainAnalysisPreviewBuilder
     internal static bool ProducesGeneratedOutput(AnalysisDefinition analysis)
     {
         return analysis is ContourAnalysisDefinition
+            or CurveElevationLabelAnalysisDefinition
             or CurveSlopeLabelAnalysisDefinition
             or ProjectedElevationLabelAnalysisDefinition
             or PointSlopeLabelAnalysisDefinition;
@@ -247,9 +248,7 @@ internal static class TerrainAnalysisPreviewBuilder
         var combined = new RhinoMesh();
         foreach (var mesh in meshes)
             combined.Append(mesh);
-        combined.Normals.ComputeNormals();
-        combined.UnifyNormals();
-        combined.Compact();
+        RhinoGeometryConversions.NormalizeMeshInPlace(combined);
         return combined;
     }
 

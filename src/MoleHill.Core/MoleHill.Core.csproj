@@ -10,6 +10,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="artifacts\**\*.cs;obj\Codex\**\*.cs;obj\CodexCheck\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Clipper2" Version="2.0.0" />
     <Compile Include="..\TriangleNet\**\*.cs"
              Exclude="..\TriangleNet\bin\**;..\TriangleNet\obj\**"
              LinkBase="TriangleNet" />

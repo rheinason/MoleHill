@@ -1,0 +1,202 @@
+using Clipper2Lib;
+
+namespace MoleHill.Core.Grading;
+
+internal static class ClipperGeometry
+{
+    private const int Precision = 4;
+
+    internal static double SimplifyTolerance(double tolerance) => Math.Max(tolerance, 1e-3);
+
+    internal static bool TryUnionClosedLoops(
+        IReadOnlyList<double[]> loops,
+        double tolerance,
+        out List<double[]> resultLoops)
+    {
+        resultLoops = new List<double[]>();
+        if (loops.Count == 0)
+            return false;
+
+        PathsD subject = BuildClosedPaths(loops);
+        if (subject.Count == 0)
+            return false;
+
+        subject = Clipper.SimplifyPaths(subject, SimplifyTolerance(tolerance), isClosedPath: true);
+        if (subject.Count == 0)
+            return false;
+
+        PathsD solution = Clipper.Union(subject, FillRule.NonZero);
+        resultLoops = ToClosedLoops(solution, tolerance);
+        return resultLoops.Count > 0;
+    }
+
+    internal static bool TryIntersectClosedLoops(
+        IReadOnlyList<double[]> subjectLoops,
+        double[] clipLoop,
+        double tolerance,
+        out List<double[]> resultLoops)
+    {
+        resultLoops = new List<double[]>();
+        if (subjectLoops.Count == 0 || clipLoop.Length < 6)
+            return false;
+
+        PathsD subject = BuildClosedPaths(subjectLoops);
+        PathsD clip = BuildClosedPaths([clipLoop]);
+        if (subject.Count == 0 || clip.Count == 0)
+            return false;
+
+        subject = Clipper.SimplifyPaths(subject, SimplifyTolerance(tolerance), isClosedPath: true);
+        clip = Clipper.SimplifyPaths(clip, SimplifyTolerance(tolerance), isClosedPath: true);
+        if (subject.Count == 0 || clip.Count == 0)
+            return false;
+
+        PathsD solution = Clipper.Intersect(subject, clip, FillRule.NonZero);
+        resultLoops = ToClosedLoops(solution, tolerance);
+        return resultLoops.Count > 0;
+    }
+
+    internal static bool TrySimplifyClosedLoop(double[] loop, double tolerance, out double[] simplifiedLoop)
+    {
+        simplifiedLoop = Array.Empty<double>();
+        if (loop.Length < 6)
+            return false;
+
+        PathsD simplified = Clipper.SimplifyPaths(BuildClosedPaths([loop]), SimplifyTolerance(tolerance), isClosedPath: true);
+        List<double[]> loops = ToClosedLoops(simplified, tolerance);
+        if (loops.Count == 0)
+            return false;
+
+        simplifiedLoop = loops[0];
+        return true;
+    }
+
+    internal static bool TrySimplifyOpenPolyline(double[] xyPolyline, double tolerance, out double[] simplifiedPolyline)
+    {
+        simplifiedPolyline = Array.Empty<double>();
+        int pointCount = xyPolyline.Length / 2;
+        if (pointCount < 2)
+            return false;
+
+        var path = new PathD(pointCount);
+        for (int i = 0; i < pointCount; i++)
+            path.Add(new PointD(xyPolyline[i * 2], xyPolyline[i * 2 + 1]));
+
+        PathD simplified = Clipper.SimplifyPath(path, SimplifyTolerance(tolerance), isClosedPath: false);
+        if (simplified.Count < 2)
+            return false;
+
+        var points = new List<double>(simplified.Count * 2);
+        foreach (PointD point in simplified)
+        {
+            if (points.Count >= 2)
+            {
+                double dx = point.x - points[^2];
+                double dy = point.y - points[^1];
+                if ((dx * dx) + (dy * dy) <= tolerance * tolerance)
+                    continue;
+            }
+
+            points.Add(point.x);
+            points.Add(point.y);
+        }
+
+        if (points.Count < 4)
+            return false;
+
+        simplifiedPolyline = points.ToArray();
+        return true;
+    }
+
+    internal static bool TryPickLargestLoop(IReadOnlyList<double[]> loops, out double[] largestLoop)
+    {
+        largestLoop = Array.Empty<double>();
+        double largestArea = double.MinValue;
+        foreach (double[] loop in loops)
+        {
+            double area = Math.Abs(SignedArea(loop));
+            if (area <= largestArea)
+                continue;
+
+            largestArea = area;
+            largestLoop = loop;
+        }
+
+        return largestLoop.Length >= 6;
+    }
+
+    internal static double SignedArea(double[] xyLoop)
+    {
+        int vertexCount = xyLoop.Length / 2;
+        if (vertexCount < 3)
+            return 0.0;
+
+        double signedArea = 0.0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int next = (i + 1) % vertexCount;
+            signedArea += (xyLoop[i * 2] * xyLoop[next * 2 + 1]) - (xyLoop[next * 2] * xyLoop[i * 2 + 1]);
+        }
+
+        return signedArea * 0.5;
+    }
+
+    private static PathsD BuildClosedPaths(IReadOnlyList<double[]> loops)
+    {
+        var paths = new PathsD(loops.Count);
+        foreach (double[] loop in loops)
+        {
+            int vertexCount = loop.Length / 2;
+            if (vertexCount < 3)
+                continue;
+
+            var path = new PathD(vertexCount);
+            for (int i = 0; i < vertexCount; i++)
+                path.Add(new PointD(loop[i * 2], loop[i * 2 + 1]));
+
+            paths.Add(path);
+        }
+
+        return paths;
+    }
+
+    private static List<double[]> ToClosedLoops(PathsD paths, double tolerance)
+    {
+        var loops = new List<double[]>(paths.Count);
+        foreach (PathD path in paths)
+        {
+            if (path.Count < 3)
+                continue;
+
+            var loop = new List<double>(path.Count * 2);
+            for (int i = 0; i < path.Count; i++)
+            {
+                PointD point = path[i];
+                if (loop.Count >= 2)
+                {
+                    double dx = point.x - loop[^2];
+                    double dy = point.y - loop[^1];
+                    if ((dx * dx) + (dy * dy) <= tolerance * tolerance)
+                        continue;
+                }
+
+                loop.Add(point.x);
+                loop.Add(point.y);
+            }
+
+            if (loop.Count >= 6)
+            {
+                double dx = loop[0] - loop[^2];
+                double dy = loop[1] - loop[^1];
+                if ((dx * dx) + (dy * dy) <= tolerance * tolerance)
+                {
+                    loop.RemoveRange(loop.Count - 2, 2);
+                }
+            }
+
+            if (loop.Count >= 6)
+                loops.Add(loop.ToArray());
+        }
+
+        return loops;
+    }
+}

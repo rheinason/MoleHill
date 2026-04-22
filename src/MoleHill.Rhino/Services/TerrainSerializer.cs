@@ -191,17 +191,23 @@ internal static class TerrainSerializer
                         comparison.Reference ??= new SourceReferenceSet();
                         comparison.Boundary ??= new SourceReferenceSet();
                         break;
-                case CurveSlopeLabelAnalysisDefinition curveSlope:
-                    NormalizeBlockAttributeAnalysis(curveSlope);
-                    curveSlope.Interval = Math.Max(curveSlope.Interval, 0.01);
-                    if (string.IsNullOrWhiteSpace(curveSlope.ValueFormat))
-                        curveSlope.ValueFormat = "F1";
-                    break;
-                case PointSlopeLabelAnalysisDefinition pointSlope:
-                    NormalizeBlockAttributeAnalysis(pointSlope);
-                    if (string.IsNullOrWhiteSpace(pointSlope.ValueFormat))
-                        pointSlope.ValueFormat = "F1";
-                    break;
+                    case CurveSlopeLabelAnalysisDefinition curveSlope:
+                        NormalizeBlockAttributeAnalysis(curveSlope);
+                        curveSlope.Interval = Math.Max(curveSlope.Interval, 0.01);
+                        if (string.IsNullOrWhiteSpace(curveSlope.ValueFormat))
+                            curveSlope.ValueFormat = "F1";
+                        break;
+                    case CurveElevationLabelAnalysisDefinition curveElevation:
+                        NormalizeBlockAttributeAnalysis(curveElevation);
+                        curveElevation.Interval = Math.Max(curveElevation.Interval, 0.01);
+                        if (string.IsNullOrWhiteSpace(curveElevation.ValueFormat))
+                            curveElevation.ValueFormat = "F2";
+                        break;
+                    case PointSlopeLabelAnalysisDefinition pointSlope:
+                        NormalizeBlockAttributeAnalysis(pointSlope);
+                        if (string.IsNullOrWhiteSpace(pointSlope.ValueFormat))
+                            pointSlope.ValueFormat = "F1";
+                        break;
                     case ProjectedElevationLabelAnalysisDefinition projectedElevation:
                         NormalizeBlockAttributeAnalysis(projectedElevation);
                         if (string.IsNullOrWhiteSpace(projectedElevation.ValueFormat))

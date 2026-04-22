@@ -35,6 +35,7 @@ internal sealed class TerrainController
     private const double FinalWarningThresholdSeconds = 5.0;
     private const int PreviewWarningFaceThreshold = 20_000;
     private const int FinalWarningFaceThreshold = 40_000;
+    private static readonly TimeSpan ShutdownWorkerDrainTimeout = TimeSpan.FromSeconds(2);
     private const string AddMissingBlockAttributeKeysCommand = "_AddMissingBlockAttributeKeys _Enter";
     private const string AddMissingBlockAttributeKeysAllInstancesCommand = "_AddMissingBlockAttributeKeys _AllBlockInstances=_Yes _Enter";
     private static readonly BindingFlags InternalUserStringSetterFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -125,19 +126,53 @@ internal sealed class TerrainController
         RhinoDoc.SelectObjects += OnSelectObjects;
         RhinoDoc.ModifyObjectAttributes += OnModifyObjectAttributes;
         RhinoDoc.LayerTableEvent += OnLayerTableEvent;
+        RhinoDoc.CloseDocument += OnCloseDocument;
         RhinoApp.Idle += OnIdle;
         _displayConduit.Enabled = true;
+    }
+
+    internal void Shutdown()
+    {
+        if (!_initialized)
+            return;
+
+        _initialized = false;
+        RhinoDoc.AddRhinoObject -= OnAddRhinoObject;
+        RhinoDoc.DeleteRhinoObject -= OnDeleteRhinoObject;
+        RhinoDoc.ReplaceRhinoObject -= OnReplaceRhinoObject;
+        RhinoDoc.UndeleteRhinoObject -= OnUndeleteRhinoObject;
+        RhinoDoc.BeforeTransformObjects -= OnBeforeTransformObjects;
+        RhinoDoc.SelectObjects -= OnSelectObjects;
+        RhinoDoc.ModifyObjectAttributes -= OnModifyObjectAttributes;
+        RhinoDoc.LayerTableEvent -= OnLayerTableEvent;
+        RhinoDoc.CloseDocument -= OnCloseDocument;
+        RhinoApp.Idle -= OnIdle;
+        _displayConduit.Enabled = false;
+
+        bool workersStopped = CancelAndWaitForWorkers(
+            _rebuildStates.Values.Select(static state => (state.WorkerCancellation, state.WorkerTask as Task)).ToList(),
+            ShutdownWorkerDrainTimeout);
+
+        if (workersStopped)
+        {
+            foreach (TerrainRuntimeCache cache in _runtimeCaches.Values)
+                cache.Clear();
+        }
+
+        _states.Clear();
+        _pendingRebuilds.Clear();
+        _pendingDocumentSaves.Clear();
+        _pendingSourceReferencePrunes.Clear();
+        _pendingBlockAttributeKeyRepairs.Clear();
+        _runtimeCaches.Clear();
+        _rebuildStates.Clear();
     }
 
     public IReadOnlyList<TerrainDefinition> GetTerrains(RhinoDoc doc) => GetState(doc).Terrains;
 
     public void ReloadDocumentState(RhinoDoc doc)
     {
-        _states.Remove(doc.RuntimeSerialNumber);
-        ClearRuntimeCaches(doc.RuntimeSerialNumber);
-        ClearRebuildStates(doc.RuntimeSerialNumber);
-        ClearPendingBlockAttributeKeyRepairs(doc.RuntimeSerialNumber);
-        RemovePendingDocumentSave(doc.RuntimeSerialNumber);
+        ClearDocumentState(doc.RuntimeSerialNumber);
         doc.Views.Redraw();
         RaiseStateChanged();
     }
@@ -175,6 +210,32 @@ internal sealed class TerrainController
         var state = GetState(doc);
         Guid? selectedId = state.SelectedTerrainId ?? state.Terrains.FirstOrDefault()?.TerrainId;
         return selectedId == null ? null : state.Terrains.FirstOrDefault(terrain => terrain.TerrainId == selectedId.Value);
+    }
+
+    public bool TryExportTerrainCaseBundle(RhinoDoc doc, Guid terrainId, out string? archivePath, out string? errorMessage)
+    {
+        archivePath = null;
+        errorMessage = null;
+
+        TerrainDefinition? terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
+        if (terrain == null)
+        {
+            errorMessage = "Select a terrain before exporting a case bundle.";
+            return false;
+        }
+
+        try
+        {
+            TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
+            TerrainDisplayState? displayState = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId).DisplayState?.Clone();
+            archivePath = TerrainCaseBundleExporter.Export(doc, terrain, snapshot, displayState);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Could not export the case bundle: {ex.Message}";
+            return false;
+        }
     }
 
     public TerrainDefinition CreateTerrain(RhinoDoc doc, bool seedFromSelection)
@@ -858,8 +919,8 @@ internal sealed class TerrainController
         };
 
         _states[doc.RuntimeSerialNumber] = restoredState;
-        ClearRuntimeCaches(doc.RuntimeSerialNumber);
         ClearRebuildStates(doc.RuntimeSerialNumber);
+        ClearRuntimeCaches(doc.RuntimeSerialNumber);
         Save(doc, restoredState);
         doc.Views.Redraw();
     }
@@ -903,10 +964,10 @@ internal sealed class TerrainController
 
         using var _ = new EventSuppression(this);
         DeleteObjects(doc, toDelete);
+        if (toDelete.Count > 0)
+            terrain.AuxiliaryObjectIds.RemoveAll(toDelete.Contains);
 
         var (newObjects, summary) = TerrainBuildService.BuildContourObjects(mesh, analysis);
-        foreach (var obj in newObjects)
-            AddGeneratedObject(doc, terrain, obj);
 
         var existing = terrain.LastAnalysisResults.FirstOrDefault(r => r.AnalysisId == analysisId);
         if (existing != null)
@@ -930,6 +991,33 @@ internal sealed class TerrainController
     {
         string terrainIdString = terrainId.ToString();
         string analysisIdString = analysisId.ToString();
+
+        var runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId);
+        if (runtimeCache.DisplayState != null)
+        {
+            for (int index = 0; index < runtimeCache.DisplayState.AuxiliaryObjects.Count; index++)
+            {
+                GeneratedRhinoObject generated = runtimeCache.DisplayState.AuxiliaryObjects[index];
+                if (generated.AnalysisId != analysisId)
+                    continue;
+
+                runtimeCache.DisplayState.AuxiliaryObjects[index] = new GeneratedRhinoObject
+                {
+                    Geometry = generated.Geometry,
+                    Name = generated.Name,
+                    Kind = generated.Kind,
+                    AnalysisId = generated.AnalysisId,
+                    ColorArgb = colorArgb,
+                    LayerPath = generated.LayerPath,
+                    SourceLayerPath = generated.SourceLayerPath,
+                    MaterialName = generated.MaterialName,
+                    InstanceDefinitionName = generated.InstanceDefinitionName,
+                    MarkerBlockTemplate = generated.MarkerBlockTemplate,
+                    InstanceUserStrings = generated.InstanceUserStrings,
+                    InstanceTransform = generated.InstanceTransform
+                };
+            }
+        }
 
         using var _ = new EventSuppression(this);
         foreach (var obj in doc.Objects
@@ -1375,14 +1463,18 @@ internal sealed class TerrainController
                 result.SnapshotElapsed + result.WorkerCacheCloneElapsed + buildElapsed + cacheMergeTimer.Elapsed + displayTimer.Elapsed + saveTimer.Elapsed + redrawTimer.Elapsed,
                 totalTimingDetail,
                 TotalTimingDiagnosticThresholdMs);
-
-            var stageTimings = string.Join(", ", build.Timings
-                .Where(t => t.Stage != "Rebuild total")
-                .Select(t => $"{t.Stage}: {FormatElapsed(t.Elapsed)}"));
-            terrain.LastBuildMessage = string.Join(System.Environment.NewLine,
-                new[] { build.Diagnostics.Count == 0 ? "Build succeeded." : string.Join(System.Environment.NewLine, build.Diagnostics.Take(8)) }
-                .Append($"[{totalTimingDetail}]")
-                .Append($"[stages: {stageTimings}]"));
+            terrain.LastBuildMessage = FormatBuildMessage(
+                build.Diagnostics.Count == 0 ? new[] { "Build succeeded." } : build.Diagnostics,
+                result.SnapshotElapsed,
+                result.WorkerCacheCloneElapsed,
+                buildElapsed,
+                cacheMergeTimer.Elapsed,
+                displayTimer.Elapsed,
+                saveTimer.Elapsed,
+                redrawTimer.Elapsed,
+                runtimeCache.DisplayState,
+                build.Timings,
+                "Rebuild total");
         }
         else
         {
@@ -1392,9 +1484,20 @@ internal sealed class TerrainController
                 $"snapshot {FormatElapsed(result.SnapshotElapsed)}, clone {FormatElapsed(result.WorkerCacheCloneElapsed)}, build {FormatElapsed(buildElapsed)}, merge {FormatElapsed(cacheMergeTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}; {DescribeDisplayState(runtimeCache.DisplayState)}",
                 TotalTimingDiagnosticThresholdMs);
 
-            terrain.LastBuildMessage = build.Diagnostics.Count == 0
-                ? "Preview updated; final rebuild queued."
-                : $"Preview updated.{System.Environment.NewLine}{string.Join(System.Environment.NewLine, build.Diagnostics.Take(6))}";
+            terrain.LastBuildMessage = FormatBuildMessage(
+                build.Diagnostics.Count == 0
+                    ? new[] { "Preview updated; final rebuild queued." }
+                    : new[] { "Preview updated." }.Concat(build.Diagnostics),
+                result.SnapshotElapsed,
+                result.WorkerCacheCloneElapsed,
+                buildElapsed,
+                cacheMergeTimer.Elapsed,
+                displayTimer.Elapsed,
+                null,
+                null,
+                runtimeCache.DisplayState,
+                build.Timings,
+                "Preview total");
 
             var redrawTimer = Stopwatch.StartNew();
             doc.Views.Redraw();
@@ -1403,6 +1506,41 @@ internal sealed class TerrainController
         }
 
         RaiseStateChanged();
+    }
+
+    private static string FormatBuildMessage(
+        IEnumerable<string> diagnosticLines,
+        TimeSpan snapshotElapsed,
+        TimeSpan cloneElapsed,
+        TimeSpan buildElapsed,
+        TimeSpan mergeElapsed,
+        TimeSpan displayElapsed,
+        TimeSpan? saveElapsed,
+        TimeSpan? redrawElapsed,
+        TerrainDisplayState displayState,
+        IEnumerable<TerrainBuildTiming> timings,
+        string totalStageName)
+    {
+        var lines = new List<string>();
+        lines.AddRange(diagnosticLines.Where(static line => !string.IsNullOrWhiteSpace(line)));
+
+        lines.Add("summary:");
+        lines.Add($"snapshot: {FormatElapsed(snapshotElapsed)}");
+        lines.Add($"clone: {FormatElapsed(cloneElapsed)}");
+        lines.Add($"build: {FormatElapsed(buildElapsed)}");
+        lines.Add($"merge: {FormatElapsed(mergeElapsed)}");
+        lines.Add($"display: {FormatElapsed(displayElapsed)}");
+        if (saveElapsed.HasValue)
+            lines.Add($"save: {FormatElapsed(saveElapsed.Value)}");
+        if (redrawElapsed.HasValue)
+            lines.Add($"redraw: {FormatElapsed(redrawElapsed.Value)}");
+        lines.Add($"outputs: {DescribeDisplayState(displayState)}");
+
+        lines.Add("stages:");
+        foreach (TerrainBuildTiming timing in timings.Where(t => t.Stage != totalStageName))
+            lines.Add($"  {timing.Stage}: {FormatElapsed(timing.Elapsed)}");
+
+        return string.Join(System.Environment.NewLine, lines);
     }
 
     private static void SyncComputedModifierState(TerrainDefinition targetTerrain, TerrainDefinition sourceTerrain)
@@ -1453,6 +1591,9 @@ internal sealed class TerrainController
 
         foreach (var auxiliary in build.AuxiliaryObjects)
         {
+            if (auxiliary.AnalysisId.HasValue)
+                continue;
+
             Guid id = AddGeneratedObject(doc, terrain, new GeneratedRhinoObject
             {
                 Geometry = auxiliary.Geometry,
@@ -2199,6 +2340,12 @@ internal sealed class TerrainController
             e.NewState?.FullPath);
     }
 
+    private void OnCloseDocument(object? sender, DocumentEventArgs e)
+    {
+        ClearDocumentState(e.Document.RuntimeSerialNumber);
+        RaiseStateChanged();
+    }
+
     private void OnIdle(object? sender, EventArgs e)
     {
         if (_pendingSourceReferencePrunes.Count > 0)
@@ -2607,6 +2754,15 @@ internal sealed class TerrainController
             _runtimeCaches.Remove(key);
     }
 
+    private void ClearDocumentState(uint docSerial)
+    {
+        _states.Remove(docSerial);
+        _pendingSourceReferencePrunes.Remove(docSerial);
+        ClearRebuildStates(docSerial);
+        ClearRuntimeCaches(docSerial);
+        RemovePendingDocumentSave(docSerial);
+    }
+
     private TerrainRebuildState GetRebuildState(uint docSerial, Guid terrainId)
     {
         if (_rebuildStates.TryGetValue((docSerial, terrainId), out var state))
@@ -2668,6 +2824,43 @@ internal sealed class TerrainController
         rebuildState.IsBuilding = false;
         rebuildState.RunningVersion = 0;
         rebuildState.CancelRequested = false;
+    }
+
+    internal static bool CancelAndWaitForWorkers(
+        IEnumerable<(CancellationTokenSource? Cancellation, Task? Task)> workers,
+        TimeSpan timeout)
+    {
+        var tasks = new List<Task>();
+        var cancellations = new List<CancellationTokenSource>();
+        foreach (var (cancellation, task) in workers)
+        {
+            if (cancellation != null)
+            {
+                cancellation.Cancel();
+                cancellations.Add(cancellation);
+            }
+
+            if (task != null)
+                tasks.Add(task);
+        }
+
+        bool allCompleted = true;
+        if (tasks.Count > 0)
+        {
+            try
+            {
+                allCompleted = Task.WaitAll(tasks.ToArray(), timeout);
+            }
+            catch (AggregateException)
+            {
+                allCompleted = tasks.All(static task => task.IsCompleted);
+            }
+        }
+
+        foreach (CancellationTokenSource cancellation in cancellations)
+            cancellation.Dispose();
+
+        return allCompleted;
     }
 
     private void UpdateDisplayState(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache, TerrainBuildResult build)

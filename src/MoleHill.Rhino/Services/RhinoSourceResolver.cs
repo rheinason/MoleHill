@@ -29,6 +29,7 @@ internal static class RhinoSourceResolver
             {
                 NormalObjects = true,
                 LockedObjects = true,
+                HiddenObjects = true,
                 ActiveObjects = true,
                 DeletedObjects = false,
                 LayerIndexFilter = layerIndex

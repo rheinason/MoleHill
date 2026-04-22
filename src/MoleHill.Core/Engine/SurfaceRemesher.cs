@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text;
 using MoleHill.Core.Grading;
 using TriangleNet.Geometry;
 using TriangleNet.Meshing;
@@ -11,6 +13,8 @@ namespace MoleHill.Core.Engine;
 public static class SurfaceRemesher
 {
     public readonly record struct ConstraintPolyline(double[] Points, int PointCount, bool IsClosed, bool PreserveInputElevation = false);
+
+    public readonly record struct TimingEntry(string Name, TimeSpan Elapsed);
 
     public sealed class Options
     {
@@ -31,6 +35,84 @@ public static class SurfaceRemesher
         /// embed constraint edges into the mesh without re-triangulating the entire terrain.
         /// </summary>
         public bool ConstraintInsertionOnly { get; init; }
+
+        /// <summary>
+        /// When true, prefer the reduced interior seed pass (boundary + constraints + coarse guides)
+        /// over the full upstream-mesh seed whenever the reduced pass succeeds.
+        /// This is useful for corridor-style topology rebuilds where inherited mesh structure should
+        /// not dominate the remeshed interior.
+        /// </summary>
+        public bool PreferReducedInteriorSeed { get; init; }
+
+        /// <summary>
+        /// When false, the reduced-seed fallback will not add guide seeds sampled from the original
+        /// terrain interior. Use this when constraint corridor seeds are expected to fully define
+        /// the rebuilt region and inherited terrain structure should not leak back in.
+        /// </summary>
+        public bool AddReducedInteriorGuideSeeds { get; init; } = true;
+
+        /// <summary>
+        /// When false, paired open constraints will not inject extra seed rows across the corridor
+        /// between them. Use this when the supplied constraints are already sparsified enough for
+        /// the remesh pass and additional corridor seeding would over-refine the interior.
+        /// </summary>
+        public bool AddConstraintCorridorSeeds { get; init; } = true;
+    }
+
+    public sealed class TimingProfile
+    {
+        private readonly List<TimingEntry> _entries = new();
+
+        public IReadOnlyList<TimingEntry> Entries => _entries;
+
+        public bool Success { get; private set; }
+
+        public bool ReturnedInputMesh { get; private set; }
+
+        public bool UsedBoundaryAndGuideSeedFallback { get; private set; }
+
+        public string SelectedAttempt { get; private set; } = "none";
+
+        internal void AddPhase(string name, TimeSpan elapsed)
+        {
+            _entries.Add(new TimingEntry(name, elapsed));
+        }
+
+        internal void SetOutcome(bool success, bool returnedInputMesh, bool usedBoundaryAndGuideSeedFallback, string selectedAttempt)
+        {
+            Success = success;
+            ReturnedInputMesh = returnedInputMesh;
+            UsedBoundaryAndGuideSeedFallback = usedBoundaryAndGuideSeedFallback;
+            SelectedAttempt = selectedAttempt;
+        }
+
+        public string FormatReport(string? header = null)
+        {
+            var builder = new StringBuilder();
+            builder.AppendLine(header ?? "Surface remesh timing");
+            builder.Append("outcome: ");
+            builder.Append(Success ? "success" : "failure");
+            builder.AppendLine();
+            builder.Append("selected_attempt: ");
+            builder.Append(SelectedAttempt);
+            builder.AppendLine();
+            builder.Append("returned_input_mesh: ");
+            builder.Append(ReturnedInputMesh ? "yes" : "no");
+            builder.AppendLine();
+            builder.Append("used_fallback: ");
+            builder.Append(UsedBoundaryAndGuideSeedFallback ? "yes" : "no");
+
+            for (int i = 0; i < _entries.Count; i++)
+            {
+                builder.AppendLine();
+                builder.Append(_entries[i].Name);
+                builder.Append(": ");
+                builder.Append(_entries[i].Elapsed.TotalMilliseconds.ToString("0.###"));
+                builder.Append(" ms");
+            }
+
+            return builder.ToString();
+        }
     }
 
     public sealed class Result
@@ -48,6 +130,8 @@ public static class SurfaceRemesher
         public bool ReturnedInputMesh { get; init; }
 
         public int AddedProtectedVertices { get; init; }
+
+        public TimingProfile? Profile { get; init; }
     }
 
     private sealed class PreparedInput
@@ -99,62 +183,87 @@ public static class SurfaceRemesher
         IReadOnlyList<ConstraintPolyline> constraints,
         Options options)
     {
-        int originalVertexCount = originalVertices.Length / 3;
-        int faceCount = originalFaces.Length / 3;
+        var profile = new TimingProfile();
+        long totalStart = Stopwatch.GetTimestamp();
 
-        if (originalVertexCount == 0 || faceCount == 0)
+        try
         {
-            return new Result
+            int originalVertexCount = originalVertices.Length / 3;
+            int faceCount = originalFaces.Length / 3;
+
+            if (originalVertexCount == 0 || faceCount == 0)
             {
-                Success = false,
-                Warning = "Input mesh has no usable triangles."
-            };
-        }
+                profile.SetOutcome(success: false, returnedInputMesh: false, usedBoundaryAndGuideSeedFallback: false, selectedAttempt: "none");
+                return new Result
+                {
+                    Success = false,
+                    Warning = "Input mesh has no usable triangles.",
+                    Profile = profile
+                };
+            }
 
-        var firstAttempt = EvaluateAttempt(
-            originalVertices,
-            originalFaces,
-            faceCount,
-            constraints,
-            options,
-            seedInteriorVertices: true);
-
-        AttemptEvaluation? fallbackAttempt = null;
-        var fallbackOptions = CreateBoundaryAndGuideSeedFallbackOptions(options);
-        var preparedFallback = PrepareInput(originalVertices, originalFaces, constraints, fallbackOptions, seedInteriorVertices: false);
-        if (!preparedFallback.UsesFullOriginalVertexSeed)
-        {
-            fallbackAttempt = EvaluateAttempt(
+            var firstAttempt = EvaluateAttempt(
                 originalVertices,
                 originalFaces,
                 faceCount,
                 constraints,
-                fallbackOptions,
-                seedInteriorVertices: false,
-                precomputedPrepared: preparedFallback);
+                options,
+                seedInteriorVertices: true,
+                profile,
+                "initial");
 
-            if (!firstAttempt.Accepted && fallbackAttempt.Accepted)
-                return BuildAcceptedResult(fallbackAttempt, usedBoundaryAndGuideSeedFallback: true);
-        }
-
-        if (firstAttempt.Accepted)
-        {
-            if (fallbackAttempt is not null &&
-                fallbackAttempt.Accepted &&
-                ShouldPreferBoundaryAndGuideSeedFallback(firstAttempt, fallbackAttempt))
+            AttemptEvaluation? fallbackAttempt = null;
+            var fallbackOptions = CreateBoundaryAndGuideSeedFallbackOptions(options);
+            long fallbackPrepareStart = Stopwatch.GetTimestamp();
+            var preparedFallback = PrepareInput(originalVertices, originalFaces, constraints, fallbackOptions, seedInteriorVertices: false);
+            profile.AddPhase("fallback.prepare_input", Stopwatch.GetElapsedTime(fallbackPrepareStart));
+            if (!preparedFallback.UsesFullOriginalVertexSeed)
             {
-                return BuildAcceptedResult(fallbackAttempt, usedBoundaryAndGuideSeedFallback: true);
+                fallbackAttempt = EvaluateAttempt(
+                    originalVertices,
+                    originalFaces,
+                    faceCount,
+                    constraints,
+                    fallbackOptions,
+                    seedInteriorVertices: false,
+                    profile,
+                    "fallback",
+                    precomputedPrepared: preparedFallback);
+
+                if (!firstAttempt.Accepted && fallbackAttempt.Accepted)
+                {
+                    profile.SetOutcome(success: true, returnedInputMesh: false, usedBoundaryAndGuideSeedFallback: true, selectedAttempt: "fallback");
+                    return BuildAcceptedResult(fallbackAttempt, usedBoundaryAndGuideSeedFallback: true, profile);
+                }
             }
 
-            return BuildAcceptedResult(firstAttempt, usedBoundaryAndGuideSeedFallback: false);
-        }
+            if (firstAttempt.Accepted)
+            {
+                if (fallbackAttempt is not null &&
+                    fallbackAttempt.Accepted &&
+                    (options.PreferReducedInteriorSeed || ShouldPreferBoundaryAndGuideSeedFallback(firstAttempt, fallbackAttempt)))
+                {
+                    profile.SetOutcome(success: true, returnedInputMesh: false, usedBoundaryAndGuideSeedFallback: true, selectedAttempt: "fallback");
+                    return BuildAcceptedResult(fallbackAttempt, usedBoundaryAndGuideSeedFallback: true, profile);
+                }
 
-        return BuildPreservedInputResult(
-            originalVertices,
-            originalFaces,
-            firstAttempt,
-            fallbackAttempt,
-            !preparedFallback.UsesFullOriginalVertexSeed);
+                profile.SetOutcome(success: true, returnedInputMesh: false, usedBoundaryAndGuideSeedFallback: false, selectedAttempt: "initial");
+                return BuildAcceptedResult(firstAttempt, usedBoundaryAndGuideSeedFallback: false, profile);
+            }
+
+            profile.SetOutcome(success: false, returnedInputMesh: true, usedBoundaryAndGuideSeedFallback: !preparedFallback.UsesFullOriginalVertexSeed, selectedAttempt: "preserved_input");
+            return BuildPreservedInputResult(
+                originalVertices,
+                originalFaces,
+                firstAttempt,
+                fallbackAttempt,
+                !preparedFallback.UsesFullOriginalVertexSeed,
+                profile);
+        }
+        finally
+        {
+            profile.AddPhase("total", Stopwatch.GetElapsedTime(totalStart));
+        }
     }
 
     private static PreparedInput PrepareInput(
@@ -175,36 +284,43 @@ public static class SurfaceRemesher
         bool usesFullOriginalVertexSeed = seedInteriorVertices || boundarySegments.Count == 0;
         var xyList = new List<double>(usesFullOriginalVertexSeed ? originalVertexCount * 2 : Math.Max(boundarySegments.Count * 4, 8));
         var zList = new List<double>(usesFullOriginalVertexSeed ? originalVertexCount : Math.Max(boundarySegments.Count * 2, 4));
-        Dictionary<int, int>? originalIndexMap = usesFullOriginalVertexSeed ? null : new Dictionary<int, int>();
-
-        if (usesFullOriginalVertexSeed)
-        {
-            for (int i = 0; i < originalVertexCount; i++)
-            {
-                xyList.Add(originalVertices[i * 3]);
-                xyList.Add(originalVertices[i * 3 + 1]);
-                zList.Add(originalVertices[i * 3 + 2]);
-            }
-        }
+        var originalIndexMap = new Dictionary<int, int>(originalVertexCount);
+        double targetLength = GetProtectedEdgeLength(options);
+        double floorLength = Math.Max(options.Tolerance * 4.0, 1e-6);
+        double seedReuseTolerance = Math.Max(options.Tolerance, 1e-6);
+        if (targetLength > 0)
+            seedReuseTolerance = Math.Min(seedReuseTolerance, targetLength * 0.1);
 
         int EnsureSeedVertex(int originalIndex)
         {
-            if (usesFullOriginalVertexSeed)
-                return originalIndex;
-
-            if (originalIndexMap!.TryGetValue(originalIndex, out int existing))
+            if (originalIndexMap.TryGetValue(originalIndex, out int existing))
                 return existing;
 
+            double x = originalVertices[originalIndex * 3];
+            double y = originalVertices[originalIndex * 3 + 1];
+            double z = originalVertices[originalIndex * 3 + 2];
+
+            int nearIndex = FindNearVertex(xyList, x, y, seedReuseTolerance);
+            if (nearIndex >= 0)
+            {
+                originalIndexMap.Add(originalIndex, nearIndex);
+                return nearIndex;
+            }
+
             int newIndex = zList.Count;
-            xyList.Add(originalVertices[originalIndex * 3]);
-            xyList.Add(originalVertices[originalIndex * 3 + 1]);
-            zList.Add(originalVertices[originalIndex * 3 + 2]);
+            xyList.Add(x);
+            xyList.Add(y);
+            zList.Add(z);
             originalIndexMap.Add(originalIndex, newIndex);
             return newIndex;
         }
 
-        double targetLength = GetProtectedEdgeLength(options);
-        double floorLength = Math.Max(options.Tolerance * 4.0, 1e-6);
+        if (usesFullOriginalVertexSeed)
+        {
+            for (int i = 0; i < originalVertexCount; i++)
+                EnsureSeedVertex(i);
+        }
+
         int addedProtectedVertices = 0;
 
         foreach (var (a, b) in boundarySegments)
@@ -328,18 +444,21 @@ public static class SurfaceRemesher
             }
         }
 
-        AddConstraintCorridorSeeds(
-            xyList,
-            zList,
-            originalVertices,
-            originalFaces,
-            faceCount,
-            constraints,
-            targetLength,
-            floorLength,
-            dedupTolerance);
+        if (options.AddConstraintCorridorSeeds)
+        {
+            AddConstraintCorridorSeeds(
+                xyList,
+                zList,
+                originalVertices,
+                originalFaces,
+                faceCount,
+                constraints,
+                targetLength,
+                floorLength,
+                dedupTolerance);
+        }
 
-        if (!usesFullOriginalVertexSeed)
+        if (!usesFullOriginalVertexSeed && options.AddReducedInteriorGuideSeeds)
         {
             AddReducedInteriorGuideSeeds(
                 xyList,
@@ -398,7 +517,7 @@ public static class SurfaceRemesher
         return new TriangulationAttempt(triangulation.Mesh, triangulation.WarningMessage, triangulation.Flags);
     }
 
-    private static Result BuildAcceptedResult(AttemptEvaluation attempt, bool usedBoundaryAndGuideSeedFallback)
+    private static Result BuildAcceptedResult(AttemptEvaluation attempt, bool usedBoundaryAndGuideSeedFallback, TimingProfile profile)
     {
         return new Result
         {
@@ -407,7 +526,8 @@ public static class SurfaceRemesher
             Faces = attempt.Faces,
             Warning = attempt.Warning,
             UsedBoundaryAndGuideSeedFallback = usedBoundaryAndGuideSeedFallback,
-            AddedProtectedVertices = attempt.Prepared.AddedProtectedVertices
+            AddedProtectedVertices = attempt.Prepared.AddedProtectedVertices,
+            Profile = profile
         };
     }
 
@@ -416,7 +536,8 @@ public static class SurfaceRemesher
         int[] originalFaces,
         AttemptEvaluation firstAttempt,
         AttemptEvaluation? fallbackAttempt,
-        bool attemptedBoundaryAndGuideSeedFallback)
+        bool attemptedBoundaryAndGuideSeedFallback,
+        TimingProfile profile)
     {
         return new Result
         {
@@ -428,7 +549,8 @@ public static class SurfaceRemesher
             ReturnedInputMesh = true,
             AddedProtectedVertices = fallbackAttempt is null
                 ? firstAttempt.Prepared.AddedProtectedVertices
-                : fallbackAttempt.Prepared.AddedProtectedVertices
+                : fallbackAttempt.Prepared.AddedProtectedVertices,
+            Profile = profile
         };
     }
 
@@ -439,108 +561,148 @@ public static class SurfaceRemesher
         IReadOnlyList<ConstraintPolyline> constraints,
         Options options,
         bool seedInteriorVertices,
+        TimingProfile profile,
+        string attemptName,
         PreparedInput? precomputedPrepared = null)
     {
-        double effectiveMaxArea = GetEffectiveMaxArea(options);
-        bool requiresQuality = effectiveMaxArea > 0 || options.MinAngle > 0;
-        var prepared = precomputedPrepared ?? PrepareInput(originalVertices, originalFaces, constraints, options, seedInteriorVertices);
-        var triangulation = TriangulatePrepared(prepared, effectiveMaxArea, options);
+        long attemptStart = Stopwatch.GetTimestamp();
 
-        if (triangulation.Mesh == null)
+        try
         {
+            double effectiveMaxArea = GetEffectiveMaxArea(options);
+            bool requiresQuality = effectiveMaxArea > 0 || options.MinAngle > 0;
+
+            PreparedInput prepared;
+            if (precomputedPrepared is not null)
+            {
+                prepared = precomputedPrepared;
+            }
+            else
+            {
+                long prepareStart = Stopwatch.GetTimestamp();
+                prepared = PrepareInput(originalVertices, originalFaces, constraints, options, seedInteriorVertices);
+                profile.AddPhase($"{attemptName}.prepare_input", Stopwatch.GetElapsedTime(prepareStart));
+            }
+
+            long triangulateStart = Stopwatch.GetTimestamp();
+            var triangulation = TriangulatePrepared(prepared, effectiveMaxArea, options);
+            profile.AddPhase($"{attemptName}.triangulate", Stopwatch.GetElapsedTime(triangulateStart));
+
+            if (triangulation.Mesh == null)
+            {
+                return new AttemptEvaluation
+                {
+                    Prepared = prepared,
+                    Warning = triangulation.Warning ?? "Triangulation failed."
+                };
+            }
+
+            if (MeshConstraintTools.ConstraintsWereDropped(triangulation.Flags))
+            {
+                return new AttemptEvaluation
+                {
+                    Prepared = prepared,
+                    Warning = triangulation.Warning ?? "Constraints could not be preserved.",
+                    ConstraintsDropped = true
+                };
+            }
+
+            if (requiresQuality && MeshConstraintTools.QualityWasDropped(triangulation.Flags))
+            {
+                return new AttemptEvaluation
+                {
+                    Prepared = prepared,
+                    Warning = triangulation.Warning ?? "Requested remesh refinement could not be satisfied.",
+                    QualityDropped = true
+                };
+            }
+
+            var mesh = triangulation.Mesh;
+            if (mesh.Triangles.Count == 0)
+            {
+                return new AttemptEvaluation
+                {
+                    Prepared = prepared,
+                    Warning = "Triangulation produced 0 triangles."
+                };
+            }
+
+            long extractStart = Stopwatch.GetTimestamp();
+            var extracted = TriangleNetExtractor.Extract(mesh);
+            profile.AddPhase($"{attemptName}.extract_mesh", Stopwatch.GetElapsedTime(extractStart));
+
+            long interpolateStart = Stopwatch.GetTimestamp();
+            var outputVertices = new double[extracted.VertexCount * 3];
+            for (int i = 0; i < extracted.VertexCount; i++)
+            {
+                double x = extracted.Xy[i * 2];
+                double y = extracted.Xy[i * 2 + 1];
+                int sourceId = extracted.SourceIds[i];
+                outputVertices[i * 3] = x;
+                outputVertices[i * 3 + 1] = y;
+                outputVertices[i * 3 + 2] = sourceId >= 0 && sourceId < prepared.Z.Count
+                    ? prepared.Z[sourceId]
+                    : PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
+            }
+            profile.AddPhase($"{attemptName}.interpolate_output_z", Stopwatch.GetElapsedTime(interpolateStart));
+
+            long preserveConstraintZStart = Stopwatch.GetTimestamp();
+            ApplyPreservedConstraintElevations(outputVertices, constraints, options.Tolerance);
+            profile.AddPhase($"{attemptName}.apply_preserved_constraint_z", Stopwatch.GetElapsedTime(preserveConstraintZStart));
+
+            long topologyStart = Stopwatch.GetTimestamp();
+            var topology = MeshTopologyValidator.AnalyzeBoundaryGraph(extracted.Faces, extracted.FaceCount);
+            profile.AddPhase($"{attemptName}.topology_validation", Stopwatch.GetElapsedTime(topologyStart));
+
+            bool topologyInvalid = !topology.HasSingleClosedBoundaryLoop;
+            bool constraintApronInvalid = false;
+            bool perimeterApronInvalid = false;
+            double maxConstraintTriangleArea = 0.0;
+            double maxPerimeterTriangleArea = 0.0;
+            double qualityLength = GetProtectedEdgeLength(options);
+
+            if (qualityLength > 0 && effectiveMaxArea > 0)
+            {
+                long buildAreaCheckInputsStart = Stopwatch.GetTimestamp();
+                var perimeterSegments = BuildPerimeterSegments(originalVertices, originalFaces, faceCount);
+                var constraintSegments = BuildNonPerimeterConstraintSegments(constraints, perimeterSegments, options.Tolerance);
+                profile.AddPhase($"{attemptName}.build_area_check_inputs", Stopwatch.GetElapsedTime(buildAreaCheckInputsStart));
+
+                long areaChecksStart = Stopwatch.GetTimestamp();
+                EvaluateTriangleAreaChecks(
+                    outputVertices,
+                    extracted.Faces,
+                    qualityLength,
+                    effectiveMaxArea,
+                    perimeterSegments,
+                    constraintSegments,
+                    ref maxPerimeterTriangleArea,
+                    ref maxConstraintTriangleArea,
+                    ref perimeterApronInvalid,
+                    ref constraintApronInvalid);
+                profile.AddPhase($"{attemptName}.area_checks", Stopwatch.GetElapsedTime(areaChecksStart));
+            }
+
+            bool accepted = !topologyInvalid && !constraintApronInvalid && !perimeterApronInvalid;
+
             return new AttemptEvaluation
             {
                 Prepared = prepared,
-                Warning = triangulation.Warning ?? "Triangulation failed."
+                Vertices = outputVertices,
+                Faces = extracted.Faces,
+                Warning = accepted ? triangulation.Warning : BuildAttemptFailureWarning(triangulation.Warning, topologyInvalid, constraintApronInvalid, perimeterApronInvalid),
+                TopologyInvalid = topologyInvalid,
+                ConstraintApronInvalid = constraintApronInvalid,
+                PerimeterApronInvalid = perimeterApronInvalid,
+                MaxConstraintTriangleArea = maxConstraintTriangleArea,
+                MaxPerimeterTriangleArea = maxPerimeterTriangleArea,
+                Accepted = accepted
             };
         }
-
-        if (MeshConstraintTools.ConstraintsWereDropped(triangulation.Flags))
+        finally
         {
-            return new AttemptEvaluation
-            {
-                Prepared = prepared,
-                Warning = triangulation.Warning ?? "Constraints could not be preserved.",
-                ConstraintsDropped = true
-            };
+            profile.AddPhase($"{attemptName}.attempt_total", Stopwatch.GetElapsedTime(attemptStart));
         }
-
-        if (requiresQuality && MeshConstraintTools.QualityWasDropped(triangulation.Flags))
-        {
-            return new AttemptEvaluation
-            {
-                Prepared = prepared,
-                Warning = triangulation.Warning ?? "Requested remesh refinement could not be satisfied.",
-                QualityDropped = true
-            };
-        }
-
-        var mesh = triangulation.Mesh;
-        if (mesh.Triangles.Count == 0)
-        {
-            return new AttemptEvaluation
-            {
-                Prepared = prepared,
-                Warning = "Triangulation produced 0 triangles."
-            };
-        }
-
-        var extracted = TriangleNetExtractor.Extract(mesh);
-        var outputVertices = new double[extracted.VertexCount * 3];
-        for (int i = 0; i < extracted.VertexCount; i++)
-        {
-            double x = extracted.Xy[i * 2];
-            double y = extracted.Xy[i * 2 + 1];
-            int sourceId = extracted.SourceIds[i];
-            outputVertices[i * 3] = x;
-            outputVertices[i * 3 + 1] = y;
-            outputVertices[i * 3 + 2] = sourceId >= 0 && sourceId < prepared.Z.Count
-                ? prepared.Z[sourceId]
-                : PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
-        }
-
-        ApplyPreservedConstraintElevations(outputVertices, constraints, options.Tolerance);
-
-        var topology = MeshTopologyValidator.AnalyzeBoundaryGraph(extracted.Faces, extracted.FaceCount);
-        bool topologyInvalid = !topology.HasSingleClosedBoundaryLoop;
-        bool constraintApronInvalid = false;
-        bool perimeterApronInvalid = false;
-        double maxConstraintTriangleArea = 0.0;
-        double maxPerimeterTriangleArea = 0.0;
-        double qualityLength = GetProtectedEdgeLength(options);
-
-        if (qualityLength > 0 && effectiveMaxArea > 0)
-        {
-            var perimeterSegments = BuildPerimeterSegments(originalVertices, originalFaces, faceCount);
-            var constraintSegments = BuildNonPerimeterConstraintSegments(constraints, perimeterSegments, options.Tolerance);
-            EvaluateTriangleAreaChecks(
-                outputVertices,
-                extracted.Faces,
-                qualityLength,
-                effectiveMaxArea,
-                perimeterSegments,
-                constraintSegments,
-                ref maxPerimeterTriangleArea,
-                ref maxConstraintTriangleArea,
-                ref perimeterApronInvalid,
-                ref constraintApronInvalid);
-        }
-
-        bool accepted = !topologyInvalid && !constraintApronInvalid && !perimeterApronInvalid;
-
-        return new AttemptEvaluation
-        {
-            Prepared = prepared,
-            Vertices = outputVertices,
-            Faces = extracted.Faces,
-            Warning = accepted ? triangulation.Warning : BuildAttemptFailureWarning(triangulation.Warning, topologyInvalid, constraintApronInvalid, perimeterApronInvalid),
-            TopologyInvalid = topologyInvalid,
-            ConstraintApronInvalid = constraintApronInvalid,
-            PerimeterApronInvalid = perimeterApronInvalid,
-            MaxConstraintTriangleArea = maxConstraintTriangleArea,
-            MaxPerimeterTriangleArea = maxPerimeterTriangleArea,
-            Accepted = accepted
-        };
     }
 
     private static Options CreateBoundaryAndGuideSeedFallbackOptions(Options options)
@@ -564,6 +726,9 @@ public static class SurfaceRemesher
             Tolerance = options.Tolerance,
             RequestedEdgeLength = requestedEdgeLength,
             ConstraintInsertionOnly = options.ConstraintInsertionOnly,
+            PreferReducedInteriorSeed = options.PreferReducedInteriorSeed,
+            AddReducedInteriorGuideSeeds = options.AddReducedInteriorGuideSeeds,
+            AddConstraintCorridorSeeds = options.AddConstraintCorridorSeeds,
             MaxArea = maxArea,
             MinAngle = 0.0,
             ProtectSharpEdges = options.ProtectSharpEdges

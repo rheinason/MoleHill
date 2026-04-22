@@ -88,6 +88,65 @@ internal static class TerrainAnalysisAnnotationBuilder
         return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
     }
 
+    public static TerrainAnalysisSummary BuildCurveElevationSummary(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        CurveElevationLabelAnalysisDefinition analysis,
+        TerrainBuildResult build,
+        Func<bool>? shouldCancel)
+    {
+        var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
+        int sourceCount = 0;
+        int outputCount = 0;
+        var stats = new ValueStats();
+
+        for (int objectIndex = 0; objectIndex < objects.Count; objectIndex++)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            if (objects[objectIndex].Geometry is not Curve curve)
+                continue;
+
+            sourceCount++;
+            var divisions = GetCurveDivisionSamples(curve, Math.Max(analysis.Interval, 0.01));
+            if (divisions.Count == 0)
+                continue;
+
+            double cumulativeDistance = 0.0;
+            for (int sampleIndex = 0; sampleIndex < divisions.Count; sampleIndex++)
+            {
+                if ((sampleIndex & 31) == 0)
+                    ThrowIfCancellationRequested(shouldCancel);
+
+                var current = divisions[sampleIndex];
+                var meshPoint = mesh.ClosestMeshPoint(current.Point, 0.0);
+                if (meshPoint != null)
+                {
+                    Point3d worldPoint = mesh.PointAt(meshPoint);
+                    stats.Add(worldPoint.Z);
+                    outputCount++;
+
+                    if (analysis.IsEnabled)
+                    {
+                        build.AuxiliaryObjects.Add(CreateAnnotationObject(
+                            analysis,
+                            outputCount,
+                            worldPoint,
+                            worldPoint.Z,
+                            string.Empty,
+                            cumulativeDistance,
+                            analysis.BlockDefinitionName,
+                            MarkerBlockTemplate.AnnotationElevation));
+                    }
+                }
+
+                if (sampleIndex + 1 < divisions.Count)
+                    cumulativeDistance += Math.Max(0.0, curve.GetLength(new Interval(current.Parameter, divisions[sampleIndex + 1].Parameter)));
+            }
+        }
+
+        return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
+    }
+
     public static TerrainAnalysisSummary BuildProjectedElevationSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,

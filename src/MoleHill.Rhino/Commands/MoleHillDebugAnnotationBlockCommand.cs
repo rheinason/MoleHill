@@ -106,7 +106,7 @@ public sealed class MoleHillDebugAnnotationBlockCommand : Command
             AppendLine(sb, $"  Id: {textObject.Id}");
             AppendLine(sb, $"  DisplayText: {ValueOrMarker(textObject.DisplayText)}");
             AppendLine(sb, $"  PlainText: {ValueOrMarker(textObject.TextGeometry.PlainText)}");
-            AppendLine(sb, $"  TextFormula: {ValueOrMarker(textObject.TextGeometry.TextFormula)}");
+            AppendLine(sb, $"  RichText: {ValueOrMarker(textObject.TextGeometry.RichText)}");
             AppendLine(sb, $"  Fields: {FormatAttributeFields(TextFields.GetInstanceAttributeFields(textObject))}");
         }
     }

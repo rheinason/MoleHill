@@ -34,13 +34,22 @@ public sealed class MoleHillRhinoPlugin : PlugIn
         return LoadReturnCode.Success;
     }
 
+    protected override void OnShutdown()
+    {
+        TerrainController.Instance.Shutdown();
+        base.OnShutdown();
+    }
+
     protected override bool ShouldCallWriteDocument(FileWriteOptions options)
     {
-        return true;
+        return ShouldPersistTerrainDataOnWrite(options);
     }
 
     protected override void WriteDocument(RhinoDoc doc, BinaryArchiveWriter archive, FileWriteOptions options)
     {
+        if (!ShouldPersistTerrainDataOnWrite(options))
+            return;
+
         string json = TerrainSerializer.Serialize(TerrainController.Instance.GetTerrains(doc));
         _documentStore.SaveJson(doc, json);
         archive.WriteString(json);
@@ -48,6 +57,9 @@ public sealed class MoleHillRhinoPlugin : PlugIn
 
     protected override void ReadDocument(RhinoDoc doc, BinaryArchiveReader archive, FileReadOptions options)
     {
+        if (!ShouldLoadTerrainDataOnRead(options))
+            return;
+
         string json = archive.ReadString();
         if (!string.IsNullOrWhiteSpace(json))
             _documentStore.SaveJson(doc, json);
@@ -70,5 +82,22 @@ public sealed class MoleHillRhinoPlugin : PlugIn
         copy.Position = 0;
         _panelIcon = new Icon(copy);
         return _panelIcon;
+    }
+
+    private static bool ShouldPersistTerrainDataOnWrite(FileWriteOptions options)
+    {
+        // Rhino can serialize plug-in document data for clipboard, export-selected, and other
+        // partial-document writes. Persisting MoleHill state there leads to stale terrain data
+        // being merged back into unrelated documents during paste/import/linked-block workflows.
+        return !options.WriteSelectedObjectsOnly &&
+               !options.WriteGeometryOnly;
+    }
+
+    private static bool ShouldLoadTerrainDataOnRead(FileReadOptions options)
+    {
+        // Only hydrate document-scoped terrain state when Rhino is opening a full document or
+        // creating a new document from a template. Import/paste/insert/reference reads must not
+        // overwrite the active document's existing MoleHill terrain store.
+        return options.OpenMode || options.NewMode;
     }
 }

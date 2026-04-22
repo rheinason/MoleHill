@@ -21,6 +21,12 @@ public class SurfaceRemesherTests
             });
 
         Assert.True(result.Success, result.Warning);
+        Assert.NotNull(result.Profile);
+        Assert.Equal("initial", result.Profile!.SelectedAttempt);
+        Assert.Contains(result.Profile.Entries, entry => entry.Name == "initial.prepare_input");
+        Assert.Contains(result.Profile.Entries, entry => entry.Name == "initial.triangulate");
+        Assert.Contains(result.Profile.Entries, entry => entry.Name == "initial.attempt_total");
+        Assert.Contains(result.Profile.Entries, entry => entry.Name == "total");
 
         var boundarySegments = new List<(int a, int b)>();
         MeshConstraintTools.AddBoundarySegments(boundarySegments, new HashSet<long>(), result.Faces, result.Faces.Length / 3);
@@ -198,6 +204,56 @@ public class SurfaceRemesherTests
     }
 
     [Fact]
+    public void Remesh_FullSeedCollapsesVeryCloseInputVertices()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            10.0, 0.0, 0.0,
+            10.0, 10.0, 10.0,
+            0.0, 10.0, 10.0,
+            5.0, 5.0, 5.0,
+            5.0002, 5.0, 5.0
+        };
+
+        int[] faces =
+        {
+            0, 1, 4,
+            1, 5, 4,
+            1, 2, 5,
+            2, 3, 5,
+            3, 4, 5,
+            3, 0, 4
+        };
+
+        var result = SurfaceRemesher.Remesh(
+            vertices,
+            faces,
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            new SurfaceRemesher.Options
+            {
+                Tolerance = 0.01,
+                RequestedEdgeLength = 2.0,
+                MinAngle = 20.0,
+                ProtectSharpEdges = true
+            });
+
+        Assert.True(result.Success, result.Warning);
+
+        int nearCenterVertexCount = Enumerable.Range(0, result.Vertices.Length / 3)
+            .Count(index =>
+            {
+                double x = result.Vertices[index * 3];
+                double y = result.Vertices[index * 3 + 1];
+                return Math.Abs(x - 5.0) <= 0.001 && Math.Abs(y - 5.0) <= 0.001;
+            });
+
+        Assert.True(
+            nearCenterVertexCount <= 1,
+            $"Expected near-coincident interior vertices to collapse before remesh seeding, found {nearCenterVertexCount} vertices near the same XY.");
+    }
+
+    [Fact]
     public void Remesh_TwoBreaklinesWithInferredBoundary_DoesNotLeaveCoarseIsland()
     {
         var topConstraint = new SurfaceRemesher.ConstraintPolyline(
@@ -342,9 +398,35 @@ public class SurfaceRemesherTests
 
         Assert.True(boundary.HasSingleClosedBoundaryLoop, remesh.Warning);
         Assert.True(remesh.UsedBoundaryAndGuideSeedFallback, "Expected coarse-envelope remesh to prefer the boundary-and-guide fallback.");
+        Assert.NotNull(remesh.Profile);
+        Assert.Equal("fallback", remesh.Profile!.SelectedAttempt);
+        Assert.True(remesh.Profile.UsedBoundaryAndGuideSeedFallback);
+        Assert.Contains(remesh.Profile.Entries, entry => entry.Name == "fallback.prepare_input");
+        Assert.Contains(remesh.Profile.Entries, entry => entry.Name == "fallback.attempt_total");
         Assert.True(
             maxApronTriangle.Area <= 30.0,
             $"Expected no very large apron triangles on coarse envelope, got max area {maxApronTriangle.Area:F3} at centroid ({maxApronTriangle.CentroidX:F3}, {maxApronTriangle.CentroidY:F3}) with vertices ({maxApronTriangle.Ax:F3}, {maxApronTriangle.Ay:F3}) / ({maxApronTriangle.Bx:F3}, {maxApronTriangle.By:F3}) / ({maxApronTriangle.Cx:F3}, {maxApronTriangle.Cy:F3}). Remesh: {remesh.Warning}");
+    }
+
+    [Fact]
+    public void Remesh_PreferReducedInteriorSeed_UsesBoundaryAndGuideFallbackWhenAvailable()
+    {
+        var constraints = CreateUserReportedBreaklines();
+        var remesh = SurfaceRemesher.Remesh(
+            CreateUserReportedEnvelopeVertices(),
+            CreateSquareFaces(),
+            constraints,
+            new SurfaceRemesher.Options
+            {
+                Tolerance = 0.001,
+                RequestedEdgeLength = 4.0,
+                MinAngle = 20.0,
+                ProtectSharpEdges = true,
+                PreferReducedInteriorSeed = true
+            });
+
+        Assert.True(remesh.Success, remesh.Warning);
+        Assert.True(remesh.UsedBoundaryAndGuideSeedFallback, "Expected reduced-seed preference to select the boundary-and-guide fallback.");
     }
 
     [Fact]
@@ -386,6 +468,11 @@ public class SurfaceRemesherTests
         Assert.True(remesh.ReturnedInputMesh, remesh.Warning);
         Assert.Equal(vertices, remesh.Vertices);
         Assert.Equal(faces, remesh.Faces);
+        Assert.NotNull(remesh.Profile);
+        Assert.Equal("preserved_input", remesh.Profile!.SelectedAttempt);
+        Assert.True(remesh.Profile.ReturnedInputMesh);
+        Assert.Contains(remesh.Profile.Entries, entry => entry.Name == "initial.attempt_total");
+        Assert.Contains(remesh.Profile.Entries, entry => entry.Name == "total");
         Assert.Contains("kept the upstream mesh unchanged", remesh.Warning ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 

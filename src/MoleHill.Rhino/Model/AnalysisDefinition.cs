@@ -8,6 +8,7 @@ namespace MoleHill.Rhino.Model;
 [JsonDerivedType(typeof(ElevationAnalysisDefinition), "elevation")]
 [JsonDerivedType(typeof(CutFillAnalysisDefinition), "cut-fill")]
 [JsonDerivedType(typeof(ContourAnalysisDefinition), "contour")]
+[JsonDerivedType(typeof(CurveElevationLabelAnalysisDefinition), "curve-elevation-label")]
 [JsonDerivedType(typeof(CurveSlopeLabelAnalysisDefinition), "curve-slope-label")]
 [JsonDerivedType(typeof(ProjectedElevationLabelAnalysisDefinition), "projected-elevation-label")]
 [JsonDerivedType(typeof(PointSlopeLabelAnalysisDefinition), "point-slope-label")]

@@ -25,6 +25,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\MoleHill.Core\MoleHill.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="C:\Program Files\Rhino 8\System\rhcommon_c.dll">
       <Link>rhcommon_c.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -32,10 +36,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\GeometryCommandAlgorithms.cs" Link="Services\GeometryCommandAlgorithms.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\GeneratedRhinoObject.cs" Link="Services\GeneratedRhinoObject.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\GeneratedObjectKind.cs" Link="Services\GeneratedObjectKind.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\MarkerBlockTemplate.cs" Link="Services\MarkerBlockTemplate.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\ReferenceEqualityComparer.cs" Link="Services\ReferenceEqualityComparer.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainCommitGuard.cs" Link="Services\TerrainCommitGuard.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainBuildMode.cs" Link="Services\TerrainBuildMode.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainBuildHeuristics.cs" Link="Services\TerrainBuildHeuristics.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainDisplayState.cs" Link="Services\TerrainDisplayState.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainRuntimeCache.cs" Link="Services\TerrainRuntimeCache.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\ConstraintConflictDiagnostics.cs" Link="Services\ConstraintConflictDiagnostics.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Model\TerrainAnalysisSummary.cs" Link="Model\TerrainAnalysisSummary.cs" />
   </ItemGroup>
 </Project>

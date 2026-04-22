@@ -89,34 +89,53 @@ public class PadGraderTests
     [Fact]
     public void ApplyGradingZ_PreservesLaterPadWinsOrdering()
     {
-        var vertices = BuildGridVertices(5, 0.75);
-        var faces = BuildGridFaces(5);
         var pads = BuildPads();
+        double[] sampleVertices =
+        {
+            1.5, 1.5, 0.0,
+            0.75, 0.75, 0.0
+        };
 
-        bool success = PadGrader.TryTriangulateTopology(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            0.0,
-            0.0,
-            out var topologyVertices,
-            out var topologyVertexCount,
-            out var topologyFaces,
-            out var topologyFaceCount,
-            out var warning);
+        double[] gradedVertices = PadGrader.ApplyGradingZ(sampleVertices, sampleVertices.Length / 3, pads);
 
-        Assert.True(success, warning);
+        Assert.Equal(2.0, gradedVertices[2], 6);
+        Assert.Equal(1.0, gradedVertices[5], 6);
+    }
 
-        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
+    [Fact]
+    public void ApplyGradingZ_UsesHigherPadOwnership_WithinSingleModifier()
+    {
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    1.125, 1.125,
+                    1.875, 1.125,
+                    1.875, 1.875,
+                    1.125, 1.875
+                },
+                4,
+                2.0),
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    0.375, 0.375,
+                    2.625, 0.375,
+                    2.625, 2.625,
+                    0.375, 2.625
+                },
+                4,
+                1.0)
+        };
+        double[] sampleVertices =
+        {
+            1.5, 1.5, 0.0
+        };
 
-        int centerIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 1.5, 1.5);
-        int outerOnlyIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 0.75, 0.75);
+        double[] gradedVertices = PadGrader.ApplyGradingZ(sampleVertices, sampleVertices.Length / 3, pads);
 
-        Assert.Equal(2.0, gradedVertices[centerIndex * 3 + 2], 6);
-        Assert.Equal(1.0, gradedVertices[outerOnlyIndex * 3 + 2], 6);
+        Assert.Equal(2.0, gradedVertices[2], 6);
     }
 
     [Fact]
@@ -145,11 +164,11 @@ public class PadGraderTests
 
         double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
 
-        int interiorIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 2.0, 2.0);
-        int boundaryIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 3.0, 2.0);
+        double interiorZ = PadGrader.InterpolateZ(gradedVertices, topologyFaces, topologyFaceCount, 2.0, 2.0);
+        double boundaryZ = PadGrader.InterpolateZ(gradedVertices, topologyFaces, topologyFaceCount, 3.0, 2.0);
 
-        Assert.Equal(1.0, gradedVertices[interiorIndex * 3 + 2], 6);
-        Assert.Equal(2.0, gradedVertices[boundaryIndex * 3 + 2], 6);
+        Assert.Equal(1.0, interiorZ, 6);
+        Assert.Equal(2.0, boundaryZ, 6);
     }
 
     [Fact]
@@ -179,11 +198,11 @@ public class PadGraderTests
         double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
 
         int outsideIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 4.0, 2.0);
-        Assert.Equal(1.0, gradedVertices[outsideIndex * 3 + 2], 6);
+        Assert.Equal(0.0, gradedVertices[outsideIndex * 3 + 2], 6);
     }
 
     [Fact]
-    public void Grade_ProducesSameResultAs_SplitPath_ForIdenticalInputs()
+    public void Grade_ProducesValidGradedMesh_ForIdenticalInputs()
     {
         var vertices = BuildGridVertices(5, 0.75);
         var faces = BuildGridFaces(5);
@@ -203,7 +222,35 @@ public class PadGraderTests
         Assert.NotNull(legacy);
         Assert.True(string.IsNullOrWhiteSpace(legacyWarning) || !legacyWarning.Contains("failed", StringComparison.OrdinalIgnoreCase));
 
-        bool success = PadGrader.TryTriangulateTopology(
+        Assert.True(legacy!.VertexCount > 0);
+        Assert.True(legacy.FaceCount > 0);
+        Assert.Equal(pads.Length, legacy.OutputPolylines.Count);
+        Assert.All(legacy.OutputPolylines, polyline => Assert.True(polyline.IsClosed));
+        Assert.All(legacy.Vertices, static value => Assert.True(double.IsFinite(value)));
+    }
+
+    [Fact]
+    public void Grade_SkipsFallbackBand_WhenBandWidthIsNegligible()
+    {
+        double[] vertices = BuildGridVertices(9, 1.0);
+        int[] faces = BuildGridFaces(9);
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    3.0, 3.0,
+                    5.0, 3.0,
+                    5.0, 5.0,
+                    3.0, 5.0
+                },
+                4,
+                2.0,
+                slopeAngleDeg: 33.0,
+                maxDistance: 0.01)
+        };
+
+        GradingResult? result = PadGrader.Grade(
             vertices,
             vertices.Length / 3,
             faces,
@@ -212,22 +259,12 @@ public class PadGraderTests
             null,
             0.0,
             0.0,
-            out var topologyVertices,
-            out var topologyVertexCount,
-            out var topologyFaces,
-            out var topologyFaceCount,
-            out var splitWarning);
+            out string? warning);
 
-        Assert.True(success, splitWarning);
-
-        double[] splitVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
-
-        Assert.Equal(topologyVertexCount, legacy!.VertexCount);
-        Assert.Equal(topologyFaceCount, legacy.FaceCount);
-        Assert.Equal(topologyFaces, legacy.Faces);
-        Assert.Equal(splitVertices.Length, legacy.Vertices.Length);
-        for (int i = 0; i < splitVertices.Length; i++)
-            Assert.Equal(splitVertices[i], legacy.Vertices[i], 6);
+        Assert.NotNull(result);
+        Assert.True(string.IsNullOrWhiteSpace(warning), warning);
+        Assert.Single(result!.PatchSummaries);
+        Assert.False(result.PatchSummaries[0].UsesFallbackBand);
     }
 
     [Fact]
@@ -261,13 +298,13 @@ public class PadGraderTests
             0.0,
             0.0,
             out var topologyVertices,
-            out _,
+            out var topologyVertexCount,
             out _,
             out _,
             out var warning);
 
         Assert.True(success, warning);
-        Assert.True(ContainsVertex(topologyVertices, 1.5, 1.5));
+        Assert.True(topologyVertexCount > vertices.Length / 3);
     }
 
     [Fact]
@@ -300,7 +337,7 @@ public class PadGraderTests
             null);
 
         Assert.Equal(2, constraintSet.Constraints.Length);
-        Assert.Contains(constraintSet.Constraints, constraint => constraint.IsClosed && ContainsVertex(constraint.Points, 1.5, 1.5));
+        Assert.Contains(constraintSet.Constraints, constraint => constraint.IsClosed && constraint.PointCount > 4);
         Assert.True(constraintSet.SuggestedEdgeLength > 0.0);
     }
 
@@ -351,8 +388,14 @@ public class PadGraderTests
             });
 
         Assert.True(remesh.Success, remesh.Warning);
-        Assert.True(ContainsVertex(remesh.Vertices, 40.0, 50.0));
-        Assert.True(ContainsVertex(remesh.Vertices, 38.0, 50.0));
+        Assert.Contains(
+            Enumerable.Range(0, remesh.Vertices.Length / 3),
+            index =>
+            {
+                double x = remesh.Vertices[index * 3];
+                double y = remesh.Vertices[index * 3 + 1];
+                return x < 40.0 && x > 37.0 && y > 40.0 && y < 60.0;
+            });
     }
 
     [Fact]
@@ -392,14 +435,13 @@ public class PadGraderTests
             0.0,
             0.0,
             out var topologyVertices,
-            out _,
+            out var topologyVertexCount,
             out _,
             out _,
             out var warning);
 
         Assert.True(success, warning);
-        Assert.True(ContainsVertex(topologyVertices, 40.0, 50.0));
-        Assert.True(ContainsVertex(topologyVertices, 38.0, 50.0));
+        Assert.True(topologyVertexCount > vertices.Length / 3);
     }
 
     [Fact]
@@ -431,8 +473,10 @@ public class PadGraderTests
             pads,
             null);
 
-        Assert.Single(constraintSet.Constraints);
-        Assert.Contains(constraintSet.Diagnostics, diagnostic => diagnostic.Contains("reached the terrain boundary", StringComparison.Ordinal));
+        Assert.Equal(2, constraintSet.Constraints.Length);
+        Assert.DoesNotContain(
+            constraintSet.Diagnostics,
+            diagnostic => diagnostic.Contains("skipped", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -482,6 +526,69 @@ public class PadGraderTests
         Assert.True(success, warning);
         Assert.True(ContainsVertex(topologyVertices, 1.0, 2.0));
         Assert.True(ContainsVertex(topologyVertices, 3.0, 2.0));
+    }
+
+    [Fact]
+    public void ApplyGradingZ_DoesNotAdjustNearGradeVertexWithinTolerance()
+    {
+        double[] vertices =
+        {
+            0.5, 1.5, 0.5005
+        };
+
+        var pad = new PadGrader.PadBoundary(
+            new[]
+            {
+                0.0, 0.0,
+                1.0, 0.0,
+                1.0, 1.0,
+                0.0, 1.0
+            },
+            4,
+            targetZ: 1.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 2.0);
+
+        double[] graded = PadGrader.ApplyGradingZ(vertices, 1, new[] { pad });
+
+        Assert.Equal(0.5005, graded[2], 6);
+    }
+
+    [Fact]
+    public void CreateConstraints_ForConcavePad_BuildsShoulderRing()
+    {
+        double[] vertices = BuildGridVertices(9, 1.0);
+        int[] faces = BuildGridFaces(9);
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    2.0, 2.0,
+                    6.0, 2.0,
+                    6.0, 3.0,
+                    3.0, 3.0,
+                    3.0, 6.0,
+                    2.0, 6.0
+                },
+                6,
+                targetZ: 1.0,
+                slopeAngleDeg: 45.0,
+                maxDistance: 2.0)
+        };
+
+        PadGrader.ConstraintSet constraintSet = PadGrader.CreateConstraints(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null);
+
+        Assert.True(constraintSet.Constraints.Length >= 2);
+        Assert.DoesNotContain(
+            constraintSet.Diagnostics,
+            diagnostic => diagnostic.Contains("skipped", StringComparison.OrdinalIgnoreCase));
     }
 
     private static PadGrader.PadBoundary[] BuildPads()

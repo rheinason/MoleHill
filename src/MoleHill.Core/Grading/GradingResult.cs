@@ -62,11 +62,19 @@ public sealed class GradingResult
     /// </summary>
     public IReadOnlyList<OutputPolyline> OutputPolylines { get; }
 
-    public GradingResult(double[] vertices, int vertexCount,
-                         int[] faces, int faceCount,
-                         double cutVolume, double fillVolume,
-                         double[] daylightVertices, int daylightVertexCount,
-                         IReadOnlyList<OutputPolyline>? outputPolylines = null)
+    /// <summary>Operation-specific diagnostics.</summary>
+    public IReadOnlyList<string> Diagnostics { get; }
+
+    /// <summary>Internal patch ownership/seam summaries for downstream runtime caching.</summary>
+    internal IReadOnlyList<GradingPatch> PatchSummaries { get; }
+
+    internal GradingResult(double[] vertices, int vertexCount,
+                           int[] faces, int faceCount,
+                           double cutVolume, double fillVolume,
+                           double[] daylightVertices, int daylightVertexCount,
+                           IReadOnlyList<OutputPolyline>? outputPolylines = null,
+                           IReadOnlyList<string>? diagnostics = null,
+                           IReadOnlyList<GradingPatch>? patchSummaries = null)
     {
         Vertices = vertices;
         VertexCount = vertexCount;
@@ -77,5 +85,7 @@ public sealed class GradingResult
         DaylightVertices = daylightVertices;
         DaylightVertexCount = daylightVertexCount;
         OutputPolylines = outputPolylines ?? Array.Empty<OutputPolyline>();
+        Diagnostics = diagnostics ?? Array.Empty<string>();
+        PatchSummaries = patchSummaries ?? Array.Empty<GradingPatch>();
     }
 }
