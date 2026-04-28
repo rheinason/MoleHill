@@ -19,7 +19,7 @@ internal static class TerrainCaseBundleExporter
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public static string Export(
+    public static TerrainCaseBundleExportResult Export(
         RhinoDoc doc,
         TerrainDefinition terrain,
         TerrainBuildSnapshot snapshot,
@@ -53,6 +53,27 @@ internal static class TerrainCaseBundleExporter
         AddOutputMesh(caseDirectory, outputMeshes, "base", displayState?.BaseTerrainMesh);
         AddOutputMesh(caseDirectory, outputMeshes, "preview", displayState?.PreviewTerrainMesh);
 
+        TerrainCoreCaseTestExport? coreTestExport = null;
+        if (TerrainCoreCaseTestExporter.TryCreate(snapshot, out var generatedCoreTest) &&
+            generatedCoreTest != null)
+        {
+            coreTestExport = generatedCoreTest;
+            File.WriteAllText(
+                Path.Combine(caseDirectory, coreTestExport.FileName),
+                coreTestExport.SourceCode,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        }
+
+        IReadOnlyList<RetainingWallPlannerCaseTestExport> retainingWallPlannerExports =
+            RetainingWallPlannerCaseTestExporter.Create(snapshot);
+        foreach (RetainingWallPlannerCaseTestExport retainingWallPlannerExport in retainingWallPlannerExports)
+        {
+            File.WriteAllText(
+                Path.Combine(caseDirectory, retainingWallPlannerExport.FileName),
+                retainingWallPlannerExport.SourceCode,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        }
+
         var manifest = new TerrainCaseBundleManifest
         {
             FormatVersion = 1,
@@ -66,6 +87,8 @@ internal static class TerrainCaseBundleExporter
             ModelAbsoluteTolerance = snapshot.ModelAbsoluteTolerance,
             BuildLogFile = Path.GetFileName(buildLogPath),
             TerrainDefinitionFile = Path.GetFileName(terrainJsonPath),
+            CoreTestFile = coreTestExport?.FileName,
+            RetainingWallPlannerTestFiles = retainingWallPlannerExports.Select(static export => export.FileName).ToList(),
             SourceModelFile = sourceModelFileName,
             SourceObjects = sourceObjects.Select(ToManifest).ToList(),
             SourceSets = snapshot.SourceObjects
@@ -83,7 +106,8 @@ internal static class TerrainCaseBundleExporter
             File.Delete(archivePath);
 
         ZipFile.CreateFromDirectory(caseDirectory, archivePath, CompressionLevel.Fastest, includeBaseDirectory: true);
-        return archivePath;
+        string? copiedSource = retainingWallPlannerExports.FirstOrDefault()?.SourceCode ?? coreTestExport?.SourceCode;
+        return new TerrainCaseBundleExportResult(archivePath, copiedSource);
     }
 
     private static string CreateUniqueCaseDirectory(string rootDirectory, TerrainDefinition terrain)
@@ -300,6 +324,12 @@ internal static class TerrainCaseBundleExporter
         if (!string.IsNullOrWhiteSpace(manifest.SourceModelFile))
             lines.Add($"- {manifest.SourceModelFile}: resolved input geometry in world space");
 
+        if (!string.IsNullOrWhiteSpace(manifest.CoreTestFile))
+            lines.Add($"- {manifest.CoreTestFile}: xUnit core regression test source copied by Copy Case");
+
+        foreach (string retainingWallPlannerTestFile in manifest.RetainingWallPlannerTestFiles)
+            lines.Add($"- {retainingWallPlannerTestFile}: xUnit retaining-wall planner regression test source copied by Copy Case");
+
         foreach (CaseOutputMeshManifest outputMesh in manifest.OutputMeshes)
             lines.Add($"- {outputMesh.File}: exported {outputMesh.Kind} mesh");
 
@@ -331,6 +361,10 @@ internal static class TerrainCaseBundleExporter
 
         public string BuildLogFile { get; init; } = string.Empty;
 
+        public string? CoreTestFile { get; init; }
+
+        public List<string> RetainingWallPlannerTestFiles { get; init; } = new();
+
         public string? SourceModelFile { get; init; }
 
         public List<CaseSourceSetManifest> SourceSets { get; init; } = new();
@@ -340,6 +374,8 @@ internal static class TerrainCaseBundleExporter
         public List<CaseOutputMeshManifest> OutputMeshes { get; init; } = new();
     }
 }
+
+internal sealed record TerrainCaseBundleExportResult(string ArchivePath, string? CoreTestCode);
 
 internal sealed class CaseSourceSetManifest
 {

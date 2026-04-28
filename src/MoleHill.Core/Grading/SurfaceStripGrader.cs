@@ -76,19 +76,47 @@ public static class SurfaceStripGrader
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
         out string? errorMessage)
     {
+        return Grade(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            new[] { surface },
+            barrierConstraints,
+            out errorMessage);
+    }
+
+    public static GradingResult? Grade(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        IReadOnlyList<SurfaceDefinition> surfaces,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        out string? errorMessage)
+    {
         errorMessage = null;
         const double dedupTol = 1e-3;
 
-        if (surface.FootprintVertexCount < 3)
+        if (surfaces.Count == 0)
         {
-            errorMessage = "The graded surface footprint must contain at least 3 vertices.";
+            errorMessage = "At least one graded surface is required.";
             return null;
         }
 
-        if (surface.BoundaryVertexCount < 2)
+        foreach (SurfaceDefinition surface in surfaces)
         {
-            errorMessage = "The graded surface boundary must contain at least 2 vertices.";
-            return null;
+            if (surface.FootprintVertexCount < 3)
+            {
+                errorMessage = "The graded surface footprint must contain at least 3 vertices.";
+                return null;
+            }
+
+            if (surface.BoundaryVertexCount < 2)
+            {
+                errorMessage = "The graded surface boundary must contain at least 2 vertices.";
+                return null;
+            }
         }
 
         var xyList = new List<double>(vertexCount * 2);
@@ -109,23 +137,29 @@ public static class SurfaceStripGrader
         var faceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
         PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);
         bool hasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
-        if (hasBoundaryLoop &&
-            !BoundaryClipper.IsPolylineInsideBoundary(
-                surface.FootprintXy,
-                surface.FootprintVertexCount,
-                isClosed: true,
-                hasBoundaryLoop,
-                boundaryLoop,
-                boundaryVertexCount,
-                dedupTol))
+        if (hasBoundaryLoop)
         {
-            errorMessage = "The graded surface footprint must lie within the terrain boundary.";
-            return null;
+            foreach (SurfaceDefinition surface in surfaces)
+            {
+                if (!BoundaryClipper.IsPolylineInsideBoundary(
+                        surface.FootprintXy,
+                        surface.FootprintVertexCount,
+                        isClosed: true,
+                        hasBoundaryLoop,
+                        boundaryLoop,
+                        boundaryVertexCount,
+                        dedupTol))
+                {
+                    errorMessage = "The graded surface footprint must lie within the terrain boundary.";
+                    return null;
+                }
+            }
         }
 
         AddBoundarySegments(faces, faceCount, segList);
         AddBarrierConstraints(barrierConstraints, xyList, zList, vertHash, segList, dedupTol);
-        AddPolygonConstraint(surface.FootprintXy, surface.FootprintVertexCount, xyList, zList, vertHash, faceGrid, segList, dedupTol);
+        foreach (SurfaceDefinition surface in surfaces)
+            AddPolygonConstraint(surface.FootprintXy, surface.FootprintVertexCount, xyList, zList, vertHash, faceGrid, segList, dedupTol);
 
         int totalVerts = zList.Count;
         if (totalVerts < 3)
@@ -180,7 +214,11 @@ public static class SurfaceStripGrader
             }
         }
 
-        ApplySurfaceHeights(surface, outXy, origZ, newZ, outVertCount, preparedBarriers);
+        foreach (SurfaceDefinition surface in surfaces)
+        {
+            double[] passOrigZ = (double[])newZ.Clone();
+            ApplySurfaceHeights(surface, outXy, passOrigZ, newZ, outVertCount, preparedBarriers);
+        }
 
         var finalVerts = new double[outVertCount * 3];
         for (int i = 0; i < outVertCount; i++)

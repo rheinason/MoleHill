@@ -177,6 +177,157 @@ public static class SurfaceRemesher
         public bool Accepted { get; init; }
     }
 
+    private readonly record struct PreservedConstraintSegment(
+        double Ax,
+        double Ay,
+        double Az,
+        double Bx,
+        double By,
+        double Bz);
+
+    private sealed class PreservedConstraintSegmentIndex
+    {
+        private readonly List<PreservedConstraintSegment> _segments;
+        private readonly Dictionary<long, List<int>> _cells;
+        private readonly double _cellSize;
+        private readonly double _inverseCellSize;
+
+        public PreservedConstraintSegmentIndex(List<PreservedConstraintSegment> segments, Dictionary<long, List<int>> cells, double cellSize)
+        {
+            _segments = segments;
+            _cells = cells;
+            _cellSize = cellSize;
+            _inverseCellSize = 1.0 / cellSize;
+        }
+
+        public bool TryGetElevation(double x, double y, double maxDistanceSquared, out double z)
+        {
+            z = 0.0;
+            long key = PackCellKey(
+                (long)Math.Floor(x * _inverseCellSize),
+                (long)Math.Floor(y * _inverseCellSize));
+            if (!_cells.TryGetValue(key, out List<int>? segmentIndexes))
+                return false;
+
+            bool found = false;
+            double bestDistanceSquared = maxDistanceSquared;
+            foreach (int segmentIndex in segmentIndexes)
+            {
+                PreservedConstraintSegment segment = _segments[segmentIndex];
+                if (!TryProjectToConstraintSegment(
+                        segment,
+                        x,
+                        y,
+                        bestDistanceSquared,
+                        out double candidateZ,
+                        out double distanceSquared))
+                {
+                    continue;
+                }
+
+                bestDistanceSquared = distanceSquared;
+                z = candidateZ;
+                found = true;
+            }
+
+            return found;
+        }
+
+        public static PreservedConstraintSegmentIndex? Build(IReadOnlyList<ConstraintPolyline> constraints, double tolerance)
+        {
+            var segments = new List<PreservedConstraintSegment>();
+            double minX = double.MaxValue;
+            double minY = double.MaxValue;
+            double maxX = double.MinValue;
+            double maxY = double.MinValue;
+
+            foreach (var constraint in constraints)
+            {
+                if (!constraint.PreserveInputElevation)
+                    continue;
+
+                int pointCount = NormalizePointCount(constraint, tolerance);
+                if (pointCount < 2)
+                    continue;
+
+                for (int pointIndex = 1; pointIndex < pointCount; pointIndex++)
+                    AddSegment(constraint, pointIndex - 1, pointIndex, segments, ref minX, ref minY, ref maxX, ref maxY);
+
+                if (constraint.IsClosed)
+                    AddSegment(constraint, pointCount - 1, 0, segments, ref minX, ref minY, ref maxX, ref maxY);
+            }
+
+            if (segments.Count == 0)
+                return null;
+
+            double span = Math.Max(maxX - minX, maxY - minY);
+            double cellSize = Math.Max(tolerance * 16.0, Math.Clamp(span / 256.0, tolerance * 16.0, 4.0));
+            var cells = new Dictionary<long, List<int>>(segments.Count * 2);
+            for (int i = 0; i < segments.Count; i++)
+                AddSegmentToCells(cells, segments[i], i, tolerance, cellSize);
+
+            return new PreservedConstraintSegmentIndex(segments, cells, cellSize);
+        }
+
+        private static void AddSegment(
+            ConstraintPolyline constraint,
+            int startPointIndex,
+            int endPointIndex,
+            List<PreservedConstraintSegment> segments,
+            ref double minX,
+            ref double minY,
+            ref double maxX,
+            ref double maxY)
+        {
+            var segment = new PreservedConstraintSegment(
+                constraint.Points[startPointIndex * 3],
+                constraint.Points[startPointIndex * 3 + 1],
+                constraint.Points[startPointIndex * 3 + 2],
+                constraint.Points[endPointIndex * 3],
+                constraint.Points[endPointIndex * 3 + 1],
+                constraint.Points[endPointIndex * 3 + 2]);
+
+            double lengthSquared = DistanceSquared(segment.Ax, segment.Ay, segment.Bx, segment.By);
+            if (lengthSquared <= 1e-18)
+                return;
+
+            segments.Add(segment);
+            minX = Math.Min(minX, Math.Min(segment.Ax, segment.Bx));
+            minY = Math.Min(minY, Math.Min(segment.Ay, segment.By));
+            maxX = Math.Max(maxX, Math.Max(segment.Ax, segment.Bx));
+            maxY = Math.Max(maxY, Math.Max(segment.Ay, segment.By));
+        }
+
+        private static void AddSegmentToCells(
+            Dictionary<long, List<int>> cells,
+            PreservedConstraintSegment segment,
+            int segmentIndex,
+            double tolerance,
+            double cellSize)
+        {
+            double invCellSize = 1.0 / cellSize;
+            long minCellX = (long)Math.Floor((Math.Min(segment.Ax, segment.Bx) - tolerance) * invCellSize);
+            long minCellY = (long)Math.Floor((Math.Min(segment.Ay, segment.By) - tolerance) * invCellSize);
+            long maxCellX = (long)Math.Floor((Math.Max(segment.Ax, segment.Bx) + tolerance) * invCellSize);
+            long maxCellY = (long)Math.Floor((Math.Max(segment.Ay, segment.By) + tolerance) * invCellSize);
+
+            for (long cy = minCellY; cy <= maxCellY; cy++)
+            {
+                for (long cx = minCellX; cx <= maxCellX; cx++)
+                {
+                    long key = PackCellKey(cx, cy);
+                    if (!cells.TryGetValue(key, out List<int>? indexes))
+                    {
+                        indexes = new List<int>();
+                        cells.Add(key, indexes);
+                    }
+
+                    indexes.Add(segmentIndex);
+                }
+            }
+        }
+    }
+
     public static Result Remesh(
         double[] originalVertices,
         int[] originalFaces,
@@ -202,16 +353,6 @@ public static class SurfaceRemesher
                 };
             }
 
-            var firstAttempt = EvaluateAttempt(
-                originalVertices,
-                originalFaces,
-                faceCount,
-                constraints,
-                options,
-                seedInteriorVertices: true,
-                profile,
-                "initial");
-
             AttemptEvaluation? fallbackAttempt = null;
             var fallbackOptions = CreateBoundaryAndGuideSeedFallbackOptions(options);
             long fallbackPrepareStart = Stopwatch.GetTimestamp();
@@ -230,11 +371,27 @@ public static class SurfaceRemesher
                     "fallback",
                     precomputedPrepared: preparedFallback);
 
-                if (!firstAttempt.Accepted && fallbackAttempt.Accepted)
+                if (options.PreferReducedInteriorSeed && fallbackAttempt.Accepted)
                 {
                     profile.SetOutcome(success: true, returnedInputMesh: false, usedBoundaryAndGuideSeedFallback: true, selectedAttempt: "fallback");
                     return BuildAcceptedResult(fallbackAttempt, usedBoundaryAndGuideSeedFallback: true, profile);
                 }
+            }
+
+            var firstAttempt = EvaluateAttempt(
+                originalVertices,
+                originalFaces,
+                faceCount,
+                constraints,
+                options,
+                seedInteriorVertices: true,
+                profile,
+                "initial");
+
+            if (!firstAttempt.Accepted && fallbackAttempt?.Accepted == true)
+            {
+                profile.SetOutcome(success: true, returnedInputMesh: false, usedBoundaryAndGuideSeedFallback: true, selectedAttempt: "fallback");
+                return BuildAcceptedResult(fallbackAttempt, usedBoundaryAndGuideSeedFallback: true, profile);
             }
 
             if (firstAttempt.Accepted)
@@ -1564,76 +1721,30 @@ public static class SurfaceRemesher
             return;
 
         double matchTolerance = Math.Max(tolerance, 1e-6);
+        PreservedConstraintSegmentIndex? index = PreservedConstraintSegmentIndex.Build(constraints, matchTolerance);
+        if (index == null)
+            return;
+
+        double matchToleranceSquared = matchTolerance * matchTolerance;
         for (int vertexIndex = 0; vertexIndex < outputVertices.Length / 3; vertexIndex++)
         {
             double x = outputVertices[vertexIndex * 3];
             double y = outputVertices[vertexIndex * 3 + 1];
-            if (TryGetPreservedConstraintElevation(x, y, constraints, matchTolerance, out double z))
+            if (index.TryGetElevation(x, y, matchToleranceSquared, out double z))
                 outputVertices[vertexIndex * 3 + 2] = z;
         }
     }
 
-    private static bool TryGetPreservedConstraintElevation(
-        double x,
-        double y,
-        IReadOnlyList<ConstraintPolyline> constraints,
-        double tolerance,
-        out double z)
-    {
-        double bestDistanceSquared = tolerance * tolerance;
-        z = 0.0;
-        bool found = false;
-
-        foreach (var constraint in constraints)
-        {
-            if (!constraint.PreserveInputElevation)
-                continue;
-
-            int pointCount = NormalizePointCount(constraint, tolerance);
-            if (pointCount < 2)
-                continue;
-
-            for (int pointIndex = 1; pointIndex < pointCount; pointIndex++)
-            {
-                if (TryProjectToConstraintSegment(constraint, pointIndex - 1, pointIndex, x, y, bestDistanceSquared, out double candidateZ, out double distanceSquared))
-                {
-                    bestDistanceSquared = distanceSquared;
-                    z = candidateZ;
-                    found = true;
-                }
-            }
-
-            if (constraint.IsClosed &&
-                TryProjectToConstraintSegment(constraint, pointCount - 1, 0, x, y, bestDistanceSquared, out double closingZ, out double closingDistanceSquared))
-            {
-                bestDistanceSquared = closingDistanceSquared;
-                z = closingZ;
-                found = true;
-            }
-        }
-
-        return found;
-    }
-
     private static bool TryProjectToConstraintSegment(
-        ConstraintPolyline constraint,
-        int startPointIndex,
-        int endPointIndex,
+        PreservedConstraintSegment segment,
         double x,
         double y,
         double maxDistanceSquared,
         out double z,
         out double distanceSquared)
     {
-        double ax = constraint.Points[startPointIndex * 3];
-        double ay = constraint.Points[startPointIndex * 3 + 1];
-        double az = constraint.Points[startPointIndex * 3 + 2];
-        double bx = constraint.Points[endPointIndex * 3];
-        double by = constraint.Points[endPointIndex * 3 + 1];
-        double bz = constraint.Points[endPointIndex * 3 + 2];
-
-        double dx = bx - ax;
-        double dy = by - ay;
+        double dx = segment.Bx - segment.Ax;
+        double dy = segment.By - segment.Ay;
         double lengthSquared = (dx * dx) + (dy * dy);
         double t;
         if (lengthSquared <= 1e-12)
@@ -1642,7 +1753,7 @@ public static class SurfaceRemesher
         }
         else
         {
-            t = (((x - ax) * dx) + ((y - ay) * dy)) / lengthSquared;
+            t = (((x - segment.Ax) * dx) + ((y - segment.Ay) * dy)) / lengthSquared;
             if (t < 0.0 || t > 1.0)
             {
                 z = 0.0;
@@ -1651,8 +1762,8 @@ public static class SurfaceRemesher
             }
         }
 
-        double closestX = ax + (dx * t);
-        double closestY = ay + (dy * t);
+        double closestX = segment.Ax + (dx * t);
+        double closestY = segment.Ay + (dy * t);
         double offsetX = x - closestX;
         double offsetY = y - closestY;
         distanceSquared = (offsetX * offsetX) + (offsetY * offsetY);
@@ -1662,7 +1773,7 @@ public static class SurfaceRemesher
             return false;
         }
 
-        z = Lerp(az, bz, t);
+        z = Lerp(segment.Az, segment.Bz, t);
         return true;
     }
 

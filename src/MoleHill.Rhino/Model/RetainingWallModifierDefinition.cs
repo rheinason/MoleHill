@@ -1,16 +1,37 @@
+using System.Text.Json.Serialization;
+
 namespace MoleHill.Rhino.Model;
 
 public sealed class RetainingWallModifierDefinition : ModifierDefinition
 {
+    private double _maxWallWidth = 1.0;
+    private bool _maxWallWidthWasSet;
+
     public SourceReferenceSet WallCurves { get; set; } = new();
 
-    public double Tolerance { get; set; } = 1.0;
+    public double MaxWallWidth
+    {
+        get => _maxWallWidth;
+        set
+        {
+            _maxWallWidth = value;
+            _maxWallWidthWasSet = true;
+        }
+    }
 
-    public double Sharpness { get; set; } = 0.5;
+    [JsonPropertyName("tolerance")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double LegacyTolerance
+    {
+        get => 0.0;
+        set
+        {
+            if (!_maxWallWidthWasSet && value > 0.0)
+                _maxWallWidth = value;
+        }
+    }
 
-    public double ShoulderWidth { get; set; }
-
-    public string? OutputLayerPath { get; set; }
+    public string? OutputLayerPath { get; set; } = TerrainDefinition.DefaultAuxiliaryLayerPath;
 
     public RetainingWallModifierDefinition()
     {

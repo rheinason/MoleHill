@@ -452,6 +452,8 @@ internal sealed class TerrainBuildService
         build.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.AuxiliaryObjects));
         build.PersistentHardConstraints.Clear();
         build.PersistentHardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(cachedEntry.PersistentHardConstraints));
+        build.PersistentElevationConstraints.Clear();
+        build.PersistentElevationConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(cachedEntry.PersistentElevationConstraints));
         outputFingerprint = cachedEntry.OutputFingerprint;
         return NormalizeTerrainMesh(TerrainRuntimeCacheCloner.CloneMesh(cachedEntry.MeshOutput));
     }
@@ -475,7 +477,9 @@ internal sealed class TerrainBuildService
         timer.Stop();
         ThrowIfCancellationRequested(shouldCancel);
         mesh = NormalizeTerrainMesh(mesh);
-        outputFingerprint = ComputeMeshStageOutputFingerprint(mesh, persistentHardConstraints);
+        outputFingerprint = ComputeMeshStageOutputFingerprint(
+            mesh,
+            CombineConstraints(persistentHardConstraints, build.PersistentElevationConstraints));
         runtimeCache.StageEntries[stageKey] = new StageCacheEntry
         {
             StageName = stageName,
@@ -485,6 +489,7 @@ internal sealed class TerrainBuildService
             MeshOutput = TerrainRuntimeCacheCloner.CloneMesh(mesh),
             AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(auxiliaryObjects),
             PersistentHardConstraints = TerrainRuntimeCacheCloner.CloneConstraints(persistentHardConstraints),
+            PersistentElevationConstraints = TerrainRuntimeCacheCloner.CloneConstraints(build.PersistentElevationConstraints),
             Diagnostics = diagnostics.ToList()
         };
 
@@ -518,6 +523,7 @@ internal sealed class TerrainBuildService
             AuxiliaryObjects = source.AuxiliaryObjects,
             MarkerObjects = source.MarkerObjects,
             PersistentHardConstraints = source.PersistentHardConstraints,
+            PersistentElevationConstraints = source.PersistentElevationConstraints,
             Diagnostics = source.Diagnostics,
             StairSurfaceCount = source.StairSurfaceCount,
             StairTreadDepthSummary = source.StairTreadDepthSummary,
@@ -602,6 +608,10 @@ internal sealed class TerrainBuildService
             breaklineCurves,
             tolerance,
             preserveInputElevation: true);
+        var persistentElevationConstraints = CreateConstraintPolylines(
+            contourCurves,
+            tolerance,
+            preserveInputElevation: true);
 
         ThrowIfCancellationRequested(shouldCancel);
         var polylines = TerrainTriangulationInputBuilder.CreateTriangulationPolylines(
@@ -669,12 +679,16 @@ internal sealed class TerrainBuildService
             boundaryPolylines,
             tolerance,
             runtimeCache.TinEngine,
+            runtimeCache.CoreCaseRecorder,
+            stageName,
             out var exactMesh,
             out var exactMessage,
             shouldCancel))
         {
             build.PersistentHardConstraints.Clear();
             build.PersistentHardConstraints.AddRange(persistentHardConstraints);
+            build.PersistentElevationConstraints.Clear();
+            build.PersistentElevationConstraints.AddRange(persistentElevationConstraints);
             if (!string.IsNullOrWhiteSpace(exactMessage))
                 build.Diagnostics.Add(exactMessage);
             return StoreMeshStageCache(
@@ -764,6 +778,8 @@ internal sealed class TerrainBuildService
             boundaryPolylines,
             tolerance,
             runtimeCache.TinEngine,
+            runtimeCache.CoreCaseRecorder,
+            $"{stageName} Cleanup Retry",
             out var cleanedMesh,
             out var cleanupMessage,
             shouldCancel))
@@ -790,6 +806,8 @@ internal sealed class TerrainBuildService
 
         build.PersistentHardConstraints.Clear();
         build.PersistentHardConstraints.AddRange(persistentHardConstraints);
+        build.PersistentElevationConstraints.Clear();
+        build.PersistentElevationConstraints.AddRange(persistentElevationConstraints);
         build.Diagnostics.Add($"Automatic input cleanup retry succeeded: {cleanup.ToDiagnosticSummary()}.");
         if (!string.IsNullOrWhiteSpace(cleanupMessage))
             build.Diagnostics.Add(cleanupMessage);
@@ -856,9 +874,14 @@ internal sealed class TerrainBuildService
             tolerance,
             preserveInputElevation: true);
         var persistentHardConstraints = CombineConstraints(build.PersistentHardConstraints, newHardConstraints);
+        var newElevationConstraints = CreateConstraintPolylines(
+            contourCurves,
+            tolerance,
+            preserveInputElevation: true);
+        var persistentElevationConstraints = CombineConstraints(build.PersistentElevationConstraints, newElevationConstraints);
 
         ThrowIfCancellationRequested(shouldCancel);
-        var polylines = CreateFlatPolylines(build.PersistentHardConstraints);
+        var polylines = CreateFlatPolylines(CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints));
         polylines.AddRange(TerrainTriangulationInputBuilder.CreateTriangulationPolylines(
             breaklineCurves,
             contourCurves,
@@ -888,12 +911,16 @@ internal sealed class TerrainBuildService
             boundaryPolylines,
             tolerance,
             runtimeCache.TinEngine,
+            runtimeCache.CoreCaseRecorder,
+            modifier.Label,
             out var exactMesh,
             out var exactMessage,
             shouldCancel))
         {
             build.PersistentHardConstraints.Clear();
             build.PersistentHardConstraints.AddRange(persistentHardConstraints);
+            build.PersistentElevationConstraints.Clear();
+            build.PersistentElevationConstraints.AddRange(persistentElevationConstraints);
             if (!string.IsNullOrWhiteSpace(exactMessage))
                 build.Diagnostics.Add(exactMessage);
             return exactMesh!;
@@ -928,6 +955,8 @@ internal sealed class TerrainBuildService
             boundaryPolylines,
             tolerance,
             runtimeCache.TinEngine,
+            runtimeCache.CoreCaseRecorder,
+            $"{modifier.Label} Cleanup Retry",
             out var cleanedMesh,
             out var cleanupMessage,
             shouldCancel))
@@ -941,6 +970,8 @@ internal sealed class TerrainBuildService
 
         build.PersistentHardConstraints.Clear();
         build.PersistentHardConstraints.AddRange(persistentHardConstraints);
+        build.PersistentElevationConstraints.Clear();
+        build.PersistentElevationConstraints.AddRange(persistentElevationConstraints);
         build.Diagnostics.Add($"Automatic input cleanup retry succeeded: {cleanup.ToDiagnosticSummary()}.");
         if (!string.IsNullOrWhiteSpace(cleanupMessage))
             build.Diagnostics.Add(cleanupMessage);
@@ -954,6 +985,8 @@ internal sealed class TerrainBuildService
         TinBoundaryPreparer.BoundaryPolyline[] boundaryPolylines,
         double tolerance,
         TinEngine engine,
+        TerrainCoreCaseRecorder? coreCaseRecorder,
+        string stageName,
         out RhinoMesh? mesh,
         out string? message,
         Func<bool>? shouldCancel = null)
@@ -984,6 +1017,18 @@ internal sealed class TerrainBuildService
             message = AppendBuildMessage(message, prepared.WarningMessage);
         if (!string.IsNullOrWhiteSpace(prepared.InfoMessage))
             message = AppendBuildMessage(message, prepared.InfoMessage);
+
+        coreCaseRecorder?.RecordTin(
+            stageName,
+            prepared.XyCoords,
+            prepared.ZValues,
+            prepared.Segments,
+            prepared.UseConvexHull,
+            maxBoundaryEdgeLength: 0,
+            result != null,
+            result?.VertexCount,
+            result?.FaceCount,
+            message);
 
         if (result == null)
             return false;
@@ -1299,39 +1344,104 @@ internal sealed class TerrainBuildService
         TerrainBuildResult build,
         TerrainBuildMode mode)
     {
-        double wallTolerance = Math.Max(GetTerrainTolerance(snapshot, terrain), modifier.Tolerance);
+        double terrainTolerance = GetTerrainTolerance(snapshot, terrain);
+        double maxWallWidth = Math.Max(terrainTolerance, modifier.MaxWallWidth);
+        var resolveTimer = Stopwatch.StartNew();
         var wallCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.WallCurves);
+        resolveTimer.Stop();
+        build.RecordTiming(
+            "Retaining Wall Resolve",
+            resolveTimer.Elapsed,
+            $"{wallCurves.Count:N0} curve inputs",
+            StageTimingDiagnosticThresholdMs);
         if (wallCurves.Count == 0)
         {
             build.Diagnostics.Add("Retaining Wall has no curve inputs.");
             return mesh;
         }
 
-        var plan = RhinoRetainingWallPlanner.Plan(wallCurves, wallTolerance);
+        var planTimer = Stopwatch.StartNew();
+        var plan = RetainingWallPlannerCore.Plan(
+            wallCurves,
+            maxWallWidth,
+            curveParsingTolerance: terrainTolerance);
+        planTimer.Stop();
+        build.RecordTiming(
+            "Retaining Wall Plan",
+            plan.Timing.Total > TimeSpan.Zero ? plan.Timing.Total : planTimer.Elapsed,
+            DescribeRetainingWallPlanTiming(plan.Timing, plan.Walls.Count),
+            StageTimingDiagnosticThresholdMs);
         foreach (var entry in plan.Report)
             build.Diagnostics.Add(entry.ToString());
 
-        var wallConstraints = new List<SurfaceRemesher.ConstraintPolyline>(plan.Walls.Count * 2);
+        if (plan.Walls.Count == 0)
+        {
+            build.Diagnostics.Add("Retaining Wall produced no accepted wall pairs.");
+            return mesh;
+        }
+
+        List<SurfaceRemesher.ConstraintPolyline> wallConstraints = new(plan.Walls.Count * 2);
+        var wallOutputTimer = new Stopwatch();
+        var constraintCurveTimer = new Stopwatch();
+        int usableWallCount = 0;
+        int wallBrepOutputCount = 0;
         foreach (var wall in plan.Walls)
         {
-            if (!IsWallStripUsable(wall.Strip, snapshot.ModelAbsoluteTolerance, out var stripMessage))
+            constraintCurveTimer.Start();
+            if (!IsWallStripUsable(wall.Rails, snapshot.ModelAbsoluteTolerance, out var stripMessage))
             {
+                constraintCurveTimer.Stop();
                 build.Diagnostics.Add($"Retaining wall pair ({wall.CurveA}, {wall.CurveB}) skipped: {stripMessage}");
                 continue;
             }
+            constraintCurveTimer.Stop();
+            usableWallCount++;
 
-            if (mode == TerrainBuildMode.Final && wall.Brep != null)
+            wallOutputTimer.Start();
+            if (mode == TerrainBuildMode.Final)
             {
-                build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+                if (wall.Brep != null)
                 {
-                    Geometry = wall.Brep,
-                    Name = $"Wall {wall.CurveA}-{wall.CurveB}",
-                    LayerPath = modifier.OutputLayerPath
-                });
+                    build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+                    {
+                        Geometry = wall.Brep,
+                        Name = $"Wall {wall.CurveA}-{wall.CurveB}",
+                        Kind = GeneratedObjectKind.RetainingWall,
+                        LayerPath = TerrainDefinition.ResolveAuxiliaryLayerPath(modifier.OutputLayerPath ?? terrain.AuxiliaryLayerPath)
+                    });
+                    wallBrepOutputCount++;
+                }
             }
+            wallOutputTimer.Stop();
 
-            AddWallConstraintCurves(wallConstraints, wall.Strip);
+            constraintCurveTimer.Start();
+            SurfaceRemesher.ConstraintPolyline[] wallSetConstraints = BuildWallConstraintCurves(wall.Rails, terrainTolerance);
+            constraintCurveTimer.Stop();
+            if (wallSetConstraints.Length == 0)
+                continue;
+
+            wallConstraints.AddRange(wallSetConstraints);
         }
+        build.RecordTiming(
+            "Retaining Wall Outputs",
+            wallOutputTimer.Elapsed,
+            $"{wallBrepOutputCount:N0} Brep outputs from {usableWallCount:N0} usable walls",
+            StageTimingDiagnosticThresholdMs);
+        build.RecordTiming(
+            "Retaining Wall Constraint Curves",
+            constraintCurveTimer.Elapsed,
+            $"{wallConstraints.Count:N0} raw rail constraints from {usableWallCount:N0} usable walls",
+            StageTimingDiagnosticThresholdMs);
+
+        int rawConstraintCount = wallConstraints.Count;
+        var prepareTimer = Stopwatch.StartNew();
+        wallConstraints = PrepareWallConstraintsForRemesh(mesh, wallConstraints, terrainTolerance);
+        prepareTimer.Stop();
+        build.RecordTiming(
+            "Retaining Wall Constraint Prep",
+            prepareTimer.Elapsed,
+            $"{rawConstraintCount:N0} raw -> {wallConstraints.Count:N0} prepared constraints",
+            StageTimingDiagnosticThresholdMs);
 
         if (wallConstraints.Count == 0)
         {
@@ -1339,22 +1449,106 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
+        var combineTimer = Stopwatch.StartNew();
+        List<SurfaceRemesher.ConstraintPolyline> terrainElevationConstraints =
+            CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints);
+        List<SurfaceRemesher.ConstraintPolyline> remeshConstraints =
+            CombineConstraints(terrainElevationConstraints, wallConstraints);
+        combineTimer.Stop();
+        build.RecordTiming(
+            "Retaining Wall Constraint Merge",
+            combineTimer.Elapsed,
+            $"{build.PersistentHardConstraints.Count:N0} hard + {build.PersistentElevationConstraints.Count:N0} elevation + {wallConstraints.Count:N0} wall -> {remeshConstraints.Count:N0} remesh constraints",
+            StageTimingDiagnosticThresholdMs);
+
+        var remeshTimer = Stopwatch.StartNew();
         var remeshed = RebuildMeshWithConstraints(
             snapshot,
             terrain,
             mesh,
-            CombineConstraints(build.PersistentHardConstraints, wallConstraints),
+            remeshConstraints,
             0.0,
             0.0,
             0.0,
             "Retaining Wall",
             build,
-            out _);
+            out bool keptInputMesh,
+            preferReducedInteriorSeed: true,
+            addReducedInteriorGuideSeeds: false,
+            addConstraintCorridorSeeds: false,
+            recordDetailedTimings: true);
+        remeshTimer.Stop();
+        build.RecordTiming(
+            "Retaining Wall Remesh",
+            remeshTimer.Elapsed,
+            keptInputMesh
+                ? "kept upstream mesh"
+                : ReferenceEquals(remeshed, mesh) ? "returned upstream mesh" : $"{remeshed.Vertices.Count:N0} verts, {remeshed.Faces.Count:N0} faces",
+            StageTimingDiagnosticThresholdMs);
 
         if (!ReferenceEquals(remeshed, mesh))
-            build.PersistentHardConstraints.AddRange(wallConstraints);
+        {
+            var persistTimer = Stopwatch.StartNew();
+            List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, wallConstraints);
+            build.PersistentHardConstraints.Clear();
+            build.PersistentHardConstraints.AddRange(mergedConstraints);
+            persistTimer.Stop();
+            build.RecordTiming(
+                "Retaining Wall Persist Constraints",
+                persistTimer.Elapsed,
+                $"{mergedConstraints.Count:N0} hard constraints",
+                StageTimingDiagnosticThresholdMs);
+            return remeshed;
+        }
+
+        if (keptInputMesh)
+        {
+            var fallbackTimer = Stopwatch.StartNew();
+            bool inserted = TryInsertWallConstraintsIntoExistingMesh(
+                mesh,
+                wallConstraints,
+                terrainTolerance,
+                build,
+                reportFailures: true,
+                afterCombinedRemeshFailed: true,
+                out RhinoMesh insertedMesh);
+            fallbackTimer.Stop();
+            build.RecordTiming(
+                "Retaining Wall Topology Fallback",
+                fallbackTimer.Elapsed,
+                inserted ? $"{insertedMesh.Vertices.Count:N0} verts, {insertedMesh.Faces.Count:N0} faces" : "not inserted",
+                StageTimingDiagnosticThresholdMs);
+
+            if (!inserted)
+                return remeshed;
+
+            var persistTimer = Stopwatch.StartNew();
+            List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, wallConstraints);
+            build.PersistentHardConstraints.Clear();
+            build.PersistentHardConstraints.AddRange(mergedConstraints);
+            persistTimer.Stop();
+            build.RecordTiming(
+                "Retaining Wall Persist Constraints",
+                persistTimer.Elapsed,
+                $"{mergedConstraints.Count:N0} hard constraints",
+                StageTimingDiagnosticThresholdMs);
+            return insertedMesh;
+        }
 
         return remeshed;
+    }
+
+    private static string DescribeRetainingWallPlanTiming(RetainingWallPlannerCore.PlanTiming timing, int wallCount)
+    {
+        if (timing.Total <= TimeSpan.Zero)
+            return $"{wallCount:N0} accepted walls";
+
+        return $"{wallCount:N0} accepted walls; preprocess {FormatMilliseconds(timing.Preprocess)}, pairing {FormatMilliseconds(timing.Pairing)}, interactions {FormatMilliseconds(timing.Interactions)}, wall geometry {FormatMilliseconds(timing.Walls)}";
+    }
+
+    private static string FormatMilliseconds(TimeSpan elapsed)
+    {
+        return $"{elapsed.TotalMilliseconds:0.###} ms";
     }
 
     private static RhinoMesh? BuildGradePadMesh(
@@ -1540,6 +1734,20 @@ internal sealed class TerrainBuildService
                     minAngle: 0,
                     out var gradeWarning);
                 ThrowIfCancellationRequested(shouldCancel);
+                runtimeCache.CoreCaseRecorder?.RecordPad(
+                    modifier.Label,
+                    vertices,
+                    mesh.Vertices.Count,
+                    faces,
+                    mesh.Faces.Count,
+                    resolvedInputs.Pads,
+                    effectiveLocks.Length > 0 ? effectiveLocks : null,
+                    maxArea: 0,
+                    minAngle: 0,
+                    gradeResult != null,
+                    gradeResult?.VertexCount,
+                    gradeResult?.FaceCount,
+                    gradeWarning);
 
                 if (!string.IsNullOrWhiteSpace(gradeWarning))
                     topologyDiagnostics.Add(gradeWarning!);
@@ -1637,6 +1845,7 @@ internal sealed class TerrainBuildService
             RhinoGeometryConversions.BuildMesh(gradedVertices, topologyEntry.VertexCount, topologyEntry.Faces, topologyEntry.FaceCount),
             "Grade Pad",
             build);
+        AddPersistentElevationConstraints(build, resolvedInputs.Constraints);
 
         return StoreMeshStageCache(
             build,
@@ -1979,6 +2188,18 @@ internal sealed class TerrainBuildService
             build.PersistentHardConstraints,
             out string? warning);
         coreTimer.Stop();
+        runtimeCache.CoreCaseRecorder?.RecordPath(
+            modifier.Label,
+            vertices,
+            mesh.Vertices.Count,
+            faces,
+            mesh.Faces.Count,
+            resolvedInputs.Paths,
+            build.PersistentHardConstraints,
+            gradingResult != null,
+            gradingResult?.VertexCount,
+            gradingResult?.FaceCount,
+            warning);
 
         if (gradingResult == null)
         {
@@ -2002,6 +2223,7 @@ internal sealed class TerrainBuildService
             build.Diagnostics.Add(diagnostic);
 
         AddOutputPolylinesAsBreaklines(gradingResult.OutputPolylines, build);
+        AddPersistentElevationConstraints(build, resolvedInputs.Constraints);
         runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologyEntry(
             vertices,
             mesh.Vertices.Count,
@@ -2291,6 +2513,83 @@ internal sealed class TerrainBuildService
         }
     }
 
+    private static void AddPersistentHardConstraints(
+        TerrainBuildResult build,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    {
+        List<SurfaceRemesher.ConstraintPolyline> preservedConstraints = CreatePreservedElevationConstraints(constraints);
+        if (preservedConstraints.Count == 0)
+            return;
+
+        List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, preservedConstraints);
+        build.PersistentHardConstraints.Clear();
+        build.PersistentHardConstraints.AddRange(mergedConstraints);
+    }
+
+    private static void AddPersistentElevationConstraints(
+        TerrainBuildResult build,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    {
+        List<SurfaceRemesher.ConstraintPolyline> preservedConstraints = CreatePreservedElevationConstraints(constraints);
+        if (preservedConstraints.Count == 0)
+            return;
+
+        List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentElevationConstraints, preservedConstraints);
+        build.PersistentElevationConstraints.Clear();
+        build.PersistentElevationConstraints.AddRange(mergedConstraints);
+    }
+
+    private static List<SurfaceRemesher.ConstraintPolyline> CreatePreservedElevationConstraints(
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    {
+        var preservedConstraints = new List<SurfaceRemesher.ConstraintPolyline>(constraints.Count);
+        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        {
+            if (constraint.PointCount < 2)
+                continue;
+
+            int pointValueCount = Math.Min(constraint.Points.Length, constraint.PointCount * 3);
+            if (pointValueCount < constraint.PointCount * 3)
+                continue;
+
+            var points = new double[pointValueCount];
+            Array.Copy(constraint.Points, points, pointValueCount);
+            preservedConstraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                points,
+                constraint.PointCount,
+                constraint.IsClosed,
+                PreserveInputElevation: true));
+        }
+
+        return preservedConstraints;
+    }
+
+    private static List<SurfaceRemesher.ConstraintPolyline> CreateInSituStairConstraints(
+        IReadOnlyList<InSituStairReference> references)
+    {
+        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(references.Count);
+        foreach (InSituStairReference reference in references)
+        {
+            SurfaceStripGrader.SurfaceDefinition surface = reference.SupportSurface;
+            if (surface.BoundaryVertexCount < 3)
+                continue;
+
+            int pointValueCount = Math.Min(surface.BoundaryVertices.Length, surface.BoundaryVertexCount * 3);
+            if (pointValueCount < surface.BoundaryVertexCount * 3)
+                continue;
+
+            var points = new double[pointValueCount];
+            Array.Copy(surface.BoundaryVertices, points, pointValueCount);
+            constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                points,
+                surface.BoundaryVertexCount,
+                IsClosed: true,
+                PreserveInputElevation: true));
+        }
+
+        return constraints;
+    }
+
     private static ResolvedGradePathInputs ResolveGradePathInputs(
         TerrainBuildSnapshot snapshot,
         double[] vertices,
@@ -2374,13 +2673,21 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
+        var referenceResolveTimer = Stopwatch.StartNew();
         var referenceMeshes = TerrainBuildSnapshotResolver.ResolveMeshes(snapshot, modifier.ReferenceSurface);
+        referenceResolveTimer.Stop();
+        build.RecordTiming(
+            "In-Situ Stair Reference Resolve",
+            referenceResolveTimer.Elapsed,
+            $"{referenceMeshes.Count:N0} reference meshes",
+            StageTimingDiagnosticThresholdMs);
         if (referenceMeshes.Count == 0)
         {
             build.Diagnostics.Add("In-Situ Stair has no valid reference surface.");
             return mesh;
         }
 
+        var referenceBuildTimer = Stopwatch.StartNew();
         if (!InSituStairReferenceBuilder.TryBuild(
                 referenceMeshes,
                 modifier.RiserHeight,
@@ -2389,13 +2696,20 @@ internal sealed class TerrainBuildService
                 out var stairBuild,
                 out errorMessage))
         {
+            referenceBuildTimer.Stop();
             build.Diagnostics.Add(errorMessage ?? "In-Situ Stair could not interpret the reference surface.");
             return mesh;
         }
+        referenceBuildTimer.Stop();
+        build.RecordTiming(
+            "In-Situ Stair Reference Build",
+            referenceBuildTimer.Elapsed,
+            $"{stairBuild!.SurfaceCount:N0} surfaces, {stairBuild.StepCountSummary} steps",
+            StageTimingDiagnosticThresholdMs);
 
         double tolerance = GetTerrainTolerance(snapshot, terrain);
 
-        modifier.ComputedSurfaceCount = stairBuild!.SurfaceCount;
+        modifier.ComputedSurfaceCount = stairBuild.SurfaceCount;
         modifier.ComputedTreadDepthSummary = stairBuild.TreadDepthSummary;
         modifier.ComputedStepCountSummary = stairBuild.StepCountSummary;
 
@@ -2405,31 +2719,48 @@ internal sealed class TerrainBuildService
         int currentFaceCount = mesh.Faces.Count;
         var gradingWarnings = new List<string>();
 
-        foreach (var stairReference in stairBuild.References)
+        var gradingTimer = Stopwatch.StartNew();
+        SurfaceStripGrader.SurfaceDefinition[] stairSurfaces = stairBuild.References
+            .Select(static reference => reference.SupportSurface)
+            .ToArray();
+        var batchGradeTimer = Stopwatch.StartNew();
+        var batchResult = SurfaceStripGrader.Grade(
+            currentVertices,
+            currentVertexCount,
+            currentFaces,
+            currentFaceCount,
+            stairSurfaces,
+            build.PersistentHardConstraints,
+            out var batchGradingWarning);
+        batchGradeTimer.Stop();
+        build.RecordTiming(
+            "In-Situ Stair Surface Grade",
+            batchGradeTimer.Elapsed,
+            $"batched {stairSurfaces.Length:N0} surfaces: {currentVertexCount:N0} verts/{currentFaceCount:N0} faces -> {batchResult?.VertexCount ?? 0:N0} verts/{batchResult?.FaceCount ?? 0:N0} faces",
+            StageTimingDiagnosticThresholdMs);
+
+        if (batchResult == null)
         {
-            var result = SurfaceStripGrader.Grade(
-                currentVertices,
-                currentVertexCount,
-                currentFaces,
-                currentFaceCount,
-                stairReference.SupportSurface,
-                build.PersistentHardConstraints,
-                out var gradingWarning);
-
-            if (result == null)
-            {
-                build.Diagnostics.Add(gradingWarning ?? "In-Situ Stair grading failed.");
-                return mesh;
-            }
-
-            currentVertices = result.Vertices;
-            currentVertexCount = result.VertexCount;
-            currentFaces = result.Faces;
-            currentFaceCount = result.FaceCount;
-            if (!string.IsNullOrWhiteSpace(gradingWarning))
-                gradingWarnings.Add(gradingWarning);
+            build.Diagnostics.Add(batchGradingWarning ?? "In-Situ Stair grading failed.");
+            return mesh;
         }
 
+        currentVertices = batchResult.Vertices;
+        currentVertexCount = batchResult.VertexCount;
+        currentFaces = batchResult.Faces;
+        currentFaceCount = batchResult.FaceCount;
+        if (!string.IsNullOrWhiteSpace(batchGradingWarning))
+            gradingWarnings.Add(batchGradingWarning);
+
+        gradingTimer.Stop();
+        build.RecordTiming(
+            "In-Situ Stair Grade",
+            gradingTimer.Elapsed,
+            $"{stairBuild.References.Count:N0} surfaces -> {currentVertexCount:N0} verts, {currentFaceCount:N0} faces",
+            StageTimingDiagnosticThresholdMs);
+
+        var outputTimer = Stopwatch.StartNew();
+        int outputCountBefore = build.AuxiliaryObjects.Count;
         foreach (var stairReference in stairBuild.References)
         {
             foreach (var stairBrep in stairReference.StairBreps)
@@ -2452,6 +2783,12 @@ internal sealed class TerrainBuildService
                 });
             }
         }
+        outputTimer.Stop();
+        build.RecordTiming(
+            "In-Situ Stair Outputs",
+            outputTimer.Elapsed,
+            $"{build.AuxiliaryObjects.Count - outputCountBefore:N0} auxiliary outputs",
+            StageTimingDiagnosticThresholdMs);
 
         build.Diagnostics.Add(stairBuild.StatusSummary);
         foreach (var warning in stairBuild.Warnings)
@@ -2459,11 +2796,36 @@ internal sealed class TerrainBuildService
         foreach (var gradingWarning in gradingWarnings)
             build.Diagnostics.Add(gradingWarning);
 
-        return CleanTinyFaces(
-            RhinoGeometryConversions.BuildMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount),
-            tolerance,
-            "In-Situ Stair",
-            build);
+        var persistTimer = Stopwatch.StartNew();
+        AddPersistentHardConstraints(build, CreateInSituStairConstraints(stairBuild.References));
+        persistTimer.Stop();
+        build.RecordTiming(
+            "In-Situ Stair Persist Constraints",
+            persistTimer.Elapsed,
+            $"{build.PersistentHardConstraints.Count:N0} hard constraints",
+            StageTimingDiagnosticThresholdMs);
+
+        var meshBuildTimer = Stopwatch.StartNew();
+        RhinoMesh stairMesh = RhinoGeometryConversions.BuildMesh(currentVertices, currentVertexCount, currentFaces, currentFaceCount);
+        meshBuildTimer.Stop();
+        build.RecordTiming(
+            "In-Situ Stair Mesh Build",
+            meshBuildTimer.Elapsed,
+            $"{stairMesh.Vertices.Count:N0} verts, {stairMesh.Faces.Count:N0} faces",
+            StageTimingDiagnosticThresholdMs);
+
+        var cleanupTimer = Stopwatch.StartNew();
+        RhinoMesh cleanedStairMesh = CleanTinyFaces(stairMesh, tolerance, "In-Situ Stair", build);
+        cleanupTimer.Stop();
+        build.RecordTiming(
+            "In-Situ Stair Tiny Cleanup",
+            cleanupTimer.Elapsed,
+            ReferenceEquals(cleanedStairMesh, stairMesh)
+                ? "unchanged"
+                : $"{cleanedStairMesh.Vertices.Count:N0} verts, {cleanedStairMesh.Faces.Count:N0} faces",
+            StageTimingDiagnosticThresholdMs);
+
+        return cleanedStairMesh;
     }
 
     private static List<ZoneBoundaryEntry> ResolveZoneBoundaries(TerrainBuildSnapshot snapshot, CollageZoneDefinition zone, int zoneOrder, double tolerance)
@@ -4099,24 +4461,17 @@ internal sealed class TerrainBuildService
         return false;
     }
 
-    private static bool IsWallStripUsable(RetainingWallMeshGrader.WallStripDefinition strip, double tolerance, out string message)
+    private static bool IsWallStripUsable(RetainingWallPlannerCore.WallRails rails, double tolerance, out string message)
     {
         message = string.Empty;
-        if (strip.StationCount < 2)
+        int minimum = rails.IsClosed ? 3 : 2;
+        if (rails.ToePoints.Length < minimum || rails.TopPoints.Length < minimum)
         {
-            message = "too few stations.";
+            message = "too few rail points.";
             return false;
         }
 
-        double minWidth = double.MaxValue;
-        for (int i = 0; i < strip.StationCount; i++)
-        {
-            double dx = strip.TopXy[i * 2] - strip.ToeXy[i * 2];
-            double dy = strip.TopXy[i * 2 + 1] - strip.ToeXy[i * 2 + 1];
-            minWidth = Math.Min(minWidth, Math.Sqrt(dx * dx + dy * dy));
-        }
-
-        if (minWidth < Math.Max(tolerance * 2.0, 0.05))
+        if (rails.MinWidth < Math.Max(tolerance * 0.1, 1e-6))
         {
             message = "strip width collapses too tightly.";
             return false;
@@ -4125,27 +4480,368 @@ internal sealed class TerrainBuildService
         return true;
     }
 
-    private static void AddWallConstraintCurves(List<SurfaceRemesher.ConstraintPolyline> curves, RetainingWallMeshGrader.WallStripDefinition strip)
+    private static SurfaceRemesher.ConstraintPolyline[] BuildWallConstraintCurves(RetainingWallPlannerCore.WallRails rails, double tolerance)
     {
-        Polyline? toeCurve = CreateWallRailCurve(strip.ToeXy, strip.ToeZ, strip.StationCount);
-        if (toeCurve != null)
-            curves.Add(ToConstraintPolyline(toeCurve, isClosed: false, preserveInputElevation: true));
+        var curves = new List<SurfaceRemesher.ConstraintPolyline>(2);
+        int minimum = rails.IsClosed ? 3 : 2;
+        SurfaceRemesher.ConstraintPolyline toeCurve = CreateWallRailConstraint(rails.ToePoints, rails.IsClosed, tolerance);
+        if (toeCurve.PointCount >= minimum)
+            curves.Add(toeCurve);
 
-        Polyline? topCurve = CreateWallRailCurve(strip.TopXy, strip.TopZ, strip.StationCount);
-        if (topCurve != null)
-            curves.Add(ToConstraintPolyline(topCurve, isClosed: false, preserveInputElevation: true));
+        SurfaceRemesher.ConstraintPolyline topCurve = CreateWallRailConstraint(rails.TopPoints, rails.IsClosed, tolerance);
+        if (topCurve.PointCount >= minimum)
+            curves.Add(topCurve);
+
+        return curves.ToArray();
     }
 
-    private static Polyline? CreateWallRailCurve(double[] xy, double[] z, int count)
+    private static SurfaceRemesher.ConstraintPolyline CreateWallRailConstraint(Point3d[] railPoints, bool isClosed, double tolerance)
     {
-        if (count < 2)
-            return null;
+        int minimum = isClosed ? 3 : 2;
+        if (railPoints.Length < minimum)
+            return new SurfaceRemesher.ConstraintPolyline(Array.Empty<double>(), 0, isClosed, PreserveInputElevation: true);
 
-        var points = new Point3d[count];
-        for (int i = 0; i < count; i++)
-            points[i] = new Point3d(xy[i * 2], xy[i * 2 + 1], z[i]);
+        double tolSq = Math.Max(tolerance, 1e-6);
+        tolSq *= tolSq;
+        var points = new List<Point3d>(railPoints.Length);
+        for (int i = 0; i < railPoints.Length; i++)
+        {
+            Point3d point = railPoints[i];
+            if (points.Count > 0 && DistanceSquared2D(points[^1], point) <= tolSq)
+            {
+                points[^1] = point;
+                continue;
+            }
 
-        return new Polyline(points);
+            points.Add(point);
+        }
+
+        if (isClosed && points.Count > 1 && DistanceSquared2D(points[0], points[^1]) <= tolSq)
+            points.RemoveAt(points.Count - 1);
+
+        if (points.Count < minimum)
+            return new SurfaceRemesher.ConstraintPolyline(Array.Empty<double>(), 0, isClosed, PreserveInputElevation: true);
+
+        var values = new double[points.Count * 3];
+        for (int i = 0; i < points.Count; i++)
+        {
+            values[i * 3] = points[i].X;
+            values[i * 3 + 1] = points[i].Y;
+            values[i * 3 + 2] = points[i].Z;
+        }
+
+        return new SurfaceRemesher.ConstraintPolyline(values, points.Count, isClosed, PreserveInputElevation: true);
+    }
+
+    private static List<SurfaceRemesher.ConstraintPolyline> PrepareWallConstraintsForRemesh(
+        RhinoMesh mesh,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        double tolerance)
+    {
+        var prepared = new List<SurfaceRemesher.ConstraintPolyline>(constraints.Count);
+        if (constraints.Count == 0)
+            return prepared;
+
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
+        {
+            foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+            {
+                SurfaceRemesher.ConstraintPolyline cleaned = CleanWallConstraintPolyline(constraint, tolerance);
+                if (cleaned.PointCount >= 2)
+                    prepared.Add(cleaned);
+            }
+
+            return prepared;
+        }
+
+        var snapper = new ConstraintCoincidenceSnapper(
+            vertices,
+            mesh.Vertices.Count,
+            faces,
+            mesh.Faces.Count,
+            Math.Max(tolerance, 1e-6));
+
+        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        {
+            SurfaceRemesher.ConstraintPolyline snapped = snapper.SnapConstraintPolyline(constraint);
+            SurfaceRemesher.ConstraintPolyline cleaned = CleanWallConstraintPolyline(snapped, tolerance);
+            if (cleaned.PointCount >= 2)
+                prepared.Add(cleaned);
+        }
+
+        return CombineConstraints(Array.Empty<SurfaceRemesher.ConstraintPolyline>(), prepared);
+    }
+
+    private static SurfaceRemesher.ConstraintPolyline CleanWallConstraintPolyline(
+        SurfaceRemesher.ConstraintPolyline constraint,
+        double tolerance)
+    {
+        if (constraint.PointCount < 2)
+            return constraint;
+
+        double tolSq = Math.Max(tolerance, 1e-6);
+        tolSq *= tolSq;
+        var points = new List<double>(constraint.PointCount * 3);
+        for (int i = 0; i < constraint.PointCount; i++)
+        {
+            double x = constraint.Points[i * 3];
+            double y = constraint.Points[i * 3 + 1];
+            double z = constraint.Points[i * 3 + 2];
+            if (points.Count >= 3)
+            {
+                double dx = points[^3] - x;
+                double dy = points[^2] - y;
+                if ((dx * dx) + (dy * dy) <= tolSq)
+                {
+                    points[^3] = x;
+                    points[^2] = y;
+                    points[^1] = z;
+                    continue;
+                }
+            }
+
+            points.Add(x);
+            points.Add(y);
+            points.Add(z);
+        }
+
+        int pointCount = points.Count / 3;
+        int minimum = constraint.IsClosed ? 3 : 2;
+        return pointCount >= minimum
+            ? new SurfaceRemesher.ConstraintPolyline(points.ToArray(), pointCount, constraint.IsClosed, constraint.PreserveInputElevation)
+            : new SurfaceRemesher.ConstraintPolyline(Array.Empty<double>(), 0, constraint.IsClosed, constraint.PreserveInputElevation);
+    }
+
+    private static bool TryInsertWallConstraintsIntoExistingMesh(
+        RhinoMesh mesh,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> wallConstraints,
+        double tolerance,
+        TerrainBuildResult build,
+        bool reportFailures,
+        bool afterCombinedRemeshFailed,
+        out RhinoMesh insertedMesh)
+    {
+        insertedMesh = mesh;
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        {
+            if (reportFailures)
+                build.Diagnostics.Add(errorMessage ?? "Retaining Wall topology insertion could not extract the upstream mesh.");
+            return false;
+        }
+
+        if (!MeshConstraintTopologyInserter.TryInsert(
+                vertices,
+                mesh.Vertices.Count,
+                faces,
+                mesh.Faces.Count,
+                wallConstraints,
+                tolerance,
+                out double[] outputVertices,
+                out int outputVertexCount,
+                out int[] outputFaces,
+                out int outputFaceCount,
+                out string? topologyError))
+        {
+            if (reportFailures)
+                build.Diagnostics.Add(topologyError ?? "Retaining Wall topology insertion could not insert wall constraints into the existing mesh.");
+            return false;
+        }
+
+        if (!TopologyChanged(vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, outputVertices, outputVertexCount, outputFaces, outputFaceCount, tolerance))
+        {
+            if (reportFailures)
+                build.Diagnostics.Add("Retaining Wall topology insertion found no terrain faces crossed by wall constraints.");
+            return false;
+        }
+
+        var inputBoundary = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, mesh.Faces.Count);
+        var outputBoundary = MeshTopologyValidator.AnalyzeBoundaryGraph(outputFaces, outputFaceCount);
+        if (!IsTopologyInsertionBoundarySafe(inputBoundary, outputBoundary, out string boundaryMessage))
+        {
+            if (reportFailures)
+                build.Diagnostics.Add($"Retaining Wall topology insertion rejected: {boundaryMessage}");
+            return false;
+        }
+
+        ApplyPreservedConstraintElevations(outputVertices, wallConstraints, tolerance);
+        insertedMesh = BuildMeshFromArrays(outputVertices, outputFaces);
+        build.Diagnostics.Add(afterCombinedRemeshFailed
+            ? "Retaining Wall topology fallback inserted wall breaklines into the existing mesh after combined remesh failed."
+            : "Retaining Wall topology insertion inserted wall breaklines into the existing mesh.");
+        return true;
+    }
+
+    private static bool IsTopologyInsertionBoundarySafe(
+        MeshTopologyValidator.BoundaryGraphAnalysis inputBoundary,
+        MeshTopologyValidator.BoundaryGraphAnalysis outputBoundary,
+        out string message)
+    {
+        if (inputBoundary.HasSingleClosedBoundaryLoop && !outputBoundary.HasSingleClosedBoundaryLoop)
+        {
+            message = "it would break the original single closed terrain boundary.";
+            return false;
+        }
+
+        if (!inputBoundary.HasOpenBoundaryChains && outputBoundary.HasOpenBoundaryChains)
+        {
+            message = "it would create open naked-edge chains.";
+            return false;
+        }
+
+        if (outputBoundary.BoundaryComponentCount > inputBoundary.BoundaryComponentCount)
+        {
+            message = $"it would create extra boundary loops ({inputBoundary.BoundaryComponentCount} -> {outputBoundary.BoundaryComponentCount}).";
+            return false;
+        }
+
+        message = string.Empty;
+        return true;
+    }
+
+    private static bool TopologyChanged(
+        double[] inputVertices,
+        int inputVertexCount,
+        int[] inputFaces,
+        int inputFaceCount,
+        double[] outputVertices,
+        int outputVertexCount,
+        int[] outputFaces,
+        int outputFaceCount,
+        double tolerance)
+    {
+        if (outputVertexCount != inputVertexCount || outputFaceCount != inputFaceCount)
+            return true;
+
+        double tolSq = Math.Max(tolerance, 1e-9);
+        tolSq *= tolSq;
+        for (int i = 0; i < inputVertexCount; i++)
+        {
+            double dx = inputVertices[i * 3] - outputVertices[i * 3];
+            double dy = inputVertices[i * 3 + 1] - outputVertices[i * 3 + 1];
+            double dz = inputVertices[i * 3 + 2] - outputVertices[i * 3 + 2];
+            if ((dx * dx) + (dy * dy) + (dz * dz) > tolSq)
+                return true;
+        }
+
+        for (int i = 0; i < inputFaceCount * 3; i++)
+        {
+            if (inputFaces[i] != outputFaces[i])
+                return true;
+        }
+
+        return false;
+    }
+
+    private static void ApplyPreservedConstraintElevations(
+        double[] vertices,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        double tolerance)
+    {
+        double matchTolerance = Math.Max(tolerance, 1e-6);
+        double matchToleranceSquared = matchTolerance * matchTolerance;
+        int vertexCount = vertices.Length / 3;
+        for (int vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++)
+        {
+            double x = vertices[vertexIndex * 3];
+            double y = vertices[vertexIndex * 3 + 1];
+            if (TryGetPreservedConstraintElevation(x, y, constraints, matchToleranceSquared, out double z))
+                vertices[vertexIndex * 3 + 2] = z;
+        }
+    }
+
+    private static bool TryGetPreservedConstraintElevation(
+        double x,
+        double y,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        double maxDistanceSquared,
+        out double z)
+    {
+        z = 0.0;
+        bool found = false;
+        double bestDistanceSquared = maxDistanceSquared;
+        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        {
+            if (!constraint.PreserveInputElevation || constraint.PointCount < 2)
+                continue;
+
+            for (int pointIndex = 1; pointIndex < constraint.PointCount; pointIndex++)
+            {
+                if (!TryProjectToConstraintSegment(
+                        constraint,
+                        pointIndex - 1,
+                        pointIndex,
+                        x,
+                        y,
+                        bestDistanceSquared,
+                        out double candidateZ,
+                        out double distanceSquared))
+                {
+                    continue;
+                }
+
+                bestDistanceSquared = distanceSquared;
+                z = candidateZ;
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    private static bool TryProjectToConstraintSegment(
+        SurfaceRemesher.ConstraintPolyline constraint,
+        int startPointIndex,
+        int endPointIndex,
+        double x,
+        double y,
+        double maxDistanceSquared,
+        out double z,
+        out double distanceSquared)
+    {
+        double ax = constraint.Points[startPointIndex * 3];
+        double ay = constraint.Points[startPointIndex * 3 + 1];
+        double az = constraint.Points[startPointIndex * 3 + 2];
+        double bx = constraint.Points[endPointIndex * 3];
+        double by = constraint.Points[endPointIndex * 3 + 1];
+        double bz = constraint.Points[endPointIndex * 3 + 2];
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lengthSquared = (dx * dx) + (dy * dy);
+        if (lengthSquared <= 1e-12)
+        {
+            z = 0.0;
+            distanceSquared = double.PositiveInfinity;
+            return false;
+        }
+
+        double t = (((x - ax) * dx) + ((y - ay) * dy)) / lengthSquared;
+        if (t < 0.0 || t > 1.0)
+        {
+            z = 0.0;
+            distanceSquared = double.PositiveInfinity;
+            return false;
+        }
+
+        double closestX = ax + (dx * t);
+        double closestY = ay + (dy * t);
+        double offsetX = x - closestX;
+        double offsetY = y - closestY;
+        distanceSquared = (offsetX * offsetX) + (offsetY * offsetY);
+        if (distanceSquared > maxDistanceSquared)
+        {
+            z = 0.0;
+            return false;
+        }
+
+        z = az + ((bz - az) * t);
+        return true;
+    }
+
+    private static double DistanceSquared2D(Point3d a, Point3d b)
+    {
+        double dx = a.X - b.X;
+        double dy = a.Y - b.Y;
+        return (dx * dx) + (dy * dy);
     }
 
     private static RhinoMesh RebuildMeshWithConstraints(
@@ -4163,7 +4859,8 @@ internal sealed class TerrainBuildService
         bool addReducedInteriorGuideSeeds = true,
         bool addConstraintCorridorSeeds = true,
         double? toleranceOverride = null,
-        bool protectSharpEdges = true)
+        bool protectSharpEdges = true,
+        bool recordDetailedTimings = false)
     {
         keptInputMesh = false;
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var originalVertices, out var originalFaces, out var errorMessage))
@@ -4173,6 +4870,7 @@ internal sealed class TerrainBuildService
         }
 
         double tolerance = toleranceOverride ?? GetTerrainTolerance(snapshot, terrain);
+        var remeshCoreTimer = Stopwatch.StartNew();
         var remeshResult = SurfaceRemesher.Remesh(
             originalVertices,
             originalFaces,
@@ -4191,6 +4889,15 @@ internal sealed class TerrainBuildService
                 // pre-densification spacing — do not use it to drive Steiner interior refinement.
                 ConstraintInsertionOnly = maxArea <= 0 && minAngle <= 0
             });
+        remeshCoreTimer.Stop();
+        if (recordDetailedTimings)
+        {
+            build.RecordTiming(
+                $"{label} SurfaceRemesher",
+                remeshCoreTimer.Elapsed,
+                remeshResult.Success ? "success" : "failed",
+                StageTimingDiagnosticThresholdMs);
+        }
 
         if (remeshResult.Profile is not null)
         {
@@ -4220,7 +4927,33 @@ internal sealed class TerrainBuildService
         if (!string.IsNullOrWhiteSpace(remeshResult.Warning))
             build.Diagnostics.Add(remeshResult.Warning);
 
-        return CleanTinyFaces(BuildMeshFromArrays(remeshResult.Vertices, remeshResult.Faces), tolerance, label, build);
+        var meshBuildTimer = Stopwatch.StartNew();
+        RhinoMesh rawMesh = BuildMeshFromArrays(remeshResult.Vertices, remeshResult.Faces);
+        meshBuildTimer.Stop();
+        if (recordDetailedTimings)
+        {
+            build.RecordTiming(
+                $"{label} Mesh Build",
+                meshBuildTimer.Elapsed,
+                $"{rawMesh.Vertices.Count:N0} verts, {rawMesh.Faces.Count:N0} faces",
+                StageTimingDiagnosticThresholdMs);
+        }
+
+        var cleanupTimer = Stopwatch.StartNew();
+        RhinoMesh cleanedMesh = CleanTinyFaces(rawMesh, tolerance, label, build);
+        cleanupTimer.Stop();
+        if (recordDetailedTimings)
+        {
+            build.RecordTiming(
+                $"{label} Tiny Cleanup",
+                cleanupTimer.Elapsed,
+                ReferenceEquals(cleanedMesh, rawMesh)
+                    ? "unchanged"
+                    : $"{cleanedMesh.Vertices.Count:N0} verts, {cleanedMesh.Faces.Count:N0} faces",
+                StageTimingDiagnosticThresholdMs);
+        }
+
+        return cleanedMesh;
     }
 
     private static string DescribeTopologyCounts(int inputVertexCount, int inputFaceCount, int outputVertexCount, int outputFaceCount)
@@ -5815,16 +6548,20 @@ internal sealed class TerrainBuildService
         int removedCount = 0;
         int blockedCount = 0;
         bool enforceSingleClosedBoundaryLoop = originalTopology.HasSingleClosedBoundaryLoop;
+        Dictionary<long, int>? edgeCounts = enforceSingleClosedBoundaryLoop
+            ? BuildFaceEdgeCounts(faces, faceCount)
+            : null;
 
         foreach (var candidate in candidates)
         {
             keepFace[candidate.FaceIndex] = false;
             if (enforceSingleClosedBoundaryLoop)
             {
-                int[] proposedFaces = BuildFilteredFaces(faces, faceCount, keepFace, removedCount + 1);
-                var proposedTopology = MeshTopologyValidator.AnalyzeBoundaryGraph(proposedFaces, proposedFaces.Length / 3);
+                ApplyFaceEdgeCountDelta(edgeCounts!, faces, candidate.FaceIndex, -1);
+                var proposedTopology = AnalyzeBoundaryGraphFromEdgeCounts(edgeCounts!);
                 if (!proposedTopology.HasSingleClosedBoundaryLoop)
                 {
+                    ApplyFaceEdgeCountDelta(edgeCounts!, faces, candidate.FaceIndex, 1);
                     keepFace[candidate.FaceIndex] = true;
                     blockedCount++;
                     continue;
@@ -5841,6 +6578,111 @@ internal sealed class TerrainBuildService
             BuildFilteredFaces(faces, faceCount, keepFace, removedCount),
             removedCount,
             blockedCount);
+    }
+
+    private static Dictionary<long, int> BuildFaceEdgeCounts(int[] faces, int faceCount)
+    {
+        var edgeCounts = new Dictionary<long, int>(Math.Max(faceCount * 3 / 2, 8), IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[faceIndex * 3 + 1];
+            int c = faces[faceIndex * 3 + 2];
+            IncrementEdgeCount(edgeCounts, a, b, 1);
+            IncrementEdgeCount(edgeCounts, b, c, 1);
+            IncrementEdgeCount(edgeCounts, c, a, 1);
+        }
+
+        return edgeCounts;
+    }
+
+    private static void ApplyFaceEdgeCountDelta(Dictionary<long, int> edgeCounts, int[] faces, int faceIndex, int delta)
+    {
+        int a = faces[faceIndex * 3];
+        int b = faces[faceIndex * 3 + 1];
+        int c = faces[faceIndex * 3 + 2];
+        IncrementEdgeCount(edgeCounts, a, b, delta);
+        IncrementEdgeCount(edgeCounts, b, c, delta);
+        IncrementEdgeCount(edgeCounts, c, a, delta);
+    }
+
+    private static void IncrementEdgeCount(Dictionary<long, int> edgeCounts, int a, int b, int delta)
+    {
+        long key = IndexedMeshTools.GetEdgeKey(a, b);
+        edgeCounts.TryGetValue(key, out int count);
+        count += delta;
+        if (count == 0)
+            edgeCounts.Remove(key);
+        else
+            edgeCounts[key] = count;
+    }
+
+    private static MeshTopologyValidator.BoundaryGraphAnalysis AnalyzeBoundaryGraphFromEdgeCounts(
+        IReadOnlyDictionary<long, int> edgeCounts)
+    {
+        var adjacency = new Dictionary<int, List<int>>();
+        var degree = new Dictionary<int, int>();
+        int boundaryEdgeCount = 0;
+
+        foreach (var pair in edgeCounts)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            boundaryEdgeCount++;
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            AddBoundaryNeighbor(adjacency, degree, a, b);
+            AddBoundaryNeighbor(adjacency, degree, b, a);
+        }
+
+        if (boundaryEdgeCount == 0)
+            return new MeshTopologyValidator.BoundaryGraphAnalysis(0, 0, 0, HasOpenBoundaryChains: true);
+
+        bool hasOpenBoundaryChains = degree.Values.Any(value => value != 2);
+        int boundaryComponentCount = 0;
+        var visited = new HashSet<int>();
+
+        foreach (int start in adjacency.Keys)
+        {
+            if (!visited.Add(start))
+                continue;
+
+            boundaryComponentCount++;
+            var stack = new Stack<int>();
+            stack.Push(start);
+            while (stack.Count > 0)
+            {
+                int current = stack.Pop();
+                foreach (int next in adjacency[current])
+                {
+                    if (visited.Add(next))
+                        stack.Push(next);
+                }
+            }
+        }
+
+        return new MeshTopologyValidator.BoundaryGraphAnalysis(
+            boundaryEdgeCount,
+            degree.Count,
+            boundaryComponentCount,
+            hasOpenBoundaryChains);
+    }
+
+    private static void AddBoundaryNeighbor(
+        Dictionary<int, List<int>> adjacency,
+        Dictionary<int, int> degree,
+        int from,
+        int to)
+    {
+        if (!adjacency.TryGetValue(from, out var neighbors))
+        {
+            neighbors = new List<int>(2);
+            adjacency[from] = neighbors;
+        }
+
+        neighbors.Add(to);
+        degree[from] = degree.GetValueOrDefault(from) + 1;
     }
 
     private static double ComputeMedianUndirectedEdgeLength(double[] vertices, int[] faces, int faceCount)

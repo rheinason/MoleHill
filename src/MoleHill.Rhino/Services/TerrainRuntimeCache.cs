@@ -20,6 +20,8 @@ internal sealed class TerrainRuntimeCache
 
     public TerrainDisplayState? DisplayState { get; set; }
 
+    public TerrainCoreCaseRecorder? CoreCaseRecorder { get; init; }
+
     public TimeSpan? LastPreviewDuration { get; set; }
 
     public TimeSpan? LastFinalDuration { get; set; }
@@ -375,6 +377,8 @@ internal sealed class StageCacheEntry
 
     public List<SurfaceRemesher.ConstraintPolyline> PersistentHardConstraints { get; init; } = new();
 
+    public List<SurfaceRemesher.ConstraintPolyline> PersistentElevationConstraints { get; init; } = new();
+
     public List<string> Diagnostics { get; init; } = new();
 
     public int? StairSurfaceCount { get; set; }
@@ -606,6 +610,7 @@ internal static class TerrainRuntimeCacheCloner
             AuxiliaryObjects = entry.AuxiliaryObjects,
             MarkerObjects = entry.MarkerObjects,
             PersistentHardConstraints = entry.PersistentHardConstraints,
+            PersistentElevationConstraints = entry.PersistentElevationConstraints,
             Diagnostics = entry.Diagnostics,
             StairSurfaceCount = entry.StairSurfaceCount,
             StairTreadDepthSummary = entry.StairTreadDepthSummary,

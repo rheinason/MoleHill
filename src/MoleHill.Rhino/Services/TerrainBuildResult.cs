@@ -46,6 +46,8 @@ internal sealed class TerrainBuildResult
 
     public List<SurfaceRemesher.ConstraintPolyline> PersistentHardConstraints { get; } = new();
 
+    public List<SurfaceRemesher.ConstraintPolyline> PersistentElevationConstraints { get; } = new();
+
     public void RecordTiming(string stage, TimeSpan elapsed, string? detail = null, int diagnosticThresholdMs = int.MaxValue)
     {
         Timings.Add(new TerrainBuildTiming(stage, elapsed, detail));
