@@ -212,9 +212,15 @@ internal sealed class TerrainController
         return selectedId == null ? null : state.Terrains.FirstOrDefault(terrain => terrain.TerrainId == selectedId.Value);
     }
 
-    public bool TryExportTerrainCaseBundle(RhinoDoc doc, Guid terrainId, out string? archivePath, out string? errorMessage)
+    public bool TryExportTerrainCaseBundle(
+        RhinoDoc doc,
+        Guid terrainId,
+        out string? archivePath,
+        out string? coreTestCode,
+        out string? errorMessage)
     {
         archivePath = null;
+        coreTestCode = null;
         errorMessage = null;
 
         TerrainDefinition? terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
@@ -228,7 +234,9 @@ internal sealed class TerrainController
         {
             TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
             TerrainDisplayState? displayState = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId).DisplayState?.Clone();
-            archivePath = TerrainCaseBundleExporter.Export(doc, terrain, snapshot, displayState);
+            TerrainCaseBundleExportResult export = TerrainCaseBundleExporter.Export(doc, terrain, snapshot, displayState);
+            archivePath = export.ArchivePath;
+            coreTestCode = export.CoreTestCode;
             return true;
         }
         catch (Exception ex)
@@ -609,7 +617,9 @@ internal sealed class TerrainController
             return;
 
         var runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId);
-        if (runtimeCache.DisplayState?.TerrainMesh == null)
+        if (runtimeCache.DisplayState?.TerrainMesh == null ||
+            runtimeCache.DisplayState.IsPreview ||
+            runtimeCache.DisplayState.HasDeferredOutputs)
         {
             if (!BuildTerrainSynchronously(doc, state, terrain, TerrainBuildMode.Final))
                 return;
@@ -1591,7 +1601,7 @@ internal sealed class TerrainController
 
         foreach (var auxiliary in build.AuxiliaryObjects)
         {
-            if (auxiliary.AnalysisId.HasValue)
+            if (auxiliary.AnalysisId.HasValue || auxiliary.Kind == GeneratedObjectKind.RetainingWall)
                 continue;
 
             Guid id = AddGeneratedObject(doc, terrain, new GeneratedRhinoObject

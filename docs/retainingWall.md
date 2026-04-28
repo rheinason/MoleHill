@@ -1,262 +1,71 @@
-# Retaining Wall Generator — Technical Specification
+# Retaining Wall Generator
 
-## 1. Overview
+## Overview
 
-This Grasshopper component accepts an unordered set of open 3D curves defining retaining walls, modifies a terrain mesh to grade between wall edges, and outputs solid Breps representing the walls along with diagnostic messages.
+The retaining-wall workflow accepts unordered wall-rail curves, pairs them into walls, builds solid wall Breps, and inserts the accepted toe/top rails as hard terrain breaklines.
 
-Each wall is defined by a pair of 3D curves. Their XY offset defines wall thickness. Their Z values are authoritative and define wall height — the terrain is never queried for height. One curve is the toe (lower edge) and one is the top (upper edge), determined automatically. The wall solid is constructed by lofting rectangular cross-sections between synchronized stations on each pair.
+This is not a daylighting or grading tool. Rail Z values are authoritative: when a wall is accepted, the terrain is forced to the toe/top rail elevations during breakline insertion.
 
----
-
-## 2. Public API
-
-### Inputs
+## Public Inputs
 
 | Name | Type | Description |
 |---|---|---|
-| Mesh (M) | Mesh | Terrain mesh — triangular faces only |
-| Wall Curves (C) | List\<Curve\> | Unordered open 3D curves |
-| Tolerance (T) | double | Pairing proximity threshold and sampling baseline (project units) |
-| Sharpness (S) | double [0–1] | Controls profile steepness inside wall strip |
-| Shoulder Width (SW) | double | Distance outside wall strip affected by grading |
+| Mesh (Grasshopper) | Mesh | Triangle terrain mesh to receive accepted wall breaklines |
+| Wall Curves | List<Curve> | Unordered open or closed 3D wall rail curves |
+| Max Wall Width | double | Maximum expected spacing between paired wall rails |
+| Wall Layer (Rhino) | Layer path | Optional output layer for wall Breps |
 
-### Outputs
+Removed retaining-wall concepts: `Sharpness`, `Shoulder Width`, daylight outputs, fallback wall meshes, and wall-strip Z grading.
+
+## Outputs
 
 | Name | Type | Description |
 |---|---|---|
-| Mesh (M) | Mesh | Modified terrain mesh |
-| Wall Breps (W) | List\<Brep\> | Solid wall geometry |
-| Pairs (P) | List\<Line\> | Preview lines connecting matched curve pairs (for user validation) |
-| Report (R) | List\<string\> | Info / warning / error messages |
+| Mesh | Mesh | Terrain mesh with accepted wall rails inserted as breaklines |
+| Wall Breps | List<Brep> | Solid retaining-wall Breps |
+| Pairs | List<Line> | Preview connectors for successful pairs |
+| Report | List<string> | Typed info / warning / error diagnostics |
 
----
+## Pairing And Diagnostics
 
-## 3. Curve Preprocessing
+Curves are paired by conservative mutual nearest matching. `W` below means the wall modifier's Max Wall Width value, while `T` means terrain/model tolerance. Max Wall Width is only a pairing/search limit; cleanup, tessellation, corner proximity, solid generation, and remesh operations use `T`.
 
-For each input curve, convert to polyline using chord tolerance = T/4, angle tolerance = 5°, minimum 8 segments. Store two forms:
+- open curves pair only with open curves; closed loops pair only with closed loops
+- candidate cost is `meanDistance + 0.5 * iqrDistance + 0.25 * maxDistance`
+- both rails must mutually select each other as best candidate
+- mean distance must be `<= W`
+- interquartile distance must be `<= W`
+- max distance must be `<= 1.5W`
+- each side's second-best candidate must be at least `1.5x` the best cost
 
-- **Polyline3D** — preserves original Z values
-- **Polyline2D** — same XY vertices, Z set to 0 (used only for pairing and mapping)
+Diagnostics carry a reason enum and curve ids where applicable, including ambiguous pairs, mixed open/closed candidates, self-intersecting rails, sub-tolerance width, mapping rejection, and solid failure.
 
-No vertical projection or terrain snapping is performed at this stage.
+## Stationing And Corners
 
----
+Wall width is the minimum synchronized toe/top rail spacing. A pair is rejected when this width is below `max(0.1T, 1e-6)`.
 
-## 4. Pairing Algorithm
+Stations preserve authored polyline vertices. Non-polyline curves are sparsely tessellated using terrain/model tolerance and angle tolerance `5 degrees`.
 
-Curves are paired by mutual proximity in XY. Tolerance T is the defining threshold — all proximity checks are in project units.
+Station mapping uses local normal projection first and closest-point fallback second. Open mappings are rejected when more than two backward outliers occur or any backward jump exceeds `5%` of the partner rail length.
 
-### 4.1 Minimum Length Guard
+Open-wall endpoint junctions within terrain/model tolerance use a bounded miter. The extension budget is `max(2 * minWallWidth, 4T)`. If the miter collapses or inverts rail spacing, the corner join is skipped with a warning.
 
-Before scoring, check:
+Closed-loop pairs use seam alignment as initialization, then the same station mapping rules; the final wall interval wraps to the first station.
 
-```
-If min(ArcLength(A), ArcLength(B)) < 2T → skip with warning
-```
+## Wall Solid
 
-Prevents unstable micro-walls from entering the pipeline.
+The wall solid uses the fast rectangular-section builder:
 
-### 4.2 Station Sampling
+- each station spans the two rail XY positions
+- vertical range is `min(toeZ, topZ)` to `max(toeZ, topZ)`
+- open walls get start/end caps
+- closed walls wrap and do not get caps
+- only valid solid Breps are accepted
 
-For each curve A, sample N stations evenly along XY arc length:
+If solid generation fails, the entire pair is skipped and no terrain breaklines are inserted for that pair.
 
-```
-N = Clamp(round(ArcLength(A) / T), 8, 64)
-```
+## Terrain Insertion
 
-### 4.3 Proximity Scoring
+Rhino tries direct topology insertion first. The result is accepted only when the terrain boundary remains safe and wall constraints are represented. If direct insertion fails, the workflow falls back to `SurfaceRemesher.Remesh`.
 
-For each candidate curve B, compute:
-
-```
-WinningFraction = stations where B was nearest / N
-DistanceIQR     = interquartile range of per-station distances to B
-MeanDistance    = mean of all per-station distances to B
-MaxDistance     = maximum per-station distance to B
-Score           = WinningFraction / (1 + DistanceIQR / T)
-```
-
-### 4.4 Pair Confirmation
-
-A and B form a valid pair if all four conditions are met:
-
-- A's best scoring candidate is B **and** B's best scoring candidate is A (mutual match)
-- MeanDistance ≤ T
-- DistanceIQR ≤ T (rejects diverging or converging curves)
-- MaxDistance ≤ 1.5T (rejects curves with localised bulges)
-
-### 4.5 Minimum Thickness Guard
-
-After confirmation, check average XY distance between paired curves:
-
-```
-If AvgDistance < T/10 → skip with warning: "Curves too close; thickness unstable"
-```
-
-Unmatched curves are reported as warnings. A Pairs output line is emitted for each valid pair so the user can visually confirm pairing before geometry is generated.
-
----
-
-## 5. Corner Preprocessing
-
-After pairing is complete, detect corners where two confirmed wall pairs share an endpoint. This step resolves corners in curve space so that the resulting lofted solids miter cleanly.
-
-- For each pair of **confirmed wall pairs**, check whether any endpoints are within T of each other in XY.
-- If a shared endpoint is detected, compute the XY intersection of the two curve directions.
-- Trim or extend all four curves (both pairs) to meet at that intersection point.
-- Snap the endpoint Z values of the trimmed curves to match at the intersection so the miter is watertight.
-- Emit an info message for each corner resolved.
-
-### 5.1 Crossing Wall Detection
-
-Two wall pairs are considered crossing (not cornering) if:
-
-- Their XY centerlines intersect at a **non-endpoint** location, **and**
-- The intersection angle is **> 10°** (to exclude near-parallel overlaps), **and**
-- The intersection lies within the interior parameter range of **both** pairs.
-
-If crossing is detected, both walls are failed and a Grasshopper error bubble is emitted. No geometry is produced for either wall. All other walls continue processing.
-
----
-
-## 6. Station Synchronization
-
-### 6.1 Base Sampling
-
-```
-baseStep = Clamp(T * 2, minLength/64, minLength/8)
-```
-
-Stations include: uniform baseStep spacing, all polyline vertices, extra stations near turns >15°, and endpoints.
-
-### 6.2 Normal Projection Mapping
-
-At each station on curve A, compute the local tangent and XY perpendicular normal. Test both +normal and −normal directions, raycasting each to intersect curve B in XY. Choose the intersection with the smallest absolute distance. Reject the station if both directions miss, and fall back to closest-point search in a sliding parameter window.
-
-Monotonicity is enforced: backward jumps >5% arc length are flagged. If 5 or more consecutive failures occur, the wall is split into sub-pairs. Each sub-pair is processed independently through all downstream steps and emitted as a separate Brep.
-
----
-
-## 7. Toe / Top Determination
-
-For each pair, compute mean Z over the middle third of synchronized stations. The rail with lower mean Z is the toe; the rail with higher mean Z is the top. If means are equal, curve A becomes the toe and an info message is emitted.
-
----
-
-## 8. Wall Solid Construction
-
-At each synchronized station i, construct four 3D points forming a closed rectangular cross-section. Toe/top assignment is applied before building loops — if A is the top rail, swap roles accordingly:
-
-```
-P0 = (A_xy, zLowOnA)    // A face, low side
-P1 = (A_xy, zHighOnA)   // A face, high side
-P2 = (B_xy, zHighOnB)   // B face, high side
-P3 = (B_xy, zLowOnB)    // B face, low side
-Loop: P0 → P1 → P2 → P3 → P0
-```
-
-Where zLowOnA is the lower Z value at A's station and zHighOnA is the higher, regardless of which curve was designated toe. This makes the section construction invariant to toe/top assignment direction.
-
-### 8.1 Loft
-
-Loft all section loops using `LoftType.Straight`, `closed = false`.
-
-### 8.2 End Caps
-
-At the first and last station, attempt a planar cap. If planar fails, construct a ruled cap surface. Join all faces into a closed solid Brep. If the result is not closed, emit a warning and return best-effort geometry.
-
----
-
-## 9. Mesh Grading
-
-The intent of mesh grading is to reconcile the terrain to the wall. The toe rail defines the terrain height at the base of the wall. The top rail defines the terrain height at the wall crown. Sharpness and shoulder width control the transition profile. The terrain is always pulled to match the curves — if the toe curve sits above the original terrain, the terrain is raised to meet it.
-
-If grading fails for a single wall, that wall's grading is skipped and an error is emitted. All other walls continue processing.
-
-### 9.1 Constraint Insertion
-
-For each wall, insert toe and top rails as constrained segments, cross-segments between synchronized stations, and deterministic diagonals (always A[i] → B[i+1]). Retriangulate the mesh. If retriangulation fails, emit an error, preserve the original mesh for this wall, and continue with remaining walls.
-
-### 9.2 Inside Strip Classification
-
-A mesh vertex is considered inside the wall strip if its XY projection lies within the quadrilateral formed by A[i], A[i+1], B[i+1], B[i] for any station interval i. Test all intervals; the vertex is inside if any test passes.
-
-### 9.3 Inside Strip Grading
-
-For vertices inside the wall strip, compute lateral position u between toe (u=0) and top (u=1). Apply sharpness blend:
-
-```
-SmoothStep3(u) = u²(3 - 2u)
-t = u + S * (SmoothStep3(u) - u)
-Z = zToe + t * (zTop - zToe)
-```
-
-### 9.4 Shoulder Grading
-
-If SW > 0, for vertices within SW of a rail on either side:
-
-```
-falloff = 1 - (d / SW)²
-Z = Z_original + falloff * (Z_rail - Z_original)
-```
-
-To determine which side a vertex belongs to, compute the signed distance from the vertex to the local cross-segment vector at the nearest station. Positive sign = top side; negative sign = toe side. Shoulders are computed and applied independently per side.
-
-No smoothing may operate across toe rails, top rails, cross-segments, or strip diagonals.
-
----
-
-## 10. Data Structures
-
-```csharp
-struct PairCandidate {
-    int    CurveIndex;
-    double WinningFraction;
-    double DistanceIQR;
-    double MeanDistance;
-    double MaxDistance;
-    double Score;
-}
-
-struct WallPair {
-    int  CurveA;
-    int  CurveB;
-    bool DirectionFlipped;  // true if B was reversed to align with A
-}
-
-struct StationMap {
-    double[]  ParamsA;
-    double[]  ParamsB;
-    Point3d[] PointsA;
-    Point3d[] PointsB;
-}
-```
-
----
-
-## 11. Failure Handling
-
-| Condition | Behavior |
-|---|---|
-| Curve shorter than 2T | Warning — skip curve |
-| No mutual mate | Warning — skip curve |
-| Curves too close (avg < T/10) | Warning — skip pair |
-| Curves cross through each other | Grasshopper error bubble — both walls skipped, others continue |
-| Retriangulation fails | Error — preserve original mesh for this wall, others continue |
-| Brep join not closed | Warning — return partial Brep |
-| ≥5 consecutive monotonic failures | Split into sub-pairs, process independently |
-| <5 monotonic failures | Clamp parameter + Info message |
-| Corner resolved successfully | Info message |
-
----
-
-## 12. Assumptions
-
-- Input curves are open.
-- Curve Z values are authoritative. Intentionally inconsistent Z values are expected and valid — this is by design.
-- Terrain is only modified, never queried for wall height.
-- Paired curves must remain within T of each other throughout their length. Diverging, converging, or non-proximate curves will not be paired.
-- Wall loft is ruled, not smooth.
-- Component does not validate constructability — only geometry.
-- Invalid input (crossing walls, unpairable curves) produces a "fix input" message. The component does not attempt to repair bad input.
-- All failures are local. One wall failing never aborts processing of other walls.
+Grasshopper uses the shared `SurfaceRemesher` breakline insertion path for accepted wall pairs.

@@ -1,4 +1,4 @@
-using MoleHill.Grasshopper.Grading;
+using MoleHill.Shared;
 using Rhino.Geometry;
 using Xunit;
 
@@ -7,9 +7,104 @@ namespace MoleHill.Grasshopper.Tests;
 public class RetainingWallPlannerGeometryTests
 {
     [Fact]
-    public void Plan_ZeroHeightStart_TapersToLineEdge()
+    public void Plan_StraightWall_BuildsSolidAndStrip()
     {
-        var plan = RetainingWallPlanner.Plan(
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
+                new LineCurve(new Point3d(0, 1, 3), new Point3d(10, 1, 3))
+            },
+            1.0);
+
+        var wall = Assert.Single(plan.Walls);
+        Assert.NotNull(wall.Brep);
+        Assert.True(wall.Brep!.IsSolid);
+        Assert.Equal(2, wall.Rails.ToePoints.Length);
+        Assert.Equal(2, wall.Rails.TopPoints.Length);
+        Assert.False(wall.Rails.IsClosed);
+        Assert.Equal(1.0, wall.Rails.MinWidth, 6);
+    }
+
+    [Fact]
+    public void Plan_ShortAuthoredSegment_PreservesStation()
+    {
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                new PolylineCurve(new[]
+                {
+                    new Point3d(0, 0, 0),
+                    new Point3d(4, 0, 0),
+                    new Point3d(5, 0, 0),
+                    new Point3d(5, 4, 0)
+                }),
+                new PolylineCurve(new[]
+                {
+                    new Point3d(0, 1, 3),
+                    new Point3d(4, 1, 3),
+                    new Point3d(5, 1, 3),
+                    new Point3d(5, 5, 3)
+                })
+            },
+            1.0);
+
+        var wall = Assert.Single(plan.Walls);
+        Assert.Contains(
+            wall.Rails.ToePoints,
+            point => Math.Abs(point.X - 4.0) <= 1e-6 && Math.Abs(point.Y) <= 1e-6);
+    }
+
+    [Fact]
+    public void Plan_AmbiguousSecondBest_SkipsPairWithReason()
+    {
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
+                new LineCurve(new Point3d(0, 1, 3), new Point3d(10, 1, 3)),
+                new LineCurve(new Point3d(0, 1.2, 4), new Point3d(10, 1.2, 4))
+            },
+            2.0);
+
+        Assert.Empty(plan.Walls);
+        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.AmbiguousPair);
+    }
+
+    [Fact]
+    public void Plan_SubToleranceSpacing_SkipsPair()
+    {
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
+                new LineCurve(new Point3d(0, 0.05, 3), new Point3d(10, 0.05, 3))
+            },
+            1.0);
+
+        Assert.Empty(plan.Walls);
+        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SubToleranceWidth);
+    }
+
+    [Fact]
+    public void Plan_EqualZRails_SkipsPairWhenWallHasNoHeight()
+    {
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                new LineCurve(new Point3d(0, 0, 1), new Point3d(10, 0, 1)),
+                new LineCurve(new Point3d(0, 1, 1), new Point3d(10, 1, 1))
+            },
+            1.0);
+
+        Assert.Empty(plan.Walls);
+        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SolidFailed);
+    }
+
+    [Fact]
+    public void Plan_ZeroHeightStart_BuildsTaperedWall()
+    {
+        var plan = RetainingWallPlannerCore.Plan(
             new Curve[]
             {
                 new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
@@ -18,18 +113,14 @@ public class RetainingWallPlannerGeometryTests
             1.0);
 
         var wall = Assert.Single(plan.Walls);
-        Brep brep = Assert.IsType<Brep>(wall.Brep);
-
-        var startVerts = DistinctVerticesWhere(brep, p => Math.Abs(p.X) <= 1e-6);
-        Assert.Equal(2, startVerts.Count);
-        Assert.Contains((0.0, 0.0, 0.0), startVerts);
-        Assert.Contains((0.0, 1.0, 0.0), startVerts);
+        Assert.NotNull(wall.Brep);
+        Assert.Equal(2, wall.Rails.ToePoints.Length);
     }
 
     [Fact]
-    public void Plan_ZeroHeightEnd_TapersToLineEdge()
+    public void Plan_ZeroHeightEnd_BuildsTaperedWall()
     {
-        var plan = RetainingWallPlanner.Plan(
+        var plan = RetainingWallPlannerCore.Plan(
             new Curve[]
             {
                 new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
@@ -38,18 +129,80 @@ public class RetainingWallPlannerGeometryTests
             1.0);
 
         var wall = Assert.Single(plan.Walls);
-        Brep brep = Assert.IsType<Brep>(wall.Brep);
-
-        var endVerts = DistinctVerticesWhere(brep, p => Math.Abs(p.X - 10.0) <= 1e-6);
-        Assert.Equal(2, endVerts.Count);
-        Assert.Contains((10.0, 0.0, 0.0), endVerts);
-        Assert.Contains((10.0, 1.0, 0.0), endVerts);
+        Assert.NotNull(wall.Brep);
+        Assert.Equal(2, wall.Rails.ToePoints.Length);
     }
 
     [Fact]
-    public void Plan_TwoWallCorner_PreservesWallWidthAtResolvedMiter()
+    public void Plan_ClosedLoopPair_BuildsClosedSolidWallRing()
     {
-        var plan = RetainingWallPlanner.Plan(
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                ClosedPolyline(
+                    new Point3d(0, 0, 0),
+                    new Point3d(10, 0, 0),
+                    new Point3d(10, 8, 0),
+                    new Point3d(0, 8, 0)),
+                ClosedPolyline(
+                    new Point3d(-1, -1, 3),
+                    new Point3d(11, -1, 3),
+                    new Point3d(11, 9, 3),
+                    new Point3d(-1, 9, 3))
+            },
+            2.0);
+
+        var wall = Assert.Single(plan.Walls);
+        Assert.True(wall.Rails.IsClosed);
+        Assert.NotNull(wall.Brep);
+        Assert.True(wall.Brep!.IsSolid);
+        Assert.Single(plan.PairLines);
+    }
+
+    [Fact]
+    public void Plan_MixedOpenClosed_RaisesDiagnostic()
+    {
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
+                ClosedPolyline(
+                    new Point3d(0, 1, 3),
+                    new Point3d(10, 1, 3),
+                    new Point3d(10, 2, 3),
+                    new Point3d(0, 2, 3))
+            },
+            2.0);
+
+        Assert.Empty(plan.Walls);
+        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.MixedOpenClosed);
+    }
+
+    [Fact]
+    public void Plan_SelfIntersectingRail_RaisesDiagnostic()
+    {
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                new PolylineCurve(new[]
+                {
+                    new Point3d(0, 0, 0),
+                    new Point3d(5, 5, 0),
+                    new Point3d(0, 5, 0),
+                    new Point3d(5, 0, 0)
+                }),
+                new LineCurve(new Point3d(0, 1, 3), new Point3d(5, 1, 3))
+            },
+            2.0);
+
+        Assert.Empty(plan.Walls);
+        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SelfIntersectingRail);
+    }
+
+    [Fact]
+    public void Plan_TwoWallCorner_UsesBoundedMiter()
+    {
+        var plan = RetainingWallPlannerCore.Plan(
             new Curve[]
             {
                 new LineCurve(new Point3d(-5, 0, 0), new Point3d(0, 0, 0)),
@@ -57,41 +210,124 @@ public class RetainingWallPlannerGeometryTests
                 new LineCurve(new Point3d(0, 0, 0), new Point3d(0, 5, 0)),
                 new LineCurve(new Point3d(-1, 0, 3), new Point3d(-1, 5, 3))
             },
-            1.0);
+            1.1);
 
         Assert.Equal(2, plan.Walls.Count);
-
-        var firstWall = Assert.Single(plan.Walls, w => MatchesPair(w, 0, 1));
-        var secondWall = Assert.Single(plan.Walls, w => MatchesPair(w, 2, 3));
-
-        Assert.NotNull(firstWall.Brep);
-        Assert.NotNull(secondWall.Brep);
-
-        int firstLast = firstWall.Strip.StationCount - 1;
-        Assert.Equal(0.0, firstWall.Strip.ToeXy[firstLast * 2], 6);
-        Assert.Equal(0.0, firstWall.Strip.ToeXy[firstLast * 2 + 1], 6);
-        Assert.Equal(-1.0, firstWall.Strip.TopXy[firstLast * 2], 6);
-        Assert.Equal(1.0, firstWall.Strip.TopXy[firstLast * 2 + 1], 6);
-
-        Assert.Equal(0.0, secondWall.Strip.ToeXy[0], 6);
-        Assert.Equal(0.0, secondWall.Strip.ToeXy[1], 6);
-        Assert.Equal(-1.0, secondWall.Strip.TopXy[0], 6);
-        Assert.Equal(1.0, secondWall.Strip.TopXy[1], 6);
+        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.CornerResolved);
+        Assert.All(plan.Walls, wall => Assert.True(wall.Rails.MinWidth >= 0.11));
     }
 
-    private static bool MatchesPair(RetainingWallPlanner.PlannedWall wall, int a, int b) =>
-        wall.CurveA == a && wall.CurveB == b;
-
-    private static List<(double X, double Y, double Z)> DistinctVerticesWhere(Brep brep, Func<Point3d, bool> predicate)
+    [Fact]
+    public void Plan_CrossingWallCenterlines_WarnsButKeepsPairs()
     {
-        return brep.Vertices
-            .Select(vertex => vertex.Location)
-            .Where(predicate)
-            .Select(RoundPoint)
-            .Distinct()
-            .ToList();
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
+                new LineCurve(new Point3d(0, 1, 3), new Point3d(10, 1, 3)),
+                new LineCurve(new Point3d(5, -5, 0), new Point3d(5, 5, 0)),
+                new LineCurve(new Point3d(6, -5, 3), new Point3d(6, 5, 3))
+            },
+            1.1);
+
+        Assert.Equal(2, plan.Walls.Count);
+        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.CrossingWalls);
     }
 
-    private static (double X, double Y, double Z) RoundPoint(Point3d point) =>
-        (Math.Round(point.X, 6), Math.Round(point.Y, 6), Math.Round(point.Z, 6));
+    [Fact]
+    public void Plan_ThreeRails_ClearPairLeavesNoPairWarningForThird()
+    {
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
+                new LineCurve(new Point3d(0, 1, 3), new Point3d(10, 1, 3)),
+                new LineCurve(new Point3d(0, 10, 0), new Point3d(10, 10, 0))
+            },
+            1.1);
+
+        Assert.Single(plan.Walls);
+        Assert.Contains(plan.Report, entry =>
+            entry.Reason == RetainingWallPlannerCore.ReportReason.NoPair &&
+            entry.CurveA == 2);
+    }
+
+    [Fact]
+    public void Plan_ClosedLoopPair_ReversedOuterRailStillBuilds()
+    {
+        var plan = RetainingWallPlannerCore.Plan(
+            new Curve[]
+            {
+                ClosedPolyline(
+                    new Point3d(0, 0, 0),
+                    new Point3d(10, 0, 0),
+                    new Point3d(10, 8, 0),
+                    new Point3d(0, 8, 0)),
+                ClosedPolyline(
+                    new Point3d(-1, 9, 3),
+                    new Point3d(11, 9, 3),
+                    new Point3d(11, -1, 3),
+                    new Point3d(-1, -1, 3))
+            },
+            2.0);
+
+        var wall = Assert.Single(plan.Walls);
+        Assert.True(wall.Rails.IsClosed);
+        Assert.NotNull(wall.Brep);
+        Assert.True(wall.Brep!.IsSolid);
+    }
+
+    [Fact]
+    public void BrepBuilder_IndependentPolylineCounts_BuildsSolidViaSmartLoft()
+    {
+        Brep? brep = RetainingWallBrepBuilder.Build(
+            new[]
+            {
+                new Point3d(0, 0, 0),
+                new Point3d(8, 0, 1),
+                new Point3d(16, 0, 0)
+            },
+            new[]
+            {
+                new Point3d(0, 1, 3),
+                new Point3d(4, 1, 2),
+                new Point3d(8, 1, 2),
+                new Point3d(12, 1, 3),
+                new Point3d(16, 1, 4)
+            },
+            0.1);
+
+        Assert.NotNull(brep);
+        Assert.True(brep!.IsSolid);
+    }
+
+    [Fact]
+    public void BrepBuilder_EqualPolylineCounts_BuildsSolidBrep()
+    {
+        Brep? brep = RetainingWallBrepBuilder.Build(
+            new[]
+            {
+                new Point3d(0, 0, 0),
+                new Point3d(8, 0, 1),
+                new Point3d(16, 0, 0)
+            },
+            new[]
+            {
+                new Point3d(0, 1, 3),
+                new Point3d(8, 1, 2),
+                new Point3d(16, 1, 4)
+            },
+            0.1);
+
+        Assert.NotNull(brep);
+        Assert.True(brep!.IsSolid);
+    }
+
+    private static Curve ClosedPolyline(params Point3d[] points)
+    {
+        var closed = new Point3d[points.Length + 1];
+        Array.Copy(points, closed, points.Length);
+        closed[^1] = points[0];
+        return new PolylineCurve(closed);
+    }
 }

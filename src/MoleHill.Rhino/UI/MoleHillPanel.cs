@@ -727,7 +727,7 @@ public sealed class MoleHillPanel : Panel
 
         StyleTextArea(_statusTextArea);
         var copyStatusButton = MakeMiniButton("Copy Log", (_, _) => CopyStatusLog(), "Copy the full build log to the clipboard.", width: 74);
-        var copyCaseButton = MakeMiniButton("Copy Case", (_, _) => CopyCaseBundle(), "Export a repro case bundle with the current terrain inputs, outputs, and build log, then copy the bundle path.", width: 82);
+        var copyCaseButton = MakeMiniButton("Copy Case", (_, _) => CopyCaseBundle(), "Export a repro case bundle and copy a runnable core xUnit test source when one can be generated.", width: 82);
         _statusContent = new Panel
         {
             Content = new StackLayout
@@ -3081,9 +3081,9 @@ public sealed class MoleHillPanel : Panel
                     walls.OutputLayerPath,
                     path => MutateModifier(terrain.TerrainId, modifier.Id, item => ((RetainingWallModifierDefinition)item).OutputLayerPath = path),
                     "Layer used for retaining-wall Breps. Leave empty to use the terrain auxiliary layer."));
-                layout.AddRow(CreateNumericEditor("Tolerance", walls.Tolerance, value =>
-                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((RetainingWallModifierDefinition)item).Tolerance = value),
-                    help: "Pairing tolerance for wall curves. Lower values demand cleaner inputs; slightly higher values help catch near-matches."));
+                layout.AddRow(CreateNumericEditor("Max Wall Width", walls.MaxWallWidth, value =>
+                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((RetainingWallModifierDefinition)item).MaxWallWidth = value),
+                    help: "Maximum expected spacing between paired wall rails. Terrain tolerance still controls geometric cleanup."));
                 break;
             case GradePadModifierDefinition gradePad:
                 layout.AddRow(CreateSourceEditor("Boundaries", gradePad.Boundaries,
@@ -5106,11 +5106,15 @@ public sealed class MoleHillPanel : Panel
         if (doc == null || terrain == null)
             return;
 
-        if (_controller.TryExportTerrainCaseBundle(doc, terrain.TerrainId, out string? archivePath, out string? errorMessage) &&
+        if (_controller.TryExportTerrainCaseBundle(doc, terrain.TerrainId, out string? archivePath, out string? coreTestCode, out string? errorMessage) &&
             !string.IsNullOrWhiteSpace(archivePath))
         {
-            Clipboard.Instance.Text = archivePath;
-            RhinoApp.WriteLine($"MoleHill copied case bundle path: {archivePath}");
+            Clipboard.Instance.Text = string.IsNullOrWhiteSpace(coreTestCode)
+                ? archivePath
+                : coreTestCode;
+            RhinoApp.WriteLine(string.IsNullOrWhiteSpace(coreTestCode)
+                ? $"MoleHill copied case bundle path: {archivePath}"
+                : $"MoleHill copied test case source; bundle path: {archivePath}");
             return;
         }
 
