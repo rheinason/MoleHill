@@ -4,10 +4,11 @@ namespace MoleHill.Rhino.Model;
 
 public sealed class TerrainDefinition
 {
-    public const int CurrentSchemaVersion = 19;
+    public const int CurrentSchemaVersion = 20;
     public const int DefaultTerrainColorArgb = unchecked((int)0xFFC7D2C2);
     public const string DefaultTerrainLayerPath = "MoleHill::Terrain";
     public const string DefaultAuxiliaryLayerPath = "MoleHill::Auxiliary";
+    public const string DefaultAnnotationLayerPath = "MoleHill::Annotation";
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
@@ -42,6 +43,8 @@ public sealed class TerrainDefinition
     public string? TerrainLayerPath { get; set; }
 
     public string? AuxiliaryLayerPath { get; set; }
+
+    public string? AnnotationLayerPath { get; set; }
 
     public string SlopePalettePreset { get; set; } = MoleHill.Rhino.Services.SlopePreviewPaletteCatalog.DefaultKey;
 
@@ -99,6 +102,11 @@ public sealed class TerrainDefinition
     public static string ResolveAuxiliaryLayerPath(string? layerPath)
     {
         return string.IsNullOrWhiteSpace(layerPath) ? DefaultAuxiliaryLayerPath : layerPath;
+    }
+
+    public static string ResolveAnnotationLayerPath(string? layerPath)
+    {
+        return string.IsNullOrWhiteSpace(layerPath) ? DefaultAnnotationLayerPath : layerPath;
     }
 
     public IEnumerable<SourceReferenceSet> EnumerateSourceSets()

@@ -316,6 +316,23 @@ New-Icon "$rhinoDir\TabAnalysis.png" {
     $pen.Dispose()
 } -size 16
 
+# TabAnnotation - leader line with text label dot (annotation symbol)
+New-Icon "$rhinoDir\TabAnnotation.png" {
+    param($g)
+    # Horizontal contour lines (3 wavy-ish lines of different widths)
+    $pen1 = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 121, 107), 1.5)
+    $pen2 = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 121, 107), 2.0)
+    $pen3 = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 121, 107), 1.0)
+    $g.DrawLine($pen1, 1, 4, 15, 4)
+    $g.DrawLine($pen2, 1, 8, 13, 8)
+    $g.DrawLine($pen3, 1, 12, 11, 12)
+    $pen1.Dispose(); $pen2.Dispose(); $pen3.Dispose()
+    # Small leader dot at end of middle line
+    $dot = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(21, 101, 192))
+    $g.FillEllipse($dot, 13, 6, 3, 3)
+    $dot.Dispose()
+} -size 16
+
 # ── 16×16 Rhino panel modifier type badges ──────────────────────────────────
 
 # ModTriangulate - filled blue triangle (solid)

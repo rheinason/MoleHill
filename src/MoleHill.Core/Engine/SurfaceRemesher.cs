@@ -150,6 +150,77 @@ public static class SurfaceRemesher
     private readonly record struct TriangulationAttempt(IMesh? Mesh, string? Warning, TriangulationWarningFlags Flags);
     private readonly record struct Segment2D(double Ax, double Ay, double Bx, double By);
 
+    private sealed class NearVertexIndex
+    {
+        private readonly List<double> _xyList;
+        private readonly Dictionary<long, List<int>> _cells = new();
+        private readonly double _cellSize;
+        private readonly double _inverseCellSize;
+
+        public NearVertexIndex(List<double> xyList, double cellSize)
+        {
+            _xyList = xyList;
+            _cellSize = Math.Max(cellSize, 1e-9);
+            _inverseCellSize = 1.0 / _cellSize;
+        }
+
+        public void Add(int index)
+        {
+            long key = CellKey(_xyList[index * 2], _xyList[index * 2 + 1]);
+            if (!_cells.TryGetValue(key, out List<int>? indexes))
+            {
+                indexes = new List<int>(2);
+                _cells.Add(key, indexes);
+            }
+
+            indexes.Add(index);
+        }
+
+        public int Find(double x, double y, double tolerance)
+        {
+            if (_cells.Count == 0)
+                return -1;
+
+            double toleranceSquared = tolerance * tolerance;
+            double bestDistanceSquared = toleranceSquared;
+            int bestIndex = -1;
+            long centerX = (long)Math.Floor(x * _inverseCellSize);
+            long centerY = (long)Math.Floor(y * _inverseCellSize);
+            long radius = Math.Max(1, (long)Math.Ceiling(tolerance / _cellSize));
+
+            for (long cellY = centerY - radius; cellY <= centerY + radius; cellY++)
+            {
+                for (long cellX = centerX - radius; cellX <= centerX + radius; cellX++)
+                {
+                    if (!_cells.TryGetValue(PackCellKey(cellX, cellY), out List<int>? indexes))
+                        continue;
+
+                    foreach (int index in indexes)
+                    {
+                        double dx = _xyList[index * 2] - x;
+                        double dy = _xyList[index * 2 + 1] - y;
+                        double distanceSquared = (dx * dx) + (dy * dy);
+                        if (distanceSquared < bestDistanceSquared ||
+                            (distanceSquared == bestDistanceSquared && (bestIndex < 0 || index < bestIndex)))
+                        {
+                            bestDistanceSquared = distanceSquared;
+                            bestIndex = index;
+                        }
+                    }
+                }
+            }
+
+            return bestIndex;
+        }
+
+        private long CellKey(double x, double y)
+        {
+            return PackCellKey(
+                (long)Math.Floor(x * _inverseCellSize),
+                (long)Math.Floor(y * _inverseCellSize));
+        }
+    }
+
     private sealed class AttemptEvaluation
     {
         public required PreparedInput Prepared { get; init; }
@@ -441,12 +512,37 @@ public static class SurfaceRemesher
         bool usesFullOriginalVertexSeed = seedInteriorVertices || boundarySegments.Count == 0;
         var xyList = new List<double>(usesFullOriginalVertexSeed ? originalVertexCount * 2 : Math.Max(boundarySegments.Count * 4, 8));
         var zList = new List<double>(usesFullOriginalVertexSeed ? originalVertexCount : Math.Max(boundarySegments.Count * 2, 4));
-        var originalIndexMap = new Dictionary<int, int>(originalVertexCount);
+        var originalIndexMap = new Dictionary<int, int>(usesFullOriginalVertexSeed
+            ? originalVertexCount
+            : Math.Min(originalVertexCount, Math.Max(boundarySegments.Count * 2, 8)));
         double targetLength = GetProtectedEdgeLength(options);
         double floorLength = Math.Max(options.Tolerance * 4.0, 1e-6);
         double seedReuseTolerance = Math.Max(options.Tolerance, 1e-6);
         if (targetLength > 0)
             seedReuseTolerance = Math.Min(seedReuseTolerance, targetLength * 0.1);
+        double dedupTolerance = Math.Max(options.Tolerance, 1e-6);
+        // Cap dedup radius to a fraction of the target edge length so that tolerance values
+        // large relative to edge length (e.g. 0.5 m tolerance + 1 m edge length) do not snap
+        // adjacent constraint vertices together, which would collapse constraint chains and
+        // cause "Constraints could not be enforced" failures.
+        if (targetLength > 0)
+            dedupTolerance = Math.Min(dedupTolerance, targetLength * 0.25);
+        double exactReuseTolerance = Math.Max(Math.Min(dedupTolerance * 0.01, 1e-6), 1e-9);
+        var nearVertices = new NearVertexIndex(xyList, Math.Max(seedReuseTolerance, dedupTolerance));
+
+        bool requiresInterpolatedConstraintZ = options.AddConstraintCorridorSeeds;
+        foreach (var constraint in constraints)
+        {
+            if (constraint.PreserveInputElevation)
+                continue;
+
+            requiresInterpolatedConstraintZ = true;
+            break;
+        }
+
+        PadGrader.FaceGrid? faceGrid = requiresInterpolatedConstraintZ
+            ? new PadGrader.FaceGrid(originalVertices, originalVertexCount, originalFaces, faceCount)
+            : null;
 
         int EnsureSeedVertex(int originalIndex)
         {
@@ -457,7 +553,7 @@ public static class SurfaceRemesher
             double y = originalVertices[originalIndex * 3 + 1];
             double z = originalVertices[originalIndex * 3 + 2];
 
-            int nearIndex = FindNearVertex(xyList, x, y, seedReuseTolerance);
+            int nearIndex = nearVertices.Find(x, y, seedReuseTolerance);
             if (nearIndex >= 0)
             {
                 originalIndexMap.Add(originalIndex, nearIndex);
@@ -468,6 +564,7 @@ public static class SurfaceRemesher
             xyList.Add(x);
             xyList.Add(y);
             zList.Add(z);
+            nearVertices.Add(newIndex);
             originalIndexMap.Add(originalIndex, newIndex);
             return newIndex;
         }
@@ -491,6 +588,7 @@ public static class SurfaceRemesher
                     zList,
                     segments,
                     segmentKeys,
+                    nearVertices,
                     startIndex,
                     endIndex,
                     targetLength,
@@ -502,15 +600,6 @@ public static class SurfaceRemesher
                 MeshConstraintTools.TryAddSegment(segments, segmentKeys, startIndex, endIndex);
             }
         }
-
-        double dedupTolerance = Math.Max(options.Tolerance, 1e-6);
-        // Cap dedup radius to a fraction of the target edge length so that tolerance values
-        // large relative to edge length (e.g. 0.5 m tolerance + 1 m edge length) do not snap
-        // adjacent constraint vertices together, which would collapse constraint chains and
-        // cause "Constraints could not be enforced" failures.
-        if (targetLength > 0)
-            dedupTolerance = Math.Min(dedupTolerance, targetLength * 0.25);
-        double exactReuseTolerance = Math.Max(Math.Min(dedupTolerance * 0.01, 1e-6), 1e-9);
 
         foreach (var constraint in constraints)
         {
@@ -524,10 +613,12 @@ public static class SurfaceRemesher
                 originalVertices,
                 originalFaces,
                 faceCount,
+                faceGrid,
                 constraint,
                 0,
                 dedupTolerance,
                 exactReuseTolerance,
+                nearVertices,
                 allowBroadReuse: true);
 
             for (int pointIndex = 1; pointIndex < normalizedCount; pointIndex++)
@@ -538,10 +629,12 @@ public static class SurfaceRemesher
                     originalVertices,
                     originalFaces,
                     faceCount,
+                    faceGrid,
                     constraint,
                     pointIndex,
                     dedupTolerance,
                     exactReuseTolerance,
+                    nearVertices,
                     allowBroadReuse: true);
 
                 AddConstraintSegmentChain(
@@ -549,9 +642,11 @@ public static class SurfaceRemesher
                     zList,
                     segments,
                     segmentKeys,
+                    nearVertices,
                     originalVertices,
                     originalFaces,
                     faceCount,
+                    faceGrid,
                     constraint,
                     pointIndex - 1,
                     pointIndex,
@@ -574,10 +669,12 @@ public static class SurfaceRemesher
                     originalVertices,
                     originalFaces,
                     faceCount,
+                    faceGrid,
                     constraint,
                     0,
                     dedupTolerance,
                     exactReuseTolerance,
+                    nearVertices,
                     allowBroadReuse: true);
 
                 AddConstraintSegmentChain(
@@ -585,9 +682,11 @@ public static class SurfaceRemesher
                     zList,
                     segments,
                     segmentKeys,
+                    nearVertices,
                     originalVertices,
                     originalFaces,
                     faceCount,
+                    faceGrid,
                     constraint,
                     normalizedCount - 1,
                     0,
@@ -609,9 +708,11 @@ public static class SurfaceRemesher
                 originalVertices,
                 originalFaces,
                 faceCount,
+                faceGrid,
                 constraints,
                 targetLength,
                 floorLength,
+                nearVertices,
                 dedupTolerance);
         }
 
@@ -790,6 +891,7 @@ public static class SurfaceRemesher
 
             long interpolateStart = Stopwatch.GetTimestamp();
             var outputVertices = new double[extracted.VertexCount * 3];
+            PadGrader.FaceGrid? interpolationGrid = null;
             for (int i = 0; i < extracted.VertexCount; i++)
             {
                 double x = extracted.Xy[i * 2];
@@ -797,9 +899,15 @@ public static class SurfaceRemesher
                 int sourceId = extracted.SourceIds[i];
                 outputVertices[i * 3] = x;
                 outputVertices[i * 3 + 1] = y;
-                outputVertices[i * 3 + 2] = sourceId >= 0 && sourceId < prepared.Z.Count
-                    ? prepared.Z[sourceId]
-                    : PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
+                if (sourceId >= 0 && sourceId < prepared.Z.Count)
+                {
+                    outputVertices[i * 3 + 2] = prepared.Z[sourceId];
+                }
+                else
+                {
+                    interpolationGrid ??= new PadGrader.FaceGrid(originalVertices, originalVertices.Length / 3, originalFaces, faceCount);
+                    outputVertices[i * 3 + 2] = interpolationGrid.InterpolateZ(x, y);
+                }
             }
             profile.AddPhase($"{attemptName}.interpolate_output_z", Stopwatch.GetElapsedTime(interpolateStart));
 
@@ -1153,9 +1261,11 @@ public static class SurfaceRemesher
         double[] originalVertices,
         int[] originalFaces,
         int faceCount,
+        PadGrader.FaceGrid? faceGrid,
         IReadOnlyList<ConstraintPolyline> constraints,
         double targetLength,
         double floorLength,
+        NearVertexIndex nearVertices,
         double reuseTolerance)
     {
         if (constraints.Count < 2 || targetLength <= 0)
@@ -1202,12 +1312,14 @@ public static class SurfaceRemesher
                 originalVertices,
                 originalFaces,
                 faceCount,
+                faceGrid,
                 constraints[i],
                 countA,
                 constraints[bestMatch],
                 NormalizePointCount(constraints[bestMatch], reuseTolerance),
                 bestMatchReversed,
                 effectiveTarget,
+                nearVertices,
                 reuseTolerance);
 
             paired[i] = true;
@@ -1506,12 +1618,14 @@ public static class SurfaceRemesher
         double[] originalVertices,
         int[] originalFaces,
         int faceCount,
+        PadGrader.FaceGrid? faceGrid,
         ConstraintPolyline constraintA,
         int pointCountA,
         ConstraintPolyline constraintB,
         int pointCountB,
         bool reverseB,
         double targetLength,
+        NearVertexIndex nearVertices,
         double reuseTolerance)
     {
         var cumulativeA = BuildCumulativeLengths(constraintA, pointCountA);
@@ -1539,13 +1653,15 @@ public static class SurfaceRemesher
                 double blend = row / (double)(rowCount + 1);
                 double x = Lerp(ax, bx, blend);
                 double y = Lerp(ay, by, blend);
-                if (FindNearVertex(xyList, x, y, reuseTolerance) >= 0)
+                if (nearVertices.Find(x, y, reuseTolerance) >= 0)
                     continue;
 
-                double z = PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
+                double z = InterpolateOriginalZ(faceGrid, originalVertices, originalFaces, faceCount, x, y);
+                int newIndex = zList.Count;
                 xyList.Add(x);
                 xyList.Add(y);
                 zList.Add(z);
+                nearVertices.Add(newIndex);
             }
         }
     }
@@ -1555,6 +1671,7 @@ public static class SurfaceRemesher
         List<double> zList,
         List<(int a, int b)> segments,
         HashSet<long> segmentKeys,
+        NearVertexIndex nearVertices,
         int startIndex,
         int endIndex,
         double targetLength,
@@ -1581,6 +1698,7 @@ public static class SurfaceRemesher
             xyList.Add(x);
             xyList.Add(y);
             zList.Add(z);
+            nearVertices.Add(newIndex);
             MeshConstraintTools.TryAddSegment(segments, segmentKeys, previousIndex, newIndex);
             previousIndex = newIndex;
             addedProtectedVertices++;
@@ -1594,9 +1712,11 @@ public static class SurfaceRemesher
         List<double> zList,
         List<(int a, int b)> segments,
         HashSet<long> segmentKeys,
+        NearVertexIndex nearVertices,
         double[] originalVertices,
         int[] originalFaces,
         int faceCount,
+        PadGrader.FaceGrid? faceGrid,
         ConstraintPolyline constraint,
         int startPointIndex,
         int endPointIndex,
@@ -1629,15 +1749,16 @@ public static class SurfaceRemesher
             double y = Lerp(startY, endY, t);
             double z = constraint.PreserveInputElevation
                 ? Lerp(constraint.Points[startPointIndex * 3 + 2], constraint.Points[endPointIndex * 3 + 2], t)
-                : PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
+                : InterpolateOriginalZ(faceGrid, originalVertices, originalFaces, faceCount, x, y);
 
-            int newIndex = FindNearVertex(xyList, x, y, exactReuseTolerance);
+            int newIndex = nearVertices.Find(x, y, exactReuseTolerance);
             if (newIndex < 0)
             {
                 newIndex = zList.Count;
                 xyList.Add(x);
                 xyList.Add(y);
                 zList.Add(z);
+                nearVertices.Add(newIndex);
                 addedProtectedVertices++;
             }
             else if (constraint.PreserveInputElevation)
@@ -1658,21 +1779,23 @@ public static class SurfaceRemesher
         double[] originalVertices,
         int[] originalFaces,
         int faceCount,
+        PadGrader.FaceGrid? faceGrid,
         ConstraintPolyline constraint,
         int pointIndex,
         double broadReuseTolerance,
         double exactReuseTolerance,
+        NearVertexIndex nearVertices,
         bool allowBroadReuse)
     {
         double x = constraint.Points[pointIndex * 3];
         double y = constraint.Points[pointIndex * 3 + 1];
         double z = constraint.PreserveInputElevation
             ? constraint.Points[pointIndex * 3 + 2]
-            : PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
+            : InterpolateOriginalZ(faceGrid, originalVertices, originalFaces, faceCount, x, y);
 
         int existing = allowBroadReuse
-            ? FindNearVertex(xyList, x, y, broadReuseTolerance)
-            : FindNearVertex(xyList, x, y, exactReuseTolerance);
+            ? nearVertices.Find(x, y, broadReuseTolerance)
+            : nearVertices.Find(x, y, exactReuseTolerance);
         if (existing >= 0)
         {
             if (constraint.PreserveInputElevation)
@@ -1684,7 +1807,19 @@ public static class SurfaceRemesher
         xyList.Add(x);
         xyList.Add(y);
         zList.Add(z);
+        nearVertices.Add(newIndex);
         return newIndex;
+    }
+
+    private static double InterpolateOriginalZ(
+        PadGrader.FaceGrid? faceGrid,
+        double[] originalVertices,
+        int[] originalFaces,
+        int faceCount,
+        double x,
+        double y)
+    {
+        return faceGrid?.InterpolateZ(x, y) ?? PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
     }
 
     private static double GetProtectedEdgeLength(Options options)
@@ -1812,21 +1947,6 @@ public static class SurfaceRemesher
             segmentCount--;
 
         return Math.Max(1, segmentCount);
-    }
-
-    private static int FindNearVertex(List<double> xyList, double px, double py, double tolerance)
-    {
-        double tolSq = tolerance * tolerance;
-        int count = xyList.Count / 2;
-        for (int i = 0; i < count; i++)
-        {
-            double dx = xyList[i * 2] - px;
-            double dy = xyList[i * 2 + 1] - py;
-            if (dx * dx + dy * dy < tolSq)
-                return i;
-        }
-
-        return -1;
     }
 
     private static double DistanceSquared(double ax, double ay, double bx, double by)

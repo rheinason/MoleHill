@@ -253,7 +253,8 @@ internal sealed class TerrainController
         {
             Name = NextTerrainName(state.Terrains),
             TerrainLayerPath = TerrainDefinition.DefaultTerrainLayerPath,
-            AuxiliaryLayerPath = TerrainDefinition.DefaultAuxiliaryLayerPath
+            AuxiliaryLayerPath = TerrainDefinition.DefaultAuxiliaryLayerPath,
+            AnnotationLayerPath = TerrainDefinition.DefaultAnnotationLayerPath
         };
         terrain.EnsureBaseModifier();
 

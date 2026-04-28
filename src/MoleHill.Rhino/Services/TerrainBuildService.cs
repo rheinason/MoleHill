@@ -4002,25 +4002,29 @@ internal sealed class TerrainBuildService
                     currentMesh,
                     curveSlope,
                     build,
-                    shouldCancel),
+                    shouldCancel,
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
                 CurveElevationLabelAnalysisDefinition curveElevation => TerrainAnalysisAnnotationBuilder.BuildCurveElevationSummary(
                     snapshot,
                     currentMesh,
                     curveElevation,
                     build,
-                    shouldCancel),
+                    shouldCancel,
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
                 ProjectedElevationLabelAnalysisDefinition projectedElevation => TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(
                     snapshot,
                     currentMesh,
                     projectedElevation,
                     build,
-                    shouldCancel),
+                    shouldCancel,
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
                 PointSlopeLabelAnalysisDefinition pointSlope => TerrainAnalysisAnnotationBuilder.BuildPointSlopeSummary(
                     snapshot,
                     currentMesh,
                     pointSlope,
                     build,
-                    shouldCancel),
+                    shouldCancel,
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
                 CutFillAnalysisDefinition cutFill => BuildCutFillSummary(
                     snapshot,
                     fallbackBaseMesh,
@@ -4160,7 +4164,8 @@ internal sealed class TerrainBuildService
         double elevMaxZ,
         TerrainBuildResult build)
     {
-        var (objects, summary) = BuildContourCore(currentMesh, analysis, elevMinZ, elevMaxZ);
+        var (objects, summary) = BuildContourCore(currentMesh, analysis, elevMinZ, elevMaxZ,
+            TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath));
         build.AuxiliaryObjects.AddRange(objects);
         return summary;
     }
@@ -4180,7 +4185,8 @@ internal sealed class TerrainBuildService
         RhinoMesh mesh,
         ContourAnalysisDefinition analysis,
         double elevMinZ,
-        double elevMaxZ)
+        double elevMaxZ,
+        string? fallbackLayerPath = null)
     {
         var objects = new List<GeneratedRhinoObject>();
         var levels = BuildContourLevels(elevMinZ, elevMaxZ, analysis.StartZ, Math.Max(analysis.Interval, 0.01));
@@ -4217,7 +4223,7 @@ internal sealed class TerrainBuildService
                         : $"{analysis.Label} {level:G4} ({levelCurveIndex})",
                     AnalysisId = analysis.Id,
                     ColorArgb = analysis.ColorArgb,
-                    LayerPath = analysis.OutputLayerPath
+                    LayerPath = analysis.OutputLayerPath ?? fallbackLayerPath
                 });
             }
 
@@ -6492,43 +6498,62 @@ internal sealed class TerrainBuildService
                 Math.Max(tolerance, 1e-6),
                 medianEdgeLength > 0 ? medianEdgeLength * 0.01 : 0.01));
         double minEdgeLength = Math.Max(effectiveCleanupTolerance * 2.0, 1e-5);
+        double minEdgeLengthSquared = minEdgeLength * minEdgeLength;
         double minProjectedArea = Math.Max(effectiveCleanupTolerance * effectiveCleanupTolerance * 2.0, 1e-10);
 
-        var candidates = new List<(int FaceIndex, double Area, double SmallestEdge, double MinProjectedAltitude)>();
+        var candidates = new List<(int FaceIndex, double Area, double SmallestEdgeSquared, double MinProjectedAltitude)>();
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             int a = faces[faceIndex * 3];
             int b = faces[faceIndex * 3 + 1];
             int c = faces[faceIndex * 3 + 2];
 
-            var pa = new Point3d(vertices[a * 3], vertices[a * 3 + 1], vertices[a * 3 + 2]);
-            var pb = new Point3d(vertices[b * 3], vertices[b * 3 + 1], vertices[b * 3 + 2]);
-            var pc = new Point3d(vertices[c * 3], vertices[c * 3 + 1], vertices[c * 3 + 2]);
+            double ax = vertices[a * 3];
+            double ay = vertices[a * 3 + 1];
+            double az = vertices[a * 3 + 2];
+            double bx = vertices[b * 3];
+            double by = vertices[b * 3 + 1];
+            double bz = vertices[b * 3 + 2];
+            double cx = vertices[c * 3];
+            double cy = vertices[c * 3 + 1];
+            double cz = vertices[c * 3 + 2];
 
-            double l0 = pa.DistanceTo(pb);
-            double l1 = pb.DistanceTo(pc);
-            double l2 = pc.DistanceTo(pa);
-            double area = Math.Abs((pb.X - pa.X) * (pc.Y - pa.Y) - (pb.Y - pa.Y) * (pc.X - pa.X)) * 0.5;
-            double smallestEdge = Math.Min(l0, Math.Min(l1, l2));
-            double projectedL0 = Math.Sqrt(((pb.X - pa.X) * (pb.X - pa.X)) + ((pb.Y - pa.Y) * (pb.Y - pa.Y)));
-            double projectedL1 = Math.Sqrt(((pc.X - pb.X) * (pc.X - pb.X)) + ((pc.Y - pb.Y) * (pc.Y - pb.Y)));
-            double projectedL2 = Math.Sqrt(((pa.X - pc.X) * (pa.X - pc.X)) + ((pa.Y - pc.Y) * (pa.Y - pc.Y)));
-            double longestProjectedEdge = Math.Max(projectedL0, Math.Max(projectedL1, projectedL2));
-            double shortestProjectedEdge = Math.Min(projectedL0, Math.Min(projectedL1, projectedL2));
+            double abx = bx - ax;
+            double aby = by - ay;
+            double abz = bz - az;
+            double bcx = cx - bx;
+            double bcy = cy - by;
+            double bcz = cz - bz;
+            double cax = ax - cx;
+            double cay = ay - cy;
+            double caz = az - cz;
+
+            double l0Squared = (abx * abx) + (aby * aby) + (abz * abz);
+            double l1Squared = (bcx * bcx) + (bcy * bcy) + (bcz * bcz);
+            double l2Squared = (cax * cax) + (cay * cay) + (caz * caz);
+            double area = Math.Abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) * 0.5;
+            double smallestEdgeSquared = Math.Min(l0Squared, Math.Min(l1Squared, l2Squared));
+            double projectedL0Squared = (abx * abx) + (aby * aby);
+            double projectedL1Squared = (bcx * bcx) + (bcy * bcy);
+            double projectedL2Squared = (cax * cax) + (cay * cay);
+            double longestProjectedEdgeSquared = Math.Max(projectedL0Squared, Math.Max(projectedL1Squared, projectedL2Squared));
+            double shortestProjectedEdgeSquared = Math.Min(projectedL0Squared, Math.Min(projectedL1Squared, projectedL2Squared));
+            double longestProjectedEdge = Math.Sqrt(longestProjectedEdgeSquared);
             double minProjectedAltitude = longestProjectedEdge > 1e-12
                 ? (2.0 * area) / longestProjectedEdge
                 : 0.0;
-            bool projectedDuplicate = shortestProjectedEdge <= effectiveCleanupTolerance * 0.5;
+            double projectedDuplicateTolerance = effectiveCleanupTolerance * 0.5;
+            bool projectedDuplicate = shortestProjectedEdgeSquared <= projectedDuplicateTolerance * projectedDuplicateTolerance;
             bool projectedSliver =
                 longestProjectedEdge > effectiveCleanupTolerance * 8.0 &&
                 minProjectedAltitude < Math.Max(effectiveCleanupTolerance * 0.5, longestProjectedEdge * 0.001);
 
-            if (smallestEdge < minEdgeLength || area < minProjectedArea || projectedDuplicate || projectedSliver)
-                candidates.Add((faceIndex, area, smallestEdge, minProjectedAltitude));
+            if (smallestEdgeSquared < minEdgeLengthSquared || area < minProjectedArea || projectedDuplicate || projectedSliver)
+                candidates.Add((faceIndex, area, smallestEdgeSquared, minProjectedAltitude));
         }
 
         if (candidates.Count == 0)
-            return new TinyFaceCleanupResult((int[])faces.Clone(), 0, 0);
+            return new TinyFaceCleanupResult(faces, 0, 0);
 
         candidates.Sort(static (left, right) =>
         {
@@ -6540,7 +6565,7 @@ internal sealed class TerrainBuildService
             if (altitudeCompare != 0)
                 return altitudeCompare;
 
-            return left.SmallestEdge.CompareTo(right.SmallestEdge);
+            return left.SmallestEdgeSquared.CompareTo(right.SmallestEdgeSquared);
         });
 
         bool[] keepFace = new bool[faceCount];
@@ -6580,7 +6605,7 @@ internal sealed class TerrainBuildService
         }
 
         if (removedCount == 0)
-            return new TinyFaceCleanupResult((int[])faces.Clone(), 0, blockedCount);
+            return new TinyFaceCleanupResult(faces, 0, blockedCount);
 
         return new TinyFaceCleanupResult(
             BuildFilteredFaces(faces, faceCount, keepFace, removedCount),

@@ -31,19 +31,24 @@ public sealed class MoleHillPanel : Panel
         ("Slope", "slope"),
         ("Elevation", "elevation"),
         ("Cut / Fill", "cut-fill"),
+    };
+
+    private static readonly (string Label, string Kind)[] AnnotationKinds =
+    {
         ("Contours", "contour"),
         ("Curve Elevation Labels", "curve-elevation-label"),
         ("Curve Slope Labels", "curve-slope-label"),
         ("Projected Elevation Labels", "projected-elevation-label"),
-        ("Point Slope Labels", "point-slope-label")
+        ("Point Slope Labels", "point-slope-label"),
     };
 
     private readonly TerrainController _controller = TerrainController.Instance;
     private readonly TextBox _terrainName = new();
     private readonly CheckBox _liveUpdate = new() { Text = "Live" };
     private readonly TextArea _statusTextArea = new() { ReadOnly = true, Wrap = true, Height = 180 };
-    private readonly Label _terrainLayerLabel = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
-    private readonly Label _auxLayerLabel     = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
+    private readonly Label _terrainLayerLabel    = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
+    private readonly Label _auxLayerLabel        = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
+    private readonly Label _annotationLayerLabel = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
     private readonly Panel _terrainColorSwatch = new() { Width = 18, Height = 18 };
     private readonly Label _terrainColorLabel = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Label _statusHintLabel   = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -104,19 +109,30 @@ public sealed class MoleHillPanel : Panel
         Spacing = 0,
         HorizontalContentAlignment = HorizontalAlignment.Stretch
     };
+    private readonly StackLayout _annotationStack = new()
+    {
+        Orientation = Orientation.Vertical,
+        Spacing = 0,
+        HorizontalContentAlignment = HorizontalAlignment.Stretch
+    };
     private readonly HashSet<Guid> _collapsedAnalyses = new();
-    private readonly Dictionary<Guid, Panel>    _modifierCardMap     = new();
-    private readonly Dictionary<Guid, Panel>    _modifierSepMap      = new();
-    private readonly Dictionary<Guid, Panel>    _modifierStripMap    = new();
-    private readonly Dictionary<Guid, Color>    _modifierStripColors = new();
-    private readonly Dictionary<Guid, Panel>    _analysisCardMap     = new();
-    private readonly Dictionary<Guid, Panel>    _analysisSepMap      = new();
-    private readonly Dictionary<Guid, Panel>    _analysisStripMap    = new();
-    private readonly Dictionary<Guid, Color>    _analysisStripColors = new();
-    private readonly Dictionary<Guid, Panel>    _zoneCardMap         = new();
-    private readonly Dictionary<Guid, Panel>    _zoneSepMap          = new();
+    private readonly Dictionary<Guid, Panel>    _modifierCardMap      = new();
+    private readonly Dictionary<Guid, Panel>    _modifierSepMap       = new();
+    private readonly Dictionary<Guid, Panel>    _modifierStripMap     = new();
+    private readonly Dictionary<Guid, Color>    _modifierStripColors  = new();
+    private readonly Dictionary<Guid, Panel>    _analysisCardMap      = new();
+    private readonly Dictionary<Guid, Panel>    _analysisSepMap       = new();
+    private readonly Dictionary<Guid, Panel>    _analysisStripMap     = new();
+    private readonly Dictionary<Guid, Color>    _analysisStripColors  = new();
+    private readonly Dictionary<Guid, Panel>    _annotationCardMap    = new();
+    private readonly Dictionary<Guid, Panel>    _annotationSepMap     = new();
+    private readonly Dictionary<Guid, Panel>    _annotationStripMap   = new();
+    private readonly Dictionary<Guid, Color>    _annotationStripColors = new();
+    private readonly Dictionary<Guid, Panel>    _zoneCardMap          = new();
+    private readonly Dictionary<Guid, Panel>    _zoneSepMap           = new();
     private Guid? _dragOverModifierId;
     private Guid? _dragOverAnalysisId;
+    private Guid? _dragOverAnnotationId;
     private Guid? _dragOverZoneId;
     private const int PropertyLabelWidth = 84;
     private const int NumericLabelWidth = 96;
@@ -512,6 +528,44 @@ public sealed class MoleHillPanel : Panel
                     new StackLayoutItem(auxLayerControls, expand: true)
                 }
             };
+        var annotationLayerUseCurrentButton = MakeCompactButton("Use Current", OnAssignAnnotationLayer, "Assign the current Rhino layer for annotation outputs.");
+        var annotationLayerBrowseButton = MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AnnotationLayerPath = path, scheduleRebuild: false), "Browse and pick the annotation layer");
+        var annotationLayerClearButton = MakeCompactButton("Clear", (_, _) =>
+        {
+            MutateSelectedTerrain(t => t.AnnotationLayerPath = null, scheduleRebuild: false);
+            RefreshUi();
+        }, "Clear the annotation layer assignment.");
+        var annotationLayerControls = CreateResponsivePrimaryActionRow(
+            _annotationLayerLabel,
+            4,
+            annotationLayerUseCurrentButton,
+            annotationLayerBrowseButton,
+            annotationLayerClearButton);
+        var annotationLayerRow = stackFormRows
+            ? new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 4,
+                Padding = new Padding(0, 1),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    CreateHelpLabel("Annotation", "Default output layer for contours, elevation labels, and slope labels.", 0),
+                    new StackLayoutItem(annotationLayerControls, HorizontalAlignment.Stretch)
+                }
+            }
+            : new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Padding = new Padding(0, 1),
+                Items =
+                {
+                    CreateHelpLabel("Annotation", "Default output layer for contours, elevation labels, and slope labels.", PropertyLabelWidth),
+                    new StackLayoutItem(annotationLayerControls, expand: true)
+                }
+            };
         var toleranceRow = stackFormRows
             ? new StackLayout
             {
@@ -680,6 +734,7 @@ public sealed class MoleHillPanel : Panel
             {
                 new StackLayoutItem(terrainLayerRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(auxLayerRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(annotationLayerRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(terrainColorRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(terrainDisplayRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(bakeTrackingRow, HorizontalAlignment.Stretch),
@@ -777,7 +832,8 @@ public sealed class MoleHillPanel : Panel
             BuildScrollable(_modifierStack),
             BuildScrollable(_objectsStack),
             BuildScrollable(_zonesStack),
-            BuildScrollable(_analysisStack)
+            BuildScrollable(_analysisStack),
+            BuildScrollable(_annotationStack)
         };
 
         _tabContentPanel = new Panel { Content = tabScrollables[Math.Clamp(_selectedTabIndex, 0, tabScrollables.Length - 1)] };
@@ -984,6 +1040,7 @@ public sealed class MoleHillPanel : Panel
                 MakeTabHeader("Objects", "TabMarkers", 1),
                 MakeTabHeader("Zones", "TabZones", 2, _zonesEyeButton),
                 MakeTabHeader("Analysis", "TabAnalysis", 3, _analysisEyeButton),
+                MakeTabHeader("Annotation", "TabAnnotation", 4),
                 new StackLayoutItem(new Panel(), expand: true)
             }
         };
@@ -1318,6 +1375,16 @@ public sealed class MoleHillPanel : Panel
         RefreshUi();
     }
 
+    private void OnAssignAnnotationLayer(object? sender, EventArgs e)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        MutateSelectedTerrain(terrain => terrain.AnnotationLayerPath = doc.Layers.CurrentLayer?.FullPath, scheduleRebuild: false);
+        RefreshUi();
+    }
+
     private void ApplyTerrainOpacity(int opacityPercent)
     {
         MutateSelectedTerrain(
@@ -1417,6 +1484,7 @@ public sealed class MoleHillPanel : Panel
                 _zonesStack.Items.Clear();
                 _markerStack.Items.Clear();
                 _analysisStack.Items.Clear();
+                _annotationStack.Items.Clear();
                 return;
             }
 
@@ -1452,6 +1520,10 @@ public sealed class MoleHillPanel : Panel
                 string.Equals(selectedTerrain.AuxiliaryLayerPath, TerrainDefinition.DefaultAuxiliaryLayerPath, StringComparison.OrdinalIgnoreCase)
                 ? TerrainDefinition.DefaultAuxiliaryLayerPath
                 : GetLeafLayerName(selectedTerrain.AuxiliaryLayerPath);
+            _annotationLayerLabel.Text = string.IsNullOrWhiteSpace(selectedTerrain?.AnnotationLayerPath) ||
+                string.Equals(selectedTerrain.AnnotationLayerPath, TerrainDefinition.DefaultAnnotationLayerPath, StringComparison.OrdinalIgnoreCase)
+                ? TerrainDefinition.DefaultAnnotationLayerPath
+                : GetLeafLayerName(selectedTerrain.AnnotationLayerPath);
             int terrainColorArgb = selectedTerrain?.TerrainColorArgb ?? TerrainDefinition.DefaultTerrainColorArgb;
             var terrainColor = ToEtoColor(System.Drawing.Color.FromArgb(terrainColorArgb));
             _terrainColorSwatch.BackgroundColor = terrainColor;
@@ -1481,6 +1553,7 @@ public sealed class MoleHillPanel : Panel
             RebuildZonesLayout(selectedTerrain);
             RebuildMarkerLayout(selectedTerrain);
             RebuildAnalysisLayout(selectedTerrain);
+            RebuildAnnotationLayout(selectedTerrain);
         }
         finally
         {
@@ -1639,14 +1712,15 @@ public sealed class MoleHillPanel : Panel
 
         _analysisStack.Items.Add(new StackLayoutItem(BuildAnalysisToolbar(terrain), HorizontalAlignment.Stretch));
 
-        if (terrain.Analyses.Count == 0)
+        var visualAnalyses = terrain.Analyses.Where(a => !IsAnnotationAnalysis(a)).ToList();
+        if (visualAnalyses.Count == 0)
         {
             _analysisStack.Items.Add(new StackLayoutItem(new Panel
             {
                 Padding = new Padding(8),
                 Content = new Label
                 {
-                    Text = "No analyses yet. Add one to inspect slope, elevation, cut/fill, contours, or earthworks.",
+                    Text = "No analyses yet. Add one to inspect slope, elevation, cut/fill, or earthworks.",
                     TextColor = UiTheme.MutedText,
                     Wrap = WrapMode.Word
                 }
@@ -1656,7 +1730,7 @@ public sealed class MoleHillPanel : Panel
 
         bool hasActiveAnalysis = false;
         var terrainId = terrain.TerrainId;
-        foreach (var analysisItem in terrain.Analyses)
+        foreach (var analysisItem in visualAnalyses)
         {
             bool isActive = !hasActiveAnalysis &&
                             analysisItem.IsEnabled &&
@@ -1690,6 +1764,66 @@ public sealed class MoleHillPanel : Panel
         _analysisSepMap[Guid.Empty] = tailInner;
         WireAnalysisSepDragDrop(tailOuter, tailInner, terrainId, Guid.Empty);
         _analysisStack.Items.Add(new StackLayoutItem(tailOuter, HorizontalAlignment.Stretch));
+    }
+
+    private void RebuildAnnotationLayout(TerrainDefinition? terrain)
+    {
+        _annotationCardMap.Clear();
+        _annotationSepMap.Clear();
+        _annotationStripMap.Clear();
+        _annotationStripColors.Clear();
+        _annotationStack.Items.Clear();
+
+        if (terrain == null)
+            return;
+
+        _annotationStack.Items.Add(new StackLayoutItem(BuildAnnotationToolbar(terrain), HorizontalAlignment.Stretch));
+
+        var annotationItems = terrain.Analyses.Where(IsAnnotationAnalysis).ToList();
+        if (annotationItems.Count == 0)
+        {
+            _annotationStack.Items.Add(new StackLayoutItem(new Panel
+            {
+                Padding = new Padding(8),
+                Content = new Label
+                {
+                    Text = "No annotations yet. Add contours, elevation labels, or slope labels.",
+                    TextColor = UiTheme.MutedText,
+                    Wrap = WrapMode.Word
+                }
+            }, HorizontalAlignment.Stretch));
+            return;
+        }
+
+        var terrainId = terrain.TerrainId;
+        foreach (var analysisItem in annotationItems)
+        {
+            var analysisId = analysisItem.Id;
+            var innerSep = new Panel { BackgroundColor = Colors.Transparent };
+            var outerSep = new Panel { Height = 8, Padding = new Padding(0, 2), Content = innerSep };
+            ApplyHelp(outerSep, "Drop here to reorder annotations.");
+            _annotationSepMap[analysisId] = innerSep;
+            WireAnnotationSepDragDrop(outerSep, innerSep, terrainId, analysisId);
+            _annotationStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
+
+            var box = CreateAnalysisCard(terrain, analysisItem, isActive: false);
+            _annotationCardMap[analysisId] = box;
+            var kind = GetAnalysisKind(analysisItem);
+            var typeColor = AnalysisTypeColor(kind);
+            var strip = new Panel { Width = 5, BackgroundColor = typeColor };
+            _annotationStripMap[analysisId] = strip;
+            _annotationStripColors[analysisId] = typeColor;
+            var wrapper = WrapCardControl(box, strip, UiTheme.CardBackground);
+            WireAnnotationCardDragDrop(wrapper, terrainId, analysisId);
+            _annotationStack.Items.Add(new StackLayoutItem(wrapper, HorizontalAlignment.Stretch));
+        }
+
+        var tailInner = new Panel { BackgroundColor = Colors.Transparent };
+        var tailOuter = new Panel { Height = 8, Padding = new Padding(0, 2), Content = tailInner };
+        ApplyHelp(tailOuter, "Drop here to reorder annotations.");
+        _annotationSepMap[Guid.Empty] = tailInner;
+        WireAnnotationSepDragDrop(tailOuter, tailInner, terrainId, Guid.Empty);
+        _annotationStack.Items.Add(new StackLayoutItem(tailOuter, HorizontalAlignment.Stretch));
     }
 
     private Control CreateSectionToolbar(string title, Button primaryButton, string? helperText = null, Control? trailingControl = null)
@@ -2192,6 +2326,21 @@ public sealed class MoleHillPanel : Panel
 
         addButton.Click += (_, _) => menu.Show(addButton);
         return CreateSectionToolbar("ANALYSIS", addButton);
+    }
+
+    private Control BuildAnnotationToolbar(TerrainDefinition terrain)
+    {
+        var addButton = MakeToolbarButton("Add Annotation", (_, _) => { }, "Add an annotation card", width: 120);
+        var menu = new ContextMenu();
+        foreach (var (label, kind) in AnnotationKinds)
+        {
+            var item = new ButtonMenuItem { Text = label };
+            var capturedKind = kind;
+            item.Click += (_, _) => AddAnalysis(capturedKind);
+            menu.Items.Add(item);
+        }
+        addButton.Click += (_, _) => menu.Show(addButton);
+        return CreateSectionToolbar("ANNOTATION", addButton);
     }
 
     private Panel CreateAnalysisCard(TerrainDefinition terrain, AnalysisDefinition analysis, bool isActive)
@@ -2742,11 +2891,11 @@ public sealed class MoleHillPanel : Panel
                         if (doc != null)
                             _controller.RebuildContourAnalysis(doc, capturedContourTerrainId, capturedContourId);
                     },
-                    "Layer used for generated contour curves. Leave empty to use the terrain auxiliary layer."));
+                    "Layer used for generated contour curves. Leave empty to use the terrain annotation layer."));
                 string defaultColorText = string.IsNullOrWhiteSpace(contour.OutputLayerPath)
-                    ? string.IsNullOrWhiteSpace(terrain.AuxiliaryLayerPath)
-                        ? "By Layer (Aux)"
-                        : $"By Layer ({GetLeafLayerName(terrain.AuxiliaryLayerPath!)})"
+                    ? string.IsNullOrWhiteSpace(terrain.AnnotationLayerPath)
+                        ? $"By Layer ({TerrainDefinition.DefaultAnnotationLayerPath})"
+                        : $"By Layer ({GetLeafLayerName(terrain.AnnotationLayerPath!)})"
                     : $"By Layer ({GetLeafLayerName(contour.OutputLayerPath)})";
                 layout.AddRow(CreateOptionalColorEditor(
                     "Color",
@@ -2759,7 +2908,7 @@ public sealed class MoleHillPanel : Panel
                             _controller.RefreshContourColor(doc, capturedContourTerrainId, capturedContourId, value);
                     },
                     "Explicit display and bake color for generated contour curves. Clear to use the output layer color.",
-                    ResolveLayerColorArgb(contour.OutputLayerPath ?? terrain.AuxiliaryLayerPath),
+                    ResolveLayerColorArgb(contour.OutputLayerPath ?? terrain.AnnotationLayerPath),
                     defaultColorText));
                 if (summary != null)
                 {
@@ -4427,7 +4576,7 @@ public sealed class MoleHillPanel : Panel
             analysis.ColorArgb,
             value => mutate(item => item.ColorArgb = value),
             "Explicit display and bake color for generated annotation blocks. Clear to use the output layer color.",
-            ResolveLayerColorArgb(analysis.OutputLayerPath ?? terrain.AuxiliaryLayerPath),
+            ResolveLayerColorArgb(analysis.OutputLayerPath ?? terrain.AnnotationLayerPath),
             GetAnalysisOutputColorText(terrain, analysis.OutputLayerPath)));
     }
 
@@ -4435,9 +4584,9 @@ public sealed class MoleHillPanel : Panel
     {
         if (string.IsNullOrWhiteSpace(outputLayerPath))
         {
-            return string.IsNullOrWhiteSpace(terrain.AuxiliaryLayerPath)
-                ? "By Layer (Aux)"
-                : $"By Layer ({GetLeafLayerName(terrain.AuxiliaryLayerPath!)})";
+            return string.IsNullOrWhiteSpace(terrain.AnnotationLayerPath)
+                ? $"By Layer ({TerrainDefinition.DefaultAnnotationLayerPath})"
+                : $"By Layer ({GetLeafLayerName(terrain.AnnotationLayerPath!)})";
         }
 
         return $"By Layer ({GetLeafLayerName(outputLayerPath)})";
@@ -5480,6 +5629,13 @@ public sealed class MoleHillPanel : Panel
         _ => string.Empty
     };
 
+    private static bool IsAnnotationAnalysis(AnalysisDefinition analysis) => analysis is
+        ContourAnalysisDefinition or
+        CurveElevationLabelAnalysisDefinition or
+        CurveSlopeLabelAnalysisDefinition or
+        ProjectedElevationLabelAnalysisDefinition or
+        PointSlopeLabelAnalysisDefinition;
+
     private static Color AnalysisTypeColor(string kind) => kind switch
     {
         "earthwork" => Color.FromArgb(141, 110, 99),
@@ -5779,6 +5935,91 @@ public sealed class MoleHillPanel : Panel
 
             innerSep.BackgroundColor = Colors.Transparent;
             ClearAllSepHighlights(_analysisSepMap);
+
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc == null) return;
+            _controller.MutateTerrain(doc, terrainId, t => MoveAnalysisToDisplaySeparator(t, sourceId, insertBeforeId), scheduleRebuild: false);
+            RefreshTerrainPreview(terrainId);
+        };
+    }
+
+    private void WireAnnotationCardDragDrop(Control box, Guid terrainId, Guid analysisId)
+    {
+        box.AllowDrop = true;
+        var cardHighlight = Color.FromArgb(100, 120, 200, 255);
+
+        box.DragEnter += (_, e) =>
+        {
+            if (!e.Data.Contains("analysis-drag")) return;
+            e.Effects = DragEffects.Move;
+            if (_dragOverAnnotationId.HasValue && _annotationStripMap.TryGetValue(_dragOverAnnotationId.Value, out var prevStrip))
+                if (_annotationStripColors.TryGetValue(_dragOverAnnotationId.Value, out var prevColor))
+                    prevStrip.BackgroundColor = prevColor;
+            _dragOverAnnotationId = analysisId;
+            if (_annotationStripMap.TryGetValue(analysisId, out var strip))
+                strip.BackgroundColor = cardHighlight;
+            ClearAllSepHighlights(_annotationSepMap);
+            if (_annotationSepMap.TryGetValue(analysisId, out var sep))
+                sep.BackgroundColor = UiTheme.SepHighlight;
+        };
+
+        box.DragLeave += (_, _) =>
+        {
+            if (_dragOverAnnotationId != analysisId)
+                return;
+
+            if (_annotationStripMap.TryGetValue(analysisId, out var strip))
+                if (_annotationStripColors.TryGetValue(analysisId, out var origColor))
+                    strip.BackgroundColor = origColor;
+            _dragOverAnnotationId = null;
+            ClearAllSepHighlights(_annotationSepMap);
+        };
+
+        box.DragDrop += (_, e) =>
+        {
+            if (!e.Data.Contains("analysis-drag")) return;
+            var idStr = e.Data.GetString("analysis-drag");
+            if (!Guid.TryParse(idStr, out var sourceId)) return;
+
+            if (_annotationStripMap.TryGetValue(analysisId, out var strip))
+                if (_annotationStripColors.TryGetValue(analysisId, out var origColor))
+                    strip.BackgroundColor = origColor;
+            _dragOverAnnotationId = null;
+            ClearAllSepHighlights(_annotationSepMap);
+
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc == null) return;
+            _controller.MutateTerrain(doc, terrainId, t => MoveAnalysisToDisplaySeparator(t, sourceId, analysisId), scheduleRebuild: false);
+            RefreshTerrainPreview(terrainId);
+        };
+    }
+
+    private void WireAnnotationSepDragDrop(Panel outerSep, Panel innerSep, Guid terrainId, Guid insertBeforeId)
+    {
+        outerSep.AllowDrop = true;
+
+        outerSep.DragEnter += (_, e) =>
+        {
+            if (!e.Data.Contains("analysis-drag")) return;
+            e.Effects = DragEffects.Move;
+            if (_dragOverAnnotationId.HasValue && _annotationStripMap.TryGetValue(_dragOverAnnotationId.Value, out var prevStrip))
+                if (_annotationStripColors.TryGetValue(_dragOverAnnotationId.Value, out var prevColor))
+                    prevStrip.BackgroundColor = prevColor;
+            _dragOverAnnotationId = null;
+            ClearAllSepHighlights(_annotationSepMap);
+            innerSep.BackgroundColor = UiTheme.SepHighlight;
+        };
+
+        outerSep.DragLeave += (_, _) => innerSep.BackgroundColor = Colors.Transparent;
+
+        outerSep.DragDrop += (_, e) =>
+        {
+            if (!e.Data.Contains("analysis-drag")) return;
+            var idStr = e.Data.GetString("analysis-drag");
+            if (!Guid.TryParse(idStr, out var sourceId)) return;
+
+            innerSep.BackgroundColor = Colors.Transparent;
+            ClearAllSepHighlights(_annotationSepMap);
 
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) return;

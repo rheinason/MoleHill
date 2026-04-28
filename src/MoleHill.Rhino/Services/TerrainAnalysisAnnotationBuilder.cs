@@ -13,7 +13,8 @@ internal static class TerrainAnalysisAnnotationBuilder
         RhinoMesh mesh,
         CurveSlopeLabelAnalysisDefinition analysis,
         TerrainBuildResult build,
-        Func<bool>? shouldCancel)
+        Func<bool>? shouldCancel,
+        string? fallbackLayerPath = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         int sourceCount = 0;
@@ -78,6 +79,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                         distance,
                         analysis.BlockDefinitionName,
                         MarkerBlockTemplate.AnnotationSlope,
+                        fallbackLayerPath,
                         GetCurveSlopeDirection(previousWorld, currentWorld, snapshot.ModelAbsoluteTolerance, analysis.FlipDirection)));
                 }
 
@@ -93,7 +95,8 @@ internal static class TerrainAnalysisAnnotationBuilder
         RhinoMesh mesh,
         CurveElevationLabelAnalysisDefinition analysis,
         TerrainBuildResult build,
-        Func<bool>? shouldCancel)
+        Func<bool>? shouldCancel,
+        string? fallbackLayerPath = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         int sourceCount = 0;
@@ -135,7 +138,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                             string.Empty,
                             cumulativeDistance,
                             analysis.BlockDefinitionName,
-                            MarkerBlockTemplate.AnnotationElevation));
+                            MarkerBlockTemplate.AnnotationElevation,
+                            fallbackLayerPath));
                     }
                 }
 
@@ -152,7 +156,8 @@ internal static class TerrainAnalysisAnnotationBuilder
         RhinoMesh mesh,
         ProjectedElevationLabelAnalysisDefinition analysis,
         TerrainBuildResult build,
-        Func<bool>? shouldCancel)
+        Func<bool>? shouldCancel,
+        string? fallbackLayerPath = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         int sourceCount = 0;
@@ -187,7 +192,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                     string.Empty,
                     null,
                     analysis.BlockDefinitionName,
-                    MarkerBlockTemplate.AnnotationElevation));
+                    MarkerBlockTemplate.AnnotationElevation,
+                    fallbackLayerPath));
             }
         }
 
@@ -199,7 +205,8 @@ internal static class TerrainAnalysisAnnotationBuilder
         RhinoMesh mesh,
         PointSlopeLabelAnalysisDefinition analysis,
         TerrainBuildResult build,
-        Func<bool>? shouldCancel)
+        Func<bool>? shouldCancel,
+        string? fallbackLayerPath = null)
     {
         mesh.Normals.ComputeNormals();
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
@@ -241,6 +248,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 null,
                 analysis.BlockDefinitionName,
                 MarkerBlockTemplate.AnnotationSlope,
+                fallbackLayerPath,
                 direction));
         }
 
@@ -256,6 +264,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         double? distance,
         string? blockDefinitionName,
         MarkerBlockTemplate template,
+        string? fallbackLayerPath = null,
         Vector3d? direction = null)
     {
         string formattedValue = FormatValue(rawValue, analysis.ValueFormat);
@@ -281,7 +290,7 @@ internal static class TerrainAnalysisAnnotationBuilder
             Name = $"{analysis.Label} {index}",
             AnalysisId = analysis.Id,
             ColorArgb = analysis.ColorArgb,
-            LayerPath = analysis.OutputLayerPath,
+            LayerPath = analysis.OutputLayerPath ?? fallbackLayerPath,
             InstanceDefinitionName = string.IsNullOrWhiteSpace(blockDefinitionName)
                 ? GeneratedBlockCatalog.GetDefaultDefinitionName(template)
                 : blockDefinitionName,
