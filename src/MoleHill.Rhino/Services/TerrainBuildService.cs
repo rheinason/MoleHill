@@ -2731,12 +2731,13 @@ internal sealed class TerrainBuildService
             currentFaceCount,
             stairSurfaces,
             build.PersistentHardConstraints,
-            out var batchGradingWarning);
+            out var batchGradingWarning,
+            out var batchProfile);
         batchGradeTimer.Stop();
         build.RecordTiming(
             "In-Situ Stair Surface Grade",
             batchGradeTimer.Elapsed,
-            $"batched {stairSurfaces.Length:N0} surfaces: {currentVertexCount:N0} verts/{currentFaceCount:N0} faces -> {batchResult?.VertexCount ?? 0:N0} verts/{batchResult?.FaceCount ?? 0:N0} faces",
+            $"batched {stairSurfaces.Length:N0} surfaces: {currentVertexCount:N0} verts/{currentFaceCount:N0} faces -> {batchResult?.VertexCount ?? 0:N0} verts/{batchResult?.FaceCount ?? 0:N0} faces; {batchProfile.FormatSummary()}",
             StageTimingDiagnosticThresholdMs);
 
         if (batchResult == null)
@@ -6554,6 +6555,13 @@ internal sealed class TerrainBuildService
 
         foreach (var candidate in candidates)
         {
+            if (enforceSingleClosedBoundaryLoop &&
+                FaceHasNoCurrentBoundaryEdges(edgeCounts!, faces, candidate.FaceIndex))
+            {
+                blockedCount++;
+                continue;
+            }
+
             keepFace[candidate.FaceIndex] = false;
             if (enforceSingleClosedBoundaryLoop)
             {
@@ -6594,6 +6602,22 @@ internal sealed class TerrainBuildService
         }
 
         return edgeCounts;
+    }
+
+    private static bool FaceHasNoCurrentBoundaryEdges(Dictionary<long, int> edgeCounts, int[] faces, int faceIndex)
+    {
+        int a = faces[faceIndex * 3];
+        int b = faces[faceIndex * 3 + 1];
+        int c = faces[faceIndex * 3 + 2];
+        return GetEdgeCount(edgeCounts, a, b) != 1 &&
+               GetEdgeCount(edgeCounts, b, c) != 1 &&
+               GetEdgeCount(edgeCounts, c, a) != 1;
+    }
+
+    private static int GetEdgeCount(Dictionary<long, int> edgeCounts, int a, int b)
+    {
+        edgeCounts.TryGetValue(IndexedMeshTools.GetEdgeKey(a, b), out int count);
+        return count;
     }
 
     private static void ApplyFaceEdgeCountDelta(Dictionary<long, int> edgeCounts, int[] faces, int faceIndex, int delta)

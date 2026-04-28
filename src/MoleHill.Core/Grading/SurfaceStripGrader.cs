@@ -1,9 +1,31 @@
+using System.Diagnostics;
 using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
 public static class SurfaceStripGrader
 {
+    public readonly record struct TimingEntry(string Name, TimeSpan Elapsed);
+
+    public sealed class TimingProfile
+    {
+        private readonly List<TimingEntry> _entries = new();
+
+        public IReadOnlyList<TimingEntry> Entries => _entries;
+
+        internal void AddPhase(string name, TimeSpan elapsed)
+        {
+            _entries.Add(new TimingEntry(name, elapsed));
+        }
+
+        public string FormatSummary()
+        {
+            return string.Join(
+                ", ",
+                _entries.Select(static entry => $"{entry.Name} {entry.Elapsed.TotalMilliseconds:0.#} ms"));
+        }
+    }
+
     public sealed class SurfaceDefinition
     {
         public double[] FootprintXy { get; }
@@ -95,6 +117,49 @@ public static class SurfaceStripGrader
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
         out string? errorMessage)
     {
+        return GradeCore(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            surfaces,
+            barrierConstraints,
+            out errorMessage,
+            profile: null);
+    }
+
+    public static GradingResult? Grade(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        IReadOnlyList<SurfaceDefinition> surfaces,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        out string? errorMessage,
+        out TimingProfile profile)
+    {
+        profile = new TimingProfile();
+        return GradeCore(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            surfaces,
+            barrierConstraints,
+            out errorMessage,
+            profile);
+    }
+
+    private static GradingResult? GradeCore(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        IReadOnlyList<SurfaceDefinition> surfaces,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        out string? errorMessage,
+        TimingProfile? profile)
+    {
         errorMessage = null;
         const double dedupTol = 1e-3;
 
@@ -119,6 +184,7 @@ public static class SurfaceStripGrader
             }
         }
 
+        long setupStart = Stopwatch.GetTimestamp();
         var xyList = new List<double>(vertexCount * 2);
         var zList = new List<double>(vertexCount);
         var segList = new List<(int a, int b)>();
@@ -133,7 +199,9 @@ public static class SurfaceStripGrader
             zList.Add(vertices[i * 3 + 2]);
             vertHash.Insert(i, x, y);
         }
+        AddPhase(profile, "copy_input", setupStart);
 
+        long prepStart = Stopwatch.GetTimestamp();
         var faceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
         PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);
         bool hasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
@@ -160,6 +228,7 @@ public static class SurfaceStripGrader
         AddBarrierConstraints(barrierConstraints, xyList, zList, vertHash, segList, dedupTol);
         foreach (SurfaceDefinition surface in surfaces)
             AddPolygonConstraint(surface.FootprintXy, surface.FootprintVertexCount, xyList, zList, vertHash, faceGrid, segList, dedupTol);
+        AddPhase(profile, "prepare_constraints", prepStart);
 
         int totalVerts = zList.Count;
         if (totalVerts < 3)
@@ -168,6 +237,7 @@ public static class SurfaceStripGrader
             return null;
         }
 
+        long triangulateStart = Stopwatch.GetTimestamp();
         TriangulationOutcome triangulation = TriangulationHelper.Triangulate(
             xyList,
             totalVerts,
@@ -175,6 +245,7 @@ public static class SurfaceStripGrader
             0,
             0,
             convex: false);
+        AddPhase(profile, "triangulate", triangulateStart);
 
         if (triangulation.Mesh == null)
         {
@@ -185,10 +256,13 @@ public static class SurfaceStripGrader
         if (!string.IsNullOrWhiteSpace(triangulation.WarningMessage))
             errorMessage = triangulation.WarningMessage;
 
+        long extractStart = Stopwatch.GetTimestamp();
         var extracted = TriangleNetExtractor.Extract(triangulation.Mesh);
         int outVertCount = extracted.VertexCount;
         int outFaceCount = extracted.FaceCount;
+        AddPhase(profile, "extract_mesh", extractStart);
 
+        long interpolateStart = Stopwatch.GetTimestamp();
         var outXy = new double[outVertCount * 2];
         var origZ = new double[outVertCount];
         var newZ = new double[outVertCount];
@@ -213,13 +287,17 @@ public static class SurfaceStripGrader
                 newZ[i] = iz;
             }
         }
+        AddPhase(profile, "interpolate_z", interpolateStart);
 
+        long applySurfacesStart = Stopwatch.GetTimestamp();
         foreach (SurfaceDefinition surface in surfaces)
         {
             double[] passOrigZ = (double[])newZ.Clone();
             ApplySurfaceHeights(surface, outXy, passOrigZ, newZ, outVertCount, preparedBarriers);
         }
+        AddPhase(profile, "apply_surfaces", applySurfacesStart);
 
+        long buildVertsStart = Stopwatch.GetTimestamp();
         var finalVerts = new double[outVertCount * 3];
         for (int i = 0; i < outVertCount; i++)
         {
@@ -227,8 +305,10 @@ public static class SurfaceStripGrader
             finalVerts[i * 3 + 1] = outXy[i * 2 + 1];
             finalVerts[i * 3 + 2] = newZ[i];
         }
+        AddPhase(profile, "build_vertices", buildVertsStart);
 
         var finalFaces = extracted.Faces;
+        long cullStart = Stopwatch.GetTimestamp();
         var cullResult = TriangleBoundaryCuller.Cull(
             finalVerts,
             outVertCount,
@@ -248,7 +328,9 @@ public static class SurfaceStripGrader
             outVertCount = cullResult.VertexCount;
             outFaceCount = cullResult.FaceCount;
         }
+        AddPhase(profile, "cull_boundary", cullStart);
 
+        long volumeStart = Stopwatch.GetTimestamp();
         double cutVol = 0;
         double fillVol = 0;
         for (int f = 0; f < outFaceCount; f++)
@@ -272,7 +354,9 @@ public static class SurfaceStripGrader
             else
                 cutVol += -vol;
         }
+        AddPhase(profile, "volume", volumeStart);
 
+        long daylightStart = Stopwatch.GetTimestamp();
         var daylightPts = new List<double>();
         var processedEdges = new HashSet<long>();
         for (int f = 0; f < outFaceCount; f++)
@@ -284,6 +368,7 @@ public static class SurfaceStripGrader
             CheckDaylightEdge(i1, i2, outXy, newZ, origZ, processedEdges, daylightPts);
             CheckDaylightEdge(i2, i0, outXy, newZ, origZ, processedEdges, daylightPts);
         }
+        AddPhase(profile, "daylight", daylightStart);
 
         return new GradingResult(
             finalVerts,
@@ -296,6 +381,11 @@ public static class SurfaceStripGrader
             daylightPts.Count / 3);
     }
 
+    private static void AddPhase(TimingProfile? profile, string name, long startTimestamp)
+    {
+        profile?.AddPhase(name, Stopwatch.GetElapsedTime(startTimestamp));
+    }
+
     private static void ApplySurfaceHeights(
         SurfaceDefinition surface,
         double[] outXy,
@@ -305,6 +395,7 @@ public static class SurfaceStripGrader
         PreparedBarriers barriers)
     {
         double slopeRatio = Math.Tan(surface.SlopeAngleDeg * Math.PI / 180.0);
+        SurfaceInfluenceBounds influenceBounds = ComputeSurfaceInfluenceBounds(surface, origZ, outVertCount, slopeRatio);
         var barrierScratch = barriers.Segments.Length > 0 ? new SpatialHashGrid2D.QueryScratch(Math.Max(barriers.Segments.Length, 1)) : null;
         var barrierCandidates = barriers.Segments.Length > 0 ? new List<int>(8) : null;
 
@@ -312,6 +403,12 @@ public static class SurfaceStripGrader
         {
             double px = outXy[i * 2];
             double py = outXy[i * 2 + 1];
+
+            if (influenceBounds.HasFiniteInfluence &&
+                (px < influenceBounds.MinX || px > influenceBounds.MaxX || py < influenceBounds.MinY || py > influenceBounds.MaxY))
+            {
+                continue;
+            }
 
             if (PadGrader.PointInPolygon(px, py, surface.FootprintXy, surface.FootprintVertexCount))
             {
@@ -348,6 +445,83 @@ public static class SurfaceStripGrader
         }
     }
 
+    private readonly record struct SurfaceInfluenceBounds(
+        double MinX,
+        double MaxX,
+        double MinY,
+        double MaxY,
+        bool HasFiniteInfluence);
+
+    private static SurfaceInfluenceBounds ComputeSurfaceInfluenceBounds(
+        SurfaceDefinition surface,
+        double[] origZ,
+        int vertexCount,
+        double slopeRatio)
+    {
+        if (vertexCount <= 0)
+            return new SurfaceInfluenceBounds(0, 0, 0, 0, HasFiniteInfluence: false);
+
+        double minX = double.MaxValue;
+        double maxX = double.MinValue;
+        double minY = double.MaxValue;
+        double maxY = double.MinValue;
+        double minBoundaryZ = double.MaxValue;
+        double maxBoundaryZ = double.MinValue;
+
+        for (int i = 0; i < surface.BoundaryVertexCount; i++)
+        {
+            double x = surface.BoundaryVertices[i * 3];
+            double y = surface.BoundaryVertices[i * 3 + 1];
+            double z = surface.BoundaryVertices[i * 3 + 2];
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+            if (z < minBoundaryZ) minBoundaryZ = z;
+            if (z > maxBoundaryZ) maxBoundaryZ = z;
+        }
+
+        if (minX == double.MaxValue ||
+            maxX == double.MinValue ||
+            minY == double.MaxValue ||
+            maxY == double.MinValue ||
+            minBoundaryZ == double.MaxValue ||
+            maxBoundaryZ == double.MinValue)
+        {
+            return new SurfaceInfluenceBounds(0, 0, 0, 0, HasFiniteInfluence: false);
+        }
+
+        double minOrigZ = double.MaxValue;
+        double maxOrigZ = double.MinValue;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double z = origZ[i];
+            if (z < minOrigZ) minOrigZ = z;
+            if (z > maxOrigZ) maxOrigZ = z;
+        }
+
+        double maxPossibleDz = Math.Max(
+            Math.Max(Math.Abs(minOrigZ - minBoundaryZ), Math.Abs(minOrigZ - maxBoundaryZ)),
+            Math.Max(Math.Abs(maxOrigZ - minBoundaryZ), Math.Abs(maxOrigZ - maxBoundaryZ)));
+
+        double padding = slopeRatio > 1e-12
+            ? maxPossibleDz / slopeRatio
+            : double.MaxValue;
+        if (surface.MaxDistance > 0)
+            padding = Math.Min(padding, surface.MaxDistance);
+
+        if (!double.IsFinite(padding))
+            return new SurfaceInfluenceBounds(0, 0, 0, 0, HasFiniteInfluence: false);
+
+        padding = Math.Max(padding, 0.0);
+        return new SurfaceInfluenceBounds(
+            minX - padding,
+            maxX + padding,
+            minY - padding,
+            maxY + padding,
+            HasFiniteInfluence: true);
+    }
+
     private static bool TryFindNearestVisibleBoundaryLocation(
         double px,
         double py,
@@ -361,6 +535,7 @@ public static class SurfaceStripGrader
     {
         boundaryDistance = double.MaxValue;
         boundaryZ = 0.0;
+        double bestDistanceSquared = double.MaxValue;
 
         for (int i = 0; i < boundaryVertexCount; i++)
         {
@@ -385,6 +560,10 @@ public static class SurfaceStripGrader
                 cy = ay + t * dy;
             }
 
+            double distSquared = ((px - cx) * (px - cx)) + ((py - cy) * (py - cy));
+            if (distSquared >= bestDistanceSquared)
+                continue;
+
             if (barriers.Segments.Length > 0 &&
                 barrierScratch != null &&
                 barrierCandidates != null &&
@@ -400,15 +579,15 @@ public static class SurfaceStripGrader
                 continue;
             }
 
-            double dist = Math.Sqrt(((px - cx) * (px - cx)) + ((py - cy) * (py - cy)));
-            if (dist >= boundaryDistance)
-                continue;
-
-            boundaryDistance = dist;
+            bestDistanceSquared = distSquared;
             boundaryZ = az + ((bz - az) * t);
         }
 
-        return boundaryDistance < double.MaxValue;
+        if (bestDistanceSquared == double.MaxValue)
+            return false;
+
+        boundaryDistance = Math.Sqrt(bestDistanceSquared);
+        return true;
     }
 
     private static void AddBoundarySegments(int[] faces, int faceCount, List<(int a, int b)> segList)
