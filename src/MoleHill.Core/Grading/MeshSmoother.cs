@@ -11,6 +11,8 @@ public static class MeshSmoother
 {
     private readonly record struct IndexedBreaklineSegment(double Ax, double Ay, double Bx, double By);
 
+    public readonly record struct BreaklinePolyline(double[] XyPts, int PointCount, bool IsClosed);
+
     public sealed class PreparedSmoothingData
     {
         public required int VertexCount { get; init; }
@@ -48,6 +50,29 @@ public static class MeshSmoother
         (double[] xyVerts, int vertCount, double strength)[] boundaries,
         double globalStrength,
         (double[] xyPts, int ptCount)[] breaklines,
+        double breaklineFixity,
+        double snapTolerance,
+        int iterations)
+    {
+        return Smooth(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            boundaries,
+            globalStrength,
+            ToBreaklinePolylines(breaklines),
+            breaklineFixity,
+            snapTolerance,
+            iterations);
+    }
+
+    public static double[] Smooth(
+        double[] vertices, int vertexCount,
+        int[] faces, int faceCount,
+        (double[] xyVerts, int vertCount, double strength)[] boundaries,
+        double globalStrength,
+        BreaklinePolyline[] breaklines,
         double breaklineFixity,
         double snapTolerance,
         int iterations)
@@ -112,6 +137,25 @@ public static class MeshSmoother
         int faceCount,
         (double[] xyVerts, int vertCount)[] boundaries,
         (double[] xyPts, int ptCount)[] breaklines,
+        double snapTolerance)
+    {
+        return Prepare(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            boundaries,
+            ToBreaklinePolylines(breaklines),
+            snapTolerance);
+    }
+
+    public static PreparedSmoothingData Prepare(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        (double[] xyVerts, int vertCount)[] boundaries,
+        BreaklinePolyline[] breaklines,
         double snapTolerance)
     {
         BuildNeighborGraph(vertexCount, faces, faceCount, out var neighborOffsets, out var neighborIndices, out var isMeshBoundary);
@@ -319,7 +363,7 @@ public static class MeshSmoother
     private static bool[] BuildBreaklineMask(
         double[] vertices,
         int vertexCount,
-        (double[] xyPts, int ptCount)[] breaklines,
+        BreaklinePolyline[] breaklines,
         double snapTolerance,
         bool[]? insideBoundaries = null,
         double[]? vertexStrength = null)
@@ -353,31 +397,51 @@ public static class MeshSmoother
     }
 
     private static IndexedBreaklineSegment[] BuildBreaklineSegments(
-        (double[] xyPts, int ptCount)[] breaklines,
+        BreaklinePolyline[] breaklines,
         out SpatialHashGrid2D breaklineIndex)
     {
         var segments = new List<IndexedBreaklineSegment>();
         var bounds = new List<Bounds2D>();
 
-        foreach (var (pts, pointCount) in breaklines)
+        foreach (var breakline in breaklines)
         {
+            double[] pts = breakline.XyPts;
+            int pointCount = Math.Min(breakline.PointCount, pts.Length / 2);
             for (int i = 0; i < pointCount - 1; i++)
+                AddBreaklineSegment(pts[i * 2], pts[i * 2 + 1], pts[i * 2 + 2], pts[i * 2 + 3]);
+
+            if (breakline.IsClosed && pointCount > 2)
             {
-                double ax = pts[i * 2];
-                double ay = pts[i * 2 + 1];
-                double bx = pts[i * 2 + 2];
-                double by = pts[i * 2 + 3];
-                segments.Add(new IndexedBreaklineSegment(ax, ay, bx, by));
-                bounds.Add(new Bounds2D(
-                    Math.Min(ax, bx),
-                    Math.Max(ax, bx),
-                    Math.Min(ay, by),
-                    Math.Max(ay, by)));
+                double ax = pts[(pointCount - 1) * 2];
+                double ay = pts[(pointCount - 1) * 2 + 1];
+                double bx = pts[0];
+                double by = pts[1];
+                if (ax != bx || ay != by)
+                    AddBreaklineSegment(ax, ay, bx, by);
             }
         }
 
         breaklineIndex = SpatialHashGrid2D.Build(bounds.ToArray());
         return segments.ToArray();
+
+        void AddBreaklineSegment(double ax, double ay, double bx, double by)
+        {
+            segments.Add(new IndexedBreaklineSegment(ax, ay, bx, by));
+            bounds.Add(new Bounds2D(
+                Math.Min(ax, bx),
+                Math.Max(ax, bx),
+                Math.Min(ay, by),
+                Math.Max(ay, by)));
+        }
+    }
+
+    private static BreaklinePolyline[] ToBreaklinePolylines((double[] xyPts, int ptCount)[] breaklines)
+    {
+        var result = new BreaklinePolyline[breaklines.Length];
+        for (int i = 0; i < breaklines.Length; i++)
+            result[i] = new BreaklinePolyline(breaklines[i].xyPts, breaklines[i].ptCount, IsClosed: false);
+
+        return result;
     }
 
     private static Bounds2D ComputeBounds(double[] xyVerts, int vertCount)

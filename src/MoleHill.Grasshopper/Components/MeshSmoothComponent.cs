@@ -155,7 +155,7 @@ public class MeshSmoothComponent : GH_Component
             : 0.5;
 
         // Convert breakline curves (open or closed)
-        var breaklineData = new List<(double[] xyPts, int ptCount)>();
+        var breaklineData = new List<MeshSmoother.BreaklinePolyline>();
         foreach (var crv in breaklineCurves)
         {
             if (crv == null) continue;
@@ -169,11 +169,10 @@ public class MeshSmoothComponent : GH_Component
 
             if (pl.Count < 2) continue;
 
-            // Keep the duplicate closing point for closed breaklines so that
-            // BuildBreaklineSegments generates the closing segment [n-1 → 0].
-            // (Boundaries strip the duplicate because PointInPolygon wraps around
-            // implicitly, but breakline segment generation needs the explicit repeat.)
             int plCount = pl.Count;
+            bool isClosed = crv.IsClosed || (plCount > 2 && pl[0].DistanceTo(pl[plCount - 1]) <= tolerance);
+            if (isClosed && pl[0].DistanceTo(pl[plCount - 1]) < tolerance)
+                plCount--;
 
             var xyPts = new double[plCount * 2];
             for (int i = 0; i < plCount; i++)
@@ -182,7 +181,7 @@ public class MeshSmoothComponent : GH_Component
                 xyPts[i * 2 + 1] = pl[i].Y;
             }
 
-            breaklineData.Add((xyPts, plCount));
+            breaklineData.Add(new MeshSmoother.BreaklinePolyline(xyPts, plCount, isClosed));
         }
 
         // Smooth

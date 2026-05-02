@@ -1,3 +1,5 @@
+using MoleHill.Core.Engine;
+
 namespace MoleHill.Rhino.Model;
 
 public abstract class GeometryInputModifierDefinition : ModifierDefinition
@@ -11,6 +13,27 @@ public abstract class GeometryInputModifierDefinition : ModifierDefinition
     public SourceReferenceSet Boundary { get; set; } = new();
 
     public double Tolerance { get; set; }
+
+    public bool PeelBoundaryTriangles { get; set; } = true;
+
+    public double MaxBoundaryEdgeLength { get; set; } = 0.0;
+
+    public double MaxBoundaryAngleDegrees { get; set; } = BoundaryTrianglePeelSettings.DefaultMaxInteriorAngleDegrees;
+
+    public double MaxBoundarySlopeDegrees { get; set; } = 0.0;
+
+    public BoundaryTrianglePeelSettings CreateBoundaryPeelSettings()
+    {
+        return !PeelBoundaryTriangles || MaxBoundaryEdgeLength < 0.0
+            ? BoundaryTrianglePeelSettings.Disabled
+            : new BoundaryTrianglePeelSettings
+            {
+                Enabled = true,
+                MaxBoundaryEdgeLength = MaxBoundaryEdgeLength,
+                MaxInteriorAngleDegrees = MaxBoundaryAngleDegrees,
+                MaxSlopeAngleDegrees = MaxBoundarySlopeDegrees
+            };
+    }
 
     public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {

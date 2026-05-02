@@ -15,7 +15,7 @@ internal sealed class TerrainCoreCaseRecorder
         double[] zValues,
         int[] segments,
         bool useConvexHull,
-        double maxBoundaryEdgeLength,
+        BoundaryTrianglePeelSettings boundaryPeelSettings,
         bool succeeded,
         int? resultVertexCount,
         int? resultFaceCount,
@@ -31,7 +31,7 @@ internal sealed class TerrainCoreCaseRecorder
             (double[])zValues.Clone(),
             (int[])segments.Clone(),
             useConvexHull,
-            maxBoundaryEdgeLength));
+            CloneBoundaryPeelSettings(boundaryPeelSettings)));
     }
 
     public void RecordPath(
@@ -69,8 +69,6 @@ internal sealed class TerrainCoreCaseRecorder
         int faceCount,
         PadGrader.PadBoundary[] pads,
         PadGrader.LockCurve[]? lockCurves,
-        double maxArea,
-        double minAngle,
         bool succeeded,
         int? resultVertexCount,
         int? resultFaceCount,
@@ -87,9 +85,7 @@ internal sealed class TerrainCoreCaseRecorder
             (int[])faces.Clone(),
             faceCount,
             ClonePads(pads),
-            CloneLocks(lockCurves),
-            maxArea,
-            minAngle));
+            CloneLocks(lockCurves)));
     }
 
     public TerrainCoreCaseRecord? SelectBestRecord()
@@ -144,6 +140,17 @@ internal sealed class TerrainCoreCaseRecorder
             constraint.IsClosed,
             constraint.PreserveInputElevation);
     }
+
+    private static BoundaryTrianglePeelSettings CloneBoundaryPeelSettings(BoundaryTrianglePeelSettings settings)
+    {
+        return new BoundaryTrianglePeelSettings
+        {
+            Enabled = settings.Enabled,
+            MaxBoundaryEdgeLength = settings.MaxBoundaryEdgeLength,
+            MaxInteriorAngleDegrees = settings.MaxInteriorAngleDegrees,
+            MaxSlopeAngleDegrees = settings.MaxSlopeAngleDegrees
+        };
+    }
 }
 
 internal abstract record TerrainCoreCaseRecord(
@@ -163,7 +170,7 @@ internal sealed record TerrainCoreTinCaseRecord(
     double[] ZValues,
     int[] Segments,
     bool UseConvexHull,
-    double MaxBoundaryEdgeLength)
+    BoundaryTrianglePeelSettings BoundaryPeelSettings)
     : TerrainCoreCaseRecord(StageName, Succeeded, ResultVertexCount, ResultFaceCount, Message);
 
 internal sealed record TerrainCorePathCaseRecord(
@@ -191,7 +198,5 @@ internal sealed record TerrainCorePadCaseRecord(
     int[] Faces,
     int FaceCount,
     PadGrader.PadBoundary[] Pads,
-    PadGrader.LockCurve[]? LockCurves,
-    double MaxArea,
-    double MinAngle)
+    PadGrader.LockCurve[]? LockCurves)
     : TerrainCoreCaseRecord(StageName, Succeeded, ResultVertexCount, ResultFaceCount, Message);

@@ -3138,6 +3138,7 @@ public sealed class MoleHillPanel : Panel
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((TriangulateModifierDefinition)item).Boundary)),
                     RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
+                AddBoundaryPeelEditors(layout, terrain, triangulate);
                 break;
             case AddGeometryModifierDefinition addGeometry:
                 layout.AddRow(CreateSourceEditor("Points", addGeometry.Points,
@@ -3156,6 +3157,7 @@ public sealed class MoleHillPanel : Panel
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((AddGeometryModifierDefinition)item).Boundary)),
                     RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
+                AddBoundaryPeelEditors(layout, terrain, addGeometry);
                 break;
             case RemeshModifierDefinition remesh:
                 layout.AddRow(CreateSourceEditor("Constraints", remesh.Constraints,
@@ -3249,12 +3251,6 @@ public sealed class MoleHillPanel : Panel
                 layout.AddRow(CreateNumericEditor("Max Distance", gradePad.MaxDistance, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).MaxDistance = value),
                     help: "Maximum grading reach. 0 means unlimited; smaller values keep the effect close to the pad."));
-                layout.AddRow(CreateNumericEditor("Max Area", gradePad.MaxArea, value =>
-                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).MaxArea = value),
-                    help: "Maximum triangle area for the temporary re-triangulation. Lower values are slower but capture grade transitions better."));
-                layout.AddRow(CreateNumericEditor("Min Angle", gradePad.MinAngle, value =>
-                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).MinAngle = value),
-                    help: "Minimum triangle angle during grading remesh. Moderate values improve quality; very high values can become brittle."));
                 break;
             case GradePathModifierDefinition gradePath:
                 layout.AddRow(CreateSourceEditor("Paths", gradePath.Paths,
@@ -3280,6 +3276,9 @@ public sealed class MoleHillPanel : Panel
                 layout.AddRow(CreateNumericEditor("Riser Height", inSituStair.RiserHeight, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((InSituStairModifierDefinition)item).RiserHeight = value),
                     help: "Vertical rise per step. The stair modifier derives tread depth from the supplied walkable surface and this riser height."));
+                layout.AddRow(CreateNumericEditor("Min Tread Depth", inSituStair.MinTreadDepth, value =>
+                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((InSituStairModifierDefinition)item).MinTreadDepth = value),
+                    help: "Minimum acceptable derived tread depth. Values greater than 0 color undersized stair solids bright red; 0 disables the warning."));
                 layout.AddRow(CreateNumericEditor("Slope Angle", inSituStair.SlopeAngle, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((InSituStairModifierDefinition)item).SlopeAngle = value),
                     help: "Daylight slope angle where the graded support surface blends back into surrounding terrain."));
@@ -3303,6 +3302,47 @@ public sealed class MoleHillPanel : Panel
         }
 
         return layout;
+    }
+
+    private void AddBoundaryPeelEditors(DynamicLayout layout, TerrainDefinition terrain, GeometryInputModifierDefinition modifier)
+    {
+        layout.AddRow(CreateCheckEditor(
+            "Peel Border",
+            modifier.PeelBoundaryTriangles,
+            value => MutateModifier(
+                terrain.TerrainId,
+                modifier.Id,
+                item => ((GeometryInputModifierDefinition)item).PeelBoundaryTriangles = value),
+            "Remove unwanted triangles only from the current TIN boundary. Interior faces are not candidates."));
+        layout.AddRow(CreateNumericEditor(
+            "Max Edge",
+            modifier.MaxBoundaryEdgeLength,
+            value => MutateModifier(
+                terrain.TerrainId,
+                modifier.Id,
+                item => ((GeometryInputModifierDefinition)item).MaxBoundaryEdgeLength = value),
+            help: "Boundary peeling edge threshold. 0 chooses an automatic threshold from mesh edge lengths.",
+            minValue: 0));
+        layout.AddRow(CreateNumericEditor(
+            "Max Angle",
+            modifier.MaxBoundaryAngleDegrees,
+            value => MutateModifier(
+                terrain.TerrainId,
+                modifier.Id,
+                item => ((GeometryInputModifierDefinition)item).MaxBoundaryAngleDegrees = value),
+            help: "Boundary triangles with a longer-than-threshold edge and an interior angle at or above this value are peeled.",
+            minValue: 0,
+            maxValue: 180));
+        layout.AddRow(CreateNumericEditor(
+            "Slope Limit",
+            modifier.MaxBoundarySlopeDegrees,
+            value => MutateModifier(
+                terrain.TerrainId,
+                modifier.Id,
+                item => ((GeometryInputModifierDefinition)item).MaxBoundarySlopeDegrees = value),
+            help: "Boundary triangles with slope at or above this angle are peeled. 0 disables slope-based peeling.",
+            minValue: 0,
+            maxValue: 90));
     }
 
     private Panel CreateZoneCard(TerrainDefinition terrain, CollageZoneDefinition zone)

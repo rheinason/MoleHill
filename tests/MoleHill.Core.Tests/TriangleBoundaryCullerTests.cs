@@ -100,4 +100,75 @@ public class TriangleBoundaryCullerTests
         Assert.False(result.Changed);
         Assert.Equal(2, result.FaceCount);
     }
+
+    [Fact]
+    public void Cull_SteepBoundaryTriangle_RemovesOnlyAfterSlopeCriterion()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 0.0,
+            100.0, 0.0001, 100.0
+        };
+        int[] faces =
+        {
+            0, 1, 2,
+            1, 3, 2
+        };
+
+        var result = TriangleBoundaryCuller.Cull(
+            vertices,
+            4,
+            faces,
+            2,
+            Array.Empty<double>(),
+            Array.Empty<int>(),
+            new BoundaryTrianglePeelSettings
+            {
+                MaxBoundaryEdgeLength = 1_000.0,
+                MaxInteriorAngleDegrees = 180.0,
+                MaxSlopeAngleDegrees = 45.0
+            });
+
+        Assert.True(result.Changed);
+        Assert.Equal(1, result.FaceCount);
+        Assert.Equal(3, result.VertexCount);
+    }
+
+    [Fact]
+    public void Cull_ClosedMeshWithNoNakedEdges_DoesNotRemoveSteepFaces()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 100.0,
+            0.2, 0.2, 0.0
+        };
+        int[] faces =
+        {
+            0, 1, 2,
+            0, 3, 1,
+            1, 3, 2,
+            2, 3, 0
+        };
+
+        var result = TriangleBoundaryCuller.Cull(
+            vertices,
+            4,
+            faces,
+            4,
+            Array.Empty<double>(),
+            Array.Empty<int>(),
+            new BoundaryTrianglePeelSettings
+            {
+                MaxBoundaryEdgeLength = 0.0,
+                MaxInteriorAngleDegrees = 170.0,
+                MaxSlopeAngleDegrees = 1.0
+            });
+
+        Assert.False(result.Changed);
+        Assert.Equal(4, result.FaceCount);
+    }
 }

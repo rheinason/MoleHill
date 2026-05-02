@@ -28,7 +28,8 @@ public sealed class InputSnapshot
         int[] segments,
         QualitySettings quality,
         bool useConvexHull = true,
-        double maxBoundaryEdgeLength = 0)
+        double maxBoundaryEdgeLength = 0,
+        BoundaryTrianglePeelSettings? boundaryPeelSettings = null)
     {
         var xyHasher = new HashCode();
         xyHasher.AddBytes(MemoryMarshal.AsBytes(xyCoords.AsSpan()));
@@ -39,7 +40,12 @@ public sealed class InputSnapshot
         qualityBuf[1] = quality.MinAngle;
         xyHasher.AddBytes(MemoryMarshal.AsBytes(qualityBuf));
         xyHasher.Add(useConvexHull);
-        xyHasher.Add(maxBoundaryEdgeLength);
+        BoundaryTrianglePeelSettings settings = boundaryPeelSettings
+            ?? BoundaryTrianglePeelSettings.FromLegacyMaxBoundaryEdgeLength(maxBoundaryEdgeLength);
+        xyHasher.Add(settings.Enabled);
+        xyHasher.Add(settings.MaxBoundaryEdgeLength);
+        xyHasher.Add(settings.MaxInteriorAngleDegrees);
+        xyHasher.Add(settings.MaxSlopeAngleDegrees);
 
         return xyHasher.ToHashCode();
     }

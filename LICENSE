@@ -31,17 +31,27 @@ This subtree includes code with notices for:
 
 See `LICENSES/TriangleNet.md` for details and upstream references.
 
-3. Combined distributions
+3. Clipper2
+-----------
+
+MoleHill references the Clipper2 NuGet package for polygon clipping operations.
+Clipper2 is authored by Angus Johnson and distributed under the Boost Software
+License, version 1.0.
+
+See `LICENSES/Clipper2-Boost-1.0.txt` for the full license text.
+
+4. Combined distributions
 -------------------------
 
 Distributed MoleHill binaries and Yak packages include both MoleHill-authored
-code and `src/TriangleNet/` code. They are therefore distributed under mixed
-terms, not under a single GPL license for the whole combined package.
+code, `src/TriangleNet/` code, and the Clipper2 runtime library. They are
+therefore distributed under mixed terms, not under a single GPL license for the
+whole combined package.
 
 You are responsible for complying with all applicable notices and upstream terms
 when using, modifying, or redistributing any combined build or package.
 
-4. No warranty
+5. No warranty
 --------------
 
 As far as the law allows, the repository contents and distributed binaries are

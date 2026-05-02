@@ -299,4 +299,45 @@ public class MeshSmootherTests
         Assert.True(prepared.IsMeshBoundary[3]);
         Assert.False(prepared.IsMeshBoundary[4]);
     }
+
+    [Fact]
+    public void Prepare_ClosedBreaklineWithoutDuplicateEndpoint_MarksClosingSegment()
+    {
+        var vertices = new[]
+        {
+            0.0, 0.0, 0.0,
+            2.0, 0.0, 0.0,
+            2.0, 2.0, 0.0,
+            0.0, 2.0, 0.0,
+            1.0, 1.0, 1.0,
+            0.0, 1.0, 2.0
+        };
+        var faces = new[]
+        {
+            0, 1, 4,
+            1, 2, 4,
+            2, 3, 4,
+            3, 0, 4,
+            0, 4, 5,
+            4, 3, 5
+        };
+        var breaklines = new[]
+        {
+            new MeshSmoother.BreaklinePolyline(
+                new[] { 0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0 },
+                PointCount: 4,
+                IsClosed: true)
+        };
+
+        var prepared = MeshSmoother.Prepare(
+            vertices,
+            6,
+            faces,
+            6,
+            Array.Empty<(double[] xyVerts, int vertCount)>(),
+            breaklines,
+            1e-6);
+
+        Assert.True(prepared.IsOnBreakline[5]);
+    }
 }

@@ -10,10 +10,6 @@ public sealed class GradePadModifierDefinition : ModifierDefinition
 
     public double MaxDistance { get; set; }
 
-    public double MaxArea { get; set; }
-
-    public double MinAngle { get; set; }
-
     public GradePadModifierDefinition()
     {
         Label = "Grade Pad";

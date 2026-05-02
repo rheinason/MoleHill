@@ -41,6 +41,10 @@ public class TinFromPointsAndBreaklines : GH_Component
         pManager[3].Optional = true;
         pManager.AddNumberParameter("Max Edge", "L", "Maximum triangle edge length. 0 = auto-remove outlier boundary triangles. Negative = keep all triangles.", GH_ParamAccess.item, 0.0);
         pManager[4].Optional = true;
+        pManager.AddNumberParameter("Max Angle", "A", "Maximum allowed angle for peeled boundary triangles. 170 is the default sliver threshold.", GH_ParamAccess.item, BoundaryTrianglePeelSettings.DefaultMaxInteriorAngleDegrees);
+        pManager[5].Optional = true;
+        pManager.AddNumberParameter("Slope Limit", "S", "Maximum allowed slope angle for boundary triangles. 0 = ignore slope.", GH_ParamAccess.item, 0.0);
+        pManager[6].Optional = true;
     }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -71,9 +75,23 @@ public class TinFromPointsAndBreaklines : GH_Component
 
         double maxBoundaryEdgeLength = 0;
         DA.GetData(4, ref maxBoundaryEdgeLength);
+        double maxBoundaryAngle = BoundaryTrianglePeelSettings.DefaultMaxInteriorAngleDegrees;
+        DA.GetData(5, ref maxBoundaryAngle);
+        double maxBoundarySlope = 0.0;
+        DA.GetData(6, ref maxBoundarySlope);
 
         if (tolerance <= 0)
             tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
+
+        BoundaryTrianglePeelSettings peelSettings = maxBoundaryEdgeLength < 0
+            ? BoundaryTrianglePeelSettings.Disabled
+            : new BoundaryTrianglePeelSettings
+            {
+                Enabled = true,
+                MaxBoundaryEdgeLength = maxBoundaryEdgeLength,
+                MaxInteriorAngleDegrees = maxBoundaryAngle,
+                MaxSlopeAngleDegrees = maxBoundarySlope
+            };
 
         int preprocessHash = ComputePreprocessHash(points, curves, tolerance);
         PointCloudProcessor.MergedData merged;
@@ -157,7 +175,7 @@ public class TinFromPointsAndBreaklines : GH_Component
         // Build TIN (pure CDT, no quality refinement — use Remesh for that)
         var quality = QualitySettings.None;
 
-        if (TryBuildValidatedTinMesh(merged.XyCoords, merged.ZValues, merged.Segments, boundaryCurves, tolerance, quality, maxBoundaryEdgeLength,
+        if (TryBuildValidatedTinMesh(merged.XyCoords, merged.ZValues, merged.Segments, boundaryCurves, tolerance, quality, peelSettings,
             out var result, out var mesh, out string? buildMessage))
         {
             if (!string.IsNullOrWhiteSpace(buildMessage))
@@ -186,7 +204,7 @@ public class TinFromPointsAndBreaklines : GH_Component
             return;
         }
 
-        if (!TryBuildValidatedTinMesh(cleanup.XyCoords, cleanup.ZValues, cleanup.Segments, boundaryCurves, tolerance, quality, maxBoundaryEdgeLength,
+        if (!TryBuildValidatedTinMesh(cleanup.XyCoords, cleanup.ZValues, cleanup.Segments, boundaryCurves, tolerance, quality, peelSettings,
             out result, out mesh, out string? cleanupMessage))
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Error, buildMessage ?? "Triangulation failed.");
@@ -214,7 +232,7 @@ public class TinFromPointsAndBreaklines : GH_Component
         IReadOnlyList<Curve> boundaryCurves,
         double tolerance,
         QualitySettings quality,
-        double maxBoundaryEdgeLength,
+        BoundaryTrianglePeelSettings peelSettings,
         out TinResult? result,
         out Mesh? mesh,
         out string? message)
@@ -235,7 +253,7 @@ public class TinFromPointsAndBreaklines : GH_Component
             quality,
             out message,
             useConvexHull: prepared.UseConvexHull,
-            maxBoundaryEdgeLength: maxBoundaryEdgeLength);
+            boundaryPeelSettings: peelSettings);
 
         if (!string.IsNullOrWhiteSpace(prepared.WarningMessage))
             message = AppendMessage(message, prepared.WarningMessage);

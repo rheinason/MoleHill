@@ -18,7 +18,8 @@ internal sealed class TerrainBuildService
 {
     private const int StageTimingDiagnosticThresholdMs = 250;
     private const double MinRepresentablePadPlaneNormalZ = 1e-3;
-    private const int TriangulateCacheVersion = 2;
+    private const int TriangulateCacheVersion = 3;
+    private const int InSituStairTreadDepthWarningColorArgb = unchecked((int)0xFFFF0000);
 
     private sealed class ZoneBoundaryEntry
     {
@@ -678,6 +679,7 @@ internal sealed class TerrainBuildService
             merged.Segments,
             boundaryPolylines,
             tolerance,
+            modifier.CreateBoundaryPeelSettings(),
             runtimeCache.TinEngine,
             runtimeCache.CoreCaseRecorder,
             stageName,
@@ -777,6 +779,7 @@ internal sealed class TerrainBuildService
             cleanup.Segments,
             boundaryPolylines,
             tolerance,
+            modifier.CreateBoundaryPeelSettings(),
             runtimeCache.TinEngine,
             runtimeCache.CoreCaseRecorder,
             $"{stageName} Cleanup Retry",
@@ -910,6 +913,7 @@ internal sealed class TerrainBuildService
             merged.Segments,
             boundaryPolylines,
             tolerance,
+            modifier.CreateBoundaryPeelSettings(),
             runtimeCache.TinEngine,
             runtimeCache.CoreCaseRecorder,
             modifier.Label,
@@ -954,6 +958,7 @@ internal sealed class TerrainBuildService
             cleanup.Segments,
             boundaryPolylines,
             tolerance,
+            modifier.CreateBoundaryPeelSettings(),
             runtimeCache.TinEngine,
             runtimeCache.CoreCaseRecorder,
             $"{modifier.Label} Cleanup Retry",
@@ -984,6 +989,7 @@ internal sealed class TerrainBuildService
         int[] segments,
         TinBoundaryPreparer.BoundaryPolyline[] boundaryPolylines,
         double tolerance,
+        BoundaryTrianglePeelSettings boundaryPeelSettings,
         TinEngine engine,
         TerrainCoreCaseRecorder? coreCaseRecorder,
         string stageName,
@@ -1009,7 +1015,7 @@ internal sealed class TerrainBuildService
             QualitySettings.None,
             out message,
             useConvexHull: prepared.UseConvexHull,
-            maxBoundaryEdgeLength: 0,
+            boundaryPeelSettings: boundaryPeelSettings,
             shouldCancel: shouldCancel);
         ThrowIfCancellationRequested(shouldCancel);
 
@@ -1024,7 +1030,7 @@ internal sealed class TerrainBuildService
             prepared.ZValues,
             prepared.Segments,
             prepared.UseConvexHull,
-            maxBoundaryEdgeLength: 0,
+            boundaryPeelSettings,
             result != null,
             result?.VertexCount,
             result?.FaceCount,
@@ -1162,14 +1168,15 @@ internal sealed class TerrainBuildService
             boundaries.Add((xyVerts, count));
         }
 
-        var breaklines = new List<(double[] xyPts, int ptCount)>();
+        var breaklines = new List<MeshSmoother.BreaklinePolyline>();
         foreach (var curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Breaklines))
         {
             if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
                 continue;
 
             int count = polyline.Count;
-            if (curve.IsClosed && polyline[0].DistanceTo(polyline[^1]) < tolerance)
+            bool isClosed = curve.IsClosed || (count > 2 && polyline[0].DistanceTo(polyline[^1]) <= tolerance);
+            if (isClosed && polyline[0].DistanceTo(polyline[^1]) < tolerance)
                 count--;
 
             var xyPts = new double[count * 2];
@@ -1179,7 +1186,7 @@ internal sealed class TerrainBuildService
                 xyPts[i * 2 + 1] = polyline[i].Y;
             }
 
-            breaklines.Add((xyPts, count));
+            breaklines.Add(new MeshSmoother.BreaklinePolyline(xyPts, count, isClosed));
         }
 
         string preparedStageKey = CreateSmoothPreparedStageKey(stageKey);
@@ -1689,125 +1696,83 @@ internal sealed class TerrainBuildService
         {
             ThrowIfCancellationRequested(shouldCancel);
             var topologyDiagnostics = new List<string>();
-            if (mode == TerrainBuildMode.Preview)
-            {
-                const string previewDiagnostic = "Grade Pad preview used direct grading without topology rebuild.";
-                topologyDiagnostics.Add(previewDiagnostic);
-                build.Diagnostics.Add(previewDiagnostic);
-                topologyTimer.Stop();
+            var gradeResult = PadGrader.Grade(
+                vertices,
+                mesh.Vertices.Count,
+                faces,
+                mesh.Faces.Count,
+                resolvedInputs.Pads,
+                effectiveLocks.Length > 0 ? effectiveLocks : null,
+                out var gradeWarning);
+            ThrowIfCancellationRequested(shouldCancel);
+            runtimeCache.CoreCaseRecorder?.RecordPad(
+                modifier.Label,
+                vertices,
+                mesh.Vertices.Count,
+                faces,
+                mesh.Faces.Count,
+                resolvedInputs.Pads,
+                effectiveLocks.Length > 0 ? effectiveLocks : null,
+                gradeResult != null,
+                gradeResult?.VertexCount,
+                gradeResult?.FaceCount,
+                gradeWarning);
 
-                topologyEntry = new GradingTopologyCacheEntry
-                {
-                    GraderKind = "Pad",
-                    Fingerprint = topologyFingerprint,
-                    OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Pad", vertices, mesh.Vertices.Count, faces, mesh.Faces.Count),
-                    Vertices = (double[])vertices.Clone(),
-                    VertexCount = mesh.Vertices.Count,
-                    Faces = (int[])faces.Clone(),
-                    FaceCount = mesh.Faces.Count,
-                    PatchSummaries = patchSummaries,
-                    Diagnostics = topologyDiagnostics
-                };
-                runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(topologyEntry);
-                build.RecordTiming(
-                    "Grade Pad Topology",
-                    topologyTimer.Elapsed,
-                    "Preview used existing mesh topology.",
-                    StageTimingDiagnosticThresholdMs);
+            if (!string.IsNullOrWhiteSpace(gradeWarning))
+                topologyDiagnostics.Add(gradeWarning!);
+
+            double[] topologyVertices;
+            int topologyVertexCount;
+            int[] topologyFaces;
+            int topologyFaceCount;
+            if (gradeResult == null)
+            {
+                topologyDiagnostics.Add(gradeWarning ?? "Grade Pad local patch rebuild failed; using upstream mesh.");
+                build.Diagnostics.AddRange(topologyDiagnostics);
+                topologyVertices = (double[])vertices.Clone();
+                topologyVertexCount = mesh.Vertices.Count;
+                topologyFaces = (int[])faces.Clone();
+                topologyFaceCount = mesh.Faces.Count;
             }
             else
             {
-                // Focused CDT insertion: add pad boundary vertices to the existing mesh and
-                // re-triangulate — same approach as Grade Path. Does NOT do a global quality
-                // remesh via SurfaceRemesher, so the upstream path topology is preserved.
-                // Do NOT forward MaxArea/MinAngle here — those are global Triangle.NET quality
-                // constraints that would refine the entire terrain mesh, not just the pad area.
-                // Focused insertion uses plain CDT (no quality refinement).
-                var gradeResult = PadGrader.Grade(
-                    vertices,
-                    mesh.Vertices.Count,
-                    faces,
-                    mesh.Faces.Count,
-                    resolvedInputs.Pads,
-                    effectiveLocks.Length > 0 ? effectiveLocks : null,
-                    maxArea: 0,
-                    minAngle: 0,
-                    out var gradeWarning);
-                ThrowIfCancellationRequested(shouldCancel);
-                runtimeCache.CoreCaseRecorder?.RecordPad(
-                    modifier.Label,
-                    vertices,
-                    mesh.Vertices.Count,
-                    faces,
-                    mesh.Faces.Count,
-                    resolvedInputs.Pads,
-                    effectiveLocks.Length > 0 ? effectiveLocks : null,
-                    maxArea: 0,
-                    minAngle: 0,
-                    gradeResult != null,
-                    gradeResult?.VertexCount,
-                    gradeResult?.FaceCount,
-                    gradeWarning);
+                if (gradeResult.Diagnostics.Count > 0)
+                    topologyDiagnostics.AddRange(gradeResult.Diagnostics);
 
-                if (!string.IsNullOrWhiteSpace(gradeWarning))
-                    topologyDiagnostics.Add(gradeWarning!);
-
-                double[] topologyVertices;
-                int topologyVertexCount;
-                int[] topologyFaces;
-                int topologyFaceCount;
-                if (gradeResult == null)
-                {
-                    topologyDiagnostics.Add(gradeWarning ?? "Grade Pad focused insertion failed; using upstream mesh.");
-                    build.Diagnostics.AddRange(topologyDiagnostics);
-                    topologyVertices = (double[])vertices.Clone();
-                    topologyVertexCount = mesh.Vertices.Count;
-                    topologyFaces = (int[])faces.Clone();
-                    topologyFaceCount = mesh.Faces.Count;
-                }
-                else
-                {
-                    if (gradeResult.Diagnostics.Count > 0)
-                        topologyDiagnostics.AddRange(gradeResult.Diagnostics);
-
-                    build.Diagnostics.AddRange(topologyDiagnostics);
-                    AddOutputPolylinesAsBreaklines(gradeResult.OutputPolylines, build);
-                    topologyVertices = gradeResult.Vertices;
-                    topologyVertexCount = gradeResult.VertexCount;
-                    topologyFaces = gradeResult.Faces;
-                    topologyFaceCount = gradeResult.FaceCount;
-                }
-
-                topologyTimer.Stop();
-
-                topologyEntry = new GradingTopologyCacheEntry
-                {
-                    GraderKind = "Pad",
-                    Fingerprint = topologyFingerprint,
-                    OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Pad", topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount),
-                    Vertices = topologyVertices,
-                    VertexCount = topologyVertexCount,
-                    Faces = topologyFaces,
-                    FaceCount = topologyFaceCount,
-                    PatchSummaries = gradeResult?.PatchSummaries.Count > 0
-                        ? ClonePatchSummaries(gradeResult.PatchSummaries)
-                        : patchSummaries,
-                    Diagnostics = topologyDiagnostics
-                };
-                runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(topologyEntry);
-                build.RecordTiming(
-                    "Grade Pad",
-                    topologyTimer.Elapsed,
-                    $"{topologyVertexCount:N0} verts, {topologyFaceCount:N0} faces",
-                    StageTimingDiagnosticThresholdMs);
+                build.Diagnostics.AddRange(topologyDiagnostics);
+                AddOutputPolylinesAsBreaklines(gradeResult.OutputPolylines, build);
+                topologyVertices = gradeResult.Vertices;
+                topologyVertexCount = gradeResult.VertexCount;
+                topologyFaces = gradeResult.Faces;
+                topologyFaceCount = gradeResult.FaceCount;
             }
+
+            topologyTimer.Stop();
+
+            topologyEntry = new GradingTopologyCacheEntry
+            {
+                GraderKind = "Pad",
+                Fingerprint = topologyFingerprint,
+                OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Pad", topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount),
+                Vertices = topologyVertices,
+                VertexCount = topologyVertexCount,
+                Faces = topologyFaces,
+                FaceCount = topologyFaceCount,
+                PatchSummaries = gradeResult?.PatchSummaries.Count > 0
+                    ? ClonePatchSummaries(gradeResult.PatchSummaries)
+                    : patchSummaries,
+                Diagnostics = topologyDiagnostics
+            };
+            runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(topologyEntry);
+            build.RecordTiming(
+                "Grade Pad",
+                topologyTimer.Elapsed,
+                $"{topologyVertexCount:N0} verts, {topologyFaceCount:N0} faces",
+                StageTimingDiagnosticThresholdMs);
         }
 
-        if (mode != TerrainBuildMode.Preview)
-        {
-            build.Diagnostics.Add(
-                $"Grade Pad focused insertion ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)}).");
-        }
+        build.Diagnostics.Add(
+            $"Grade Pad local patch ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)}).");
 
         ulong resolvedInputFingerprint = ComputeGradePadResolvedInputFingerprint(topologyEntry.OutputFingerprint, resolvedInputs.Pads, modifier);
         if (cachedEntry != null && cachedEntry.ResolvedInputFingerprint == resolvedInputFingerprint)
@@ -1880,8 +1845,6 @@ internal sealed class TerrainBuildService
             mesh.Faces.Count,
             resolvedInputs.Pads,
             effectiveLocks.Length == 0 ? null : effectiveLocks,
-            modifier.MaxArea,
-            modifier.MinAngle,
             out var warning);
 
         if (result == null)
@@ -2762,15 +2725,28 @@ internal sealed class TerrainBuildService
 
         var outputTimer = Stopwatch.StartNew();
         int outputCountBefore = build.AuxiliaryObjects.Count;
+        double minTreadDepth = Math.Max(0.0, modifier.MinTreadDepth);
+        double? lowestWarnedTreadDepth = null;
+        int treadDepthWarningCount = 0;
         foreach (var stairReference in stairBuild.References)
         {
+            bool warnTreadDepth = minTreadDepth > 0 && stairReference.TreadDepth < minTreadDepth;
+            if (warnTreadDepth)
+            {
+                treadDepthWarningCount++;
+                lowestWarnedTreadDepth = lowestWarnedTreadDepth.HasValue
+                    ? Math.Min(lowestWarnedTreadDepth.Value, stairReference.TreadDepth)
+                    : stairReference.TreadDepth;
+            }
+
             foreach (var stairBrep in stairReference.StairBreps)
             {
                 build.AuxiliaryObjects.Add(new GeneratedRhinoObject
                 {
                     Geometry = stairBrep,
                     Name = "Stair",
-                    LayerPath = terrain.AuxiliaryLayerPath
+                    LayerPath = terrain.AuxiliaryLayerPath,
+                    ColorArgb = warnTreadDepth ? InSituStairTreadDepthWarningColorArgb : null
                 });
             }
 
@@ -2792,6 +2768,12 @@ internal sealed class TerrainBuildService
             StageTimingDiagnosticThresholdMs);
 
         build.Diagnostics.Add(stairBuild.StatusSummary);
+        if (treadDepthWarningCount > 0 && lowestWarnedTreadDepth.HasValue)
+        {
+            string surfaceText = treadDepthWarningCount == 1 ? "surface" : "surfaces";
+            build.Diagnostics.Add(
+                $"In-Situ Stair tread depth warning: {treadDepthWarningCount:N0} {surfaceText} below minimum {minTreadDepth:G4}; lowest tread {lowestWarnedTreadDepth.Value:G4}. Stair solids shown bright red.");
+        }
         foreach (var warning in stairBuild.Warnings)
             build.Diagnostics.Add(warning);
         foreach (var gradingWarning in gradingWarnings)

@@ -2,7 +2,7 @@ namespace MoleHill.Core.Engine;
 
 internal static class TriangleBoundaryCuller
 {
-    internal const double DegenerateBoundaryAngleDegrees = 170.0;
+    internal const double DegenerateBoundaryAngleDegrees = BoundaryTrianglePeelSettings.DefaultMaxInteriorAngleDegrees;
 
     internal sealed class Result
     {
@@ -35,14 +35,46 @@ internal static class TriangleBoundaryCuller
         int[] inputSegments,
         double maxBoundaryEdgeLength)
     {
-        if (faceCount <= 0 || maxBoundaryEdgeLength < 0)
+        return Cull(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            inputXy,
+            inputSegments,
+            BoundaryTrianglePeelSettings.FromLegacyMaxBoundaryEdgeLength(maxBoundaryEdgeLength));
+    }
+
+    public static Result Cull(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        double[] inputXy,
+        int[] inputSegments,
+        BoundaryTrianglePeelSettings? settings)
+    {
+        settings ??= BoundaryTrianglePeelSettings.Default;
+        if (faceCount <= 0 || !settings.Enabled || settings.MaxBoundaryEdgeLength < 0)
             return new Result(false, faces, faceCount, Array.Empty<int>(), vertexCount);
 
-        double effectiveThreshold = maxBoundaryEdgeLength > 0
-            ? maxBoundaryEdgeLength
+        double effectiveThreshold = settings.MaxBoundaryEdgeLength > 0
+            ? settings.MaxBoundaryEdgeLength
             : ComputeAutoThreshold(vertices, faces, faceCount);
 
-        if (!(effectiveThreshold > 0) || double.IsNaN(effectiveThreshold) || double.IsInfinity(effectiveThreshold))
+        bool canUseEdgeAngle =
+            effectiveThreshold > 0 &&
+            !double.IsNaN(effectiveThreshold) &&
+            !double.IsInfinity(effectiveThreshold) &&
+            settings.MaxInteriorAngleDegrees > 0 &&
+            !double.IsNaN(settings.MaxInteriorAngleDegrees) &&
+            !double.IsInfinity(settings.MaxInteriorAngleDegrees);
+        bool canUseSlope =
+            settings.MaxSlopeAngleDegrees > 0 &&
+            !double.IsNaN(settings.MaxSlopeAngleDegrees) &&
+            !double.IsInfinity(settings.MaxSlopeAngleDegrees);
+
+        if (!canUseEdgeAngle && !canUseSlope && inputSegments.Length == 0)
             return new Result(false, faces, faceCount, Array.Empty<int>(), vertexCount);
 
         var spatialIndex = ConstraintSpatialIndex.Build(inputXy, inputSegments);
@@ -75,8 +107,16 @@ internal static class TriangleBoundaryCuller
         {
             int i0 = faces[f * 3], i1 = faces[f * 3 + 1], i2 = faces[f * 3 + 2];
             if (HasNakedEdge(i0, i1, i2, edgeCounts) &&
-                (TriangleCrossesConstraint(vertices, i0, i1, i2, spatialIndex) ||
-                 IsDegenerateBoundaryTriangle(vertices, i0, i1, i2, effectiveThreshold)))
+                ShouldPeelBoundaryTriangle(
+                    vertices,
+                    i0,
+                    i1,
+                    i2,
+                    spatialIndex,
+                    effectiveThreshold,
+                    canUseEdgeAngle,
+                    canUseSlope,
+                    settings))
             {
                 queue.Enqueue(f);
                 inQueue[f] = true;
@@ -120,8 +160,16 @@ internal static class TriangleBoundaryCuller
                     if (neighbor >= 0 && active[neighbor] && !inQueue[neighbor])
                     {
                         int n0 = faces[neighbor * 3], n1 = faces[neighbor * 3 + 1], n2 = faces[neighbor * 3 + 2];
-                        if (TriangleCrossesConstraint(vertices, n0, n1, n2, spatialIndex) ||
-                            IsDegenerateBoundaryTriangle(vertices, n0, n1, n2, effectiveThreshold))
+                        if (ShouldPeelBoundaryTriangle(
+                            vertices,
+                            n0,
+                            n1,
+                            n2,
+                            spatialIndex,
+                            effectiveThreshold,
+                            canUseEdgeAngle,
+                            canUseSlope,
+                            settings))
                         {
                             queue.Enqueue(neighbor);
                             inQueue[neighbor] = true;
@@ -147,6 +195,30 @@ internal static class TriangleBoundaryCuller
 
         var compact = IndexedMeshTools.Compact(vertexCount, filteredFaces, activeFaceCount);
         return new Result(true, compact.Faces, compact.FaceCount, compact.NewToOld, compact.VertexCount);
+    }
+
+    private static bool ShouldPeelBoundaryTriangle(
+        double[] vertices,
+        int i0,
+        int i1,
+        int i2,
+        ConstraintSpatialIndex spatialIndex,
+        double effectiveEdgeThreshold,
+        bool canUseEdgeAngle,
+        bool canUseSlope,
+        BoundaryTrianglePeelSettings settings)
+    {
+        if (TriangleCrossesConstraint(vertices, i0, i1, i2, spatialIndex))
+            return true;
+
+        if (canUseEdgeAngle &&
+            IsDegenerateBoundaryTriangle(vertices, i0, i1, i2, effectiveEdgeThreshold, settings.MaxInteriorAngleDegrees))
+        {
+            return true;
+        }
+
+        return canUseSlope &&
+               IsSteepBoundaryTriangle(vertices, i0, i1, i2, settings.MaxSlopeAngleDegrees);
     }
 
     internal static double ComputeAutoThreshold(double[] vertices, IndexedMeshTools.EdgeTopology topology)
@@ -240,7 +312,13 @@ internal static class TriangleBoundaryCuller
         return false;
     }
 
-    private static bool IsDegenerateBoundaryTriangle(double[] vertices, int i0, int i1, int i2, double maxEdgeThreshold)
+    private static bool IsDegenerateBoundaryTriangle(
+        double[] vertices,
+        int i0,
+        int i1,
+        int i2,
+        double maxEdgeThreshold,
+        double maxAngleDegrees)
     {
         double len01 = Distance2D(vertices, i0, i1);
         double len12 = Distance2D(vertices, i1, i2);
@@ -250,7 +328,39 @@ internal static class TriangleBoundaryCuller
         if (longest <= maxEdgeThreshold)
             return false;
 
-        return ComputeMaxAngleDegrees(len01, len12, len20) >= DegenerateBoundaryAngleDegrees;
+        return ComputeMaxAngleDegrees(len01, len12, len20) >= maxAngleDegrees;
+    }
+
+    private static bool IsSteepBoundaryTriangle(double[] vertices, int i0, int i1, int i2, double maxSlopeAngleDegrees)
+    {
+        double ax = vertices[i0 * 3];
+        double ay = vertices[i0 * 3 + 1];
+        double az = vertices[i0 * 3 + 2];
+        double bx = vertices[i1 * 3];
+        double by = vertices[i1 * 3 + 1];
+        double bz = vertices[i1 * 3 + 2];
+        double cx = vertices[i2 * 3];
+        double cy = vertices[i2 * 3 + 1];
+        double cz = vertices[i2 * 3 + 2];
+
+        double ux = bx - ax;
+        double uy = by - ay;
+        double uz = bz - az;
+        double vx = cx - ax;
+        double vy = cy - ay;
+        double vz = cz - az;
+
+        double nx = (uy * vz) - (uz * vy);
+        double ny = (uz * vx) - (ux * vz);
+        double nz = (ux * vy) - (uy * vx);
+        double horizontalNormalLength = Math.Sqrt((nx * nx) + (ny * ny));
+        double verticalNormalMagnitude = Math.Abs(nz);
+        double normalLength = Math.Sqrt((horizontalNormalLength * horizontalNormalLength) + (verticalNormalMagnitude * verticalNormalMagnitude));
+        if (!(normalLength > 1e-12) || double.IsNaN(normalLength) || double.IsInfinity(normalLength))
+            return false;
+
+        double slopeAngle = Math.Atan2(horizontalNormalLength, verticalNormalMagnitude) * 180.0 / Math.PI;
+        return slopeAngle >= maxSlopeAngleDegrees;
     }
 
     private static double ComputeMaxAngleDegrees(double len01, double len12, double len20)

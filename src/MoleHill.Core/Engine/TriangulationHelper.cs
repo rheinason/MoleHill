@@ -32,6 +32,15 @@ public static class TriangulationHelper
 {
     private static readonly object TriangulateLock = new();
 
+    public static IMesh TriangulatePolygon(
+        Polygon polygon,
+        ConstraintOptions options,
+        QualityOptions? qualityOptions = null)
+    {
+        lock (TriangulateLock)
+            return new GenericMesher().Triangulate(polygon, options, qualityOptions);
+    }
+
     /// <summary>
     /// Triangulate vertices + segments with automatic fallback:
     /// 1. Conforming CDT + quality

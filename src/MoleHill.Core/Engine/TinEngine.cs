@@ -132,11 +132,14 @@ public class TinEngine
                             out string? errorMessage,
                             bool useConvexHull = true,
                             double maxBoundaryEdgeLength = 0,
+                            BoundaryTrianglePeelSettings? boundaryPeelSettings = null,
                             Func<bool>? shouldCancel = null)
     {
         lock (_gate)
         {
             errorMessage = null;
+            BoundaryTrianglePeelSettings peelSettings = boundaryPeelSettings
+                ?? BoundaryTrianglePeelSettings.FromLegacyMaxBoundaryEdgeLength(maxBoundaryEdgeLength);
             int vertexCount = xyCoords.Length / 2;
             if (vertexCount < 3)
             {
@@ -152,7 +155,13 @@ public class TinEngine
 
             ThrowIfCancellationRequested(shouldCancel);
 
-            int xyHash = InputSnapshot.ComputeXyHash(xyCoords, segments, quality, useConvexHull, maxBoundaryEdgeLength);
+            int xyHash = InputSnapshot.ComputeXyHash(
+                xyCoords,
+                segments,
+                quality,
+                useConvexHull,
+                maxBoundaryEdgeLength,
+                peelSettings);
 
             if (_cachedSnapshot != null && _cachedResult != null &&
                 xyHash == _cachedSnapshot.XyHash &&
@@ -165,11 +174,19 @@ public class TinEngine
                 }
 
                 _cachedSnapshot = new InputSnapshot(xyHash, zHash);
-                _cachedResult = _cachedResult.WithUpdatedZ(zValues);
+                if (peelSettings.UsesSlopeCriterion && _cachedMesh != null)
+                {
+                    _cachedResult = BuildResult(_cachedMesh, xyCoords, zValues, segments, peelSettings);
+                }
+                else
+                {
+                    _cachedResult = _cachedResult.WithUpdatedZ(zValues);
+                }
+
                 return _cachedResult;
             }
 
-            if (TryApplyIncrementalEdit(xyCoords, zValues, segments, quality, useConvexHull, maxBoundaryEdgeLength, out var incrementalResult))
+            if (TryApplyIncrementalEdit(xyCoords, zValues, segments, quality, useConvexHull, peelSettings, out var incrementalResult))
             {
                 int zHash = InputSnapshot.ComputeZHash(zValues);
                 _cachedSnapshot = new InputSnapshot(xyHash, zHash);
@@ -181,7 +198,7 @@ public class TinEngine
             ThrowIfCancellationRequested(shouldCancel);
             var result = FullRebuild(
                 xyCoords, zValues, segments, quality,
-                out errorMessage, out IMesh? builtMesh, useConvexHull, maxBoundaryEdgeLength, shouldCancel);
+                out errorMessage, out IMesh? builtMesh, useConvexHull, peelSettings, shouldCancel);
             if (result != null)
             {
                 _cachedSnapshot = new InputSnapshot(xyHash, InputSnapshot.ComputeZHash(zValues));
@@ -280,7 +297,7 @@ public class TinEngine
 
     private bool TryApplyIncrementalEdit(
         double[] xyCoords, double[] zValues, int[] segments, QualitySettings quality, bool useConvexHull,
-        double maxBoundaryEdgeLength,
+        BoundaryTrianglePeelSettings boundaryPeelSettings,
         out TinResult? result)
     {
         result = null;
@@ -378,7 +395,7 @@ public class TinEngine
             previousMap[key] = vertexId;
         }
 
-        result = BuildResult(_cachedMesh, xyCoords, zValues, segments, maxBoundaryEdgeLength);
+        result = BuildResult(_cachedMesh, xyCoords, zValues, segments, boundaryPeelSettings);
         return true;
     }
 
@@ -418,7 +435,7 @@ public class TinEngine
                                            int[] segments, QualitySettings quality,
                                            out string? errorMessage, out IMesh? builtMesh,
                                            bool useConvexHull,
-                                           double maxBoundaryEdgeLength,
+                                           BoundaryTrianglePeelSettings boundaryPeelSettings,
                                            Func<bool>? shouldCancel = null)
     {
         builtMesh = null;
@@ -464,7 +481,7 @@ public class TinEngine
         if (result != null)
         {
             builtMesh = result;
-            return BuildResult(result, xyCoords, zValues, segments, maxBoundaryEdgeLength);
+            return BuildResult(result, xyCoords, zValues, segments, boundaryPeelSettings);
         }
 
         // Attempt 2: Non-conforming CDT with quality
@@ -476,7 +493,7 @@ public class TinEngine
             {
                 builtMesh = ncResult;
                 errorMessage = "Using non-conforming CDT for tightly spaced breaklines. Edges follow breaklines but mesh is not strictly Delaunay.";
-                return BuildResult(ncResult, xyCoords, zValues, segments, maxBoundaryEdgeLength);
+                return BuildResult(ncResult, xyCoords, zValues, segments, boundaryPeelSettings);
             }
         }
 
@@ -489,7 +506,7 @@ public class TinEngine
             {
                 builtMesh = fallback;
                 errorMessage = "Quality constraints (max area / min angle) could not be applied. Using CDT without refinement.";
-                return BuildResult(fallback, xyCoords, zValues, segments, maxBoundaryEdgeLength);
+                return BuildResult(fallback, xyCoords, zValues, segments, boundaryPeelSettings);
             }
         }
 
@@ -502,7 +519,7 @@ public class TinEngine
             {
                 builtMesh = ncFallback;
                 errorMessage = "Using non-conforming CDT without quality constraints. Breakline edges preserved but no refinement.";
-                return BuildResult(ncFallback, xyCoords, zValues, segments, maxBoundaryEdgeLength);
+                return BuildResult(ncFallback, xyCoords, zValues, segments, boundaryPeelSettings);
             }
         }
 
@@ -538,7 +555,7 @@ public class TinEngine
                     errorMessage = segCount > 0
                         ? "Breakline constraints could not be enforced. Falling back to plain Delaunay."
                         : null;
-                    return BuildResult(mesh, xyCoords, zValues, Array.Empty<int>(), maxBoundaryEdgeLength);
+                    return BuildResult(mesh, xyCoords, zValues, Array.Empty<int>(), boundaryPeelSettings);
                 }
             }
             catch { }
@@ -643,7 +660,12 @@ public class TinEngine
             throw new OperationCanceledException("Triangulation cancelled.");
     }
 
-    private static TinResult BuildResult(IMesh mesh, double[] xyCoords, double[] zValues, int[] segments, double maxBoundaryEdgeLength)
+    private static TinResult BuildResult(
+        IMesh mesh,
+        double[] xyCoords,
+        double[] zValues,
+        int[] segments,
+        BoundaryTrianglePeelSettings boundaryPeelSettings)
     {
         var extracted = TriangleNetExtractor.Extract(mesh);
         int outVertexCount = extracted.VertexCount;
@@ -690,9 +712,17 @@ public class TinEngine
 
         // When auto-threshold is requested (maxBoundaryEdgeLength == 0), compute it from the
         // topology we already built rather than letting Cull rebuild edge topology internally.
-        double effectiveBoundaryEdgeLength = maxBoundaryEdgeLength == 0
+        double maxBoundaryEdgeLength = boundaryPeelSettings.MaxBoundaryEdgeLength;
+        double effectiveBoundaryEdgeLength = boundaryPeelSettings.Enabled && maxBoundaryEdgeLength == 0
             ? TriangleBoundaryCuller.ComputeAutoThreshold(outVerts, topology)
             : maxBoundaryEdgeLength;
+        BoundaryTrianglePeelSettings effectivePeelSettings = new()
+        {
+            Enabled = boundaryPeelSettings.Enabled,
+            MaxBoundaryEdgeLength = effectiveBoundaryEdgeLength,
+            MaxInteriorAngleDegrees = boundaryPeelSettings.MaxInteriorAngleDegrees,
+            MaxSlopeAngleDegrees = boundaryPeelSettings.MaxSlopeAngleDegrees
+        };
 
         var cullResult = TriangleBoundaryCuller.Cull(
             outVerts,
@@ -701,7 +731,7 @@ public class TinEngine
             faceCount,
             xyCoords,
             segments,
-            effectiveBoundaryEdgeLength);
+            effectivePeelSettings);
 
         if (cullResult.Changed)
         {

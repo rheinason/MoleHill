@@ -156,4 +156,49 @@ public class TinEngineTests
         Assert.NotNull(second);
         Assert.NotSame(first, second);
     }
+
+    [Fact]
+    public void Build_ZOnlyChangeWithSlopePeeling_RebuildsCulledTopology()
+    {
+        var engine = new TinEngine();
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 1.0,
+            100.0, 0.0001
+        };
+        double[] flatZ = { 0.0, 0.0, 0.0, 0.0 };
+        double[] steepZ = { 0.0, 0.0, 0.0, 100.0 };
+        var peelSettings = new BoundaryTrianglePeelSettings
+        {
+            MaxBoundaryEdgeLength = 1_000.0,
+            MaxInteriorAngleDegrees = 180.0,
+            MaxSlopeAngleDegrees = 45.0
+        };
+
+        TinResult? first = engine.Build(
+            xy,
+            flatZ,
+            Array.Empty<int>(),
+            QualitySettings.None,
+            out string? firstError,
+            useConvexHull: true,
+            boundaryPeelSettings: peelSettings);
+        TinResult? second = engine.Build(
+            xy,
+            steepZ,
+            Array.Empty<int>(),
+            QualitySettings.None,
+            out string? secondError,
+            useConvexHull: true,
+            boundaryPeelSettings: peelSettings);
+
+        Assert.Null(firstError);
+        Assert.Null(secondError);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.Equal(2, first!.FaceCount);
+        Assert.Equal(1, second!.FaceCount);
+    }
 }

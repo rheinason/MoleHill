@@ -43,6 +43,74 @@ function Invoke-StepWithRetry {
     }
 }
 
+function Copy-RequiredFile {
+    param(
+        [string]$Source,
+        [string]$Destination
+    )
+
+    if (-not (Test-Path $Source)) {
+        throw "Missing required file '$Source'."
+    }
+
+    Copy-Item -Path $Source -Destination $Destination -Force
+}
+
+function Copy-RuntimeAssemblies {
+    param(
+        [string[]]$SourceDirectories,
+        [string]$DestinationDirectory,
+        [string[]]$ExcludedNames = @()
+    )
+
+    $copiedAssemblies = @{}
+
+    foreach ($sourceDirectory in $SourceDirectories) {
+        if (-not (Test-Path $sourceDirectory)) {
+            throw "Runtime assembly source directory is missing: '$sourceDirectory'."
+        }
+
+        Get-ChildItem -Path $sourceDirectory -Filter "*.dll" -File |
+            Where-Object { $ExcludedNames -notcontains $_.Name } |
+            ForEach-Object {
+                $destination = Join-Path $DestinationDirectory $_.Name
+                if ($copiedAssemblies.ContainsKey($_.Name)) {
+                    $existing = Get-Item -Path $destination
+                    if ($existing.Length -ne $_.Length) {
+                        throw "Conflicting runtime assembly '$($_.Name)' found in '$($copiedAssemblies[$_.Name])' and '$($_.FullName)'."
+                    }
+
+                    return
+                }
+
+                Copy-Item -Path $_.FullName -Destination $destination -Force
+                $copiedAssemblies[$_.Name] = $_.FullName
+            }
+    }
+}
+
+function Remove-DirectoryWithRetry {
+    param(
+        [string]$Path,
+        [int]$MaxAttempts = 3,
+        [int]$DelaySeconds = 2
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            Remove-Item -Path $Path -Recurse -Force
+            return
+        }
+        catch {
+            if ($attempt -eq $MaxAttempts) {
+                throw
+            }
+
+            Start-Sleep -Seconds $DelaySeconds
+        }
+    }
+}
+
 $repoRoot = $PSScriptRoot
 $propsPath = Join-Path $repoRoot "Directory.Build.props"
 $dotnetCliHome = Join-Path $repoRoot ".dotnet-home"
@@ -104,7 +172,7 @@ Invoke-StepWithRetry "dotnet" @(
 )
 
 if (Test-Path $stageRoot) {
-    Remove-Item -Path $stageRoot -Recurse -Force
+    Remove-DirectoryWithRetry $stageRoot
 }
 
 New-Item -ItemType Directory -Path $miscDirectory -Force | Out-Null
@@ -124,12 +192,10 @@ $filesToCopy = @(
 )
 
 foreach ($file in $filesToCopy) {
-    if (-not (Test-Path $file.Source)) {
-        throw "Missing required file '$($file.Source)'."
-    }
-
-    Copy-Item -Path $file.Source -Destination $file.Destination -Force
+    Copy-RequiredFile $file.Source $file.Destination
 }
+
+Copy-RuntimeAssemblies @($rhinoOutput, $grasshopperOutput) $packageContentRoot @("MoleHill.Core.dll")
 
 $rhinoToolbarDirectory = Join-Path $rhinoOutput "Toolbars"
 if (Test-Path $rhinoToolbarDirectory) {

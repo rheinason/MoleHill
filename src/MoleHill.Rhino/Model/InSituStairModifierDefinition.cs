@@ -6,6 +6,8 @@ public sealed class InSituStairModifierDefinition : ModifierDefinition
 
     public double RiserHeight { get; set; } = 0.15;
 
+    public double MinTreadDepth { get; set; }
+
     public double SlopeAngle { get; set; } = 33.0;
 
     public double MaxDistance { get; set; }

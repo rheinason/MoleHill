@@ -91,7 +91,13 @@ internal static class TerrainCoreCaseTestExporter
         builder.AppendLine("            QualitySettings.None,");
         builder.AppendLine("            out string? message,");
         builder.AppendLine($"            useConvexHull: {FormatBool(record.UseConvexHull)},");
-        builder.AppendLine($"            maxBoundaryEdgeLength: {FormatDouble(record.MaxBoundaryEdgeLength)});");
+        builder.AppendLine("            boundaryPeelSettings: new BoundaryTrianglePeelSettings");
+        builder.AppendLine("            {");
+        builder.AppendLine($"                Enabled = {FormatBool(record.BoundaryPeelSettings.Enabled)},");
+        builder.AppendLine($"                MaxBoundaryEdgeLength = {FormatDouble(record.BoundaryPeelSettings.MaxBoundaryEdgeLength)},");
+        builder.AppendLine($"                MaxInteriorAngleDegrees = {FormatDouble(record.BoundaryPeelSettings.MaxInteriorAngleDegrees)},");
+        builder.AppendLine($"                MaxSlopeAngleDegrees = {FormatDouble(record.BoundaryPeelSettings.MaxSlopeAngleDegrees)}");
+        builder.AppendLine("            });");
         builder.AppendLine();
         AppendCommonAssertions(builder, "result", "message", record);
     }
@@ -133,8 +139,6 @@ internal static class TerrainCoreCaseTestExporter
         builder.AppendLine("            faceCount,");
         builder.AppendLine("            pads,");
         builder.AppendLine("            lockCurves,");
-        builder.AppendLine($"            maxArea: {FormatDouble(record.MaxArea)},");
-        builder.AppendLine($"            minAngle: {FormatDouble(record.MinAngle)},");
         builder.AppendLine("            out string? errorMessage);");
         builder.AppendLine();
         AppendCommonAssertions(builder, "result", "errorMessage", record);

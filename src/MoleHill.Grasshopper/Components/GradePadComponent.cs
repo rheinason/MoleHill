@@ -35,10 +35,8 @@ public class GradePadComponent : GH_Component
         pManager[3].Optional = true;
         pManager.AddCurveParameter("Lock Curves", "L", "Curves whose edges are preserved as constrained segments in the remesh.", GH_ParamAccess.list);
         pManager[4].Optional = true;
-        pManager.AddNumberParameter("Max Area", "A", "Maximum triangle area for mesh refinement. 0 = no constraint.", GH_ParamAccess.item, 0.0);
+        pManager.AddIntegerParameter("Corner Segments", "CS", "Arc vertices per convex corner. 0 = sharp ridge (hip), ≥1 = rounded fan. Shorter lists repeat last value.", GH_ParamAccess.list);
         pManager[5].Optional = true;
-        pManager.AddNumberParameter("Min Angle", "N", "Minimum triangle angle in degrees for mesh refinement. 0 = no constraint.", GH_ParamAccess.item, 0.0);
-        pManager[6].Optional = true;
     }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -65,15 +63,13 @@ public class GradePadComponent : GH_Component
 
         var slopeAngles = new List<double>();
         var maxDists = new List<double>();
+        var cornerSegmentsList = new List<int>();
         DA.GetDataList(2, slopeAngles);
         DA.GetDataList(3, maxDists);
 
         var lockCurves = new List<Curve>();
         DA.GetDataList(4, lockCurves);
-
-        double maxArea = 0.0, minAngle = 0.0;
-        DA.GetData(5, ref maxArea);
-        DA.GetData(6, ref minAngle);
+        DA.GetDataList(5, cornerSegmentsList);
 
         double tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
 
@@ -144,7 +140,8 @@ public class GradePadComponent : GH_Component
 
             double slope = GetListValue(slopeAngles, padIdx, 33.0);
             double dist = GetListValue(maxDists, padIdx, 0.0);
-            if (!TryCreatePadBoundary(pl, plCount, slope, dist, out var pad, out string? warning))
+            int cornerSegs = GetListValue(cornerSegmentsList, padIdx, 0);
+            if (!TryCreatePadBoundary(pl, plCount, slope, dist, cornerSegs, out var pad, out string? warning))
             {
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning ?? "Boundary curve did not define a stable pad plane. Skipping.");
                 padIdx++;
@@ -196,7 +193,6 @@ public class GradePadComponent : GH_Component
             faces, faceCount,
             pads.ToArray(),
             locks,
-            maxArea, minAngle,
             out string? errorMessage);
 
         if (result == null)
@@ -244,6 +240,7 @@ public class GradePadComponent : GH_Component
         int vertexCount,
         double slopeAngle,
         double maxDistance,
+        int cornerFanSegments,
         out PadGrader.PadBoundary? pad,
         out string? warning)
     {
@@ -271,7 +268,8 @@ public class GradePadComponent : GH_Component
             planeYCoeff,
             planeConstant,
             slopeAngle,
-            maxDistance);
+            maxDistance,
+            cornerFanSegments);
         return true;
     }
 
