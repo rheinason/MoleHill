@@ -13,7 +13,7 @@ internal sealed class TerrainDocumentStore
     public List<TerrainDefinition> Load(RhinoDoc doc)
     {
         string? json = LoadJson(doc);
-        return TerrainSerializer.Deserialize(json);
+        return TerrainSerializer.Deserialize(json, doc.ModelUnitSystem);
     }
 
     public void SaveJson(RhinoDoc doc, string json)

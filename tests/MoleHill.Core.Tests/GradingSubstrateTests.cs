@@ -81,6 +81,34 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void SeamGraph_Build_AcceptsBoundarySubsegmentsCoveringSeam()
+    {
+        double[] seamLoop =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            1.0, 1.0,
+            0.0, 1.0
+        };
+        double[] splitVertices =
+        {
+            0.0, 0.0, 0.0,
+            0.5, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            1.0, 1.0, 0.0,
+            0.0, 1.0, 0.0
+        };
+        int[] splitFaces = { 0, 1, 4, 1, 2, 3, 1, 3, 4 };
+
+        SeamGraph graph = SeamGraph.Build(seamLoop, splitVertices, splitFaces, 3, splitVertices, splitFaces, 3, 1e-6);
+
+        Assert.True(graph.PatchHasFullSegmentMatch);
+        Assert.True(graph.TerrainHasFullSegmentMatch);
+        Assert.Equal(4, graph.PatchMatchedSegments);
+        Assert.Equal(4, graph.TerrainMatchedSegments);
+    }
+
+    [Fact]
     public void DirtyRegionPlanner_Build_ReturnsChangedAndIntersectingOwners()
     {
         var patches = new[]

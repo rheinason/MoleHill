@@ -14,7 +14,8 @@ internal static class TerrainBuildSnapshotBuilder
         var snapshot = new TerrainBuildSnapshot
         {
             Terrain = terrainClone,
-            ModelAbsoluteTolerance = doc.ModelAbsoluteTolerance
+            ModelAbsoluteTolerance = doc.ModelAbsoluteTolerance,
+            ModelUnitSystem = doc.ModelUnitSystem
         };
 
         foreach (var sourceSet in terrainClone.EnumerateSourceSets().Distinct(ReferenceEqualityComparer<SourceReferenceSet>.Instance))

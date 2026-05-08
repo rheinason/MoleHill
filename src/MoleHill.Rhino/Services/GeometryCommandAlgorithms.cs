@@ -119,12 +119,7 @@ internal static class GeometryCommandAlgorithms
 
     public static double CalculateDefaultLiftFactor(UnitSystem unitSystem)
     {
-        return unitSystem switch
-        {
-            UnitSystem.Millimeters => 2000.0,
-            UnitSystem.Meters => 2.0,
-            _ => 2.0
-        };
+        return ModelUnits.FromMeters(2.0, unitSystem);
     }
 
     public static bool TryGetLiftedOffsetPolyline(
@@ -320,12 +315,7 @@ internal static class GeometryCommandAlgorithms
 
     public static double GetSoftEditTolerance(UnitSystem unitSystem)
     {
-        return unitSystem switch
-        {
-            UnitSystem.Meters => 0.5,
-            UnitSystem.Millimeters => 500.0,
-            _ => 0.5
-        };
+        return ModelUnits.FromMeters(0.5, unitSystem);
     }
 
     public static bool IsPointInsideNestedBoundaries(Point3d point, IReadOnlyList<Curve> boundaries, double tolerance)

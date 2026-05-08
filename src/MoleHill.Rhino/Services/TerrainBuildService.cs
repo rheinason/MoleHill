@@ -110,6 +110,7 @@ internal sealed class TerrainBuildService
         RhinoMesh? baseMesh = null;
         ulong currentMeshFingerprint = 0;
         ulong baseMeshFingerprint = 0;
+        AddToleranceDiagnostics(build, GetToleranceProfile(snapshot, terrain));
 
         foreach (var indexedModifier in terrain.Modifiers.Select((modifier, index) => (modifier, index)).Where(item => item.modifier.IsEnabled))
         {
@@ -538,11 +539,18 @@ internal sealed class TerrainBuildService
         return null;
     }
 
-    private static double GetTerrainTolerance(TerrainBuildSnapshot snapshot, TerrainDefinition terrain)
+    private static TerrainTolerancePolicy.Profile GetToleranceProfile(TerrainBuildSnapshot snapshot, TerrainDefinition terrain)
     {
-        return terrain.GlobalTolerance > 0
-            ? terrain.GlobalTolerance
-            : snapshot.ModelAbsoluteTolerance;
+        return TerrainTolerancePolicy.Create(
+            terrain.GlobalTolerance,
+            snapshot.ModelAbsoluteTolerance,
+            snapshot.ModelUnitSystem);
+    }
+
+    private static void AddToleranceDiagnostics(TerrainBuildResult build, TerrainTolerancePolicy.Profile profile)
+    {
+        build.Diagnostics.Add(
+            $"Terrain detail size: {profile.DetailSize:G4}; input merge tolerance: {profile.InputMergeTolerance:G4}; curve tolerance: {profile.CurveChordTolerance:G4}; Grade Path tolerance: {profile.GradePathTolerance:G4}; Grade Pad tolerance: {profile.GradePadTolerance:G4}.");
     }
 
     private static RhinoMesh? BuildTinMesh(
@@ -593,9 +601,13 @@ internal sealed class TerrainBuildService
                 out outputFingerprint);
         }
 
-        double tolerance = modifier.Tolerance > 0
+        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+        double inputTolerance = modifier.Tolerance > 0
             ? modifier.Tolerance
-            : GetTerrainTolerance(snapshot, terrain);
+            : toleranceProfile.InputMergeTolerance;
+        double curveTolerance = modifier.Tolerance > 0
+            ? modifier.Tolerance
+            : toleranceProfile.CurveChordTolerance;
 
         var spotXyz = new double[points.Count * 3];
         for (int i = 0; i < points.Count; i++)
@@ -607,27 +619,27 @@ internal sealed class TerrainBuildService
 
         var persistentHardConstraints = CreateConstraintPolylines(
             breaklineCurves,
-            tolerance,
+            curveTolerance,
             preserveInputElevation: true);
         var persistentElevationConstraints = CreateConstraintPolylines(
             contourCurves,
-            tolerance,
+            curveTolerance,
             preserveInputElevation: true);
 
         ThrowIfCancellationRequested(shouldCancel);
         var polylines = TerrainTriangulationInputBuilder.CreateTriangulationPolylines(
             breaklineCurves,
             contourCurves,
-            tolerance);
-        var boundaryPolylines = CreateBoundaryPolylines(boundaryCurves, tolerance);
+            curveTolerance);
+        var boundaryPolylines = CreateBoundaryPolylines(boundaryCurves, curveTolerance);
 
         var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
-        var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, tolerance, shouldCancel);
+        var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, inputTolerance, shouldCancel);
         ThrowIfCancellationRequested(shouldCancel);
         ulong resolvedInputFingerprint = ComputeTriangulateResolvedInputFingerprint(
             terrain,
             modifier,
-            tolerance,
+            inputTolerance,
             merged.XyCoords,
             merged.ZValues,
             merged.Segments,
@@ -678,7 +690,7 @@ internal sealed class TerrainBuildService
             merged.ZValues,
             merged.Segments,
             boundaryPolylines,
-            tolerance,
+            inputTolerance,
             modifier.CreateBoundaryPeelSettings(),
             runtimeCache.TinEngine,
             runtimeCache.CoreCaseRecorder,
@@ -730,7 +742,7 @@ internal sealed class TerrainBuildService
                 shouldCancel);
         }
 
-        var cleanup = TinInputCleaner.Clean(merged, tolerance);
+        var cleanup = TinInputCleaner.Clean(merged, inputTolerance);
         ThrowIfCancellationRequested(shouldCancel);
         if (!cleanup.HasChanges)
         {
@@ -778,7 +790,7 @@ internal sealed class TerrainBuildService
             cleanup.ZValues,
             cleanup.Segments,
             boundaryPolylines,
-            tolerance,
+            inputTolerance,
             modifier.CreateBoundaryPeelSettings(),
             runtimeCache.TinEngine,
             runtimeCache.CoreCaseRecorder,
@@ -857,9 +869,13 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
-        double tolerance = modifier.Tolerance > 0
+        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+        double inputTolerance = modifier.Tolerance > 0
             ? modifier.Tolerance
-            : GetTerrainTolerance(snapshot, terrain);
+            : toleranceProfile.InputMergeTolerance;
+        double curveTolerance = modifier.Tolerance > 0
+            ? modifier.Tolerance
+            : toleranceProfile.CurveChordTolerance;
 
         int existingPointCount = meshVertices.Length / 3;
         var spotXyz = new double[(existingPointCount + points.Count) * 3];
@@ -874,12 +890,12 @@ internal sealed class TerrainBuildService
 
         var newHardConstraints = CreateConstraintPolylines(
             breaklineCurves,
-            tolerance,
+            curveTolerance,
             preserveInputElevation: true);
         var persistentHardConstraints = CombineConstraints(build.PersistentHardConstraints, newHardConstraints);
         var newElevationConstraints = CreateConstraintPolylines(
             contourCurves,
-            tolerance,
+            curveTolerance,
             preserveInputElevation: true);
         var persistentElevationConstraints = CombineConstraints(build.PersistentElevationConstraints, newElevationConstraints);
 
@@ -888,14 +904,14 @@ internal sealed class TerrainBuildService
         polylines.AddRange(TerrainTriangulationInputBuilder.CreateTriangulationPolylines(
             breaklineCurves,
             contourCurves,
-            tolerance));
+            curveTolerance));
 
         var boundaryPolylines = CombineBoundaryPolylines(
-            CreateBoundaryPolylines(mesh, tolerance),
-            CreateBoundaryPolylines(boundaryCurves, tolerance));
+            CreateBoundaryPolylines(mesh, curveTolerance),
+            CreateBoundaryPolylines(boundaryCurves, curveTolerance));
 
         var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
-        var merged = PointCloudProcessor.Merge(spotXyz, existingPointCount + points.Count, breaklineData, tolerance, shouldCancel);
+        var merged = PointCloudProcessor.Merge(spotXyz, existingPointCount + points.Count, breaklineData, inputTolerance, shouldCancel);
         if (merged.VertexCount < 3)
         {
             build.Diagnostics.Add("Add Geometry needs at least three unique points after deduplication.");
@@ -912,7 +928,7 @@ internal sealed class TerrainBuildService
             merged.ZValues,
             merged.Segments,
             boundaryPolylines,
-            tolerance,
+            inputTolerance,
             modifier.CreateBoundaryPeelSettings(),
             runtimeCache.TinEngine,
             runtimeCache.CoreCaseRecorder,
@@ -937,7 +953,7 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
-        var cleanup = TinInputCleaner.Clean(merged, tolerance);
+        var cleanup = TinInputCleaner.Clean(merged, inputTolerance);
         if (!cleanup.HasChanges)
         {
             build.Diagnostics.Add(exactMessage ?? "Add Geometry failed.");
@@ -957,7 +973,7 @@ internal sealed class TerrainBuildService
             cleanup.ZValues,
             cleanup.Segments,
             boundaryPolylines,
-            tolerance,
+            inputTolerance,
             modifier.CreateBoundaryPeelSettings(),
             runtimeCache.TinEngine,
             runtimeCache.CoreCaseRecorder,
@@ -1090,7 +1106,8 @@ internal sealed class TerrainBuildService
         TerrainBuildResult build,
         TerrainBuildMode mode)
     {
-        double tolerance = GetTerrainTolerance(snapshot, terrain);
+        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+        double tolerance = toleranceProfile.CurveChordTolerance;
         double previewEdgeLength = modifier.EdgeLength;
         double previewMaxArea = modifier.MaxArea;
         double previewMinAngle = modifier.MinAngle;
@@ -1125,7 +1142,8 @@ internal sealed class TerrainBuildService
             previewMinAngle,
             "Remesh",
             build,
-            out _);
+            out _,
+            toleranceOverride: toleranceProfile.RemeshConstraintTolerance);
 
         return remeshed;
     }
@@ -1146,7 +1164,7 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
-        double tolerance = GetTerrainTolerance(snapshot, terrain);
+        double tolerance = GetToleranceProfile(snapshot, terrain).CurveChordTolerance;
         double effectiveStrength = Math.Clamp(modifier.Strength, 0.0, 1.0);
         var boundaries = new List<(double[] xyVerts, int vertCount)>();
         foreach (var curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Boundaries))
@@ -1262,7 +1280,7 @@ internal sealed class TerrainBuildService
         }
 
         var entries = new List<ZoneBoundaryEntry>();
-        double tolerance = GetTerrainTolerance(snapshot, terrain);
+        double tolerance = GetToleranceProfile(snapshot, terrain).InputMergeTolerance;
         var resolveTimer = Stopwatch.StartNew();
         for (int zoneIndex = 0; zoneIndex < terrain.Zones.Count; zoneIndex++)
         {
@@ -1351,8 +1369,10 @@ internal sealed class TerrainBuildService
         TerrainBuildResult build,
         TerrainBuildMode mode)
     {
-        double terrainTolerance = GetTerrainTolerance(snapshot, terrain);
-        double maxWallWidth = Math.Max(terrainTolerance, modifier.MaxWallWidth);
+        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+        double wallTolerance = toleranceProfile.RetainingWallTolerance(modifier.MaxWallWidth);
+        double maxWallWidth = Math.Max(wallTolerance, modifier.MaxWallWidth);
+        build.Diagnostics.Add($"Retaining Wall tolerance: {wallTolerance:G4}; max wall width: {maxWallWidth:G4}.");
         var resolveTimer = Stopwatch.StartNew();
         var wallCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.WallCurves);
         resolveTimer.Stop();
@@ -1371,7 +1391,7 @@ internal sealed class TerrainBuildService
         var plan = RetainingWallPlannerCore.Plan(
             wallCurves,
             maxWallWidth,
-            curveParsingTolerance: terrainTolerance);
+            curveParsingTolerance: wallTolerance);
         planTimer.Stop();
         build.RecordTiming(
             "Retaining Wall Plan",
@@ -1395,7 +1415,7 @@ internal sealed class TerrainBuildService
         foreach (var wall in plan.Walls)
         {
             constraintCurveTimer.Start();
-            if (!IsWallStripUsable(wall.Rails, snapshot.ModelAbsoluteTolerance, out var stripMessage))
+            if (!IsWallStripUsable(wall.Rails, wallTolerance, out var stripMessage))
             {
                 constraintCurveTimer.Stop();
                 build.Diagnostics.Add($"Retaining wall pair ({wall.CurveA}, {wall.CurveB}) skipped: {stripMessage}");
@@ -1422,7 +1442,7 @@ internal sealed class TerrainBuildService
             wallOutputTimer.Stop();
 
             constraintCurveTimer.Start();
-            SurfaceRemesher.ConstraintPolyline[] wallSetConstraints = BuildWallConstraintCurves(wall.Rails, terrainTolerance);
+            SurfaceRemesher.ConstraintPolyline[] wallSetConstraints = BuildWallConstraintCurves(wall.Rails, wallTolerance);
             constraintCurveTimer.Stop();
             if (wallSetConstraints.Length == 0)
                 continue;
@@ -1442,7 +1462,7 @@ internal sealed class TerrainBuildService
 
         int rawConstraintCount = wallConstraints.Count;
         var prepareTimer = Stopwatch.StartNew();
-        wallConstraints = PrepareWallConstraintsForRemesh(mesh, wallConstraints, terrainTolerance);
+        wallConstraints = PrepareWallConstraintsForRemesh(mesh, wallConstraints, wallTolerance);
         prepareTimer.Stop();
         build.RecordTiming(
             "Retaining Wall Constraint Prep",
@@ -1483,6 +1503,7 @@ internal sealed class TerrainBuildService
             preferReducedInteriorSeed: true,
             addReducedInteriorGuideSeeds: false,
             addConstraintCorridorSeeds: false,
+            toleranceOverride: wallTolerance,
             recordDetailedTimings: true);
         remeshTimer.Stop();
         build.RecordTiming(
@@ -1514,7 +1535,7 @@ internal sealed class TerrainBuildService
             bool inserted = TryInsertWallConstraintsIntoExistingMesh(
                 mesh,
                 wallConstraints,
-                terrainTolerance,
+                wallTolerance,
                 build,
                 reportFailures: true,
                 afterCombinedRemeshFailed: true,
@@ -1626,7 +1647,9 @@ internal sealed class TerrainBuildService
                 out outputFingerprint);
         }
 
-        double tolerance = GetTerrainTolerance(snapshot, terrain);
+        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+        double curveTolerance = toleranceProfile.CurveChordTolerance;
+        double gradePadTolerance = toleranceProfile.GradePadTolerance;
         ResolvedGradePadInputs resolvedInputs = ResolveGradePadInputs(
             snapshot,
             vertices,
@@ -1634,7 +1657,8 @@ internal sealed class TerrainBuildService
             faces,
             mesh.Faces.Count,
             modifier,
-            tolerance);
+            curveTolerance,
+            gradePadTolerance);
         build.Diagnostics.AddRange(resolvedInputs.Diagnostics);
         ThrowIfCancellationRequested(shouldCancel);
         if (resolvedInputs.Pads.Length == 0)
@@ -1672,7 +1696,7 @@ internal sealed class TerrainBuildService
 
         ulong topologyFingerprint = ComputeGradePadTopologyFingerprint(
             upstreamFingerprint,
-            tolerance,
+            gradePadTolerance,
             modifier,
             resolvedInputs.Pads,
             effectiveLocks);
@@ -1703,7 +1727,10 @@ internal sealed class TerrainBuildService
                 mesh.Faces.Count,
                 resolvedInputs.Pads,
                 effectiveLocks.Length > 0 ? effectiveLocks : null,
-                out var gradeWarning);
+                out var gradeWarning,
+                out IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> failureOutputPolylines,
+                gradePadTolerance,
+                toleranceProfile.DetailSize);
             ThrowIfCancellationRequested(shouldCancel);
             runtimeCache.CoreCaseRecorder?.RecordPad(
                 modifier.Label,
@@ -1725,10 +1752,13 @@ internal sealed class TerrainBuildService
             int topologyVertexCount;
             int[] topologyFaces;
             int topologyFaceCount;
+            bool gradePadTopologyFailed = gradeResult == null;
             if (gradeResult == null)
             {
-                topologyDiagnostics.Add(gradeWarning ?? "Grade Pad local patch rebuild failed; using upstream mesh.");
+                if (string.IsNullOrWhiteSpace(gradeWarning))
+                    topologyDiagnostics.Add("Grade Pad protected patch failed; upstream mesh retained.");
                 build.Diagnostics.AddRange(topologyDiagnostics);
+                AddOutputPolylinesAsBreaklines(failureOutputPolylines, build);
                 topologyVertices = (double[])vertices.Clone();
                 topologyVertexCount = mesh.Vertices.Count;
                 topologyFaces = (int[])faces.Clone();
@@ -1767,12 +1797,18 @@ internal sealed class TerrainBuildService
             build.RecordTiming(
                 "Grade Pad",
                 topologyTimer.Elapsed,
-                $"{topologyVertexCount:N0} verts, {topologyFaceCount:N0} faces",
+                gradePadTopologyFailed
+                    ? $"failed; upstream {topologyVertexCount:N0} verts, {topologyFaceCount:N0} faces retained"
+                    : $"{topologyVertexCount:N0} verts, {topologyFaceCount:N0} faces",
                 StageTimingDiagnosticThresholdMs);
         }
 
-        build.Diagnostics.Add(
-            $"Grade Pad local patch ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)}).");
+        bool gradePadStageFailed = topologyEntry.Diagnostics.Any(
+            static diagnostic => diagnostic.Contains("split-local fallback is disabled", StringComparison.OrdinalIgnoreCase) ||
+                                 diagnostic.Contains("Grade Pad protected patch failed", StringComparison.OrdinalIgnoreCase));
+        build.Diagnostics.Add(gradePadStageFailed
+            ? $"Grade Pad protected patch failed; upstream mesh retained ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)})."
+            : $"Grade Pad local patch ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)}).");
 
         ulong resolvedInputFingerprint = ComputeGradePadResolvedInputFingerprint(topologyEntry.OutputFingerprint, resolvedInputs.Pads, modifier);
         if (cachedEntry != null && cachedEntry.ResolvedInputFingerprint == resolvedInputFingerprint)
@@ -1845,7 +1881,8 @@ internal sealed class TerrainBuildService
             mesh.Faces.Count,
             resolvedInputs.Pads,
             effectiveLocks.Length == 0 ? null : effectiveLocks,
-            out var warning);
+            out var warning,
+            tolerance);
 
         if (result == null)
         {
@@ -1872,22 +1909,24 @@ internal sealed class TerrainBuildService
         int[] faces,
         int faceCount,
         GradePadModifierDefinition modifier,
-        double tolerance)
+        double curveTolerance,
+        double gradePadTolerance)
     {
         var pads = new List<PadGrader.PadBoundary>();
         var diagnostics = new List<string>();
         foreach (var curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Boundaries))
         {
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: true, out var polyline))
+            if (!RhinoSourceResolver.TryGetPolyline(curve, curveTolerance, requireClosed: true, out var polyline))
                 continue;
 
             int count = polyline.Count;
-            if (count > 1 && polyline[0].DistanceTo(polyline[^1]) < tolerance)
+            if (count > 1 && polyline[0].DistanceTo(polyline[^1]) < curveTolerance)
                 count--;
             if (count < 3)
                 continue;
 
-            if (!TryCreatePlanarPadBoundary(polyline, count, modifier.SlopeAngle, modifier.MaxDistance, out var pad, out string? diagnostic))
+            double stitchApronDistance = ModelUnits.FromMeters(0.5, snapshot.ModelUnitSystem);
+            if (!TryCreatePlanarPadBoundary(polyline, count, modifier.SlopeAngle, modifier.MaxDistance, stitchApronDistance, out var pad, out string? diagnostic))
             {
                 if (!string.IsNullOrWhiteSpace(diagnostic))
                     diagnostics.Add(diagnostic!);
@@ -1900,7 +1939,7 @@ internal sealed class TerrainBuildService
         var locks = new List<PadGrader.LockCurve>();
         foreach (var curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.LockCurves))
         {
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
+            if (!RhinoSourceResolver.TryGetPolyline(curve, curveTolerance, requireClosed: false, out var polyline))
                 continue;
             if (polyline.Count < 2)
                 continue;
@@ -1930,7 +1969,8 @@ internal sealed class TerrainBuildService
                 faces,
                 faceCount,
                 padArray,
-                lockArray.Length == 0 ? null : lockArray);
+                lockArray.Length == 0 ? null : lockArray,
+                gradePadTolerance);
         var allDiagnostics = new List<string>(diagnostics.Count + constraintSet.Diagnostics.Length);
         allDiagnostics.AddRange(diagnostics);
         allDiagnostics.AddRange(constraintSet.Diagnostics);
@@ -1950,6 +1990,7 @@ internal sealed class TerrainBuildService
         int vertexCount,
         double slopeAngle,
         double maxDistance,
+        double stitchApronDistance,
         out PadGrader.PadBoundary? pad,
         out string? diagnostic)
     {
@@ -1980,7 +2021,8 @@ internal sealed class TerrainBuildService
             planeYCoeff,
             planeConstant,
             slopeAngle,
-            maxDistance);
+            maxDistance,
+            stitchApronDistance: stitchApronDistance);
         return true;
     }
 
@@ -2093,9 +2135,10 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
-        double tolerance = GetTerrainTolerance(snapshot, terrain);
-        double gradePathTolerance = TerrainBuildHeuristics.GetGradePathGeometryTolerance(tolerance);
-        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, modifier, gradePathTolerance);
+        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+        double curveTolerance = toleranceProfile.CurveChordTolerance;
+        double gradePathTolerance = toleranceProfile.GradePathTolerance;
+        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, modifier, curveTolerance, gradePathTolerance);
         if (resolvedInputs.Paths.Length == 0)
         {
             build.Diagnostics.Add("Grade Path has no valid paths.");
@@ -2134,7 +2177,7 @@ internal sealed class TerrainBuildService
             var hardConstraintData = build.PersistentHardConstraints
                 .Select(static constraint => new ConstraintConflictDiagnostics.PolylineData(constraint.Points, constraint.PointCount, constraint.IsClosed))
                 .ToArray();
-            var conflictSummary = ConstraintConflictDiagnostics.Analyze(pathConstraintData, hardConstraintData, tolerance);
+            var conflictSummary = ConstraintConflictDiagnostics.Analyze(pathConstraintData, hardConstraintData, gradePathTolerance);
             build.Diagnostics.Add(conflictSummary.CreateSummaryMessage());
             if (conflictSummary.CreateSampleMessage() is string sampleMessage)
                 build.Diagnostics.Add(sampleMessage);
@@ -2149,7 +2192,8 @@ internal sealed class TerrainBuildService
             mesh.Faces.Count,
             resolvedInputs.Paths,
             build.PersistentHardConstraints,
-            out string? warning);
+            out string? warning,
+            gradePathTolerance);
         coreTimer.Stop();
         runtimeCache.CoreCaseRecorder?.RecordPath(
             modifier.Label,
@@ -2212,7 +2256,7 @@ internal sealed class TerrainBuildService
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints)
     {
         build.Diagnostics.Add("Grade Path fallback pipeline rev: 2026-04-21-path-tolerance-v21.");
-        double terrainTolerance = TerrainBuildHeuristics.GetGradePathGeometryTolerance(GetTerrainTolerance(snapshot, terrain));
+        double terrainTolerance = GetToleranceProfile(snapshot, terrain).GradePathTolerance;
         var gradingConstraints = CombineConstraints(persistentHardConstraints, resolvedInputs.Constraints);
         double topologyEdgeLength = resolvedInputs.SuggestedEdgeLength;
         double topologyMaxArea = 0.0;
@@ -2299,7 +2343,8 @@ internal sealed class TerrainBuildService
                             double corridorEdgeLength = ComputePathCorridorFallbackEdgeLength(
                                 resolvedInputs.Paths,
                                 simplifiedEdgeLength,
-                                terrainTolerance);
+                                terrainTolerance,
+                                snapshot.ModelUnitSystem);
                             double corridorMaxArea = ComputePathCorridorFallbackMaxArea(
                                 corridorEdgeLength,
                                 terrainTolerance);
@@ -2560,7 +2605,8 @@ internal sealed class TerrainBuildService
         int[] faces,
         int faceCount,
         GradePathModifierDefinition modifier,
-        double tolerance)
+        double curveTolerance,
+        double gradePathTolerance)
     {
         var paths = new List<PathGrader.PathDefinition>();
         double requestedEdgeLength = TerrainBuildHeuristics.GetGradePathCurveSamplingLength(modifier.Width);
@@ -2568,7 +2614,7 @@ internal sealed class TerrainBuildService
         {
             if (!RhinoSourceResolver.TryGetPolyline(
                     curve,
-                    tolerance,
+                    curveTolerance,
                     requireClosed: false,
                     requestedEdgeLength,
                     maxArea: 0.0,
@@ -2596,7 +2642,7 @@ internal sealed class TerrainBuildService
                 Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
                 SuggestedEdgeLength = 0.0
             }
-            : PathGrader.CreateConstraints(vertices, vertexCount, faces, faceCount, pathArray, tolerance);
+            : PathGrader.CreateConstraints(vertices, vertexCount, faces, faceCount, pathArray, gradePathTolerance);
 
         return new ResolvedGradePathInputs
         {
@@ -2670,7 +2716,7 @@ internal sealed class TerrainBuildService
             $"{stairBuild!.SurfaceCount:N0} surfaces, {stairBuild.StepCountSummary} steps",
             StageTimingDiagnosticThresholdMs);
 
-        double tolerance = GetTerrainTolerance(snapshot, terrain);
+        double tolerance = GetToleranceProfile(snapshot, terrain).RemeshConstraintTolerance;
 
         modifier.ComputedSurfaceCount = stairBuild.SurfaceCount;
         modifier.ComputedTreadDepthSummary = stairBuild.TreadDepthSummary;
@@ -3622,7 +3668,7 @@ internal sealed class TerrainBuildService
             return false;
         }
 
-        double zMargin = Math.Max(snapshot.ModelAbsoluteTolerance * 10.0, 1.0);
+        double zMargin = Math.Max(snapshot.ModelAbsoluteTolerance * 10.0, ModelUnits.FromMeters(1.0, snapshot.ModelUnitSystem));
         double rayStartZ = Math.Max(samplePoint.Z, meshBounds.Max.Z) + zMargin;
         var ray = new Ray3d(new Point3d(samplePoint.X, samplePoint.Y, rayStartZ), -Vector3d.ZAxis);
         double rayDistance = Intersection.MeshRay(mesh, ray);
@@ -3633,7 +3679,7 @@ internal sealed class TerrainBuildService
         }
 
         terrainPoint = ray.PointAt(rayDistance);
-        var meshPoint = mesh.ClosestMeshPoint(terrainPoint, Math.Max(snapshot.ModelAbsoluteTolerance * 4.0, 1e-4));
+        var meshPoint = mesh.ClosestMeshPoint(terrainPoint, Math.Max(snapshot.ModelAbsoluteTolerance * 4.0, ModelUnits.FromMeters(1e-4, snapshot.ModelUnitSystem)));
         if (meshPoint == null)
         {
             diagnostic = "Objects skipped a source object because no terrain sample point was found.";
@@ -4004,6 +4050,27 @@ internal sealed class TerrainBuildService
                     snapshot,
                     currentMesh,
                     pointSlope,
+                    build,
+                    shouldCancel,
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                TerrainSectionAnalysisDefinition terrainSection => TerrainAnalysisAnnotationBuilder.BuildTerrainSectionSummary(
+                    snapshot,
+                    currentMesh,
+                    terrainSection,
+                    build,
+                    shouldCancel,
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                CrossSectionStationAnalysisDefinition crossSection => TerrainAnalysisAnnotationBuilder.BuildCrossSectionStationSummary(
+                    snapshot,
+                    currentMesh,
+                    crossSection,
+                    build,
+                    shouldCancel,
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                LongitudinalSectionAnalysisDefinition longitudinal => TerrainAnalysisAnnotationBuilder.BuildLongitudinalSectionSummary(
+                    snapshot,
+                    currentMesh,
+                    longitudinal,
                     build,
                     shouldCancel,
                     TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
@@ -4858,7 +4925,7 @@ internal sealed class TerrainBuildService
             return mesh;
         }
 
-        double tolerance = toleranceOverride ?? GetTerrainTolerance(snapshot, terrain);
+        double tolerance = toleranceOverride ?? GetToleranceProfile(snapshot, terrain).RemeshConstraintTolerance;
         var remeshCoreTimer = Stopwatch.StartNew();
         var remeshResult = SurfaceRemesher.Remesh(
             originalVertices,
@@ -4953,7 +5020,8 @@ internal sealed class TerrainBuildService
     private static double ComputePathCorridorFallbackEdgeLength(
         IReadOnlyList<PathGrader.PathDefinition> paths,
         double suggestedEdgeLength,
-        double tolerance)
+        double tolerance,
+        UnitSystem unitSystem)
     {
         double minWidth = double.MaxValue;
         for (int i = 0; i < paths.Count; i++)
@@ -4964,7 +5032,7 @@ internal sealed class TerrainBuildService
         }
 
         double widthBasedEdgeLength = minWidth < double.MaxValue
-            ? Math.Max(minWidth * 0.5, Math.Max(tolerance * 8.0, 0.25))
+            ? Math.Max(minWidth * 0.5, Math.Max(tolerance * 8.0, ModelUnits.FromMeters(0.25, unitSystem)))
             : 0.0;
 
         if (suggestedEdgeLength > 0.0 && widthBasedEdgeLength > 0.0)
@@ -5004,7 +5072,7 @@ internal sealed class TerrainBuildService
             return false;
         }
 
-        double tolerance = TerrainBuildHeuristics.GetGradePathGeometryTolerance(GetTerrainTolerance(snapshot, terrain));
+        double tolerance = GetToleranceProfile(snapshot, terrain).GradePathTolerance;
         MeshAreaSplitter.AreaBoundary[] localBoundaries = BuildGradePathFallbackBoundaries(
             vertices,
             mesh.Vertices.Count,
@@ -5935,7 +6003,7 @@ internal sealed class TerrainBuildService
         IReadOnlyList<PadGrader.LockCurve> lockCurves)
     {
         var builder = new FingerprintBuilder();
-        builder.Add("GradePadTopologyV3");
+        builder.Add("GradePadTopologyV4");
         builder.Add(upstreamFingerprint);
         builder.Add(tolerance);
         builder.Add(modifier.SlopeAngle);
@@ -5949,6 +6017,7 @@ internal sealed class TerrainBuildService
             builder.Add(pad.PlaneXCoeff);
             builder.Add(pad.PlaneYCoeff);
             builder.Add(pad.PlaneConstant);
+            builder.Add(pad.StitchApronDistance);
         }
 
         builder.Add(lockCurves.Count);
@@ -5996,6 +6065,7 @@ internal sealed class TerrainBuildService
             builder.Add(pad.PlaneXCoeff);
             builder.Add(pad.PlaneYCoeff);
             builder.Add(pad.PlaneConstant);
+            builder.Add(pad.StitchApronDistance);
         }
 
         return builder.ToUInt64();
@@ -6203,7 +6273,7 @@ internal sealed class TerrainBuildService
         var builder = new FingerprintBuilder();
         builder.Add("Zones");
         builder.Add(snapshot.ModelAbsoluteTolerance);
-        builder.Add(GetTerrainTolerance(snapshot, terrain));
+        builder.Add(GetToleranceProfile(snapshot, terrain).InputMergeTolerance);
         builder.Add(currentMeshFingerprint != 0 ? currentMeshFingerprint : ComputeMeshFingerprint(mesh));
         builder.Add(ComputeConstraintsFingerprint(persistentHardConstraints));
 

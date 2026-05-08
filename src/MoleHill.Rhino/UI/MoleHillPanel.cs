@@ -8,6 +8,9 @@ using MoleHill.Rhino.Services;
 using Rhino;
 using Rhino.UI;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using RhinoPoint3d = Rhino.Geometry.Point3d;
+using RhinoGetPoint = Rhino.Input.Custom.GetPoint;
+using RhinoGetResult = Rhino.Input.GetResult;
 
 namespace MoleHill.Rhino.UI;
 
@@ -40,6 +43,9 @@ public sealed class MoleHillPanel : Panel
         ("Curve Slope Labels", "curve-slope-label"),
         ("Projected Elevation Labels", "projected-elevation-label"),
         ("Point Slope Labels", "point-slope-label"),
+        ("Terrain Section", "terrain-section"),
+        ("Cross-Sections at Stations", "cross-section-station"),
+        ("Section Along Curve", "longitudinal-section"),
     };
 
     private readonly TerrainController _controller = TerrainController.Instance;
@@ -208,7 +214,7 @@ public sealed class MoleHillPanel : Panel
         _toleranceStepper.DecimalPlaces = 3;
         _toleranceStepper.Increment = 0.1;
         _toleranceStepper.MinValue = 0;
-        ApplyHelp(_toleranceStepper, "Vertex merge tolerance. Two points closer than this distance in XY (and Z for breakline-to-breakline) are treated as the same vertex. Lower = more detail preserved. Higher = more aggressive merging.");
+        ApplyHelp(_toleranceStepper, "Smallest terrain detail to preserve automatically. Smaller values keep more detail; larger values simplify and merge nearby geometry more aggressively.");
         void CommitTolerance()
         {
             if (_isRefreshing)
@@ -465,6 +471,43 @@ public sealed class MoleHillPanel : Panel
             terrainLayerUseCurrentButton,
             terrainLayerBrowseButton,
             terrainLayerDefaultButton);
+        var bakeLayerStylesButton = MakeCompactButton("Bake Layers", (_, _) =>
+                BakeLayerPaths(Array.Empty<string>()),
+            "Create or refresh baked output layers for highlighted source layers.");
+        var bakeLayerStylesControls = CreateResponsivePrimaryActionRow(
+            new Label
+            {
+                Text = "Highlighted source layers",
+                TextColor = UiTheme.MutedText,
+                VerticalAlignment = VerticalAlignment.Center
+            },
+            4,
+            bakeLayerStylesButton);
+        var bakeLayerStylesRow = stackFormRows
+            ? new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 4,
+                Padding = new Padding(0, 1),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    CreateHelpLabel("Bake Layers", "Create or refresh baked output layers for highlighted source layers.", 0),
+                    new StackLayoutItem(bakeLayerStylesControls, HorizontalAlignment.Stretch)
+                }
+            }
+            : new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Padding = new Padding(0, 1),
+                Items =
+                {
+                    CreateHelpLabel("Bake Layers", "Create or refresh baked output layers for highlighted source layers.", PropertyLabelWidth),
+                    new StackLayoutItem(bakeLayerStylesControls, expand: true)
+                }
+            };
         var terrainLayerRow = stackFormRows
             ? new StackLayout
             {
@@ -575,7 +618,7 @@ public sealed class MoleHillPanel : Panel
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Items =
                 {
-                    CreateHelpLabel("Tolerance", "Global Z-snapping tolerance for point deduplication.", 0),
+                    CreateHelpLabel("Detail Size", "Smallest terrain detail to preserve automatically. Smaller values keep more detail; larger values simplify and merge nearby geometry more aggressively.", 0),
                     _toleranceStepper
                 }
             }
@@ -585,7 +628,7 @@ public sealed class MoleHillPanel : Panel
                 Spacing = 4,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Padding = new Padding(0, 1),
-                Items = { CreateHelpLabel("Tolerance", "Global Z-snapping tolerance for point deduplication.", PropertyLabelWidth), _toleranceStepper }
+                Items = { CreateHelpLabel("Detail Size", "Smallest terrain detail to preserve automatically. Smaller values keep more detail; larger values simplify and merge nearby geometry more aggressively.", PropertyLabelWidth), _toleranceStepper }
             };
         var opacityLabel = CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake.", stackFormRows ? 0 : 52);
         var resetTerrainColorButton = MakeCompactButton("Reset", (_, _) => ResetTerrainColor(), "Restore the default terrain display color.");
@@ -733,6 +776,7 @@ public sealed class MoleHillPanel : Panel
             Items =
             {
                 new StackLayoutItem(terrainLayerRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(bakeLayerStylesRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(auxLayerRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(annotationLayerRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(terrainColorRow, HorizontalAlignment.Stretch),
@@ -1301,6 +1345,32 @@ public sealed class MoleHillPanel : Panel
             return;
 
         _controller.BakeTerrain(doc, terrain.TerrainId);
+    }
+
+    private void BakeLayerPaths(IEnumerable<string?> assignedLayerPaths)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        var layerPaths = assignedLayerPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (layerPaths.Count == 0)
+            layerPaths = _controller.GetSelectedLayerPaths(doc).ToList();
+
+        if (layerPaths.Count == 0)
+        {
+            RhinoApp.WriteLine("MoleHill: assign or highlight source layers before baking layer styles.");
+            return;
+        }
+
+        var result = _controller.EnsureBakedLayersForSourceLayers(doc, layerPaths);
+        RhinoApp.WriteLine(
+            $"MoleHill: baked layer styles updated ({result.CreatedCount} created, {result.RefreshedCount} refreshed, {result.SkippedCount} skipped).");
     }
 
     private void OnUntrackSelectedBakes(object? sender, EventArgs e)
@@ -2933,9 +3003,367 @@ public sealed class MoleHillPanel : Panel
                 }
                 break;
             }
+
+            case TerrainSectionAnalysisDefinition terrainSection:
+            {
+                void MutateSection(Action<TerrainSectionAnalysisDefinition> apply) =>
+                    MutateAnalysis(terrain.TerrainId, terrainSection.Id, item => apply((TerrainSectionAnalysisDefinition)item), scheduleRebuild: true);
+
+                AddTerrainSectionCommonRows(layout, terrain, terrainSection,
+                    "Curves used as cut lines through the terrain. Each curve produces one profile.");
+
+                layout.AddRow(CreateNumericEditor(
+                    "Station Tick Interval",
+                    terrainSection.StationTickInterval,
+                    value => MutateSection(item => item.StationTickInterval = Math.Max(0.0, value)),
+                    decimalPlaces: 3,
+                    help: "Spacing between station tick marks along the profile baseline. 0 disables ticks.",
+                    minValue: 0.0));
+                layout.AddRow(CreateNumericEditor(
+                    "Elevation Grid Interval",
+                    terrainSection.ElevationGridInterval,
+                    value => MutateSection(item => item.ElevationGridInterval = Math.Max(0.0, value)),
+                    decimalPlaces: 3,
+                    help: "Vertical spacing of horizontal grid lines drawn on the section. 0 disables the grid.",
+                    minValue: 0.0));
+                layout.AddRow(CreateCheckEditor(
+                    "Show Station Ticks",
+                    terrainSection.ShowStationTicks,
+                    value => MutateSection(item => item.ShowStationTicks = value),
+                    "Draw tick marks at each station along the profile baseline."));
+                layout.AddRow(CreateCheckEditor(
+                    "Show Elevation Grid",
+                    terrainSection.ShowElevationGrid,
+                    value => MutateSection(item => item.ShowElevationGrid = value),
+                    "Draw horizontal grid lines at each elevation increment."));
+                layout.AddRow(CreateCheckEditor(
+                    "Show Station Labels",
+                    terrainSection.ShowStationLabels,
+                    value => MutateSection(item => item.ShowStationLabels = value),
+                    "Print station distance text below each tick."));
+
+                if (summary != null)
+                {
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Cuts / Output",
+                        $"{summary.SampleSourceCount} cut(s) -> {summary.GeneratedOutputCount} object(s)",
+                        "Cut curves processed and section objects emitted by the last build."));
+                }
+                else
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to generate the section profile.",
+                        minHeight: 42));
+                }
+                break;
+            }
+
+            case CrossSectionStationAnalysisDefinition crossSection:
+            {
+                void MutateCrossSection(Action<CrossSectionStationAnalysisDefinition> apply) =>
+                    MutateAnalysis(terrain.TerrainId, crossSection.Id, item => apply((CrossSectionStationAnalysisDefinition)item), scheduleRebuild: true);
+
+                AddTerrainSectionCommonRows(layout, terrain, crossSection,
+                    "Alignment curve sampled at regular stations. The first curve resolved is used.");
+
+                layout.AddRow(CreateNumericEditor(
+                    "Station Interval",
+                    crossSection.StationInterval,
+                    value => MutateCrossSection(item => item.StationInterval = Math.Max(0.01, value)),
+                    decimalPlaces: 3,
+                    help: "Distance between cross-section stations along the alignment.",
+                    minValue: 0.01));
+                layout.AddRow(CreateNumericEditor(
+                    "Cross-Section Width",
+                    crossSection.CrossSectionWidth,
+                    value => MutateCrossSection(item => item.CrossSectionWidth = Math.Max(0.01, value)),
+                    decimalPlaces: 3,
+                    help: "Total perpendicular width of each cross-section cut, centered on the alignment.",
+                    minValue: 0.01));
+                layout.AddRow(CreateNumericEditor(
+                    "Vertical Exaggeration",
+                    crossSection.VerticalExaggeration,
+                    value => MutateCrossSection(item => item.VerticalExaggeration = Math.Max(0.1, value)),
+                    decimalPlaces: 3,
+                    help: "Vertical scale factor applied to the unrolled cross-section profiles. 1.0 = true scale.",
+                    minValue: 0.1));
+                layout.AddRow(CreateNumericEditor(
+                    "Grid Columns",
+                    crossSection.GridColumns,
+                    value => MutateCrossSection(item => item.GridColumns = Math.Max(1, (int)Math.Round(value))),
+                    decimalPlaces: 0,
+                    help: "Number of columns in the unrolled cross-section grid layout.",
+                    minValue: 1));
+                layout.AddRow(CreateNumericEditor(
+                    "Grid Cell Width",
+                    crossSection.GridCellWidth,
+                    value => MutateCrossSection(item => item.GridCellWidth = Math.Max(0.0, value)),
+                    decimalPlaces: 3,
+                    help: "Override cell width for the grid layout. 0 = auto.",
+                    minValue: 0.0));
+                layout.AddRow(CreateNumericEditor(
+                    "Grid Cell Height",
+                    crossSection.GridCellHeight,
+                    value => MutateCrossSection(item => item.GridCellHeight = Math.Max(0.0, value)),
+                    decimalPlaces: 3,
+                    help: "Override cell height for the grid layout. 0 = auto.",
+                    minValue: 0.0));
+                layout.AddRow(CreateCheckEditor(
+                    "Cut Lines on Terrain",
+                    crossSection.ShowCutLinesOnTerrain,
+                    value => MutateCrossSection(item => item.ShowCutLinesOnTerrain = value),
+                    "Draw the perpendicular cut polylines on the terrain at each station."));
+                layout.AddRow(CreateCheckEditor(
+                    "Label Stations",
+                    crossSection.LabelStations,
+                    value => MutateCrossSection(item => item.LabelStations = value),
+                    "Print station distance text on each unrolled cross-section."));
+                layout.AddRow(CreateCheckEditor(
+                    "Show Elevation Grid",
+                    crossSection.ShowElevationGrid,
+                    value => MutateCrossSection(item => item.ShowElevationGrid = value),
+                    "Draw horizontal grid lines on each unrolled cross-section."));
+                layout.AddRow(CreateNumericEditor(
+                    "Elevation Grid Interval",
+                    crossSection.ElevationGridInterval,
+                    value => MutateCrossSection(item => item.ElevationGridInterval = Math.Max(0.0, value)),
+                    decimalPlaces: 3,
+                    help: "Vertical spacing of grid lines on the unrolled cross-sections. 0 disables.",
+                    minValue: 0.0));
+
+                if (summary != null)
+                {
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Alignments / Output",
+                        $"{summary.SampleSourceCount} alignment(s) -> {summary.GeneratedOutputCount} object(s)",
+                        "Alignment curves processed and cross-section objects emitted by the last build."));
+                }
+                else
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to generate cross-sections.",
+                        minHeight: 42));
+                }
+                break;
+            }
+
+            case LongitudinalSectionAnalysisDefinition longitudinal:
+            {
+                void MutateLongitudinal(Action<LongitudinalSectionAnalysisDefinition> apply) =>
+                    MutateAnalysis(terrain.TerrainId, longitudinal.Id, item => apply((LongitudinalSectionAnalysisDefinition)item), scheduleRebuild: true);
+
+                AddTerrainSectionCommonRows(layout, terrain, longitudinal,
+                    "Curve sampled along its length. Terrain elevation is read at each sample.");
+
+                layout.AddRow(CreateNumericEditor(
+                    "Sample Interval",
+                    longitudinal.SampleInterval,
+                    value => MutateLongitudinal(item => item.SampleInterval = Math.Max(0.01, value)),
+                    decimalPlaces: 3,
+                    help: "Distance between elevation samples along the curve.",
+                    minValue: 0.01));
+                layout.AddRow(CreateNumericEditor(
+                    "Vertical Exaggeration",
+                    longitudinal.VerticalExaggeration,
+                    value => MutateLongitudinal(item => item.VerticalExaggeration = Math.Max(0.1, value)),
+                    decimalPlaces: 3,
+                    help: "Vertical scale factor applied to the unrolled profile. 1.0 = true scale.",
+                    minValue: 0.1));
+                layout.AddRow(CreateCheckEditor(
+                    "Show Baseline",
+                    longitudinal.ShowBaseline,
+                    value => MutateLongitudinal(item => item.ShowBaseline = value),
+                    "Draw the horizontal baseline (zero elevation reference) under the profile."));
+                layout.AddRow(CreateCheckEditor(
+                    "Show Elevation Grid",
+                    longitudinal.ShowElevationGrid,
+                    value => MutateLongitudinal(item => item.ShowElevationGrid = value),
+                    "Draw horizontal grid lines at each elevation increment."));
+                layout.AddRow(CreateNumericEditor(
+                    "Elevation Grid Interval",
+                    longitudinal.ElevationGridInterval,
+                    value => MutateLongitudinal(item => item.ElevationGridInterval = Math.Max(0.0, value)),
+                    decimalPlaces: 3,
+                    help: "Vertical spacing of horizontal grid lines. 0 disables.",
+                    minValue: 0.0));
+                layout.AddRow(CreateCheckEditor(
+                    "Show Station Labels",
+                    longitudinal.ShowStationLabels,
+                    value => MutateLongitudinal(item => item.ShowStationLabels = value),
+                    "Print station distance text along the baseline."));
+                layout.AddRow(CreateNumericEditor(
+                    "Station Label Interval",
+                    longitudinal.StationLabelInterval,
+                    value => MutateLongitudinal(item => item.StationLabelInterval = Math.Max(0.0, value)),
+                    decimalPlaces: 3,
+                    help: "Spacing between station labels. 0 = auto (~quarter of total length).",
+                    minValue: 0.0));
+
+                if (summary != null)
+                {
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Curves / Output",
+                        $"{summary.SampleSourceCount} curve(s) -> {summary.GeneratedOutputCount} object(s)",
+                        "Curves processed and longitudinal section objects emitted by the last build."));
+                }
+                else
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to generate the longitudinal section.",
+                        minHeight: 42));
+                }
+                break;
+            }
         }
 
         return layout;
+    }
+
+    private void AddTerrainSectionCommonRows(
+        DynamicLayout layout,
+        TerrainDefinition terrain,
+        TerrainSectionAnalysisDefinitionBase analysis,
+        string sourceHelp)
+    {
+        void MutateSection(Action<TerrainSectionAnalysisDefinitionBase> apply) =>
+            MutateAnalysis(terrain.TerrainId, analysis.Id, item =>
+            {
+                if (item is TerrainSectionAnalysisDefinitionBase section)
+                    apply(section);
+            }, scheduleRebuild: true);
+
+        layout.AddRow(CreateSourceEditor(
+            "Sources",
+            analysis.Sources,
+            apply => MutateSection(item => apply(item.Sources)),
+            RhinoObjectType.Curve,
+            doc => _controller.GetSelectedLayerPaths(doc),
+            sourceHelp));
+        layout.AddRow(CreateInsertionOriginEditor(terrain, analysis));
+        layout.AddRow(CreateNumericEditor(
+            "Text Height",
+            analysis.TextHeight,
+            value => MutateSection(item => item.TextHeight = Math.Max(0.01, value)),
+            decimalPlaces: 3,
+            help: "Height of station and elevation labels printed on the section.",
+            minValue: 0.01));
+        layout.AddRow(CreateLayerAssignmentEditor(
+            "Output Layer",
+            analysis.OutputLayerPath,
+            path => MutateSection(item => item.OutputLayerPath = path),
+            "Layer used for generated section geometry. Leave empty to use the terrain annotation layer."));
+        layout.AddRow(CreateOptionalColorEditor(
+            "Color",
+            analysis.ColorArgb,
+            value => MutateSection(item => item.ColorArgb = value),
+            "Display and bake color for generated section geometry. Clear to use the output layer color.",
+            ResolveLayerColorArgb(analysis.OutputLayerPath ?? terrain.AnnotationLayerPath),
+            GetAnalysisOutputColorText(terrain, analysis.OutputLayerPath)));
+    }
+
+    private Control CreateInsertionOriginEditor(
+        TerrainDefinition terrain,
+        TerrainSectionAnalysisDefinitionBase analysis)
+    {
+        string text = analysis.HasInsertionPlane
+            ? $"({analysis.InsertionOriginX:F2}, {analysis.InsertionOriginY:F2}, {analysis.InsertionOriginZ:F2})"
+            : "(auto: offset from terrain bbox)";
+
+        var summary = new Label
+        {
+            Text = text,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextColor = analysis.HasInsertionPlane ? UiTheme.PrimaryText : UiTheme.MutedText,
+            Wrap = WrapMode.None
+        };
+        ApplyHelp(summary, "Insertion origin where the laid-out section is placed. World X/Z axes are used for direction.");
+
+        var pickButton = MakeMiniButton("Pick", (_, _) =>
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc == null)
+                return;
+
+            var gp = new RhinoGetPoint();
+            gp.SetCommandPrompt("Pick section insertion origin");
+            if (gp.Get() != RhinoGetResult.Point)
+                return;
+
+            RhinoPoint3d picked = gp.Point();
+            MutateAnalysis(terrain.TerrainId, analysis.Id, item =>
+            {
+                if (item is TerrainSectionAnalysisDefinitionBase section)
+                {
+                    section.InsertionOriginX = picked.X;
+                    section.InsertionOriginY = picked.Y;
+                    section.InsertionOriginZ = picked.Z;
+                    section.InsertionXAxisX = 1.0;
+                    section.InsertionXAxisY = 0.0;
+                    section.InsertionXAxisZ = 0.0;
+                    section.InsertionYAxisX = 0.0;
+                    section.InsertionYAxisY = 1.0;
+                    section.InsertionYAxisZ = 0.0;
+                    section.HasInsertionPlane = true;
+                }
+            }, scheduleRebuild: true);
+            RefreshUi();
+        }, "Pick the origin point where the laid-out section will be placed.", width: 46);
+
+        var resetButton = MakeMiniButton("Auto", (_, _) =>
+        {
+            MutateAnalysis(terrain.TerrainId, analysis.Id, item =>
+            {
+                if (item is TerrainSectionAnalysisDefinitionBase section)
+                    section.HasInsertionPlane = false;
+            }, scheduleRebuild: true);
+            RefreshUi();
+        }, "Clear the insertion origin and let the section auto-position next to the terrain.", width: 46);
+
+        var fields = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items =
+            {
+                new StackLayoutItem(summary, expand: true),
+                pickButton,
+                resetButton
+            }
+        };
+
+        if (UseStackedFormRows())
+        {
+            return new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 4,
+                Padding = new Padding(0, 3),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    CreateHelpLabel("Insertion", "Insertion origin where the laid-out section is placed.", 0),
+                    fields
+                }
+            };
+        }
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Items =
+            {
+                CreateHelpLabel("Insertion", "Insertion origin where the laid-out section is placed.", NumericLabelWidth),
+                new StackLayoutItem(fields, expand: true)
+            }
+        };
     }
 
     private Control CreateAnalysisPaletteEditor(Guid terrainId, AnalysisDefinition analysis, string help)
@@ -3234,7 +3662,7 @@ public sealed class MoleHillPanel : Panel
                     "Layer used for retaining-wall Breps. Leave empty to use the terrain auxiliary layer."));
                 layout.AddRow(CreateNumericEditor("Max Wall Width", walls.MaxWallWidth, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((RetainingWallModifierDefinition)item).MaxWallWidth = value),
-                    help: "Maximum expected spacing between paired wall rails. Terrain tolerance still controls geometric cleanup."));
+                    help: "Maximum expected spacing between paired wall rails. Wall cleanup uses an automatic internal tolerance derived from wall width and terrain detail size."));
                 break;
             case GradePadModifierDefinition gradePad:
                 layout.AddRow(CreateSourceEditor("Boundaries", gradePad.Boundaries,
@@ -4862,7 +5290,6 @@ public sealed class MoleHillPanel : Panel
                 item.Boundaries.ReplaceLayers(Array.Empty<string>());
             });
         }, "Remove the assigned input layer.");
-
         var bakedLayerLabel = new Label
         {
             Text = $"Bake -> {bakedLayer}",
@@ -4871,7 +5298,7 @@ public sealed class MoleHillPanel : Panel
             Wrap = WrapMode.Word
         };
         ApplyHelp(bakedLayerLabel, "Generated zone meshes preview using the source layer color and bake under this output layer.");
-        var buttonRow = CreateResponsiveControlGroup(3, useCurrentButton, browseButton, clearButton);
+        var buttonRow = CreateResponsiveControlGroup(4, useCurrentButton, browseButton, clearButton);
 
         if (UseStackedFormRows())
         {
@@ -5202,7 +5629,7 @@ public sealed class MoleHillPanel : Panel
     {
         return label switch
         {
-            "Tolerance" => "Changes are applied after a short pause. 0 uses document tolerance. Lower values are stricter; higher values are more forgiving.",
+            "Detail Size" => "Changes are applied after a short pause. Smaller values keep more terrain detail; larger values simplify and merge nearby geometry more aggressively.",
             "Edge Length" => "Changes are applied after a short pause. Smaller values make denser triangles; larger values make coarser meshes.",
             "Max Area" => "Changes are applied after a short pause. Smaller values refine the mesh; larger values keep bigger faces.",
             "Min Angle" => "Changes are applied after a short pause. Around 20-30 is moderate; very high values can overconstrain the triangulation.",
@@ -5298,12 +5725,11 @@ public sealed class MoleHillPanel : Panel
         if (_controller.TryExportTerrainCaseBundle(doc, terrain.TerrainId, out string? archivePath, out string? coreTestCode, out string? errorMessage) &&
             !string.IsNullOrWhiteSpace(archivePath))
         {
-            Clipboard.Instance.Text = string.IsNullOrWhiteSpace(coreTestCode)
-                ? archivePath
-                : coreTestCode;
-            RhinoApp.WriteLine(string.IsNullOrWhiteSpace(coreTestCode)
+            string copiedMessage = string.IsNullOrWhiteSpace(coreTestCode)
                 ? $"MoleHill copied case bundle path: {archivePath}"
-                : $"MoleHill copied test case source; bundle path: {archivePath}");
+                : $"MoleHill copied test case source; bundle path: {archivePath}";
+            Clipboard.Instance.Text = copiedMessage;
+            RhinoApp.WriteLine(copiedMessage);
             return;
         }
 
@@ -5442,6 +5868,9 @@ public sealed class MoleHillPanel : Panel
                 "curve-slope-label" => new CurveSlopeLabelAnalysisDefinition(),
                 "projected-elevation-label" => new ProjectedElevationLabelAnalysisDefinition(),
                 "point-slope-label" => new PointSlopeLabelAnalysisDefinition(),
+                "terrain-section" => new TerrainSectionAnalysisDefinition(),
+                "cross-section-station" => new CrossSectionStationAnalysisDefinition(),
+                "longitudinal-section" => new LongitudinalSectionAnalysisDefinition(),
                 _ => null
             };
 
@@ -5575,6 +6004,9 @@ public sealed class MoleHillPanel : Panel
             CurveSlopeLabelAnalysisDefinition => "Curve Slope",
             ProjectedElevationLabelAnalysisDefinition => "Proj. Elevation",
             PointSlopeLabelAnalysisDefinition => "Point Slope",
+            TerrainSectionAnalysisDefinition => "Terrain Section",
+            CrossSectionStationAnalysisDefinition => "Cross-Sections",
+            LongitudinalSectionAnalysisDefinition => "Long. Section",
             _ => "Analysis"
         };
     }
@@ -5666,6 +6098,9 @@ public sealed class MoleHillPanel : Panel
         CurveSlopeLabelAnalysisDefinition => "curve-slope-label",
         ProjectedElevationLabelAnalysisDefinition => "projected-elevation-label",
         PointSlopeLabelAnalysisDefinition => "point-slope-label",
+        TerrainSectionAnalysisDefinition => "terrain-section",
+        CrossSectionStationAnalysisDefinition => "cross-section-station",
+        LongitudinalSectionAnalysisDefinition => "longitudinal-section",
         _ => string.Empty
     };
 
@@ -5674,7 +6109,8 @@ public sealed class MoleHillPanel : Panel
         CurveElevationLabelAnalysisDefinition or
         CurveSlopeLabelAnalysisDefinition or
         ProjectedElevationLabelAnalysisDefinition or
-        PointSlopeLabelAnalysisDefinition;
+        PointSlopeLabelAnalysisDefinition or
+        TerrainSectionAnalysisDefinitionBase;
 
     private static Color AnalysisTypeColor(string kind) => kind switch
     {
@@ -5687,6 +6123,9 @@ public sealed class MoleHillPanel : Panel
         "curve-slope-label" => Color.FromArgb(46, 125, 50),
         "projected-elevation-label" => Color.FromArgb(21, 101, 192),
         "point-slope-label" => Color.FromArgb(2, 136, 209),
+        "terrain-section" => Color.FromArgb(123, 31, 162),
+        "cross-section-station" => Color.FromArgb(142, 36, 170),
+        "longitudinal-section" => Color.FromArgb(94, 53, 177),
         _ => Color.FromArgb(120, 120, 120)
     };
 
@@ -5701,6 +6140,9 @@ public sealed class MoleHillPanel : Panel
         CurveSlopeLabelAnalysisDefinition => "C%",
         ProjectedElevationLabelAnalysisDefinition => "PZ",
         PointSlopeLabelAnalysisDefinition => "P%",
+        TerrainSectionAnalysisDefinition => "TS",
+        CrossSectionStationAnalysisDefinition => "XS",
+        LongitudinalSectionAnalysisDefinition => "LS",
         _ => "A"
     };
 
@@ -5717,6 +6159,9 @@ public sealed class MoleHillPanel : Panel
             CurveSlopeLabelAnalysisDefinition => "Curve grade blocks",
             ProjectedElevationLabelAnalysisDefinition => "Projected elevation blocks",
             PointSlopeLabelAnalysisDefinition => "Point slope blocks",
+            TerrainSectionAnalysisDefinition => "Geländeschnitt profile",
+            CrossSectionStationAnalysisDefinition => "Stations + grid",
+            LongitudinalSectionAnalysisDefinition => "Unrolled longitudinal",
             _ => "Analysis"
         };
     }
@@ -5757,6 +6202,15 @@ public sealed class MoleHillPanel : Panel
                     ? $"{summary.GeneratedOutputCount} labels | {FormatSlopeValue(summary.SampleAverageValue, pointSlope.Unit)} avg"
                     : "0 labels"
                 : $"{CountReferences(pointSlope.Sources)} refs | terrain slope",
+            TerrainSectionAnalysisDefinition section => summary != null
+                ? $"{summary.GeneratedOutputCount} objects | {summary.SampleSourceCount} cuts"
+                : $"{CountReferences(section.Sources)} refs | profile",
+            CrossSectionStationAnalysisDefinition crossSection => summary != null
+                ? $"{summary.GeneratedOutputCount} objects | {crossSection.StationInterval:G4} every"
+                : $"{CountReferences(crossSection.Sources)} refs | {crossSection.StationInterval:G4} stations",
+            LongitudinalSectionAnalysisDefinition longitudinal => summary != null
+                ? $"{summary.GeneratedOutputCount} objects | V exag {longitudinal.VerticalExaggeration:G3}"
+                : $"{CountReferences(longitudinal.Sources)} refs | sample {longitudinal.SampleInterval:G4}",
             _ => string.Empty
         };
     }

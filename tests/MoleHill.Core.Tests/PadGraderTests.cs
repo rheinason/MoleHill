@@ -459,7 +459,10 @@ public class PadGraderTests
         Assert.True(
             !result.Diagnostics.Any(diagnostic => diagnostic.Contains("using split local patch", StringComparison.OrdinalIgnoreCase)),
             diagnostics);
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("using terrain-side stitch loop", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.Contains("using terrain-side stitch loop", StringComparison.OrdinalIgnoreCase) ||
+                          diagnostic.Contains("coupled protected patch", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("batter slope check", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -634,7 +637,83 @@ public class PadGraderTests
         double maxSlope = shoulderSlopeAngles.Max();
         Assert.True(
             maxSlope <= targetSlopeDeg + 1.0,
-            $"Expected all shoulder slopes ≤ {targetSlopeDeg + 1.0:0.##}° (steeper is wrong); max={maxSlope:0.##}°.");
+            $"Expected all shoulder slopes <= {targetSlopeDeg + 1.0:0.##} degrees (steeper is wrong); max={maxSlope:0.##} degrees.");
+    }
+
+    [Fact]
+    public void Grade_ProtectedApron_KeepsSyntheticShoulderGrading()
+    {
+        double[] vertices = BuildGridVertices(41, 1.0);
+        int[] faces = BuildGridFaces(41);
+        double targetSlopeDeg = 30.0;
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    15.0, 15.0,
+                    25.0, 15.0,
+                    25.0, 25.0,
+                    15.0, 25.0
+                },
+                4,
+                targetZ: 2.0,
+                slopeAngleDeg: targetSlopeDeg,
+                stitchApronDistance: 0.5)
+        };
+
+        GradingResult? result = PadGrader.Grade(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null,
+            out string? warning);
+
+        Assert.True(result != null, warning);
+        string diagnostics = string.Join("|", result!.Diagnostics);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("protected stitch apron", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("patch did not produce a single closed stitch boundary", diagnostics);
+        Assert.DoesNotContain("using split local patch", diagnostics);
+
+        var shoulderSlopeAngles = CollectBatterTriangleSlopeAngles(
+            result,
+            minimumZ: 0.05,
+            maximumZ: 1.95,
+            includeCentroid: (x, y) => x is > 17.0 and < 23.0 && y > 25.0);
+        Assert.True(shoulderSlopeAngles.Count > 0, $"Expected measurable protected-apron shoulder triangles. Diags={diagnostics}");
+
+        Assert.True(shoulderSlopeAngles.Any(angle => Math.Abs(angle - targetSlopeDeg) <= 4.0),
+            $"Expected at least one protected-apron shoulder face near {targetSlopeDeg:0.##} degrees.");
+    }
+
+    [Fact]
+    public void Grade_MultipleProtectedPads_DoesNotIntroduceInteriorNakedEdges()
+    {
+        double[] vertices = BuildSlopedGridVertices(81, 1.0, xSlope: 0.04, ySlope: -0.03);
+        int[] faces = BuildGridFaces(81);
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(BuildRotatedRectangle(22.0, 24.0, 10.0, 7.0, 18.0), 4, targetZ: 2.4, slopeAngleDeg: 30.0, stitchApronDistance: 0.5),
+            new PadGrader.PadBoundary(BuildRotatedRectangle(43.0, 28.0, 11.0, 7.0, -12.0), 4, targetZ: 2.0, slopeAngleDeg: 30.0, stitchApronDistance: 0.5),
+            new PadGrader.PadBoundary(BuildRotatedRectangle(58.0, 48.0, 12.0, 8.0, 24.0), 4, targetZ: 1.6, slopeAngleDeg: 30.0, stitchApronDistance: 0.5),
+            new PadGrader.PadBoundary(BuildRegularPolygon(28.0, 56.0, 5.0, 20), 20, targetZ: 2.8, slopeAngleDeg: 30.0, stitchApronDistance: 0.5)
+        };
+
+        GradingResult? result = PadGrader.Grade(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null,
+            out string? warning);
+
+        Assert.True(result != null, warning);
+        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
+        int interiorNakedEdges = CountInteriorNakedEdges(result, minX: 0.0, maxX: 80.0, minY: 0.0, maxY: 80.0, tolerance: 1e-3);
+        Assert.True(interiorNakedEdges == 0, $"Expected no interior naked edges; found {interiorNakedEdges}. Diags={diagnostics}");
     }
 
     [Fact]
@@ -706,8 +785,8 @@ public class PadGraderTests
 
         Assert.True(result != null, warning);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("stitched merge rejected", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.True(!diagnostics.Contains("using split local patch", StringComparison.OrdinalIgnoreCase), diagnostics);
+        Assert.True(!diagnostics.Contains("stitched merge rejected", StringComparison.OrdinalIgnoreCase), diagnostics);
     }
 
     [Fact]
@@ -1010,6 +1089,68 @@ public class PadGraderTests
         }
 
         return xy;
+    }
+
+    private static double[] BuildRegularPolygon(double centerX, double centerY, double radius, int vertexCount)
+    {
+        var xy = new double[vertexCount * 2];
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double angle = (Math.PI * 2.0 * i) / vertexCount;
+            xy[i * 2] = centerX + Math.Cos(angle) * radius;
+            xy[i * 2 + 1] = centerY + Math.Sin(angle) * radius;
+        }
+
+        return xy;
+    }
+
+    private static int CountInteriorNakedEdges(
+        GradingResult result,
+        double minX,
+        double maxX,
+        double minY,
+        double maxY,
+        double tolerance)
+    {
+        var edgeFaceCount = new Dictionary<(int A, int B), int>();
+        for (int faceIndex = 0; faceIndex < result.FaceCount; faceIndex++)
+        {
+            int a = result.Faces[faceIndex * 3];
+            int b = result.Faces[faceIndex * 3 + 1];
+            int c = result.Faces[faceIndex * 3 + 2];
+            AddEdge(a, b);
+            AddEdge(b, c);
+            AddEdge(c, a);
+        }
+
+        int count = 0;
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = pair.Key.A;
+            int b = pair.Key.B;
+            double mx = (result.Vertices[a * 3] + result.Vertices[b * 3]) * 0.5;
+            double my = (result.Vertices[a * 3 + 1] + result.Vertices[b * 3 + 1]) * 0.5;
+            bool onOuterBoundary =
+                Math.Abs(mx - minX) <= tolerance ||
+                Math.Abs(mx - maxX) <= tolerance ||
+                Math.Abs(my - minY) <= tolerance ||
+                Math.Abs(my - maxY) <= tolerance;
+            if (!onOuterBoundary)
+                count++;
+        }
+
+        return count;
+
+        void AddEdge(int a, int b)
+        {
+            if (a > b)
+                (a, b) = (b, a);
+            var key = (a, b);
+            edgeFaceCount[key] = edgeFaceCount.TryGetValue(key, out int current) ? current + 1 : 1;
+        }
     }
 
     private static List<double> CollectBatterTriangleSlopeAngles(

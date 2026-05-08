@@ -1,11 +1,12 @@
 using System.Text.Json;
 using MoleHill.Rhino.Model;
+using Rhino;
 
 namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 19;
+    private const int DocumentSchemaVersion = 21;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -24,7 +25,7 @@ internal static class TerrainSerializer
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
-    public static List<TerrainDefinition> Deserialize(string? json)
+    public static List<TerrainDefinition> Deserialize(string? json, UnitSystem unitSystem = UnitSystem.Meters)
     {
         if (string.IsNullOrWhiteSpace(json))
             return new List<TerrainDefinition>();
@@ -35,8 +36,9 @@ internal static class TerrainSerializer
 
         foreach (var terrain in envelope.Terrains)
         {
+            int sourceSchemaVersion = terrain.SchemaVersion;
             if (terrain.SchemaVersion <= 0)
-                terrain.SchemaVersion = TerrainDefinition.CurrentSchemaVersion;
+                sourceSchemaVersion = 0;
 
             terrain.Modifiers ??= new List<ModifierDefinition>();
             terrain.Markers ??= new List<MarkerDefinition>();
@@ -52,6 +54,7 @@ internal static class TerrainSerializer
             terrain.LastAnalysisResults ??= new List<TerrainAnalysisSummary>();
             NormalizeObjects(terrain);
             PromoteLegacyTolerance(terrain);
+            PromoteLegacyDetailSize(terrain, sourceSchemaVersion, unitSystem);
             PromoteDisplaySettings(terrain);
             MigrateZones(terrain);
             MigrateAnalyses(terrain);
@@ -115,6 +118,17 @@ internal static class TerrainSerializer
 
         terrain.GlobalTolerance = triangulate.Tolerance;
         triangulate.Tolerance = 0;
+    }
+
+    private static void PromoteLegacyDetailSize(TerrainDefinition terrain, int sourceSchemaVersion, UnitSystem unitSystem)
+    {
+        if (sourceSchemaVersion >= TerrainDefinition.CurrentSchemaVersion)
+            return;
+
+        if (!TerrainTolerancePolicy.ShouldPromoteLegacyDetailSize(terrain.GlobalTolerance, unitSystem))
+            return;
+
+        terrain.GlobalTolerance = TerrainTolerancePolicy.DefaultDetailSize(unitSystem);
     }
 
     private static void NormalizeObjects(TerrainDefinition terrain)
@@ -213,6 +227,9 @@ internal static class TerrainSerializer
                         if (string.IsNullOrWhiteSpace(projectedElevation.ValueFormat))
                             projectedElevation.ValueFormat = "F2";
                         break;
+                    case TerrainSectionAnalysisDefinitionBase section:
+                        NormalizeTerrainSectionAnalysis(section);
+                        break;
                 }
             }
 
@@ -246,6 +263,28 @@ internal static class TerrainSerializer
         analysis.AttributePrefix ??= string.Empty;
         analysis.AttributeSuffix ??= string.Empty;
         analysis.ValueFormat ??= string.Empty;
+    }
+
+    private static void NormalizeTerrainSectionAnalysis(TerrainSectionAnalysisDefinitionBase analysis)
+    {
+        analysis.Sources ??= new SourceReferenceSet();
+        if (analysis.TextHeight <= 0.0)
+            analysis.TextHeight = 1.0;
+        switch (analysis)
+        {
+            case CrossSectionStationAnalysisDefinition crossSection:
+                crossSection.StationInterval = Math.Max(crossSection.StationInterval, 0.01);
+                crossSection.CrossSectionWidth = Math.Max(crossSection.CrossSectionWidth, 0.01);
+                crossSection.GridColumns = Math.Max(crossSection.GridColumns, 1);
+                if (crossSection.VerticalExaggeration <= 0.0)
+                    crossSection.VerticalExaggeration = 1.0;
+                break;
+            case LongitudinalSectionAnalysisDefinition longitudinal:
+                longitudinal.SampleInterval = Math.Max(longitudinal.SampleInterval, 0.01);
+                if (longitudinal.VerticalExaggeration <= 0.0)
+                    longitudinal.VerticalExaggeration = 1.0;
+                break;
+        }
     }
 
     private static void EnsureEarthworkAnalysis(TerrainDefinition terrain)

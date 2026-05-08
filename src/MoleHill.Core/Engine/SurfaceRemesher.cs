@@ -332,7 +332,8 @@ public static class SurfaceRemesher
                 return null;
 
             double span = Math.Max(maxX - minX, maxY - minY);
-            double cellSize = Math.Max(tolerance * 16.0, Math.Clamp(span / 256.0, tolerance * 16.0, 4.0));
+            double minCellSize = tolerance * 16.0;
+            double cellSize = Math.Clamp(span / 256.0, minCellSize, Math.Max(minCellSize, 4.0));
             var cells = new Dictionary<long, List<int>>(segments.Count * 2);
             for (int i = 0; i < segments.Count; i++)
                 AddSegmentToCells(cells, segments[i], i, tolerance, cellSize);

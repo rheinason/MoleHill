@@ -19,13 +19,15 @@
 
   <ItemGroup>
     <Reference Include="RhinoCommon">
-      <HintPath>..\..\.dotnet\.nuget\packages\rhinocommon\8.9.24194.18121\lib\net48\RhinoCommon.dll</HintPath>
+      <HintPath Condition="Exists('..\..\.dotnet\.nuget\packages\rhinocommon\8.9.24194.18121\lib\net48\RhinoCommon.dll')">..\..\.dotnet\.nuget\packages\rhinocommon\8.9.24194.18121\lib\net48\RhinoCommon.dll</HintPath>
+      <HintPath Condition="!Exists('..\..\.dotnet\.nuget\packages\rhinocommon\8.9.24194.18121\lib\net48\RhinoCommon.dll') And Exists('..\..\.codex-dotnet\.nuget\packages\rhinocommon\8.9.24194.18121\lib\net48\RhinoCommon.dll')">..\..\.codex-dotnet\.nuget\packages\rhinocommon\8.9.24194.18121\lib\net48\RhinoCommon.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MoleHill.Core\MoleHill.Core.csproj" />
+    <ProjectReference Include="..\..\src\MoleHill.Rhino\MoleHill.Rhino.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -38,15 +40,23 @@
   <ItemGroup>
     <Compile Include="..\..\src\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\GeometryCommandAlgorithms.cs" Link="Services\GeometryCommandAlgorithms.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\BlockAttributePayload.cs" Link="Services\BlockAttributePayload.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\GeneratedBlockCatalog.cs" Link="Services\GeneratedBlockCatalog.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\GeneratedRhinoObject.cs" Link="Services\GeneratedRhinoObject.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\GeneratedObjectKind.cs" Link="Services\GeneratedObjectKind.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\MarkerBlockTemplate.cs" Link="Services\MarkerBlockTemplate.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\ModelUnits.cs" Link="Services\ModelUnits.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainTolerancePolicy.cs" Link="Services\TerrainTolerancePolicy.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\ReferenceEqualityComparer.cs" Link="Services\ReferenceEqualityComparer.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\SectionOutputLayers.cs" Link="Services\SectionOutputLayers.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainCommitGuard.cs" Link="Services\TerrainCommitGuard.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainBuildMode.cs" Link="Services\TerrainBuildMode.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainBuildHeuristics.cs" Link="Services\TerrainBuildHeuristics.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainCoreCaseRecorder.cs" Link="Services\TerrainCoreCaseRecorder.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainDisplayState.cs" Link="Services\TerrainDisplayState.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainRuntimeCache.cs" Link="Services\TerrainRuntimeCache.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\TerrainSectionSlicer.cs" Link="Services\TerrainSectionSlicer.cs" />
+    <Compile Include="..\..\src\MoleHill.Rhino\Services\SectionLayoutHelper.cs" Link="Services\SectionLayoutHelper.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\ConstraintConflictDiagnostics.cs" Link="Services\ConstraintConflictDiagnostics.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Model\TerrainAnalysisSummary.cs" Link="Model\TerrainAnalysisSummary.cs" />
   </ItemGroup>

@@ -77,7 +77,8 @@ internal static class TerrainAnalysisPreviewBuilder
             or CurveElevationLabelAnalysisDefinition
             or CurveSlopeLabelAnalysisDefinition
             or ProjectedElevationLabelAnalysisDefinition
-            or PointSlopeLabelAnalysisDefinition;
+            or PointSlopeLabelAnalysisDefinition
+            or TerrainSectionAnalysisDefinitionBase;
     }
 
     internal static bool ShouldDisplayGeneratedOutput(TerrainDefinition terrain, GeneratedRhinoObject generated)

@@ -1,0 +1,137 @@
+using MoleHill.Core.Grading;
+using System.Globalization;
+using System.Text.RegularExpressions;
+using Xunit;
+
+namespace MoleHill.Core.Tests;
+
+public class TerrainGradePadCopiedCaseTests
+{
+    [Fact]
+    public void GradePad_CopiedTerrainCase_BuildsSyntheticShoulderAndApron()
+    {
+        double[] vertices =
+        {
+            482.010009765625, -587.3263549804688, 0,
+            425.9200134277344, -507.8758544921875, 0,
+            418.71246337890625, -602.7970581054688, 0,
+            471.70660400390625, -501.8989562988281, 0,
+            429.2420959472656, -440.863525390625, 26.3985652923584,
+            422.462890625, -382.285888671875, 47.86000061035156,
+            519.5863037109375, -501.0912780761719, 0,
+            536.3311157226562, -509.16815185546875, 0,
+            441.60418701171875, -436.677978515625, 26.3985652923584,
+            552.2006225585938, -597.7691040039062, 0,
+            479.488037109375, -439.38629150390625, 26.3985652923584,
+            464.7332763671875, -371.69891357421875, 47.86000061035156,
+            501.8195495605469, -374.4071960449219, 47.86000061035156,
+            513.3840942382812, -434.70831298828125, 26.3985652923584,
+            550.4703369140625, -376.13067626953125, 47.86000061035156,
+            566.4214477539062, -374.1610107421875, 47.86000061035156,
+            529.7339477539062, -441.6021728515625, 26.3985652923584,
+            563.5414428710938, -509.65277099609375, 0,
+            598.4663696289062, -581.7898559570312, 0,
+            559.6422119140625, -440.6173400878906, 26.3985652923584,
+            703.9754028320312, -566.473388671875, 0,
+            684.7786254882812, -602.0450439453125, 0,
+            587.8737182617188, -506.58355712890625, 0,
+            572.403076171875, -439.8786926269531, 26.3985652923584,
+            589.9492797851562, -383.2707214355469, 47.86000061035156,
+        };
+        int[] faces =
+        {
+            0, 1, 2,
+            3, 4, 1,
+            4, 5, 1,
+            6, 3, 0,
+            1, 0, 3,
+            7, 6, 0,
+            8, 4, 3,
+            0, 2, 9,
+            6, 10, 3,
+            11, 5, 8,
+            4, 8, 5,
+            10, 11, 8,
+            12, 10, 13,
+            6, 13, 10,
+            14, 12, 13,
+            11, 10, 12,
+            10, 8, 3,
+            15, 11, 12,
+            13, 6, 16,
+            17, 7, 9,
+            0, 9, 7,
+            18, 17, 9,
+            19, 7, 17,
+            20, 18, 21,
+            9, 21, 18,
+            22, 17, 18,
+            21, 9, 2,
+            20, 22, 18,
+            14, 16, 19,
+            19, 16, 7,
+            15, 14, 19,
+            13, 16, 14,
+            23, 22, 20,
+            17, 23, 19,
+            23, 24, 15,
+            23, 20, 24,
+            19, 23, 15,
+            17, 22, 23,
+            12, 14, 15,
+            6, 7, 16,
+        };
+        var pads = new[]
+        {
+            PadGrader.PadBoundary.CreatePlanar(
+                new[]
+                {
+                    505.9876222970124, -417.22689249141297, 36.41119211856837,
+                    520.8917723920957, -448.0265363079395, 36.41119211856837,
+                    545.9248617228452, -435.9128598332488, 36.41119211856837,
+                    531.0207116277619, -405.113216016722, 36.41119211856837,
+                },
+                4,
+                planeXCoeff: 0.0,
+                planeYCoeff: 0.0,
+                planeConstant: 36.41119211856837,
+                slopeAngleDeg: 30.0,
+                maxDistance: 0.0,
+                stitchApronDistance: 0.5),
+        };
+
+        GradingResult? result = PadGrader.Grade(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            pads,
+            null,
+            out string? errorMessage);
+
+        Assert.True(result != null, errorMessage);
+        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
+        Assert.Contains("protected stitch apron", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.True(
+            !diagnostics.Contains("no measurable batter faces", StringComparison.OrdinalIgnoreCase),
+            diagnostics);
+        Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.True(
+            diagnostics.Contains("merged-mesh naked edges near seam: 0", StringComparison.OrdinalIgnoreCase),
+            diagnostics);
+        double shoulderToSeamMax = ExtractDiagnosticNumber(
+            diagnostics,
+            @"topology band width: shoulder->seam min=[0-9,.+-]+, max=([0-9,.+-]+);");
+        Assert.True(
+            shoulderToSeamMax <= 2.0,
+            $"Expected shoulder/apron band to stay local; shoulder->seam max={shoulderToSeamMax:0.###}. Diagnostics:{Environment.NewLine}{diagnostics}");
+    }
+
+    private static double ExtractDiagnosticNumber(string diagnostics, string pattern)
+    {
+        Match match = Regex.Match(diagnostics, pattern, RegexOptions.IgnoreCase);
+        Assert.True(match.Success, diagnostics);
+        string value = match.Groups[1].Value.Replace(',', '.');
+        return double.Parse(value, CultureInfo.InvariantCulture);
+    }
+}

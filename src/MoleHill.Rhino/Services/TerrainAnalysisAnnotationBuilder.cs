@@ -255,6 +255,455 @@ internal static class TerrainAnalysisAnnotationBuilder
         return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
     }
 
+    public static TerrainAnalysisSummary BuildTerrainSectionSummary(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        TerrainSectionAnalysisDefinition analysis,
+        TerrainBuildResult build,
+        Func<bool>? shouldCancel,
+        string? fallbackLayerPath = null)
+    {
+        var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
+        var insertionPlane = ResolveInsertionPlane(analysis, mesh);
+        double tolerance = snapshot.ModelAbsoluteTolerance;
+        int sourceCount = 0;
+        int outputCount = 0;
+
+        var slices = new List<TerrainSectionResult>();
+        double maxStation = 0.0;
+        double maxRange = 0.0;
+
+        foreach (var entry in objects)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            if (entry.Geometry is not Curve curve)
+                continue;
+
+            sourceCount++;
+            var cutVertices = ApproximateCurveAsPolyline(curve, tolerance);
+            if (cutVertices.Count < 2)
+                continue;
+
+            var slice = TerrainSectionSlicer.SliceAlongPolyline(mesh, cutVertices, tolerance);
+            if (slice.IsEmpty)
+                continue;
+
+            slices.Add(slice);
+            if (slice.TotalStationLength > maxStation)
+                maxStation = slice.TotalStationLength;
+            double range = slice.MaximumElevation - slice.MinimumElevation;
+            if (range > maxRange)
+                maxRange = range;
+        }
+
+        double cellWidth = maxStation + Math.Max(maxStation * 0.15, analysis.TextHeight * 8.0);
+        double cellHeight = Math.Max(maxRange * 1.4, analysis.TextHeight * 6.0);
+
+        for (int i = 0; i < slices.Count; i++)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            var slice = slices[i];
+            Plane cellPlane = OffsetCellPlane(insertionPlane, i, columns: Math.Max(slices.Count, 1), cellWidth, cellHeight);
+
+            outputCount += EmitProfileObjects(
+                analysis,
+                build,
+                slice,
+                cellPlane,
+                horizontalScale: 1.0,
+                verticalScale: 1.0,
+                baseElevation: slice.MinimumElevation,
+                showBaseline: true,
+                showElevationGrid: analysis.ShowElevationGrid,
+                elevationGridInterval: analysis.ElevationGridInterval,
+                showStationTicks: analysis.ShowStationTicks,
+                stationTickInterval: analysis.StationTickInterval,
+                showStationLabels: analysis.ShowStationLabels,
+                stationLabelInterval: analysis.StationTickInterval,
+                textHeight: analysis.TextHeight,
+                fallbackLayerPath: fallbackLayerPath,
+                sectionLabel: $"{analysis.Label} {i + 1}");
+        }
+
+        return new TerrainAnalysisSummary
+        {
+            AnalysisId = analysis.Id,
+            SampleSourceCount = sourceCount,
+            GeneratedOutputCount = outputCount
+        };
+    }
+
+    public static TerrainAnalysisSummary BuildCrossSectionStationSummary(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        CrossSectionStationAnalysisDefinition analysis,
+        TerrainBuildResult build,
+        Func<bool>? shouldCancel,
+        string? fallbackLayerPath = null)
+    {
+        var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
+        var insertionPlane = ResolveInsertionPlane(analysis, mesh);
+        double tolerance = snapshot.ModelAbsoluteTolerance;
+        double stationInterval = Math.Max(analysis.StationInterval, tolerance * 100.0);
+        double halfWidth = Math.Max(analysis.CrossSectionWidth * 0.5, tolerance * 10.0);
+        int gridColumns = Math.Max(analysis.GridColumns, 1);
+        double verticalScale = analysis.VerticalExaggeration > 0.0 ? analysis.VerticalExaggeration : 1.0;
+        int sourceCount = 0;
+        int outputCount = 0;
+        int globalIndex = 0;
+
+        foreach (var entry in objects)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            if (entry.Geometry is not Curve alignment)
+                continue;
+
+            sourceCount++;
+            var stations = GetCurveDivisionSamples(alignment, stationInterval);
+            if (stations.Count == 0)
+                continue;
+
+            var slices = new List<(double Station, TerrainSectionResult Slice)>(stations.Count);
+            double maxStation = 0.0;
+            double maxRange = 0.0;
+
+            foreach (var station in stations)
+            {
+                ThrowIfCancellationRequested(shouldCancel);
+                Vector3d tangent = alignment.TangentAt(station.Parameter);
+                tangent.Z = 0.0;
+                if (!tangent.Unitize())
+                    continue;
+
+                var perpendicular = new Vector3d(-tangent.Y, tangent.X, 0.0);
+                Point3d a = station.Point - (perpendicular * halfWidth);
+                Point3d b = station.Point + (perpendicular * halfWidth);
+                a.Z = 0.0;
+                b.Z = 0.0;
+
+                var cut = new[] { a, b };
+                var slice = TerrainSectionSlicer.SliceAlongPolyline(mesh, cut, tolerance);
+                if (slice.IsEmpty)
+                    continue;
+
+                slices.Add((alignment.GetLength(new Interval(alignment.Domain.T0, station.Parameter)), slice));
+                if (slice.TotalStationLength > maxStation)
+                    maxStation = slice.TotalStationLength;
+                double range = slice.MaximumElevation - slice.MinimumElevation;
+                if (range > maxRange)
+                    maxRange = range;
+            }
+
+            double cellWidth = analysis.GridCellWidth > 0.0 ? analysis.GridCellWidth : (analysis.CrossSectionWidth + Math.Max(maxStation, analysis.CrossSectionWidth) * 0.1);
+            double cellHeight = analysis.GridCellHeight > 0.0 ? analysis.GridCellHeight : Math.Max(maxRange * verticalScale * 1.4, analysis.CrossSectionWidth * 0.3);
+
+            for (int i = 0; i < slices.Count; i++)
+            {
+                ThrowIfCancellationRequested(shouldCancel);
+                var (alignmentStation, slice) = slices[i];
+                Plane cellPlane = OffsetCellPlane(insertionPlane, globalIndex, gridColumns, cellWidth, cellHeight);
+                globalIndex++;
+
+                if (analysis.ShowCutLinesOnTerrain)
+                {
+                    foreach (var segment in slice.Segments)
+                    {
+                        var poly = new Polyline(segment.Vertices.Count);
+                        for (int v = 0; v < segment.Vertices.Count; v++)
+                            poly.Add(segment.Vertices[v].World);
+                        build.AuxiliaryObjects.Add(BuildPolylineObject(analysis, poly, fallbackLayerPath, $"{analysis.Label} cut {globalIndex}", SectionLayerKind.Cuts));
+                        outputCount++;
+                    }
+                }
+
+                outputCount += EmitProfileObjects(
+                    analysis,
+                    build,
+                    slice,
+                    cellPlane,
+                    horizontalScale: 1.0,
+                    verticalScale: verticalScale,
+                    baseElevation: slice.MinimumElevation,
+                    showBaseline: true,
+                    showElevationGrid: analysis.ShowElevationGrid,
+                    elevationGridInterval: analysis.ElevationGridInterval,
+                    showStationTicks: false,
+                    stationTickInterval: 0.0,
+                    showStationLabels: analysis.LabelStations,
+                    stationLabelInterval: 0.0,
+                    textHeight: analysis.TextHeight,
+                    fallbackLayerPath: fallbackLayerPath,
+                    sectionLabel: $"Sta {alignmentStation:F2}");
+            }
+        }
+
+        return new TerrainAnalysisSummary
+        {
+            AnalysisId = analysis.Id,
+            SampleSourceCount = sourceCount,
+            GeneratedOutputCount = outputCount
+        };
+    }
+
+    public static TerrainAnalysisSummary BuildLongitudinalSectionSummary(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        LongitudinalSectionAnalysisDefinition analysis,
+        TerrainBuildResult build,
+        Func<bool>? shouldCancel,
+        string? fallbackLayerPath = null)
+    {
+        var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
+        var insertionPlane = ResolveInsertionPlane(analysis, mesh);
+        double tolerance = snapshot.ModelAbsoluteTolerance;
+        double sampleInterval = Math.Max(analysis.SampleInterval, tolerance * 10.0);
+        double verticalScale = analysis.VerticalExaggeration > 0.0 ? analysis.VerticalExaggeration : 1.0;
+        int sourceCount = 0;
+        int outputCount = 0;
+        int sectionIndex = 0;
+
+        foreach (var entry in objects)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            if (entry.Geometry is not Curve curve)
+                continue;
+
+            sourceCount++;
+            var slice = TerrainSectionSlicer.SampleAlongCurve(mesh, curve, sampleInterval, tolerance);
+            if (slice.IsEmpty)
+                continue;
+
+            sectionIndex++;
+            Plane cellPlane = OffsetCellPlane(insertionPlane, sectionIndex - 1, columns: 1, cellWidth: 0.0, cellHeight: 0.0);
+
+            outputCount += EmitProfileObjects(
+                analysis,
+                build,
+                slice,
+                cellPlane,
+                horizontalScale: 1.0,
+                verticalScale: verticalScale,
+                baseElevation: slice.MinimumElevation,
+                showBaseline: analysis.ShowBaseline,
+                showElevationGrid: analysis.ShowElevationGrid,
+                elevationGridInterval: analysis.ElevationGridInterval,
+                showStationTicks: analysis.ShowStationLabels,
+                stationTickInterval: analysis.StationLabelInterval,
+                showStationLabels: analysis.ShowStationLabels,
+                stationLabelInterval: analysis.StationLabelInterval,
+                textHeight: analysis.TextHeight,
+                fallbackLayerPath: fallbackLayerPath,
+                sectionLabel: $"{analysis.Label} {sectionIndex}");
+        }
+
+        return new TerrainAnalysisSummary
+        {
+            AnalysisId = analysis.Id,
+            SampleSourceCount = sourceCount,
+            GeneratedOutputCount = outputCount
+        };
+    }
+
+    private static int EmitProfileObjects(
+        TerrainSectionAnalysisDefinitionBase analysis,
+        TerrainBuildResult build,
+        TerrainSectionResult slice,
+        Plane cellPlane,
+        double horizontalScale,
+        double verticalScale,
+        double baseElevation,
+        bool showBaseline,
+        bool showElevationGrid,
+        double elevationGridInterval,
+        bool showStationTicks,
+        double stationTickInterval,
+        bool showStationLabels,
+        double stationLabelInterval,
+        double textHeight,
+        string? fallbackLayerPath,
+        string sectionLabel)
+    {
+        if (!analysis.IsEnabled)
+            return 0;
+
+        int emitted = 0;
+
+        var profilePolylines = SectionLayoutHelper.LayoutFlatAll(slice, cellPlane, horizontalScale, verticalScale, baseElevation);
+        foreach (var poly in profilePolylines)
+        {
+            if (poly.Count < 2)
+                continue;
+            build.AuxiliaryObjects.Add(BuildPolylineObject(analysis, poly, fallbackLayerPath, sectionLabel, SectionLayerKind.Profile));
+            emitted++;
+        }
+
+        if (showBaseline && slice.TotalStationLength > 0.0)
+        {
+            var baseline = SectionLayoutHelper.BuildBaselineAxis(cellPlane, slice.TotalStationLength, horizontalScale, verticalScale, slice.MinimumElevation, baseElevation);
+            build.AuxiliaryObjects.Add(BuildLineObject(analysis, baseline, fallbackLayerPath, $"{sectionLabel} baseline", SectionLayerKind.Grid));
+            emitted++;
+        }
+
+        if (showElevationGrid && elevationGridInterval > 0.0 && slice.TotalStationLength > 0.0)
+        {
+            var grid = SectionLayoutHelper.BuildElevationGridLines(cellPlane, slice.TotalStationLength, slice.MinimumElevation, slice.MaximumElevation, baseElevation, elevationGridInterval, horizontalScale, verticalScale);
+            foreach (var line in grid)
+            {
+                build.AuxiliaryObjects.Add(BuildLineObject(analysis, line, fallbackLayerPath, $"{sectionLabel} grid", SectionLayerKind.Grid));
+                emitted++;
+            }
+        }
+
+        if (showStationTicks && stationTickInterval > 0.0 && slice.TotalStationLength > 0.0)
+        {
+            var stations = BuildStationList(slice.TotalStationLength, stationTickInterval);
+            double tickHalf = Math.Max(textHeight, 0.1);
+            var ticks = SectionLayoutHelper.BuildStationTicks(cellPlane, stations, tickHalf, horizontalScale, verticalScale, baseElevation, slice.MinimumElevation);
+            foreach (var line in ticks)
+            {
+                build.AuxiliaryObjects.Add(BuildLineObject(analysis, line, fallbackLayerPath, $"{sectionLabel} tick", SectionLayerKind.Ticks));
+                emitted++;
+            }
+        }
+
+        if (showStationLabels)
+        {
+            double labelInterval = stationLabelInterval > 0.0 ? stationLabelInterval : Math.Max(slice.TotalStationLength * 0.25, 1.0);
+            var stations = BuildStationList(slice.TotalStationLength, labelInterval);
+            double labelOffset = Math.Max(textHeight, 0.1) * 1.5;
+            foreach (double station in stations)
+            {
+                var label = SectionLayoutHelper.BuildLabel(
+                    cellPlane,
+                    station,
+                    slice.MinimumElevation - labelOffset,
+                    horizontalScale,
+                    verticalScale,
+                    baseElevation,
+                    station.ToString("F1"),
+                    Math.Max(textHeight, 0.05));
+                build.AuxiliaryObjects.Add(BuildTextObject(analysis, label, fallbackLayerPath, $"{sectionLabel} {station:F1}", SectionLayerKind.Labels));
+                emitted++;
+            }
+        }
+
+        return emitted;
+    }
+
+    private static GeneratedRhinoObject BuildPolylineObject(TerrainSectionAnalysisDefinitionBase analysis, Polyline polyline, string? fallbackLayerPath, string name, SectionLayerKind kind)
+    {
+        return new GeneratedRhinoObject
+        {
+            Geometry = new PolylineCurve(polyline),
+            Name = name,
+            AnalysisId = analysis.Id,
+            ColorArgb = analysis.ColorArgb,
+            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind),
+            PlotWeight = SectionOutputLayers.GetPlotWeight(kind)
+        };
+    }
+
+    private static GeneratedRhinoObject BuildLineObject(TerrainSectionAnalysisDefinitionBase analysis, Line line, string? fallbackLayerPath, string name, SectionLayerKind kind)
+    {
+        return new GeneratedRhinoObject
+        {
+            Geometry = new LineCurve(line),
+            Name = name,
+            AnalysisId = analysis.Id,
+            ColorArgb = analysis.ColorArgb,
+            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind),
+            PlotWeight = SectionOutputLayers.GetPlotWeight(kind)
+        };
+    }
+
+    private static GeneratedRhinoObject BuildTextObject(TerrainSectionAnalysisDefinitionBase analysis, TextEntity text, string? fallbackLayerPath, string name, SectionLayerKind kind)
+    {
+        return new GeneratedRhinoObject
+        {
+            Geometry = text,
+            Name = name,
+            AnalysisId = analysis.Id,
+            ColorArgb = analysis.ColorArgb,
+            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind)
+        };
+    }
+
+    private static Plane ResolveInsertionPlane(TerrainSectionAnalysisDefinitionBase analysis, RhinoMesh mesh)
+    {
+        if (analysis.HasInsertionPlane)
+        {
+            var origin = new Point3d(analysis.InsertionOriginX, analysis.InsertionOriginY, analysis.InsertionOriginZ);
+            var xAxis = new Vector3d(analysis.InsertionXAxisX, analysis.InsertionXAxisY, analysis.InsertionXAxisZ);
+            var yAxis = new Vector3d(analysis.InsertionYAxisX, analysis.InsertionYAxisY, analysis.InsertionYAxisZ);
+            if (xAxis.Unitize() && yAxis.Unitize())
+                return new Plane(origin, xAxis, yAxis);
+        }
+
+        var bounds = mesh.GetBoundingBox(true);
+        if (bounds.IsValid)
+        {
+            double offset = Math.Max((bounds.Max.Y - bounds.Min.Y) * 0.25, 1.0);
+            var origin = new Point3d(bounds.Min.X, bounds.Min.Y - offset, bounds.Min.Z);
+            return new Plane(origin, Vector3d.XAxis, Vector3d.YAxis);
+        }
+
+        return Plane.WorldXY;
+    }
+
+    private static Plane OffsetCellPlane(Plane basePlane, int cellIndex, int columns, double cellWidth, double cellHeight)
+    {
+        if (columns <= 0 || (cellWidth <= 0.0 && cellHeight <= 0.0))
+            return basePlane;
+
+        int col = cellIndex % columns;
+        int row = cellIndex / columns;
+        Point3d origin = basePlane.Origin
+            + (basePlane.XAxis * (col * cellWidth))
+            + (basePlane.YAxis * (-row * cellHeight));
+        return new Plane(origin, basePlane.XAxis, basePlane.YAxis);
+    }
+
+    private static IReadOnlyList<Point3d> ApproximateCurveAsPolyline(Curve curve, double tolerance)
+    {
+        if (curve.TryGetPolyline(out Polyline existing) && existing != null && existing.Count >= 2)
+            return existing.ToArray();
+
+        double length = curve.GetLength();
+        if (length <= tolerance)
+            return Array.Empty<Point3d>();
+
+        double spacing = Math.Max(length / 256.0, tolerance * 4.0);
+        var samples = new List<Point3d> { curve.PointAtStart };
+        if (curve.DivideByLength(spacing, true) is { Length: > 0 } parameters)
+        {
+            foreach (double parameter in parameters)
+            {
+                var point = curve.PointAt(parameter);
+                if (samples[samples.Count - 1].DistanceToSquared(point) > tolerance * tolerance)
+                    samples.Add(point);
+            }
+        }
+        var endPoint = curve.PointAtEnd;
+        if (samples[samples.Count - 1].DistanceToSquared(endPoint) > tolerance * tolerance)
+            samples.Add(endPoint);
+        return samples;
+    }
+
+    private static List<double> BuildStationList(double totalLength, double interval)
+    {
+        var stations = new List<double>();
+        if (totalLength <= 0.0 || interval <= 0.0)
+            return stations;
+
+        for (double s = 0.0; s <= totalLength + (interval * 0.5); s += interval)
+            stations.Add(Math.Min(s, totalLength));
+
+        if (stations.Count == 0 || Math.Abs(stations[stations.Count - 1] - totalLength) > 1e-6)
+            stations.Add(totalLength);
+
+        return stations;
+    }
+
     private static GeneratedRhinoObject CreateAnnotationObject(
         BlockAttributeAnalysisDefinition analysis,
         int index,

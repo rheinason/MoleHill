@@ -23,16 +23,20 @@ internal static class RetainingWallPlannerCaseTestExporter
             if (curves.Count == 0)
                 continue;
 
-            double terrainTolerance = Math.Max(snapshot.ModelAbsoluteTolerance, snapshot.Terrain.GlobalTolerance);
-            double maxWallWidth = Math.Max(terrainTolerance, modifier.MaxWallWidth);
-            if (!TryConvertCurves(curves, Math.Max(terrainTolerance, 1e-9), out List<Point3d[]> polylines))
+            TerrainTolerancePolicy.Profile toleranceProfile = TerrainTolerancePolicy.Create(
+                snapshot.Terrain.GlobalTolerance,
+                snapshot.ModelAbsoluteTolerance,
+                snapshot.ModelUnitSystem);
+            double wallTolerance = toleranceProfile.RetainingWallTolerance(modifier.MaxWallWidth);
+            double maxWallWidth = Math.Max(wallTolerance, modifier.MaxWallWidth);
+            if (!TryConvertCurves(curves, Math.Max(wallTolerance, 1e-9), out List<Point3d[]> polylines))
                 continue;
 
             string label = string.IsNullOrWhiteSpace(modifier.Label) ? "RetainingWall" : modifier.Label;
             string caseName = $"Terrain_{SanitizeIdentifier(snapshot.Terrain.Name)}_{SanitizeIdentifier(label)}_{index.ToString(CultureInfo.InvariantCulture)}";
             exports.Add(new RetainingWallPlannerCaseTestExport(
                 $"{caseName}_PlannerCopiedCase.cs",
-                GenerateSource(caseName, polylines, maxWallWidth, terrainTolerance)));
+                GenerateSource(caseName, polylines, maxWallWidth, wallTolerance)));
             index++;
         }
 

@@ -118,7 +118,8 @@ internal sealed class TerrainCoreCaseRecorder
                 pad.PlaneYCoeff,
                 pad.PlaneConstant,
                 pad.SlopeAngleDeg,
-                pad.MaxDistance))
+                pad.MaxDistance,
+                stitchApronDistance: pad.StitchApronDistance))
             .ToArray();
     }
 

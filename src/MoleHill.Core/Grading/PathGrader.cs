@@ -136,9 +136,10 @@ public static class PathGrader
         double[] vertices, int vertexCount,
         int[] faces, int faceCount,
         PathDefinition[] paths,
-        out string? errorMessage)
+        out string? errorMessage,
+        double modelTolerance = GradingTolerances.DefaultModelTolerance)
     {
-        return Grade(vertices, vertexCount, faces, faceCount, paths, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out errorMessage);
+        return Grade(vertices, vertexCount, faces, faceCount, paths, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out errorMessage, modelTolerance);
     }
 
     public static GradingResult? Grade(
@@ -146,7 +147,8 @@ public static class PathGrader
         int[] faces, int faceCount,
         PathDefinition[] paths,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
-        out string? errorMessage)
+        out string? errorMessage,
+        double modelTolerance = GradingTolerances.DefaultModelTolerance)
     {
         errorMessage = null;
 
@@ -171,7 +173,7 @@ public static class PathGrader
         }
 
         // Grade Path must own and rebuild topology. Do not silently fall back to Z-only grading.
-        var result = GradeWithEdges(vertices, vertexCount, faces, faceCount, paths, hardConstraints, out string? topologyError, out _);
+        var result = GradeWithEdges(vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out string? topologyError, out _);
         if (result != null)
         {
             errorMessage = null;
@@ -417,8 +419,7 @@ public static class PathGrader
         bool includeShoulderConstraints = true,
         bool resamplePrimaryRails = false)
     {
-        const double minimumTolerance = 1e-3;
-        double dedupTol = Math.Max(tolerance, minimumTolerance);
+        double dedupTol = GradingTolerances.ModelToleranceOrDefault(tolerance);
         bool hasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
         var constraints = new List<SurfaceRemesher.ConstraintPolyline>(paths.Length * 5);
         double suggestedEdgeLength = double.MaxValue;
@@ -427,7 +428,7 @@ public static class PathGrader
             vertexCount,
             faces,
             faceCount,
-            Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance));
+            Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)));
         var faceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
         PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);
         var barrierScratch = new SpatialHashGrid2D.QueryScratch(Math.Max(preparedBarriers.Segments.Length, 1));
@@ -617,6 +618,7 @@ public static class PathGrader
         int[] faces, int faceCount,
         PathDefinition[] paths,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        double modelTolerance,
         out string? errorMessage,
         out bool fatalError)
     {
@@ -631,21 +633,25 @@ public static class PathGrader
         // Validate that no road center/edge segment crosses a hard constraint.
         if (roadBarriers.Segments.Length > 0)
         {
+            double endpointTouchTolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
             foreach (var path in paths)
             {
                 double halfWidth = path.Width * 0.5;
                 int vc = path.VertexCount;
                 for (int i = 0; i < vc - 1; i++)
                 {
+                    double endpointCapTolerance = Math.Max(endpointTouchTolerance, halfWidth);
+                    double startTouchTolerance = i == 0 ? endpointCapTolerance : endpointTouchTolerance;
+                    double endTouchTolerance = i == vc - 2 ? endpointCapTolerance : endpointTouchTolerance;
                     double cx0 = path.XyVertices[i * 2],     cy0 = path.XyVertices[i * 2 + 1];
                     double cx1 = path.XyVertices[(i + 1) * 2], cy1 = path.XyVertices[(i + 1) * 2 + 1];
                     ComputeDirection(path.XyVertices, vc, i, out double dx, out double dy);
                     double roadPx = -dy * halfWidth, roadPy = dx * halfWidth;
 
                     // Check center, left edge, right edge
-                    if (GradingBarriers.IsCrossedByBarrier(roadBarriers, cx0, cy0, cx1, cy1, barrierScratch, barrierCandidates) ||
-                        GradingBarriers.IsCrossedByBarrier(roadBarriers, cx0 + roadPx, cy0 + roadPy, cx1 + roadPx, cy1 + roadPy, barrierScratch, barrierCandidates) ||
-                        GradingBarriers.IsCrossedByBarrier(roadBarriers, cx0 - roadPx, cy0 - roadPy, cx1 - roadPx, cy1 - roadPy, barrierScratch, barrierCandidates))
+                    if (GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, cx0, cy0, cx1, cy1, startTouchTolerance, endTouchTolerance, barrierScratch, barrierCandidates) ||
+                        GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, cx0 + roadPx, cy0 + roadPy, cx1 + roadPx, cy1 + roadPy, startTouchTolerance, endTouchTolerance, barrierScratch, barrierCandidates) ||
+                        GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, cx0 - roadPx, cy0 - roadPy, cx1 - roadPx, cy1 - roadPy, startTouchTolerance, endTouchTolerance, barrierScratch, barrierCandidates))
                     {
                         errorMessage = "Road edge crosses a hard constraint. Redesign the path or convert the conflicting constraint to a contour.";
                         fatalError = true;
@@ -661,6 +667,7 @@ public static class PathGrader
             faceCount,
             paths,
             hardConstraints,
+            modelTolerance,
             out errorMessage);
     }
 
@@ -671,9 +678,10 @@ public static class PathGrader
         int faceCount,
         PathDefinition[] paths,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        double modelTolerance,
         out string? errorMessage)
     {
-        const double tolerance = 1e-3;
+        double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
         var diagnostics = new List<string>(1);
         var outputPolylines = new List<OutputPolyline>(paths.Length * 2);
         ConstraintSet pathConstraintSet = BuildConstraintSetInternal(
@@ -3751,6 +3759,7 @@ public static class PathGrader
                         px,
                         py,
                         origZ[i],
+                        boundaryTolerance,
                         out bool insideRoad,
                         out double candidateZ,
                         out double weight))
@@ -3862,6 +3871,7 @@ public static class PathGrader
                 slopeRatio,
                 maxSearchDistance,
                 path.Width,
+                boundaryTolerance,
                 allowCapFallback,
                 out PathSectionResolutionStatus leftStatus,
                 out double leftShoulderX,
@@ -3889,6 +3899,7 @@ public static class PathGrader
                 slopeRatio,
                 maxSearchDistance,
                 path.Width,
+                boundaryTolerance,
                 allowCapFallback,
                 out PathSectionResolutionStatus rightStatus,
                 out double rightShoulderX,
@@ -3917,6 +3928,7 @@ public static class PathGrader
         double px,
         double py,
         double originalZ,
+        double tolerance,
         out bool insideRoad,
         out double candidateZ,
         out double weight)
@@ -3970,7 +3982,7 @@ public static class PathGrader
         double normalizedDistance = Math.Clamp(distFromEdge / sectionReach, 0.0, 1.0);
         candidateZ = closest.PathZ + ((shoulderZ - closest.PathZ) * normalizedDistance);
         candidateZ = ClampBetween(candidateZ, closest.PathZ, shoulderZ);
-        if (Math.Abs(candidateZ - originalZ) <= GradingTolerances.VertexAdjustmentZTolerance)
+        if (Math.Abs(candidateZ - originalZ) <= GradingTolerances.VertexAdjustmentZTolerance(tolerance))
             return false;
 
         weight = ComputeShoulderBlendWeight(distFromEdge, sectionReach);
@@ -4203,6 +4215,7 @@ public static class PathGrader
         double slopeRatio,
         double maxSearchDistance,
         double width,
+        double tolerance,
         bool allowCapFallback,
         out PathSectionResolutionStatus status,
         out double resolvedX,
@@ -4251,6 +4264,7 @@ public static class PathGrader
             dirX,
             dirY,
             clippedReach,
+            tolerance,
             out double branchSign);
         if (branchStatus == PathSectionBranchStatus.NoGradeNeeded)
         {
@@ -4321,6 +4335,7 @@ public static class PathGrader
         double dirX,
         double dirY,
         double maxReach,
+        double tolerance,
         out double branchSign)
     {
         branchSign = 0.0;
@@ -4360,14 +4375,14 @@ public static class PathGrader
                 dominantDelta = terrainDelta;
             }
 
-            if (terrainDelta > GradingTolerances.AtGradeZTolerance)
+            if (terrainDelta > GradingTolerances.AtGradeZTolerance(tolerance))
             {
                 sawPositive = true;
                 if (Math.Abs(firstSignificantDelta) <= 1e-12)
                     firstSignificantDelta = terrainDelta;
             }
 
-            if (terrainDelta < -GradingTolerances.AtGradeZTolerance)
+            if (terrainDelta < -GradingTolerances.AtGradeZTolerance(tolerance))
             {
                 sawNegative = true;
                 if (Math.Abs(firstSignificantDelta) <= 1e-12)
@@ -4385,7 +4400,7 @@ public static class PathGrader
             return Math.Abs(branchSign) > 0.0 ? PathSectionBranchStatus.Resolved : PathSectionBranchStatus.Unresolved;
         }
 
-        return maxAbsDelta <= GradingTolerances.AtGradeZTolerance
+        return maxAbsDelta <= GradingTolerances.AtGradeZTolerance(tolerance)
             ? PathSectionBranchStatus.NoGradeNeeded
             : PathSectionBranchStatus.Unresolved;
     }

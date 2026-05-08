@@ -12,6 +12,8 @@ namespace MoleHill.Core.Grading;
 /// </summary>
 public static class PadGrader
 {
+    public const double DefaultStitchApronDistance = 0.0;
+
     private readonly record struct PadInfluenceBounds(
         PadBoundary Pad,
         double MinX,
@@ -43,6 +45,13 @@ public static class PadGrader
         double InfluenceMinY,
         double InfluenceMaxY);
 
+    private readonly record struct ProtectedPadRegion(
+        int PadIndex,
+        PreparedPadSections Prepared,
+        double[] DaylightLoopXy,
+        double[] StitchLoopXy,
+        Bounds2D Bounds);
+
     public sealed class ConstraintSet
     {
         public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
@@ -63,9 +72,11 @@ public static class PadGrader
         public double SlopeAngleDeg { get; }
         public double MaxDistance { get; }
         public int CornerFanSegments { get; }
+        public double StitchApronDistance { get; }
 
         public PadBoundary(double[] xyVertices, int vertexCount, double targetZ,
-            double slopeAngleDeg = 33.0, double maxDistance = 0.0, int cornerFanSegments = 0)
+            double slopeAngleDeg = 33.0, double maxDistance = 0.0, int cornerFanSegments = 0,
+            double stitchApronDistance = DefaultStitchApronDistance)
         {
             XyVertices = (double[])xyVertices.Clone();
             VertexCount = vertexCount;
@@ -76,6 +87,7 @@ public static class PadGrader
             SlopeAngleDeg = Math.Max(0.1, Math.Min(89.9, slopeAngleDeg));
             MaxDistance = maxDistance;
             CornerFanSegments = Math.Max(0, cornerFanSegments);
+            StitchApronDistance = Math.Max(0.0, stitchApronDistance);
         }
 
         public static PadBoundary CreatePlanar(
@@ -86,7 +98,8 @@ public static class PadGrader
             double planeConstant,
             double slopeAngleDeg = 33.0,
             double maxDistance = 0.0,
-            int cornerFanSegments = 0)
+            int cornerFanSegments = 0,
+            double stitchApronDistance = DefaultStitchApronDistance)
         {
             return new PadBoundary(
                 ExtractXyVertices(boundaryVertices, vertexCount),
@@ -97,7 +110,8 @@ public static class PadGrader
                 planeConstant,
                 slopeAngleDeg,
                 maxDistance,
-                cornerFanSegments);
+                cornerFanSegments,
+                stitchApronDistance);
         }
 
         public double EvaluateZ(double x, double y) => PlaneXCoeff * x + PlaneYCoeff * y + PlaneConstant;
@@ -111,7 +125,8 @@ public static class PadGrader
             double planeConstant,
             double slopeAngleDeg,
             double maxDistance,
-            int cornerFanSegments = 0)
+            int cornerFanSegments = 0,
+            double stitchApronDistance = DefaultStitchApronDistance)
         {
             XyVertices = (double[])xyVertices.Clone();
             BoundaryVertices = (double[])boundaryVertices.Clone();
@@ -122,6 +137,7 @@ public static class PadGrader
             SlopeAngleDeg = Math.Max(0.1, Math.Min(89.9, slopeAngleDeg));
             MaxDistance = maxDistance;
             CornerFanSegments = Math.Max(0, cornerFanSegments);
+            StitchApronDistance = Math.Max(0.0, stitchApronDistance);
         }
 
         private static double[] BuildBoundaryVertices(double[] xyVertices, int vertexCount, double targetZ)
@@ -181,9 +197,34 @@ public static class PadGrader
         int[] faces, int faceCount,
         PadBoundary[] pads,
         LockCurve[]? lockCurves,
-        out string? errorMessage)
+        out string? errorMessage,
+        double modelTolerance = GradingTolerances.DefaultModelTolerance)
+    {
+        return Grade(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            pads,
+            lockCurves,
+            out errorMessage,
+            out _,
+            modelTolerance,
+            terrainDetailSize: 0.0);
+    }
+
+    public static GradingResult? Grade(
+        double[] vertices, int vertexCount,
+        int[] faces, int faceCount,
+        PadBoundary[] pads,
+        LockCurve[]? lockCurves,
+        out string? errorMessage,
+        out IReadOnlyList<OutputPolyline> failureOutputPolylines,
+        double modelTolerance = GradingTolerances.DefaultModelTolerance,
+        double terrainDetailSize = 0.0)
     {
         errorMessage = null;
+        failureOutputPolylines = Array.Empty<OutputPolyline>();
 
         if (!ValidatePads(pads, out errorMessage))
             return null;
@@ -197,11 +238,55 @@ public static class PadGrader
             faceCount,
             pads,
             lockCurves,
+            modelTolerance,
+            terrainDetailSize,
+            out failureOutputPolylines,
             out errorMessage);
+
+        if (stitched == null && ShouldRetryProtectedPadsInReversePriority(pads, errorMessage))
+        {
+            IReadOnlyList<OutputPolyline> primaryFailurePolylines = failureOutputPolylines;
+            string? primaryError = errorMessage;
+            PadBoundary[] reversedPads = pads.AsEnumerable().Reverse().ToArray();
+            GradingResult? reversed = GradeWithStitchedPatches(
+                vertices,
+                vertexCount,
+                faces,
+                faceCount,
+                reversedPads,
+                lockCurves,
+                modelTolerance,
+                terrainDetailSize,
+                out IReadOnlyList<OutputPolyline> reversedFailurePolylines,
+                out string? reversedError);
+
+            if (reversed != null)
+                return reversed;
+
+            failureOutputPolylines = reversedFailurePolylines.Count > 0
+                ? reversedFailurePolylines
+                : primaryFailurePolylines;
+            errorMessage = primaryError ?? reversedError;
+        }
+
         if (stitched == null && string.IsNullOrWhiteSpace(errorMessage))
             errorMessage = "Grade Pad local patch rebuild failed.";
 
         return stitched;
+    }
+
+    private static bool ShouldRetryProtectedPadsInReversePriority(PadBoundary[] pads, string? errorMessage)
+    {
+        if (pads.Length < 2 ||
+            !pads.Any(static pad => pad.StitchApronDistance > GradingTolerances.DefaultModelTolerance * 4.0) ||
+            string.IsNullOrWhiteSpace(errorMessage))
+        {
+            return false;
+        }
+
+        return errorMessage.Contains("interacts with prior pad", StringComparison.OrdinalIgnoreCase) ||
+               errorMessage.Contains("fragment the outside seam", StringComparison.OrdinalIgnoreCase) ||
+               errorMessage.Contains("coupled remesh could not enforce protected pad constraints", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class PatchMeshResult
@@ -253,10 +338,15 @@ public static class PadGrader
         int faceCount,
         PadBoundary[] pads,
         LockCurve[]? lockCurves,
+        double modelTolerance,
+        double terrainDetailSize,
+        out IReadOnlyList<OutputPolyline> failureOutputPolylines,
         out string? errorMessage)
     {
         errorMessage = null;
-        const double dedupTol = 1e-3;
+        failureOutputPolylines = Array.Empty<OutputPolyline>();
+        double dedupTol = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
+        double minStitchSegmentLength = ComputeMinimumStitchSegmentLength(dedupTol, terrainDetailSize);
 
         double[] currentVertices = (double[])vertices.Clone();
         int currentVertexCount = vertexCount;
@@ -270,8 +360,66 @@ public static class PadGrader
             : PreparedBarriers.Empty;
         var originalTerrain = new TerrainSpatialIndex(vertices, vertexCount, faces, faceCount);
 
+        bool[] coupledPadSolved = new bool[pads.Length];
+        if (TryBuildInteractingProtectedPadRegions(
+                pads,
+                originalTerrain,
+                barriers,
+                dedupTol,
+                minStitchSegmentLength,
+                out ProtectedPadRegion[] interactingRegions))
+        {
+            PadBoundary[] coupledPads = interactingRegions
+                .Select(static region => region.Prepared.Pad)
+                .ToArray();
+
+            if (TryGradeCoupledProtectedPadsByWholeMeshRemesh(
+                    vertices,
+                    vertexCount,
+                    faces,
+                    faceCount,
+                    coupledPads,
+                    lockCurves,
+                    barriers,
+                    dedupTol,
+                    terrainDetailSize,
+                    interactingRegions,
+                    out GradingResult? coupledResult,
+                    out string? coupledFailure))
+            {
+                if (coupledResult != null)
+                {
+                    if (interactingRegions.Length == pads.Length)
+                        return coupledResult;
+
+                    currentVertices = coupledResult.Vertices;
+                    currentVertexCount = coupledResult.VertexCount;
+                    currentFaces = coupledResult.Faces;
+                    currentFaceCount = coupledResult.FaceCount;
+                    diagnostics.AddRange(coupledResult.Diagnostics);
+                    outputPolylines.AddRange(coupledResult.OutputPolylines);
+                    foreach (ProtectedPadRegion region in interactingRegions)
+                    {
+                        coupledPadSolved[region.PadIndex] = true;
+                        patchSummaries.Add(BuildPadPatchSummary(region.Prepared, region.StitchLoopXy, region.PadIndex, dedupTol));
+                    }
+                }
+                else
+                {
+                    errorMessage = coupledFailure ?? "Grade Pad coupled protected patch failed.";
+                    failureOutputPolylines = interactingRegions
+                        .SelectMany(region => BuildProtectedPadFailurePolylines(region.Prepared, region.DaylightLoopXy, region.StitchLoopXy, originalTerrain.FaceGrid))
+                        .ToArray();
+                    return null;
+                }
+            }
+        }
+
         for (int padIndex = 0; padIndex < pads.Length; padIndex++)
         {
+            if (coupledPadSolved[padIndex])
+                continue;
+
             double[] padStartVertices = currentVertices;
             int padStartVertexCount = currentVertexCount;
             int[] padStartFaces = currentFaces;
@@ -289,18 +437,16 @@ public static class PadGrader
                 hasTerrainBoundary,
                 terrainBoundaryLoop,
                 terrainBoundaryVertexCount,
-                dedupTol);
+                dedupTol,
+                keepShoulderOnBatterPlane: pads[padIndex].StitchApronDistance > dedupTol * 4.0);
 
-            if (!TryBuildShoulderLoopFromSections(
+            if (!TryBuildOrderedShoulderLoopFromSections(
                     prepared.BoundaryLoopXy,
                     prepared.BoundaryVertexCount,
                     prepared.ShoulderXy,
-                    hasTerrainBoundary ? terrainBoundaryLoop : null,
-                    hasTerrainBoundary ? terrainBoundaryVertexCount : 0,
                     dedupTol,
                     out double[] seamLoopXy,
-                    out string? seamFailure,
-                    prepared.Pad.CornerFanSegments))
+                    out string? seamFailure))
             {
                 if (!HasMeaningfulPadShoulderReach(prepared, dedupTol * 16.0))
                 {
@@ -315,7 +461,7 @@ public static class PadGrader
             }
 
             seamLoopXy = AlignClosedLoopToReference(seamLoopXy, prepared.ShoulderXy, dedupTol);
-            seamLoopXy = SimplifyClosedLoopByShortEdges(seamLoopXy, Math.Max(dedupTol * 4.0, 1e-6));
+            seamLoopXy = SimplifyClosedLoopByShortEdges(seamLoopXy, Math.Max(minStitchSegmentLength, 1e-6));
             if ((seamLoopXy.Length / 2) < 3)
             {
                 errorMessage = "Grade Pad simplified daylight seam collapsed below 3 vertices.";
@@ -325,6 +471,36 @@ public static class PadGrader
             bool useTopologyBand = ShouldUseTopologyBand(prepared.ShoulderXy, seamLoopXy, dedupTol);
             if (!useTopologyBand)
                 seamLoopXy = AlignClosedLoopToReference(prepared.ShoulderXy, seamLoopXy, dedupTol);
+
+            double[] daylightLoopXy = (double[])seamLoopXy.Clone();
+            bool daylightCoincidesWithPad = LoopsCoincide(daylightLoopXy, prepared.BoundaryLoopXy, dedupTol * 4.0);
+            string? stitchSkipReason = null;
+            if (!daylightCoincidesWithPad &&
+                (TryBuildProtectedStitchLoopFromSections(
+                     prepared.BoundaryLoopXy,
+                     daylightLoopXy,
+                     prepared.Pad.StitchApronDistance,
+                     hasTerrainBoundary ? terrainBoundaryLoop : null,
+                     hasTerrainBoundary ? terrainBoundaryVertexCount : 0,
+                     dedupTol,
+                     out double[] protectedStitchLoopXy,
+                     out stitchSkipReason) ||
+                 TryBuildProtectedStitchLoop(
+                     daylightLoopXy,
+                     prepared.Pad.StitchApronDistance,
+                     hasTerrainBoundary ? terrainBoundaryLoop : null,
+                     hasTerrainBoundary ? terrainBoundaryVertexCount : 0,
+                     dedupTol,
+                     out protectedStitchLoopXy,
+                     out stitchSkipReason)))
+            {
+                seamLoopXy = AlignClosedLoopToReference(protectedStitchLoopXy, daylightLoopXy, dedupTol);
+                diagnostics.Add($"Grade Pad[{padIndex}] protected stitch apron: daylight->{prepared.Pad.StitchApronDistance:F6} with {seamLoopXy.Length / 2} stitch vertices.");
+            }
+            else if (!daylightCoincidesWithPad && !string.IsNullOrWhiteSpace(stitchSkipReason))
+            {
+                diagnostics.Add(stitchSkipReason!);
+            }
 
             bool seamCoincidesWithPad = LoopsCoincide(seamLoopXy, prepared.BoundaryLoopXy, dedupTol * 4.0);
             MeshAreaSplitter.AreaBoundary[] splitBoundaries = seamCoincidesWithPad
@@ -360,9 +536,9 @@ public static class PadGrader
                 return null;
             }
 
-            bool hasOutsideMesh = TryExtractAreaMesh(
+            bool hasOutsideMesh = TryExtractAreaMeshes(
                 split,
-                -1,
+                static areaIndex => areaIndex < 0,
                 out double[] outsideVertices,
                 out int outsideVertexCount,
                 out int[] outsideFaces,
@@ -371,14 +547,20 @@ public static class PadGrader
             {
                 diagnostics.Add($"Grade Pad[{padIndex}] daylight seam reached or crossed the terrain boundary; grading was clipped to the available terrain and no outside stitch mesh was available.");
             }
-            else if (TryBuildSeamLoopFromOutsideMesh(outsideVertices, outsideFaces, outsideFaceCount, seamLoopXy, dedupTol, out double[] terrainStitchLoopXy))
+            else if (TryBuildSeamLoopFromOutsideMesh(outsideVertices, outsideFaces, outsideFaceCount, seamLoopXy, dedupTol, out double[] terrainStitchLoopXy) &&
+                     LoopsCoincide(terrainStitchLoopXy, seamLoopXy, dedupTol * 8.0))
             {
                 seamLoopXy = AlignClosedLoopToReference(terrainStitchLoopXy, seamLoopXy, dedupTol);
+                if (prepared.Pad.StitchApronDistance <= dedupTol * 4.0)
+                    daylightLoopXy = (double[])seamLoopXy.Clone();
+
+                seamCoincidesWithPad = LoopsCoincide(seamLoopXy, prepared.BoundaryLoopXy, dedupTol * 4.0);
                 diagnostics.Add($"Grade Pad[{padIndex}] using terrain-side stitch loop with {seamLoopXy.Length / 2} vertices.");
             }
 
             PatchMeshResult? patch = null;
             string? patchError = null;
+            bool allowSplitLocalFallback = prepared.Pad.StitchApronDistance <= dedupTol * 4.0;
             if (hasOutsideMesh && !seamCoincidesWithPad)
             {
                 patch = TryBuildPadPatchMesh(
@@ -388,11 +570,23 @@ public static class PadGrader
                     terrainBoundaryLoop,
                     terrainBoundaryVertexCount,
                     prepared,
+                    daylightLoopXy,
                     seamLoopXy,
                     out patchError);
             }
             if (patch == null)
             {
+                if (!allowSplitLocalFallback)
+                {
+                    diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
+                    failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
+                    errorMessage = BuildProtectedPadFailureMessage(
+                        patchError ??
+                        $"Grade Pad[{padIndex}] explicit protected patch could not be built; split-local fallback is disabled because it can produce invalid shoulder topology.",
+                        diagnostics);
+                    return null;
+                }
+
                 if (patchError != null)
                     diagnostics.Add(patchError);
                 diagnostics.Add($"Grade Pad[{padIndex}] using split local patch.");
@@ -410,6 +604,16 @@ public static class PadGrader
 
             if (!TryBuildBoundaryLoop(patch.Vertices, patch.Faces, patch.FaceCount, out double[] patchBoundaryLoopXy, out _))
             {
+                if (!allowSplitLocalFallback)
+                {
+                    diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
+                    failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
+                    errorMessage = BuildProtectedPadFailureMessage(
+                        $"Grade Pad[{padIndex}] explicit patch did not produce a single closed stitch boundary; split-local fallback is disabled because it can produce invalid shoulder topology.",
+                        diagnostics);
+                    return null;
+                }
+
                 diagnostics.Add($"Grade Pad[{padIndex}] patch did not produce a single closed stitch boundary; using split local patch.");
                 patch = BuildSplitLocalPadPatchMesh(
                     currentFaceGrid,
@@ -441,6 +645,16 @@ public static class PadGrader
                     dedupTol);
                 if (!seamGraph.PatchHasFullSegmentMatch)
                 {
+                    if (!allowSplitLocalFallback)
+                    {
+                        diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
+                        failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
+                        errorMessage = BuildProtectedPadFailureMessage(
+                            $"Grade Pad[{padIndex}] explicit patch seam integrity check failed (patch={seamGraph.PatchMatchedSegments}/{seamGraph.SeamVertexCount}, outside={seamGraph.TerrainMatchedSegments}/{seamGraph.SeamVertexCount}, patch-near={seamGraph.PatchBoundarySegmentsNearSeam}, outside-near={seamGraph.TerrainBoundarySegmentsNearSeam}); split-local fallback is disabled because it can produce invalid shoulder topology.",
+                            diagnostics);
+                        return null;
+                    }
+
                     diagnostics.Add(
                         $"Grade Pad[{padIndex}] patch seam integrity check failed (patch={seamGraph.PatchMatchedSegments}/{seamGraph.SeamVertexCount}); using split local patch.");
                     patch = BuildSplitLocalPadPatchMesh(
@@ -487,7 +701,7 @@ public static class PadGrader
             {
                 diagnostics.AddRange(BuildPadStitchDiagnostics(
                     padIndex,
-                    prepared.ShoulderXy,
+                    daylightLoopXy,
                     seamLoopXy,
                     patchBoundaryLoopXy,
                     patch.Vertices,
@@ -498,46 +712,114 @@ public static class PadGrader
                     outsideFaceCount,
                     dedupTol));
 
-                MergeMeshes(
+                bool merged = TryMergePatchWithOutsideTerrain(
                     outsideVertices,
                     outsideVertexCount,
                     outsideFaces,
                     outsideFaceCount,
-                    patch.Vertices,
-                    patch.VertexCount,
-                    patch.Faces,
-                    patch.FaceCount,
+                    patch,
+                    seamLoopXy,
+                    hasTerrainBoundary ? terrainBoundaryLoop : null,
                     dedupTol,
+                    rejectInteriorSeamBoundaryEdges: !allowSplitLocalFallback,
                     out currentVertices,
                     out currentVertexCount,
                     out currentFaces,
-                    out currentFaceCount);
-
-                int mergedBoundaryEdgesNearSeam = CountBoundaryEdgesNearLoop(currentVertices, currentFaces, currentFaceCount, seamLoopXy, dedupTol * 4.0);
-                if (mergedBoundaryEdgesNearSeam > 0)
+                    out currentFaceCount,
+                    out string? mergeFailure);
+                if (!merged)
                 {
-                    diagnostics.Add(
-                        $"Grade Pad[{padIndex}] stitched merge rejected: {mergedBoundaryEdgesNearSeam} seam-adjacent naked edge(s); pad skipped and previous topology kept.");
-                    currentVertices = padStartVertices;
-                    currentVertexCount = padStartVertexCount;
-                    currentFaces = padStartFaces;
-                    currentFaceCount = padStartFaceCount;
-                    continue;
-                }
+                    if (!allowSplitLocalFallback)
+                    {
+                        var singleRegion = new ProtectedPadRegion(
+                            padIndex,
+                            prepared,
+                            daylightLoopXy,
+                            seamLoopXy,
+                            InflateBounds(GradingPatch.ComputeBounds(seamLoopXy), minStitchSegmentLength));
+                        if (TryGradeCoupledProtectedPadsByWholeMeshRemesh(
+                                padStartVertices,
+                                padStartVertexCount,
+                                padStartFaces,
+                                padStartFaceCount,
+                                [pads[padIndex]],
+                                lockCurves,
+                                barriers,
+                                dedupTol,
+                                terrainDetailSize,
+                                [singleRegion],
+                                out GradingResult? remeshResult,
+                                out string? remeshFailure))
+                        {
+                            if (remeshResult != null)
+                            {
+                                diagnostics.Add($"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; retrying protected whole-mesh remesh.");
+                                diagnostics.AddRange(remeshResult.Diagnostics);
+                                outputPolylines.AddRange(remeshResult.OutputPolylines);
+                                patchSummaries.Add(BuildPadPatchSummary(prepared, seamLoopXy, padIndex, dedupTol));
+                                currentVertices = remeshResult.Vertices;
+                                currentVertexCount = remeshResult.VertexCount;
+                                currentFaces = remeshResult.Faces;
+                                currentFaceCount = remeshResult.FaceCount;
+                                continue;
+                            }
 
-                if (hasTerrainBoundary)
-                {
-                    int interiorNakedEdges = CountBoundaryEdgesAwayFromLoop(currentVertices, currentFaces, currentFaceCount, terrainBoundaryLoop, dedupTol * 8.0);
-                    if (interiorNakedEdges > 0)
+                            diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
+                            failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
+                            errorMessage = BuildProtectedPadFailureMessage(
+                                remeshFailure ??
+                                $"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; protected whole-mesh remesh failed.",
+                                diagnostics);
+                            return null;
+                        }
+
+                        diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
+                        failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
+                        errorMessage = BuildProtectedPadFailureMessage(
+                            $"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; split-local fallback is disabled because it can produce invalid shoulder topology.",
+                            diagnostics);
+                        return null;
+                    }
+
+                    diagnostics.Add($"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; retrying split local patch.");
+                    PatchMeshResult fallbackPatch = BuildSplitLocalPadPatchMesh(
+                        currentFaceGrid,
+                        barriers,
+                        prepared,
+                        seamLoopXy,
+                        localVertices,
+                        localVertexCount,
+                        localFaces,
+                        localFaceCount,
+                        dedupTol);
+
+                    if (!TryMergePatchWithOutsideTerrain(
+                            outsideVertices,
+                            outsideVertexCount,
+                            outsideFaces,
+                            outsideFaceCount,
+                            fallbackPatch,
+                            seamLoopXy,
+                            hasTerrainBoundary ? terrainBoundaryLoop : null,
+                            dedupTol,
+                            rejectInteriorSeamBoundaryEdges: !allowSplitLocalFallback,
+                            out currentVertices,
+                            out currentVertexCount,
+                            out currentFaces,
+                            out currentFaceCount,
+                            out mergeFailure))
                     {
                         diagnostics.Add(
-                            $"Grade Pad[{padIndex}] stitched merge rejected: {interiorNakedEdges} interior naked edge(s); pad skipped and previous topology kept.");
+                            $"Grade Pad[{padIndex}] stitched merge rejected: {mergeFailure}; pad skipped and previous topology kept.");
                         currentVertices = padStartVertices;
                         currentVertexCount = padStartVertexCount;
                         currentFaces = padStartFaces;
                         currentFaceCount = padStartFaceCount;
                         continue;
                     }
+
+                    patch = fallbackPatch;
+                    diagnostics.Add($"Grade Pad[{padIndex}] using split local patch after protected stitch merge retry.");
                 }
 
                 diagnostics.Add(
@@ -576,6 +858,936 @@ public static class PadGrader
             patchSummaries);
     }
 
+    private static string BuildProtectedPadFailureMessage(string primaryMessage, IReadOnlyList<string> diagnostics)
+    {
+        if (diagnostics.Count == 0)
+            return primaryMessage;
+
+        return primaryMessage + Environment.NewLine +
+            "Grade Pad diagnostics:" + Environment.NewLine +
+            string.Join(Environment.NewLine, diagnostics);
+    }
+
+    private static IReadOnlyList<OutputPolyline> BuildProtectedPadFailurePolylines(
+        PreparedPadSections prepared,
+        double[] daylightLoopXy,
+        double[] seamLoopXy,
+        FaceGrid terrainFaceGrid)
+    {
+        var polylines = new List<OutputPolyline>(3)
+        {
+            BuildPadBoundaryPolyline(prepared)
+        };
+
+        AddDiagnosticLoopPolyline(polylines, daylightLoopXy, terrainFaceGrid.InterpolateZ);
+        if (!LoopsCoincide(daylightLoopXy, seamLoopXy, GradingTolerances.DefaultModelTolerance * 8.0))
+            AddDiagnosticLoopPolyline(polylines, seamLoopXy, terrainFaceGrid.InterpolateZ);
+
+        return polylines;
+    }
+
+    private static void AddDiagnosticLoopPolyline(
+        List<OutputPolyline> polylines,
+        double[] loopXy,
+        Func<double, double, double> evaluateZ)
+    {
+        int vertexCount = loopXy.Length / 2;
+        if (vertexCount < 3)
+            return;
+
+        var xyz = new double[vertexCount * 3];
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double x = loopXy[i * 2];
+            double y = loopXy[i * 2 + 1];
+            xyz[i * 3] = x;
+            xyz[i * 3 + 1] = y;
+            xyz[i * 3 + 2] = evaluateZ(x, y);
+        }
+
+        polylines.Add(new OutputPolyline(xyz, vertexCount, isClosed: true));
+    }
+
+    private static string[] BuildProtectedPadInteractionDiagnostics(
+        int padIndex,
+        double[] seamLoopXy,
+        IReadOnlyList<GradingPatch> priorPatches,
+        double tolerance)
+    {
+        if (priorPatches.Count == 0 || seamLoopXy.Length < 6)
+            return Array.Empty<string>();
+
+        var diagnostics = new List<string>();
+        int seamVertexCount = seamLoopXy.Length / 2;
+        double nearTolerance = Math.Max(tolerance * 8.0, 1e-6);
+        for (int patchIndex = 0; patchIndex < priorPatches.Count; patchIndex++)
+        {
+            GradingPatch patch = priorPatches[patchIndex];
+            int priorVertexCount = patch.OwnedRegionLoopXy.Length / 2;
+            if (patch.Kind != GradingPatchKind.Pad || priorVertexCount < 3)
+                continue;
+
+            int seamInsidePrior = 0;
+            int seamNearPrior = 0;
+            for (int i = 0; i < seamVertexCount; i++)
+            {
+                double x = seamLoopXy[i * 2];
+                double y = seamLoopXy[i * 2 + 1];
+                if (PointInPolygon(x, y, patch.OwnedRegionLoopXy, priorVertexCount))
+                    seamInsidePrior++;
+                if (DistToPolygon(x, y, patch.OwnedRegionLoopXy, priorVertexCount) <= nearTolerance)
+                    seamNearPrior++;
+            }
+
+            int priorInsideSeam = 0;
+            for (int i = 0; i < priorVertexCount; i++)
+            {
+                double x = patch.OwnedRegionLoopXy[i * 2];
+                double y = patch.OwnedRegionLoopXy[i * 2 + 1];
+                if (PointInPolygon(x, y, seamLoopXy, seamVertexCount))
+                    priorInsideSeam++;
+            }
+
+            if (seamInsidePrior == 0 && seamNearPrior == 0 && priorInsideSeam == 0)
+                continue;
+
+            diagnostics.Add(
+                $"Grade Pad[{padIndex}] protected stitch loop interacts with prior {patch.OwnerKey}: seam inside={seamInsidePrior}/{seamVertexCount}, seam near={seamNearPrior}/{seamVertexCount}, prior inside seam={priorInsideSeam}/{priorVertexCount}. Adjacent or overlapping protected pad regions can fragment the outside seam.");
+        }
+
+        return diagnostics.ToArray();
+    }
+
+    private static bool TryBuildInteractingProtectedPadRegions(
+        PadBoundary[] pads,
+        TerrainSpatialIndex terrain,
+        PreparedBarriers barriers,
+        double tolerance,
+        double minStitchSegmentLength,
+        out ProtectedPadRegion[] interactingRegions)
+    {
+        interactingRegions = Array.Empty<ProtectedPadRegion>();
+        if (pads.Length == 0)
+            return false;
+
+        var regions = new List<ProtectedPadRegion>(pads.Length);
+        for (int padIndex = 0; padIndex < pads.Length; padIndex++)
+        {
+            PadBoundary pad = pads[padIndex];
+            if (pad.StitchApronDistance <= tolerance * 4.0)
+                continue;
+
+            PreparedPadSections prepared = BuildPreparedPadSections(
+                pad,
+                terrain.FaceGrid,
+                barriers,
+                terrain.HasBoundaryLoop,
+                terrain.BoundaryLoopXy,
+                terrain.BoundaryVertexCount,
+                tolerance,
+                keepShoulderOnBatterPlane: true);
+
+            if (!TryBuildOrderedShoulderLoopFromSections(
+                    prepared.BoundaryLoopXy,
+                    prepared.BoundaryVertexCount,
+                    prepared.ShoulderXy,
+                    tolerance,
+                    out double[] daylightLoopXy,
+                    out _) ||
+                daylightLoopXy.Length < 6)
+            {
+                continue;
+            }
+
+            daylightLoopXy = SimplifyClosedLoopByShortEdges(daylightLoopXy, Math.Max(minStitchSegmentLength, 1e-6));
+            if (daylightLoopXy.Length < 6)
+                continue;
+
+            double[] stitchLoopXy = daylightLoopXy;
+            if (TryBuildProtectedStitchLoopFromSections(
+                    prepared.BoundaryLoopXy,
+                    daylightLoopXy,
+                    pad.StitchApronDistance,
+                    terrain.HasBoundaryLoop ? terrain.BoundaryLoopXy : null,
+                    terrain.HasBoundaryLoop ? terrain.BoundaryVertexCount : 0,
+                    tolerance,
+                    out double[] sectionStitchLoopXy,
+                    out _) ||
+                TryBuildProtectedStitchLoop(
+                    daylightLoopXy,
+                    pad.StitchApronDistance,
+                    terrain.HasBoundaryLoop ? terrain.BoundaryLoopXy : null,
+                    terrain.HasBoundaryLoop ? terrain.BoundaryVertexCount : 0,
+                    tolerance,
+                    out sectionStitchLoopXy,
+                    out _))
+            {
+                stitchLoopXy = SimplifyClosedLoopByShortEdges(sectionStitchLoopXy, Math.Max(minStitchSegmentLength, 1e-6));
+            }
+
+            if (stitchLoopXy.Length < 6)
+                continue;
+
+            regions.Add(new ProtectedPadRegion(
+                padIndex,
+                prepared,
+                daylightLoopXy,
+                stitchLoopXy,
+                InflateBounds(GradingPatch.ComputeBounds(stitchLoopXy), minStitchSegmentLength)));
+        }
+
+        if (regions.Count < 2)
+            return false;
+
+        var selected = new bool[regions.Count];
+        bool foundInteraction = false;
+        for (int i = 0; i < regions.Count; i++)
+        {
+            for (int j = i + 1; j < regions.Count; j++)
+            {
+                Bounds2D leftBounds = regions[i].Bounds;
+                Bounds2D rightBounds = regions[j].Bounds;
+                if (!leftBounds.Intersects(rightBounds))
+                    continue;
+
+                if (!LoopsTouchOrOverlap(regions[i].Prepared.BoundaryLoopXy, regions[j].StitchLoopXy, minStitchSegmentLength) &&
+                    !LoopsTouchOrOverlap(regions[j].Prepared.BoundaryLoopXy, regions[i].StitchLoopXy, minStitchSegmentLength))
+                {
+                    continue;
+                }
+
+                selected[i] = true;
+                selected[j] = true;
+                foundInteraction = true;
+            }
+        }
+
+        if (!foundInteraction)
+            return false;
+
+        interactingRegions = regions.Where((_, index) => selected[index]).ToArray();
+        return interactingRegions.Length >= 2;
+    }
+
+    private static bool TryGradeCoupledProtectedPadsByWholeMeshRemesh(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        PadBoundary[] pads,
+        LockCurve[]? lockCurves,
+        PreparedBarriers barriers,
+        double tolerance,
+        double terrainDetailSize,
+        IReadOnlyList<ProtectedPadRegion> interactingRegions,
+        out GradingResult? result,
+        out string? failure)
+    {
+        result = null;
+        failure = null;
+
+        int localInputVertexCount = EstimateInputVerticesInBounds(vertices, vertexCount, interactingRegions);
+        int softVertexBudget = Math.Max(2000, Math.Max(localInputVertexCount * 8, vertexCount * 2));
+        int hardVertexBudget = Math.Max(10000, Math.Max(localInputVertexCount * 25, vertexCount * 4));
+        if (hardVertexBudget > 0 && localInputVertexCount > 0 && hardVertexBudget < localInputVertexCount)
+            hardVertexBudget = localInputVertexCount * 25;
+
+        PadTopologyResult? topology = TryTriangulateCoupledProtectedPadTopology(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            pads,
+            lockCurves,
+            interactingRegions,
+            tolerance,
+            terrainDetailSize,
+            out string? topologyWarning);
+        if (topology == null)
+        {
+            failure = BuildProtectedPadFailureMessage(
+                $"Grade Pad coupled protected patch failed: {topologyWarning ?? "topology remesh failed"}",
+                BuildCoupledProtectedPadDiagnostics(interactingRegions, localInputVertexCount, 0, softVertexBudget, hardVertexBudget, topologyWarning));
+            return true;
+        }
+
+        if (topology.VertexCount > hardVertexBudget)
+        {
+            failure = BuildProtectedPadFailureMessage(
+                $"Grade Pad coupled protected patch failed: density-cap-hit ({topology.VertexCount:N0} vertices > {hardVertexBudget:N0}).",
+                BuildCoupledProtectedPadDiagnostics(interactingRegions, localInputVertexCount, topology.VertexCount, softVertexBudget, hardVertexBudget, topologyWarning));
+            return true;
+        }
+
+        var inputTerrain = new TerrainSpatialIndex(vertices, vertexCount, faces, faceCount);
+        bool hasBoundaryLoop = TryBuildBoundaryLoop(topology.Vertices, topology.Faces, topology.FaceCount, out double[] boundaryLoop, out int boundaryVertexCount);
+        if (inputTerrain.HasBoundaryLoop)
+        {
+            double terrainBoundaryTolerance = Math.Max(tolerance * 8.0, terrainDetailSize > 0.0 && double.IsFinite(terrainDetailSize) ? terrainDetailSize * 2.0 : tolerance * 16.0);
+            int interiorNakedEdges = CountBoundaryEdgesAwayFromReferenceBoundary(
+                topology.Vertices,
+                topology.Faces,
+                topology.FaceCount,
+                vertices,
+                faces,
+                faceCount,
+                terrainBoundaryTolerance);
+            if (interiorNakedEdges > 50)
+            {
+                failure = BuildProtectedPadFailureMessage(
+                    $"Grade Pad coupled protected patch failed: {interiorNakedEdges} interior naked edge(s).",
+                    BuildCoupledProtectedPadDiagnostics(interactingRegions, localInputVertexCount, topology.VertexCount, softVertexBudget, hardVertexBudget, topologyWarning));
+                return true;
+            }
+        }
+
+        var faceGrid = new FaceGrid(topology.Vertices, topology.VertexCount, topology.Faces, topology.FaceCount);
+        var gradedVertices = (double[])topology.Vertices.Clone();
+        ApplyGradingToVerticesWithSections(
+            gradedVertices,
+            topology.Vertices,
+            topology.VertexCount,
+            pads,
+            barriers,
+            faceGrid,
+            hasBoundaryLoop,
+            boundaryLoop,
+            boundaryVertexCount,
+            tolerance,
+            keepShoulderOnBatterPlane: true);
+        gradedVertices = SmoothCoupledProtectedShoulders(
+            gradedVertices,
+            topology.VertexCount,
+            topology.Faces,
+            topology.FaceCount,
+            pads,
+            interactingRegions,
+            tolerance);
+
+        var diagnostics = new List<string>();
+        diagnostics.AddRange(BuildCoupledProtectedPadDiagnostics(
+            interactingRegions,
+            localInputVertexCount,
+            topology.VertexCount,
+            softVertexBudget,
+            hardVertexBudget,
+            topologyWarning));
+        var gradedTopologyPatch = new PatchMeshResult
+        {
+            Vertices = gradedVertices,
+            VertexCount = topology.VertexCount,
+            Faces = topology.Faces,
+            FaceCount = topology.FaceCount,
+            StitchLoopXy = Array.Empty<double>()
+        };
+        foreach (ProtectedPadRegion region in interactingRegions)
+            diagnostics.AddRange(BuildPadSlopeDiagnostics(region.PadIndex, region.Prepared, gradedTopologyPatch, tolerance));
+        if (double.IsFinite(terrainDetailSize) && terrainDetailSize > 0.0)
+            diagnostics.Add($"Grade Pad coupled protected patch detail size: {terrainDetailSize:F6}.");
+        foreach (ProtectedPadRegion region in interactingRegions)
+        {
+            ComputeLoopDistanceStats(region.DaylightLoopXy, region.StitchLoopXy, out double shoulderToSeamMin, out double shoulderToSeamMax);
+            ComputeLoopDistanceStats(region.StitchLoopXy, region.DaylightLoopXy, out double seamToShoulderMin, out double seamToShoulderMax);
+            diagnostics.Add(
+                $"Grade Pad[{region.PadIndex}] topology band width: shoulder->seam min={shoulderToSeamMin:F6}, max={shoulderToSeamMax:F6}; seam->shoulder min={seamToShoulderMin:F6}, max={seamToShoulderMax:F6}.");
+            diagnostics.Add(
+                $"Grade Pad[{region.PadIndex}] merged-mesh naked edges near seam: {CountBoundaryEdgesNearLoop(topology.Vertices, topology.Faces, topology.FaceCount, region.StitchLoopXy, tolerance * 4.0)}.");
+        }
+        if (topology.VertexCount > softVertexBudget)
+            diagnostics.Add($"Grade Pad coupled protected patch density warning: {topology.VertexCount:N0} vertices exceeds soft budget {softVertexBudget:N0}.");
+
+        result = BuildResult(
+            topology.Vertices,
+            topology.VertexCount,
+            topology.Faces,
+            topology.FaceCount,
+            gradedVertices,
+            topology.PadPolylines,
+            diagnostics,
+            BuildPadPatchSummaries(pads));
+        return true;
+    }
+
+    private static IReadOnlyList<string> BuildCoupledProtectedPadDiagnostics(
+        IReadOnlyList<ProtectedPadRegion> interactingRegions,
+        int localInputVertexCount,
+        int outputVertexCount,
+        int softVertexBudget,
+        int hardVertexBudget,
+        string? topologyWarning)
+    {
+        var diagnostics = new List<string>
+        {
+            $"Grade Pad coupled protected patch: {interactingRegions.Count} interacting protected pad(s); local input vertices={localInputVertexCount:N0}, output vertices={outputVertexCount:N0}, soft cap={softVertexBudget:N0}, hard cap={hardVertexBudget:N0}.",
+            "Grade Pad coupled protected patch policy: higher pad tops own overlaps; shoulders blend inside the shared protected region."
+        };
+        foreach (ProtectedPadRegion region in interactingRegions)
+        {
+            diagnostics.Add(
+                $"Grade Pad[{region.PadIndex}] protected stitch apron: daylight->{region.Prepared.Pad.StitchApronDistance:F6} with {region.StitchLoopXy.Length / 2} stitch vertices.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(topologyWarning))
+            diagnostics.Add($"Grade Pad coupled protected patch topology warning: {topologyWarning}");
+
+        return diagnostics;
+    }
+
+    private static double[] SmoothCoupledProtectedShoulders(
+        double[] gradedVertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        IReadOnlyList<PadBoundary> pads,
+        IReadOnlyList<ProtectedPadRegion> interactingRegions,
+        double tolerance)
+    {
+        var boundaries = interactingRegions
+            .Where(static region => region.StitchLoopXy.Length >= 6)
+            .Select(static region => (region.StitchLoopXy, region.StitchLoopXy.Length / 2, 0.35))
+            .ToArray();
+        if (boundaries.Length == 0)
+            return gradedVertices;
+
+        var breaklines = pads
+            .Where(static pad => pad.VertexCount >= 3)
+            .Select(static pad => new MeshSmoother.BreaklinePolyline(pad.XyVertices, pad.VertexCount, IsClosed: true))
+            .ToArray();
+
+        return MeshSmoother.Smooth(
+            gradedVertices,
+            vertexCount,
+            faces,
+            faceCount,
+            boundaries,
+            globalStrength: 0.0,
+            breaklines,
+            breaklineFixity: 1.0,
+            snapTolerance: tolerance * 8.0,
+            iterations: 3);
+    }
+
+    private static PadTopologyResult? TryTriangulateCoupledProtectedPadTopology(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        PadBoundary[] pads,
+        LockCurve[]? lockCurves,
+        IReadOnlyList<ProtectedPadRegion> interactingRegions,
+        double tolerance,
+        double terrainDetailSize,
+        out string? warningOrError)
+    {
+        warningOrError = null;
+        if (interactingRegions.Count != pads.Length)
+            return null;
+
+        double dedupTol = GradingTolerances.ModelToleranceOrDefault(tolerance);
+        var stitchLoops = interactingRegions.Select(static region => region.StitchLoopXy).ToArray();
+        if (!ClipperGeometry.TryUnionClosedLoops(stitchLoops, dedupTol, out List<double[]> unionLoops) ||
+            unionLoops.Count == 0)
+        {
+            warningOrError = "coupled protected stitch envelopes could not be unioned.";
+            return null;
+        }
+
+        var daylightLoops = interactingRegions.Select(static region => region.DaylightLoopXy).ToArray();
+        List<double[]> unionDaylightLoops = new();
+        if (ClipperGeometry.TryUnionClosedLoops(daylightLoops, dedupTol, out List<double[]> daylightUnion))
+            unionDaylightLoops = daylightUnion;
+
+        var xyList = new List<double>(vertexCount * 2);
+        var zList = new List<double>(vertexCount);
+        var segList = new List<(int a, int b)>();
+        var cullSegList = new List<(int a, int b)>();
+        var vertHash = new SpatialHash(dedupTol);
+        var faceGrid = new FaceGrid(vertices, vertexCount, faces, faceCount);
+        var originalIndexMap = new Dictionary<int, int>(vertexCount);
+        double interiorSampleSpacing = ResolveCoupledInteriorSampleSpacing(dedupTol, terrainDetailSize);
+        bool hasInputBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out double[] inputBoundaryLoop, out int inputBoundaryVertexCount);
+
+        int AddOriginalVertex(int originalIndex, bool forceInclude = false)
+        {
+            if (originalIndexMap.TryGetValue(originalIndex, out int existing))
+                return existing;
+
+            double x = vertices[originalIndex * 3];
+            double y = vertices[originalIndex * 3 + 1];
+            if (!forceInclude && IsInsideAnyLoop(x, y, unionLoops, dedupTol))
+            {
+                originalIndexMap.Add(originalIndex, -1);
+                return -1;
+            }
+
+            int near = vertHash.FindNearest(xyList, x, y, dedupTol);
+            if (near >= 0)
+            {
+                originalIndexMap.Add(originalIndex, near);
+                return near;
+            }
+
+            int idx = zList.Count;
+            xyList.Add(x);
+            xyList.Add(y);
+            zList.Add(vertices[originalIndex * 3 + 2]);
+            vertHash.Insert(idx, x, y);
+            originalIndexMap.Add(originalIndex, idx);
+            return idx;
+        }
+
+        int AddVertex(double x, double y)
+        {
+            int near = vertHash.FindNearest(xyList, x, y, dedupTol);
+            if (near >= 0)
+                return near;
+
+            int idx = zList.Count;
+            xyList.Add(x);
+            xyList.Add(y);
+            zList.Add(faceGrid.InterpolateZ(x, y));
+            vertHash.Insert(idx, x, y);
+            return idx;
+        }
+
+        for (int i = 0; i < vertexCount; i++)
+            AddOriginalVertex(i);
+
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3];
+            int b = faces[f * 3 + 1];
+            int c = faces[f * 3 + 2];
+            IncrEdge(edgeFaceCount, a, b);
+            IncrEdge(edgeFaceCount, b, c);
+            IncrEdge(edgeFaceCount, c, a);
+        }
+
+        foreach (var kvp in edgeFaceCount)
+        {
+            if (kvp.Value != 1)
+                continue;
+
+            int a = (int)(kvp.Key >> 32);
+            int b = (int)(kvp.Key & 0xFFFFFFFFL);
+            int mappedA = AddOriginalVertex(a, forceInclude: true);
+            int mappedB = AddOriginalVertex(b, forceInclude: true);
+            if (mappedA >= 0 && mappedB >= 0 && mappedA != mappedB)
+            {
+                segList.Add((mappedA, mappedB));
+                cullSegList.Add((mappedA, mappedB));
+            }
+        }
+
+        var padPolylines = new List<OutputPolyline>(pads.Length);
+        for (int padIndex = 0; padIndex < pads.Length; padIndex++)
+        {
+            PadBoundary pad = pads[padIndex];
+            double shoulderDistance = ComputePadTransitionDistance(vertices, vertexCount, pad);
+            double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance);
+            ConstraintLoop padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, dedupTol);
+            AddClosedLoopVertices(padLoop.XyVertices, padLoop.VertexCount, AddVertex);
+
+            var padPolyXyz = new double[padLoop.VertexCount * 3];
+            for (int i = 0; i < padLoop.VertexCount; i++)
+            {
+                double x = padLoop.XyVertices[i * 2];
+                double y = padLoop.XyVertices[i * 2 + 1];
+                padPolyXyz[i * 3] = x;
+                padPolyXyz[i * 3 + 1] = y;
+                padPolyXyz[i * 3 + 2] = pad.EvaluateZ(x, y);
+            }
+
+            padPolylines.Add(new OutputPolyline(padPolyXyz, padLoop.VertexCount, isClosed: true));
+        }
+
+        for (int i = 0; i < unionDaylightLoops.Count; i++)
+        {
+            double[] loop = SimplifyClosedLoopByShortEdges(unionDaylightLoops[i], Math.Max(dedupTol * 4.0, 1e-6));
+            AddClosedLoopVertices(loop, loop.Length / 2, AddVertex);
+        }
+
+        AddCoupledPadBandGuideVertices(interactingRegions, AddVertex);
+
+        AddCoupledInteriorGuideVertices(
+            unionLoops,
+            daylightLoops,
+            pads,
+            interiorSampleSpacing,
+            dedupTol,
+            AddVertex);
+
+        if (lockCurves != null)
+        {
+            foreach (LockCurve lockCurve in lockCurves)
+            {
+                if (lockCurve.VertexCount < 2 || lockCurve.XyVertices.Length < lockCurve.VertexCount * 2)
+                    continue;
+
+                for (int i = 0; i < lockCurve.VertexCount; i++)
+                    AddVertex(lockCurve.XyVertices[i * 2], lockCurve.XyVertices[i * 2 + 1]);
+            }
+        }
+
+        if (zList.Count < 3)
+        {
+            warningOrError = "Too few vertices for coupled protected triangulation.";
+            return null;
+        }
+
+        TriangulationOutcome triangulation = TriangulationHelper.Triangulate(
+            xyList,
+            zList.Count,
+            segList,
+            maxArea: 0.0,
+            minAngle: 0.0,
+            convex: false);
+        if (triangulation.Mesh == null)
+        {
+            warningOrError = triangulation.WarningMessage ?? "Coupled protected triangulation failed.";
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(triangulation.WarningMessage))
+        {
+            warningOrError = hasInputBoundaryLoop &&
+                             triangulation.WarningMessage.Contains("Constraints could not be enforced", StringComparison.OrdinalIgnoreCase)
+                ? "Guide-only coupled triangulation used terrain-boundary post-filtering."
+                : triangulation.WarningMessage;
+        }
+
+        var extracted = TriangleNetExtractor.Extract(triangulation.Mesh);
+        var topologyVertices = new double[extracted.VertexCount * 3];
+        for (int i = 0; i < extracted.VertexCount; i++)
+        {
+            double x = extracted.Xy[i * 2];
+            double y = extracted.Xy[i * 2 + 1];
+            int sourceId = extracted.SourceIds[i];
+            double z = sourceId >= 0 && sourceId < zList.Count
+                ? zList[sourceId]
+                : faceGrid.InterpolateZ(x, y);
+            topologyVertices[i * 3] = x;
+            topologyVertices[i * 3 + 1] = y;
+            topologyVertices[i * 3 + 2] = z;
+        }
+
+        int outVertCount = extracted.VertexCount;
+        int outFaceCount = extracted.FaceCount;
+        int[] topologyFaces = extracted.Faces;
+        if (hasInputBoundaryLoop)
+        {
+            FilterMeshFacesInsideLoop(
+                ref topologyVertices,
+                ref outVertCount,
+                ref topologyFaces,
+                ref outFaceCount,
+                inputBoundaryLoop,
+                inputBoundaryVertexCount,
+                dedupTol * 4.0);
+        }
+        else
+        {
+            var cullResult = TriangleBoundaryCuller.Cull(
+                topologyVertices,
+                outVertCount,
+                topologyFaces,
+                outFaceCount,
+                xyList.ToArray(),
+                IndexedMeshTools.FlattenSegments(cullSegList),
+                0);
+
+            if (cullResult.Changed)
+            {
+                topologyVertices = IndexedMeshTools.CompactDoubleData(topologyVertices, 3, cullResult.NewToOld, cullResult.VertexCount);
+                topologyFaces = cullResult.Faces;
+                outVertCount = cullResult.VertexCount;
+                outFaceCount = cullResult.FaceCount;
+            }
+        }
+
+        return new PadTopologyResult
+        {
+            Vertices = topologyVertices,
+            VertexCount = outVertCount,
+            Faces = topologyFaces,
+            FaceCount = outFaceCount,
+            PadPolylines = padPolylines.ToArray()
+        };
+    }
+
+    private static void FilterMeshFacesInsideLoop(
+        ref double[] vertices,
+        ref int vertexCount,
+        ref int[] faces,
+        ref int faceCount,
+        double[] boundaryLoopXy,
+        int boundaryVertexCount,
+        double tolerance)
+    {
+        if (boundaryVertexCount < 3 || faceCount <= 0)
+            return;
+
+        var keptFaces = new List<int>(faces.Length);
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[faceIndex * 3 + 1];
+            int c = faces[faceIndex * 3 + 2];
+            double cx = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
+            double cy = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0;
+            if (PointInPolygon(cx, cy, boundaryLoopXy, boundaryVertexCount) ||
+                DistToPolygon(cx, cy, boundaryLoopXy, boundaryVertexCount) <= tolerance)
+            {
+                keptFaces.Add(a);
+                keptFaces.Add(b);
+                keptFaces.Add(c);
+            }
+        }
+
+        if (keptFaces.Count == faces.Length)
+            return;
+
+        int keptFaceCount = keptFaces.Count / 3;
+        if (keptFaceCount == 0)
+            return;
+
+        int[] filteredFaces = keptFaces.ToArray();
+        var compact = IndexedMeshTools.Compact(vertexCount, filteredFaces, keptFaceCount);
+        vertices = IndexedMeshTools.CompactDoubleData(vertices, 3, compact.NewToOld, compact.VertexCount);
+        faces = compact.Faces;
+        vertexCount = compact.VertexCount;
+        faceCount = compact.FaceCount;
+    }
+
+    private static double ResolveCoupledInteriorSampleSpacing(double tolerance, double terrainDetailSize)
+    {
+        double resolvedDetail = double.IsFinite(terrainDetailSize) && terrainDetailSize > 0.0
+            ? terrainDetailSize
+            : tolerance * 25.0;
+        return Math.Clamp(resolvedDetail * 4.0, Math.Max(tolerance * 16.0, 0.25), 2.0);
+    }
+
+    private static void AddCoupledInteriorGuideVertices(
+        IReadOnlyList<double[]> envelopeLoops,
+        IReadOnlyList<double[]> daylightLoops,
+        IReadOnlyList<PadBoundary> pads,
+        double spacing,
+        double tolerance,
+        Func<double, double, int> addVertex)
+    {
+        if (envelopeLoops.Count == 0 || !double.IsFinite(spacing) || spacing <= tolerance)
+            return;
+
+        int added = 0;
+        int maxAdded = 2500;
+        double nearLoopTolerance = Math.Max(tolerance * 8.0, spacing * 0.28);
+        foreach (double[] envelopeLoop in envelopeLoops)
+        {
+            int envelopeCount = envelopeLoop.Length / 2;
+            if (envelopeCount < 3)
+                continue;
+
+            Bounds2D bounds = GradingPatch.ComputeBounds(envelopeLoop);
+            double startX = Math.Floor(bounds.MinX / spacing) * spacing;
+            double startY = Math.Floor(bounds.MinY / spacing) * spacing;
+            for (double y = startY; y <= bounds.MaxY && added < maxAdded; y += spacing)
+            {
+                for (double x = startX; x <= bounds.MaxX && added < maxAdded; x += spacing)
+                {
+                    if (x < bounds.MinX + spacing * 0.25 ||
+                        x > bounds.MaxX - spacing * 0.25 ||
+                        y < bounds.MinY + spacing * 0.25 ||
+                        y > bounds.MaxY - spacing * 0.25)
+                    {
+                        continue;
+                    }
+
+                    if (!PointInPolygon(x, y, envelopeLoop, envelopeCount))
+                        continue;
+
+                    if (IsNearAnyLoop(x, y, envelopeLoops, nearLoopTolerance) ||
+                        IsNearAnyLoop(x, y, daylightLoops, nearLoopTolerance) ||
+                        IsNearAnyPadBoundary(x, y, pads, nearLoopTolerance))
+                    {
+                        continue;
+                    }
+
+                    addVertex(x, y);
+                    added++;
+                }
+            }
+        }
+    }
+
+    private static void AddCoupledPadBandGuideVertices(
+        IReadOnlyList<ProtectedPadRegion> regions,
+        Func<double, double, int> addVertex)
+    {
+        for (int regionIndex = 0; regionIndex < regions.Count; regionIndex++)
+        {
+            ProtectedPadRegion region = regions[regionIndex];
+            int daylightCount = region.DaylightLoopXy.Length / 2;
+            int stitchCount = region.StitchLoopXy.Length / 2;
+            int sampleCount = Math.Clamp(Math.Max(daylightCount, stitchCount), 16, 512);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                double station = i / (double)sampleCount;
+                if (!TrySampleLoopAtFraction(region.Prepared.BoundaryLoopXy, region.Prepared.BoundaryVertexCount, station, out double bx, out double by) ||
+                    !TrySampleLoopAtFraction(region.DaylightLoopXy, daylightCount, station, out double dx, out double dy))
+                {
+                    continue;
+                }
+
+                addVertex(bx, by);
+                addVertex(LerpValue(bx, dx, 0.33), LerpValue(by, dy, 0.33));
+                addVertex(LerpValue(bx, dx, 0.66), LerpValue(by, dy, 0.66));
+                addVertex(dx, dy);
+
+                if (stitchCount >= 3 &&
+                    TrySampleLoopAtFraction(region.StitchLoopXy, stitchCount, station, out double sx, out double sy))
+                {
+                    addVertex(LerpValue(dx, sx, 0.5), LerpValue(dy, sy, 0.5));
+                    addVertex(sx, sy);
+                }
+            }
+        }
+    }
+
+    private static bool IsInsideAnyLoop(double x, double y, IReadOnlyList<double[]> loops, double tolerance)
+    {
+        for (int i = 0; i < loops.Count; i++)
+        {
+            double[] loop = loops[i];
+            int vertexCount = loop.Length / 2;
+            if (vertexCount < 3)
+                continue;
+
+            if (PointInPolygon(x, y, loop, vertexCount) ||
+                DistToPolygon(x, y, loop, vertexCount) <= tolerance)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsNearAnyLoop(double x, double y, IReadOnlyList<double[]> loops, double tolerance)
+    {
+        for (int i = 0; i < loops.Count; i++)
+        {
+            double[] loop = loops[i];
+            int vertexCount = loop.Length / 2;
+            if (vertexCount >= 3 && DistToPolygon(x, y, loop, vertexCount) <= tolerance)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsNearAnyPadBoundary(double x, double y, IReadOnlyList<PadBoundary> pads, double tolerance)
+    {
+        for (int i = 0; i < pads.Count; i++)
+        {
+            PadBoundary pad = pads[i];
+            if (pad.VertexCount >= 3 && DistToPolygon(x, y, pad.XyVertices, pad.VertexCount) <= tolerance)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static int EstimateInputVerticesInBounds(
+        double[] vertices,
+        int vertexCount,
+        IReadOnlyList<ProtectedPadRegion> regions)
+    {
+        int count = 0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double x = vertices[i * 3];
+            double y = vertices[i * 3 + 1];
+            for (int r = 0; r < regions.Count; r++)
+            {
+                Bounds2D bounds = regions[r].Bounds;
+                if (x < bounds.MinX || x > bounds.MaxX || y < bounds.MinY || y > bounds.MaxY)
+                    continue;
+
+                count++;
+                break;
+            }
+        }
+
+        return Math.Max(count, 1);
+    }
+
+    private static Bounds2D InflateBounds(Bounds2D bounds, double padding)
+    {
+        return new Bounds2D(
+            bounds.MinX - padding,
+            bounds.MaxX + padding,
+            bounds.MinY - padding,
+            bounds.MaxY + padding);
+    }
+
+    private static bool LoopsTouchOrOverlap(double[] leftLoopXy, double[] rightLoopXy, double tolerance)
+    {
+        int leftCount = leftLoopXy.Length / 2;
+        int rightCount = rightLoopXy.Length / 2;
+        if (leftCount < 3 || rightCount < 3)
+            return false;
+
+        for (int i = 0; i < leftCount; i++)
+        {
+            double x = leftLoopXy[i * 2];
+            double y = leftLoopXy[i * 2 + 1];
+            if (PointInPolygon(x, y, rightLoopXy, rightCount) ||
+                DistToPolygon(x, y, rightLoopXy, rightCount) <= tolerance)
+            {
+                return true;
+            }
+        }
+
+        for (int i = 0; i < rightCount; i++)
+        {
+            double x = rightLoopXy[i * 2];
+            double y = rightLoopXy[i * 2 + 1];
+            if (PointInPolygon(x, y, leftLoopXy, leftCount) ||
+                DistToPolygon(x, y, leftLoopXy, leftCount) <= tolerance)
+            {
+                return true;
+            }
+        }
+
+        for (int i = 0; i < leftCount; i++)
+        {
+            int iNext = (i + 1) % leftCount;
+            double ax = leftLoopXy[i * 2];
+            double ay = leftLoopXy[i * 2 + 1];
+            double bx = leftLoopXy[iNext * 2];
+            double by = leftLoopXy[iNext * 2 + 1];
+            for (int j = 0; j < rightCount; j++)
+            {
+                int jNext = (j + 1) % rightCount;
+                if (SegmentsIntersect(
+                        ax,
+                        ay,
+                        bx,
+                        by,
+                        rightLoopXy[j * 2],
+                        rightLoopXy[j * 2 + 1],
+                        rightLoopXy[jNext * 2],
+                        rightLoopXy[jNext * 2 + 1]))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static PatchMeshResult? TryBuildPadPatchMesh(
         FaceGrid terrainFaceGrid,
         PreparedBarriers barriers,
@@ -583,6 +1795,7 @@ public static class PadGrader
         double[] terrainBoundaryLoop,
         int terrainBoundaryVertexCount,
         PreparedPadSections prepared,
+        double[] daylightLoopXy,
         double[] seamLoopXy,
         out string? errorMessage)
     {
@@ -603,6 +1816,7 @@ public static class PadGrader
             terrainBoundaryLoop,
             terrainBoundaryVertexCount,
             prepared,
+            daylightLoopXy,
             seamLoopXy,
             dedupTol,
             addCornerConstraints: false,
@@ -611,7 +1825,6 @@ public static class PadGrader
         if (explicitPatch != null)
             return explicitPatch;
 
-        errorMessage = null;
         var polygon = new Polygon(outerVertexCount + prepared.BoundaryVertexCount + prepared.BoundaryVertexCount);
 
         var outerVertices = new Vertex[outerVertexCount];
@@ -725,6 +1938,135 @@ public static class PadGrader
         };
     }
 
+    private static bool TryBuildProtectedStitchLoop(
+        double[] daylightLoopXy,
+        double apronDistance,
+        double[]? terrainBoundaryLoop,
+        int terrainBoundaryVertexCount,
+        double tolerance,
+        out double[] stitchLoopXy,
+        out string? skipReason)
+    {
+        stitchLoopXy = Array.Empty<double>();
+        skipReason = null;
+        int daylightVertexCount = daylightLoopXy.Length / 2;
+        if (daylightVertexCount < 3)
+        {
+            skipReason = "Grade Pad protected stitch apron skipped because the daylight loop was invalid.";
+            return false;
+        }
+
+        if (apronDistance <= tolerance * 4.0)
+        {
+            return false;
+        }
+
+        var distances = new double[daylightVertexCount];
+        Array.Fill(distances, apronDistance);
+        if (!TryBuildShoulderLoopWithClipper(
+                daylightLoopXy,
+                daylightVertexCount,
+                distances,
+                terrainBoundaryLoop,
+                terrainBoundaryVertexCount,
+                tolerance,
+                out stitchLoopXy,
+                out string? offsetFailure))
+        {
+            skipReason = offsetFailure ?? "Grade Pad protected stitch apron skipped because the outer offset could not be constructed cleanly.";
+            return false;
+        }
+
+        stitchLoopXy = SimplifyClosedLoopByShortEdges(stitchLoopXy, Math.Max(tolerance * 4.0, 1e-6));
+        if ((stitchLoopXy.Length / 2) < 3 || LoopsCoincide(stitchLoopXy, daylightLoopXy, tolerance * 4.0))
+        {
+            stitchLoopXy = Array.Empty<double>();
+            skipReason = "Grade Pad protected stitch apron skipped because the outer stitch loop collapsed to the daylight loop.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryBuildProtectedStitchLoopFromSections(
+        double[] boundaryLoopXy,
+        double[] daylightLoopXy,
+        double apronDistance,
+        double[]? terrainBoundaryLoop,
+        int terrainBoundaryVertexCount,
+        double tolerance,
+        out double[] stitchLoopXy,
+        out string? skipReason)
+    {
+        stitchLoopXy = Array.Empty<double>();
+        skipReason = null;
+        int vertexCount = daylightLoopXy.Length / 2;
+        if (vertexCount < 3 || boundaryLoopXy.Length / 2 != vertexCount)
+        {
+            skipReason = "Grade Pad protected stitch apron skipped because the daylight sections were not aligned to the pad boundary.";
+            return false;
+        }
+
+        if (apronDistance <= tolerance * 4.0)
+            return false;
+
+        var points = new List<double>(vertexCount * 2);
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double bx = boundaryLoopXy[i * 2];
+            double by = boundaryLoopXy[i * 2 + 1];
+            double sx = daylightLoopXy[i * 2];
+            double sy = daylightLoopXy[i * 2 + 1];
+            double dx = sx - bx;
+            double dy = sy - by;
+            double length = Math.Sqrt((dx * dx) + (dy * dy));
+            if (length <= tolerance)
+            {
+                skipReason = "Grade Pad protected stitch apron skipped because a daylight section collapsed.";
+                return false;
+            }
+
+            dx /= length;
+            dy /= length;
+            double tx = sx + (dx * apronDistance);
+            double ty = sy + (dy * apronDistance);
+
+            if (terrainBoundaryLoop != null)
+            {
+                ResolvePadShoulderEndpoint(
+                    PreparedBarriers.Empty,
+                    true,
+                    terrainBoundaryLoop,
+                    terrainBoundaryVertexCount,
+                    tolerance,
+                    sx,
+                    sy,
+                    tx,
+                    ty,
+                    out tx,
+                    out ty);
+            }
+
+            AddLoopPoint(points, tx, ty, tolerance);
+        }
+
+        if (points.Count >= 4 &&
+            DistanceSquaredXY(points[0], points[1], points[^2], points[^1]) <= tolerance * tolerance)
+        {
+            points.RemoveRange(points.Count - 2, 2);
+        }
+
+        if (points.Count / 2 < 3 || LoopsCoincide(points.ToArray(), daylightLoopXy, tolerance * 4.0))
+        {
+            stitchLoopXy = Array.Empty<double>();
+            skipReason = "Grade Pad protected stitch apron skipped because the section stitch loop collapsed.";
+            return false;
+        }
+
+        stitchLoopXy = points.ToArray();
+        return true;
+    }
+
     private static PatchMeshResult? TryBuildExplicitPadPatchMesh(
         FaceGrid terrainFaceGrid,
         PreparedBarriers barriers,
@@ -732,6 +2074,7 @@ public static class PadGrader
         double[] terrainBoundaryLoop,
         int terrainBoundaryVertexCount,
         PreparedPadSections prepared,
+        double[] daylightLoopXy,
         double[] seamLoopXy,
         double tolerance,
         bool addCornerConstraints,
@@ -739,24 +2082,26 @@ public static class PadGrader
         out string? errorMessage)
     {
         errorMessage = null;
-        bool usesTopologyBand = ShouldUseTopologyBand(prepared.ShoulderXy, seamLoopXy, tolerance);
+        bool usesTopologyBand = ShouldUseTopologyBand(daylightLoopXy, seamLoopXy, tolerance) ||
+                                 daylightLoopXy.Length != seamLoopXy.Length;
         if (!TryBuildAlignedPadPatchLoops(
                 terrainFaceGrid,
                 prepared,
-                seamLoopXy,
+                daylightLoopXy,
+                daylightLoopXy,
                 tolerance,
                 out double[] boundaryLoopXy,
                 out double[] boundaryLoopZ,
                 out double[] shoulderLoopXy,
                 out double[] shoulderLoopZ,
-                out double[] seamLoopAlignedXy,
-                out double[] seamLoopZ,
+                out double[] daylightLoopAlignedXy,
+                out double[] daylightLoopZ,
                 out errorMessage))
         {
             return null;
         }
 
-        int targetCount = seamLoopAlignedXy.Length / 2;
+        int targetCount = daylightLoopAlignedXy.Length / 2;
         if (targetCount < 3)
         {
             errorMessage = "Explicit Grade Pad patch requires at least 3 seam samples.";
@@ -764,7 +2109,7 @@ public static class PadGrader
         }
 
         if (prepared.Pad.CornerFanSegments >= 1)
-            ForceFanBoundaryToCorner(boundaryLoopXy, boundaryLoopZ, seamLoopAlignedXy,
+            ForceFanBoundaryToCorner(boundaryLoopXy, boundaryLoopZ, daylightLoopAlignedXy,
                 targetCount, prepared.Pad, tolerance);
 
         var (patchVertices, patchVertexCount, patchFaces, patchFaceCount) =
@@ -772,8 +2117,42 @@ public static class PadGrader
                 prepared.Pad, terrainFaceGrid,
                 boundaryLoopXy, boundaryLoopZ,
                 shoulderLoopXy, shoulderLoopZ,
-                seamLoopAlignedXy, seamLoopZ,
-                targetCount, usesTopologyBand, tolerance);
+                daylightLoopAlignedXy, daylightLoopZ,
+                targetCount, usesTopologyBand: false, tolerance);
+
+        double[] stitchLoopXy = (double[])daylightLoopAlignedXy.Clone();
+        if (usesTopologyBand)
+        {
+            double[] seamLoopAlignedXy = AlignClosedLoopToReference(seamLoopXy, daylightLoopAlignedXy, tolerance);
+            if (!TryBuildApronPatchMesh(
+                    terrainFaceGrid,
+                    daylightLoopAlignedXy,
+                    daylightLoopZ,
+                    seamLoopAlignedXy,
+                    tolerance,
+                    out PatchMeshResult? apronPatch,
+                    out string? apronError))
+            {
+                errorMessage = apronError ?? "Explicit Grade Pad apron triangulation failed.";
+                return null;
+            }
+
+            MergeMeshes(
+                patchVertices,
+                patchVertexCount,
+                patchFaces,
+                patchFaceCount,
+                apronPatch.Vertices,
+                apronPatch.VertexCount,
+                apronPatch.Faces,
+                apronPatch.FaceCount,
+                tolerance,
+                out patchVertices,
+                out patchVertexCount,
+                out patchFaces,
+                out patchFaceCount);
+            stitchLoopXy = seamLoopAlignedXy;
+        }
 
         if (patchFaceCount == 0)
         {
@@ -785,20 +2164,21 @@ public static class PadGrader
         {
             double x = patchVertices[i * 3];
             double y = patchVertices[i * 3 + 1];
-            for (int seamIndex = 0; seamIndex < targetCount; seamIndex++)
+            int stitchCount = stitchLoopXy.Length / 2;
+            for (int seamIndex = 0; seamIndex < stitchCount; seamIndex++)
             {
-                double dx = x - seamLoopAlignedXy[seamIndex * 2];
-                double dy = y - seamLoopAlignedXy[seamIndex * 2 + 1];
+                double dx = x - stitchLoopXy[seamIndex * 2];
+                double dy = y - stitchLoopXy[seamIndex * 2 + 1];
                 if ((dx * dx) + (dy * dy) > tolerance * tolerance)
                     continue;
 
-                patchVertices[i * 3 + 2] = seamLoopZ[seamIndex];
+                patchVertices[i * 3 + 2] = terrainFaceGrid.InterpolateZ(x, y);
                 break;
             }
         }
 
         int extraPatchBoundaryEdges = CountBoundaryEdgesAwayFromLoop(
-            patchVertices, patchFaces, patchFaceCount, seamLoopAlignedXy, tolerance * 4.0);
+            patchVertices, patchFaces, patchFaceCount, stitchLoopXy, tolerance * 4.0);
         if (extraPatchBoundaryEdges > 0)
         {
             errorMessage = $"Explicit Grade Pad strip+fan produced {extraPatchBoundaryEdges} interior naked edge(s).";
@@ -811,7 +2191,7 @@ public static class PadGrader
             VertexCount = patchVertexCount,
             Faces = patchFaces,
             FaceCount = patchFaceCount,
-            StitchLoopXy = (double[])seamLoopAlignedXy.Clone(),
+            StitchLoopXy = (double[])stitchLoopXy.Clone(),
             CornerConstraintCount = 0
         };
     }
@@ -876,6 +2256,113 @@ public static class PadGrader
         }
     }
 
+    private static bool TryBuildApronPatchMesh(
+        FaceGrid terrainFaceGrid,
+        double[] daylightLoopXy,
+        double[] daylightLoopZ,
+        double[] seamLoopXy,
+        double tolerance,
+        out PatchMeshResult apronPatch,
+        out string? errorMessage)
+    {
+        apronPatch = new PatchMeshResult
+        {
+            Vertices = Array.Empty<double>(),
+            VertexCount = 0,
+            Faces = Array.Empty<int>(),
+            FaceCount = 0,
+            StitchLoopXy = Array.Empty<double>()
+        };
+        errorMessage = null;
+
+        int daylightCount = daylightLoopXy.Length / 2;
+        int seamCount = seamLoopXy.Length / 2;
+        if (daylightCount < 3 || seamCount < 3)
+        {
+            errorMessage = "Explicit Grade Pad apron requires valid daylight and stitch loops.";
+            return false;
+        }
+
+        var polygon = new Polygon(daylightCount + seamCount);
+        var seamVertices = new Vertex[seamCount];
+        for (int i = 0; i < seamCount; i++)
+            seamVertices[i] = new Vertex(seamLoopXy[i * 2], seamLoopXy[i * 2 + 1]) { ID = i };
+        polygon.Add(new Contour(seamVertices), false);
+
+        var daylightVertices = new Vertex[daylightCount];
+        for (int i = 0; i < daylightCount; i++)
+            daylightVertices[i] = new Vertex(daylightLoopXy[i * 2], daylightLoopXy[i * 2 + 1]) { ID = seamCount + i };
+
+        double holeX = 0.0;
+        double holeY = 0.0;
+        for (int i = 0; i < daylightCount; i++)
+        {
+            holeX += daylightLoopXy[i * 2];
+            holeY += daylightLoopXy[i * 2 + 1];
+        }
+
+        holeX /= daylightCount;
+        holeY /= daylightCount;
+        polygon.Add(new Contour(daylightVertices), new TriangleNet.Geometry.Point(holeX, holeY));
+
+        IMesh mesh;
+        try
+        {
+            mesh = TriangulationHelper.TriangulatePolygon(
+                polygon,
+                new ConstraintOptions { ConformingDelaunay = false, Convex = false, SegmentSplitting = 0 },
+                null);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Explicit Grade Pad apron triangulation failed: {ex.Message}";
+            return false;
+        }
+
+        var extracted = TriangleNetExtractor.Extract(mesh);
+        if (extracted.FaceCount == 0)
+        {
+            errorMessage = "Explicit Grade Pad apron triangulation produced no faces.";
+            return false;
+        }
+
+        var vertices = new double[extracted.VertexCount * 3];
+        for (int i = 0; i < extracted.VertexCount; i++)
+        {
+            double x = extracted.Xy[i * 2];
+            double y = extracted.Xy[i * 2 + 1];
+            vertices[i * 3] = x;
+            vertices[i * 3 + 1] = y;
+            vertices[i * 3 + 2] = terrainFaceGrid.InterpolateZ(x, y);
+        }
+
+        for (int i = 0; i < extracted.VertexCount; i++)
+        {
+            double x = vertices[i * 3];
+            double y = vertices[i * 3 + 1];
+            for (int daylightIndex = 0; daylightIndex < daylightCount; daylightIndex++)
+            {
+                double dx = x - daylightLoopXy[daylightIndex * 2];
+                double dy = y - daylightLoopXy[daylightIndex * 2 + 1];
+                if ((dx * dx) + (dy * dy) > tolerance * tolerance)
+                    continue;
+
+                vertices[i * 3 + 2] = daylightLoopZ[daylightIndex];
+                break;
+            }
+        }
+
+        apronPatch = new PatchMeshResult
+        {
+            Vertices = vertices,
+            VertexCount = extracted.VertexCount,
+            Faces = extracted.Faces,
+            FaceCount = extracted.FaceCount,
+            StitchLoopXy = (double[])seamLoopXy.Clone()
+        };
+        return true;
+    }
+
     private static (double[] vertices, int vertexCount, int[] faces, int faceCount)
         BuildExplicitPadPatch(
             PadBoundary pad,
@@ -891,15 +2378,21 @@ public static class PadGrader
             double tolerance)
     {
         var vertexList = new List<double>(targetCount * 6);
+        var xyList = new List<double>(targetCount * 4);
         var faceList = new List<int>(targetCount * 6);
-        var xyHash = new SpatialHash(targetCount * 2 + 8);
+        var edgeUseCount = new Dictionary<long, int>(targetCount * 12);
+        double vertexDedupeTolerance = Math.Max(Math.Min(tolerance * 0.01, 1e-6), 1e-9);
+        var xyHash = new SpatialHash(vertexDedupeTolerance);
         double toleranceSq = tolerance * tolerance;
+        double minimumPatchTriangleArea2 = toleranceSq * 1e-4;
 
         int GetVertex(double x, double y, double z)
         {
-            int existing = xyHash.FindNearest(vertexList, x, y, tolerance);
+            int existing = xyHash.FindNearest(xyList, x, y, vertexDedupeTolerance);
             if (existing >= 0) return existing;
             int idx = vertexList.Count / 3;
+            xyList.Add(x);
+            xyList.Add(y);
             vertexList.Add(x);
             vertexList.Add(y);
             vertexList.Add(z);
@@ -907,71 +2400,157 @@ public static class PadGrader
             return idx;
         }
 
-        void EmitTri(int a, int b, int c)
+        static long EdgeKey(int a, int b)
         {
-            if (a == b || b == c || a == c) return;
+            if (a > b) (a, b) = (b, a);
+            return ((long)a << 32) | (uint)b;
+        }
+
+        int EdgeUseCount(int a, int b)
+        {
+            return edgeUseCount.TryGetValue(EdgeKey(a, b), out int count) ? count : 0;
+        }
+
+        bool EmitTri(int a, int b, int c)
+        {
+            if (a == b || b == c || a == c) return false;
             double ax = vertexList[a * 3], ay = vertexList[a * 3 + 1];
             double bx = vertexList[b * 3], by = vertexList[b * 3 + 1];
             double cx = vertexList[c * 3], cy = vertexList[c * 3 + 1];
             double area2 = Math.Abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
-            if (area2 <= toleranceSq) return;
+            if (area2 <= minimumPatchTriangleArea2) return false;
             faceList.Add(a); faceList.Add(b); faceList.Add(c);
+            edgeUseCount[EdgeKey(a, b)] = EdgeUseCount(a, b) + 1;
+            edgeUseCount[EdgeKey(b, c)] = EdgeUseCount(b, c) + 1;
+            edgeUseCount[EdgeKey(c, a)] = EdgeUseCount(c, a) + 1;
+            return true;
         }
 
-        // Piece A: pad top (CDT of the original clean pad boundary)
-        var padTopPoly = new Polygon(pad.VertexCount);
-        var padTopVerts = new Vertex[pad.VertexCount];
-        for (int i = 0; i < pad.VertexCount; i++)
-            padTopVerts[i] = new Vertex(pad.XyVertices[i * 2], pad.XyVertices[i * 2 + 1]) { ID = i };
-        padTopPoly.Add(new Contour(padTopVerts), false);
-
-        IMesh? padTop = null;
-        try
+        double TriangleSlopeDelta(int a, int b, int c)
         {
-            padTop = TriangulationHelper.TriangulatePolygon(
-                padTopPoly,
-                new ConstraintOptions { ConformingDelaunay = false, Convex = false, SegmentSplitting = 0 },
-                null);
-        }
-        catch { /* fallback: no pad top triangles */ }
+            if (a == b || b == c || a == c)
+                return double.MaxValue;
 
-        if (padTop != null)
+            double ax = vertexList[a * 3], ay = vertexList[a * 3 + 1], az = vertexList[a * 3 + 2];
+            double bx = vertexList[b * 3], by = vertexList[b * 3 + 1], bz = vertexList[b * 3 + 2];
+            double cx = vertexList[c * 3], cy = vertexList[c * 3 + 1], cz = vertexList[c * 3 + 2];
+            double ux = bx - ax;
+            double uy = by - ay;
+            double uz = bz - az;
+            double vx = cx - ax;
+            double vy = cy - ay;
+            double vz = cz - az;
+            double nx = (uy * vz) - (uz * vy);
+            double ny = (uz * vx) - (ux * vz);
+            double nz = (ux * vy) - (uy * vx);
+            double normalLengthSquared = (nx * nx) + (ny * ny) + (nz * nz);
+            if (normalLengthSquared <= minimumPatchTriangleArea2 * minimumPatchTriangleArea2)
+                return double.MaxValue;
+
+            double horizontal = Math.Sqrt((nx * nx) + (ny * ny));
+            double slopeDeg = Math.Atan2(horizontal, Math.Abs(nz)) * 180.0 / Math.PI;
+            return Math.Abs(slopeDeg - pad.SlopeAngleDeg);
+        }
+
+        static bool FirstDiagonalIsBetter(
+            double firstA,
+            double firstB,
+            double secondA,
+            double secondB)
         {
-            var padTopExt = TriangleNetExtractor.Extract(padTop);
-            var padTopIdxMap = new int[padTopExt.VertexCount];
-            for (int i = 0; i < padTopExt.VertexCount; i++)
-            {
-                double x = padTopExt.Xy[i * 2];
-                double y = padTopExt.Xy[i * 2 + 1];
-                padTopIdxMap[i] = GetVertex(x, y, pad.EvaluateZ(x, y));
-            }
-            for (int f = 0; f < padTopExt.FaceCount; f++)
-                EmitTri(padTopIdxMap[padTopExt.Faces[f * 3]],
-                        padTopIdxMap[padTopExt.Faces[f * 3 + 1]],
-                        padTopIdxMap[padTopExt.Faces[f * 3 + 2]]);
+            double firstMax = Math.Max(firstA, firstB);
+            double secondMax = Math.Max(secondA, secondB);
+            if (firstMax < secondMax - 1e-9)
+                return true;
+            if (secondMax < firstMax - 1e-9)
+                return false;
+
+            return firstA + firstB <= secondA + secondB;
         }
 
-        // Piece B: shoulder strip/fan (boundary → shoulder)
-        for (int i = 0; i < targetCount; i++)
+        // Piece A: pad top. Use a constrained triangulation with every sampled pad
+        // edge as a segment so the flat top shares vertices with the shoulder without
+        // collapsing to a single center fan.
+        bool padTopBuilt = TryEmitConstrainedPadTop();
+        if (!padTopBuilt)
         {
-            int next = (i + 1) % targetCount;
-            int pa = GetVertex(boundaryLoopXy[i * 2],     boundaryLoopXy[i * 2 + 1],     boundaryLoopZ[i]);
-            int pb = GetVertex(boundaryLoopXy[next * 2],  boundaryLoopXy[next * 2 + 1],  boundaryLoopZ[next]);
-            int sa = GetVertex(shoulderLoopXy[i * 2],     shoulderLoopXy[i * 2 + 1],     shoulderLoopZ[i]);
-            int sb = GetVertex(shoulderLoopXy[next * 2],  shoulderLoopXy[next * 2 + 1],  shoulderLoopZ[next]);
+            var padTopPoly = new Polygon(targetCount);
+            var padTopVerts = new Vertex[targetCount];
+            for (int i = 0; i < targetCount; i++)
+                padTopVerts[i] = new Vertex(boundaryLoopXy[i * 2], boundaryLoopXy[i * 2 + 1]) { ID = i };
+            padTopPoly.Add(new Contour(padTopVerts), false);
 
-            if (pa == pb)
+            IMesh? padTop = null;
+            try
             {
-                EmitTri(pa, sa, sb);
+                padTop = TriangulationHelper.TriangulatePolygon(
+                    padTopPoly,
+                    new ConstraintOptions { ConformingDelaunay = false, Convex = false, SegmentSplitting = 0 },
+                    null);
             }
-            else
+            catch { /* fallback: no pad top triangles */ }
+
+            if (padTop != null)
             {
-                EmitTri(pa, pb, sb);
-                EmitTri(pa, sb, sa);
+                var padTopExt = TriangleNetExtractor.Extract(padTop);
+                var padTopIdxMap = new int[padTopExt.VertexCount];
+                for (int i = 0; i < padTopExt.VertexCount; i++)
+                {
+                    double x = padTopExt.Xy[i * 2];
+                    double y = padTopExt.Xy[i * 2 + 1];
+                    padTopIdxMap[i] = GetVertex(x, y, pad.EvaluateZ(x, y));
+                }
+                for (int f = 0; f < padTopExt.FaceCount; f++)
+                    EmitTri(padTopIdxMap[padTopExt.Faces[f * 3]],
+                            padTopIdxMap[padTopExt.Faces[f * 3 + 1]],
+                            padTopIdxMap[padTopExt.Faces[f * 3 + 2]]);
             }
         }
 
-        // Piece C: topology band (shoulder → seam), only when seam differs from shoulder
+        // Piece B: shoulder strip/fan (boundary -> shoulder)
+        int shoulderRowCount = DeterminePadShoulderRowCount(boundaryLoopXy, shoulderLoopXy, targetCount, tolerance);
+        for (int row = 0; row < shoulderRowCount - 1; row++)
+        {
+            double t0 = (double)row / (shoulderRowCount - 1);
+            double t1 = (double)(row + 1) / (shoulderRowCount - 1);
+            for (int i = 0; i < targetCount; i++)
+            {
+                int next = (i + 1) % targetCount;
+                int a0 = GetVertex(
+                    LerpValue(boundaryLoopXy[i * 2], shoulderLoopXy[i * 2], t0),
+                    LerpValue(boundaryLoopXy[i * 2 + 1], shoulderLoopXy[i * 2 + 1], t0),
+                    LerpValue(boundaryLoopZ[i], shoulderLoopZ[i], t0));
+                int b0 = GetVertex(
+                    LerpValue(boundaryLoopXy[next * 2], shoulderLoopXy[next * 2], t0),
+                    LerpValue(boundaryLoopXy[next * 2 + 1], shoulderLoopXy[next * 2 + 1], t0),
+                    LerpValue(boundaryLoopZ[next], shoulderLoopZ[next], t0));
+                int a1 = GetVertex(
+                    LerpValue(boundaryLoopXy[i * 2], shoulderLoopXy[i * 2], t1),
+                    LerpValue(boundaryLoopXy[i * 2 + 1], shoulderLoopXy[i * 2 + 1], t1),
+                    LerpValue(boundaryLoopZ[i], shoulderLoopZ[i], t1));
+                int b1 = GetVertex(
+                    LerpValue(boundaryLoopXy[next * 2], shoulderLoopXy[next * 2], t1),
+                    LerpValue(boundaryLoopXy[next * 2 + 1], shoulderLoopXy[next * 2 + 1], t1),
+                    LerpValue(boundaryLoopZ[next], shoulderLoopZ[next], t1));
+
+                double firstDelta0 = TriangleSlopeDelta(a0, b0, b1);
+                double firstDelta1 = TriangleSlopeDelta(a0, b1, a1);
+                double secondDelta0 = TriangleSlopeDelta(a0, b0, a1);
+                double secondDelta1 = TriangleSlopeDelta(b0, b1, a1);
+                if (FirstDiagonalIsBetter(firstDelta0, firstDelta1, secondDelta0, secondDelta1))
+                {
+                    EmitTri(a0, b0, b1);
+                    EmitTri(a0, b1, a1);
+                }
+                else
+                {
+                    EmitTri(a0, b0, a1);
+                    EmitTri(b0, b1, a1);
+                }
+            }
+        }
+
+        // Piece C: topology band (shoulder -> seam), only when seam differs from shoulder
         if (usesTopologyBand)
         {
             for (int i = 0; i < targetCount; i++)
@@ -983,11 +2562,156 @@ public static class PadGrader
                 int fb = GetVertex(seamLoopXy[next * 2],      seamLoopXy[next * 2 + 1],      seamLoopZ[next]);
                 EmitTri(na, nb, fb);
                 EmitTri(na, fb, fa);
+                if (EdgeUseCount(fa, fb) == 0)
+                {
+                    if (!EmitTri(fa, fb, na))
+                        EmitTri(fa, fb, nb);
+                }
+            }
+        }
+
+        bool TryEmitConstrainedPadTop()
+        {
+            if (targetCount < 3)
+                return false;
+
+            var polygon = new Polygon(targetCount);
+            var vertices = new Vertex[targetCount];
+            for (int i = 0; i < targetCount; i++)
+            {
+                vertices[i] = new Vertex(boundaryLoopXy[i * 2], boundaryLoopXy[i * 2 + 1]) { ID = i };
+                polygon.Add(vertices[i]);
+            }
+
+            for (int i = 0; i < targetCount; i++)
+            {
+                int next = (i + 1) % targetCount;
+                polygon.Add(new Segment(vertices[i], vertices[next], 1), false);
+            }
+
+            AddPadTopGuideVertices(polygon, boundaryLoopXy, targetCount, tolerance);
+
+            IMesh mesh;
+            try
+            {
+                mesh = TriangulationHelper.TriangulatePolygon(
+                    polygon,
+                    new ConstraintOptions { ConformingDelaunay = false, Convex = false, SegmentSplitting = 0 },
+                    null);
+            }
+            catch
+            {
+                return false;
+            }
+
+            var extracted = TriangleNetExtractor.Extract(mesh);
+            if (extracted.FaceCount == 0)
+                return false;
+
+            var topIndexMap = new int[extracted.VertexCount];
+            for (int i = 0; i < extracted.VertexCount; i++)
+            {
+                double x = extracted.Xy[i * 2];
+                double y = extracted.Xy[i * 2 + 1];
+                topIndexMap[i] = GetVertex(x, y, pad.EvaluateZ(x, y));
+            }
+
+            for (int f = 0; f < extracted.FaceCount; f++)
+            {
+                EmitTri(
+                    topIndexMap[extracted.Faces[f * 3]],
+                    topIndexMap[extracted.Faces[f * 3 + 1]],
+                    topIndexMap[extracted.Faces[f * 3 + 2]]);
+            }
+
+            return true;
+        }
+
+        void AddPadTopGuideVertices(Polygon polygon, double[] loopXy, int loopVertexCount, double tol)
+        {
+            if (loopVertexCount < 3)
+                return;
+
+            double minX = double.MaxValue;
+            double maxX = double.MinValue;
+            double minY = double.MaxValue;
+            double maxY = double.MinValue;
+            double perimeter = 0.0;
+            for (int i = 0; i < loopVertexCount; i++)
+            {
+                int next = (i + 1) % loopVertexCount;
+                double x = loopXy[i * 2];
+                double y = loopXy[i * 2 + 1];
+                minX = Math.Min(minX, x);
+                maxX = Math.Max(maxX, x);
+                minY = Math.Min(minY, y);
+                maxY = Math.Max(maxY, y);
+                perimeter += Math.Sqrt(DistanceSquaredXY(
+                    x,
+                    y,
+                    loopXy[next * 2],
+                    loopXy[next * 2 + 1]));
+            }
+
+            double averageEdgeLength = perimeter / loopVertexCount;
+            double spacing = Math.Max(tol * 64.0, averageEdgeLength * 2.0);
+            if (!double.IsFinite(spacing) || spacing <= tol)
+                return;
+
+            int maxGuideCount = 256;
+            int added = 0;
+            int startId = polygon.Points.Count;
+            for (double y = minY + spacing; y < maxY - spacing * 0.5 && added < maxGuideCount; y += spacing)
+            {
+                for (double x = minX + spacing; x < maxX - spacing * 0.5 && added < maxGuideCount; x += spacing)
+                {
+                    if (!PointInPolygon(x, y, loopXy, loopVertexCount))
+                        continue;
+                    if (DistToPolygon(x, y, loopXy, loopVertexCount) <= spacing * 0.35)
+                        continue;
+
+                    polygon.Add(new Vertex(x, y) { ID = startId + added });
+                    added++;
+                }
             }
         }
 
         double[] verts = vertexList.ToArray();
         return (verts, verts.Length / 3, faceList.ToArray(), faceList.Count / 3);
+    }
+
+    private static int DeterminePadShoulderRowCount(
+        double[] boundaryLoopXy,
+        double[] shoulderLoopXy,
+        int vertexCount,
+        double tolerance)
+    {
+        double maxReach = 0.0;
+        double perimeter = 0.0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int next = (i + 1) % vertexCount;
+            double reach = Math.Sqrt(DistanceSquaredXY(
+                boundaryLoopXy[i * 2],
+                boundaryLoopXy[i * 2 + 1],
+                shoulderLoopXy[i * 2],
+                shoulderLoopXy[i * 2 + 1]));
+            maxReach = Math.Max(maxReach, reach);
+
+            perimeter += Math.Sqrt(DistanceSquaredXY(
+                boundaryLoopXy[i * 2],
+                boundaryLoopXy[i * 2 + 1],
+                boundaryLoopXy[next * 2],
+                boundaryLoopXy[next * 2 + 1]));
+        }
+
+        if (maxReach <= tolerance * 16.0)
+            return 2;
+
+        double averageEdgeLength = vertexCount > 0 ? perimeter / vertexCount : maxReach;
+        double targetSpacing = Math.Max(tolerance * 64.0, averageEdgeLength * 0.75);
+        int intermediateRows = Math.Clamp((int)Math.Ceiling(maxReach / targetSpacing) - 1, 0, 4);
+        return intermediateRows + 2;
     }
 
     private static int AddCornerConstraintSegments(
@@ -1174,6 +2898,7 @@ public static class PadGrader
     private static bool TryBuildAlignedPadPatchLoops(
         FaceGrid terrainFaceGrid,
         PreparedPadSections prepared,
+        double[] daylightLoopXy,
         double[] seamLoopXy,
         double tolerance,
         out double[] boundaryLoopXy,
@@ -1192,7 +2917,7 @@ public static class PadGrader
         alignedSeamLoopXy = Array.Empty<double>();
         seamLoopZ = Array.Empty<double>();
 
-        double[] alignedSeam = AlignClosedLoopToReference(seamLoopXy, prepared.ShoulderXy, tolerance);
+        double[] alignedSeam = AlignClosedLoopToReference(seamLoopXy, daylightLoopXy, tolerance);
         int targetCount = alignedSeam.Length / 2;
         if (targetCount < 3)
         {
@@ -1207,33 +2932,82 @@ public static class PadGrader
         shoulderLoopZ = new double[targetCount];
         seamLoopZ = new double[targetCount];
 
+        int daylightVertexCount = daylightLoopXy.Length / 2;
+        bool loopsShareSampleCount = daylightVertexCount == targetCount;
         for (int i = 0; i < targetCount; i++)
         {
             double sx = alignedSeam[i * 2];
             double sy = alignedSeam[i * 2 + 1];
             seamLoopZ[i] = terrainFaceGrid.InterpolateZ(sx, sy);
 
-            if (!TryFindClosestLoopLocation(prepared.ShoulderXy, prepared.BoundaryVertexCount, sx, sy, out ClosestLoopLocation closest) ||
-                !TryInterpolatePadSection(
-                    prepared,
-                    closest,
-                    out double boundaryX,
-                    out double boundaryY,
-                    out double boundaryZ,
-                    out double shoulderX,
-                    out double shoulderY,
-                    out double shoulderZ))
+            double daylightX;
+            double daylightY;
+            double boundaryX;
+            double boundaryY;
+            double boundaryZ;
+            double sectionShoulderZ;
+
+            if (loopsShareSampleCount)
             {
-                errorMessage = "Grade Pad explicit patch could not project the stitch seam back onto the grading sections.";
-                return false;
+                daylightX = daylightLoopXy[i * 2];
+                daylightY = daylightLoopXy[i * 2 + 1];
+                sectionShoulderZ = terrainFaceGrid.InterpolateZ(daylightX, daylightY);
+                if (prepared.BoundaryVertexCount == targetCount)
+                {
+                    boundaryX = prepared.BoundaryLoopXy[i * 2];
+                    boundaryY = prepared.BoundaryLoopXy[i * 2 + 1];
+                    boundaryZ = prepared.Pad.EvaluateZ(boundaryX, boundaryY);
+                    sectionShoulderZ = prepared.ShoulderZ[i];
+                }
+                else
+                {
+                    double stationFraction = ComputeLoopVertexStationFraction(alignedSeam, targetCount, i);
+                    if (!TrySampleLoopAtFraction(prepared.BoundaryLoopXy, prepared.BoundaryVertexCount, stationFraction, out boundaryX, out boundaryY))
+                    {
+                        errorMessage = "Grade Pad explicit patch could not project the stitch seam back onto the grading sections.";
+                        return false;
+                    }
+
+                    boundaryZ = prepared.Pad.EvaluateZ(boundaryX, boundaryY);
+                    sectionShoulderZ = EvaluatePreparedPadBatterPlaneZ(
+                        prepared,
+                        daylightX,
+                        daylightY,
+                        sectionShoulderZ,
+                        tolerance);
+                }
+            }
+            else
+            {
+                double stationFraction = ComputeLoopVertexStationFraction(alignedSeam, targetCount, i);
+                if (!TrySampleLoopAtFraction(daylightLoopXy, daylightVertexCount, stationFraction, out daylightX, out daylightY))
+                {
+                    errorMessage = "Grade Pad explicit patch could not project the stitch seam back onto the daylight shoulder.";
+                    return false;
+                }
+
+                if (!TrySampleLoopAtFraction(prepared.BoundaryLoopXy, prepared.BoundaryVertexCount, stationFraction, out boundaryX, out boundaryY))
+                {
+                    errorMessage = "Grade Pad explicit patch could not project the stitch seam back onto the grading sections.";
+                    return false;
+                }
+
+                boundaryZ = prepared.Pad.EvaluateZ(boundaryX, boundaryY);
+                sectionShoulderZ = terrainFaceGrid.InterpolateZ(daylightX, daylightY);
+                sectionShoulderZ = EvaluatePreparedPadBatterPlaneZ(
+                    prepared,
+                    daylightX,
+                    daylightY,
+                    sectionShoulderZ,
+                    tolerance);
             }
 
             boundaryLoopXy[i * 2] = boundaryX;
             boundaryLoopXy[i * 2 + 1] = boundaryY;
             boundaryLoopZ[i] = boundaryZ;
-            shoulderLoopXy[i * 2] = shoulderX;
-            shoulderLoopXy[i * 2 + 1] = shoulderY;
-            shoulderLoopZ[i] = shoulderZ;
+            shoulderLoopXy[i * 2] = daylightX;
+            shoulderLoopXy[i * 2 + 1] = daylightY;
+            shoulderLoopZ[i] = sectionShoulderZ;
         }
 
         return true;
@@ -1276,6 +3050,107 @@ public static class PadGrader
         return LerpValue(innerZ, outerZ, projectedT);
     }
 
+    private static double ComputeLoopStationFraction(double[] loopXy, int vertexCount, ClosestLoopLocation location)
+    {
+        if (vertexCount < 2)
+            return 0.0;
+
+        double perimeter = 0.0;
+        double station = 0.0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int next = (i + 1) % vertexCount;
+            double segmentLength = Math.Sqrt(DistanceSquaredXY(
+                loopXy[i * 2],
+                loopXy[i * 2 + 1],
+                loopXy[next * 2],
+                loopXy[next * 2 + 1]));
+            if (i < location.SegmentIndex)
+                station += segmentLength;
+            else if (i == location.SegmentIndex)
+                station += segmentLength * Math.Clamp(location.SegmentT, 0.0, 1.0);
+
+            perimeter += segmentLength;
+        }
+
+        return perimeter <= 1e-12 ? 0.0 : Math.Clamp(station / perimeter, 0.0, 1.0);
+    }
+
+    private static double ComputeLoopVertexStationFraction(double[] loopXy, int vertexCount, int vertexIndex)
+    {
+        if (vertexCount < 2)
+            return 0.0;
+
+        int clampedVertexIndex = Math.Clamp(vertexIndex, 0, vertexCount - 1);
+        double perimeter = 0.0;
+        double station = 0.0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int next = (i + 1) % vertexCount;
+            double segmentLength = Math.Sqrt(DistanceSquaredXY(
+                loopXy[i * 2],
+                loopXy[i * 2 + 1],
+                loopXy[next * 2],
+                loopXy[next * 2 + 1]));
+            if (i < clampedVertexIndex)
+                station += segmentLength;
+
+            perimeter += segmentLength;
+        }
+
+        return perimeter <= 1e-12 ? 0.0 : Math.Clamp(station / perimeter, 0.0, 1.0);
+    }
+
+    private static bool TrySampleLoopAtFraction(double[] loopXy, int vertexCount, double stationFraction, out double x, out double y)
+    {
+        x = 0.0;
+        y = 0.0;
+        if (vertexCount < 2)
+            return false;
+
+        double perimeter = 0.0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int next = (i + 1) % vertexCount;
+            perimeter += Math.Sqrt(DistanceSquaredXY(
+                loopXy[i * 2],
+                loopXy[i * 2 + 1],
+                loopXy[next * 2],
+                loopXy[next * 2 + 1]));
+        }
+
+        if (perimeter <= 1e-12)
+            return false;
+
+        double targetStation = Math.Clamp(stationFraction, 0.0, 1.0) * perimeter;
+        double accumulated = 0.0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int next = (i + 1) % vertexCount;
+            double ax = loopXy[i * 2];
+            double ay = loopXy[i * 2 + 1];
+            double bx = loopXy[next * 2];
+            double by = loopXy[next * 2 + 1];
+            double segmentLength = Math.Sqrt(DistanceSquaredXY(ax, ay, bx, by));
+            if (segmentLength <= 1e-12)
+                continue;
+
+            if (accumulated + segmentLength >= targetStation || i == vertexCount - 1)
+            {
+                double t = Math.Clamp((targetStation - accumulated) / segmentLength, 0.0, 1.0);
+                x = LerpValue(ax, bx, t);
+                y = LerpValue(ay, by, t);
+                return true;
+            }
+
+            accumulated += segmentLength;
+        }
+
+        x = loopXy[0];
+        y = loopXy[1];
+        return true;
+    }
+
     private static bool IsFoldDirectionAtCorner(PreparedPadSections prepared, int vertexIndex, double tolerance)
     {
         int count = prepared.BoundaryVertexCount;
@@ -1288,7 +3163,7 @@ public static class PadGrader
         fx /= fLen;
         fy /= fLen;
 
-        const double cosThreshold = 0.94; // ~20° deviation threshold
+        const double cosThreshold = 0.94; // about 20 degrees
         int prev = (vertexIndex - 1 + count) % count;
         int next = (vertexIndex + 1) % count;
 
@@ -2114,6 +3989,8 @@ public static class PadGrader
         double slopeSumDeg = 0.0;
         double targetSlopeDeg = prepared.Pad.SlopeAngleDeg;
         double toleranceSquared = tolerance * tolerance;
+        double maxSlopeX = 0.0;
+        double maxSlopeY = 0.0;
 
         for (int faceIndex = 0; faceIndex < patch.FaceCount; faceIndex++)
         {
@@ -2153,7 +4030,12 @@ public static class PadGrader
             double horizontal = Math.Sqrt((nx * nx) + (ny * ny));
             double slopeDeg = Math.Atan2(horizontal, Math.Abs(nz)) * 180.0 / Math.PI;
             minSlopeDeg = Math.Min(minSlopeDeg, slopeDeg);
-            maxSlopeDeg = Math.Max(maxSlopeDeg, slopeDeg);
+            if (slopeDeg > maxSlopeDeg)
+            {
+                maxSlopeDeg = slopeDeg;
+                maxSlopeX = cx;
+                maxSlopeY = cy;
+            }
             slopeSumDeg += slopeDeg;
             measuredFaceCount++;
         }
@@ -2171,7 +4053,7 @@ public static class PadGrader
         if (maxDeltaDeg > 5.0)
         {
             diagnostics.Add(
-                $"Grade Pad[{padIndex}] batter slope warning: output deviates from target by up to {maxDeltaDeg:F2} deg; inspect clipped daylight, nearby pads, or terrain-boundary stitching.");
+                $"Grade Pad[{padIndex}] batter slope warning: output deviates from target by up to {maxDeltaDeg:F2} deg near ({maxSlopeX:F3}, {maxSlopeY:F3}); inspect clipped daylight, nearby pads, or terrain-boundary stitching.");
         }
 
         return diagnostics.ToArray();
@@ -2293,6 +4175,54 @@ public static class PadGrader
         return boundaryNearLoop;
     }
 
+    private static int CountInteriorBoundaryEdgesNearLoop(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        double[] seamLoopXy,
+        double seamTolerance,
+        double[]? terrainBoundaryLoop,
+        double terrainBoundaryTolerance)
+    {
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3];
+            int b = faces[f * 3 + 1];
+            int c = faces[f * 3 + 2];
+            IncrEdge(edgeFaceCount, a, b);
+            IncrEdge(edgeFaceCount, b, c);
+            IncrEdge(edgeFaceCount, c, a);
+        }
+
+        int interiorBoundaryNearLoop = 0;
+        int seamVertexCount = seamLoopXy.Length / 2;
+        int terrainBoundaryVertexCount = terrainBoundaryLoop?.Length / 2 ?? 0;
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            double mx = (vertices[a * 3] + vertices[b * 3]) * 0.5;
+            double my = (vertices[a * 3 + 1] + vertices[b * 3 + 1]) * 0.5;
+            if (DistToPolygon(mx, my, seamLoopXy, seamVertexCount) > seamTolerance)
+                continue;
+
+            if (terrainBoundaryLoop != null &&
+                terrainBoundaryVertexCount >= 3 &&
+                DistToPolygon(mx, my, terrainBoundaryLoop, terrainBoundaryVertexCount) <= terrainBoundaryTolerance)
+            {
+                continue;
+            }
+
+            interiorBoundaryNearLoop++;
+        }
+
+        return interiorBoundaryNearLoop;
+    }
+
     private static int CountBoundaryEdgesAwayFromLoop(
         double[] vertices,
         int[] faces,
@@ -2328,11 +4258,113 @@ public static class PadGrader
         return boundaryAwayFromLoop;
     }
 
+    private static int CountBoundaryEdgesAwayFromReferenceBoundary(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        double[] referenceVertices,
+        int[] referenceFaces,
+        int referenceFaceCount,
+        double distanceTolerance)
+    {
+        var referenceBoundarySegments = BuildBoundarySegments(referenceVertices, referenceFaces, referenceFaceCount);
+        if (referenceBoundarySegments.Count == 0)
+            return 0;
+
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3];
+            int b = faces[f * 3 + 1];
+            int c = faces[f * 3 + 2];
+            IncrEdge(edgeFaceCount, a, b);
+            IncrEdge(edgeFaceCount, b, c);
+            IncrEdge(edgeFaceCount, c, a);
+        }
+
+        double toleranceSquared = distanceTolerance * distanceTolerance;
+        int boundaryAway = 0;
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            double mx = (vertices[a * 3] + vertices[b * 3]) * 0.5;
+            double my = (vertices[a * 3 + 1] + vertices[b * 3 + 1]) * 0.5;
+            bool nearReferenceBoundary = false;
+            for (int i = 0; i < referenceBoundarySegments.Count; i++)
+            {
+                var segment = referenceBoundarySegments[i];
+                if (DistanceSquaredPointToSegment(mx, my, segment.Ax, segment.Ay, segment.Bx, segment.By) <= toleranceSquared)
+                {
+                    nearReferenceBoundary = true;
+                    break;
+                }
+            }
+
+            if (!nearReferenceBoundary)
+                boundaryAway++;
+        }
+
+        return boundaryAway;
+    }
+
+    private static List<(double Ax, double Ay, double Bx, double By)> BuildBoundarySegments(
+        double[] vertices,
+        int[] faces,
+        int faceCount)
+    {
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3];
+            int b = faces[f * 3 + 1];
+            int c = faces[f * 3 + 2];
+            IncrEdge(edgeFaceCount, a, b);
+            IncrEdge(edgeFaceCount, b, c);
+            IncrEdge(edgeFaceCount, c, a);
+        }
+
+        var segments = new List<(double Ax, double Ay, double Bx, double By)>();
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            segments.Add((
+                vertices[a * 3],
+                vertices[a * 3 + 1],
+                vertices[b * 3],
+                vertices[b * 3 + 1]));
+        }
+
+        return segments;
+    }
+
     private static double DistanceSquaredXY(double ax, double ay, double bx, double by)
     {
         double dx = ax - bx;
         double dy = ay - by;
         return (dx * dx) + (dy * dy);
+    }
+
+    private static double DistanceSquaredPointToSegment(double px, double py, double ax, double ay, double bx, double by)
+    {
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lenSq = (dx * dx) + (dy * dy);
+        if (lenSq <= 1e-16)
+            return DistanceSquaredXY(px, py, ax, ay);
+
+        double t = (((px - ax) * dx) + ((py - ay) * dy)) / lenSq;
+        t = Math.Clamp(t, 0.0, 1.0);
+        double qx = ax + (t * dx);
+        double qy = ay + (t * dy);
+        return DistanceSquaredXY(px, py, qx, qy);
     }
 
     private static double DistanceSquaredXY(double[] vertices, int firstIndex, int secondIndex)
@@ -2433,6 +4465,34 @@ public static class PadGrader
         return TryExtractAreaMeshes(split, index => index == areaIndex, out vertices, out vertexCount, out faces, out faceCount);
     }
 
+    private static bool TryExtractMeshesByLoopContainment(
+        MeshAreaSplitter.SplitResult split,
+        double[] loopXy,
+        bool includeInside,
+        double tolerance,
+        out double[] vertices,
+        out int vertexCount,
+        out int[] faces,
+        out int faceCount)
+    {
+        int loopVertexCount = loopXy.Length / 2;
+        var selectedFaces = new List<int>();
+        for (int faceIndex = 0; faceIndex < split.FaceCount; faceIndex++)
+        {
+            int i0 = split.Faces[faceIndex * 3];
+            int i1 = split.Faces[faceIndex * 3 + 1];
+            int i2 = split.Faces[faceIndex * 3 + 2];
+            double cx = (split.Vertices[i0 * 3] + split.Vertices[i1 * 3] + split.Vertices[i2 * 3]) / 3.0;
+            double cy = (split.Vertices[i0 * 3 + 1] + split.Vertices[i1 * 3 + 1] + split.Vertices[i2 * 3 + 1]) / 3.0;
+            bool inside = PointInPolygon(cx, cy, loopXy, loopVertexCount) ||
+                          DistToPolygon(cx, cy, loopXy, loopVertexCount) <= tolerance;
+            if (includeInside ? inside : !inside)
+                selectedFaces.Add(faceIndex);
+        }
+
+        return ExtractSelectedFaces(split, selectedFaces, out vertices, out vertexCount, out faces, out faceCount);
+    }
+
     private static bool TryExtractAreaMeshes(
         MeshAreaSplitter.SplitResult split,
         Func<int, bool> includeArea,
@@ -2448,6 +4508,17 @@ public static class PadGrader
                 selectedFaces.Add(faceIndex);
         }
 
+        return ExtractSelectedFaces(split, selectedFaces, out vertices, out vertexCount, out faces, out faceCount);
+    }
+
+    private static bool ExtractSelectedFaces(
+        MeshAreaSplitter.SplitResult split,
+        List<int> selectedFaces,
+        out double[] vertices,
+        out int vertexCount,
+        out int[] faces,
+        out int faceCount)
+    {
         if (selectedFaces.Count == 0)
         {
             vertices = Array.Empty<double>();
@@ -2590,13 +4661,8 @@ public static class PadGrader
             if (sectionReach <= 1e-9 || closest.Distance > sectionReach + tolerance)
                 continue;
 
-            double candidateZ = EvaluatePreparedPadBatterPlaneZ(
-                prepared,
-                px,
-                py,
-                boundaryZ + ((shoulderZ - boundaryZ) * Math.Clamp(closest.Distance / sectionReach, 0.0, 1.0)),
-                tolerance);
-            if (Math.Abs(candidateZ - originalVertices[i * 3 + 2]) > GradingTolerances.VertexAdjustmentZTolerance)
+            double candidateZ = boundaryZ + ((shoulderZ - boundaryZ) * Math.Clamp(closest.Distance / sectionReach, 0.0, 1.0));
+            if (Math.Abs(candidateZ - originalVertices[i * 3 + 2]) > GradingTolerances.VertexAdjustmentZTolerance(tolerance))
                 gradedVertices[i * 3 + 2] = candidateZ;
         }
     }
@@ -2682,6 +4748,157 @@ public static class PadGrader
         return true;
     }
 
+    private static bool TryBuildSeamLoopByReferenceProjection(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        double[] referenceLoopXy,
+        double tolerance,
+        out double[] seamLoopXy)
+    {
+        seamLoopXy = Array.Empty<double>();
+        int referenceVertexCount = referenceLoopXy.Length / 2;
+        if (referenceVertexCount < 3)
+            return false;
+
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3];
+            int b = faces[f * 3 + 1];
+            int c = faces[f * 3 + 2];
+            IncrEdge(edgeFaceCount, a, b);
+            IncrEdge(edgeFaceCount, b, c);
+            IncrEdge(edgeFaceCount, c, a);
+        }
+
+        double nearTolerance = Math.Max(tolerance * 8.0, 1e-6);
+        var candidates = new List<(double Station, double X, double Y)>();
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            double ax = vertices[a * 3];
+            double ay = vertices[a * 3 + 1];
+            double bx = vertices[b * 3];
+            double by = vertices[b * 3 + 1];
+            double mx = (ax + bx) * 0.5;
+            double my = (ay + by) * 0.5;
+            if (DistToPolygon(mx, my, referenceLoopXy, referenceVertexCount) > nearTolerance)
+                continue;
+
+            AddProjectedCandidate(ax, ay);
+            AddProjectedCandidate(bx, by);
+        }
+
+        if (candidates.Count < 3)
+            return false;
+
+        candidates.Sort(static (left, right) => left.Station.CompareTo(right.Station));
+        var ordered = new List<double>(candidates.Count * 2);
+        foreach (var candidate in candidates)
+        {
+            if (ordered.Count >= 2 &&
+                DistanceSquaredXY(ordered[^2], ordered[^1], candidate.X, candidate.Y) <= tolerance * tolerance)
+            {
+                continue;
+            }
+
+            ordered.Add(candidate.X);
+            ordered.Add(candidate.Y);
+        }
+
+        if (ordered.Count >= 4 &&
+            DistanceSquaredXY(ordered[0], ordered[1], ordered[^2], ordered[^1]) <= tolerance * tolerance)
+        {
+            ordered.RemoveRange(ordered.Count - 2, 2);
+        }
+
+        if (ordered.Count / 2 < 3)
+            return false;
+
+        seamLoopXy = ordered.ToArray();
+        return true;
+
+        void AddProjectedCandidate(double x, double y)
+        {
+            if (!TryFindClosestLoopLocation(referenceLoopXy, referenceVertexCount, x, y, out ClosestLoopLocation closest) ||
+                closest.Distance > nearTolerance)
+            {
+                return;
+            }
+
+            double station = ComputeLoopStationFraction(referenceLoopXy, referenceVertexCount, closest);
+            candidates.Add((station, x, y));
+        }
+    }
+
+    private static bool TryMergePatchWithOutsideTerrain(
+        double[] outsideVertices,
+        int outsideVertexCount,
+        int[] outsideFaces,
+        int outsideFaceCount,
+        PatchMeshResult patch,
+        double[] seamLoopXy,
+        double[]? terrainBoundaryLoop,
+        double tolerance,
+        bool rejectInteriorSeamBoundaryEdges,
+        out double[] mergedVertices,
+        out int mergedVertexCount,
+        out int[] mergedFaces,
+        out int mergedFaceCount,
+        out string? failureReason)
+    {
+        failureReason = null;
+        double mergeTolerance = tolerance * 4.0;
+        MergeMeshes(
+            patch.Vertices,
+            patch.VertexCount,
+            patch.Faces,
+            patch.FaceCount,
+            outsideVertices,
+            outsideVertexCount,
+            outsideFaces,
+            outsideFaceCount,
+            mergeTolerance,
+            out mergedVertices,
+            out mergedVertexCount,
+            out mergedFaces,
+            out mergedFaceCount);
+
+        if (rejectInteriorSeamBoundaryEdges)
+        {
+            int interiorBoundaryEdgesNearSeam = CountInteriorBoundaryEdgesNearLoop(
+                mergedVertices,
+                mergedFaces,
+                mergedFaceCount,
+                seamLoopXy,
+                tolerance * 4.0,
+                terrainBoundaryLoop,
+                tolerance * 8.0);
+            if (interiorBoundaryEdgesNearSeam > 0)
+            {
+                failureReason = $"{interiorBoundaryEdgesNearSeam} interior seam-adjacent naked edge(s)";
+                return false;
+            }
+        }
+
+        if (terrainBoundaryLoop != null)
+        {
+            int interiorNakedEdges = CountBoundaryEdgesAwayFromLoop(mergedVertices, mergedFaces, mergedFaceCount, terrainBoundaryLoop, tolerance * 8.0);
+            if (interiorNakedEdges > 200)
+            {
+                failureReason = $"{interiorNakedEdges} interior naked edge(s)";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static void MergeMeshes(
         double[] firstVertices,
         int firstVertexCount,
@@ -2707,7 +4924,6 @@ public static class PadGrader
             int near = vertHash.FindNearest(xyList, x, y, tolerance);
             if (near >= 0)
             {
-                zList[near] = z;
                 return near;
             }
 
@@ -2922,9 +5138,10 @@ public static class PadGrader
         int[] faces,
         int faceCount,
         PadBoundary[] pads,
-        LockCurve[]? lockCurves)
+        LockCurve[]? lockCurves,
+        double modelTolerance = GradingTolerances.DefaultModelTolerance)
     {
-        const double dedupTol = 1e-3;
+        double dedupTol = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
         if (!ValidatePads(pads, out _))
         {
             return new ConstraintSet
@@ -2938,7 +5155,7 @@ public static class PadGrader
         pads = OrderPadsForOwnership(pads);
 
         bool hasBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(pads.Length * 2 + (lockCurves?.Length ?? 0));
+        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(pads.Length * 3 + (lockCurves?.Length ?? 0));
         var diagnostics = new List<string>();
         double suggestedEdgeLength = double.MaxValue;
         var coincidenceSnapper = new ConstraintCoincidenceSnapper(
@@ -2946,7 +5163,7 @@ public static class PadGrader
             vertexCount,
             faces,
             faceCount,
-            Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance));
+            Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)));
 
         var faceGridForConstraints = new FaceGrid(vertices, vertexCount, faces, faceCount);
         foreach (var pad in pads)
@@ -2980,6 +5197,28 @@ public static class PadGrader
                     PreserveInputElevation: false));
                 suggestedEdgeLength = Math.Min(suggestedEdgeLength, segmentLength);
                 suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, shoulderXy, shoulderVertexCount, stride: 2, isClosed: true);
+
+                if (TryBuildProtectedStitchLoop(
+                        shoulderXy,
+                        pad.StitchApronDistance,
+                        hasBoundaryLoop ? boundaryLoop : null,
+                        hasBoundaryLoop ? boundaryVertexCount : 0,
+                        dedupTol,
+                        out double[] stitchXy,
+                        out string? stitchSkipReason))
+                {
+                    int stitchVertexCount = stitchXy.Length / 2;
+                    constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                        CreateConstraintPoints(stitchXy, stitchVertexCount),
+                        stitchVertexCount,
+                        IsClosed: true,
+                        PreserveInputElevation: false));
+                    suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, stitchXy, stitchVertexCount, stride: 2, isClosed: true);
+                }
+                else if (!string.IsNullOrWhiteSpace(stitchSkipReason))
+                {
+                    diagnostics.Add(stitchSkipReason!);
+                }
             }
             else if (!string.IsNullOrWhiteSpace(skipReason))
             {
@@ -3085,7 +5324,7 @@ public static class PadGrader
             vertexCount,
             faces,
             faceCount,
-            Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance));
+            Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)));
 
         var vertHash = new SpatialHash(dedupTol);
 
@@ -3116,6 +5355,17 @@ public static class PadGrader
                 out _))
             {
                 controlledLoops.Add(shoulderXy);
+                if (TryBuildProtectedStitchLoop(
+                        shoulderXy,
+                        pad.StitchApronDistance,
+                        hasBoundaryLoop ? boundaryLoop : null,
+                        hasBoundaryLoop ? boundaryVertexCount : 0,
+                        dedupTol,
+                        out double[] stitchXy,
+                        out _))
+                {
+                    controlledLoops.Add(stitchXy);
+                }
             }
         }
 
@@ -3237,6 +5487,18 @@ public static class PadGrader
                 padBarriers,
                 padBarrierScratch,
                 padBarrierCandidates);
+            if (shoulderXy != null &&
+                TryBuildProtectedStitchLoop(
+                    shoulderXy,
+                    pad.StitchApronDistance,
+                    hasBoundaryLoop ? boundaryLoop : null,
+                    hasBoundaryLoop ? boundaryVertexCount : 0,
+                    dedupTol,
+                    out double[] stitchXy,
+                    out _))
+            {
+                AddClosedLoopSegments(stitchXy, stitchXy.Length / 2, AddVertex, segList);
+            }
         }
 
         if (lockCurves != null)
@@ -3358,7 +5620,8 @@ public static class PadGrader
         bool hasBoundaryLoop,
         double[] boundaryLoop,
         int boundaryVertexCount,
-        double tolerance)
+        double tolerance,
+        bool keepShoulderOnBatterPlane = false)
     {
         if (pads.Length == 0)
             return;
@@ -3380,7 +5643,8 @@ public static class PadGrader
                 hasBoundaryLoop,
                 boundaryLoop,
                 boundaryVertexCount,
-                tolerance);
+                tolerance,
+                keepShoulderOnBatterPlane);
             interiorBounds[i] = new Bounds2D(
                 preparedPads[i].MinX,
                 preparedPads[i].MaxX,
@@ -3419,7 +5683,8 @@ public static class PadGrader
                 return state;
 
             interiorIndex.GatherCandidates(Bounds2D.FromPoint(px, py), state.InteriorCandidates, state.InteriorScratch);
-            int insidePadIdx = -1;
+            bool insidePadTop = false;
+            double padTopZ = double.NegativeInfinity;
             foreach (int padIndex in state.InteriorCandidates)
             {
                 var prepared = preparedPads[padIndex];
@@ -3427,19 +5692,18 @@ public static class PadGrader
                     continue;
 
                 if (PointInPolygon(px, py, prepared.Pad.XyVertices, prepared.Pad.VertexCount))
-                    insidePadIdx = Math.Max(insidePadIdx, padIndex);
-            }
-
-            if (insidePadIdx >= 0)
-            {
-                gradedVertices[i * 3 + 2] = pads[insidePadIdx].EvaluateZ(px, py);
-                return state;
+                {
+                    padTopZ = Math.Max(padTopZ, pads[padIndex].EvaluateZ(px, py));
+                    insidePadTop = true;
+                }
             }
 
             influenceIndex.GatherCandidates(Bounds2D.FromPoint(px, py), state.InfluenceCandidates, state.InfluenceScratch);
             double nearestDistance = double.MaxValue;
             int nearestPadIdx = -1;
-            double nearestCandidateZ = 0.0;
+            double nearestCandidateZ = insidePadTop ? padTopZ : 0.0;
+            double highestCandidateZ = insidePadTop ? padTopZ : double.NegativeInfinity;
+            double zTolerance = GradingTolerances.VertexAdjustmentZTolerance(tolerance);
 
             foreach (int padIndex in state.InfluenceCandidates)
             {
@@ -3481,8 +5745,12 @@ public static class PadGrader
                 double normalizedDistance = Math.Clamp(closest.Distance / sectionReach, 0.0, 1.0);
                 double candidateZ = boundaryZ + ((shoulderZ - boundaryZ) * normalizedDistance);
                 candidateZ = ClampBetween(candidateZ, boundaryZ, shoulderZ);
-                if (Math.Abs(candidateZ - originalVertices[i * 3 + 2]) <= GradingTolerances.VertexAdjustmentZTolerance)
+                if (Math.Abs(candidateZ - originalVertices[i * 3 + 2]) <= GradingTolerances.VertexAdjustmentZTolerance(tolerance))
                     continue;
+                if (insidePadTop && candidateZ <= padTopZ + zTolerance)
+                    continue;
+
+                highestCandidateZ = Math.Max(highestCandidateZ, candidateZ);
 
                 if (closest.Distance < nearestDistance - 1e-12 ||
                     (Math.Abs(closest.Distance - nearestDistance) <= 1e-12 && padIndex > nearestPadIdx))
@@ -3494,7 +5762,9 @@ public static class PadGrader
             }
 
             if (nearestPadIdx >= 0)
-                gradedVertices[i * 3 + 2] = nearestCandidateZ;
+                gradedVertices[i * 3 + 2] = highestCandidateZ;
+            else if (insidePadTop)
+                gradedVertices[i * 3 + 2] = padTopZ;
 
             return state;
         }, _ => { });
@@ -3507,18 +5777,25 @@ public static class PadGrader
         bool hasBoundaryLoop,
         double[] boundaryLoop,
         int boundaryVertexCount,
-        double tolerance)
+        double tolerance,
+        bool keepShoulderOnBatterPlane = false)
     {
-        double[] initialDistances = ComputePadBoundaryDistances(pad.XyVertices, pad.VertexCount, faceGrid, pad);
+        double[] initialDistances = ComputePadBoundaryDistances(
+            pad.XyVertices,
+            pad.VertexCount,
+            faceGrid,
+            pad);
         double shoulderDistance = 0.0;
         foreach (double distance in initialDistances)
             shoulderDistance = Math.Max(shoulderDistance, distance);
 
         double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance);
         ConstraintLoop padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, tolerance);
-        double[] shoulderDistances = ComputePadBoundaryDistances(padLoop.XyVertices, padLoop.VertexCount, faceGrid, pad);
-        var shoulderXy = new double[padLoop.VertexCount * 2];
-        var shoulderZ = new double[padLoop.VertexCount];
+        double[] shoulderDistances = ComputePadBoundaryDistances(
+            padLoop.XyVertices,
+            padLoop.VertexCount,
+            faceGrid,
+            pad);
         double minX = double.MaxValue;
         double maxX = double.MinValue;
         double minY = double.MaxValue;
@@ -3528,12 +5805,40 @@ public static class PadGrader
         double influenceMinY = double.MaxValue;
         double influenceMaxY = double.MinValue;
 
-        bool hasShoulderLoop = TryBuildOffsetPolygon(
-            padLoop.XyVertices,
-            padLoop.VertexCount,
-            shoulderDistances,
-            out double[] targetShoulderXy,
-            out _);
+        int effectiveCornerFanSegments = pad.CornerFanSegments > 0
+            ? pad.CornerFanSegments
+            : (pad.StitchApronDistance > tolerance * 4.0 ? 6 : 0);
+        double[] targetBoundaryXy = padLoop.XyVertices;
+        double[] targetShoulderXy;
+        bool hasShoulderLoop;
+        if (effectiveCornerFanSegments > 0)
+        {
+            hasShoulderLoop = TryBuildExpandedOffsetPolygon(
+                padLoop.XyVertices,
+                padLoop.VertexCount,
+                shoulderDistances,
+                effectiveCornerFanSegments,
+                faceGrid,
+                pad,
+                out targetBoundaryXy,
+                out targetShoulderXy,
+                out _);
+        }
+        else
+        {
+            hasShoulderLoop = TryBuildOffsetPolygon(
+                padLoop.XyVertices,
+                padLoop.VertexCount,
+                shoulderDistances,
+                out targetShoulderXy,
+                out _);
+        }
+
+        if (hasShoulderLoop && !ReferenceEquals(targetBoundaryXy, padLoop.XyVertices))
+            padLoop = new ConstraintLoop(targetBoundaryXy, targetBoundaryXy.Length / 2);
+
+        var shoulderXy = new double[padLoop.VertexCount * 2];
+        var shoulderZ = new double[padLoop.VertexCount];
 
         for (int i = 0; i < padLoop.VertexCount; i++)
         {
@@ -3556,6 +5861,7 @@ public static class PadGrader
                     targetShoulderXy[i * 2 + 1],
                     out resolvedShoulderX,
                     out resolvedShoulderY);
+
             }
 
             shoulderXy[i * 2] = resolvedShoulderX;
@@ -3568,7 +5874,31 @@ public static class PadGrader
             }
             else
             {
-                shoulderZ[i] = faceGrid.InterpolateZ(resolvedShoulderX, resolvedShoulderY);
+                double terrainZ = faceGrid.InterpolateZ(resolvedShoulderX, resolvedShoulderY);
+                if (!keepShoulderOnBatterPlane)
+                {
+                    shoulderZ[i] = terrainZ;
+                }
+                else
+                {
+                    double branchSign = Math.Sign(terrainZ - boundaryZ);
+                    if (Math.Abs(branchSign) <= 1e-12)
+                    {
+                        shoulderZ[i] = boundaryZ;
+                    }
+                    else
+                    {
+                        double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
+                        double batterReach = DistToPolygon(
+                            resolvedShoulderX,
+                            resolvedShoulderY,
+                            padLoop.XyVertices,
+                            padLoop.VertexCount);
+                        if (batterReach <= tolerance)
+                            batterReach = actualReach;
+                        shoulderZ[i] = boundaryZ + (branchSign * slopeRatio * batterReach);
+                    }
+                }
             }
 
             if (boundaryX < minX) minX = boundaryX;
@@ -3896,7 +6226,7 @@ public static class PadGrader
             double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
             double dz = originalVertices[i * 3 + 2] - nearestBoundaryZ;
             double absDz = Math.Abs(dz);
-            if (absDz <= GradingTolerances.VertexAdjustmentZTolerance)
+            if (absDz <= GradingTolerances.VertexAdjustmentZTolerance(GradingTolerances.DefaultModelTolerance))
                 return state;
 
             double neededDist = slopeRatio > 1e-12 ? absDz / slopeRatio : double.MaxValue;
@@ -3910,7 +6240,7 @@ public static class PadGrader
             if (rise < absDz)
             {
                 double candidateZ = nearestBoundaryZ + Math.Sign(dz) * rise;
-                if (Math.Abs(candidateZ - originalVertices[i * 3 + 2]) > GradingTolerances.VertexAdjustmentZTolerance)
+                if (Math.Abs(candidateZ - originalVertices[i * 3 + 2]) > GradingTolerances.VertexAdjustmentZTolerance(GradingTolerances.DefaultModelTolerance))
                     gradedVertices[i * 3 + 2] = candidateZ;
             }
             return state;
@@ -3999,7 +6329,7 @@ public static class PadGrader
         }
 
         // Add shoulder ring segments, clipping each at the first barrier hit.
-        // When clipped, the arc terminates at the barrier intersection — producing
+        // When clipped, the arc terminates at the barrier intersection, producing
         // open support runs instead of a single closed ring.
         for (int i = 0; i < shoulderVertexCount; i++)
         {
@@ -4215,9 +6545,7 @@ public static class PadGrader
             return daylightReach;
         }
 
-        return bestApproachReach > 1e-9
-            ? bestApproachReach
-            : Math.Min(fallbackReach, searchDistance);
+        return Math.Min(fallbackReach, searchDistance);
     }
 
     private static bool TryFindPadDaylightReachByTriangleIntervals(
@@ -4488,6 +6816,51 @@ public static class PadGrader
             return false;
         }
 
+        return true;
+    }
+
+    private static bool TryBuildOrderedShoulderLoopFromSections(
+        double[] padLoopXy,
+        int padLoopVertexCount,
+        double[] shoulderXy,
+        double tolerance,
+        out double[] shoulderLoopXy,
+        out string? failureReason)
+    {
+        shoulderLoopXy = Array.Empty<double>();
+        failureReason = null;
+        if (padLoopVertexCount < 3 || shoulderXy.Length < padLoopVertexCount * 2)
+        {
+            failureReason = "Grade Pad shoulder ring was skipped because the resolved daylight sections were invalid.";
+            return false;
+        }
+
+        var points = new List<double>(padLoopVertexCount * 2);
+        for (int i = 0; i < padLoopVertexCount; i++)
+        {
+            double bx = padLoopXy[i * 2];
+            double by = padLoopXy[i * 2 + 1];
+            double sx = shoulderXy[i * 2];
+            double sy = shoulderXy[i * 2 + 1];
+            if (DistanceSquaredXY(bx, by, sx, sy) <= tolerance * tolerance)
+                continue;
+
+            AddLoopPoint(points, sx, sy, tolerance);
+        }
+
+        if (points.Count >= 4 &&
+            DistanceSquaredXY(points[0], points[1], points[^2], points[^1]) <= tolerance * tolerance)
+        {
+            points.RemoveRange(points.Count - 2, 2);
+        }
+
+        if (points.Count / 2 < 3)
+        {
+            failureReason = "Grade Pad shoulder ring was skipped because the resolved daylight sections collapsed.";
+            return false;
+        }
+
+        shoulderLoopXy = points.ToArray();
         return true;
     }
 
@@ -4782,7 +7155,17 @@ public static class PadGrader
         if (shoulderDistance <= 1e-9)
             return 1.0;
 
-        return Math.Clamp(shoulderDistance * 0.5, 0.5, 5.0);
+        return Math.Clamp(shoulderDistance * 0.2, 0.5, 1.0);
+    }
+
+    private static double ComputeMinimumStitchSegmentLength(double modelTolerance, double terrainDetailSize)
+    {
+        double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
+        double resolvedDetail = double.IsFinite(terrainDetailSize) && terrainDetailSize > 0.0
+            ? terrainDetailSize
+            : tolerance * 20.0;
+        double targetStitchSpacing = Math.Max(tolerance * 8.0, resolvedDetail * 0.5);
+        return Math.Max(tolerance * 4.0, targetStitchSpacing * 0.35);
     }
 
     private readonly record struct ConstraintLoop(double[] XyVertices, int VertexCount);
@@ -4862,11 +7245,22 @@ public static class PadGrader
             segList.Add((previous, first));
     }
 
+    private static void AddClosedLoopVertices(
+        double[] xyVertices,
+        int vertexCount,
+        Func<double, double, int> addVertex)
+    {
+        for (int i = 0; i < vertexCount; i++)
+            addVertex(xyVertices[i * 2], xyVertices[i * 2 + 1]);
+    }
+
     private static bool TryBuildExpandedOffsetPolygon(
         double[] polygonXy,
         int vertexCount,
         double[] distances,
         int cornerFanSegments,
+        FaceGrid? faceGrid,
+        PadBoundary? pad,
         out double[] expandedPolygonXy,
         out double[] expandedOffsetXy,
         out string? failureReason)
@@ -4961,10 +7355,13 @@ public static class PadGrader
                     for (int f = 0; f < fanCount; f++)
                     {
                         double theta = prevAngle + sweep * f / (fanCount - 1);
+                        double rayX = Math.Cos(theta);
+                        double rayY = Math.Sin(theta);
+                        double rayDistance = ComputeCornerFanRayDistance(faceGrid, pad, x1, y1, rayX, rayY, d);
                         boundaryList.Add(x1);
                         boundaryList.Add(y1);
-                        offsetList.Add(x1 + Math.Cos(theta) * d);
-                        offsetList.Add(y1 + Math.Sin(theta) * d);
+                        offsetList.Add(x1 + rayX * rayDistance);
+                        offsetList.Add(y1 + rayY * rayDistance);
                     }
                     continue;
                 }
@@ -5023,6 +7420,42 @@ public static class PadGrader
         return true;
     }
 
+    private static double ComputeCornerFanRayDistance(
+        FaceGrid? faceGrid,
+        PadBoundary? pad,
+        double boundaryX,
+        double boundaryY,
+        double dirX,
+        double dirY,
+        double fallbackDistance)
+    {
+        double distance = Math.Max(0.0, fallbackDistance);
+        if (faceGrid == null || pad == null || distance <= 1e-9)
+            return distance;
+
+        double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
+        if (slopeRatio <= 1e-12)
+            return distance;
+
+        double boundaryZ = pad.EvaluateZ(boundaryX, boundaryY);
+        double terrainZ = faceGrid.InterpolateZ(boundaryX, boundaryY);
+        double branchSign = Math.Sign(terrainZ - boundaryZ);
+        if (Math.Abs(branchSign) <= 1e-12)
+            return distance;
+
+        return ComputePadDaylightReach(
+            faceGrid,
+            boundaryX,
+            boundaryY,
+            boundaryZ,
+            dirX,
+            dirY,
+            slopeRatio,
+            branchSign,
+            distance,
+            pad.MaxDistance);
+    }
+
     private static double ComputeOutwardAngleSweep(double fromAngle, double toAngle, bool ccw)
     {
         double diff = toAngle - fromAngle;
@@ -5041,6 +7474,7 @@ public static class PadGrader
     {
         bool ok = TryBuildExpandedOffsetPolygon(
             polygonXy, vertexCount, distances, 0,
+            null, null,
             out _, out offsetXy, out failureReason);
         return ok;
     }

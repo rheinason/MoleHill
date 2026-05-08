@@ -65,11 +65,67 @@ public class TerrainBuildHeuristicsTests
     }
 
     [Fact]
+    public void GetGradePathGeometryTolerance_DefaultMillimeterDetailSize_ClampsToConvertedMaximum()
+    {
+        double tolerance = TerrainBuildHeuristics.GetGradePathGeometryTolerance(250.0, global::Rhino.UnitSystem.Millimeters);
+
+        Assert.Equal(2.0, tolerance, 9);
+    }
+
+    [Fact]
     public void GetGradePathGeometryTolerance_TinyTerrainTolerance_ClampsToMinimum()
     {
         double tolerance = TerrainBuildHeuristics.GetGradePathGeometryTolerance(1e-9);
 
         Assert.Equal(1e-6, tolerance, 12);
+    }
+
+    [Fact]
+    public void DefaultDetailSize_Millimeters_ConvertsQuarterMeter()
+    {
+        double detailSize = TerrainTolerancePolicy.DefaultDetailSize(global::Rhino.UnitSystem.Millimeters);
+
+        Assert.Equal(250.0, detailSize, 9);
+    }
+
+    [Theory]
+    [InlineData(0.0, true)]
+    [InlineData(0.01, true)]
+    [InlineData(0.011, false)]
+    public void ShouldPromoteLegacyDetailSize_MeterValues_UsesCentimeterThreshold(double value, bool expected)
+    {
+        bool promote = TerrainTolerancePolicy.ShouldPromoteLegacyDetailSize(value, global::Rhino.UnitSystem.Meters);
+
+        Assert.Equal(expected, promote);
+    }
+
+    [Fact]
+    public void Create_DefaultMeterDetailSize_DerivesExpectedOperationTolerances()
+    {
+        var profile = TerrainTolerancePolicy.Create(
+            detailSize: 0.25,
+            documentTolerance: 0.001,
+            global::Rhino.UnitSystem.Meters);
+
+        Assert.Equal(0.25, profile.DetailSize, 9);
+        Assert.Equal(0.0125, profile.InputMergeTolerance, 9);
+        Assert.Equal(0.0125, profile.CurveChordTolerance, 9);
+        Assert.Equal(0.005, profile.RemeshConstraintTolerance, 9);
+        Assert.Equal(0.002, profile.GradePathTolerance, 9);
+        Assert.Equal(0.005, profile.GradePadTolerance, 9);
+    }
+
+    [Fact]
+    public void RetainingWallTolerance_UsesWallWidthWhenSmallerThanDetailSize()
+    {
+        var profile = TerrainTolerancePolicy.Create(
+            detailSize: 0.25,
+            documentTolerance: 0.001,
+            global::Rhino.UnitSystem.Meters);
+
+        double tolerance = profile.RetainingWallTolerance(maxWallWidth: 0.04);
+
+        Assert.Equal(0.001, tolerance, 9);
     }
 
     [Fact]

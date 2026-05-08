@@ -65,7 +65,7 @@ public class GeometryCommandAlgorithmsTests
     {
         Assert.Equal(2000.0, GeometryCommandAlgorithms.CalculateDefaultLiftFactor(global::Rhino.UnitSystem.Millimeters));
         Assert.Equal(2.0, GeometryCommandAlgorithms.CalculateDefaultLiftFactor(global::Rhino.UnitSystem.Meters));
-        Assert.Equal(2.0, GeometryCommandAlgorithms.CalculateDefaultLiftFactor(global::Rhino.UnitSystem.Feet));
+        Assert.Equal(6.56167979002625, GeometryCommandAlgorithms.CalculateDefaultLiftFactor(global::Rhino.UnitSystem.Feet), 12);
     }
 
     [Fact]

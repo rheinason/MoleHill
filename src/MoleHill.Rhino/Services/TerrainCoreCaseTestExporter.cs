@@ -188,7 +188,8 @@ internal static class TerrainCoreCaseTestExporter
             builder.AppendLine($"                {FormatDouble(pad.PlaneYCoeff)},");
             builder.AppendLine($"                {FormatDouble(pad.PlaneConstant)},");
             builder.AppendLine($"                {FormatDouble(pad.SlopeAngleDeg)},");
-            builder.AppendLine($"                {FormatDouble(pad.MaxDistance)}),");
+            builder.AppendLine($"                {FormatDouble(pad.MaxDistance)},");
+            builder.AppendLine($"                stitchApronDistance: {FormatDouble(pad.StitchApronDistance)}),");
         }
         builder.AppendLine("        };");
     }

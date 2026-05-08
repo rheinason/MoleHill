@@ -184,6 +184,56 @@ internal static class GradingBarriers
         return false;
     }
 
+    /// <summary>
+    /// Returns true only when the segment crosses a barrier away from its own endpoints.
+    /// Endpoint touches are allowed so grade paths can start/end on existing breaklines.
+    /// </summary>
+    internal static bool IsInteriorCrossedByBarrier(
+        PreparedBarriers barriers,
+        double ax, double ay,
+        double bx, double by,
+        double startEndpointTolerance,
+        double endEndpointTolerance,
+        SpatialHashGrid2D.QueryScratch scratch,
+        List<int> candidates)
+    {
+        if (barriers.Segments.Length == 0)
+            return false;
+
+        double dx = bx - ax;
+        double dy = by - ay;
+        double length = Math.Sqrt((dx * dx) + (dy * dy));
+        if (length <= 1e-12)
+            return false;
+
+        double startEndpointT = Math.Min(0.5, Math.Max(startEndpointTolerance, 1e-12) / length);
+        double endEndpointT = Math.Min(0.5, Math.Max(endEndpointTolerance, 1e-12) / length);
+        var queryBounds = new Bounds2D(
+            Math.Min(ax, bx),
+            Math.Max(ax, bx),
+            Math.Min(ay, by),
+            Math.Max(ay, by));
+
+        barriers.Index.GatherCandidates(queryBounds, candidates, scratch);
+        foreach (int idx in candidates)
+        {
+            BarrierSegment seg = barriers.Segments[idx];
+            if (!seg.Bounds.Intersects(queryBounds))
+                continue;
+
+            if (BoundaryClipper.TrySegmentIntersectionParameters(
+                    ax, ay, bx, by,
+                    seg.Ax, seg.Ay, seg.Bx, seg.By,
+                    out double t, out _))
+            {
+                if (t > startEndpointT && t < 1.0 - endEndpointT)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static PreparedBarriers BuildFromSegmentList(List<BarrierSegment> segments)

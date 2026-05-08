@@ -69,6 +69,11 @@ internal sealed class TerrainController
         }
     }
 
+    public readonly record struct BakedLayerEnsureResult(int CreatedCount, int RefreshedCount, int SkippedCount)
+    {
+        public int TotalChanged => CreatedCount + RefreshedCount;
+    }
+
     private readonly record struct PendingBuildRequest(DateTime DueAtUtc, long Version);
 
     private readonly record struct BackgroundBuildResult(
@@ -252,6 +257,7 @@ internal sealed class TerrainController
         var terrain = new TerrainDefinition
         {
             Name = NextTerrainName(state.Terrains),
+            GlobalTolerance = TerrainTolerancePolicy.DefaultDetailSize(doc.ModelUnitSystem),
             TerrainLayerPath = TerrainDefinition.DefaultTerrainLayerPath,
             AuxiliaryLayerPath = TerrainDefinition.DefaultAuxiliaryLayerPath,
             AnnotationLayerPath = TerrainDefinition.DefaultAnnotationLayerPath
@@ -324,7 +330,7 @@ internal sealed class TerrainController
     {
         MutateTerrain(doc, terrainId, terrain =>
         {
-            var modifier = CreateModifier(modifierKind);
+            var modifier = CreateModifier(modifierKind, doc.ModelUnitSystem);
             if (modifier != null)
                 terrain.Modifiers.Add(modifier);
         });
@@ -884,6 +890,45 @@ internal sealed class TerrainController
             .ToList();
     }
 
+    public BakedLayerEnsureResult EnsureBakedLayersForSourceLayers(RhinoDoc doc, IEnumerable<string> sourceLayerPaths)
+    {
+        int created = 0;
+        int refreshed = 0;
+        int skipped = 0;
+
+        foreach (string sourceLayerPath in sourceLayerPaths
+                     .Where(path => !string.IsNullOrWhiteSpace(path))
+                     .Select(path => path.Trim())
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            string? bakedLayerPath = TerrainBuildService.GetBakedLayerPath(sourceLayerPath);
+            if (string.IsNullOrWhiteSpace(bakedLayerPath) ||
+                doc.Layers.FindByFullPath(sourceLayerPath, -1) < 0)
+            {
+                skipped++;
+                continue;
+            }
+
+            bool existed = doc.Layers.FindByFullPath(bakedLayerPath, -1) >= 0;
+            int layerIndex = EnsureLayer(doc, bakedLayerPath, sourceLayerPath);
+            if (layerIndex < 0)
+            {
+                skipped++;
+                continue;
+            }
+
+            if (existed)
+                refreshed++;
+            else
+                created++;
+        }
+
+        if (created > 0 || refreshed > 0)
+            doc.Views.Redraw();
+
+        return new BakedLayerEnsureResult(created, refreshed, skipped);
+    }
+
     private DocumentState GetState(RhinoDoc doc)
     {
         if (_states.TryGetValue(doc.RuntimeSerialNumber, out var state))
@@ -922,7 +967,7 @@ internal sealed class TerrainController
 
     private void RestoreUndoState(RhinoDoc doc, UndoState snapshot)
     {
-        var restoredTerrains = TerrainSerializer.Deserialize(snapshot.Json);
+        var restoredTerrains = TerrainSerializer.Deserialize(snapshot.Json, doc.ModelUnitSystem);
         var restoredState = new DocumentState
         {
             Terrains = restoredTerrains,
@@ -1662,9 +1707,9 @@ internal sealed class TerrainController
                 var definition = doc.InstanceDefinitions[definitionIndex];
                 if (definition != null)
                 {
-                    var instanceGeometry = CreateInstanceReferenceGeometry(definition.Id, generated.InstanceTransform, generated.InstanceUserStrings);
-                    Guid id = doc.Objects.Add(instanceGeometry, attributes);
-                    if (id != Guid.Empty && !EnsureBlockInstanceAttributeKeys(doc, id, definition))
+                    ApplyBlockAttributeValues(attributes, definition, generated.InstanceUserStrings);
+                    Guid id = doc.Objects.AddInstanceObject(definitionIndex, generated.InstanceTransform, attributes);
+                    if (id != Guid.Empty && !EnsureBlockInstanceAttributeKeys(doc, id, definition, generated.InstanceUserStrings))
                         blockAttributeRefreshIds?.Add(id);
 
                     return id;
@@ -1678,8 +1723,20 @@ internal sealed class TerrainController
             Brep brep => doc.Objects.AddBrep(brep, attributes),
             Curve curve => doc.Objects.AddCurve(curve, attributes),
             TextDot textDot => doc.Objects.AddTextDot(textDot, attributes),
+            TextEntity textEntity => AddTextEntity(doc, textEntity, attributes),
             _ => Guid.Empty
         };
+    }
+
+    private static Guid AddTextEntity(RhinoDoc doc, TextEntity textEntity, ObjectAttributes attributes)
+    {
+        if (textEntity.DimensionStyleId == Guid.Empty)
+        {
+            int currentStyleIndex = doc.DimStyles.CurrentIndex;
+            if (currentStyleIndex >= 0 && currentStyleIndex < doc.DimStyles.Count)
+                textEntity.DimensionStyleId = doc.DimStyles[currentStyleIndex].Id;
+        }
+        return doc.Objects.AddText(textEntity, attributes);
     }
 
     private static int EnsureBlockDefinition(RhinoDoc doc, string definitionName, MarkerBlockTemplate template)
@@ -1773,6 +1830,12 @@ internal sealed class TerrainController
         if (!string.IsNullOrWhiteSpace(generated.LayerPath))
             attributes.LayerIndex = EnsureLayer(doc, generated.LayerPath!, generated.SourceLayerPath);
 
+        if (generated.PlotWeight.HasValue)
+        {
+            attributes.PlotWeightSource = ObjectPlotWeightSource.PlotWeightFromObject;
+            attributes.PlotWeight = generated.PlotWeight.Value;
+        }
+
         ApplyOutputWireAttributes(terrain, attributes);
         if (trackOwnership)
             ApplyOutputRenderAttributes(doc, terrain, attributes);
@@ -1793,89 +1856,72 @@ internal sealed class TerrainController
         }
     }
 
-    private static InstanceReferenceGeometry CreateInstanceReferenceGeometry(
-        Guid definitionId,
-        Transform transform,
+    private static void ApplyBlockAttributeValues(
+        ObjectAttributes attributes,
+        InstanceDefinition definition,
         IReadOnlyDictionary<string, string>? userStrings)
     {
-        var geometry = new InstanceReferenceGeometry(definitionId, transform);
-        if (userStrings == null)
-            return geometry;
-
-        foreach (var pair in userStrings)
-        {
-            if (string.IsNullOrWhiteSpace(pair.Key))
-                continue;
-
-            SetUserStringPreservingEmpty(geometry, pair.Key, pair.Value ?? string.Empty);
-        }
-
-        return geometry;
+        foreach (var pair in BlockAttributePayload.BuildValues(userStrings, GetBlockAttributeFieldDefinitions(definition)))
+            SetUserStringPreservingEmpty(attributes, pair.Key, pair.Value);
     }
 
-    private bool EnsureBlockInstanceAttributeKeys(RhinoDoc doc, Guid objectId, InstanceDefinition definition)
+    private bool EnsureBlockInstanceAttributeKeys(
+        RhinoDoc doc,
+        Guid objectId,
+        InstanceDefinition definition,
+        IReadOnlyDictionary<string, string>? userStrings)
     {
-        var fields = TextFields.GetInstanceAttributeFields(definition);
-        if (fields.Length == 0)
+        var fields = GetBlockAttributeFieldDefinitions(definition);
+        var values = BlockAttributePayload.BuildValues(userStrings, fields);
+        if (values.Count == 0)
             return true;
 
         if (doc.Objects.FindId(objectId) is not InstanceObject instanceObject)
             return true;
 
         var currentStrings = instanceObject.Attributes.GetUserStrings();
-        if (HasAllBlockInstanceAttributeKeys(currentStrings, fields))
+        if (BlockAttributePayload.FindMissingFieldKeys(currentStrings, fields).Count == 0)
             return true;
 
         var attributes = instanceObject.Attributes.Duplicate();
         bool changed = false;
-        foreach (var field in fields)
+        foreach (var pair in values)
         {
-            if (string.IsNullOrWhiteSpace(field.Key) || attributes.GetUserString(field.Key) != null)
+            if (string.IsNullOrWhiteSpace(pair.Key) || attributes.GetUserString(pair.Key) != null)
                 continue;
 
-            string value = field.DefaultValue ?? string.Empty;
-            changed |= SetUserStringPreservingEmpty(attributes, field.Key, value);
+            changed |= SetUserStringPreservingEmpty(attributes, pair.Key, pair.Value);
         }
 
         if (!changed)
-            return true;
+            return BlockAttributePayload.FindMissingFieldKeys(instanceObject.Attributes.GetUserStrings(), fields).Count == 0;
 
         instanceObject.Attributes = attributes;
         instanceObject.CommitChanges();
         currentStrings = instanceObject.Attributes.GetUserStrings();
-        if (HasAllBlockInstanceAttributeKeys(currentStrings, fields))
+        if (BlockAttributePayload.FindMissingFieldKeys(currentStrings, fields).Count == 0)
             return true;
 
         bool objectChanged = false;
-        foreach (var field in fields)
+        foreach (var pair in values)
         {
-            if (string.IsNullOrWhiteSpace(field.Key) || instanceObject.Attributes.GetUserString(field.Key) != null)
+            if (string.IsNullOrWhiteSpace(pair.Key) || instanceObject.Attributes.GetUserString(pair.Key) != null)
                 continue;
 
-            string value = field.DefaultValue ?? string.Empty;
-            objectChanged |= SetUserStringPreservingEmpty(instanceObject, field.Key, value);
+            objectChanged |= SetUserStringPreservingEmpty(instanceObject, pair.Key, pair.Value);
         }
 
         if (objectChanged)
             instanceObject.CommitChanges();
 
-        return HasAllBlockInstanceAttributeKeys(instanceObject.Attributes.GetUserStrings(), fields);
+        return BlockAttributePayload.FindMissingFieldKeys(instanceObject.Attributes.GetUserStrings(), fields).Count == 0;
     }
 
-    private static bool HasAllBlockInstanceAttributeKeys(
-        System.Collections.Specialized.NameValueCollection? strings,
-        IReadOnlyList<TextFields.InstanceAttributeField> fields)
+    private static IReadOnlyList<BlockAttributeFieldDefinition> GetBlockAttributeFieldDefinitions(InstanceDefinition definition)
     {
-        foreach (var field in fields)
-        {
-            if (string.IsNullOrWhiteSpace(field.Key))
-                continue;
-
-            if (strings?[field.Key] == null)
-                return false;
-        }
-
-        return true;
+        return TextFields.GetInstanceAttributeFields(definition)
+            .Select(field => new BlockAttributeFieldDefinition(field.Key, field.Prompt, field.DefaultValue))
+            .ToArray();
     }
 
     private void EmulateAddMissingBlockAttributeKeys(RhinoDoc doc, IEnumerable<Guid> objectIds)
@@ -1966,9 +2012,9 @@ internal sealed class TerrainController
             if (definition == null)
                 continue;
 
-            if (!HasAllBlockInstanceAttributeKeys(
+            if (BlockAttributePayload.FindMissingFieldKeys(
                     instanceObject.Attributes.GetUserStrings(),
-                    TextFields.GetInstanceAttributeFields(definition)))
+                    GetBlockAttributeFieldDefinitions(definition)).Count > 0)
             {
                 return true;
             }
@@ -2013,9 +2059,9 @@ internal sealed class TerrainController
                 var definition = doc.InstanceDefinitions[definitionIndex];
                 if (definition != null)
                 {
-                    var instanceGeometry = CreateInstanceReferenceGeometry(definition.Id, generated.InstanceTransform, generated.InstanceUserStrings);
-                    Guid id = doc.Objects.Add(instanceGeometry, attributes);
-                    if (id != Guid.Empty && !EnsureBlockInstanceAttributeKeys(doc, id, definition))
+                    ApplyBlockAttributeValues(attributes, definition, generated.InstanceUserStrings);
+                    Guid id = doc.Objects.AddInstanceObject(definitionIndex, generated.InstanceTransform, attributes);
+                    if (id != Guid.Empty && !EnsureBlockInstanceAttributeKeys(doc, id, definition, generated.InstanceUserStrings))
                         blockAttributeRefreshIds?.Add(id);
 
                     return id;
@@ -2694,16 +2740,16 @@ internal sealed class TerrainController
         return objectFilter == 0 || MatchesObjectFilter(obj, objectFilter);
     }
 
-    private static ModifierDefinition? CreateModifier(string modifierKind) => modifierKind switch
+    private static ModifierDefinition? CreateModifier(string modifierKind, UnitSystem unitSystem) => modifierKind switch
     {
         "triangulate" => new TriangulateModifierDefinition(),
         "add-geometry" => new AddGeometryModifierDefinition(),
         "remesh" => new RemeshModifierDefinition(),
         "smooth" => new SmoothModifierDefinition(),
-        "retaining-wall" => new RetainingWallModifierDefinition(),
+        "retaining-wall" => new RetainingWallModifierDefinition { MaxWallWidth = ModelUnits.FromMeters(1.0, unitSystem) },
         "grade-pad" => new GradePadModifierDefinition(),
-        "grade-path" => new GradePathModifierDefinition(),
-        "in-situ-stair" => new InSituStairModifierDefinition(),
+        "grade-path" => new GradePathModifierDefinition { Width = ModelUnits.FromMeters(2.0, unitSystem) },
+        "in-situ-stair" => new InSituStairModifierDefinition { RiserHeight = ModelUnits.FromMeters(0.15, unitSystem) },
         _ => null
     };
 

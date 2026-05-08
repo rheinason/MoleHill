@@ -5,8 +5,6 @@ internal static class TerrainBuildHeuristics
     private const int MaxLegacyPathTriangulationVertices = 25_000;
     private const int MaxLegacyPathTriangulationFaces = 50_000;
     private const double GradePathCurveSamplingWidthFactor = 0.5;
-    private const double MinGradePathGeometryTolerance = 1e-6;
-    private const double MaxGradePathGeometryTolerance = 2e-3;
     private const int MaxLocalizedGradePathRoadEdgeFallbackVertices = 300;
     private const int MaxLocalizedGradePathRoadEdgeFallbackFaces = 500;
 
@@ -31,7 +29,12 @@ internal static class TerrainBuildHeuristics
 
     public static double GetGradePathGeometryTolerance(double terrainTolerance)
     {
-        return Math.Clamp(terrainTolerance, MinGradePathGeometryTolerance, MaxGradePathGeometryTolerance);
+        return GetGradePathGeometryTolerance(terrainTolerance, global::Rhino.UnitSystem.Meters);
+    }
+
+    public static double GetGradePathGeometryTolerance(double terrainTolerance, global::Rhino.UnitSystem unitSystem)
+    {
+        return TerrainTolerancePolicy.Create(terrainTolerance, 1e-9, unitSystem).GradePathTolerance;
     }
 
     public static bool ShouldPreferLocalizedGradePathRoadEdgeFallback(

@@ -123,7 +123,6 @@ internal sealed class SeamGraph
             }
         }
 
-        double tolSq = tolerance * tolerance;
         int matchedSegments = 0;
         for (int i = 0; i < seamVertexCount; i++)
         {
@@ -132,21 +131,69 @@ internal sealed class SeamGraph
             double say = seamLoopXy[i * 2 + 1];
             double sbx = seamLoopXy[next * 2];
             double sby = seamLoopXy[next * 2 + 1];
-            for (int j = 0; j < boundarySegments.Count; j++)
-            {
-                var edge = boundarySegments[j];
-                if ((DistanceSquaredXY(sax, say, edge.Ax, edge.Ay) <= tolSq &&
-                     DistanceSquaredXY(sbx, sby, edge.Bx, edge.By) <= tolSq) ||
-                    (DistanceSquaredXY(sax, say, edge.Bx, edge.By) <= tolSq &&
-                     DistanceSquaredXY(sbx, sby, edge.Ax, edge.Ay) <= tolSq))
-                {
-                    matchedSegments++;
-                    break;
-                }
-            }
+            if (BoundarySegmentsCoverSeamSegment(sax, say, sbx, sby, boundarySegments, tolerance))
+                matchedSegments++;
         }
 
         return matchedSegments;
+    }
+
+    private static bool BoundarySegmentsCoverSeamSegment(
+        double sax,
+        double say,
+        double sbx,
+        double sby,
+        IReadOnlyList<(double Ax, double Ay, double Bx, double By)> boundarySegments,
+        double tolerance)
+    {
+        double segDx = sbx - sax;
+        double segDy = sby - say;
+        double segLenSq = (segDx * segDx) + (segDy * segDy);
+        if (segLenSq <= tolerance * tolerance)
+            return false;
+
+        double tolSq = tolerance * tolerance;
+        var intervals = new List<(double Start, double End)>();
+        for (int i = 0; i < boundarySegments.Count; i++)
+        {
+            var edge = boundarySegments[i];
+            double aDistanceSq = DistanceSquaredPointToSegment(edge.Ax, edge.Ay, sax, say, sbx, sby);
+            double bDistanceSq = DistanceSquaredPointToSegment(edge.Bx, edge.By, sax, say, sbx, sby);
+            if (aDistanceSq > tolSq || bDistanceSq > tolSq)
+                continue;
+
+            double ta = (((edge.Ax - sax) * segDx) + ((edge.Ay - say) * segDy)) / segLenSq;
+            double tb = (((edge.Bx - sax) * segDx) + ((edge.By - say) * segDy)) / segLenSq;
+            if (ta > tb)
+                (ta, tb) = (tb, ta);
+            if (tb < -1e-9 || ta > 1.0 + 1e-9)
+                continue;
+
+            ta = Math.Clamp(ta, 0.0, 1.0);
+            tb = Math.Clamp(tb, 0.0, 1.0);
+            if (tb - ta <= 1e-9)
+                continue;
+
+            intervals.Add((ta, tb));
+        }
+
+        if (intervals.Count == 0)
+            return false;
+
+        intervals.Sort(static (left, right) => left.Start.CompareTo(right.Start));
+        double normalizedTolerance = Math.Min(0.25, Math.Max(1e-9, tolerance / Math.Sqrt(segLenSq)));
+        double coveredUntil = 0.0;
+        foreach (var interval in intervals)
+        {
+            if (interval.Start > coveredUntil + normalizedTolerance)
+                return false;
+
+            coveredUntil = Math.Max(coveredUntil, interval.End);
+            if (coveredUntil >= 1.0 - normalizedTolerance)
+                return true;
+        }
+
+        return coveredUntil >= 1.0 - normalizedTolerance;
     }
 
     private static void Increment(Dictionary<long, int> edgeFaceCount, int a, int b)
@@ -180,17 +227,22 @@ internal sealed class SeamGraph
 
     private static double DistancePointToSegment(double px, double py, double ax, double ay, double bx, double by)
     {
+        return Math.Sqrt(DistanceSquaredPointToSegment(px, py, ax, ay, bx, by));
+    }
+
+    private static double DistanceSquaredPointToSegment(double px, double py, double ax, double ay, double bx, double by)
+    {
         double dx = bx - ax;
         double dy = by - ay;
         double lenSq = (dx * dx) + (dy * dy);
         if (lenSq <= 1e-16)
-            return Math.Sqrt(DistanceSquaredXY(px, py, ax, ay));
+            return DistanceSquaredXY(px, py, ax, ay);
 
         double t = (((px - ax) * dx) + ((py - ay) * dy)) / lenSq;
         t = Math.Max(0.0, Math.Min(1.0, t));
         double qx = ax + (t * dx);
         double qy = ay + (t * dy);
-        return Math.Sqrt(DistanceSquaredXY(px, py, qx, qy));
+        return DistanceSquaredXY(px, py, qx, qy);
     }
 
     private static double DistanceSquaredXY(double ax, double ay, double bx, double by)

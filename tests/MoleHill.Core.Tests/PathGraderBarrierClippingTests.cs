@@ -153,6 +153,83 @@ public class PathGraderBarrierClippingTests
     }
 
     [Fact]
+    public void Grade_PathEndsOnBarrier_DoesNotRejectAsCrossing()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 10.0, 50.0, 50.0, 50.0 },
+            zValues: new[] { 2.0, 2.0 },
+            vertexCount: 2,
+            width: 4.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 5.0);
+        var barrier = MakeBarrier(50.0, 0.0, 50.0, 100.0);
+
+        GradingResult? result = PathGrader.Grade(
+            CoarseVertices, CoarseVertices.Length / 3,
+            CoarseFaces, CoarseFaces.Length / 3,
+            new[] { path },
+            new[] { barrier },
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(
+            string.IsNullOrWhiteSpace(errorMessage) || !errorMessage!.Contains("crosses a hard constraint", StringComparison.OrdinalIgnoreCase),
+            errorMessage);
+    }
+
+    [Fact]
+    public void Grade_PathStartsWithinToleranceOfBarrier_DoesNotRejectAsCrossing()
+    {
+        const double modelTolerance = 0.01;
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 49.995, 50.0, 90.0, 50.0 },
+            zValues: new[] { 2.0, 2.0 },
+            vertexCount: 2,
+            width: 4.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 5.0);
+        var barrier = MakeBarrier(50.0, 0.0, 50.0, 100.0);
+
+        GradingResult? result = PathGrader.Grade(
+            CoarseVertices, CoarseVertices.Length / 3,
+            CoarseFaces, CoarseFaces.Length / 3,
+            new[] { path },
+            new[] { barrier },
+            out string? errorMessage,
+            modelTolerance);
+
+        Assert.NotNull(result);
+        Assert.True(
+            string.IsNullOrWhiteSpace(errorMessage) || !errorMessage!.Contains("crosses a hard constraint", StringComparison.OrdinalIgnoreCase),
+            errorMessage);
+    }
+
+    [Fact]
+    public void Grade_OffsetRoadEdgeCrossesBarrierInsidePathStartCap_DoesNotRejectAsCrossing()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 10.0, 50.0, 90.0, 50.0 },
+            zValues: new[] { 2.0, 2.0 },
+            vertexCount: 2,
+            width: 4.0,
+            slopeAngleDeg: 45.0,
+            maxDistance: 5.0);
+        var barrier = MakeBarrier(10.0, 50.0, 12.0, 60.0);
+
+        GradingResult? result = PathGrader.Grade(
+            CoarseVertices, CoarseVertices.Length / 3,
+            CoarseFaces, CoarseFaces.Length / 3,
+            new[] { path },
+            new[] { barrier },
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.True(
+            string.IsNullOrWhiteSpace(errorMessage) || !errorMessage!.Contains("crosses a hard constraint", StringComparison.OrdinalIgnoreCase),
+            errorMessage);
+    }
+
+    [Fact]
     public void Grade_NoBarriers_BehaviorUnchanged()
     {
         // Regression: no barriers should produce the same result as the existing Grade() overload.

@@ -13,18 +13,6 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillDebugAnnotationBlockCommand : Command
 {
-    private static readonly string[] ExpectedKeys =
-    {
-        GeneratedBlockCatalog.DisplayToken,
-        GeneratedBlockCatalog.ValueToken,
-        GeneratedBlockCatalog.PrefixToken,
-        GeneratedBlockCatalog.SuffixToken,
-        GeneratedBlockCatalog.UnitToken,
-        GeneratedBlockCatalog.NameToken,
-        GeneratedBlockCatalog.IndexToken,
-        GeneratedBlockCatalog.DistanceToken
-    };
-
     public override string EnglishName => "MoleHillDebugAnnotationBlock";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
@@ -64,14 +52,19 @@ public sealed class MoleHillDebugAnnotationBlockCommand : Command
         AppendLine(sb, string.Empty);
 
         var attributeUserStrings = instanceObject.Attributes.GetUserStrings();
-        AppendExpectedKeys(sb, "Object attribute user text", attributeUserStrings);
+        var definitionFields = instanceObject.InstanceDefinition == null
+            ? Array.Empty<BlockAttributeFieldDefinition>()
+            : GetFieldDefinitions(instanceObject.InstanceDefinition);
+        AppendPayloadKeys(sb, "MoleHill payload on object attributes", attributeUserStrings);
+        AppendLine(sb, $"Missing definition field keys on object attributes: {FormatMissingKeys(BlockAttributePayload.FindMissingFieldKeys(attributeUserStrings, definitionFields))}");
         AppendAllUserStrings(sb, "Object attribute user text (all)", attributeUserStrings);
         AppendLine(sb, string.Empty);
 
         if (instanceObject.Geometry is InstanceReferenceGeometry instanceGeometry)
         {
             var geometryUserStrings = instanceGeometry.GetUserStrings();
-            AppendExpectedKeys(sb, "Instance geometry user text", geometryUserStrings);
+            AppendPayloadKeys(sb, "MoleHill payload on instance geometry", geometryUserStrings);
+            AppendLine(sb, $"Missing definition field keys on instance geometry: {FormatMissingKeys(BlockAttributePayload.FindMissingFieldKeys(geometryUserStrings, definitionFields))}");
             AppendAllUserStrings(sb, "Instance geometry user text (all)", geometryUserStrings);
         }
         else
@@ -111,10 +104,10 @@ public sealed class MoleHillDebugAnnotationBlockCommand : Command
         }
     }
 
-    private static void AppendExpectedKeys(StringBuilder sb, string title, NameValueCollection? strings)
+    private static void AppendPayloadKeys(StringBuilder sb, string title, NameValueCollection? strings)
     {
         AppendLine(sb, title);
-        foreach (string key in ExpectedKeys)
+        foreach (string key in BlockAttributePayload.KnownPayloadKeys)
         {
             string? value = strings?[key];
             string state = value == null
@@ -151,6 +144,18 @@ public sealed class MoleHillDebugAnnotationBlockCommand : Command
 
         return string.Join(", ", fields.Select(field =>
             $"{field.Key} (prompt={ValueOrMarker(field.Prompt)}, default={ValueOrMarker(field.DefaultValue)})"));
+    }
+
+    private static BlockAttributeFieldDefinition[] GetFieldDefinitions(InstanceDefinition definition)
+    {
+        return TextFields.GetInstanceAttributeFields(definition)
+            .Select(field => new BlockAttributeFieldDefinition(field.Key, field.Prompt, field.DefaultValue))
+            .ToArray();
+    }
+
+    private static string FormatMissingKeys(IReadOnlyList<string> keys)
+    {
+        return keys.Count == 0 ? "<none>" : string.Join(", ", keys);
     }
 
     private static string ValueOrMarker(string? value)

@@ -27,4 +27,6 @@ internal sealed class GeneratedRhinoObject
     public IReadOnlyDictionary<string, string>? InstanceUserStrings { get; init; }
 
     public Transform InstanceTransform { get; init; } = Transform.Identity;
+
+    public double? PlotWeight { get; init; }
 }

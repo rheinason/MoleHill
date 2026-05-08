@@ -1,4 +1,5 @@
 using Grasshopper.Kernel;
+using Rhino;
 using Rhino.Geometry;
 using MoleHill.Core.Grading;
 
@@ -141,7 +142,8 @@ public class GradePadComponent : GH_Component
             double slope = GetListValue(slopeAngles, padIdx, 33.0);
             double dist = GetListValue(maxDists, padIdx, 0.0);
             int cornerSegs = GetListValue(cornerSegmentsList, padIdx, 0);
-            if (!TryCreatePadBoundary(pl, plCount, slope, dist, cornerSegs, out var pad, out string? warning))
+            double stitchApronDistance = ConvertMetersToModelUnits(0.5, Rhino.RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters);
+            if (!TryCreatePadBoundary(pl, plCount, slope, dist, cornerSegs, stitchApronDistance, out var pad, out string? warning))
             {
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning ?? "Boundary curve did not define a stable pad plane. Skipping.");
                 padIdx++;
@@ -241,6 +243,7 @@ public class GradePadComponent : GH_Component
         double slopeAngle,
         double maxDistance,
         int cornerFanSegments,
+        double stitchApronDistance,
         out PadGrader.PadBoundary? pad,
         out string? warning)
     {
@@ -269,8 +272,24 @@ public class GradePadComponent : GH_Component
             planeConstant,
             slopeAngle,
             maxDistance,
-            cornerFanSegments);
+            cornerFanSegments,
+            stitchApronDistance);
         return true;
+    }
+
+    private static double ConvertMetersToModelUnits(double meters, UnitSystem unitSystem)
+    {
+        return unitSystem switch
+        {
+            UnitSystem.Millimeters => meters * 1000.0,
+            UnitSystem.Centimeters => meters * 100.0,
+            UnitSystem.Meters => meters,
+            UnitSystem.Kilometers => meters * 0.001,
+            UnitSystem.Inches => meters / 0.0254,
+            UnitSystem.Feet => meters / 0.3048,
+            UnitSystem.Yards => meters / 0.9144,
+            _ => meters
+        };
     }
 
     private static bool TryGetPlaneCoefficients(

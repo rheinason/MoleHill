@@ -12,6 +12,9 @@ namespace MoleHill.Rhino.Model;
 [JsonDerivedType(typeof(CurveSlopeLabelAnalysisDefinition), "curve-slope-label")]
 [JsonDerivedType(typeof(ProjectedElevationLabelAnalysisDefinition), "projected-elevation-label")]
 [JsonDerivedType(typeof(PointSlopeLabelAnalysisDefinition), "point-slope-label")]
+[JsonDerivedType(typeof(TerrainSectionAnalysisDefinition), "terrain-section")]
+[JsonDerivedType(typeof(CrossSectionStationAnalysisDefinition), "cross-section-station")]
+[JsonDerivedType(typeof(LongitudinalSectionAnalysisDefinition), "longitudinal-section")]
 public abstract class AnalysisDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();
