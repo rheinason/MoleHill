@@ -3,6 +3,7 @@ using System.Linq;
 using Eto.Drawing;
 using Eto.Forms;
 using MoleHill.Core.Analysis;
+using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -1603,9 +1604,9 @@ public sealed class MoleHillPanel : Panel
             _showSlowBuildWarningCheck.Checked = selectedTerrain?.ShowSlowBuildWarning ?? true;
             _replacePreviousBakesCheck.Checked = selectedTerrain?.ReplacePreviouslyBaked ?? false;
             _toleranceStepper.Value = selectedTerrain?.GlobalTolerance ?? 0;
-            var statusText = selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.";
-            SetStatusText(statusText);
-            _statusHintLabel.Text = GetStatusHintText(statusText);
+            SetStatusText(
+                selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.",
+                selectedTerrain?.LastStructuredDiagnostics);
             _visibilityButton.Text = selectedTerrain?.IsVisible != false ? "Shown" : "Hidden";
             _lockButton.Text = selectedTerrain?.IsLocked == true ? "Locked" : "Unlocked";
             bool hasTerrain = selectedTerrain != null;
@@ -5695,15 +5696,16 @@ public sealed class MoleHillPanel : Panel
         var doc = RhinoDoc.ActiveDoc;
         var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
         var text = terrain?.LastBuildMessage ?? "Create a terrain to start.";
-        SetStatusText(text);
+        SetStatusText(text, terrain?.LastStructuredDiagnostics);
     }
 
-    private void SetStatusText(string text)
+    private void SetStatusText(string text, IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
-        var statusColor = GetStatusColor(text);
-        _statusTextArea.Text = text;
+        string statusText = FormatStatusText(text, structuredDiagnostics);
+        var statusColor = GetStatusColor(statusText, structuredDiagnostics);
+        _statusTextArea.Text = statusText;
         _statusTextArea.TextColor = statusColor;
-        _statusHintLabel.Text = GetStatusHintText(text);
+        _statusHintLabel.Text = GetStatusHintText(statusText, structuredDiagnostics);
     }
 
     private void CopyStatusLog()
@@ -5741,8 +5743,56 @@ public sealed class MoleHillPanel : Panel
             MessageBoxType.Error);
     }
 
-    private static Color GetStatusColor(string text)
+    private static string FormatStatusText(string text, IReadOnlyList<GradingDiagnostic>? structuredDiagnostics)
     {
+        if (structuredDiagnostics == null || structuredDiagnostics.Count == 0)
+            return text;
+
+        var diagnostics = structuredDiagnostics
+            .Where(static diagnostic => !string.IsNullOrWhiteSpace(diagnostic.Message))
+            .ToArray();
+        if (diagnostics.Length == 0)
+            return text;
+
+        var lines = new List<string>
+        {
+            $"grading diagnostics: {FormatDiagnosticCounts(diagnostics)}"
+        };
+
+        foreach (var diagnostic in diagnostics.Take(12))
+        {
+            string code = string.IsNullOrWhiteSpace(diagnostic.Code)
+                ? string.Empty
+                : $" [{diagnostic.Code}]";
+            string target = diagnostic.TargetIndex.HasValue
+                ? $" #{diagnostic.TargetIndex.Value}"
+                : string.Empty;
+            lines.Add($"- {FormatDiagnosticSeverity(diagnostic.Severity)}{target}{code}: {diagnostic.Message}");
+        }
+
+        if (diagnostics.Length > 12)
+            lines.Add($"- {diagnostics.Length - 12:N0} more structured diagnostic(s).");
+
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            lines.Add(string.Empty);
+            lines.Add("build log:");
+            lines.Add(text);
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static Color GetStatusColor(string text, IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
+    {
+        if (structuredDiagnostics != null)
+        {
+            if (structuredDiagnostics.Any(static diagnostic => diagnostic.Severity == GradingDiagnosticSeverity.Error))
+                return Colors.Red;
+            if (structuredDiagnostics.Any(static diagnostic => diagnostic.Severity == GradingDiagnosticSeverity.Warning))
+                return Color.FromArgb(200, 120, 0);
+        }
+
         if (text.Contains("Error", StringComparison.OrdinalIgnoreCase) ||
             text.Contains("Failed", StringComparison.OrdinalIgnoreCase))
             return Colors.Red;
@@ -5752,8 +5802,11 @@ public sealed class MoleHillPanel : Panel
         return UiTheme.PrimaryText;
     }
 
-    private static string GetStatusHintText(string text)
+    private static string GetStatusHintText(string text, IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
+        if (structuredDiagnostics != null && structuredDiagnostics.Count > 0)
+            return $"Grading: {FormatDiagnosticCounts(structuredDiagnostics)}";
+
         if (string.IsNullOrWhiteSpace(text))
             return string.Empty;
 
@@ -5764,6 +5817,35 @@ public sealed class MoleHillPanel : Panel
 
         return firstLine.Length > 45 ? firstLine[..45] + "..." : firstLine;
     }
+
+    private static string FormatDiagnosticCounts(IReadOnlyList<GradingDiagnostic> diagnostics)
+    {
+        int errors = diagnostics.Count(static diagnostic => diagnostic.Severity == GradingDiagnosticSeverity.Error);
+        int warnings = diagnostics.Count(static diagnostic => diagnostic.Severity == GradingDiagnosticSeverity.Warning);
+        int information = diagnostics.Count(static diagnostic => diagnostic.Severity == GradingDiagnosticSeverity.Information);
+
+        var parts = new List<string>(3);
+        if (errors > 0)
+            parts.Add($"{errors:N0} error{Plural(errors)}");
+        if (warnings > 0)
+            parts.Add($"{warnings:N0} warning{Plural(warnings)}");
+        if (information > 0)
+            parts.Add($"{information:N0} info");
+
+        return parts.Count == 0 ? "none" : string.Join(", ", parts);
+    }
+
+    private static string FormatDiagnosticSeverity(GradingDiagnosticSeverity severity)
+    {
+        return severity switch
+        {
+            GradingDiagnosticSeverity.Error => "Error",
+            GradingDiagnosticSeverity.Warning => "Warning",
+            _ => "Info"
+        };
+    }
+
+    private static string Plural(int count) => count == 1 ? string.Empty : "s";
 
     private void SetActionButtonsEnabled(bool enabled)
     {

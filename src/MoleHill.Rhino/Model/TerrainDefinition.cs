@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using MoleHill.Core.Grading;
 
 namespace MoleHill.Rhino.Model;
 
@@ -85,6 +86,9 @@ public sealed class TerrainDefinition
     public List<Guid> BakedObjectIds { get; set; } = new();
 
     public string? LastBuildMessage { get; set; }
+
+    [JsonIgnore]
+    public List<GradingDiagnostic> LastStructuredDiagnostics { get; set; } = new();
 
     public DateTimeOffset? LastBuildUtc { get; set; }
 

@@ -541,6 +541,7 @@ internal sealed class TerrainController
         {
             QueuePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Final, buildVersion, 0);
             terrain.LastBuildMessage = $"Queued rebuild #{buildVersion:N0}; current build will stop at the next safe checkpoint.";
+            terrain.LastStructuredDiagnostics.Clear();
             RaiseStateChanged();
             return;
         }
@@ -573,6 +574,7 @@ internal sealed class TerrainController
 
         PurgeOrphanedOwnedObjects(doc, terrain);
         terrain.LastBuildMessage = "Build reset. Rebuild to resume terrain outputs.";
+        terrain.LastStructuredDiagnostics.Clear();
         Save(doc, state);
         doc.Views.Redraw();
     }
@@ -594,6 +596,7 @@ internal sealed class TerrainController
         clone.MarkerObjectIds.Clear();
         clone.BakedObjectIds.Clear();
         clone.LastBuildMessage = null;
+        clone.LastStructuredDiagnostics.Clear();
         clone.LastBuildUtc = null;
 
         foreach (var modifier in clone.Modifiers)
@@ -1332,6 +1335,7 @@ internal sealed class TerrainController
                 terrain.LastBuildMessage = rebuildState.RequestedVersion > buildVersion
                     ? $"{mode} #{buildVersion:N0} cancelled; newer request queued."
                     : $"{mode} #{buildVersion:N0} cancelled.";
+                terrain.LastStructuredDiagnostics.Clear();
                 RaiseStateChanged();
                 return false;
             }
@@ -1342,6 +1346,7 @@ internal sealed class TerrainController
                     terrain.LastBuildUtc = DateTimeOffset.UtcNow;
 
                 terrain.LastBuildMessage = $"{mode} failed: {result.Error?.Message ?? "Unknown build error."}";
+                terrain.LastStructuredDiagnostics.Clear();
                 if (result.Error != null)
                     RhinoApp.WriteLine($"[MoleHill] Rebuild failed for '{terrain.Name}': {result.Error}");
                 if (mode == TerrainBuildMode.Final)
@@ -1440,6 +1445,7 @@ internal sealed class TerrainController
         if (result.Generation != rebuildState.BuildGeneration)
         {
             terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} discarded after reset.";
+            terrain.LastStructuredDiagnostics.Clear();
             RaiseStateChanged();
             return;
         }
@@ -1447,6 +1453,7 @@ internal sealed class TerrainController
         if (rebuildState.RequestedVersion > result.Version)
         {
             terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled; newer request queued.";
+            terrain.LastStructuredDiagnostics.Clear();
             RaiseStateChanged();
             return;
         }
@@ -1457,6 +1464,7 @@ internal sealed class TerrainController
                 terrain.LastBuildUtc = DateTimeOffset.UtcNow;
 
             terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled.";
+            terrain.LastStructuredDiagnostics.Clear();
             RaiseStateChanged();
             return;
         }
@@ -1467,6 +1475,7 @@ internal sealed class TerrainController
                 terrain.LastBuildUtc = DateTimeOffset.UtcNow;
 
             terrain.LastBuildMessage = $"{result.Mode} failed: {result.Error?.Message ?? "Unknown build error."}";
+            terrain.LastStructuredDiagnostics.Clear();
             if (result.Error != null)
                 RhinoApp.WriteLine($"[MoleHill] Rebuild failed for '{terrain.Name}': {result.Error}");
             if (result.Mode == TerrainBuildMode.Final)
@@ -1521,6 +1530,7 @@ internal sealed class TerrainController
         if (result.Mode == TerrainBuildMode.Final)
         {
             SyncTerrainObjects(doc, terrain, build);
+            terrain.LastStructuredDiagnostics = build.StructuredDiagnostics.ToList();
             terrain.LastBuildMessage = build.Diagnostics.Count == 0
                 ? "Build succeeded."
                 : string.Join(System.Environment.NewLine, build.Diagnostics.Take(8));
@@ -1556,6 +1566,7 @@ internal sealed class TerrainController
         }
         else
         {
+            terrain.LastStructuredDiagnostics = build.StructuredDiagnostics.ToList();
             build.RecordTiming(
                 "Preview total",
                 result.SnapshotElapsed + result.WorkerCacheCloneElapsed + buildElapsed + cacheMergeTimer.Elapsed + displayTimer.Elapsed,
