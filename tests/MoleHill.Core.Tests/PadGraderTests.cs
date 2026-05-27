@@ -868,6 +868,7 @@ public class PadGraderTests
         Assert.DoesNotContain(
             constraintSet.Diagnostics,
             diagnostic => diagnostic.Contains("skipped", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(constraintSet.StructuredDiagnostics);
     }
 
     [Fact]
@@ -980,6 +981,7 @@ public class PadGraderTests
         Assert.DoesNotContain(
             constraintSet.Diagnostics,
             diagnostic => diagnostic.Contains("skipped", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(constraintSet.StructuredDiagnostics);
     }
 
     private static PadGrader.PadBoundary[] BuildPads()

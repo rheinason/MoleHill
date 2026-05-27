@@ -33,6 +33,13 @@ public static class PathGrader
         public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
 
         public required double SuggestedEdgeLength { get; init; }
+
+        public IReadOnlyList<GradingDiagnostic> StructuredDiagnostics { get; init; } = Array.Empty<GradingDiagnostic>();
+
+        public IReadOnlyList<string> Diagnostics =>
+            StructuredDiagnostics.Count == 0
+                ? Array.Empty<string>()
+                : StructuredDiagnostics.Select(static diagnostic => diagnostic.Message).ToArray();
     }
 
     private readonly record struct ConstraintPath(
@@ -424,7 +431,7 @@ public static class PathGrader
         double tolerance,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
         List<OutputPolyline>? outputPolylines,
-        List<string>? diagnostics = null,
+        GradingDiagnosticCollector? diagnostics = null,
         bool includeStationConstraints = true,
         bool includeShoulderConstraints = true,
         bool resamplePrimaryRails = false)
@@ -474,8 +481,16 @@ public static class PathGrader
 
             if (diagnostics != null)
             {
-                diagnostics.Add(BuildPathSectionStatusDiagnostic(pathIndex, "left", leftStatuses, repairedLeftSections));
-                diagnostics.Add(BuildPathSectionStatusDiagnostic(pathIndex, "right", rightStatuses, repairedRightSections));
+                diagnostics.AddInformation(
+                    "grade_path.section_status.left",
+                    BuildPathSectionStatusDiagnostic(pathIndex, "left", leftStatuses, repairedLeftSections),
+                    operation: "Grade Path",
+                    targetIndex: pathIndex);
+                diagnostics.AddInformation(
+                    "grade_path.section_status.right",
+                    BuildPathSectionStatusDiagnostic(pathIndex, "right", rightStatuses, repairedRightSections),
+                    operation: "Grade Path",
+                    targetIndex: pathIndex);
             }
 
             double actualReach = Math.Max(0.0, maxInfluence - halfWidth);
@@ -499,7 +514,11 @@ public static class PathGrader
                             keptStationCount++;
                     }
 
-                    diagnostics.Add($"Grade Path[{pathIndex}] station constraints: kept={keptStationCount}, sampled={constraintPath.VertexCount}.");
+                    diagnostics.AddInformation(
+                        "grade_path.station_constraints",
+                        $"Grade Path[{pathIndex}] station constraints: kept={keptStationCount}, sampled={constraintPath.VertexCount}.",
+                        operation: "Grade Path",
+                        targetIndex: pathIndex);
                 }
             }
 
@@ -616,7 +635,8 @@ public static class PathGrader
         return new ConstraintSet
         {
             Constraints = constraints.ToArray(),
-            SuggestedEdgeLength = suggestedEdgeLength < double.MaxValue ? suggestedEdgeLength : 0.0
+            SuggestedEdgeLength = suggestedEdgeLength < double.MaxValue ? suggestedEdgeLength : 0.0,
+            StructuredDiagnostics = diagnostics?.ToStructuredDiagnostics() ?? Array.Empty<GradingDiagnostic>()
         };
     }
 
@@ -692,7 +712,7 @@ public static class PathGrader
         out string? errorMessage)
     {
         double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
-        var diagnostics = new List<string>(1);
+        var diagnostics = new GradingDiagnosticCollector();
         var outputPolylines = new List<OutputPolyline>(paths.Length * 2);
         ConstraintSet pathConstraintSet = BuildConstraintSetInternal(
             vertices,
@@ -742,8 +762,10 @@ public static class PathGrader
             newZ[i] = gradedVertices[i * 3 + 2];
         }
 
-        diagnostics.Add(
-            $"Grade Path topology mode: constraint insertion ({vertexCount:N0} verts/{faceCount:N0} faces -> {topologyVertexCount:N0} verts/{topologyFaceCount:N0} faces).");
+        diagnostics.AddInformation(
+            "grade_path.topology_mode.constraint_insertion",
+            $"Grade Path topology mode: constraint insertion ({vertexCount:N0} verts/{faceCount:N0} faces -> {topologyVertexCount:N0} verts/{topologyFaceCount:N0} faces).",
+            operation: "Grade Path");
         errorMessage = null;
         return BuildResult(
             outXy,
@@ -755,7 +777,8 @@ public static class PathGrader
             topologyFaceCount,
             outputPolylines,
             BuildPathPatchSummaries(paths),
-            diagnostics);
+            diagnostics.ToMessages(),
+            diagnostics.ToStructuredDiagnostics());
     }
 
     private static bool TryBuildPathSeamLoop(
@@ -6568,7 +6591,8 @@ public static class PathGrader
         int[] finalFaces, int faceCount,
         IReadOnlyList<OutputPolyline>? outputPolylines = null,
         IReadOnlyList<GradingPatch>? patchSummaries = null,
-        IReadOnlyList<string>? diagnostics = null)
+        IReadOnlyList<string>? diagnostics = null,
+        IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
         double cutVol = 0, fillVol = 0;
         for (int f = 0; f < faceCount; f++)
@@ -6608,7 +6632,8 @@ public static class PathGrader
             daylightPts.ToArray(), daylightPts.Count / 3,
             outputPolylines,
             diagnostics,
-            patchSummaries: patchSummaries);
+            patchSummaries: patchSummaries,
+            structuredDiagnostics: structuredDiagnostics);
     }
 
     private static void IncrEdge(Dictionary<long, int> dict, int a, int b)

@@ -59,6 +59,8 @@ public static class PadGrader
         public required double SuggestedEdgeLength { get; init; }
 
         public required string[] Diagnostics { get; init; }
+
+        public IReadOnlyList<GradingDiagnostic> StructuredDiagnostics { get; init; } = Array.Empty<GradingDiagnostic>();
     }
 
     public sealed class PadBoundary
@@ -5148,7 +5150,8 @@ public static class PadGrader
             {
                 Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
                 SuggestedEdgeLength = 0.0,
-                Diagnostics = Array.Empty<string>()
+                Diagnostics = Array.Empty<string>(),
+                StructuredDiagnostics = Array.Empty<GradingDiagnostic>()
             };
         }
 
@@ -5156,7 +5159,7 @@ public static class PadGrader
 
         bool hasBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
         var constraints = new List<SurfaceRemesher.ConstraintPolyline>(pads.Length * 3 + (lockCurves?.Length ?? 0));
-        var diagnostics = new List<string>();
+        var diagnostics = new GradingDiagnosticCollector();
         double suggestedEdgeLength = double.MaxValue;
         var coincidenceSnapper = new ConstraintCoincidenceSnapper(
             vertices,
@@ -5166,8 +5169,9 @@ public static class PadGrader
             Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)));
 
         var faceGridForConstraints = new FaceGrid(vertices, vertexCount, faces, faceCount);
-        foreach (var pad in pads)
+        for (int padIndex = 0; padIndex < pads.Length; padIndex++)
         {
+            PadBoundary pad = pads[padIndex];
             double shoulderDistance = ComputePadTransitionDistance(vertices, vertexCount, pad);
             double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance);
             var padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, dedupTol);
@@ -5217,12 +5221,20 @@ public static class PadGrader
                 }
                 else if (!string.IsNullOrWhiteSpace(stitchSkipReason))
                 {
-                    diagnostics.Add(stitchSkipReason!);
+                    diagnostics.AddWarning(
+                        "grade_pad.stitch_loop.skipped",
+                        stitchSkipReason!,
+                        operation: "Grade Pad",
+                        targetIndex: padIndex);
                 }
             }
             else if (!string.IsNullOrWhiteSpace(skipReason))
             {
-                diagnostics.Add(skipReason!);
+                diagnostics.AddWarning(
+                    "grade_pad.shoulder_loop.skipped",
+                    skipReason!,
+                    operation: "Grade Pad",
+                    targetIndex: padIndex);
             }
         }
 
@@ -5256,7 +5268,8 @@ public static class PadGrader
         {
             Constraints = constraints.ToArray(),
             SuggestedEdgeLength = suggestedEdgeLength < double.MaxValue ? suggestedEdgeLength : 0.0,
-            Diagnostics = diagnostics.ToArray()
+            Diagnostics = diagnostics.ToMessages(),
+            StructuredDiagnostics = diagnostics.ToStructuredDiagnostics()
         };
     }
 
