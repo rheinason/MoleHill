@@ -78,6 +78,46 @@ public class TerrainRuntimeCacheTests
         Assert.Empty(cache.GradingTopologyEntries);
     }
 
+    [Fact]
+    public void CloneStageCacheEntry_PreservesStructuredDiagnostics()
+    {
+        var entry = new StageCacheEntry
+        {
+            Diagnostics = new List<string> { "legacy message" },
+            StructuredDiagnostics = new List<GradingDiagnostic>
+            {
+                GradingDiagnostic.Warning("grade_pad.test", "structured message", "grade_pad", targetIndex: 2)
+            }
+        };
+
+        StageCacheEntry clone = TerrainRuntimeCacheCloner.CloneStageCacheEntry(entry);
+
+        Assert.Equal("legacy message", Assert.Single(clone.Diagnostics));
+        GradingDiagnostic diagnostic = Assert.Single(clone.StructuredDiagnostics);
+        Assert.Equal("grade_pad.test", diagnostic.Code);
+        Assert.Equal(GradingDiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.Equal("grade_pad", diagnostic.Operation);
+        Assert.Equal(2, diagnostic.TargetIndex);
+    }
+
+    [Fact]
+    public void CloneGradingTopologyEntry_PreservesStructuredDiagnostics()
+    {
+        GradingTopologyCacheEntry entry = CreateEntry(
+            "Pad",
+            CreatePatch("pad:2", 2.0, 2.0, 4.0, 4.0));
+        entry.StructuredDiagnostics.Add(
+            GradingDiagnostic.Information("grade_pad.topology", "topology message", "grade_pad", targetIndex: 2));
+
+        GradingTopologyCacheEntry clone = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(entry);
+
+        GradingDiagnostic diagnostic = Assert.Single(clone.StructuredDiagnostics);
+        Assert.Equal("grade_pad.topology", diagnostic.Code);
+        Assert.Equal(GradingDiagnosticSeverity.Information, diagnostic.Severity);
+        Assert.Equal("grade_pad", diagnostic.Operation);
+        Assert.Equal(2, diagnostic.TargetIndex);
+    }
+
     [Theory]
     [InlineData("final:modifier:2:GradePadModifierDefinition:a:topology:Pad", 2)]
     [InlineData("preview:modifier:7:GradePathModifierDefinition:b", 7)]
