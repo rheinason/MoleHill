@@ -37,7 +37,7 @@ public class SectionLayoutHelperTests
         Assert.Equal(40.0, projected.Y, 6);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void ProjectToInsertionPlane_TranslatedPlane_AppliesOriginOffset()
     {
         var plane = new Plane(new Point3d(100, 200, 50), Vector3d.XAxis, Vector3d.YAxis);
@@ -55,7 +55,7 @@ public class SectionLayoutHelperTests
         Assert.Equal(50.0, projected.Z, 6);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void ProjectToInsertionPlane_RotatedPlane_RespectsAxes()
     {
         var plane = new Plane(Point3d.Origin, Vector3d.YAxis, Vector3d.ZAxis);
@@ -177,7 +177,7 @@ public class SectionLayoutHelperTests
         Assert.Equal(0.0, baseline.ToY, 6);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void FrameFromCurveTangent_FlattensZComponent()
     {
         var tangent = new Vector3d(1.0, 0.0, 0.5);
@@ -189,7 +189,7 @@ public class SectionLayoutHelperTests
         Assert.True(Vector3d.CrossProduct(frame.XAxis, frame.YAxis).Z > 0.99);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void FrameFromCurveTangent_ZeroXyTangent_FallsBackToWorldX()
     {
         var tangent = new Vector3d(0.0, 0.0, 1.0);

@@ -110,7 +110,7 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
         var opts = new ConstraintOptions { ConformingDelaunay = false, Convex = true };
 
         var sw = Stopwatch.StartNew();
-        var mesh = new GenericMesher().Triangulate(polygon, opts, null);
+        var mesh = new GenericMesher().Triangulate(polygon, opts);
         sw.Stop();
         output.WriteLine($"1. Triangulate:              {sw.ElapsedMilliseconds}ms  ({mesh.Triangles.Count:N0} triangles)");
 
@@ -227,7 +227,7 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
             for (int i = 0; i < merged.VertexCount; i++)
                 poly.Add(new Vertex(merged.XyCoords[i * 2], merged.XyCoords[i * 2 + 1]) { ID = i });
             var opts = new ConstraintOptions { ConformingDelaunay = false, Convex = true };
-            var rawMesh = new GenericMesher().Triangulate(poly, opts, null);
+            var rawMesh = new GenericMesher().Triangulate(poly, opts);
             output.WriteLine($"Raw Triangle.NET (Convex=true, no segs): {sw.ElapsedMilliseconds}ms  ({rawMesh.Triangles.Count:N0} triangles)");
         }
         sw.Stop();

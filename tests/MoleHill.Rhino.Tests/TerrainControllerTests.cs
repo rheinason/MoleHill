@@ -6,7 +6,7 @@ using Xunit;
 
 namespace MoleHill.Rhino.Tests;
 
-public class TerrainControllerTests
+public class TerrainWorkerCancellationTests
 {
     [Fact]
     public async Task CancelAndWaitForWorkers_CancelsAndDrainsResponsiveWorker()
@@ -24,8 +24,8 @@ public class TerrainControllerTests
             }
         });
 
-        bool completed = TerrainController.CancelAndWaitForWorkers(
-            new[] { (cancellation, worker) },
+        bool completed = TerrainWorkerCancellation.CancelAndWaitForWorkers(
+            new (CancellationTokenSource? Cancellation, Task? Task)[] { (cancellation, worker) },
             TimeSpan.FromSeconds(1));
 
         Assert.True(completed);
@@ -39,8 +39,8 @@ public class TerrainControllerTests
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         Task worker = completion.Task;
 
-        bool completed = TerrainController.CancelAndWaitForWorkers(
-            new[] { (cancellation, worker) },
+        bool completed = TerrainWorkerCancellation.CancelAndWaitForWorkers(
+            new (CancellationTokenSource? Cancellation, Task? Task)[] { (cancellation, worker) },
             TimeSpan.FromMilliseconds(50));
 
         Assert.False(completed);

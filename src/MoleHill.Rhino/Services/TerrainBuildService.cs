@@ -6552,6 +6552,7 @@ internal sealed class TerrainBuildService
         double minEdgeLength = Math.Max(effectiveCleanupTolerance * 2.0, 1e-5);
         double minEdgeLengthSquared = minEdgeLength * minEdgeLength;
         double minProjectedArea = Math.Max(effectiveCleanupTolerance * effectiveCleanupTolerance * 2.0, 1e-10);
+        Dictionary<long, int> originalEdgeCounts = BuildFaceEdgeCounts(faces, faceCount);
 
         var candidates = new List<(int FaceIndex, double Area, double SmallestEdgeSquared, double MinProjectedAltitude)>();
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
@@ -6600,7 +6601,21 @@ internal sealed class TerrainBuildService
                 longestProjectedEdge > effectiveCleanupTolerance * 8.0 &&
                 minProjectedAltitude < Math.Max(effectiveCleanupTolerance * 0.5, longestProjectedEdge * 0.001);
 
-            if (smallestEdgeSquared < minEdgeLengthSquared || area < minProjectedArea || projectedDuplicate || projectedSliver)
+            bool shortBoundaryEdge = HasShortBoundaryEdge(
+                originalEdgeCounts,
+                a,
+                b,
+                c,
+                l0Squared,
+                l1Squared,
+                l2Squared,
+                minEdgeLengthSquared);
+            bool hasBoundaryEdge = FaceHasBoundaryEdge(originalEdgeCounts, a, b, c);
+
+            if (shortBoundaryEdge ||
+                area < minProjectedArea ||
+                (projectedDuplicate && shortBoundaryEdge) ||
+                (projectedSliver && hasBoundaryEdge))
                 candidates.Add((faceIndex, area, smallestEdgeSquared, minProjectedAltitude));
         }
 
@@ -6625,9 +6640,9 @@ internal sealed class TerrainBuildService
 
         int removedCount = 0;
         int blockedCount = 0;
-        bool enforceSingleClosedBoundaryLoop = originalTopology.HasSingleClosedBoundaryLoop;
+        bool enforceSingleClosedBoundaryLoop = HasSingleClosedBoundaryLoopIgnoringNonManifoldEdges(originalTopology);
         Dictionary<long, int>? edgeCounts = enforceSingleClosedBoundaryLoop
-            ? BuildFaceEdgeCounts(faces, faceCount)
+            ? new Dictionary<long, int>(originalEdgeCounts, IndexedMeshTools.EdgeKeyComparer.Instance)
             : null;
 
         foreach (var candidate in candidates)
@@ -6644,7 +6659,7 @@ internal sealed class TerrainBuildService
             {
                 ApplyFaceEdgeCountDelta(edgeCounts!, faces, candidate.FaceIndex, -1);
                 var proposedTopology = AnalyzeBoundaryGraphFromEdgeCounts(edgeCounts!);
-                if (!proposedTopology.HasSingleClosedBoundaryLoop)
+                if (!HasSingleClosedBoundaryLoopIgnoringNonManifoldEdges(proposedTopology))
                 {
                     ApplyFaceEdgeCountDelta(edgeCounts!, faces, candidate.FaceIndex, 1);
                     keepFace[candidate.FaceIndex] = true;
@@ -6663,6 +6678,40 @@ internal sealed class TerrainBuildService
             BuildFilteredFaces(faces, faceCount, keepFace, removedCount),
             removedCount,
             blockedCount);
+    }
+
+    private static bool HasShortBoundaryEdge(
+        IReadOnlyDictionary<long, int> edgeCounts,
+        int a,
+        int b,
+        int c,
+        double abLengthSquared,
+        double bcLengthSquared,
+        double caLengthSquared,
+        double minLengthSquared)
+    {
+        return (abLengthSquared < minLengthSquared && IsBoundaryEdge(edgeCounts, a, b)) ||
+               (bcLengthSquared < minLengthSquared && IsBoundaryEdge(edgeCounts, b, c)) ||
+               (caLengthSquared < minLengthSquared && IsBoundaryEdge(edgeCounts, c, a));
+    }
+
+    private static bool IsBoundaryEdge(IReadOnlyDictionary<long, int> edgeCounts, int a, int b)
+    {
+        return edgeCounts.TryGetValue(IndexedMeshTools.GetEdgeKey(a, b), out int count) && count == 1;
+    }
+
+    private static bool FaceHasBoundaryEdge(IReadOnlyDictionary<long, int> edgeCounts, int a, int b, int c)
+    {
+        return IsBoundaryEdge(edgeCounts, a, b) ||
+               IsBoundaryEdge(edgeCounts, b, c) ||
+               IsBoundaryEdge(edgeCounts, c, a);
+    }
+
+    private static bool HasSingleClosedBoundaryLoopIgnoringNonManifoldEdges(MeshTopologyValidator.BoundaryGraphAnalysis topology)
+    {
+        return topology.BoundaryEdgeCount > 0 &&
+               topology.BoundaryComponentCount == 1 &&
+               !topology.HasOpenBoundaryChains;
     }
 
     private static Dictionary<long, int> BuildFaceEdgeCounts(int[] faces, int faceCount)
@@ -6724,9 +6773,16 @@ internal sealed class TerrainBuildService
         var adjacency = new Dictionary<int, List<int>>();
         var degree = new Dictionary<int, int>();
         int boundaryEdgeCount = 0;
+        int nonManifoldEdgeCount = 0;
 
         foreach (var pair in edgeCounts)
         {
+            if (pair.Value > 2)
+            {
+                nonManifoldEdgeCount++;
+                continue;
+            }
+
             if (pair.Value != 1)
                 continue;
 
@@ -6738,7 +6794,7 @@ internal sealed class TerrainBuildService
         }
 
         if (boundaryEdgeCount == 0)
-            return new MeshTopologyValidator.BoundaryGraphAnalysis(0, 0, 0, HasOpenBoundaryChains: true);
+            return new MeshTopologyValidator.BoundaryGraphAnalysis(0, 0, 0, HasOpenBoundaryChains: true, nonManifoldEdgeCount);
 
         bool hasOpenBoundaryChains = degree.Values.Any(value => value != 2);
         int boundaryComponentCount = 0;
@@ -6767,7 +6823,8 @@ internal sealed class TerrainBuildService
             boundaryEdgeCount,
             degree.Count,
             boundaryComponentCount,
-            hasOpenBoundaryChains);
+            hasOpenBoundaryChains,
+            nonManifoldEdgeCount);
     }
 
     private static void AddBoundaryNeighbor(

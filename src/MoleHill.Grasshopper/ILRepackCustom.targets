@@ -1,19 +1,29 @@
 <Project>
   <!-- Use a unique name to avoid being overridden by the NuGet package -->
   <Target Name="MergeAssemblies" AfterTargets="Build">
+    <PropertyGroup>
+      <MoleHillILRepackDirectory>$([System.IO.Path]::Combine($([System.IO.Path]::GetTempPath()), 'MoleHillILRepack', '$(MSBuildProjectName)', '$(TargetFramework)'))\</MoleHillILRepackDirectory>
+      <MoleHillILRepackOutputFile>$(MoleHillILRepackDirectory)$(TargetName)$(TargetExt)</MoleHillILRepackOutputFile>
+    </PropertyGroup>
+
     <ItemGroup>
       <InputAssemblies Include="$(OutputPath)$(TargetName)$(TargetExt)" />
       <InputAssemblies Include="$(OutputPath)MoleHill.Core.dll" />
     </ItemGroup>
 
+    <MakeDir Directories="$(MoleHillILRepackDirectory)" />
+
     <ILRepack
-      Parallel="true"
+      Parallel="false"
       DebugInfo="true"
       AllowDuplicateResources="false"
       InputAssemblies="@(InputAssemblies)"
       TargetKind="SameAsPrimaryAssembly"
-      OutputFile="$(OutputPath)$(TargetName)$(TargetExt)" />
+      OutputFile="$(MoleHillILRepackOutputFile)" />
 
-    <Delete Files="$(OutputPath)MoleHill.Core.dll;$(OutputPath)MoleHill.Core.pdb" ContinueOnError="true" />
+    <Copy SourceFiles="$(MoleHillILRepackOutputFile)" DestinationFiles="$(OutputPath)$(TargetName)$(TargetExt)" OverwriteReadOnlyFiles="true" />
+
+    <Delete Files="$(OutputPath)MoleHill.Core.dll;$(OutputPath)MoleHill.Core.pdb" ContinueOnError="true" Condition="'$(Configuration)' == 'Release'" />
+    <Delete Files="$(MoleHillILRepackOutputFile)" ContinueOnError="true" />
   </Target>
 </Project>

@@ -14,11 +14,9 @@ internal static class TerrainBuildHeuristics
         int vertexCount,
         int faceCount)
     {
-        // Shoulder/guide constraints are now clipped at barriers before triangulation,
-        // so the legacy Z-only path is safe even when persistent hard constraints exist.
-        _ = hasPersistentHardConstraints;
         return mode == TerrainBuildMode.Preview ||
-               (vertexCount <= MaxLegacyPathTriangulationVertices &&
+               (!hasPersistentHardConstraints &&
+                vertexCount <= MaxLegacyPathTriangulationVertices &&
                 faceCount <= MaxLegacyPathTriangulationFaces);
     }
 

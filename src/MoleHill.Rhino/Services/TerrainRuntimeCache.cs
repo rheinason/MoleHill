@@ -30,7 +30,6 @@ internal sealed class TerrainRuntimeCache
     {
         var copy = new TerrainRuntimeCache
         {
-            TinEngine = TinEngine,
             LastPreviewDuration = LastPreviewDuration,
             LastFinalDuration = LastFinalDuration
         };

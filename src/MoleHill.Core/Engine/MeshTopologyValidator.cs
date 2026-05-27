@@ -6,12 +6,14 @@ public static class MeshTopologyValidator
         int BoundaryEdgeCount,
         int BoundaryVertexCount,
         int BoundaryComponentCount,
-        bool HasOpenBoundaryChains)
+        bool HasOpenBoundaryChains,
+        int NonManifoldEdgeCount)
     {
         public bool HasSingleClosedBoundaryLoop =>
             BoundaryEdgeCount > 0 &&
             BoundaryComponentCount == 1 &&
-            !HasOpenBoundaryChains;
+            !HasOpenBoundaryChains &&
+            NonManifoldEdgeCount == 0;
     }
 
     public static BoundaryGraphAnalysis AnalyzeBoundaryGraph(int[] faces, int faceCount)
@@ -31,9 +33,16 @@ public static class MeshTopologyValidator
         var adjacency = new Dictionary<int, List<int>>();
         var degree = new Dictionary<int, int>();
         int boundaryEdgeCount = 0;
+        int nonManifoldEdgeCount = 0;
 
         foreach (var (edgeKey, count) in edgeCounts)
         {
+            if (count > 2)
+            {
+                nonManifoldEdgeCount++;
+                continue;
+            }
+
             if (count != 1)
                 continue;
 
@@ -45,7 +54,7 @@ public static class MeshTopologyValidator
         }
 
         if (boundaryEdgeCount == 0)
-            return new BoundaryGraphAnalysis(0, 0, 0, HasOpenBoundaryChains: true);
+            return new BoundaryGraphAnalysis(0, 0, 0, HasOpenBoundaryChains: true, nonManifoldEdgeCount);
 
         bool hasOpenBoundaryChains = degree.Values.Any(value => value != 2);
         int boundaryComponentCount = 0;
@@ -74,7 +83,8 @@ public static class MeshTopologyValidator
             boundaryEdgeCount,
             degree.Count,
             boundaryComponentCount,
-            hasOpenBoundaryChains);
+            hasOpenBoundaryChains,
+            nonManifoldEdgeCount);
     }
 
     private static void CountEdge(Dictionary<long, int> edgeCounts, int a, int b)

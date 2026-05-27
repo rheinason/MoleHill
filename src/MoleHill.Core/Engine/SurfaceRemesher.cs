@@ -150,6 +150,58 @@ public static class SurfaceRemesher
     private readonly record struct TriangulationAttempt(IMesh? Mesh, string? Warning, TriangulationWarningFlags Flags);
     private readonly record struct Segment2D(double Ax, double Ay, double Bx, double By);
 
+    private sealed class SegmentSpatialIndex
+    {
+        private readonly IReadOnlyList<Segment2D> _segments;
+        private readonly SpatialHashGrid2D _grid;
+        private readonly List<int> _candidates = new(16);
+        private readonly SpatialHashGrid2D.QueryScratch _scratch;
+
+        private SegmentSpatialIndex(IReadOnlyList<Segment2D> segments, SpatialHashGrid2D grid)
+        {
+            _segments = segments;
+            _grid = grid;
+            _scratch = new SpatialHashGrid2D.QueryScratch(segments.Count);
+        }
+
+        public int Count => _segments.Count;
+
+        public static SegmentSpatialIndex Build(IReadOnlyList<Segment2D> segments, double padding)
+        {
+            var bounds = new Bounds2D[segments.Count];
+            for (int i = 0; i < segments.Count; i++)
+                bounds[i] = GetSegmentBounds(segments[i], padding);
+
+            return new SegmentSpatialIndex(segments, SpatialHashGrid2D.Build(bounds));
+        }
+
+        public double DistanceSquaredToAnySegment(double x, double y)
+        {
+            if (_segments.Count == 0)
+                return double.PositiveInfinity;
+
+            _grid.GatherCandidates(Bounds2D.FromPoint(x, y), _candidates, _scratch);
+            double best = double.PositiveInfinity;
+            for (int i = 0; i < _candidates.Count; i++)
+            {
+                best = Math.Min(best, DistanceSquaredToSegment(x, y, _segments[_candidates[i]]));
+                if (best <= 0.0)
+                    return 0.0;
+            }
+
+            return best;
+        }
+
+        private static Bounds2D GetSegmentBounds(Segment2D segment, double padding)
+        {
+            return new Bounds2D(
+                Math.Min(segment.Ax, segment.Bx) - padding,
+                Math.Max(segment.Ax, segment.Bx) + padding,
+                Math.Min(segment.Ay, segment.By) - padding,
+                Math.Max(segment.Ay, segment.By) + padding);
+        }
+    }
+
     private sealed class NearVertexIndex
     {
         private readonly List<double> _xyList;
@@ -931,7 +983,8 @@ public static class SurfaceRemesher
             {
                 long buildAreaCheckInputsStart = Stopwatch.GetTimestamp();
                 var perimeterSegments = BuildPerimeterSegments(originalVertices, originalFaces, faceCount);
-                var constraintSegments = BuildNonPerimeterConstraintSegments(constraints, perimeterSegments, options.Tolerance);
+                var perimeterMatchIndex = SegmentSpatialIndex.Build(perimeterSegments, Math.Max(options.Tolerance, 1e-9));
+                var constraintSegments = BuildNonPerimeterConstraintSegments(constraints, perimeterMatchIndex, options.Tolerance);
                 profile.AddPhase($"{attemptName}.build_area_check_inputs", Stopwatch.GetElapsedTime(buildAreaCheckInputsStart));
 
                 long areaChecksStart = Stopwatch.GetTimestamp();
@@ -940,8 +993,8 @@ public static class SurfaceRemesher
                     extracted.Faces,
                     qualityLength,
                     effectiveMaxArea,
-                    perimeterSegments,
-                    constraintSegments,
+                    SegmentSpatialIndex.Build(perimeterSegments, qualityLength * 3.0),
+                    SegmentSpatialIndex.Build(constraintSegments, qualityLength * 3.0),
                     ref maxPerimeterTriangleArea,
                     ref maxConstraintTriangleArea,
                     ref perimeterApronInvalid,
@@ -1033,7 +1086,7 @@ public static class SurfaceRemesher
             reasons.Add("requested remesh refinement could not be satisfied");
 
         if (attempt.TopologyInvalid)
-            reasons.Add("output would create extra boundary loops or open naked-edge chains");
+            reasons.Add("output would create extra boundary loops, open naked-edge chains, or non-manifold edges");
 
         if (attempt.ConstraintApronInvalid)
             reasons.Add("oversized triangles remained near remesh constraints");
@@ -1058,7 +1111,7 @@ public static class SurfaceRemesher
         var reasons = new List<string>();
 
         if (topologyInvalid)
-            reasons.Add("Remesh output would create extra boundary loops or open naked-edge chains.");
+            reasons.Add("Remesh output would create extra boundary loops, open naked-edge chains, or non-manifold edges.");
 
         if (constraintApronInvalid)
             reasons.Add("Remesh output left oversized triangles near remesh constraints.");
@@ -1079,8 +1132,8 @@ public static class SurfaceRemesher
         int[] faces,
         double qualityLength,
         double targetArea,
-        IReadOnlyList<Segment2D> perimeterSegments,
-        IReadOnlyList<Segment2D> constraintSegments,
+        SegmentSpatialIndex perimeterSegments,
+        SegmentSpatialIndex constraintSegments,
         ref double maxPerimeterTriangleArea,
         ref double maxConstraintTriangleArea,
         ref bool perimeterApronInvalid,
@@ -1100,7 +1153,7 @@ public static class SurfaceRemesher
             double centroidY = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0;
 
             if (constraintSegments.Count > 0 &&
-                DistanceSquaredToAnySegment(centroidX, centroidY, constraintSegments) <= perimeterDistanceSquared)
+                constraintSegments.DistanceSquaredToAnySegment(centroidX, centroidY) <= perimeterDistanceSquared)
             {
                 if (area > maxConstraintTriangleArea)
                     maxConstraintTriangleArea = area;
@@ -1110,7 +1163,7 @@ public static class SurfaceRemesher
             }
 
             if (perimeterSegments.Count > 0 &&
-                DistanceSquaredToAnySegment(centroidX, centroidY, perimeterSegments) <= perimeterDistanceSquared)
+                perimeterSegments.DistanceSquaredToAnySegment(centroidX, centroidY) <= perimeterDistanceSquared)
             {
                 if (area > maxPerimeterTriangleArea)
                     maxPerimeterTriangleArea = area;
@@ -1155,7 +1208,7 @@ public static class SurfaceRemesher
 
     private static List<Segment2D> BuildNonPerimeterConstraintSegments(
         IReadOnlyList<ConstraintPolyline> constraints,
-        IReadOnlyList<Segment2D> perimeterSegments,
+        SegmentSpatialIndex perimeterSegments,
         double tolerance)
     {
         var result = new List<Segment2D>();
@@ -1182,7 +1235,7 @@ public static class SurfaceRemesher
     private static bool IsPerimeterConstraint(
         ConstraintPolyline constraint,
         int pointCount,
-        IReadOnlyList<Segment2D> perimeterSegments,
+        SegmentSpatialIndex perimeterSegments,
         double tolerance)
     {
         if (perimeterSegments.Count == 0)
@@ -1204,7 +1257,7 @@ public static class SurfaceRemesher
         ConstraintPolyline constraint,
         int startPointIndex,
         int endPointIndex,
-        IReadOnlyList<Segment2D> perimeterSegments,
+        SegmentSpatialIndex perimeterSegments,
         double distanceToleranceSquared)
     {
         double ax = constraint.Points[startPointIndex * 3];
@@ -1214,9 +1267,9 @@ public static class SurfaceRemesher
         double mx = (ax + bx) * 0.5;
         double my = (ay + by) * 0.5;
 
-        return DistanceSquaredToAnySegment(ax, ay, perimeterSegments) <= distanceToleranceSquared &&
-               DistanceSquaredToAnySegment(mx, my, perimeterSegments) <= distanceToleranceSquared &&
-               DistanceSquaredToAnySegment(bx, by, perimeterSegments) <= distanceToleranceSquared;
+        return perimeterSegments.DistanceSquaredToAnySegment(ax, ay) <= distanceToleranceSquared &&
+               perimeterSegments.DistanceSquaredToAnySegment(mx, my) <= distanceToleranceSquared &&
+               perimeterSegments.DistanceSquaredToAnySegment(bx, by) <= distanceToleranceSquared;
     }
 
     private static Segment2D ToSegment(ConstraintPolyline constraint, int startPointIndex, int endPointIndex)
@@ -1226,19 +1279,6 @@ public static class SurfaceRemesher
             constraint.Points[startPointIndex * 3 + 1],
             constraint.Points[endPointIndex * 3],
             constraint.Points[endPointIndex * 3 + 1]);
-    }
-
-    private static double DistanceSquaredToAnySegment(double x, double y, IReadOnlyList<Segment2D> segments)
-    {
-        double best = double.PositiveInfinity;
-        for (int i = 0; i < segments.Count; i++)
-        {
-            best = Math.Min(best, DistanceSquaredToSegment(x, y, segments[i]));
-            if (best <= 0.0)
-                return 0.0;
-        }
-
-        return best;
     }
 
     private static double DistanceSquaredToSegment(double x, double y, Segment2D segment)

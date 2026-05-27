@@ -6,7 +6,7 @@ namespace MoleHill.Grasshopper.Tests;
 
 public class RetainingWallPlannerGeometryTests
 {
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_StraightWall_BuildsSolidAndStrip()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -26,7 +26,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.Equal(1.0, wall.Rails.MinWidth, 6);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_ShortAuthoredSegment_PreservesStation()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -55,7 +55,7 @@ public class RetainingWallPlannerGeometryTests
             point => Math.Abs(point.X - 4.0) <= 1e-6 && Math.Abs(point.Y) <= 1e-6);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_AmbiguousSecondBest_SkipsPairWithReason()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -71,7 +71,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.AmbiguousPair);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_SubToleranceSpacing_SkipsPair()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -86,7 +86,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SubToleranceWidth);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_EqualZRails_SkipsPairWhenWallHasNoHeight()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -101,7 +101,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SolidFailed);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_ZeroHeightStart_BuildsTaperedWall()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -117,7 +117,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.Equal(2, wall.Rails.ToePoints.Length);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_ZeroHeightEnd_BuildsTaperedWall()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -133,7 +133,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.Equal(2, wall.Rails.ToePoints.Length);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_ClosedLoopPair_BuildsClosedSolidWallRing()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -159,7 +159,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.Single(plan.PairLines);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_MixedOpenClosed_RaisesDiagnostic()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -178,7 +178,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.MixedOpenClosed);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_SelfIntersectingRail_RaisesDiagnostic()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -199,7 +199,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SelfIntersectingRail);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_TwoWallCorner_UsesBoundedMiter()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -217,7 +217,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.All(plan.Walls, wall => Assert.True(wall.Rails.MinWidth >= 0.11));
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_CrossingWallCenterlines_WarnsButKeepsPairs()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -234,7 +234,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.CrossingWalls);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_ThreeRails_ClearPairLeavesNoPairWarningForThird()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -252,7 +252,7 @@ public class RetainingWallPlannerGeometryTests
             entry.CurveA == 2);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void Plan_ClosedLoopPair_ReversedOuterRailStillBuilds()
     {
         var plan = RetainingWallPlannerCore.Plan(
@@ -277,7 +277,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.True(wall.Brep!.IsSolid);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void BrepBuilder_IndependentPolylineCounts_BuildsSolidViaSmartLoft()
     {
         Brep? brep = RetainingWallBrepBuilder.Build(
@@ -301,7 +301,7 @@ public class RetainingWallPlannerGeometryTests
         Assert.True(brep!.IsSolid);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void BrepBuilder_EqualPolylineCounts_BuildsSolidBrep()
     {
         Brep? brep = RetainingWallBrepBuilder.Build(

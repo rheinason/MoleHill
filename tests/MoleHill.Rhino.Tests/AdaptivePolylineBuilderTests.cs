@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Tests;
 
 public class AdaptivePolylineBuilderTests
 {
-    [Fact]
+    [RhinoNativeFact]
     public void TryGetPolyline_RefinesSmoothCurve_WhenRequestedEdgeLengthProvided()
     {
         Curve curve = CreateSmoothPathCurve();
@@ -31,7 +31,7 @@ public class AdaptivePolylineBuilderTests
         Assert.True(refined.Count > coarse.Count);
     }
 
-    [Fact]
+    [RhinoNativeFact]
     public void TryGetPolyline_UsesRequestedEdgeLength_AsMaximumSegmentLength()
     {
         Curve curve = CreateSmoothPathCurve();

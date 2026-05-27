@@ -78,6 +78,7 @@ internal sealed class TerrainController
 
     private readonly record struct BackgroundBuildResult(
         long Version,
+        long Generation,
         TerrainBuildMode Mode,
         TerrainDefinition SnapshotTerrain,
         TerrainBuildResult? Build,
@@ -97,6 +98,8 @@ internal sealed class TerrainController
         public long AppliedPreviewVersion { get; set; }
 
         public long RunningVersion { get; set; }
+
+        public long BuildGeneration { get; set; }
 
         public TerrainBuildMode RunningMode { get; set; } = TerrainBuildMode.Final;
 
@@ -154,7 +157,7 @@ internal sealed class TerrainController
         RhinoApp.Idle -= OnIdle;
         _displayConduit.Enabled = false;
 
-        bool workersStopped = CancelAndWaitForWorkers(
+        bool workersStopped = TerrainWorkerCancellation.CancelAndWaitForWorkers(
             _rebuildStates.Values.Select(static state => (state.WorkerCancellation, state.WorkerTask as Task)).ToList(),
             ShutdownWorkerDrainTimeout);
 
@@ -536,6 +539,7 @@ internal sealed class TerrainController
         var rebuildState = GetRebuildState(doc.RuntimeSerialNumber, terrainId);
         if (rebuildState.IsBuilding)
         {
+            QueuePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Final, buildVersion, 0);
             terrain.LastBuildMessage = $"Queued rebuild #{buildVersion:N0}; current build will stop at the next safe checkpoint.";
             RaiseStateChanged();
             return;
@@ -1240,6 +1244,9 @@ internal sealed class TerrainController
         long buildVersion = requestedBuildVersion ?? Math.Max(rebuildState.RequestedVersion, rebuildState.AppliedVersion + 1);
         rebuildState.RequestedVersion = Math.Max(rebuildState.RequestedVersion, buildVersion);
 
+        if (rebuildState.WorkerTask != null)
+            RetireRunningWorker(rebuildState, invalidateGeneration: true);
+
         if (!ConfirmLongRunningBuild(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), rebuildState, mode, buildVersion))
             return;
 
@@ -1251,18 +1258,19 @@ internal sealed class TerrainController
         TerrainRuntimeCache workerCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).CreateWorkerCopy();
         workerCacheTimer.Stop();
         var cancellation = new CancellationTokenSource();
+        long buildGeneration = ++rebuildState.BuildGeneration;
 
         rebuildState.RunningVersion = buildVersion;
         rebuildState.RunningMode = mode;
         rebuildState.CancelRequested = false;
         rebuildState.IsBuilding = true;
-        rebuildState.WorkerCancellation?.Dispose();
         rebuildState.WorkerCancellation = cancellation;
         rebuildState.WorkerTask = Task.Run(() => ExecuteBackgroundBuild(
             snapshot,
             workerCache,
             mode,
             buildVersion,
+            buildGeneration,
             snapshotTimer.Elapsed,
             workerCacheTimer.Elapsed,
             cancellation.Token));
@@ -1315,6 +1323,7 @@ internal sealed class TerrainController
                 workerCache,
                 mode,
                 buildVersion,
+                rebuildState.BuildGeneration,
                 snapshotTimer.Elapsed,
                 workerCacheTimer.Elapsed,
                 CancellationToken.None);
@@ -1356,6 +1365,7 @@ internal sealed class TerrainController
         TerrainRuntimeCache workerCache,
         TerrainBuildMode mode,
         long buildVersion,
+        long buildGeneration,
         TimeSpan snapshotElapsed,
         TimeSpan workerCacheCloneElapsed,
         CancellationToken cancellationToken)
@@ -1371,6 +1381,7 @@ internal sealed class TerrainController
             timer.Stop();
             return new BackgroundBuildResult(
                 buildVersion,
+                buildGeneration,
                 mode,
                 snapshot.Terrain,
                 build,
@@ -1386,6 +1397,7 @@ internal sealed class TerrainController
             timer.Stop();
             return new BackgroundBuildResult(
                 buildVersion,
+                buildGeneration,
                 mode,
                 snapshot.Terrain,
                 Build: null,
@@ -1401,6 +1413,7 @@ internal sealed class TerrainController
             timer.Stop();
             return new BackgroundBuildResult(
                 buildVersion,
+                buildGeneration,
                 mode,
                 snapshot.Terrain,
                 Build: null,
@@ -1423,6 +1436,13 @@ internal sealed class TerrainController
         rebuildState.IsBuilding = false;
         rebuildState.RunningVersion = 0;
         rebuildState.CancelRequested = false;
+
+        if (result.Generation != rebuildState.BuildGeneration)
+        {
+            terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} discarded after reset.";
+            RaiseStateChanged();
+            return;
+        }
 
         if (rebuildState.RequestedVersion > result.Version)
         {
@@ -1494,7 +1514,9 @@ internal sealed class TerrainController
         var displayTimer = Stopwatch.StartNew();
         UpdateDisplayState(doc, terrain, runtimeCache, build);
         displayTimer.Stop();
-        build.RecordTiming("Display refresh", displayTimer.Elapsed, DescribeDisplayState(runtimeCache.DisplayState), StageTimingDiagnosticThresholdMs);
+        TerrainDisplayState displayState = runtimeCache.DisplayState
+            ?? throw new InvalidOperationException("Terrain display state was not produced by the build.");
+        build.RecordTiming("Display refresh", displayTimer.Elapsed, DescribeDisplayState(displayState), StageTimingDiagnosticThresholdMs);
 
         if (result.Mode == TerrainBuildMode.Final)
         {
@@ -1513,7 +1535,7 @@ internal sealed class TerrainController
             redrawTimer.Stop();
             build.RecordTiming("Viewport redraw", redrawTimer.Elapsed, null, MinorTimingDiagnosticThresholdMs);
 
-            var totalTimingDetail = $"snapshot {FormatElapsed(result.SnapshotElapsed)}, clone {FormatElapsed(result.WorkerCacheCloneElapsed)}, build {FormatElapsed(buildElapsed)}, merge {FormatElapsed(cacheMergeTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}, save {FormatElapsed(saveTimer.Elapsed)}, redraw {FormatElapsed(redrawTimer.Elapsed)}; {DescribeDisplayState(runtimeCache.DisplayState)}";
+            var totalTimingDetail = $"snapshot {FormatElapsed(result.SnapshotElapsed)}, clone {FormatElapsed(result.WorkerCacheCloneElapsed)}, build {FormatElapsed(buildElapsed)}, merge {FormatElapsed(cacheMergeTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}, save {FormatElapsed(saveTimer.Elapsed)}, redraw {FormatElapsed(redrawTimer.Elapsed)}; {DescribeDisplayState(displayState)}";
             build.RecordTiming(
                 "Rebuild total",
                 result.SnapshotElapsed + result.WorkerCacheCloneElapsed + buildElapsed + cacheMergeTimer.Elapsed + displayTimer.Elapsed + saveTimer.Elapsed + redrawTimer.Elapsed,
@@ -1528,7 +1550,7 @@ internal sealed class TerrainController
                 displayTimer.Elapsed,
                 saveTimer.Elapsed,
                 redrawTimer.Elapsed,
-                runtimeCache.DisplayState,
+                displayState,
                 build.Timings,
                 "Rebuild total");
         }
@@ -1537,7 +1559,7 @@ internal sealed class TerrainController
             build.RecordTiming(
                 "Preview total",
                 result.SnapshotElapsed + result.WorkerCacheCloneElapsed + buildElapsed + cacheMergeTimer.Elapsed + displayTimer.Elapsed,
-                $"snapshot {FormatElapsed(result.SnapshotElapsed)}, clone {FormatElapsed(result.WorkerCacheCloneElapsed)}, build {FormatElapsed(buildElapsed)}, merge {FormatElapsed(cacheMergeTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}; {DescribeDisplayState(runtimeCache.DisplayState)}",
+                $"snapshot {FormatElapsed(result.SnapshotElapsed)}, clone {FormatElapsed(result.WorkerCacheCloneElapsed)}, build {FormatElapsed(buildElapsed)}, merge {FormatElapsed(cacheMergeTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}; {DescribeDisplayState(displayState)}",
                 TotalTimingDiagnosticThresholdMs);
 
             terrain.LastBuildMessage = FormatBuildMessage(
@@ -1551,7 +1573,7 @@ internal sealed class TerrainController
                 displayTimer.Elapsed,
                 null,
                 null,
-                runtimeCache.DisplayState,
+                displayState,
                 build.Timings,
                 "Preview total");
 
@@ -2556,7 +2578,7 @@ internal sealed class TerrainController
                 return true;
             }
 
-            CompleteBackgroundBuild(doc, state, terrain, rebuildState, workerTask.Result);
+            CompleteBackgroundBuild(doc, state, terrain, rebuildState, workerTask.GetAwaiter().GetResult());
             return true;
         }
 
@@ -2874,50 +2896,37 @@ internal sealed class TerrainController
         if (!_rebuildStates.TryGetValue((docSerial, terrainId), out var rebuildState))
             return;
 
-        rebuildState.WorkerCancellation?.Cancel();
-        rebuildState.WorkerCancellation?.Dispose();
-        rebuildState.WorkerCancellation = null;
+        RetireRunningWorker(rebuildState, invalidateGeneration: true);
+    }
+
+    private static void RetireRunningWorker(TerrainRebuildState rebuildState, bool invalidateGeneration)
+    {
+        Task<BackgroundBuildResult>? workerTask = rebuildState.WorkerTask;
+        CancellationTokenSource? cancellation = rebuildState.WorkerCancellation;
+
+        cancellation?.Cancel();
+        if (workerTask != null && !workerTask.IsCompleted && cancellation != null)
+        {
+            _ = workerTask.ContinueWith(
+                static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+                cancellation,
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+        else
+        {
+            cancellation?.Dispose();
+        }
+
         rebuildState.WorkerTask = null;
+        rebuildState.WorkerCancellation = null;
         rebuildState.IsBuilding = false;
         rebuildState.RunningVersion = 0;
         rebuildState.CancelRequested = false;
-    }
 
-    internal static bool CancelAndWaitForWorkers(
-        IEnumerable<(CancellationTokenSource? Cancellation, Task? Task)> workers,
-        TimeSpan timeout)
-    {
-        var tasks = new List<Task>();
-        var cancellations = new List<CancellationTokenSource>();
-        foreach (var (cancellation, task) in workers)
-        {
-            if (cancellation != null)
-            {
-                cancellation.Cancel();
-                cancellations.Add(cancellation);
-            }
-
-            if (task != null)
-                tasks.Add(task);
-        }
-
-        bool allCompleted = true;
-        if (tasks.Count > 0)
-        {
-            try
-            {
-                allCompleted = Task.WaitAll(tasks.ToArray(), timeout);
-            }
-            catch (AggregateException)
-            {
-                allCompleted = tasks.All(static task => task.IsCompleted);
-            }
-        }
-
-        foreach (CancellationTokenSource cancellation in cancellations)
-            cancellation.Dispose();
-
-        return allCompleted;
+        if (invalidateGeneration)
+            rebuildState.BuildGeneration++;
     }
 
     private void UpdateDisplayState(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache, TerrainBuildResult build)
