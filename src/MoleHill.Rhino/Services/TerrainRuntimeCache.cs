@@ -380,6 +380,8 @@ internal sealed class StageCacheEntry
 
     public List<string> Diagnostics { get; init; } = new();
 
+    public List<GradingDiagnostic> StructuredDiagnostics { get; init; } = new();
+
     public int? StairSurfaceCount { get; set; }
 
     public string? StairTreadDepthSummary { get; set; }
@@ -406,6 +408,8 @@ internal sealed class GradingTopologyCacheEntry
     public List<GradingPatch> PatchSummaries { get; init; } = new();
 
     public List<string> Diagnostics { get; init; } = new();
+
+    public List<GradingDiagnostic> StructuredDiagnostics { get; init; } = new();
 }
 
 internal sealed class SmoothStageCacheEntry
@@ -591,7 +595,8 @@ internal static class TerrainRuntimeCacheCloner
                     UsesFallbackBand = patch.UsesFallbackBand
                 })
                 .ToList(),
-            Diagnostics = entry.Diagnostics.ToList()
+            Diagnostics = entry.Diagnostics.ToList(),
+            StructuredDiagnostics = entry.StructuredDiagnostics.ToList()
         };
     }
 
@@ -611,6 +616,7 @@ internal static class TerrainRuntimeCacheCloner
             PersistentHardConstraints = entry.PersistentHardConstraints,
             PersistentElevationConstraints = entry.PersistentElevationConstraints,
             Diagnostics = entry.Diagnostics,
+            StructuredDiagnostics = entry.StructuredDiagnostics,
             StairSurfaceCount = entry.StairSurfaceCount,
             StairTreadDepthSummary = entry.StairTreadDepthSummary,
             StairStepCountSummary = entry.StairStepCountSummary

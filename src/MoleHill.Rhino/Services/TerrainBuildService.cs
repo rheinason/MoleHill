@@ -303,6 +303,7 @@ internal sealed class TerrainBuildService
         }
 
         int diagnosticsStart = build.Diagnostics.Count;
+        int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         int auxiliaryStart = build.AuxiliaryObjects.Count;
         RhinoMesh? result = action();
         ThrowIfCancellationRequested(shouldCancel);
@@ -321,7 +322,8 @@ internal sealed class TerrainBuildService
             detailFactory(result),
             timer,
             out outputFingerprint,
-            shouldCancel);
+            shouldCancel,
+            structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
     }
 
     private static List<TerrainAnalysisSummary> ExecuteCachedAnalysisStage(
@@ -340,6 +342,7 @@ internal sealed class TerrainBuildService
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
             build.Diagnostics.AddRange(cachedEntry.Diagnostics);
+            build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
             List<TerrainAnalysisSummary> cachedAnalysis = TerrainRuntimeCacheCloner.CloneAnalyses(cachedEntry.AnalysisOutput);
             build.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.AuxiliaryObjects));
             timer.Stop();
@@ -348,6 +351,7 @@ internal sealed class TerrainBuildService
         }
 
         int diagnosticsStart = build.Diagnostics.Count;
+        int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         int auxiliaryStart = build.AuxiliaryObjects.Count;
         List<TerrainAnalysisSummary> analysis = action();
         ThrowIfCancellationRequested(shouldCancel);
@@ -361,7 +365,8 @@ internal sealed class TerrainBuildService
             OutputFingerprint = stageFingerprint,
             AnalysisOutput = TerrainRuntimeCacheCloner.CloneAnalyses(analysis),
             AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.AuxiliaryObjects.Skip(auxiliaryStart)),
-            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList()
+            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
+            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
         };
 
         build.RecordTiming(stageName, timer.Elapsed, detailFactory(analysis));
@@ -384,6 +389,7 @@ internal sealed class TerrainBuildService
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
             build.Diagnostics.AddRange(cachedEntry.Diagnostics);
+            build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
             build.ZoneObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.ZoneObjects));
             timer.Stop();
             build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
@@ -391,6 +397,7 @@ internal sealed class TerrainBuildService
         }
 
         int diagnosticsStart = build.Diagnostics.Count;
+        int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         int zoneStart = build.ZoneObjects.Count;
         action();
         ThrowIfCancellationRequested(shouldCancel);
@@ -403,7 +410,8 @@ internal sealed class TerrainBuildService
             ResolvedInputFingerprint = stageFingerprint,
             OutputFingerprint = stageFingerprint,
             ZoneObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.ZoneObjects.Skip(zoneStart)),
-            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList()
+            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
+            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
         };
 
         build.RecordTiming(stageName, timer.Elapsed, detailFactory());
@@ -425,6 +433,7 @@ internal sealed class TerrainBuildService
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
             build.Diagnostics.AddRange(cachedEntry.Diagnostics);
+            build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
             build.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.MarkerObjects));
             timer.Stop();
             build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
@@ -432,6 +441,7 @@ internal sealed class TerrainBuildService
         }
 
         int diagnosticsStart = build.Diagnostics.Count;
+        int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         int markerStart = build.MarkerObjects.Count;
         action();
         ThrowIfCancellationRequested(shouldCancel);
@@ -444,7 +454,8 @@ internal sealed class TerrainBuildService
             ResolvedInputFingerprint = stageFingerprint,
             OutputFingerprint = stageFingerprint,
             MarkerObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.MarkerObjects.Skip(markerStart)),
-            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList()
+            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
+            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
         };
 
         build.RecordTiming(stageName, timer.Elapsed, detailFactory());
@@ -453,6 +464,7 @@ internal sealed class TerrainBuildService
     private static RhinoMesh? RestoreCachedMeshStage(TerrainBuildResult build, StageCacheEntry cachedEntry, out ulong outputFingerprint)
     {
         build.Diagnostics.AddRange(cachedEntry.Diagnostics);
+        build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
         build.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.AuxiliaryObjects));
         build.PersistentHardConstraints.Clear();
         build.PersistentHardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(cachedEntry.PersistentHardConstraints));
@@ -476,7 +488,8 @@ internal sealed class TerrainBuildService
         string? detail,
         Stopwatch timer,
         out ulong outputFingerprint,
-        Func<bool>? shouldCancel = null)
+        Func<bool>? shouldCancel = null,
+        IEnumerable<GradingDiagnostic>? structuredDiagnostics = null)
     {
         timer.Stop();
         ThrowIfCancellationRequested(shouldCancel);
@@ -494,7 +507,8 @@ internal sealed class TerrainBuildService
             AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(auxiliaryObjects),
             PersistentHardConstraints = TerrainRuntimeCacheCloner.CloneConstraints(persistentHardConstraints),
             PersistentElevationConstraints = TerrainRuntimeCacheCloner.CloneConstraints(build.PersistentElevationConstraints),
-            Diagnostics = diagnostics.ToList()
+            Diagnostics = diagnostics.ToList(),
+            StructuredDiagnostics = structuredDiagnostics?.ToList() ?? new List<GradingDiagnostic>()
         };
 
         build.RecordTiming(stageName, timer.Elapsed, detail);
@@ -529,6 +543,7 @@ internal sealed class TerrainBuildService
             PersistentHardConstraints = source.PersistentHardConstraints,
             PersistentElevationConstraints = source.PersistentElevationConstraints,
             Diagnostics = source.Diagnostics,
+            StructuredDiagnostics = source.StructuredDiagnostics,
             StairSurfaceCount = source.StairSurfaceCount,
             StairTreadDepthSummary = source.StairTreadDepthSummary,
             StairStepCountSummary = source.StairStepCountSummary
@@ -578,6 +593,7 @@ internal sealed class TerrainBuildService
         }
 
         int diagnosticsStart = build.Diagnostics.Count;
+        int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         ThrowIfCancellationRequested(shouldCancel);
         var points = TerrainBuildSnapshotResolver.ResolvePoints(snapshot, modifier.Points);
         var breaklineCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Breaklines);
@@ -600,7 +616,8 @@ internal sealed class TerrainBuildService
                 build.Diagnostics.Skip(diagnosticsStart),
                 DescribeModifierMeshResult(modifier.Label, null),
                 timer,
-                out outputFingerprint);
+                out outputFingerprint,
+                structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
         }
 
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
@@ -679,7 +696,8 @@ internal sealed class TerrainBuildService
                 build.Diagnostics.Skip(diagnosticsStart),
                 DescribeModifierMeshResult(modifier.Label, null),
                 timer,
-                out outputFingerprint);
+                out outputFingerprint,
+                structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
         }
 
         if (merged.InvalidsSkipped > 0)
@@ -1610,6 +1628,7 @@ internal sealed class TerrainBuildService
         }
 
         int diagnosticsStart = build.Diagnostics.Count;
+        int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         ThrowIfCancellationRequested(shouldCancel);
         if (mesh == null)
         {
@@ -1646,7 +1665,8 @@ internal sealed class TerrainBuildService
                 build.Diagnostics.Skip(diagnosticsStart),
                 DescribeModifierMeshResult(modifier.Label, mesh),
                 timer,
-                out outputFingerprint);
+                out outputFingerprint,
+                structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
         }
 
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
@@ -1680,7 +1700,8 @@ internal sealed class TerrainBuildService
                 build.Diagnostics.Skip(diagnosticsStart),
                 DescribeModifierMeshResult(modifier.Label, mesh),
                 timer,
-                out outputFingerprint);
+                out outputFingerprint,
+                structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
         }
 
         var effectiveLocks = CombinePadLockCurves(resolvedInputs.Locks, build.PersistentHardConstraints);
@@ -1712,6 +1733,7 @@ internal sealed class TerrainBuildService
         {
             topologyEntry = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(cachedTopologyEntry);
             build.Diagnostics.AddRange(topologyEntry.Diagnostics);
+            build.StructuredDiagnostics.AddRange(topologyEntry.StructuredDiagnostics);
             topologyTimer.Stop();
             build.RecordTiming(
                 "Grade Pad Topology",
@@ -1795,7 +1817,8 @@ internal sealed class TerrainBuildService
                 PatchSummaries = gradeResult?.PatchSummaries.Count > 0
                     ? ClonePatchSummaries(gradeResult.PatchSummaries)
                     : patchSummaries,
-                Diagnostics = topologyDiagnostics
+                Diagnostics = topologyDiagnostics,
+                StructuredDiagnostics = gradeResult?.StructuredDiagnostics.ToList() ?? new List<GradingDiagnostic>()
             };
             runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(topologyEntry);
             build.RecordTiming(
@@ -1865,7 +1888,8 @@ internal sealed class TerrainBuildService
             build.Diagnostics.Skip(diagnosticsStart),
             DescribeModifierMeshResult(modifier.Label, resultMesh),
             timer,
-            out outputFingerprint);
+            out outputFingerprint,
+            structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
     }
 
     private static RhinoMesh ApplyGradePadLegacy(
