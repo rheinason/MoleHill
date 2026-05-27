@@ -304,7 +304,7 @@ public static class MeshAreaSplitter
                     continue;
 
                 if ((tolerance > 0 && IsNearBoundary(cx, cy, tolerance, area, state.SegmentCandidates, state.SegmentScratch)) ||
-                    PadGrader.PointInPolygon(cx, cy, area.Boundary.XyVertices, area.Boundary.VertexCount))
+                    GradingGeometry2D.PointInPolygon(cx, cy, area.Boundary.XyVertices, area.Boundary.VertexCount))
                 {
                     if (areaNumber > faceAreaIndex[faceIndex])
                         faceAreaIndex[faceIndex] = areaNumber;

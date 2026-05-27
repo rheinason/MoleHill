@@ -188,7 +188,7 @@ public static class SurfaceStripGrader
         var xyList = new List<double>(vertexCount * 2);
         var zList = new List<double>(vertexCount);
         var segList = new List<(int a, int b)>();
-        var vertHash = new PadGrader.SpatialHash(dedupTol);
+        var vertHash = new SpatialVertexHash(dedupTol);
 
         for (int i = 0; i < vertexCount; i++)
         {
@@ -202,9 +202,9 @@ public static class SurfaceStripGrader
         AddPhase(profile, "copy_input", setupStart);
 
         long prepStart = Stopwatch.GetTimestamp();
-        var faceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
+        var faceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);
-        bool hasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
+        bool hasBoundaryLoop = MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
         if (hasBoundaryLoop)
         {
             foreach (SurfaceDefinition surface in surfaces)
@@ -410,7 +410,7 @@ public static class SurfaceStripGrader
                 continue;
             }
 
-            if (PadGrader.PointInPolygon(px, py, surface.FootprintXy, surface.FootprintVertexCount))
+            if (GradingGeometry2D.PointInPolygon(px, py, surface.FootprintXy, surface.FootprintVertexCount))
             {
                 newZ[i] = surface.EvaluateZ(px, py);
                 continue;
@@ -619,8 +619,8 @@ public static class SurfaceStripGrader
         int vertexCount,
         List<double> xyList,
         List<double> zList,
-        PadGrader.SpatialHash vertHash,
-        PadGrader.FaceGrid faceGrid,
+        SpatialVertexHash vertHash,
+        TerrainFaceGrid faceGrid,
         List<(int a, int b)> segList,
         double dedupTol)
     {
@@ -657,7 +657,7 @@ public static class SurfaceStripGrader
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
         List<double> xyList,
         List<double> zList,
-        PadGrader.SpatialHash vertHash,
+        SpatialVertexHash vertHash,
         List<(int a, int b)> segList,
         double dedupTol)
     {

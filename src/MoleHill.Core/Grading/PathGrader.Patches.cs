@@ -200,7 +200,7 @@ public static partial class PathGrader
         int pathIndex,
         PathDefinition[] allPaths,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
-        PadGrader.FaceGrid originalFaceGrid,
+        TerrainFaceGrid originalFaceGrid,
         bool hasBoundaryLoop,
         double[] boundaryLoop,
         int boundaryVertexCount,
@@ -389,7 +389,7 @@ public static partial class PathGrader
         ConstraintPath samplePath,
         PathDefinition[] allPaths,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
-        PadGrader.FaceGrid originalFaceGrid,
+        TerrainFaceGrid originalFaceGrid,
         bool hasBoundaryLoop,
         double[] boundaryLoop,
         int boundaryVertexCount,
@@ -600,7 +600,7 @@ public static partial class PathGrader
     private static PatchMeshResult? TryBuildStructuredPathPatchMesh(
         PathDefinition[] allPaths,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
-        PadGrader.FaceGrid originalFaceGrid,
+        TerrainFaceGrid originalFaceGrid,
         bool hasBoundaryLoop,
         double[] boundaryLoop,
         int boundaryVertexCount,
@@ -934,7 +934,7 @@ public static partial class PathGrader
     }
 
     private static PatchMeshResult? TryBuildPathTopologyBandMesh(
-        PadGrader.FaceGrid originalFaceGrid,
+        TerrainFaceGrid originalFaceGrid,
         double[] shoulderLoopXy,
         double[] shoulderLoopZ,
         double[] seamLoopXy,
@@ -1354,7 +1354,7 @@ public static partial class PathGrader
         };
     }
 
-    private static double[] BuildSeamLoopZ(double[] seamLoopXy, PadGrader.FaceGrid originalFaceGrid)
+    private static double[] BuildSeamLoopZ(double[] seamLoopXy, TerrainFaceGrid originalFaceGrid)
     {
         var seamLoopZ = new double[seamLoopXy.Length / 2];
         for (int i = 0; i < seamLoopZ.Length; i++)
@@ -1625,7 +1625,7 @@ public static partial class PathGrader
         {
             double px = sourceLoopXy[i * 2];
             double py = sourceLoopXy[i * 2 + 1];
-            double best = PadGrader.DistToPolygon(px, py, targetLoopXy, targetCount);
+            double best = GradingGeometry2D.DistanceToPolygon(px, py, targetLoopXy, targetCount);
 
             if (best > tolerance)
                 missCount++;
@@ -1693,8 +1693,8 @@ public static partial class PathGrader
 
         double centroidX = sumX / vertexCount;
         double centroidY = sumY / vertexCount;
-        if (PadGrader.PointInPolygon(centroidX, centroidY, loopXy, vertexCount) &&
-            PadGrader.DistToPolygon(centroidX, centroidY, loopXy, vertexCount) > tolerance)
+        if (GradingGeometry2D.PointInPolygon(centroidX, centroidY, loopXy, vertexCount) &&
+            GradingGeometry2D.DistanceToPolygon(centroidX, centroidY, loopXy, vertexCount) > tolerance)
         {
             interiorX = centroidX;
             interiorY = centroidY;
@@ -1708,8 +1708,8 @@ public static partial class PathGrader
             double midY = (loopXy[i * 2 + 1] + loopXy[next * 2 + 1]) * 0.5;
             double towardCentroidX = LerpValue(midX, centroidX, 0.25);
             double towardCentroidY = LerpValue(midY, centroidY, 0.25);
-            if (PadGrader.PointInPolygon(towardCentroidX, towardCentroidY, loopXy, vertexCount) &&
-                PadGrader.DistToPolygon(towardCentroidX, towardCentroidY, loopXy, vertexCount) > tolerance)
+            if (GradingGeometry2D.PointInPolygon(towardCentroidX, towardCentroidY, loopXy, vertexCount) &&
+                GradingGeometry2D.DistanceToPolygon(towardCentroidX, towardCentroidY, loopXy, vertexCount) > tolerance)
             {
                 interiorX = towardCentroidX;
                 interiorY = towardCentroidY;
@@ -2039,7 +2039,7 @@ public static partial class PathGrader
         double[] loopXy,
         int vertexCount,
         double[] normalizedStations,
-        PadGrader.FaceGrid terrainFaceGrid,
+        TerrainFaceGrid terrainFaceGrid,
         out double[] sampledXy,
         out double[] sampledZ)
     {
@@ -2223,9 +2223,9 @@ public static partial class PathGrader
             int c = faces[i * 3 + 2];
             double cx = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
             double cy = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0;
-            if (!PadGrader.PointInPolygon(cx, cy, outerLoopXy, outerVertexCount))
+            if (!GradingGeometry2D.PointInPolygon(cx, cy, outerLoopXy, outerVertexCount))
                 continue;
-            if (PadGrader.PointInPolygon(cx, cy, innerLoopXy, innerVertexCount))
+            if (GradingGeometry2D.PointInPolygon(cx, cy, innerLoopXy, innerVertexCount))
                 continue;
 
             selectedFaces.Add(i);
@@ -2299,7 +2299,7 @@ public static partial class PathGrader
             int b = (int)(pair.Key & 0xFFFFFFFFL);
             double mx = (vertices[a * 3] + vertices[b * 3]) * 0.5;
             double my = (vertices[a * 3 + 1] + vertices[b * 3 + 1]) * 0.5;
-            if (PadGrader.DistToPolygon(mx, my, referenceLoopXy, referenceLoopXy.Length / 2) > tolerance * 4.0)
+            if (GradingGeometry2D.DistanceToPolygon(mx, my, referenceLoopXy, referenceLoopXy.Length / 2) > tolerance * 4.0)
                 continue;
 
             AddBoundaryNeighbor(adjacency, a, b);
@@ -2381,7 +2381,7 @@ public static partial class PathGrader
     {
         var xyList = new List<double>(firstVertexCount * 2 + secondVertexCount * 2);
         var zList = new List<double>(firstVertexCount + secondVertexCount);
-        var vertHash = new PadGrader.SpatialHash(tolerance);
+        var vertHash = new SpatialVertexHash(tolerance);
         var seenFaces = new HashSet<ulong>();
 
         int AddVertex(double x, double y, double z)

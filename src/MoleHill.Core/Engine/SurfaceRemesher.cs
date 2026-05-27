@@ -593,8 +593,8 @@ public static class SurfaceRemesher
             break;
         }
 
-        PadGrader.FaceGrid? faceGrid = requiresInterpolatedConstraintZ
-            ? new PadGrader.FaceGrid(originalVertices, originalVertexCount, originalFaces, faceCount)
+        TerrainFaceGrid? faceGrid = requiresInterpolatedConstraintZ
+            ? new TerrainFaceGrid(originalVertices, originalVertexCount, originalFaces, faceCount)
             : null;
 
         int EnsureSeedVertex(int originalIndex)
@@ -944,7 +944,7 @@ public static class SurfaceRemesher
 
             long interpolateStart = Stopwatch.GetTimestamp();
             var outputVertices = new double[extracted.VertexCount * 3];
-            PadGrader.FaceGrid? interpolationGrid = null;
+            TerrainFaceGrid? interpolationGrid = null;
             for (int i = 0; i < extracted.VertexCount; i++)
             {
                 double x = extracted.Xy[i * 2];
@@ -958,7 +958,7 @@ public static class SurfaceRemesher
                 }
                 else
                 {
-                    interpolationGrid ??= new PadGrader.FaceGrid(originalVertices, originalVertices.Length / 3, originalFaces, faceCount);
+                    interpolationGrid ??= new TerrainFaceGrid(originalVertices, originalVertices.Length / 3, originalFaces, faceCount);
                     outputVertices[i * 3 + 2] = interpolationGrid.InterpolateZ(x, y);
                 }
             }
@@ -1302,7 +1302,7 @@ public static class SurfaceRemesher
         double[] originalVertices,
         int[] originalFaces,
         int faceCount,
-        PadGrader.FaceGrid? faceGrid,
+        TerrainFaceGrid? faceGrid,
         IReadOnlyList<ConstraintPolyline> constraints,
         double targetLength,
         double floorLength,
@@ -1659,7 +1659,7 @@ public static class SurfaceRemesher
         double[] originalVertices,
         int[] originalFaces,
         int faceCount,
-        PadGrader.FaceGrid? faceGrid,
+        TerrainFaceGrid? faceGrid,
         ConstraintPolyline constraintA,
         int pointCountA,
         ConstraintPolyline constraintB,
@@ -1757,7 +1757,7 @@ public static class SurfaceRemesher
         double[] originalVertices,
         int[] originalFaces,
         int faceCount,
-        PadGrader.FaceGrid? faceGrid,
+        TerrainFaceGrid? faceGrid,
         ConstraintPolyline constraint,
         int startPointIndex,
         int endPointIndex,
@@ -1820,7 +1820,7 @@ public static class SurfaceRemesher
         double[] originalVertices,
         int[] originalFaces,
         int faceCount,
-        PadGrader.FaceGrid? faceGrid,
+        TerrainFaceGrid? faceGrid,
         ConstraintPolyline constraint,
         int pointIndex,
         double broadReuseTolerance,
@@ -1853,14 +1853,14 @@ public static class SurfaceRemesher
     }
 
     private static double InterpolateOriginalZ(
-        PadGrader.FaceGrid? faceGrid,
+        TerrainFaceGrid? faceGrid,
         double[] originalVertices,
         int[] originalFaces,
         int faceCount,
         double x,
         double y)
     {
-        return faceGrid?.InterpolateZ(x, y) ?? PadGrader.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
+        return faceGrid?.InterpolateZ(x, y) ?? GradingGeometry2D.InterpolateZ(originalVertices, originalFaces, faceCount, x, y);
     }
 
     private static double GetProtectedEdgeLength(Options options)

@@ -309,7 +309,7 @@ public static class MeshSmoother
                 continue;
 
             var boundary = boundaries[boundaryIndexHit];
-            if (PadGrader.PointInPolygon(px, py, boundary.xyVerts, boundary.vertCount))
+            if (GradingGeometry2D.PointInPolygon(px, py, boundary.xyVerts, boundary.vertCount))
                 bestMatch = boundaryIndexHit;
         }
 
@@ -335,7 +335,7 @@ public static class MeshSmoother
                 continue;
 
             var boundary = boundaries[boundaryIndexHit];
-            if (PadGrader.PointInPolygon(px, py, boundary.xyVerts, boundary.vertCount))
+            if (GradingGeometry2D.PointInPolygon(px, py, boundary.xyVerts, boundary.vertCount))
                 return true;
         }
 

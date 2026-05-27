@@ -25,8 +25,8 @@ internal static class BoundaryClipper
         if (!hasBoundaryLoop)
             return true;
 
-        return PadGrader.PointInPolygon(x, y, boundaryLoop, boundaryVertexCount)
-            || PadGrader.DistToPolygon(x, y, boundaryLoop, boundaryVertexCount) <= tolerance;
+        return GradingGeometry2D.PointInPolygon(x, y, boundaryLoop, boundaryVertexCount)
+            || GradingGeometry2D.DistanceToPolygon(x, y, boundaryLoop, boundaryVertexCount) <= tolerance;
     }
 
     public static bool IsPolylineInsideBoundary(
@@ -41,7 +41,7 @@ internal static class BoundaryClipper
         if (!hasBoundaryLoop || vertexCount <= 0)
             return true;
 
-        if (!PadGrader.AllPointsInsideOrOnBoundary(xyVertices, vertexCount, boundaryLoop, boundaryVertexCount, tolerance))
+        if (!GradingGeometry2D.AllPointsInsideOrOnBoundary(xyVertices, vertexCount, boundaryLoop, boundaryVertexCount, tolerance))
             return false;
 
         int segmentCount = isClosed ? vertexCount : vertexCount - 1;

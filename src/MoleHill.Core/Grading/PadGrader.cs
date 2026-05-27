@@ -252,7 +252,7 @@ public static partial class PadGrader
             int[] padStartFaces = currentFaces;
             int padStartFaceCount = currentFaceCount;
             var currentTerrain = new TerrainSpatialIndex(currentVertices, currentVertexCount, currentFaces, currentFaceCount);
-            PadGrader.FaceGrid currentFaceGrid = currentTerrain.FaceGrid;
+            TerrainFaceGrid currentFaceGrid = currentTerrain.FaceGrid;
             bool hasTerrainBoundary = currentTerrain.HasBoundaryLoop;
             double[] terrainBoundaryLoop = currentTerrain.BoundaryLoopXy;
             int terrainBoundaryVertexCount = currentTerrain.BoundaryVertexCount;
@@ -699,7 +699,7 @@ public static partial class PadGrader
         PreparedPadSections prepared,
         double[] daylightLoopXy,
         double[] seamLoopXy,
-        FaceGrid terrainFaceGrid)
+        TerrainFaceGrid terrainFaceGrid)
     {
         var polylines = new List<OutputPolyline>(3)
         {
@@ -968,7 +968,7 @@ public static partial class PadGrader
             }
         }
 
-        var faceGrid = new FaceGrid(topology.Vertices, topology.VertexCount, topology.Faces, topology.FaceCount);
+        var TerrainFaceGrid = new TerrainFaceGrid(topology.Vertices, topology.VertexCount, topology.Faces, topology.FaceCount);
         var gradedVertices = (double[])topology.Vertices.Clone();
         ApplyGradingToVerticesWithSections(
             gradedVertices,
@@ -976,7 +976,7 @@ public static partial class PadGrader
             topology.VertexCount,
             pads,
             barriers,
-            faceGrid,
+            TerrainFaceGrid,
             hasBoundaryLoop,
             boundaryLoop,
             boundaryVertexCount,
@@ -1128,8 +1128,8 @@ public static partial class PadGrader
         var zList = new List<double>(vertexCount);
         var segList = new List<(int a, int b)>();
         var cullSegList = new List<(int a, int b)>();
-        var vertHash = new SpatialHash(dedupTol);
-        var faceGrid = new FaceGrid(vertices, vertexCount, faces, faceCount);
+        var vertHash = new SpatialVertexHash(dedupTol);
+        var TerrainFaceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         var originalIndexMap = new Dictionary<int, int>(vertexCount);
         double interiorSampleSpacing = ResolveCoupledInteriorSampleSpacing(dedupTol, terrainDetailSize);
         bool hasInputBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out double[] inputBoundaryLoop, out int inputBoundaryVertexCount);
@@ -1172,7 +1172,7 @@ public static partial class PadGrader
             int idx = zList.Count;
             xyList.Add(x);
             xyList.Add(y);
-            zList.Add(faceGrid.InterpolateZ(x, y));
+            zList.Add(TerrainFaceGrid.InterpolateZ(x, y));
             vertHash.Insert(idx, x, y);
             return idx;
         }
@@ -1293,7 +1293,7 @@ public static partial class PadGrader
             int sourceId = extracted.SourceIds[i];
             double z = sourceId >= 0 && sourceId < zList.Count
                 ? zList[sourceId]
-                : faceGrid.InterpolateZ(x, y);
+                : TerrainFaceGrid.InterpolateZ(x, y);
             topologyVertices[i * 3] = x;
             topologyVertices[i * 3 + 1] = y;
             topologyVertices[i * 3 + 2] = z;
@@ -1616,7 +1616,7 @@ public static partial class PadGrader
     }
 
     private static PatchMeshResult? TryBuildPadPatchMesh(
-        FaceGrid terrainFaceGrid,
+        TerrainFaceGrid terrainFaceGrid,
         PreparedBarriers barriers,
         bool hasTerrainBoundary,
         double[] terrainBoundaryLoop,
@@ -1895,7 +1895,7 @@ public static partial class PadGrader
     }
 
     private static PatchMeshResult? TryBuildExplicitPadPatchMesh(
-        FaceGrid terrainFaceGrid,
+        TerrainFaceGrid terrainFaceGrid,
         PreparedBarriers barriers,
         bool hasTerrainBoundary,
         double[] terrainBoundaryLoop,
@@ -2084,7 +2084,7 @@ public static partial class PadGrader
     }
 
     private static bool TryBuildApronPatchMesh(
-        FaceGrid terrainFaceGrid,
+        TerrainFaceGrid terrainFaceGrid,
         double[] daylightLoopXy,
         double[] daylightLoopZ,
         double[] seamLoopXy,
@@ -2193,7 +2193,7 @@ public static partial class PadGrader
     private static (double[] vertices, int vertexCount, int[] faces, int faceCount)
         BuildExplicitPadPatch(
             PadBoundary pad,
-            FaceGrid terrainFaceGrid,
+            TerrainFaceGrid terrainFaceGrid,
             double[] boundaryLoopXy,
             double[] boundaryLoopZ,
             double[] shoulderLoopXy,
@@ -2209,7 +2209,7 @@ public static partial class PadGrader
         var faceList = new List<int>(targetCount * 6);
         var edgeUseCount = new Dictionary<long, int>(targetCount * 12);
         double vertexDedupeTolerance = Math.Max(Math.Min(tolerance * 0.01, 1e-6), 1e-9);
-        var xyHash = new SpatialHash(vertexDedupeTolerance);
+        var xyHash = new SpatialVertexHash(vertexDedupeTolerance);
         double toleranceSq = tolerance * tolerance;
         double minimumPatchTriangleArea2 = toleranceSq * 1e-4;
 
@@ -2723,7 +2723,7 @@ public static partial class PadGrader
     }
 
     private static bool TryBuildAlignedPadPatchLoops(
-        FaceGrid terrainFaceGrid,
+        TerrainFaceGrid terrainFaceGrid,
         PreparedPadSections prepared,
         double[] daylightLoopXy,
         double[] seamLoopXy,
@@ -4390,7 +4390,7 @@ public static partial class PadGrader
     }
 
     private static PatchMeshResult BuildSplitLocalPadPatchMesh(
-        FaceGrid terrainFaceGrid,
+        TerrainFaceGrid terrainFaceGrid,
         PreparedBarriers barriers,
         PreparedPadSections prepared,
         double[] seamLoopXy,
@@ -4743,7 +4743,7 @@ public static partial class PadGrader
     {
         var xyList = new List<double>(firstVertexCount * 2 + secondVertexCount * 2);
         var zList = new List<double>(firstVertexCount + secondVertexCount);
-        var vertHash = new SpatialHash(tolerance);
+        var vertHash = new SpatialVertexHash(tolerance);
         var seenFaces = new HashSet<ulong>();
 
         int AddVertex(double x, double y, double z)
@@ -4927,7 +4927,7 @@ public static partial class PadGrader
         }
 
         bool hasBoundaryLoop = TryBuildBoundaryLoop(topologyVertices, faces, faceCount, out double[] boundaryLoop, out int boundaryVertexCount);
-        var faceGrid = new FaceGrid(topologyVertices, vertexCount, faces, faceCount);
+        var TerrainFaceGrid = new TerrainFaceGrid(topologyVertices, vertexCount, faces, faceCount);
         var gradedVertices = (double[])topologyVertices.Clone();
         ApplyGradingToVerticesWithSections(
             gradedVertices,
@@ -4935,7 +4935,7 @@ public static partial class PadGrader
             vertexCount,
             pads,
             barriers,
-            faceGrid,
+            TerrainFaceGrid,
             hasBoundaryLoop,
             boundaryLoop,
             boundaryVertexCount,
@@ -4993,7 +4993,7 @@ public static partial class PadGrader
             faceCount,
             Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)));
 
-        var faceGridForConstraints = new FaceGrid(vertices, vertexCount, faces, faceCount);
+        var faceGridForConstraints = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         for (int padIndex = 0; padIndex < pads.Length; padIndex++)
         {
             PadBoundary pad = pads[padIndex];
@@ -5164,15 +5164,15 @@ public static partial class PadGrader
             faceCount,
             Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)));
 
-        var vertHash = new SpatialHash(dedupTol);
+        var vertHash = new SpatialVertexHash(dedupTol);
 
-        var faceGrid = new FaceGrid(vertices, vertexCount, faces, faceCount);
+        var TerrainFaceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         bool hasBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
         var controlledLoops = new List<double[]>(pads.Length * 2);
 
         foreach (var pad in pads)
         {
-            double[] initialDistances = ComputePadBoundaryDistances(pad.XyVertices, pad.VertexCount, faceGrid, pad);
+            double[] initialDistances = ComputePadBoundaryDistances(pad.XyVertices, pad.VertexCount, TerrainFaceGrid, pad);
             double maxDistance = 0.0;
             foreach (double distance in initialDistances)
                 maxDistance = Math.Max(maxDistance, distance);
@@ -5181,7 +5181,7 @@ public static partial class PadGrader
             var padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, dedupTol);
             controlledLoops.Add(padLoop.XyVertices);
 
-            double[] shoulderDistances = ComputePadBoundaryDistances(padLoop.XyVertices, padLoop.VertexCount, faceGrid, pad);
+            double[] shoulderDistances = ComputePadBoundaryDistances(padLoop.XyVertices, padLoop.VertexCount, TerrainFaceGrid, pad);
             if (TryBuildShoulderLoop(
                 padLoop.XyVertices,
                 padLoop.VertexCount,
@@ -5248,7 +5248,7 @@ public static partial class PadGrader
             int idx = zList.Count;
             xyList.Add(x);
             xyList.Add(y);
-            zList.Add(faceGrid.InterpolateZ(x, y));
+            zList.Add(TerrainFaceGrid.InterpolateZ(x, y));
             vertHash.Insert(idx, x, y);
             return idx;
         }
@@ -5289,12 +5289,12 @@ public static partial class PadGrader
 
         foreach (var pad in pads)
         {
-            double[] shoulderDistances = ComputePadBoundaryDistances(pad.XyVertices, pad.VertexCount, faceGrid, pad);
+            double[] shoulderDistances = ComputePadBoundaryDistances(pad.XyVertices, pad.VertexCount, TerrainFaceGrid, pad);
             double shoulderDistance = 0; foreach (double d in shoulderDistances) if (d > shoulderDistance) shoulderDistance = d;
             double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance);
             var padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, dedupTol);
             // Re-sample distances at padLoop resolution (which may have more vertices than the original pad)
-            shoulderDistances = ComputePadBoundaryDistances(padLoop.XyVertices, padLoop.VertexCount, faceGrid, pad);
+            shoulderDistances = ComputePadBoundaryDistances(padLoop.XyVertices, padLoop.VertexCount, TerrainFaceGrid, pad);
             AddClosedLoopSegments(padLoop.XyVertices, padLoop.VertexCount, AddVertex, segList);
 
             // Build pad boundary output polyline with graded Z (pad plane Z at each vertex)
@@ -5317,7 +5317,7 @@ public static partial class PadGrader
                 xyList,
                 zList,
                 vertHash,
-                faceGrid,
+                TerrainFaceGrid,
                 segList,
                 dedupTol,
                 hasBoundaryLoop ? boundaryLoop : null,
@@ -5363,7 +5363,7 @@ public static partial class PadGrader
                         lcIndices[i] = zList.Count;
                         xyList.Add(lx);
                         xyList.Add(ly);
-                        zList.Add(faceGrid.InterpolateZ(lx, ly));
+                        zList.Add(TerrainFaceGrid.InterpolateZ(lx, ly));
                         vertHash.Insert(lcIndices[i], lx, ly);
                     }
                 }
@@ -5413,7 +5413,7 @@ public static partial class PadGrader
 
             double originalZ = sourceId >= 0 && sourceId < totalVerts
                 ? zList[sourceId]
-                : faceGrid.InterpolateZ(x, y);
+                : TerrainFaceGrid.InterpolateZ(x, y);
 
             topologyVertices[i * 3] = x;
             topologyVertices[i * 3 + 1] = y;
@@ -5454,7 +5454,7 @@ public static partial class PadGrader
         int vertexCount,
         PadBoundary[] pads,
         PreparedBarriers barriers,
-        FaceGrid faceGrid,
+        TerrainFaceGrid TerrainFaceGrid,
         bool hasBoundaryLoop,
         double[] boundaryLoop,
         int boundaryVertexCount,
@@ -5476,7 +5476,7 @@ public static partial class PadGrader
         {
             preparedPads[i] = BuildPreparedPadSections(
                 pads[i],
-                faceGrid,
+                TerrainFaceGrid,
                 barriers,
                 hasBoundaryLoop,
                 boundaryLoop,
@@ -5610,7 +5610,7 @@ public static partial class PadGrader
 
     private static PreparedPadSections BuildPreparedPadSections(
         PadBoundary pad,
-        FaceGrid faceGrid,
+        TerrainFaceGrid TerrainFaceGrid,
         PreparedBarriers barriers,
         bool hasBoundaryLoop,
         double[] boundaryLoop,
@@ -5621,7 +5621,7 @@ public static partial class PadGrader
         double[] initialDistances = ComputePadBoundaryDistances(
             pad.XyVertices,
             pad.VertexCount,
-            faceGrid,
+            TerrainFaceGrid,
             pad);
         double shoulderDistance = 0.0;
         foreach (double distance in initialDistances)
@@ -5632,7 +5632,7 @@ public static partial class PadGrader
         double[] shoulderDistances = ComputePadBoundaryDistances(
             padLoop.XyVertices,
             padLoop.VertexCount,
-            faceGrid,
+            TerrainFaceGrid,
             pad);
         double minX = double.MaxValue;
         double maxX = double.MinValue;
@@ -5656,7 +5656,7 @@ public static partial class PadGrader
                 padLoop.VertexCount,
                 shoulderDistances,
                 effectiveCornerFanSegments,
-                faceGrid,
+                TerrainFaceGrid,
                 pad,
                 out targetBoundaryXy,
                 out targetShoulderXy,
@@ -5712,7 +5712,7 @@ public static partial class PadGrader
             }
             else
             {
-                double terrainZ = faceGrid.InterpolateZ(resolvedShoulderX, resolvedShoulderY);
+                double terrainZ = TerrainFaceGrid.InterpolateZ(resolvedShoulderX, resolvedShoulderY);
                 if (!keepShoulderOnBatterPlane)
                 {
                     shoulderZ[i] = terrainZ;
@@ -6108,8 +6108,8 @@ public static partial class PadGrader
         double[] shoulderDistances,
         List<double> xyList,
         List<double> zList,
-        SpatialHash vertHash,
-        FaceGrid faceGrid,
+        SpatialVertexHash vertHash,
+        TerrainFaceGrid TerrainFaceGrid,
         List<(int a, int b)> segList,
         double dedupTol,
         double[]? boundaryLoop,
@@ -6148,7 +6148,7 @@ public static partial class PadGrader
                 shoulderIndices[i] = zList.Count;
                 xyList.Add(px);
                 xyList.Add(py);
-                zList.Add(faceGrid.InterpolateZ(px, py));
+                zList.Add(TerrainFaceGrid.InterpolateZ(px, py));
                 vertHash.Insert(shoulderIndices[i], px, py);
             }
         }
@@ -6161,7 +6161,7 @@ public static partial class PadGrader
             int idx = zList.Count;
             xyList.Add(x);
             xyList.Add(y);
-            zList.Add(faceGrid.InterpolateZ(x, y));
+            zList.Add(TerrainFaceGrid.InterpolateZ(x, y));
             vertHash.Insert(idx, x, y);
             return idx;
         }
@@ -6198,7 +6198,7 @@ public static partial class PadGrader
     private static double[] ComputePadBoundaryDistances(
         double[] padLoopXy,
         int padLoopVertexCount,
-        FaceGrid faceGrid,
+        TerrainFaceGrid TerrainFaceGrid,
         PadBoundary pad)
     {
         double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
@@ -6210,7 +6210,7 @@ public static partial class PadGrader
         {
             double bx = padLoopXy[i * 2];
             double by = padLoopXy[i * 2 + 1];
-            double terrainZ = faceGrid.InterpolateZ(bx, by);
+            double terrainZ = TerrainFaceGrid.InterpolateZ(bx, by);
             double padZ = pad.EvaluateZ(bx, by);
             double dz = Math.Abs(terrainZ - padZ);
             double d = slopeRatio > 1e-12 ? dz / slopeRatio : 100.0;
@@ -6227,7 +6227,7 @@ public static partial class PadGrader
             {
                 double branchSign = Math.Sign(terrainZ - padZ);
                 double previousReach = ComputePadDaylightReach(
-                    faceGrid,
+                    TerrainFaceGrid,
                     bx,
                     by,
                     padZ,
@@ -6238,7 +6238,7 @@ public static partial class PadGrader
                     d,
                     pad.MaxDistance);
                 double nextReach = ComputePadDaylightReach(
-                    faceGrid,
+                    TerrainFaceGrid,
                     bx,
                     by,
                     padZ,
@@ -6326,7 +6326,7 @@ public static partial class PadGrader
     }
 
     private static double ComputePadDaylightReach(
-        FaceGrid faceGrid,
+        TerrainFaceGrid TerrainFaceGrid,
         double boundaryX,
         double boundaryY,
         double boundaryZ,
@@ -6347,12 +6347,12 @@ public static partial class PadGrader
 
         double searchDistance = maxDistance > 0.0
             ? maxDistance
-            : Math.Max(Math.Max(fallbackReach * 4.0, 1.0), faceGrid.BoundsDiagonal);
+            : Math.Max(Math.Max(fallbackReach * 4.0, 1.0), TerrainFaceGrid.BoundsDiagonal);
         if (searchDistance <= 1e-9)
             return Math.Max(0.0, fallbackReach);
 
         if (TryFindPadDaylightReachByTriangleIntervals(
-                faceGrid,
+                TerrainFaceGrid,
                 boundaryX,
                 boundaryY,
                 boundaryZ,
@@ -6368,7 +6368,7 @@ public static partial class PadGrader
         }
 
         if (TryFindPadDaylightReach(
-                faceGrid,
+                TerrainFaceGrid,
                 boundaryX,
                 boundaryY,
                 boundaryZ,
@@ -6387,7 +6387,7 @@ public static partial class PadGrader
     }
 
     private static bool TryFindPadDaylightReachByTriangleIntervals(
-        FaceGrid faceGrid,
+        TerrainFaceGrid TerrainFaceGrid,
         double edgeX,
         double edgeY,
         double edgeZ,
@@ -6404,7 +6404,7 @@ public static partial class PadGrader
         if (maxReach <= 1e-9)
             return false;
 
-        return faceGrid.TryFindRayDaylightReach(
+        return TerrainFaceGrid.TryFindRayDaylightReach(
             edgeX,
             edgeY,
             edgeZ,
@@ -6418,7 +6418,7 @@ public static partial class PadGrader
     }
 
     private static bool TryFindPadDaylightReach(
-        FaceGrid faceGrid,
+        TerrainFaceGrid TerrainFaceGrid,
         double edgeX,
         double edgeY,
         double edgeZ,
@@ -6438,7 +6438,7 @@ public static partial class PadGrader
         const double diffTolerance = 1e-4;
         double step = Math.Clamp(maxReach / 48.0, 0.1, 5.0);
         int sampleCount = Math.Max(1, (int)Math.Ceiling(maxReach / step));
-        double startDiff = EvaluatePadSectionDifference(faceGrid, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, 0.0);
+        double startDiff = EvaluatePadSectionDifference(TerrainFaceGrid, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, 0.0);
         double bestAbsDiff = Math.Abs(startDiff);
         double prevReach;
         double prevDiff;
@@ -6453,7 +6453,7 @@ public static partial class PadGrader
         else
         {
             double firstReach = Math.Min(maxReach, step);
-            double firstDiff = EvaluatePadSectionDifference(faceGrid, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, firstReach);
+            double firstDiff = EvaluatePadSectionDifference(TerrainFaceGrid, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, firstReach);
             if (Math.Abs(firstDiff) <= diffTolerance ||
                 (branchSign > 0.0 && firstDiff < diffTolerance) ||
                 (branchSign < 0.0 && firstDiff > -diffTolerance))
@@ -6472,7 +6472,7 @@ public static partial class PadGrader
             double currentReach = sampleIndex == sampleCount
                 ? maxReach
                 : Math.Min(maxReach, sampleIndex * step);
-            double currentDiff = EvaluatePadSectionDifference(faceGrid, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, currentReach);
+            double currentDiff = EvaluatePadSectionDifference(TerrainFaceGrid, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, currentReach);
             double currentAbsDiff = Math.Abs(currentDiff);
             if (currentAbsDiff < bestAbsDiff)
             {
@@ -6492,7 +6492,7 @@ public static partial class PadGrader
             if (crossed)
             {
                 daylightReach = RefinePadDaylightReach(
-                    faceGrid,
+                    TerrainFaceGrid,
                     edgeX,
                     edgeY,
                     edgeZ,
@@ -6513,7 +6513,7 @@ public static partial class PadGrader
     }
 
     private static double RefinePadDaylightReach(
-        FaceGrid faceGrid,
+        TerrainFaceGrid TerrainFaceGrid,
         double edgeX,
         double edgeY,
         double edgeZ,
@@ -6531,7 +6531,7 @@ public static partial class PadGrader
         for (int i = 0; i < 24; i++)
         {
             double mid = (low + high) * 0.5;
-            double diff = EvaluatePadSectionDifference(faceGrid, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, mid);
+            double diff = EvaluatePadSectionDifference(TerrainFaceGrid, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, mid);
             if (Math.Abs(diff) <= diffTolerance || (high - low) <= 1e-4)
                 return mid;
 
@@ -6551,7 +6551,7 @@ public static partial class PadGrader
     }
 
     private static double EvaluatePadSectionDifference(
-        FaceGrid faceGrid,
+        TerrainFaceGrid TerrainFaceGrid,
         double edgeX,
         double edgeY,
         double edgeZ,
@@ -6561,7 +6561,7 @@ public static partial class PadGrader
         double branchSign,
         double reach)
     {
-        double terrainZ = faceGrid.InterpolateZ(edgeX + (dirX * reach), edgeY + (dirY * reach));
+        double terrainZ = TerrainFaceGrid.InterpolateZ(edgeX + (dirX * reach), edgeY + (dirY * reach));
         double gradeZ = edgeZ + (branchSign * slopeRatio * reach);
         return terrainZ - gradeZ;
     }
@@ -7097,7 +7097,7 @@ public static partial class PadGrader
         int vertexCount,
         double[] distances,
         int cornerFanSegments,
-        FaceGrid? faceGrid,
+        TerrainFaceGrid? TerrainFaceGrid,
         PadBoundary? pad,
         out double[] expandedPolygonXy,
         out double[] expandedOffsetXy,
@@ -7195,7 +7195,7 @@ public static partial class PadGrader
                         double theta = prevAngle + sweep * f / (fanCount - 1);
                         double rayX = Math.Cos(theta);
                         double rayY = Math.Sin(theta);
-                        double rayDistance = ComputeCornerFanRayDistance(faceGrid, pad, x1, y1, rayX, rayY, d);
+                        double rayDistance = ComputeCornerFanRayDistance(TerrainFaceGrid, pad, x1, y1, rayX, rayY, d);
                         boundaryList.Add(x1);
                         boundaryList.Add(y1);
                         offsetList.Add(x1 + rayX * rayDistance);
@@ -7259,7 +7259,7 @@ public static partial class PadGrader
     }
 
     private static double ComputeCornerFanRayDistance(
-        FaceGrid? faceGrid,
+        TerrainFaceGrid? TerrainFaceGrid,
         PadBoundary? pad,
         double boundaryX,
         double boundaryY,
@@ -7268,7 +7268,7 @@ public static partial class PadGrader
         double fallbackDistance)
     {
         double distance = Math.Max(0.0, fallbackDistance);
-        if (faceGrid == null || pad == null || distance <= 1e-9)
+        if (TerrainFaceGrid == null || pad == null || distance <= 1e-9)
             return distance;
 
         double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
@@ -7276,13 +7276,13 @@ public static partial class PadGrader
             return distance;
 
         double boundaryZ = pad.EvaluateZ(boundaryX, boundaryY);
-        double terrainZ = faceGrid.InterpolateZ(boundaryX, boundaryY);
+        double terrainZ = TerrainFaceGrid.InterpolateZ(boundaryX, boundaryY);
         double branchSign = Math.Sign(terrainZ - boundaryZ);
         if (Math.Abs(branchSign) <= 1e-12)
             return distance;
 
         return ComputePadDaylightReach(
-            faceGrid,
+            TerrainFaceGrid,
             boundaryX,
             boundaryY,
             boundaryZ,
@@ -7386,76 +7386,7 @@ public static partial class PadGrader
 
     internal static bool TryBuildBoundaryLoop(double[] vertices, int[] faces, int faceCount, out double[] boundaryXy, out int boundaryVertexCount)
     {
-        boundaryXy = Array.Empty<double>();
-        boundaryVertexCount = 0;
-
-        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
-        for (int f = 0; f < faceCount; f++)
-        {
-            int a = faces[f * 3];
-            int b = faces[f * 3 + 1];
-            int c = faces[f * 3 + 2];
-            IncrEdge(edgeFaceCount, a, b);
-            IncrEdge(edgeFaceCount, b, c);
-            IncrEdge(edgeFaceCount, c, a);
-        }
-
-        var adjacency = new Dictionary<int, List<int>>();
-        int segmentCount = 0;
-        foreach (var pair in edgeFaceCount)
-        {
-            if (pair.Value != 1)
-                continue;
-
-            int a = (int)(pair.Key >> 32);
-            int b = (int)(pair.Key & 0xFFFFFFFFL);
-            AddBoundaryNeighbor(adjacency, a, b);
-            AddBoundaryNeighbor(adjacency, b, a);
-            segmentCount++;
-        }
-
-        if (segmentCount < 3 || adjacency.Count == 0)
-            return false;
-
-        foreach (var neighbors in adjacency.Values)
-        {
-            if (neighbors.Count != 2)
-                return false;
-        }
-
-        int start = adjacency.Keys.Min();
-        var order = new List<int>(adjacency.Count);
-        int previous = -1;
-        int current = start;
-
-        while (true)
-        {
-            order.Add(current);
-            var neighbors = adjacency[current];
-            int next = neighbors[0] != previous ? neighbors[0] : neighbors[1];
-            previous = current;
-            current = next;
-
-            if (current == start)
-                break;
-
-            if (order.Count > adjacency.Count)
-                return false;
-        }
-
-        if (order.Count < 3 || order.Count != adjacency.Count)
-            return false;
-
-        boundaryVertexCount = order.Count;
-        boundaryXy = new double[boundaryVertexCount * 2];
-        for (int i = 0; i < boundaryVertexCount; i++)
-        {
-            int vertexIndex = order[i];
-            boundaryXy[i * 2] = vertices[vertexIndex * 3];
-            boundaryXy[i * 2 + 1] = vertices[vertexIndex * 3 + 1];
-        }
-
-        return true;
+        return MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(vertices, faces, faceCount, out boundaryXy, out boundaryVertexCount);
     }
 
     private static void AddBoundaryNeighbor(Dictionary<int, List<int>> adjacency, int from, int to)
@@ -7471,20 +7402,7 @@ public static partial class PadGrader
 
     internal static bool AllPointsInsideOrOnBoundary(double[] xy, int vertexCount, double[] boundaryLoop, int boundaryVertexCount, double tolerance)
     {
-        for (int i = 0; i < vertexCount; i++)
-        {
-            double px = xy[i * 2];
-            double py = xy[i * 2 + 1];
-            if (PointInPolygon(px, py, boundaryLoop, boundaryVertexCount))
-                continue;
-
-            if (DistToPolygon(px, py, boundaryLoop, boundaryVertexCount) <= tolerance)
-                continue;
-
-            return false;
-        }
-
-        return true;
+        return GradingGeometry2D.AllPointsInsideOrOnBoundary(xy, vertexCount, boundaryLoop, boundaryVertexCount, tolerance);
     }
 
     private static bool TryIntersectLines(

@@ -284,13 +284,13 @@ internal sealed class TerrainRuntimeCache
 
         for (int i = 0; i < leftVertexCount; i++)
         {
-            if (PadGrader.PointInPolygon(leftLoop[i * 2], leftLoop[i * 2 + 1], rightLoop, rightVertexCount))
+            if (GradingGeometry2D.PointInPolygon(leftLoop[i * 2], leftLoop[i * 2 + 1], rightLoop, rightVertexCount))
                 return true;
         }
 
         for (int i = 0; i < rightVertexCount; i++)
         {
-            if (PadGrader.PointInPolygon(rightLoop[i * 2], rightLoop[i * 2 + 1], leftLoop, leftVertexCount))
+            if (GradingGeometry2D.PointInPolygon(rightLoop[i * 2], rightLoop[i * 2 + 1], leftLoop, leftVertexCount))
                 return true;
         }
 

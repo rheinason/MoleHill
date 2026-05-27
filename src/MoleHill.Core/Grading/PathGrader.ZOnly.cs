@@ -28,8 +28,8 @@ public static partial class PathGrader
         var outXy = new double[vertexCount * 2];
         var origZ = new double[vertexCount];
         var newZ = new double[vertexCount];
-        bool hasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out double[] boundaryLoop, out int boundaryVertexCount);
-        var faceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
+        bool hasBoundaryLoop = MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(vertices, faces, faceCount, out double[] boundaryLoop, out int boundaryVertexCount);
+        var faceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
 
         for (int i = 0; i < vertexCount; i++)
         {

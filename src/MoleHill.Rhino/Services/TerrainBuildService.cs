@@ -5531,7 +5531,7 @@ internal sealed partial class TerrainBuildService
     {
         var xyList = new List<double>(firstVertexCount * 2 + secondVertexCount * 2);
         var zList = new List<double>(firstVertexCount + secondVertexCount);
-        var vertHash = new PadGrader.SpatialHash(tolerance);
+        var vertHash = new SpatialVertexHash(tolerance);
         var seenFaces = new HashSet<ulong>();
 
         int AddVertex(double x, double y, double z)
@@ -6167,7 +6167,7 @@ internal sealed partial class TerrainBuildService
             int b = (int)(pair.Key & 0xFFFFFFFFL);
             double mx = (vertices[a * 3] + vertices[b * 3]) * 0.5;
             double my = (vertices[a * 3 + 1] + vertices[b * 3 + 1]) * 0.5;
-            if (PadGrader.DistToPolygon(mx, my, loopXy, loopXy.Length / 2) <= distanceTolerance)
+            if (GradingGeometry2D.DistanceToPolygon(mx, my, loopXy, loopXy.Length / 2) <= distanceTolerance)
                 boundaryNearLoop++;
         }
 

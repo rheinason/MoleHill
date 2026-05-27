@@ -10,9 +10,9 @@ internal sealed class TerrainSpatialIndex
         VertexCount = vertexCount;
         Faces = faces;
         FaceCount = faceCount;
-        FaceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
+        FaceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         Bounds = ComputeBounds(vertices, vertexCount);
-        HasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out double[] boundaryLoop, out int boundaryVertexCount);
+        HasBoundaryLoop = MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(vertices, faces, faceCount, out double[] boundaryLoop, out int boundaryVertexCount);
         BoundaryLoopXy = boundaryLoop;
         BoundaryVertexCount = boundaryVertexCount;
     }
@@ -25,7 +25,7 @@ internal sealed class TerrainSpatialIndex
 
     public int FaceCount { get; }
 
-    public PadGrader.FaceGrid FaceGrid { get; }
+    public TerrainFaceGrid FaceGrid { get; }
 
     public Bounds2D Bounds { get; }
 

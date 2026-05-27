@@ -80,7 +80,7 @@ public static partial class PathGrader
         bool resamplePrimaryRails = false)
     {
         double dedupTol = GradingTolerances.ModelToleranceOrDefault(tolerance);
-        bool hasBoundaryLoop = PadGrader.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
+        bool hasBoundaryLoop = MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
         var constraints = new List<SurfaceRemesher.ConstraintPolyline>(paths.Length * 5);
         double suggestedEdgeLength = double.MaxValue;
         var coincidenceSnapper = new ConstraintCoincidenceSnapper(
@@ -89,7 +89,7 @@ public static partial class PathGrader
             faces,
             faceCount,
             Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)));
-        var faceGrid = new PadGrader.FaceGrid(vertices, vertexCount, faces, faceCount);
+        var faceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);
         var barrierScratch = new SpatialHashGrid2D.QueryScratch(Math.Max(preparedBarriers.Segments.Length, 1));
         var barrierCandidates = new List<int>(8);
