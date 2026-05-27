@@ -65,6 +65,9 @@ public sealed class GradingResult
     /// <summary>Operation-specific diagnostics.</summary>
     public IReadOnlyList<string> Diagnostics { get; }
 
+    /// <summary>Structured operation diagnostics for UI filtering, conflict display, and downstream workflow decisions.</summary>
+    public IReadOnlyList<GradingDiagnostic> StructuredDiagnostics { get; }
+
     /// <summary>Internal patch ownership/seam summaries for downstream runtime caching.</summary>
     internal IReadOnlyList<GradingPatch> PatchSummaries { get; }
 
@@ -72,9 +75,10 @@ public sealed class GradingResult
                            int[] faces, int faceCount,
                            double cutVolume, double fillVolume,
                            double[] daylightVertices, int daylightVertexCount,
-                           IReadOnlyList<OutputPolyline>? outputPolylines = null,
-                           IReadOnlyList<string>? diagnostics = null,
-                           IReadOnlyList<GradingPatch>? patchSummaries = null)
+                            IReadOnlyList<OutputPolyline>? outputPolylines = null,
+                            IReadOnlyList<string>? diagnostics = null,
+                            IReadOnlyList<GradingPatch>? patchSummaries = null,
+                            IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
         Vertices = vertices;
         VertexCount = vertexCount;
@@ -85,7 +89,8 @@ public sealed class GradingResult
         DaylightVertices = daylightVertices;
         DaylightVertexCount = daylightVertexCount;
         OutputPolylines = outputPolylines ?? Array.Empty<OutputPolyline>();
-        Diagnostics = diagnostics ?? Array.Empty<string>();
+        Diagnostics = diagnostics ?? structuredDiagnostics?.Select(static diagnostic => diagnostic.Message).ToArray() ?? Array.Empty<string>();
+        StructuredDiagnostics = structuredDiagnostics ?? GradingDiagnostic.FromLegacyMessages(Diagnostics);
         PatchSummaries = patchSummaries ?? Array.Empty<GradingPatch>();
     }
 }

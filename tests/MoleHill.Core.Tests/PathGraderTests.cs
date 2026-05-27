@@ -597,6 +597,8 @@ public class PathGraderTests
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         Assert.Contains(result!.Diagnostics, diagnostic => diagnostic.Contains("topology mode:", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.StructuredDiagnostics, diagnostic => diagnostic.Code == "legacy.message");
+        Assert.All(result.StructuredDiagnostics, diagnostic => Assert.False(string.IsNullOrWhiteSpace(diagnostic.Message)));
     }
 
     [Fact]

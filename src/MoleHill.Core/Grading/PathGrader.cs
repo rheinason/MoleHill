@@ -221,6 +221,15 @@ public static class PathGrader
         string[] diagnostics = result.Diagnostics.Count == 0
             ? new[] { diagnostic }
             : result.Diagnostics.Concat(new[] { diagnostic }).ToArray();
+        GradingDiagnostic[] structuredDiagnostics = result.StructuredDiagnostics
+            .Concat(new[]
+            {
+                GradingDiagnostic.Warning(
+                    "grade_path.stitched_repair.detached_components_removed",
+                    diagnostic,
+                    operation: "Grade Path")
+            })
+            .ToArray();
 
         return new GradingResult(
             cleanup.Vertices,
@@ -233,7 +242,8 @@ public static class PathGrader
             result.DaylightVertexCount,
             result.OutputPolylines,
             diagnostics,
-            result.PatchSummaries);
+            result.PatchSummaries,
+            structuredDiagnostics);
     }
 
     public static double[] ApplyGradingZ(double[] topologyVertices, int vertexCount, PathDefinition[] paths, out int changedVertexCount)
