@@ -27,6 +27,42 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void GradingResultBuilder_BuildFromComponents_ComputesVolumeAndDaylight()
+    {
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            1.0, 1.0,
+            0.0, 1.0
+        };
+        double[] originalZ = { 0.0, 0.0, 0.0, 0.0 };
+        double[] gradedZ = { 0.0, 1.0, 1.0, 0.0 };
+        double[] gradedVertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 1.0,
+            1.0, 1.0, 1.0,
+            0.0, 1.0, 0.0
+        };
+        int[] faces = { 0, 1, 2, 0, 2, 3 };
+
+        GradingResult result = GradingResultBuilder.BuildFromComponents(
+            xy,
+            originalZ,
+            gradedZ,
+            gradedVertices,
+            4,
+            faces,
+            2);
+
+        Assert.Equal(0.0, result.CutVolume, 6);
+        Assert.Equal(0.5, result.FillVolume, 6);
+        Assert.True(result.DaylightVertexCount >= 2);
+        Assert.NotSame(faces, result.Faces);
+    }
+
+    [Fact]
     public void SeamGraph_Build_ReturnsFullMatches_ForIdenticalSeamSegmentation()
     {
         double[] seamLoop =

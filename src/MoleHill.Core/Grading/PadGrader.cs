@@ -7484,53 +7484,12 @@ public static partial class PadGrader
         IReadOnlyList<string>? diagnostics = null,
         IReadOnlyList<GradingPatch>? patchSummaries = null)
     {
-        double cutVol = 0;
-        double fillVol = 0;
-        for (int f = 0; f < faceCount; f++)
-        {
-            int i0 = faces[f * 3];
-            int i1 = faces[f * 3 + 1];
-            int i2 = faces[f * 3 + 2];
-
-            double area2d = Math.Abs(
-                (gradedVertices[i1 * 3] - gradedVertices[i0 * 3]) * (gradedVertices[i2 * 3 + 1] - gradedVertices[i0 * 3 + 1])
-              - (gradedVertices[i2 * 3] - gradedVertices[i0 * 3]) * (gradedVertices[i1 * 3 + 1] - gradedVertices[i0 * 3 + 1]))
-                * 0.5;
-
-            double dz0 = gradedVertices[i0 * 3 + 2] - originalVertices[i0 * 3 + 2];
-            double dz1 = gradedVertices[i1 * 3 + 2] - originalVertices[i1 * 3 + 2];
-            double dz2 = gradedVertices[i2 * 3 + 2] - originalVertices[i2 * 3 + 2];
-            double avgDz = (dz0 + dz1 + dz2) / 3.0;
-
-            double vol = area2d * avgDz;
-            if (vol > 0)
-                fillVol += vol;
-            else
-                cutVol += -vol;
-        }
-
-        var daylightPts = new List<double>();
-        var processedEdges = new HashSet<long>();
-
-        for (int f = 0; f < faceCount; f++)
-        {
-            int i0 = faces[f * 3];
-            int i1 = faces[f * 3 + 1];
-            int i2 = faces[f * 3 + 2];
-            CheckDaylightEdge(i0, i1, originalVertices, gradedVertices, processedEdges, daylightPts);
-            CheckDaylightEdge(i1, i2, originalVertices, gradedVertices, processedEdges, daylightPts);
-            CheckDaylightEdge(i2, i0, originalVertices, gradedVertices, processedEdges, daylightPts);
-        }
-
-        return new GradingResult(
+        return GradingResultBuilder.BuildFromXyz(
+            originalVertices,
             gradedVertices,
             vertexCount,
-            (int[])faces.Clone(),
+            faces,
             faceCount,
-            cutVol,
-            fillVol,
-            daylightPts.ToArray(),
-            daylightPts.Count / 3,
             outputPolylines,
             diagnostics,
             patchSummaries,
@@ -7626,40 +7585,4 @@ public static partial class PadGrader
                int.TryParse(message.AsSpan(start, end - start), out padIndex);
     }
 
-    private static void CheckDaylightEdge(
-        int a,
-        int b,
-        double[] originalVertices,
-        double[] gradedVertices,
-        HashSet<long> processed,
-        List<double> pts)
-    {
-        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
-        if (!processed.Add(key))
-            return;
-
-        double dzA = gradedVertices[a * 3 + 2] - originalVertices[a * 3 + 2];
-        double dzB = gradedVertices[b * 3 + 2] - originalVertices[b * 3 + 2];
-        const double threshold = 0.001;
-
-        if ((dzA > threshold && dzB < -threshold) || (dzA < -threshold && dzB > threshold))
-        {
-            double t = dzA / (dzA - dzB);
-            pts.Add(gradedVertices[a * 3] + t * (gradedVertices[b * 3] - gradedVertices[a * 3]));
-            pts.Add(gradedVertices[a * 3 + 1] + t * (gradedVertices[b * 3 + 1] - gradedVertices[a * 3 + 1]));
-            pts.Add(gradedVertices[a * 3 + 2] + t * (gradedVertices[b * 3 + 2] - gradedVertices[a * 3 + 2]));
-        }
-        else if (Math.Abs(dzA) <= threshold && Math.Abs(dzB) > threshold)
-        {
-            pts.Add(gradedVertices[a * 3]);
-            pts.Add(gradedVertices[a * 3 + 1]);
-            pts.Add(gradedVertices[a * 3 + 2]);
-        }
-        else if (Math.Abs(dzB) <= threshold && Math.Abs(dzA) > threshold)
-        {
-            pts.Add(gradedVertices[b * 3]);
-            pts.Add(gradedVertices[b * 3 + 1]);
-            pts.Add(gradedVertices[b * 3 + 2]);
-        }
-    }
 }

@@ -331,43 +331,11 @@ public static class SurfaceStripGrader
         AddPhase(profile, "cull_boundary", cullStart);
 
         long volumeStart = Stopwatch.GetTimestamp();
-        double cutVol = 0;
-        double fillVol = 0;
-        for (int f = 0; f < outFaceCount; f++)
-        {
-            int i0 = finalFaces[f * 3];
-            int i1 = finalFaces[f * 3 + 1];
-            int i2 = finalFaces[f * 3 + 2];
-
-            double area2d = Math.Abs(
-                (outXy[i1 * 2] - outXy[i0 * 2]) * (outXy[i2 * 2 + 1] - outXy[i0 * 2 + 1]) -
-                (outXy[i2 * 2] - outXy[i0 * 2]) * (outXy[i1 * 2 + 1] - outXy[i0 * 2 + 1])) * 0.5;
-
-            double dz0 = newZ[i0] - origZ[i0];
-            double dz1 = newZ[i1] - origZ[i1];
-            double dz2 = newZ[i2] - origZ[i2];
-            double avgDz = (dz0 + dz1 + dz2) / 3.0;
-
-            double vol = area2d * avgDz;
-            if (vol > 0)
-                fillVol += vol;
-            else
-                cutVol += -vol;
-        }
+        GradingVolumeMetrics volume = GradingResultBuilder.ComputeVolume(outXy, origZ, newZ, finalFaces, outFaceCount);
         AddPhase(profile, "volume", volumeStart);
 
         long daylightStart = Stopwatch.GetTimestamp();
-        var daylightPts = new List<double>();
-        var processedEdges = new HashSet<long>();
-        for (int f = 0; f < outFaceCount; f++)
-        {
-            int i0 = finalFaces[f * 3];
-            int i1 = finalFaces[f * 3 + 1];
-            int i2 = finalFaces[f * 3 + 2];
-            CheckDaylightEdge(i0, i1, outXy, newZ, origZ, processedEdges, daylightPts);
-            CheckDaylightEdge(i1, i2, outXy, newZ, origZ, processedEdges, daylightPts);
-            CheckDaylightEdge(i2, i0, outXy, newZ, origZ, processedEdges, daylightPts);
-        }
+        double[] daylightVertices = GradingResultBuilder.BuildDaylightVertices(outXy, origZ, newZ, finalFaces, outFaceCount);
         AddPhase(profile, "daylight", daylightStart);
 
         return new GradingResult(
@@ -375,10 +343,10 @@ public static class SurfaceStripGrader
             outVertCount,
             finalFaces,
             outFaceCount,
-            cutVol,
-            fillVol,
-            daylightPts.ToArray(),
-            daylightPts.Count / 3);
+            volume.CutVolume,
+            volume.FillVolume,
+            daylightVertices,
+            daylightVertices.Length / 3);
     }
 
     private static void AddPhase(TimingProfile? profile, string name, long startTimestamp)
@@ -725,44 +693,6 @@ public static class SurfaceStripGrader
             return count - 1;
 
         return count;
-    }
-
-    private static void CheckDaylightEdge(
-        int a,
-        int b,
-        double[] xy,
-        double[] newZ,
-        double[] origZ,
-        HashSet<long> processed,
-        List<double> pts)
-    {
-        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
-        if (!processed.Add(key))
-            return;
-
-        double dzA = newZ[a] - origZ[a];
-        double dzB = newZ[b] - origZ[b];
-        const double threshold = 0.001;
-
-        if ((dzA > threshold && dzB < -threshold) || (dzA < -threshold && dzB > threshold))
-        {
-            double t = dzA / (dzA - dzB);
-            pts.Add(xy[a * 2] + t * (xy[b * 2] - xy[a * 2]));
-            pts.Add(xy[a * 2 + 1] + t * (xy[b * 2 + 1] - xy[a * 2 + 1]));
-            pts.Add(newZ[a] + t * (newZ[b] - newZ[a]));
-        }
-        else if (Math.Abs(dzA) <= threshold && Math.Abs(dzB) > threshold)
-        {
-            pts.Add(xy[a * 2]);
-            pts.Add(xy[a * 2 + 1]);
-            pts.Add(newZ[a]);
-        }
-        else if (Math.Abs(dzB) <= threshold && Math.Abs(dzA) > threshold)
-        {
-            pts.Add(xy[b * 2]);
-            pts.Add(xy[b * 2 + 1]);
-            pts.Add(newZ[b]);
-        }
     }
 
     private static void IncrEdge(Dictionary<long, int> dict, int a, int b)

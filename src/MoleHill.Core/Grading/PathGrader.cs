@@ -1612,42 +1612,12 @@ public static partial class PathGrader
         IReadOnlyList<string>? diagnostics = null,
         IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
-        double cutVol = 0, fillVol = 0;
-        for (int f = 0; f < faceCount; f++)
-        {
-            int i0 = finalFaces[f * 3], i1 = finalFaces[f * 3 + 1], i2 = finalFaces[f * 3 + 2];
-
-            double area2d = Math.Abs(
-                (outXy[i1 * 2] - outXy[i0 * 2]) * (outXy[i2 * 2 + 1] - outXy[i0 * 2 + 1])
-              - (outXy[i2 * 2] - outXy[i0 * 2]) * (outXy[i1 * 2 + 1] - outXy[i0 * 2 + 1])
-            ) * 0.5;
-
-            double dz0 = newZ[i0] - origZ[i0];
-            double dz1 = newZ[i1] - origZ[i1];
-            double dz2 = newZ[i2] - origZ[i2];
-            double avgDz = (dz0 + dz1 + dz2) / 3.0;
-
-            double vol = area2d * avgDz;
-            if (vol > 0) fillVol += vol;
-            else cutVol += -vol;
-        }
-
-        var daylightPts = new List<double>();
-        var processedEdges = new HashSet<long>();
-
-        for (int f = 0; f < faceCount; f++)
-        {
-            int i0 = finalFaces[f * 3], i1 = finalFaces[f * 3 + 1], i2 = finalFaces[f * 3 + 2];
-            CheckDaylightEdge(i0, i1, outXy, newZ, origZ, processedEdges, daylightPts);
-            CheckDaylightEdge(i1, i2, outXy, newZ, origZ, processedEdges, daylightPts);
-            CheckDaylightEdge(i2, i0, outXy, newZ, origZ, processedEdges, daylightPts);
-        }
-
-        return new GradingResult(
+        return GradingResultBuilder.BuildFromComponents(
+            outXy,
+            origZ,
+            newZ,
             finalVerts, vertCount,
             finalFaces, faceCount,
-            cutVol, fillVol,
-            daylightPts.ToArray(), daylightPts.Count / 3,
             outputPolylines,
             diagnostics,
             patchSummaries: patchSummaries,
@@ -1660,31 +1630,4 @@ public static partial class PathGrader
         dict[key] = dict.GetValueOrDefault(key, 0) + 1;
     }
 
-    private static void CheckDaylightEdge(int a, int b,
-        double[] xy, double[] newZ, double[] origZ,
-        HashSet<long> processed, List<double> pts)
-    {
-        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
-        if (!processed.Add(key)) return;
-
-        double dzA = newZ[a] - origZ[a];
-        double dzB = newZ[b] - origZ[b];
-        const double threshold = 0.001;
-
-        if ((dzA > threshold && dzB < -threshold) || (dzA < -threshold && dzB > threshold))
-        {
-            double t = dzA / (dzA - dzB);
-            pts.Add(xy[a * 2] + t * (xy[b * 2] - xy[a * 2]));
-            pts.Add(xy[a * 2 + 1] + t * (xy[b * 2 + 1] - xy[a * 2 + 1]));
-            pts.Add(newZ[a] + t * (newZ[b] - newZ[a]));
-        }
-        else if (Math.Abs(dzA) <= threshold && Math.Abs(dzB) > threshold)
-        {
-            pts.Add(xy[a * 2]); pts.Add(xy[a * 2 + 1]); pts.Add(newZ[a]);
-        }
-        else if (Math.Abs(dzB) <= threshold && Math.Abs(dzA) > threshold)
-        {
-            pts.Add(xy[b * 2]); pts.Add(xy[b * 2 + 1]); pts.Add(newZ[b]);
-        }
-    }
 }
