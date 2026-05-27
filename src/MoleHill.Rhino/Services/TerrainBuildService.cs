@@ -56,6 +56,8 @@ internal sealed class TerrainBuildService
         public required double SuggestedEdgeLength { get; init; }
 
         public required string[] Diagnostics { get; init; }
+
+        public required IReadOnlyList<GradingDiagnostic> StructuredDiagnostics { get; init; }
     }
 
     private sealed class ResolvedGradePathInputs
@@ -1660,6 +1662,7 @@ internal sealed class TerrainBuildService
             curveTolerance,
             gradePadTolerance);
         build.Diagnostics.AddRange(resolvedInputs.Diagnostics);
+        build.StructuredDiagnostics.AddRange(resolvedInputs.StructuredDiagnostics);
         ThrowIfCancellationRequested(shouldCancel);
         if (resolvedInputs.Pads.Length == 0)
         {
@@ -1770,6 +1773,7 @@ internal sealed class TerrainBuildService
                     topologyDiagnostics.AddRange(gradeResult.Diagnostics);
 
                 build.Diagnostics.AddRange(topologyDiagnostics);
+                build.StructuredDiagnostics.AddRange(gradeResult.StructuredDiagnostics);
                 AddOutputPolylinesAsBreaklines(gradeResult.OutputPolylines, build);
                 topologyVertices = gradeResult.Vertices;
                 topologyVertexCount = gradeResult.VertexCount;
@@ -1894,7 +1898,7 @@ internal sealed class TerrainBuildService
             build.Diagnostics.Add(warning);
 
         if (result.Diagnostics.Count > 0)
-            build.Diagnostics.AddRange(result.Diagnostics);
+            build.AddGradingDiagnostics(result);
 
         return FinalizeGradingMesh(
             RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount),
@@ -1961,7 +1965,8 @@ internal sealed class TerrainBuildService
             {
                 Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
                 SuggestedEdgeLength = 0.0,
-                Diagnostics = Array.Empty<string>()
+                Diagnostics = Array.Empty<string>(),
+                StructuredDiagnostics = Array.Empty<GradingDiagnostic>()
             }
             : PadGrader.CreateConstraints(
                 vertices,
@@ -1981,7 +1986,8 @@ internal sealed class TerrainBuildService
             Locks = lockArray,
             Constraints = constraintSet.Constraints,
             SuggestedEdgeLength = constraintSet.SuggestedEdgeLength,
-            Diagnostics = allDiagnostics.ToArray()
+            Diagnostics = allDiagnostics.ToArray(),
+            StructuredDiagnostics = constraintSet.StructuredDiagnostics
         };
     }
 
@@ -2226,8 +2232,7 @@ internal sealed class TerrainBuildService
             StageTimingDiagnosticThresholdMs);
         if (!string.IsNullOrWhiteSpace(warning))
             build.Diagnostics.Add(warning);
-        foreach (string diagnostic in gradingResult.Diagnostics)
-            build.Diagnostics.Add(diagnostic);
+        build.AddGradingDiagnostics(gradingResult);
 
         AddOutputPolylinesAsBreaklines(gradingResult.OutputPolylines, build);
         AddPersistentElevationConstraints(build, resolvedInputs.Constraints);

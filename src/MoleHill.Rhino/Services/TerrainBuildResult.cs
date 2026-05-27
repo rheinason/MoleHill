@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using MoleHill.Core.Grading;
 using Rhino.Geometry;
 using MoleHill.Rhino.Model;
 
@@ -40,6 +41,8 @@ internal sealed class TerrainBuildResult
 
     public List<string> Diagnostics { get; } = new();
 
+    public List<GradingDiagnostic> StructuredDiagnostics { get; } = new();
+
     public List<TerrainAnalysisSummary> AnalysisResults { get; } = new();
 
     public List<TerrainBuildTiming> Timings { get; } = new();
@@ -55,6 +58,12 @@ internal sealed class TerrainBuildResult
             return;
 
         Diagnostics.Add(FormatTimingMessage(stage, elapsed, detail));
+    }
+
+    public void AddGradingDiagnostics(GradingResult result)
+    {
+        Diagnostics.AddRange(result.Diagnostics);
+        StructuredDiagnostics.AddRange(result.StructuredDiagnostics);
     }
 
     private static string FormatTimingMessage(string stage, TimeSpan elapsed, string? detail)
