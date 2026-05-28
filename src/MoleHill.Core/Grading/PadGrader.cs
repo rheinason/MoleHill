@@ -395,6 +395,52 @@ public static partial class PadGrader
             PatchMeshResult? patch = null;
             string? patchError = null;
             bool allowSplitLocalFallback = prepared.Pad.StitchApronDistance <= dedupTol * 4.0;
+
+            bool TryApplyProtectedWholeMeshRemesh(string retryDiagnostic, string fallbackFailure, out string? remeshFailureMessage)
+            {
+                var singleRegion = new ProtectedPadRegion(
+                    padIndex,
+                    prepared,
+                    daylightLoopXy,
+                    seamLoopXy,
+                    InflateBounds(GradingPatch.ComputeBounds(seamLoopXy), minStitchSegmentLength));
+
+                if (TryGradeCoupledProtectedPadsByWholeMeshRemesh(
+                        padStartVertices,
+                        padStartVertexCount,
+                        padStartFaces,
+                        padStartFaceCount,
+                        [pads[padIndex]],
+                        lockCurves,
+                        barriers,
+                        dedupTol,
+                        terrainDetailSize,
+                        [singleRegion],
+                        out GradingResult? remeshResult,
+                        out string? remeshFailure))
+                {
+                    if (remeshResult != null)
+                    {
+                        diagnostics.Add(retryDiagnostic);
+                        diagnostics.AddRange(remeshResult.Diagnostics);
+                        outputPolylines.AddRange(remeshResult.OutputPolylines);
+                        patchSummaries.Add(BuildPadPatchSummary(prepared, seamLoopXy, padIndex, dedupTol));
+                        currentVertices = remeshResult.Vertices;
+                        currentVertexCount = remeshResult.VertexCount;
+                        currentFaces = remeshResult.Faces;
+                        currentFaceCount = remeshResult.FaceCount;
+                        remeshFailureMessage = null;
+                        return true;
+                    }
+
+                    remeshFailureMessage = remeshFailure ?? fallbackFailure;
+                    return false;
+                }
+
+                remeshFailureMessage = fallbackFailure;
+                return false;
+            }
+
             if (hasOutsideMesh && !seamCoincidesWithPad)
             {
                 patch = TryBuildPadPatchMesh(
@@ -412,9 +458,18 @@ public static partial class PadGrader
             {
                 if (!allowSplitLocalFallback)
                 {
+                    if (TryApplyProtectedWholeMeshRemesh(
+                            $"Grade Pad[{padIndex}] explicit protected patch could not be built: {patchError ?? "no patch was produced"}; retrying protected whole-mesh remesh.",
+                            patchError ?? $"Grade Pad[{padIndex}] explicit protected patch could not be built; protected whole-mesh remesh failed.",
+                            out string? remeshFailure))
+                    {
+                        continue;
+                    }
+
                     diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
                     failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
                     errorMessage = BuildProtectedPadFailureMessage(
+                        remeshFailure ??
                         patchError ??
                         $"Grade Pad[{padIndex}] explicit protected patch could not be built; split-local fallback is disabled because it can produce invalid shoulder topology.",
                         diagnostics);
@@ -440,9 +495,18 @@ public static partial class PadGrader
             {
                 if (!allowSplitLocalFallback)
                 {
+                    if (TryApplyProtectedWholeMeshRemesh(
+                            $"Grade Pad[{padIndex}] explicit patch did not produce a single closed stitch boundary; retrying protected whole-mesh remesh.",
+                            $"Grade Pad[{padIndex}] explicit patch did not produce a single closed stitch boundary; protected whole-mesh remesh failed.",
+                            out string? remeshFailure))
+                    {
+                        continue;
+                    }
+
                     diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
                     failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
                     errorMessage = BuildProtectedPadFailureMessage(
+                        remeshFailure ??
                         $"Grade Pad[{padIndex}] explicit patch did not produce a single closed stitch boundary; split-local fallback is disabled because it can produce invalid shoulder topology.",
                         diagnostics);
                     return null;
@@ -566,51 +630,18 @@ public static partial class PadGrader
                 {
                     if (!allowSplitLocalFallback)
                     {
-                        var singleRegion = new ProtectedPadRegion(
-                            padIndex,
-                            prepared,
-                            daylightLoopXy,
-                            seamLoopXy,
-                            InflateBounds(GradingPatch.ComputeBounds(seamLoopXy), minStitchSegmentLength));
-                        if (TryGradeCoupledProtectedPadsByWholeMeshRemesh(
-                                padStartVertices,
-                                padStartVertexCount,
-                                padStartFaces,
-                                padStartFaceCount,
-                                [pads[padIndex]],
-                                lockCurves,
-                                barriers,
-                                dedupTol,
-                                terrainDetailSize,
-                                [singleRegion],
-                                out GradingResult? remeshResult,
+                        if (TryApplyProtectedWholeMeshRemesh(
+                                $"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; retrying protected whole-mesh remesh.",
+                                $"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; protected whole-mesh remesh failed.",
                                 out string? remeshFailure))
                         {
-                            if (remeshResult != null)
-                            {
-                                diagnostics.Add($"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; retrying protected whole-mesh remesh.");
-                                diagnostics.AddRange(remeshResult.Diagnostics);
-                                outputPolylines.AddRange(remeshResult.OutputPolylines);
-                                patchSummaries.Add(BuildPadPatchSummary(prepared, seamLoopXy, padIndex, dedupTol));
-                                currentVertices = remeshResult.Vertices;
-                                currentVertexCount = remeshResult.VertexCount;
-                                currentFaces = remeshResult.Faces;
-                                currentFaceCount = remeshResult.FaceCount;
-                                continue;
-                            }
-
-                            diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
-                            failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
-                            errorMessage = BuildProtectedPadFailureMessage(
-                                remeshFailure ??
-                                $"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; protected whole-mesh remesh failed.",
-                                diagnostics);
-                            return null;
+                            continue;
                         }
 
                         diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
                         failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
                         errorMessage = BuildProtectedPadFailureMessage(
+                            remeshFailure ??
                             $"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; split-local fallback is disabled because it can produce invalid shoulder topology.",
                             diagnostics);
                         return null;

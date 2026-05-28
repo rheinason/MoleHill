@@ -290,7 +290,9 @@ public static partial class PadGrader
             }
         }
 
-        var TerrainFaceGrid = new TerrainFaceGrid(topology.Vertices, topology.VertexCount, topology.Faces, topology.FaceCount);
+        int[] topologyFaces = topology.Faces;
+        int topologyFaceCount = topology.FaceCount;
+        var TerrainFaceGrid = new TerrainFaceGrid(topology.Vertices, topology.VertexCount, topologyFaces, topologyFaceCount);
         var gradedVertices = (double[])topology.Vertices.Clone();
         ApplyGradingToVerticesWithSections(
             gradedVertices,
@@ -307,11 +309,26 @@ public static partial class PadGrader
         gradedVertices = SmoothCoupledProtectedShoulders(
             gradedVertices,
             topology.VertexCount,
-            topology.Faces,
-            topology.FaceCount,
+            topologyFaces,
+            topologyFaceCount,
             pads,
             interactingRegions,
             tolerance);
+
+        int repairedBoundaryLoopCount = 0;
+        if (MeshTopologyOperations.TryFillSmallBranchedBoundaryLoops(
+                gradedVertices,
+                topology.VertexCount,
+                topologyFaces,
+                topologyFaceCount,
+                tolerance,
+                out int[] repairedTopologyFaces,
+                out int repairedTopologyFaceCount,
+                out repairedBoundaryLoopCount))
+        {
+            topologyFaces = repairedTopologyFaces;
+            topologyFaceCount = repairedTopologyFaceCount;
+        }
 
         var diagnostics = new List<string>();
         diagnostics.AddRange(BuildCoupledProtectedPadDiagnostics(
@@ -325,12 +342,14 @@ public static partial class PadGrader
         {
             Vertices = gradedVertices,
             VertexCount = topology.VertexCount,
-            Faces = topology.Faces,
-            FaceCount = topology.FaceCount,
+            Faces = topologyFaces,
+            FaceCount = topologyFaceCount,
             StitchLoopXy = Array.Empty<double>()
         };
         foreach (ProtectedPadRegion region in interactingRegions)
             diagnostics.AddRange(BuildPadSlopeDiagnostics(region.PadIndex, region.Prepared, gradedTopologyPatch, tolerance));
+        if (repairedBoundaryLoopCount > 0)
+            diagnostics.Add($"Grade Pad coupled protected patch topology repair filled {repairedBoundaryLoopCount:N0} tiny branched boundary loop(s).");
         if (double.IsFinite(terrainDetailSize) && terrainDetailSize > 0.0)
             diagnostics.Add($"Grade Pad coupled protected patch detail size: {terrainDetailSize:F6}.");
         foreach (ProtectedPadRegion region in interactingRegions)
@@ -340,7 +359,7 @@ public static partial class PadGrader
             diagnostics.Add(
                 $"Grade Pad[{region.PadIndex}] topology band width: shoulder->seam min={shoulderToSeamMin:F6}, max={shoulderToSeamMax:F6}; seam->shoulder min={seamToShoulderMin:F6}, max={seamToShoulderMax:F6}.");
             diagnostics.Add(
-                $"Grade Pad[{region.PadIndex}] merged-mesh naked edges near seam: {CountBoundaryEdgesNearLoop(topology.Vertices, topology.Faces, topology.FaceCount, region.StitchLoopXy, tolerance * 4.0)}.");
+                $"Grade Pad[{region.PadIndex}] merged-mesh naked edges near seam: {CountBoundaryEdgesNearLoop(topology.Vertices, topologyFaces, topologyFaceCount, region.StitchLoopXy, tolerance * 4.0)}.");
         }
         if (topology.VertexCount > softVertexBudget)
             diagnostics.Add($"Grade Pad coupled protected patch density warning: {topology.VertexCount:N0} vertices exceeds soft budget {softVertexBudget:N0}.");
@@ -348,8 +367,8 @@ public static partial class PadGrader
         result = BuildResult(
             topology.Vertices,
             topology.VertexCount,
-            topology.Faces,
-            topology.FaceCount,
+            topologyFaces,
+            topologyFaceCount,
             gradedVertices,
             topology.PadPolylines,
             diagnostics,
@@ -634,6 +653,36 @@ public static partial class PadGrader
                 inputBoundaryLoop,
                 inputBoundaryVertexCount,
                 dedupTol * 4.0);
+
+            var cullResult = TriangleBoundaryCuller.Cull(
+                topologyVertices,
+                outVertCount,
+                topologyFaces,
+                outFaceCount,
+                xyList.ToArray(),
+                IndexedMeshTools.FlattenSegments(cullSegList),
+                0);
+
+            if (cullResult.Changed)
+            {
+                double[] culledVertices = IndexedMeshTools.CompactDoubleData(topologyVertices, 3, cullResult.NewToOld, cullResult.VertexCount);
+                int culledInteriorNakedEdges = CountBoundaryEdgesAwayFromReferenceBoundary(
+                    culledVertices,
+                    cullResult.Faces,
+                    cullResult.FaceCount,
+                    vertices,
+                    faces,
+                    faceCount,
+                    dedupTol * 4.0);
+
+                if (culledInteriorNakedEdges <= 50)
+                {
+                    topologyVertices = culledVertices;
+                    topologyFaces = cullResult.Faces;
+                    outVertCount = cullResult.VertexCount;
+                    outFaceCount = cullResult.FaceCount;
+                }
+            }
         }
         else
         {
@@ -778,7 +827,7 @@ public static partial class PadGrader
             ProtectedPadRegion region = regions[regionIndex];
             int daylightCount = region.DaylightLoopXy.Length / 2;
             int stitchCount = region.StitchLoopXy.Length / 2;
-            int sampleCount = Math.Clamp(Math.Max(daylightCount, stitchCount), 16, 512);
+            int sampleCount = Math.Clamp((Math.Max(daylightCount, stitchCount) + 1) / 2, 16, 192);
             for (int i = 0; i < sampleCount; i++)
             {
                 double station = i / (double)sampleCount;
