@@ -100,6 +100,35 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void GradingResultBuilder_BuildFromComponents_RejectsInvalidOutputFaceReferences()
+    {
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 1.0
+        };
+        double[] originalZ = { 0.0, 0.0, 0.0 };
+        double[] gradedZ = { 0.0, 0.0, 0.0 };
+        double[] gradedVertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 0.0
+        };
+        int[] faces = { 0, 1, 3 };
+
+        Assert.Throws<ArgumentException>(() => GradingResultBuilder.BuildFromComponents(
+            xy,
+            originalZ,
+            gradedZ,
+            gradedVertices,
+            vertexCount: 3,
+            faces,
+            faceCount: 1));
+    }
+
+    [Fact]
     public void MeshTopologyOperations_MergeMeshes_RespectsCoincidentVertexZPolicy()
     {
         double[] firstVertices =

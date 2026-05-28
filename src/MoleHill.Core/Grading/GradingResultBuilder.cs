@@ -19,6 +19,7 @@ internal static class GradingResultBuilder
         IReadOnlyList<GradingPatch>? patchSummaries = null,
         IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
+        ValidateFaceReferences(faces, faceCount, vertexCount);
         GradingVolumeMetrics volume = ComputeVolume(outXy, originalZ, gradedZ, faces, faceCount);
         double[] daylightVertices = BuildDaylightVertices(outXy, originalZ, gradedZ, faces, faceCount);
 
@@ -46,6 +47,7 @@ internal static class GradingResultBuilder
         IReadOnlyList<GradingPatch>? patchSummaries = null,
         IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
+        ValidateFaceReferences(faces, faceCount, vertexCount);
         GradingVolumeMetrics volume = ComputeVolume(originalVertices, gradedVertices, faces, faceCount);
         double[] daylightVertices = BuildDaylightVertices(originalVertices, gradedVertices, faces, faceCount);
 
@@ -200,6 +202,25 @@ internal static class GradingResultBuilder
             diagnostics,
             patchSummaries,
             structuredDiagnostics);
+    }
+
+    private static void ValidateFaceReferences(int[] faces, int faceCount, int vertexCount)
+    {
+        if (faces.Length < (long)faceCount * 3)
+            throw new ArgumentException("Face array is shorter than faceCount requires.", nameof(faces));
+
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[faceIndex * 3 + 1];
+            int c = faces[faceIndex * 3 + 2];
+            if ((uint)a >= (uint)vertexCount ||
+                (uint)b >= (uint)vertexCount ||
+                (uint)c >= (uint)vertexCount)
+            {
+                throw new ArgumentException("Face array references a vertex outside the result vertex range.", nameof(faces));
+            }
+        }
     }
 
     private static void AddDaylightEdge(

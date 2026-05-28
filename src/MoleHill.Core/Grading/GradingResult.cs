@@ -84,10 +84,13 @@ public sealed class GradingResult
         VertexCount = vertexCount;
         Faces = CopyIntPrefix(faces, faceCount, stride: 3, nameof(faces));
         FaceCount = faceCount;
+        ValidateFiniteValues(Vertices, nameof(vertices));
+        ValidateFaceIndices(Faces, faceCount, vertexCount, nameof(faces));
         CutVolume = cutVolume;
         FillVolume = fillVolume;
         DaylightVertices = CopyDoublePrefix(daylightVertices, daylightVertexCount, stride: 3, nameof(daylightVertices));
         DaylightVertexCount = daylightVertexCount;
+        ValidateFiniteValues(DaylightVertices, nameof(daylightVertices));
         OutputPolylines = outputPolylines ?? Array.Empty<OutputPolyline>();
         Diagnostics = diagnostics ?? structuredDiagnostics?.Select(static diagnostic => diagnostic.Message).ToArray() ?? Array.Empty<string>();
         StructuredDiagnostics = structuredDiagnostics ?? GradingDiagnostic.FromLegacyMessages(Diagnostics);
@@ -130,5 +133,30 @@ public sealed class GradingResult
             throw new ArgumentOutOfRangeException(parameterName, "Item count is too large.");
 
         return (int)valueCount;
+    }
+
+    private static void ValidateFiniteValues(double[] values, string parameterName)
+    {
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (!double.IsFinite(values[i]))
+                throw new ArgumentException("Array contains non-finite values.", parameterName);
+        }
+    }
+
+    private static void ValidateFaceIndices(int[] faces, int faceCount, int vertexCount, string parameterName)
+    {
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[faceIndex * 3 + 1];
+            int c = faces[faceIndex * 3 + 2];
+            if ((uint)a >= (uint)vertexCount ||
+                (uint)b >= (uint)vertexCount ||
+                (uint)c >= (uint)vertexCount)
+            {
+                throw new ArgumentException("Face array references a vertex outside the result vertex range.", parameterName);
+            }
+        }
     }
 }
