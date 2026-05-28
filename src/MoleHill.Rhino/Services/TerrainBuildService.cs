@@ -56,7 +56,7 @@ internal sealed partial class TerrainBuildService
         {
             ThrowIfCancellationRequested(shouldCancel);
             ModifierDefinition modifier = indexedModifier.modifier;
-            string stageKey = CreateModeStageKey(mode, CreateModifierStageKey(indexedModifier.index, modifier));
+            string stageKey = TerrainStageKey.ForMode(mode, TerrainStageKey.CreateModifier(indexedModifier.index, modifier));
             usedStageKeys.Add(stageKey);
 
             switch (modifier)
@@ -94,7 +94,7 @@ internal sealed partial class TerrainBuildService
                         shouldCancel);
                     break;
                 case SmoothModifierDefinition smooth:
-                    usedStageKeys.Add(CreateSmoothPreparedStageKey(stageKey));
+                    usedStageKeys.Add(TerrainStageKey.CreateSmoothPrepared(stageKey));
                     currentMesh = ExecuteCachedMeshStage(
                         build,
                         runtimeCache,
@@ -119,7 +119,7 @@ internal sealed partial class TerrainBuildService
                         shouldCancel);
                     break;
                 case GradePadModifierDefinition gradePad:
-                    usedStageKeys.Add(CreateGradingTopologyStageKey(stageKey, "Pad"));
+                    usedStageKeys.Add(TerrainStageKey.CreateGradingTopology(stageKey, "Pad"));
                     currentMesh = BuildGradePadMesh(
                         snapshot,
                         terrain,
@@ -135,7 +135,7 @@ internal sealed partial class TerrainBuildService
                         shouldCancel);
                     break;
                 case GradePathModifierDefinition gradePath:
-                    usedStageKeys.Add(CreateGradingTopologyStageKey(stageKey, "Path"));
+                    usedStageKeys.Add(TerrainStageKey.CreateGradingTopology(stageKey, "Path"));
                     currentMesh = ExecuteCachedMeshStage(
                         build,
                         runtimeCache,
@@ -186,7 +186,7 @@ internal sealed partial class TerrainBuildService
             ThrowIfCancellationRequested(shouldCancel);
             RhinoMesh analysisMesh = currentMesh;
             RhinoMesh baselineMesh = baseMesh ?? analysisMesh;
-            string analysisStageKey = CreateModeStageKey(mode, "analysis");
+            string analysisStageKey = TerrainStageKey.ForMode(mode, "analysis");
             usedStageKeys.Add(analysisStageKey);
             build.AnalysisResults.AddRange(ExecuteCachedAnalysisStage(
                 build,
@@ -197,7 +197,7 @@ internal sealed partial class TerrainBuildService
                 _ => DescribeMesh(analysisMesh),
                 shouldCancel));
 
-            string zonesStageKey = CreateModeStageKey(mode, "zones");
+            string zonesStageKey = TerrainStageKey.ForMode(mode, "zones");
             usedStageKeys.Add(zonesStageKey);
             ExecuteCachedZonesStage(
                 build,
@@ -1076,7 +1076,7 @@ internal sealed partial class TerrainBuildService
             breaklines.Add(new MeshSmoother.BreaklinePolyline(xyPts, count, isClosed));
         }
 
-        string preparedStageKey = CreateSmoothPreparedStageKey(stageKey);
+        string preparedStageKey = TerrainStageKey.CreateSmoothPrepared(stageKey);
         ulong preparedFingerprint = ComputeSmoothPreparedFingerprint(
             snapshot,
             terrain,
@@ -1463,7 +1463,7 @@ internal sealed partial class TerrainBuildService
         Func<bool>? shouldCancel = null)
     {
         const string stageName = "Grade Pad";
-        string topologyStageKey = CreateGradingTopologyStageKey(stageKey, "Pad");
+        string topologyStageKey = TerrainStageKey.CreateGradingTopology(stageKey, "Pad");
         var timer = Stopwatch.StartNew();
         ulong preResolutionFingerprint = ComputeModifierStageFingerprint(snapshot, terrain, modifier, upstreamFingerprint);
 
@@ -1564,7 +1564,7 @@ internal sealed partial class TerrainBuildService
         {
             runtimeCache.InvalidateStages(dirtyStageKeys);
             build.Diagnostics.Add(
-                $"Grade Pad invalidated {dirtyStageKeys.Count} overlapping downstream grading stage(s): {string.Join(", ", dirtyStageKeys.Select(TerrainRuntimeCache.GetBaseStageKey))}.");
+                $"Grade Pad invalidated {dirtyStageKeys.Count} overlapping downstream grading stage(s): {string.Join(", ", dirtyStageKeys.Select(TerrainStageKey.GetBase))}.");
         }
 
         ulong topologyFingerprint = ComputeGradePadTopologyFingerprint(
@@ -2021,7 +2021,7 @@ internal sealed partial class TerrainBuildService
         if (resolvedInputs.Paths.Length == 0)
         {
             build.Diagnostics.Add("Grade Path has no valid paths.");
-            runtimeCache.GradingTopologyEntries[CreateGradingTopologyStageKey(stageKey, "Path")] = new GradingTopologyCacheEntry
+            runtimeCache.GradingTopologyEntries[TerrainStageKey.CreateGradingTopology(stageKey, "Path")] = new GradingTopologyCacheEntry
             {
                 GraderKind = "Path",
                 Fingerprint = 0,
@@ -2045,7 +2045,7 @@ internal sealed partial class TerrainBuildService
         {
             runtimeCache.InvalidateStages(dirtyStageKeys);
             build.Diagnostics.Add(
-                $"Grade Path invalidated {dirtyStageKeys.Count} overlapping downstream grading stage(s): {string.Join(", ", dirtyStageKeys.Select(TerrainRuntimeCache.GetBaseStageKey))}.");
+                $"Grade Path invalidated {dirtyStageKeys.Count} overlapping downstream grading stage(s): {string.Join(", ", dirtyStageKeys.Select(TerrainStageKey.GetBase))}.");
         }
 
         if (build.PersistentHardConstraints.Count > 0 && resolvedInputs.Constraints.Length > 0)
@@ -2062,7 +2062,7 @@ internal sealed partial class TerrainBuildService
                 build.Diagnostics.Add(sampleMessage);
         }
 
-        string topologyStageKey = CreateGradingTopologyStageKey(stageKey, "Path");
+        string topologyStageKey = TerrainStageKey.CreateGradingTopology(stageKey, "Path");
         var coreTimer = Stopwatch.StartNew();
         GradingResult? gradingResult = PathGrader.Grade(
             vertices,
@@ -5713,26 +5713,6 @@ internal sealed partial class TerrainBuildService
         return string.IsNullOrWhiteSpace(current)
             ? next
             : $"{current} {next}";
-    }
-
-    private static string CreateModifierStageKey(int modifierIndex, ModifierDefinition modifier)
-    {
-        return $"modifier:{modifierIndex}:{modifier.GetType().Name}:{modifier.Id:N}";
-    }
-
-    private static string CreateModeStageKey(TerrainBuildMode mode, string stageKey)
-    {
-        return TerrainRuntimeCache.GetStagePrefix(mode) + stageKey;
-    }
-
-    private static string CreateGradingTopologyStageKey(string stageKey, string graderKind)
-    {
-        return $"{stageKey}:topology:{graderKind}";
-    }
-
-    private static string CreateSmoothPreparedStageKey(string stageKey)
-    {
-        return $"{stageKey}:prepared";
     }
 
     private static string? AppendCacheHitDetail(string? detail)

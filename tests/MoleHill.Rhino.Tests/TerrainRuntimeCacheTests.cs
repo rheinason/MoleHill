@@ -79,6 +79,47 @@ public class TerrainRuntimeCacheTests
     }
 
     [Fact]
+    public void PruneUnused_RemovesUnusedFinalModifierStagesAndAssociatedCaches()
+    {
+        var cache = new TerrainRuntimeCache();
+        cache.StageEntries["final:modifier:1:RetainingWallModifierDefinition:wall"] = new StageCacheEntry();
+        cache.StageEntries["final:modifier:2:GradePadModifierDefinition:pad"] = new StageCacheEntry();
+        cache.GradingTopologyEntries["final:modifier:2:GradePadModifierDefinition:pad:topology:Pad"] = CreateEntry(
+            "Pad",
+            CreatePatch("pad:2", 2.0, 2.0, 4.0, 4.0));
+
+        cache.PruneUnused(
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "final:modifier:2:GradePadModifierDefinition:pad",
+                "final:modifier:2:GradePadModifierDefinition:pad:topology:Pad"
+            },
+            TerrainBuildMode.Final);
+
+        Assert.DoesNotContain("final:modifier:1:RetainingWallModifierDefinition:wall", cache.StageEntries.Keys);
+        Assert.Contains("final:modifier:2:GradePadModifierDefinition:pad", cache.StageEntries.Keys);
+        Assert.Contains("final:modifier:2:GradePadModifierDefinition:pad:topology:Pad", cache.GradingTopologyEntries.Keys);
+    }
+
+    [Fact]
+    public void PruneUnused_PreservesOtherBuildModeCaches()
+    {
+        var cache = new TerrainRuntimeCache();
+        cache.StageEntries["preview:modifier:1:RetainingWallModifierDefinition:wall"] = new StageCacheEntry();
+        cache.StageEntries["final:modifier:1:RetainingWallModifierDefinition:wall"] = new StageCacheEntry();
+
+        cache.PruneUnused(
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "final:modifier:1:RetainingWallModifierDefinition:wall"
+            },
+            TerrainBuildMode.Final);
+
+        Assert.Contains("preview:modifier:1:RetainingWallModifierDefinition:wall", cache.StageEntries.Keys);
+        Assert.Contains("final:modifier:1:RetainingWallModifierDefinition:wall", cache.StageEntries.Keys);
+    }
+
+    [Fact]
     public void CloneStageCacheEntry_PreservesStructuredDiagnostics()
     {
         var entry = new StageCacheEntry
@@ -123,7 +164,7 @@ public class TerrainRuntimeCacheTests
     [InlineData("preview:modifier:7:GradePathModifierDefinition:b", 7)]
     public void TryParseModifierIndex_ParsesModifierIndex(string stageKey, int expected)
     {
-        bool parsed = TerrainRuntimeCache.TryParseModifierIndex(stageKey, out int modifierIndex);
+        bool parsed = TerrainStageKey.TryParseModifierIndex(stageKey, out int modifierIndex);
 
         Assert.True(parsed);
         Assert.Equal(expected, modifierIndex);

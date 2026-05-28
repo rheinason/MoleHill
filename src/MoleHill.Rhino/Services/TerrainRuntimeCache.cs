@@ -142,10 +142,10 @@ internal sealed class TerrainRuntimeCache
             if (excludeTopologyStageKey != null && string.Equals(entry.Key, excludeTopologyStageKey, StringComparison.Ordinal))
                 continue;
 
-            if (!TryParseModifierIndex(entry.Key, out int modifierIndex) || modifierIndex <= currentModifierIndex)
+            if (!TerrainStageKey.TryParseModifierIndex(entry.Key, out int modifierIndex) || modifierIndex <= currentModifierIndex)
                 continue;
 
-            topologyEntries.Add((entry.Key, GetBaseStageKey(entry.Key), modifierIndex, entry.Value.PatchSummaries));
+            topologyEntries.Add((entry.Key, TerrainStageKey.GetBase(entry.Key), modifierIndex, entry.Value.PatchSummaries));
         }
 
         if (topologyEntries.Count == 0)
@@ -195,14 +195,14 @@ internal sealed class TerrainRuntimeCache
             StageEntries.Remove(stageKey);
 
             foreach (string topologyStageKey in GradingTopologyEntries.Keys
-                         .Where(key => string.Equals(GetBaseStageKey(key), stageKey, StringComparison.Ordinal))
+                         .Where(key => string.Equals(TerrainStageKey.GetBase(key), stageKey, StringComparison.Ordinal))
                          .ToList())
             {
                 GradingTopologyEntries.Remove(topologyStageKey);
             }
 
             foreach (string smoothStageKey in SmoothEntries.Keys
-                         .Where(key => string.Equals(GetBaseStageKey(key), stageKey, StringComparison.Ordinal))
+                         .Where(key => string.Equals(TerrainStageKey.GetBase(key), stageKey, StringComparison.Ordinal))
                          .ToList())
             {
                 SmoothEntries.Remove(smoothStageKey);
@@ -214,35 +214,6 @@ internal sealed class TerrainRuntimeCache
     {
         foreach (var entry in entries.Values)
             entry.MeshOutput?.Dispose();
-    }
-
-    internal static string GetBaseStageKey(string stageKey)
-    {
-        int topologyIndex = stageKey.IndexOf(":topology:", StringComparison.Ordinal);
-        if (topologyIndex >= 0)
-            return stageKey[..topologyIndex];
-
-        int preparedIndex = stageKey.IndexOf(":prepared", StringComparison.Ordinal);
-        if (preparedIndex >= 0)
-            return stageKey[..preparedIndex];
-
-        return stageKey;
-    }
-
-    internal static bool TryParseModifierIndex(string stageKey, out int modifierIndex)
-    {
-        modifierIndex = -1;
-        const string token = "modifier:";
-        int modifierOffset = stageKey.IndexOf(token, StringComparison.Ordinal);
-        if (modifierOffset < 0)
-            return false;
-
-        int start = modifierOffset + token.Length;
-        int end = stageKey.IndexOf(':', start);
-        if (end <= start)
-            return false;
-
-        return int.TryParse(stageKey[start..end], out modifierIndex);
     }
 
     private static bool HasPatchOverlap(IReadOnlyList<GradingPatch> left, IReadOnlyList<GradingPatch> right)
