@@ -2123,77 +2123,13 @@ public static partial class PathGrader
         out double[] boundaryLoopXy,
         out double[] boundaryLoopZ)
     {
-        boundaryLoopXy = Array.Empty<double>();
-        boundaryLoopZ = Array.Empty<double>();
-
-        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
-        for (int f = 0; f < faceCount; f++)
-        {
-            int a = faces[f * 3];
-            int b = faces[f * 3 + 1];
-            int c = faces[f * 3 + 2];
-            IncrEdge(edgeFaceCount, a, b);
-            IncrEdge(edgeFaceCount, b, c);
-            IncrEdge(edgeFaceCount, c, a);
-        }
-
-        var adjacency = new Dictionary<int, List<int>>();
-        foreach (var pair in edgeFaceCount)
-        {
-            if (pair.Value != 1)
-                continue;
-
-            int a = (int)(pair.Key >> 32);
-            int b = (int)(pair.Key & 0xFFFFFFFFL);
-            AddBoundaryNeighbor(adjacency, a, b);
-            AddBoundaryNeighbor(adjacency, b, a);
-        }
-
-        if (adjacency.Count < 3)
-            return false;
-
-        foreach (var neighbors in adjacency.Values)
-        {
-            if (neighbors.Count != 2)
-                return false;
-        }
-
-        int start = adjacency.Keys.Min();
-        var order = new List<int>(adjacency.Count);
-        int previous = -1;
-        int current = start;
-        while (true)
-        {
-            order.Add(current);
-            var neighbors = adjacency[current];
-            int next = neighbors[0] != previous ? neighbors[0] : neighbors[1];
-            previous = current;
-            current = next;
-
-            if (current == start)
-                break;
-
-            if (order.Count > adjacency.Count)
-                return false;
-        }
-
-        if (order.Count < 3 || order.Count != adjacency.Count)
-            return false;
-
-        boundaryLoopXy = new double[order.Count * 2];
-        boundaryLoopZ = new double[order.Count];
-        for (int i = 0; i < order.Count; i++)
-        {
-            int vertexIndex = order[i];
-            boundaryLoopXy[i * 2] = vertices[vertexIndex * 3];
-            boundaryLoopXy[i * 2 + 1] = vertices[vertexIndex * 3 + 1];
-            boundaryLoopZ[i] = vertices[vertexIndex * 3 + 2];
-        }
-
-        if (boundaryLoopXy.Length < 6 || Math.Abs(ClipperGeometry.SignedArea(boundaryLoopXy)) <= tolerance * tolerance)
-            return false;
-
-        return true;
+        return MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(
+            vertices,
+            faces,
+            faceCount,
+            tolerance,
+            out boundaryLoopXy,
+            out boundaryLoopZ);
     }
 
     private static bool TryFilterPathTopologyBandFaces(

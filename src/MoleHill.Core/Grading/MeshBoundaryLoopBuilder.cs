@@ -14,6 +14,53 @@ internal static class MeshBoundaryLoopBuilder
         boundaryXy = Array.Empty<double>();
         boundaryVertexCount = 0;
 
+        if (!TryBuildBoundaryVertexOrder(faces, faceCount, out List<int> order))
+            return false;
+
+        boundaryVertexCount = order.Count;
+        boundaryXy = new double[boundaryVertexCount * 2];
+        for (int i = 0; i < boundaryVertexCount; i++)
+        {
+            int vertexIndex = order[i];
+            boundaryXy[i * 2] = vertices[vertexIndex * 3];
+            boundaryXy[i * 2 + 1] = vertices[vertexIndex * 3 + 1];
+        }
+
+        return true;
+    }
+
+    public static bool TryBuildBoundaryLoop(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        double tolerance,
+        out double[] boundaryXy,
+        out double[] boundaryZ)
+    {
+        boundaryXy = Array.Empty<double>();
+        boundaryZ = Array.Empty<double>();
+
+        if (!TryBuildBoundaryVertexOrder(faces, faceCount, out List<int> order))
+            return false;
+
+        boundaryXy = new double[order.Count * 2];
+        boundaryZ = new double[order.Count];
+        for (int i = 0; i < order.Count; i++)
+        {
+            int vertexIndex = order[i];
+            boundaryXy[i * 2] = vertices[vertexIndex * 3];
+            boundaryXy[i * 2 + 1] = vertices[vertexIndex * 3 + 1];
+            boundaryZ[i] = vertices[vertexIndex * 3 + 2];
+        }
+
+        return boundaryXy.Length >= 6 &&
+               Math.Abs(ClipperGeometry.SignedArea(boundaryXy)) > tolerance * tolerance;
+    }
+
+    private static bool TryBuildBoundaryVertexOrder(int[] faces, int faceCount, out List<int> order)
+    {
+        order = new List<int>();
+
         var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int f = 0; f < faceCount; f++)
         {
@@ -49,7 +96,6 @@ internal static class MeshBoundaryLoopBuilder
         }
 
         int start = adjacency.Keys.Min();
-        var order = new List<int>(adjacency.Count);
         int previous = -1;
         int current = start;
 
@@ -68,19 +114,7 @@ internal static class MeshBoundaryLoopBuilder
                 return false;
         }
 
-        if (order.Count < 3 || order.Count != adjacency.Count)
-            return false;
-
-        boundaryVertexCount = order.Count;
-        boundaryXy = new double[boundaryVertexCount * 2];
-        for (int i = 0; i < boundaryVertexCount; i++)
-        {
-            int vertexIndex = order[i];
-            boundaryXy[i * 2] = vertices[vertexIndex * 3];
-            boundaryXy[i * 2 + 1] = vertices[vertexIndex * 3 + 1];
-        }
-
-        return true;
+        return order.Count >= 3 && order.Count == adjacency.Count;
     }
 
     private static void IncrementEdge(Dictionary<long, int> dict, int a, int b)

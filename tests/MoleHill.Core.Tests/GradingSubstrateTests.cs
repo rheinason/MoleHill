@@ -120,6 +120,32 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void MeshBoundaryLoopBuilder_TryBuildBoundaryLoop_ReturnsBoundaryZ()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 2.0,
+            1.0, 0.0, 3.0,
+            1.0, 1.0, 4.0,
+            0.0, 1.0, 5.0
+        };
+        int[] faces = { 0, 1, 2, 0, 2, 3 };
+
+        bool success = MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(
+            vertices,
+            faces,
+            2,
+            1e-6,
+            out double[] boundaryXy,
+            out double[] boundaryZ);
+
+        Assert.True(success);
+        Assert.Equal(boundaryXy.Length / 2, boundaryZ.Length);
+        Assert.Contains(2.0, boundaryZ);
+        Assert.Contains(5.0, boundaryZ);
+    }
+
+    [Fact]
     public void SeamGraph_Build_ReturnsFullMatches_ForIdenticalSeamSegmentation()
     {
         double[] seamLoop =
