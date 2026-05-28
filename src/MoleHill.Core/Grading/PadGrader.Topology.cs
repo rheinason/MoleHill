@@ -65,12 +65,15 @@ public static partial class PadGrader
         PadBoundary[] pads,
         LockCurve[]? lockCurves = null)
     {
+        lockCurves ??= Array.Empty<LockCurve>();
+        ValidateApplyGradingZInputs(topologyVertices, vertexCount, pads, lockCurves);
+
         if (pads.Length == 0)
             return (double[])topologyVertices.Clone();
 
         pads = OrderPadsForOwnership(pads);
 
-        PreparedBarriers barriers = lockCurves != null && lockCurves.Length > 0
+        PreparedBarriers barriers = lockCurves.Length > 0
             ? GradingBarriers.BuildFromLockCurves(lockCurves)
             : PreparedBarriers.Empty;
 
@@ -87,12 +90,15 @@ public static partial class PadGrader
         PadBoundary[] pads,
         LockCurve[]? lockCurves = null)
     {
+        lockCurves ??= Array.Empty<LockCurve>();
+        ValidateApplyGradingZInputs(topologyVertices, vertexCount, faces, faceCount, pads, lockCurves);
+
         if (pads.Length == 0)
             return (double[])topologyVertices.Clone();
 
         pads = OrderPadsForOwnership(pads);
 
-        PreparedBarriers barriers = lockCurves != null && lockCurves.Length > 0
+        PreparedBarriers barriers = lockCurves.Length > 0
             ? GradingBarriers.BuildFromLockCurves(lockCurves)
             : PreparedBarriers.Empty;
         if (pads.Any(static pad => PolygonHasConcaveVertex(pad.XyVertices, pad.VertexCount)))
@@ -125,6 +131,8 @@ public static partial class PadGrader
         PadBoundary[] pads,
         PreparedBarriers barriers)
     {
+        ValidateApplyGradingZInputs(topologyVertices, vertexCount, pads, Array.Empty<LockCurve>());
+
         if (pads.Length == 0)
             return (double[])topologyVertices.Clone();
 
@@ -305,66 +313,46 @@ public static partial class PadGrader
         };
     }
 
+    private static void ValidateApplyGradingZInputs(
+        double[] topologyVertices,
+        int vertexCount,
+        PadBoundary[] pads,
+        IReadOnlyList<LockCurve> lockCurves)
+    {
+        if (!GradingInputValidator.ValidateVertexArray(topologyVertices, vertexCount, "Topology", out string? errorMessage))
+            throw new ArgumentException(errorMessage, nameof(topologyVertices));
+
+        ValidatePadAndLockInputs(pads, lockCurves);
+    }
+
+    private static void ValidateApplyGradingZInputs(
+        double[] topologyVertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        PadBoundary[] pads,
+        IReadOnlyList<LockCurve> lockCurves)
+    {
+        if (!GradingInputValidator.ValidateTerrainMesh(topologyVertices, vertexCount, faces, faceCount, out string? errorMessage))
+            throw new ArgumentException(errorMessage, nameof(topologyVertices));
+
+        ValidatePadAndLockInputs(pads, lockCurves);
+    }
+
+    private static void ValidatePadAndLockInputs(
+        PadBoundary[] pads,
+        IReadOnlyList<LockCurve> lockCurves)
+    {
+        if (!GradingInputValidator.ValidatePadBoundaries(pads, out string? errorMessage, requireAny: false))
+            throw new ArgumentException(errorMessage, nameof(pads));
+
+        if (!GradingInputValidator.ValidateLockCurves(lockCurves, out errorMessage))
+            throw new ArgumentException(errorMessage, nameof(lockCurves));
+    }
+
     private static bool ValidatePads(PadBoundary[] pads, out string? errorMessage)
     {
-        errorMessage = null;
-
-        if (pads == null)
-        {
-            errorMessage = "No pad boundaries provided.";
-            return false;
-        }
-
-        if (pads.Length == 0)
-        {
-            errorMessage = "No pad boundaries provided.";
-            return false;
-        }
-
-        foreach (var pad in pads)
-        {
-            if (pad == null ||
-                pad.VertexCount < 3)
-            {
-                errorMessage = "Each pad must have at least 3 valid vertices.";
-                return false;
-            }
-
-            long requiredPadXyValues = (long)pad.VertexCount * 2;
-            long requiredPadBoundaryValues = (long)pad.VertexCount * 3;
-            if (requiredPadXyValues > int.MaxValue ||
-                requiredPadBoundaryValues > int.MaxValue ||
-                !GradingInputValidator.ValidateFiniteValues(
-                    pad.XyVertices,
-                    (int)requiredPadXyValues,
-                    "Each pad must have at least 3 valid vertices.",
-                    "Pad coordinates must contain only finite values.",
-                    out errorMessage) ||
-                !GradingInputValidator.ValidateFiniteValues(
-                    pad.BoundaryVertices,
-                    (int)requiredPadBoundaryValues,
-                    "Each pad must have at least 3 valid vertices.",
-                    "Pad boundary vertices must contain only finite values.",
-                    out errorMessage))
-            {
-                return false;
-            }
-
-            if (!double.IsFinite(pad.PlaneXCoeff) ||
-                !double.IsFinite(pad.PlaneYCoeff) ||
-                !double.IsFinite(pad.PlaneConstant) ||
-                !double.IsFinite(pad.SlopeAngleDeg) ||
-                !double.IsFinite(pad.MaxDistance) ||
-                !double.IsFinite(pad.StitchApronDistance) ||
-                pad.MaxDistance < 0.0 ||
-                pad.StitchApronDistance < 0.0)
-            {
-                errorMessage = "Each pad must define valid finite grading parameters.";
-                return false;
-            }
-        }
-
-        return true;
+        return GradingInputValidator.ValidatePadBoundaries(pads, out errorMessage);
     }
 
     private static PadTopologyResult? TryTriangulatePadTopology(

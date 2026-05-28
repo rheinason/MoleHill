@@ -119,6 +119,41 @@ internal static class GradingInputValidator
         return true;
     }
 
+    public static bool ValidateVertexArray(
+        double[]? vertices,
+        int vertexCount,
+        string label,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+
+        if (vertices == null)
+        {
+            errorMessage = $"{label} vertices are required.";
+            return false;
+        }
+
+        if (vertexCount < 0)
+        {
+            errorMessage = $"{label} vertexCount cannot be negative.";
+            return false;
+        }
+
+        long requiredValues = (long)vertexCount * 3;
+        if (requiredValues > int.MaxValue)
+        {
+            errorMessage = $"{label} vertex array is too large to validate safely.";
+            return false;
+        }
+
+        return ValidateFiniteValues(
+            vertices,
+            (int)requiredValues,
+            $"{label} vertex array is shorter than vertexCount requires.",
+            $"{label} vertices must contain only finite coordinates.",
+            out errorMessage);
+    }
+
     public static bool ValidateConstraintPolylines(
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? constraints,
         string label,
@@ -180,6 +215,142 @@ internal static class GradingInputValidator
                     $"Lock curve {i} coordinates must contain only finite values.",
                     out errorMessage))
             {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public static bool ValidatePathDefinitions(
+        IReadOnlyList<PathGrader.PathDefinition>? paths,
+        out string? errorMessage,
+        bool requireAny = true)
+    {
+        errorMessage = null;
+
+        if (paths == null)
+        {
+            errorMessage = "No path definitions provided.";
+            return false;
+        }
+
+        if (requireAny && paths.Count == 0)
+        {
+            errorMessage = "No path definitions provided.";
+            return false;
+        }
+
+        for (int i = 0; i < paths.Count; i++)
+        {
+            PathGrader.PathDefinition path = paths[i];
+            if (path == null)
+            {
+                errorMessage = "Each path must have valid XY and Z vertices.";
+                return false;
+            }
+
+            if (path.VertexCount < 2)
+            {
+                errorMessage = "Each path must have at least 2 vertices.";
+                return false;
+            }
+
+            long requiredPathXyValues = (long)path.VertexCount * 2;
+            if (requiredPathXyValues > int.MaxValue ||
+                !ValidateFiniteValues(
+                    path.XyVertices,
+                    (int)requiredPathXyValues,
+                    "Each path must have valid XY and Z vertices.",
+                    "Path coordinates must contain only finite values.",
+                    out errorMessage) ||
+                !ValidateFiniteValues(
+                    path.ZValues,
+                    path.VertexCount,
+                    "Each path must have valid XY and Z vertices.",
+                    "Path elevations must contain only finite values.",
+                    out errorMessage))
+            {
+                return false;
+            }
+
+            if (!double.IsFinite(path.Width) || path.Width <= 0)
+            {
+                errorMessage = "Path width must be positive.";
+                return false;
+            }
+
+            if (!double.IsFinite(path.SlopeAngleDeg) ||
+                !double.IsFinite(path.MaxDistance) ||
+                path.MaxDistance < 0.0)
+            {
+                errorMessage = "Each path must define finite grading parameters.";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public static bool ValidatePadBoundaries(
+        IReadOnlyList<PadGrader.PadBoundary>? pads,
+        out string? errorMessage,
+        bool requireAny = true)
+    {
+        errorMessage = null;
+
+        if (pads == null)
+        {
+            errorMessage = "No pad boundaries provided.";
+            return false;
+        }
+
+        if (requireAny && pads.Count == 0)
+        {
+            errorMessage = "No pad boundaries provided.";
+            return false;
+        }
+
+        for (int i = 0; i < pads.Count; i++)
+        {
+            PadGrader.PadBoundary pad = pads[i];
+            if (pad == null ||
+                pad.VertexCount < 3)
+            {
+                errorMessage = "Each pad must have at least 3 valid vertices.";
+                return false;
+            }
+
+            long requiredPadXyValues = (long)pad.VertexCount * 2;
+            long requiredPadBoundaryValues = (long)pad.VertexCount * 3;
+            if (requiredPadXyValues > int.MaxValue ||
+                requiredPadBoundaryValues > int.MaxValue ||
+                !ValidateFiniteValues(
+                    pad.XyVertices,
+                    (int)requiredPadXyValues,
+                    "Each pad must have at least 3 valid vertices.",
+                    "Pad coordinates must contain only finite values.",
+                    out errorMessage) ||
+                !ValidateFiniteValues(
+                    pad.BoundaryVertices,
+                    (int)requiredPadBoundaryValues,
+                    "Each pad must have at least 3 valid vertices.",
+                    "Pad boundary vertices must contain only finite values.",
+                    out errorMessage))
+            {
+                return false;
+            }
+
+            if (!double.IsFinite(pad.PlaneXCoeff) ||
+                !double.IsFinite(pad.PlaneYCoeff) ||
+                !double.IsFinite(pad.PlaneConstant) ||
+                !double.IsFinite(pad.SlopeAngleDeg) ||
+                !double.IsFinite(pad.MaxDistance) ||
+                !double.IsFinite(pad.StitchApronDistance) ||
+                pad.MaxDistance < 0.0 ||
+                pad.StitchApronDistance < 0.0)
+            {
+                errorMessage = "Each pad must define valid finite grading parameters.";
                 return false;
             }
         }

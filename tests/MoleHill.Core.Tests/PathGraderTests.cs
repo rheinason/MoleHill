@@ -76,6 +76,48 @@ public class PathGraderTests
     }
 
     [Fact]
+    public void ApplyGradingZ_InvalidTopologyVertices_ThrowsArgumentException()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0);
+
+        var exception = Assert.Throws<ArgumentException>(() => PathGrader.ApplyGradingZ(
+            new[] { 0.0, 0.0, 0.0 },
+            vertexCount: 2,
+            new[] { path },
+            out _));
+
+        Assert.Contains("vertex array", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ApplyGradingZ_NonFiniteBarrierConstraint_ThrowsArgumentException()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0);
+        var barrier = new SurfaceRemesher.ConstraintPolyline(
+            new[] { 0.0, 5.0, 0.0, 10.0, double.NaN, 0.0 },
+            2,
+            IsClosed: false,
+            PreserveInputElevation: true);
+
+        var exception = Assert.Throws<ArgumentException>(() => PathGrader.ApplyGradingZ(
+            BuildSquareVertices(),
+            4,
+            new[] { path },
+            new[] { barrier },
+            out _));
+
+        Assert.Contains("finite", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Grade_InsertsShoulderVertices_WhenExplicitMaxDistanceFitsInsideBoundary()
     {
         var path = new PathGrader.PathDefinition(

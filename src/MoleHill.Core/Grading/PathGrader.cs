@@ -44,64 +44,8 @@ public static partial class PathGrader
         if (!GradingInputValidator.ValidateConstraintPolylines(hardConstraints, "Hard", out errorMessage))
             return null;
 
-        if (paths == null)
-        {
-            errorMessage = "No path definitions provided.";
+        if (!GradingInputValidator.ValidatePathDefinitions(paths, out errorMessage))
             return null;
-        }
-
-        if (paths.Length == 0)
-        {
-            errorMessage = "No path definitions provided.";
-            return null;
-        }
-
-        foreach (var path in paths)
-        {
-            if (path == null)
-            {
-                errorMessage = "Each path must have valid XY and Z vertices.";
-                return null;
-            }
-
-            if (path.VertexCount < 2)
-            {
-                errorMessage = "Each path must have at least 2 vertices.";
-                return null;
-            }
-
-            long requiredPathXyValues = (long)path.VertexCount * 2;
-            if (requiredPathXyValues > int.MaxValue ||
-                !GradingInputValidator.ValidateFiniteValues(
-                    path.XyVertices,
-                    (int)requiredPathXyValues,
-                    "Each path must have valid XY and Z vertices.",
-                    "Path coordinates must contain only finite values.",
-                    out errorMessage) ||
-                !GradingInputValidator.ValidateFiniteValues(
-                    path.ZValues,
-                    path.VertexCount,
-                    "Each path must have valid XY and Z vertices.",
-                    "Path elevations must contain only finite values.",
-                    out errorMessage))
-            {
-                return null;
-            }
-
-            if (!double.IsFinite(path.Width) || path.Width <= 0)
-            {
-                errorMessage = "Path width must be positive.";
-                return null;
-            }
-
-            if (!double.IsFinite(path.SlopeAngleDeg) ||
-                !double.IsFinite(path.MaxDistance) ||
-                path.MaxDistance < 0.0)
-            {
-                errorMessage = "Each path must define finite grading parameters.";
-                return null;
-            }
-        }
 
         // Grade Path must own and rebuild topology. Do not silently fall back to Z-only grading.
         var result = GradeWithEdges(vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out string? topologyError, out _);
@@ -189,6 +133,15 @@ public static partial class PathGrader
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
         out int changedVertexCount)
     {
+        barrierConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        ValidateApplyGradingZInputs(topologyVertices, vertexCount, paths, barrierConstraints);
+
+        if (paths.Length == 0)
+        {
+            changedVertexCount = 0;
+            return (double[])topologyVertices.Clone();
+        }
+
         var outXy = new double[vertexCount * 2];
         var origZ = new double[vertexCount];
         var newZ = new double[vertexCount];
@@ -244,6 +197,15 @@ public static partial class PathGrader
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
         out int changedVertexCount)
     {
+        barrierConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        ValidateApplyGradingZInputs(topologyVertices, vertexCount, faces, faceCount, paths, barrierConstraints);
+
+        if (paths.Length == 0)
+        {
+            changedVertexCount = 0;
+            return (double[])topologyVertices.Clone();
+        }
+
         var outXy = new double[vertexCount * 2];
         var origZ = new double[vertexCount];
         var newZ = new double[vertexCount];
@@ -283,6 +245,43 @@ public static partial class PathGrader
         }
 
         return gradedVertices;
+    }
+
+    private static void ValidateApplyGradingZInputs(
+        double[] topologyVertices,
+        int vertexCount,
+        PathDefinition[] paths,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints)
+    {
+        if (!GradingInputValidator.ValidateVertexArray(topologyVertices, vertexCount, "Topology", out string? errorMessage))
+            throw new ArgumentException(errorMessage, nameof(topologyVertices));
+
+        ValidatePathAndBarrierInputs(paths, barrierConstraints);
+    }
+
+    private static void ValidateApplyGradingZInputs(
+        double[] topologyVertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        PathDefinition[] paths,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints)
+    {
+        if (!GradingInputValidator.ValidateTerrainMesh(topologyVertices, vertexCount, faces, faceCount, out string? errorMessage))
+            throw new ArgumentException(errorMessage, nameof(topologyVertices));
+
+        ValidatePathAndBarrierInputs(paths, barrierConstraints);
+    }
+
+    private static void ValidatePathAndBarrierInputs(
+        PathDefinition[] paths,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints)
+    {
+        if (!GradingInputValidator.ValidatePathDefinitions(paths, out string? errorMessage, requireAny: false))
+            throw new ArgumentException(errorMessage, nameof(paths));
+
+        if (!GradingInputValidator.ValidateConstraintPolylines(barrierConstraints, "Barrier", out errorMessage))
+            throw new ArgumentException(errorMessage, nameof(barrierConstraints));
     }
 
     private static double ComputeConstraintSegmentLength(PathDefinition path, double shoulderDistance)
