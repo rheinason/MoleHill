@@ -49,6 +49,28 @@ public class PadGraderTests
     }
 
     [Fact]
+    public void Grade_NonFiniteLockCurve_ReturnsFailure()
+    {
+        var pad = new PadGrader.PadBoundary(
+            new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
+            4,
+            targetZ: 1.0);
+        var lockCurve = new PadGrader.LockCurve(new[] { 0.0, 2.0, double.NaN, 2.0 }, 2);
+
+        GradingResult? result = PadGrader.Grade(
+            BuildGridVertices(5, 1.0),
+            25,
+            BuildGridFaces(5),
+            32,
+            new[] { pad },
+            new[] { lockCurve },
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void TryTriangulateTopology_InvalidTerrainFace_ReturnsFailure()
     {
         var pad = new PadGrader.PadBoundary(

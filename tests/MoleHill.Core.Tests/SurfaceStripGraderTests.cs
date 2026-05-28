@@ -67,6 +67,42 @@ public class SurfaceStripGraderTests
     }
 
     [Fact]
+    public void Grade_NonFiniteBarrierConstraint_ReturnsFailure()
+    {
+        var surface = new SurfaceStripGrader.SurfaceDefinition(
+            footprintXy: new[] { 0.0, 0.0, 2.0, 0.0, 2.0, 1.0, 0.0, 1.0 },
+            footprintVertexCount: 4,
+            boundaryVertices: new[]
+            {
+                0.0, 0.0, 0.0,
+                2.0, 0.0, 0.4,
+                2.0, 1.0, 0.4,
+                0.0, 1.0, 0.0
+            },
+            boundaryVertexCount: 4,
+            planeXCoeff: 0.2,
+            planeYCoeff: 0.0,
+            planeConstant: 0.0);
+        var barrier = new SurfaceRemesher.ConstraintPolyline(
+            new[] { 0.0, 0.5, 0.0, 2.0, double.PositiveInfinity, 0.0 },
+            2,
+            IsClosed: false,
+            PreserveInputElevation: true);
+
+        GradingResult? result = SurfaceStripGrader.Grade(
+            BuildGridVertices(),
+            15,
+            BuildGridFaces(),
+            16,
+            surface,
+            new[] { barrier },
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Grade_SurfaceFootprint_RegradesInteriorToPlane()
     {
         var surface = new SurfaceStripGrader.SurfaceDefinition(

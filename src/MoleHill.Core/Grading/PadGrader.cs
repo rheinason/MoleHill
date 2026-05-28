@@ -57,6 +57,9 @@ public static partial class PadGrader
         if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out errorMessage))
             return null;
 
+        if (!GradingInputValidator.ValidateLockCurves(lockCurves, out errorMessage))
+            return null;
+
         if (!ValidatePads(pads, out errorMessage))
             return null;
 

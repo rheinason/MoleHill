@@ -1,3 +1,5 @@
+using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Grading;
 
 internal static class GradingInputValidator
@@ -110,6 +112,74 @@ internal static class GradingInputValidator
             if (a == b || b == c || c == a)
             {
                 errorMessage = $"Terrain face {faceIndex} is degenerate.";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public static bool ValidateConstraintPolylines(
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? constraints,
+        string label,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (constraints == null)
+            return true;
+
+        for (int i = 0; i < constraints.Count; i++)
+        {
+            SurfaceRemesher.ConstraintPolyline constraint = constraints[i];
+            if (constraint.PointCount < 0)
+            {
+                errorMessage = $"{label} constraint {i} has an invalid point count.";
+                return false;
+            }
+
+            long requiredValues = (long)constraint.PointCount * 3;
+            if (requiredValues > int.MaxValue ||
+                !ValidateFiniteValues(
+                    constraint.Points,
+                    (int)requiredValues,
+                    $"{label} constraint {i} point array is shorter than PointCount requires.",
+                    $"{label} constraint {i} points must contain only finite coordinates.",
+                    out errorMessage))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public static bool ValidateLockCurves(
+        IReadOnlyList<PadGrader.LockCurve>? lockCurves,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (lockCurves == null)
+            return true;
+
+        for (int i = 0; i < lockCurves.Count; i++)
+        {
+            PadGrader.LockCurve lockCurve = lockCurves[i];
+            if (lockCurve == null ||
+                lockCurve.VertexCount < 2)
+            {
+                errorMessage = $"Lock curve {i} must contain at least 2 vertices.";
+                return false;
+            }
+
+            long requiredValues = (long)lockCurve.VertexCount * 2;
+            if (requiredValues > int.MaxValue ||
+                !ValidateFiniteValues(
+                    lockCurve.XyVertices,
+                    (int)requiredValues,
+                    $"Lock curve {i} vertex array is shorter than VertexCount requires.",
+                    $"Lock curve {i} coordinates must contain only finite values.",
+                    out errorMessage))
+            {
                 return false;
             }
         }

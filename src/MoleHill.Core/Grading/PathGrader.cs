@@ -41,6 +41,9 @@ public static partial class PathGrader
         if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out errorMessage))
             return null;
 
+        if (!GradingInputValidator.ValidateConstraintPolylines(hardConstraints, "Hard", out errorMessage))
+            return null;
+
         if (paths == null)
         {
             errorMessage = "No path definitions provided.";

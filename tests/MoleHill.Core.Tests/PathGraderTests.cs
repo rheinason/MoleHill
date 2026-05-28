@@ -49,6 +49,33 @@ public class PathGraderTests
     }
 
     [Fact]
+    public void Grade_NonFiniteHardConstraint_ReturnsFailure()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0);
+        var hardConstraint = new SurfaceRemesher.ConstraintPolyline(
+            new[] { 0.0, 5.0, 0.0, 10.0, double.NaN, 0.0 },
+            2,
+            IsClosed: false,
+            PreserveInputElevation: true);
+
+        GradingResult? result = PathGrader.Grade(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            new[] { hardConstraint },
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Grade_InsertsShoulderVertices_WhenExplicitMaxDistanceFitsInsideBoundary()
     {
         var path = new PathGrader.PathDefinition(

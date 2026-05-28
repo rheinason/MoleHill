@@ -30,6 +30,9 @@ public static partial class PadGrader
         if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out warningOrError))
             return false;
 
+        if (!GradingInputValidator.ValidateLockCurves(lockCurves, out warningOrError))
+            return false;
+
         if (!ValidatePads(pads, out warningOrError))
             return false;
 
@@ -148,6 +151,21 @@ public static partial class PadGrader
             GradingDiagnostic diagnostic = GradingDiagnostic.Warning(
                 "grade_pad.input.invalid_terrain",
                 terrainError ?? "Invalid terrain mesh.",
+                operation: "grade_pad");
+            return new ConstraintSet
+            {
+                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                SuggestedEdgeLength = 0.0,
+                Diagnostics = [diagnostic.Message],
+                StructuredDiagnostics = [diagnostic]
+            };
+        }
+
+        if (!GradingInputValidator.ValidateLockCurves(lockCurves, out string? lockCurveError))
+        {
+            GradingDiagnostic diagnostic = GradingDiagnostic.Warning(
+                "grade_pad.input.invalid_lock_curve",
+                lockCurveError ?? "Invalid lock curve.",
                 operation: "grade_pad");
             return new ConstraintSet
             {

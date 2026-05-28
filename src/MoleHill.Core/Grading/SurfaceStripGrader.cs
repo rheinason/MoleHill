@@ -167,6 +167,9 @@ public static class SurfaceStripGrader
         if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out errorMessage))
             return null;
 
+        if (!GradingInputValidator.ValidateConstraintPolylines(barrierConstraints, "Barrier", out errorMessage))
+            return null;
+
         if (surfaces == null)
         {
             errorMessage = "At least one graded surface is required.";

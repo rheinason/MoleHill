@@ -41,6 +41,12 @@ internal static class GradingBarriers
         {
             if (!constraint.PreserveInputElevation)
                 continue;
+            if (constraint.PointCount < 2 ||
+                constraint.Points == null ||
+                constraint.Points.Length < (long)constraint.PointCount * 3)
+            {
+                continue;
+            }
 
             int pointCount = NormalizeConstraintPointCount(constraint, tolerance);
             if (pointCount < 2)
@@ -68,8 +74,13 @@ internal static class GradingBarriers
         var segments = new List<BarrierSegment>(lockCurves.Count * 2);
         foreach (var lc in lockCurves)
         {
-            if (lc.VertexCount < 2)
+            if (lc == null ||
+                lc.VertexCount < 2 ||
+                lc.XyVertices == null ||
+                lc.XyVertices.Length < (long)lc.VertexCount * 2)
+            {
                 continue;
+            }
 
             for (int i = 0; i < lc.VertexCount - 1; i++)
             {
@@ -264,6 +275,14 @@ internal static class GradingBarriers
 
     private static void AddRawSegment(List<BarrierSegment> segments, double ax, double ay, double bx, double by)
     {
+        if (!double.IsFinite(ax) ||
+            !double.IsFinite(ay) ||
+            !double.IsFinite(bx) ||
+            !double.IsFinite(by))
+        {
+            return;
+        }
+
         double dx = bx - ax;
         double dy = by - ay;
         if ((dx * dx) + (dy * dy) <= 1e-20)
@@ -281,7 +300,7 @@ internal static class GradingBarriers
     private static int NormalizeConstraintPointCount(SurfaceRemesher.ConstraintPolyline constraint, double tolerance)
     {
         int count = constraint.PointCount;
-        if (!constraint.IsClosed || count < 2)
+        if (!constraint.IsClosed || count < 2 || constraint.Points.Length < (long)count * 3)
             return count;
 
         // Drop duplicate closing vertex if present
