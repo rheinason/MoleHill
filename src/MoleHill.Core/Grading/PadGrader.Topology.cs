@@ -25,6 +25,10 @@ public static partial class PadGrader
         topologyFaces = Array.Empty<int>();
         topologyFaceCount = 0;
         warningOrError = null;
+        lockCurves ??= Array.Empty<LockCurve>();
+
+        if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out warningOrError))
+            return false;
 
         if (!ValidatePads(pads, out warningOrError))
             return false;
@@ -138,6 +142,22 @@ public static partial class PadGrader
         double modelTolerance = GradingTolerances.DefaultModelTolerance)
     {
         double dedupTol = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
+        lockCurves ??= Array.Empty<LockCurve>();
+        if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out string? terrainError))
+        {
+            GradingDiagnostic diagnostic = GradingDiagnostic.Warning(
+                "grade_pad.input.invalid_terrain",
+                terrainError ?? "Invalid terrain mesh.",
+                operation: "grade_pad");
+            return new ConstraintSet
+            {
+                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                SuggestedEdgeLength = 0.0,
+                Diagnostics = [diagnostic.Message],
+                StructuredDiagnostics = [diagnostic]
+            };
+        }
+
         if (!ValidatePads(pads, out _))
         {
             return new ConstraintSet
@@ -152,7 +172,7 @@ public static partial class PadGrader
         pads = OrderPadsForOwnership(pads);
 
         bool hasBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(pads.Length * 3 + (lockCurves?.Length ?? 0));
+        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(pads.Length * 3 + lockCurves.Length);
         var diagnostics = new GradingDiagnosticCollector();
         double suggestedEdgeLength = double.MaxValue;
         var coincidenceSnapper = new ConstraintCoincidenceSnapper(

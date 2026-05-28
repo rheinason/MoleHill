@@ -28,6 +28,60 @@ public class PadGraderTests
     }
 
     [Fact]
+    public void TryTriangulateTopology_InvalidTerrainFace_ReturnsFailure()
+    {
+        var pad = new PadGrader.PadBoundary(
+            new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
+            4,
+            targetZ: 1.0);
+
+        bool success = PadGrader.TryTriangulateTopology(
+            BuildGridVertices(5, 1.0),
+            25,
+            new[] { 0, 1, 99 },
+            1,
+            new[] { pad },
+            null,
+            0.0,
+            0.0,
+            out double[] topologyVertices,
+            out int topologyVertexCount,
+            out int[] topologyFaces,
+            out int topologyFaceCount,
+            out string? warning);
+
+        Assert.False(success);
+        Assert.Empty(topologyVertices);
+        Assert.Equal(0, topologyVertexCount);
+        Assert.Empty(topologyFaces);
+        Assert.Equal(0, topologyFaceCount);
+        Assert.Contains("outside the terrain vertex range", warning ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CreateConstraints_InvalidTerrainFace_ReturnsStructuredWarning()
+    {
+        var pad = new PadGrader.PadBoundary(
+            new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
+            4,
+            targetZ: 1.0);
+
+        PadGrader.ConstraintSet constraintSet = PadGrader.CreateConstraints(
+            BuildGridVertices(5, 1.0),
+            25,
+            new[] { 0, 1, 99 },
+            1,
+            new[] { pad },
+            null);
+
+        Assert.Empty(constraintSet.Constraints);
+        Assert.Contains("outside the terrain vertex range", constraintSet.Diagnostics.Single(), StringComparison.OrdinalIgnoreCase);
+        GradingDiagnostic diagnostic = Assert.Single(constraintSet.StructuredDiagnostics);
+        Assert.Equal("grade_pad.input.invalid_terrain", diagnostic.Code);
+        Assert.Equal(GradingDiagnosticSeverity.Warning, diagnostic.Severity);
+    }
+
+    [Fact]
     public void TriangulatePadTopology_ReturnsStableTopology_ForSameXyInputs()
     {
         var vertices = BuildGridVertices(5, 0.75);
