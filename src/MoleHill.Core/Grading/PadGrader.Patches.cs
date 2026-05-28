@@ -929,7 +929,8 @@ public static partial class PadGrader
 
         double averageEdgeLength = vertexCount > 0 ? perimeter / vertexCount : maxReach;
         double targetSpacing = Math.Max(tolerance * 64.0, averageEdgeLength * 0.75);
-        int intermediateRows = Math.Clamp((int)Math.Ceiling(maxReach / targetSpacing) - 1, 0, 4);
+        int maxIntermediateRows = vertexCount > 128 ? 2 : 4;
+        int intermediateRows = Math.Clamp((int)Math.Ceiling(maxReach / targetSpacing) - 1, 0, maxIntermediateRows);
         return intermediateRows + 2;
     }
 

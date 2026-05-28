@@ -546,9 +546,18 @@ public static partial class PadGrader
                 {
                     if (!allowSplitLocalFallback)
                     {
+                        if (TryApplyProtectedWholeMeshRemesh(
+                                $"Grade Pad[{padIndex}] explicit patch seam integrity check failed ({seamValidation.FailureReason}); retrying protected whole-mesh remesh.",
+                                $"Grade Pad[{padIndex}] explicit patch seam integrity check failed; protected whole-mesh remesh failed.",
+                                out string? remeshFailure))
+                        {
+                            continue;
+                        }
+
                         diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
                         failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
                         errorMessage = BuildProtectedPadFailureMessage(
+                            remeshFailure ??
                             $"Grade Pad[{padIndex}] explicit patch seam integrity check failed (patch={seamGraph.PatchMatchedSegments}/{seamGraph.SeamVertexCount}, outside={seamGraph.TerrainMatchedSegments}/{seamGraph.SeamVertexCount}, patch-near={seamGraph.PatchBoundarySegmentsNearSeam}, outside-near={seamGraph.TerrainBoundarySegmentsNearSeam}); split-local fallback is disabled because it can produce invalid shoulder topology.",
                             diagnostics);
                         return null;
