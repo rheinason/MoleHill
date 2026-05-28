@@ -63,6 +63,63 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void MeshTopologyOperations_MergeMeshes_RespectsCoincidentVertexZPolicy()
+    {
+        double[] firstVertices =
+        {
+            0.0, 0.0, 1.0,
+            1.0, 0.0, 1.0,
+            0.0, 1.0, 1.0
+        };
+        double[] secondVertices =
+        {
+            0.0, 0.0, 5.0,
+            1.0, 0.0, 5.0,
+            0.0, 1.0, 5.0
+        };
+        int[] faces = { 0, 1, 2 };
+
+        MeshTopologyOperations.MergeMeshes(
+            firstVertices,
+            3,
+            faces,
+            1,
+            secondVertices,
+            3,
+            faces,
+            1,
+            1e-6,
+            CoincidentVertexZPolicy.KeepFirst,
+            out double[] keepFirstVertices,
+            out int keepFirstVertexCount,
+            out _,
+            out int keepFirstFaceCount);
+
+        MeshTopologyOperations.MergeMeshes(
+            firstVertices,
+            3,
+            faces,
+            1,
+            secondVertices,
+            3,
+            faces,
+            1,
+            1e-6,
+            CoincidentVertexZPolicy.UseLatest,
+            out double[] useLatestVertices,
+            out int useLatestVertexCount,
+            out _,
+            out int useLatestFaceCount);
+
+        Assert.Equal(3, keepFirstVertexCount);
+        Assert.Equal(1, keepFirstFaceCount);
+        Assert.Equal(1.0, keepFirstVertices[2], 6);
+        Assert.Equal(3, useLatestVertexCount);
+        Assert.Equal(1, useLatestFaceCount);
+        Assert.Equal(5.0, useLatestVertices[2], 6);
+    }
+
+    [Fact]
     public void SeamGraph_Build_ReturnsFullMatches_ForIdenticalSeamSegmentation()
     {
         double[] seamLoop =
