@@ -538,34 +538,7 @@ public static partial class PathGrader
         out SeamGraph? seamGraph,
         out string? errorMessage)
     {
-        seamGraph = null;
-        errorMessage = null;
-        if (!TryBuildBoundaryLoopFromMesh(patchVertices, patchFaces, patchFaceCount, tolerance, out patchBoundaryLoopXy, out _))
-        {
-            seamGraph = SeamGraph.Build(
-                seamLoopXy,
-                patchVertices,
-                patchFaces,
-                patchFaceCount,
-                outsideVertices,
-                outsideFaces,
-                outsideFaceCount,
-                tolerance);
-            if (seamGraph.HasExcessiveNearBoundaryFragmentation)
-            {
-                patchBoundaryLoopXy = Array.Empty<double>();
-                errorMessage =
-                    $"stitched patch did not produce a single closed stitch boundary and seam-adjacent boundary fragmentation was too high (patch={seamGraph.PatchBoundarySegmentsNearSeam}, outside={seamGraph.TerrainBoundarySegmentsNearSeam}, matched={seamGraph.PatchMatchedSegments}/{seamGraph.SeamVertexCount}).";
-                return false;
-            }
-
-            patchBoundaryLoopXy = (double[])seamLoopXy.Clone();
-            return true;
-        }
-
-        ComputeLoopDeviation(seamLoopXy, patchBoundaryLoopXy, out double seamToPatchMax, out int seamMissCount, tolerance * 2.0);
-        ComputeLoopDeviation(patchBoundaryLoopXy, seamLoopXy, out double patchToSeamMax, out int patchMissCount, tolerance * 2.0);
-        seamGraph = SeamGraph.Build(
+        SeamValidationResult result = SeamValidator.ValidatePatchForStitching(
             seamLoopXy,
             patchVertices,
             patchFaces,
@@ -574,14 +547,11 @@ public static partial class PathGrader
             outsideFaces,
             outsideFaceCount,
             tolerance);
-        if (seamMissCount > 0 || patchMissCount > 0)
-        {
-            errorMessage =
-                $"stitched seam geometry check failed (split misses={seamMissCount}, patch misses={patchMissCount}, split max={seamToPatchMax:F6}, patch max={patchToSeamMax:F6}).";
-            return false;
-        }
 
-        return true;
+        patchBoundaryLoopXy = result.PatchBoundaryLoopXy;
+        seamGraph = result.SeamGraph;
+        errorMessage = result.FailureReason;
+        return result.IsValid;
     }
 
     private static PatchMeshResult? TryBuildStructuredPathPatchMesh(
@@ -1585,40 +1555,11 @@ public static partial class PathGrader
 
     private static bool LoopsCoincide(double[] leftLoopXy, double[] rightLoopXy, double tolerance)
     {
-        ComputeLoopDeviation(leftLoopXy, rightLoopXy, out _, out int leftMisses, tolerance);
-        ComputeLoopDeviation(rightLoopXy, leftLoopXy, out _, out int rightMisses, tolerance);
+        LoopDeviationMetrics left = SeamValidator.ComputeLoopDeviation(leftLoopXy, rightLoopXy, tolerance);
+        LoopDeviationMetrics right = SeamValidator.ComputeLoopDeviation(rightLoopXy, leftLoopXy, tolerance);
+        int leftMisses = left.MissCount;
+        int rightMisses = right.MissCount;
         return leftMisses == 0 && rightMisses == 0;
-    }
-
-    private static void ComputeLoopDeviation(
-        double[] sourceLoopXy,
-        double[] targetLoopXy,
-        out double maxDistance,
-        out int missCount,
-        double tolerance)
-    {
-        maxDistance = 0.0;
-        missCount = 0;
-        int sourceCount = sourceLoopXy.Length / 2;
-        int targetCount = targetLoopXy.Length / 2;
-        if (targetCount < 2)
-        {
-            missCount = sourceCount;
-            maxDistance = double.MaxValue;
-            return;
-        }
-
-        for (int i = 0; i < sourceCount; i++)
-        {
-            double px = sourceLoopXy[i * 2];
-            double py = sourceLoopXy[i * 2 + 1];
-            double best = GradingGeometry2D.DistanceToPolygon(px, py, targetLoopXy, targetCount);
-
-            if (best > tolerance)
-                missCount++;
-            if (best > maxDistance)
-                maxDistance = best;
-        }
     }
 
     private static double EvaluateClosedStripZ(

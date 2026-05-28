@@ -461,7 +461,7 @@ public static partial class PadGrader
 
             if (hasOutsideMesh)
             {
-                SeamGraph seamGraph = SeamGraph.Build(
+                SeamValidationResult seamValidation = SeamValidator.ValidatePatchSegmentMatch(
                     patchBoundaryLoopXy,
                     patch.Vertices,
                     patch.Faces,
@@ -470,7 +470,8 @@ public static partial class PadGrader
                     outsideFaces,
                     outsideFaceCount,
                     dedupTol);
-                if (!seamGraph.PatchHasFullSegmentMatch)
+                SeamGraph seamGraph = seamValidation.SeamGraph!;
+                if (!seamValidation.IsValid)
                 {
                     if (!allowSplitLocalFallback)
                     {
@@ -482,8 +483,7 @@ public static partial class PadGrader
                         return null;
                     }
 
-                    diagnostics.Add(
-                        $"Grade Pad[{padIndex}] patch seam integrity check failed (patch={seamGraph.PatchMatchedSegments}/{seamGraph.SeamVertexCount}); using split local patch.");
+                    diagnostics.Add($"Grade Pad[{padIndex}] patch seam integrity check failed ({seamValidation.FailureReason}); using split local patch.");
                     patch = BuildSplitLocalPadPatchMesh(
                         currentFaceGrid,
                         barriers,
@@ -500,7 +500,7 @@ public static partial class PadGrader
                         return null;
                     }
 
-                    seamGraph = SeamGraph.Build(
+                    seamValidation = SeamValidator.ValidatePatchSegmentMatch(
                         patchBoundaryLoopXy,
                         patch.Vertices,
                         patch.Faces,
@@ -509,7 +509,8 @@ public static partial class PadGrader
                         outsideFaces,
                         outsideFaceCount,
                         dedupTol);
-                    if (!seamGraph.PatchHasFullSegmentMatch)
+                    seamGraph = seamValidation.SeamGraph!;
+                    if (!seamValidation.IsValid)
                     {
                         errorMessage =
                             $"Grade Pad[{padIndex}] split local patch seam integrity check failed (patch={seamGraph.PatchMatchedSegments}/{seamGraph.SeamVertexCount}).";

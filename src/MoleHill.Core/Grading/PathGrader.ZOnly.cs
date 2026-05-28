@@ -113,8 +113,8 @@ public static partial class PathGrader
         int outsideFaceCount,
         double tolerance)
     {
-        ComputeLoopDeviation(seamLoopXy, patchLoopXy, out double seamToPatchMax, out int seamMissCount, tolerance * 2.0);
-        ComputeLoopDeviation(patchLoopXy, seamLoopXy, out double patchToSeamMax, out int patchMissCount, tolerance * 2.0);
+        LoopDeviationMetrics seamToPatch = SeamValidator.ComputeLoopDeviation(seamLoopXy, patchLoopXy, tolerance * 2.0);
+        LoopDeviationMetrics patchToSeam = SeamValidator.ComputeLoopDeviation(patchLoopXy, seamLoopXy, tolerance * 2.0);
         SeamGraph seamGraph = SeamGraph.Build(
             seamLoopXy,
             patchVertices,
@@ -128,7 +128,7 @@ public static partial class PathGrader
         return
         [
             $"Grade Path[{pathIndex}] seam vertices: split={seamLoopXy.Length / 2}, patch={patchLoopXy.Length / 2}.",
-            $"Grade Path[{pathIndex}] seam deviation: split->patch max={seamToPatchMax:F6} ({seamMissCount} misses), patch->split max={patchToSeamMax:F6} ({patchMissCount} misses).",
+            $"Grade Path[{pathIndex}] seam deviation: split->patch max={seamToPatch.MaxDistance:F6} ({seamToPatch.MissCount} misses), patch->split max={patchToSeam.MaxDistance:F6} ({patchToSeam.MissCount} misses).",
             BuildPathTopologyBandWidthDiagnostic(pathIndex, shoulderLoopXy, seamLoopXy),
             $"Grade Path[{pathIndex}] patch boundary edges near seam: {seamGraph.PatchBoundaryEdgesNearSeam}.",
             $"Grade Path[{pathIndex}] outside-mesh naked edges near seam: {seamGraph.TerrainBoundaryEdgesNearSeam}.",

@@ -246,6 +246,90 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void SeamValidator_ValidatePatchForStitching_ReturnsSharedBoundaryAndGraph()
+    {
+        double[] seamLoop =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            1.0, 1.0,
+            0.0, 1.0
+        };
+        double[] meshVertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            1.0, 1.0, 0.0,
+            0.0, 1.0, 0.0
+        };
+        int[] meshFaces = { 0, 1, 2, 0, 2, 3 };
+
+        SeamValidationResult result = SeamValidator.ValidatePatchForStitching(
+            seamLoop,
+            meshVertices,
+            meshFaces,
+            2,
+            meshVertices,
+            meshFaces,
+            2,
+            1e-6);
+
+        Assert.True(result.IsValid);
+        Assert.NotNull(result.SeamGraph);
+        Assert.True(result.SeamGraph!.PatchHasFullSegmentMatch);
+        Assert.Equal(4, result.PatchBoundaryLoopXy.Length / 2);
+        Assert.Null(result.FailureReason);
+    }
+
+    [Fact]
+    public void SeamValidator_ValidatePatchSegmentMatch_RejectsMissingSeamBreak()
+    {
+        double[] seamLoop =
+        {
+            0.0, 0.0,
+            0.5, 0.0,
+            1.0, 0.0,
+            1.0, 1.0,
+            0.0, 1.0
+        };
+        double[] coarseVertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            1.0, 1.0, 0.0,
+            0.0, 1.0, 0.0
+        };
+        int[] coarseFaces = { 0, 1, 2, 0, 2, 3 };
+
+        SeamValidationResult result = SeamValidator.ValidatePatchSegmentMatch(
+            seamLoop,
+            coarseVertices,
+            coarseFaces,
+            2,
+            coarseVertices,
+            coarseFaces,
+            2,
+            1e-6);
+
+        Assert.False(result.IsValid);
+        Assert.NotNull(result.SeamGraph);
+        Assert.False(result.SeamGraph!.PatchHasFullSegmentMatch);
+        Assert.Contains("patch=", result.FailureReason);
+    }
+
+    [Fact]
+    public void SeamValidator_ComputeLoopDeviation_RejectsDegenerateTargetLoop()
+    {
+        double[] sourceLoop = { 0.0, 0.0, 1.0, 0.0 };
+        double[] targetLoop = { 0.0, 0.0 };
+
+        LoopDeviationMetrics metrics = SeamValidator.ComputeLoopDeviation(sourceLoop, targetLoop, 1e-6);
+
+        Assert.Equal(2, metrics.MissCount);
+        Assert.Equal(double.MaxValue, metrics.MaxDistance);
+    }
+
+    [Fact]
     public void DirtyRegionPlanner_Build_ReturnsChangedAndIntersectingOwners()
     {
         var patches = new[]

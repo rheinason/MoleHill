@@ -2147,9 +2147,12 @@ public static partial class PadGrader
 
     private static bool LoopsCoincide(double[] leftLoopXy, double[] rightLoopXy, double tolerance)
     {
-        ComputeLoopDeviation(leftLoopXy, rightLoopXy, out double leftMax, out int leftMisses, tolerance);
-        ComputeLoopDeviation(rightLoopXy, leftLoopXy, out double rightMax, out int rightMisses, tolerance);
-        return leftMisses == 0 && rightMisses == 0 && leftMax <= tolerance && rightMax <= tolerance;
+        LoopDeviationMetrics left = SeamValidator.ComputeLoopDeviation(leftLoopXy, rightLoopXy, tolerance);
+        LoopDeviationMetrics right = SeamValidator.ComputeLoopDeviation(rightLoopXy, leftLoopXy, tolerance);
+        return left.MissCount == 0 &&
+            right.MissCount == 0 &&
+            left.MaxDistance <= tolerance &&
+            right.MaxDistance <= tolerance;
     }
 
     private static string[] BuildPadStitchDiagnostics(
@@ -2170,10 +2173,10 @@ public static partial class PadGrader
         int patchVertexCount = patchLoopXy.Length / 2;
         diagnostics.Add($"Grade Pad[{padIndex}] seam vertices: split={seamVertexCount}, patch={patchVertexCount}.");
 
-        ComputeLoopDeviation(seamLoopXy, patchLoopXy, out double seamToPatchMax, out int seamMissCount, tolerance * 2.0);
-        ComputeLoopDeviation(patchLoopXy, seamLoopXy, out double patchToSeamMax, out int patchMissCount, tolerance * 2.0);
+        LoopDeviationMetrics seamToPatch = SeamValidator.ComputeLoopDeviation(seamLoopXy, patchLoopXy, tolerance * 2.0);
+        LoopDeviationMetrics patchToSeam = SeamValidator.ComputeLoopDeviation(patchLoopXy, seamLoopXy, tolerance * 2.0);
         diagnostics.Add(
-            $"Grade Pad[{padIndex}] seam deviation: split->patch max={seamToPatchMax:F6} ({seamMissCount} misses), patch->split max={patchToSeamMax:F6} ({patchMissCount} misses).");
+            $"Grade Pad[{padIndex}] seam deviation: split->patch max={seamToPatch.MaxDistance:F6} ({seamToPatch.MissCount} misses), patch->split max={patchToSeam.MaxDistance:F6} ({patchToSeam.MissCount} misses).");
 
         ComputeLoopDistanceStats(shoulderLoopXy, seamLoopXy, out double shoulderToSeamMin, out double shoulderToSeamMax);
         ComputeLoopDistanceStats(seamLoopXy, shoulderLoopXy, out double seamToShoulderMin, out double seamToShoulderMax);
@@ -2303,32 +2306,6 @@ public static partial class PadGrader
         faces.Add(a);
         faces.Add(b);
         faces.Add(c);
-    }
-
-    private static void ComputeLoopDeviation(
-        double[] sourceLoopXy,
-        double[] targetLoopXy,
-        out double maxDistance,
-        out int missCount,
-        double matchTolerance)
-    {
-        maxDistance = 0.0;
-        missCount = 0;
-        int sourceCount = sourceLoopXy.Length / 2;
-        int targetCount = targetLoopXy.Length / 2;
-        for (int i = 0; i < sourceCount; i++)
-        {
-            double px = sourceLoopXy[i * 2];
-            double py = sourceLoopXy[i * 2 + 1];
-            double bestDistance = double.MaxValue;
-            if (TryFindClosestLoopLocation(targetLoopXy, targetCount, px, py, out ClosestLoopLocation closest))
-                bestDistance = closest.Distance;
-
-            if (bestDistance > maxDistance)
-                maxDistance = bestDistance;
-            if (bestDistance > matchTolerance)
-                missCount++;
-        }
     }
 
     private static void ComputeLoopDistanceStats(
