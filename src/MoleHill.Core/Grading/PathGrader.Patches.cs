@@ -116,6 +116,23 @@ public static partial class PathGrader
             paths,
             hardConstraints,
             out _);
+        if (MeshTopologyOperations.TryFillSmallBranchedBoundaryLoops(
+                gradedVertices,
+                topologyVertexCount,
+                topologyFaces,
+                topologyFaceCount,
+                tolerance,
+                out int[] repairedTopologyFaces,
+                out int repairedTopologyFaceCount,
+                out int repairedBoundaryLoopCount))
+        {
+            topologyFaces = repairedTopologyFaces;
+            topologyFaceCount = repairedTopologyFaceCount;
+            diagnostics.AddInformation(
+                "grade_path.topology.tiny_boundary_loops_filled",
+                $"Grade Path topology repair filled {repairedBoundaryLoopCount:N0} tiny branched boundary loop(s).",
+                operation: "Grade Path");
+        }
 
         var outXy = new double[topologyVertexCount * 2];
         var origZ = new double[topologyVertexCount];
