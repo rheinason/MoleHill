@@ -4,6 +4,10 @@ namespace MoleHill.Core.Grading;
 
 internal sealed class SeamGraph
 {
+    private readonly record struct BoundarySegment(double Ax, double Ay, double Bx, double By);
+
+    private readonly record struct BoundarySeamAnalysis(int BoundarySegmentsNearSeam, int MatchedSeamSegments);
+
     public required double[] SeamLoopXy { get; init; }
 
     public required int PatchBoundaryEdgesNearSeam { get; init; }
@@ -50,24 +54,27 @@ internal sealed class SeamGraph
         int terrainFaceCount,
         double tolerance)
     {
+        BoundarySegment[] patchBoundarySegments = BuildBoundarySegments(patchVertices, patchFaces, patchFaceCount);
+        BoundarySegment[] terrainBoundarySegments = BuildBoundarySegments(terrainVertices, terrainFaces, terrainFaceCount);
+        BoundarySeamAnalysis patchAnalysis = AnalyzeBoundarySeam(seamLoopXy, patchBoundarySegments, tolerance);
+        BoundarySeamAnalysis terrainAnalysis = AnalyzeBoundarySeam(seamLoopXy, terrainBoundarySegments, tolerance);
+
         return new SeamGraph
         {
             SeamLoopXy = seamLoopXy,
-            PatchBoundaryEdgesNearSeam = CountBoundaryEdgesNearLoop(patchVertices, patchFaces, patchFaceCount, seamLoopXy, tolerance * 4.0),
-            TerrainBoundaryEdgesNearSeam = CountBoundaryEdgesNearLoop(terrainVertices, terrainFaces, terrainFaceCount, seamLoopXy, tolerance * 4.0),
-            PatchMatchedSegments = CountMatchedBoundarySegments(seamLoopXy, patchVertices, patchFaces, patchFaceCount, tolerance, out int patchNearSegments),
-            TerrainMatchedSegments = CountMatchedBoundarySegments(seamLoopXy, terrainVertices, terrainFaces, terrainFaceCount, tolerance, out int terrainNearSegments),
-            PatchBoundarySegmentsNearSeam = patchNearSegments,
-            TerrainBoundarySegmentsNearSeam = terrainNearSegments
+            PatchBoundaryEdgesNearSeam = patchAnalysis.BoundarySegmentsNearSeam,
+            TerrainBoundaryEdgesNearSeam = terrainAnalysis.BoundarySegmentsNearSeam,
+            PatchMatchedSegments = patchAnalysis.MatchedSeamSegments,
+            TerrainMatchedSegments = terrainAnalysis.MatchedSeamSegments,
+            PatchBoundarySegmentsNearSeam = patchAnalysis.BoundarySegmentsNearSeam,
+            TerrainBoundarySegmentsNearSeam = terrainAnalysis.BoundarySegmentsNearSeam
         };
     }
 
-    private static int CountBoundaryEdgesNearLoop(
+    private static BoundarySegment[] BuildBoundarySegments(
         double[] vertices,
         int[] faces,
-        int faceCount,
-        double[] loopXy,
-        double distanceTolerance)
+        int faceCount)
     {
         var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int f = 0; f < faceCount; f++)
@@ -80,7 +87,7 @@ internal sealed class SeamGraph
             Increment(edgeFaceCount, c, a);
         }
 
-        int boundaryNearLoop = 0;
+        var boundarySegments = new List<BoundarySegment>();
         foreach (var pair in edgeFaceCount)
         {
             if (pair.Value != 1)
@@ -88,55 +95,30 @@ internal sealed class SeamGraph
 
             int a = (int)(pair.Key >> 32);
             int b = (int)(pair.Key & 0xFFFFFFFFL);
-            double mx = (vertices[a * 3] + vertices[b * 3]) * 0.5;
-            double my = (vertices[a * 3 + 1] + vertices[b * 3 + 1]) * 0.5;
-            if (DistanceToLoop(mx, my, loopXy) <= distanceTolerance)
-                boundaryNearLoop++;
+            boundarySegments.Add(new BoundarySegment(
+                vertices[a * 3],
+                vertices[a * 3 + 1],
+                vertices[b * 3],
+                vertices[b * 3 + 1]));
         }
 
-        return boundaryNearLoop;
+        return boundarySegments.Count == 0 ? Array.Empty<BoundarySegment>() : boundarySegments.ToArray();
     }
 
-    private static int CountMatchedBoundarySegments(
+    private static BoundarySeamAnalysis AnalyzeBoundarySeam(
         double[] seamLoopXy,
-        double[] meshVertices,
-        int[] meshFaces,
-        int meshFaceCount,
-        double tolerance,
-        out int boundarySegmentsNearSeam)
+        IReadOnlyList<BoundarySegment> boundarySegments,
+        double tolerance)
     {
         int seamVertexCount = seamLoopXy.Length / 2;
-        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
-        for (int f = 0; f < meshFaceCount; f++)
+        var nearBoundarySegments = new List<BoundarySegment>();
+        double nearTolerance = tolerance * 4.0;
+        foreach (BoundarySegment edge in boundarySegments)
         {
-            int a = meshFaces[f * 3];
-            int b = meshFaces[f * 3 + 1];
-            int c = meshFaces[f * 3 + 2];
-            Increment(edgeFaceCount, a, b);
-            Increment(edgeFaceCount, b, c);
-            Increment(edgeFaceCount, c, a);
-        }
-
-        var boundarySegments = new List<(double Ax, double Ay, double Bx, double By)>();
-        boundarySegmentsNearSeam = 0;
-        foreach (var pair in edgeFaceCount)
-        {
-            if (pair.Value != 1)
-                continue;
-
-            int a = (int)(pair.Key >> 32);
-            int b = (int)(pair.Key & 0xFFFFFFFFL);
-            double ax = meshVertices[a * 3];
-            double ay = meshVertices[a * 3 + 1];
-            double bx = meshVertices[b * 3];
-            double by = meshVertices[b * 3 + 1];
-            double mx = (ax + bx) * 0.5;
-            double my = (ay + by) * 0.5;
-            if (DistanceToLoop(mx, my, seamLoopXy) <= tolerance * 4.0)
-            {
-                boundarySegmentsNearSeam++;
-                boundarySegments.Add((ax, ay, bx, by));
-            }
+            double mx = (edge.Ax + edge.Bx) * 0.5;
+            double my = (edge.Ay + edge.By) * 0.5;
+            if (DistanceToLoop(mx, my, seamLoopXy) <= nearTolerance)
+                nearBoundarySegments.Add(edge);
         }
 
         int matchedSegments = 0;
@@ -147,11 +129,11 @@ internal sealed class SeamGraph
             double say = seamLoopXy[i * 2 + 1];
             double sbx = seamLoopXy[next * 2];
             double sby = seamLoopXy[next * 2 + 1];
-            if (BoundarySegmentsCoverSeamSegment(sax, say, sbx, sby, boundarySegments, tolerance))
+            if (BoundarySegmentsCoverSeamSegment(sax, say, sbx, sby, nearBoundarySegments, tolerance))
                 matchedSegments++;
         }
 
-        return matchedSegments;
+        return new BoundarySeamAnalysis(nearBoundarySegments.Count, matchedSegments);
     }
 
     private static bool BoundarySegmentsCoverSeamSegment(
@@ -159,7 +141,7 @@ internal sealed class SeamGraph
         double say,
         double sbx,
         double sby,
-        IReadOnlyList<(double Ax, double Ay, double Bx, double By)> boundarySegments,
+        IReadOnlyList<BoundarySegment> boundarySegments,
         double tolerance)
     {
         double segDx = sbx - sax;
