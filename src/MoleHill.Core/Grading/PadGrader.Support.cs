@@ -141,12 +141,12 @@ public static partial class PadGrader
 
     private static GradingDiagnosticSeverity ClassifyPadDiagnosticSeverity(string message)
     {
-        if (message.Contains("topology summary", StringComparison.OrdinalIgnoreCase) &&
-            (message.Contains("open chains=True", StringComparison.OrdinalIgnoreCase) ||
-             !message.Contains("boundary components=1", StringComparison.OrdinalIgnoreCase) ||
-             !message.Contains("nonmanifold edges=0", StringComparison.OrdinalIgnoreCase)))
+        if (message.Contains("topology summary", StringComparison.OrdinalIgnoreCase))
         {
-            return GradingDiagnosticSeverity.Warning;
+            if (message.Contains("topology healthy=False", StringComparison.OrdinalIgnoreCase))
+                return GradingDiagnosticSeverity.Warning;
+            if (message.Contains("topology healthy=True", StringComparison.OrdinalIgnoreCase))
+                return GradingDiagnosticSeverity.Information;
         }
 
         return message.Contains("warning", StringComparison.OrdinalIgnoreCase) ||

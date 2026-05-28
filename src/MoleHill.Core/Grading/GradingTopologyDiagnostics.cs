@@ -16,12 +16,9 @@ internal static class GradingTopologyDiagnostics
         int? targetIndex = null)
     {
         MeshTopologyValidator.BoundaryGraphAnalysis analysis = MeshTopologyValidator.AnalyzeBoundaryGraph(outputFaces, outputFaceCount);
-        GradingDiagnosticSeverity severity =
-            analysis.NonManifoldEdgeCount > 0 ||
-            analysis.HasOpenBoundaryChains ||
-            analysis.BoundaryComponentCount > 1
-                ? GradingDiagnosticSeverity.Warning
-                : GradingDiagnosticSeverity.Information;
+        GradingDiagnosticSeverity severity = IsHealthy(analysis)
+            ? GradingDiagnosticSeverity.Information
+            : GradingDiagnosticSeverity.Warning;
 
         return new GradingDiagnostic(
             severity,
@@ -66,6 +63,13 @@ internal static class GradingTopologyDiagnostics
         return
             $"{operationLabel} topology summary: {inputVertexCount:N0} verts/{inputFaceCount:N0} faces -> {outputVertexCount:N0} verts/{outputFaceCount:N0} faces; " +
             $"boundary edges={analysis.BoundaryEdgeCount:N0}, boundary vertices={analysis.BoundaryVertexCount:N0}, boundary components={analysis.BoundaryComponentCount:N0}, " +
-            $"open chains={analysis.HasOpenBoundaryChains}, nonmanifold edges={analysis.NonManifoldEdgeCount:N0}.";
+            $"open chains={analysis.HasOpenBoundaryChains}, nonmanifold edges={analysis.NonManifoldEdgeCount:N0}, topology healthy={IsHealthy(analysis)}.";
+    }
+
+    private static bool IsHealthy(MeshTopologyValidator.BoundaryGraphAnalysis analysis)
+    {
+        return analysis.NonManifoldEdgeCount == 0 &&
+            !analysis.HasOpenBoundaryChains &&
+            analysis.BoundaryComponentCount == 1;
     }
 }

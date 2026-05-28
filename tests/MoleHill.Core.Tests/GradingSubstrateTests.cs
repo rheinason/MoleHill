@@ -330,6 +330,31 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void GradingTopologyDiagnostics_BuildMeshSummary_WarnsForDisconnectedBoundaryComponents()
+    {
+        int[] faces =
+        {
+            0, 1, 2,
+            0, 2, 3,
+            4, 5, 6,
+            4, 6, 7
+        };
+
+        GradingDiagnostic diagnostic = GradingTopologyDiagnostics.BuildMeshSummary(
+            "test.topology.summary",
+            "Test Grade",
+            inputVertexCount: 8,
+            inputFaceCount: 4,
+            outputVertexCount: 8,
+            outputFaceCount: 4,
+            faces);
+
+        Assert.Equal(GradingDiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.Contains("boundary components=2", diagnostic.Message);
+        Assert.Contains("topology healthy=False", diagnostic.Message);
+    }
+
+    [Fact]
     public void DirtyRegionPlanner_Build_ReturnsChangedAndIntersectingOwners()
     {
         var patches = new[]
