@@ -19,6 +19,7 @@ internal static class GradingResultBuilder
         IReadOnlyList<GradingPatch>? patchSummaries = null,
         IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
+        ValidateComponentArrays(outXy, originalZ, gradedZ, gradedVertices, vertexCount);
         ValidateFaceReferences(faces, faceCount, vertexCount);
         GradingVolumeMetrics volume = ComputeVolume(outXy, originalZ, gradedZ, faces, faceCount);
         double[] daylightVertices = BuildDaylightVertices(outXy, originalZ, gradedZ, faces, faceCount);
@@ -47,6 +48,7 @@ internal static class GradingResultBuilder
         IReadOnlyList<GradingPatch>? patchSummaries = null,
         IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
+        ValidateXyzArrays(originalVertices, gradedVertices, vertexCount);
         ValidateFaceReferences(faces, faceCount, vertexCount);
         GradingVolumeMetrics volume = ComputeVolume(originalVertices, gradedVertices, faces, faceCount);
         double[] daylightVertices = BuildDaylightVertices(originalVertices, gradedVertices, faces, faceCount);
@@ -71,6 +73,11 @@ internal static class GradingResultBuilder
         int[] faces,
         int faceCount)
     {
+        int requiredVertexCount = ValidateFacePrefix(faces, faceCount, nameof(faces));
+        ValidateDoubleArrayPrefix(outXy, requiredVertexCount, stride: 2, nameof(outXy));
+        ValidateDoubleArrayPrefix(originalZ, requiredVertexCount, stride: 1, nameof(originalZ));
+        ValidateDoubleArrayPrefix(gradedZ, requiredVertexCount, stride: 1, nameof(gradedZ));
+
         double cutVol = 0;
         double fillVol = 0;
         for (int f = 0; f < faceCount; f++)
@@ -105,6 +112,11 @@ internal static class GradingResultBuilder
         int[] faces,
         int faceCount)
     {
+        int requiredVertexCount = ValidateFacePrefix(faces, faceCount, nameof(faces));
+        ValidateDoubleArrayPrefix(outXy, requiredVertexCount, stride: 2, nameof(outXy));
+        ValidateDoubleArrayPrefix(originalZ, requiredVertexCount, stride: 1, nameof(originalZ));
+        ValidateDoubleArrayPrefix(gradedZ, requiredVertexCount, stride: 1, nameof(gradedZ));
+
         var daylightPts = new List<double>();
         var processedEdges = new HashSet<long>();
 
@@ -127,6 +139,10 @@ internal static class GradingResultBuilder
         int[] faces,
         int faceCount)
     {
+        int requiredVertexCount = ValidateFacePrefix(faces, faceCount, nameof(faces));
+        ValidateDoubleArrayPrefix(originalVertices, requiredVertexCount, stride: 3, nameof(originalVertices));
+        ValidateDoubleArrayPrefix(gradedVertices, requiredVertexCount, stride: 3, nameof(gradedVertices));
+
         double cutVol = 0;
         double fillVol = 0;
         for (int f = 0; f < faceCount; f++)
@@ -161,6 +177,10 @@ internal static class GradingResultBuilder
         int[] faces,
         int faceCount)
     {
+        int requiredVertexCount = ValidateFacePrefix(faces, faceCount, nameof(faces));
+        ValidateDoubleArrayPrefix(originalVertices, requiredVertexCount, stride: 3, nameof(originalVertices));
+        ValidateDoubleArrayPrefix(gradedVertices, requiredVertexCount, stride: 3, nameof(gradedVertices));
+
         var daylightPts = new List<double>();
         var processedEdges = new HashSet<long>();
 
@@ -206,7 +226,14 @@ internal static class GradingResultBuilder
 
     private static void ValidateFaceReferences(int[] faces, int faceCount, int vertexCount)
     {
-        if (faces.Length < (long)faceCount * 3)
+        if (vertexCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(vertexCount), "Vertex count cannot be negative.");
+
+        if (faces == null)
+            throw new ArgumentNullException(nameof(faces));
+
+        int requiredFaceValueCount = CheckedValueCount(faceCount, stride: 3, nameof(faceCount));
+        if (faces.Length < requiredFaceValueCount)
             throw new ArgumentException("Face array is shorter than faceCount requires.", nameof(faces));
 
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
@@ -221,6 +248,80 @@ internal static class GradingResultBuilder
                 throw new ArgumentException("Face array references a vertex outside the result vertex range.", nameof(faces));
             }
         }
+    }
+
+    private static void ValidateComponentArrays(
+        double[] outXy,
+        double[] originalZ,
+        double[] gradedZ,
+        double[] gradedVertices,
+        int vertexCount)
+    {
+        ValidateDoubleArrayPrefix(outXy, vertexCount, stride: 2, nameof(outXy));
+        ValidateDoubleArrayPrefix(originalZ, vertexCount, stride: 1, nameof(originalZ));
+        ValidateDoubleArrayPrefix(gradedZ, vertexCount, stride: 1, nameof(gradedZ));
+        ValidateDoubleArrayPrefix(gradedVertices, vertexCount, stride: 3, nameof(gradedVertices));
+    }
+
+    private static void ValidateXyzArrays(
+        double[] originalVertices,
+        double[] gradedVertices,
+        int vertexCount)
+    {
+        ValidateDoubleArrayPrefix(originalVertices, vertexCount, stride: 3, nameof(originalVertices));
+        ValidateDoubleArrayPrefix(gradedVertices, vertexCount, stride: 3, nameof(gradedVertices));
+    }
+
+    private static void ValidateDoubleArrayPrefix(double[] values, int itemCount, int stride, string parameterName)
+    {
+        if (values == null)
+            throw new ArgumentNullException(parameterName);
+
+        int requiredValueCount = CheckedValueCount(itemCount, stride, parameterName);
+        if (values.Length < requiredValueCount)
+            throw new ArgumentException("Array is shorter than the declared item count requires.", parameterName);
+
+        for (int i = 0; i < requiredValueCount; i++)
+        {
+            if (!double.IsFinite(values[i]))
+                throw new ArgumentException("Array contains non-finite values.", parameterName);
+        }
+    }
+
+    private static int ValidateFacePrefix(int[] faces, int faceCount, string parameterName)
+    {
+        if (faces == null)
+            throw new ArgumentNullException(parameterName);
+
+        int requiredFaceValueCount = CheckedValueCount(faceCount, stride: 3, parameterName);
+        if (faces.Length < requiredFaceValueCount)
+            throw new ArgumentException("Face array is shorter than faceCount requires.", parameterName);
+
+        int maxVertexIndex = -1;
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[faceIndex * 3 + 1];
+            int c = faces[faceIndex * 3 + 2];
+            if (a < 0 || b < 0 || c < 0)
+                throw new ArgumentException("Face array references a negative vertex index.", parameterName);
+
+            maxVertexIndex = Math.Max(maxVertexIndex, Math.Max(a, Math.Max(b, c)));
+        }
+
+        return maxVertexIndex + 1;
+    }
+
+    private static int CheckedValueCount(int itemCount, int stride, string parameterName)
+    {
+        if (itemCount < 0)
+            throw new ArgumentOutOfRangeException(parameterName, "Item count cannot be negative.");
+
+        long valueCount = (long)itemCount * stride;
+        if (valueCount > int.MaxValue)
+            throw new ArgumentOutOfRangeException(parameterName, "Item count is too large.");
+
+        return (int)valueCount;
     }
 
     private static void AddDaylightEdge(

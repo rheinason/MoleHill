@@ -198,6 +198,110 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void GradingResultBuilder_BuildFromComponents_RejectsShortComponentArrays()
+    {
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 1.0
+        };
+        double[] originalZ = { 0.0, 0.0 };
+        double[] gradedZ = { 0.0, 0.0, 0.0 };
+        double[] gradedVertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 0.0
+        };
+        int[] faces = { 0, 1, 2 };
+
+        var exception = Assert.Throws<ArgumentException>(() => GradingResultBuilder.BuildFromComponents(
+            xy,
+            originalZ,
+            gradedZ,
+            gradedVertices,
+            vertexCount: 3,
+            faces,
+            faceCount: 1));
+
+        Assert.Contains("shorter", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GradingResultBuilder_BuildFromXyz_RejectsNonFiniteOriginalVertices()
+    {
+        double[] originalVertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, double.NaN, 0.0,
+            0.0, 1.0, 0.0
+        };
+        double[] gradedVertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 0.0
+        };
+        int[] faces = { 0, 1, 2 };
+
+        var exception = Assert.Throws<ArgumentException>(() => GradingResultBuilder.BuildFromXyz(
+            originalVertices,
+            gradedVertices,
+            vertexCount: 3,
+            faces,
+            faceCount: 1));
+
+        Assert.Contains("non-finite", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GradingResultBuilder_ComputeVolume_RejectsNegativeFaceIndex()
+    {
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 1.0
+        };
+        double[] originalZ = { 0.0, 0.0, 0.0 };
+        double[] gradedZ = { 0.0, 0.0, 0.0 };
+        int[] faces = { 0, -1, 2 };
+
+        var exception = Assert.Throws<ArgumentException>(() => GradingResultBuilder.ComputeVolume(
+            xy,
+            originalZ,
+            gradedZ,
+            faces,
+            faceCount: 1));
+
+        Assert.Contains("negative", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GradingResultBuilder_BuildDaylightVertices_RejectsShortZArrays()
+    {
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 1.0
+        };
+        double[] originalZ = { 0.0, 0.0 };
+        double[] gradedZ = { 1.0, -1.0 };
+        int[] faces = { 0, 1, 2 };
+
+        var exception = Assert.Throws<ArgumentException>(() => GradingResultBuilder.BuildDaylightVertices(
+            xy,
+            originalZ,
+            gradedZ,
+            faces,
+            faceCount: 1));
+
+        Assert.Contains("shorter", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void GradingResult_Constructor_RejectsInvalidVolumes()
     {
         double[] vertices =
