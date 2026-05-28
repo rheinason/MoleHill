@@ -357,4 +357,85 @@ internal static class GradingInputValidator
 
         return true;
     }
+
+    public static bool ValidateSurfaceDefinitions(
+        IReadOnlyList<SurfaceStripGrader.SurfaceDefinition>? surfaces,
+        out string? errorMessage,
+        bool requireAny = true)
+    {
+        errorMessage = null;
+
+        if (surfaces == null)
+        {
+            errorMessage = "At least one graded surface is required.";
+            return false;
+        }
+
+        if (requireAny && surfaces.Count == 0)
+        {
+            errorMessage = "At least one graded surface is required.";
+            return false;
+        }
+
+        for (int i = 0; i < surfaces.Count; i++)
+        {
+            SurfaceStripGrader.SurfaceDefinition surface = surfaces[i];
+            if (surface == null)
+            {
+                errorMessage = "Each graded surface must be valid.";
+                return false;
+            }
+
+            if (surface.FootprintVertexCount < 3 ||
+                surface.FootprintXy == null)
+            {
+                errorMessage = "The graded surface footprint must contain at least 3 vertices.";
+                return false;
+            }
+
+            if (surface.BoundaryVertexCount < 2 ||
+                surface.BoundaryVertices == null)
+            {
+                errorMessage = "The graded surface boundary must contain at least 2 vertices.";
+                return false;
+            }
+
+            long requiredFootprintValues = (long)surface.FootprintVertexCount * 2;
+            if (requiredFootprintValues > int.MaxValue ||
+                !ValidateFiniteValues(
+                    surface.FootprintXy,
+                    (int)requiredFootprintValues,
+                    "The graded surface footprint must contain at least 3 vertices.",
+                    "The graded surface footprint must contain only finite coordinates.",
+                    out errorMessage))
+            {
+                return false;
+            }
+
+            long requiredBoundaryValues = (long)surface.BoundaryVertexCount * 3;
+            if (requiredBoundaryValues > int.MaxValue ||
+                !ValidateFiniteValues(
+                    surface.BoundaryVertices,
+                    (int)requiredBoundaryValues,
+                    "The graded surface boundary must contain at least 2 vertices.",
+                    "The graded surface boundary must contain only finite coordinates.",
+                    out errorMessage))
+            {
+                return false;
+            }
+
+            if (!double.IsFinite(surface.PlaneXCoeff) ||
+                !double.IsFinite(surface.PlaneYCoeff) ||
+                !double.IsFinite(surface.PlaneConstant) ||
+                !double.IsFinite(surface.SlopeAngleDeg) ||
+                !double.IsFinite(surface.MaxDistance) ||
+                surface.MaxDistance < 0.0)
+            {
+                errorMessage = "Each graded surface must define valid finite grading parameters.";
+                return false;
+            }
+        }
+
+        return true;
+    }
 }

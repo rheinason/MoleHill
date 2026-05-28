@@ -103,6 +103,76 @@ public class SurfaceStripGraderTests
     }
 
     [Fact]
+    public void Grade_EmptySurfaceList_ReturnsFailure()
+    {
+        GradingResult? result = SurfaceStripGrader.Grade(
+            BuildGridVertices(),
+            15,
+            BuildGridFaces(),
+            16,
+            Array.Empty<SurfaceStripGrader.SurfaceDefinition>(),
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("surface", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Grade_NonFiniteSurfaceParameters_ReturnsFailure()
+    {
+        var surface = new SurfaceStripGrader.SurfaceDefinition(
+            footprintXy: new[] { 0.0, 0.0, 2.0, 0.0, 2.0, 1.0, 0.0, 1.0 },
+            footprintVertexCount: 4,
+            boundaryVertices: new[]
+            {
+                0.0, 0.0, 0.0,
+                2.0, 0.0, 0.4,
+                2.0, 1.0, 0.4,
+                0.0, 1.0, 0.0
+            },
+            boundaryVertexCount: 4,
+            planeXCoeff: double.NaN,
+            planeYCoeff: 0.0,
+            planeConstant: 0.0);
+
+        GradingResult? result = SurfaceStripGrader.Grade(
+            BuildGridVertices(),
+            15,
+            BuildGridFaces(),
+            16,
+            surface,
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Grade_SurfaceBoundaryArrayTooShort_ReturnsFailure()
+    {
+        var surface = new SurfaceStripGrader.SurfaceDefinition(
+            footprintXy: new[] { 0.0, 0.0, 2.0, 0.0, 2.0, 1.0, 0.0, 1.0 },
+            footprintVertexCount: 4,
+            boundaryVertices: new[] { 0.0, 0.0, 0.0 },
+            boundaryVertexCount: 2,
+            planeXCoeff: 0.0,
+            planeYCoeff: 0.0,
+            planeConstant: 0.0);
+
+        GradingResult? result = SurfaceStripGrader.Grade(
+            BuildGridVertices(),
+            15,
+            BuildGridFaces(),
+            16,
+            surface,
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("boundary", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Grade_SurfaceFootprint_RegradesInteriorToPlane()
     {
         var surface = new SurfaceStripGrader.SurfaceDefinition(
