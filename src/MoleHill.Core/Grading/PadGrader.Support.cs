@@ -141,6 +141,14 @@ public static partial class PadGrader
 
     private static GradingDiagnosticSeverity ClassifyPadDiagnosticSeverity(string message)
     {
+        if (message.Contains("topology summary", StringComparison.OrdinalIgnoreCase) &&
+            (message.Contains("open chains=True", StringComparison.OrdinalIgnoreCase) ||
+             !message.Contains("boundary components=1", StringComparison.OrdinalIgnoreCase) ||
+             !message.Contains("nonmanifold edges=0", StringComparison.OrdinalIgnoreCase)))
+        {
+            return GradingDiagnosticSeverity.Warning;
+        }
+
         return message.Contains("warning", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("rejected", StringComparison.OrdinalIgnoreCase) ||
@@ -159,6 +167,8 @@ public static partial class PadGrader
             return "grade_pad.slope.deviation";
         if (message.Contains("batter slope check", StringComparison.OrdinalIgnoreCase))
             return "grade_pad.slope.check";
+        if (message.Contains("topology summary", StringComparison.OrdinalIgnoreCase))
+            return "grade_pad.topology.summary";
         if (message.Contains("seam vertices", StringComparison.OrdinalIgnoreCase))
             return "grade_pad.stitch.seam_vertices";
         if (message.Contains("seam deviation", StringComparison.OrdinalIgnoreCase))

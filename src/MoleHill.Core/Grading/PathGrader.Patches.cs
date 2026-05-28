@@ -132,6 +132,15 @@ public static partial class PathGrader
             "grade_path.topology_mode.constraint_insertion",
             $"Grade Path topology mode: constraint insertion ({vertexCount:N0} verts/{faceCount:N0} faces -> {topologyVertexCount:N0} verts/{topologyFaceCount:N0} faces).",
             operation: "Grade Path");
+        diagnostics.Add(GradingTopologyDiagnostics.BuildMeshSummary(
+            "grade_path.topology.summary",
+            "Grade Path",
+            vertexCount,
+            faceCount,
+            topologyVertexCount,
+            topologyFaceCount,
+            topologyFaces,
+            operation: "Grade Path"));
         errorMessage = null;
         return BuildResult(
             outXy,

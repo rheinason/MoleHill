@@ -675,6 +675,14 @@ public static partial class PadGrader
             sampledOriginalVertices[i * 3 + 2] = originalTerrain.InterpolateZ(x, y);
         }
 
+        diagnostics.Add(GradingTopologyDiagnostics.BuildMeshSummaryMessage(
+            "Grade Pad",
+            vertexCount,
+            faceCount,
+            currentVertexCount,
+            currentFaceCount,
+            currentFaces));
+
         return BuildResult(
             sampledOriginalVertices,
             currentVertexCount,

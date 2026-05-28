@@ -464,12 +464,18 @@ public class PadGraderTests
             diagnostic => diagnostic.Contains("using terrain-side stitch loop", StringComparison.OrdinalIgnoreCase) ||
                           diagnostic.Contains("coupled protected patch", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("batter slope check", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("topology summary:", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(
             result.StructuredDiagnostics,
             diagnostic => diagnostic.Code == "grade_pad.slope.check" &&
                           diagnostic.Severity == GradingDiagnosticSeverity.Information &&
                           diagnostic.Operation == "grade_pad" &&
                           diagnostic.TargetIndex == 0);
+        Assert.Contains(
+            result.StructuredDiagnostics,
+            diagnostic => diagnostic.Code == "grade_pad.topology.summary" &&
+                          diagnostic.Severity == GradingDiagnosticSeverity.Information &&
+                          diagnostic.Operation == "grade_pad");
     }
 
     [Fact]
