@@ -2,6 +2,39 @@ namespace MoleHill.Core.Grading;
 
 internal static class GradingInputValidator
 {
+    public static bool ValidateFiniteValues(
+        double[]? values,
+        int requiredValueCount,
+        string emptyOrShortMessage,
+        string nonFiniteMessage,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (values == null)
+        {
+            errorMessage = emptyOrShortMessage;
+            return false;
+        }
+
+        if (requiredValueCount < 0 ||
+            requiredValueCount > values.Length)
+        {
+            errorMessage = emptyOrShortMessage;
+            return false;
+        }
+
+        for (int i = 0; i < requiredValueCount; i++)
+        {
+            if (!double.IsFinite(values[i]))
+            {
+                errorMessage = nonFiniteMessage;
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public static bool ValidateTerrainMesh(
         double[]? vertices,
         int vertexCount,
@@ -45,9 +78,13 @@ internal static class GradingInputValidator
             return false;
         }
 
-        if (vertices.Length < requiredVertexValues)
+        if (!ValidateFiniteValues(
+                vertices,
+                (int)requiredVertexValues,
+                "Terrain vertex array is shorter than vertexCount requires.",
+                "Terrain vertices must contain only finite coordinates.",
+                out errorMessage))
         {
-            errorMessage = "Terrain vertex array is shorter than vertexCount requires.";
             return false;
         }
 
@@ -55,15 +92,6 @@ internal static class GradingInputValidator
         {
             errorMessage = "Terrain face array is shorter than faceCount requires.";
             return false;
-        }
-
-        for (int i = 0; i < (int)requiredVertexValues; i++)
-        {
-            if (!double.IsFinite(vertices[i]))
-            {
-                errorMessage = "Terrain vertices must contain only finite coordinates.";
-                return false;
-            }
         }
 
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)

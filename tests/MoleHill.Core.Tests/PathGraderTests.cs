@@ -28,6 +28,27 @@ public class PathGraderTests
     }
 
     [Fact]
+    public void Grade_NonFinitePathElevation_ReturnsFailure()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, double.NaN },
+            vertexCount: 2,
+            width: 2.0);
+
+        GradingResult? result = PathGrader.Grade(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Grade_InsertsShoulderVertices_WhenExplicitMaxDistanceFitsInsideBoundary()
     {
         var path = new PathGrader.PathDefinition(

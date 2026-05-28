@@ -28,6 +28,27 @@ public class PadGraderTests
     }
 
     [Fact]
+    public void Grade_NonFinitePadCoordinate_ReturnsFailure()
+    {
+        var pad = new PadGrader.PadBoundary(
+            new[] { 1.0, 1.0, double.PositiveInfinity, 1.0, 3.0, 3.0, 1.0, 3.0 },
+            4,
+            targetZ: 1.0);
+
+        GradingResult? result = PadGrader.Grade(
+            BuildGridVertices(5, 1.0),
+            25,
+            BuildGridFaces(5),
+            32,
+            new[] { pad },
+            null,
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("finite", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void TryTriangulateTopology_InvalidTerrainFace_ReturnsFailure()
     {
         var pad = new PadGrader.PadBoundary(

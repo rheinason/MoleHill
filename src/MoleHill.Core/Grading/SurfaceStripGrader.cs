@@ -203,17 +203,36 @@ public static class SurfaceStripGrader
 
             long requiredFootprintValues = (long)surface.FootprintVertexCount * 2;
             if (requiredFootprintValues > int.MaxValue ||
-                surface.FootprintXy.Length < requiredFootprintValues)
+                !GradingInputValidator.ValidateFiniteValues(
+                    surface.FootprintXy,
+                    (int)requiredFootprintValues,
+                    "The graded surface footprint must contain at least 3 vertices.",
+                    "The graded surface footprint must contain only finite coordinates.",
+                    out errorMessage))
             {
-                errorMessage = "The graded surface footprint must contain at least 3 vertices.";
                 return null;
             }
 
             long requiredBoundaryValues = (long)surface.BoundaryVertexCount * 3;
             if (requiredBoundaryValues > int.MaxValue ||
-                surface.BoundaryVertices.Length < requiredBoundaryValues)
+                !GradingInputValidator.ValidateFiniteValues(
+                    surface.BoundaryVertices,
+                    (int)requiredBoundaryValues,
+                    "The graded surface boundary must contain at least 2 vertices.",
+                    "The graded surface boundary must contain only finite coordinates.",
+                    out errorMessage))
             {
-                errorMessage = "The graded surface boundary must contain at least 2 vertices.";
+                return null;
+            }
+
+            if (!double.IsFinite(surface.PlaneXCoeff) ||
+                !double.IsFinite(surface.PlaneYCoeff) ||
+                !double.IsFinite(surface.PlaneConstant) ||
+                !double.IsFinite(surface.SlopeAngleDeg) ||
+                !double.IsFinite(surface.MaxDistance) ||
+                surface.MaxDistance < 0.0)
+            {
+                errorMessage = "Each graded surface must define valid finite grading parameters.";
                 return null;
             }
         }

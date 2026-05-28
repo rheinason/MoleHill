@@ -55,9 +55,7 @@ public static partial class PathGrader
 
         foreach (var path in paths)
         {
-            if (path == null ||
-                path.XyVertices == null ||
-                path.ZValues == null)
+            if (path == null)
             {
                 errorMessage = "Each path must have valid XY and Z vertices.";
                 return null;
@@ -71,16 +69,33 @@ public static partial class PathGrader
 
             long requiredPathXyValues = (long)path.VertexCount * 2;
             if (requiredPathXyValues > int.MaxValue ||
-                path.XyVertices.Length < requiredPathXyValues ||
-                path.ZValues.Length < path.VertexCount)
+                !GradingInputValidator.ValidateFiniteValues(
+                    path.XyVertices,
+                    (int)requiredPathXyValues,
+                    "Each path must have valid XY and Z vertices.",
+                    "Path coordinates must contain only finite values.",
+                    out errorMessage) ||
+                !GradingInputValidator.ValidateFiniteValues(
+                    path.ZValues,
+                    path.VertexCount,
+                    "Each path must have valid XY and Z vertices.",
+                    "Path elevations must contain only finite values.",
+                    out errorMessage))
             {
-                errorMessage = "Each path must have valid XY and Z vertices.";
                 return null;
             }
 
-            if (path.Width <= 0)
+            if (!double.IsFinite(path.Width) || path.Width <= 0)
             {
                 errorMessage = "Path width must be positive.";
+                return null;
+            }
+
+            if (!double.IsFinite(path.SlopeAngleDeg) ||
+                !double.IsFinite(path.MaxDistance) ||
+                path.MaxDistance < 0.0)
+            {
+                errorMessage = "Each path must define finite grading parameters.";
                 return null;
             }
         }

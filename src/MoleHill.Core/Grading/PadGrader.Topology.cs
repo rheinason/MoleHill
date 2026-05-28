@@ -306,8 +306,6 @@ public static partial class PadGrader
         foreach (var pad in pads)
         {
             if (pad == null ||
-                pad.XyVertices == null ||
-                pad.BoundaryVertices == null ||
                 pad.VertexCount < 3)
             {
                 errorMessage = "Each pad must have at least 3 valid vertices.";
@@ -318,18 +316,32 @@ public static partial class PadGrader
             long requiredPadBoundaryValues = (long)pad.VertexCount * 3;
             if (requiredPadXyValues > int.MaxValue ||
                 requiredPadBoundaryValues > int.MaxValue ||
-                pad.XyVertices.Length < requiredPadXyValues ||
-                pad.BoundaryVertices.Length < requiredPadBoundaryValues)
+                !GradingInputValidator.ValidateFiniteValues(
+                    pad.XyVertices,
+                    (int)requiredPadXyValues,
+                    "Each pad must have at least 3 valid vertices.",
+                    "Pad coordinates must contain only finite values.",
+                    out errorMessage) ||
+                !GradingInputValidator.ValidateFiniteValues(
+                    pad.BoundaryVertices,
+                    (int)requiredPadBoundaryValues,
+                    "Each pad must have at least 3 valid vertices.",
+                    "Pad boundary vertices must contain only finite values.",
+                    out errorMessage))
             {
-                errorMessage = "Each pad must have at least 3 valid vertices.";
                 return false;
             }
 
             if (!double.IsFinite(pad.PlaneXCoeff) ||
                 !double.IsFinite(pad.PlaneYCoeff) ||
-                !double.IsFinite(pad.PlaneConstant))
+                !double.IsFinite(pad.PlaneConstant) ||
+                !double.IsFinite(pad.SlopeAngleDeg) ||
+                !double.IsFinite(pad.MaxDistance) ||
+                !double.IsFinite(pad.StitchApronDistance) ||
+                pad.MaxDistance < 0.0 ||
+                pad.StitchApronDistance < 0.0)
             {
-                errorMessage = "Each pad must define a valid finished plane.";
+                errorMessage = "Each pad must define valid finite grading parameters.";
                 return false;
             }
         }
