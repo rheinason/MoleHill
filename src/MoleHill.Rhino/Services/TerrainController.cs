@@ -1680,7 +1680,7 @@ internal sealed class TerrainController
 
         foreach (var auxiliary in build.AuxiliaryObjects)
         {
-            if (auxiliary.AnalysisId.HasValue || auxiliary.Kind == GeneratedObjectKind.RetainingWall)
+            if (!TerrainOutputSyncPolicy.ShouldSyncAuxiliaryOutput(auxiliary))
                 continue;
 
             Guid id = AddGeneratedObject(doc, terrain, new GeneratedRhinoObject
