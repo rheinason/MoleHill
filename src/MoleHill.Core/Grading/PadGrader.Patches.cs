@@ -1371,6 +1371,44 @@ public static partial class PadGrader
         return true;
     }
 
+    private static double[] ResampleClosedLoopBySpacing(double[] loopXy, double targetSpacing, double tolerance)
+    {
+        int vertexCount = loopXy.Length / 2;
+        if (vertexCount < 4 || !double.IsFinite(targetSpacing) || targetSpacing <= tolerance)
+            return (double[])loopXy.Clone();
+
+        double perimeter = 0.0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int next = (i + 1) % vertexCount;
+            perimeter += Math.Sqrt(DistanceSquaredXY(
+                loopXy[i * 2],
+                loopXy[i * 2 + 1],
+                loopXy[next * 2],
+                loopXy[next * 2 + 1]));
+        }
+
+        if (perimeter <= targetSpacing * 3.0)
+            return (double[])loopXy.Clone();
+
+        int targetCount = Math.Clamp((int)Math.Ceiling(perimeter / targetSpacing), 3, vertexCount);
+        if (targetCount >= vertexCount)
+            return (double[])loopXy.Clone();
+
+        var resampled = new double[targetCount * 2];
+        for (int i = 0; i < targetCount; i++)
+        {
+            double station = i / (double)targetCount;
+            if (!TrySampleLoopAtFraction(loopXy, vertexCount, station, out double x, out double y))
+                return (double[])loopXy.Clone();
+
+            resampled[i * 2] = x;
+            resampled[i * 2 + 1] = y;
+        }
+
+        return SimplifyClosedLoopByShortEdges(resampled, Math.Max(tolerance * 4.0, 1e-6));
+    }
+
     private static bool IsFoldDirectionAtCorner(PreparedPadSections prepared, int vertexIndex, double tolerance)
     {
         int count = prepared.BoundaryVertexCount;

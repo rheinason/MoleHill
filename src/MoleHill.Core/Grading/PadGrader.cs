@@ -307,6 +307,8 @@ public static partial class PadGrader
                 seamLoopXy = AlignClosedLoopToReference(prepared.ShoulderXy, seamLoopXy, dedupTol);
 
             double[] daylightLoopXy = (double[])seamLoopXy.Clone();
+            bool isProtectedPad = pads[padIndex].StitchApronDistance > dedupTol * 4.0;
+            double[]? protectedStitchLoopCandidateXy = null;
             bool daylightCoincidesWithPad = LoopsCoincide(daylightLoopXy, prepared.BoundaryLoopXy, dedupTol * 4.0);
             string? stitchSkipReason = null;
             if (!daylightCoincidesWithPad &&
@@ -329,6 +331,7 @@ public static partial class PadGrader
                      out stitchSkipReason)))
             {
                 seamLoopXy = AlignClosedLoopToReference(protectedStitchLoopXy, daylightLoopXy, dedupTol);
+                protectedStitchLoopCandidateXy = (double[])seamLoopXy.Clone();
                 diagnostics.Add($"Grade Pad[{padIndex}] protected stitch apron: daylight->{prepared.Pad.StitchApronDistance:F6} with {seamLoopXy.Length / 2} stitch vertices.");
             }
             else if (!daylightCoincidesWithPad && !string.IsNullOrWhiteSpace(stitchSkipReason))
@@ -377,6 +380,7 @@ public static partial class PadGrader
                 out int outsideVertexCount,
                 out int[] outsideFaces,
                 out int outsideFaceCount);
+            double[]? exactTerrainSideStitchLoopXy = null;
             if (!hasOutsideMesh)
             {
                 diagnostics.Add($"Grade Pad[{padIndex}] daylight seam reached or crossed the terrain boundary; grading was clipped to the available terrain and no outside stitch mesh was available.");
@@ -384,12 +388,14 @@ public static partial class PadGrader
             else if (TryBuildSeamLoopFromOutsideMesh(outsideVertices, outsideFaces, outsideFaceCount, seamLoopXy, dedupTol, out double[] terrainStitchLoopXy) &&
                      LoopsCoincide(terrainStitchLoopXy, seamLoopXy, dedupTol * 8.0))
             {
-                seamLoopXy = AlignClosedLoopToReference(terrainStitchLoopXy, seamLoopXy, dedupTol);
-                if (prepared.Pad.StitchApronDistance <= dedupTol * 4.0)
+                exactTerrainSideStitchLoopXy = AlignClosedLoopToReference(terrainStitchLoopXy, seamLoopXy, dedupTol);
+                if (!isProtectedPad)
+                    seamLoopXy = exactTerrainSideStitchLoopXy;
+                if (!isProtectedPad)
                     daylightLoopXy = (double[])seamLoopXy.Clone();
 
                 seamCoincidesWithPad = LoopsCoincide(seamLoopXy, prepared.BoundaryLoopXy, dedupTol * 4.0);
-                diagnostics.Add($"Grade Pad[{padIndex}] using terrain-side stitch loop with {seamLoopXy.Length / 2} vertices.");
+                diagnostics.Add($"Grade Pad[{padIndex}] using terrain-side stitch loop with {exactTerrainSideStitchLoopXy.Length / 2} vertices.");
             }
 
             PatchMeshResult? patch = null;
@@ -441,6 +447,218 @@ public static partial class PadGrader
                 return false;
             }
 
+            List<ProtectedPadStitchCandidate> BuildProtectedStitchCandidates()
+            {
+                var candidates = new List<ProtectedPadStitchCandidate>(3);
+
+                void AddCandidate(ProtectedPadStitchCandidateKind kind, double[] loop, string label)
+                {
+                    if (loop.Length < 6)
+                        return;
+
+                    for (int i = 0; i < candidates.Count; i++)
+                    {
+                        if (candidates[i].StitchLoopXy.Length == loop.Length &&
+                            LoopsCoincide(candidates[i].StitchLoopXy, loop, dedupTol * 4.0))
+                        {
+                            return;
+                        }
+                    }
+
+                    candidates.Add(new ProtectedPadStitchCandidate(kind, (double[])loop.Clone(), label));
+                }
+
+                if (protectedStitchLoopCandidateXy != null)
+                    AddCandidate(ProtectedPadStitchCandidateKind.ProtectedStitch, protectedStitchLoopCandidateXy, "protected stitch loop");
+
+                if (exactTerrainSideStitchLoopXy != null)
+                {
+                    double budgetedSpacing = Math.Max(minStitchSegmentLength * 4.0, dedupTol * 16.0);
+                    double[] budgetedLoop = ResampleClosedLoopBySpacing(exactTerrainSideStitchLoopXy, budgetedSpacing, dedupTol);
+                    if ((budgetedLoop.Length / 2) < (exactTerrainSideStitchLoopXy.Length / 2) &&
+                        LoopsCoincide(budgetedLoop, exactTerrainSideStitchLoopXy, Math.Max(dedupTol * 16.0, budgetedSpacing)))
+                    {
+                        AddCandidate(ProtectedPadStitchCandidateKind.BudgetedTerrainSide, budgetedLoop, "budgeted terrain-side stitch loop");
+                    }
+
+                    AddCandidate(ProtectedPadStitchCandidateKind.ExactTerrainSide, exactTerrainSideStitchLoopXy, "exact terrain-side stitch loop");
+                }
+
+                if (candidates.Count == 0)
+                    AddCandidate(ProtectedPadStitchCandidateKind.ProtectedStitch, seamLoopXy, "protected stitch loop");
+
+                return candidates;
+            }
+
+            bool TryApplyProtectedPatchCandidate(
+                ProtectedPadStitchCandidate candidate,
+                int softVertexBudget,
+                int hardVertexBudget,
+                out string failure)
+            {
+                failure = string.Empty;
+                double[] candidateSeamLoopXy = candidate.StitchLoopXy;
+                bool candidateSeamCoincidesWithPad = LoopsCoincide(candidateSeamLoopXy, prepared.BoundaryLoopXy, dedupTol * 4.0);
+                if (!hasOutsideMesh || candidateSeamCoincidesWithPad)
+                {
+                    failure = $"{candidate.Label} could not be tested because no outside stitch mesh was available.";
+                    return false;
+                }
+
+                PatchMeshResult? candidatePatch = TryBuildPadPatchMesh(
+                    currentFaceGrid,
+                    barriers,
+                    hasTerrainBoundary,
+                    terrainBoundaryLoop,
+                    terrainBoundaryVertexCount,
+                    prepared,
+                    daylightLoopXy,
+                    candidateSeamLoopXy,
+                    out string? candidatePatchError);
+                if (candidatePatch == null)
+                {
+                    failure = $"{candidate.Label} patch build failed: {candidatePatchError ?? "no patch was produced"}.";
+                    return false;
+                }
+
+                if (candidatePatch.VertexCount > hardVertexBudget)
+                {
+                    failure = $"{candidate.Label} patch exceeded hard density budget ({candidatePatch.VertexCount:N0} vertices > {hardVertexBudget:N0}).";
+                    return false;
+                }
+
+                if (!TryBuildBoundaryLoop(
+                        candidatePatch.Vertices,
+                        candidatePatch.Faces,
+                        candidatePatch.FaceCount,
+                        out double[] candidatePatchBoundaryLoopXy,
+                        out _))
+                {
+                    failure = $"{candidate.Label} patch did not produce a single closed stitch boundary.";
+                    return false;
+                }
+
+                SeamValidationResult candidateSeamValidation = SeamValidator.ValidatePatchSegmentMatch(
+                    candidatePatchBoundaryLoopXy,
+                    candidatePatch.Vertices,
+                    candidatePatch.Faces,
+                    candidatePatch.FaceCount,
+                    outsideVertices,
+                    outsideFaces,
+                    outsideFaceCount,
+                    dedupTol);
+                SeamGraph candidateSeamGraph = candidateSeamValidation.SeamGraph!;
+                if (!candidateSeamValidation.IsValid)
+                {
+                    failure =
+                        $"{candidate.Label} seam integrity check failed ({candidateSeamValidation.FailureReason}; patch={candidateSeamGraph.PatchMatchedSegments}/{candidateSeamGraph.SeamVertexCount}, outside={candidateSeamGraph.TerrainMatchedSegments}/{candidateSeamGraph.SeamVertexCount}).";
+                    return false;
+                }
+
+                if (!TryMergePatchWithOutsideTerrain(
+                        outsideVertices,
+                        outsideVertexCount,
+                        outsideFaces,
+                        outsideFaceCount,
+                        candidatePatch,
+                        candidateSeamLoopXy,
+                        hasTerrainBoundary ? terrainBoundaryLoop : null,
+                        dedupTol,
+                        rejectInteriorSeamBoundaryEdges: true,
+                        out double[] mergedVertices,
+                        out int mergedVertexCount,
+                        out int[] mergedFaces,
+                        out int mergedFaceCount,
+                        out string? mergeFailure))
+                {
+                    failure = $"{candidate.Label} stitched merge rejected: {mergeFailure}.";
+                    return false;
+                }
+
+                diagnostics.Add(
+                    $"Grade Pad[{padIndex}] selected {candidate.Label}: stitch vertices={candidateSeamLoopXy.Length / 2:N0}, patch vertices={candidatePatch.VertexCount:N0}, patch faces={candidatePatch.FaceCount:N0}, soft cap={softVertexBudget:N0}, hard cap={hardVertexBudget:N0}.");
+                if (candidatePatch.VertexCount > softVertexBudget)
+                    diagnostics.Add($"Grade Pad[{padIndex}] explicit protected patch density warning: {candidatePatch.VertexCount:N0} vertices exceeds soft budget {softVertexBudget:N0}.");
+
+                seamLoopXy = candidateSeamLoopXy;
+                seamCoincidesWithPad = candidateSeamCoincidesWithPad;
+                diagnostics.AddRange(BuildPadSlopeDiagnostics(padIndex, prepared, candidatePatch, dedupTol));
+                if (candidatePatch.CornerConstraintsRejected)
+                    diagnostics.Add($"Grade Pad[{padIndex}] explicit patch corner constraints were rejected by the triangulator; retried without them.");
+                if (candidatePatch.CornerConstraintCount > 0)
+                    diagnostics.Add($"Grade Pad[{padIndex}] explicit patch corner constraints: {candidatePatch.CornerConstraintCount}.");
+                diagnostics.AddRange(BuildPadStitchDiagnostics(
+                    padIndex,
+                    daylightLoopXy,
+                    candidateSeamLoopXy,
+                    candidatePatchBoundaryLoopXy,
+                    candidatePatch.Vertices,
+                    candidatePatch.Faces,
+                    candidatePatch.FaceCount,
+                    outsideVertices,
+                    outsideFaces,
+                    outsideFaceCount,
+                    dedupTol));
+
+                currentVertices = mergedVertices;
+                currentVertexCount = mergedVertexCount;
+                currentFaces = mergedFaces;
+                currentFaceCount = mergedFaceCount;
+                diagnostics.Add(
+                    $"Grade Pad[{padIndex}] merged-mesh naked edges near seam: {CountBoundaryEdgesNearLoop(currentVertices, currentFaces, currentFaceCount, candidateSeamLoopXy, dedupTol * 4.0)}.");
+                outputPolylines.Add(BuildPadBoundaryPolyline(prepared));
+                patchSummaries.Add(BuildPadPatchSummary(prepared, candidateSeamLoopXy, padIndex, dedupTol));
+                return true;
+            }
+
+            if (!allowSplitLocalFallback)
+            {
+                int localInputVertexCount = Math.Max(localVertexCount, 1);
+                int softVertexBudget = Math.Max(2000, Math.Max(localInputVertexCount * 8, currentVertexCount * 2));
+                int hardVertexBudget = Math.Max(10000, Math.Max(localInputVertexCount * 25, currentVertexCount * 4));
+                var candidateFailures = new List<string>();
+                bool appliedCandidate = false;
+                foreach (ProtectedPadStitchCandidate candidate in BuildProtectedStitchCandidates())
+                {
+                    if (TryApplyProtectedPatchCandidate(candidate, softVertexBudget, hardVertexBudget, out string candidateFailure))
+                    {
+                        appliedCandidate = true;
+                        break;
+                    }
+
+                    candidateFailures.Add(candidateFailure);
+                }
+
+                if (appliedCandidate)
+                    continue;
+
+                foreach (string candidateFailure in candidateFailures)
+                    diagnostics.Add($"Grade Pad[{padIndex}] protected stitch candidate rejected: {candidateFailure}");
+
+                if (exactTerrainSideStitchLoopXy != null)
+                    seamLoopXy = exactTerrainSideStitchLoopXy;
+                else if (protectedStitchLoopCandidateXy != null)
+                    seamLoopXy = protectedStitchLoopCandidateXy;
+
+                string fallbackFailure = candidateFailures.Count > 0
+                    ? candidateFailures[^1]
+                    : $"Grade Pad[{padIndex}] explicit protected patch could not be built.";
+                if (TryApplyProtectedWholeMeshRemesh(
+                        $"Grade Pad[{padIndex}] explicit protected patch candidates were rejected; retrying protected whole-mesh remesh.",
+                        fallbackFailure,
+                        out string? remeshFailure))
+                {
+                    continue;
+                }
+
+                diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
+                failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
+                errorMessage = BuildProtectedPadFailureMessage(
+                    remeshFailure ?? fallbackFailure,
+                    diagnostics);
+                return null;
+            }
+
             if (hasOutsideMesh && !seamCoincidesWithPad)
             {
                 patch = TryBuildPadPatchMesh(
@@ -456,26 +674,6 @@ public static partial class PadGrader
             }
             if (patch == null)
             {
-                if (!allowSplitLocalFallback)
-                {
-                    if (TryApplyProtectedWholeMeshRemesh(
-                            $"Grade Pad[{padIndex}] explicit protected patch could not be built: {patchError ?? "no patch was produced"}; retrying protected whole-mesh remesh.",
-                            patchError ?? $"Grade Pad[{padIndex}] explicit protected patch could not be built; protected whole-mesh remesh failed.",
-                            out string? remeshFailure))
-                    {
-                        continue;
-                    }
-
-                    diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
-                    failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
-                    errorMessage = BuildProtectedPadFailureMessage(
-                        remeshFailure ??
-                        patchError ??
-                        $"Grade Pad[{padIndex}] explicit protected patch could not be built; split-local fallback is disabled because it can produce invalid shoulder topology.",
-                        diagnostics);
-                    return null;
-                }
-
                 if (patchError != null)
                     diagnostics.Add(patchError);
                 diagnostics.Add($"Grade Pad[{padIndex}] using split local patch.");
@@ -493,25 +691,6 @@ public static partial class PadGrader
 
             if (!TryBuildBoundaryLoop(patch.Vertices, patch.Faces, patch.FaceCount, out double[] patchBoundaryLoopXy, out _))
             {
-                if (!allowSplitLocalFallback)
-                {
-                    if (TryApplyProtectedWholeMeshRemesh(
-                            $"Grade Pad[{padIndex}] explicit patch did not produce a single closed stitch boundary; retrying protected whole-mesh remesh.",
-                            $"Grade Pad[{padIndex}] explicit patch did not produce a single closed stitch boundary; protected whole-mesh remesh failed.",
-                            out string? remeshFailure))
-                    {
-                        continue;
-                    }
-
-                    diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
-                    failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
-                    errorMessage = BuildProtectedPadFailureMessage(
-                        remeshFailure ??
-                        $"Grade Pad[{padIndex}] explicit patch did not produce a single closed stitch boundary; split-local fallback is disabled because it can produce invalid shoulder topology.",
-                        diagnostics);
-                    return null;
-                }
-
                 diagnostics.Add($"Grade Pad[{padIndex}] patch did not produce a single closed stitch boundary; using split local patch.");
                 patch = BuildSplitLocalPadPatchMesh(
                     currentFaceGrid,
@@ -544,25 +723,6 @@ public static partial class PadGrader
                 SeamGraph seamGraph = seamValidation.SeamGraph!;
                 if (!seamValidation.IsValid)
                 {
-                    if (!allowSplitLocalFallback)
-                    {
-                        if (TryApplyProtectedWholeMeshRemesh(
-                                $"Grade Pad[{padIndex}] explicit patch seam integrity check failed ({seamValidation.FailureReason}); retrying protected whole-mesh remesh.",
-                                $"Grade Pad[{padIndex}] explicit patch seam integrity check failed; protected whole-mesh remesh failed.",
-                                out string? remeshFailure))
-                        {
-                            continue;
-                        }
-
-                        diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
-                        failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
-                        errorMessage = BuildProtectedPadFailureMessage(
-                            remeshFailure ??
-                            $"Grade Pad[{padIndex}] explicit patch seam integrity check failed (patch={seamGraph.PatchMatchedSegments}/{seamGraph.SeamVertexCount}, outside={seamGraph.TerrainMatchedSegments}/{seamGraph.SeamVertexCount}, patch-near={seamGraph.PatchBoundarySegmentsNearSeam}, outside-near={seamGraph.TerrainBoundarySegmentsNearSeam}); split-local fallback is disabled because it can produce invalid shoulder topology.",
-                            diagnostics);
-                        return null;
-                    }
-
                     diagnostics.Add($"Grade Pad[{padIndex}] patch seam integrity check failed ({seamValidation.FailureReason}); using split local patch.");
                     patch = BuildSplitLocalPadPatchMesh(
                         currentFaceGrid,
@@ -629,7 +789,7 @@ public static partial class PadGrader
                     seamLoopXy,
                     hasTerrainBoundary ? terrainBoundaryLoop : null,
                     dedupTol,
-                    rejectInteriorSeamBoundaryEdges: !allowSplitLocalFallback,
+                    rejectInteriorSeamBoundaryEdges: false,
                     out currentVertices,
                     out currentVertexCount,
                     out currentFaces,
@@ -637,25 +797,6 @@ public static partial class PadGrader
                     out string? mergeFailure);
                 if (!merged)
                 {
-                    if (!allowSplitLocalFallback)
-                    {
-                        if (TryApplyProtectedWholeMeshRemesh(
-                                $"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; retrying protected whole-mesh remesh.",
-                                $"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; protected whole-mesh remesh failed.",
-                                out string? remeshFailure))
-                        {
-                            continue;
-                        }
-
-                        diagnostics.AddRange(BuildProtectedPadInteractionDiagnostics(padIndex, seamLoopXy, patchSummaries, dedupTol));
-                        failureOutputPolylines = BuildProtectedPadFailurePolylines(prepared, daylightLoopXy, seamLoopXy, currentFaceGrid);
-                        errorMessage = BuildProtectedPadFailureMessage(
-                            remeshFailure ??
-                            $"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; split-local fallback is disabled because it can produce invalid shoulder topology.",
-                            diagnostics);
-                        return null;
-                    }
-
                     diagnostics.Add($"Grade Pad[{padIndex}] explicit stitched merge rejected: {mergeFailure}; retrying split local patch.");
                     PatchMeshResult fallbackPatch = BuildSplitLocalPadPatchMesh(
                         currentFaceGrid,
@@ -677,7 +818,7 @@ public static partial class PadGrader
                             seamLoopXy,
                             hasTerrainBoundary ? terrainBoundaryLoop : null,
                             dedupTol,
-                            rejectInteriorSeamBoundaryEdges: !allowSplitLocalFallback,
+                            rejectInteriorSeamBoundaryEdges: false,
                             out currentVertices,
                             out currentVertexCount,
                             out currentFaces,
