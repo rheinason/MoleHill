@@ -36,6 +36,16 @@ public static partial class PathGrader
         double modelTolerance = GradingTolerances.DefaultModelTolerance)
     {
         errorMessage = null;
+        hardConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+
+        if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out errorMessage))
+            return null;
+
+        if (paths == null)
+        {
+            errorMessage = "No path definitions provided.";
+            return null;
+        }
 
         if (paths.Length == 0)
         {
@@ -45,11 +55,29 @@ public static partial class PathGrader
 
         foreach (var path in paths)
         {
+            if (path == null ||
+                path.XyVertices == null ||
+                path.ZValues == null)
+            {
+                errorMessage = "Each path must have valid XY and Z vertices.";
+                return null;
+            }
+
             if (path.VertexCount < 2)
             {
                 errorMessage = "Each path must have at least 2 vertices.";
                 return null;
             }
+
+            long requiredPathXyValues = (long)path.VertexCount * 2;
+            if (requiredPathXyValues > int.MaxValue ||
+                path.XyVertices.Length < requiredPathXyValues ||
+                path.ZValues.Length < path.VertexCount)
+            {
+                errorMessage = "Each path must have valid XY and Z vertices.";
+                return null;
+            }
+
             if (path.Width <= 0)
             {
                 errorMessage = "Path width must be positive.";

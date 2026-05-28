@@ -162,6 +162,16 @@ public static class SurfaceStripGrader
     {
         errorMessage = null;
         const double dedupTol = 1e-3;
+        barrierConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+
+        if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out errorMessage))
+            return null;
+
+        if (surfaces == null)
+        {
+            errorMessage = "At least one graded surface is required.";
+            return null;
+        }
 
         if (surfaces.Count == 0)
         {
@@ -171,13 +181,37 @@ public static class SurfaceStripGrader
 
         foreach (SurfaceDefinition surface in surfaces)
         {
-            if (surface.FootprintVertexCount < 3)
+            if (surface == null)
+            {
+                errorMessage = "Each graded surface must be valid.";
+                return null;
+            }
+
+            if (surface.FootprintVertexCount < 3 ||
+                surface.FootprintXy == null)
             {
                 errorMessage = "The graded surface footprint must contain at least 3 vertices.";
                 return null;
             }
 
-            if (surface.BoundaryVertexCount < 2)
+            if (surface.BoundaryVertexCount < 2 ||
+                surface.BoundaryVertices == null)
+            {
+                errorMessage = "The graded surface boundary must contain at least 2 vertices.";
+                return null;
+            }
+
+            long requiredFootprintValues = (long)surface.FootprintVertexCount * 2;
+            if (requiredFootprintValues > int.MaxValue ||
+                surface.FootprintXy.Length < requiredFootprintValues)
+            {
+                errorMessage = "The graded surface footprint must contain at least 3 vertices.";
+                return null;
+            }
+
+            long requiredBoundaryValues = (long)surface.BoundaryVertexCount * 3;
+            if (requiredBoundaryValues > int.MaxValue ||
+                surface.BoundaryVertices.Length < requiredBoundaryValues)
             {
                 errorMessage = "The graded surface boundary must contain at least 2 vertices.";
                 return null;

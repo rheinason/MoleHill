@@ -7,6 +7,27 @@ namespace MoleHill.Core.Tests;
 public class PadGraderTests
 {
     [Fact]
+    public void Grade_InvalidTerrainVertexArray_ReturnsFailure()
+    {
+        var pad = new PadGrader.PadBoundary(
+            new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
+            4,
+            targetZ: 1.0);
+
+        GradingResult? result = PadGrader.Grade(
+            new[] { 0.0, 0.0, 0.0 },
+            4,
+            BuildGridFaces(3),
+            8,
+            new[] { pad },
+            null,
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("vertex array", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void TriangulatePadTopology_ReturnsStableTopology_ForSameXyInputs()
     {
         var vertices = BuildGridVertices(5, 0.75);

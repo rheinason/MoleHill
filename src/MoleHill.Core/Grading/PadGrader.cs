@@ -52,6 +52,10 @@ public static partial class PadGrader
     {
         errorMessage = null;
         failureOutputPolylines = Array.Empty<OutputPolyline>();
+        lockCurves ??= Array.Empty<LockCurve>();
+
+        if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out errorMessage))
+            return null;
 
         if (!ValidatePads(pads, out errorMessage))
             return null;

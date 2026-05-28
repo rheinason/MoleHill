@@ -271,6 +271,12 @@ public static partial class PadGrader
     {
         errorMessage = null;
 
+        if (pads == null)
+        {
+            errorMessage = "No pad boundaries provided.";
+            return false;
+        }
+
         if (pads.Length == 0)
         {
             errorMessage = "No pad boundaries provided.";
@@ -279,9 +285,21 @@ public static partial class PadGrader
 
         foreach (var pad in pads)
         {
-            if (pad.VertexCount < 3 ||
-                pad.XyVertices.Length < pad.VertexCount * 2 ||
-                pad.BoundaryVertices.Length < pad.VertexCount * 3)
+            if (pad == null ||
+                pad.XyVertices == null ||
+                pad.BoundaryVertices == null ||
+                pad.VertexCount < 3)
+            {
+                errorMessage = "Each pad must have at least 3 valid vertices.";
+                return false;
+            }
+
+            long requiredPadXyValues = (long)pad.VertexCount * 2;
+            long requiredPadBoundaryValues = (long)pad.VertexCount * 3;
+            if (requiredPadXyValues > int.MaxValue ||
+                requiredPadBoundaryValues > int.MaxValue ||
+                pad.XyVertices.Length < requiredPadXyValues ||
+                pad.BoundaryVertices.Length < requiredPadBoundaryValues)
             {
                 errorMessage = "Each pad must have at least 3 valid vertices.";
                 return false;
