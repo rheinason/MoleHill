@@ -17,9 +17,44 @@ public sealed class OutputPolyline
 
     public OutputPolyline(double[] vertices, int vertexCount, bool isClosed = false)
     {
-        Vertices = vertices;
+        Vertices = CopyDoublePrefix(vertices, vertexCount, stride: 3, nameof(vertices));
+        ValidateFiniteValues(Vertices, nameof(vertices));
         VertexCount = vertexCount;
         IsClosed = isClosed;
+    }
+
+    private static double[] CopyDoublePrefix(double[] values, int itemCount, int stride, string parameterName)
+    {
+        int valueCount = CheckedValueCount(itemCount, stride, parameterName);
+        if (values.Length < valueCount)
+            throw new ArgumentException("Array is shorter than the declared item count requires.", parameterName);
+        if (values.Length == valueCount)
+            return (double[])values.Clone();
+
+        var copy = new double[valueCount];
+        Array.Copy(values, copy, valueCount);
+        return copy;
+    }
+
+    private static int CheckedValueCount(int itemCount, int stride, string parameterName)
+    {
+        if (itemCount < 0)
+            throw new ArgumentOutOfRangeException(parameterName, "Item count cannot be negative.");
+
+        long valueCount = (long)itemCount * stride;
+        if (valueCount > int.MaxValue)
+            throw new ArgumentOutOfRangeException(parameterName, "Item count is too large.");
+
+        return (int)valueCount;
+    }
+
+    private static void ValidateFiniteValues(double[] values, string parameterName)
+    {
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (!double.IsFinite(values[i]))
+                throw new ArgumentException("Array contains non-finite values.", parameterName);
+        }
     }
 }
 
@@ -75,10 +110,10 @@ public sealed class GradingResult
                            int[] faces, int faceCount,
                            double cutVolume, double fillVolume,
                            double[] daylightVertices, int daylightVertexCount,
-                            IReadOnlyList<OutputPolyline>? outputPolylines = null,
-                            IReadOnlyList<string>? diagnostics = null,
-                            IReadOnlyList<GradingPatch>? patchSummaries = null,
-                            IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
+                           IReadOnlyList<OutputPolyline>? outputPolylines = null,
+                           IReadOnlyList<string>? diagnostics = null,
+                           IReadOnlyList<GradingPatch>? patchSummaries = null,
+                           IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
         Vertices = CopyDoublePrefix(vertices, vertexCount, stride: 3, nameof(vertices));
         VertexCount = vertexCount;
@@ -91,10 +126,10 @@ public sealed class GradingResult
         DaylightVertices = CopyDoublePrefix(daylightVertices, daylightVertexCount, stride: 3, nameof(daylightVertices));
         DaylightVertexCount = daylightVertexCount;
         ValidateFiniteValues(DaylightVertices, nameof(daylightVertices));
-        OutputPolylines = outputPolylines ?? Array.Empty<OutputPolyline>();
-        Diagnostics = diagnostics ?? structuredDiagnostics?.Select(static diagnostic => diagnostic.Message).ToArray() ?? Array.Empty<string>();
-        StructuredDiagnostics = structuredDiagnostics ?? GradingDiagnostic.FromLegacyMessages(Diagnostics);
-        PatchSummaries = patchSummaries ?? Array.Empty<GradingPatch>();
+        OutputPolylines = CopyOutputPolylines(outputPolylines);
+        Diagnostics = diagnostics?.ToArray() ?? structuredDiagnostics?.Select(static diagnostic => diagnostic.Message).ToArray() ?? Array.Empty<string>();
+        StructuredDiagnostics = structuredDiagnostics?.ToArray() ?? GradingDiagnostic.FromLegacyMessages(Diagnostics);
+        PatchSummaries = patchSummaries?.ToArray() ?? Array.Empty<GradingPatch>();
     }
 
     private static double[] CopyDoublePrefix(double[] values, int itemCount, int stride, string parameterName)
@@ -158,5 +193,20 @@ public sealed class GradingResult
                 throw new ArgumentException("Face array references a vertex outside the result vertex range.", parameterName);
             }
         }
+    }
+
+    private static IReadOnlyList<OutputPolyline> CopyOutputPolylines(IReadOnlyList<OutputPolyline>? outputPolylines)
+    {
+        if (outputPolylines == null || outputPolylines.Count == 0)
+            return Array.Empty<OutputPolyline>();
+
+        var copy = new OutputPolyline[outputPolylines.Count];
+        for (int i = 0; i < outputPolylines.Count; i++)
+        {
+            OutputPolyline polyline = outputPolylines[i] ?? throw new ArgumentException("Output polyline collection cannot contain null values.", nameof(outputPolylines));
+            copy[i] = new OutputPolyline(polyline.Vertices, polyline.VertexCount, polyline.IsClosed);
+        }
+
+        return copy;
     }
 }

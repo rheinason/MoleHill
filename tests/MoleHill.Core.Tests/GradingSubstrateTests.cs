@@ -100,6 +100,75 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void OutputPolyline_Constructor_TrimsAndClonesVertices()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            99.0, 99.0, 99.0
+        };
+
+        var polyline = new OutputPolyline(vertices, vertexCount: 2);
+        vertices[0] = 42.0;
+
+        Assert.Equal(6, polyline.Vertices.Length);
+        Assert.Equal(0.0, polyline.Vertices[0]);
+        Assert.DoesNotContain(99.0, polyline.Vertices);
+    }
+
+    [Fact]
+    public void OutputPolyline_Constructor_RejectsNonFiniteVertices()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, double.NaN, 0.0
+        };
+
+        Assert.Throws<ArgumentException>(() => new OutputPolyline(vertices, vertexCount: 2));
+    }
+
+    [Fact]
+    public void GradingResultBuilder_BuildFromComponents_CopiesOutputPolylineCollection()
+    {
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 1.0
+        };
+        double[] originalZ = { 0.0, 0.0, 0.0 };
+        double[] gradedZ = { 0.0, 0.0, 0.0 };
+        double[] gradedVertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 0.0
+        };
+        int[] faces = { 0, 1, 2 };
+        var polylines = new List<OutputPolyline>
+        {
+            new(new[] { 0.0, 0.0, 0.0, 1.0, 0.0, 0.0 }, vertexCount: 2)
+        };
+
+        GradingResult result = GradingResultBuilder.BuildFromComponents(
+            xy,
+            originalZ,
+            gradedZ,
+            gradedVertices,
+            vertexCount: 3,
+            faces,
+            faceCount: 1,
+            outputPolylines: polylines);
+        polylines.Clear();
+
+        OutputPolyline polyline = Assert.Single(result.OutputPolylines);
+        Assert.Equal(2, polyline.VertexCount);
+        Assert.Equal(6, polyline.Vertices.Length);
+    }
+
+    [Fact]
     public void GradingResultBuilder_BuildFromComponents_RejectsInvalidOutputFaceReferences()
     {
         double[] xy =
