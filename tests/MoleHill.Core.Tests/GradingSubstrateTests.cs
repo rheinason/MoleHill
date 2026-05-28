@@ -198,6 +198,38 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void GradingResult_Constructor_RejectsInvalidVolumes()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            0.0, 1.0, 0.0
+        };
+        int[] faces = { 0, 1, 2 };
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new GradingResult(
+            vertices,
+            vertexCount: 3,
+            faces,
+            faceCount: 1,
+            cutVolume: double.NaN,
+            fillVolume: 0.0,
+            daylightVertices: Array.Empty<double>(),
+            daylightVertexCount: 0));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new GradingResult(
+            vertices,
+            vertexCount: 3,
+            faces,
+            faceCount: 1,
+            cutVolume: 0.0,
+            fillVolume: -1.0,
+            daylightVertices: Array.Empty<double>(),
+            daylightVertexCount: 0));
+    }
+
+    [Fact]
     public void MeshTopologyOperations_MergeMeshes_RespectsCoincidentVertexZPolicy()
     {
         double[] firstVertices =

@@ -121,6 +121,8 @@ public sealed class GradingResult
         FaceCount = faceCount;
         ValidateFiniteValues(Vertices, nameof(vertices));
         ValidateFaceIndices(Faces, faceCount, vertexCount, nameof(faces));
+        ValidateVolume(cutVolume, nameof(cutVolume));
+        ValidateVolume(fillVolume, nameof(fillVolume));
         CutVolume = cutVolume;
         FillVolume = fillVolume;
         DaylightVertices = CopyDoublePrefix(daylightVertices, daylightVertexCount, stride: 3, nameof(daylightVertices));
@@ -193,6 +195,12 @@ public sealed class GradingResult
                 throw new ArgumentException("Face array references a vertex outside the result vertex range.", parameterName);
             }
         }
+    }
+
+    private static void ValidateVolume(double volume, string parameterName)
+    {
+        if (!double.IsFinite(volume) || volume < 0.0)
+            throw new ArgumentOutOfRangeException(parameterName, "Volume must be finite and non-negative.");
     }
 
     private static IReadOnlyList<OutputPolyline> CopyOutputPolylines(IReadOnlyList<OutputPolyline>? outputPolylines)
