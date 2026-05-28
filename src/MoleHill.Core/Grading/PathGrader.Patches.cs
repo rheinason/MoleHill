@@ -551,7 +551,7 @@ public static partial class PathGrader
                 outsideFaces,
                 outsideFaceCount,
                 tolerance);
-            if (HasExcessiveSeamNearBoundaryFragmentation(seamGraph))
+            if (seamGraph.HasExcessiveNearBoundaryFragmentation)
             {
                 patchBoundaryLoopXy = Array.Empty<double>();
                 errorMessage =
@@ -582,19 +582,6 @@ public static partial class PathGrader
         }
 
         return true;
-    }
-
-    private static bool HasExcessiveSeamNearBoundaryFragmentation(SeamGraph seamGraph)
-    {
-        int seamSegmentCount = Math.Max(seamGraph.SeamVertexCount, 1);
-        int excessiveNearBoundaryThreshold = Math.Max(24, (int)Math.Ceiling(seamSegmentCount * 0.5));
-        int severeMatchDeficitThreshold = Math.Max(24, (int)Math.Ceiling(seamSegmentCount * 0.25));
-        int extraNearBoundarySegments = seamGraph.PatchBoundarySegmentsNearSeam -
-                                        Math.Max(seamGraph.SeamVertexCount, seamGraph.TerrainBoundarySegmentsNearSeam);
-        int matchDeficit = Math.Max(seamGraph.SeamVertexCount, seamGraph.TerrainMatchedSegments) - seamGraph.PatchMatchedSegments;
-
-        return extraNearBoundarySegments > excessiveNearBoundaryThreshold &&
-               matchDeficit > severeMatchDeficitThreshold;
     }
 
     private static PatchMeshResult? TryBuildStructuredPathPatchMesh(

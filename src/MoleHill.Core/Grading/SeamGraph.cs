@@ -24,6 +24,22 @@ internal sealed class SeamGraph
 
     public bool TerrainHasFullSegmentMatch => TerrainMatchedSegments == SeamVertexCount;
 
+    public bool HasExcessiveNearBoundaryFragmentation
+    {
+        get
+        {
+            int seamSegmentCount = Math.Max(SeamVertexCount, 1);
+            int excessiveNearBoundaryThreshold = Math.Max(24, (int)Math.Ceiling(seamSegmentCount * 0.5));
+            int severeMatchDeficitThreshold = Math.Max(24, (int)Math.Ceiling(seamSegmentCount * 0.25));
+            int extraNearBoundarySegments = PatchBoundarySegmentsNearSeam -
+                                            Math.Max(SeamVertexCount, TerrainBoundarySegmentsNearSeam);
+            int matchDeficit = Math.Max(SeamVertexCount, TerrainMatchedSegments) - PatchMatchedSegments;
+
+            return extraNearBoundarySegments > excessiveNearBoundaryThreshold &&
+                   matchDeficit > severeMatchDeficitThreshold;
+        }
+    }
+
     public static SeamGraph Build(
         double[] seamLoopXy,
         double[] patchVertices,

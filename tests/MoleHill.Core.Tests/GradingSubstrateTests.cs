@@ -200,6 +200,24 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void SeamGraph_HasExcessiveNearBoundaryFragmentation_UsesSharedThresholds()
+    {
+        var seamLoop = new double[60 * 2];
+        var graph = new SeamGraph
+        {
+            SeamLoopXy = seamLoop,
+            PatchBoundaryEdgesNearSeam = 0,
+            TerrainBoundaryEdgesNearSeam = 0,
+            PatchMatchedSegments = 20,
+            TerrainMatchedSegments = 60,
+            PatchBoundarySegmentsNearSeam = 100,
+            TerrainBoundarySegmentsNearSeam = 10
+        };
+
+        Assert.True(graph.HasExcessiveNearBoundaryFragmentation);
+    }
+
+    [Fact]
     public void SeamGraph_Build_AcceptsBoundarySubsegmentsCoveringSeam()
     {
         double[] seamLoop =
