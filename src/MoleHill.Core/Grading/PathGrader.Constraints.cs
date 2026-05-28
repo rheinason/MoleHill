@@ -12,6 +12,9 @@ public static partial class PathGrader
         PathDefinition[] paths,
         double tolerance)
     {
+        if (!TryValidateConstraintGenerationInputs(vertices, vertexCount, faces, faceCount, paths, out ConstraintSet? invalidResult))
+            return invalidResult!;
+
         return BuildConstraintSetInternal(
             vertices,
             vertexCount,
@@ -31,6 +34,9 @@ public static partial class PathGrader
         PathDefinition[] paths,
         double tolerance)
     {
+        if (!TryValidateConstraintGenerationInputs(vertices, vertexCount, faces, faceCount, paths, out ConstraintSet? invalidResult))
+            return invalidResult!;
+
         return BuildConstraintSetInternal(
             vertices,
             vertexCount,
@@ -51,6 +57,9 @@ public static partial class PathGrader
         PathDefinition[] paths,
         double tolerance)
     {
+        if (!TryValidateConstraintGenerationInputs(vertices, vertexCount, faces, faceCount, paths, out ConstraintSet? invalidResult))
+            return invalidResult!;
+
         return BuildConstraintSetInternal(
             vertices,
             vertexCount,
@@ -63,6 +72,116 @@ public static partial class PathGrader
             includeStationConstraints: false,
             includeShoulderConstraints: false,
             resamplePrimaryRails: true);
+    }
+
+    private static bool TryValidateConstraintGenerationInputs(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        PathDefinition[] paths,
+        out ConstraintSet? invalidResult)
+    {
+        invalidResult = null;
+
+        if (!ValidateConstraintGenerationTopology(vertices, vertexCount, faces, faceCount, out string? topologyError))
+        {
+            invalidResult = CreateInvalidConstraintSet(
+                "grade_path.input.invalid_topology",
+                topologyError ?? "Invalid topology for Grade Path constraint generation.");
+            return false;
+        }
+
+        if (!GradingInputValidator.ValidatePathDefinitions(paths, out string? pathError))
+        {
+            invalidResult = CreateInvalidConstraintSet(
+                "grade_path.input.invalid_path",
+                pathError ?? "Invalid path definition.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ValidateConstraintGenerationTopology(
+        double[]? vertices,
+        int vertexCount,
+        int[]? faces,
+        int faceCount,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+
+        if (!GradingInputValidator.ValidateVertexArray(vertices, vertexCount, "Topology", out errorMessage))
+            return false;
+
+        if (vertexCount < 2)
+        {
+            errorMessage = "Topology must contain at least 2 vertices.";
+            return false;
+        }
+
+        if (faces == null)
+        {
+            errorMessage = "Topology faces are required.";
+            return false;
+        }
+
+        if (faceCount < 0)
+        {
+            errorMessage = "Topology faceCount cannot be negative.";
+            return false;
+        }
+
+        long requiredFaceValues = (long)faceCount * 3;
+        if (requiredFaceValues > int.MaxValue)
+        {
+            errorMessage = "Topology face array is too large to validate safely.";
+            return false;
+        }
+
+        if (faces.Length < requiredFaceValues)
+        {
+            errorMessage = "Topology face array is shorter than faceCount requires.";
+            return false;
+        }
+
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[faceIndex * 3 + 1];
+            int c = faces[faceIndex * 3 + 2];
+            if ((uint)a >= (uint)vertexCount ||
+                (uint)b >= (uint)vertexCount ||
+                (uint)c >= (uint)vertexCount)
+            {
+                errorMessage = $"Topology face {faceIndex} references a vertex outside the topology vertex range.";
+                return false;
+            }
+
+            if (a == b || b == c || c == a)
+            {
+                errorMessage = $"Topology face {faceIndex} is degenerate.";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static ConstraintSet CreateInvalidConstraintSet(string code, string message)
+    {
+        GradingDiagnostic diagnostic = GradingDiagnostic.Warning(
+            code,
+            message,
+            operation: "Grade Path");
+
+        return new ConstraintSet
+        {
+            Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            SuggestedEdgeLength = 0.0,
+            StructuredDiagnostics = [diagnostic]
+        };
     }
 
     private static ConstraintSet BuildConstraintSetInternal(

@@ -275,6 +275,71 @@ public class PathGraderTests
     }
 
     [Fact]
+    public void CreateConstraints_InvalidTopologyFace_ReturnsStructuredWarning()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 2.0);
+
+        PathGrader.ConstraintSet constraints = PathGrader.CreateConstraints(
+            BuildSquareVertices(),
+            4,
+            new[] { 0, 1, 99 },
+            1,
+            new[] { path },
+            tolerance: 1e-3);
+
+        Assert.Empty(constraints.Constraints);
+        Assert.Equal(0.0, constraints.SuggestedEdgeLength);
+        GradingDiagnostic diagnostic = Assert.Single(constraints.StructuredDiagnostics);
+        Assert.Equal("grade_path.input.invalid_topology", diagnostic.Code);
+        Assert.Equal(GradingDiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.Contains("outside the topology vertex range", diagnostic.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CreateConstraints_NonFinitePathElevation_ReturnsStructuredWarning()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, double.NaN },
+            vertexCount: 2,
+            width: 2.0);
+
+        PathGrader.ConstraintSet constraints = PathGrader.CreateConstraints(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            tolerance: 1e-3);
+
+        Assert.Empty(constraints.Constraints);
+        GradingDiagnostic diagnostic = Assert.Single(constraints.StructuredDiagnostics);
+        Assert.Equal("grade_path.input.invalid_path", diagnostic.Code);
+        Assert.Contains("finite", diagnostic.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CreateRemeshFallbackConstraints_EmptyPathList_ReturnsStructuredWarning()
+    {
+        PathGrader.ConstraintSet constraints = PathGrader.CreateRemeshFallbackConstraints(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            Array.Empty<PathGrader.PathDefinition>(),
+            tolerance: 1e-3);
+
+        Assert.Empty(constraints.Constraints);
+        GradingDiagnostic diagnostic = Assert.Single(constraints.StructuredDiagnostics);
+        Assert.Equal("grade_path.input.invalid_path", diagnostic.Code);
+        Assert.Contains("path", diagnostic.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void CreateConstraints_WithoutBoundaryLoop_StillBuildsRoadAndShoulderPolylines()
     {
         var path = new PathGrader.PathDefinition(
