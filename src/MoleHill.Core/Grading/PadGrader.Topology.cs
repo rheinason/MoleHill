@@ -184,14 +184,18 @@ public static partial class PadGrader
             };
         }
 
-        if (!ValidatePads(pads, out _))
+        if (!ValidatePads(pads, out string? padError))
         {
+            GradingDiagnostic diagnostic = GradingDiagnostic.Warning(
+                "grade_pad.input.invalid_pad",
+                padError ?? "Invalid pad boundary.",
+                operation: "grade_pad");
             return new ConstraintSet
             {
                 Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
                 SuggestedEdgeLength = 0.0,
-                Diagnostics = Array.Empty<string>(),
-                StructuredDiagnostics = Array.Empty<GradingDiagnostic>()
+                Diagnostics = [diagnostic.Message],
+                StructuredDiagnostics = [diagnostic]
             };
         }
 

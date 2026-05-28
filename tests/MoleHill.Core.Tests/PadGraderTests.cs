@@ -157,6 +157,47 @@ public class PadGraderTests
     }
 
     [Fact]
+    public void CreateConstraints_NonFinitePadCoordinate_ReturnsStructuredWarning()
+    {
+        var pad = new PadGrader.PadBoundary(
+            new[] { 1.0, 1.0, double.PositiveInfinity, 1.0, 3.0, 3.0, 1.0, 3.0 },
+            4,
+            targetZ: 1.0);
+
+        PadGrader.ConstraintSet constraintSet = PadGrader.CreateConstraints(
+            BuildGridVertices(5, 1.0),
+            25,
+            BuildGridFaces(5),
+            32,
+            new[] { pad },
+            null);
+
+        Assert.Empty(constraintSet.Constraints);
+        Assert.Equal(0.0, constraintSet.SuggestedEdgeLength);
+        Assert.Contains("finite", constraintSet.Diagnostics.Single(), StringComparison.OrdinalIgnoreCase);
+        GradingDiagnostic diagnostic = Assert.Single(constraintSet.StructuredDiagnostics);
+        Assert.Equal("grade_pad.input.invalid_pad", diagnostic.Code);
+        Assert.Equal(GradingDiagnosticSeverity.Warning, diagnostic.Severity);
+    }
+
+    [Fact]
+    public void CreateConstraints_EmptyPadList_ReturnsStructuredWarning()
+    {
+        PadGrader.ConstraintSet constraintSet = PadGrader.CreateConstraints(
+            BuildGridVertices(5, 1.0),
+            25,
+            BuildGridFaces(5),
+            32,
+            Array.Empty<PadGrader.PadBoundary>(),
+            null);
+
+        Assert.Empty(constraintSet.Constraints);
+        GradingDiagnostic diagnostic = Assert.Single(constraintSet.StructuredDiagnostics);
+        Assert.Equal("grade_pad.input.invalid_pad", diagnostic.Code);
+        Assert.Contains("pad", diagnostic.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void TriangulatePadTopology_ReturnsStableTopology_ForSameXyInputs()
     {
         var vertices = BuildGridVertices(5, 0.75);
