@@ -190,7 +190,7 @@ internal static class GradingResultBuilder
         return new GradingResult(
             gradedVertices,
             vertexCount,
-            (int[])faces.Clone(),
+            faces,
             faceCount,
             volume.CutVolume,
             volume.FillVolume,

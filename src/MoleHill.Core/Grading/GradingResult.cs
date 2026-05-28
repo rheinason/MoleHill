@@ -80,17 +80,55 @@ public sealed class GradingResult
                             IReadOnlyList<GradingPatch>? patchSummaries = null,
                             IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
-        Vertices = vertices;
+        Vertices = CopyDoublePrefix(vertices, vertexCount, stride: 3, nameof(vertices));
         VertexCount = vertexCount;
-        Faces = faces;
+        Faces = CopyIntPrefix(faces, faceCount, stride: 3, nameof(faces));
         FaceCount = faceCount;
         CutVolume = cutVolume;
         FillVolume = fillVolume;
-        DaylightVertices = daylightVertices;
+        DaylightVertices = CopyDoublePrefix(daylightVertices, daylightVertexCount, stride: 3, nameof(daylightVertices));
         DaylightVertexCount = daylightVertexCount;
         OutputPolylines = outputPolylines ?? Array.Empty<OutputPolyline>();
         Diagnostics = diagnostics ?? structuredDiagnostics?.Select(static diagnostic => diagnostic.Message).ToArray() ?? Array.Empty<string>();
         StructuredDiagnostics = structuredDiagnostics ?? GradingDiagnostic.FromLegacyMessages(Diagnostics);
         PatchSummaries = patchSummaries ?? Array.Empty<GradingPatch>();
+    }
+
+    private static double[] CopyDoublePrefix(double[] values, int itemCount, int stride, string parameterName)
+    {
+        int valueCount = CheckedValueCount(itemCount, stride, parameterName);
+        if (values.Length < valueCount)
+            throw new ArgumentException("Array is shorter than the declared item count requires.", parameterName);
+        if (values.Length == valueCount)
+            return (double[])values.Clone();
+
+        var copy = new double[valueCount];
+        Array.Copy(values, copy, valueCount);
+        return copy;
+    }
+
+    private static int[] CopyIntPrefix(int[] values, int itemCount, int stride, string parameterName)
+    {
+        int valueCount = CheckedValueCount(itemCount, stride, parameterName);
+        if (values.Length < valueCount)
+            throw new ArgumentException("Array is shorter than the declared item count requires.", parameterName);
+        if (values.Length == valueCount)
+            return (int[])values.Clone();
+
+        var copy = new int[valueCount];
+        Array.Copy(values, copy, valueCount);
+        return copy;
+    }
+
+    private static int CheckedValueCount(int itemCount, int stride, string parameterName)
+    {
+        if (itemCount < 0)
+            throw new ArgumentOutOfRangeException(parameterName, "Item count cannot be negative.");
+
+        long valueCount = (long)itemCount * stride;
+        if (valueCount > int.MaxValue)
+            throw new ArgumentOutOfRangeException(parameterName, "Item count is too large.");
+
+        return (int)valueCount;
     }
 }

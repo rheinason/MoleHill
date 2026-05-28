@@ -63,6 +63,43 @@ public class GradingSubstrateTests
     }
 
     [Fact]
+    public void GradingResultBuilder_BuildFromComponents_TrimsOutputArraysToDeclaredCounts()
+    {
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 1.0,
+            9.0, 9.0
+        };
+        double[] originalZ = { 0.0, 0.0, 0.0, 99.0 };
+        double[] gradedZ = { 1.0, -1.0, 1.0, 99.0 };
+        double[] gradedVertices =
+        {
+            0.0, 0.0, 1.0,
+            1.0, 0.0, -1.0,
+            0.0, 1.0, 1.0,
+            9.0, 9.0, 99.0
+        };
+        int[] faces = { 0, 1, 2, 3, 3, 3 };
+
+        GradingResult result = GradingResultBuilder.BuildFromComponents(
+            xy,
+            originalZ,
+            gradedZ,
+            gradedVertices,
+            vertexCount: 3,
+            faces,
+            faceCount: 1);
+
+        Assert.Equal(9, result.Vertices.Length);
+        Assert.Equal(3, result.Faces.Length);
+        Assert.Equal(result.DaylightVertexCount * 3, result.DaylightVertices.Length);
+        Assert.DoesNotContain(99.0, result.Vertices);
+        Assert.DoesNotContain(3, result.Faces);
+    }
+
+    [Fact]
     public void MeshTopologyOperations_MergeMeshes_RespectsCoincidentVertexZPolicy()
     {
         double[] firstVertices =
