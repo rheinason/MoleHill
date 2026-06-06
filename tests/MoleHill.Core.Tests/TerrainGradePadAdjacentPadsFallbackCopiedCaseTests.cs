@@ -1061,9 +1061,14 @@ public class TerrainGradePadAdjacentPadsFallbackCopiedCaseTests
         Assert.True(result != null, errorMessage);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage), errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("coupled protected patch", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("higher pad tops own overlaps", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("interacting pad ownership", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("split-local fallback is disabled", diagnostics, StringComparison.OrdinalIgnoreCase);
+        MeshTopologyValidator.BoundaryGraphAnalysis topology =
+            MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
+        Assert.False(
+            topology.HasOpenBoundaryChains,
+            $"boundary edges={topology.BoundaryEdgeCount}, boundary vertices={topology.BoundaryVertexCount}, components={topology.BoundaryComponentCount}, nonmanifold={topology.NonManifoldEdgeCount}");
+        Assert.Equal(0, topology.NonManifoldEdgeCount);
     }
 }

@@ -652,8 +652,7 @@ public class PadGraderTests
             diagnostics);
         Assert.Contains(
             result.Diagnostics,
-            diagnostic => diagnostic.Contains("using terrain-side stitch loop", StringComparison.OrdinalIgnoreCase) ||
-                          diagnostic.Contains("coupled protected patch", StringComparison.OrdinalIgnoreCase));
+            diagnostic => diagnostic.Contains("topology mode: constraint-first", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("batter slope check", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("topology summary:", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(
@@ -876,7 +875,7 @@ public class PadGraderTests
 
         Assert.True(result != null, warning);
         string diagnostics = string.Join("|", result!.Diagnostics);
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("protected stitch apron", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("protected apron", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain("patch did not produce a single closed stitch boundary", diagnostics);
         Assert.DoesNotContain("using split local patch", diagnostics);
 

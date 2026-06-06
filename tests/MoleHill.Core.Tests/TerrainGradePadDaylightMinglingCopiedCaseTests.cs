@@ -1061,7 +1061,7 @@ public class TerrainGradePadDaylightMinglingCopiedCaseTests
         Assert.True(result != null, errorMessage);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("coupled protected patch", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("interacting pad ownership", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Constraints could not be enforced", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
     }

@@ -1061,7 +1061,7 @@ public class TerrainGradePadFlatOnlyCopiedCaseTests
         Assert.True(result != null, errorMessage);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("coupled protected patch", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("interacting pad ownership", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("no measurable batter faces", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.True(result.FaceCount > 1000, $"Expected coupled remesh to include terrain/batter faces, not just flat pad tops. Diagnostics:{Environment.NewLine}{diagnostics}");

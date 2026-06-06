@@ -183,20 +183,18 @@ public static partial class PadGrader
             return "grade_pad.stitch.segment_matches";
         if (message.Contains("seam-near boundary segments", StringComparison.OrdinalIgnoreCase))
             return "grade_pad.stitch.near_boundary_segments";
-        if (message.Contains("protected stitch apron", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch.apron";
+        if (message.Contains("protected apron", StringComparison.OrdinalIgnoreCase))
+            return "grade_pad.apron.constraints";
+        if (message.Contains("interacting pad ownership", StringComparison.OrdinalIgnoreCase))
+            return "grade_pad.ownership.interacting_pads";
         if (message.Contains("terrain-side stitch loop", StringComparison.OrdinalIgnoreCase))
             return "grade_pad.stitch.terrain_side_loop";
-        if (message.Contains("merged-mesh naked edges near seam", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch.merged_boundary_edges";
         if (message.Contains("daylight seam reached", StringComparison.OrdinalIgnoreCase))
             return "grade_pad.daylight.clipped_to_terrain";
         if (message.Contains("split local patch", StringComparison.OrdinalIgnoreCase))
             return "grade_pad.patch.split_local";
         if (message.Contains("corner constraints", StringComparison.OrdinalIgnoreCase))
             return "grade_pad.patch.corner_constraints";
-        if (message.Contains("coupled protected patch", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.coupled_patch";
         if (message.Contains("stitch", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("seam", StringComparison.OrdinalIgnoreCase))
             return "grade_pad.stitch";

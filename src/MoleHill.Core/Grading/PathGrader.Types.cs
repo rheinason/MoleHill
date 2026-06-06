@@ -94,17 +94,6 @@ public static partial class PathGrader
         double SegmentT,
         double Distance);
 
-    private sealed class PatchMeshResult
-    {
-        public required double[] Vertices { get; init; }
-        public required int VertexCount { get; init; }
-        public required int[] Faces { get; init; }
-        public required int FaceCount { get; init; }
-        public double[]? StitchLoopXy { get; init; }
-        public IReadOnlyList<string> Diagnostics { get; init; } = Array.Empty<string>();
-    }
-
-
     public sealed class PathDefinition
     {
         public double[] XyVertices { get; }

@@ -143,6 +143,44 @@ public static partial class PadGrader
         return gradedVertices;
     }
 
+    private static double[] ApplyGradingZWithDefaultCornerFans(
+        double[] topologyVertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        PadBoundary[] pads,
+        LockCurve[]? lockCurves,
+        int defaultCornerFanSegments)
+    {
+        lockCurves ??= Array.Empty<LockCurve>();
+        ValidateApplyGradingZInputs(topologyVertices, vertexCount, faces, faceCount, pads, lockCurves);
+
+        if (pads.Length == 0)
+            return (double[])topologyVertices.Clone();
+
+        pads = OrderPadsForOwnership(pads);
+        PreparedBarriers barriers = lockCurves.Length > 0
+            ? GradingBarriers.BuildFromLockCurves(lockCurves)
+            : PreparedBarriers.Empty;
+        bool hasBoundaryLoop = TryBuildBoundaryLoop(topologyVertices, faces, faceCount, out double[] boundaryLoop, out int boundaryVertexCount);
+        var terrainFaceGrid = new TerrainFaceGrid(topologyVertices, vertexCount, faces, faceCount);
+        var gradedVertices = (double[])topologyVertices.Clone();
+        ApplyGradingToVerticesWithSections(
+            gradedVertices,
+            topologyVertices,
+            vertexCount,
+            pads,
+            barriers,
+            terrainFaceGrid,
+            hasBoundaryLoop,
+            boundaryLoop,
+            boundaryVertexCount,
+            tolerance: 1e-3,
+            keepShoulderOnBatterPlane: false,
+            defaultCornerFanSegments);
+        return gradedVertices;
+    }
+
     public static ConstraintSet CreateConstraints(
         double[] vertices,
         int vertexCount,
@@ -150,7 +188,8 @@ public static partial class PadGrader
         int faceCount,
         PadBoundary[] pads,
         LockCurve[]? lockCurves,
-        double modelTolerance = GradingTolerances.DefaultModelTolerance)
+        double modelTolerance = GradingTolerances.DefaultModelTolerance,
+        bool includeTransitionStationConstraints = false)
     {
         double dedupTol = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
         lockCurves ??= Array.Empty<LockCurve>();
@@ -227,22 +266,73 @@ public static partial class PadGrader
             suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, padLoop.XyVertices, padLoop.VertexCount, stride: 2, isClosed: true);
 
             double[] shoulderDistances = ComputePadBoundaryDistances(padLoop.XyVertices, padLoop.VertexCount, faceGridForConstraints, pad);
-            if (TryBuildShoulderLoop(
-                padLoop.XyVertices,
-                padLoop.VertexCount,
-                shoulderDistances,
-                hasBoundaryLoop ? boundaryLoop : null,
-                hasBoundaryLoop ? boundaryVertexCount : 0,
-                dedupTol,
-                out var shoulderXy,
-                out string? skipReason))
+            double[] transitionBoundaryXy = padLoop.XyVertices;
+            int transitionBoundaryVertexCount = padLoop.VertexCount;
+            bool hasShoulderLoop = false;
+            string? skipReason = null;
+            double[] shoulderXy = Array.Empty<double>();
+
+            if (includeTransitionStationConstraints &&
+                lockCurves.Length == 0 &&
+                TryBuildExpandedOffsetPolygon(
+                    padLoop.XyVertices,
+                    padLoop.VertexCount,
+                    shoulderDistances,
+                    pad.CornerFanSegments > 0 ? pad.CornerFanSegments : 6,
+                    faceGridForConstraints,
+                    pad,
+                    out double[] fanBoundaryXy,
+                    out double[] fanShoulderXy,
+                    out string? fanSkipReason))
+            {
+                transitionBoundaryXy = fanBoundaryXy;
+                transitionBoundaryVertexCount = fanBoundaryXy.Length / 2;
+                shoulderXy = fanShoulderXy;
+                hasShoulderLoop = true;
+            }
+            else
+            {
+                hasShoulderLoop = TryBuildShoulderLoop(
+                    padLoop.XyVertices,
+                    padLoop.VertexCount,
+                    shoulderDistances,
+                    hasBoundaryLoop ? boundaryLoop : null,
+                    hasBoundaryLoop ? boundaryVertexCount : 0,
+                    dedupTol,
+                    out shoulderXy,
+                    out skipReason);
+            }
+
+            if (hasShoulderLoop)
             {
                 int shoulderVertexCount = shoulderXy.Length / 2;
+                if (includeTransitionStationConstraints &&
+                    (transitionBoundaryVertexCount != padLoop.VertexCount ||
+                    !ReferenceEquals(transitionBoundaryXy, padLoop.XyVertices))
+                    )
+                {
+                    constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                        CreateConstraintPoints(transitionBoundaryXy, transitionBoundaryVertexCount),
+                        transitionBoundaryVertexCount,
+                        IsClosed: true,
+                        PreserveInputElevation: false));
+                }
+
                 constraints.Add(new SurfaceRemesher.ConstraintPolyline(
                     CreateConstraintPoints(shoulderXy, shoulderVertexCount),
                     shoulderVertexCount,
                     IsClosed: true,
                     PreserveInputElevation: false));
+                if (includeTransitionStationConstraints)
+                {
+                    AddPadTransitionStationConstraints(
+                        constraints,
+                        transitionBoundaryXy,
+                        transitionBoundaryVertexCount,
+                        shoulderXy,
+                        shoulderVertexCount,
+                        dedupTol);
+                }
                 suggestedEdgeLength = Math.Min(suggestedEdgeLength, segmentLength);
                 suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, shoulderXy, shoulderVertexCount, stride: 2, isClosed: true);
 
@@ -327,6 +417,43 @@ public static partial class PadGrader
             throw new ArgumentException(errorMessage, nameof(topologyVertices));
 
         ValidatePadAndLockInputs(pads, lockCurves);
+    }
+
+    private static void AddPadTransitionStationConstraints(
+        List<SurfaceRemesher.ConstraintPolyline> constraints,
+        double[] padLoopXy,
+        int padLoopVertexCount,
+        double[] shoulderXy,
+        int shoulderVertexCount,
+        double tolerance)
+    {
+        if (padLoopVertexCount < 3 ||
+            shoulderVertexCount != padLoopVertexCount ||
+            padLoopXy.Length < padLoopVertexCount * 2 ||
+            shoulderXy.Length < shoulderVertexCount * 2)
+        {
+            return;
+        }
+
+        int maxStationCount = 256;
+        int stride = Math.Max(1, (int)Math.Ceiling(padLoopVertexCount / (double)maxStationCount));
+        for (int i = 0; i < padLoopVertexCount; i += stride)
+        {
+            double ax = padLoopXy[i * 2];
+            double ay = padLoopXy[i * 2 + 1];
+            double bx = shoulderXy[i * 2];
+            double by = shoulderXy[i * 2 + 1];
+            double dx = bx - ax;
+            double dy = by - ay;
+            if ((dx * dx) + (dy * dy) <= tolerance * tolerance)
+                continue;
+
+            constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                new[] { ax, ay, 0.0, bx, by, 0.0 },
+                PointCount: 2,
+                IsClosed: false,
+                PreserveInputElevation: false));
+        }
     }
 
     private static void ValidateApplyGradingZInputs(

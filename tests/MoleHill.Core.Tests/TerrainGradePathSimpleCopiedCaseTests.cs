@@ -15917,7 +15917,7 @@ public class Terrain_1_Grade_Path_CopiedCaseTests
             hardConstraints,
             out string? errorMessage);
 
-        Assert.NotNull(result);
+        Assert.True(result != null, errorMessage);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         Assert.True(result!.VertexCount > 0);
         Assert.True(result.FaceCount > 0);

@@ -1063,7 +1063,7 @@ public class TerrainGradePadVerticalWallCopiedCaseTests
         Assert.True(result != null, errorMessage);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("coupled protected patch", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("interacting pad ownership", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
         double maxSlope = ExtractMaxBatterSlope(diagnostics);
         Assert.True(maxSlope < 86.0, $"Expected overlapping shoulders to avoid the previous near-vertical wall; max slope={maxSlope:0.###}. Diagnostics:{Environment.NewLine}{diagnostics}");

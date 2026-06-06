@@ -370,7 +370,7 @@ public class PathGraderTopologyModeTests
     }
 
     [Fact]
-    public void Grade_PreservesUntouchedFacesOutsidePathCorridor()
+    public void Grade_PreservesUntouchedElevationsOutsidePathCorridor()
     {
         double[] vertices = BuildGridVertices(size: 6, spacing: 10.0);
         int[] faces = BuildGridFaces(size: 6);
@@ -394,9 +394,16 @@ public class PathGraderTopologyModeTests
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));
 
-        // Bottom-left cell is far from the path corridor, so its original triangles should remain intact.
-        Assert.True(HasTriangle(result!.Faces, result.FaceCount, 0, 1, 7));
-        Assert.True(HasTriangle(result.Faces, result.FaceCount, 0, 7, 6));
+        // Constraint-first rebuilds may change triangulation, but far-field elevations must stay unchanged.
+        var farFieldVertices = Enumerable.Range(0, result!.VertexCount)
+            .Where(index =>
+                result.Vertices[index * 3] <= 10.0 + 1e-6 &&
+                result.Vertices[(index * 3) + 1] <= 10.0 + 1e-6)
+            .ToArray();
+
+        Assert.NotEmpty(farFieldVertices);
+        foreach (int index in farFieldVertices)
+            Assert.Equal(0.0, result.Vertices[(index * 3) + 2], 6);
     }
 
     [Fact]

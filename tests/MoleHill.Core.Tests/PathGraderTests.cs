@@ -581,9 +581,18 @@ public class PathGraderTests
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
 
-        int vertexIndex = FindVertexIndex(result!.Vertices, 10.0, 13.0);
-        double gradedZ = result.Vertices[(vertexIndex * 3) + 2];
-        Assert.InRange(gradedZ, -1e-6, 0.05);
+        var checkedVertices = Enumerable.Range(0, result!.VertexCount)
+            .Where(index =>
+                result.Vertices[index * 3] is >= 2.0 and <= 18.0 &&
+                result.Vertices[(index * 3) + 1] is >= 12.0 and <= 14.0)
+            .ToArray();
+
+        Assert.NotEmpty(checkedVertices);
+        foreach (int index in checkedVertices)
+        {
+            double gradedZ = result.Vertices[(index * 3) + 2];
+            Assert.InRange(gradedZ, -1e-6, 0.05);
+        }
     }
 
     [Fact]
@@ -817,58 +826,6 @@ public class PathGraderTests
     }
 
     [Fact]
-    public void IsIsoElevationStrip_WhenRailsMatch_ReturnsTrue()
-    {
-        bool isPlanar = PathGrader.IsIsoElevationStrip(
-            innerZ: new[] { 5.0, 5.0, 4.0 },
-            outerZ: new[] { 5.0, 5.0, 4.0 },
-            vertexCount: 3,
-            tolerance: 1e-3);
-
-        Assert.True(isPlanar);
-    }
-
-    [Fact]
-    public void IsIsoElevationStrip_WhenRailsDiffer_ReturnsFalse()
-    {
-        bool isPlanar = PathGrader.IsIsoElevationStrip(
-            innerZ: new[] { 5.0, 5.0, 4.0 },
-            outerZ: new[] { 5.0, 4.5, 4.0 },
-            vertexCount: 3,
-            tolerance: 1e-3);
-
-        Assert.False(isPlanar);
-    }
-
-    [Fact]
-    public void TryBuildLocalizedFallbackBoundary_DiagonalPath_IsTighterThanConservativeBox()
-    {
-        double[] vertices = BuildGridVertices(11, 10.0);
-        int vertexCount = vertices.Length / 3;
-        var path = new PathGrader.PathDefinition(
-            new[] { 10.0, 10.0, 90.0, 90.0 },
-            new[] { 0.0, 0.0 },
-            vertexCount: 2,
-            width: 10.0,
-            slopeAngleDeg: 33.0,
-            maxDistance: 20.0);
-
-        bool built = PathGrader.TryBuildLocalizedFallbackBoundary(
-            vertices,
-            vertexCount,
-            path,
-            tolerance: 1e-3,
-            out double[] boundaryLoopXy);
-
-        Assert.True(built);
-        Assert.True(boundaryLoopXy.Length >= 8);
-
-        double localizedArea = Math.Abs(ComputeSignedArea(boundaryLoopXy));
-        double conservativeArea = ComputeConservativePathOwnedBoxArea(path);
-        Assert.True(localizedArea < conservativeArea, $"localized={localizedArea:0.###}, conservative={conservativeArea:0.###}");
-    }
-
-    [Fact]
     public void CreateRoadEdgeRemeshFallbackConstraints_DensePath_ResamplesPrimaryRails()
     {
         const int sampleCount = 81;
@@ -904,62 +861,6 @@ public class PathGraderTests
             constraint => Assert.True(
                 constraint.PointCount < sampleCount,
                 $"Expected fallback rail resampling to reduce point count below {sampleCount}, got {constraint.PointCount}."));
-    }
-
-    [Fact]
-    public void TryValidatePathPatchForStitching_FragmentedSeamBoundary_RejectsPatch()
-    {
-        var seamPoints = new List<double>();
-        for (int i = 0; i < 10; i++)
-            seamPoints.AddRange(new[] { i, 0.0 });
-        for (int i = 0; i < 10; i++)
-            seamPoints.AddRange(new[] { 10.0, i });
-        for (int i = 10; i > 0; i--)
-            seamPoints.AddRange(new[] { i, 10.0 });
-        for (int i = 10; i > 0; i--)
-            seamPoints.AddRange(new[] { 0.0, i });
-        double[] seamLoopXy = seamPoints.ToArray();
-
-        const int triangleCount = 24;
-        var patchVertices = new double[triangleCount * 9];
-        var patchFaces = new int[triangleCount * 3];
-        for (int triangleIndex = 0; triangleIndex < triangleCount; triangleIndex++)
-        {
-            double startX = 0.15 + (triangleIndex * 0.38);
-            int vertexBase = triangleIndex * 3;
-            int pointBase = triangleIndex * 9;
-            patchVertices[pointBase] = startX;
-            patchVertices[pointBase + 1] = 10.0;
-            patchVertices[pointBase + 2] = 0.0;
-            patchVertices[pointBase + 3] = startX + 0.24;
-            patchVertices[pointBase + 4] = 10.0;
-            patchVertices[pointBase + 5] = 0.0;
-            patchVertices[pointBase + 6] = startX + 0.12;
-            patchVertices[pointBase + 7] = 9.998;
-            patchVertices[pointBase + 8] = 0.0;
-
-            patchFaces[triangleIndex * 3] = vertexBase;
-            patchFaces[(triangleIndex * 3) + 1] = vertexBase + 1;
-            patchFaces[(triangleIndex * 3) + 2] = vertexBase + 2;
-        }
-
-        bool valid = PathGrader.TryValidatePathPatchForStitching(
-            seamLoopXy,
-            patchVertices,
-            patchFaces,
-            patchFaceCount: triangleCount,
-            BuildSquareVertices(),
-            BuildSquareFaces(),
-            outsideFaceCount: 2,
-            tolerance: 1e-3,
-            out double[] patchBoundaryLoopXy,
-            out SeamGraph? seamGraph,
-            out string? errorMessage);
-
-        Assert.False(valid);
-        Assert.Empty(patchBoundaryLoopXy);
-        Assert.NotNull(seamGraph);
-        Assert.Contains("fragmentation", errorMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<(double x, double y, double z)> EnumerateVertices(GradingResult result)
@@ -1065,43 +966,6 @@ public class PathGraderTests
         }
 
         return faces;
-    }
-
-    private static double ComputeSignedArea(double[] loopXy)
-    {
-        double area = 0.0;
-        int count = loopXy.Length / 2;
-        for (int i = 0; i < count; i++)
-        {
-            int next = (i + 1) % count;
-            area += (loopXy[i * 2] * loopXy[next * 2 + 1]) - (loopXy[next * 2] * loopXy[i * 2 + 1]);
-        }
-
-        return area * 0.5;
-    }
-
-    private static double ComputeConservativePathOwnedBoxArea(PathGrader.PathDefinition path)
-    {
-        double minX = double.MaxValue;
-        double maxX = double.MinValue;
-        double minY = double.MaxValue;
-        double maxY = double.MinValue;
-        for (int i = 0; i < path.VertexCount; i++)
-        {
-            double x = path.XyVertices[i * 2];
-            double y = path.XyVertices[i * 2 + 1];
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-        }
-
-        double halfWidth = path.Width * 0.5;
-        double shoulderAllowance = path.MaxDistance > 0.0
-            ? path.MaxDistance
-            : Math.Max(path.Width * 2.0, halfWidth);
-        double expansion = halfWidth + shoulderAllowance;
-        return ((maxX - minX) + (expansion * 2.0)) * ((maxY - minY) + (expansion * 2.0));
     }
 
     private static int GetGridVertexIndex(int size, int x, int y)

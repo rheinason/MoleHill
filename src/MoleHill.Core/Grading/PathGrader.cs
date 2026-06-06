@@ -918,8 +918,8 @@ public static partial class PathGrader
                             tolerance);
 
                     runXy.Clear();
-                    runZ.Clear();
-                    continue;
+                runZ.Clear();
+                continue;
             }
 
             foreach (ClippedSegment piece in pieces)
@@ -1032,7 +1032,10 @@ public static partial class PathGrader
         int boundaryVertexCount,
         bool[]? keepStations,
         int vertexCount,
-        double tolerance)
+        double tolerance,
+        PreparedBarriers barriers,
+        SpatialHashGrid2D.QueryScratch barrierScratch,
+        List<int> barrierCandidates)
     {
         for (int i = 0; i < vertexCount; i++)
         {
@@ -1063,15 +1066,20 @@ public static partial class PathGrader
                 stationZ[pointIndex] = points[(pointIndex * 3) + 2];
             }
 
-            AddBoundaryClippedConstraintRuns(
-                constraints,
-                stationXy,
-                stationZ,
-                pointCount,
-                hasBoundaryLoop,
-                boundaryLoop,
-                boundaryVertexCount,
-                tolerance);
+            foreach (ConstraintPath run in CreateClippedRuns(
+                         stationXy,
+                         stationZ,
+                         pointCount,
+                         hasBoundaryLoop,
+                         boundaryLoop,
+                         boundaryVertexCount,
+                         tolerance,
+                         barriers,
+                         barrierScratch,
+                         barrierCandidates))
+            {
+                AddConstraintPolyline(constraints, run.XyVertices, run.ZValues, run.VertexCount);
+            }
         }
     }
 

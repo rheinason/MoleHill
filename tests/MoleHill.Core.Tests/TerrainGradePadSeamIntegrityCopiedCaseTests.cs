@@ -1893,7 +1893,6 @@ public class TerrainGradePadSeamIntegrityCopiedCaseTests
         Assert.True(string.IsNullOrWhiteSpace(errorMessage), errorMessage);
 
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("retrying protected whole-mesh remesh", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("protected patch failed", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("split-local fallback is disabled", diagnostics, StringComparison.OrdinalIgnoreCase);
 

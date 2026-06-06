@@ -24725,9 +24725,14 @@ public class TerrainGradePadContourHeightCopiedCaseTests
         Assert.True(result != null, errorMessage);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("protected stitch apron", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("retrying protected whole-mesh remesh", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("protected apron", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("protected patch failed", diagnostics, StringComparison.OrdinalIgnoreCase);
+        MeshTopologyValidator.BoundaryGraphAnalysis topology =
+            MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
+        Assert.False(
+            topology.HasOpenBoundaryChains,
+            $"boundary edges={topology.BoundaryEdgeCount}, boundary vertices={topology.BoundaryVertexCount}, components={topology.BoundaryComponentCount}, nonmanifold={topology.NonManifoldEdgeCount}{Environment.NewLine}{diagnostics}");
+        Assert.Equal(0, topology.NonManifoldEdgeCount);
     }
 }

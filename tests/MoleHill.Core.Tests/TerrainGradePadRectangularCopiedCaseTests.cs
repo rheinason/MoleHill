@@ -113,8 +113,8 @@ public class TerrainGradePadRectangularCopiedCaseTests
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("protected stitch apron", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("merged-mesh naked edges near seam: 0", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("protected apron", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("topology healthy=True", diagnostics, StringComparison.OrdinalIgnoreCase);
 
         double maxDelta = ExtractDiagnosticNumber(
             diagnostics,

@@ -387,7 +387,10 @@ public static partial class PathGrader
                     boundaryVertexCount,
                     keepStationConstraints,
                     constraintPath.VertexCount,
-                    dedupTol);
+                    dedupTol,
+                    preparedBarriers,
+                    barrierScratch,
+                    barrierCandidates);
             }
         }
 

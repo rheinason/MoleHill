@@ -18,7 +18,8 @@ public static partial class PadGrader
         double[] boundaryLoop,
         int boundaryVertexCount,
         double tolerance,
-        bool keepShoulderOnBatterPlane = false)
+        bool keepShoulderOnBatterPlane = false,
+        int defaultCornerFanSegments = 0)
     {
         if (pads.Length == 0)
             return;
@@ -41,7 +42,8 @@ public static partial class PadGrader
                 boundaryLoop,
                 boundaryVertexCount,
                 tolerance,
-                keepShoulderOnBatterPlane);
+                keepShoulderOnBatterPlane,
+                defaultCornerFanSegments);
             interiorBounds[i] = new Bounds2D(
                 preparedPads[i].MinX,
                 preparedPads[i].MaxX,
@@ -175,7 +177,8 @@ public static partial class PadGrader
         double[] boundaryLoop,
         int boundaryVertexCount,
         double tolerance,
-        bool keepShoulderOnBatterPlane = false)
+        bool keepShoulderOnBatterPlane = false,
+        int defaultCornerFanSegments = 0)
     {
         double[] initialDistances = ComputePadBoundaryDistances(
             pad.XyVertices,
@@ -204,7 +207,7 @@ public static partial class PadGrader
 
         int effectiveCornerFanSegments = pad.CornerFanSegments > 0
             ? pad.CornerFanSegments
-            : (pad.StitchApronDistance > tolerance * 4.0 ? 6 : 0);
+            : (pad.StitchApronDistance > tolerance * 4.0 ? 6 : defaultCornerFanSegments);
         double[] targetBoundaryXy = padLoop.XyVertices;
         double[] targetShoulderXy;
         bool hasShoulderLoop;

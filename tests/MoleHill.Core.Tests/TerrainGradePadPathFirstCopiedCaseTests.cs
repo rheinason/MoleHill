@@ -3824,7 +3824,6 @@ public class TerrainGradePadPathFirstCopiedCaseTests
         Assert.True(string.IsNullOrWhiteSpace(errorMessage), errorMessage);
 
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("retrying protected whole-mesh remesh", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("protected patch failed", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("split-local fallback is disabled", diagnostics, StringComparison.OrdinalIgnoreCase);
 
@@ -3832,7 +3831,7 @@ public class TerrainGradePadPathFirstCopiedCaseTests
             MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
         Assert.False(
             topology.HasOpenBoundaryChains,
-            $"boundary edges={topology.BoundaryEdgeCount}, boundary vertices={topology.BoundaryVertexCount}, components={topology.BoundaryComponentCount}, nonmanifold={topology.NonManifoldEdgeCount}");
+            $"boundary edges={topology.BoundaryEdgeCount}, boundary vertices={topology.BoundaryVertexCount}, components={topology.BoundaryComponentCount}, nonmanifold={topology.NonManifoldEdgeCount}{Environment.NewLine}{diagnostics}");
         Assert.Equal(0, topology.NonManifoldEdgeCount);
     }
 }
