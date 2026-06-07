@@ -1,10 +1,18 @@
 # `grading-rebuild` Branch Review
 
-**Reviewed:** 2026-06-07 (re-review)
-**Branch:** `grading-rebuild` — 8 commits on top of `main`, plus uncommitted work
-**Scope:** 43 files changed, +15,722 / −9,282
+**Reviewed:** 2026-06-08 (post `PathGrader.ZOnly` split)
+**Branch:** `grading-rebuild`
+**Scope (grading core):** ~4,447 insertions / ~9,930 deletions across `src/MoleHill.Core/Grading/`
 
 ```
+7e39cf5 Split PathGrader Z-only helpers by phase
+0704a96 Split PadGrader surface helpers by phase
+d82e75f Split PathGrader helpers by phase
+f691f5f Separate annotation collapse from analysis cards
+ef7b308 Update grading rebuild review status
+1a0882c Surface multi-pad slope fallback policy
+6daee41 Extract pad fallback result builder
+5f4f379 Index constraints and externalize copied path case
 e4c8e28 Remove legacy pad topology route
 cc79b54 Extract path grading sampling helpers
 151a5c2 Surface constraint-first failure diagnostics
@@ -15,110 +23,96 @@ abec117 Clean up constraint-first grading follow-up
 a09b7c5 Rebuild grading around constraint-first topology
 ```
 
-Uncommitted: a spatial broad-phase for `ConstraintNetworkNormalizer.SplitAtIntersections`
-(+ its test), unrelated `MoleHillPanel.cs` annotation-card edits, and this doc.
-
 ## What the rebuild does
 
-Pad and path grading now both route through one shared
-`ConstraintFirstGradingEngine.TryBuild`. It: normalizes the constraint network
-(`SplitAtIntersections`), builds constraint topology first via `SurfaceRemesher`
-with `ConstraintInsertionOnly: true`, guards output density, validates a single
-closed boundary loop (`MeshTopologyValidator.AnalyzeBoundaryGraph`), evaluates Z
-through a caller-supplied delegate, snaps preserved-elevation constraints, and
-builds the result. `PadGrader.Protected.cs` (988 lines) is gone;
-`PathGrader.Patches.cs` ~2.6k → 174; `PadGrader.Patches.cs` ~3.5k → 298;
+Pad and path grading both route through one shared
+`ConstraintFirstGradingEngine.TryBuild`: normalize the constraint network
+(`SplitAtIntersections`), build constraint topology first via `SurfaceRemesher`
+with `ConstraintInsertionOnly: true`, guard output density, validate a single
+closed boundary loop (`MeshTopologyValidator.AnalyzeBoundaryGraph`), evaluate Z
+through a caller-supplied delegate, snap preserved-elevation constraints, build
+the result. `PadGrader.Protected.cs` (988 lines) is gone;
+`PathGrader.Patches.cs` ~2.6k → 175; `PadGrader.Patches.cs` ~3.5k → 298;
 `TerrainBuildService.cs` shed 911 lines of the old path-remesh fallback.
 
 ---
 
 ## Build & test state — **green**
 
-- `dotnet build MoleHill.sln` → **0 warnings, 0 errors** (full solution, including
-  `MoleHill.Rhino` and the `.gha`/Yak pipeline). The original blocker — a call to
-  the deleted `PathGrader.TryBuildLocalizedFallbackBoundary` in
-  `TerrainBuildService` — is resolved.
-- `dotnet test --filter "FullyQualifiedName~Grad"` → **141 passed, 0 failed**.
-- New focused tests exist for the engine (`ConstraintFirstGradingEngineTests`:
+- `dotnet test MoleHill.sln -p:BaseOutputPath=.codex-build\solution-path-zonly-split\ -p:UseSharedCompilation=false`
+  → **Core 223 passed / 0 failed; Grasshopper 3 passed / 16 skipped**.
+- `dotnet build src\MoleHill.Rhino\MoleHill.Rhino.csproj -p:BaseOutputPath=.codex-build\rhino-path-zonly-split-final\ -p:UseSharedCompilation=false`
+  → **0 warnings, 0 errors**.
+- Focused `PathGrader` tests after the split → **52 passed, 0 failed**.
+- Direct unit tests now cover the engine (`ConstraintFirstGradingEngineTests`:
   preserved-elevation overlap precedence, far-segment lookup, Z-eval failure
-  diagnostics) and the normalizer (`SplitAtIntersections` distant-candidate case).
+  diagnostics) and the normalizer (`ConstraintNetworkNormalizerTests`:
+  distant-candidate broad phase). `.codex-build/` and `.artifacts/` under the
+  test project are gitignored local scratch, not tracked.
 
-The original review's correctness findings are verified fixed in code:
-spatial-indexed preserved-elevation lookup (`PreservedConstraintSegmentIndex`),
-structured failure diagnostics surfaced on the null path, bounded coarse-retry
-density guard, value-type `SegmentKey` + `SpatialHashGrid2D` broad phase,
-`Quantize` non-finite/overflow clamp, and removal of the dead
-`TryTriangulateTopology` route (`CreateConstraints` retained as the active API).
+---
+
+## Resolved since the prior passes (verified in code)
+
+- **Rhino build blocker** (deleted `PathGrader.TryBuildLocalizedFallbackBoundary`
+  call) — gone; full solution compiles.
+- **Preserved-elevation lookup** — spatial-indexed
+  (`PreservedConstraintSegmentIndex`), `O(V·k)` instead of `O(V·Σsegments)`.
+- **Failure diagnostics** — structured codes surfaced on the null path;
+  `grade_path.constraint_first.failed` is asserted by test.
+- **Density guard** — bounded coarse-retry loop that only accepts a retry which
+  actually reduces face count.
+- **Normalizer** — value-type `SegmentKey`, `SpatialHashGrid2D` broad phase,
+  `Quantize` non-finite/overflow clamp; dead `TryTriangulateTopology` removed.
+- **Fallback emit duplication** (`6daee41`) — the three tiers in
+  `GradeWithRefinedZOnlyFallback` now share `BuildRefinedFallbackResult`
+  (`PadGrader.RefinedFallback.cs:116`). Genuine ~120-line dedup.
+- **Giant captured test** (`5f4f379`) — the 12,904-line single-`[Fact]` is now
+  94 lines; geometry lives in the tracked, embedded
+  `TestData/TerrainGradePathAfterProtectedPadsCopiedCase.json`.
+- **Multi-pad slope gate is now observable** (`1a0882c`) — when coupled protected
+  pads keep the constraint-first result despite slope-deviation diagnostics,
+  `AddMultiPadSlopeDeviationFallbackDiagnosticIfNeeded` (`PadGrader.cs:169`)
+  emits `grade_pad.fallback.multi_pad_slope_deviation_skipped`.
+- **MoleHillPanel** annotation-card edits committed on their own (`f691f5f`),
+  not riding along with grading core.
+- **Path Z-only monolith** (`7e39cf5`) — `PathGrader.ZOnly.cs` now contains
+  the fallback entry points and top-level `ApplyPathGrading` orchestration only;
+  section solving, daylight reach, influence blending, shoulder reference
+  profiles, and diagnostics live in phase-specific partial files.
 
 ---
 
 ## Remaining findings
 
-### Correctness / robustness
+### Correctness / robustness (minor, by-design)
 
-1. **Slope-deviation fallback is still gated to `pads.Length == 1`**
-   (`PadGrader.cs:155`). A multi-pad job where one pad grades with excessive
-   slope deviation will not trigger local refinement. This is a deliberate hold:
-   the multi-pad path prefers constrained whole-mesh retriangulation
-   (`GradeWithRefinedZOnlyFallback`, `PadGrader.RefinedFallback.cs:18`), and the
-   local-refinement fallback is too weak for coupled pads. Acceptable for now,
-   but it means "one bad pad among several" is silently accepted rather than
-   repaired. Worth a tracked TODO so it isn't forgotten.
+1. **`TryBuildLocallyRefinedFallbackTopology` remains a weak last resort**
+   (`PadGrader.RefinedFallback.cs:351`). One centroid Steiner per pad + a single
+   1→3 face split cannot repair boundary-topology problems, so on real failures
+   it usually falls through to the whole-mesh path anyway. It earns its keep only
+   for the single-pad copied-rectangle regressions where whole-mesh
+   retriangulation raised slope error. Keep as a shim; don't mistake it for a
+   real recovery strategy.
 
-2. **`TryBuildLocallyRefinedFallbackTopology` remains a weak last resort**
-   (`PadGrader.RefinedFallback.cs:392`). It inserts one centroid Steiner per pad
-   and 1→3 splits a single face — it cannot repair boundary-topology problems,
-   so on real failures it usually falls through to the whole-mesh path anyway.
-   It still earns its keep only for the single-pad copied-rectangle regressions
-   where whole-mesh retriangulation raised slope error. Keep, but treat as a
-   shim, not a real recovery strategy.
+2. **Multi-pad slope-deviation still does not attempt local refinement**
+   (`PadGrader.cs:158` gate stays `pads.Length == 1`). Now *tracked* via the
+   diagnostic above rather than silent, which is the right interim state. The
+   underlying limitation — a coupled-pad job with one over-sloped pad keeps the
+   constraint-first result — stands until the local-refinement fallback is strong
+   enough for coupled pads (see finding 1).
 
 3. **`ApplyPreservedConstraintElevations` rebuilds its spatial index every
-   `Grade` call** (`ConstraintFirstGradingEngine.cs:301`/`:382`). Correct and now
-   `O(V·k)` instead of `O(V·Σsegments)`, but the index (segment array + grid +
-   scratch) is allocated fresh per invocation. Fine at current call rates; if
-   grading moves onto a hot interactive path, consider caching it on the
-   constraint set.
-
-### Fallback architecture
-
-4. **Resolved:** `GradeWithRefinedZOnlyFallback` had three near-duplicated emit
-   blocks. The branch-specific topology choices now call a shared fallback
-   result builder that owns Z application, diagnostics, structured warning merge,
-   slope diagnostics, and `GradingResultBuilder.BuildFromXyz`.
-
-### Tests
-
-5. **Resolved:** `TerrainGradePathAfterProtectedPadsCopiedCaseTests.cs` was one
-   12,904-line `[Fact]` with geometry inlined ~10 floats/line. The captured
-   vertices, faces, path, and hard constraints now live in an embedded JSON
-   fixture loaded via `Assembly.GetManifestResourceStream`, leaving the test
-   focused on setup and topology assertions.
-   The new direct `ConstraintFirstGradingEngineTests` /
-   `ConstraintNetworkNormalizerTests` are the right model — small, intentional,
-   readable. Prefer growing those over more giant captured cases.
-
-### Maintainability
-
-6. **Resolved:** `PathGrader.cs` now holds the public `Grade` entry points while
-   helper responsibilities live in phase files: `PathGrader.ApplyZ.cs`,
-   `PathGrader.Clipping.cs`, `PathGrader.Shoulders.cs`, and
-   `PathGrader.Result.cs`.
-
-7. **Resolved:** `PadGrader.ZOnly.cs` has been removed. Its former helper bucket
-   is split into `PadGrader.Surfaces.cs`, `PadGrader.Daylighting.cs`,
-   `PadGrader.Shoulders.cs`, and `PadGrader.ConstraintSizing.cs`.
-
-8. **Resolved:** `MoleHillPanel.cs` annotation-card collapse scoping was committed
-   separately in `f691f5f`, so the UI fix no longer rides along with grading-core
-   refactors.
+   `Grade` call** (`ConstraintFirstGradingEngine.cs`). Correct and cheap at
+   current call rates; if grading moves onto a hot interactive path, cache the
+   index on the constraint set.
 
 ---
 
 ## Suggested next steps
 
-1. Done: the normalizer broad-phase + test landed in `5f4f379`.
-2. Done: the `pads.Length == 1` slope-deviation fallback gate is now tracked by
-   `grade_pad.fallback.multi_pad_slope_deviation_skipped` when coupled protected
-   pads keep the constraint-first result despite slope-deviation diagnostics.
-3. Decide the fate of the `MoleHillPanel.cs` changes before committing.
+1. Strengthen `TryBuildLocallyRefinedFallbackTopology` (or retire it in favor of
+   the constrained whole-mesh path) so the `pads.Length == 1` slope-deviation
+   gate (finding 2) can be widened to coupled pads.
+2. Otherwise the branch is in good shape — build green, tests green, prior
+   correctness findings closed. Reasonable to open the PR.
