@@ -67,10 +67,12 @@ old path-remesh methodology.
    also append to the message list or have the caller surface structured
    diagnostics on the null path.
 
-5. **`ApplyPreservedConstraintElevations` (`ConstraintFirstGradingEngine.cs:276`)
-   is `O(V × Σ segments)` with no spatial index.** For meshes with many
-   preserved-elevation constraints and large vertex counts this will dominate
-   the rebuild cost. Add a coarse spatial grid keyed by segment AABB.
+5. **Resolved:** `ApplyPreservedConstraintElevations` (`ConstraintFirstGradingEngine.cs:276`)
+   was `O(V × Σ segments)` with no spatial index. For meshes with many
+   preserved-elevation constraints and large vertex counts this could dominate
+   rebuild cost. It now builds a coarse segment AABB index and queries only
+   nearby preserved-elevation segments per output vertex while preserving the
+   previous constraint overwrite order.
 
 6. **`TryBuildLocallyRefinedFallbackTopology` is a very weak fallback** — it
    inserts one Steiner per pad centroid and 1-3 splits a single face
@@ -124,13 +126,14 @@ old path-remesh methodology.
       12.9k lines it dwarfs `PadGraderTests.cs` (1.6k) and `PathGraderTests.cs`
       (1.1k) combined.
 
-11. **No direct unit tests for the new engine pieces.**
+11. **Partially resolved:** no direct unit tests for the new engine pieces.
     `ConstraintFirstGradingEngine.TryBuild`,
     `ConstraintNetworkNormalizer.SplitAtIntersections`, and
     `TryBuildLocallyRefinedFallbackTopology` are only exercised end-to-end. A
     focused test covering an explicit X-intersection in `SplitAtIntersections`,
     and one for the density-budget retry, would lock the regressions you just
-    fixed.
+    fixed. Direct tests now cover constraint-network intersection splitting and
+    preserved constraint elevation handling inside `ConstraintFirstGradingEngine`.
 
 ---
 

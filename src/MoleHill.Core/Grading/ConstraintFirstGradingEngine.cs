@@ -9,6 +9,16 @@ internal static class ConstraintFirstGradingEngine
     private const double HardFaceMultiplier = 8.0;
     private const int DensityGuardCoarseRetryLimit = 3;
 
+    private readonly record struct PreservedConstraintSegment(
+        double Ax,
+        double Ay,
+        double Az,
+        double Bx,
+        double By,
+        double Bz,
+        int ConstraintIndex,
+        int SegmentIndex);
+
     public delegate double[] ApplyGradingDelegate(double[] topologyVertices, int vertexCount, int[] faces, int faceCount);
 
     public delegate void AppendOutputDiagnosticsDelegate(
@@ -292,41 +302,138 @@ internal static class ConstraintFirstGradingEngine
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
         double tolerance)
     {
+        if (constraints.Count == 0 || vertexCount == 0)
+            return;
+
         double snapTolerance = Math.Max(tolerance * 4.0, 1e-8);
         double snapToleranceSq = snapTolerance * snapTolerance;
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        PreservedConstraintSegmentIndex? index = PreservedConstraintSegmentIndex.Build(constraints, snapTolerance);
+        if (index == null)
+            return;
+
+        for (int vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++)
         {
-            if (!constraint.PreserveInputElevation ||
-                constraint.PointCount < 2 ||
-                constraint.Points.Length < constraint.PointCount * 3)
+            double x = vertices[vertexIndex * 3];
+            double y = vertices[vertexIndex * 3 + 1];
+            if (index.TryGetElevation(x, y, snapToleranceSq, out double z))
+                vertices[vertexIndex * 3 + 2] = z;
+        }
+    }
+
+    private sealed class PreservedConstraintSegmentIndex
+    {
+        private readonly PreservedConstraintSegment[] _segments;
+        private readonly SpatialHashGrid2D _grid;
+        private readonly SpatialHashGrid2D.QueryScratch _scratch;
+        private readonly List<int> _candidates;
+
+        private PreservedConstraintSegmentIndex(PreservedConstraintSegment[] segments, SpatialHashGrid2D grid)
+        {
+            _segments = segments;
+            _grid = grid;
+            _scratch = new SpatialHashGrid2D.QueryScratch(segments.Length);
+            _candidates = new List<int>(Math.Min(segments.Length, 32));
+        }
+
+        public bool TryGetElevation(double x, double y, double maxDistanceSquared, out double z)
+        {
+            z = 0.0;
+            _grid.GatherCandidates(Bounds2D.FromPoint(x, y), _candidates, _scratch);
+            if (_candidates.Count == 0)
+                return false;
+
+            bool found = false;
+            int bestConstraintIndex = -1;
+            int bestSegmentIndex = int.MaxValue;
+            foreach (int candidateIndex in _candidates)
             {
-                continue;
+                PreservedConstraintSegment segment = _segments[candidateIndex];
+                if (!TryProjectToSegment(
+                        x,
+                        y,
+                        segment.Ax,
+                        segment.Ay,
+                        segment.Bx,
+                        segment.By,
+                        out double t,
+                        out double distanceSq) ||
+                    distanceSq > maxDistanceSquared)
+                {
+                    continue;
+                }
+
+                if (segment.ConstraintIndex < bestConstraintIndex ||
+                    (segment.ConstraintIndex == bestConstraintIndex && segment.SegmentIndex >= bestSegmentIndex))
+                {
+                    continue;
+                }
+
+                bestConstraintIndex = segment.ConstraintIndex;
+                bestSegmentIndex = segment.SegmentIndex;
+                z = segment.Az + ((segment.Bz - segment.Az) * t);
+                found = true;
             }
 
-            int segmentCount = constraint.IsClosed ? constraint.PointCount : constraint.PointCount - 1;
-            for (int vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++)
+            return found;
+        }
+
+        public static PreservedConstraintSegmentIndex? Build(
+            IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+            double snapTolerance)
+        {
+            var segments = new List<PreservedConstraintSegment>();
+            var bounds = new List<Bounds2D>();
+            for (int constraintIndex = 0; constraintIndex < constraints.Count; constraintIndex++)
             {
-                double x = vertices[vertexIndex * 3];
-                double y = vertices[vertexIndex * 3 + 1];
+                SurfaceRemesher.ConstraintPolyline constraint = constraints[constraintIndex];
+                if (!constraint.PreserveInputElevation ||
+                    constraint.PointCount < 2 ||
+                    constraint.Points.Length < constraint.PointCount * 3)
+                {
+                    continue;
+                }
+
+                int segmentCount = constraint.IsClosed ? constraint.PointCount : constraint.PointCount - 1;
                 for (int segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++)
                 {
                     int nextIndex = (segmentIndex + 1) % constraint.PointCount;
                     double ax = constraint.Points[segmentIndex * 3];
-                    double ay = constraint.Points[segmentIndex * 3 + 1];
-                    double az = constraint.Points[segmentIndex * 3 + 2];
+                    double ay = constraint.Points[(segmentIndex * 3) + 1];
+                    double az = constraint.Points[(segmentIndex * 3) + 2];
                     double bx = constraint.Points[nextIndex * 3];
-                    double by = constraint.Points[nextIndex * 3 + 1];
-                    double bz = constraint.Points[nextIndex * 3 + 2];
-                    if (!TryProjectToSegment(x, y, ax, ay, bx, by, out double t, out double distanceSq) ||
-                        distanceSq > snapToleranceSq)
+                    double by = constraint.Points[(nextIndex * 3) + 1];
+                    double bz = constraint.Points[(nextIndex * 3) + 2];
+                    if (!double.IsFinite(ax) ||
+                        !double.IsFinite(ay) ||
+                        !double.IsFinite(az) ||
+                        !double.IsFinite(bx) ||
+                        !double.IsFinite(by) ||
+                        !double.IsFinite(bz))
                     {
                         continue;
                     }
 
-                    vertices[vertexIndex * 3 + 2] = az + ((bz - az) * t);
-                    break;
+                    segments.Add(new PreservedConstraintSegment(
+                        ax,
+                        ay,
+                        az,
+                        bx,
+                        by,
+                        bz,
+                        constraintIndex,
+                        segmentIndex));
+                    bounds.Add(new Bounds2D(
+                        Math.Min(ax, bx) - snapTolerance,
+                        Math.Max(ax, bx) + snapTolerance,
+                        Math.Min(ay, by) - snapTolerance,
+                        Math.Max(ay, by) + snapTolerance));
                 }
             }
+
+            if (segments.Count == 0)
+                return null;
+
+            return new PreservedConstraintSegmentIndex(segments.ToArray(), SpatialHashGrid2D.Build(bounds.ToArray()));
         }
     }
 
