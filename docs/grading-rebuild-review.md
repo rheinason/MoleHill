@@ -123,8 +123,7 @@ density guard, value-type `SegmentKey` + `SpatialHashGrid2D` broad phase,
 
 ## Suggested next steps
 
-1. Land the uncommitted normalizer broad-phase + test (it's a clean win and is
-   already covered).
+1. Done: the normalizer broad-phase + test landed in `5f4f379`.
 2. Done: the `pads.Length == 1` slope-deviation fallback gate is now tracked by
    `grade_pad.fallback.multi_pad_slope_deviation_skipped` when coupled protected
    pads keep the constraint-first result despite slope-deviation diagnostics.
