@@ -5212,16 +5212,8 @@ internal sealed partial class TerrainBuildService
         for (int pathIndex = 0; pathIndex < paths.Count; pathIndex++)
         {
             PathGrader.PathDefinition path = paths[pathIndex];
-            if (PathGrader.TryBuildLocalizedFallbackBoundary(vertices, vertexCount, path, tolerance, out double[] corridorLoopXy))
-            {
-                boundaries.Add(new MeshAreaSplitter.AreaBoundary(corridorLoopXy, corridorLoopXy.Length / 2));
-                pathFollowingBoundaryCount++;
-            }
-            else
-            {
-                boundaries.Add(BuildConservativeGradePathFallbackBoundary(path));
-                conservativeBoundaryCount++;
-            }
+            boundaries.Add(BuildConservativeGradePathFallbackBoundary(path));
+            conservativeBoundaryCount++;
         }
 
         return boundaries.ToArray();
