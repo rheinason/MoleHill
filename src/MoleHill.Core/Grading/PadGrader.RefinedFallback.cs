@@ -29,61 +29,22 @@ public static partial class PadGrader
                 out int preferredWholeMeshFaceCount,
                 out string? preferredWholeMeshWarning))
         {
-            double[] preferredWholeMeshGradedVertices = ApplyGradingZ(
+            return BuildRefinedFallbackResult(
+                vertexCount,
+                faceCount,
                 preferredWholeMeshVertices,
                 preferredWholeMeshVertexCount,
                 preferredWholeMeshFaces,
                 preferredWholeMeshFaceCount,
-                pads,
-                lockCurves);
-
-            var preferredWholeMeshDiagnostics = new List<string>
-            {
-                $"Grade Pad constraint-first rebuild failed; constrained whole-mesh retriangulation fallback used for protected-pad topology. Failure: {fallbackReason}",
-                "Grade Pad protected apron handled by constrained whole-mesh retriangulation fallback.",
-                "Grade Pad interacting pad ownership resolved after constrained whole-mesh retriangulation fallback.",
-                GradingTopologyDiagnostics.BuildMeshSummaryMessage(
-                    "Grade Pad",
-                    vertexCount,
-                    faceCount,
-                    preferredWholeMeshVertexCount,
-                    preferredWholeMeshFaceCount,
-                    preferredWholeMeshFaces)
-            };
-            if (!string.IsNullOrWhiteSpace(preferredWholeMeshWarning))
-                preferredWholeMeshDiagnostics.Add(preferredWholeMeshWarning!);
-
-            var preferredWholeMeshStructuredDiagnostics = new List<GradingDiagnostic>
-            {
-                GradingDiagnostic.Warning(
-                    "grade_pad.topology.constrained_whole_mesh_retriangulation_fallback",
-                    preferredWholeMeshDiagnostics[0],
-                    operation: "grade_pad")
-            };
-            if (constraintFirstFailureDiagnostics != null)
-                preferredWholeMeshStructuredDiagnostics.AddRange(constraintFirstFailureDiagnostics);
-            AppendPadOutputSlopeDiagnostics(
-                preferredWholeMeshVertices,
-                preferredWholeMeshVertexCount,
-                preferredWholeMeshFaces,
-                preferredWholeMeshFaceCount,
-                preferredWholeMeshGradedVertices,
                 pads,
                 lockCurves,
                 modelTolerance,
-                preferredWholeMeshDiagnostics,
-                preferredWholeMeshStructuredDiagnostics);
-
-            return GradingResultBuilder.BuildFromXyz(
-                preferredWholeMeshVertices,
-                preferredWholeMeshGradedVertices,
-                preferredWholeMeshVertexCount,
-                preferredWholeMeshFaces,
-                preferredWholeMeshFaceCount,
-                BuildPadBoundaryPolylines(pads),
-                preferredWholeMeshDiagnostics,
-                BuildPadPatchSummaries(pads),
-                preferredWholeMeshStructuredDiagnostics);
+                "grade_pad.topology.constrained_whole_mesh_retriangulation_fallback",
+                $"Grade Pad constraint-first rebuild failed; constrained whole-mesh retriangulation fallback used for protected-pad topology. Failure: {fallbackReason}",
+                "Grade Pad protected apron handled by constrained whole-mesh retriangulation fallback.",
+                "Grade Pad interacting pad ownership resolved after constrained whole-mesh retriangulation fallback.",
+                preferredWholeMeshWarning,
+                constraintFirstFailureDiagnostics);
         }
 
         if (!TryBuildLocallyRefinedFallbackTopology(
@@ -116,98 +77,96 @@ public static partial class PadGrader
                 out int wholeMeshFaceCount,
                 out string? wholeMeshWarning))
         {
-            double[] wholeMeshGradedVertices = ApplyGradingZ(
+            return BuildRefinedFallbackResult(
+                vertexCount,
+                faceCount,
                 wholeMeshVertices,
                 wholeMeshVertexCount,
                 wholeMeshFaces,
                 wholeMeshFaceCount,
-                pads,
-                lockCurves);
-
-            var wholeMeshDiagnostics = new List<string>
-            {
-                $"Grade Pad constraint-first rebuild failed; whole-mesh retriangulation fallback used because local refinement kept unhealthy upstream boundaries. Failure: {fallbackReason}",
-                "Grade Pad protected apron handled by whole-mesh retriangulation fallback.",
-                "Grade Pad interacting pad ownership resolved after whole-mesh retriangulation fallback.",
-                GradingTopologyDiagnostics.BuildMeshSummaryMessage(
-                    "Grade Pad",
-                    vertexCount,
-                    faceCount,
-                    wholeMeshVertexCount,
-                    wholeMeshFaceCount,
-                    wholeMeshFaces)
-            };
-            if (!string.IsNullOrWhiteSpace(wholeMeshWarning))
-                wholeMeshDiagnostics.Add(wholeMeshWarning!);
-
-            var wholeMeshStructuredDiagnostics = new List<GradingDiagnostic>
-            {
-                GradingDiagnostic.Warning(
-                    "grade_pad.topology.whole_mesh_retriangulation_fallback",
-                    wholeMeshDiagnostics[0],
-                    operation: "grade_pad")
-            };
-            if (constraintFirstFailureDiagnostics != null)
-                wholeMeshStructuredDiagnostics.AddRange(constraintFirstFailureDiagnostics);
-            AppendPadOutputSlopeDiagnostics(
-                wholeMeshVertices,
-                wholeMeshVertexCount,
-                wholeMeshFaces,
-                wholeMeshFaceCount,
-                wholeMeshGradedVertices,
                 pads,
                 lockCurves,
                 modelTolerance,
-                wholeMeshDiagnostics,
-                wholeMeshStructuredDiagnostics);
-
-            return GradingResultBuilder.BuildFromXyz(
-                wholeMeshVertices,
-                wholeMeshGradedVertices,
-                wholeMeshVertexCount,
-                wholeMeshFaces,
-                wholeMeshFaceCount,
-                BuildPadBoundaryPolylines(pads),
-                wholeMeshDiagnostics,
-                BuildPadPatchSummaries(pads),
-                wholeMeshStructuredDiagnostics);
+                "grade_pad.topology.whole_mesh_retriangulation_fallback",
+                $"Grade Pad constraint-first rebuild failed; whole-mesh retriangulation fallback used because local refinement kept unhealthy upstream boundaries. Failure: {fallbackReason}",
+                "Grade Pad protected apron handled by whole-mesh retriangulation fallback.",
+                "Grade Pad interacting pad ownership resolved after whole-mesh retriangulation fallback.",
+                wholeMeshWarning,
+                constraintFirstFailureDiagnostics);
         }
 
-        double[] gradedVertices = ApplyGradingZ(
+        return BuildRefinedFallbackResult(
+            vertexCount,
+            faceCount,
             refinedOriginalVertices,
             refinedVertexCount,
             refinedFaces,
             refinedFaceCount,
             pads,
-            lockCurves);
-
-        var diagnostics = new List<string>
-        {
+            lockCurves,
+            modelTolerance,
+            "grade_pad.topology.local_refinement_fallback",
             $"Grade Pad constraint-first rebuild failed; local refinement fallback used for protected-pad topology. Failure: {fallbackReason}",
             "Grade Pad protected apron handled by local refinement fallback.",
             "Grade Pad interacting pad ownership resolved after local refinement fallback.",
+            topologyWarning: null,
+            constraintFirstFailureDiagnostics: constraintFirstFailureDiagnostics);
+    }
+
+    private static GradingResult BuildRefinedFallbackResult(
+        int inputVertexCount,
+        int inputFaceCount,
+        double[] topologyVertices,
+        int topologyVertexCount,
+        int[] topologyFaces,
+        int topologyFaceCount,
+        PadBoundary[] pads,
+        LockCurve[]? lockCurves,
+        double modelTolerance,
+        string diagnosticCode,
+        string headlineMessage,
+        string apronMessage,
+        string ownershipMessage,
+        string? topologyWarning,
+        IReadOnlyList<GradingDiagnostic>? constraintFirstFailureDiagnostics)
+    {
+        double[] gradedVertices = ApplyGradingZ(
+            topologyVertices,
+            topologyVertexCount,
+            topologyFaces,
+            topologyFaceCount,
+            pads,
+            lockCurves);
+        var diagnostics = new List<string>
+        {
+            headlineMessage,
+            apronMessage,
+            ownershipMessage,
             GradingTopologyDiagnostics.BuildMeshSummaryMessage(
                 "Grade Pad",
-                vertexCount,
-                faceCount,
-                refinedVertexCount,
-                refinedFaceCount,
-                refinedFaces)
+                inputVertexCount,
+                inputFaceCount,
+                topologyVertexCount,
+                topologyFaceCount,
+                topologyFaces)
         };
+        if (!string.IsNullOrWhiteSpace(topologyWarning))
+            diagnostics.Add(topologyWarning!);
+
         var structuredDiagnostics = new List<GradingDiagnostic>
         {
             GradingDiagnostic.Warning(
-                "grade_pad.topology.local_refinement_fallback",
+                diagnosticCode,
                 diagnostics[0],
                 operation: "grade_pad")
         };
         if (constraintFirstFailureDiagnostics != null)
             structuredDiagnostics.AddRange(constraintFirstFailureDiagnostics);
         AppendPadOutputSlopeDiagnostics(
-            refinedOriginalVertices,
-            refinedVertexCount,
-            refinedFaces,
-            refinedFaceCount,
+            topologyVertices,
+            topologyVertexCount,
+            topologyFaces,
+            topologyFaceCount,
             gradedVertices,
             pads,
             lockCurves,
@@ -216,11 +175,11 @@ public static partial class PadGrader
             structuredDiagnostics);
 
         return GradingResultBuilder.BuildFromXyz(
-            refinedOriginalVertices,
+            topologyVertices,
             gradedVertices,
-            refinedVertexCount,
-            refinedFaces,
-            refinedFaceCount,
+            topologyVertexCount,
+            topologyFaces,
+            topologyFaceCount,
             BuildPadBoundaryPolylines(pads),
             diagnostics,
             BuildPadPatchSummaries(pads),

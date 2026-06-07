@@ -82,15 +82,10 @@ density guard, value-type `SegmentKey` + `SpatialHashGrid2D` broad phase,
 
 ### Fallback architecture
 
-4. **`GradeWithRefinedZOnlyFallback` has three near-duplicated emit blocks**
-   (`PadGrader.RefinedFallback.cs:31-87`, `:118-174`, `:184-228`). Each manually
-   assembles the same shape: a 4-line `List<string>` of diagnostics, an optional
-   warning append, a single structured `GradingDiagnostic.Warning`, the
-   `constraintFirstFailureDiagnostics` merge, `AppendPadOutputSlopeDiagnostics`,
-   then `GradingResultBuilder.BuildFromXyz`. Only the message strings and the
-   diagnostic code differ. A small local helper taking
-   `(verts, faces, code, headlineMessage)` would collapse ~120 lines of
-   copy-paste and make the three tiers read as "same emit, different reason."
+4. **Resolved:** `GradeWithRefinedZOnlyFallback` had three near-duplicated emit
+   blocks. The branch-specific topology choices now call a shared fallback
+   result builder that owns Z application, diagnostics, structured warning merge,
+   slope diagnostics, and `GradingResultBuilder.BuildFromXyz`.
 
 ### Tests
 
@@ -130,7 +125,6 @@ density guard, value-type `SegmentKey` + `SpatialHashGrid2D` broad phase,
 
 1. Land the uncommitted normalizer broad-phase + test (it's a clean win and is
    already covered).
-2. Extract the shared emit helper in `GradeWithRefinedZOnlyFallback`.
-3. File a TODO for the `pads.Length == 1` slope-deviation gate (item 1) so the
+2. File a TODO for the `pads.Length == 1` slope-deviation gate (item 1) so the
    multi-pad limitation is tracked rather than implicit.
-4. Decide the fate of the `MoleHillPanel.cs` changes before committing.
+3. Decide the fate of the `MoleHillPanel.cs` changes before committing.
