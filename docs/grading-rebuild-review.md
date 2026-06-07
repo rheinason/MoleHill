@@ -143,13 +143,14 @@ old path-remesh methodology.
 
 ## Maintainability
 
-12. **`PathGrader.cs` is 1,686 lines** and `PadGrader.ZOnly.cs` is 1,570. The
+12. **Partially resolved:** `PathGrader.cs` was 1,686 lines and `PadGrader.ZOnly.cs` is 1,570. The
     constraint-first rebuild was a chance to shrink these; they're still doing
     too much. `PathGrader.cs` mixes the public entry points, constraint
     sampling, tangent smoothing, clipped-run generation, station-constraint
-    construction, and result building. Splitting tangent/sampling helpers into
-    a `PathGrader.Sampling.cs` is straightforward and would make the diff
-    legible.
+    construction, and result building. Tangent and resampling helpers have
+    been moved into `PathGrader.Sampling.cs`; clipped-run generation,
+    station-constraint construction, and result building still need follow-up
+    separation.
 
 13. **`PadGrader.ConstraintFirst.cs` and `PadGrader.RefinedFallback.cs` both
     reach into many shared helpers** (`BuildPadBoundaryPolylines`,
