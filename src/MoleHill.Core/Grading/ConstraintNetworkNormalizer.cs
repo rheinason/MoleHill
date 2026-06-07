@@ -4,6 +4,8 @@ namespace MoleHill.Core.Grading;
 
 internal static class ConstraintNetworkNormalizer
 {
+    private const double QuantizeToleranceFloor = 1e-9;
+
     private readonly record struct Segment(
         double Ax,
         double Ay,
@@ -12,6 +14,8 @@ internal static class ConstraintNetworkNormalizer
         double By,
         double Bz,
         bool PreserveInputElevation);
+
+    private readonly record struct SegmentKey(long Ax, long Ay, long Bx, long By);
 
     public static IReadOnlyList<SurfaceRemesher.ConstraintPolyline> SplitAtIntersections(
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
@@ -22,7 +26,7 @@ internal static class ConstraintNetworkNormalizer
         if (constraints.Count < 2)
             return constraints;
 
-        double resolvedTolerance = Math.Max(tolerance, 1e-9);
+        double resolvedTolerance = Math.Max(tolerance, QuantizeToleranceFloor);
         List<Segment> segments = BuildSegments(constraints, resolvedTolerance);
         if (segments.Count < 2)
             return constraints;
@@ -75,7 +79,7 @@ internal static class ConstraintNetworkNormalizer
             return constraints;
 
         var normalized = new List<SurfaceRemesher.ConstraintPolyline>(segments.Count + splitCount);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new HashSet<SegmentKey>();
         for (int i = 0; i < segments.Count; i++)
         {
             Segment segment = segments[i];
@@ -102,7 +106,7 @@ internal static class ConstraintNetworkNormalizer
                 if ((dx * dx) + (dy * dy) <= resolvedTolerance * resolvedTolerance)
                     continue;
 
-                string key = BuildUndirectedSegmentKey(ax, ay, bx, by, resolvedTolerance);
+                SegmentKey key = BuildUndirectedSegmentKey(ax, ay, bx, by, resolvedTolerance);
                 if (!seen.Add(key))
                     continue;
 
@@ -188,7 +192,7 @@ internal static class ConstraintNetworkNormalizer
         return clamped > 1e-9 && clamped < 1.0 - 1e-9;
     }
 
-    private static string BuildUndirectedSegmentKey(
+    private static SegmentKey BuildUndirectedSegmentKey(
         double ax,
         double ay,
         double bx,
@@ -202,13 +206,22 @@ internal static class ConstraintNetworkNormalizer
 
         bool swap = aqx > bqx || (aqx == bqx && aqy > bqy);
         return swap
-            ? $"{bqx}:{bqy}|{aqx}:{aqy}"
-            : $"{aqx}:{aqy}|{bqx}:{bqy}";
+            ? new SegmentKey(bqx, bqy, aqx, aqy)
+            : new SegmentKey(aqx, aqy, bqx, bqy);
     }
 
     private static long Quantize(double value, double tolerance)
     {
-        return (long)Math.Round(value / tolerance, MidpointRounding.AwayFromZero);
+        double scale = Math.Max(Math.Abs(tolerance), QuantizeToleranceFloor);
+        double scaled = value / scale;
+        if (!double.IsFinite(scaled))
+            return value < 0.0 ? long.MinValue : long.MaxValue;
+        if (scaled >= long.MaxValue)
+            return long.MaxValue;
+        if (scaled <= long.MinValue)
+            return long.MinValue;
+
+        return (long)Math.Round(scaled, MidpointRounding.AwayFromZero);
     }
 
     private static double Lerp(double a, double b, double t)

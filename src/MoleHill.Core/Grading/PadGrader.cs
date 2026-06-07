@@ -150,7 +150,8 @@ public static partial class PadGrader
         }
 
         if (pads.Length == 1 &&
-            result.Diagnostics.Any(static diagnostic => diagnostic.Contains("batter slope warning", StringComparison.OrdinalIgnoreCase)))
+            result.StructuredDiagnostics.Any(static diagnostic =>
+                string.Equals(diagnostic.Code, "grade_pad.slope.deviation", StringComparison.Ordinal)))
         {
             reason = "constraint-first protected-pad topology produced excessive slope deviation";
             return true;

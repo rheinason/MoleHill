@@ -7,6 +7,7 @@ internal static class ConstraintFirstGradingEngine
     private const double TargetFaceMultiplier = 2.5;
     private const double WarningFaceMultiplier = 4.0;
     private const double HardFaceMultiplier = 8.0;
+    private const int DensityGuardCoarseRetryLimit = 3;
 
     public delegate double[] ApplyGradingDelegate(double[] topologyVertices, int vertexCount, int[] faces, int faceCount);
 
@@ -100,33 +101,45 @@ internal static class ConstraintFirstGradingEngine
         double densityMultiplier = faceCount > 0
             ? topologyFaceCount / (double)faceCount
             : 1.0;
+        int hardFaceBudget = Math.Max((int)Math.Ceiling(faceCount * HardFaceMultiplier), faceCount + 25_000);
 
-        if (densityMultiplier > WarningFaceMultiplier)
+        if (densityMultiplier > WarningFaceMultiplier || topologyFaceCount > hardFaceBudget)
         {
-            SurfaceRemesher.Result coarseRemesh = Remesh(
-                vertices,
-                faces,
-                topologyConstraints,
-                effectiveTolerance,
-                effectiveEdgeLength * 2.0,
-                preferReducedInteriorSeed: true,
-                addReducedInteriorGuideSeeds: false);
+            double initialDensityMultiplier = densityMultiplier;
+            int initialTopologyFaceCount = topologyFaceCount;
+            double guardEdgeLength = effectiveEdgeLength;
 
-            if (coarseRemesh.Success && coarseRemesh.Faces.Length < remesh.Faces.Length)
+            for (int attempt = 0;
+                 attempt < DensityGuardCoarseRetryLimit &&
+                 (densityMultiplier > WarningFaceMultiplier || topologyFaceCount > hardFaceBudget);
+                 attempt++)
             {
-                int coarseFaceCount = coarseRemesh.Faces.Length / 3;
-                double coarseMultiplier = faceCount > 0
-                    ? coarseFaceCount / (double)faceCount
-                    : 1.0;
-                diagnostics.Add($"{operation} density guard selected coarser valid topology ({densityMultiplier:0.##}x -> {coarseMultiplier:0.##}x input faces).");
+                guardEdgeLength *= 2.0;
+                SurfaceRemesher.Result coarseRemesh = Remesh(
+                    vertices,
+                    faces,
+                    topologyConstraints,
+                    effectiveTolerance,
+                    guardEdgeLength,
+                    preferReducedInteriorSeed: true,
+                    addReducedInteriorGuideSeeds: false);
+
+                if (!coarseRemesh.Success || coarseRemesh.Faces.Length >= remesh.Faces.Length)
+                    break;
+
                 remesh = coarseRemesh;
                 topologyVertexCount = remesh.Vertices.Length / 3;
                 topologyFaceCount = remesh.Faces.Length / 3;
-                densityMultiplier = coarseMultiplier;
+                densityMultiplier = faceCount > 0
+                    ? topologyFaceCount / (double)faceCount
+                    : 1.0;
+                effectiveEdgeLength = guardEdgeLength;
             }
+
+            if (topologyFaceCount < initialTopologyFaceCount)
+                diagnostics.Add($"{operation} density guard selected coarser valid topology ({initialDensityMultiplier:0.##}x -> {densityMultiplier:0.##}x input faces).");
         }
 
-        int hardFaceBudget = Math.Max((int)Math.Ceiling(faceCount * HardFaceMultiplier), faceCount + 25_000);
         if (topologyFaceCount > hardFaceBudget)
         {
             errorMessage = $"{operation} constraint-first topology exceeded density budget ({topologyFaceCount:N0} faces; budget {hardFaceBudget:N0}).";
