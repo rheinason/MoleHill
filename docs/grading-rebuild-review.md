@@ -125,6 +125,7 @@ density guard, value-type `SegmentKey` + `SpatialHashGrid2D` broad phase,
 
 1. Land the uncommitted normalizer broad-phase + test (it's a clean win and is
    already covered).
-2. File a TODO for the `pads.Length == 1` slope-deviation gate (item 1) so the
-   multi-pad limitation is tracked rather than implicit.
+2. Done: the `pads.Length == 1` slope-deviation fallback gate is now tracked by
+   `grade_pad.fallback.multi_pad_slope_deviation_skipped` when coupled protected
+   pads keep the constraint-first result despite slope-deviation diagnostics.
 3. Decide the fate of the `MoleHillPanel.cs` changes before committing.

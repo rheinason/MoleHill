@@ -127,7 +127,10 @@ public static partial class PadGrader
             errorMessage = "Grade Pad constraint-first rebuild failed.";
 
         if (rebuilt != null)
+        {
+            rebuilt = AddMultiPadSlopeDeviationFallbackDiagnosticIfNeeded(pads, modelTolerance, rebuilt);
             errorMessage = null;
+        }
 
         return rebuilt;
     }
@@ -161,6 +164,60 @@ public static partial class PadGrader
         }
 
         return false;
+    }
+
+    private static GradingResult AddMultiPadSlopeDeviationFallbackDiagnosticIfNeeded(
+        PadBoundary[] pads,
+        double modelTolerance,
+        GradingResult result)
+    {
+        if (pads.Length <= 1)
+            return result;
+
+        double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
+        if (!pads.Any(pad => pad.StitchApronDistance > tolerance * 4.0))
+            return result;
+
+        if (!result.StructuredDiagnostics.Any(static diagnostic =>
+                string.Equals(diagnostic.Code, "grade_pad.slope.deviation", StringComparison.Ordinal)))
+        {
+            return result;
+        }
+
+        const string diagnosticCode = "grade_pad.fallback.multi_pad_slope_deviation_skipped";
+        if (result.StructuredDiagnostics.Any(static diagnostic =>
+                string.Equals(diagnostic.Code, diagnosticCode, StringComparison.Ordinal)))
+        {
+            return result;
+        }
+
+        return AddResultDiagnostic(
+            result,
+            GradingDiagnostic.Information(
+                diagnosticCode,
+                "Grade Pad local-refinement slope fallback skipped for coupled protected pads; multi-pad protected topology remains on the constraint-first result.",
+                operation: "grade_pad"));
+    }
+
+    private static GradingResult AddResultDiagnostic(GradingResult result, GradingDiagnostic diagnostic)
+    {
+        string[] diagnostics = result.Diagnostics.Concat(new[] { diagnostic.Message }).ToArray();
+        GradingDiagnostic[] structuredDiagnostics =
+            result.StructuredDiagnostics.Concat(new[] { diagnostic }).ToArray();
+
+        return new GradingResult(
+            result.Vertices,
+            result.VertexCount,
+            result.Faces,
+            result.FaceCount,
+            result.CutVolume,
+            result.FillVolume,
+            result.DaylightVertices,
+            result.DaylightVertexCount,
+            result.OutputPolylines,
+            diagnostics,
+            result.PatchSummaries,
+            structuredDiagnostics);
     }
 
 
