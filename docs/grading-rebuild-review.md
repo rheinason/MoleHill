@@ -74,13 +74,15 @@ old path-remesh methodology.
    nearby preserved-elevation segments per output vertex while preserving the
    previous constraint overwrite order.
 
-6. **`TryBuildLocallyRefinedFallbackTopology` is a very weak fallback** — it
+6. **Partially resolved:** `TryBuildLocallyRefinedFallbackTopology` is a very weak fallback — it
    inserts one Steiner per pad centroid and 1-3 splits a single face
    (`PadGrader.RefinedFallback.cs:228-335`). It won't repair boundary-topology
    issues, so most failures will fall through to the whole-mesh
-   retriangulation path anyway. Consider deleting the local-refinement branch
-   entirely and using the whole-mesh fallback as the single recovery path —
-   fewer code paths, same coverage.
+   retriangulation path anyway. Multi-pad fallback now prefers constrained
+   whole-mesh retriangulation with pad boundary segments and pad centroid
+   vertices before falling back to the local split. Single-pad fallback remains
+   local-first because copied rectangular-pad regressions showed whole-mesh
+   fallback increased slope error there.
 
 7. **Partially resolved:** `ConstraintNetworkNormalizer.SplitAtIntersections` is an `O(N²)` segment-pair
    check with linear-scan inserts (`AddSplitParameter`) and string-keyed

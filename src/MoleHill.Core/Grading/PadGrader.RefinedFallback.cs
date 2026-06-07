@@ -14,6 +14,75 @@ public static partial class PadGrader
         double modelTolerance,
         string fallbackReason)
     {
+        if (pads.Length > 1 &&
+            TryBuildWholeMeshRetriangulatedFallbackTopology(
+                vertices,
+                vertexCount,
+                faces,
+                faceCount,
+                pads,
+                modelTolerance,
+                out double[] preferredWholeMeshVertices,
+                out int preferredWholeMeshVertexCount,
+                out int[] preferredWholeMeshFaces,
+                out int preferredWholeMeshFaceCount,
+                out string? preferredWholeMeshWarning))
+        {
+            double[] preferredWholeMeshGradedVertices = ApplyGradingZ(
+                preferredWholeMeshVertices,
+                preferredWholeMeshVertexCount,
+                preferredWholeMeshFaces,
+                preferredWholeMeshFaceCount,
+                pads,
+                lockCurves);
+
+            var preferredWholeMeshDiagnostics = new List<string>
+            {
+                $"Grade Pad constraint-first rebuild failed; constrained whole-mesh retriangulation fallback used for protected-pad topology. Failure: {fallbackReason}",
+                "Grade Pad protected apron handled by constrained whole-mesh retriangulation fallback.",
+                "Grade Pad interacting pad ownership resolved after constrained whole-mesh retriangulation fallback.",
+                GradingTopologyDiagnostics.BuildMeshSummaryMessage(
+                    "Grade Pad",
+                    vertexCount,
+                    faceCount,
+                    preferredWholeMeshVertexCount,
+                    preferredWholeMeshFaceCount,
+                    preferredWholeMeshFaces)
+            };
+            if (!string.IsNullOrWhiteSpace(preferredWholeMeshWarning))
+                preferredWholeMeshDiagnostics.Add(preferredWholeMeshWarning!);
+
+            var preferredWholeMeshStructuredDiagnostics = new List<GradingDiagnostic>
+            {
+                GradingDiagnostic.Warning(
+                    "grade_pad.topology.constrained_whole_mesh_retriangulation_fallback",
+                    preferredWholeMeshDiagnostics[0],
+                    operation: "grade_pad")
+            };
+            AppendPadOutputSlopeDiagnostics(
+                preferredWholeMeshVertices,
+                preferredWholeMeshVertexCount,
+                preferredWholeMeshFaces,
+                preferredWholeMeshFaceCount,
+                preferredWholeMeshGradedVertices,
+                pads,
+                lockCurves,
+                modelTolerance,
+                preferredWholeMeshDiagnostics,
+                preferredWholeMeshStructuredDiagnostics);
+
+            return GradingResultBuilder.BuildFromXyz(
+                preferredWholeMeshVertices,
+                preferredWholeMeshGradedVertices,
+                preferredWholeMeshVertexCount,
+                preferredWholeMeshFaces,
+                preferredWholeMeshFaceCount,
+                BuildPadBoundaryPolylines(pads),
+                preferredWholeMeshDiagnostics,
+                BuildPadPatchSummaries(pads),
+                preferredWholeMeshStructuredDiagnostics);
+        }
+
         if (!TryBuildLocallyRefinedFallbackTopology(
                 vertices,
                 vertexCount,
@@ -36,6 +105,8 @@ public static partial class PadGrader
                 vertexCount,
                 faces,
                 faceCount,
+                pads,
+                modelTolerance,
                 out double[] wholeMeshVertices,
                 out int wholeMeshVertexCount,
                 out int[] wholeMeshFaces,
@@ -154,6 +225,8 @@ public static partial class PadGrader
         int vertexCount,
         int[] faces,
         int faceCount,
+        PadBoundary[] pads,
+        double modelTolerance,
         out double[] outputVertices,
         out int outputVertexCount,
         out int[] outputFaces,
@@ -169,17 +242,65 @@ public static partial class PadGrader
         if (vertexCount < 3 || vertices.Length < vertexCount * 3)
             return false;
 
+        double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
         var xy = new List<double>(vertexCount * 2);
+        var pointIndexByKey = new Dictionary<FallbackPointKey, int>(vertexCount);
         for (int i = 0; i < vertexCount; i++)
         {
-            xy.Add(vertices[i * 3]);
-            xy.Add(vertices[(i * 3) + 1]);
+            AddFallbackPoint(
+                xy,
+                pointIndexByKey,
+                vertices[i * 3],
+                vertices[(i * 3) + 1],
+                tolerance);
         }
 
+        var segments = new List<(int a, int b)>();
+        for (int padIndex = 0; padIndex < pads.Length; padIndex++)
+        {
+            PadBoundary pad = pads[padIndex];
+            if (pad.VertexCount < 3 || pad.XyVertices.Length < pad.VertexCount * 2)
+                continue;
+
+            var padVertexIndices = new int[pad.VertexCount];
+            double centerX = 0.0;
+            double centerY = 0.0;
+            for (int vertexIndex = 0; vertexIndex < pad.VertexCount; vertexIndex++)
+            {
+                double x = pad.XyVertices[vertexIndex * 2];
+                double y = pad.XyVertices[(vertexIndex * 2) + 1];
+                centerX += x;
+                centerY += y;
+                padVertexIndices[vertexIndex] = AddFallbackPoint(
+                    xy,
+                    pointIndexByKey,
+                    x,
+                    y,
+                    tolerance);
+            }
+
+            for (int vertexIndex = 0; vertexIndex < pad.VertexCount; vertexIndex++)
+            {
+                int nextIndex = (vertexIndex + 1) % pad.VertexCount;
+                int a = padVertexIndices[vertexIndex];
+                int b = padVertexIndices[nextIndex];
+                if (a != b)
+                    segments.Add((a, b));
+            }
+
+            AddFallbackPoint(
+                xy,
+                pointIndexByKey,
+                centerX / pad.VertexCount,
+                centerY / pad.VertexCount,
+                tolerance);
+        }
+
+        outputVertexCount = xy.Count / 2;
         TriangulationOutcome outcome = TriangulationHelper.Triangulate(
             xy,
-            vertexCount,
-            new List<(int a, int b)>(),
+            outputVertexCount,
+            segments,
             maxArea: 0.0,
             minAngle: 0.0,
             convex: true,
@@ -223,6 +344,42 @@ public static partial class PadGrader
 
         warning = outcome.WarningMessage;
         return true;
+    }
+
+    private readonly record struct FallbackPointKey(long X, long Y);
+
+    private static int AddFallbackPoint(
+        List<double> xy,
+        Dictionary<FallbackPointKey, int> indexByKey,
+        double x,
+        double y,
+        double tolerance)
+    {
+        var key = new FallbackPointKey(
+            QuantizeFallbackCoordinate(x, tolerance),
+            QuantizeFallbackCoordinate(y, tolerance));
+        if (indexByKey.TryGetValue(key, out int existingIndex))
+            return existingIndex;
+
+        int index = xy.Count / 2;
+        xy.Add(x);
+        xy.Add(y);
+        indexByKey.Add(key, index);
+        return index;
+    }
+
+    private static long QuantizeFallbackCoordinate(double value, double tolerance)
+    {
+        double scale = Math.Max(Math.Abs(tolerance), 1e-9);
+        double scaled = value / scale;
+        if (!double.IsFinite(scaled))
+            return value < 0.0 ? long.MinValue : long.MaxValue;
+        if (scaled >= long.MaxValue)
+            return long.MaxValue;
+        if (scaled <= long.MinValue)
+            return long.MinValue;
+
+        return (long)Math.Round(scaled, MidpointRounding.AwayFromZero);
     }
 
     private static bool TryBuildLocallyRefinedFallbackTopology(
