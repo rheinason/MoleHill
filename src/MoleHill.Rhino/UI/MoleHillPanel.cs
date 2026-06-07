@@ -1817,7 +1817,7 @@ public sealed class MoleHillPanel : Panel
             WireAnalysisSepDragDrop(outerSep, innerSep, terrainId, analysisId);
             _analysisStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
 
-            var box = CreateAnalysisCard(terrain, analysisItem, isActive);
+            var box = CreateAnalysisCard(terrain, analysisItem, isActive, isAnnotationCard: false);
             _analysisCardMap[analysisId] = box;
             var kind = GetAnalysisKind(analysisItem);
             var typeColor = AnalysisTypeColor(kind);
@@ -1877,7 +1877,7 @@ public sealed class MoleHillPanel : Panel
             WireAnnotationSepDragDrop(outerSep, innerSep, terrainId, analysisId);
             _annotationStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
 
-            var box = CreateAnalysisCard(terrain, analysisItem, isActive: false);
+            var box = CreateAnalysisCard(terrain, analysisItem, isActive: false, isAnnotationCard: true);
             _annotationCardMap[analysisId] = box;
             var kind = GetAnalysisKind(analysisItem);
             var typeColor = AnalysisTypeColor(kind);
@@ -2414,7 +2414,7 @@ public sealed class MoleHillPanel : Panel
         return CreateSectionToolbar("ANNOTATION", addButton);
     }
 
-    private Panel CreateAnalysisCard(TerrainDefinition terrain, AnalysisDefinition analysis, bool isActive)
+    private Panel CreateAnalysisCard(TerrainDefinition terrain, AnalysisDefinition analysis, bool isActive, bool isAnnotationCard)
     {
         bool collapsed = _collapsedAnalyses.Contains(analysis.Id);
         var collapseLabel = new Label
@@ -2518,10 +2518,20 @@ public sealed class MoleHillPanel : Panel
                 var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
                 if (t != null)
                 {
+                    var visibleAnalyses = isAnnotationCard
+                        ? t.Analyses.Where(IsAnnotationAnalysis)
+                        : t.Analyses.Where(item => !IsAnnotationAnalysis(item));
+
                     if (nowCollapsed)
-                        foreach (var item in t.Analyses) _collapsedAnalyses.Add(item.Id);
+                    {
+                        foreach (var item in visibleAnalyses)
+                            _collapsedAnalyses.Add(item.Id);
+                    }
                     else
-                        _collapsedAnalyses.Clear();
+                    {
+                        foreach (var item in visibleAnalyses)
+                            _collapsedAnalyses.Remove(item.Id);
+                    }
                 }
             }
             else
@@ -2533,7 +2543,11 @@ public sealed class MoleHillPanel : Panel
             }
 
             var doc = RhinoDoc.ActiveDoc;
-            RebuildAnalysisLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
+            var selectedTerrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+            if (isAnnotationCard)
+                RebuildAnnotationLayout(selectedTerrain);
+            else
+                RebuildAnalysisLayout(selectedTerrain);
         }
 
         return CreateSharedCardShell(new SharedCardShellOptions
