@@ -44,11 +44,15 @@ internal static class ConstraintNetworkNormalizer
                 Math.Max(segment.Ay, segment.By) + resolvedTolerance);
         }
 
+        SpatialHashGrid2D grid = SpatialHashGrid2D.Build(bounds);
+        var scratch = new SpatialHashGrid2D.QueryScratch(segments.Count);
+        var candidates = new List<int>(Math.Min(segments.Count, 32));
         for (int i = 0; i < segments.Count; i++)
         {
-            for (int j = i + 1; j < segments.Count; j++)
+            grid.GatherCandidates(bounds[i], candidates, scratch);
+            foreach (int j in candidates)
             {
-                if (!bounds[i].Intersects(bounds[j]))
+                if (j <= i || !bounds[i].Intersects(bounds[j]))
                     continue;
 
                 Segment a = segments[i];

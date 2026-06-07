@@ -11,24 +11,8 @@ public class ConstraintNetworkNormalizerTests
     {
         var constraints = new[]
         {
-            new SurfaceRemesher.ConstraintPolyline(
-                new[]
-                {
-                    0.0, 0.0, 1.0,
-                    10.0, 10.0, 3.0
-                },
-                PointCount: 2,
-                IsClosed: false,
-                PreserveInputElevation: true),
-            new SurfaceRemesher.ConstraintPolyline(
-                new[]
-                {
-                    0.0, 10.0, 5.0,
-                    10.0, 0.0, 7.0
-                },
-                PointCount: 2,
-                IsClosed: false,
-                PreserveInputElevation: false)
+            CreateLine(0.0, 0.0, 1.0, 10.0, 10.0, 3.0, preserveInputElevation: true),
+            CreateLine(0.0, 10.0, 5.0, 10.0, 0.0, 7.0, preserveInputElevation: false)
         };
 
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> normalized =
@@ -47,6 +31,48 @@ public class ConstraintNetworkNormalizerTests
                 HasPoint(constraint, 1, 5.0, 5.0);
             Assert.True(touchesIntersection, "Expected each split segment to touch the crossing point.");
         });
+    }
+
+    [Fact]
+    public void SplitAtIntersections_ManyDistantSegments_OnlySplitsIntersectingCandidates()
+    {
+        var constraints = new List<SurfaceRemesher.ConstraintPolyline>();
+        for (int i = 0; i < 200; i++)
+        {
+            double x = 1000.0 + (i * 20.0);
+            constraints.Add(CreateLine(x, 50.0, 0.0, x + 10.0, 50.0, 0.0, preserveInputElevation: false));
+        }
+
+        constraints.Add(CreateLine(0.0, 0.0, 1.0, 10.0, 10.0, 3.0, preserveInputElevation: true));
+        constraints.Add(CreateLine(0.0, 10.0, 5.0, 10.0, 0.0, 7.0, preserveInputElevation: false));
+
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> normalized =
+            ConstraintNetworkNormalizer.SplitAtIntersections(constraints, 0.001, out int splitCount);
+
+        Assert.Equal(2, splitCount);
+        Assert.Equal(204, normalized.Count);
+        Assert.Equal(2, normalized.Count(constraint => constraint.PreserveInputElevation));
+        Assert.All(normalized, constraint => Assert.Equal(2, constraint.PointCount));
+    }
+
+    private static SurfaceRemesher.ConstraintPolyline CreateLine(
+        double ax,
+        double ay,
+        double az,
+        double bx,
+        double by,
+        double bz,
+        bool preserveInputElevation)
+    {
+        return new SurfaceRemesher.ConstraintPolyline(
+            new[]
+            {
+                ax, ay, az,
+                bx, by, bz
+            },
+            PointCount: 2,
+            IsClosed: false,
+            PreserveInputElevation: preserveInputElevation);
     }
 
     private static bool HasPoint(

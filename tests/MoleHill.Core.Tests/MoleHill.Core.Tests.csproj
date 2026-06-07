@@ -20,5 +20,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\MoleHill.Core\MoleHill.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="TestData\*.json" />
+  </ItemGroup>
 </Project>
 
