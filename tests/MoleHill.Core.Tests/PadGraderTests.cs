@@ -103,37 +103,6 @@ public class PadGraderTests
     }
 
     [Fact]
-    public void TryTriangulateTopology_InvalidTerrainFace_ReturnsFailure()
-    {
-        var pad = new PadGrader.PadBoundary(
-            new[] { 1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0 },
-            4,
-            targetZ: 1.0);
-
-        bool success = PadGrader.TryTriangulateTopology(
-            BuildGridVertices(5, 1.0),
-            25,
-            new[] { 0, 1, 99 },
-            1,
-            new[] { pad },
-            null,
-            0.0,
-            0.0,
-            out double[] topologyVertices,
-            out int topologyVertexCount,
-            out int[] topologyFaces,
-            out int topologyFaceCount,
-            out string? warning);
-
-        Assert.False(success);
-        Assert.Empty(topologyVertices);
-        Assert.Equal(0, topologyVertexCount);
-        Assert.Empty(topologyFaces);
-        Assert.Equal(0, topologyFaceCount);
-        Assert.Contains("outside the terrain vertex range", warning ?? string.Empty, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
     public void CreateConstraints_InvalidTerrainFace_ReturnsStructuredWarning()
     {
         var pad = new PadGrader.PadBoundary(
@@ -198,86 +167,6 @@ public class PadGraderTests
     }
 
     [Fact]
-    public void TriangulatePadTopology_ReturnsStableTopology_ForSameXyInputs()
-    {
-        var vertices = BuildGridVertices(5, 0.75);
-        var faces = BuildGridFaces(5);
-        var pads = BuildPads();
-
-        bool first = PadGrader.TryTriangulateTopology(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            0.0,
-            0.0,
-            out var topologyVerticesA,
-            out var topologyVertexCountA,
-            out var topologyFacesA,
-            out var topologyFaceCountA,
-            out var warningA);
-
-        bool second = PadGrader.TryTriangulateTopology(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            0.0,
-            0.0,
-            out var topologyVerticesB,
-            out var topologyVertexCountB,
-            out var topologyFacesB,
-            out var topologyFaceCountB,
-            out var warningB);
-
-        Assert.True(first, warningA);
-        Assert.True(second, warningB);
-        Assert.Equal(topologyVertexCountA, topologyVertexCountB);
-        Assert.Equal(topologyFaceCountA, topologyFaceCountB);
-        Assert.Equal(topologyVerticesA, topologyVerticesB);
-        Assert.Equal(NormalizeFaces(topologyFacesA, topologyFaceCountA), NormalizeFaces(topologyFacesB, topologyFaceCountB));
-    }
-
-    [Fact]
-    public void ApplyGradingZ_DoesNotChangeVertexOrFaceCount()
-    {
-        var vertices = BuildGridVertices(5, 0.75);
-        var faces = BuildGridFaces(5);
-        var pads = BuildPads();
-
-        bool success = PadGrader.TryTriangulateTopology(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            0.0,
-            0.0,
-            out var topologyVertices,
-            out var topologyVertexCount,
-            out var topologyFaces,
-            out var topologyFaceCount,
-            out var warning);
-
-        Assert.True(success, warning);
-
-        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
-
-        Assert.Equal(topologyVertices.Length, gradedVertices.Length);
-        Assert.Equal(topologyFaceCount * 3, topologyFaces.Length);
-        for (int i = 0; i < topologyVertexCount; i++)
-        {
-            Assert.Equal(topologyVertices[i * 3], gradedVertices[i * 3], 12);
-            Assert.Equal(topologyVertices[i * 3 + 1], gradedVertices[i * 3 + 1], 12);
-        }
-    }
-
-    [Fact]
     public void ApplyGradingZ_PreservesLaterPadWinsOrdering()
     {
         var pads = BuildPads();
@@ -330,65 +219,41 @@ public class PadGraderTests
     }
 
     [Fact]
-    public void ApplyGradingZ_EvaluatesPlanarPadSurfaceInsideBoundary()
+    public void ApplyGradingZ_WithFaces_EvaluatesPlanarPadSurfaceInsideBoundary()
     {
         double[] vertices = BuildGridVertices(5, 1.0);
         int[] faces = BuildGridFaces(5);
         var pads = new[] { BuildAngledPad() };
 
-        bool success = PadGrader.TryTriangulateTopology(
+        double[] gradedVertices = PadGrader.ApplyGradingZ(
             vertices,
             vertices.Length / 3,
             faces,
             faces.Length / 3,
-            pads,
-            null,
-            0.0,
-            0.0,
-            out var topologyVertices,
-            out var topologyVertexCount,
-            out var topologyFaces,
-            out var topologyFaceCount,
-            out var warning);
+            pads);
 
-        Assert.True(success, warning);
-
-        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
-
-        double interiorZ = PadGrader.InterpolateZ(gradedVertices, topologyFaces, topologyFaceCount, 2.0, 2.0);
-        double boundaryZ = PadGrader.InterpolateZ(gradedVertices, topologyFaces, topologyFaceCount, 3.0, 2.0);
+        double interiorZ = PadGrader.InterpolateZ(gradedVertices, faces, faces.Length / 3, 2.0, 2.0);
+        double boundaryZ = PadGrader.InterpolateZ(gradedVertices, faces, faces.Length / 3, 3.0, 2.0);
 
         Assert.Equal(1.0, interiorZ, 6);
         Assert.Equal(2.0, boundaryZ, 6);
     }
 
     [Fact]
-    public void ApplyGradingZ_UsesBoundaryZForAngledDaylight()
+    public void ApplyGradingZ_WithFaces_UsesBoundaryZForAngledDaylight()
     {
         double[] vertices = BuildGridVertices(5, 1.0);
         int[] faces = BuildGridFaces(5);
         var pads = new[] { BuildAngledPad() };
 
-        bool success = PadGrader.TryTriangulateTopology(
+        double[] gradedVertices = PadGrader.ApplyGradingZ(
             vertices,
             vertices.Length / 3,
             faces,
             faces.Length / 3,
-            pads,
-            null,
-            0.0,
-            0.0,
-            out var topologyVertices,
-            out var topologyVertexCount,
-            out var topologyFaces,
-            out var topologyFaceCount,
-            out var warning);
+            pads);
 
-        Assert.True(success, warning);
-
-        double[] gradedVertices = PadGrader.ApplyGradingZ(topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount, pads);
-
-        int outsideIndex = FindVertexIndex(gradedVertices, topologyVertexCount, 4.0, 2.0);
+        int outsideIndex = FindVertexIndex(gradedVertices, vertices.Length / 3, 4.0, 2.0);
         Assert.Equal(0.0, gradedVertices[outsideIndex * 3 + 2], 6);
     }
 
@@ -452,46 +317,6 @@ public class PadGraderTests
         Assert.True(string.IsNullOrWhiteSpace(warning), warning);
         Assert.Single(result!.PatchSummaries);
         Assert.False(result.PatchSummaries[0].UsesFallbackBand);
-    }
-
-    [Fact]
-    public void TryTriangulateTopology_InsertsShoulderVertices_WhenOffsetFitsInsideBoundary()
-    {
-        double[] vertices = BuildGridVertices(9, 1.0);
-        int[] faces = BuildGridFaces(9);
-        var pads = new[]
-        {
-            new PadGrader.PadBoundary(
-                new[]
-                {
-                    3.0, 3.0,
-                    5.0, 3.0,
-                    5.0, 5.0,
-                    3.0, 5.0
-                },
-                4,
-                2.0,
-                slopeAngleDeg: 33.0,
-                maxDistance: 1.5)
-        };
-
-        bool success = PadGrader.TryTriangulateTopology(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            0.0,
-            0.0,
-            out var topologyVertices,
-            out var topologyVertexCount,
-            out _,
-            out _,
-            out var warning);
-
-        Assert.True(success, warning);
-        Assert.True(topologyVertexCount > vertices.Length / 3);
     }
 
     [Fact]
@@ -992,52 +817,6 @@ public class PadGraderTests
     }
 
     [Fact]
-    public void TryTriangulateTopology_OnCoarseEnvelope_AddsGuideVerticesAcrossShoulderBand()
-    {
-        double[] vertices =
-        {
-            0.0, 0.0, 0.0,
-            100.0, 0.0, 0.0,
-            100.0, 100.0, 0.0,
-            0.0, 100.0, 0.0
-        };
-        int[] faces = BuildSquareFaces();
-        var pads = new[]
-        {
-            new PadGrader.PadBoundary(
-                new[]
-                {
-                    40.0, 40.0,
-                    60.0, 40.0,
-                    60.0, 60.0,
-                    40.0, 60.0
-                },
-                4,
-                2.0,
-                slopeAngleDeg: 45.0,
-                maxDistance: 2.0)
-        };
-
-        bool success = PadGrader.TryTriangulateTopology(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            null,
-            0.0,
-            0.0,
-            out var topologyVertices,
-            out var topologyVertexCount,
-            out _,
-            out _,
-            out var warning);
-
-        Assert.True(success, warning);
-        Assert.True(topologyVertexCount > vertices.Length / 3);
-    }
-
-    [Fact]
     public void CreateConstraints_SkipsShoulderRing_WhenOffsetReachesTerrainBoundary()
     {
         double[] vertices = BuildGridVertices(5, 1.0);
@@ -1071,55 +850,6 @@ public class PadGraderTests
             constraintSet.Diagnostics,
             diagnostic => diagnostic.Contains("skipped", StringComparison.OrdinalIgnoreCase));
         Assert.Empty(constraintSet.StructuredDiagnostics);
-    }
-
-    [Fact]
-    public void TryTriangulateTopology_LockCurve_PreservesConstraintIntersections()
-    {
-        double[] vertices =
-        {
-            0.0, 0.0, 0.0,
-            4.0, 0.0, 0.0,
-            4.0, 4.0, 0.0,
-            0.0, 4.0, 0.0
-        };
-        int[] faces = BuildSquareFaces();
-        var pads = new[]
-        {
-            new PadGrader.PadBoundary(
-                new[]
-                {
-                    1.0, 1.0,
-                    3.0, 1.0,
-                    3.0, 3.0,
-                    1.0, 3.0
-                },
-                4,
-                1.0)
-        };
-        var locks = new[]
-        {
-            new PadGrader.LockCurve(new[] { 0.0, 2.0, 4.0, 2.0 }, 2)
-        };
-
-        bool success = PadGrader.TryTriangulateTopology(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            pads,
-            locks,
-            0.0,
-            0.0,
-            out var topologyVertices,
-            out _,
-            out _,
-            out _,
-            out var warning);
-
-        Assert.True(success, warning);
-        Assert.True(ContainsVertex(topologyVertices, 1.0, 2.0));
-        Assert.True(ContainsVertex(topologyVertices, 3.0, 2.0));
     }
 
     [Fact]
@@ -1469,44 +1199,6 @@ public class PadGraderTests
         }
 
         return false;
-    }
-
-    private static int[] NormalizeFaces(int[] faces, int faceCount)
-    {
-        var normalized = new (int a, int b, int c)[faceCount];
-        for (int i = 0; i < faceCount; i++)
-        {
-            int a = faces[i * 3];
-            int b = faces[i * 3 + 1];
-            int c = faces[i * 3 + 2];
-            if (a > b) (a, b) = (b, a);
-            if (b > c) (b, c) = (c, b);
-            if (a > b) (a, b) = (b, a);
-            normalized[i] = (a, b, c);
-        }
-
-        Array.Sort(normalized, static (left, right) =>
-        {
-            int compare = left.a.CompareTo(right.a);
-            if (compare != 0)
-                return compare;
-
-            compare = left.b.CompareTo(right.b);
-            if (compare != 0)
-                return compare;
-
-            return left.c.CompareTo(right.c);
-        });
-
-        var flattened = new int[faceCount * 3];
-        for (int i = 0; i < normalized.Length; i++)
-        {
-            flattened[i * 3] = normalized[i].a;
-            flattened[i * 3 + 1] = normalized[i].b;
-            flattened[i * 3 + 2] = normalized[i].c;
-        }
-
-        return flattened;
     }
 
     // ── Barrier clipping tests ────────────────────────────────────────────────

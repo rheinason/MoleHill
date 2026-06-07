@@ -101,16 +101,10 @@ old path-remesh methodology.
    exceed `long.MaxValue` and produce nonsense keys. It now uses a tolerance
    floor and clamps non-finite/out-of-range scaled values.
 
-9. **`PadGrader.Topology.cs` retains the old `TryTriangulatePadTopology`
-   path**, but `Grade()` (`PadGrader.cs:68-130`) no longer uses it — only
-   `GradeWithConstraintFirstTopology` and `GradeWithRefinedZOnlyFallback` are
-   reachable from `Grade`. Either `TryTriangulateTopology` is now dead code or
-   it has external callers — confirm via:
-   ```
-   git grep -n "TryTriangulateTopology"
-   ```
-   and remove if unused. (Same question for the duplicated public
-   `CreateConstraints` overload in `PadGrader.Topology.cs:184`.)
+9. **Resolved:** `PadGrader.Topology.cs` retained the old `TryTriangulatePadTopology`
+   path, but `Grade()` no longer used it. `TryTriangulateTopology` and the
+   private triangulation implementation have been removed; `CreateConstraints`
+   remains because Rhino and tests use it as the active constraint-building API.
 
 ---
 
@@ -177,7 +171,7 @@ old path-remesh methodology.
 2. **Break the 12.9k-line test** into resource-driven fixtures.
 3. **Done:** replace the `Contains("batter slope warning", ...)` string match with a
    structured diagnostic code.
-4. **Decide on the dead-code status of `PadGrader.Topology.cs::TryTriangulateTopology`**
-   and the duplicated public `CreateConstraints`.
+4. **Done:** remove dead `PadGrader.Topology.cs::TryTriangulateTopology`; keep
+   `CreateConstraints` as active constraint-building API.
 5. **Done:** replace `HashSet<string>` segment keys with a value tuple in
    `ConstraintNetworkNormalizer`.

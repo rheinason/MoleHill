@@ -182,12 +182,4 @@ public static partial class PadGrader
         }
     }
 
-    private sealed class PadTopologyResult
-    {
-        public required double[] Vertices { get; init; }
-        public required int VertexCount { get; init; }
-        public required int[] Faces { get; init; }
-        public required int FaceCount { get; init; }
-        public required OutputPolyline[] PadPolylines { get; init; }
-    }
 }
