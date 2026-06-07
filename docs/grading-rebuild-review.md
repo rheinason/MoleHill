@@ -100,24 +100,18 @@ density guard, value-type `SegmentKey` + `SpatialHashGrid2D` broad phase,
 
 ### Maintainability
 
-6. **`PathGrader.cs` (1,398 lines) and `PadGrader.ZOnly.cs` (1,570) are still
-   doing too much.** `cc79b54` extracted tangent/resampling into
-   `PathGrader.Sampling.cs` (good direction), but `PathGrader.cs` still mixes the
-   public entry points, guide/station selection, shoulder-constraint
-   construction, boundary-clipped runs, closest-location queries, and result
-   building. Continue the split by phase — e.g. `PathGrader.Constraints`
-   (already exists), a `PathGrader.Shoulders`, and a `PathGrader.Result`.
+6. **Resolved:** `PathGrader.cs` now holds the public `Grade` entry points while
+   helper responsibilities live in phase files: `PathGrader.ApplyZ.cs`,
+   `PathGrader.Clipping.cs`, `PathGrader.Shoulders.cs`, and
+   `PathGrader.Result.cs`.
 
-7. **Pad helper files are still organized by rebuild history, not by phase.**
-   `PadGrader.Patches.cs` is "what was left after the rebuild." A phase-based
-   naming pass (`Constraints` = build, `ZOnly`/`Surfaces` = Z evaluation,
-   `Diagnostics` = slope/output checks) would make the constraint-first
-   orchestrator → engine → callback shape easier to follow.
+7. **Resolved:** `PadGrader.ZOnly.cs` has been removed. Its former helper bucket
+   is split into `PadGrader.Surfaces.cs`, `PadGrader.Daylighting.cs`,
+   `PadGrader.Shoulders.cs`, and `PadGrader.ConstraintSizing.cs`.
 
-8. **`MoleHillPanel.cs` has uncommitted, grading-unrelated edits** (annotation
-   vs. analysis card collapse scoping). Decide whether they belong in this PR or
-   a separate one before committing — they'll otherwise ride along with the
-   grading rebuild's history.
+8. **Resolved:** `MoleHillPanel.cs` annotation-card collapse scoping was committed
+   separately in `f691f5f`, so the UI fix no longer rides along with grading-core
+   refactors.
 
 ---
 
