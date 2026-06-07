@@ -14,9 +14,11 @@ public static partial class PadGrader
         double modelTolerance,
         double terrainDetailSize,
         out IReadOnlyList<OutputPolyline> failureOutputPolylines,
+        out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics,
         out string? errorMessage)
     {
         failureOutputPolylines = Array.Empty<OutputPolyline>();
+        failureStructuredDiagnostics = Array.Empty<GradingDiagnostic>();
         errorMessage = null;
 
         double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
@@ -122,6 +124,7 @@ public static partial class PadGrader
                     tolerance,
                     outputDiagnostics,
                     outputStructuredDiagnostics),
+            out failureStructuredDiagnostics,
             out errorMessage);
 
         if (result == null)

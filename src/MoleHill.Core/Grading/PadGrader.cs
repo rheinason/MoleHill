@@ -75,6 +75,7 @@ public static partial class PadGrader
             modelTolerance,
             terrainDetailSize,
             out failureOutputPolylines,
+            out IReadOnlyList<GradingDiagnostic> constraintFirstFailureDiagnostics,
             out errorMessage);
 
         if (rebuilt != null &&
@@ -94,7 +95,8 @@ public static partial class PadGrader
                 pads,
                 lockCurves,
                 modelTolerance,
-                protectedPadRefinementReason);
+                protectedPadRefinementReason,
+                constraintFirstFailureDiagnostics);
             if (localRefinement != null)
                 return localRefinement;
         }
@@ -110,7 +112,8 @@ public static partial class PadGrader
                 pads,
                 lockCurves,
                 modelTolerance,
-                constraintFirstError ?? "unknown");
+                constraintFirstError ?? "unknown",
+                constraintFirstFailureDiagnostics);
             if (localRefinementFallback != null)
             {
                 errorMessage = null;

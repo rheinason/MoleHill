@@ -46,10 +46,12 @@ public class ConstraintFirstGradingEngineTests
             preDiagnostics: null,
             preStructuredDiagnostics: null,
             appendOutputDiagnostics: null,
+            out IReadOnlyList<GradingDiagnostic> failureDiagnostics,
             out string? errorMessage);
 
         Assert.NotNull(result);
         Assert.Null(errorMessage);
+        Assert.Empty(failureDiagnostics);
         int startIndex = FindVertex(result.Vertices, result.VertexCount, 0.0, 5.0);
         int endIndex = FindVertex(result.Vertices, result.VertexCount, 10.0, 5.0);
         Assert.NotEqual(-1, startIndex);
@@ -101,16 +103,55 @@ public class ConstraintFirstGradingEngineTests
             preDiagnostics: null,
             preStructuredDiagnostics: null,
             appendOutputDiagnostics: null,
+            out IReadOnlyList<GradingDiagnostic> failureDiagnostics,
             out string? errorMessage);
 
         Assert.NotNull(result);
         Assert.Null(errorMessage);
+        Assert.Empty(failureDiagnostics);
         int startIndex = FindVertex(result.Vertices, result.VertexCount, 0.0, 5.0);
         int endIndex = FindVertex(result.Vertices, result.VertexCount, 10.0, 5.0);
         Assert.NotEqual(-1, startIndex);
         Assert.NotEqual(-1, endIndex);
         Assert.Equal(30.0, result.Vertices[(startIndex * 3) + 2], 6);
         Assert.Equal(40.0, result.Vertices[(endIndex * 3) + 2], 6);
+    }
+
+    [Fact]
+    public void TryBuild_ZEvaluationThrows_ReturnsStructuredFailureDiagnostics()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            10.0, 0.0, 0.0,
+            0.0, 10.0, 0.0
+        };
+        int[] faces = { 0, 1, 2 };
+
+        GradingResult? result = ConstraintFirstGradingEngine.TryBuild(
+            "Grade Path",
+            vertices,
+            vertexCount: 3,
+            faces,
+            faceCount: 1,
+            constraints: Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            requestedEdgeLength: 10.0,
+            tolerance: 0.001,
+            applyGrading: static (_, _, _, _) => throw new InvalidOperationException("synthetic failure"),
+            outputPolylines: null,
+            patchSummaries: null,
+            preDiagnostics: null,
+            preStructuredDiagnostics: null,
+            appendOutputDiagnostics: null,
+            out IReadOnlyList<GradingDiagnostic> failureDiagnostics,
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Equal("Grade Path Z evaluation failed: synthetic failure", errorMessage);
+        GradingDiagnostic diagnostic = Assert.Single(failureDiagnostics);
+        Assert.Equal("grade_path.constraint_first.failed", diagnostic.Code);
+        Assert.Equal(GradingDiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.Equal(errorMessage, diagnostic.Message);
     }
 
     private static SurfaceRemesher.ConstraintPolyline CreatePreservedLine(

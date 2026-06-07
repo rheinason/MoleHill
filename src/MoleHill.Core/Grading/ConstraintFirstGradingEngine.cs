@@ -45,8 +45,10 @@ internal static class ConstraintFirstGradingEngine
         IReadOnlyList<string>? preDiagnostics,
         IReadOnlyList<GradingDiagnostic>? preStructuredDiagnostics,
         AppendOutputDiagnosticsDelegate? appendOutputDiagnostics,
+        out IReadOnlyList<GradingDiagnostic> failureDiagnostics,
         out string? errorMessage)
     {
+        failureDiagnostics = Array.Empty<GradingDiagnostic>();
         errorMessage = null;
 
         double effectiveTolerance = GradingTolerances.ModelToleranceOrDefault(tolerance);
@@ -102,7 +104,7 @@ internal static class ConstraintFirstGradingEngine
         if (!remesh.Success)
         {
             errorMessage = remesh.Warning ?? $"{operation} constraint-first topology rebuild failed.";
-            AddFailureDiagnostic(operation, errorMessage, structuredDiagnostics);
+            AddFailureDiagnostic(operation, errorMessage, structuredDiagnostics, out failureDiagnostics);
             return null;
         }
 
@@ -153,7 +155,7 @@ internal static class ConstraintFirstGradingEngine
         if (topologyFaceCount > hardFaceBudget)
         {
             errorMessage = $"{operation} constraint-first topology exceeded density budget ({topologyFaceCount:N0} faces; budget {hardFaceBudget:N0}).";
-            AddFailureDiagnostic(operation, errorMessage, structuredDiagnostics);
+            AddFailureDiagnostic(operation, errorMessage, structuredDiagnostics, out failureDiagnostics);
             return null;
         }
 
@@ -162,7 +164,7 @@ internal static class ConstraintFirstGradingEngine
         {
             errorMessage =
                 $"{operation} constraint-first topology rejected: boundary edges={topology.BoundaryEdgeCount:N0}, boundary components={topology.BoundaryComponentCount:N0}, open chains={topology.HasOpenBoundaryChains}, nonmanifold edges={topology.NonManifoldEdgeCount:N0}.";
-            AddFailureDiagnostic(operation, errorMessage, structuredDiagnostics);
+            AddFailureDiagnostic(operation, errorMessage, structuredDiagnostics, out failureDiagnostics);
             return null;
         }
 
@@ -174,14 +176,14 @@ internal static class ConstraintFirstGradingEngine
         catch (Exception ex)
         {
             errorMessage = $"{operation} Z evaluation failed: {ex.Message}";
-            AddFailureDiagnostic(operation, errorMessage, structuredDiagnostics);
+            AddFailureDiagnostic(operation, errorMessage, structuredDiagnostics, out failureDiagnostics);
             return null;
         }
 
         if (gradedVertices.Length < topologyVertexCount * 3)
         {
             errorMessage = $"{operation} Z evaluation returned too few vertex values.";
-            AddFailureDiagnostic(operation, errorMessage, structuredDiagnostics);
+            AddFailureDiagnostic(operation, errorMessage, structuredDiagnostics, out failureDiagnostics);
             return null;
         }
 
@@ -475,12 +477,17 @@ internal static class ConstraintFirstGradingEngine
         return true;
     }
 
-    private static void AddFailureDiagnostic(string operation, string message, List<GradingDiagnostic> diagnostics)
+    private static void AddFailureDiagnostic(
+        string operation,
+        string message,
+        List<GradingDiagnostic> diagnostics,
+        out IReadOnlyList<GradingDiagnostic> failureDiagnostics)
     {
         diagnostics.Add(GradingDiagnostic.Warning(
             $"{DiagnosticPrefix(operation)}.constraint_first.failed",
             message,
             operation: operation));
+        failureDiagnostics = diagnostics.ToArray();
     }
 
     private static string DiagnosticPrefix(string operation)

@@ -127,6 +127,7 @@ public static partial class PathGrader
             diagnostics.ToMessages(),
             diagnostics.ToStructuredDiagnostics(),
             appendOutputDiagnostics: null,
+            out _,
             out errorMessage);
     }
 

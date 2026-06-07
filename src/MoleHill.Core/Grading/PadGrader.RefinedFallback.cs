@@ -12,7 +12,8 @@ public static partial class PadGrader
         PadBoundary[] pads,
         LockCurve[]? lockCurves,
         double modelTolerance,
-        string fallbackReason)
+        string fallbackReason,
+        IReadOnlyList<GradingDiagnostic>? constraintFirstFailureDiagnostics = null)
     {
         if (pads.Length > 1 &&
             TryBuildWholeMeshRetriangulatedFallbackTopology(
@@ -59,6 +60,8 @@ public static partial class PadGrader
                     preferredWholeMeshDiagnostics[0],
                     operation: "grade_pad")
             };
+            if (constraintFirstFailureDiagnostics != null)
+                preferredWholeMeshStructuredDiagnostics.AddRange(constraintFirstFailureDiagnostics);
             AppendPadOutputSlopeDiagnostics(
                 preferredWholeMeshVertices,
                 preferredWholeMeshVertexCount,
@@ -144,6 +147,8 @@ public static partial class PadGrader
                     wholeMeshDiagnostics[0],
                     operation: "grade_pad")
             };
+            if (constraintFirstFailureDiagnostics != null)
+                wholeMeshStructuredDiagnostics.AddRange(constraintFirstFailureDiagnostics);
             AppendPadOutputSlopeDiagnostics(
                 wholeMeshVertices,
                 wholeMeshVertexCount,
@@ -196,6 +201,8 @@ public static partial class PadGrader
                 diagnostics[0],
                 operation: "grade_pad")
         };
+        if (constraintFirstFailureDiagnostics != null)
+            structuredDiagnostics.AddRange(constraintFirstFailureDiagnostics);
         AppendPadOutputSlopeDiagnostics(
             refinedOriginalVertices,
             refinedVertexCount,

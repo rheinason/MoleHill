@@ -60,12 +60,14 @@ old path-remesh methodology.
    a bounded sequence of coarser retries and accepts only retries that actually
    reduce face count.
 
-4. **`AddFailureDiagnostic` only writes to `structuredDiagnostics`**
+4. **Resolved:** `AddFailureDiagnostic` only wrote to `structuredDiagnostics`
    (`ConstraintFirstGradingEngine.cs:358`), not the message list. On failure,
    `TryBuild` returns `null` and the structured diagnostics are dropped by
    callers — the failure detail is only visible through `errorMessage`. Either
    also append to the message list or have the caller surface structured
-   diagnostics on the null path.
+   diagnostics on the null path. `TryBuild` now returns failure diagnostics on
+   null results, and Pad fallback results carry those structured failure codes
+   forward.
 
 5. **Resolved:** `ApplyPreservedConstraintElevations` (`ConstraintFirstGradingEngine.cs:276`)
    was `O(V × Σ segments)` with no spatial index. For meshes with many
