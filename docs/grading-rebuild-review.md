@@ -5,7 +5,7 @@
 **Scope (grading core):** broad rebuild across `src/MoleHill.Core/Grading/`
 
 ```
-7e39cf5 Split PathGrader Z-only helpers by phase
+7e39cf5 Split PathGrader Z-evaluation helpers by phase
 0704a96 Split PadGrader surface helpers by phase
 d82e75f Split PathGrader helpers by phase
 f691f5f Separate annotation collapse from analysis cards
@@ -75,7 +75,7 @@ by phase.
 - **Multi-pad slope gate:** coupled protected pads now attempt local-refinement slope fallback. The fallback is accepted only when slope diagnostics materially improve; otherwise the constraint-first result is kept with `grade_pad.fallback.local_refinement_rejected`, and coupled-pad skipped cases still emit `grade_pad.fallback.multi_pad_slope_deviation_skipped`.
 - **Pad local fallback:** `TryBuildLocallyRefinedFallbackTopology` now splits the bounded pad influence footprint for ordinary meshes, keeps the minimal centroid split for very sparse meshes, and reports split/candidate/cap counts.
 - **MoleHillPanel:** annotation-card edits committed separately from grading core.
-- **Path Z-only split:** `PathGrader.ZOnly.cs` now keeps only fallback entry points and top-level orchestration; sections, reference profiles, daylighting, influence blending, and diagnostics are phase-specific partials.
+- **Path Z evaluation split:** shared path Z application now lives in `PathGrader.ApplyPathGrading.cs`; sections, reference profiles, daylighting, influence blending, and diagnostics are phase-specific partials.
 
 ---
 
