@@ -2,6 +2,12 @@
 
 Date: April 20, 2026
 
+Status: Superseded by the `grading-rebuild` branch. This note is retained as
+historical debugging context for the old stitched/remesh fallback ladder. Current
+work should use `docs/grading-rebuild-review.md` as the source of truth: path and
+pad grading now route through shared constraint-first topology, and the old path
+remesh fallback routes described below are no longer the active architecture.
+
 ## Summary
 
 `Grade Path` currently has two separate problems:

@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <MoleHillVersion>0.6.8-beta</MoleHillVersion>
+    <MoleHillVersion>0.6.9-beta</MoleHillVersion>
     <BuildInParallel>false</BuildInParallel>
   </PropertyGroup>
 </Project>

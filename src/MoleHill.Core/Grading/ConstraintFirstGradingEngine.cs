@@ -553,7 +553,7 @@ internal static class ConstraintFirstGradingEngine
         diagnostics.Add(GradingDiagnostic.Warning(
             $"{DiagnosticPrefix(operation)}.constraint_first.failed",
             message,
-            operation: operation));
+            operation: DiagnosticOperation(operation)));
         failureDiagnostics = diagnostics.ToArray();
     }
 

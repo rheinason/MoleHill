@@ -161,6 +161,42 @@ public class ConstraintFirstGradingEngineTests
     }
 
     [Fact]
+    public void TryBuild_PadFailureDiagnostic_UsesStableOperationId()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            10.0, 0.0, 0.0,
+            0.0, 10.0, 0.0
+        };
+        int[] faces = { 0, 1, 2 };
+
+        GradingResult? result = ConstraintFirstGradingEngine.TryBuild(
+            "Grade Pad",
+            vertices,
+            vertexCount: 3,
+            faces,
+            faceCount: 1,
+            constraints: Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            requestedEdgeLength: 10.0,
+            tolerance: 0.001,
+            applyGrading: static (_, _, _, _) => throw new InvalidOperationException("synthetic pad failure"),
+            outputPolylines: null,
+            patchSummaries: null,
+            preDiagnostics: null,
+            preStructuredDiagnostics: null,
+            appendOutputDiagnostics: null,
+            out IReadOnlyList<GradingDiagnostic> failureDiagnostics,
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Equal("Grade Pad Z evaluation failed: synthetic pad failure", errorMessage);
+        GradingDiagnostic diagnostic = Assert.Single(failureDiagnostics);
+        Assert.Equal("grade_pad.constraint_first.failed", diagnostic.Code);
+        Assert.Equal("grade_pad", diagnostic.Operation);
+    }
+
+    [Fact]
     public void TryBuild_CrossingConstraints_EmitsStructuredNormalizationDiagnostic()
     {
         double[] vertices =
