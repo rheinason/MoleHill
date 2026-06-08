@@ -87,6 +87,7 @@ public static partial class PadGrader
                 rebuilt,
                 out string protectedPadRefinementReason))
         {
+            bool isSlopeDeviationFallback = protectedPadRefinementReason.Contains("slope deviation", StringComparison.OrdinalIgnoreCase);
             GradingResult? localRefinement = GradeWithRefinedZOnlyFallback(
                 vertices,
                 vertexCount,
@@ -96,9 +97,23 @@ public static partial class PadGrader
                 lockCurves,
                 modelTolerance,
                 protectedPadRefinementReason,
-                constraintFirstFailureDiagnostics);
+                constraintFirstFailureDiagnostics,
+                preferLocalRefinement: isSlopeDeviationFallback);
             if (localRefinement != null)
-                return localRefinement;
+            {
+                if (!isSlopeDeviationFallback ||
+                    ShouldUseProtectedPadFallbackResult(rebuilt, localRefinement, out string fallbackRejectionReason))
+                {
+                    return localRefinement;
+                }
+
+                rebuilt = AddResultDiagnostic(
+                    rebuilt,
+                    GradingDiagnostic.Information(
+                        "grade_pad.fallback.local_refinement_rejected",
+                        fallbackRejectionReason,
+                        operation: "grade_pad"));
+            }
         }
 
         if (rebuilt == null)
@@ -155,11 +170,12 @@ public static partial class PadGrader
             return true;
         }
 
-        if (pads.Length == 1 &&
-            result.StructuredDiagnostics.Any(static diagnostic =>
+        if (result.StructuredDiagnostics.Any(static diagnostic =>
                 string.Equals(diagnostic.Code, "grade_pad.slope.deviation", StringComparison.Ordinal)))
         {
-            reason = "constraint-first protected-pad topology produced excessive slope deviation";
+            reason = pads.Length == 1
+                ? "constraint-first protected-pad topology produced excessive slope deviation"
+                : "constraint-first coupled protected-pad topology produced excessive slope deviation";
             return true;
         }
 
@@ -197,6 +213,92 @@ public static partial class PadGrader
                 diagnosticCode,
                 "Grade Pad local-refinement slope fallback skipped for coupled protected pads; multi-pad protected topology remains on the constraint-first result.",
                 operation: "grade_pad"));
+    }
+
+    private static bool ShouldUseProtectedPadFallbackResult(
+        GradingResult current,
+        GradingResult fallback,
+        out string rejectionReason)
+    {
+        rejectionReason = string.Empty;
+        bool hasCurrentSlopeDeviation = TryGetMaxSlopeDeviation(current, out double currentMaxDelta);
+        bool hasFallbackSlopeDeviation = TryGetMaxSlopeDeviation(fallback, out double fallbackMaxDelta);
+        if (!hasCurrentSlopeDeviation && !hasFallbackSlopeDeviation)
+        {
+            return true;
+        }
+
+        if (!hasCurrentSlopeDeviation)
+        {
+            if (!hasFallbackSlopeDeviation || fallbackMaxDelta <= 10.0)
+                return true;
+
+            rejectionReason =
+                $"Grade Pad local-refinement slope fallback rejected: current result had no slope-deviation warning, fallback would introduce {fallbackMaxDelta:F2} deg max slope deviation.";
+            return false;
+        }
+
+        if (!hasFallbackSlopeDeviation)
+            return true;
+
+        if (fallbackMaxDelta <= 20.0 && fallbackMaxDelta < currentMaxDelta - 1.0)
+            return true;
+
+        if (currentMaxDelta > 45.0 && fallbackMaxDelta <= currentMaxDelta * 0.6)
+            return true;
+
+        rejectionReason =
+            $"Grade Pad local-refinement slope fallback rejected: max slope deviation would be {fallbackMaxDelta:F2} deg vs current {currentMaxDelta:F2} deg.";
+        return false;
+    }
+
+    private static bool TryGetMaxSlopeDeviation(GradingResult result, out double maxDelta)
+    {
+        maxDelta = 0.0;
+        bool found = false;
+        foreach (GradingDiagnostic diagnostic in result.StructuredDiagnostics)
+        {
+            if (!string.Equals(diagnostic.Code, "grade_pad.slope.deviation", StringComparison.Ordinal))
+                continue;
+
+            if (!TryExtractSlopeDeviation(diagnostic.Message, out double delta))
+                continue;
+
+            maxDelta = Math.Max(maxDelta, delta);
+            found = true;
+        }
+
+        return found;
+    }
+
+    private static bool TryExtractSlopeDeviation(string message, out double delta)
+    {
+        delta = 0.0;
+        const string marker = "up to ";
+        int markerIndex = message.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+            return false;
+
+        int start = markerIndex + marker.Length;
+        int end = start;
+        while (end < message.Length &&
+               (char.IsDigit(message[end]) || message[end] == '.' || message[end] == ',' || message[end] == '-' || message[end] == '+'))
+        {
+            end++;
+        }
+
+        if (end <= start)
+            return false;
+
+        string token = message[start..end];
+        if (double.TryParse(token, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out delta))
+            return true;
+
+        return double.TryParse(
+            token.Replace(',', '.'),
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out delta);
     }
 
     private static GradingResult AddResultDiagnostic(GradingResult result, GradingDiagnostic diagnostic)

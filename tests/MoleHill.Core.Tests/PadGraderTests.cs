@@ -744,6 +744,61 @@ public class PadGraderTests
     }
 
     [Fact]
+    public void LocalRefinedFallback_SplitsPadInfluenceFootprintWithoutOpeningMesh()
+    {
+        double[] vertices = BuildSlopedGridVertices(31, 1.0, xSlope: 0.08, ySlope: -0.04);
+        int vertexCount = vertices.Length / 3;
+        int[] faces = BuildGridFaces(31);
+        int faceCount = faces.Length / 3;
+        var pads = new[]
+        {
+            new PadGrader.PadBoundary(
+                new[]
+                {
+                    11.0, 11.0,
+                    19.0, 11.0,
+                    19.0, 19.0,
+                    11.0, 19.0
+                },
+                4,
+                targetZ: 2.2,
+                slopeAngleDeg: 30.0,
+                stitchApronDistance: 0.5)
+        };
+
+        bool rebuilt = PadGrader.TryBuildLocallyRefinedFallbackTopology(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            pads,
+            lockCurves: null,
+            modelTolerance: 0.01,
+            out double[] refinedVertices,
+            out int refinedVertexCount,
+            out int[] refinedFaces,
+            out int refinedFaceCount,
+            out int splitFaceCount,
+            out int candidateFaceCount,
+            out int splitFaceCap);
+
+        Assert.True(rebuilt);
+        Assert.True(splitFaceCount > 1, $"Expected footprint refinement, got {splitFaceCount} split face(s).");
+        Assert.True(candidateFaceCount >= splitFaceCount);
+        Assert.True(splitFaceCount <= splitFaceCap);
+        Assert.Equal(vertexCount + splitFaceCount, refinedVertexCount);
+        Assert.Equal(faceCount + (splitFaceCount * 2), refinedFaceCount);
+        Assert.Equal(refinedVertexCount * 3, refinedVertices.Length);
+        Assert.Equal(refinedFaceCount * 3, refinedFaces.Length);
+
+        MeshTopologyValidator.BoundaryGraphAnalysis topology =
+            MeshTopologyValidator.AnalyzeBoundaryGraph(refinedFaces, refinedFaceCount);
+        Assert.True(topology.HasSingleClosedBoundaryLoop);
+        Assert.False(topology.HasOpenBoundaryChains);
+        Assert.Equal(0, topology.NonManifoldEdgeCount);
+    }
+
+    [Fact]
     public void Grade_CoarseRotatedCopiedCase_KeepsCornerFanConstraintsBounded()
     {
         double[] vertices =

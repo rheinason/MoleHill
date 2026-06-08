@@ -13,9 +13,11 @@ public static partial class PadGrader
         LockCurve[]? lockCurves,
         double modelTolerance,
         string fallbackReason,
-        IReadOnlyList<GradingDiagnostic>? constraintFirstFailureDiagnostics = null)
+        IReadOnlyList<GradingDiagnostic>? constraintFirstFailureDiagnostics = null,
+        bool preferLocalRefinement = false)
     {
-        if (pads.Length > 1 &&
+        if (!preferLocalRefinement &&
+            pads.Length > 1 &&
             TryBuildWholeMeshRetriangulatedFallbackTopology(
                 vertices,
                 vertexCount,
@@ -47,52 +49,31 @@ public static partial class PadGrader
                 constraintFirstFailureDiagnostics);
         }
 
-        if (!TryBuildLocallyRefinedFallbackTopology(
+        bool localTopologyBuilt = TryBuildLocallyRefinedFallbackTopology(
                 vertices,
                 vertexCount,
                 faces,
                 faceCount,
                 pads,
+                lockCurves,
+                modelTolerance,
                 out double[] refinedOriginalVertices,
                 out int refinedVertexCount,
                 out int[] refinedFaces,
-                out int refinedFaceCount))
+                out int refinedFaceCount,
+                out int localSplitFaceCount,
+                out int localCandidateFaceCount,
+                out int localSplitFaceCap);
+        if (!localTopologyBuilt)
         {
-            return null;
+            return TryBuildDeferredWholeMeshFallback();
         }
 
         MeshTopologyValidator.BoundaryGraphAnalysis localTopology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(refinedFaces, refinedFaceCount);
-        if (!localTopology.HasSingleClosedBoundaryLoop &&
-            TryBuildWholeMeshRetriangulatedFallbackTopology(
-                vertices,
-                vertexCount,
-                faces,
-                faceCount,
-                pads,
-                modelTolerance,
-                out double[] wholeMeshVertices,
-                out int wholeMeshVertexCount,
-                out int[] wholeMeshFaces,
-                out int wholeMeshFaceCount,
-                out string? wholeMeshWarning))
+        if (!localTopology.HasSingleClosedBoundaryLoop)
         {
-            return BuildRefinedFallbackResult(
-                vertexCount,
-                faceCount,
-                wholeMeshVertices,
-                wholeMeshVertexCount,
-                wholeMeshFaces,
-                wholeMeshFaceCount,
-                pads,
-                lockCurves,
-                modelTolerance,
-                "grade_pad.topology.whole_mesh_retriangulation_fallback",
-                $"Grade Pad constraint-first rebuild failed; whole-mesh retriangulation fallback used because local refinement kept unhealthy upstream boundaries. Failure: {fallbackReason}",
-                "Grade Pad protected apron handled by whole-mesh retriangulation fallback.",
-                "Grade Pad interacting pad ownership resolved after whole-mesh retriangulation fallback.",
-                wholeMeshWarning,
-                constraintFirstFailureDiagnostics);
+            return TryBuildDeferredWholeMeshFallback();
         }
 
         return BuildRefinedFallbackResult(
@@ -109,8 +90,45 @@ public static partial class PadGrader
             $"Grade Pad constraint-first rebuild failed; local refinement fallback used for protected-pad topology. Failure: {fallbackReason}",
             "Grade Pad protected apron handled by local refinement fallback.",
             "Grade Pad interacting pad ownership resolved after local refinement fallback.",
-            topologyWarning: null,
+            $"Grade Pad local refinement fallback split {localSplitFaceCount:N0} upstream face(s) touched by pad influence ({localCandidateFaceCount:N0} candidate face(s), cap {localSplitFaceCap:N0}).",
             constraintFirstFailureDiagnostics: constraintFirstFailureDiagnostics);
+
+        GradingResult? TryBuildDeferredWholeMeshFallback()
+        {
+            if (pads.Length <= 1 ||
+                !TryBuildWholeMeshRetriangulatedFallbackTopology(
+                    vertices,
+                    vertexCount,
+                    faces,
+                    faceCount,
+                    pads,
+                    modelTolerance,
+                    out double[] wholeMeshVertices,
+                    out int wholeMeshVertexCount,
+                    out int[] wholeMeshFaces,
+                    out int wholeMeshFaceCount,
+                    out string? wholeMeshWarning))
+            {
+                return null;
+            }
+
+            return BuildRefinedFallbackResult(
+                vertexCount,
+                faceCount,
+                wholeMeshVertices,
+                wholeMeshVertexCount,
+                wholeMeshFaces,
+                wholeMeshFaceCount,
+                pads,
+                lockCurves,
+                modelTolerance,
+                "grade_pad.topology.whole_mesh_retriangulation_fallback",
+                $"Grade Pad constraint-first rebuild failed; whole-mesh retriangulation fallback used because local refinement was unavailable or kept unhealthy upstream boundaries. Failure: {fallbackReason}",
+                "Grade Pad protected apron handled by whole-mesh retriangulation fallback.",
+                "Grade Pad interacting pad ownership resolved after whole-mesh retriangulation fallback.",
+                wholeMeshWarning,
+                constraintFirstFailureDiagnostics);
+        }
     }
 
     private static GradingResult BuildRefinedFallbackResult(
@@ -348,31 +366,61 @@ public static partial class PadGrader
         return (long)Math.Round(scaled, MidpointRounding.AwayFromZero);
     }
 
-    private static bool TryBuildLocallyRefinedFallbackTopology(
+    internal static bool TryBuildLocallyRefinedFallbackTopology(
         double[] vertices,
         int vertexCount,
         int[] faces,
         int faceCount,
         PadBoundary[] pads,
+        LockCurve[]? lockCurves,
+        double modelTolerance,
         out double[] refinedVertices,
         out int refinedVertexCount,
         out int[] refinedFaces,
-        out int refinedFaceCount)
+        out int refinedFaceCount,
+        out int splitFaceCount,
+        out int candidateFaceCount,
+        out int splitFaceCap)
     {
         refinedVertices = Array.Empty<double>();
         refinedFaces = Array.Empty<int>();
         refinedVertexCount = 0;
         refinedFaceCount = 0;
+        splitFaceCount = 0;
+        candidateFaceCount = 0;
+        splitFaceCap = 0;
 
         if (vertexCount <= 0 || faceCount <= 0 || pads.Length == 0)
             return false;
 
         var facesToSplit = new Dictionary<int, int>();
-        for (int padIndex = 0; padIndex < pads.Length; padIndex++)
+        if (vertexCount > 64)
         {
-            int faceIndex = FindFallbackSplitFace(vertices, faces, faceCount, pads[padIndex]);
-            if (faceIndex >= 0 && !facesToSplit.ContainsKey(faceIndex))
-                facesToSplit.Add(faceIndex, padIndex);
+            splitFaceCap = ComputeLocalRefinementSplitFaceCap(faceCount, pads.Length);
+            int[] selectedFaces = SelectLocalRefinementFaces(
+                vertices,
+                vertexCount,
+                faces,
+                faceCount,
+                pads,
+                lockCurves ?? Array.Empty<LockCurve>(),
+                modelTolerance,
+                splitFaceCap,
+                out candidateFaceCount);
+
+            facesToSplit = new Dictionary<int, int>(selectedFaces.Length);
+            foreach (int faceIndex in selectedFaces)
+                facesToSplit.TryAdd(faceIndex, 0);
+        }
+
+        if (facesToSplit.Count == 0)
+        {
+            for (int padIndex = 0; padIndex < pads.Length; padIndex++)
+            {
+                int faceIndex = FindFallbackSplitFace(vertices, faces, faceCount, pads[padIndex]);
+                if (faceIndex >= 0)
+                    facesToSplit.TryAdd(faceIndex, padIndex);
+            }
         }
 
         if (facesToSplit.Count == 0)
@@ -380,6 +428,14 @@ public static partial class PadGrader
             int firstValidFace = FindFirstValidFallbackFace(faces, faceCount, vertexCount);
             if (firstValidFace >= 0)
                 facesToSplit.Add(firstValidFace, 0);
+        }
+
+        if (facesToSplit.Count > 0)
+        {
+            if (candidateFaceCount == 0)
+                candidateFaceCount = facesToSplit.Count;
+            if (splitFaceCap == 0)
+                splitFaceCap = facesToSplit.Count;
         }
 
         refinedVertexCount = vertexCount + facesToSplit.Count;
@@ -454,7 +510,330 @@ public static partial class PadGrader
         if (refinedFaces.Length != refinedFaceCount * 3)
             Array.Resize(ref refinedFaces, refinedFaceCount * 3);
 
+        splitFaceCount = splitVertexByFace.Count;
         return refinedVertexCount > vertexCount && refinedFaceCount > faceCount;
+    }
+
+    private readonly record struct LocalRefinementFaceCandidate(int FaceIndex, double Score);
+
+    private static int ComputeLocalRefinementSplitFaceCap(int faceCount, int padCount)
+    {
+        if (faceCount <= 0 || padCount <= 0)
+            return 0;
+
+        int perPadBudget = Math.Max(256, padCount * 1024);
+        return Math.Min(faceCount, Math.Min(8192, perPadBudget));
+    }
+
+    private static int[] SelectLocalRefinementFaces(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        PadBoundary[] pads,
+        LockCurve[] lockCurves,
+        double modelTolerance,
+        int splitFaceCap,
+        out int candidateFaceCount)
+    {
+        candidateFaceCount = 0;
+        if (splitFaceCap <= 0)
+            return Array.Empty<int>();
+
+        double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
+        var terrainFaceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
+        PreparedBarriers barriers = lockCurves.Length > 0
+            ? GradingBarriers.BuildFromLockCurves(lockCurves)
+            : PreparedBarriers.Empty;
+        bool hasBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out double[] boundaryLoop, out int boundaryVertexCount);
+        var preparedPads = new List<PreparedPadSections>(pads.Length);
+        var preparedBounds = new List<Bounds2D>(pads.Length);
+        foreach (PadBoundary pad in pads)
+        {
+            PreparedPadSections prepared = BuildPreparedPadSections(
+                pad,
+                terrainFaceGrid,
+                barriers,
+                hasBoundaryLoop,
+                boundaryLoop,
+                boundaryVertexCount,
+                tolerance,
+                keepShoulderOnBatterPlane: false,
+                defaultCornerFanSegments: 6);
+            var bounds = new Bounds2D(
+                prepared.InfluenceMinX,
+                prepared.InfluenceMaxX,
+                prepared.InfluenceMinY,
+                prepared.InfluenceMaxY);
+            if (!IsFiniteBounds(bounds))
+                continue;
+
+            preparedPads.Add(prepared);
+            preparedBounds.Add(bounds);
+        }
+
+        if (preparedPads.Count == 0)
+            return Array.Empty<int>();
+
+        SpatialHashGrid2D padIndex = SpatialHashGrid2D.Build(preparedBounds.ToArray());
+        var padCandidates = new List<int>(Math.Min(8, preparedPads.Count));
+        var padScratch = new SpatialHashGrid2D.QueryScratch(preparedPads.Count);
+        var faceCandidates = new List<LocalRefinementFaceCandidate>();
+
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[(faceIndex * 3) + 1];
+            int c = faces[(faceIndex * 3) + 2];
+            if (!IsValidFaceIndex(a, vertexCount) ||
+                !IsValidFaceIndex(b, vertexCount) ||
+                !IsValidFaceIndex(c, vertexCount) ||
+                a == b ||
+                b == c ||
+                c == a)
+            {
+                continue;
+            }
+
+            double ax = vertices[a * 3];
+            double ay = vertices[(a * 3) + 1];
+            double bx = vertices[b * 3];
+            double by = vertices[(b * 3) + 1];
+            double cx = vertices[c * 3];
+            double cy = vertices[(c * 3) + 1];
+            var faceBounds = new Bounds2D(
+                Math.Min(ax, Math.Min(bx, cx)) - tolerance,
+                Math.Max(ax, Math.Max(bx, cx)) + tolerance,
+                Math.Min(ay, Math.Min(by, cy)) - tolerance,
+                Math.Max(ay, Math.Max(by, cy)) + tolerance);
+
+            padIndex.GatherCandidates(faceBounds, padCandidates, padScratch);
+            if (padCandidates.Count == 0)
+                continue;
+
+            double bestScore = double.MaxValue;
+            bool touchesInfluence = false;
+            foreach (int padIndexHit in padCandidates)
+            {
+                if (!preparedBounds[padIndexHit].Intersects(faceBounds))
+                    continue;
+
+                if (!FaceTouchesPreparedPadInfluence(
+                        ax,
+                        ay,
+                        bx,
+                        by,
+                        cx,
+                        cy,
+                        preparedPads[padIndexHit],
+                        tolerance,
+                        out double score))
+                {
+                    continue;
+                }
+
+                touchesInfluence = true;
+                bestScore = Math.Min(bestScore, score);
+            }
+
+            if (!touchesInfluence)
+                continue;
+
+            faceCandidates.Add(new LocalRefinementFaceCandidate(faceIndex, bestScore));
+        }
+
+        candidateFaceCount = faceCandidates.Count;
+        if (faceCandidates.Count == 0)
+            return Array.Empty<int>();
+
+        return faceCandidates
+            .OrderBy(static candidate => candidate.Score)
+            .ThenBy(static candidate => candidate.FaceIndex)
+            .Take(splitFaceCap)
+            .Select(static candidate => candidate.FaceIndex)
+            .ToArray();
+    }
+
+    private static bool FaceTouchesPreparedPadInfluence(
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        double cx,
+        double cy,
+        PreparedPadSections prepared,
+        double tolerance,
+        out double score)
+    {
+        score = double.MaxValue;
+        ReadOnlySpan<(double X, double Y)> samples =
+        [
+            (ax, ay),
+            (bx, by),
+            (cx, cy),
+            ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0),
+            ((ax + bx) * 0.5, (ay + by) * 0.5),
+            ((bx + cx) * 0.5, (by + cy) * 0.5),
+            ((cx + ax) * 0.5, (cy + ay) * 0.5)
+        ];
+
+        foreach ((double x, double y) in samples)
+        {
+            if (!PointTouchesPreparedPadInfluence(x, y, prepared, tolerance, out double pointScore))
+                continue;
+
+            score = Math.Min(score, pointScore);
+            return true;
+        }
+
+        if (LoopIntersectsTriangle(prepared.BoundaryLoopXy, prepared.BoundaryVertexCount, ax, ay, bx, by, cx, cy) ||
+            LoopIntersectsTriangle(prepared.ShoulderXy, prepared.BoundaryVertexCount, ax, ay, bx, by, cx, cy) ||
+            LoopHasVertexInsideTriangle(prepared.BoundaryLoopXy, prepared.BoundaryVertexCount, ax, ay, bx, by, cx, cy) ||
+            LoopHasVertexInsideTriangle(prepared.ShoulderXy, prepared.BoundaryVertexCount, ax, ay, bx, by, cx, cy))
+        {
+            double centroidX = (ax + bx + cx) / 3.0;
+            double centroidY = (ay + by + cy) / 3.0;
+            score = ComputePreparedPadInfluenceScore(centroidX, centroidY, prepared);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool PointTouchesPreparedPadInfluence(
+        double x,
+        double y,
+        PreparedPadSections prepared,
+        double tolerance,
+        out double score)
+    {
+        score = double.MaxValue;
+        double padding = Math.Max(tolerance * 2.0, 1e-6);
+        if (x < prepared.InfluenceMinX - padding ||
+            x > prepared.InfluenceMaxX + padding ||
+            y < prepared.InfluenceMinY - padding ||
+            y > prepared.InfluenceMaxY + padding)
+        {
+            return false;
+        }
+
+        if (PointInPolygon(x, y, prepared.Pad.XyVertices, prepared.Pad.VertexCount))
+        {
+            score = 0.0;
+            return true;
+        }
+
+        if (!TryFindClosestLoopLocation(prepared.BoundaryLoopXy, prepared.BoundaryVertexCount, x, y, out ClosestLoopLocation closest) ||
+            !TryInterpolatePadSection(
+                prepared,
+                closest,
+                out double boundaryX,
+                out double boundaryY,
+                out _,
+                out double shoulderX,
+                out double shoulderY,
+                out _))
+        {
+            return false;
+        }
+
+        double reach = Math.Sqrt(((shoulderX - boundaryX) * (shoulderX - boundaryX)) + ((shoulderY - boundaryY) * (shoulderY - boundaryY)));
+        if (closest.Distance > reach + padding)
+            return false;
+
+        score = closest.Distance;
+        return true;
+    }
+
+    private static double ComputePreparedPadInfluenceScore(double x, double y, PreparedPadSections prepared)
+    {
+        if (!TryFindClosestLoopLocation(prepared.BoundaryLoopXy, prepared.BoundaryVertexCount, x, y, out ClosestLoopLocation closest))
+            return double.MaxValue;
+
+        return closest.Distance;
+    }
+
+    private static bool LoopIntersectsTriangle(
+        double[] loopXy,
+        int vertexCount,
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        double cx,
+        double cy)
+    {
+        if (vertexCount < 2 || loopXy.Length < vertexCount * 2)
+            return false;
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int next = (i + 1) % vertexCount;
+            double sx0 = loopXy[i * 2];
+            double sy0 = loopXy[(i * 2) + 1];
+            double sx1 = loopXy[next * 2];
+            double sy1 = loopXy[(next * 2) + 1];
+
+            if (SegmentsIntersect(sx0, sy0, sx1, sy1, ax, ay, bx, by) ||
+                SegmentsIntersect(sx0, sy0, sx1, sy1, bx, by, cx, cy) ||
+                SegmentsIntersect(sx0, sy0, sx1, sy1, cx, cy, ax, ay))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool LoopHasVertexInsideTriangle(
+        double[] loopXy,
+        int vertexCount,
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        double cx,
+        double cy)
+    {
+        if (vertexCount < 1 || loopXy.Length < vertexCount * 2)
+            return false;
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            if (PointInTriangle(loopXy[i * 2], loopXy[(i * 2) + 1], ax, ay, bx, by, cx, cy))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool PointInTriangle(
+        double px,
+        double py,
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        double cx,
+        double cy)
+    {
+        const double tolerance = 1e-12;
+        double o1 = Orientation(ax, ay, bx, by, px, py);
+        double o2 = Orientation(bx, by, cx, cy, px, py);
+        double o3 = Orientation(cx, cy, ax, ay, px, py);
+        bool hasNegative = o1 < -tolerance || o2 < -tolerance || o3 < -tolerance;
+        bool hasPositive = o1 > tolerance || o2 > tolerance || o3 > tolerance;
+        return !(hasNegative && hasPositive);
+    }
+
+    private static bool IsFiniteBounds(Bounds2D bounds)
+    {
+        return double.IsFinite(bounds.MinX) &&
+               double.IsFinite(bounds.MaxX) &&
+               double.IsFinite(bounds.MinY) &&
+               double.IsFinite(bounds.MaxY) &&
+               bounds.MinX <= bounds.MaxX &&
+               bounds.MinY <= bounds.MaxY;
     }
 
     private static int FindFallbackSplitFace(
