@@ -72,7 +72,15 @@ internal static class ConstraintFirstGradingEngine
                 effectiveTolerance,
                 out int normalizedSplitCount);
         if (normalizedSplitCount > 0)
-            diagnostics.Add($"{operation} constraint network normalized with {normalizedSplitCount:N0} intersection split(s).");
+        {
+            string normalizationMessage =
+                $"{operation} constraint network normalized with {normalizedSplitCount:N0} intersection split(s).";
+            diagnostics.Add(normalizationMessage);
+            structuredDiagnostics.Add(GradingDiagnostic.Information(
+                $"{DiagnosticPrefix(operation)}.constraint_network.normalized",
+                normalizationMessage,
+                operation: DiagnosticOperation(operation)));
+        }
 
         bool hasOpenOrPreservedConstraints = topologyConstraints.Any(static constraint =>
             constraint.PreserveInputElevation || !constraint.IsClosed);
@@ -100,7 +108,13 @@ internal static class ConstraintFirstGradingEngine
 
             if (coarseRemesh.Success)
             {
-                diagnostics.Add($"{operation} constraint-first rebuild retried with coarser constraint spacing ({effectiveEdgeLength:G4} -> {coarseEdgeLength:G4}).");
+                string coarseRetryMessage =
+                    $"{operation} constraint-first rebuild retried with coarser constraint spacing ({effectiveEdgeLength:G4} -> {coarseEdgeLength:G4}).";
+                diagnostics.Add(coarseRetryMessage);
+                structuredDiagnostics.Add(GradingDiagnostic.Information(
+                    $"{DiagnosticPrefix(operation)}.topology.coarse_retry",
+                    coarseRetryMessage,
+                    operation: DiagnosticOperation(operation)));
                 remesh = coarseRemesh;
                 effectiveEdgeLength = coarseEdgeLength;
             }

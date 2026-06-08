@@ -161,6 +161,63 @@ public class ConstraintFirstGradingEngineTests
     }
 
     [Fact]
+    public void TryBuild_CrossingConstraints_EmitsStructuredNormalizationDiagnostic()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            10.0, 0.0, 0.0,
+            10.0, 10.0, 0.0,
+            0.0, 10.0, 0.0
+        };
+        int[] faces =
+        {
+            0, 1, 2,
+            0, 2, 3
+        };
+        var constraints = new[]
+        {
+            new SurfaceRemesher.ConstraintPolyline(
+                new[] { 0.0, 5.0, 0.0, 10.0, 5.0, 0.0 },
+                PointCount: 2,
+                IsClosed: false,
+                PreserveInputElevation: false),
+            new SurfaceRemesher.ConstraintPolyline(
+                new[] { 5.0, 0.0, 0.0, 5.0, 10.0, 0.0 },
+                PointCount: 2,
+                IsClosed: false,
+                PreserveInputElevation: false)
+        };
+
+        GradingResult? result = ConstraintFirstGradingEngine.TryBuild(
+            "Grade Path",
+            vertices,
+            vertexCount: 4,
+            faces,
+            faceCount: 2,
+            constraints,
+            requestedEdgeLength: 10.0,
+            tolerance: 0.001,
+            applyGrading: FlattenToZero,
+            outputPolylines: null,
+            patchSummaries: null,
+            preDiagnostics: null,
+            preStructuredDiagnostics: null,
+            appendOutputDiagnostics: null,
+            out IReadOnlyList<GradingDiagnostic> failureDiagnostics,
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.Null(errorMessage);
+        Assert.Empty(failureDiagnostics);
+        GradingDiagnostic diagnostic = Assert.Single(
+            result.StructuredDiagnostics,
+            diagnostic => diagnostic.Code == "grade_path.constraint_network.normalized");
+        Assert.Equal(GradingDiagnosticSeverity.Information, diagnostic.Severity);
+        Assert.Contains("2 intersection split", diagnostic.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void TryBuild_DenseConstraintOutput_EmitsStructuredDensityDiagnostic()
     {
         double[] vertices =

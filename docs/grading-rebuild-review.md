@@ -56,6 +56,8 @@ by phase.
   - Core 224 passed / 0 failed.
 - `dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj -p:BaseOutputPath=.codex-build\core-density-diagnostics\ -p:UseSharedCompilation=false`
   - Core 225 passed / 0 failed.
+- `dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj -p:BaseOutputPath=.codex-build\core-normalization-diagnostics\ -p:UseSharedCompilation=false`
+  - Core 226 passed / 0 failed.
 - Focused `PathGrader` tests after the split: 52 passed / 0 failed.
 - Focused copied Grade Pad regressions after local-refinement follow-up: 17 passed / 0 failed.
 
@@ -68,7 +70,7 @@ by phase.
 - **Preserved-elevation diagnostics:** shared constraint-first grading now reports how many output vertices were snapped to preserved-elevation constraint segments via `*.preserved_elevation.snap`.
 - **Failure diagnostics:** structured codes surfaced on null-path failures; `grade_path.constraint_first.failed` is asserted by test.
 - **Density guard:** bounded coarse-retry loop only accepts a retry that actually reduces face count.
-- **Density diagnostics:** density growth, density guard retries, and seed fallback paths are now structured diagnostics instead of plain log strings only.
+- **Topology diagnostics:** constraint-network normalization, coarse retry, density growth, density guard retries, and seed fallback paths are now structured diagnostics instead of plain log strings only.
 - **Normalizer:** value-type `SegmentKey`, `SpatialHashGrid2D` broad phase, non-finite/overflow clamp in `Quantize`, and dead `TryTriangulateTopology` removed.
 - **Fallback result building:** the tiers in `GradeWithRefinedZOnlyFallback` share `BuildRefinedFallbackResult`.
 - **Large copied path fixture:** the 12,904-line single `[Fact]` became a normal test backed by embedded JSON.
