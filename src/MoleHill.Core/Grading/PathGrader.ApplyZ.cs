@@ -290,11 +290,11 @@ public static partial class PathGrader
                     }
                     else
                     {
-                        // Interpolated tangent degenerate — fall back to segment direction
+                        // Interpolated tangent degenerate; fall back to segment direction.
                         dirX = sdx / segLength;
                         dirY = sdy / segLength;
                     }
-                    // SideSign: cross product of smooth tangent with (query − projected)
+                    // SideSign: cross product of smooth tangent with (query - projected).
                     sideSign = dirX * (py - projY) - dirY * (px - projX);
                 }
                 else

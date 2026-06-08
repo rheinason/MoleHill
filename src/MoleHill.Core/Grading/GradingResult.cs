@@ -1,12 +1,12 @@
 namespace MoleHill.Core.Grading;
 
 /// <summary>
-/// A graded 3-D polyline (flat XYZ) that is part of a grading result —
+/// A graded 3-D polyline (flat XYZ) that is part of a grading result -
 /// e.g. a road edge or a pad boundary curve.
 /// </summary>
 public sealed class OutputPolyline
 {
-    /// <summary>Flat XYZ vertices: [x0,y0,z0, x1,y1,z1, …]</summary>
+    /// <summary>Flat XYZ vertices: [x0,y0,z0, x1,y1,z1, ...]</summary>
     public double[] Vertices { get; }
 
     /// <summary>Number of vertices.</summary>
@@ -64,13 +64,13 @@ public sealed class OutputPolyline
 /// </summary>
 public sealed class GradingResult
 {
-    /// <summary>Flat XYZ vertices: [x0,y0,z0, x1,y1,z1, …]</summary>
+    /// <summary>Flat XYZ vertices: [x0,y0,z0, x1,y1,z1, ...]</summary>
     public double[] Vertices { get; }
 
     /// <summary>Number of vertices.</summary>
     public int VertexCount { get; }
 
-    /// <summary>Triangle face indices: [i0,i1,i2, …]</summary>
+    /// <summary>Triangle face indices: [i0,i1,i2, ...]</summary>
     public int[] Faces { get; }
 
     /// <summary>Number of faces.</summary>

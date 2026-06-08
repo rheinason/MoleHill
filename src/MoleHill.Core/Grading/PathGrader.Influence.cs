@@ -50,7 +50,7 @@ public static partial class PathGrader
             // direction (same sign) or when dzActual is near-zero (flat terrain dip/bump
             // that needs lifting/lowering by the smooth profile).
             // Opposite-sign means the reference profile came from the wrong side
-            // (SideSign flip) — using it would push the vertex in the wrong direction.
+            // (SideSign flip); using it would push the vertex in the wrong direction.
             if (referenceDz * dzActual >= -1e-12)
                 dz = referenceDz;
         }

@@ -10,7 +10,7 @@ public static partial class PathGrader
     /// </summary>
     /// <param name="interpolateOriginalZ">
     /// Optional sampler returning original terrain Z at any XY point.
-    /// Must represent the unmodified input terrain — not any already-graded
+    /// Must represent the unmodified input terrain, not any already-graded
     /// or remeshed geometry. When null, falls back to vertex-accumulation
     /// for the reference shoulder profile.
     /// </param>
