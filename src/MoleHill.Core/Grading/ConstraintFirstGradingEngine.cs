@@ -19,6 +19,11 @@ internal static class ConstraintFirstGradingEngine
         int ConstraintIndex,
         int SegmentIndex);
 
+    private readonly record struct PreservedConstraintSnapStats(
+        int PreservedConstraintCount,
+        int PreservedSegmentCount,
+        int SnappedVertexCount);
+
     public delegate double[] ApplyGradingDelegate(double[] topologyVertices, int vertexCount, int[] faces, int faceCount);
 
     public delegate void AppendOutputDiagnosticsDelegate(
@@ -187,7 +192,18 @@ internal static class ConstraintFirstGradingEngine
             return null;
         }
 
-        ApplyPreservedConstraintElevations(gradedVertices, topologyVertexCount, constraints, effectiveTolerance);
+        PreservedConstraintSnapStats preservedElevationStats =
+            ApplyPreservedConstraintElevations(gradedVertices, topologyVertexCount, constraints, effectiveTolerance);
+        if (preservedElevationStats.PreservedConstraintCount > 0)
+        {
+            string preservedElevationMessage =
+                $"{operation} preserved-elevation constraints snapped {preservedElevationStats.SnappedVertexCount:N0} output vertex/vertices from {preservedElevationStats.PreservedSegmentCount:N0} segment(s) across {preservedElevationStats.PreservedConstraintCount:N0} constraint(s).";
+            diagnostics.Add(preservedElevationMessage);
+            structuredDiagnostics.Add(GradingDiagnostic.Information(
+                $"{DiagnosticPrefix(operation)}.preserved_elevation.snap",
+                preservedElevationMessage,
+                operation: DiagnosticOperation(operation)));
+        }
 
         diagnostics.Add($"{operation} constraint-first topology ({vertexCount:N0} verts/{faceCount:N0} faces -> {topologyVertexCount:N0} verts/{topologyFaceCount:N0} faces; density {densityMultiplier:0.##}x).");
         GradingDiagnostic topologySummary = GradingTopologyDiagnostics.BuildMeshSummary(
@@ -298,28 +314,37 @@ internal static class ConstraintFirstGradingEngine
         return Math.Max(requestedEdgeLength, scaleFloor);
     }
 
-    private static void ApplyPreservedConstraintElevations(
+    private static PreservedConstraintSnapStats ApplyPreservedConstraintElevations(
         double[] vertices,
         int vertexCount,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
         double tolerance)
     {
         if (constraints.Count == 0 || vertexCount == 0)
-            return;
+            return default;
 
         double snapTolerance = Math.Max(tolerance * 4.0, 1e-8);
         double snapToleranceSq = snapTolerance * snapTolerance;
         PreservedConstraintSegmentIndex? index = PreservedConstraintSegmentIndex.Build(constraints, snapTolerance);
         if (index == null)
-            return;
+            return default;
 
+        int snappedVertexCount = 0;
         for (int vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++)
         {
             double x = vertices[vertexIndex * 3];
             double y = vertices[vertexIndex * 3 + 1];
             if (index.TryGetElevation(x, y, snapToleranceSq, out double z))
+            {
                 vertices[vertexIndex * 3 + 2] = z;
+                snappedVertexCount++;
+            }
         }
+
+        return new PreservedConstraintSnapStats(
+            index.PreservedConstraintCount,
+            index.PreservedSegmentCount,
+            snappedVertexCount);
     }
 
     private sealed class PreservedConstraintSegmentIndex
@@ -329,9 +354,14 @@ internal static class ConstraintFirstGradingEngine
         private readonly SpatialHashGrid2D.QueryScratch _scratch;
         private readonly List<int> _candidates;
 
-        private PreservedConstraintSegmentIndex(PreservedConstraintSegment[] segments, SpatialHashGrid2D grid)
+        public int PreservedConstraintCount { get; }
+
+        public int PreservedSegmentCount => _segments.Length;
+
+        private PreservedConstraintSegmentIndex(PreservedConstraintSegment[] segments, int preservedConstraintCount, SpatialHashGrid2D grid)
         {
             _segments = segments;
+            PreservedConstraintCount = preservedConstraintCount;
             _grid = grid;
             _scratch = new SpatialHashGrid2D.QueryScratch(segments.Length);
             _candidates = new List<int>(Math.Min(segments.Length, 32));
@@ -385,6 +415,7 @@ internal static class ConstraintFirstGradingEngine
         {
             var segments = new List<PreservedConstraintSegment>();
             var bounds = new List<Bounds2D>();
+            int preservedConstraintCount = 0;
             for (int constraintIndex = 0; constraintIndex < constraints.Count; constraintIndex++)
             {
                 SurfaceRemesher.ConstraintPolyline constraint = constraints[constraintIndex];
@@ -395,6 +426,7 @@ internal static class ConstraintFirstGradingEngine
                     continue;
                 }
 
+                preservedConstraintCount++;
                 int segmentCount = constraint.IsClosed ? constraint.PointCount : constraint.PointCount - 1;
                 for (int segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++)
                 {
@@ -435,7 +467,7 @@ internal static class ConstraintFirstGradingEngine
             if (segments.Count == 0)
                 return null;
 
-            return new PreservedConstraintSegmentIndex(segments.ToArray(), SpatialHashGrid2D.Build(bounds.ToArray()));
+            return new PreservedConstraintSegmentIndex(segments.ToArray(), preservedConstraintCount, SpatialHashGrid2D.Build(bounds.ToArray()));
         }
     }
 

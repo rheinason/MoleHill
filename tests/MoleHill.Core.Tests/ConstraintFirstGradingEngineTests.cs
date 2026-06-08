@@ -58,6 +58,12 @@ public class ConstraintFirstGradingEngineTests
         Assert.NotEqual(-1, endIndex);
         Assert.Equal(100.0, result.Vertices[(startIndex * 3) + 2], 6);
         Assert.Equal(120.0, result.Vertices[(endIndex * 3) + 2], 6);
+        GradingDiagnostic snapDiagnostic = Assert.Single(
+            result.StructuredDiagnostics,
+            diagnostic => diagnostic.Code == "grade_path.preserved_elevation.snap");
+        Assert.Equal(GradingDiagnosticSeverity.Information, snapDiagnostic.Severity);
+        Assert.Contains("snapped", snapDiagnostic.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("2 constraint", snapDiagnostic.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -43,12 +43,16 @@ by phase.
   - Core 223 passed / 0 failed; Grasshopper 3 passed / 16 skipped.
 - `dotnet test MoleHill.sln -p:BaseOutputPath=.codex-build\solution-local-refinement\ -p:UseSharedCompilation=false`
   - Core 224 passed / 0 failed; Grasshopper 3 passed / 16 skipped.
+- `dotnet test MoleHill.sln -p:BaseOutputPath=.codex-build\solution-preserved-diagnostics\ -p:UseSharedCompilation=false`
+  - Core 224 passed / 0 failed; Grasshopper 3 passed / 16 skipped.
 - `dotnet build src\MoleHill.Rhino\MoleHill.Rhino.csproj -p:BaseOutputPath=.codex-build\rhino-release-readiness\ -p:UseSharedCompilation=false`
   - 0 warnings, 0 errors.
 - `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-yak-package.ps1 -Configuration Release`
   - Yak package built: `.artifacts\yak\MoleHill-0.6.8-beta\molehill-0.6.8-beta-rh8_9-win.yak`.
   - Yak reports the known acceptable content-name warning (`MoleHill.Rhino` vs package id `MoleHill`).
 - `dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj -p:BaseOutputPath=.codex-build\core-local-refinement\ -p:UseSharedCompilation=false`
+  - Core 224 passed / 0 failed.
+- `dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj -p:BaseOutputPath=.codex-build\core-preserved-diagnostics\ -p:UseSharedCompilation=false`
   - Core 224 passed / 0 failed.
 - Focused `PathGrader` tests after the split: 52 passed / 0 failed.
 - Focused copied Grade Pad regressions after local-refinement follow-up: 17 passed / 0 failed.
@@ -59,6 +63,7 @@ by phase.
 
 - **Rhino build blocker:** deleted `PathGrader.TryBuildLocalizedFallbackBoundary` call; full solution compiles.
 - **Preserved-elevation lookup:** spatial-indexed through `PreservedConstraintSegmentIndex`, avoiding the old `O(V * all segments)` scan.
+- **Preserved-elevation diagnostics:** shared constraint-first grading now reports how many output vertices were snapped to preserved-elevation constraint segments via `*.preserved_elevation.snap`.
 - **Failure diagnostics:** structured codes surfaced on null-path failures; `grade_path.constraint_first.failed` is asserted by test.
 - **Density guard:** bounded coarse-retry loop only accepts a retry that actually reduces face count.
 - **Normalizer:** value-type `SegmentKey`, `SpatialHashGrid2D` broad phase, non-finite/overflow clamp in `Quantize`, and dead `TryTriangulateTopology` removed.
