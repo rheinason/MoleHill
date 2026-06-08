@@ -8,7 +8,6 @@ namespace MoleHill.Core.Grading;
 /// Grades a terrain mesh along path curves (roads, sidewalks, etc.).
 /// Adds road edges (path offset by half-width) as constrained edges,
 /// re-triangulates, then grades Z: inside road = path Z, outside = slope transition.
-/// Falls back to Z-only modification if triangulation fails.
 /// </summary>
 public static partial class PathGrader
 {
@@ -61,17 +60,4 @@ public static partial class PathGrader
         return null;
     }
 
-    /// <summary>
-    /// Finds the closest point on the path polyline and returns a
-    /// <see cref="ClosestPathLocation"/>. When smooth tangent arrays are
-    /// provided, <c>SideSign</c> and <c>DirectionX/Y</c> are computed from
-    /// the smoothly interpolated tangent at the closest position rather than
-    /// the raw segment direction. This eliminates the discrete SideSign flip
-    /// that occurs at segment-ownership (Voronoi) boundaries near path bends,
-    /// which was the primary cause of cut/fill polarity inversions in the
-    /// shoulder reference-profile lookup.
-    /// </summary>
-    /// <summary>
-    /// Build GradingResult with volumes and daylight line.
-    /// </summary>
 }
