@@ -39,10 +39,14 @@ the result. `PadGrader.Protected.cs` (988 lines) is gone;
 
 ## Build & test state — **green**
 
-- `dotnet test MoleHill.sln -p:BaseOutputPath=.codex-build\solution-path-zonly-split\ -p:UseSharedCompilation=false`
+- `dotnet test MoleHill.sln -p:BaseOutputPath=.codex-build\solution-release-readiness-final\ -p:UseSharedCompilation=false`
   → **Core 223 passed / 0 failed; Grasshopper 3 passed / 16 skipped**.
-- `dotnet build src\MoleHill.Rhino\MoleHill.Rhino.csproj -p:BaseOutputPath=.codex-build\rhino-path-zonly-split-final\ -p:UseSharedCompilation=false`
+- `dotnet build src\MoleHill.Rhino\MoleHill.Rhino.csproj -p:BaseOutputPath=.codex-build\rhino-release-readiness\ -p:UseSharedCompilation=false`
   → **0 warnings, 0 errors**.
+- `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-yak-package.ps1 -Configuration Release`
+  → **Yak package built:** `.artifacts\yak\MoleHill-0.6.8-beta\molehill-0.6.8-beta-rh8_9-win.yak`.
+  Yak reports the known acceptable content-name warning (`MoleHill.Rhino` vs.
+  package id `MoleHill`), matching the repository release notes.
 - Focused `PathGrader` tests after the split → **52 passed, 0 failed**.
 - Direct unit tests now cover the engine (`ConstraintFirstGradingEngineTests`:
   preserved-elevation overlap precedence, far-segment lookup, Z-eval failure
@@ -76,10 +80,15 @@ the result. `PadGrader.Protected.cs` (988 lines) is gone;
   emits `grade_pad.fallback.multi_pad_slope_deviation_skipped`.
 - **MoleHillPanel** annotation-card edits committed on their own (`f691f5f`),
   not riding along with grading core.
-- **Path Z-only monolith** (`7e39cf5`) — `PathGrader.ZOnly.cs` now contains
-  the fallback entry points and top-level `ApplyPathGrading` orchestration only;
-  section solving, daylight reach, influence blending, shoulder reference
-  profiles, and diagnostics live in phase-specific partial files.
+- **Path Z-only monolith** (`7e39cf5`) — `PathGrader.ZOnly.cs` dropped 1,942 →
+  243 lines, keeping only the fallback entry points and top-level
+  `ApplyPathGrading` orchestration; section solving (`Sections`, 837), shoulder
+  reference profiles (`ReferenceProfile`, 427), daylight reach (`Daylighting`),
+  influence blending (`Influence`), and diagnostics (`Diagnostics`) moved to
+  phase-specific partials. After the split, the largest grading file this branch
+  introduces/edits is `PathGrader.Sections.cs` (837); the only larger files
+  (`MeshConstraintTopologyInserter.cs` 1,012, `MeshAreaTopologySplitter.cs`
+  1,004) are pre-existing infrastructure untouched by the rebuild.
 
 ---
 
