@@ -154,7 +154,15 @@ internal static class ConstraintFirstGradingEngine
             }
 
             if (topologyFaceCount < initialTopologyFaceCount)
-                diagnostics.Add($"{operation} density guard selected coarser valid topology ({initialDensityMultiplier:0.##}x -> {densityMultiplier:0.##}x input faces).");
+            {
+                string densityGuardMessage =
+                    $"{operation} density guard selected coarser valid topology ({initialDensityMultiplier:0.##}x -> {densityMultiplier:0.##}x input faces).";
+                diagnostics.Add(densityGuardMessage);
+                structuredDiagnostics.Add(GradingDiagnostic.Information(
+                    $"{DiagnosticPrefix(operation)}.density_guard.coarse_retry",
+                    densityGuardMessage,
+                    operation: DiagnosticOperation(operation)));
+            }
         }
 
         if (topologyFaceCount > hardFaceBudget)
@@ -231,15 +239,28 @@ internal static class ConstraintFirstGradingEngine
             structuredDiagnostics.Add(GradingDiagnostic.Warning(
                 $"{DiagnosticPrefix(operation)}.density.high",
                 $"{operation} density warning: output face count is {densityMultiplier:0.##}x the input face count.",
-                operation: operation));
+                operation: DiagnosticOperation(operation)));
         }
         else if (densityMultiplier > TargetFaceMultiplier)
         {
-            diagnostics.Add($"{operation} density note: output face count is {densityMultiplier:0.##}x the input face count.");
+            string densityNoteMessage = $"{operation} density note: output face count is {densityMultiplier:0.##}x the input face count.";
+            diagnostics.Add(densityNoteMessage);
+            structuredDiagnostics.Add(GradingDiagnostic.Information(
+                $"{DiagnosticPrefix(operation)}.density.note",
+                densityNoteMessage,
+                operation: DiagnosticOperation(operation)));
         }
 
         if (remesh.UsedBoundaryAndGuideSeedFallback)
-            diagnostics.Add($"{operation} used boundary, hard-constraint, and coarse guide seeds to avoid inherited topology over-refinement.");
+        {
+            string seedFallbackMessage =
+                $"{operation} used boundary, hard-constraint, and coarse guide seeds to avoid inherited topology over-refinement.";
+            diagnostics.Add(seedFallbackMessage);
+            structuredDiagnostics.Add(GradingDiagnostic.Information(
+                $"{DiagnosticPrefix(operation)}.topology.seed_fallback",
+                seedFallbackMessage,
+                operation: DiagnosticOperation(operation)));
+        }
         if (!string.IsNullOrWhiteSpace(remesh.Warning))
             diagnostics.Add(remesh.Warning!);
 

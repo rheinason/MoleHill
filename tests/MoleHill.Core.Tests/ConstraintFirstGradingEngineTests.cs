@@ -160,6 +160,74 @@ public class ConstraintFirstGradingEngineTests
         Assert.Equal(errorMessage, diagnostic.Message);
     }
 
+    [Fact]
+    public void TryBuild_DenseConstraintOutput_EmitsStructuredDensityDiagnostic()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            10.0, 0.0, 0.0,
+            10.0, 10.0, 0.0,
+            0.0, 10.0, 0.0
+        };
+        int[] faces =
+        {
+            0, 1, 2,
+            0, 2, 3
+        };
+
+        var constraints = new List<SurfaceRemesher.ConstraintPolyline>
+        {
+            new(
+                new[]
+                {
+                    0.0, 0.0, 0.0,
+                    10.0, 0.0, 0.0,
+                    10.0, 10.0, 0.0,
+                    0.0, 10.0, 0.0
+                },
+                PointCount: 4,
+                IsClosed: true,
+                PreserveInputElevation: false)
+        };
+        for (int i = 1; i < 10; i++)
+        {
+            double x = i;
+            constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                new[] { x, 0.0, 0.0, x, 10.0, 0.0 },
+                PointCount: 2,
+                IsClosed: false,
+                PreserveInputElevation: false));
+        }
+
+        GradingResult? result = ConstraintFirstGradingEngine.TryBuild(
+            "Grade Path",
+            vertices,
+            vertexCount: 4,
+            faces,
+            faceCount: 2,
+            constraints,
+            requestedEdgeLength: 10.0,
+            tolerance: 0.001,
+            applyGrading: FlattenToZero,
+            outputPolylines: null,
+            patchSummaries: null,
+            preDiagnostics: null,
+            preStructuredDiagnostics: null,
+            appendOutputDiagnostics: null,
+            out IReadOnlyList<GradingDiagnostic> failureDiagnostics,
+            out string? errorMessage);
+
+        Assert.NotNull(result);
+        Assert.Null(errorMessage);
+        Assert.Empty(failureDiagnostics);
+        Assert.Contains(
+            result.StructuredDiagnostics,
+            diagnostic =>
+                diagnostic.Severity is GradingDiagnosticSeverity.Information or GradingDiagnosticSeverity.Warning &&
+                (diagnostic.Code == "grade_path.density.note" || diagnostic.Code == "grade_path.density.high"));
+    }
+
     private static SurfaceRemesher.ConstraintPolyline CreatePreservedLine(
         double ax,
         double ay,

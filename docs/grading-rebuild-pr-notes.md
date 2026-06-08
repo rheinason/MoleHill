@@ -6,6 +6,7 @@
 - Removed legacy pad/path remesh fallback routes and dead topology paths.
 - Added bounded density retry, structured failure diagnostics, preserved-elevation spatial lookup, and constraint-network spatial broad phase.
 - Added preserved-elevation snap diagnostics so logs show how many output vertices were restored to protected constraint elevations.
+- Added structured density diagnostics for density growth, coarse density-guard retries, and seed fallback topology paths.
 - Split large grader files into phase-specific partials for path/pad topology, Z evaluation, daylighting, shoulders, diagnostics, and result building.
 - Externalized the large copied Grade Path regression fixture into embedded JSON.
 - Strengthened pad local fallback to split bounded pad-influence faces and allowed coupled protected-pad slope fallback when the local result materially improves slope diagnostics.
@@ -27,6 +28,8 @@
   - Core: 224 passed, 0 failed.
 - `dotnet test tests\MoleHill.Core.Tests\MoleHill.Core.Tests.csproj -p:BaseOutputPath=.codex-build\core-preserved-diagnostics\ -p:UseSharedCompilation=false`
   - Core: 224 passed, 0 failed.
+- `dotnet test tests\MoleHill.Core.Tests\MoleHill.Core.Tests.csproj -p:BaseOutputPath=.codex-build\core-density-diagnostics\ -p:UseSharedCompilation=false`
+  - Core: 225 passed, 0 failed.
 - `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-yak-package.ps1 -Configuration Release`
   - Built `.artifacts\yak\MoleHill-0.6.8-beta\molehill-0.6.8-beta-rh8_9-win.yak`.
   - Yak reported the known acceptable content-name warning: `MoleHill.Rhino` vs package id `MoleHill`.
