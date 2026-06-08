@@ -1603,6 +1603,7 @@ internal sealed partial class TerrainBuildService
                 effectiveLocks.Length > 0 ? effectiveLocks : null,
                 out var gradeWarning,
                 out IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> failureOutputPolylines,
+                out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics,
                 gradePadTolerance,
                 toleranceProfile.DetailSize);
             ThrowIfCancellationRequested(shouldCancel);
@@ -1632,6 +1633,7 @@ internal sealed partial class TerrainBuildService
                 if (string.IsNullOrWhiteSpace(gradeWarning))
                     topologyDiagnostics.Add("Grade Pad protected patch failed; upstream mesh retained.");
                 build.Diagnostics.AddRange(topologyDiagnostics);
+                build.StructuredDiagnostics.AddRange(failureStructuredDiagnostics);
                 AddOutputPolylinesAsBreaklines(failureOutputPolylines, build);
                 topologyVertices = (double[])vertices.Clone();
                 topologyVertexCount = mesh.Vertices.Count;
@@ -1667,7 +1669,7 @@ internal sealed partial class TerrainBuildService
                     ? ClonePatchSummaries(gradeResult.PatchSummaries)
                     : patchSummaries,
                 Diagnostics = topologyDiagnostics,
-                StructuredDiagnostics = gradeResult?.StructuredDiagnostics.ToList() ?? new List<GradingDiagnostic>()
+                StructuredDiagnostics = gradeResult?.StructuredDiagnostics.ToList() ?? failureStructuredDiagnostics.ToList()
             };
             runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(topologyEntry);
             build.RecordTiming(
@@ -1680,8 +1682,9 @@ internal sealed partial class TerrainBuildService
         }
 
         bool gradePadStageFailed = topologyEntry.Diagnostics.Any(
-            static diagnostic => diagnostic.Contains("split-local fallback is disabled", StringComparison.OrdinalIgnoreCase) ||
-                                 diagnostic.Contains("Grade Pad protected patch failed", StringComparison.OrdinalIgnoreCase));
+            static diagnostic => diagnostic.Contains("Grade Pad protected patch failed", StringComparison.OrdinalIgnoreCase)) ||
+            topologyEntry.StructuredDiagnostics.Any(
+                static diagnostic => string.Equals(diagnostic.Code, "grade_pad.constraint_first.failed", StringComparison.Ordinal));
         build.Diagnostics.Add(gradePadStageFailed
             ? $"Grade Pad protected patch failed; upstream mesh retained ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)})."
             : $"Grade Pad local patch ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)}).");

@@ -21,10 +21,16 @@ public class PadGraderTests
             8,
             new[] { pad },
             null,
-            out string? errorMessage);
+            out string? errorMessage,
+            out IReadOnlyList<OutputPolyline> failureOutputPolylines,
+            out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics);
 
         Assert.Null(result);
         Assert.Contains("vertex array", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(failureOutputPolylines);
+        GradingDiagnostic diagnostic = Assert.Single(failureStructuredDiagnostics);
+        Assert.Equal("grade_pad.input.invalid_terrain", diagnostic.Code);
+        Assert.Equal("grade_pad", diagnostic.Operation);
     }
 
     [Fact]

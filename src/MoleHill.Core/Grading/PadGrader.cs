@@ -36,6 +36,7 @@ public static partial class PadGrader
             lockCurves,
             out errorMessage,
             out _,
+            out _,
             modelTolerance,
             terrainDetailSize: 0.0);
     }
@@ -50,18 +51,62 @@ public static partial class PadGrader
         double modelTolerance = GradingTolerances.DefaultModelTolerance,
         double terrainDetailSize = 0.0)
     {
+        return Grade(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            pads,
+            lockCurves,
+            out errorMessage,
+            out failureOutputPolylines,
+            out _,
+            modelTolerance,
+            terrainDetailSize);
+    }
+
+    public static GradingResult? Grade(
+        double[] vertices, int vertexCount,
+        int[] faces, int faceCount,
+        PadBoundary[] pads,
+        LockCurve[]? lockCurves,
+        out string? errorMessage,
+        out IReadOnlyList<OutputPolyline> failureOutputPolylines,
+        out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics,
+        double modelTolerance = GradingTolerances.DefaultModelTolerance,
+        double terrainDetailSize = 0.0)
+    {
         errorMessage = null;
         failureOutputPolylines = Array.Empty<OutputPolyline>();
+        failureStructuredDiagnostics = Array.Empty<GradingDiagnostic>();
         lockCurves ??= Array.Empty<LockCurve>();
 
         if (!GradingInputValidator.ValidateTerrainMesh(vertices, vertexCount, faces, faceCount, out errorMessage))
+        {
+            failureStructuredDiagnostics = BuildFailureDiagnostic(
+                "grade_pad.input.invalid_terrain",
+                errorMessage,
+                GradingDiagnosticSeverity.Warning);
             return null;
+        }
 
         if (!GradingInputValidator.ValidateLockCurves(lockCurves, out errorMessage))
+        {
+            failureStructuredDiagnostics = BuildFailureDiagnostic(
+                "grade_pad.input.invalid_lock_curve",
+                errorMessage,
+                GradingDiagnosticSeverity.Warning);
             return null;
+        }
 
         if (!ValidatePads(pads, out errorMessage))
+        {
+            failureStructuredDiagnostics = BuildFailureDiagnostic(
+                "grade_pad.input.invalid_pad",
+                errorMessage,
+                GradingDiagnosticSeverity.Warning);
             return null;
+        }
 
         pads = OrderPadsForOwnership(pads);
 
@@ -77,6 +122,7 @@ public static partial class PadGrader
             out failureOutputPolylines,
             out IReadOnlyList<GradingDiagnostic> constraintFirstFailureDiagnostics,
             out errorMessage);
+        failureStructuredDiagnostics = constraintFirstFailureDiagnostics;
 
         if (rebuilt != null &&
             ShouldPreferProtectedPadLocalRefinement(
@@ -148,6 +194,24 @@ public static partial class PadGrader
         }
 
         return rebuilt;
+    }
+
+    private static IReadOnlyList<GradingDiagnostic> BuildFailureDiagnostic(
+        string code,
+        string? message,
+        GradingDiagnosticSeverity severity)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return Array.Empty<GradingDiagnostic>();
+
+        return new[]
+        {
+            new GradingDiagnostic(
+                severity,
+                code,
+                message,
+                Operation: "grade_pad")
+        };
     }
 
     private static bool ShouldPreferProtectedPadLocalRefinement(
