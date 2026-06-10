@@ -3686,7 +3686,10 @@ public sealed class MoleHillPanel : Panel
                     doc => _controller.GetSelectedLayerPaths(doc)));
                 layout.AddRow(CreateNumericEditor("Slope Angle", gradePad.SlopeAngle, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).SlopeAngle = value),
-                    help: "Daylight tie-in slope in degrees. Boundary curve Z defines the finished pad plane; lower values are flatter and extend farther, while higher values are steeper and tighter."));
+                    help: "Cut slope in degrees, used where terrain sits above the pad. Boundary curve Z defines the finished pad plane; lower values are flatter and extend farther, while higher values are steeper and tighter."));
+                layout.AddRow(CreateNumericEditor("Fill Slope", gradePad.FillSlopeAngle, value =>
+                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).FillSlopeAngle = value),
+                    help: "Fill slope in degrees, used where terrain sits below the pad. 0 means use the same angle as the cut slope."));
                 layout.AddRow(CreateNumericEditor("Max Distance", gradePad.MaxDistance, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).MaxDistance = value),
                     help: "Maximum grading reach. 0 means unlimited; smaller values keep the effect close to the pad."));
@@ -3702,7 +3705,10 @@ public sealed class MoleHillPanel : Panel
                     help: "Finished path width. This is the flat or controlled-width core before side grading starts."));
                 layout.AddRow(CreateNumericEditor("Slope Angle", gradePath.SlopeAngle, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePathModifierDefinition)item).SlopeAngle = value),
-                    help: "Side slope angle in degrees. Lower values spread the path farther; higher values make sharper shoulders."));
+                    help: "Cut slope in degrees, used where terrain sits above the road. Lower values spread the shoulder farther; higher values make sharper shoulders."));
+                layout.AddRow(CreateNumericEditor("Fill Slope", gradePath.FillSlopeAngle, value =>
+                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePathModifierDefinition)item).FillSlopeAngle = value),
+                    help: "Fill slope in degrees, used where terrain sits below the road. 0 means use the same angle as the cut slope."));
                 layout.AddRow(CreateNumericEditor("Max Distance", gradePath.MaxDistance, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePathModifierDefinition)item).MaxDistance = value),
                     help: "Maximum grading reach away from the path. 0 means unlimited; lower values constrain the shoulder length."));

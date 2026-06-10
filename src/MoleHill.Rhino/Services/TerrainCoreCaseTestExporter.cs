@@ -170,7 +170,8 @@ internal static class TerrainCoreCaseTestExporter
             builder.AppendLine($"                {path.VertexCount.ToString(CultureInfo.InvariantCulture)},");
             builder.AppendLine($"                {FormatDouble(path.Width)},");
             builder.AppendLine($"                {FormatDouble(path.SlopeAngleDeg)},");
-            builder.AppendLine($"                {FormatDouble(path.MaxDistance)}),");
+            builder.AppendLine($"                {FormatDouble(path.MaxDistance)},");
+            builder.AppendLine($"                {FormatDouble(path.FillSlopeAngleDeg)}),");
         }
         builder.AppendLine("        };");
     }
@@ -189,7 +190,8 @@ internal static class TerrainCoreCaseTestExporter
             builder.AppendLine($"                {FormatDouble(pad.PlaneConstant)},");
             builder.AppendLine($"                {FormatDouble(pad.SlopeAngleDeg)},");
             builder.AppendLine($"                {FormatDouble(pad.MaxDistance)},");
-            builder.AppendLine($"                stitchApronDistance: {FormatDouble(pad.StitchApronDistance)}),");
+            builder.AppendLine($"                stitchApronDistance: {FormatDouble(pad.StitchApronDistance)},");
+            builder.AppendLine($"                fillSlopeAngleDeg: {FormatDouble(pad.FillSlopeAngleDeg)}),");
         }
         builder.AppendLine("        };");
     }

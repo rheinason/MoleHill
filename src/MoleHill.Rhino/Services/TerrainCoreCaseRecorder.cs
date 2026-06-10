@@ -104,7 +104,8 @@ internal sealed class TerrainCoreCaseRecorder
                 path.VertexCount,
                 path.Width,
                 path.SlopeAngleDeg,
-                path.MaxDistance))
+                path.MaxDistance,
+                path.FillSlopeAngleDeg))
             .ToArray();
     }
 
@@ -119,7 +120,8 @@ internal sealed class TerrainCoreCaseRecorder
                 pad.PlaneConstant,
                 pad.SlopeAngleDeg,
                 pad.MaxDistance,
-                stitchApronDistance: pad.StitchApronDistance))
+                stitchApronDistance: pad.StitchApronDistance,
+                fillSlopeAngleDeg: pad.FillSlopeAngleDeg))
             .ToArray();
     }
 

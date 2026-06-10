@@ -30,7 +30,7 @@ public class GradePadComponent : GH_Component
     {
         pManager.AddMeshParameter("Mesh", "M", "Existing terrain mesh.", GH_ParamAccess.item);
         pManager.AddCurveParameter("Boundaries", "B", "Closed curves defining pad areas. Flat curves make flat pads; 3D curves define the finished pad plane.", GH_ParamAccess.list);
-        pManager.AddNumberParameter("Slope Angle", "S", "Transition slope angle in degrees per boundary. Shorter lists repeat last value.", GH_ParamAccess.list);
+        pManager.AddNumberParameter("Slope Angle", "S", "Cut slope angle in degrees per boundary (terrain above the pad). Shorter lists repeat last value.", GH_ParamAccess.list);
         pManager[2].Optional = true;
         pManager.AddNumberParameter("Max Distance", "D", "Max horizontal transition distance per boundary. 0 = auto. Shorter lists repeat last value.", GH_ParamAccess.list);
         pManager[3].Optional = true;
@@ -38,6 +38,8 @@ public class GradePadComponent : GH_Component
         pManager[4].Optional = true;
         pManager.AddIntegerParameter("Corner Segments", "CS", "Arc vertices per convex corner. 0 = sharp ridge (hip), ≥1 = rounded fan. Shorter lists repeat last value.", GH_ParamAccess.list);
         pManager[5].Optional = true;
+        pManager.AddNumberParameter("Fill Slope", "Sf", "Fill slope angle in degrees per boundary (terrain below the pad). 0 = same as cut slope. Shorter lists repeat last value.", GH_ParamAccess.list);
+        pManager[6].Optional = true;
     }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -65,12 +67,14 @@ public class GradePadComponent : GH_Component
         var slopeAngles = new List<double>();
         var maxDists = new List<double>();
         var cornerSegmentsList = new List<int>();
+        var fillSlopeAngles = new List<double>();
         DA.GetDataList(2, slopeAngles);
         DA.GetDataList(3, maxDists);
 
         var lockCurves = new List<Curve>();
         DA.GetDataList(4, lockCurves);
         DA.GetDataList(5, cornerSegmentsList);
+        DA.GetDataList(6, fillSlopeAngles);
 
         double tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
 
@@ -142,8 +146,9 @@ public class GradePadComponent : GH_Component
             double slope = GetListValue(slopeAngles, padIdx, 33.0);
             double dist = GetListValue(maxDists, padIdx, 0.0);
             int cornerSegs = GetListValue(cornerSegmentsList, padIdx, 0);
+            double fillSlope = GetListValue(fillSlopeAngles, padIdx, 0.0);
             double stitchApronDistance = ConvertMetersToModelUnits(0.5, Rhino.RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters);
-            if (!TryCreatePadBoundary(pl, plCount, slope, dist, cornerSegs, stitchApronDistance, out var pad, out string? warning))
+            if (!TryCreatePadBoundary(pl, plCount, slope, dist, cornerSegs, stitchApronDistance, fillSlope, out var pad, out string? warning))
             {
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning ?? "Boundary curve did not define a stable pad plane. Skipping.");
                 padIdx++;
@@ -244,6 +249,7 @@ public class GradePadComponent : GH_Component
         double maxDistance,
         int cornerFanSegments,
         double stitchApronDistance,
+        double fillSlopeAngle,
         out PadGrader.PadBoundary? pad,
         out string? warning)
     {
@@ -273,7 +279,8 @@ public class GradePadComponent : GH_Component
             slopeAngle,
             maxDistance,
             cornerFanSegments,
-            stitchApronDistance);
+            stitchApronDistance,
+            fillSlopeAngle);
         return true;
     }
 

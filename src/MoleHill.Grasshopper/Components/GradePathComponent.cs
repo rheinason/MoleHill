@@ -28,10 +28,12 @@ public class GradePathComponent : GH_Component
         pManager.AddMeshParameter("Mesh", "M", "Existing terrain mesh.", GH_ParamAccess.item);
         pManager.AddCurveParameter("Paths", "P", "Path curves. Curve Z = road elevation profile.", GH_ParamAccess.list);
         pManager.AddNumberParameter("Width", "W", "Road width per path (total, centered on path). Shorter lists repeat last value.", GH_ParamAccess.list);
-        pManager.AddNumberParameter("Slope Angle", "S", "Transition slope angle in degrees per path. Shorter lists repeat last value.", GH_ParamAccess.list);
+        pManager.AddNumberParameter("Slope Angle", "S", "Cut slope angle in degrees per path (terrain above the road). Shorter lists repeat last value.", GH_ParamAccess.list);
         pManager[3].Optional = true;
         pManager.AddNumberParameter("Max Distance", "D", "Max horizontal transition distance per path. 0 = auto. Shorter lists repeat last value.", GH_ParamAccess.list);
         pManager[4].Optional = true;
+        pManager.AddNumberParameter("Fill Slope", "Sf", "Fill slope angle in degrees per path (terrain below the road). 0 = same as cut slope. Shorter lists repeat last value.", GH_ParamAccess.list);
+        pManager[5].Optional = true;
     }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -65,8 +67,10 @@ public class GradePathComponent : GH_Component
 
         var slopeAngles = new List<double>();
         var maxDists = new List<double>();
+        var fillSlopeAngles = new List<double>();
         DA.GetDataList(3, slopeAngles);
         DA.GetDataList(4, maxDists);
+        DA.GetDataList(5, fillSlopeAngles);
 
         double tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
 
@@ -141,6 +145,7 @@ public class GradePathComponent : GH_Component
             double w = GetListValue(widths, pathIdx, widths[widths.Count - 1]);
             double slope = GetListValue(slopeAngles, pathIdx, 33.0);
             double dist = GetListValue(maxDists, pathIdx, 0.0);
+            double fillSlope = GetListValue(fillSlopeAngles, pathIdx, 0.0);
 
             if (w <= 0)
             {
@@ -149,7 +154,7 @@ public class GradePathComponent : GH_Component
                 continue;
             }
 
-            pathDefs.Add(new PathGrader.PathDefinition(pathXy, pathZ, pl.Count, w, slope, dist));
+            pathDefs.Add(new PathGrader.PathDefinition(pathXy, pathZ, pl.Count, w, slope, dist, fillSlope));
             pathIdx++;
         }
 

@@ -1816,7 +1816,7 @@ internal sealed partial class TerrainBuildService
                 continue;
 
             double stitchApronDistance = ModelUnits.FromMeters(0.5, snapshot.ModelUnitSystem);
-            if (!TryCreatePlanarPadBoundary(polyline, count, modifier.SlopeAngle, modifier.MaxDistance, stitchApronDistance, out var pad, out string? diagnostic))
+            if (!TryCreatePlanarPadBoundary(polyline, count, modifier.SlopeAngle, modifier.MaxDistance, stitchApronDistance, modifier.FillSlopeAngle, out var pad, out string? diagnostic))
             {
                 if (!string.IsNullOrWhiteSpace(diagnostic))
                     diagnostics.Add(diagnostic!);
@@ -1865,6 +1865,7 @@ internal sealed partial class TerrainBuildService
         double slopeAngle,
         double maxDistance,
         double stitchApronDistance,
+        double fillSlopeAngle,
         out PadGrader.PadBoundary? pad,
         out string? diagnostic)
     {
@@ -1896,7 +1897,8 @@ internal sealed partial class TerrainBuildService
             planeConstant,
             slopeAngle,
             maxDistance,
-            stitchApronDistance: stitchApronDistance);
+            stitchApronDistance: stitchApronDistance,
+            fillSlopeAngleDeg: fillSlopeAngle);
         return true;
     }
 
@@ -2441,7 +2443,7 @@ internal sealed partial class TerrainBuildService
                 pathZ[i] = polyline[i].Z;
             }
 
-            paths.Add(new PathGrader.PathDefinition(pathXy, pathZ, polyline.Count, modifier.Width, modifier.SlopeAngle, modifier.MaxDistance));
+            paths.Add(new PathGrader.PathDefinition(pathXy, pathZ, polyline.Count, modifier.Width, modifier.SlopeAngle, modifier.MaxDistance, modifier.FillSlopeAngle));
         }
 
         var pathArray = paths.ToArray();
@@ -5079,6 +5081,7 @@ internal sealed partial class TerrainBuildService
         builder.Add(upstreamFingerprint);
         builder.Add(tolerance);
         builder.Add(modifier.SlopeAngle);
+        builder.Add(modifier.FillSlopeAngle);
         builder.Add(modifier.MaxDistance);
         builder.Add(pads.Count);
         foreach (var pad in pads)
@@ -5127,6 +5130,7 @@ internal sealed partial class TerrainBuildService
         builder.Add("GradePadResolved");
         builder.Add(topologyOutputFingerprint);
         builder.Add(modifier.SlopeAngle);
+        builder.Add(modifier.FillSlopeAngle);
         builder.Add(modifier.MaxDistance);
         builder.Add(pads.Count);
         foreach (var pad in pads)
