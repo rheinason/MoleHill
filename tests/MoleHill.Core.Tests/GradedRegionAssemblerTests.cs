@@ -28,6 +28,43 @@ public class GradedRegionAssemblerTests
     };
 
     [Fact]
+    public void SplitOutside_SquareLoopInFlatTerrain_PreservesOutsideAndTracesBoundary()
+    {
+        var terrain = FlatTerrain(10.0);
+        double[] loopXy = Square(8.0); // closed square hole at [-8,8]
+
+        GradedRegionAssembler.SplitOutsideResult result = GradedRegionAssembler.SplitOutside(
+            terrain.vertices, terrain.count, terrain.faces, terrain.faceCount,
+            new[] { loopXy }, tolerance: 1e-3);
+
+        Assert.True(result.Success, result.Warning);
+        Assert.True(result.OutsideFaceCount > 0);
+        Assert.Single(result.HoleBoundaryLoops);
+
+        int[] loop = result.HoleBoundaryLoops[0];
+        Assert.True(loop.Length >= 4, "Hole boundary should trace the square.");
+        // Every hole-boundary vertex lies on the square's edges (x or y == +/-8), at terrain z=10.
+        foreach (int vi in loop)
+        {
+            double x = result.Vertices[vi * 3];
+            double y = result.Vertices[vi * 3 + 1];
+            double z = result.Vertices[vi * 3 + 2];
+            bool onSquare = Math.Abs(Math.Abs(x) - 8.0) < 1e-6 || Math.Abs(Math.Abs(y) - 8.0) < 1e-6;
+            Assert.True(onSquare, $"Boundary vertex ({x:F3},{y:F3}) is not on the square edge.");
+            Assert.Equal(10.0, z, 6);
+        }
+
+        // Outside faces must not have any vertex strictly inside the square (terrain hole carved).
+        for (int f = 0; f < result.OutsideFaceCount; f++)
+        {
+            int a = result.OutsideFaces[f * 3], b = result.OutsideFaces[f * 3 + 1], c = result.OutsideFaces[f * 3 + 2];
+            double cx = (result.Vertices[a * 3] + result.Vertices[b * 3] + result.Vertices[c * 3]) / 3.0;
+            double cy = (result.Vertices[a * 3 + 1] + result.Vertices[b * 3 + 1] + result.Vertices[c * 3 + 1]) / 3.0;
+            Assert.False(Math.Abs(cx) < 8.0 - 1e-6 && Math.Abs(cy) < 8.0 - 1e-6, "An outside face centroid fell inside the hole.");
+        }
+    }
+
+    [Fact]
     public void Assemble_PadIntoFlatTerrain_ProducesWatertightManifoldMesh()
     {
         var terrain = FlatTerrain(10.0);

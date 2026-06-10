@@ -70,11 +70,11 @@ public class ExplicitVisualExportTests
     [Fact]
     public void Export_SinglePad_Explicit()
     {
-        var t = UndulatingTerrain(41, 1.0); // 40x40 m, ~1 m cells
+        var t = UndulatingTerrain(61, 1.0); // 60x60 m, ~1 m cells
         WriteObj(Path.Combine(OutDir, "input-terrain.obj"), t.v, t.vc, t.f, t.fc);
 
-        // Pad sunk below grade (cut all around) so the batter daylights into the slope on every side.
-        double[] padXy = { 14, 14, 26, 14, 26, 24, 14, 24 };
+        // Pad centered so the batter daylights well within the terrain on every side.
+        double[] padXy = { 24, 24, 36, 24, 36, 36, 24, 36 };
         var pads = new[] { new PadGrader.PadBoundary(padXy, 4, targetZ: -1.0, slopeAngleDeg: 30.0) };
 
         GradingResult? r = PadGrader.Grade(t.v, t.vc, t.f, t.fc, pads, null, out string? err);
@@ -82,6 +82,22 @@ public class ExplicitVisualExportTests
         string diag = string.Join(" | ", r!.Diagnostics);
         Assert.Contains("explicit batter", diag, StringComparison.OrdinalIgnoreCase);
         WriteObj(Path.Combine(OutDir, "graded-pad.obj"), r.Vertices, r.VertexCount, r.Faces, r.FaceCount);
+    }
+
+    [Fact]
+    public void Export_SinglePad_CoarseTerrain_Explicit()
+    {
+        // Coarse terrain (~6m cells, like the user's ~334-vert case) — the seam must NOT spoke.
+        var t = UndulatingTerrain(11, 6.0); // 60x60 m, 11x11 grid
+        WriteObj(Path.Combine(OutDir, "input-terrain-coarse.obj"), t.v, t.vc, t.f, t.fc);
+
+        double[] padXy = { 24, 24, 36, 24, 36, 36, 24, 36 };
+        var pads = new[] { new PadGrader.PadBoundary(padXy, 4, targetZ: -1.0, slopeAngleDeg: 30.0) };
+
+        GradingResult? r = PadGrader.Grade(t.v, t.vc, t.f, t.fc, pads, null, out string? err);
+        Assert.True(r != null, err);
+        Assert.Contains("explicit batter", string.Join(" ", r!.Diagnostics), StringComparison.OrdinalIgnoreCase);
+        WriteObj(Path.Combine(OutDir, "graded-pad-coarse.obj"), r.Vertices, r.VertexCount, r.Faces, r.FaceCount);
     }
 
     [Fact]

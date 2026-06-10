@@ -10,7 +10,6 @@ public static partial class PadGrader
         double SegmentLength,
         BatterStripBuilder.DaylightLoop Loop,
         double[] DaylightXy,
-        GradedRegionAssembler.SubMesh PadTop,
         GradedRegionAssembler.SubMesh? Batter);
 
     /// <summary>
@@ -72,34 +71,56 @@ public static partial class PadGrader
             members.Add(builds[i]);
         }
 
-        var inserts = new List<GradedRegionAssembler.RegionInsert>(groups.Count);
+        // Union each interacting group's daylight loops into one carve region.
+        var groupLoops = new List<double[]>(groups.Count);
+        var groupMembers = new List<List<PadBuild>>(groups.Count);
         foreach (List<PadBuild> members in groups.Values)
         {
-            if (members.Count == 1)
+            double[]? unionLoop = UnionGroupDaylight(members, tolerance);
+            if (unionLoop is null)
             {
-                inserts.Add(BuildSinglePadInsert(members[0]));
-                continue;
-            }
-
-            GradedRegionAssembler.RegionInsert? groupInsert =
-                BuildInteractingGroupInsert(members, terrain, barriers, tolerance);
-            if (groupInsert is null)
-            {
-                errorMessage = "Grade Pad interacting pad group could not be resolved explicitly; deferring to constraint-first path.";
+                errorMessage = "Grade Pad interacting pad group could not be unioned; deferring to constraint-first path.";
                 return null;
             }
 
-            inserts.Add(groupInsert);
+            groupLoops.Add(unionLoop);
+            groupMembers.Add(members);
         }
 
-        GradedRegionAssembler.AssembledMesh assembled = GradedRegionAssembler.Assemble(
-            vertices, vertexCount, faces, faceCount, inserts, tolerance);
-
-        if (!assembled.Success)
+        // Split the terrain along the carve regions, preserving terrain detail everywhere else.
+        GradedRegionAssembler.SplitOutsideResult split = GradedRegionAssembler.SplitOutside(
+            vertices, vertexCount, faces, faceCount, groupLoops, tolerance);
+        if (!split.Success)
         {
-            errorMessage = assembled.Warning ?? "Grade Pad explicit batter assembly failed.";
+            errorMessage = split.Warning ?? "Grade Pad terrain split failed.";
             return null;
         }
+
+        // Fill each conformed hole with the pad group whose region it traces.
+        var fills = new List<GradedRegionAssembler.SubMesh>(split.HoleBoundaryLoops.Count);
+        foreach (int[] boundaryLoop in split.HoleBoundaryLoops)
+        {
+            double[] boundaryXyz = ExtractLoopXyz(split.Vertices, boundaryLoop);
+            int groupIndex = MatchGroupForBoundary(boundaryXyz, boundaryLoop.Length, groupLoops);
+            if (groupIndex < 0)
+            {
+                errorMessage = "Grade Pad could not match a hole boundary to a pad group; deferring.";
+                return null;
+            }
+
+            GradedRegionAssembler.SubMesh? fill = BuildHoleFill(
+                boundaryXyz, boundaryLoop.Length, groupMembers[groupIndex], terrain, barriers, tolerance);
+            if (fill is null)
+            {
+                errorMessage = "Grade Pad hole fill failed; deferring to constraint-first path.";
+                return null;
+            }
+
+            fills.Add(fill);
+        }
+
+        GradedRegionAssembler.AssembledMesh assembled = GradedRegionAssembler.WeldGradedRegion(
+            split.Vertices, split.OutsideFaces, split.OutsideFaceCount, fills, tolerance);
 
         MeshTopologyValidator.BoundaryGraphAnalysis topology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(assembled.Faces, assembled.FaceCount);
@@ -109,7 +130,7 @@ public static partial class PadGrader
             topology.HasOpenBoundaryChains ||
             topology.BoundaryComponentCount > terrainTopology.BoundaryComponentCount)
         {
-            errorMessage = "Grade Pad explicit batter assembly produced non-manifold, open, or off-terrain topology.";
+            errorMessage = "Grade Pad unified assembly produced non-manifold, open, or off-terrain topology.";
             return null;
         }
 
@@ -217,13 +238,8 @@ public static partial class PadGrader
             return null;
         }
 
-        GradedRegionAssembler.SubMesh? padTop = BuildPadTopFill(padLoop, pad);
-        if (padTop is null)
-        {
-            errorMessage = "Grade Pad could not triangulate a pad top.";
-            return null;
-        }
-
+        // The batter strip is built only to harvest its row vertices as interior seeds for the hole
+        // fill (controls slope/density); it is not welded directly.
         GradedRegionAssembler.SubMesh? batter = null;
         if (loop.HasBatter)
         {
@@ -240,59 +256,105 @@ public static partial class PadGrader
             }
         }
 
-        return new PadBuild(pad, padLoop, segmentLength, loop, daylightXy, padTop, batter);
+        return new PadBuild(pad, padLoop, segmentLength, loop, daylightXy, batter);
     }
 
-    private static GradedRegionAssembler.RegionInsert BuildSinglePadInsert(PadBuild build)
+    /// <summary>Unions an interacting group's per-pad daylight polygons into one carve loop.</summary>
+    private static double[]? UnionGroupDaylight(List<PadBuild> group, double tolerance)
     {
-        var subMeshes = new List<GradedRegionAssembler.SubMesh>(2);
-        if (build.Batter is not null)
-            subMeshes.Add(build.Batter);
-        subMeshes.Add(build.PadTop);
+        if (group.Count == 1)
+            return group[0].DaylightXy;
 
-        return new GradedRegionAssembler.RegionInsert
+        var polys = new List<double[]>(group.Count);
+        foreach (PadBuild build in group)
+            polys.Add(build.DaylightXy);
+
+        if (!ClipperGeometry.TryUnionClosedLoops(polys, tolerance, out List<double[]> unionLoops) || unionLoops.Count != 1)
+            return null; // a hole or disjoint union is beyond this resolver
+
+        return unionLoops[0].Length >= 6 ? unionLoops[0] : null;
+    }
+
+    private static double[] ExtractLoopXyz(double[] vertices, int[] loop)
+    {
+        var xyz = new double[loop.Length * 3];
+        for (int i = 0; i < loop.Length; i++)
         {
-            DaylightLoopXyz = build.Loop.DaylightXyz(),
-            DaylightLoopCount = build.Loop.Count,
-            SubMeshes = subMeshes
-        };
+            int v = loop[i];
+            xyz[i * 3] = vertices[v * 3];
+            xyz[i * 3 + 1] = vertices[v * 3 + 1];
+            xyz[i * 3 + 2] = vertices[v * 3 + 2];
+        }
+
+        return xyz;
+    }
+
+    /// <summary>Matches a conformed hole boundary to the group whose union loop encloses it.</summary>
+    private static int MatchGroupForBoundary(double[] boundaryXyz, int boundaryCount, List<double[]> groupLoops)
+    {
+        double cx = 0.0, cy = 0.0;
+        for (int i = 0; i < boundaryCount; i++)
+        {
+            cx += boundaryXyz[i * 3];
+            cy += boundaryXyz[i * 3 + 1];
+        }
+
+        cx /= boundaryCount;
+        cy /= boundaryCount;
+
+        for (int g = 0; g < groupLoops.Count; g++)
+        {
+            if (PointInPolygon(cx, cy, groupLoops[g], groupLoops[g].Length / 2))
+                return g;
+        }
+
+        // Fallback: nearest group-loop centroid (concave boundary whose centroid lies outside).
+        int best = -1;
+        double bestDistSq = double.MaxValue;
+        for (int g = 0; g < groupLoops.Count; g++)
+        {
+            int gc = groupLoops[g].Length / 2;
+            double gx = 0.0, gy = 0.0;
+            for (int i = 0; i < gc; i++)
+            {
+                gx += groupLoops[g][i * 2];
+                gy += groupLoops[g][i * 2 + 1];
+            }
+
+            gx /= gc;
+            gy /= gc;
+            double d = ((gx - cx) * (gx - cx)) + ((gy - cy) * (gy - cy));
+            if (d < bestDistSq)
+            {
+                bestDistSq = d;
+                best = g;
+            }
+        }
+
+        return best;
     }
 
     /// <summary>
-    /// Resolves a group of pads whose daylight regions overlap. Builds the union of their daylight
-    /// polygons as the carve boundary, densely triangulates the union interior (footprint loops as
-    /// constraints, batter row points as seeds), then assigns Z by the proven ownership sections
-    /// (higher pad wins). The union boundary stays on terrain so it welds to the surrounding mesh.
+    /// Triangulates a carved hole: the conformed boundary (outer, terrain Z) and footprint loops as
+    /// constraints, batter-row points as interior seeds; assigns pad-top + batter-section Z and pins
+    /// the boundary to the exact conformed terrain Z so it welds to the kept terrain.
     /// </summary>
-    private static GradedRegionAssembler.RegionInsert? BuildInteractingGroupInsert(
+    private static GradedRegionAssembler.SubMesh? BuildHoleFill(
+        double[] boundaryXyz,
+        int boundaryCount,
         List<PadBuild> group,
         TerrainFaceGrid terrain,
         PreparedBarriers barriers,
         double tolerance)
     {
-        var daylightPolys = new List<double[]>(group.Count);
-        foreach (PadBuild build in group)
-            daylightPolys.Add(build.DaylightXy);
-
-        if (!ClipperGeometry.TryUnionClosedLoops(daylightPolys, tolerance, out List<double[]> unionLoops) ||
-            unionLoops.Count != 1)
-        {
-            // A hole or disjoint union is beyond this resolver; defer to legacy.
-            return null;
-        }
-
-        double[] unionLoop = unionLoops[0];
-        int unionCount = unionLoop.Length / 2;
-        if (unionCount < 3)
-            return null;
-
         double weldTol = Math.Max(tolerance, 1e-6);
         double inverseCell = 1.0 / weldTol;
         var xyList = new List<double>();
+        var inputZ = new List<double>();
         var pointIndex = new Dictionary<(long, long), int>();
         var segments = new List<(int a, int b)>();
 
-        int AddPoint(double x, double y)
+        int AddPoint(double x, double y, double z)
         {
             var key = ((long)Math.Round(x * inverseCell), (long)Math.Round(y * inverseCell));
             if (pointIndex.TryGetValue(key, out int existing))
@@ -301,20 +363,22 @@ public static partial class PadGrader
             int index = xyList.Count / 2;
             xyList.Add(x);
             xyList.Add(y);
+            inputZ.Add(z);
             pointIndex[key] = index;
             return index;
         }
 
-        void AddClosedLoop(double[] xy, int count)
+        void AddClosed(double[] pts, bool xyz, int count)
         {
             if (count < 3)
                 return;
 
-            int first = AddPoint(xy[0], xy[1]);
+            int stride = xyz ? 3 : 2;
+            int first = AddPoint(pts[0], pts[1], xyz ? pts[2] : 0.0);
             int previous = first;
             for (int i = 1; i < count; i++)
             {
-                int current = AddPoint(xy[i * 2], xy[i * 2 + 1]);
+                int current = AddPoint(pts[i * stride], pts[i * stride + 1], xyz ? pts[i * stride + 2] : 0.0);
                 if (current != previous)
                     segments.Add((previous, current));
                 previous = current;
@@ -324,14 +388,13 @@ public static partial class PadGrader
                 segments.Add((previous, first));
         }
 
-        // Union boundary first: its input indices [0, unionPointCount) identify perimeter vertices.
-        AddClosedLoop(unionLoop, unionCount);
-        int unionPointCount = xyList.Count / 2;
+        // Conformed boundary first: input indices [0, boundaryPointCount) are perimeter vertices.
+        AddClosed(boundaryXyz, xyz: true, boundaryCount);
+        int boundaryPointCount = xyList.Count / 2;
 
         foreach (PadBuild build in group)
-            AddClosedLoop(build.PadLoop.XyVertices, build.PadLoop.VertexCount);
+            AddClosed(build.PadLoop.XyVertices, xyz: false, build.PadLoop.VertexCount);
 
-        // Batter row points seed the interior so the slope keeps its intrinsic resolution.
         foreach (PadBuild build in group)
         {
             if (build.Batter is null)
@@ -339,7 +402,7 @@ public static partial class PadGrader
 
             double[] sv = build.Batter.Vertices;
             for (int i = 0; i < build.Batter.VertexCount; i++)
-                AddPoint(sv[i * 3], sv[i * 3 + 1]);
+                AddPoint(sv[i * 3], sv[i * 3 + 1], 0.0);
         }
 
         TriangulationOutcome outcome = TriangulationHelper.Triangulate(
@@ -372,37 +435,20 @@ public static partial class PadGrader
             hasBoundaryLoop: false, boundaryLoop: Array.Empty<double>(), boundaryVertexCount: 0,
             tolerance, keepShoulderOnBatterPlane: false, defaultCornerFanSegments: 6);
 
-        // Pin the union perimeter exactly to terrain so it welds to the surrounding terrain seam.
+        // Pin the conformed boundary exactly to terrain so it welds to the kept terrain seam.
         for (int i = 0; i < vc; i++)
         {
             int sourceId = extracted.SourceIds[i];
-            if (sourceId >= 0 && sourceId < unionPointCount)
-                graded[i * 3 + 2] = terrain.InterpolateZ(graded[i * 3], graded[i * 3 + 1]);
+            if (sourceId >= 0 && sourceId < boundaryPointCount)
+                graded[i * 3 + 2] = inputZ[sourceId];
         }
 
-        var fill = new GradedRegionAssembler.SubMesh
+        return new GradedRegionAssembler.SubMesh
         {
             Vertices = graded,
             VertexCount = vc,
             Faces = extracted.Faces,
             FaceCount = extracted.FaceCount
-        };
-
-        var unionXyz = new double[unionCount * 3];
-        for (int i = 0; i < unionCount; i++)
-        {
-            double x = unionLoop[i * 2];
-            double y = unionLoop[i * 2 + 1];
-            unionXyz[i * 3] = x;
-            unionXyz[i * 3 + 1] = y;
-            unionXyz[i * 3 + 2] = terrain.InterpolateZ(x, y);
-        }
-
-        return new GradedRegionAssembler.RegionInsert
-        {
-            DaylightLoopXyz = unionXyz,
-            DaylightLoopCount = unionCount,
-            SubMeshes = new[] { fill }
         };
     }
 
@@ -439,59 +485,6 @@ public static partial class PadGrader
             groupId[i] = Find(i);
 
         return groupId;
-    }
-
-    /// <summary>
-    /// Triangulates the pad-top interior at the pad plane. The boundary is the densified footprint
-    /// loop, so the pad-top edge matches the batter strip's inner ring vertex-for-vertex and welds
-    /// cleanly. Returns null only if triangulation fails outright.
-    /// </summary>
-    private static GradedRegionAssembler.SubMesh? BuildPadTopFill(ConstraintLoop padLoop, PadBoundary pad)
-    {
-        var xyList = new List<double>(padLoop.VertexCount * 2);
-        for (int i = 0; i < padLoop.VertexCount; i++)
-        {
-            xyList.Add(padLoop.XyVertices[i * 2]);
-            xyList.Add(padLoop.XyVertices[i * 2 + 1]);
-        }
-
-        var segments = new List<(int a, int b)>(padLoop.VertexCount);
-        for (int i = 0; i < padLoop.VertexCount; i++)
-            segments.Add((i, (i + 1) % padLoop.VertexCount));
-
-        TriangulationOutcome outcome = TriangulationHelper.Triangulate(
-            xyList,
-            padLoop.VertexCount,
-            segments,
-            maxArea: 0.0,
-            minAngle: 0.0,
-            convex: false,
-            segmentSplitting: 0);
-
-        if (outcome.Mesh == null)
-            return null;
-
-        TriangleNetExtractor.Result extracted = TriangleNetExtractor.Extract(outcome.Mesh);
-        if (extracted.FaceCount == 0)
-            return null;
-
-        var verts = new double[extracted.VertexCount * 3];
-        for (int i = 0; i < extracted.VertexCount; i++)
-        {
-            double x = extracted.Xy[i * 2];
-            double y = extracted.Xy[i * 2 + 1];
-            verts[i * 3] = x;
-            verts[i * 3 + 1] = y;
-            verts[i * 3 + 2] = pad.EvaluateZ(x, y);
-        }
-
-        return new GradedRegionAssembler.SubMesh
-        {
-            Vertices = verts,
-            VertexCount = extracted.VertexCount,
-            Faces = extracted.Faces,
-            FaceCount = extracted.FaceCount
-        };
     }
 
     private static bool AnyPointInsidePolygon(double[] pointsXy, int pointCount, double[] polygonXy, int polygonCount)

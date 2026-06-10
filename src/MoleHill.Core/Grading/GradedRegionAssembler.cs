@@ -340,6 +340,215 @@ internal static class GradedRegionAssembler
         return xy;
     }
 
+    /// <summary>
+    /// Result of splitting the terrain along daylight loops while preserving the terrain outside.
+    /// Carries the kept outside faces and the conformed hole-boundary loops (terrain elevation) that
+    /// the hole fill must triangulate against so the two sides share vertices exactly.
+    /// </summary>
+    internal sealed class SplitOutsideResult
+    {
+        public required bool Success { get; init; }
+
+        public string? Warning { get; init; }
+
+        public double[] Vertices { get; init; } = Array.Empty<double>();
+
+        public int VertexCount { get; init; }
+
+        public int[] OutsideFaces { get; init; } = Array.Empty<int>();
+
+        public int OutsideFaceCount { get; init; }
+
+        /// <summary>Each loop is a list of vertex indices into <see cref="Vertices"/> (closed).</summary>
+        public IReadOnlyList<int[]> HoleBoundaryLoops { get; init; } = Array.Empty<int[]>();
+    }
+
+    /// <summary>
+    /// Splits the terrain along the daylight loops (local insertion, terrain detail preserved
+    /// everywhere the loops do not cross), keeps the faces outside the loops, and extracts the
+    /// conformed hole-boundary loops (edges shared between an inside and an outside face).
+    /// </summary>
+    internal static SplitOutsideResult SplitOutside(
+        double[] terrainVertices,
+        int terrainVertexCount,
+        int[] terrainFaces,
+        int terrainFaceCount,
+        IReadOnlyList<double[]> daylightLoopsXy,
+        double tolerance)
+    {
+        var areas = new List<MeshAreaSplitter.AreaBoundary>(daylightLoopsXy.Count);
+        foreach (double[] xy in daylightLoopsXy)
+        {
+            int count = xy.Length / 2;
+            if (count >= 3)
+                areas.Add(new MeshAreaSplitter.AreaBoundary(xy, count));
+        }
+
+        if (areas.Count == 0)
+            return new SplitOutsideResult { Success = false, Warning = "No usable daylight loops." };
+
+        MeshAreaSplitter.SplitResult? split = MeshAreaSplitter.SplitPreservingTopology(
+            terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, areas.ToArray(), tolerance, out string? warning);
+        if (split is null)
+            return new SplitOutsideResult { Success = false, Warning = warning ?? "Terrain split failed." };
+
+        var edgeCounts = new Dictionary<long, (int inside, int outside)>();
+        var outsideFaces = new List<int>(split.FaceCount * 3);
+
+        void Bump(int a, int b, bool inside)
+        {
+            long key = EdgeKey(a, b);
+            edgeCounts.TryGetValue(key, out (int inside, int outside) c);
+            if (inside) c.inside++; else c.outside++;
+            edgeCounts[key] = c;
+        }
+
+        for (int f = 0; f < split.FaceCount; f++)
+        {
+            int a = split.Faces[f * 3];
+            int b = split.Faces[f * 3 + 1];
+            int c = split.Faces[f * 3 + 2];
+            bool inside = split.FaceAreaIndex[f] != -1;
+            Bump(a, b, inside);
+            Bump(b, c, inside);
+            Bump(c, a, inside);
+
+            if (!inside)
+            {
+                outsideFaces.Add(a);
+                outsideFaces.Add(b);
+                outsideFaces.Add(c);
+            }
+        }
+
+        if (outsideFaces.Count == 0)
+            return new SplitOutsideResult { Success = false, Warning = "All terrain fell inside the daylight loops." };
+
+        // Boundary edges separate an inside face from an outside face — the conformed daylight loop.
+        var adjacency = new Dictionary<int, List<int>>();
+        foreach (KeyValuePair<long, (int inside, int outside)> entry in edgeCounts)
+        {
+            if (entry.Value.inside < 1 || entry.Value.outside < 1)
+                continue;
+
+            int a = (int)(entry.Key >> 32);
+            int b = (int)(entry.Key & 0xFFFFFFFFL);
+            AddAdjacency(adjacency, a, b);
+            AddAdjacency(adjacency, b, a);
+        }
+
+        List<int[]> loops = ChainBoundaryLoops(adjacency);
+        if (loops.Count == 0)
+            return new SplitOutsideResult { Success = false, Warning = "Could not trace a closed conformed daylight boundary (daylight likely reaches the terrain edge)." };
+
+        return new SplitOutsideResult
+        {
+            Success = true,
+            Vertices = split.Vertices,
+            VertexCount = split.VertexCount,
+            OutsideFaces = outsideFaces.ToArray(),
+            OutsideFaceCount = outsideFaces.Count / 3,
+            HoleBoundaryLoops = loops
+        };
+    }
+
+    /// <summary>
+    /// Welds the kept-outside terrain mesh with the graded hole-fill sub-meshes. The fills' outer
+    /// rings are the conformed hole boundary, identical to the outside hole edges, so the weld is
+    /// exact. Dedupes coincident faces and orients winding upward; validates manifold/watertight.
+    /// </summary>
+    internal static AssembledMesh WeldGradedRegion(
+        double[] outsideVertices,
+        int[] outsideFaces,
+        int outsideFaceCount,
+        IReadOnlyList<SubMesh> fills,
+        double tolerance)
+    {
+        double weldTolerance = Math.Max(tolerance, 1e-6);
+        var welder = new VertexWelder(weldTolerance);
+        var faces = new List<int>(outsideFaceCount * 3);
+        var seenFaces = new HashSet<(int, int, int)>();
+
+        AppendMesh(welder, faces, seenFaces, outsideVertices, outsideFaces, outsideFaceCount);
+        foreach (SubMesh fill in fills)
+            AppendMesh(welder, faces, seenFaces, fill.Vertices, fill.Faces, fill.FaceCount);
+
+        double[] weldedVertices = welder.ToVertexArray();
+        int[] faceArray = faces.ToArray();
+        int faceCount = faceArray.Length / 3;
+        OrientFacesUpward(weldedVertices, faceArray, faceCount);
+
+        return new AssembledMesh
+        {
+            Success = true,
+            Vertices = weldedVertices,
+            VertexCount = welder.Count,
+            Faces = faceArray,
+            FaceCount = faceCount
+        };
+    }
+
+    private static long EdgeKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
+    private static void AddAdjacency(Dictionary<int, List<int>> adjacency, int from, int to)
+    {
+        if (!adjacency.TryGetValue(from, out List<int>? list))
+        {
+            list = new List<int>(2);
+            adjacency[from] = list;
+        }
+
+        if (!list.Contains(to))
+            list.Add(to);
+    }
+
+    private static List<int[]> ChainBoundaryLoops(Dictionary<int, List<int>> adjacency)
+    {
+        var loops = new List<int[]>();
+        var visited = new HashSet<long>(); // visited undirected edges
+
+        foreach (int start in adjacency.Keys)
+        {
+            foreach (int firstNext in adjacency[start])
+            {
+                if (visited.Contains(EdgeKey(start, firstNext)))
+                    continue;
+
+                var loop = new List<int> { start };
+                int prev = start;
+                int current = firstNext;
+                visited.Add(EdgeKey(start, firstNext));
+
+                while (current != start)
+                {
+                    loop.Add(current);
+                    int next = -1;
+                    foreach (int candidate in adjacency[current])
+                    {
+                        if (candidate == prev)
+                            continue;
+                        if (visited.Contains(EdgeKey(current, candidate)))
+                            continue;
+                        next = candidate;
+                        break;
+                    }
+
+                    if (next < 0)
+                        break; // open chain (shouldn't happen for a clean hole); abandon
+
+                    visited.Add(EdgeKey(current, next));
+                    prev = current;
+                    current = next;
+                }
+
+                if (current == start && loop.Count >= 3)
+                    loops.Add(loop.ToArray());
+            }
+        }
+
+        return loops;
+    }
+
     private static void OrientFacesUpward(double[] vertices, int[] faces, int faceCount)
     {
         for (int f = 0; f < faceCount; f++)
