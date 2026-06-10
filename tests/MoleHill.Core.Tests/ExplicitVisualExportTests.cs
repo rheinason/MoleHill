@@ -124,11 +124,11 @@ public class ExplicitVisualExportTests
         var paths = new[]
         {
             new PathGrader.PathDefinition(
-                new[] { 8.0, 30.0, 52.0, 30.0 }, new[] { 3.0, 1.0 }, 2, width: 5.0, slopeAngleDeg: 30.0, maxDistance: 12.0)
+                new[] { 18.0, 30.0, 42.0, 30.0 }, new[] { 3.0, 1.0 }, 2, width: 5.0, slopeAngleDeg: 30.0, maxDistance: 8.0)
         };
         // Lock curve (retaining wall) parallel to and just north of the road, clipping the +y batter.
         var lockCurve = new MoleHill.Core.Engine.SurfaceRemesher.ConstraintPolyline(
-            new[] { 8.0, 36.0, 0.0, 52.0, 36.0, 0.0 }, PointCount: 2, IsClosed: false, PreserveInputElevation: false);
+            new[] { 18.0, 36.0, 0.0, 42.0, 36.0, 0.0 }, PointCount: 2, IsClosed: false, PreserveInputElevation: false);
 
         GradingResult? r = PathGrader.Grade(t.v, t.vc, t.f, t.fc, paths, new[] { lockCurve }, out string? err);
         Assert.True(r != null, err);
@@ -140,21 +140,21 @@ public class ExplicitVisualExportTests
     public void Export_SinglePath_Explicit()
     {
         var t = UndulatingTerrain(61, 1.0);
-        // Gently curving road, profile descending, well inside the terrain so batters daylight.
+        // Gently curving road kept well inside the terrain so the batters daylight before the edge.
         var xy = new List<double>();
         var z = new List<double>();
         for (int s = 0; s <= 12; s++)
         {
             double tt = s / 12.0;
-            double x = 8 + (44 * tt);
-            double y = 30 + (10 * Math.Sin(tt * Math.PI));
+            double x = 18 + (24 * tt);
+            double y = 30 + (6 * Math.Sin(tt * Math.PI));
             xy.Add(x); xy.Add(y);
             z.Add(3.0 - (1.5 * tt));
         }
 
         var paths = new[]
         {
-            new PathGrader.PathDefinition(xy.ToArray(), z.ToArray(), z.Count, width: 5.0, slopeAngleDeg: 30.0)
+            new PathGrader.PathDefinition(xy.ToArray(), z.ToArray(), z.Count, width: 5.0, slopeAngleDeg: 30.0, maxDistance: 8.0)
         };
 
         GradingResult? r = PathGrader.Grade(t.v, t.vc, t.f, t.fc, paths, out string? err);

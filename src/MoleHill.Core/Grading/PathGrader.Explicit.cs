@@ -4,7 +4,6 @@ namespace MoleHill.Core.Grading;
 
 public static partial class PathGrader
 {
-
     /// <summary>
     /// Grades paths by building explicit corridor geometry. Each path is treated as a closed
     /// footprint — the road corridor outline (left edge forward, right edge back), carrying the
@@ -61,6 +60,14 @@ public static partial class PathGrader
         return false;
     }
 
+    private readonly record struct PathCorridor(
+        double[] LeftXyz,
+        double[] RightXyz,
+        int N,
+        double[] DaylightXy,
+        double Spacing,
+        BatterStripBuilder.DaylightLoop Loop);
+
     private static GradingResult? GradeWithExplicitCorridor(
         double[] vertices,
         int vertexCount,
@@ -89,13 +96,12 @@ public static partial class PathGrader
             return null;
         }
 
-        // Lock curves / preserved breaklines act as barriers that clip the corridor batters, and are
-        // embedded into the welded terrain by the assembler.
+        // Lock curves clip the corridor batters (passed as barriers to the daylight ray-march).
         PreparedBarriers barriers = GradingBarriers.Build(hardConstraints);
 
-        var inserts = new List<GradedRegionAssembler.RegionInsert>(paths.Length);
+        var corridors = new List<PathCorridor>(paths.Length);
+        var daylightLoopsXy = new List<double[]>(paths.Length);
         var outputPolylines = new List<OutputPolyline>(paths.Length * 2);
-        var daylightPolygons = new List<double[]>(paths.Length);
         int nonDaylightingStations = 0;
 
         foreach (PathDefinition path in paths)
@@ -116,9 +122,6 @@ public static partial class PathGrader
             }
 
             double halfWidth = path.Width * 0.5;
-
-            // Offset left/right road edges along the smoothed tangent normals; both carry the
-            // centerline profile elevation (the road is level across its width at each station).
             var leftXyz = new double[n * 3];
             var rightXyz = new double[n * 3];
             for (int i = 0; i < n; i++)
@@ -137,47 +140,35 @@ public static partial class PathGrader
                 rightXyz[i * 3 + 2] = cz;
             }
 
-            // Corridor outline footprint: left edge forward, then right edge backward. The implicit
-            // closing segments (left[n-1]->right[n-1] and right[0]->left[0]) are the end caps.
-            int outlineCount = n * 2;
-            var outlineXy = new double[outlineCount * 2];
-            var outlineZ = new double[outlineCount];
+            // Side stations only (left edge forward, right edge backward); the daylight at the road
+            // ends is rounded by an arc afterward to avoid the overlapping-corner-fan pinch.
+            int sideCount = n * 2;
+            var stationXy = new double[sideCount * 2];
+            var normals = new double[sideCount * 2];
+            var footZ = new double[sideCount];
             for (int i = 0; i < n; i++)
             {
-                outlineXy[i * 2] = leftXyz[i * 3];
-                outlineXy[i * 2 + 1] = leftXyz[i * 3 + 1];
-                outlineZ[i] = leftXyz[i * 3 + 2];
+                stationXy[i * 2] = leftXyz[i * 3];
+                stationXy[i * 2 + 1] = leftXyz[i * 3 + 1];
+                normals[i * 2] = -center.TangentY[i];
+                normals[i * 2 + 1] = center.TangentX[i];
+                footZ[i] = center.ZValues[i];
             }
 
             for (int i = 0; i < n; i++)
             {
                 int src = n - 1 - i;
                 int dst = n + i;
-                outlineXy[dst * 2] = rightXyz[src * 3];
-                outlineXy[dst * 2 + 1] = rightXyz[src * 3 + 1];
-                outlineZ[dst] = rightXyz[src * 3 + 2];
+                stationXy[dst * 2] = rightXyz[src * 3];
+                stationXy[dst * 2 + 1] = rightXyz[src * 3 + 1];
+                normals[dst * 2] = center.TangentY[src];
+                normals[dst * 2 + 1] = -center.TangentX[src];
+                footZ[dst] = center.ZValues[src];
             }
-
-            if (GradingGeometry2D.ClosedPolylineSelfIntersects(outlineXy, outlineCount))
-            {
-                errorMessage = "Grade Path corridor outline self-intersects (sharp turn narrower than its width); deferring to constraint-first path.";
-                return null;
-            }
-
-            BatterStripBuilder.FootprintStations stations =
-                BatterStripBuilder.BuildClosedFootprintStations(outlineXy, outlineCount, outlineZ, cornerFanSegments: 6);
 
             BatterStripBuilder.DaylightLoop loop = BatterStripBuilder.BuildDaylightLoop(
-                stations.Xy,
-                stations.Count,
-                isClosed: true,
-                outwardNormals: stations.Normals,
-                footprintZByStation: stations.Z,
-                slopeAngleDeg: path.SlopeAngleDeg,
-                maxDistance: path.MaxDistance,
-                terrain: terrain,
-                barriers: barriers,
-                tolerance: tolerance);
+                stationXy, sideCount, isClosed: true, normals, footZ,
+                path.SlopeAngleDeg, path.MaxDistance, terrain, barriers, tolerance);
 
             foreach (BatterStripBuilder.DaylightStation station in loop.Stations)
             {
@@ -185,47 +176,54 @@ public static partial class PathGrader
                     nonDaylightingStations++;
             }
 
-            double[] daylightXy = loop.DaylightXy();
+            // Build the daylight polygon: left-side day points, a rounded end arc, right-side day
+            // points, a rounded start arc. Arcs connect the side day points smoothly (no pinch).
+            double[] dayXy = loop.DaylightXy();
+            var dayZ = new double[loop.Count];
+            for (int i = 0; i < loop.Count; i++)
+                dayZ[i] = loop.Stations[i].DayZ;
 
-            var subMeshes = new List<GradedRegionAssembler.SubMesh>(2)
+            var polyXy = new List<double>(dayXy.Length + 32);
+            for (int i = 0; i < n; i++)
             {
-                BuildCorridorSurface(leftXyz, rightXyz, n)
-            };
-
-            if (loop.HasBatter)
-            {
-                BatterStripBuilder.BatterStrip strip = BatterStripBuilder.BuildBatterStrip(loop, spacing);
-                if (strip.FaceCount > 0)
-                {
-                    subMeshes.Add(new GradedRegionAssembler.SubMesh
-                    {
-                        Vertices = strip.Vertices,
-                        VertexCount = strip.VertexCount,
-                        Faces = strip.Faces,
-                        FaceCount = strip.FaceCount
-                    });
-                }
+                polyXy.Add(dayXy[i * 2]);
+                polyXy.Add(dayXy[i * 2 + 1]);
             }
 
-            inserts.Add(new GradedRegionAssembler.RegionInsert
-            {
-                DaylightLoopXyz = loop.DaylightXyz(),
-                DaylightLoopCount = loop.Count,
-                SubMeshes = subMeshes
-            });
-            daylightPolygons.Add(daylightXy);
+            // End arc bulges along +tangent at the last station; start arc along -tangent at the first.
+            AddEndArc(polyXy, dayXy[(n - 1) * 2], dayXy[(n - 1) * 2 + 1], dayXy[n * 2], dayXy[n * 2 + 1],
+                center.XyVertices[(n - 1) * 2], center.XyVertices[(n - 1) * 2 + 1],
+                center.TangentX[n - 1], center.TangentY[n - 1], spacing);
 
+            for (int i = n; i < sideCount; i++)
+            {
+                polyXy.Add(dayXy[i * 2]);
+                polyXy.Add(dayXy[i * 2 + 1]);
+            }
+
+            AddEndArc(polyXy, dayXy[(sideCount - 1) * 2], dayXy[(sideCount - 1) * 2 + 1], dayXy[0], dayXy[1],
+                center.XyVertices[0], center.XyVertices[1],
+                -center.TangentX[0], -center.TangentY[0], spacing);
+
+            double[] daylightPolyXy = polyXy.ToArray();
+            if (GradingGeometry2D.ClosedPolylineSelfIntersects(daylightPolyXy, daylightPolyXy.Length / 2))
+            {
+                errorMessage = "Grade Path daylight loop self-intersects; deferring to constraint-first path.";
+                return null;
+            }
+
+            corridors.Add(new PathCorridor(leftXyz, rightXyz, n, daylightPolyXy, spacing, loop));
+            daylightLoopsXy.Add(daylightPolyXy);
             outputPolylines.Add(new OutputPolyline(leftXyz, n, isClosed: false));
             outputPolylines.Add(new OutputPolyline(rightXyz, n, isClosed: false));
         }
 
-        // Junctions / overlapping corridors need ownership resolution the explicit path does not yet
-        // perform; defer interacting paths to the constraint-first engine.
-        for (int i = 0; i < daylightPolygons.Count; i++)
+        // Interacting corridors need junction ownership; defer those.
+        for (int i = 0; i < daylightLoopsXy.Count; i++)
         {
-            for (int j = i + 1; j < daylightPolygons.Count; j++)
+            for (int j = i + 1; j < daylightLoopsXy.Count; j++)
             {
-                if (GradingGeometry2D.PolygonsOverlap(daylightPolygons[i], daylightPolygons[j]))
+                if (GradingGeometry2D.PolygonsOverlap(daylightLoopsXy[i], daylightLoopsXy[j]))
                 {
                     errorMessage = "Grade Path corridors interact; deferring to constraint-first path.";
                     return null;
@@ -233,36 +231,48 @@ public static partial class PathGrader
             }
         }
 
-        GradedRegionAssembler.AssembledMesh assembled = GradedRegionAssembler.Assemble(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            inserts,
-            tolerance,
-            hardConstraints);
-
-        if (!assembled.Success)
+        GradedRegionAssembler.SplitOutsideResult split = GradedRegionAssembler.SplitOutside(
+            vertices, vertexCount, faces, faceCount, daylightLoopsXy, tolerance);
+        if (!split.Success)
         {
-            errorMessage = assembled.Warning ?? "Grade Path explicit corridor assembly failed.";
+            errorMessage = split.Warning ?? "Grade Path terrain split failed.";
             return null;
         }
+
+        var fills = new List<GradedRegionAssembler.SubMesh>(split.HoleBoundaryLoops.Count);
+        foreach (int[] boundaryLoop in split.HoleBoundaryLoops)
+        {
+            double[] boundaryXyz = ExtractLoopXyz(split.Vertices, boundaryLoop);
+            int corridorIndex = MatchCorridorForBoundary(boundaryXyz, boundaryLoop.Length, daylightLoopsXy);
+            if (corridorIndex < 0)
+            {
+                errorMessage = "Grade Path could not match a hole boundary to a corridor; deferring.";
+                return null;
+            }
+
+            GradedRegionAssembler.SubMesh? fill = BuildCorridorHoleFill(
+                boundaryXyz, boundaryLoop.Length, corridors[corridorIndex], paths, hardConstraints, terrain, tolerance);
+            if (fill is null)
+            {
+                errorMessage = "Grade Path hole fill failed; deferring to constraint-first path.";
+                return null;
+            }
+
+            fills.Add(fill);
+        }
+
+        GradedRegionAssembler.AssembledMesh assembled = GradedRegionAssembler.WeldGradedRegion(
+            split.Vertices, split.OutsideFaces, split.OutsideFaceCount, fills, tolerance);
 
         MeshTopologyValidator.BoundaryGraphAnalysis topology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(assembled.Faces, assembled.FaceCount);
-        if (topology.NonManifoldEdgeCount > 0 || topology.HasOpenBoundaryChains)
-        {
-            errorMessage = "Grade Path explicit corridor assembly produced non-manifold or open topology.";
-            return null;
-        }
-
-        // A batter that daylights past the terrain edge leaves an unfilled gap (extra boundary loop).
-        // The legacy path clips shoulders to the terrain boundary, so defer those cases to it.
         MeshTopologyValidator.BoundaryGraphAnalysis terrainTopology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
-        if (topology.BoundaryComponentCount > terrainTopology.BoundaryComponentCount)
+        if (topology.NonManifoldEdgeCount > 0 ||
+            topology.HasOpenBoundaryChains ||
+            topology.BoundaryComponentCount > terrainTopology.BoundaryComponentCount)
         {
-            errorMessage = "Grade Path batter reaches past the terrain boundary; deferring to constraint-first path.";
+            errorMessage = "Grade Path unified assembly produced non-manifold, open, or off-terrain topology.";
             return null;
         }
 
@@ -278,7 +288,7 @@ public static partial class PathGrader
         }
 
         const string modeMessage =
-            "Grade Path topology mode: explicit corridor construction (ruled road surface and side batters welded into terrain).";
+            "Grade Path topology mode: explicit corridor construction (ruled road surface and rounded side batters welded into terrain).";
         var diagnostics = new List<string> { modeMessage };
         var structured = new List<GradingDiagnostic>
         {
@@ -306,42 +316,212 @@ public static partial class PathGrader
     }
 
     /// <summary>
-    /// Builds the explicit road surface as a ruled strip between the left and right edges, level
-    /// across the width at each station's centerline elevation. The strip boundary is the corridor
-    /// outline, so it welds to the batter inner ring.
+    /// Appends a rounded end arc to the daylight polygon between two consecutive side daylight points
+    /// (A and B), centered on the road centerline endpoint (cx,cy), bulging outward. Endpoints A and B
+    /// are already in the polygon, so only intermediate points are added.
     /// </summary>
-    private static GradedRegionAssembler.SubMesh BuildCorridorSurface(double[] leftXyz, double[] rightXyz, int n)
+    private static void AddEndArc(
+        List<double> polyXy,
+        double ax, double ay, double bx, double by,
+        double cx, double cy,
+        double outwardX, double outwardY,
+        double spacing)
     {
-        var vertices = new double[n * 2 * 3];
-        for (int i = 0; i < n; i++)
+        double angleA = Math.Atan2(ay - cy, ax - cx);
+        double angleB = Math.Atan2(by - cy, bx - cx);
+        double radius = (Math.Sqrt(((ax - cx) * (ax - cx)) + ((ay - cy) * (ay - cy))) +
+                         Math.Sqrt(((bx - cx) * (bx - cx)) + ((by - cy) * (by - cy)))) * 0.5;
+
+        double sweep = angleB - angleA;
+        while (sweep <= -Math.PI) sweep += 2.0 * Math.PI;
+        while (sweep > Math.PI) sweep -= 2.0 * Math.PI;
+
+        // Pick the sweep whose arc midpoint bulges in the outward direction (away from the road),
+        // not inward across the corridor.
+        double midAngle = angleA + (sweep * 0.5);
+        if ((Math.Cos(midAngle) * outwardX) + (Math.Sin(midAngle) * outwardY) < 0.0)
+            sweep += sweep > 0.0 ? -2.0 * Math.PI : 2.0 * Math.PI;
+
+        int steps = Math.Max(1, (int)Math.Ceiling(Math.Abs(sweep) * radius / Math.Max(spacing, 1e-6)));
+        for (int s = 1; s < steps; s++)
         {
-            vertices[i * 3] = leftXyz[i * 3];
-            vertices[i * 3 + 1] = leftXyz[i * 3 + 1];
-            vertices[i * 3 + 2] = leftXyz[i * 3 + 2];
-            int r = n + i;
-            vertices[r * 3] = rightXyz[i * 3];
-            vertices[r * 3 + 1] = rightXyz[i * 3 + 1];
-            vertices[r * 3 + 2] = rightXyz[i * 3 + 2];
+            double theta = angleA + (sweep * s / steps);
+            polyXy.Add(cx + (radius * Math.Cos(theta)));
+            polyXy.Add(cy + (radius * Math.Sin(theta)));
+        }
+    }
+
+    private static double[] ExtractLoopXyz(double[] vertices, int[] loop)
+    {
+        var xyz = new double[loop.Length * 3];
+        for (int i = 0; i < loop.Length; i++)
+        {
+            int v = loop[i];
+            xyz[i * 3] = vertices[v * 3];
+            xyz[i * 3 + 1] = vertices[v * 3 + 1];
+            xyz[i * 3 + 2] = vertices[v * 3 + 2];
         }
 
-        var faces = new List<int>((n - 1) * 6);
+        return xyz;
+    }
+
+    private static int MatchCorridorForBoundary(double[] boundaryXyz, int boundaryCount, List<double[]> corridorLoops)
+    {
+        double cx = 0.0, cy = 0.0;
+        for (int i = 0; i < boundaryCount; i++)
+        {
+            cx += boundaryXyz[i * 3];
+            cy += boundaryXyz[i * 3 + 1];
+        }
+
+        cx /= boundaryCount;
+        cy /= boundaryCount;
+
+        for (int c = 0; c < corridorLoops.Count; c++)
+        {
+            if (GradingGeometry2D.PointInPolygon(cx, cy, corridorLoops[c], corridorLoops[c].Length / 2))
+                return c;
+        }
+
+        int best = -1;
+        double bestDistSq = double.MaxValue;
+        for (int c = 0; c < corridorLoops.Count; c++)
+        {
+            int gc = corridorLoops[c].Length / 2;
+            double gx = 0.0, gy = 0.0;
+            for (int i = 0; i < gc; i++)
+            {
+                gx += corridorLoops[c][i * 2];
+                gy += corridorLoops[c][i * 2 + 1];
+            }
+
+            gx /= gc;
+            gy /= gc;
+            double d = ((gx - cx) * (gx - cx)) + ((gy - cy) * (gy - cy));
+            if (d < bestDistSq)
+            {
+                bestDistSq = d;
+                best = c;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Triangulates a corridor hole: conformed boundary + road edges (left/right + end caps) as
+    /// constraints, road centerline and batter rows as seeds; assigns road-profile + batter Z via the
+    /// path section grader and pins the boundary to terrain.
+    /// </summary>
+    private static GradedRegionAssembler.SubMesh? BuildCorridorHoleFill(
+        double[] boundaryXyz,
+        int boundaryCount,
+        PathCorridor corridor,
+        PathDefinition[] paths,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        TerrainFaceGrid terrain,
+        double tolerance)
+    {
+        double weldTol = Math.Max(tolerance, 1e-6);
+        double inverseCell = 1.0 / weldTol;
+        var xyList = new List<double>();
+        var inputZ = new List<double>();
+        var pointIndex = new Dictionary<(long, long), int>();
+        var segments = new List<(int a, int b)>();
+
+        int AddPoint(double x, double y, double z)
+        {
+            var key = ((long)Math.Round(x * inverseCell), (long)Math.Round(y * inverseCell));
+            if (pointIndex.TryGetValue(key, out int existing))
+                return existing;
+
+            int index = xyList.Count / 2;
+            xyList.Add(x);
+            xyList.Add(y);
+            inputZ.Add(z);
+            pointIndex[key] = index;
+            return index;
+        }
+
+        // Conformed boundary first (indices [0, boundaryPointCount) are perimeter vertices to pin).
+        int firstB = AddPoint(boundaryXyz[0], boundaryXyz[1], boundaryXyz[2]);
+        int prevB = firstB;
+        for (int i = 1; i < boundaryCount; i++)
+        {
+            int cur = AddPoint(boundaryXyz[i * 3], boundaryXyz[i * 3 + 1], boundaryXyz[i * 3 + 2]);
+            if (cur != prevB)
+                segments.Add((prevB, cur));
+            prevB = cur;
+        }
+
+        if (prevB != firstB)
+            segments.Add((prevB, firstB));
+
+        int boundaryPointCount = xyList.Count / 2;
+
+        int n = corridor.N;
+        // Road edges (left + right) as open constraints + end-cap edges → crisp road top boundary.
+        int[] leftIdx = new int[n];
+        int[] rightIdx = new int[n];
+        for (int i = 0; i < n; i++)
+        {
+            leftIdx[i] = AddPoint(corridor.LeftXyz[i * 3], corridor.LeftXyz[i * 3 + 1], 0.0);
+            rightIdx[i] = AddPoint(corridor.RightXyz[i * 3], corridor.RightXyz[i * 3 + 1], 0.0);
+        }
+
         for (int i = 0; i < n - 1; i++)
         {
-            int la = i;
-            int lb = i + 1;
-            int ra = n + i;
-            int rb = n + i + 1;
-            // Two triangles per station quad (left[i], right[i], right[i+1], left[i+1]).
-            faces.Add(la); faces.Add(ra); faces.Add(rb);
-            faces.Add(la); faces.Add(rb); faces.Add(lb);
+            if (leftIdx[i] != leftIdx[i + 1]) segments.Add((leftIdx[i], leftIdx[i + 1]));
+            if (rightIdx[i] != rightIdx[i + 1]) segments.Add((rightIdx[i], rightIdx[i + 1]));
+        }
+
+        if (leftIdx[n - 1] != rightIdx[n - 1]) segments.Add((leftIdx[n - 1], rightIdx[n - 1]));
+        if (leftIdx[0] != rightIdx[0]) segments.Add((leftIdx[0], rightIdx[0]));
+
+        // Batter row seeds from the side batter strip (density/slope).
+        if (corridor.Loop.HasBatter)
+        {
+            BatterStripBuilder.BatterStrip strip = BatterStripBuilder.BuildBatterStrip(corridor.Loop, corridor.Spacing);
+            for (int i = 0; i < strip.VertexCount; i++)
+                AddPoint(strip.Vertices[i * 3], strip.Vertices[i * 3 + 1], 0.0);
+        }
+
+        TriangulationOutcome outcome = TriangulationHelper.Triangulate(
+            xyList, xyList.Count / 2, segments, maxArea: 0.0, minAngle: 0.0, convex: false, segmentSplitting: 0);
+        if (outcome.Mesh == null)
+            return null;
+
+        TriangleNetExtractor.Result extracted = TriangleNetExtractor.Extract(outcome.Mesh);
+        if (extracted.FaceCount == 0)
+            return null;
+
+        int vc = extracted.VertexCount;
+        var holeVerts = new double[vc * 3];
+        for (int i = 0; i < vc; i++)
+        {
+            double x = extracted.Xy[i * 2];
+            double y = extracted.Xy[i * 2 + 1];
+            holeVerts[i * 3] = x;
+            holeVerts[i * 3 + 1] = y;
+            holeVerts[i * 3 + 2] = terrain.InterpolateZ(x, y);
+        }
+
+        double[] graded = ApplyGradingZ(holeVerts, vc, paths, hardConstraints, out _);
+
+        // Pin the conformed boundary exactly to terrain so it welds to the kept terrain.
+        for (int i = 0; i < vc; i++)
+        {
+            int sourceId = extracted.SourceIds[i];
+            if (sourceId >= 0 && sourceId < boundaryPointCount)
+                graded[i * 3 + 2] = inputZ[sourceId];
         }
 
         return new GradedRegionAssembler.SubMesh
         {
-            Vertices = vertices,
-            VertexCount = n * 2,
-            Faces = faces.ToArray(),
-            FaceCount = faces.Count / 3
+            Vertices = graded,
+            VertexCount = vc,
+            Faces = extracted.Faces,
+            FaceCount = extracted.FaceCount
         };
     }
 }
