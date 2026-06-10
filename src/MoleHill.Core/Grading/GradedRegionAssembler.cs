@@ -710,4 +710,28 @@ internal static class GradedRegionAssembler
 
         public double[] ToVertexArray() => _vertices.ToArray();
     }
+
+    /// <summary>
+    /// Builds an actionable message describing why a welded graded assembly failed the topology gate,
+    /// naming the specific defect(s) so a deferral to the fallback is diagnosable rather than opaque.
+    /// </summary>
+    internal static string DescribeWeldTopologyFailure(
+        string label,
+        MeshTopologyValidator.BoundaryGraphAnalysis assembled,
+        MeshTopologyValidator.BoundaryGraphAnalysis terrain)
+    {
+        var reasons = new List<string>(3);
+        if (assembled.NonManifoldEdgeCount > 0)
+            reasons.Add($"{assembled.NonManifoldEdgeCount} non-manifold edge(s)");
+        if (assembled.HasOpenBoundaryChains)
+            reasons.Add("open boundary chains (the graded region did not weld watertight to the terrain)");
+        if (assembled.BoundaryComponentCount > terrain.BoundaryComponentCount)
+            reasons.Add(
+                $"{assembled.BoundaryComponentCount - terrain.BoundaryComponentCount} extra boundary loop(s) " +
+                $"({terrain.BoundaryComponentCount}->{assembled.BoundaryComponentCount}); the graded region likely " +
+                "overlaps an existing terrain hole or an adjacent graded feature");
+
+        string detail = reasons.Count > 0 ? string.Join("; ", reasons) : "invalid topology";
+        return $"{label} explicit assembly was not watertight: {detail}.";
+    }
 }

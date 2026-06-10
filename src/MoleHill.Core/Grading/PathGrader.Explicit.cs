@@ -285,7 +285,7 @@ public static partial class PathGrader
             topology.HasOpenBoundaryChains ||
             topology.BoundaryComponentCount > terrainTopology.BoundaryComponentCount)
         {
-            errorMessage = "Grade Path unified assembly produced non-manifold, open, or off-terrain topology.";
+            errorMessage = GradedRegionAssembler.DescribeWeldTopologyFailure("Grade Path", topology, terrainTopology);
             return null;
         }
 
