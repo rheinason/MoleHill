@@ -1472,7 +1472,10 @@ public class TerrainGradePathAfterPadCopiedCaseTests
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("constraint-first topology", diagnostics, StringComparison.OrdinalIgnoreCase);
+        // Local-insertion topology (splits only the faces the road crosses, keeps surrounding terrain)
+        // is the restored, preferred fallback. The whole-terrain "constraint-first" rebuild produced
+        // radial-spoke topology and is no longer used here.
+        Assert.Contains("constraint insertion", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("topology healthy=True", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.True(result.VertexCount > vertexCount, diagnostics);
         Assert.True(result.FaceCount > faceCount, diagnostics);

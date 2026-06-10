@@ -1272,8 +1272,10 @@ public class TerrainGradePathOvalPadCopiedCaseTests
         PadDiagnosticAssert.AssertNoFallback(diagnostics);
         Assert.Contains("topology healthy=True", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("shoulder quality warning", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.InRange(result.VertexCount, 850, 1_200);
-        Assert.InRange(result.FaceCount, 1_600, 2_200);
+        // Local insertion preserves the surrounding terrain detail rather than re-meshing it to a
+        // coarser seed set, so the face count is higher than the old constraint-first rebuild.
+        Assert.InRange(result.VertexCount, 850, 1_400);
+        Assert.InRange(result.FaceCount, 1_600, 2_600);
 
         var topology = MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
         Assert.True(topology.HasSingleClosedBoundaryLoop, diagnostics);

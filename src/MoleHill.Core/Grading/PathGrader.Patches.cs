@@ -90,54 +90,89 @@ public static partial class PathGrader
             outputPolylines,
             diagnostics);
 
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(
-            hardConstraints.Count + pathConstraintSet.Constraints.Length);
-        constraints.AddRange(hardConstraints);
-        constraints.AddRange(pathConstraintSet.Constraints);
-
-        diagnostics.AddInformation(
-            "grade_path.topology_mode.constraint_insertion",
-            $"Grade Path topology mode: constraint insertion via constraint-first rebuild ({pathConstraintSet.Constraints.Length:N0} grading constraints + {hardConstraints.Count:N0} hard constraints).",
-            operation: "grade_path");
-        diagnostics.AddInformation(
-            "grade_path.topology.tiny_boundary_loops_not_needed",
-            "Grade Path tiny branched boundary loop repair was not needed by constraint-first topology.",
-            operation: "grade_path");
-        bool addConstraintCorridorSeeds = hardConstraints.All(static constraint => constraint.IsClosed);
-        if (addConstraintCorridorSeeds)
+        // Local topology insertion: split only the terrain faces the road constraints cross and keep
+        // the rest of the terrain intact. This preserves the surrounding mesh density and avoids the
+        // whole-terrain re-triangulation (radial spokes) of the constraint-first rebuild.
+        if (!MeshConstraintTopologyInserter.TryInsert(
+                vertices,
+                vertexCount,
+                faces,
+                faceCount,
+                pathConstraintSet.Constraints,
+                tolerance,
+                out double[] topologyVertices,
+                out int topologyVertexCount,
+                out int[] topologyFaces,
+                out int topologyFaceCount,
+                out string? topologyError))
         {
+            errorMessage = topologyError ?? "Topology-preserving path insertion failed.";
+            return null;
+        }
+
+        double[] gradedVertices = ApplyGradingZ(
+            topologyVertices,
+            topologyVertexCount,
+            topologyFaces,
+            topologyFaceCount,
+            paths,
+            hardConstraints,
+            out _);
+        if (MeshTopologyOperations.TryFillSmallBranchedBoundaryLoops(
+                gradedVertices,
+                topologyVertexCount,
+                topologyFaces,
+                topologyFaceCount,
+                tolerance,
+                out int[] repairedTopologyFaces,
+                out int repairedTopologyFaceCount,
+                out int repairedBoundaryLoopCount))
+        {
+            topologyFaces = repairedTopologyFaces;
+            topologyFaceCount = repairedTopologyFaceCount;
             diagnostics.AddInformation(
-                "grade_path.topology.corridor_seeds",
-                "Grade Path added corridor guide seeds between paired grading constraints.",
+                "grade_path.topology.tiny_boundary_loops_filled",
+                $"Grade Path topology repair filled {repairedBoundaryLoopCount:N0} tiny branched boundary loop(s).",
                 operation: "grade_path");
         }
 
-        return ConstraintFirstGradingEngine.TryBuild(
+        var outXy = new double[topologyVertexCount * 2];
+        var origZ = new double[topologyVertexCount];
+        var newZ = new double[topologyVertexCount];
+        for (int i = 0; i < topologyVertexCount; i++)
+        {
+            outXy[i * 2] = topologyVertices[i * 3];
+            outXy[i * 2 + 1] = topologyVertices[i * 3 + 1];
+            origZ[i] = topologyVertices[i * 3 + 2];
+            newZ[i] = gradedVertices[i * 3 + 2];
+        }
+
+        diagnostics.AddInformation(
+            "grade_path.topology_mode.constraint_insertion",
+            $"Grade Path topology mode: constraint insertion ({vertexCount:N0} verts/{faceCount:N0} faces -> {topologyVertexCount:N0} verts/{topologyFaceCount:N0} faces).",
+            operation: "grade_path");
+        diagnostics.Add(GradingTopologyDiagnostics.BuildMeshSummary(
+            "grade_path.topology.summary",
             "Grade Path",
-            vertices,
             vertexCount,
-            faces,
             faceCount,
-            constraints,
-            pathConstraintSet.SuggestedEdgeLength,
-            tolerance,
-            (topologyVertices, topologyVertexCount, topologyFaces, topologyFaceCount) =>
-                ApplyGradingZ(
-                    topologyVertices,
-                    topologyVertexCount,
-                    topologyFaces,
-                    topologyFaceCount,
-                    paths,
-                    hardConstraints,
-                    out _),
+            topologyVertexCount,
+            topologyFaceCount,
+            topologyFaces,
+            operation: "grade_path"));
+        errorMessage = null;
+        return BuildResult(
+            outXy,
+            origZ,
+            newZ,
+            gradedVertices,
+            topologyVertexCount,
+            topologyFaces,
+            topologyFaceCount,
             outputPolylines,
             BuildPathPatchSummaries(paths),
             diagnostics.ToMessages(),
-            diagnostics.ToStructuredDiagnostics(),
-            appendOutputDiagnostics: null,
-            out _,
-            out errorMessage,
-            addConstraintCorridorSeeds: addConstraintCorridorSeeds);
+            diagnostics.ToStructuredDiagnostics());
     }
 
     private static bool TryFindClosestClosedLoopLocation(
