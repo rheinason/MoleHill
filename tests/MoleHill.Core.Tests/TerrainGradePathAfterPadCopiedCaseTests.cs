@@ -1472,13 +1472,17 @@ public class TerrainGradePathAfterPadCopiedCaseTests
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        // Local-insertion topology (splits only the faces the road crosses, keeps surrounding terrain)
-        // is the restored, preferred fallback. The whole-terrain "constraint-first" rebuild produced
-        // radial-spoke topology and is no longer used here.
-        Assert.Contains("constraint insertion", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("topology healthy=True", diagnostics, StringComparison.OrdinalIgnoreCase);
+        // With the watertight finish (seam-crack zip + interior-hole fill) the corridor now welds
+        // cleanly through the protected-pad terrain, so the explicit engine succeeds instead of
+        // deferring to the local-insertion fallback. The result must be a watertight 2.5D surface.
+        Assert.Contains("explicit corridor construction", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.True(result.VertexCount > vertexCount, diagnostics);
         Assert.True(result.FaceCount > faceCount, diagnostics);
         Assert.DoesNotContain("All triangulation attempts failed", diagnostics, StringComparison.OrdinalIgnoreCase);
+
+        var topology = MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
+        Assert.Equal(1, topology.BoundaryComponentCount);
+        Assert.False(topology.HasOpenBoundaryChains, diagnostics);
+        Assert.Equal(0, topology.NonManifoldEdgeCount);
     }
 }

@@ -86,6 +86,429 @@ internal static class MeshTopologyOperations
         return true;
     }
 
+    /// <summary>
+    /// Enforces the watertight 2.5D invariant on a graded region: first zips boundary "cracks"
+    /// (pairs of near-coincident boundary vertices left by seam mismatches that fell just outside the
+    /// weld tolerance), then closes any remaining interior holes. The stitch tolerance is scaled to
+    /// the local boundary-edge length, so it only ever merges crack pairs (orders of magnitude closer
+    /// than real adjacent boundary vertices), never distinct terrain features.
+    /// </summary>
+    public static (double[] vertices, int[] faces) MakeWatertight(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        double weldTolerance,
+        out int stitchedVertexCount,
+        out int filledLoopCount)
+    {
+        stitchedVertexCount = 0;
+        filledLoopCount = 0;
+        if (vertexCount <= 0 || faceCount <= 0)
+            return (vertices, faces);
+
+        double stitchTolerance = ComputeBoundaryStitchTolerance(vertices, faces, faceCount, weldTolerance);
+        double[] sv = vertices;
+        int svc = vertexCount;
+        int[] sf = faces;
+        int sfc = faceCount;
+
+        // Zip hairline cracks by merging mutual-nearest boundary-vertex pairs. Repeat: zipping one
+        // pair can make the next pair mutual-nearest. Safe by construction — a 1:1 pair merge cannot
+        // create a branched (non-manifold) boundary vertex.
+        for (int pass = 0; pass < 6; pass++)
+        {
+            (sv, svc, sf, sfc, int merged) = StitchBoundaryCracks(sv, svc, sf, sfc, stitchTolerance);
+            stitchedVertexCount += merged;
+            if (merged == 0)
+                break;
+        }
+
+        int[] filled = FillInteriorHoles(sv, sfc, sf, weldTolerance, out filledLoopCount);
+        return (sv, filled);
+    }
+
+    /// <summary>
+    /// Merges pairs of boundary vertices that lie within <paramref name="stitchTolerance"/> of each
+    /// other but are not already joined by an edge — the signature of a hairline crack between two
+    /// pieces that should have welded. Rebuilds faces against the merged vertices and drops faces that
+    /// collapse to a degenerate edge.
+    /// </summary>
+    private static (double[], int, int[], int, int) StitchBoundaryCracks(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        double stitchTolerance)
+    {
+        if (stitchTolerance <= 0.0)
+            return (vertices, vertexCount, faces, faceCount, 0);
+
+        Dictionary<ulong, int> edgeCounts = BuildEdgeCounts(faces, faceCount);
+        var boundaryVerts = new List<int>();
+        var isBoundary = new bool[vertexCount];
+        foreach ((ulong edge, int count) in edgeCounts)
+        {
+            if (count != 1)
+                continue;
+            int a = (int)(edge >> 32);
+            int b = (int)(edge & 0xFFFFFFFFu);
+            if (!isBoundary[a]) { isBoundary[a] = true; boundaryVerts.Add(a); }
+            if (!isBoundary[b]) { isBoundary[b] = true; boundaryVerts.Add(b); }
+        }
+
+        if (boundaryVerts.Count == 0)
+            return (vertices, vertexCount, faces, faceCount, 0);
+
+        // Edges already present between boundary vertices (don't merge across an existing edge).
+        var connected = new HashSet<ulong>();
+        foreach ((ulong edge, int _) in edgeCounts)
+            connected.Add(edge);
+
+        double inv = 1.0 / stitchTolerance;
+        double tolSq = stitchTolerance * stitchTolerance;
+        var buckets = new Dictionary<(long, long), List<int>>();
+        foreach (int v in boundaryVerts)
+        {
+            long cx = (long)Math.Floor(vertices[v * 3] * inv);
+            long cy = (long)Math.Floor(vertices[v * 3 + 1] * inv);
+            if (!buckets.TryGetValue((cx, cy), out List<int>? list)) { list = new List<int>(2); buckets[(cx, cy)] = list; }
+            list.Add(v);
+        }
+
+        // Nearest boundary partner (not already edge-connected) for each boundary vertex.
+        int Nearest(int v)
+        {
+            double x = vertices[v * 3], y = vertices[v * 3 + 1];
+            long cx = (long)Math.Floor(x * inv), cy = (long)Math.Floor(y * inv);
+            int best = -1; double bestSq = tolSq;
+            for (long dx = -1; dx <= 1; dx++)
+            for (long dy = -1; dy <= 1; dy++)
+            {
+                if (!buckets.TryGetValue((cx + dx, cy + dy), out List<int>? list)) continue;
+                foreach (int w in list)
+                {
+                    if (w == v) continue;
+                    if (connected.Contains(CreateEdgeKey(v, w))) continue;
+                    double ddx = vertices[w * 3] - x, ddy = vertices[w * 3 + 1] - y;
+                    double d = (ddx * ddx) + (ddy * ddy);
+                    if (d < bestSq) { bestSq = d; best = w; }
+                }
+            }
+
+            return best;
+        }
+
+        // Merge only mutual-nearest pairs, each vertex consumed once: a clean 1:1 zip that cannot
+        // create a branched (non-manifold) boundary vertex.
+        var remap = new int[vertexCount];
+        for (int i = 0; i < vertexCount; i++)
+            remap[i] = i;
+        var consumed = new bool[vertexCount];
+        int merged = 0;
+        foreach (int v in boundaryVerts)
+        {
+            if (consumed[v]) continue;
+            int w = Nearest(v);
+            if (w < 0 || consumed[w]) continue;
+            if (Nearest(w) != v) continue; // require mutual nearest
+            remap[Math.Max(v, w)] = Math.Min(v, w);
+            consumed[v] = true;
+            consumed[w] = true;
+            merged++;
+        }
+
+        if (merged == 0)
+            return (vertices, vertexCount, faces, faceCount, 0);
+
+        int Find(int x) { while (remap[x] != x) x = remap[x]; return x; }
+
+        // Compact survivors, rebuild faces, drop degenerate (collapsed) faces.
+        var newIndex = new int[vertexCount];
+        Array.Fill(newIndex, -1);
+        var outVerts = new List<double>(vertexCount * 3);
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int root = Find(i);
+            if (newIndex[root] == -1)
+            {
+                newIndex[root] = outVerts.Count / 3;
+                outVerts.Add(vertices[root * 3]);
+                outVerts.Add(vertices[root * 3 + 1]);
+                outVerts.Add(vertices[root * 3 + 2]);
+            }
+
+            newIndex[i] = newIndex[root];
+        }
+
+        var outFaces = new List<int>(faceCount * 3);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = newIndex[faces[f * 3]];
+            int b = newIndex[faces[f * 3 + 1]];
+            int c = newIndex[faces[f * 3 + 2]];
+            if (a == b || b == c || c == a)
+                continue;
+            outFaces.Add(a);
+            outFaces.Add(b);
+            outFaces.Add(c);
+        }
+
+        return (outVerts.ToArray(), outVerts.Count / 3, outFaces.ToArray(), outFaces.Count / 3, merged);
+    }
+
+
+    /// <summary>Stitch tolerance = a small fraction of the median boundary-edge length (clamped).</summary>
+    private static double ComputeBoundaryStitchTolerance(double[] vertices, int[] faces, int faceCount, double weldTolerance)
+    {
+        Dictionary<ulong, int> edgeCounts = BuildEdgeCounts(faces, faceCount);
+        var lengths = new List<double>();
+        foreach ((ulong edge, int count) in edgeCounts)
+        {
+            if (count != 1)
+                continue;
+            int a = (int)(edge >> 32);
+            int b = (int)(edge & 0xFFFFFFFFu);
+            double dx = vertices[a * 3] - vertices[b * 3];
+            double dy = vertices[a * 3 + 1] - vertices[b * 3 + 1];
+            lengths.Add(Math.Sqrt((dx * dx) + (dy * dy)));
+        }
+
+        if (lengths.Count == 0)
+            return 0.0;
+
+        lengths.Sort();
+        double median = lengths[lengths.Count / 2];
+        // A crack is far shorter than a real boundary edge; 30% of the median catches cracks while
+        // staying well below the spacing of genuine adjacent boundary vertices.
+        return Math.Max(weldTolerance, median * 0.3);
+    }
+
+    /// <summary>
+    /// Enforces the watertight 2.5D invariant: closes every interior hole in <paramref name="faces"/>
+    /// so the mesh is left with a single boundary loop (the outer terrain outline). All boundary loops
+    /// are traced; the largest-area loop is kept as the outer outline and every other loop is ear-clipped
+    /// closed using its existing vertices (upward winding, no new vertices, so the surface stays a
+    /// continuous 2.5D CDT). Returns the original face array unchanged when there is nothing to fill.
+    /// </summary>
+    public static int[] FillInteriorHoles(
+        double[] vertices,
+        int faceCount,
+        int[] faces,
+        double tolerance,
+        out int filledLoopCount)
+    {
+        filledLoopCount = 0;
+        if (faceCount <= 0)
+            return faces;
+
+        Dictionary<ulong, int> edgeCounts = BuildEdgeCounts(faces, faceCount);
+        var loops = TraceClosedBoundaryLoops(edgeCounts);
+        if (loops.Count <= 1)
+            return faces;
+
+        // The outer terrain outline is the largest-area loop; everything else is an interior hole.
+        int outerIndex = -1;
+        double outerArea = -1.0;
+        for (int i = 0; i < loops.Count; i++)
+        {
+            double area = Math.Abs(SignedAreaXy(vertices, loops[i]));
+            if (area > outerArea)
+            {
+                outerArea = area;
+                outerIndex = i;
+            }
+        }
+
+        var addedFaces = new List<int>();
+        for (int i = 0; i < loops.Count; i++)
+        {
+            if (i == outerIndex)
+                continue;
+
+            if (EarClipLoop(vertices, loops[i], tolerance, addedFaces))
+                filledLoopCount++;
+        }
+
+        if (addedFaces.Count == 0)
+            return faces;
+
+        var result = new int[(faceCount * 3) + addedFaces.Count];
+        Array.Copy(faces, result, faceCount * 3);
+        addedFaces.CopyTo(result, faceCount * 3);
+        return result;
+    }
+
+    /// <summary>Traces closed loops of the boundary-edge graph (edges used by exactly one face).</summary>
+    private static List<List<int>> TraceClosedBoundaryLoops(Dictionary<ulong, int> edgeCounts)
+    {
+        var neighbors = new Dictionary<int, List<int>>();
+        var remaining = new HashSet<(int, int)>();
+        foreach ((ulong edge, int count) in edgeCounts)
+        {
+            if (count != 1)
+                continue;
+
+            int a = (int)(edge >> 32);
+            int b = (int)(edge & 0xFFFFFFFFu);
+            AddNeighbor(neighbors, a, b);
+            AddNeighbor(neighbors, b, a);
+            remaining.Add(a < b ? (a, b) : (b, a));
+        }
+
+        var loops = new List<List<int>>();
+        while (remaining.Count > 0)
+        {
+            (int start, int next) = First(remaining);
+            var loop = new List<int> { start };
+            int previous = start;
+            int current = next;
+            remaining.Remove(Key(start, next));
+
+            bool closed = false;
+            while (true)
+            {
+                loop.Add(current);
+                int step = -1;
+                foreach (int candidate in neighbors[current])
+                {
+                    if (candidate == previous)
+                        continue;
+                    if (!remaining.Contains(Key(current, candidate)))
+                        continue;
+
+                    step = candidate;
+                    break;
+                }
+
+                if (step < 0)
+                    break;
+
+                remaining.Remove(Key(current, step));
+                if (step == start)
+                {
+                    closed = true;
+                    break;
+                }
+
+                previous = current;
+                current = step;
+                if (loop.Count > neighbors.Count + 2)
+                    break;
+            }
+
+            if (closed && loop.Count >= 3)
+                loops.Add(loop);
+        }
+
+        return loops;
+
+        static (int, int) Key(int a, int b) => a < b ? (a, b) : (b, a);
+        static (int, int) First(HashSet<(int, int)> set)
+        {
+            foreach ((int, int) e in set)
+                return e;
+            return (-1, -1);
+        }
+    }
+
+    /// <summary>Ear-clips a simple polygon loop (XY) into upward-facing triangles using existing indices.</summary>
+    private static bool EarClipLoop(double[] vertices, List<int> loop, double tolerance, List<int> outFaces)
+    {
+        int n = loop.Count;
+        if (n < 3)
+            return false;
+
+        // Work on a mutable copy ordered CCW so emitted triangles have upward normals.
+        var poly = new List<int>(loop);
+        if (SignedAreaXy(vertices, poly) < 0.0)
+            poly.Reverse();
+
+        double epsilon = Math.Max(tolerance, 1e-9);
+        int guard = 0;
+        int emitted = 0;
+        while (poly.Count > 3 && guard++ < n * n + 8)
+        {
+            bool clipped = false;
+            int m = poly.Count;
+            for (int i = 0; i < m; i++)
+            {
+                int ia = poly[(i + m - 1) % m];
+                int ib = poly[i];
+                int ic = poly[(i + 1) % m];
+                if (!IsEar(vertices, poly, ia, ib, ic, epsilon))
+                    continue;
+
+                outFaces.Add(ia);
+                outFaces.Add(ib);
+                outFaces.Add(ic);
+                emitted++;
+                poly.RemoveAt(i);
+                clipped = true;
+                break;
+            }
+
+            if (!clipped)
+                break; // degenerate/self-touching loop; leave the remainder to the topology gate
+        }
+
+        if (poly.Count == 3)
+        {
+            outFaces.Add(poly[0]);
+            outFaces.Add(poly[1]);
+            outFaces.Add(poly[2]);
+            emitted++;
+        }
+
+        return emitted > 0;
+    }
+
+    private static bool IsEar(double[] vertices, List<int> poly, int ia, int ib, int ic, double epsilon)
+    {
+        double ax = vertices[ia * 3], ay = vertices[ia * 3 + 1];
+        double bx = vertices[ib * 3], by = vertices[ib * 3 + 1];
+        double cx = vertices[ic * 3], cy = vertices[ic * 3 + 1];
+
+        double cross = ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
+        if (cross <= epsilon)
+            return false; // reflex or collinear (poly is CCW, so an ear turns left)
+
+        foreach (int idx in poly)
+        {
+            if (idx == ia || idx == ib || idx == ic)
+                continue;
+
+            if (PointInTriangle(vertices[idx * 3], vertices[idx * 3 + 1], ax, ay, bx, by, cx, cy))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool PointInTriangle(double px, double py, double ax, double ay, double bx, double by, double cx, double cy)
+    {
+        double d1 = ((px - bx) * (ay - by)) - ((ax - bx) * (py - by));
+        double d2 = ((px - cx) * (by - cy)) - ((bx - cx) * (py - cy));
+        double d3 = ((px - ax) * (cy - ay)) - ((cx - ax) * (py - ay));
+        bool hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+        bool hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+        return !(hasNeg && hasPos);
+    }
+
+    private static double SignedAreaXy(double[] vertices, List<int> loop)
+    {
+        double area2 = 0.0;
+        int n = loop.Count;
+        for (int i = 0; i < n; i++)
+        {
+            int a = loop[i];
+            int b = loop[(i + 1) % n];
+            area2 += (vertices[a * 3] * vertices[b * 3 + 1]) - (vertices[b * 3] * vertices[a * 3 + 1]);
+        }
+
+        return area2 * 0.5;
+    }
+
     public static void MergeMeshes(
         double[] firstVertices,
         int firstVertexCount,

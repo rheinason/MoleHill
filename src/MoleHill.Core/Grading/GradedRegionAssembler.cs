@@ -485,13 +485,22 @@ internal static class GradedRegionAssembler
         double[] weldedVertices = welder.ToVertexArray();
         int[] faceArray = faces.ToArray();
         int faceCount = faceArray.Length / 3;
+
+        // Enforce the watertight 2.5D invariant: zip hairline seam cracks (near-coincident boundary
+        // vertices the exact weld missed) and close any remaining interior holes, so the assembly has a
+        // single outer boundary. This is what lets the explicit engine succeed on grade-on-grade scenes
+        // instead of deferring to the fallback.
+        (weldedVertices, faceArray) = MeshTopologyOperations.MakeWatertight(
+            weldedVertices, welder.Count, faceArray, faceCount, weldTolerance, out _, out _);
+        faceCount = faceArray.Length / 3;
+
         OrientFacesUpward(weldedVertices, faceArray, faceCount);
 
         return new AssembledMesh
         {
             Success = true,
             Vertices = weldedVertices,
-            VertexCount = welder.Count,
+            VertexCount = weldedVertices.Length / 3,
             Faces = faceArray,
             FaceCount = faceCount
         };
