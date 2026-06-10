@@ -206,10 +206,23 @@ public static partial class PathGrader
                 -center.TangentX[0], -center.TangentY[0], spacing);
 
             double[] daylightPolyXy = polyXy.ToArray();
+
+            // The raw per-station daylight points can fold over themselves where the daylight reach
+            // varies sharply between neighbours (a tight curve, rapidly changing terrain, or a barrier
+            // clipping some rays short but not others). Resolve any self-overlap into the clean outer
+            // envelope with a Clipper union instead of deferring to the fallback. Batter seeds that end
+            // up outside this envelope are filtered out later in BuildCorridorHoleFill.
             if (GradingGeometry2D.ClosedPolylineSelfIntersects(daylightPolyXy, daylightPolyXy.Length / 2))
             {
-                errorMessage = "Grade Path daylight loop self-intersects; deferring to constraint-first path.";
-                return null;
+                if (!ClipperGeometry.TryUnionClosedLoops(new[] { daylightPolyXy }, tolerance, out List<double[]> cleanedLoops) ||
+                    !ClipperGeometry.TryPickLargestLoop(cleanedLoops, out double[] envelope) ||
+                    GradingGeometry2D.ClosedPolylineSelfIntersects(envelope, envelope.Length / 2))
+                {
+                    errorMessage = "Grade Path daylight loop self-intersects and could not be resolved; deferring to constraint-first path.";
+                    return null;
+                }
+
+                daylightPolyXy = envelope;
             }
 
             corridors.Add(new PathCorridor(leftXyz, rightXyz, n, daylightPolyXy, spacing, loop));
@@ -486,12 +499,26 @@ public static partial class PathGrader
         if (leftIdx[n - 1] != rightIdx[n - 1]) segments.Add((leftIdx[n - 1], rightIdx[n - 1]));
         if (leftIdx[0] != rightIdx[0]) segments.Add((leftIdx[0], rightIdx[0]));
 
-        // Batter row seeds from the side batter strip (density/slope).
+        // Batter row seeds from the side batter strip (density/slope). When the daylight envelope was
+        // simplified (a fold was resolved by Clipper), some original batter-row points can fall outside
+        // the conformed boundary; keep only seeds inside it so the triangulation stays within the hole.
         if (corridor.Loop.HasBatter)
         {
+            var boundaryXy = new double[boundaryCount * 2];
+            for (int i = 0; i < boundaryCount; i++)
+            {
+                boundaryXy[i * 2] = boundaryXyz[i * 3];
+                boundaryXy[i * 2 + 1] = boundaryXyz[i * 3 + 1];
+            }
+
             BatterStripBuilder.BatterStrip strip = BatterStripBuilder.BuildBatterStrip(corridor.Loop, corridor.Spacing);
             for (int i = 0; i < strip.VertexCount; i++)
-                AddPoint(strip.Vertices[i * 3], strip.Vertices[i * 3 + 1], 0.0);
+            {
+                double sx = strip.Vertices[i * 3];
+                double sy = strip.Vertices[i * 3 + 1];
+                if (GradingGeometry2D.PointInPolygon(sx, sy, boundaryXy, boundaryCount))
+                    AddPoint(sx, sy, 0.0);
+            }
         }
 
         TriangulationOutcome outcome = TriangulationHelper.Triangulate(

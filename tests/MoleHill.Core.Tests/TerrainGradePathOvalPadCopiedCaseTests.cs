@@ -1270,12 +1270,12 @@ public class TerrainGradePathOvalPadCopiedCaseTests
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
         PadDiagnosticAssert.AssertNoFallback(diagnostics);
-        Assert.Contains("topology healthy=True", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("shoulder quality warning", diagnostics, StringComparison.OrdinalIgnoreCase);
-        // Local insertion preserves the surrounding terrain detail rather than re-meshing it to a
-        // coarser seed set, so the face count is higher than the old constraint-first rebuild.
-        Assert.InRange(result.VertexCount, 850, 1_400);
-        Assert.InRange(result.FaceCount, 1_600, 2_600);
+        // The Clipper-simplified daylight envelope lets this curved corridor use the explicit engine
+        // (it previously self-intersected and fell back). Explicit output is watertight and manifold
+        // with the side batters welded into the terrain.
+        Assert.Contains("explicit corridor construction", diagnostics, StringComparison.OrdinalIgnoreCase);
+        Assert.InRange(result.VertexCount, 2_000, 5_000);
+        Assert.InRange(result.FaceCount, 4_000, 10_000);
 
         var topology = MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
         Assert.True(topology.HasSingleClosedBoundaryLoop, diagnostics);
