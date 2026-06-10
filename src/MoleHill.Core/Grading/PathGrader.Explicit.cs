@@ -168,7 +168,7 @@ public static partial class PathGrader
 
             BatterStripBuilder.DaylightLoop loop = BatterStripBuilder.BuildDaylightLoop(
                 stationXy, sideCount, isClosed: true, normals, footZ,
-                path.SlopeAngleDeg, path.MaxDistance, terrain, barriers, tolerance);
+                path.SlopeAngleDeg, path.FillSlopeAngleDeg, path.MaxDistance, terrain, barriers, tolerance);
 
             foreach (BatterStripBuilder.DaylightStation station in loop.Stations)
             {

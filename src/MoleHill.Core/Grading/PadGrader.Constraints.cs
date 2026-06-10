@@ -272,14 +272,14 @@ public static partial class PadGrader
         if (TerrainFaceGrid == null || pad == null || distance <= 1e-9)
             return distance;
 
-        double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
-        if (slopeRatio <= 1e-12)
-            return distance;
-
         double boundaryZ = pad.EvaluateZ(boundaryX, boundaryY);
         double terrainZ = TerrainFaceGrid.InterpolateZ(boundaryX, boundaryY);
         double branchSign = Math.Sign(terrainZ - boundaryZ);
         if (Math.Abs(branchSign) <= 1e-12)
+            return distance;
+
+        double slopeRatio = pad.SlopeRatioFor(branchSign);
+        if (slopeRatio <= 1e-12)
             return distance;
 
         return ComputePadDaylightReach(

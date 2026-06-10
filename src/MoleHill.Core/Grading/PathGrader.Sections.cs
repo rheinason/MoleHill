@@ -182,6 +182,7 @@ public static partial class PathGrader
         repairedRightSections = 0;
         double halfWidth = path.Width * 0.5;
         double slopeRatio = Math.Tan(path.SlopeAngleDeg * Math.PI / 180.0);
+        double fillSlopeRatio = Math.Tan(path.FillSlopeAngleDeg * Math.PI / 180.0);
         bool allowCapFallback = path.MaxDistance > 1e-9;
 
         for (int i = 0; i < n; i++)
@@ -217,6 +218,7 @@ public static partial class PathGrader
                 normalX,
                 normalY,
                 slopeRatio,
+                fillSlopeRatio,
                 maxSearchDistance,
                 path.Width,
                 boundaryTolerance,
@@ -245,6 +247,7 @@ public static partial class PathGrader
                 -normalX,
                 -normalY,
                 slopeRatio,
+                fillSlopeRatio,
                 maxSearchDistance,
                 path.Width,
                 boundaryTolerance,
@@ -560,7 +563,8 @@ public static partial class PathGrader
         double edgeZ,
         double dirX,
         double dirY,
-        double slopeRatio,
+        double cutSlopeRatio,
+        double fillSlopeRatio,
         double maxSearchDistance,
         double width,
         double tolerance,
@@ -575,7 +579,7 @@ public static partial class PathGrader
         resolvedY = edgeY;
         resolvedZ = edgeZ;
 
-        if (maxSearchDistance <= 1e-9 || slopeRatio <= 1e-12)
+        if (maxSearchDistance <= 1e-9 || (cutSlopeRatio <= 1e-12 && fillSlopeRatio <= 1e-12))
         {
             status = PathSectionResolutionStatus.NoGradeNeeded;
             return;
@@ -623,6 +627,14 @@ public static partial class PathGrader
         if (branchStatus != PathSectionBranchStatus.Resolved)
         {
             status = PathSectionResolutionStatus.Unresolved;
+            return;
+        }
+
+        // Cut (terrain above grade) and fill (below) can use different batter slopes.
+        double slopeRatio = branchSign < 0.0 ? fillSlopeRatio : cutSlopeRatio;
+        if (slopeRatio <= 1e-12)
+        {
+            status = PathSectionResolutionStatus.NoGradeNeeded;
             return;
         }
 

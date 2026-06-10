@@ -297,7 +297,7 @@ public static partial class PadGrader
                     }
                     else
                     {
-                        double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
+                        double slopeRatio = pad.SlopeRatioFor(branchSign);
                         double batterReach = DistToPolygon(
                             resolvedShoulderX,
                             resolvedShoulderY,
@@ -679,7 +679,6 @@ public static partial class PadGrader
         TerrainFaceGrid TerrainFaceGrid,
         PadBoundary pad)
     {
-        double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
         var distances = new double[padLoopVertexCount];
         double signedArea = ClipperGeometry.SignedArea(padLoopXy);
         bool hasOrientation = Math.Abs(signedArea) > 1e-12;
@@ -691,6 +690,8 @@ public static partial class PadGrader
             double terrainZ = TerrainFaceGrid.InterpolateZ(bx, by);
             double padZ = pad.EvaluateZ(bx, by);
             double dz = Math.Abs(terrainZ - padZ);
+            double branchSign = Math.Sign(terrainZ - padZ);
+            double slopeRatio = pad.SlopeRatioFor(branchSign);
             double d = slopeRatio > 1e-12 ? dz / slopeRatio : 100.0;
             if (d > 1e-9 && hasOrientation &&
                 TryComputePadOutwardEdgeNormals(
@@ -703,7 +704,6 @@ public static partial class PadGrader
                     out double nextNormalX,
                     out double nextNormalY))
             {
-                double branchSign = Math.Sign(terrainZ - padZ);
                 double previousReach = ComputePadDaylightReach(
                     TerrainFaceGrid,
                     bx,

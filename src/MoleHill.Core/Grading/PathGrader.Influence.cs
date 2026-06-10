@@ -59,8 +59,10 @@ public static partial class PathGrader
         if (absDz <= 1e-12)
             return false;
 
-        double neededDist = preparedPath.SlopeRatio > 1e-12
-            ? absDz / preparedPath.SlopeRatio
+        // dz = terrainZ - roadZ: > 0 terrain above grade (cut), < 0 below (fill).
+        double slopeRatio = preparedPath.SlopeRatioForBranch(Math.Sign(dz));
+        double neededDist = slopeRatio > 1e-12
+            ? absDz / slopeRatio
             : double.MaxValue;
         if (preparedPath.MaxDistance > 0)
             neededDist = Math.Min(neededDist, preparedPath.MaxDistance);
@@ -70,7 +72,7 @@ public static partial class PathGrader
         if (distFromEdge >= neededDist)
             return false;
 
-        double rise = distFromEdge * preparedPath.SlopeRatio;
+        double rise = distFromEdge * slopeRatio;
         if (rise >= absDz)
             return false;
 

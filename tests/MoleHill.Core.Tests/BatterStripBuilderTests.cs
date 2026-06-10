@@ -19,6 +19,52 @@ public class BatterStripBuilderTests
         return new TerrainFaceGrid(vertices, 4, faces, 2);
     }
 
+    private static double MaxReach(double cutAngle, double fillAngle, double footZ)
+    {
+        // Flat terrain at z=0; footZ above it -> all stations are FILL, footZ below -> all CUT.
+        TerrainFaceGrid terrain = FlatTerrain(0.0);
+        var stations = BatterStripBuilder.BuildClosedFootprintStations(Square(5.0), 4, 6);
+        BatterStripBuilder.DaylightLoop loop = BatterStripBuilder.BuildDaylightLoop(
+            stations.Xy, stations.Count, isClosed: true, outwardNormals: stations.Normals,
+            footprintZ: (_, _) => footZ,
+            cutSlopeAngleDeg: cutAngle, fillSlopeAngleDeg: fillAngle,
+            maxDistance: 0.0, terrain: terrain, barriers: PreparedBarriers.Empty, tolerance: 1e-3);
+        double max = 0.0;
+        foreach (BatterStripBuilder.DaylightStation s in loop.Stations)
+            max = System.Math.Max(max, s.Reach);
+        return max;
+    }
+
+    [Fact]
+    public void Daylight_FillStations_UseFillSlope_NotCutSlope()
+    {
+        // footZ = 5 above flat terrain -> FILL. Reach = riseToTerrain / tan(fillAngle) = 5 / ratio.
+        double reach45 = MaxReach(cutAngle: 45.0, fillAngle: 45.0, footZ: 5.0);   // ratio 1 -> ~5
+        double reachShallowFill = MaxReach(cutAngle: 45.0, fillAngle: 26.565051, footZ: 5.0); // ratio 0.5 -> ~10
+
+        Assert.Equal(5.0, reach45, 1);
+        Assert.Equal(10.0, reachShallowFill, 1);
+
+        // Changing the CUT angle must not affect an all-fill pad.
+        double reachCutChanged = MaxReach(cutAngle: 10.0, fillAngle: 45.0, footZ: 5.0);
+        Assert.Equal(reach45, reachCutChanged, 3);
+    }
+
+    [Fact]
+    public void Daylight_CutStations_UseCutSlope_NotFillSlope()
+    {
+        // footZ = -5 below flat terrain -> CUT. Reach = 5 / tan(cutAngle).
+        double reach45 = MaxReach(cutAngle: 45.0, fillAngle: 45.0, footZ: -5.0);   // ratio 1 -> ~5
+        double reachShallowCut = MaxReach(cutAngle: 26.565051, fillAngle: 45.0, footZ: -5.0); // ratio 0.5 -> ~10
+
+        Assert.Equal(5.0, reach45, 1);
+        Assert.Equal(10.0, reachShallowCut, 1);
+
+        // Changing the FILL angle must not affect an all-cut pad.
+        double reachFillChanged = MaxReach(cutAngle: 45.0, fillAngle: 10.0, footZ: -5.0);
+        Assert.Equal(reach45, reachFillChanged, 3);
+    }
+
     // A CCW unit square footprint of the given half-size, centred on the origin.
     private static double[] Square(double half) => new[]
     {
@@ -42,7 +88,8 @@ public class BatterStripBuilderTests
             isClosed: true,
             outwardNormals: normals,
             footprintZ: (_, _) => 0.0,
-            slopeAngleDeg: 45.0,
+            cutSlopeAngleDeg: 45.0,
+            fillSlopeAngleDeg: 45.0,
             maxDistance: 0.0,
             terrain: terrain,
             barriers: PreparedBarriers.Empty,
@@ -89,7 +136,8 @@ public class BatterStripBuilderTests
             isClosed: true,
             outwardNormals: normals,
             footprintZ: (_, _) => 0.0,
-            slopeAngleDeg: 45.0,
+            cutSlopeAngleDeg: 45.0,
+            fillSlopeAngleDeg: 45.0,
             maxDistance: 0.0,
             terrain: terrain,
             barriers: PreparedBarriers.Empty,
@@ -117,7 +165,8 @@ public class BatterStripBuilderTests
             isClosed: true,
             outwardNormals: normals,
             footprintZ: (_, _) => 0.0,
-            slopeAngleDeg: 45.0,
+            cutSlopeAngleDeg: 45.0,
+            fillSlopeAngleDeg: 45.0,
             maxDistance: 0.0,
             terrain: terrain,
             barriers: PreparedBarriers.Empty,
@@ -147,7 +196,8 @@ public class BatterStripBuilderTests
             isClosed: true,
             outwardNormals: normals,
             footprintZ: (_, _) => 0.0,
-            slopeAngleDeg: 45.0,
+            cutSlopeAngleDeg: 45.0,
+            fillSlopeAngleDeg: 45.0,
             maxDistance: 5.0,
             terrain: terrain,
             barriers: PreparedBarriers.Empty,
@@ -165,7 +215,8 @@ public class BatterStripBuilderTests
     private static BatterStripBuilder.BatterStrip BuildStripOnFlatTerrain(
         double terrainZ,
         double padZ,
-        double slopeAngleDeg,
+        double cutSlopeAngleDeg,
+        double fillSlopeAngleDeg,
         double edgeLength,
         int cornerFanSegments = 6)
     {
@@ -177,7 +228,8 @@ public class BatterStripBuilderTests
             isClosed: true,
             outwardNormals: stations.Normals,
             footprintZ: (_, _) => padZ,
-            slopeAngleDeg: slopeAngleDeg,
+            cutSlopeAngleDeg: cutSlopeAngleDeg,
+            fillSlopeAngleDeg: fillSlopeAngleDeg,
             maxDistance: 0.0,
             terrain: terrain,
             barriers: PreparedBarriers.Empty,
@@ -205,7 +257,8 @@ public class BatterStripBuilderTests
         BatterStripBuilder.BatterStrip strip = BuildStripOnFlatTerrain(
             terrainZ: 10.0,
             padZ: 0.0,
-            slopeAngleDeg: slopeAngleDeg,
+            cutSlopeAngleDeg: slopeAngleDeg,
+            fillSlopeAngleDeg: slopeAngleDeg,
             edgeLength: 2.0);
 
         Assert.True(strip.FaceCount > 0);
@@ -229,7 +282,8 @@ public class BatterStripBuilderTests
         BatterStripBuilder.BatterStrip strip = BuildStripOnFlatTerrain(
             terrainZ: 10.0,
             padZ: 0.0,
-            slopeAngleDeg: 45.0,
+            cutSlopeAngleDeg: 45.0,
+            fillSlopeAngleDeg: 45.0,
             edgeLength: 2.0);
 
         // reach ≈ 10 / edge 2 → ~5 rows (a sub-tolerance ray-march overshoot may round to 6).
@@ -247,7 +301,8 @@ public class BatterStripBuilderTests
         BatterStripBuilder.BatterStrip strip = BuildStripOnFlatTerrain(
             terrainZ: 0.0,
             padZ: 0.0,
-            slopeAngleDeg: 45.0,
+            cutSlopeAngleDeg: 45.0,
+            fillSlopeAngleDeg: 45.0,
             edgeLength: 2.0);
 
         Assert.Equal(0, strip.FaceCount);

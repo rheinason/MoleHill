@@ -121,7 +121,8 @@ internal static class BatterStripBuilder
         bool isClosed,
         double[] outwardNormals,
         Func<double, double, double> footprintZ,
-        double slopeAngleDeg,
+        double cutSlopeAngleDeg,
+        double fillSlopeAngleDeg,
         double maxDistance,
         TerrainFaceGrid terrain,
         PreparedBarriers barriers,
@@ -131,7 +132,7 @@ internal static class BatterStripBuilder
         return BuildDaylightLoopCore(
             footprintXy, footprintCount, isClosed, outwardNormals,
             (_, x, y) => footprintZ(x, y),
-            slopeAngleDeg, maxDistance, terrain, barriers, tolerance);
+            cutSlopeAngleDeg, fillSlopeAngleDeg, maxDistance, terrain, barriers, tolerance);
     }
 
     /// <summary>
@@ -145,7 +146,8 @@ internal static class BatterStripBuilder
         bool isClosed,
         double[] outwardNormals,
         double[] footprintZByStation,
-        double slopeAngleDeg,
+        double cutSlopeAngleDeg,
+        double fillSlopeAngleDeg,
         double maxDistance,
         TerrainFaceGrid terrain,
         PreparedBarriers barriers,
@@ -157,7 +159,7 @@ internal static class BatterStripBuilder
         return BuildDaylightLoopCore(
             footprintXy, footprintCount, isClosed, outwardNormals,
             (i, _, _) => footprintZByStation[i],
-            slopeAngleDeg, maxDistance, terrain, barriers, tolerance);
+            cutSlopeAngleDeg, fillSlopeAngleDeg, maxDistance, terrain, barriers, tolerance);
     }
 
     private static DaylightLoop BuildDaylightLoopCore(
@@ -166,7 +168,8 @@ internal static class BatterStripBuilder
         bool isClosed,
         double[] outwardNormals,
         Func<int, double, double, double> footprintZ,
-        double slopeAngleDeg,
+        double cutSlopeAngleDeg,
+        double fillSlopeAngleDeg,
         double maxDistance,
         TerrainFaceGrid terrain,
         PreparedBarriers barriers,
@@ -182,7 +185,8 @@ internal static class BatterStripBuilder
         if (outwardNormals.Length < footprintCount * 2)
             throw new ArgumentException("Outward-normal array is shorter than the vertex count.", nameof(outwardNormals));
 
-        double slopeRatio = Math.Tan(Math.Clamp(slopeAngleDeg, 0.1, 89.9) * Math.PI / 180.0);
+        double cutSlopeRatio = Math.Tan(Math.Clamp(cutSlopeAngleDeg, 0.1, 89.9) * Math.PI / 180.0);
+        double fillSlopeRatio = Math.Tan(Math.Clamp(fillSlopeAngleDeg, 0.1, 89.9) * Math.PI / 180.0);
         double zTolerance = GradingTolerances.VertexAdjustmentZTolerance(tolerance);
         double searchDistance = maxDistance > 0.0
             ? maxDistance
@@ -206,7 +210,8 @@ internal static class BatterStripBuilder
                 fz,
                 nx,
                 ny,
-                slopeRatio,
+                cutSlopeRatio,
+                fillSlopeRatio,
                 searchDistance,
                 maxDistance,
                 zTolerance,
@@ -225,7 +230,8 @@ internal static class BatterStripBuilder
         double fz,
         double nx,
         double ny,
-        double slopeRatio,
+        double cutSlopeRatio,
+        double fillSlopeRatio,
         double searchDistance,
         double maxDistance,
         double zTolerance,
@@ -238,6 +244,9 @@ internal static class BatterStripBuilder
         double terrainZatFoot = terrain.InterpolateZ(fx, fy);
         double diff = terrainZatFoot - fz;
         double branchSign = Math.Sign(diff);
+
+        // Cut (terrain above grade) and fill (terrain below grade) can use different batter slopes.
+        double slopeRatio = branchSign < 0.0 ? fillSlopeRatio : cutSlopeRatio;
 
         // No elevation difference, no usable slope, or no usable outward direction: there is
         // nothing to batter here. The daylight point collapses onto the footprint.
