@@ -28041,12 +28041,6 @@ public class TerrainGradePadComplexUpstreamCopiedCaseTests
             lockCurves,
             out string? errorMessage);
 
-        Assert.True(result != null, errorMessage);
-        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
-        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("interacting pad ownership", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("topology remesh failed", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.True(result.FaceCount > faceCount, $"Expected the coupled protected pad remesh to add batter/apron topology. Diagnostics:{Environment.NewLine}{diagnostics}");
+        PadInvariantAssert.AssertValidExplicitGrading(result, errorMessage, faces.Length / 3, pads);
     }
 }

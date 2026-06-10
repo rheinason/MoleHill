@@ -1553,7 +1553,19 @@ internal sealed partial class TerrainBuildService
                 structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
         }
 
-        var effectiveLocks = CombinePadLockCurves(resolvedInputs.Locks, build.PersistentHardConstraints);
+        var effectiveLocks = CombinePadLockCurves(
+            resolvedInputs.Locks,
+            build.PersistentHardConstraints,
+            resolvedInputs.Pads,
+            vertices,
+            mesh.Vertices.Count,
+            toleranceProfile.DetailSize,
+            out int skippedPersistentLockCount);
+        if (skippedPersistentLockCount > 0)
+        {
+            build.Diagnostics.Add(
+                $"Grade Pad ignored {skippedPersistentLockCount:N0} persistent hard constraint(s) outside the pad influence envelope when building pad lock barriers.");
+        }
         List<GradingPatch> patchSummaries = BuildPadPatchSummaries(resolvedInputs.Pads);
         List<string> dirtyStageKeys = runtimeCache.FindIntersectingGradingStageKeys(
             TerrainRuntimeCache.GetStagePrefix(mode),
@@ -1682,9 +1694,7 @@ internal sealed partial class TerrainBuildService
         }
 
         bool gradePadStageFailed = topologyEntry.Diagnostics.Any(
-            static diagnostic => diagnostic.Contains("Grade Pad protected patch failed", StringComparison.OrdinalIgnoreCase)) ||
-            topologyEntry.StructuredDiagnostics.Any(
-                static diagnostic => string.Equals(diagnostic.Code, "grade_pad.constraint_first.failed", StringComparison.Ordinal));
+            static diagnostic => diagnostic.Contains("Grade Pad protected patch failed", StringComparison.OrdinalIgnoreCase));
         build.Diagnostics.Add(gradePadStageFailed
             ? $"Grade Pad protected patch failed; upstream mesh retained ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)})."
             : $"Grade Pad local patch ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)}).");
@@ -1816,26 +1826,8 @@ internal sealed partial class TerrainBuildService
             pads.Add(pad!);
         }
 
-        var locks = new List<PadGrader.LockCurve>();
-        foreach (var curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.LockCurves))
-        {
-            if (!RhinoSourceResolver.TryGetPolyline(curve, curveTolerance, requireClosed: false, out var polyline))
-                continue;
-            if (polyline.Count < 2)
-                continue;
-
-            var xyVerts = new double[polyline.Count * 2];
-            for (int i = 0; i < polyline.Count; i++)
-            {
-                xyVerts[i * 2] = polyline[i].X;
-                xyVerts[i * 2 + 1] = polyline[i].Y;
-            }
-
-            locks.Add(new PadGrader.LockCurve(xyVerts, polyline.Count));
-        }
-
         PadGrader.PadBoundary[] padArray = pads.ToArray();
-        PadGrader.LockCurve[] lockArray = locks.ToArray();
+        PadGrader.LockCurve[] lockArray = Array.Empty<PadGrader.LockCurve>();
         PadGrader.ConstraintSet constraintSet = padArray.Length == 0
             ? new PadGrader.ConstraintSet
             {
@@ -1968,18 +1960,36 @@ internal sealed partial class TerrainBuildService
 
     private static PadGrader.LockCurve[] CombinePadLockCurves(
         IReadOnlyList<PadGrader.LockCurve> localLocks,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints)
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints,
+        IReadOnlyList<PadGrader.PadBoundary> pads,
+        double[] terrainVertices,
+        int terrainVertexCount,
+        double terrainDetailSize,
+        out int skippedPersistentLockCount)
     {
+        skippedPersistentLockCount = 0;
         if (localLocks.Count == 0 && persistentHardConstraints.Count == 0)
             return Array.Empty<PadGrader.LockCurve>();
 
         var combined = new List<PadGrader.LockCurve>(localLocks.Count + persistentHardConstraints.Count);
         combined.AddRange(localLocks);
+        Bounds2D[] padInfluenceBounds = BuildPadInfluenceBoundsForLocks(
+            pads,
+            terrainVertices,
+            terrainVertexCount,
+            terrainDetailSize);
 
         foreach (var constraint in persistentHardConstraints)
         {
             if (constraint.PointCount < 2 || constraint.IsClosed)
                 continue;
+
+            if (padInfluenceBounds.Length > 0 &&
+                !ConstraintIntersectsAnyBounds(constraint, padInfluenceBounds))
+            {
+                skippedPersistentLockCount++;
+                continue;
+            }
 
             var xyVertices = new double[constraint.PointCount * 2];
             for (int i = 0; i < constraint.PointCount; i++)
@@ -1992,6 +2002,184 @@ internal sealed partial class TerrainBuildService
         }
 
         return combined.ToArray();
+    }
+
+    private static Bounds2D[] BuildPadInfluenceBoundsForLocks(
+        IReadOnlyList<PadGrader.PadBoundary> pads,
+        double[] terrainVertices,
+        int terrainVertexCount,
+        double terrainDetailSize)
+    {
+        if (pads.Count == 0)
+            return Array.Empty<Bounds2D>();
+
+        ComputeTerrainBoundsAndZRange(
+            terrainVertices,
+            terrainVertexCount,
+            out Bounds2D terrainBounds,
+            out double terrainMinZ,
+            out double terrainMaxZ);
+        double terrainDiagonal = Math.Sqrt(
+            ((terrainBounds.MaxX - terrainBounds.MinX) * (terrainBounds.MaxX - terrainBounds.MinX)) +
+            ((terrainBounds.MaxY - terrainBounds.MinY) * (terrainBounds.MaxY - terrainBounds.MinY)));
+        double basePadding = Math.Max(terrainDetailSize * 2.0, 1e-6);
+
+        var bounds = new Bounds2D[pads.Count];
+        for (int i = 0; i < pads.Count; i++)
+        {
+            PadGrader.PadBoundary pad = pads[i];
+            Bounds2D padBounds = GradingPatch.ComputeBounds(pad.XyVertices);
+            double reach = EstimatePadReach(pad, padBounds, terrainMinZ, terrainMaxZ, terrainDiagonal);
+            double expansion = Math.Max(basePadding, reach + pad.StitchApronDistance + terrainDetailSize);
+            bounds[i] = ExpandBounds(padBounds, expansion);
+        }
+
+        return bounds;
+    }
+
+    private static void ComputeTerrainBoundsAndZRange(
+        double[] vertices,
+        int vertexCount,
+        out Bounds2D bounds,
+        out double minZ,
+        out double maxZ)
+    {
+        if (vertexCount <= 0 || vertices.Length < 3)
+        {
+            bounds = new Bounds2D(0.0, 0.0, 0.0, 0.0);
+            minZ = 0.0;
+            maxZ = 0.0;
+            return;
+        }
+
+        double minX = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity;
+        double minY = double.PositiveInfinity;
+        double maxY = double.NegativeInfinity;
+        minZ = double.PositiveInfinity;
+        maxZ = double.NegativeInfinity;
+        int limit = Math.Min(vertexCount, vertices.Length / 3);
+        for (int i = 0; i < limit; i++)
+        {
+            double x = vertices[i * 3];
+            double y = vertices[(i * 3) + 1];
+            double z = vertices[(i * 3) + 2];
+            if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(z))
+                continue;
+
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+            if (z < minZ) minZ = z;
+            if (z > maxZ) maxZ = z;
+        }
+
+        if (!double.IsFinite(minX))
+        {
+            bounds = new Bounds2D(0.0, 0.0, 0.0, 0.0);
+            minZ = 0.0;
+            maxZ = 0.0;
+            return;
+        }
+
+        bounds = new Bounds2D(minX, maxX, minY, maxY);
+    }
+
+    private static double EstimatePadReach(
+        PadGrader.PadBoundary pad,
+        Bounds2D padBounds,
+        double terrainMinZ,
+        double terrainMaxZ,
+        double terrainDiagonal)
+    {
+        if (pad.MaxDistance > 0.0)
+            return pad.MaxDistance;
+
+        double slopeRatio = Math.Tan(pad.SlopeAngleDeg * Math.PI / 180.0);
+        if (!double.IsFinite(slopeRatio) || slopeRatio <= 1e-9)
+            return terrainDiagonal;
+
+        double padMinZ = double.PositiveInfinity;
+        double padMaxZ = double.NegativeInfinity;
+        AccumulatePadZRange(pad, padBounds.MinX, padBounds.MinY, ref padMinZ, ref padMaxZ);
+        AccumulatePadZRange(pad, padBounds.MinX, padBounds.MaxY, ref padMinZ, ref padMaxZ);
+        AccumulatePadZRange(pad, padBounds.MaxX, padBounds.MinY, ref padMinZ, ref padMaxZ);
+        AccumulatePadZRange(pad, padBounds.MaxX, padBounds.MaxY, ref padMinZ, ref padMaxZ);
+
+        double dz = Math.Max(
+            Math.Abs(terrainMinZ - padMaxZ),
+            Math.Abs(terrainMaxZ - padMinZ));
+        double reach = dz / slopeRatio;
+        if (!double.IsFinite(reach))
+            return terrainDiagonal;
+
+        return Math.Min(Math.Max(reach, 0.0), terrainDiagonal);
+    }
+
+    private static void AccumulatePadZRange(
+        PadGrader.PadBoundary pad,
+        double x,
+        double y,
+        ref double minZ,
+        ref double maxZ)
+    {
+        double z = pad.EvaluateZ(x, y);
+        if (!double.IsFinite(z))
+            return;
+
+        if (z < minZ) minZ = z;
+        if (z > maxZ) maxZ = z;
+    }
+
+    private static Bounds2D ExpandBounds(Bounds2D bounds, double expansion)
+    {
+        return new Bounds2D(
+            bounds.MinX - expansion,
+            bounds.MaxX + expansion,
+            bounds.MinY - expansion,
+            bounds.MaxY + expansion);
+    }
+
+    private static bool ConstraintIntersectsAnyBounds(
+        SurfaceRemesher.ConstraintPolyline constraint,
+        IReadOnlyList<Bounds2D> bounds)
+    {
+        if (constraint.Points.Length < constraint.PointCount * 3)
+            return false;
+
+        Bounds2D constraintBounds = ComputeConstraintBounds(constraint);
+        for (int i = 0; i < bounds.Count; i++)
+        {
+            if (constraintBounds.Intersects(bounds[i]))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static Bounds2D ComputeConstraintBounds(SurfaceRemesher.ConstraintPolyline constraint)
+    {
+        double minX = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity;
+        double minY = double.PositiveInfinity;
+        double maxY = double.NegativeInfinity;
+        for (int i = 0; i < constraint.PointCount; i++)
+        {
+            double x = constraint.Points[i * 3];
+            double y = constraint.Points[(i * 3) + 1];
+            if (!double.IsFinite(x) || !double.IsFinite(y))
+                continue;
+
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+
+        return double.IsFinite(minX)
+            ? new Bounds2D(minX, maxX, minY, maxY)
+            : new Bounds2D(0.0, 0.0, 0.0, 0.0);
     }
 
     private static RhinoMesh ApplyGradePath(

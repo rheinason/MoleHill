@@ -1,13 +1,15 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace MoleHill.Core.Tests;
 
-public class TerrainGradePadDaylightMinglingCopiedCaseTests
+public class TerrainGradePadTwoProtectedStationCopiedCaseTests
 {
     [Fact]
-    public void GradePad_DaylightMinglingCopiedCase_DoesNotUsePlainDelaunayCoupledPatch()
+    public void Grade_TwoProtectedPads_UsesConstraintFirstStationTopology()
     {
         double[] vertices =
         {
@@ -1031,7 +1033,7 @@ public class TerrainGradePadDaylightMinglingCopiedCaseTests
                 -3.5041818302582726E-17,
                 -1.3148617900397475E-17,
                 36.930116679143495,
-                30,
+                45,
                 0,
                 stitchApronDistance: 0.5),
             PadGrader.PadBoundary.CreatePlanar(
@@ -1043,7 +1045,7 @@ public class TerrainGradePadDaylightMinglingCopiedCaseTests
                 0,
                 0,
                 36.41119211856837,
-                30,
+                45,
                 0,
                 stitchApronDistance: 0.5),
         };

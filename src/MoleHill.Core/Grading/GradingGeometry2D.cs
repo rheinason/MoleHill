@@ -22,6 +22,89 @@ internal static class GradingGeometry2D
         return inside;
     }
 
+    /// <summary>True if two closed XY polygons overlap (a vertex of one inside the other, or any edges cross).</summary>
+    public static bool PolygonsOverlap(double[] aXy, double[] bXy)
+    {
+        int aCount = aXy.Length / 2;
+        int bCount = bXy.Length / 2;
+        if (aCount < 3 || bCount < 3)
+            return false;
+
+        for (int i = 0; i < aCount; i++)
+        {
+            if (PointInPolygon(aXy[i * 2], aXy[i * 2 + 1], bXy, bCount))
+                return true;
+        }
+
+        for (int i = 0; i < bCount; i++)
+        {
+            if (PointInPolygon(bXy[i * 2], bXy[i * 2 + 1], aXy, aCount))
+                return true;
+        }
+
+        for (int i = 0; i < aCount; i++)
+        {
+            int ai = (i + 1) % aCount;
+            for (int j = 0; j < bCount; j++)
+            {
+                int bj = (j + 1) % bCount;
+                if (SegmentsIntersect(
+                        aXy[i * 2], aXy[i * 2 + 1], aXy[ai * 2], aXy[ai * 2 + 1],
+                        bXy[j * 2], bXy[j * 2 + 1], bXy[bj * 2], bXy[bj * 2 + 1]))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>True if a closed XY polygon has any non-adjacent edge crossing (self-intersection).</summary>
+    public static bool ClosedPolylineSelfIntersects(double[] xy, int vertexCount)
+    {
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int iNext = (i + 1) % vertexCount;
+            for (int j = i + 1; j < vertexCount; j++)
+            {
+                int jNext = (j + 1) % vertexCount;
+                if (i == j || i == jNext || iNext == j || iNext == jNext)
+                    continue;
+
+                if (SegmentsIntersect(
+                        xy[i * 2], xy[i * 2 + 1], xy[iNext * 2], xy[iNext * 2 + 1],
+                        xy[j * 2], xy[j * 2 + 1], xy[jNext * 2], xy[jNext * 2 + 1]))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public static bool SegmentsIntersect(
+        double ax, double ay, double bx, double by,
+        double cx, double cy, double dx, double dy)
+    {
+        double o1 = Cross(ax, ay, bx, by, cx, cy);
+        double o2 = Cross(ax, ay, bx, by, dx, dy);
+        double o3 = Cross(cx, cy, dx, dy, ax, ay);
+        double o4 = Cross(cx, cy, dx, dy, bx, by);
+
+        if (((o1 > 0.0 && o2 < 0.0) || (o1 < 0.0 && o2 > 0.0)) &&
+            ((o3 > 0.0 && o4 < 0.0) || (o3 < 0.0 && o4 > 0.0)))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static double Cross(double ax, double ay, double bx, double by, double px, double py) =>
+        ((bx - ax) * (py - ay)) - ((by - ay) * (px - ax));
+
     public static double DistanceToPolygon(double px, double py, double[] polyXy, int polyVertCount)
     {
         double minDist = double.MaxValue;

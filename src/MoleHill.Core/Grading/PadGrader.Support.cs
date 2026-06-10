@@ -165,6 +165,8 @@ public static partial class PadGrader
     {
         if (message.Contains("batter slope warning", StringComparison.OrdinalIgnoreCase))
             return "grade_pad.slope.deviation";
+        if (message.Contains("shoulder quality warning", StringComparison.OrdinalIgnoreCase))
+            return "grade_pad.shoulder.quality";
         if (message.Contains("batter slope check", StringComparison.OrdinalIgnoreCase))
             return "grade_pad.slope.check";
         if (message.Contains("topology summary", StringComparison.OrdinalIgnoreCase))

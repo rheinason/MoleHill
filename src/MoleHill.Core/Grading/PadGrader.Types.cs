@@ -58,6 +58,8 @@ public static partial class PadGrader
     {
         public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
 
+        public SurfaceRemesher.ConstraintPolyline[] GuidePolylines { get; init; } = Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+
         public required double SuggestedEdgeLength { get; init; }
 
         public required string[] Diagnostics { get; init; }

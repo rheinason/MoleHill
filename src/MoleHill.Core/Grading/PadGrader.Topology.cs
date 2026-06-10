@@ -33,7 +33,8 @@ public static partial class PadGrader
         int[] faces,
         int faceCount,
         PadBoundary[] pads,
-        LockCurve[]? lockCurves = null)
+        LockCurve[]? lockCurves = null,
+        bool useNearestShoulderCandidate = false)
     {
         lockCurves ??= Array.Empty<LockCurve>();
         ValidateApplyGradingZInputs(topologyVertices, vertexCount, faces, faceCount, pads, lockCurves);
@@ -66,7 +67,8 @@ public static partial class PadGrader
             hasBoundaryLoop,
             boundaryLoop,
             boundaryVertexCount,
-            tolerance: 1e-3);
+            tolerance: 1e-3,
+            useNearestShoulderCandidate: useNearestShoulderCandidate);
         return gradedVertices;
     }
 
@@ -122,7 +124,8 @@ public static partial class PadGrader
             boundaryVertexCount,
             tolerance: 1e-3,
             keepShoulderOnBatterPlane: false,
-            defaultCornerFanSegments);
+            defaultCornerFanSegments,
+            useNearestShoulderCandidate: true);
         return gradedVertices;
     }
 
@@ -187,8 +190,19 @@ public static partial class PadGrader
 
         bool hasBoundaryLoop = TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
         var constraints = new List<SurfaceRemesher.ConstraintPolyline>(pads.Length * 3 + lockCurves.Length);
+        var guidePolylines = new List<SurfaceRemesher.ConstraintPolyline>();
         var diagnostics = new GradingDiagnosticCollector();
         double suggestedEdgeLength = double.MaxValue;
+        bool useCoupledProtectedUnionLoops =
+            pads.Length > 1 &&
+            lockCurves.Length == 0 &&
+            !includeTransitionStationConstraints &&
+            pads.Any(pad => pad.StitchApronDistance > dedupTol * 4.0);
+        double[] padInfluenceDistances = new double[pads.Length];
+        for (int i = 0; i < pads.Length; i++)
+            padInfluenceDistances[i] = ComputePadTransitionDistance(vertices, vertexCount, pads[i]);
+        var coupledShoulderLoops = new List<double[]>();
+        var coupledStitchLoops = new List<double[]>();
         var coincidenceSnapper = new ConstraintCoincidenceSnapper(
             vertices,
             vertexCount,
@@ -263,15 +277,24 @@ public static partial class PadGrader
                         PreserveInputElevation: false));
                 }
 
-                constraints.Add(new SurfaceRemesher.ConstraintPolyline(
-                    CreateConstraintPoints(shoulderXy, shoulderVertexCount),
-                    shoulderVertexCount,
-                    IsClosed: true,
-                    PreserveInputElevation: false));
+                if (useCoupledProtectedUnionLoops)
+                {
+                    coupledShoulderLoops.Add(shoulderXy);
+                }
+                else
+                {
+                    constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                        CreateConstraintPoints(shoulderXy, shoulderVertexCount),
+                        shoulderVertexCount,
+                        IsClosed: true,
+                        PreserveInputElevation: false));
+                }
                 if (includeTransitionStationConstraints)
                 {
                     AddPadTransitionStationConstraints(
                         constraints,
+                        padIndex,
+                        pads,
                         transitionBoundaryXy,
                         transitionBoundaryVertexCount,
                         shoulderXy,
@@ -291,12 +314,19 @@ public static partial class PadGrader
                         out string? stitchSkipReason))
                 {
                     int stitchVertexCount = stitchXy.Length / 2;
-                    constraints.Add(new SurfaceRemesher.ConstraintPolyline(
-                        CreateConstraintPoints(stitchXy, stitchVertexCount),
-                        stitchVertexCount,
-                        IsClosed: true,
-                        PreserveInputElevation: false));
-                    suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, stitchXy, stitchVertexCount, stride: 2, isClosed: true);
+                    if (useCoupledProtectedUnionLoops)
+                    {
+                        coupledStitchLoops.Add(stitchXy);
+                    }
+                    else
+                    {
+                        constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+                            CreateConstraintPoints(stitchXy, stitchVertexCount),
+                            stitchVertexCount,
+                            IsClosed: true,
+                            PreserveInputElevation: false));
+                        suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, stitchXy, stitchVertexCount, stride: 2, isClosed: true);
+                    }
                 }
                 else if (!string.IsNullOrWhiteSpace(stitchSkipReason))
                 {
@@ -314,6 +344,33 @@ public static partial class PadGrader
                     skipReason!,
                     operation: "Grade Pad",
                     targetIndex: padIndex);
+            }
+        }
+
+        if (useCoupledProtectedUnionLoops)
+        {
+            AddUnionedCoupledPadLoops(
+                constraints,
+                diagnostics,
+                "grade_pad.coupled.shoulder_union",
+                "Grade Pad coupled protected shoulder loops unioned into shared topology constraints.",
+                coupledShoulderLoops,
+                dedupTol,
+                ref suggestedEdgeLength);
+            AddUnionedCoupledPadLoops(
+                constraints,
+                diagnostics,
+                "grade_pad.coupled.stitch_union",
+                "Grade Pad coupled protected stitch loops unioned into shared topology constraints.",
+                coupledStitchLoops,
+                dedupTol,
+                ref suggestedEdgeLength);
+            if (guidePolylines.Count > 0)
+            {
+                diagnostics.AddInformation(
+                    "grade_pad.coupled.soft_guides",
+                    $"Grade Pad retained {guidePolylines.Count:N0} per-pad shoulder loop(s) as soft topology guide seeds.",
+                    operation: "Grade Pad");
             }
         }
 
@@ -346,6 +403,7 @@ public static partial class PadGrader
         return new ConstraintSet
         {
             Constraints = constraints.ToArray(),
+            GuidePolylines = guidePolylines.ToArray(),
             SuggestedEdgeLength = suggestedEdgeLength < double.MaxValue ? suggestedEdgeLength : 0.0,
             Diagnostics = diagnostics.ToMessages(),
             StructuredDiagnostics = diagnostics.ToStructuredDiagnostics()
@@ -366,6 +424,8 @@ public static partial class PadGrader
 
     private static void AddPadTransitionStationConstraints(
         List<SurfaceRemesher.ConstraintPolyline> constraints,
+        int padIndex,
+        PadBoundary[] pads,
         double[] padLoopXy,
         int padLoopVertexCount,
         double[] shoulderXy,
@@ -380,7 +440,7 @@ public static partial class PadGrader
             return;
         }
 
-        int maxStationCount = 256;
+        int maxStationCount = pads.Length > 1 ? 64 : 128;
         int stride = Math.Max(1, (int)Math.Ceiling(padLoopVertexCount / (double)maxStationCount));
         for (int i = 0; i < padLoopVertexCount; i += stride)
         {
@@ -392,6 +452,11 @@ public static partial class PadGrader
             double dy = by - ay;
             if ((dx * dx) + (dy * dy) <= tolerance * tolerance)
                 continue;
+            if (pads.Length > 1 &&
+                StationCrossesOtherPadTop(ax, ay, bx, by, padIndex, pads, tolerance))
+            {
+                continue;
+            }
 
             constraints.Add(new SurfaceRemesher.ConstraintPolyline(
                 new[] { ax, ay, 0.0, bx, by, 0.0 },
@@ -399,6 +464,255 @@ public static partial class PadGrader
                 IsClosed: false,
                 PreserveInputElevation: false));
         }
+    }
+
+    private static void AddUnionedCoupledPadLoops(
+        List<SurfaceRemesher.ConstraintPolyline> constraints,
+        GradingDiagnosticCollector diagnostics,
+        string diagnosticCode,
+        string diagnosticMessage,
+        IReadOnlyList<double[]> loops,
+        double tolerance,
+        ref double suggestedEdgeLength)
+    {
+        if (loops.Count == 0)
+            return;
+
+        if (!ClipperGeometry.TryUnionClosedLoops(loops, tolerance, out List<double[]> unionLoops))
+        {
+            diagnostics.AddWarning(
+                diagnosticCode + ".failed",
+                diagnosticMessage + " Union failed; falling back to independent loops.",
+                operation: "Grade Pad");
+            foreach (double[] loop in loops)
+                AddClosedConstraintLoop(constraints, loop, tolerance, ref suggestedEdgeLength);
+            return;
+        }
+
+        foreach (double[] loop in unionLoops)
+            AddClosedConstraintLoop(constraints, loop, tolerance, ref suggestedEdgeLength);
+
+        diagnostics.AddInformation(
+            diagnosticCode,
+            diagnosticMessage,
+            operation: "Grade Pad");
+    }
+
+    private static void AddClosedConstraintLoop(
+        List<SurfaceRemesher.ConstraintPolyline> constraints,
+        double[] loopXy,
+        double tolerance,
+        ref double suggestedEdgeLength)
+    {
+        int vertexCount = loopXy.Length / 2;
+        if (vertexCount < 3)
+            return;
+
+        constraints.Add(new SurfaceRemesher.ConstraintPolyline(
+            CreateConstraintPoints(loopXy, vertexCount),
+            vertexCount,
+            IsClosed: true,
+            PreserveInputElevation: false));
+        suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, loopXy, vertexCount, stride: 2, isClosed: true);
+    }
+
+    private static SurfaceRemesher.ConstraintPolyline CreateSoftGuideLoop(
+        double[] loopXy,
+        int vertexCount,
+        double targetSpacing,
+        double tolerance,
+        int padIndex,
+        PadBoundary[] pads,
+        double[] padInfluenceDistances)
+    {
+        if (vertexCount < 3 || loopXy.Length < vertexCount * 2)
+        {
+            return new SurfaceRemesher.ConstraintPolyline(
+                Array.Empty<double>(),
+                PointCount: 0,
+                IsClosed: true,
+                PreserveInputElevation: false);
+        }
+
+        double spacing = Math.Max(targetSpacing, tolerance * 16.0);
+        var guideXy = new List<double>(Math.Max(8, vertexCount / 4));
+        double distanceSinceLast = spacing;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            int previous = (i + vertexCount - 1) % vertexCount;
+            double x = loopXy[i * 2];
+            double y = loopXy[i * 2 + 1];
+            if (IsInsideOtherPadInfluence(x, y, padIndex, pads, padInfluenceDistances, tolerance))
+                continue;
+
+            double px = loopXy[previous * 2];
+            double py = loopXy[previous * 2 + 1];
+            distanceSinceLast += Math.Sqrt(((x - px) * (x - px)) + ((y - py) * (y - py)));
+            if (guideXy.Count > 0 && distanceSinceLast < spacing)
+                continue;
+
+            guideXy.Add(x);
+            guideXy.Add(y);
+            distanceSinceLast = 0.0;
+        }
+
+        if (guideXy.Count < 6)
+        {
+            return new SurfaceRemesher.ConstraintPolyline(
+                Array.Empty<double>(),
+                PointCount: 0,
+                IsClosed: true,
+                PreserveInputElevation: false);
+        }
+
+        int guideVertexCount = guideXy.Count / 2;
+        return new SurfaceRemesher.ConstraintPolyline(
+            CreateConstraintPoints(guideXy.ToArray(), guideVertexCount),
+            guideVertexCount,
+            IsClosed: true,
+            PreserveInputElevation: false);
+    }
+
+    private static bool IsInsideOtherPadInfluence(
+        double x,
+        double y,
+        int padIndex,
+        PadBoundary[] pads,
+        double[] padInfluenceDistances,
+        double tolerance)
+    {
+        for (int otherIndex = 0; otherIndex < pads.Length; otherIndex++)
+        {
+            if (otherIndex == padIndex)
+                continue;
+
+            PadBoundary other = pads[otherIndex];
+            if (PointInPolygon(x, y, other.XyVertices, other.VertexCount))
+                return true;
+
+            double influenceDistance = otherIndex < padInfluenceDistances.Length
+                ? padInfluenceDistances[otherIndex]
+                : other.MaxDistance;
+            if (influenceDistance <= tolerance)
+                continue;
+
+            double distance = DistToPolygon(x, y, other.XyVertices, other.VertexCount);
+            if (distance <= influenceDistance + tolerance)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool StationCrossesOtherPadTop(
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        int padIndex,
+        PadBoundary[] pads,
+        double tolerance)
+    {
+        for (int otherIndex = 0; otherIndex < pads.Length; otherIndex++)
+        {
+            if (otherIndex == padIndex)
+                continue;
+
+            PadBoundary other = pads[otherIndex];
+            if (other.VertexCount < 3)
+                continue;
+
+            if (SegmentEndpointOrMidpointInsidePad(ax, ay, bx, by, other))
+                return true;
+
+            for (int i = 0; i < other.VertexCount; i++)
+            {
+                int next = (i + 1) % other.VertexCount;
+                double cx = other.XyVertices[i * 2];
+                double cy = other.XyVertices[i * 2 + 1];
+                double dx = other.XyVertices[next * 2];
+                double dy = other.XyVertices[next * 2 + 1];
+                if (SegmentsIntersectExcludingSharedEndpoints(ax, ay, bx, by, cx, cy, dx, dy, tolerance))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool SegmentEndpointOrMidpointInsidePad(
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        PadBoundary pad)
+    {
+        double mx = (ax + bx) * 0.5;
+        double my = (ay + by) * 0.5;
+        return PointInPolygon(ax, ay, pad.XyVertices, pad.VertexCount) ||
+               PointInPolygon(bx, by, pad.XyVertices, pad.VertexCount) ||
+               PointInPolygon(mx, my, pad.XyVertices, pad.VertexCount);
+    }
+
+    private static bool SegmentsIntersectExcludingSharedEndpoints(
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        double cx,
+        double cy,
+        double dx,
+        double dy,
+        double tolerance)
+    {
+        if (DistanceSquaredXY(ax, ay, cx, cy) <= tolerance * tolerance ||
+            DistanceSquaredXY(ax, ay, dx, dy) <= tolerance * tolerance ||
+            DistanceSquaredXY(bx, by, cx, cy) <= tolerance * tolerance ||
+            DistanceSquaredXY(bx, by, dx, dy) <= tolerance * tolerance)
+        {
+            return false;
+        }
+
+        double o1 = Orientation(ax, ay, bx, by, cx, cy);
+        double o2 = Orientation(ax, ay, bx, by, dx, dy);
+        double o3 = Orientation(cx, cy, dx, dy, ax, ay);
+        double o4 = Orientation(cx, cy, dx, dy, bx, by);
+        double areaTolerance = Math.Max(tolerance, 1e-9) *
+            Math.Max(Math.Sqrt(DistanceSquaredXY(ax, ay, bx, by)), Math.Sqrt(DistanceSquaredXY(cx, cy, dx, dy)));
+
+        if (Math.Abs(o1) <= areaTolerance && PointOnSegment(cx, cy, ax, ay, bx, by, tolerance))
+            return true;
+        if (Math.Abs(o2) <= areaTolerance && PointOnSegment(dx, dy, ax, ay, bx, by, tolerance))
+            return true;
+        if (Math.Abs(o3) <= areaTolerance && PointOnSegment(ax, ay, cx, cy, dx, dy, tolerance))
+            return true;
+        if (Math.Abs(o4) <= areaTolerance && PointOnSegment(bx, by, cx, cy, dx, dy, tolerance))
+            return true;
+
+        return (o1 > 0.0) != (o2 > 0.0) &&
+               (o3 > 0.0) != (o4 > 0.0);
+    }
+
+    private static bool PointOnSegment(
+        double px,
+        double py,
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        double tolerance)
+    {
+        if (px < Math.Min(ax, bx) - tolerance || px > Math.Max(ax, bx) + tolerance ||
+            py < Math.Min(ay, by) - tolerance || py > Math.Max(ay, by) + tolerance)
+        {
+            return false;
+        }
+
+        double segmentLength = Math.Sqrt(DistanceSquaredXY(ax, ay, bx, by));
+        if (segmentLength <= tolerance)
+            return DistanceSquaredXY(px, py, ax, ay) <= tolerance * tolerance;
+
+        return Math.Abs(Orientation(ax, ay, bx, by, px, py)) <= tolerance * segmentLength;
     }
 
     private static void ValidateApplyGradingZInputs(

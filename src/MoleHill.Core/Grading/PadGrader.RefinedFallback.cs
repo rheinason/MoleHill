@@ -42,7 +42,7 @@ public static partial class PadGrader
                 lockCurves,
                 modelTolerance,
                 "grade_pad.topology.constrained_whole_mesh_retriangulation_fallback",
-                $"Grade Pad constraint-first rebuild failed; constrained whole-mesh retriangulation fallback used for protected-pad topology. Failure: {fallbackReason}",
+                $"Grade Pad constrained whole-mesh retriangulation fallback used for protected-pad topology after constraint-first could not preserve constraints. Reason: {fallbackReason}",
                 "Grade Pad protected apron handled by constrained whole-mesh retriangulation fallback.",
                 "Grade Pad interacting pad ownership resolved after constrained whole-mesh retriangulation fallback.",
                 preferredWholeMeshWarning,
@@ -66,17 +66,19 @@ public static partial class PadGrader
                 out int localSplitFaceCap);
         if (!localTopologyBuilt)
         {
-            return TryBuildDeferredWholeMeshFallback();
+            return TryBuildDeferredWholeMeshFallback(
+                $"Grade Pad whole-mesh retriangulation fallback used because local refinement was unavailable after constraint-first could not preserve constraints. Reason: {fallbackReason}");
         }
 
         MeshTopologyValidator.BoundaryGraphAnalysis localTopology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(refinedFaces, refinedFaceCount);
         if (!localTopology.HasSingleClosedBoundaryLoop)
         {
-            return TryBuildDeferredWholeMeshFallback();
+            return TryBuildDeferredWholeMeshFallback(
+                $"Grade Pad whole-mesh retriangulation fallback used because local refinement kept unhealthy upstream boundaries after constraint-first could not preserve constraints. Reason: {fallbackReason}");
         }
 
-        return BuildRefinedFallbackResult(
+        GradingResult localResult = BuildRefinedFallbackResult(
             vertexCount,
             faceCount,
             refinedOriginalVertices,
@@ -87,16 +89,84 @@ public static partial class PadGrader
             lockCurves,
             modelTolerance,
             "grade_pad.topology.local_refinement_fallback",
-            $"Grade Pad constraint-first rebuild failed; local refinement fallback used for protected-pad topology. Failure: {fallbackReason}",
+            $"Grade Pad local refinement fallback used for protected-pad topology after constraint-first could not preserve constraints. Reason: {fallbackReason}",
             "Grade Pad protected apron handled by local refinement fallback.",
             "Grade Pad interacting pad ownership resolved after local refinement fallback.",
             $"Grade Pad local refinement fallback split {localSplitFaceCount:N0} upstream face(s) touched by pad influence ({localCandidateFaceCount:N0} candidate face(s), cap {localSplitFaceCap:N0}).",
             constraintFirstFailureDiagnostics: constraintFirstFailureDiagnostics);
 
-        GradingResult? TryBuildDeferredWholeMeshFallback()
+        if (TryGetMaxSlopeDeviation(localResult, out double localMaxDelta) &&
+            localMaxDelta > 20.0)
         {
-            if (pads.Length <= 1 ||
-                !TryBuildWholeMeshRetriangulatedFallbackTopology(
+            for (int refinementPass = 2; refinementPass <= 3 && localMaxDelta > 20.0; refinementPass++)
+            {
+                if (!TryBuildLocallyRefinedFallbackTopology(
+                        refinedOriginalVertices,
+                        refinedVertexCount,
+                        refinedFaces,
+                        refinedFaceCount,
+                        pads,
+                        lockCurves,
+                        modelTolerance,
+                        out double[] nextVertices,
+                        out int nextVertexCount,
+                        out int[] nextFaces,
+                        out int nextFaceCount,
+                        out int nextSplitFaceCount,
+                        out int nextCandidateFaceCount,
+                        out int nextSplitFaceCap))
+                {
+                    break;
+                }
+
+                GradingResult nextResult = BuildRefinedFallbackResult(
+                    vertexCount,
+                    faceCount,
+                    nextVertices,
+                    nextVertexCount,
+                    nextFaces,
+                    nextFaceCount,
+                    pads,
+                    lockCurves,
+                    modelTolerance,
+                    "grade_pad.topology.local_refinement_fallback",
+                    $"Grade Pad local refinement fallback pass {refinementPass:N0} used for protected-pad topology because the previous local pass still had {localMaxDelta:F2} deg max slope deviation.",
+                    "Grade Pad protected apron handled by local refinement fallback.",
+                    "Grade Pad interacting pad ownership resolved after local refinement fallback.",
+                    $"Grade Pad local refinement fallback pass {refinementPass:N0} split {nextSplitFaceCount:N0} upstream face(s) touched by pad influence ({nextCandidateFaceCount:N0} candidate face(s), cap {nextSplitFaceCap:N0}).",
+                    constraintFirstFailureDiagnostics: constraintFirstFailureDiagnostics);
+
+                if (!TryGetMaxSlopeDeviation(nextResult, out double nextMaxDelta))
+                {
+                    localResult = nextResult;
+                    break;
+                }
+
+                if (nextMaxDelta >= localMaxDelta - 1.0)
+                    break;
+
+                refinedOriginalVertices = nextVertices;
+                refinedVertexCount = nextVertexCount;
+                refinedFaces = nextFaces;
+                refinedFaceCount = nextFaceCount;
+                localResult = nextResult;
+                localMaxDelta = nextMaxDelta;
+            }
+
+            GradingResult? wholeMeshFallback = TryBuildDeferredWholeMeshFallback(
+                $"Grade Pad whole-mesh retriangulation fallback used because local refinement produced excessive slope deviation ({localMaxDelta:F2} deg) after constraint-first could not preserve constraints. Reason: {fallbackReason}");
+            if (wholeMeshFallback != null &&
+                ShouldUseProtectedPadFallbackResult(localResult, wholeMeshFallback, out _))
+            {
+                return wholeMeshFallback;
+            }
+        }
+
+        return localResult;
+
+        GradingResult? TryBuildDeferredWholeMeshFallback(string headlineMessage)
+        {
+            if (!TryBuildWholeMeshRetriangulatedFallbackTopology(
                     vertices,
                     vertexCount,
                     faces,
@@ -123,7 +193,7 @@ public static partial class PadGrader
                 lockCurves,
                 modelTolerance,
                 "grade_pad.topology.whole_mesh_retriangulation_fallback",
-                $"Grade Pad constraint-first rebuild failed; whole-mesh retriangulation fallback used because local refinement was unavailable or kept unhealthy upstream boundaries. Failure: {fallbackReason}",
+                headlineMessage,
                 "Grade Pad protected apron handled by whole-mesh retriangulation fallback.",
                 "Grade Pad interacting pad ownership resolved after whole-mesh retriangulation fallback.",
                 wholeMeshWarning,
@@ -227,6 +297,7 @@ public static partial class PadGrader
             return false;
 
         double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
+        var faceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         var xy = new List<double>(vertexCount * 2);
         var pointIndexByKey = new Dictionary<FallbackPointKey, int>(vertexCount);
         for (int i = 0; i < vertexCount; i++)
@@ -299,7 +370,6 @@ public static partial class PadGrader
         if (extracted.VertexCount < 3 || extracted.FaceCount <= 0)
             return false;
 
-        var faceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         outputVertexCount = extracted.VertexCount;
         outputVertices = new double[outputVertexCount * 3];
         for (int i = 0; i < outputVertexCount; i++)

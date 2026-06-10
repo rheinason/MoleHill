@@ -173,7 +173,13 @@ public static partial class PadGrader
         }
 
         if (measuredFaceCount == 0)
-            return [$"Grade Pad[{padIndex}] batter slope check: no measurable batter faces inside the shoulder loop."];
+        {
+            return
+            [
+                $"Grade Pad[{padIndex}] batter slope check: no measurable batter faces inside the shoulder loop.",
+                $"Grade Pad[{padIndex}] shoulder quality warning: no measurable batter surface was produced; expected a visible shoulder/batter band."
+            ];
+        }
 
         double avgSlopeDeg = slopeSumDeg / measuredFaceCount;
         double maxDeltaDeg = Math.Max(Math.Abs(minSlopeDeg - targetSlopeDeg), Math.Abs(maxSlopeDeg - targetSlopeDeg));
@@ -186,6 +192,13 @@ public static partial class PadGrader
         {
             diagnostics.Add(
                 $"Grade Pad[{padIndex}] batter slope warning: output deviates from target by up to {maxDeltaDeg:F2} deg near ({maxSlopeX:F3}, {maxSlopeY:F3}); inspect clipped daylight, nearby pads, or terrain-boundary constraints.");
+        }
+
+        double avgDeltaDeg = Math.Abs(avgSlopeDeg - targetSlopeDeg);
+        if (avgDeltaDeg > 8.0 || minSlopeDeg < targetSlopeDeg - 12.0)
+        {
+            diagnostics.Add(
+                $"Grade Pad[{padIndex}] shoulder quality warning: batter surface is poorly formed; average slope delta={avgDeltaDeg:F2} deg, min slope={minSlopeDeg:F2} deg, target={targetSlopeDeg:F2} deg. This usually means shoulder insertion is too sparse or overlapping pads collapsed the batter band.");
         }
 
         return diagnostics.ToArray();

@@ -98,11 +98,19 @@ public static partial class PathGrader
         diagnostics.AddInformation(
             "grade_path.topology_mode.constraint_insertion",
             $"Grade Path topology mode: constraint insertion via constraint-first rebuild ({pathConstraintSet.Constraints.Length:N0} grading constraints + {hardConstraints.Count:N0} hard constraints).",
-            operation: "Grade Path");
+            operation: "grade_path");
         diagnostics.AddInformation(
             "grade_path.topology.tiny_boundary_loops_not_needed",
             "Grade Path tiny branched boundary loop repair was not needed by constraint-first topology.",
-            operation: "Grade Path");
+            operation: "grade_path");
+        bool addConstraintCorridorSeeds = hardConstraints.All(static constraint => constraint.IsClosed);
+        if (addConstraintCorridorSeeds)
+        {
+            diagnostics.AddInformation(
+                "grade_path.topology.corridor_seeds",
+                "Grade Path added corridor guide seeds between paired grading constraints.",
+                operation: "grade_path");
+        }
 
         return ConstraintFirstGradingEngine.TryBuild(
             "Grade Path",
@@ -128,7 +136,8 @@ public static partial class PathGrader
             diagnostics.ToStructuredDiagnostics(),
             appendOutputDiagnostics: null,
             out _,
-            out errorMessage);
+            out errorMessage,
+            addConstraintCorridorSeeds: addConstraintCorridorSeeds);
     }
 
     private static bool TryFindClosestClosedLoopLocation(

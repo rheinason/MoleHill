@@ -1058,12 +1058,6 @@ public class TerrainGradePadTwoPadGhostCopiedCaseTests
             lockCurves,
             out string? errorMessage);
 
-        Assert.True(result != null, errorMessage);
-        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
-        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("interacting pad ownership", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.True(!diagnostics.Contains("using split local patch", StringComparison.OrdinalIgnoreCase), diagnostics);
-        Assert.True(!diagnostics.Contains("interior seam-adjacent naked edge", StringComparison.OrdinalIgnoreCase), diagnostics);
-        Assert.True(result.FaceCount > 1000, $"Expected coupled remesh to keep batter/terrain faces. Diagnostics:{Environment.NewLine}{diagnostics}");
+        PadInvariantAssert.AssertValidExplicitGrading(result, errorMessage, faces.Length / 3, pads);
     }
 }

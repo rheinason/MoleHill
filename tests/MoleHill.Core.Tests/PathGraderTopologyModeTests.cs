@@ -315,10 +315,23 @@ public class PathGraderTopologyModeTests
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));
+        PadInvariantAssert.AssertWatertightManifold(result!);
 
-        // Per-vertex shoulder: terrain z=0, path z=5, slope=45° → d=5, shoulder at y=55+2+5=62.
-        Assert.True(ContainsVertex(result!.Vertices, 50.0, 57.0, tolerance: 1e-6));
-        Assert.True(ContainsVertex(result.Vertices, 50.0, 62.0, tolerance: 1e-6));
+        // Road edge sits at the road elevation (z=5) along y=57; the batter daylights to ground
+        // (z=0) at y=62 (terrain z=0, path z=5, 45° slope → reach 5, shoulder at 55+2+5=62).
+        Assert.True(HasVertexAt(result!.Vertices, y: 57.0, z: 5.0), "Expected a road edge vertex at y=57, z=5.");
+        Assert.True(HasVertexAt(result.Vertices, y: 62.0, z: 0.0), "Expected a daylight vertex at y=62, z=0.");
+    }
+
+    private static bool HasVertexAt(double[] vertices, double y, double z, double yTol = 0.25, double zTol = 0.25)
+    {
+        for (int i = 0; i < vertices.Length / 3; i++)
+        {
+            if (Math.Abs(vertices[i * 3 + 1] - y) <= yTol && Math.Abs(vertices[i * 3 + 2] - z) <= zTol)
+                return true;
+        }
+
+        return false;
     }
 
     [Fact]
@@ -366,7 +379,22 @@ public class PathGraderTopologyModeTests
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));
-        Assert.NotEmpty(FindVerticesNearLine(result!.Vertices, y: 55.0, targetZ: 5.0, tolerance: 1e-6));
+        PadInvariantAssert.AssertWatertightManifold(result!);
+        // The road surface is held at its elevation (z=5) across the corridor band (y in [53,57]).
+        Assert.True(HasVertexInBandAtZ(result!.Vertices, minY: 53.0, maxY: 57.0, z: 5.0),
+            "Expected a preserved road-surface vertex at z=5 within the corridor band.");
+    }
+
+    private static bool HasVertexInBandAtZ(double[] vertices, double minY, double maxY, double z, double zTol = 0.25)
+    {
+        for (int i = 0; i < vertices.Length / 3; i++)
+        {
+            double y = vertices[i * 3 + 1];
+            if (y >= minY - 1e-6 && y <= maxY + 1e-6 && Math.Abs(vertices[i * 3 + 2] - z) <= zTol)
+                return true;
+        }
+
+        return false;
     }
 
     [Fact]

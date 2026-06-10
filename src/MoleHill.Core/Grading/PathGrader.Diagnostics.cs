@@ -91,6 +91,35 @@ public static partial class PathGrader
         return $"Grade Path[{pathIndex}] {sideLabel} sections: daylight={daylightCount}, cap={capCount}, no-grade={noGradeCount}, blocked={blockedCount}, unresolved={unresolvedCount}, repaired={repairedSectionCount}.";
     }
 
+    private static string? BuildPathSectionQualityWarning(
+        int pathIndex,
+        string sideLabel,
+        PathSectionResolutionStatus[] statuses,
+        int repairedSectionCount)
+    {
+        int blockedCount = 0;
+        int unresolvedCount = 0;
+        for (int i = 0; i < statuses.Length; i++)
+        {
+            if (statuses[i] == PathSectionResolutionStatus.Blocked)
+                blockedCount++;
+            else if (statuses[i] == PathSectionResolutionStatus.Unresolved)
+                unresolvedCount++;
+        }
+
+        int affectedCount = blockedCount + unresolvedCount + repairedSectionCount;
+        if (affectedCount == 0)
+            return null;
+
+        double affectedRatio = statuses.Length > 0
+            ? affectedCount / (double)statuses.Length
+            : 1.0;
+        if (affectedCount <= 4 && affectedRatio < 0.03)
+            return null;
+
+        return $"Grade Path[{pathIndex}] {sideLabel} shoulder quality warning: {affectedCount} of {statuses.Length} sampled section(s) were unresolved, blocked, or repaired; shoulder/batter output may be sparse or visually discontinuous.";
+    }
+
     private static string BuildPathTopologyBandWidthDiagnostic(int pathIndex, double[] shoulderLoopXy, double[] seamLoopXy)
     {
         ComputeClosedLoopDistanceStats(shoulderLoopXy, seamLoopXy, out double shoulderToSeamMin, out double shoulderToSeamMax);

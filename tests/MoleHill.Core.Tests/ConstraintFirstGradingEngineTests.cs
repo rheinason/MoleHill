@@ -158,6 +158,7 @@ public class ConstraintFirstGradingEngineTests
         Assert.Equal("grade_path.constraint_first.failed", diagnostic.Code);
         Assert.Equal(GradingDiagnosticSeverity.Warning, diagnostic.Severity);
         Assert.Equal(errorMessage, diagnostic.Message);
+        Assert.Equal("grade_path", diagnostic.Operation);
     }
 
     [Fact]

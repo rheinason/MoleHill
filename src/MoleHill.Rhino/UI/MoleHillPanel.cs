@@ -3684,10 +3684,6 @@ public sealed class MoleHillPanel : Panel
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((GradePadModifierDefinition)item).Boundaries)),
                     RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
-                layout.AddRow(CreateSourceEditor("Lock Curves", gradePad.LockCurves,
-                    apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((GradePadModifierDefinition)item).LockCurves)),
-                    RhinoObjectType.Curve,
-                    doc => _controller.GetSelectedLayerPaths(doc)));
                 layout.AddRow(CreateNumericEditor("Slope Angle", gradePad.SlopeAngle, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).SlopeAngle = value),
                     help: "Daylight tie-in slope in degrees. Boundary curve Z defines the finished pad plane; lower values are flatter and extend farther, while higher values are steeper and tighter."));

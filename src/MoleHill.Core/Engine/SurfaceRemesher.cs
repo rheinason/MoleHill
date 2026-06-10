@@ -57,6 +57,13 @@ public static class SurfaceRemesher
         /// the remesh pass and additional corridor seeding would over-refine the interior.
         /// </summary>
         public bool AddConstraintCorridorSeeds { get; init; } = true;
+
+        /// <summary>
+        /// Optional soft polylines that seed vertices into the triangulation without adding
+        /// constrained segments. Use these to preserve local grading detail where hard
+        /// constraints would cross or over-constrain the network.
+        /// </summary>
+        public IReadOnlyList<ConstraintPolyline> GuidePolylines { get; init; } = Array.Empty<ConstraintPolyline>();
     }
 
     public sealed class TimingProfile
@@ -583,7 +590,7 @@ public static class SurfaceRemesher
         double exactReuseTolerance = Math.Max(Math.Min(dedupTolerance * 0.01, 1e-6), 1e-9);
         var nearVertices = new NearVertexIndex(xyList, Math.Max(seedReuseTolerance, dedupTolerance));
 
-        bool requiresInterpolatedConstraintZ = options.AddConstraintCorridorSeeds;
+        bool requiresInterpolatedConstraintZ = options.AddConstraintCorridorSeeds || options.GuidePolylines.Count > 0;
         foreach (var constraint in constraints)
         {
             if (constraint.PreserveInputElevation)
@@ -751,6 +758,22 @@ public static class SurfaceRemesher
                     options.ProtectSharpEdges,
                     ref addedProtectedVertices);
             }
+        }
+
+        if (options.GuidePolylines.Count > 0)
+        {
+            AddGuidePolylineSeeds(
+                xyList,
+                zList,
+                originalVertices,
+                originalFaces,
+                faceCount,
+                faceGrid,
+                options.GuidePolylines,
+                targetLength,
+                floorLength,
+                nearVertices,
+                dedupTolerance);
         }
 
         if (options.AddConstraintCorridorSeeds)
@@ -1048,6 +1071,7 @@ public static class SurfaceRemesher
             PreferReducedInteriorSeed = options.PreferReducedInteriorSeed,
             AddReducedInteriorGuideSeeds = options.AddReducedInteriorGuideSeeds,
             AddConstraintCorridorSeeds = options.AddConstraintCorridorSeeds,
+            GuidePolylines = options.GuidePolylines,
             MaxArea = maxArea,
             MinAngle = 0.0,
             ProtectSharpEdges = options.ProtectSharpEdges
@@ -1365,6 +1389,108 @@ public static class SurfaceRemesher
 
             paired[i] = true;
             paired[bestMatch] = true;
+        }
+    }
+
+    private static void AddGuidePolylineSeeds(
+        List<double> xyList,
+        List<double> zList,
+        double[] originalVertices,
+        int[] originalFaces,
+        int faceCount,
+        TerrainFaceGrid? faceGrid,
+        IReadOnlyList<ConstraintPolyline> guidePolylines,
+        double targetLength,
+        double floorLength,
+        NearVertexIndex nearVertices,
+        double reuseTolerance)
+    {
+        if (guidePolylines.Count == 0)
+            return;
+
+        double spacing = targetLength > 0.0
+            ? Math.Max(targetLength, floorLength)
+            : Math.Max(reuseTolerance * 16.0, 1e-6);
+
+        foreach (var guide in guidePolylines)
+        {
+            int pointCount = NormalizePointCount(guide, reuseTolerance);
+            if (pointCount < 2)
+                continue;
+
+            for (int pointIndex = 1; pointIndex < pointCount; pointIndex++)
+            {
+                AddGuideSegmentSeeds(
+                    xyList,
+                    zList,
+                    originalVertices,
+                    originalFaces,
+                    faceCount,
+                    faceGrid,
+                    guide,
+                    pointIndex - 1,
+                    pointIndex,
+                    spacing,
+                    nearVertices,
+                    reuseTolerance);
+            }
+
+            if (guide.IsClosed)
+            {
+                AddGuideSegmentSeeds(
+                    xyList,
+                    zList,
+                    originalVertices,
+                    originalFaces,
+                    faceCount,
+                    faceGrid,
+                    guide,
+                    pointCount - 1,
+                    0,
+                    spacing,
+                    nearVertices,
+                    reuseTolerance);
+            }
+        }
+    }
+
+    private static void AddGuideSegmentSeeds(
+        List<double> xyList,
+        List<double> zList,
+        double[] originalVertices,
+        int[] originalFaces,
+        int faceCount,
+        TerrainFaceGrid? faceGrid,
+        ConstraintPolyline guide,
+        int startPointIndex,
+        int endPointIndex,
+        double spacing,
+        NearVertexIndex nearVertices,
+        double reuseTolerance)
+    {
+        double ax = guide.Points[startPointIndex * 3];
+        double ay = guide.Points[startPointIndex * 3 + 1];
+        double bx = guide.Points[endPointIndex * 3];
+        double by = guide.Points[endPointIndex * 3 + 1];
+        double length = Math.Sqrt(DistanceSquared(ax, ay, bx, by));
+        if (length <= reuseTolerance)
+            return;
+
+        int stepCount = Math.Max(1, (int)Math.Ceiling(length / spacing));
+        for (int step = 0; step <= stepCount; step++)
+        {
+            double t = step / (double)stepCount;
+            double x = Lerp(ax, bx, t);
+            double y = Lerp(ay, by, t);
+            if (nearVertices.Find(x, y, reuseTolerance) >= 0)
+                continue;
+
+            double z = InterpolateOriginalZ(faceGrid, originalVertices, originalFaces, faceCount, x, y);
+            int newIndex = zList.Count;
+            xyList.Add(x);
+            xyList.Add(y);
+            zList.Add(z);
+            nearVertices.Add(newIndex);
         }
     }
 

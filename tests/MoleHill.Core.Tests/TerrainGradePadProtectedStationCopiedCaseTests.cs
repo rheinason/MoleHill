@@ -4,10 +4,10 @@ using Xunit;
 
 namespace MoleHill.Core.Tests;
 
-public class TerrainGradePadFullCopiedCaseTests
+public class TerrainGradePadProtectedStationCopiedCaseTests
 {
     [Fact]
-    public void GradePad_FullCopiedTerrainCase_UsesExplicitProtectedApron()
+    public void Grade_ProtectedSinglePad_UsesConstraintFirstStationTopology()
     {
         double[] vertices =
         {
@@ -1237,13 +1237,13 @@ public class TerrainGradePadFullCopiedCaseTests
             PadGrader.PadBoundary.CreatePlanar(
                 new[]
                 {
-                    521.0180784240172, -430.1951329262563, 46.24981895675905, 530.5142588061673, -430.6628492981846, 46.24981895675905, 530.8944055958407, -422.94461939840517, 46.24981895675905, 521.3982252136905, -422.47690302647686, 46.24981895675905,
+                    505.9876222970124, -417.22689249141297, 36.41119211856837, 520.8917723920957, -448.0265363079395, 36.41119211856837, 545.9248617228452, -435.9128598332488, 36.41119211856837, 531.0207116277619, -405.113216016722, 36.41119211856837,
                 },
                 4,
-                0,
-                -5.046089590699211E-29,
-                46.24981895675905,
-                30,
+                -0,
+                -0,
+                36.41119211856837,
+                45,
                 0,
                 stitchApronDistance: 0.5),
         };

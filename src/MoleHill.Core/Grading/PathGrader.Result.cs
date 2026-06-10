@@ -40,7 +40,7 @@ public static partial class PathGrader
                 GradingDiagnostic.Warning(
                     "grade_path.stitched_repair.detached_components_removed",
                     diagnostic,
-                    operation: "Grade Path")
+                    operation: "grade_path")
             })
             .ToArray();
 

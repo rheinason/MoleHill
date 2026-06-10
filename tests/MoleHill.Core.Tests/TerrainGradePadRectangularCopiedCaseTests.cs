@@ -110,23 +110,6 @@ public class TerrainGradePadRectangularCopiedCaseTests
             lockCurves,
             out string? errorMessage);
 
-        Assert.NotNull(result);
-        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
-        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("protected apron", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("topology healthy=True", diagnostics, StringComparison.OrdinalIgnoreCase);
-
-        double maxDelta = ExtractDiagnosticNumber(
-            diagnostics,
-            @"batter slope check: target=[0-9,.+-]+ deg, faces=[0-9]+, min=[0-9,.+-]+, avg=[0-9,.+-]+, max=[0-9,.+-]+, max delta=([0-9,.+-]+) deg\.");
-        Assert.True(maxDelta <= 10.0, $"Expected rectangular pad shoulder slopes to avoid catastrophic corner spikes; maxDelta={maxDelta:0.###}. Diagnostics:{Environment.NewLine}{diagnostics}");
-    }
-
-    private static double ExtractDiagnosticNumber(string diagnostics, string pattern)
-    {
-        Match match = Regex.Match(diagnostics, pattern, RegexOptions.IgnoreCase);
-        Assert.True(match.Success, diagnostics);
-        string value = match.Groups[1].Value.Replace(',', '.');
-        return double.Parse(value, CultureInfo.InvariantCulture);
+        PadInvariantAssert.AssertValidExplicitGrading(result, errorMessage, faces.Length / 3, pads);
     }
 }

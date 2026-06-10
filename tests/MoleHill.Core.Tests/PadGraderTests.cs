@@ -476,27 +476,7 @@ public class PadGraderTests
             null,
             out string? warning);
 
-        Assert.True(result != null, warning);
-        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.True(
-            !result.Diagnostics.Any(diagnostic => diagnostic.Contains("using split local patch", StringComparison.OrdinalIgnoreCase)),
-            diagnostics);
-        Assert.Contains(
-            result.Diagnostics,
-            diagnostic => diagnostic.Contains("topology mode: constraint-first", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("batter slope check", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("topology summary:", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(
-            result.StructuredDiagnostics,
-            diagnostic => diagnostic.Code == "grade_pad.slope.check" &&
-                          diagnostic.Severity == GradingDiagnosticSeverity.Information &&
-                          diagnostic.Operation == "grade_pad" &&
-                          diagnostic.TargetIndex == 0);
-        Assert.Contains(
-            result.StructuredDiagnostics,
-            diagnostic => diagnostic.Code == "grade_pad.topology.summary" &&
-                          diagnostic.Severity == GradingDiagnosticSeverity.Information &&
-                          diagnostic.Operation == "grade_pad");
+        PadInvariantAssert.AssertValidExplicitGrading(result, warning, faces.Length / 3, pads);
     }
 
     [Fact]
@@ -523,13 +503,7 @@ public class PadGraderTests
             null,
             out string? warning);
 
-        Assert.True(result != null, warning);
-        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.True(
-            !result.Diagnostics.Any(diagnostic => diagnostic.Contains("using split local patch", StringComparison.OrdinalIgnoreCase)),
-            diagnostics);
-        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Contains("patch seam integrity check failed", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("batter slope check", StringComparison.OrdinalIgnoreCase));
+        PadInvariantAssert.AssertValidExplicitGrading(result, warning, faces.Length / 3, pads);
     }
 
     [Fact]
@@ -704,11 +678,8 @@ public class PadGraderTests
             null,
             out string? warning);
 
-        Assert.True(result != null, warning);
+        PadInvariantAssert.AssertValidExplicitGrading(result, warning, faces.Length / 3, pads);
         string diagnostics = string.Join("|", result!.Diagnostics);
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("protected apron", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain("patch did not produce a single closed stitch boundary", diagnostics);
-        Assert.DoesNotContain("using split local patch", diagnostics);
 
         var shoulderSlopeAngles = CollectBatterTriangleSlopeAngles(
             result,

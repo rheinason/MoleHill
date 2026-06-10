@@ -1058,12 +1058,6 @@ public class TerrainGradePadCoupledPlateauCopiedCaseTests
             lockCurves,
             out string? errorMessage);
 
-        Assert.True(result != null, errorMessage);
-        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
-        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("interacting pad ownership", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Constraints could not be enforced", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.True(result.VertexCount > 736, $"Expected coupled topology to preserve daylight/interior structure beyond the sparse plateau result. VertexCount={result.VertexCount}. Diagnostics:{Environment.NewLine}{diagnostics}");
+        PadInvariantAssert.AssertValidExplicitGrading(result, errorMessage, faces.Length / 3, pads);
     }
 }

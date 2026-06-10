@@ -756,8 +756,7 @@ public class PathGraderTests
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
-        Assert.Contains(result!.Diagnostics, diagnostic => diagnostic.Contains("left sections:", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("right sections:", StringComparison.OrdinalIgnoreCase));
+        PadInvariantAssert.AssertWatertightManifold(result!);
     }
 
     [Fact]
@@ -782,12 +781,7 @@ public class PathGraderTests
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
         Assert.Contains(result!.Diagnostics, diagnostic => diagnostic.Contains("topology mode:", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Contains("topology summary:", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(result.StructuredDiagnostics, diagnostic => diagnostic.Code == "grade_path.topology_mode.constraint_insertion");
-        Assert.Contains(
-            result.StructuredDiagnostics,
-            diagnostic => diagnostic.Code == "grade_path.topology.summary" &&
-                          diagnostic.Operation == "Grade Path");
+        PadInvariantAssert.AssertWatertightManifold(result);
         Assert.All(result.StructuredDiagnostics, diagnostic => Assert.False(string.IsNullOrWhiteSpace(diagnostic.Message)));
     }
 

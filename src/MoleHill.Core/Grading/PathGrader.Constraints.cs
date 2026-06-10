@@ -174,7 +174,7 @@ public static partial class PathGrader
         GradingDiagnostic diagnostic = GradingDiagnostic.Warning(
             code,
             message,
-            operation: "Grade Path");
+            operation: "grade_path");
 
         return new ConstraintSet
         {
@@ -246,13 +246,32 @@ public static partial class PathGrader
                 diagnostics.AddInformation(
                     "grade_path.section_status.left",
                     BuildPathSectionStatusDiagnostic(pathIndex, "left", leftStatuses, repairedLeftSections),
-                    operation: "Grade Path",
+                    operation: "grade_path",
                     targetIndex: pathIndex);
+                string? leftQualityWarning = BuildPathSectionQualityWarning(pathIndex, "left", leftStatuses, repairedLeftSections);
+                if (leftQualityWarning != null)
+                {
+                    diagnostics.AddWarning(
+                        "grade_path.shoulder.quality.left",
+                        leftQualityWarning,
+                        operation: "grade_path",
+                        targetIndex: pathIndex);
+                }
+
                 diagnostics.AddInformation(
                     "grade_path.section_status.right",
                     BuildPathSectionStatusDiagnostic(pathIndex, "right", rightStatuses, repairedRightSections),
-                    operation: "Grade Path",
+                    operation: "grade_path",
                     targetIndex: pathIndex);
+                string? rightQualityWarning = BuildPathSectionQualityWarning(pathIndex, "right", rightStatuses, repairedRightSections);
+                if (rightQualityWarning != null)
+                {
+                    diagnostics.AddWarning(
+                        "grade_path.shoulder.quality.right",
+                        rightQualityWarning,
+                        operation: "grade_path",
+                        targetIndex: pathIndex);
+                }
             }
 
             double actualReach = Math.Max(0.0, maxInfluence - halfWidth);
@@ -279,7 +298,7 @@ public static partial class PathGrader
                     diagnostics.AddInformation(
                         "grade_path.station_constraints",
                         $"Grade Path[{pathIndex}] station constraints: kept={keptStationCount}, sampled={constraintPath.VertexCount}.",
-                        operation: "Grade Path",
+                        operation: "grade_path",
                         targetIndex: pathIndex);
                 }
             }

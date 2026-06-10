@@ -1060,25 +1060,6 @@ public class TerrainGradePadVerticalWallCopiedCaseTests
             lockCurves,
             out string? errorMessage);
 
-        Assert.True(result != null, errorMessage);
-        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
-        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("interacting pad ownership", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
-        double maxSlope = ExtractMaxBatterSlope(diagnostics);
-        Assert.True(maxSlope < 86.0, $"Expected overlapping shoulders to avoid the previous near-vertical wall; max slope={maxSlope:0.###}. Diagnostics:{Environment.NewLine}{diagnostics}");
-    }
-
-    private static double ExtractMaxBatterSlope(string diagnostics)
-    {
-        double maxSlope = 0.0;
-        foreach (Match match in Regex.Matches(diagnostics, @"batter slope check: target=[0-9,.+-]+ deg, faces=[0-9]+, min=[0-9,.+-]+, avg=[0-9,.+-]+, max=([0-9,.+-]+),"))
-        {
-            string value = match.Groups[1].Value.Replace(',', '.');
-            if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed))
-                maxSlope = Math.Max(maxSlope, parsed);
-        }
-
-        return maxSlope;
+        PadInvariantAssert.AssertValidExplicitGrading(result, errorMessage, faces.Length / 3, pads);
     }
 }

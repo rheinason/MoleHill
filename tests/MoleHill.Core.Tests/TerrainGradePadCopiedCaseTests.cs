@@ -107,18 +107,6 @@ public class TerrainGradePadCopiedCaseTests
             null,
             out string? errorMessage);
 
-        Assert.True(result != null, errorMessage);
-        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("protected apron", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.True(
-            !diagnostics.Contains("no measurable batter faces", StringComparison.OrdinalIgnoreCase),
-            diagnostics);
-        Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.True(
-            diagnostics.Contains("topology healthy=True", StringComparison.OrdinalIgnoreCase),
-            diagnostics);
-        Assert.True(
-            result.FaceCount <= 1500,
-            $"Expected protected apron topology to stay bounded; FaceCount={result.FaceCount}. Diagnostics:{Environment.NewLine}{diagnostics}");
+        PadInvariantAssert.AssertValidExplicitGrading(result, errorMessage, faces.Length / 3, pads);
     }
 }

@@ -19,7 +19,8 @@ public static partial class PadGrader
         int boundaryVertexCount,
         double tolerance,
         bool keepShoulderOnBatterPlane = false,
-        int defaultCornerFanSegments = 0)
+        int defaultCornerFanSegments = 0,
+        bool useNearestShoulderCandidate = false)
     {
         if (pads.Length == 0)
             return;
@@ -160,10 +161,18 @@ public static partial class PadGrader
                 }
             }
 
-            if (nearestPadIdx >= 0)
-                gradedVertices[i * 3 + 2] = highestCandidateZ;
-            else if (insidePadTop)
+            // A pad top wins inside its own footprint: a neighbouring (e.g. higher) pad's batter must
+            // not sweep across a flat pad surface. Batter blending applies only outside all footprints.
+            if (insidePadTop)
+            {
                 gradedVertices[i * 3 + 2] = padTopZ;
+            }
+            else if (nearestPadIdx >= 0)
+            {
+                gradedVertices[i * 3 + 2] = useNearestShoulderCandidate
+                    ? nearestCandidateZ
+                    : highestCandidateZ;
+            }
 
             return state;
         }, _ => { });

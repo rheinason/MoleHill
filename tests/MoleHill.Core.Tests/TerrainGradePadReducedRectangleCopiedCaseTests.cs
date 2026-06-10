@@ -1023,11 +1023,6 @@ public class TerrainGradePadReducedRectangleCopiedCaseTests
             lockCurves,
             out string? errorMessage);
 
-        Assert.NotNull(result);
-        Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
-        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("protected apron", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("topology healthy=True", diagnostics, StringComparison.OrdinalIgnoreCase);
+        PadInvariantAssert.AssertValidExplicitGrading(result, errorMessage, faces.Length / 3, pads);
     }
 }

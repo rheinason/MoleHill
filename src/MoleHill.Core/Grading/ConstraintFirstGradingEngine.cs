@@ -51,7 +51,10 @@ internal static class ConstraintFirstGradingEngine
         IReadOnlyList<GradingDiagnostic>? preStructuredDiagnostics,
         AppendOutputDiagnosticsDelegate? appendOutputDiagnostics,
         out IReadOnlyList<GradingDiagnostic> failureDiagnostics,
-        out string? errorMessage)
+        out string? errorMessage,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? guidePolylines = null,
+        bool addConstraintCorridorSeeds = false,
+        bool preferReducedInteriorSeed = true)
     {
         failureDiagnostics = Array.Empty<GradingDiagnostic>();
         errorMessage = null;
@@ -91,8 +94,10 @@ internal static class ConstraintFirstGradingEngine
             topologyConstraints,
             effectiveTolerance,
             effectiveEdgeLength,
-            preferReducedInteriorSeed: true,
-            addReducedInteriorGuideSeeds: !hasOpenOrPreservedConstraints);
+            preferReducedInteriorSeed: preferReducedInteriorSeed,
+            addReducedInteriorGuideSeeds: !hasOpenOrPreservedConstraints,
+            guidePolylines: guidePolylines,
+            addConstraintCorridorSeeds: addConstraintCorridorSeeds);
 
         if (!remesh.Success && effectiveEdgeLength > effectiveTolerance * 16.0)
         {
@@ -103,8 +108,10 @@ internal static class ConstraintFirstGradingEngine
                 topologyConstraints,
                 effectiveTolerance,
                 coarseEdgeLength,
-                preferReducedInteriorSeed: true,
-                addReducedInteriorGuideSeeds: false);
+                preferReducedInteriorSeed: preferReducedInteriorSeed,
+                addReducedInteriorGuideSeeds: false,
+                guidePolylines: guidePolylines,
+                addConstraintCorridorSeeds: addConstraintCorridorSeeds);
 
             if (coarseRemesh.Success)
             {
@@ -152,8 +159,10 @@ internal static class ConstraintFirstGradingEngine
                     topologyConstraints,
                     effectiveTolerance,
                     guardEdgeLength,
-                    preferReducedInteriorSeed: true,
-                    addReducedInteriorGuideSeeds: false);
+                    preferReducedInteriorSeed: preferReducedInteriorSeed,
+                    addReducedInteriorGuideSeeds: false,
+                    guidePolylines: guidePolylines,
+                    addConstraintCorridorSeeds: addConstraintCorridorSeeds);
 
                 if (!coarseRemesh.Success || coarseRemesh.Faces.Length >= remesh.Faces.Length)
                     break;
@@ -268,9 +277,9 @@ internal static class ConstraintFirstGradingEngine
         if (remesh.UsedBoundaryAndGuideSeedFallback)
         {
             string seedFallbackMessage =
-                $"{operation} used boundary, hard-constraint, and coarse guide seeds to avoid inherited topology over-refinement.";
+                $"{operation} topology warning: reduced-seed remesh was selected instead of the full upstream topology; inspect shoulder/batter quality before accepting the result.";
             diagnostics.Add(seedFallbackMessage);
-            structuredDiagnostics.Add(GradingDiagnostic.Information(
+            structuredDiagnostics.Add(GradingDiagnostic.Warning(
                 $"{DiagnosticPrefix(operation)}.topology.seed_fallback",
                 seedFallbackMessage,
                 operation: DiagnosticOperation(operation)));
@@ -297,7 +306,9 @@ internal static class ConstraintFirstGradingEngine
         double tolerance,
         double requestedEdgeLength,
         bool preferReducedInteriorSeed,
-        bool addReducedInteriorGuideSeeds)
+        bool addReducedInteriorGuideSeeds,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? guidePolylines,
+        bool addConstraintCorridorSeeds)
     {
         return SurfaceRemesher.Remesh(
             vertices,
@@ -313,7 +324,8 @@ internal static class ConstraintFirstGradingEngine
                 ConstraintInsertionOnly = true,
                 PreferReducedInteriorSeed = preferReducedInteriorSeed,
                 AddReducedInteriorGuideSeeds = addReducedInteriorGuideSeeds,
-                AddConstraintCorridorSeeds = false
+                AddConstraintCorridorSeeds = addConstraintCorridorSeeds,
+                GuidePolylines = guidePolylines ?? Array.Empty<SurfaceRemesher.ConstraintPolyline>()
             });
     }
 
@@ -568,8 +580,12 @@ internal static class ConstraintFirstGradingEngine
 
     private static string DiagnosticOperation(string operation)
     {
-        return string.Equals(operation, "Grade Pad", StringComparison.Ordinal)
-            ? "grade_pad"
-            : operation;
+        if (string.Equals(operation, "Grade Pad", StringComparison.Ordinal))
+            return "grade_pad";
+
+        if (string.Equals(operation, "Grade Path", StringComparison.Ordinal))
+            return "grade_path";
+
+        return operation;
     }
 }

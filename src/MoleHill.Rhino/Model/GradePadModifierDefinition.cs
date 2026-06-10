@@ -18,6 +18,5 @@ public sealed class GradePadModifierDefinition : ModifierDefinition
     public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {
         yield return Boundaries;
-        yield return LockCurves;
     }
 }

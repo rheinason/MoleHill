@@ -46,6 +46,17 @@ public static partial class PathGrader
         if (!GradingInputValidator.ValidatePathDefinitions(paths, out errorMessage))
             return null;
 
+        // Primary path: explicit corridor construction (ruled road surface + side batters welded into
+        // terrain). Falls through to the legacy constraint-first path for interacting corridors, hard
+        // constraints, or any case it cannot make watertight and manifold.
+        GradingResult? explicitResult = GradeWithExplicitCorridor(
+            vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out _);
+        if (explicitResult != null)
+        {
+            errorMessage = null;
+            return explicitResult;
+        }
+
         // Grade Path must own and rebuild topology. Do not silently fall back to Z-only grading.
         var result = GradeWithEdges(vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out string? topologyError, out _);
         if (result != null)

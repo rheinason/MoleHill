@@ -110,6 +110,25 @@ public static partial class PadGrader
 
         pads = OrderPadsForOwnership(pads);
 
+        // Primary path: explicit batter construction. Deterministic geometry, slope exact by
+        // construction, terrain outside the daylight loops left intact. Falls through to the legacy
+        // constraint-first path only when it cannot produce a watertight, manifold result.
+        GradingResult? explicitResult = GradeWithExplicitBatter(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            pads,
+            lockCurves,
+            modelTolerance,
+            terrainDetailSize,
+            out _);
+        if (explicitResult != null)
+        {
+            errorMessage = null;
+            return explicitResult;
+        }
+
         GradingResult? rebuilt = GradeWithConstraintFirstTopology(
             vertices,
             vertexCount,
@@ -237,10 +256,13 @@ public static partial class PadGrader
         if (result.StructuredDiagnostics.Any(static diagnostic =>
                 string.Equals(diagnostic.Code, "grade_pad.slope.deviation", StringComparison.Ordinal)))
         {
-            reason = pads.Length == 1
-                ? "constraint-first protected-pad topology produced excessive slope deviation"
-                : "constraint-first coupled protected-pad topology produced excessive slope deviation";
-            return true;
+            if (pads.Length == 1)
+            {
+                reason = "constraint-first protected-pad topology produced excessive slope deviation";
+                return true;
+            }
+
+            return false;
         }
 
         return false;
@@ -264,7 +286,7 @@ public static partial class PadGrader
             return result;
         }
 
-        const string diagnosticCode = "grade_pad.fallback.multi_pad_slope_deviation_skipped";
+        const string diagnosticCode = "grade_pad.coupled.slope_deviation_retained";
         if (result.StructuredDiagnostics.Any(static diagnostic =>
                 string.Equals(diagnostic.Code, diagnosticCode, StringComparison.Ordinal)))
         {
@@ -275,7 +297,7 @@ public static partial class PadGrader
             result,
             GradingDiagnostic.Information(
                 diagnosticCode,
-                "Grade Pad local-refinement slope fallback skipped for coupled protected pads; multi-pad protected topology remains on the constraint-first result.",
+                "Grade Pad coupled protected pads retained the constraint-first topology despite slope-deviation warnings; local single-pad refinement is not applied to interacting pads.",
                 operation: "grade_pad"));
     }
 

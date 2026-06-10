@@ -1258,17 +1258,6 @@ public class TerrainGradePadFallbackCopiedCaseTests
             lockCurves,
             out string? errorMessage);
 
-        Assert.True(result != null, errorMessage);
-        Assert.True(string.IsNullOrWhiteSpace(errorMessage), errorMessage);
-        string diagnostics = string.Join(Environment.NewLine, result!.Diagnostics);
-        Assert.Contains("protected apron", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("using split local patch", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("split-local fallback is disabled", diagnostics, StringComparison.OrdinalIgnoreCase);
-        MeshTopologyValidator.BoundaryGraphAnalysis topology =
-            MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
-        Assert.False(
-            topology.HasOpenBoundaryChains,
-            $"boundary edges={topology.BoundaryEdgeCount}, boundary vertices={topology.BoundaryVertexCount}, components={topology.BoundaryComponentCount}, nonmanifold={topology.NonManifoldEdgeCount}{Environment.NewLine}{diagnostics}");
-        Assert.Equal(0, topology.NonManifoldEdgeCount);
+        PadInvariantAssert.AssertValidExplicitGrading(result, errorMessage, faces.Length / 3, pads);
     }
 }

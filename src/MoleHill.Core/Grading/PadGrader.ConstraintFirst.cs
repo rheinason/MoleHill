@@ -22,10 +22,7 @@ public static partial class PadGrader
         errorMessage = null;
 
         double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
-        bool useTransitionStationConstraints =
-            pads.Length == 1 &&
-            (lockCurves == null || lockCurves.Length == 0) &&
-            pads[0].StitchApronDistance <= tolerance * 4.0;
+        bool useTransitionStationConstraints = ShouldUseTransitionStationConstraints(pads, lockCurves, tolerance);
 
         ConstraintSet constraintSet = CreateConstraints(
             vertices,
@@ -107,7 +104,8 @@ public static partial class PadGrader
                         topologyFaces,
                         topologyFaceCount,
                         pads,
-                        lockCurves),
+                        lockCurves,
+                        useNearestShoulderCandidate: constraintSet.GuidePolylines.Length >= pads.Length),
             outputPolylines,
             patchSummaries,
             diagnostics,
@@ -125,12 +123,30 @@ public static partial class PadGrader
                     outputDiagnostics,
                     outputStructuredDiagnostics),
             out failureStructuredDiagnostics,
-            out errorMessage);
+            out errorMessage,
+            guidePolylines: constraintSet.GuidePolylines);
 
         if (result == null)
             failureOutputPolylines = outputPolylines;
 
         return result;
+    }
+
+    private static bool ShouldUseTransitionStationConstraints(
+        PadBoundary[] pads,
+        LockCurve[]? lockCurves,
+        double tolerance)
+    {
+        if (lockCurves != null && lockCurves.Length > 0)
+            return false;
+        if (pads.Length <= 1)
+            return true;
+
+        bool hasProtectedPad = pads.Any(pad => pad.StitchApronDistance > tolerance * 4.0);
+        if (!hasProtectedPad)
+            return false;
+
+        return pads.All(static pad => pad.SlopeAngleDeg >= 40.0);
     }
 
     private static void AppendPadOutputSlopeDiagnostics(
