@@ -461,12 +461,20 @@ public static partial class PathGrader
 
         int n = corridor.N;
         // Road edges (left + right) as open constraints + end-cap edges → crisp road top boundary.
+        // Carry the road profile Z and pin them so the edge follows the profile exactly (the section
+        // grader is ambiguous right on the road/batter boundary).
+        var pinnedZ = new Dictionary<int, double>();
+        for (int b = 0; b < boundaryPointCount; b++)
+            pinnedZ[b] = inputZ[b];
+
         int[] leftIdx = new int[n];
         int[] rightIdx = new int[n];
         for (int i = 0; i < n; i++)
         {
-            leftIdx[i] = AddPoint(corridor.LeftXyz[i * 3], corridor.LeftXyz[i * 3 + 1], 0.0);
-            rightIdx[i] = AddPoint(corridor.RightXyz[i * 3], corridor.RightXyz[i * 3 + 1], 0.0);
+            leftIdx[i] = AddPoint(corridor.LeftXyz[i * 3], corridor.LeftXyz[i * 3 + 1], corridor.LeftXyz[i * 3 + 2]);
+            rightIdx[i] = AddPoint(corridor.RightXyz[i * 3], corridor.RightXyz[i * 3 + 1], corridor.RightXyz[i * 3 + 2]);
+            pinnedZ[leftIdx[i]] = corridor.LeftXyz[i * 3 + 2];
+            pinnedZ[rightIdx[i]] = corridor.RightXyz[i * 3 + 2];
         }
 
         for (int i = 0; i < n - 1; i++)
@@ -508,12 +516,12 @@ public static partial class PathGrader
 
         double[] graded = ApplyGradingZ(holeVerts, vc, paths, hardConstraints, out _);
 
-        // Pin the conformed boundary exactly to terrain so it welds to the kept terrain.
+        // Pin the conformed boundary to terrain and the road edges to the road profile.
         for (int i = 0; i < vc; i++)
         {
             int sourceId = extracted.SourceIds[i];
-            if (sourceId >= 0 && sourceId < boundaryPointCount)
-                graded[i * 3 + 2] = inputZ[sourceId];
+            if (sourceId >= 0 && pinnedZ.TryGetValue(sourceId, out double pinZ))
+                graded[i * 3 + 2] = pinZ;
         }
 
         return new GradedRegionAssembler.SubMesh

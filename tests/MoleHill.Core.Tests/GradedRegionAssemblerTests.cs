@@ -64,6 +64,46 @@ public class GradedRegionAssemblerTests
         }
     }
 
+    private static (double[] v, int vc, int[] f, int fc) FlatGrid(int n, double cell, double z)
+    {
+        var v = new double[n * n * 3];
+        for (int j = 0; j < n; j++)
+            for (int i = 0; i < n; i++)
+            {
+                int idx = (j * n) + i;
+                v[idx * 3] = i * cell;
+                v[idx * 3 + 1] = j * cell;
+                v[idx * 3 + 2] = z;
+            }
+
+        var f = new List<int>((n - 1) * (n - 1) * 6);
+        for (int j = 0; j < n - 1; j++)
+            for (int i = 0; i < n - 1; i++)
+            {
+                int a = (j * n) + i, b = (j * n) + i + 1, c = ((j + 1) * n) + i + 1, d = ((j + 1) * n) + i;
+                f.Add(a); f.Add(b); f.Add(c);
+                f.Add(a); f.Add(c); f.Add(d);
+            }
+
+        return (v, n * n, f.ToArray(), f.Count / 3);
+    }
+
+    [Fact]
+    public void Grade_PadDaylightReachingTerrainEdge_ClipsAndUsesExplicit()
+    {
+        // Flat grid terrain at z=10 over [0,40]; a pad at z=0 near the +x edge so the 45° batter
+        // (reach 10) runs past x=40 and must clip to the terrain boundary instead of deferring.
+        var t = FlatGrid(21, 2.0, 10.0);
+        double[] padXy = { 32, 16, 38, 16, 38, 24, 32, 24 };
+        var pads = new[] { new PadGrader.PadBoundary(padXy, 4, targetZ: 0.0, slopeAngleDeg: 45.0) };
+
+        GradingResult? result = PadGrader.Grade(t.v, t.vc, t.f, t.fc, pads, null, out string? err);
+
+        Assert.True(result != null, err);
+        Assert.Contains("explicit batter", string.Join(" ", result!.Diagnostics), StringComparison.OrdinalIgnoreCase);
+        PadInvariantAssert.AssertWatertightManifold(result);
+    }
+
     [Fact]
     public void Assemble_PadIntoFlatTerrain_ProducesWatertightManifoldMesh()
     {

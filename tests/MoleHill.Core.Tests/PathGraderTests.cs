@@ -519,7 +519,7 @@ public class PathGraderTests
         const double maxZRateAlongY = 0.25; // expected 0.1875 /m + margin
 
         var edgeVerts = EnumerateVertices(result!)
-            .Where(v => Math.Abs(v.x - 4.5) < 0.15
+            .Where(v => Math.Abs(v.x - 4.5) < 0.05
                       && v.y >= 1.0 - 1e-4 && v.y <= 9.0 + 1e-4)
             .OrderBy(v => v.y)
             .ToList();

@@ -376,12 +376,17 @@ internal static class GradedRegionAssembler
         IReadOnlyList<double[]> daylightLoopsXy,
         double tolerance)
     {
+        // A daylight loop that runs off the terrain edge is clipped to the terrain outline so the
+        // carve region stays closed (following the boundary) instead of leaving an open chain.
+        double[]? terrainOutline = TryBuildTerrainOutline(terrainFaces, terrainFaceCount, terrainVertices);
+
         var areas = new List<MeshAreaSplitter.AreaBoundary>(daylightLoopsXy.Count);
         foreach (double[] xy in daylightLoopsXy)
         {
-            int count = xy.Length / 2;
+            double[] effective = ClipLoopToTerrain(xy, terrainOutline, tolerance);
+            int count = effective.Length / 2;
             if (count >= 3)
-                areas.Add(new MeshAreaSplitter.AreaBoundary(xy, count));
+                areas.Add(new MeshAreaSplitter.AreaBoundary(effective, count));
         }
 
         if (areas.Count == 0)
@@ -424,11 +429,15 @@ internal static class GradedRegionAssembler
         if (outsideFaces.Count == 0)
             return new SplitOutsideResult { Success = false, Warning = "All terrain fell inside the daylight loops." };
 
-        // Boundary edges separate an inside face from an outside face — the conformed daylight loop.
+        // The conformed daylight loop = edges that separate an inside face from an outside face, OR
+        // naked edges of an inside face (where the carve region meets the terrain perimeter because
+        // the daylight was clipped to the boundary).
         var adjacency = new Dictionary<int, List<int>>();
         foreach (KeyValuePair<long, (int inside, int outside)> entry in edgeCounts)
         {
-            if (entry.Value.inside < 1 || entry.Value.outside < 1)
+            bool sharedInsideOutside = entry.Value.inside >= 1 && entry.Value.outside >= 1;
+            bool nakedInsideEdge = entry.Value.inside == 1 && entry.Value.outside == 0;
+            if (!sharedInsideOutside && !nakedInsideEdge)
                 continue;
 
             int a = (int)(entry.Key >> 32);
@@ -486,6 +495,66 @@ internal static class GradedRegionAssembler
             Faces = faceArray,
             FaceCount = faceCount
         };
+    }
+
+    /// <summary>Builds the terrain's single naked-edge outline loop as flat XY, or null if it has 0/many.</summary>
+    private static double[]? TryBuildTerrainOutline(int[] faces, int faceCount, double[] vertices)
+    {
+        var boundary = new List<(int a, int b)>();
+        MeshConstraintTools.AddBoundarySegments(boundary, new HashSet<long>(), faces, faceCount);
+        if (boundary.Count == 0)
+            return null;
+
+        var adjacency = new Dictionary<int, List<int>>();
+        foreach (var (a, b) in boundary)
+        {
+            AddAdjacency(adjacency, a, b);
+            AddAdjacency(adjacency, b, a);
+        }
+
+        List<int[]> loops = ChainBoundaryLoops(adjacency);
+        if (loops.Count != 1)
+            return null;
+
+        int[] loop = loops[0];
+        var xy = new double[loop.Length * 2];
+        for (int i = 0; i < loop.Length; i++)
+        {
+            xy[i * 2] = vertices[loop[i] * 3];
+            xy[i * 2 + 1] = vertices[loop[i] * 3 + 1];
+        }
+
+        return xy;
+    }
+
+    private static double[] ClipLoopToTerrain(double[] loopXy, double[]? terrainOutline, double tolerance)
+    {
+        if (terrainOutline is null)
+            return loopXy;
+
+        int count = loopXy.Length / 2;
+        int outlineCount = terrainOutline.Length / 2;
+        bool fullyInside = true;
+        for (int i = 0; i < count; i++)
+        {
+            if (!GradingGeometry2D.PointInPolygon(loopXy[i * 2], loopXy[i * 2 + 1], terrainOutline, outlineCount))
+            {
+                fullyInside = false;
+                break;
+            }
+        }
+
+        if (fullyInside)
+            return loopXy;
+
+        if (ClipperGeometry.TryIntersectClosedLoops(new[] { loopXy }, terrainOutline, tolerance, out List<double[]> clipped) &&
+            ClipperGeometry.TryPickLargestLoop(clipped, out double[] largest) &&
+            largest.Length >= 6)
+        {
+            return largest;
+        }
+
+        return loopXy;
     }
 
     private static long EdgeKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
