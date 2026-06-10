@@ -122,12 +122,21 @@ public static partial class PadGrader
             lockCurves,
             modelTolerance,
             terrainDetailSize,
-            out _);
+            out string? explicitFailureReason);
         if (explicitResult != null)
         {
             errorMessage = null;
             return explicitResult;
         }
+
+        // The explicit engine is the preferred path; record WHY it deferred so a fallback success
+        // does not silently mask an explicit-path regression. Attached to the returned result below.
+        GradingDiagnostic? explicitFallbackDiagnostic = string.IsNullOrWhiteSpace(explicitFailureReason)
+            ? null
+            : GradingDiagnostic.Information(
+                "grade_pad.explicit.fallback",
+                $"Explicit batter construction deferred to the constraint-first path: {explicitFailureReason}",
+                operation: "grade_pad");
 
         GradingResult? rebuilt = GradeWithConstraintFirstTopology(
             vertices,
@@ -209,6 +218,8 @@ public static partial class PadGrader
         if (rebuilt != null)
         {
             rebuilt = AddMultiPadSlopeDeviationFallbackDiagnosticIfNeeded(pads, modelTolerance, rebuilt);
+            if (explicitFallbackDiagnostic != null)
+                rebuilt = AddResultDiagnostic(rebuilt, explicitFallbackDiagnostic.Value);
             errorMessage = null;
         }
 

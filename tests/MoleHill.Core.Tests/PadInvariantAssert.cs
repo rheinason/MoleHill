@@ -16,12 +16,35 @@ internal static class PadInvariantAssert
     /// produced without failure, watertight and manifold, built by the explicit path, retaining the
     /// terrain, and flat at the pad plane across each pad top.
     /// </summary>
+    /// <summary>
+    /// The diagnostic emitted by the explicit-batter mode (and only that mode). The legacy fallback
+    /// emits its own mode line plus a <c>grade_pad.explicit.fallback</c> note recording why it ran.
+    /// </summary>
+    private const string ExplicitModeMarker = "explicit batter construction (ruled";
+
+    public static bool UsedExplicitMode(GradingResult result) =>
+        result.Diagnostics.Any(d => d.Contains(ExplicitModeMarker, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Asserts the explicit-batter path actually produced the result (not a silent fallback). When a
+    /// case is expected to be handled by the robust engine, use this so a fallback masquerading as a
+    /// success fails the test instead of passing it.
+    /// </summary>
+    public static void AssertExplicitModeUsed(GradingResult result)
+    {
+        Assert.True(
+            UsedExplicitMode(result),
+            "Expected the explicit-batter path, but the result came from the constraint-first fallback. " +
+            "Diagnostics:" + Environment.NewLine + string.Join(Environment.NewLine, result.Diagnostics));
+    }
+
     public static void AssertValidExplicitGrading(
         GradingResult? result,
         string? errorMessage,
         int inputFaceCount,
         PadGrader.PadBoundary[] pads,
-        double padTopZTolerance = 1e-3)
+        double padTopZTolerance = 1e-3,
+        bool requireExplicit = false)
     {
         Assert.True(result != null, errorMessage);
         Assert.True(
@@ -38,10 +61,13 @@ internal static class PadInvariantAssert
 
         AssertWatertightManifold(result, diagnostics);
 
+        if (requireExplicit)
+            AssertExplicitModeUsed(result);
+
         // Exact pad-top flatness is a guarantee of the explicit-batter engine. Cases that still defer
         // to the legacy constraint-first path (interacting/self-overlapping pads, pending ownership
         // resolution) are not held to it here; they only need to be watertight and manifold.
-        if (diagnostics.Contains("explicit batter", StringComparison.OrdinalIgnoreCase))
+        if (UsedExplicitMode(result))
             AssertPadTopsFlat(result, pads, padTopZTolerance);
     }
 

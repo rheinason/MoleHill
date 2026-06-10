@@ -50,19 +50,30 @@ public static partial class PathGrader
         // terrain). Falls through to the legacy constraint-first path for interacting corridors, hard
         // constraints, or any case it cannot make watertight and manifold.
         GradingResult? explicitResult = GradeWithExplicitCorridor(
-            vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out _);
+            vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out string? explicitFailureReason);
         if (explicitResult != null)
         {
             errorMessage = null;
             return explicitResult;
         }
 
+        // Record WHY the preferred explicit corridor path deferred so a fallback success does not
+        // silently mask an explicit-path regression.
+        GradingDiagnostic? explicitFallbackDiagnostic = string.IsNullOrWhiteSpace(explicitFailureReason)
+            ? null
+            : GradingDiagnostic.Information(
+                "grade_path.explicit.fallback",
+                $"Explicit corridor construction deferred to the constraint-first path: {explicitFailureReason}",
+                operation: "grade_path");
+
         // Grade Path must own and rebuild topology. Do not silently fall back to Z-only grading.
         var result = GradeWithEdges(vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out string? topologyError, out _);
         if (result != null)
         {
             errorMessage = null;
-            return result;
+            return explicitFallbackDiagnostic != null
+                ? WithExtraDiagnostic(result, explicitFallbackDiagnostic.Value)
+                : result;
         }
 
         errorMessage = string.IsNullOrWhiteSpace(topologyError)
@@ -71,4 +82,24 @@ public static partial class PathGrader
         return null;
     }
 
+    /// <summary>Returns a copy of <paramref name="result"/> with one extra diagnostic appended.</summary>
+    private static GradingResult WithExtraDiagnostic(GradingResult result, GradingDiagnostic diagnostic)
+    {
+        string[] diagnostics = result.Diagnostics.Concat(new[] { diagnostic.Message }).ToArray();
+        GradingDiagnostic[] structured = result.StructuredDiagnostics.Concat(new[] { diagnostic }).ToArray();
+
+        return new GradingResult(
+            result.Vertices,
+            result.VertexCount,
+            result.Faces,
+            result.FaceCount,
+            result.CutVolume,
+            result.FillVolume,
+            result.DaylightVertices,
+            result.DaylightVertexCount,
+            result.OutputPolylines,
+            diagnostics,
+            result.PatchSummaries,
+            structured);
+    }
 }

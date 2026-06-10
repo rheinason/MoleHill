@@ -231,8 +231,13 @@ public static partial class PadGrader
         // Self-overlapping shoulders (narrow or concave pads whose opposite batters collide) fold
         // the daylight loop back across the footprint. The simple ruled strip cannot resolve that
         // collision, so defer to the constraint-first path.
+        // A daylight point that lands strictly inside the footprint means the shoulder folded back
+        // across the pad. Stations where terrain already sits at pad grade are Flat: their daylight
+        // point collapses ONTO the footprint boundary (reach ~ 0), which is not a fold — exclude
+        // those by requiring genuine interior penetration beyond a small margin.
+        double foldMargin = Math.Max(tolerance, segmentLength * 0.05);
         if (ClosedPolylineHasSelfIntersection(daylightXy, loop.Count) ||
-            AnyPointInsidePolygon(daylightXy, loop.Count, pad.XyVertices, pad.VertexCount))
+            AnyPointInsidePolygon(daylightXy, loop.Count, pad.XyVertices, pad.VertexCount, foldMargin))
         {
             errorMessage = "Grade Pad batter shoulders self-overlap; deferring to constraint-first path.";
             return null;
@@ -487,12 +492,18 @@ public static partial class PadGrader
         return groupId;
     }
 
-    private static bool AnyPointInsidePolygon(double[] pointsXy, int pointCount, double[] polygonXy, int polygonCount)
+    private static bool AnyPointInsidePolygon(
+        double[] pointsXy, int pointCount, double[] polygonXy, int polygonCount, double interiorMargin)
     {
         for (int i = 0; i < pointCount; i++)
         {
-            if (PointInPolygon(pointsXy[i * 2], pointsXy[i * 2 + 1], polygonXy, polygonCount))
+            double px = pointsXy[i * 2];
+            double py = pointsXy[i * 2 + 1];
+            if (PointInPolygon(px, py, polygonXy, polygonCount) &&
+                DistToPolygon(px, py, polygonXy, polygonCount) > interiorMargin)
+            {
                 return true;
+            }
         }
 
         return false;
