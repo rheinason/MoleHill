@@ -71,9 +71,8 @@ public static partial class PadGrader
             members.Add(builds[i]);
         }
 
-        // Union each interacting group's daylight loops into one carve region.
+        // Union each interacting group's daylight loops into carve region(s) for the terrain split.
         var groupLoops = new List<double[]>(groups.Count);
-        var groupMembers = new List<List<PadBuild>>(groups.Count);
         foreach (List<PadBuild> members in groups.Values)
         {
             List<double[]>? unionLoops = UnionGroupDaylight(members, tolerance);
@@ -85,10 +84,7 @@ public static partial class PadGrader
 
             // A group whose members only touch unions into several disjoint loops; carve each one.
             foreach (double[] unionLoop in unionLoops)
-            {
                 groupLoops.Add(unionLoop);
-                groupMembers.Add(members);
-            }
         }
 
         // Split the terrain along the carve regions, preserving terrain detail everywhere else.
@@ -100,20 +96,22 @@ public static partial class PadGrader
             return null;
         }
 
-        // Fill each conformed hole with the pad group whose region it traces.
+        // Fill each conformed hole with every pad whose footprint lies inside it. Assigning by
+        // geometry (not by group) is what keeps adjacent pads correct: when two pads' daylight
+        // regions sit closer than a terrain face, the split merges them into one conformed hole, and
+        // that hole must be filled by ALL the pads it contains — otherwise the uncovered pad's region
+        // overlaps its neighbour's fill and the weld goes non-manifold.
         var fills = new List<GradedRegionAssembler.SubMesh>(split.HoleBoundaryLoops.Count);
         foreach (int[] boundaryLoop in split.HoleBoundaryLoops)
         {
             double[] boundaryXyz = ExtractLoopXyz(split.Vertices, boundaryLoop);
-            int groupIndex = MatchGroupForBoundary(boundaryXyz, boundaryLoop.Length, groupLoops);
-            if (groupIndex < 0)
+            List<PadBuild> holeMembers = PadsInsideBoundary(builds, boundaryXyz, boundaryLoop.Length);
+            if (holeMembers.Count == 0)
             {
-                errorMessage = "Grade Pad could not match a hole boundary to a pad group; deferring.";
+                errorMessage = "Grade Pad could not match a hole boundary to any pad; deferring.";
                 return null;
             }
 
-            // With disjoint group loops, keep only the members whose footprint lies in this hole.
-            List<PadBuild> holeMembers = FilterPadsInBoundary(groupMembers[groupIndex], boundaryXyz, boundaryLoop.Length);
             GradedRegionAssembler.SubMesh? fill = BuildHoleFill(
                 boundaryXyz, boundaryLoop.Length, holeMembers, terrain, barriers, tolerance);
             if (fill is null)
@@ -306,12 +304,9 @@ public static partial class PadGrader
         return loops.Count > 0 ? loops : null;
     }
 
-    /// <summary>Keeps the group members whose footprint centroid falls inside the given boundary.</summary>
-    private static List<PadBuild> FilterPadsInBoundary(List<PadBuild> members, double[] boundaryXyz, int boundaryCount)
+    /// <summary>Returns the pads whose footprint centroid falls inside the given conformed boundary.</summary>
+    private static List<PadBuild> PadsInsideBoundary(List<PadBuild> builds, double[] boundaryXyz, int boundaryCount)
     {
-        if (members.Count <= 1)
-            return members;
-
         var boundaryXy = new double[boundaryCount * 2];
         for (int i = 0; i < boundaryCount; i++)
         {
@@ -319,8 +314,8 @@ public static partial class PadGrader
             boundaryXy[i * 2 + 1] = boundaryXyz[i * 3 + 1];
         }
 
-        var inside = new List<PadBuild>(members.Count);
-        foreach (PadBuild build in members)
+        var inside = new List<PadBuild>();
+        foreach (PadBuild build in builds)
         {
             double cx = 0.0, cy = 0.0;
             int n = build.Pad.VertexCount;
@@ -334,7 +329,7 @@ public static partial class PadGrader
                 inside.Add(build);
         }
 
-        return inside.Count > 0 ? inside : members;
+        return inside;
     }
 
     private static double[] ExtractLoopXyz(double[] vertices, int[] loop)
@@ -349,51 +344,6 @@ public static partial class PadGrader
         }
 
         return xyz;
-    }
-
-    /// <summary>Matches a conformed hole boundary to the group whose union loop encloses it.</summary>
-    private static int MatchGroupForBoundary(double[] boundaryXyz, int boundaryCount, List<double[]> groupLoops)
-    {
-        double cx = 0.0, cy = 0.0;
-        for (int i = 0; i < boundaryCount; i++)
-        {
-            cx += boundaryXyz[i * 3];
-            cy += boundaryXyz[i * 3 + 1];
-        }
-
-        cx /= boundaryCount;
-        cy /= boundaryCount;
-
-        for (int g = 0; g < groupLoops.Count; g++)
-        {
-            if (PointInPolygon(cx, cy, groupLoops[g], groupLoops[g].Length / 2))
-                return g;
-        }
-
-        // Fallback: nearest group-loop centroid (concave boundary whose centroid lies outside).
-        int best = -1;
-        double bestDistSq = double.MaxValue;
-        for (int g = 0; g < groupLoops.Count; g++)
-        {
-            int gc = groupLoops[g].Length / 2;
-            double gx = 0.0, gy = 0.0;
-            for (int i = 0; i < gc; i++)
-            {
-                gx += groupLoops[g][i * 2];
-                gy += groupLoops[g][i * 2 + 1];
-            }
-
-            gx /= gc;
-            gy /= gc;
-            double d = ((gx - cx) * (gx - cx)) + ((gy - cy) * (gy - cy));
-            if (d < bestDistSq)
-            {
-                bestDistSq = d;
-                best = g;
-            }
-        }
-
-        return best;
     }
 
     /// <summary>
@@ -457,6 +407,16 @@ public static partial class PadGrader
         foreach (PadBuild build in group)
             AddClosed(build.PadLoop.XyVertices, xyz: false, build.PadLoop.VertexCount);
 
+        // Batter-row seeds (density/slope). Keep only seeds inside the conformed boundary: when the
+        // daylight was clipped (off-terrain or against an adjacent pad) some rows fall outside it, and
+        // triangulating those would push fill faces past the boundary and overlap the kept terrain.
+        var boundaryXy = new double[boundaryPointCount * 2];
+        for (int i = 0; i < boundaryPointCount; i++)
+        {
+            boundaryXy[i * 2] = xyList[i * 2];
+            boundaryXy[i * 2 + 1] = xyList[i * 2 + 1];
+        }
+
         foreach (PadBuild build in group)
         {
             if (build.Batter is null)
@@ -464,7 +424,12 @@ public static partial class PadGrader
 
             double[] sv = build.Batter.Vertices;
             for (int i = 0; i < build.Batter.VertexCount; i++)
-                AddPoint(sv[i * 3], sv[i * 3 + 1], 0.0);
+            {
+                double sx = sv[i * 3];
+                double sy = sv[i * 3 + 1];
+                if (PointInPolygon(sx, sy, boundaryXy, boundaryPointCount))
+                    AddPoint(sx, sy, 0.0);
+            }
         }
 
         TriangulationOutcome outcome = TriangulationHelper.Triangulate(
@@ -505,13 +470,47 @@ public static partial class PadGrader
                 graded[i * 3 + 2] = inputZ[sourceId];
         }
 
+        // Clip the fill to the conformed boundary: a concave or merged boundary can make the
+        // triangulator span past it (toward the convex hull), and those faces would overlap the kept
+        // terrain and weld non-manifold. Keep only faces whose centroid lies inside the boundary.
+        int[] clippedFaces = ClipFacesToBoundary(graded, extracted.Faces, extracted.FaceCount, boundaryXy, boundaryPointCount);
+
         return new GradedRegionAssembler.SubMesh
         {
             Vertices = graded,
             VertexCount = vc,
-            Faces = extracted.Faces,
-            FaceCount = extracted.FaceCount
+            Faces = clippedFaces,
+            FaceCount = clippedFaces.Length / 3
         };
+    }
+
+    /// <summary>Drops triangles whose centroid falls outside the conformed boundary polygon.</summary>
+    private static int[] ClipFacesToBoundary(double[] vertices, int[] faces, int faceCount, double[] boundaryXy, int boundaryCount)
+    {
+        var kept = new List<int>(faceCount * 3);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            double ax = vertices[a * 3], ay = vertices[a * 3 + 1];
+            double bx = vertices[b * 3], by = vertices[b * 3 + 1];
+            double cxv = vertices[c * 3], cyv = vertices[c * 3 + 1];
+
+            // Drop degenerate (near-zero area) slivers the triangulator can leave at the boundary.
+            double area2 = Math.Abs(((bx - ax) * (cyv - ay)) - ((by - ay) * (cxv - ax)));
+            if (area2 <= 1e-7)
+                continue;
+
+            double cx = (ax + bx + cxv) / 3.0;
+            double cy = (ay + by + cyv) / 3.0;
+            if (PointInPolygon(cx, cy, boundaryXy, boundaryCount))
+            {
+                kept.Add(a);
+                kept.Add(b);
+                kept.Add(c);
+            }
+        }
+
+        return kept.Count > 0 ? kept.ToArray() : faces;
     }
 
     /// <summary>Union-find grouping of pads whose daylight polygons overlap. Returns a group id per pad.</summary>
