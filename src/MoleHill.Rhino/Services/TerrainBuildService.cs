@@ -1816,7 +1816,8 @@ internal sealed partial class TerrainBuildService
                 continue;
 
             double stitchApronDistance = ModelUnits.FromMeters(0.5, snapshot.ModelUnitSystem);
-            if (!TryCreatePlanarPadBoundary(polyline, count, modifier.SlopeAngle, modifier.MaxDistance, stitchApronDistance, modifier.FillSlopeAngle, out var pad, out string? diagnostic))
+            double padCutSlope = modifier.CutSlopeAngle > 0.0 ? modifier.CutSlopeAngle : modifier.SlopeAngle;
+            if (!TryCreatePlanarPadBoundary(polyline, count, padCutSlope, modifier.MaxDistance, stitchApronDistance, modifier.SlopeAngle, out var pad, out string? diagnostic))
             {
                 if (!string.IsNullOrWhiteSpace(diagnostic))
                     diagnostics.Add(diagnostic!);
@@ -2443,7 +2444,8 @@ internal sealed partial class TerrainBuildService
                 pathZ[i] = polyline[i].Z;
             }
 
-            paths.Add(new PathGrader.PathDefinition(pathXy, pathZ, polyline.Count, modifier.Width, modifier.SlopeAngle, modifier.MaxDistance, modifier.FillSlopeAngle));
+            double pathCutSlope = modifier.CutSlopeAngle > 0.0 ? modifier.CutSlopeAngle : modifier.SlopeAngle;
+            paths.Add(new PathGrader.PathDefinition(pathXy, pathZ, polyline.Count, modifier.Width, pathCutSlope, modifier.MaxDistance, modifier.SlopeAngle));
         }
 
         var pathArray = paths.ToArray();
@@ -5081,7 +5083,7 @@ internal sealed partial class TerrainBuildService
         builder.Add(upstreamFingerprint);
         builder.Add(tolerance);
         builder.Add(modifier.SlopeAngle);
-        builder.Add(modifier.FillSlopeAngle);
+        builder.Add(modifier.CutSlopeAngle);
         builder.Add(modifier.MaxDistance);
         builder.Add(pads.Count);
         foreach (var pad in pads)
@@ -5130,7 +5132,7 @@ internal sealed partial class TerrainBuildService
         builder.Add("GradePadResolved");
         builder.Add(topologyOutputFingerprint);
         builder.Add(modifier.SlopeAngle);
-        builder.Add(modifier.FillSlopeAngle);
+        builder.Add(modifier.CutSlopeAngle);
         builder.Add(modifier.MaxDistance);
         builder.Add(pads.Count);
         foreach (var pad in pads)

@@ -3684,12 +3684,12 @@ public sealed class MoleHillPanel : Panel
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((GradePadModifierDefinition)item).Boundaries)),
                     RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
-                layout.AddRow(CreateNumericEditor("Slope Angle", gradePad.SlopeAngle, value =>
+                layout.AddRow(CreateNumericEditor("Fill Slope", gradePad.SlopeAngle, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).SlopeAngle = value),
-                    help: "Cut slope in degrees, used where terrain sits above the pad. Boundary curve Z defines the finished pad plane; lower values are flatter and extend farther, while higher values are steeper and tighter."));
-                layout.AddRow(CreateNumericEditor("Fill Slope", gradePad.FillSlopeAngle, value =>
-                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).FillSlopeAngle = value),
-                    help: "Fill slope in degrees, used where terrain sits below the pad. 0 means use the same angle as the cut slope."));
+                    help: "Fill slope in degrees, used where terrain sits below the pad. This is the main slope; the cut slope inherits it unless overridden. Boundary curve Z defines the finished pad plane; lower values are flatter and extend farther."));
+                layout.AddRow(CreateOptionalNumericEditor("Cut Slope", gradePad.CutSlopeAngle, gradePad.SlopeAngle, value =>
+                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).CutSlopeAngle = value),
+                    help: "Cut slope override in degrees, used where terrain sits above the pad. Leave blank to use the fill slope."));
                 layout.AddRow(CreateNumericEditor("Max Distance", gradePad.MaxDistance, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePadModifierDefinition)item).MaxDistance = value),
                     help: "Maximum grading reach. 0 means unlimited; smaller values keep the effect close to the pad."));
@@ -3703,12 +3703,12 @@ public sealed class MoleHillPanel : Panel
                 layout.AddRow(CreateNumericEditor("Width", gradePath.Width, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePathModifierDefinition)item).Width = value),
                     help: "Finished path width. This is the flat or controlled-width core before side grading starts."));
-                layout.AddRow(CreateNumericEditor("Slope Angle", gradePath.SlopeAngle, value =>
+                layout.AddRow(CreateNumericEditor("Fill Slope", gradePath.SlopeAngle, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePathModifierDefinition)item).SlopeAngle = value),
-                    help: "Cut slope in degrees, used where terrain sits above the road. Lower values spread the shoulder farther; higher values make sharper shoulders."));
-                layout.AddRow(CreateNumericEditor("Fill Slope", gradePath.FillSlopeAngle, value =>
-                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePathModifierDefinition)item).FillSlopeAngle = value),
-                    help: "Fill slope in degrees, used where terrain sits below the road. 0 means use the same angle as the cut slope."));
+                    help: "Fill slope in degrees, used where terrain sits below the road. This is the main slope; the cut slope inherits it unless overridden. Lower values spread the shoulder farther."));
+                layout.AddRow(CreateOptionalNumericEditor("Cut Slope", gradePath.CutSlopeAngle, gradePath.SlopeAngle, value =>
+                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePathModifierDefinition)item).CutSlopeAngle = value),
+                    help: "Cut slope override in degrees, used where terrain sits above the road. Leave blank to use the fill slope."));
                 layout.AddRow(CreateNumericEditor("Max Distance", gradePath.MaxDistance, value =>
                     MutateModifier(terrain.TerrainId, modifier.Id, item => ((GradePathModifierDefinition)item).MaxDistance = value),
                     help: "Maximum grading reach away from the path. 0 means unlimited; lower values constrain the shoulder length."));
@@ -4499,6 +4499,86 @@ public sealed class MoleHillPanel : Panel
                 CreateHelpLabel(label, help, NumericLabelWidth),
                 stepper
             }
+        };
+    }
+
+    /// <summary>
+    /// A numeric editor that is "inherited" when left blank: the field shows the
+    /// <paramref name="inheritedValue"/> as greyed placeholder text until the user types an override.
+    /// A current <paramref name="value"/> &lt;= 0 is treated as inherited (blank). Clearing the field
+    /// commits 0 (inherit again).
+    /// </summary>
+    private Control CreateOptionalNumericEditor(
+        string label,
+        double value,
+        double inheritedValue,
+        Action<double> onChanged,
+        int decimalPlaces = 3,
+        string? help = null)
+    {
+        help ??= GetNumericHelp(label);
+        var textBox = new TextBox
+        {
+            Width = 100,
+            Text = value > 0.0 ? value.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture) : string.Empty,
+            PlaceholderText = inheritedValue.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture)
+        };
+        ApplyHelp(textBox, help);
+
+        var timer = new UITimer { Interval = 0.25 };
+        double committedValue = value > 0.0 ? value : 0.0;
+        void Commit()
+        {
+            timer.Stop();
+            double parsed = 0.0;
+            string text = textBox.Text?.Trim() ?? string.Empty;
+            if (text.Length > 0 &&
+                double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out double v) &&
+                v > 0.0)
+            {
+                parsed = v;
+            }
+
+            if (!TerrainCommitGuard.HasMeaningfulNumericChange(committedValue, parsed))
+                return;
+
+            committedValue = parsed;
+            onChanged(parsed);
+        }
+        timer.Elapsed += (_, _) => Commit();
+        textBox.TextChanged += (_, _) =>
+        {
+            if (_isRefreshing)
+                return;
+
+            timer.Stop();
+            timer.Start();
+        };
+        textBox.LostFocus += (_, _) =>
+        {
+            if (_isRefreshing)
+                return;
+
+            Commit();
+        };
+
+        if (UseStackedFormRows())
+        {
+            return new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 4,
+                Padding = new Padding(0, 3),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items = { CreateHelpLabel(label, help, 0), textBox }
+            };
+        }
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Items = { CreateHelpLabel(label, help, NumericLabelWidth), textBox }
         };
     }
 
