@@ -112,6 +112,53 @@ public class PadRegionRemeshTests
         Assert.True(maxSlope < 50.0, $"Expected spike-free slopes (~33 deg target); max non-pad face slope was {maxSlope:F1} deg.");
     }
 
+    [Fact]
+    public void GradeWithRegionRemesh_UnsetTerrainDetail_TerminatesAndIsWatertight()
+    {
+        // terrainDetailSize defaults to 0 when called from Rhino. The interior grid spacing must be
+        // derived from the rim and hard-capped, or the seeding loop emits billions of points and hangs.
+        const double spacing = 2.0;
+        int n = 21;
+        var vertices = new double[n * n * 3];
+        int idx = 0;
+        for (int j = 0; j < n; j++)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                vertices[idx++] = i * spacing;
+                vertices[idx++] = j * spacing;
+                vertices[idx++] = 0.15 * (i * spacing);
+            }
+        }
+
+        var faceList = new List<int>();
+        for (int j = 0; j < n - 1; j++)
+        {
+            for (int i = 0; i < n - 1; i++)
+            {
+                int v00 = (j * n) + i, v10 = v00 + 1, v01 = v00 + n, v11 = v01 + 1;
+                faceList.Add(v00); faceList.Add(v10); faceList.Add(v11);
+                faceList.Add(v00); faceList.Add(v11); faceList.Add(v01);
+            }
+        }
+
+        int[] faces = faceList.ToArray();
+        var pad = PadGrader.PadBoundary.CreatePlanar(
+            new[] { 15.0, 15.0, 3.0, 25.0, 15.0, 3.0, 25.0, 25.0, 3.0, 15.0, 25.0, 3.0 },
+            4, 0.0, 0.0, 3.0, slopeAngleDeg: 33.0);
+
+        GradingResult? result = PadGrader.GradeWithRegionRemesh(
+            vertices, vertices.Length / 3, faces, faces.Length / 3,
+            new[] { pad }, Array.Empty<PadGrader.LockCurve>(),
+            modelTolerance: 1e-4, terrainDetailSize: 0.0, out string? errorMessage);
+
+        Assert.True(result != null, errorMessage);
+        MeshTopologyValidator.BoundaryGraphAnalysis topology =
+            MeshTopologyValidator.AnalyzeBoundaryGraph(result!.Faces, result.FaceCount);
+        Assert.Equal(0, topology.NonManifoldEdgeCount);
+        Assert.False(topology.HasOpenBoundaryChains);
+    }
+
     private static bool Inside(double[] v, int index, PadGrader.PadBoundary pad) =>
         PadGrader.PointInPolygon(v[index * 3], v[index * 3 + 1], pad.XyVertices, pad.VertexCount);
 

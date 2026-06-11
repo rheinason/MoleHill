@@ -253,8 +253,8 @@ public static partial class PadGrader
         // terrain. Instead seed an explicit interior grid (kept inside the rim) and triangulate the
         // plain PSLG — the rim edges stay intact (original vertices => exact weld), and the grid gives
         // the smooth distance-field batter.
-        double targetEdge = Math.Max(terrainDetailSize * 0.6, tolerance * 8.0);
         double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
+        double rimPerimeter = 0.0;
         for (int i = 0; i < rimCount; i++)
         {
             double px = vertices[rim[i] * 3], py = vertices[rim[i] * 3 + 1];
@@ -262,7 +262,24 @@ public static partial class PadGrader
             if (px > maxX) maxX = px;
             if (py < minY) minY = py;
             if (py > maxY) maxY = py;
+
+            int next = (i + 1) % rimCount;
+            double dx = vertices[rim[next] * 3] - px;
+            double dy = vertices[rim[next] * 3 + 1] - py;
+            rimPerimeter += Math.Sqrt((dx * dx) + (dy * dy));
         }
+
+        // Interior grid spacing. terrainDetailSize is often 0 (unset) when called from Rhino, so
+        // derive a sensible spacing from the rim's own edge lengths instead of collapsing to the model
+        // tolerance (which would explode the grid to billions of points and hang). Also hard-cap the
+        // grid to a bounded cell count per axis so a large region can never blow up.
+        double avgRimEdge = rimPerimeter / Math.Max(rimCount, 1);
+        double targetEdge = terrainDetailSize > tolerance ? terrainDetailSize * 0.6 : avgRimEdge;
+        targetEdge = Math.Max(targetEdge, tolerance * 8.0);
+        const int maxCellsPerAxis = 160;
+        double span = Math.Max(maxX - minX, maxY - minY);
+        if (span > 0.0)
+            targetEdge = Math.Max(targetEdge, span / maxCellsPerAxis);
 
         var rimPoly = new double[rimCount * 2];
         for (int i = 0; i < rimCount; i++)

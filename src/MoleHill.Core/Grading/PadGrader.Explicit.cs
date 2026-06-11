@@ -239,7 +239,7 @@ public static partial class PadGrader
             members.Add(builds[i]);
         }
 
-        var conformLoops = new List<double[]>(groups.Count);
+        var conformLoops = new List<double[]>(groups.Count + pads.Length);
         foreach (List<PadBuild> members in groups.Values)
         {
             List<double[]>? unionLoops = UnionGroupDaylight(members, tolerance);
@@ -253,7 +253,21 @@ public static partial class PadGrader
                 conformLoops.Add(unionLoop);
         }
 
-        // Conform the terrain to the daylight loops and keep the whole mesh (no carve/fill/weld).
+        // Also conform to each pad FOOTPRINT, not just its daylight. Conforming to the daylight alone
+        // leaves the pad interior spanned by coarse terrain triangles that never get flattened (a pad
+        // smaller than the local terrain triangle ends up with no flat top at all). Inserting the
+        // footprint puts its boundary into the mesh at pad grade, so the pad top is flat.
+        foreach (PadBuild build in builds)
+        {
+            if (build.Pad.VertexCount >= 3)
+            {
+                var footprint = new double[build.Pad.VertexCount * 2];
+                Array.Copy(build.Pad.XyVertices, footprint, footprint.Length);
+                conformLoops.Add(footprint);
+            }
+        }
+
+        // Conform the terrain to the daylight + footprint loops and keep the whole mesh (no weld).
         MeshAreaSplitter.SplitResult? conformed = GradedRegionAssembler.SplitConform(
             vertices, vertexCount, faces, faceCount, conformLoops, tolerance);
         if (conformed is null)
@@ -295,8 +309,17 @@ public static partial class PadGrader
             hasBoundaryLoop: false, boundaryLoop: Array.Empty<double>(), boundaryVertexCount: 0,
             tolerance, keepShoulderOnBatterPlane: false, defaultCornerFanSegments: 6);
 
+        // A watertight conform that did not actually flatten a pad top (the footprint was too small to
+        // pick up interior mesh, or the splitter dropped its boundary) is geometrically wrong — defer
+        // to the region-remesh path, which rebuilds the pad interior densely and always flattens.
+        if (!PadTopsAreFlat(graded, conformed.Faces, conformed.FaceCount, pads, Math.Max(tolerance, 1e-3)))
+        {
+            errorMessage = "Grade Pad split-keep did not flatten every pad top; deferring to region remesh.";
+            return null;
+        }
+
         const string modeMessage =
-            "Grade Pad topology mode: terrain conform (split-keep — daylight loops conformed in place, watertight by construction).";
+            "Grade Pad topology mode: terrain conform (split-keep — daylight + footprint loops conformed in place, watertight by construction).";
         var diagnostics = new List<string> { modeMessage };
         var structured = new List<GradingDiagnostic>
         {
@@ -324,6 +347,46 @@ public static partial class PadGrader
             diagnostics,
             patchSummaries,
             structured);
+    }
+
+    /// <summary>
+    /// True when every triangle whose three vertices fall inside exactly one pad footprint sits on
+    /// that pad's plane (within <paramref name="zTolerance"/>). A pad with NO fully-interior triangle
+    /// is treated as not flattened, since its top is then spanned by ungraded terrain faces.
+    /// </summary>
+    private static bool PadTopsAreFlat(double[] vertices, int[] faces, int faceCount, PadBoundary[] pads, double zTolerance)
+    {
+        var interiorFaceCount = new int[pads.Length];
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            for (int p = 0; p < pads.Length; p++)
+            {
+                PadBoundary pad = pads[p];
+                if (!PointInPolygon(vertices[a * 3], vertices[a * 3 + 1], pad.XyVertices, pad.VertexCount) ||
+                    !PointInPolygon(vertices[b * 3], vertices[b * 3 + 1], pad.XyVertices, pad.VertexCount) ||
+                    !PointInPolygon(vertices[c * 3], vertices[c * 3 + 1], pad.XyVertices, pad.VertexCount))
+                {
+                    continue;
+                }
+
+                interiorFaceCount[p]++;
+                foreach (int idx in stackalloc[] { a, b, c })
+                {
+                    double expected = pad.EvaluateZ(vertices[idx * 3], vertices[idx * 3 + 1]);
+                    if (Math.Abs(vertices[idx * 3 + 2] - expected) > zTolerance)
+                        return false;
+                }
+            }
+        }
+
+        for (int p = 0; p < pads.Length; p++)
+        {
+            if (interiorFaceCount[p] == 0)
+                return false;
+        }
+
+        return true;
     }
 
     private static PadBuild? BuildPad(
