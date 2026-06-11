@@ -55,6 +55,26 @@ internal static class ClipperGeometry
         return resultLoops.Count > 0;
     }
 
+    /// <summary>
+    /// Offsets a closed loop outward (positive <paramref name="delta"/>) or inward (negative) by the
+    /// given distance, returning the resulting outer loop. Used to grow a grading region a margin
+    /// beyond its daylight so the remesh patch boundary sits in untouched, terrain-elevation ground.
+    /// </summary>
+    internal static bool TryOffsetClosedLoop(double[] loop, double delta, double tolerance, out double[] offsetLoop)
+    {
+        offsetLoop = Array.Empty<double>();
+        if (loop.Length < 6)
+            return false;
+
+        PathsD subject = BuildClosedPaths([loop]);
+        if (subject.Count == 0)
+            return false;
+
+        PathsD inflated = Clipper.InflatePaths(subject, delta, JoinType.Round, EndType.Polygon);
+        List<double[]> loops = ToClosedLoops(inflated, tolerance);
+        return TryPickLargestLoop(loops, out offsetLoop);
+    }
+
     internal static bool TrySimplifyClosedLoop(double[] loop, double tolerance, out double[] simplifiedLoop)
     {
         simplifiedLoop = Array.Empty<double>();

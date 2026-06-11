@@ -57,6 +57,80 @@ internal static class MeshBoundaryLoopBuilder
                Math.Abs(ClipperGeometry.SignedArea(boundaryXy)) > tolerance * tolerance;
     }
 
+    /// <summary>
+    /// Extracts every closed boundary loop of a face set as ordered original vertex indices. Unlike
+    /// the single-loop overloads, this walks ALL naked edges and returns each separate component, so
+    /// a face set with several disjoint holes (or an outer boundary plus holes) yields one loop each.
+    /// Returns false if any naked edge has a non-manifold (degree != 2) junction.
+    /// </summary>
+    public static bool TryBuildBoundaryLoopsIndexed(int[] faces, int faceCount, out List<int[]> loops)
+    {
+        loops = new List<int[]>();
+
+        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3];
+            int b = faces[f * 3 + 1];
+            int c = faces[f * 3 + 2];
+            IncrementEdge(edgeFaceCount, a, b);
+            IncrementEdge(edgeFaceCount, b, c);
+            IncrementEdge(edgeFaceCount, c, a);
+        }
+
+        var adjacency = new Dictionary<int, List<int>>();
+        foreach (var pair in edgeFaceCount)
+        {
+            if (pair.Value != 1)
+                continue;
+
+            int a = (int)(pair.Key >> 32);
+            int b = (int)(pair.Key & 0xFFFFFFFFL);
+            AddBoundaryNeighbor(adjacency, a, b);
+            AddBoundaryNeighbor(adjacency, b, a);
+        }
+
+        if (adjacency.Count == 0)
+            return false;
+
+        foreach (var neighbors in adjacency.Values)
+        {
+            if (neighbors.Count != 2)
+                return false;
+        }
+
+        var visited = new HashSet<int>();
+        foreach (int seed in adjacency.Keys)
+        {
+            if (visited.Contains(seed))
+                continue;
+
+            var loop = new List<int>();
+            int previous = -1;
+            int current = seed;
+            while (true)
+            {
+                loop.Add(current);
+                visited.Add(current);
+                var neighbors = adjacency[current];
+                int next = neighbors[0] != previous ? neighbors[0] : neighbors[1];
+                previous = current;
+                current = next;
+
+                if (current == seed)
+                    break;
+
+                if (loop.Count > adjacency.Count)
+                    return false;
+            }
+
+            if (loop.Count >= 3)
+                loops.Add(loop.ToArray());
+        }
+
+        return loops.Count > 0;
+    }
+
     private static bool TryBuildBoundaryVertexOrder(int[] faces, int faceCount, out List<int> order)
     {
         order = new List<int>();

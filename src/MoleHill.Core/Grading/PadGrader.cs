@@ -164,7 +164,38 @@ public static partial class PadGrader
             ? null
             : GradingDiagnostic.Information(
                 "grade_pad.split_keep.fallback",
-                $"Terrain conform (split-keep) deferred to the constraint-first path: {splitKeepFailureReason}",
+                $"Terrain conform (split-keep) deferred to the region-remesh path: {splitKeepFailureReason}",
+                operation: "grade_pad");
+
+        // Robust fallback: replace the affected region with a clean dense remesh graded by distance
+        // field. Watertight by construction (rim is original terrain vertices, interior is one fresh
+        // triangulation), so it catches dense/degenerate scenes the conforming tiers defer — a
+        // spike-free, hole-free result instead of the legacy whole-mesh rebuild's spikes.
+        GradingResult? regionRemesh = GradeWithRegionRemesh(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            pads,
+            lockCurves,
+            modelTolerance,
+            terrainDetailSize,
+            out string? regionRemeshFailureReason);
+        if (regionRemesh != null)
+        {
+            if (explicitFallbackDiagnostic != null)
+                regionRemesh = AddResultDiagnostic(regionRemesh, explicitFallbackDiagnostic.Value);
+            if (splitKeepFallbackDiagnostic != null)
+                regionRemesh = AddResultDiagnostic(regionRemesh, splitKeepFallbackDiagnostic.Value);
+            errorMessage = null;
+            return regionRemesh;
+        }
+
+        GradingDiagnostic? regionRemeshFallbackDiagnostic = string.IsNullOrWhiteSpace(regionRemeshFailureReason)
+            ? null
+            : GradingDiagnostic.Information(
+                "grade_pad.region_remesh.fallback",
+                $"Region remesh deferred to the constraint-first path: {regionRemeshFailureReason}",
                 operation: "grade_pad");
 
         GradingResult? rebuilt = GradeWithConstraintFirstTopology(
@@ -251,6 +282,8 @@ public static partial class PadGrader
                 rebuilt = AddResultDiagnostic(rebuilt, explicitFallbackDiagnostic.Value);
             if (splitKeepFallbackDiagnostic != null)
                 rebuilt = AddResultDiagnostic(rebuilt, splitKeepFallbackDiagnostic.Value);
+            if (regionRemeshFallbackDiagnostic != null)
+                rebuilt = AddResultDiagnostic(rebuilt, regionRemeshFallbackDiagnostic.Value);
             errorMessage = null;
         }
 
