@@ -76,15 +76,19 @@ public static partial class PadGrader
         var groupMembers = new List<List<PadBuild>>(groups.Count);
         foreach (List<PadBuild> members in groups.Values)
         {
-            double[]? unionLoop = UnionGroupDaylight(members, tolerance);
-            if (unionLoop is null)
+            List<double[]>? unionLoops = UnionGroupDaylight(members, tolerance);
+            if (unionLoops is null)
             {
                 errorMessage = "Grade Pad interacting pad group could not be unioned; deferring to constraint-first path.";
                 return null;
             }
 
-            groupLoops.Add(unionLoop);
-            groupMembers.Add(members);
+            // A group whose members only touch unions into several disjoint loops; carve each one.
+            foreach (double[] unionLoop in unionLoops)
+            {
+                groupLoops.Add(unionLoop);
+                groupMembers.Add(members);
+            }
         }
 
         // Split the terrain along the carve regions, preserving terrain detail everywhere else.
@@ -108,8 +112,10 @@ public static partial class PadGrader
                 return null;
             }
 
+            // With disjoint group loops, keep only the members whose footprint lies in this hole.
+            List<PadBuild> holeMembers = FilterPadsInBoundary(groupMembers[groupIndex], boundaryXyz, boundaryLoop.Length);
             GradedRegionAssembler.SubMesh? fill = BuildHoleFill(
-                boundaryXyz, boundaryLoop.Length, groupMembers[groupIndex], terrain, barriers, tolerance);
+                boundaryXyz, boundaryLoop.Length, holeMembers, terrain, barriers, tolerance);
             if (fill is null)
             {
                 errorMessage = "Grade Pad hole fill failed; deferring to constraint-first path.";
@@ -265,20 +271,70 @@ public static partial class PadGrader
         return new PadBuild(pad, padLoop, segmentLength, loop, daylightXy, batter);
     }
 
-    /// <summary>Unions an interacting group's per-pad daylight polygons into one carve loop.</summary>
-    private static double[]? UnionGroupDaylight(List<PadBuild> group, double tolerance)
+    /// <summary>
+    /// Unions an interacting group's per-pad daylight polygons. Returns the resulting carve loop(s):
+    /// usually one, but a group whose members only touch (rather than truly overlap) unions into
+    /// several disjoint loops, each carved and filled independently. Returns null only when the union
+    /// contains an actual hole (mixed winding / annulus), which this resolver does not handle.
+    /// </summary>
+    private static List<double[]>? UnionGroupDaylight(List<PadBuild> group, double tolerance)
     {
         if (group.Count == 1)
-            return group[0].DaylightXy;
+            return new List<double[]> { group[0].DaylightXy };
 
         var polys = new List<double[]>(group.Count);
         foreach (PadBuild build in group)
             polys.Add(build.DaylightXy);
 
-        if (!ClipperGeometry.TryUnionClosedLoops(polys, tolerance, out List<double[]> unionLoops) || unionLoops.Count != 1)
-            return null; // a hole or disjoint union is beyond this resolver
+        if (!ClipperGeometry.TryUnionClosedLoops(polys, tolerance, out List<double[]> unionLoops) || unionLoops.Count == 0)
+            return null;
 
-        return unionLoops[0].Length >= 6 ? unionLoops[0] : null;
+        // A hole shows up as a loop wound opposite to the outer loops; an annulus carve is beyond
+        // this resolver, so defer it. Disjoint loops all share the outer winding and are fine.
+        int positive = 0, negative = 0;
+        foreach (double[] loop in unionLoops)
+        {
+            double area = ClipperGeometry.SignedArea(loop);
+            if (area > 0.0) positive++;
+            else if (area < 0.0) negative++;
+        }
+
+        if (positive > 0 && negative > 0)
+            return null;
+
+        var loops = unionLoops.Where(loop => loop.Length >= 6).ToList();
+        return loops.Count > 0 ? loops : null;
+    }
+
+    /// <summary>Keeps the group members whose footprint centroid falls inside the given boundary.</summary>
+    private static List<PadBuild> FilterPadsInBoundary(List<PadBuild> members, double[] boundaryXyz, int boundaryCount)
+    {
+        if (members.Count <= 1)
+            return members;
+
+        var boundaryXy = new double[boundaryCount * 2];
+        for (int i = 0; i < boundaryCount; i++)
+        {
+            boundaryXy[i * 2] = boundaryXyz[i * 3];
+            boundaryXy[i * 2 + 1] = boundaryXyz[i * 3 + 1];
+        }
+
+        var inside = new List<PadBuild>(members.Count);
+        foreach (PadBuild build in members)
+        {
+            double cx = 0.0, cy = 0.0;
+            int n = build.Pad.VertexCount;
+            for (int i = 0; i < n; i++)
+            {
+                cx += build.Pad.XyVertices[i * 2];
+                cy += build.Pad.XyVertices[i * 2 + 1];
+            }
+
+            if (n > 0 && PointInPolygon(cx / n, cy / n, boundaryXy, boundaryCount))
+                inside.Add(build);
+        }
+
+        return inside.Count > 0 ? inside : members;
     }
 
     private static double[] ExtractLoopXyz(double[] vertices, int[] loop)
