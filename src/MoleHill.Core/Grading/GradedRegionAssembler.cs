@@ -721,17 +721,27 @@ internal static class GradedRegionAssembler
         return (a, b, c);
     }
 
-    /// <summary>Merges coincident vertices (within tolerance) as they are appended.</summary>
+    /// <summary>
+    /// Merges coincident vertices (within tolerance) as they are appended. The spatial hash uses a
+    /// cell size equal to the weld tolerance, and Add scans the full 3x3x3 neighbourhood and merges by
+    /// actual Euclidean distance — NOT by exact cell match. A naive single-cell hash misses pairs that
+    /// fall within tolerance but straddle a cell boundary (e.g. x*100 = 2849.4999 vs 2849.5001 round to
+    /// different cells), leaving hairline seam cracks that show up as non-manifold/open edges at the
+    /// fill-to-terrain weld. Cells hold a list of representatives because a single cell can contain two
+    /// points farther apart than the tolerance (cell diagonal = tolerance*sqrt(3)).
+    /// </summary>
     private sealed class VertexWelder
     {
-        private readonly Dictionary<(long, long, long), int> _cells;
+        private readonly Dictionary<(long, long, long), List<int>> _cells = new();
         private readonly List<double> _vertices = new();
         private readonly double _inverseCell;
+        private readonly double _toleranceSq;
 
         public VertexWelder(double tolerance)
         {
-            _inverseCell = 1.0 / Math.Max(tolerance, 1e-9);
-            _cells = new Dictionary<(long, long, long), int>();
+            double t = Math.Max(tolerance, 1e-9);
+            _inverseCell = 1.0 / t;
+            _toleranceSq = t * t;
         }
 
         public int Count => _vertices.Count / 3;
@@ -741,19 +751,43 @@ internal static class GradedRegionAssembler
             double x = vertices[index * 3];
             double y = vertices[index * 3 + 1];
             double z = vertices[index * 3 + 2];
-            var key = (
-                (long)Math.Round(x * _inverseCell),
-                (long)Math.Round(y * _inverseCell),
-                (long)Math.Round(z * _inverseCell));
+            long cx = (long)Math.Round(x * _inverseCell);
+            long cy = (long)Math.Round(y * _inverseCell);
+            long cz = (long)Math.Round(z * _inverseCell);
 
-            if (_cells.TryGetValue(key, out int existing))
-                return existing;
+            for (long dx = -1; dx <= 1; dx++)
+            {
+                for (long dy = -1; dy <= 1; dy++)
+                {
+                    for (long dz = -1; dz <= 1; dz++)
+                    {
+                        if (!_cells.TryGetValue((cx + dx, cy + dy, cz + dz), out List<int>? bucket))
+                            continue;
+
+                        foreach (int existing in bucket)
+                        {
+                            double ex = _vertices[existing * 3] - x;
+                            double ey = _vertices[existing * 3 + 1] - y;
+                            double ez = _vertices[existing * 3 + 2] - z;
+                            if ((ex * ex) + (ey * ey) + (ez * ez) <= _toleranceSq)
+                                return existing;
+                        }
+                    }
+                }
+            }
 
             int newIndex = _vertices.Count / 3;
             _vertices.Add(x);
             _vertices.Add(y);
             _vertices.Add(z);
-            _cells[key] = newIndex;
+            var key = (cx, cy, cz);
+            if (!_cells.TryGetValue(key, out List<int>? list))
+            {
+                list = new List<int>(1);
+                _cells[key] = list;
+            }
+
+            list.Add(newIndex);
             return newIndex;
         }
 

@@ -624,6 +624,27 @@ internal static class MeshAreaTopologySplitter
         int b = localPoints.Add(face.B, face.Bz);
         int c = localPoints.Add(face.C, face.Cz);
 
+        // Snap a cut point that lands very close to a triangle CORNER onto that corner. A daylight-loop
+        // segment that grazes near an existing terrain vertex otherwise leaves a cut point a hair off
+        // the corner (just beyond the model tolerance), and each adjacent face places its own slightly
+        // different near-corner point — producing two overlapping sliver triangles, i.e. a non-manifold
+        // edge in the conformed terrain. Snapping to the shared corner is consistent across both faces
+        // by construction (same global vertex), so the slivers collapse to degenerate and drop out. The
+        // snap radius is several times the model tolerance but far below terrain detail, so the carve
+        // boundary moves negligibly.
+        double cornerSnapTolSq = (tolerance * 8.0) * (tolerance * 8.0);
+        Point2D SnapToCorner(Point2D p)
+        {
+            double da = DistanceSquared(p, face.A);
+            double db = DistanceSquared(p, face.B);
+            double dc = DistanceSquared(p, face.C);
+            double best = Math.Min(da, Math.Min(db, dc));
+            if (best > cornerSnapTolSq)
+                return p;
+
+            return best == da ? face.A : (best == db ? face.B : face.C);
+        }
+
         var edgePointLists = new List<(double Parameter, int LocalIndex)>[3];
         for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
             edgePointLists[edgeIndex] = new List<(double Parameter, int LocalIndex)>(4);
@@ -643,8 +664,12 @@ internal static class MeshAreaTopologySplitter
             if (!sharedEdgePoints.TryGetValue(EdgeKey(face, edgeIndex), out var points))
                 continue;
 
-            foreach (Point2D point in points)
+            foreach (Point2D rawPoint in points)
             {
+                Point2D point = SnapToCorner(rawPoint);
+
+                // A point that snapped to (or already coincides with) a corner does not subdivide the
+                // edge — the corner is already a triangle vertex.
                 if (face.IsNearVertex(point, tolerance))
                     continue;
 
@@ -661,8 +686,10 @@ internal static class MeshAreaTopologySplitter
         {
             foreach (var piece in cutData.InternalSegments)
             {
-                int start = localPoints.Add(piece.Start, face.InterpolateZ(piece.Start));
-                int end = localPoints.Add(piece.End, face.InterpolateZ(piece.End));
+                Point2D pieceStart = SnapToCorner(piece.Start);
+                Point2D pieceEnd = SnapToCorner(piece.End);
+                int start = localPoints.Add(pieceStart, face.InterpolateZ(pieceStart));
+                int end = localPoints.Add(pieceEnd, face.InterpolateZ(pieceEnd));
                 if (start == end)
                     continue;
 

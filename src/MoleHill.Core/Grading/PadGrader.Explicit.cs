@@ -130,6 +130,7 @@ public static partial class PadGrader
             MeshTopologyValidator.AnalyzeBoundaryGraph(assembled.Faces, assembled.FaceCount);
         MeshTopologyValidator.BoundaryGraphAnalysis terrainTopology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
+
         if (topology.NonManifoldEdgeCount > 0 ||
             topology.HasOpenBoundaryChains ||
             topology.BoundaryComponentCount > terrainTopology.BoundaryComponentCount)
@@ -701,47 +702,137 @@ public static partial class PadGrader
                 graded[i * 3 + 2] = inputZ[sourceId];
         }
 
-        // Clip the fill to the conformed boundary: a concave or merged boundary can make the
-        // triangulator span past it (toward the convex hull), and those faces would overlap the kept
-        // terrain and weld non-manifold. Keep only faces whose centroid lies inside the boundary.
-        int[] clippedFaces = ClipFacesToBoundary(graded, extracted.Faces, extracted.FaceCount, boundaryXy, boundaryPointCount);
+        // Keep only the fill interior bounded by the conformed loop. Triangle.NET fills the convex
+        // hull, so on a concave or merged boundary it spans faces past the loop (into concavities and
+        // the hull skirt); those overlap the kept terrain and weld non-manifold. A centroid-in-polygon
+        // clip is unreliable there — a spilled triangle in a deep concavity can have its centroid back
+        // inside the loop. Instead extract the interior by flood fill bounded by the boundary segments:
+        // a face is exterior iff it is reachable from a non-boundary naked (convex-hull) edge without
+        // crossing a boundary segment. The result's boundary is EXACTLY the conformed loop, so it welds
+        // to the kept terrain with no spill (overlap) or recession (gap).
+        int[] interiorFaces = ExtractFillInterior(graded, extracted.Faces, extracted.FaceCount, extracted.SourceIds, boundaryPointCount);
 
         return new GradedRegionAssembler.SubMesh
         {
             Vertices = graded,
             VertexCount = vc,
-            Faces = clippedFaces,
-            FaceCount = clippedFaces.Length / 3
+            Faces = interiorFaces,
+            FaceCount = interiorFaces.Length / 3
         };
     }
 
-    /// <summary>Drops triangles whose centroid falls outside the conformed boundary polygon.</summary>
-    private static int[] ClipFacesToBoundary(double[] vertices, int[] faces, int faceCount, double[] boundaryXy, int boundaryCount)
+    private static long FillEdgeKey(int a, int b) =>
+        a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+
+    /// <summary>
+    /// Returns the faces strictly inside the conformed boundary loop (input vertices [0, boundaryCount)
+    /// in consecutive order). Exterior faces — the convex-hull skirt Triangle.NET fills outside a
+    /// concave boundary — are found by flood fill from naked non-boundary edges, stopping at boundary
+    /// segments; everything not reached is interior. Degenerate near-zero-area faces are dropped.
+    /// </summary>
+    private static int[] ExtractFillInterior(double[] vertices, int[] faces, int faceCount, int[] sourceIds, int boundaryCount)
     {
-        var kept = new List<int>(faceCount * 3);
-        for (int f = 0; f < faceCount; f++)
+        // Boundary segment edges, keyed on extracted vertex indices.
+        var sourceToVertex = new Dictionary<int, int>(boundaryCount);
+        for (int i = 0; i < sourceIds.Length; i++)
         {
-            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
-            double ax = vertices[a * 3], ay = vertices[a * 3 + 1];
-            double bx = vertices[b * 3], by = vertices[b * 3 + 1];
-            double cxv = vertices[c * 3], cyv = vertices[c * 3 + 1];
+            int s = sourceIds[i];
+            if (s >= 0 && s < boundaryCount)
+                sourceToVertex[s] = i;
+        }
 
-            // Drop degenerate (near-zero area) slivers the triangulator can leave at the boundary.
-            double area2 = Math.Abs(((bx - ax) * (cyv - ay)) - ((by - ay) * (cxv - ax)));
-            if (area2 <= 1e-7)
-                continue;
-
-            double cx = (ax + bx + cxv) / 3.0;
-            double cy = (ay + by + cyv) / 3.0;
-            if (PointInPolygon(cx, cy, boundaryXy, boundaryCount))
+        var walls = new HashSet<long>();
+        for (int i = 0; i < boundaryCount; i++)
+        {
+            if (sourceToVertex.TryGetValue(i, out int u) &&
+                sourceToVertex.TryGetValue((i + 1) % boundaryCount, out int v))
             {
-                kept.Add(a);
-                kept.Add(b);
-                kept.Add(c);
+                walls.Add(FillEdgeKey(u, v));
             }
         }
 
-        return kept.Count > 0 ? kept.ToArray() : faces;
+        // Edge -> incident faces.
+        var edgeFaces = new Dictionary<long, List<int>>(faceCount * 3);
+        void Incident(int a, int b, int f)
+        {
+            long k = FillEdgeKey(a, b);
+            if (!edgeFaces.TryGetValue(k, out List<int>? list))
+            {
+                list = new List<int>(2);
+                edgeFaces[k] = list;
+            }
+
+            list.Add(f);
+        }
+
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            Incident(a, b, f);
+            Incident(b, c, f);
+            Incident(c, a, f);
+        }
+
+        // Seed exterior from faces with a naked edge that is NOT a boundary segment (the hull skirt);
+        // at convex parts of the loop the naked edge IS a boundary segment, so interior faces there are
+        // not seeded. Flood across non-boundary shared edges.
+        var exterior = new bool[faceCount];
+        var stack = new Stack<int>();
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            foreach ((int u, int v) in stackalloc[] { (a, b), (b, c), (c, a) })
+            {
+                long k = FillEdgeKey(u, v);
+                if (edgeFaces[k].Count == 1 && !walls.Contains(k))
+                {
+                    exterior[f] = true;
+                    stack.Push(f);
+                    break;
+                }
+            }
+        }
+
+        while (stack.Count > 0)
+        {
+            int f = stack.Pop();
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            foreach ((int u, int v) in stackalloc[] { (a, b), (b, c), (c, a) })
+            {
+                long k = FillEdgeKey(u, v);
+                if (walls.Contains(k))
+                    continue;
+
+                foreach (int nf in edgeFaces[k])
+                {
+                    if (nf != f && !exterior[nf])
+                    {
+                        exterior[nf] = true;
+                        stack.Push(nf);
+                    }
+                }
+            }
+        }
+
+        var kept = new List<int>(faceCount * 3);
+        for (int f = 0; f < faceCount; f++)
+        {
+            if (exterior[f])
+                continue;
+
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            double area2 = Math.Abs(
+                ((vertices[b * 3] - vertices[a * 3]) * (vertices[c * 3 + 1] - vertices[a * 3 + 1])) -
+                ((vertices[b * 3 + 1] - vertices[a * 3 + 1]) * (vertices[c * 3] - vertices[a * 3])));
+            if (area2 <= 1e-7)
+                continue;
+
+            kept.Add(a);
+            kept.Add(b);
+            kept.Add(c);
+        }
+
+        return kept.ToArray();
     }
 
     /// <summary>Union-find grouping of pads whose daylight polygons overlap. Returns a group id per pad.</summary>
