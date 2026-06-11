@@ -39,7 +39,12 @@ namespace TriangleNet
         {
             Predicates = predicates;
             TrianglePool = trianglePool;
-            RandomSource = () => new Random();
+            // Deterministic by default: the upstream `new Random()` is time-seeded, which makes the
+            // point-location sampler — and therefore Steiner insertion and mesh topology — vary run
+            // to run. For terrain/grading that means the SAME input can triangulate (and split) one
+            // way on one solve and differently on the next. A fixed seed makes the whole pipeline
+            // reproducible so grading output is stable and regressions are testable.
+            RandomSource = () => new Random(0);
         }
 
         /// <summary>
