@@ -135,7 +135,36 @@ public static partial class PadGrader
             ? null
             : GradingDiagnostic.Information(
                 "grade_pad.explicit.fallback",
-                $"Explicit batter construction deferred to the constraint-first path: {explicitFailureReason}",
+                $"Explicit batter construction deferred to the split-keep path: {explicitFailureReason}",
+                operation: "grade_pad");
+
+        // Middle tier: conform the terrain to the daylight loops and keep the whole mesh. Watertight
+        // by construction (no carve/fill/weld seam); batter slopes follow conformed terrain density so
+        // they can be slightly faceted, but there are no holes or spikes. Defers cleanly to the legacy
+        // constraint-first rebuild when the area splitter cannot conform the scene manifold.
+        GradingResult? splitKeep = GradeWithSplitKeep(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            pads,
+            lockCurves,
+            modelTolerance,
+            terrainDetailSize,
+            out string? splitKeepFailureReason);
+        if (splitKeep != null)
+        {
+            if (explicitFallbackDiagnostic != null)
+                splitKeep = AddResultDiagnostic(splitKeep, explicitFallbackDiagnostic.Value);
+            errorMessage = null;
+            return splitKeep;
+        }
+
+        GradingDiagnostic? splitKeepFallbackDiagnostic = string.IsNullOrWhiteSpace(splitKeepFailureReason)
+            ? null
+            : GradingDiagnostic.Information(
+                "grade_pad.split_keep.fallback",
+                $"Terrain conform (split-keep) deferred to the constraint-first path: {splitKeepFailureReason}",
                 operation: "grade_pad");
 
         GradingResult? rebuilt = GradeWithConstraintFirstTopology(
@@ -220,6 +249,8 @@ public static partial class PadGrader
             rebuilt = AddMultiPadSlopeDeviationFallbackDiagnosticIfNeeded(pads, modelTolerance, rebuilt);
             if (explicitFallbackDiagnostic != null)
                 rebuilt = AddResultDiagnostic(rebuilt, explicitFallbackDiagnostic.Value);
+            if (splitKeepFallbackDiagnostic != null)
+                rebuilt = AddResultDiagnostic(rebuilt, splitKeepFallbackDiagnostic.Value);
             errorMessage = null;
         }
 

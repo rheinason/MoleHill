@@ -364,6 +364,36 @@ internal static class GradedRegionAssembler
     }
 
     /// <summary>
+    /// Conforms the terrain to the daylight loops (clipped to the terrain outline) and returns the
+    /// FULL split mesh — every face kept. The caller keeps the whole conformed mesh and assigns Z by
+    /// section, so there is no carve/fill/weld seam (watertight by construction when the split succeeds).
+    /// </summary>
+    internal static MeshAreaSplitter.SplitResult? SplitConform(
+        double[] terrainVertices,
+        int terrainVertexCount,
+        int[] terrainFaces,
+        int terrainFaceCount,
+        IReadOnlyList<double[]> daylightLoopsXy,
+        double tolerance)
+    {
+        double[]? terrainOutline = TryBuildTerrainOutline(terrainFaces, terrainFaceCount, terrainVertices);
+        var areas = new List<MeshAreaSplitter.AreaBoundary>(daylightLoopsXy.Count);
+        foreach (double[] xy in daylightLoopsXy)
+        {
+            double[] effective = ClipLoopToTerrain(xy, terrainOutline, tolerance);
+            int count = effective.Length / 2;
+            if (count >= 3)
+                areas.Add(new MeshAreaSplitter.AreaBoundary(effective, count));
+        }
+
+        if (areas.Count == 0)
+            return null;
+
+        return MeshAreaSplitter.SplitPreservingTopology(
+            terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, areas.ToArray(), tolerance, out _);
+    }
+
+    /// <summary>
     /// Splits the terrain along the daylight loops (local insertion, terrain detail preserved
     /// everywhere the loops do not cross), keeps the faces outside the loops, and extracts the
     /// conformed hole-boundary loops (edges shared between an inside and an outside face).

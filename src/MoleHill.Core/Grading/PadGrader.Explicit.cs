@@ -180,6 +180,152 @@ public static partial class PadGrader
             structured);
     }
 
+    /// <summary>
+    /// Grades pads by conforming the terrain to the daylight loops and KEEPING the entire conformed
+    /// mesh (no carve/fill/weld). <see cref="GradedRegionAssembler.SplitConform"/> subdivides the
+    /// terrain in place along the daylight loops and returns every resulting face; we then reassign Z
+    /// by section over that one mesh. Because nothing is restitched, the result is watertight and
+    /// manifold by construction — there is no seam to crack. Batter slopes follow the conformed
+    /// terrain density rather than a clean ruled strip, so they can be slightly faceted on coarse
+    /// terrain; this is a watertight fallback tier between the exact-slope explicit batter (primary)
+    /// and the spiky constraint-first rebuild (last resort). Returns null (deferring) when the
+    /// area splitter cannot produce a manifold conformed mesh for the scene.
+    /// </summary>
+    private static GradingResult? GradeWithSplitKeep(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        PadBoundary[] pads,
+        LockCurve[] lockCurves,
+        double modelTolerance,
+        double terrainDetailSize,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+
+        if (pads.Length == 0)
+        {
+            errorMessage = "Grade Pad received no pads.";
+            return null;
+        }
+
+        double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
+        var terrain = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
+        PreparedBarriers barriers = GradingBarriers.BuildFromLockCurves(lockCurves);
+
+        var builds = new List<PadBuild>(pads.Length);
+        int nonDaylightingStations = 0;
+        foreach (PadBoundary pad in pads)
+        {
+            PadBuild? build = BuildPad(pad, terrain, barriers, tolerance, terrainDetailSize, ref nonDaylightingStations, out errorMessage);
+            if (build is null)
+                return null;
+
+            builds.Add(build.Value);
+        }
+
+        // Union interacting groups' daylight loops into the carve regions to conform the terrain to.
+        int[] group = GroupByDaylightOverlap(builds);
+        var groups = new Dictionary<int, List<PadBuild>>();
+        for (int i = 0; i < builds.Count; i++)
+        {
+            if (!groups.TryGetValue(group[i], out List<PadBuild>? members))
+            {
+                members = new List<PadBuild>();
+                groups[group[i]] = members;
+            }
+
+            members.Add(builds[i]);
+        }
+
+        var conformLoops = new List<double[]>(groups.Count);
+        foreach (List<PadBuild> members in groups.Values)
+        {
+            List<double[]>? unionLoops = UnionGroupDaylight(members, tolerance);
+            if (unionLoops is null)
+            {
+                errorMessage = "Grade Pad interacting pad group could not be unioned; deferring.";
+                return null;
+            }
+
+            foreach (double[] unionLoop in unionLoops)
+                conformLoops.Add(unionLoop);
+        }
+
+        // Conform the terrain to the daylight loops and keep the whole mesh (no carve/fill/weld).
+        MeshAreaSplitter.SplitResult? conformed = GradedRegionAssembler.SplitConform(
+            vertices, vertexCount, faces, faceCount, conformLoops, tolerance);
+        if (conformed is null)
+        {
+            errorMessage = "Grade Pad terrain conform (split-keep) failed; deferring.";
+            return null;
+        }
+
+        // Watertight/manifold by construction — but gate anyway: the area splitter can go non-manifold
+        // on dense/nested loops, and we must defer cleanly to the legacy path rather than emit it.
+        MeshTopologyValidator.BoundaryGraphAnalysis topology =
+            MeshTopologyValidator.AnalyzeBoundaryGraph(conformed.Faces, conformed.FaceCount);
+        MeshTopologyValidator.BoundaryGraphAnalysis terrainTopology =
+            MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
+        if (topology.NonManifoldEdgeCount > 0 ||
+            topology.HasOpenBoundaryChains ||
+            topology.BoundaryComponentCount > terrainTopology.BoundaryComponentCount)
+        {
+            errorMessage = GradedRegionAssembler.DescribeWeldTopologyFailure("Grade Pad split-keep", topology, terrainTopology);
+            return null;
+        }
+
+        int vc = conformed.VertexCount;
+        double[] graded = new double[vc * 3];
+        Array.Copy(conformed.Vertices, graded, vc * 3);
+        var original = new double[vc * 3];
+        for (int i = 0; i < vc; i++)
+        {
+            double x = conformed.Vertices[i * 3];
+            double y = conformed.Vertices[i * 3 + 1];
+            double z = terrain.InterpolateZ(x, y);
+            graded[i * 3] = x; graded[i * 3 + 1] = y;
+            original[i * 3] = x; original[i * 3 + 1] = y; original[i * 3 + 2] = z;
+            graded[i * 3 + 2] = z;
+        }
+
+        ApplyGradingToVerticesWithSections(
+            graded, original, vc, pads, barriers, terrain,
+            hasBoundaryLoop: false, boundaryLoop: Array.Empty<double>(), boundaryVertexCount: 0,
+            tolerance, keepShoulderOnBatterPlane: false, defaultCornerFanSegments: 6);
+
+        const string modeMessage =
+            "Grade Pad topology mode: terrain conform (split-keep — daylight loops conformed in place, watertight by construction).";
+        var diagnostics = new List<string> { modeMessage };
+        var structured = new List<GradingDiagnostic>
+        {
+            GradingDiagnostic.Information("grade_pad.topology.mode", modeMessage, operation: "grade_pad")
+        };
+
+        if (nonDaylightingStations > 0)
+        {
+            string message =
+                $"Grade Pad batter did not reach existing ground at {nonDaylightingStations} station(s); the slope was clamped to the search extent there.";
+            diagnostics.Add(message);
+            structured.Add(GradingDiagnostic.Warning("grade_pad.daylight.incomplete", message, operation: "grade_pad"));
+        }
+
+        OutputPolyline[] outputPolylines = BuildPadBoundaryPolylines(pads).ToArray();
+        IReadOnlyList<GradingPatch> patchSummaries = BuildPadPatchSummaries(pads);
+
+        return GradingResultBuilder.BuildFromXyz(
+            original,
+            graded,
+            vc,
+            conformed.Faces,
+            conformed.FaceCount,
+            outputPolylines,
+            diagnostics,
+            patchSummaries,
+            structured);
+    }
+
     private static PadBuild? BuildPad(
         PadBoundary pad,
         TerrainFaceGrid terrain,
