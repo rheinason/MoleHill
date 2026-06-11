@@ -520,9 +520,19 @@ internal static class GradedRegionAssembler
         // vertices the exact weld missed) and close any remaining interior holes, so the assembly has a
         // single outer boundary. This is what lets the explicit engine succeed on grade-on-grade scenes
         // instead of deferring to the fallback.
-        (weldedVertices, faceArray) = MeshTopologyOperations.MakeWatertight(
-            weldedVertices, welder.Count, faceArray, faceCount, weldTolerance, out _, out _);
-        faceCount = faceArray.Length / 3;
+        //
+        // BUT only when the exact weld actually left a defect: when the assembly is ALREADY a single
+        // closed manifold, the crack-repair is at best a no-op and at worst harmful — StitchBoundary
+        // cracks would merge legitimately-distinct near-coincident vertices on the ORIGINAL terrain
+        // outline (tight boundary notches far from any pad), turning a clean mesh non-manifold and
+        // forcing the whole explicit path to defer. Skip the repair when nothing needs repairing.
+        var weldAnalysis = MeshTopologyValidator.AnalyzeBoundaryGraph(faceArray, faceCount);
+        if (!weldAnalysis.HasSingleClosedBoundaryLoop)
+        {
+            (weldedVertices, faceArray) = MeshTopologyOperations.MakeWatertight(
+                weldedVertices, welder.Count, faceArray, faceCount, weldTolerance, out _, out _);
+            faceCount = faceArray.Length / 3;
+        }
 
         OrientFacesUpward(weldedVertices, faceArray, faceCount);
 
