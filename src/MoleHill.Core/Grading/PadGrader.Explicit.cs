@@ -240,11 +240,33 @@ public static partial class PadGrader
         // across the pad. Stations where terrain already sits at pad grade are Flat: their daylight
         // point collapses ONTO the footprint boundary (reach ~ 0), which is not a fold — exclude
         // those by requiring genuine interior penetration beyond a small margin.
-        double foldMargin = Math.Max(tolerance, segmentLength * 0.05);
-        if (ClosedPolylineHasSelfIntersection(daylightXy, loop.Count) ||
-            AnyPointInsidePolygon(daylightXy, loop.Count, pad.XyVertices, pad.VertexCount, foldMargin))
+        // A narrow or concave pad whose opposite batters collide folds the daylight loop into a
+        // figure-8. Resolve that self-overlap into the clean outer envelope with a Clipper union
+        // (as the path corridor does) rather than deferring the whole batch; batter seeds that fall
+        // outside the envelope are dropped later in BuildHoleFill.
+        int daylightCount = loop.Count;
+        if (ClosedPolylineHasSelfIntersection(daylightXy, daylightCount))
         {
-            errorMessage = "Grade Pad batter shoulders self-overlap; deferring to constraint-first path.";
+            if (ClipperGeometry.TryUnionClosedLoops(new[] { daylightXy }, tolerance, out List<double[]> cleanedLoops) &&
+                ClipperGeometry.TryPickLargestLoop(cleanedLoops, out double[] envelope) &&
+                !ClosedPolylineHasSelfIntersection(envelope, envelope.Length / 2))
+            {
+                daylightXy = envelope;
+                daylightCount = envelope.Length / 2;
+            }
+            else
+            {
+                errorMessage = "Grade Pad batter shoulders self-overlap and could not be resolved; deferring to constraint-first path.";
+                return null;
+            }
+        }
+
+        // A daylight point that still lands strictly inside the footprint (beyond a small margin) means
+        // the shoulder folded back across the pad top; the ruled strip cannot resolve that, so defer.
+        double foldMargin = Math.Max(tolerance, segmentLength * 0.05);
+        if (AnyPointInsidePolygon(daylightXy, daylightCount, pad.XyVertices, pad.VertexCount, foldMargin))
+        {
+            errorMessage = "Grade Pad batter shoulders fold across the pad; deferring to constraint-first path.";
             return null;
         }
 
