@@ -304,6 +304,13 @@ internal static class MeshAreaTopologySplitter
         if (!hasTopologyEdits)
             return MeshAreaSplitter.Classify(vertices, vertexCount, faces, faceCount, areas, 0.0, out errorMessage);
 
+        // Conforming guarantee: every cut point that lands on a terrain edge is registered against
+        // that edge (keyed by its two global vertex ids, shared by the two adjacent faces). Both
+        // faces then subdivide the shared edge at the SAME points, so independent per-face
+        // re-triangulation cannot leave a T-junction / crack. This is what keeps dense and nested
+        // boundary loops manifold instead of producing naked edges along shared terrain edges.
+        var sharedEdgePoints = BuildSharedEdgeRegistry(faceData, faceCuts, tolerance);
+
         var globalVertices = new List<double>(vertices);
         var globalFaces = new List<int>(faces.Length * 2);
         var pointLookup = new GlobalPointLookup(globalVertices, tolerance);
@@ -311,7 +318,13 @@ internal static class MeshAreaTopologySplitter
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             var cuts = faceCuts[faceIndex];
-            if (cuts == null || !cuts.HasData)
+            FaceData face = faceData[faceIndex];
+
+            // A face must be re-triangulated when it carries its own cut data OR when a neighbour
+            // subdivided one of its edges (registry hit): emitting it unchanged would leave the
+            // neighbour's edge point dangling as a T-junction.
+            bool hasOwnCuts = cuts != null && cuts.HasData;
+            if (!hasOwnCuts && !HasRegistryEdgePoints(face, sharedEdgePoints))
             {
                 globalFaces.Add(faces[faceIndex * 3]);
                 globalFaces.Add(faces[faceIndex * 3 + 1]);
@@ -319,7 +332,7 @@ internal static class MeshAreaTopologySplitter
                 continue;
             }
 
-            if (!TriangulateTouchedFace(faceData[faceIndex], cuts, pointLookup, globalFaces, tolerance, out errorMessage))
+            if (!TriangulateTouchedFace(face, cuts, sharedEdgePoints, pointLookup, globalFaces, tolerance, out errorMessage))
                 return null;
         }
 
@@ -331,6 +344,80 @@ internal static class MeshAreaTopologySplitter
             areas,
             0.0,
             out errorMessage);
+    }
+
+    /// <summary>
+    /// Canonical key for the terrain edge at <paramref name="edgeIndex"/> of a face: the unordered
+    /// pair of its two global vertex ids. Two faces sharing that edge produce the same key, so cut
+    /// points registered against it are visible to both.
+    /// </summary>
+    private static (int, int) EdgeKey(FaceData face, int edgeIndex)
+    {
+        int start = edgeIndex switch { 0 => face.I0, 1 => face.I1, _ => face.I2 };
+        int end = edgeIndex switch { 0 => face.I1, 1 => face.I2, _ => face.I0 };
+        return start < end ? (start, end) : (end, start);
+    }
+
+    /// <summary>
+    /// Collects every cut point that lies on a terrain edge into a per-edge registry keyed by the
+    /// edge's two global vertex ids. The result is the union of subdivision points contributed by
+    /// either adjacent face, so both faces can conform to it identically.
+    /// </summary>
+    private static Dictionary<(int, int), List<Point2D>> BuildSharedEdgeRegistry(
+        FaceData[] faceData,
+        FaceCutData?[] faceCuts,
+        double tolerance)
+    {
+        var registry = new Dictionary<(int, int), List<Point2D>>();
+        double toleranceSquared = tolerance * tolerance;
+
+        for (int faceIndex = 0; faceIndex < faceData.Length; faceIndex++)
+        {
+            var cuts = faceCuts[faceIndex];
+            if (cuts == null || cuts.EdgePoints.Count == 0)
+                continue;
+
+            FaceData face = faceData[faceIndex];
+            foreach (var edgePoint in cuts.EdgePoints)
+            {
+                // Endpoints that coincide with a triangle vertex never subdivide the edge.
+                if (face.IsNearVertex(edgePoint.Point, tolerance))
+                    continue;
+
+                (int, int) key = EdgeKey(face, edgePoint.EdgeIndex);
+                if (!registry.TryGetValue(key, out var list))
+                {
+                    list = new List<Point2D>(4);
+                    registry[key] = list;
+                }
+
+                bool duplicate = false;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (DistanceSquared(list[i], edgePoint.Point) <= toleranceSquared)
+                    {
+                        duplicate = true;
+                        break;
+                    }
+                }
+
+                if (!duplicate)
+                    list.Add(edgePoint.Point);
+            }
+        }
+
+        return registry;
+    }
+
+    private static bool HasRegistryEdgePoints(FaceData face, Dictionary<(int, int), List<Point2D>> registry)
+    {
+        for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
+        {
+            if (registry.TryGetValue(EdgeKey(face, edgeIndex), out var list) && list.Count > 0)
+                return true;
+        }
+
+        return false;
     }
 
     private static FaceData[] BuildFaceData(double[] vertices, int[] faces, int faceCount)
@@ -523,7 +610,8 @@ internal static class MeshAreaTopologySplitter
 
     private static bool TriangulateTouchedFace(
         FaceData face,
-        FaceCutData cutData,
+        FaceCutData? cutData,
+        Dictionary<(int, int), List<Point2D>> sharedEdgePoints,
         GlobalPointLookup pointLookup,
         List<int> globalFaces,
         double tolerance,
@@ -547,27 +635,39 @@ internal static class MeshAreaTopologySplitter
         edgePointLists[2].Add((0.0, c));
         edgePointLists[2].Add((1.0, a));
 
-        foreach (var edgePoint in cutData.EdgePoints)
+        // Seed edge subdivision points from the shared-edge registry rather than this face's own
+        // detected points. The registry is the union of both adjacent faces' cut points on each
+        // edge, so both faces subdivide their shared edge identically — no T-junction.
+        for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
         {
-            if (face.IsNearVertex(edgePoint.Point, tolerance))
+            if (!sharedEdgePoints.TryGetValue(EdgeKey(face, edgeIndex), out var points))
                 continue;
 
-            int localIndex = localPoints.Add(edgePoint.Point, face.InterpolateZ(edgePoint.Point));
-            double parameter = ParameterOnEdge(face.GetEdgeStart(edgePoint.EdgeIndex), face.GetEdgeEnd(edgePoint.EdgeIndex), edgePoint.Point);
-            edgePointLists[edgePoint.EdgeIndex].Add((parameter, localIndex));
+            foreach (Point2D point in points)
+            {
+                if (face.IsNearVertex(point, tolerance))
+                    continue;
+
+                int localIndex = localPoints.Add(point, face.InterpolateZ(point));
+                double parameter = ParameterOnEdge(face.GetEdgeStart(edgeIndex), face.GetEdgeEnd(edgeIndex), point);
+                edgePointLists[edgeIndex].Add((parameter, localIndex));
+            }
         }
 
         var segments = new List<(int a, int b)>();
         var segmentKeys = new HashSet<long>();
 
-        foreach (var piece in cutData.InternalSegments)
+        if (cutData != null)
         {
-            int start = localPoints.Add(piece.Start, face.InterpolateZ(piece.Start));
-            int end = localPoints.Add(piece.End, face.InterpolateZ(piece.End));
-            if (start == end)
-                continue;
+            foreach (var piece in cutData.InternalSegments)
+            {
+                int start = localPoints.Add(piece.Start, face.InterpolateZ(piece.Start));
+                int end = localPoints.Add(piece.End, face.InterpolateZ(piece.End));
+                if (start == end)
+                    continue;
 
-            MeshConstraintTools.TryAddSegment(segments, segmentKeys, start, end);
+                MeshConstraintTools.TryAddSegment(segments, segmentKeys, start, end);
+            }
         }
 
         for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)

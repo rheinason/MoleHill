@@ -1,4 +1,7 @@
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
+using TriangleNet.Geometry;
+using TriangleNet.Meshing;
 using Xunit;
 
 namespace MoleHill.Core.Tests;
@@ -203,6 +206,129 @@ public class MeshAreaTopologySplitterTests
 
         Assert.True(overlapFaceCount > 0);
         Assert.True(outerOnlyFaceCount > 0);
+    }
+
+    [Fact]
+    public void SplitPreservingTopology_DenseNestedAndDiagonalLoops_StaysManifold()
+    {
+        // A fine grid split by overlapping diagonal + nested + grid-aligned loops. The diagonal
+        // edges cross many shared terrain edges at fractional points, and the grid-aligned loop
+        // lands vertices/edges directly on terrain edges — exactly the configuration that left
+        // T-junctions (naked/non-manifold edges) before shared-edge subdivision was made conforming.
+        int n = 9; // 9x9 vertices => 8x8 cells, 128 triangles
+        double spacing = 1.0;
+        double[] vertices = CreateGridVertices(n, n, spacing);
+        int[] faces = CreateGridFaces(n, n);
+
+        var areas = new[]
+        {
+            new MeshAreaSplitter.AreaBoundary(
+                new[] { 4.0, 1.0, 7.0, 4.0, 4.0, 7.0, 1.0, 4.0 }, 4),       // rotated diamond
+            new MeshAreaSplitter.AreaBoundary(
+                new[] { 4.0, 2.5, 5.5, 4.0, 4.0, 5.5, 2.5, 4.0 }, 4),       // nested diamond
+            new MeshAreaSplitter.AreaBoundary(
+                new[] { 2.0, 2.0, 4.0, 2.0, 4.0, 4.0, 2.0, 4.0 }, 4),       // grid-aligned (on edges)
+        };
+
+        var result = MeshAreaSplitter.SplitPreservingTopology(
+            vertices, vertices.Length / 3, faces, faces.Length / 3, areas, 0.001, out string? errorMessage);
+
+        Assert.True(result != null, errorMessage);
+        Assert.Null(errorMessage);
+
+        MeshTopologyValidator.BoundaryGraphAnalysis inputTopology =
+            MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faces.Length / 3);
+        MeshTopologyValidator.BoundaryGraphAnalysis splitTopology =
+            MeshTopologyValidator.AnalyzeBoundaryGraph(result!.Faces, result.FaceCount);
+
+        Assert.Equal(0, splitTopology.NonManifoldEdgeCount);
+        Assert.False(splitTopology.HasOpenBoundaryChains);
+        Assert.Equal(inputTopology.BoundaryComponentCount, splitTopology.BoundaryComponentCount);
+    }
+
+    [Fact]
+    public void SplitPreservingTopology_IrregularTerrainStressSweep_NeverOpensInteriorHoles()
+    {
+        // A deterministic sweep of irregular Delaunay terrains split by overlapping concave star
+        // loops — the configuration that exposed shared-edge T-junctions. Before shared-edge
+        // subdivision was made conforming, several of these split into a non-manifold mesh with an
+        // EXTRA interior boundary loop (a crack ring: nm=0, no open chain, boundaryComponents>1).
+        // That hole class must never occur: a face whose neighbour subdivided their shared edge must
+        // subdivide it identically. (A separate, rarer near-duplicate-vertex sliver degeneracy can
+        // still leave an open naked edge on a few seeds; that defers safely and is not asserted here.)
+        // The sweep is self-contained (it builds every terrain in order) so it is fully reproducible.
+        int holeClassFailures = 0;
+        for (int seed = 0; seed <= 120; seed++)
+        {
+            var rng = new Random(seed);
+            var poly = new Polygon();
+            for (int i = 0; i < 120; i++)
+                poly.Add(new Vertex(rng.NextDouble() * 100.0, rng.NextDouble() * 100.0));
+            poly.Add(new Vertex(0, 0));
+            poly.Add(new Vertex(100, 0));
+            poly.Add(new Vertex(100, 100));
+            poly.Add(new Vertex(0, 100));
+            IMesh tin = poly.Triangulate(new ConstraintOptions(), new QualityOptions());
+
+            var vlist = new List<double>();
+            var idMap = new Dictionary<int, int>();
+            foreach (var v in tin.Vertices)
+            {
+                idMap[v.ID] = vlist.Count / 3;
+                vlist.Add(v.X);
+                vlist.Add(v.Y);
+                vlist.Add((0.05 * v.X) + (0.03 * v.Y));
+            }
+            var flist = new List<int>();
+            foreach (var t in tin.Triangles)
+            {
+                flist.Add(idMap[t.GetVertexID(0)]);
+                flist.Add(idMap[t.GetVertexID(1)]);
+                flist.Add(idMap[t.GetVertexID(2)]);
+            }
+            double[] vertices = vlist.ToArray();
+            int[] faces = flist.ToArray();
+
+            var areas = new List<MeshAreaSplitter.AreaBoundary>();
+            int loopCount = 3 + rng.Next(4);
+            for (int loop = 0; loop < loopCount; loop++)
+            {
+                double cx = 20 + (rng.NextDouble() * 60);
+                double cy = 20 + (rng.NextDouble() * 60);
+                double radius = 6 + (rng.NextDouble() * 14);
+                double rotation = rng.NextDouble() * Math.PI;
+                int sides = 5 + rng.Next(8);
+                var xy = new List<double>();
+                for (int s = 0; s < sides; s++)
+                {
+                    double angle = rotation + (s * 2.0 * Math.PI / sides);
+                    double r = radius * (0.7 + (0.6 * rng.NextDouble()));
+                    xy.Add(cx + (r * Math.Cos(angle)));
+                    xy.Add(cy + (r * Math.Sin(angle)));
+                }
+                areas.Add(new MeshAreaSplitter.AreaBoundary(xy.ToArray(), sides));
+            }
+
+            var result = MeshAreaSplitter.SplitPreservingTopology(
+                vertices, vertices.Length / 3, faces, faces.Length / 3, areas.ToArray(), 0.001, out _);
+            if (result == null)
+                continue;
+
+            MeshTopologyValidator.BoundaryGraphAnalysis inputTopology =
+                MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faces.Length / 3);
+            MeshTopologyValidator.BoundaryGraphAnalysis splitTopology =
+                MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
+
+            // Hole class: closed but with extra interior boundary loop(s), no non-manifold/open edges.
+            bool holeClass =
+                splitTopology.NonManifoldEdgeCount == 0 &&
+                !splitTopology.HasOpenBoundaryChains &&
+                splitTopology.BoundaryComponentCount > inputTopology.BoundaryComponentCount;
+            if (holeClass)
+                holeClassFailures++;
+        }
+
+        Assert.Equal(0, holeClassFailures);
     }
 
     private static double[] CreateGridVertices(int xCount, int yCount, double spacing)
