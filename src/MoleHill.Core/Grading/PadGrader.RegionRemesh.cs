@@ -142,12 +142,127 @@ public static partial class PadGrader
             return null;
         }
 
-        // 5. Remesh each hole and grade it as a distance field. Original terrain vertices are reused
-        // by index; remesh interior (Steiner) vertices are appended.
+        // 4a. Carve guarantee for small pads. A pad smaller than the local terrain triangles can have
+        // no terrain vertex inside its (offset) region, so the vertex-based drop carves NO face for it
+        // and the pad is left ungraded at terrain elevation. Detect such pads — centroid not inside any
+        // hole rim — and drop the single KEPT face that contains the centroid so the pad gets a hole.
+        // Only uncarved pads get this targeted drop (one face each), which keeps the dropped set
+        // manifold; dropping a face per footprint vertex instead would pinch the dropped set.
+        if (PadCentroidsNeedingCarve(rimLoops, vertices, pads, out List<(double X, double Y)> uncarvedCentroids))
+        {
+            var dropFaceStarts = new HashSet<int>();
+            foreach ((double cx, double cy) in uncarvedCentroids)
+            {
+                for (int kf = 0; kf < keptFaces.Count; kf += 3)
+                {
+                    if (dropFaceStarts.Contains(kf))
+                        continue;
+
+                    int a = keptFaces[kf], b = keptFaces[kf + 1], c = keptFaces[kf + 2];
+                    if (PointInTriangle(cx, cy,
+                            vertices[a * 3], vertices[a * 3 + 1],
+                            vertices[b * 3], vertices[b * 3 + 1],
+                            vertices[c * 3], vertices[c * 3 + 1]))
+                    {
+                        dropFaceStarts.Add(kf);
+                        break;
+                    }
+                }
+            }
+
+            if (dropFaceStarts.Count > 0)
+            {
+                var newKept = new List<int>(keptFaces.Count);
+                for (int kf = 0; kf < keptFaces.Count; kf += 3)
+                {
+                    if (dropFaceStarts.Contains(kf))
+                    {
+                        droppedFaces.Add(keptFaces[kf]);
+                        droppedFaces.Add(keptFaces[kf + 1]);
+                        droppedFaces.Add(keptFaces[kf + 2]);
+                    }
+                    else
+                    {
+                        newKept.Add(keptFaces[kf]);
+                        newKept.Add(keptFaces[kf + 1]);
+                        newKept.Add(keptFaces[kf + 2]);
+                    }
+                }
+
+                keptFaces = newKept;
+                if (!MeshBoundaryLoopBuilder.TryBuildBoundaryLoopsIndexed(droppedFaces.ToArray(), droppedFaces.Count / 3, out rimLoops))
+                {
+                    errorMessage = "Grade Pad region remesh could not extract clean hole boundaries after small-pad carve; deferring.";
+                    return null;
+                }
+            }
+        }
+
+        // 4b. Partition the rim loops. A rim that encloses at least one pad footprint is a graded hole
+        // to remesh. A rim with NO pad is an interior island: a patch of terrain whose own vertices all
+        // sit outside the carve regions, but which is spatially enclosed by a larger graded hole (the
+        // vertex-based drop leaves such patches behind when several regions merge around them). The
+        // enclosing hole's remesh fills that whole area, so the island's terrain faces must be dropped
+        // or they double-cover the remesh and weld non-manifold. (This is what made dense multi-pad
+        // scenes defer with "hole contained no pad".)
+        var gradeRims = new List<int[]>(rimLoops.Count);
+        var islandPolys = new List<double[]>();
+        foreach (int[] rim in rimLoops)
+        {
+            var poly = new double[rim.Length * 2];
+            for (int i = 0; i < rim.Length; i++)
+            {
+                poly[i * 2] = vertices[rim[i] * 3];
+                poly[i * 2 + 1] = vertices[rim[i] * 3 + 1];
+            }
+
+            if (RimEnclosesAnyPad(poly, rim.Length, pads))
+                gradeRims.Add(rim);
+            else
+                islandPolys.Add(poly);
+        }
+
+        if (gradeRims.Count == 0)
+        {
+            errorMessage = "Grade Pad region remesh found no pad-bearing hole; deferring.";
+            return null;
+        }
+
+        if (islandPolys.Count > 0)
+        {
+            var filtered = new List<int>(keptFaces.Count);
+            for (int f = 0; f < keptFaces.Count; f += 3)
+            {
+                int a = keptFaces[f], b = keptFaces[f + 1], c = keptFaces[f + 2];
+                double cx = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
+                double cy = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0;
+                bool inIsland = false;
+                foreach (double[] poly in islandPolys)
+                {
+                    if (PointInPolygon(cx, cy, poly, poly.Length / 2))
+                    {
+                        inIsland = true;
+                        break;
+                    }
+                }
+
+                if (!inIsland)
+                {
+                    filtered.Add(a);
+                    filtered.Add(b);
+                    filtered.Add(c);
+                }
+            }
+
+            keptFaces = filtered;
+        }
+
+        // 5. Remesh each pad-bearing hole and grade it as a distance field. Original terrain vertices
+        // are reused by index; remesh interior (Steiner) vertices are appended.
         var globalVertices = new List<double>(vertices);
         var globalFaces = new List<int>(keptFaces);
 
-        foreach (int[] rim in rimLoops)
+        foreach (int[] rim in gradeRims)
         {
             if (!RemeshAndGradeHole(rim, vertices, terrain, barriers, pads, tolerance, terrainDetailSize, globalVertices, globalFaces, out errorMessage))
                 return null;
@@ -288,6 +403,51 @@ public static partial class PadGrader
             rimPoly[i * 2 + 1] = vertices[rim[i] * 3 + 1];
         }
 
+        // Pads whose footprint centroid lies inside this hole own its grade.
+        var holePads = new List<PadBoundary>();
+        foreach (PadBoundary pad in pads)
+        {
+            double cx = 0.0, cy = 0.0;
+            for (int i = 0; i < pad.VertexCount; i++)
+            {
+                cx += pad.XyVertices[i * 2];
+                cy += pad.XyVertices[i * 2 + 1];
+            }
+
+            if (pad.VertexCount > 0 && PointInPolygon(cx / pad.VertexCount, cy / pad.VertexCount, rimPoly, rimCount))
+                holePads.Add(pad);
+        }
+
+        if (holePads.Count == 0)
+        {
+            errorMessage = "Grade Pad region remesh hole contained no pad; deferring.";
+            return false;
+        }
+
+        // Seed each owning pad's footprint: densified boundary + an interior grid at the pad's own
+        // scale. The terrain grid alone (capped to a bounded cell count over a possibly large region)
+        // can step right over a small pad, leaving no vertex on its flat top — the pad then never
+        // flattens. Seeding the footprint guarantees flat-top vertices regardless of pad size; the
+        // section grader assigns them the pad plane.
+        var seedKeys = new HashSet<(long, long)>();
+        double seedCell = Math.Max(tolerance * 8.0, targetEdge * 0.25);
+        bool AddSeed(double sx, double sy)
+        {
+            if (!PointInPolygon(sx, sy, rimPoly, rimCount))
+                return false;
+
+            var key = ((long)Math.Round(sx / seedCell), (long)Math.Round(sy / seedCell));
+            if (!seedKeys.Add(key))
+                return false;
+
+            xy.Add(sx);
+            xy.Add(sy);
+            return true;
+        }
+
+        foreach ((double gx, double gy) in EnumeratePadSeedPoints(holePads, targetEdge))
+            AddSeed(gx, gy);
+
         for (double gy = minY + targetEdge; gy < maxY; gy += targetEdge)
         {
             for (double gx = minX + targetEdge; gx < maxX; gx += targetEdge)
@@ -295,8 +455,7 @@ public static partial class PadGrader
                 if (PointInPolygon(gx, gy, rimPoly, rimCount) &&
                     DistToPolygon(gx, gy, rimPoly, rimCount) > targetEdge * 0.4)
                 {
-                    xy.Add(gx);
-                    xy.Add(gy);
+                    AddSeed(gx, gy);
                 }
             }
         }
@@ -316,33 +475,7 @@ public static partial class PadGrader
             return false;
         }
 
-        // Pads whose footprint centroid lies inside this hole own its grade.
-        var rimXy = new double[rimCount * 2];
-        for (int i = 0; i < rimCount; i++)
-        {
-            rimXy[i * 2] = vertices[rim[i] * 3];
-            rimXy[i * 2 + 1] = vertices[rim[i] * 3 + 1];
-        }
-
-        var holePads = new List<PadBoundary>();
-        foreach (PadBoundary pad in pads)
-        {
-            double cx = 0.0, cy = 0.0;
-            for (int i = 0; i < pad.VertexCount; i++)
-            {
-                cx += pad.XyVertices[i * 2];
-                cy += pad.XyVertices[i * 2 + 1];
-            }
-
-            if (pad.VertexCount > 0 && PointInPolygon(cx / pad.VertexCount, cy / pad.VertexCount, rimXy, rimCount))
-                holePads.Add(pad);
-        }
-
-        if (holePads.Count == 0)
-        {
-            errorMessage = "Grade Pad region remesh hole contained no pad; deferring.";
-            return false;
-        }
+        double[] rimXy = rimPoly;
 
         // Distance-field Z over the dense patch.
         int vc = extracted.VertexCount;
@@ -405,6 +538,159 @@ public static partial class PadGrader
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Interior seed points for each owning pad's flat top: an inset boundary ring (so the flat
+    /// region reaches near the footprint edge) plus a pad-scale interior grid and the centroid. The
+    /// pad-scale spacing guarantees a small pad still gets several flat-top vertices even when the
+    /// hole's terrain-scale grid would step over it. All points are strictly inside the footprint, so
+    /// the section grader assigns them the pad plane.
+    /// </summary>
+    private static IEnumerable<(double X, double Y)> EnumeratePadSeedPoints(List<PadBoundary> holePads, double terrainTargetEdge)
+    {
+        foreach (PadBoundary pad in holePads)
+        {
+            if (pad.VertexCount < 3)
+                continue;
+
+            double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
+            double cx = 0.0, cy = 0.0;
+            for (int i = 0; i < pad.VertexCount; i++)
+            {
+                double vx = pad.XyVertices[i * 2];
+                double vy = pad.XyVertices[i * 2 + 1];
+                if (vx < minX) minX = vx;
+                if (vx > maxX) maxX = vx;
+                if (vy < minY) minY = vy;
+                if (vy > maxY) maxY = vy;
+                cx += vx;
+                cy += vy;
+            }
+
+            cx /= pad.VertexCount;
+            cy /= pad.VertexCount;
+            double span = Math.Max(maxX - minX, maxY - minY);
+            if (span <= 0.0)
+                continue;
+
+            // Pad-scale spacing: a few cells across the pad, no finer than the terrain grid.
+            double s = Math.Min(terrainTargetEdge > 0.0 ? terrainTargetEdge : span / 3.0, span / 3.0);
+            if (s <= 0.0)
+                continue;
+
+            // Centroid is always strictly interior for the convex/near-convex pads we seed.
+            yield return (cx, cy);
+
+            // Inset boundary ring (10% toward the centroid keeps it strictly inside the footprint).
+            for (int i = 0; i < pad.VertexCount; i++)
+            {
+                int j = (i + 1) % pad.VertexCount;
+                double px = pad.XyVertices[i * 2], py = pad.XyVertices[i * 2 + 1];
+                double qx = pad.XyVertices[j * 2], qy = pad.XyVertices[j * 2 + 1];
+                double edgeLen = Math.Sqrt(((qx - px) * (qx - px)) + ((qy - py) * (qy - py)));
+                int steps = Math.Max(1, (int)Math.Ceiling(edgeLen / s));
+                for (int k = 0; k < steps; k++)
+                {
+                    double t = (double)k / steps;
+                    double ex = px + ((qx - px) * t);
+                    double ey = py + ((qy - py) * t);
+                    double ix = ex + ((cx - ex) * 0.1);
+                    double iy = ey + ((cy - ey) * 0.1);
+                    if (PointInPolygon(ix, iy, pad.XyVertices, pad.VertexCount))
+                        yield return (ix, iy);
+                }
+            }
+
+            // Pad-scale interior grid.
+            for (double gy = minY + (s * 0.5); gy < maxY; gy += s)
+            {
+                for (double gx = minX + (s * 0.5); gx < maxX; gx += s)
+                {
+                    if (PointInPolygon(gx, gy, pad.XyVertices, pad.VertexCount) &&
+                        DistToPolygon(gx, gy, pad.XyVertices, pad.VertexCount) > s * 0.25)
+                    {
+                        yield return (gx, gy);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pads whose centroid lies inside NO hole rim — they were not carved (their region was smaller
+    /// than the local terrain triangles) and would be left ungraded. Returns their centroids so a
+    /// containing terrain face can be dropped to give each one a hole.
+    /// </summary>
+    private static bool PadCentroidsNeedingCarve(
+        List<int[]> rimLoops, double[] vertices, PadBoundary[] pads, out List<(double X, double Y)> centroids)
+    {
+        centroids = new List<(double X, double Y)>();
+        var rimPolys = new List<double[]>(rimLoops.Count);
+        foreach (int[] rim in rimLoops)
+        {
+            var poly = new double[rim.Length * 2];
+            for (int i = 0; i < rim.Length; i++)
+            {
+                poly[i * 2] = vertices[rim[i] * 3];
+                poly[i * 2 + 1] = vertices[rim[i] * 3 + 1];
+            }
+
+            rimPolys.Add(poly);
+        }
+
+        foreach (PadBoundary pad in pads)
+        {
+            if (pad.VertexCount < 3)
+                continue;
+
+            double cx = 0.0, cy = 0.0;
+            for (int i = 0; i < pad.VertexCount; i++)
+            {
+                cx += pad.XyVertices[i * 2];
+                cy += pad.XyVertices[i * 2 + 1];
+            }
+
+            cx /= pad.VertexCount;
+            cy /= pad.VertexCount;
+
+            bool inAnyRim = false;
+            foreach (double[] poly in rimPolys)
+            {
+                if (PointInPolygon(cx, cy, poly, poly.Length / 2))
+                {
+                    inAnyRim = true;
+                    break;
+                }
+            }
+
+            if (!inAnyRim)
+                centroids.Add((cx, cy));
+        }
+
+        return centroids.Count > 0;
+    }
+
+    /// <summary>True when any pad footprint's centroid lies inside the given rim polygon.</summary>
+    private static bool RimEnclosesAnyPad(double[] rimPoly, int rimCount, PadBoundary[] pads)
+    {
+        foreach (PadBoundary pad in pads)
+        {
+            if (pad.VertexCount <= 0)
+                continue;
+
+            double cx = 0.0, cy = 0.0;
+            for (int i = 0; i < pad.VertexCount; i++)
+            {
+                cx += pad.XyVertices[i * 2];
+                cy += pad.XyVertices[i * 2 + 1];
+            }
+
+            if (PointInPolygon(cx / pad.VertexCount, cy / pad.VertexCount, rimPoly, rimCount))
+                return true;
+        }
+
+        return false;
     }
 
     private static void CompactUnusedVertices(List<double> vertices, List<int> faces)
