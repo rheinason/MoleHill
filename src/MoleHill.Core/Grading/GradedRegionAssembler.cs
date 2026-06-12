@@ -722,25 +722,29 @@ internal static class GradedRegionAssembler
     }
 
     /// <summary>
-    /// Merges coincident vertices (within tolerance) as they are appended. The spatial hash uses a
-    /// cell size equal to the weld tolerance, and Add scans the full 3x3x3 neighbourhood and merges by
-    /// actual Euclidean distance — NOT by exact cell match. A naive single-cell hash misses pairs that
-    /// fall within tolerance but straddle a cell boundary (e.g. x*100 = 2849.4999 vs 2849.5001 round to
-    /// different cells), leaving hairline seam cracks that show up as non-manifold/open edges at the
-    /// fill-to-terrain weld. Cells hold a list of representatives because a single cell can contain two
-    /// points farther apart than the tolerance (cell diagonal = tolerance*sqrt(3)).
+    /// Merges coincident vertices (within tolerance) as they are appended, merging by actual Euclidean
+    /// distance — NOT by exact cell match. A naive single-cell hash misses pairs that fall within
+    /// tolerance but straddle a cell boundary (e.g. x*100 = 2849.4999 vs 2849.5001 round to different
+    /// cells), leaving hairline seam cracks that show up as non-manifold/open edges at the
+    /// fill-to-terrain weld. The cell size is 2x the tolerance and Add scans the 2x2x2 cell block
+    /// covering [p - tol, p + tol] per axis (Math.Round is monotone, so that block provably contains
+    /// every cell a within-tolerance point can hash to): 8 lookups instead of a 3x3x3 scan's 27. Cells
+    /// hold a list of representatives because a single cell can contain points farther apart than the
+    /// tolerance (cell diagonal = 2*tolerance*sqrt(3)).
     /// </summary>
     private sealed class VertexWelder
     {
         private readonly Dictionary<(long, long, long), List<int>> _cells = new();
         private readonly List<double> _vertices = new();
         private readonly double _inverseCell;
+        private readonly double _tolerance;
         private readonly double _toleranceSq;
 
         public VertexWelder(double tolerance)
         {
             double t = Math.Max(tolerance, 1e-9);
-            _inverseCell = 1.0 / t;
+            _tolerance = t;
+            _inverseCell = 1.0 / (2.0 * t);
             _toleranceSq = t * t;
         }
 
@@ -751,17 +755,17 @@ internal static class GradedRegionAssembler
             double x = vertices[index * 3];
             double y = vertices[index * 3 + 1];
             double z = vertices[index * 3 + 2];
-            long cx = (long)Math.Round(x * _inverseCell);
-            long cy = (long)Math.Round(y * _inverseCell);
-            long cz = (long)Math.Round(z * _inverseCell);
+            long cx0 = (long)Math.Round((x - _tolerance) * _inverseCell);
+            long cy0 = (long)Math.Round((y - _tolerance) * _inverseCell);
+            long cz0 = (long)Math.Round((z - _tolerance) * _inverseCell);
 
-            for (long dx = -1; dx <= 1; dx++)
+            for (long cx = cx0; cx <= cx0 + 1; cx++)
             {
-                for (long dy = -1; dy <= 1; dy++)
+                for (long cy = cy0; cy <= cy0 + 1; cy++)
                 {
-                    for (long dz = -1; dz <= 1; dz++)
+                    for (long cz = cz0; cz <= cz0 + 1; cz++)
                     {
-                        if (!_cells.TryGetValue((cx + dx, cy + dy, cz + dz), out List<int>? bucket))
+                        if (!_cells.TryGetValue((cx, cy, cz), out List<int>? bucket))
                             continue;
 
                         foreach (int existing in bucket)
@@ -780,7 +784,10 @@ internal static class GradedRegionAssembler
             _vertices.Add(x);
             _vertices.Add(y);
             _vertices.Add(z);
-            var key = (cx, cy, cz);
+            var key = (
+                (long)Math.Round(x * _inverseCell),
+                (long)Math.Round(y * _inverseCell),
+                (long)Math.Round(z * _inverseCell));
             if (!_cells.TryGetValue(key, out List<int>? list))
             {
                 list = new List<int>(1);

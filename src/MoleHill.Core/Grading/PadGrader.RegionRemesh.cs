@@ -574,7 +574,9 @@ public static partial class PadGrader
             if (span <= 0.0)
                 continue;
 
-            // Pad-scale spacing: a few cells across the pad, no finer than the terrain grid.
+            // Pad-scale spacing: about three cells across the pad, so small pads seed FINER than the
+            // terrain grid (the terrain grid can step right over them); large pads cap at the terrain
+            // grid spacing.
             double s = Math.Min(terrainTargetEdge > 0.0 ? terrainTargetEdge : span / 3.0, span / 3.0);
             if (s <= 0.0)
                 continue;

@@ -357,23 +357,55 @@ public static partial class PadGrader
     /// </summary>
     private static bool PadTopsAreFlat(double[] vertices, int[] faces, int faceCount, PadBoundary[] pads, double zTolerance)
     {
+        // Per-vertex pad membership, computed once per pad with a bounding-box reject. The per-face
+        // loop below would otherwise re-run an O(padVertexCount) point-in-polygon test for every face
+        // a vertex touches (~6x), for every pad, over the whole conformed mesh.
+        int vertexCount = vertices.Length / 3;
+        var insidePad = new bool[pads.Length][];
+        for (int p = 0; p < pads.Length; p++)
+        {
+            PadBoundary pad = pads[p];
+            double minX = double.MaxValue, maxX = double.MinValue;
+            double minY = double.MaxValue, maxY = double.MinValue;
+            for (int i = 0; i < pad.VertexCount; i++)
+            {
+                double px = pad.XyVertices[i * 2];
+                double py = pad.XyVertices[i * 2 + 1];
+                if (px < minX) minX = px;
+                if (px > maxX) maxX = px;
+                if (py < minY) minY = py;
+                if (py > maxY) maxY = py;
+            }
+
+            var flags = new bool[vertexCount];
+            for (int i = 0; i < vertexCount; i++)
+            {
+                double x = vertices[i * 3];
+                double y = vertices[i * 3 + 1];
+                if (x < minX || x > maxX || y < minY || y > maxY)
+                    continue;
+
+                flags[i] = PointInPolygon(x, y, pad.XyVertices, pad.VertexCount);
+            }
+
+            insidePad[p] = flags;
+        }
+
         var interiorFaceCount = new int[pads.Length];
         for (int f = 0; f < faceCount; f++)
         {
             int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
             for (int p = 0; p < pads.Length; p++)
             {
-                PadBoundary pad = pads[p];
-                if (!PointInPolygon(vertices[a * 3], vertices[a * 3 + 1], pad.XyVertices, pad.VertexCount) ||
-                    !PointInPolygon(vertices[b * 3], vertices[b * 3 + 1], pad.XyVertices, pad.VertexCount) ||
-                    !PointInPolygon(vertices[c * 3], vertices[c * 3 + 1], pad.XyVertices, pad.VertexCount))
-                {
+                bool[] flags = insidePad[p];
+                if (!flags[a] || !flags[b] || !flags[c])
                     continue;
-                }
 
                 interiorFaceCount[p]++;
-                foreach (int idx in stackalloc[] { a, b, c })
+                PadBoundary pad = pads[p];
+                for (int e = 0; e < 3; e++)
                 {
+                    int idx = faces[(f * 3) + e];
                     double expected = pad.EvaluateZ(vertices[idx * 3], vertices[idx * 3 + 1]);
                     if (Math.Abs(vertices[idx * 3 + 2] - expected) > zTolerance)
                         return false;
@@ -591,24 +623,51 @@ public static partial class PadGrader
         PreparedBarriers barriers,
         double tolerance)
     {
+        // Input point dedup. Cell size is 2x the weld tolerance and lookups scan the 2x2 cell block
+        // covering [p - tol, p + tol], merging by actual Euclidean distance — a single-cell hash both
+        // misses near pairs that straddle a cell boundary and falsely merges far pairs sharing a cell
+        // (cell diagonal = tol*sqrt(2)), corrupting the boundary loop the interior extraction relies on.
         double weldTol = Math.Max(tolerance, 1e-6);
-        double inverseCell = 1.0 / weldTol;
+        double weldTolSq = weldTol * weldTol;
+        double inverseCell = 1.0 / (2.0 * weldTol);
         var xyList = new List<double>();
         var inputZ = new List<double>();
-        var pointIndex = new Dictionary<(long, long), int>();
+        var pointCells = new Dictionary<(long, long), List<int>>();
         var segments = new List<(int a, int b)>();
 
         int AddPoint(double x, double y, double z)
         {
-            var key = ((long)Math.Round(x * inverseCell), (long)Math.Round(y * inverseCell));
-            if (pointIndex.TryGetValue(key, out int existing))
-                return existing;
+            long cx0 = (long)Math.Round((x - weldTol) * inverseCell);
+            long cy0 = (long)Math.Round((y - weldTol) * inverseCell);
+            for (long cx = cx0; cx <= cx0 + 1; cx++)
+            {
+                for (long cy = cy0; cy <= cy0 + 1; cy++)
+                {
+                    if (!pointCells.TryGetValue((cx, cy), out List<int>? bucket))
+                        continue;
+
+                    foreach (int existing in bucket)
+                    {
+                        double dx = xyList[existing * 2] - x;
+                        double dy = xyList[(existing * 2) + 1] - y;
+                        if ((dx * dx) + (dy * dy) <= weldTolSq)
+                            return existing;
+                    }
+                }
+            }
 
             int index = xyList.Count / 2;
             xyList.Add(x);
             xyList.Add(y);
             inputZ.Add(z);
-            pointIndex[key] = index;
+            var key = ((long)Math.Round(x * inverseCell), (long)Math.Round(y * inverseCell));
+            if (!pointCells.TryGetValue(key, out List<int>? list))
+            {
+                list = new List<int>(1);
+                pointCells[key] = list;
+            }
+
+            list.Add(index);
             return index;
         }
 
@@ -632,9 +691,11 @@ public static partial class PadGrader
                 segments.Add((previous, first));
         }
 
-        // Conformed boundary first: input indices [0, boundaryPointCount) are perimeter vertices.
+        // Conformed boundary first: input indices [0, boundaryPointCount) are perimeter vertices and
+        // segments [0, boundarySegmentCount) are the perimeter constraint edges.
         AddClosed(boundaryXyz, xyz: true, boundaryCount);
         int boundaryPointCount = xyList.Count / 2;
+        int boundarySegmentCount = segments.Count;
 
         foreach (PadBuild build in group)
             AddClosed(build.PadLoop.XyVertices, xyz: false, build.PadLoop.VertexCount);
@@ -710,7 +771,9 @@ public static partial class PadGrader
         // a face is exterior iff it is reachable from a non-boundary naked (convex-hull) edge without
         // crossing a boundary segment. The result's boundary is EXACTLY the conformed loop, so it welds
         // to the kept terrain with no spill (overlap) or recession (gap).
-        int[] interiorFaces = ExtractFillInterior(graded, extracted.Faces, extracted.FaceCount, extracted.SourceIds, boundaryPointCount);
+        int[] interiorFaces = ExtractFillInterior(
+            graded, extracted.Faces, extracted.FaceCount, extracted.SourceIds,
+            boundaryPointCount, segments, boundarySegmentCount);
 
         return new GradedRegionAssembler.SubMesh
         {
@@ -725,18 +788,27 @@ public static partial class PadGrader
         a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
 
     /// <summary>
-    /// Returns the faces inside the conformed boundary loop (input vertices [0, boundaryCount) in
-    /// consecutive order). Triangle.NET fills the convex hull, so a concave boundary leaves hull-skirt
-    /// faces outside the loop that must be dropped. Primary method is a segment-aware flood fill (a face
-    /// is exterior iff reachable from a non-boundary naked edge without crossing a boundary segment),
-    /// which is exact at concavities. If the flood leaks — a boundary segment that Triangle did not
-    /// realise as a single mesh edge breaks the wall and the flood drains the interior — it would drop
-    /// most of the fill; that is detected (kept &lt; half the faces) and the fill falls back to a
-    /// leak-proof centroid-in-boundary test. Degenerate near-zero-area faces are always dropped.
+    /// Returns the faces inside the conformed boundary loop (input vertices [0, boundaryCount), with
+    /// the perimeter constraint edges given by the first <paramref name="boundarySegmentCount"/>
+    /// entries of <paramref name="boundarySegments"/>). Triangle.NET fills the convex hull, so a
+    /// concave boundary leaves hull-skirt faces outside the loop that must be dropped. Primary method
+    /// is a segment-aware flood fill (a face is exterior iff reachable from a non-boundary naked edge
+    /// without crossing a boundary segment), which is exact at concavities. If the flood leaks — a
+    /// boundary segment that Triangle did not realise as a single mesh edge breaks the wall and the
+    /// flood drains the interior — the kept area collapses far below the boundary polygon's area; that
+    /// is detected and the fill falls back to a leak-proof centroid-in-boundary test. Degenerate
+    /// near-zero-area faces are always dropped.
     /// </summary>
-    private static int[] ExtractFillInterior(double[] vertices, int[] faces, int faceCount, int[] sourceIds, int boundaryCount)
+    private static int[] ExtractFillInterior(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        int[] sourceIds,
+        int boundaryCount,
+        List<(int a, int b)> boundarySegments,
+        int boundarySegmentCount)
     {
-        // Boundary segment edges, keyed on extracted vertex indices.
+        // Map input point index -> extracted vertex index.
         var sourceToVertex = new Dictionary<int, int>(boundaryCount);
         for (int i = 0; i < sourceIds.Length; i++)
         {
@@ -745,11 +817,15 @@ public static partial class PadGrader
                 sourceToVertex[s] = i;
         }
 
+        // Walls are the ACTUAL boundary segments handed to the triangulator, not consecutive index
+        // pairs reconstructed from the loop: input dedup can fold a self-touching loop so that
+        // consecutive indices no longer correspond to loop edges, which would punch false gaps in the
+        // wall (and add false walls) and make the flood leak.
         var walls = new HashSet<long>();
-        for (int i = 0; i < boundaryCount; i++)
+        for (int i = 0; i < boundarySegmentCount; i++)
         {
-            if (sourceToVertex.TryGetValue(i, out int u) &&
-                sourceToVertex.TryGetValue((i + 1) % boundaryCount, out int v))
+            if (sourceToVertex.TryGetValue(boundarySegments[i].a, out int u) &&
+                sourceToVertex.TryGetValue(boundarySegments[i].b, out int v))
             {
                 walls.Add(FillEdgeKey(u, v));
             }
@@ -784,9 +860,12 @@ public static partial class PadGrader
         var stack = new Stack<int>();
         for (int f = 0; f < faceCount; f++)
         {
-            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
-            foreach ((int u, int v) in stackalloc[] { (a, b), (b, c), (c, a) })
+            // NOTE: no stackalloc inside these loops — stackalloc memory is only reclaimed when the
+            // method returns, so per-iteration allocation grows the stack linearly with face count.
+            for (int e = 0; e < 3; e++)
             {
+                int u = faces[(f * 3) + e];
+                int v = faces[(f * 3) + ((e + 1) % 3)];
                 long k = FillEdgeKey(u, v);
                 if (edgeFaces[k].Count == 1 && !walls.Contains(k))
                 {
@@ -800,9 +879,10 @@ public static partial class PadGrader
         while (stack.Count > 0)
         {
             int f = stack.Pop();
-            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
-            foreach ((int u, int v) in stackalloc[] { (a, b), (b, c), (c, a) })
+            for (int e = 0; e < 3; e++)
             {
+                int u = faces[(f * 3) + e];
+                int v = faces[(f * 3) + ((e + 1) % 3)];
                 long k = FillEdgeKey(u, v);
                 if (walls.Contains(k))
                     continue;
@@ -818,36 +898,55 @@ public static partial class PadGrader
             }
         }
 
-        int interiorCount = 0;
+        // Leak guard: compare the kept (interior) area against the boundary polygon's area. A broken
+        // wall drains the interior, collapsing the kept area; if so, fall back to the leak-proof
+        // centroid-in-boundary test. A face-COUNT guard misfires on thin concave regions whose convex
+        // hull skirt legitimately outnumbers the interior faces — it would override a correct flood
+        // with the less reliable centroid test. Areas are compared as twice-areas (no /2 needed).
+        double keptArea2 = 0.0;
         for (int f = 0; f < faceCount; f++)
-            if (!exterior[f])
-                interiorCount++;
-
-        // Leak guard: if the flood drained most of the interior (a broken wall), fall back to the
-        // leak-proof centroid-in-boundary test against the reconstructed boundary polygon.
-        if (interiorCount * 2 < faceCount)
         {
-            var boundaryPoly = new double[boundaryCount * 2];
-            int built = 0;
-            for (int i = 0; i < boundaryCount; i++)
-            {
-                if (!sourceToVertex.TryGetValue(i, out int vi))
-                    continue;
+            if (exterior[f])
+                continue;
 
-                boundaryPoly[built * 2] = vertices[vi * 3];
-                boundaryPoly[built * 2 + 1] = vertices[vi * 3 + 1];
-                built++;
-            }
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            keptArea2 += Math.Abs(
+                ((vertices[b * 3] - vertices[a * 3]) * (vertices[(c * 3) + 1] - vertices[(a * 3) + 1])) -
+                ((vertices[(b * 3) + 1] - vertices[(a * 3) + 1]) * (vertices[c * 3] - vertices[a * 3])));
+        }
 
-            if (built >= 3)
+        // Boundary polygon in loop order (input indices are assigned in order of first appearance,
+        // so index order is loop order).
+        var boundaryPoly = new double[boundaryCount * 2];
+        int built = 0;
+        for (int i = 0; i < boundaryCount; i++)
+        {
+            if (!sourceToVertex.TryGetValue(i, out int vi))
+                continue;
+
+            boundaryPoly[built * 2] = vertices[vi * 3];
+            boundaryPoly[(built * 2) + 1] = vertices[(vi * 3) + 1];
+            built++;
+        }
+
+        double polyArea2 = 0.0;
+        for (int i = 0; i < built; i++)
+        {
+            int j = (i + 1) % built;
+            polyArea2 += (boundaryPoly[i * 2] * boundaryPoly[(j * 2) + 1]) -
+                         (boundaryPoly[j * 2] * boundaryPoly[(i * 2) + 1]);
+        }
+
+        polyArea2 = Math.Abs(polyArea2);
+
+        if (built >= 3 && keptArea2 < polyArea2 * 0.5)
+        {
+            for (int f = 0; f < faceCount; f++)
             {
-                for (int f = 0; f < faceCount; f++)
-                {
-                    int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
-                    double cx = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
-                    double cy = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0;
-                    exterior[f] = !PointInPolygon(cx, cy, boundaryPoly, built);
-                }
+                int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+                double cx = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
+                double cy = (vertices[(a * 3) + 1] + vertices[(b * 3) + 1] + vertices[(c * 3) + 1]) / 3.0;
+                exterior[f] = !PointInPolygon(cx, cy, boundaryPoly, built);
             }
         }
 
