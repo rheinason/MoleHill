@@ -565,6 +565,11 @@ internal static class MeshAreaTopologySplitter
         var candidates = new List<int>(16);
         var result = new FaceCutData[faceData.Length];
 
+        // Cut endpoints within this distance of a terrain edge are projected onto it so they conform
+        // (see the snap rationale in the clipped-piece loop). Several times the model tolerance — large
+        // enough to absorb near-edge cut points, far below terrain detail.
+        double edgeSnapToleranceSquared = (tolerance * 8.0) * (tolerance * 8.0);
+
         foreach (var segment in boundarySegments)
         {
             var queryBounds = new Bounds2D(
@@ -589,8 +594,21 @@ internal static class MeshAreaTopologySplitter
                 foreach (var edgePoint in edgePoints)
                     AddUniqueEdgePoint(result[faceIndex].EdgePoints, edgePoint, face, tolerance);
 
-                foreach (var clippedPiece in clippedPieces)
+                foreach (var rawPiece in clippedPieces)
                 {
+                    // Conform a cut endpoint that lands NEAR (but not within the model tolerance of) a
+                    // terrain edge onto that edge. Such a point is otherwise kept interior, and because
+                    // each adjacent face detects it at a slightly different spot, they emit overlapping
+                    // sliver triangles along the shared edge — one non-manifold edge in the conformed
+                    // terrain. Projecting onto the edge makes the point register in the shared-edge
+                    // registry, so BOTH faces subdivide the edge identically (no sliver). Projection onto
+                    // a shared edge is position-identical from either side, so it is consistent by
+                    // construction. The snap radius is several times the model tolerance but far below
+                    // terrain detail, so the carve boundary moves negligibly.
+                    var clippedPiece = new SegmentPiece(
+                        SnapPointToNearEdge(face, rawPiece.Start, edgeSnapToleranceSquared),
+                        SnapPointToNearEdge(face, rawPiece.End, edgeSnapToleranceSquared));
+
                     int edgeIndex = GetPieceEdgeIndex(face, clippedPiece, tolerance);
                     if (edgeIndex >= 0)
                     {
@@ -1071,6 +1089,29 @@ internal static class MeshAreaTopologySplitter
     {
         double t = ParameterOnEdge(edgeStart, edgeEnd, point);
         return Lerp(edgeStart, edgeEnd, t);
+    }
+
+    /// <summary>
+    /// Projects <paramref name="point"/> onto the nearest of the face's three edges if it lies within
+    /// the (squared) snap radius; otherwise returns it unchanged. Used to conform near-edge cut points
+    /// onto the terrain edge so adjacent faces subdivide it identically.
+    /// </summary>
+    private static Point2D SnapPointToNearEdge(FaceData face, Point2D point, double snapToleranceSquared)
+    {
+        double bestDistanceSquared = snapToleranceSquared;
+        Point2D best = point;
+        for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
+        {
+            Point2D projected = SnapPointToEdge(face.GetEdgeStart(edgeIndex), face.GetEdgeEnd(edgeIndex), point);
+            double distanceSquared = DistanceSquared(point, projected);
+            if (distanceSquared < bestDistanceSquared)
+            {
+                bestDistanceSquared = distanceSquared;
+                best = projected;
+            }
+        }
+
+        return best;
     }
 
     private static double ParameterOnSegment(Point2D start, Point2D end, Point2D point)

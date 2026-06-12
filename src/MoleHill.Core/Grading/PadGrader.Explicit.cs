@@ -725,10 +725,14 @@ public static partial class PadGrader
         a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
 
     /// <summary>
-    /// Returns the faces strictly inside the conformed boundary loop (input vertices [0, boundaryCount)
-    /// in consecutive order). Exterior faces — the convex-hull skirt Triangle.NET fills outside a
-    /// concave boundary — are found by flood fill from naked non-boundary edges, stopping at boundary
-    /// segments; everything not reached is interior. Degenerate near-zero-area faces are dropped.
+    /// Returns the faces inside the conformed boundary loop (input vertices [0, boundaryCount) in
+    /// consecutive order). Triangle.NET fills the convex hull, so a concave boundary leaves hull-skirt
+    /// faces outside the loop that must be dropped. Primary method is a segment-aware flood fill (a face
+    /// is exterior iff reachable from a non-boundary naked edge without crossing a boundary segment),
+    /// which is exact at concavities. If the flood leaks — a boundary segment that Triangle did not
+    /// realise as a single mesh edge breaks the wall and the flood drains the interior — it would drop
+    /// most of the fill; that is detected (kept &lt; half the faces) and the fill falls back to a
+    /// leak-proof centroid-in-boundary test. Degenerate near-zero-area faces are always dropped.
     /// </summary>
     private static int[] ExtractFillInterior(double[] vertices, int[] faces, int faceCount, int[] sourceIds, int boundaryCount)
     {
@@ -810,6 +814,39 @@ public static partial class PadGrader
                         exterior[nf] = true;
                         stack.Push(nf);
                     }
+                }
+            }
+        }
+
+        int interiorCount = 0;
+        for (int f = 0; f < faceCount; f++)
+            if (!exterior[f])
+                interiorCount++;
+
+        // Leak guard: if the flood drained most of the interior (a broken wall), fall back to the
+        // leak-proof centroid-in-boundary test against the reconstructed boundary polygon.
+        if (interiorCount * 2 < faceCount)
+        {
+            var boundaryPoly = new double[boundaryCount * 2];
+            int built = 0;
+            for (int i = 0; i < boundaryCount; i++)
+            {
+                if (!sourceToVertex.TryGetValue(i, out int vi))
+                    continue;
+
+                boundaryPoly[built * 2] = vertices[vi * 3];
+                boundaryPoly[built * 2 + 1] = vertices[vi * 3 + 1];
+                built++;
+            }
+
+            if (built >= 3)
+            {
+                for (int f = 0; f < faceCount; f++)
+                {
+                    int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+                    double cx = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
+                    double cy = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0;
+                    exterior[f] = !PointInPolygon(cx, cy, boundaryPoly, built);
                 }
             }
         }
