@@ -403,18 +403,17 @@ public static partial class PadGrader
             rimPoly[i * 2 + 1] = vertices[rim[i] * 3 + 1];
         }
 
-        // Pads whose footprint centroid lies inside this hole own its grade.
+        // Pads whose footprint interior point lies inside this hole own its grade. (Interior point,
+        // not vertex average: a concave pad's average can fall outside its own footprint and assign
+        // the pad to the wrong hole.)
         var holePads = new List<PadBoundary>();
         foreach (PadBoundary pad in pads)
         {
-            double cx = 0.0, cy = 0.0;
-            for (int i = 0; i < pad.VertexCount; i++)
-            {
-                cx += pad.XyVertices[i * 2];
-                cy += pad.XyVertices[i * 2 + 1];
-            }
+            if (pad.VertexCount <= 0)
+                continue;
 
-            if (pad.VertexCount > 0 && PointInPolygon(cx / pad.VertexCount, cy / pad.VertexCount, rimPoly, rimCount))
+            (double px, double py) = PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
+            if (PointInPolygon(px, py, rimPoly, rimCount))
                 holePads.Add(pad);
         }
 
@@ -555,7 +554,6 @@ public static partial class PadGrader
                 continue;
 
             double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
-            double cx = 0.0, cy = 0.0;
             for (int i = 0; i < pad.VertexCount; i++)
             {
                 double vx = pad.XyVertices[i * 2];
@@ -564,12 +562,8 @@ public static partial class PadGrader
                 if (vx > maxX) maxX = vx;
                 if (vy < minY) minY = vy;
                 if (vy > maxY) maxY = vy;
-                cx += vx;
-                cy += vy;
             }
 
-            cx /= pad.VertexCount;
-            cy /= pad.VertexCount;
             double span = Math.Max(maxX - minX, maxY - minY);
             if (span <= 0.0)
                 continue;
@@ -581,10 +575,13 @@ public static partial class PadGrader
             if (s <= 0.0)
                 continue;
 
-            // Centroid is always strictly interior for the convex/near-convex pads we seed.
+            // Guaranteed-interior point (a concave pad's vertex average can fall outside the
+            // footprint); also the pull target for the inset ring below.
+            (double cx, double cy) = PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
             yield return (cx, cy);
 
-            // Inset boundary ring (10% toward the centroid keeps it strictly inside the footprint).
+            // Inset boundary ring (10% toward the interior point; each point is verified inside the
+            // footprint before it is yielded).
             for (int i = 0; i < pad.VertexCount; i++)
             {
                 int j = (i + 1) % pad.VertexCount;
@@ -620,9 +617,11 @@ public static partial class PadGrader
     }
 
     /// <summary>
-    /// Pads whose centroid lies inside NO hole rim — they were not carved (their region was smaller
-    /// than the local terrain triangles) and would be left ungraded. Returns their centroids so a
-    /// containing terrain face can be dropped to give each one a hole.
+    /// Pads whose interior point lies inside NO hole rim — they were not carved (their region was
+    /// smaller than the local terrain triangles) and would be left ungraded. Returns those interior
+    /// points so a containing terrain face can be dropped to give each one a hole. Interior point,
+    /// not vertex average: a concave pad's average can fall outside its own footprint, which would
+    /// both misreport the pad as uncarved and punch the hole in a face the pad does not even touch.
     /// </summary>
     private static bool PadCentroidsNeedingCarve(
         List<int[]> rimLoops, double[] vertices, PadBoundary[] pads, out List<(double X, double Y)> centroids)
@@ -646,15 +645,7 @@ public static partial class PadGrader
             if (pad.VertexCount < 3)
                 continue;
 
-            double cx = 0.0, cy = 0.0;
-            for (int i = 0; i < pad.VertexCount; i++)
-            {
-                cx += pad.XyVertices[i * 2];
-                cy += pad.XyVertices[i * 2 + 1];
-            }
-
-            cx /= pad.VertexCount;
-            cy /= pad.VertexCount;
+            (double cx, double cy) = PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
 
             bool inAnyRim = false;
             foreach (double[] poly in rimPolys)
@@ -673,7 +664,11 @@ public static partial class PadGrader
         return centroids.Count > 0;
     }
 
-    /// <summary>True when any pad footprint's centroid lies inside the given rim polygon.</summary>
+    /// <summary>
+    /// True when any pad footprint's interior point lies inside the given rim polygon. Interior
+    /// point, not vertex average: a pad-bearing rim misclassified as an island (because a concave
+    /// pad's average fell outside the rim) gets its kept faces dropped and its hole never remeshed.
+    /// </summary>
     private static bool RimEnclosesAnyPad(double[] rimPoly, int rimCount, PadBoundary[] pads)
     {
         foreach (PadBoundary pad in pads)
@@ -681,14 +676,8 @@ public static partial class PadGrader
             if (pad.VertexCount <= 0)
                 continue;
 
-            double cx = 0.0, cy = 0.0;
-            for (int i = 0; i < pad.VertexCount; i++)
-            {
-                cx += pad.XyVertices[i * 2];
-                cy += pad.XyVertices[i * 2 + 1];
-            }
-
-            if (PointInPolygon(cx / pad.VertexCount, cy / pad.VertexCount, rimPoly, rimCount))
+            (double px, double py) = PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
+            if (PointInPolygon(px, py, rimPoly, rimCount))
                 return true;
         }
 

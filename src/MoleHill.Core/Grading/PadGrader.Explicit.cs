@@ -581,15 +581,14 @@ public static partial class PadGrader
         var inside = new List<PadBuild>();
         foreach (PadBuild build in builds)
         {
-            double cx = 0.0, cy = 0.0;
             int n = build.Pad.VertexCount;
-            for (int i = 0; i < n; i++)
-            {
-                cx += build.Pad.XyVertices[i * 2];
-                cy += build.Pad.XyVertices[i * 2 + 1];
-            }
+            if (n <= 0)
+                continue;
 
-            if (n > 0 && PointInPolygon(cx / n, cy / n, boundaryXy, boundaryCount))
+            // Guaranteed-interior representative point: a concave pad's vertex average can fall
+            // outside its own footprint, which would assign the pad to the wrong hole (or none).
+            (double px, double py) = PolygonInteriorPoint(build.Pad.XyVertices, n);
+            if (PointInPolygon(px, py, boundaryXy, boundaryCount))
                 inside.Add(build);
         }
 

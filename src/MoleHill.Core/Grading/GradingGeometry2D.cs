@@ -105,6 +105,94 @@ internal static class GradingGeometry2D
     private static double Cross(double ax, double ay, double bx, double by, double px, double py) =>
         ((bx - ax) * (py - ay)) - ((by - ay) * (px - ax));
 
+    /// <summary>
+    /// A point strictly inside the given simple polygon (flat XY pairs). The vertex average is used
+    /// when it lies inside — typical for convex/near-convex footprints — but for concave (L/U-shaped)
+    /// polygons the average can fall OUTSIDE, and containment/ownership decisions keyed on it then
+    /// misclassify the polygon. In that case the point is derived from the convex-most vertex
+    /// (O'Rourke's interior-point construction): the centroid of its ear triangle when no other vertex
+    /// intrudes into the ear, otherwise the midpoint between the vertex and the deepest intruding
+    /// vertex — both provably interior for a simple polygon.
+    /// </summary>
+    public static (double X, double Y) PolygonInteriorPoint(double[] xy, int count)
+    {
+        if (count <= 0)
+            return (0.0, 0.0);
+
+        double avgX = 0.0, avgY = 0.0;
+        for (int i = 0; i < count; i++)
+        {
+            avgX += xy[i * 2];
+            avgY += xy[i * 2 + 1];
+        }
+
+        avgX /= count;
+        avgY /= count;
+        if (count < 3 || PointInPolygon(avgX, avgY, xy, count))
+            return (avgX, avgY);
+
+        // Convex-most vertex (lowest Y, then lowest X) — strictly convex in any simple polygon.
+        int v = 0;
+        for (int i = 1; i < count; i++)
+        {
+            double yi = xy[i * 2 + 1];
+            double yv = xy[v * 2 + 1];
+            if (yi < yv || (yi == yv && xy[i * 2] < xy[v * 2]))
+                v = i;
+        }
+
+        int p = (v + count - 1) % count;
+        int n = (v + 1) % count;
+        double ax = xy[p * 2], ay = xy[p * 2 + 1];
+        double bx = xy[v * 2], by = xy[v * 2 + 1];
+        double cx = xy[n * 2], cy = xy[n * 2 + 1];
+
+        // Degenerate ear (duplicate/collinear corner): keep the average as the least-bad answer.
+        if (Math.Abs(Cross(ax, ay, bx, by, cx, cy)) <= 1e-12)
+            return (avgX, avgY);
+
+        // Deepest other vertex intruding into the ear triangle, depth measured from line a-c toward
+        // b. No intruder: the open ear triangle is empty (no polygon edge can enter it without
+        // crossing edge a-b or b-c, which a simple polygon forbids), so its centroid is interior.
+        // Otherwise the open segment from b to the deepest intruder is interior — an edge crossing it
+        // would need a vertex deeper still — so the midpoint of that segment is interior.
+        int deepest = -1;
+        double deepestDepth = 0.0;
+        for (int i = 0; i < count; i++)
+        {
+            if (i == p || i == v || i == n)
+                continue;
+
+            double qx = xy[i * 2], qy = xy[i * 2 + 1];
+            if (!PointInTriangleInclusive(qx, qy, ax, ay, bx, by, cx, cy))
+                continue;
+
+            double depth = Math.Abs(Cross(ax, ay, cx, cy, qx, qy));
+            if (deepest < 0 || depth > deepestDepth)
+            {
+                deepest = i;
+                deepestDepth = depth;
+            }
+        }
+
+        if (deepest < 0)
+            return ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0);
+
+        return ((bx + xy[deepest * 2]) * 0.5, (by + xy[(deepest * 2) + 1]) * 0.5);
+    }
+
+    private static bool PointInTriangleInclusive(
+        double px, double py, double ax, double ay, double bx, double by, double cx, double cy)
+    {
+        const double tolerance = 1e-12;
+        double o1 = Cross(ax, ay, bx, by, px, py);
+        double o2 = Cross(bx, by, cx, cy, px, py);
+        double o3 = Cross(cx, cy, ax, ay, px, py);
+        bool hasNegative = o1 < -tolerance || o2 < -tolerance || o3 < -tolerance;
+        bool hasPositive = o1 > tolerance || o2 > tolerance || o3 > tolerance;
+        return !(hasNegative && hasPositive);
+    }
+
     public static double DistanceToPolygon(double px, double py, double[] polyXy, int polyVertCount)
     {
         double minDist = double.MaxValue;

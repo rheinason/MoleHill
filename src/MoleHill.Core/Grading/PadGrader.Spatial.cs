@@ -30,6 +30,11 @@ public static partial class PadGrader
         return GradingGeometry2D.DistanceToPolygon(px, py, polyXy, polyVertCount);
     }
 
+    public static (double X, double Y) PolygonInteriorPoint(double[] polyXy, int polyVertCount)
+    {
+        return GradingGeometry2D.PolygonInteriorPoint(polyXy, polyVertCount);
+    }
+
     public static int FindNearVertex(List<double> xyList, double px, double py, double tolerance)
     {
         return GradingGeometry2D.FindNearVertex(xyList, px, py, tolerance);
