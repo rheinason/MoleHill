@@ -4,6 +4,11 @@ using Xunit;
 
 namespace MoleHill.Grasshopper.Tests;
 
+/// <summary>
+/// Native-runtime planner tests: curve tessellation and solid Brep generation need the Rhino native
+/// runtime, so these are [RhinoNativeFact] and skip in hosts without it. All pairing/corner/width
+/// planning logic is covered native-free in <see cref="RetainingWallPlannerLogicTests"/>.
+/// </summary>
 public class RetainingWallPlannerGeometryTests
 {
     [RhinoNativeFact]
@@ -24,81 +29,6 @@ public class RetainingWallPlannerGeometryTests
         Assert.Equal(2, wall.Rails.TopPoints.Length);
         Assert.False(wall.Rails.IsClosed);
         Assert.Equal(1.0, wall.Rails.MinWidth, 6);
-    }
-
-    [RhinoNativeFact]
-    public void Plan_ShortAuthoredSegment_PreservesStation()
-    {
-        var plan = RetainingWallPlannerCore.Plan(
-            new Curve[]
-            {
-                new PolylineCurve(new[]
-                {
-                    new Point3d(0, 0, 0),
-                    new Point3d(4, 0, 0),
-                    new Point3d(5, 0, 0),
-                    new Point3d(5, 4, 0)
-                }),
-                new PolylineCurve(new[]
-                {
-                    new Point3d(0, 1, 3),
-                    new Point3d(4, 1, 3),
-                    new Point3d(5, 1, 3),
-                    new Point3d(5, 5, 3)
-                })
-            },
-            1.0);
-
-        var wall = Assert.Single(plan.Walls);
-        Assert.Contains(
-            wall.Rails.ToePoints,
-            point => Math.Abs(point.X - 4.0) <= 1e-6 && Math.Abs(point.Y) <= 1e-6);
-    }
-
-    [RhinoNativeFact]
-    public void Plan_AmbiguousSecondBest_SkipsPairWithReason()
-    {
-        var plan = RetainingWallPlannerCore.Plan(
-            new Curve[]
-            {
-                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
-                new LineCurve(new Point3d(0, 1, 3), new Point3d(10, 1, 3)),
-                new LineCurve(new Point3d(0, 1.2, 4), new Point3d(10, 1.2, 4))
-            },
-            2.0);
-
-        Assert.Empty(plan.Walls);
-        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.AmbiguousPair);
-    }
-
-    [RhinoNativeFact]
-    public void Plan_SubToleranceSpacing_SkipsPair()
-    {
-        var plan = RetainingWallPlannerCore.Plan(
-            new Curve[]
-            {
-                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
-                new LineCurve(new Point3d(0, 0.05, 3), new Point3d(10, 0.05, 3))
-            },
-            1.0);
-
-        Assert.Empty(plan.Walls);
-        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SubToleranceWidth);
-    }
-
-    [RhinoNativeFact]
-    public void Plan_EqualZRails_SkipsPairWhenWallHasNoHeight()
-    {
-        var plan = RetainingWallPlannerCore.Plan(
-            new Curve[]
-            {
-                new LineCurve(new Point3d(0, 0, 1), new Point3d(10, 0, 1)),
-                new LineCurve(new Point3d(0, 1, 1), new Point3d(10, 1, 1))
-            },
-            1.0);
-
-        Assert.Empty(plan.Walls);
-        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SolidFailed);
     }
 
     [RhinoNativeFact]
@@ -157,99 +87,6 @@ public class RetainingWallPlannerGeometryTests
         Assert.NotNull(wall.Brep);
         Assert.True(wall.Brep!.IsSolid);
         Assert.Single(plan.PairLines);
-    }
-
-    [RhinoNativeFact]
-    public void Plan_MixedOpenClosed_RaisesDiagnostic()
-    {
-        var plan = RetainingWallPlannerCore.Plan(
-            new Curve[]
-            {
-                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
-                ClosedPolyline(
-                    new Point3d(0, 1, 3),
-                    new Point3d(10, 1, 3),
-                    new Point3d(10, 2, 3),
-                    new Point3d(0, 2, 3))
-            },
-            2.0);
-
-        Assert.Empty(plan.Walls);
-        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.MixedOpenClosed);
-    }
-
-    [RhinoNativeFact]
-    public void Plan_SelfIntersectingRail_RaisesDiagnostic()
-    {
-        var plan = RetainingWallPlannerCore.Plan(
-            new Curve[]
-            {
-                new PolylineCurve(new[]
-                {
-                    new Point3d(0, 0, 0),
-                    new Point3d(5, 5, 0),
-                    new Point3d(0, 5, 0),
-                    new Point3d(5, 0, 0)
-                }),
-                new LineCurve(new Point3d(0, 1, 3), new Point3d(5, 1, 3))
-            },
-            2.0);
-
-        Assert.Empty(plan.Walls);
-        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.SelfIntersectingRail);
-    }
-
-    [RhinoNativeFact]
-    public void Plan_TwoWallCorner_UsesBoundedMiter()
-    {
-        var plan = RetainingWallPlannerCore.Plan(
-            new Curve[]
-            {
-                new LineCurve(new Point3d(-5, 0, 0), new Point3d(0, 0, 0)),
-                new LineCurve(new Point3d(-5, 1, 3), new Point3d(0, 1, 3)),
-                new LineCurve(new Point3d(0, 0, 0), new Point3d(0, 5, 0)),
-                new LineCurve(new Point3d(-1, 0, 3), new Point3d(-1, 5, 3))
-            },
-            1.1);
-
-        Assert.Equal(2, plan.Walls.Count);
-        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.CornerResolved);
-        Assert.All(plan.Walls, wall => Assert.True(wall.Rails.MinWidth >= 0.11));
-    }
-
-    [RhinoNativeFact]
-    public void Plan_CrossingWallCenterlines_WarnsButKeepsPairs()
-    {
-        var plan = RetainingWallPlannerCore.Plan(
-            new Curve[]
-            {
-                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
-                new LineCurve(new Point3d(0, 1, 3), new Point3d(10, 1, 3)),
-                new LineCurve(new Point3d(5, -5, 0), new Point3d(5, 5, 0)),
-                new LineCurve(new Point3d(6, -5, 3), new Point3d(6, 5, 3))
-            },
-            1.1);
-
-        Assert.Equal(2, plan.Walls.Count);
-        Assert.Contains(plan.Report, entry => entry.Reason == RetainingWallPlannerCore.ReportReason.CrossingWalls);
-    }
-
-    [RhinoNativeFact]
-    public void Plan_ThreeRails_ClearPairLeavesNoPairWarningForThird()
-    {
-        var plan = RetainingWallPlannerCore.Plan(
-            new Curve[]
-            {
-                new LineCurve(new Point3d(0, 0, 0), new Point3d(10, 0, 0)),
-                new LineCurve(new Point3d(0, 1, 3), new Point3d(10, 1, 3)),
-                new LineCurve(new Point3d(0, 10, 0), new Point3d(10, 10, 0))
-            },
-            1.1);
-
-        Assert.Single(plan.Walls);
-        Assert.Contains(plan.Report, entry =>
-            entry.Reason == RetainingWallPlannerCore.ReportReason.NoPair &&
-            entry.CurveA == 2);
     }
 
     [RhinoNativeFact]

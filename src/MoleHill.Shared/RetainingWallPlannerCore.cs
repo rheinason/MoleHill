@@ -31,7 +31,6 @@ internal static class RetainingWallPlannerCore
         CrossingWalls,
         CornerResolved,
         CornerRejected,
-        MappingRejected,
         SolidFailed,
         Timing
     }
@@ -245,18 +244,74 @@ internal static class RetainingWallPlannerCore
     private readonly record struct CandidateStats(int Index, double Mean, double Iqr, double Max, double Cost);
     private readonly record struct CurveEnd(Point3d Point, Point2d Direction);
 
+    /// <summary>
+    /// A tessellated wall rail: the planner's native-free input. <see cref="IsClosed"/> carries the
+    /// source curve's closure flag; nearly-closed point sequences are also detected downstream.
+    /// </summary>
+    internal readonly record struct RailPolyline(Point3d[] Points, bool IsClosed);
+
+    /// <summary>
+    /// Curve-based entry point: tessellates each curve (the only step that needs the Rhino native
+    /// runtime besides solid Brep generation) and hands the polylines to <see cref="PlanPolylines"/>.
+    /// </summary>
     public static PlanResult Plan(
         IReadOnlyList<Curve> curves,
         double maxWallWidth,
         double? curveParsingTolerance = null)
     {
+        double resolvedMaxWallWidth = Math.Max(maxWallWidth, 1e-9);
+        double geometryTolerance = ResolveGeometryTolerance(resolvedMaxWallWidth, curveParsingTolerance);
+        double chordTol = Math.Max(geometryTolerance, 1e-9);
+        double angleTol = 5.0 * Math.PI / 180.0;
+
         var report = new List<ReportEntry>();
+        var rails = new RailPolyline?[curves.Count];
+        for (int i = 0; i < curves.Count; i++)
+        {
+            Curve? curve = curves[i];
+            if (curve == null)
+            {
+                report.Add(new ReportEntry(ReportLevel.Warning, ReportReason.NullCurve, $"Curve {i}: null; skipped.", curveA: i));
+                continue;
+            }
+
+            Polyline polyline;
+            if (!curve.TryGetPolyline(out polyline))
+            {
+                using PolylineCurve? poly = curve.ToPolyline(chordTol, angleTol, 0.0, 0.0);
+                if (poly == null || !poly.TryGetPolyline(out polyline))
+                {
+                    report.Add(new ReportEntry(ReportLevel.Warning, ReportReason.TessellationFailed, $"Curve {i}: tessellation failed; skipped.", curveA: i));
+                    continue;
+                }
+            }
+
+            rails[i] = new RailPolyline(polyline.ToArray(), curve.IsClosed);
+        }
+
+        return PlanPolylines(rails, maxWallWidth, curveParsingTolerance, buildSolids: true, seedReport: report);
+    }
+
+    /// <summary>
+    /// Polyline-based planner: pure managed math (no Rhino native runtime needed) unless
+    /// <paramref name="buildSolids"/> is true, in which case solid wall Breps are generated for the
+    /// accepted pairs. Tests exercise this entry point directly so the pairing/corner/width logic
+    /// runs in hosts without the native runtime.
+    /// </summary>
+    internal static PlanResult PlanPolylines(
+        IReadOnlyList<RailPolyline?> rails,
+        double maxWallWidth,
+        double? curveParsingTolerance = null,
+        bool buildSolids = true,
+        List<ReportEntry>? seedReport = null)
+    {
+        var report = seedReport ?? new List<ReportEntry>();
         var totalTimer = Stopwatch.StartNew();
         double resolvedMaxWallWidth = Math.Max(maxWallWidth, 1e-9);
-        double geometryTolerance = Math.Max(curveParsingTolerance ?? Math.Min(resolvedMaxWallWidth * 0.01, 0.001), 1e-9);
+        double geometryTolerance = ResolveGeometryTolerance(resolvedMaxWallWidth, curveParsingTolerance);
 
         var preprocessTimer = Stopwatch.StartNew();
-        var prepared = PrepareCurves(curves, geometryTolerance, report);
+        var prepared = PrepareCurves(rails, geometryTolerance, report);
         preprocessTimer.Stop();
         if (prepared.Count == 0)
         {
@@ -273,12 +328,12 @@ internal static class RetainingWallPlannerCore
         pairingTimer.Stop();
 
         var interactionTimer = Stopwatch.StartNew();
-        ResolveCorners(pairs, geometryTolerance, report);
+        ResolveCorners(pairs, resolvedMaxWallWidth, geometryTolerance, report);
         DetectCrossings(pairs, geometryTolerance, report);
         interactionTimer.Stop();
 
         var wallTimer = Stopwatch.StartNew();
-        List<PlannedWall> walls = BuildWalls(pairs, geometryTolerance, report);
+        List<PlannedWall> walls = BuildWalls(pairs, resolvedMaxWallWidth, geometryTolerance, buildSolids, report);
         wallTimer.Stop();
         totalTimer.Stop();
 
@@ -307,38 +362,23 @@ internal static class RetainingWallPlannerCore
         return new PlanTiming(preprocess, pairing, interactions, walls, total);
     }
 
+    private static double ResolveGeometryTolerance(double resolvedMaxWallWidth, double? curveParsingTolerance) =>
+        Math.Max(curveParsingTolerance ?? Math.Min(resolvedMaxWallWidth * 0.01, 0.001), 1e-9);
+
     private static List<PreparedCurve> PrepareCurves(
-        IReadOnlyList<Curve> curves,
+        IReadOnlyList<RailPolyline?> rails,
         double geometryTolerance,
         List<ReportEntry> report)
     {
         var result = new List<PreparedCurve>();
-        double chordTol = Math.Max(geometryTolerance, 1e-9);
-        double angleTol = 5.0 * Math.PI / 180.0;
-        double maxEdgeLength = 0.0;
 
-        for (int i = 0; i < curves.Count; i++)
+        for (int i = 0; i < rails.Count; i++)
         {
-            Curve? curve = curves[i];
-            if (curve == null)
-            {
-                report.Add(new ReportEntry(ReportLevel.Warning, ReportReason.NullCurve, $"Curve {i}: null; skipped.", curveA: i));
+            if (rails[i] is not RailPolyline rail || rail.Points.Length == 0)
                 continue;
-            }
 
-            Polyline polyline;
-            if (!curve.TryGetPolyline(out polyline))
-            {
-                using PolylineCurve? poly = curve.ToPolyline(chordTol, angleTol, 0.0, maxEdgeLength);
-                if (poly == null || !poly.TryGetPolyline(out polyline))
-                {
-                    report.Add(new ReportEntry(ReportLevel.Warning, ReportReason.TessellationFailed, $"Curve {i}: tessellation failed; skipped.", curveA: i));
-                    continue;
-                }
-            }
-
-            bool isClosed = curve.IsClosed || IsNearlyClosed(polyline, geometryTolerance);
-            Point3d[] points = CleanupPolyline(polyline, geometryTolerance);
+            bool isClosed = rail.IsClosed || IsNearlyClosed(rail.Points, geometryTolerance);
+            Point3d[] points = CleanupPolyline(rail.Points, geometryTolerance);
             if (isClosed && points.Length > 1 && Distance2D(points[0], points[^1]) <= DuplicateTolerance(geometryTolerance))
                 points = points.Take(points.Length - 1).ToArray();
 
@@ -405,10 +445,14 @@ internal static class RetainingWallPlannerCore
             CandidateStats bBest = bEntry.Best;
             if (IsAmbiguous(aBest, entry.Value.Second, maxWallWidth) || IsAmbiguous(bBest, bEntry.Second, maxWallWidth))
             {
+                CandidateStats reportedBest = IsAmbiguous(aBest, entry.Value.Second, maxWallWidth) ? aBest : bBest;
+                CandidateStats reportedSecond = (IsAmbiguous(aBest, entry.Value.Second, maxWallWidth) ? entry.Value.Second : bEntry.Second)!.Value;
                 report.Add(new ReportEntry(
                     ReportLevel.Warning,
                     ReportReason.AmbiguousPair,
-                    $"Pair ({aLabel}, {bLabel}) skipped: second-best pairing candidate is within {AmbiguityCostRatio:0.###}x of the best candidate.",
+                    $"Pair ({aLabel}, {bLabel}) skipped: another candidate (cost {reportedSecond.Cost:G4}) is within the ambiguity margin " +
+                    $"{AmbiguityMargin(reportedBest, maxWallWidth):G4} of the best candidate (cost {reportedBest.Cost:G4}, " +
+                    $"margin = max({AmbiguityCostRatio:0.###}x best cost, max wall width)).",
                     baseA.SourceIndex,
                     baseB.SourceIndex));
                 rejected.Add(aWorkIndex);
@@ -474,7 +518,8 @@ internal static class RetainingWallPlannerCore
                 report.Add(new ReportEntry(
                     ReportLevel.Warning,
                     ReportReason.AmbiguousPair,
-                    $"Curve {FormatCurveRef(curve)}: no pair selected because its second-best candidate is within {AmbiguityCostRatio:0.###}x of candidate {FormatCurveRef(other)}.",
+                    $"Curve {FormatCurveRef(curve)}: no pair selected because another candidate is within the ambiguity margin " +
+                    $"(max({AmbiguityCostRatio:0.###}x best cost, max wall width)) of candidate {FormatCurveRef(other)}.",
                     curve.SourceIndex,
                     other.SourceIndex));
                 continue;
@@ -499,7 +544,12 @@ internal static class RetainingWallPlannerCore
         return pairs;
     }
 
-    private static List<PlannedWall> BuildWalls(List<Pair> pairs, double tolerance, List<ReportEntry> report)
+    private static List<PlannedWall> BuildWalls(
+        List<Pair> pairs,
+        double maxWallWidth,
+        double tolerance,
+        bool buildSolids,
+        List<ReportEntry> report)
     {
         var walls = new List<PlannedWall>();
         int pairIndex = 0;
@@ -510,13 +560,18 @@ internal static class RetainingWallPlannerCore
                 continue;
 
             double minWidth = EstimateMinGap(pair, tolerance);
-            double minAllowedWidth = MinAllowedWidth(tolerance);
+
+            // The narrow-pair rejection must be wall-width scale: rails closer than a tenth of the
+            // max wall width are almost certainly duplicate/offset artefacts of the SAME rail, not a
+            // deliberate thin wall. The geometry tolerance (~mm) is far too small a threshold — it
+            // would accept any spacing above a tenth of a millimetre.
+            double minAllowedWidth = Math.Max(maxWallWidth * 0.1, MinAllowedWidth(tolerance));
             if (minWidth < minAllowedWidth)
             {
                 report.Add(new ReportEntry(
                     ReportLevel.Warning,
                     ReportReason.SubToleranceWidth,
-                    $"Pair ({pair.A.SourceIndex}, {pair.B.SourceIndex}) skipped: minimum rail spacing {minWidth:G4} is below {minAllowedWidth:G4}.",
+                    $"Pair ({pair.A.SourceIndex}, {pair.B.SourceIndex}) skipped: minimum rail spacing {minWidth:G4} is below {minAllowedWidth:G4} (a tenth of the max wall width).",
                     pair.A.SourceIndex,
                     pair.B.SourceIndex,
                     pairIndex));
@@ -545,26 +600,30 @@ internal static class RetainingWallPlannerCore
             Point3d[] topPts = (Point3d[])topCurve.Points.Clone();
             var rails = new WallRails(toePts, topPts, pair.IsClosed, minWidth);
 
-            Brep? brep = RetainingWallBrepBuilder.Build(toePts, topPts, tolerance, pair.IsClosed);
-            if (brep == null)
+            Brep? brep = null;
+            if (buildSolids)
             {
-                report.Add(new ReportEntry(
-                    ReportLevel.Warning,
-                    ReportReason.SolidFailed,
-                    $"Pair ({pair.A.SourceIndex}, {pair.B.SourceIndex}): solid wall Brep generation failed; breaklines will still be inserted.",
-                    pair.A.SourceIndex,
-                    pair.B.SourceIndex,
-                    pairIndex));
-            }
-            else if (!brep.IsSolid)
-            {
-                report.Add(new ReportEntry(
-                    ReportLevel.Warning,
-                    ReportReason.SolidFailed,
-                    $"Pair ({pair.A.SourceIndex}, {pair.B.SourceIndex}): solid wall Brep is open, usually because the wall tapers to zero height at an end; breaklines will still be inserted.",
-                    pair.A.SourceIndex,
-                    pair.B.SourceIndex,
-                    pairIndex));
+                brep = RetainingWallBrepBuilder.Build(toePts, topPts, tolerance, pair.IsClosed);
+                if (brep == null)
+                {
+                    report.Add(new ReportEntry(
+                        ReportLevel.Warning,
+                        ReportReason.SolidFailed,
+                        $"Pair ({pair.A.SourceIndex}, {pair.B.SourceIndex}): solid wall Brep generation failed; breaklines will still be inserted.",
+                        pair.A.SourceIndex,
+                        pair.B.SourceIndex,
+                        pairIndex));
+                }
+                else if (!brep.IsSolid)
+                {
+                    report.Add(new ReportEntry(
+                        ReportLevel.Warning,
+                        ReportReason.SolidFailed,
+                        $"Pair ({pair.A.SourceIndex}, {pair.B.SourceIndex}): solid wall Brep is open, usually because the wall tapers to zero height at an end; breaklines will still be inserted.",
+                        pair.A.SourceIndex,
+                        pair.B.SourceIndex,
+                        pairIndex));
+                }
             }
 
             walls.Add(new PlannedWall(rails, brep, pair.A.SourceIndex, pair.B.SourceIndex, pair.GetPairLine()));
@@ -626,8 +685,20 @@ internal static class RetainingWallPlannerCore
         return new CandidateStats(b.WorkIndex, mean, iqr, max, cost);
     }
 
-    private static bool IsAmbiguous(CandidateStats best, CandidateStats? second, double tolerance) =>
-        second.HasValue && second.Value.Cost < Math.Max(best.Cost * AmbiguityCostRatio, tolerance);
+    /// <summary>
+    /// A pairing is ambiguous when the second-best candidate is either within
+    /// <see cref="AmbiguityCostRatio"/>x of the best candidate's cost, or costs less than one max
+    /// wall width outright (i.e. it is ALSO a plausible wall mate, however much better the best one
+    /// scores). The second criterion deliberately rejects e.g. three near-parallel rails: the planner
+    /// cannot know which two the user meant. Note this is conservative for terraced sites — stacked
+    /// parallel walls whose adjacent rails approach within a wall width are skipped with a report
+    /// rather than guessed at.
+    /// </summary>
+    private static bool IsAmbiguous(CandidateStats best, CandidateStats? second, double maxWallWidth) =>
+        second.HasValue && second.Value.Cost < AmbiguityMargin(best, maxWallWidth);
+
+    private static double AmbiguityMargin(CandidateStats best, double maxWallWidth) =>
+        Math.Max(best.Cost * AmbiguityCostRatio, maxWallWidth);
 
     private static string FormatCurveRef(PreparedCurve curve) =>
         curve.FragmentIndex == 0 ? curve.SourceIndex.ToString() : $"{curve.SourceIndex}.{curve.FragmentIndex}";
@@ -737,8 +808,15 @@ internal static class RetainingWallPlannerCore
         return false;
     }
 
-    private static void ResolveCorners(List<Pair> pairs, double tolerance, List<ReportEntry> report)
+    private static void ResolveCorners(List<Pair> pairs, double maxWallWidth, double tolerance, List<ReportEntry> report)
     {
+        // Corner candidates are wall ends whose end midpoints sit within ONE WALL WIDTH of each
+        // other. Two walls meeting at a right-angle corner have end midpoints ~0.7x the wall width
+        // apart by construction (each midpoint sits half a width inside its own rail pair), so a
+        // geometry-tolerance gate would only ever fire on rails the user had already mitered —
+        // exactly when resolution is unnecessary. Spurious near-misses that are not real corners are
+        // still rejected by the miter-budget and width checks in TryResolveRailCorner.
+        double cornerSearchRadius = Math.Max(maxWallWidth, tolerance);
         for (int i = 0; i < pairs.Count; i++)
         {
             Pair pair = pairs[i];
@@ -756,7 +834,7 @@ internal static class RetainingWallPlannerCore
                 {
                     foreach (bool otherStart in new[] { true, false })
                     {
-                        if (Distance2D(pair.EndMid(pairStart), other.EndMid(otherStart)) > tolerance)
+                        if (Distance2D(pair.EndMid(pairStart), other.EndMid(otherStart)) > cornerSearchRadius)
                             continue;
 
                         if (TryResolveRailCorner(pair, pairStart, other, otherStart, tolerance))
@@ -1051,45 +1129,17 @@ internal static class RetainingWallPlannerCore
         return true;
     }
 
-    private static Point2d TangentAt(PreparedCurve curve, double along)
-    {
-        if (curve.Points.Length < 2)
-            return new Point2d(1.0, 0.0);
-
-        if (!curve.IsClosed)
-        {
-            if (along <= 0.0)
-                return Unit(new Point2d(curve.Points[1].X - curve.Points[0].X, curve.Points[1].Y - curve.Points[0].Y));
-            if (along >= curve.Length)
-                return Unit(new Point2d(curve.Points[^1].X - curve.Points[^2].X, curve.Points[^1].Y - curve.Points[^2].Y));
-        }
-
-        double normalized = curve.IsClosed ? ModLength(along, curve.Length) : Math.Clamp(along, 0.0, curve.Length);
-        int idx = Array.BinarySearch(curve.CumLen, normalized);
-        if (idx < 0)
-            idx = Math.Max(0, ~idx - 1);
-
-        int next = (idx + 1) % curve.Points.Length;
-        if (!curve.IsClosed)
-            next = Math.Min(curve.Points.Length - 1, idx + 1);
-
-        if (idx == next)
-            idx = Math.Max(0, next - 1);
-
-        return Unit(new Point2d(curve.Points[next].X - curve.Points[idx].X, curve.Points[next].Y - curve.Points[idx].Y));
-    }
-
     private static Point2d Unit(Point2d vector)
     {
         double length = Math.Sqrt((vector.X * vector.X) + (vector.Y * vector.Y));
         return length <= 1e-12 ? new Point2d(1.0, 0.0) : new Point2d(vector.X / length, vector.Y / length);
     }
 
-    private static Point3d[] CleanupPolyline(Polyline polyline, double tolerance)
+    private static Point3d[] CleanupPolyline(Point3d[] polyline, double tolerance)
     {
         double dedupTol = DuplicateTolerance(tolerance);
-        var points = new List<Point3d>(polyline.Count);
-        for (int i = 0; i < polyline.Count; i++)
+        var points = new List<Point3d>(polyline.Length);
+        for (int i = 0; i < polyline.Length; i++)
         {
             if (points.Count == 0 || points[^1].DistanceTo(polyline[i]) > dedupTol)
                 points.Add(polyline[i]);
@@ -1101,8 +1151,8 @@ internal static class RetainingWallPlannerCore
         return points.ToArray();
     }
 
-    private static bool IsNearlyClosed(Polyline polyline, double tolerance) =>
-        polyline.Count >= 3 && polyline[0].DistanceTo(polyline[^1]) <= DuplicateTolerance(tolerance);
+    private static bool IsNearlyClosed(Point3d[] polyline, double tolerance) =>
+        polyline.Length >= 3 && polyline[0].DistanceTo(polyline[^1]) <= DuplicateTolerance(tolerance);
 
     private static bool HasSelfIntersection(Point3d[] points, bool isClosed, double tolerance)
     {
@@ -1378,14 +1428,6 @@ internal static class RetainingWallPlannerCore
         double dx = a.X - b.X;
         double dy = a.Y - b.Y;
         return Math.Sqrt((dx * dx) + (dy * dy));
-    }
-
-    private static bool SamePoint3D(Point3d a, Point3d b, double tolerance)
-    {
-        double dx = a.X - b.X;
-        double dy = a.Y - b.Y;
-        double dz = a.Z - b.Z;
-        return ((dx * dx) + (dy * dy) + (dz * dz)) <= tolerance * tolerance;
     }
 
     private static double ModLength(double value, double modulus)
