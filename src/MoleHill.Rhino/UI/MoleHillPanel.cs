@@ -16,7 +16,7 @@ using RhinoGetResult = Rhino.Input.GetResult;
 namespace MoleHill.Rhino.UI;
 
 [System.Runtime.InteropServices.Guid("E8A65B83-74A6-4325-B66D-D7005A4A8257")]
-public sealed class MoleHillPanel : Panel
+public sealed partial class MoleHillPanel : Panel
 {
     private static readonly (string Label, string Kind)[] ModifierKinds =
     {
@@ -2417,12 +2417,7 @@ public sealed class MoleHillPanel : Panel
     private Panel CreateAnalysisCard(TerrainDefinition terrain, AnalysisDefinition analysis, bool isActive, bool isAnnotationCard)
     {
         bool collapsed = _collapsedAnalyses.Contains(analysis.Id);
-        var collapseLabel = new Label
-        {
-            Text = collapsed ? "▶" : "▼",
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = 14
-        };
+        var collapseLabel = CreateCollapseChevron(collapsed);
 
         var nameBox = new TextBox { Text = analysis.Label };
         StyleTextBox(nameBox);
@@ -2452,17 +2447,7 @@ public sealed class MoleHillPanel : Panel
                 : "Disabled";
         var badge = CreateCardStatusLabel(statusText, isActive ? UiTheme.ActiveBadge : UiTheme.MutedText);
 
-        var handle = CreateDragHandle();
-        ApplyHelp(handle, "Drag to reorder this analysis.");
-        handle.MouseDown += (_, e) =>
-        {
-            if (e.Buttons != MouseButtons.Primary)
-                return;
-
-            var data = new DataObject();
-            data.SetString(analysis.Id.ToString(), "analysis-drag");
-            handle.DoDragDrop(data, DragEffects.Move);
-        };
+        var handle = CreateReorderHandle(analysis.Id, "analysis-drag", "Drag to reorder this analysis.");
 
         var accent = AnalysisTypeColor(kind);
         var iconPlate = CreateIconPlate(accent, new Label
@@ -2471,32 +2456,12 @@ public sealed class MoleHillPanel : Panel
             VerticalAlignment = VerticalAlignment.Center
         });
 
-        Control titleBlock = collapsed
-            ? new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 1,
-                Items =
-                {
-                    new Label
-                    {
-                        Text = analysis.Label,
-                        Font = new Font(SystemFont.Bold),
-                        VerticalAlignment = VerticalAlignment.Center
-                    },
-                    CreateCardMetaLabel(GetAnalysisCollapsedSummary(terrain, analysis))
-                }
-            }
-            : new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 2,
-                Items =
-                {
-                    nameBox,
-                    CreateCardMetaLabel(GetAnalysisSubtitle(analysis, isActive))
-                }
-            };
+        Control titleBlock = CreateCardTitleBlock(
+            collapsed,
+            analysis.Label,
+            GetAnalysisCollapsedSummary(terrain, analysis),
+            nameBox,
+            GetAnalysisSubtitle(analysis, isActive));
 
         var copyButton = MakeMiniButton("Copy", (_, _) =>
         {
@@ -3402,12 +3367,7 @@ public sealed class MoleHillPanel : Panel
     private Panel CreateModifierCard(TerrainDefinition terrain, ModifierDefinition modifier)
     {
         bool collapsed = _collapsedModifiers.Contains(modifier.Id);
-        var collapseLabel = new Label
-        {
-            Text = collapsed ? "▶" : "▼",
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = 14
-        };
+        var collapseLabel = CreateCollapseChevron(collapsed);
 
         var enabledCheck = new CheckBox { Checked = modifier.IsEnabled };
         enabledCheck.CheckedChanged += (_, _) =>
@@ -3427,23 +3387,9 @@ public sealed class MoleHillPanel : Panel
         BindCommittedText(nameBox, () => modifier.Label, text =>
             MutateModifier(capturedTerrainId, capturedModifierId, item => item.Label = text, scheduleRebuild: false));
 
-        var handle = CreateDragHandle();
-        if (isPinnedBaseTriangulate)
-        {
-            handle.Enabled = false;
-            ApplyHelp(handle, "The base triangulate modifier stays at the bottom of the stack.");
-        }
-        else
-        {
-            ApplyHelp(handle, "Drag to reorder this modifier.");
-            handle.MouseDown += (_, e) =>
-            {
-                if (e.Buttons != MouseButtons.Primary) return;
-                var data = new DataObject();
-                data.SetString(capturedModifierId.ToString(), "modifier-drag");
-                handle.DoDragDrop(data, DragEffects.Move);
-            };
-        }
+        var handle = isPinnedBaseTriangulate
+            ? CreateDisabledReorderHandle("The base triangulate modifier stays at the bottom of the stack.")
+            : CreateReorderHandle(capturedModifierId, "modifier-drag", "Drag to reorder this modifier.");
 
         var iconImage = PanelIcons.Load(GetModifierIconName(kind));
         Control iconControl = iconImage != null
@@ -3452,38 +3398,12 @@ public sealed class MoleHillPanel : Panel
         var accent = ModifierTypeColor(kind);
         var iconPlate = CreateIconPlate(accent, iconControl);
 
-        Control titleBlock;
-        if (collapsed)
-        {
-            titleBlock = new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 1,
-                Items =
-                {
-                    new Label
-                    {
-                        Text = modifier.Label,
-                        Font = new Font(SystemFont.Bold),
-                        VerticalAlignment = VerticalAlignment.Center
-                    },
-                    CreateCardMetaLabel(GetCollapsedSummary(modifier))
-                }
-            };
-        }
-        else
-        {
-            titleBlock = new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 2,
-                Items =
-                {
-                    nameBox,
-                    CreateCardMetaLabel(GetModifierSubtitle(modifier, isPinnedBaseTriangulate))
-                }
-            };
-        }
+        Control titleBlock = CreateCardTitleBlock(
+            collapsed,
+            modifier.Label,
+            GetCollapsedSummary(modifier),
+            nameBox,
+            GetModifierSubtitle(modifier, isPinnedBaseTriangulate));
 
         Control[] statusControls = isPinnedBaseTriangulate
             ? new Control[]
@@ -3514,32 +3434,12 @@ public sealed class MoleHillPanel : Panel
             actionControls = new Control[] { copyButton, deleteButton };
         }
 
-        void ToggleCollapsed(bool ctrlHeld)
-        {
-            bool nowCollapsed = !_collapsedModifiers.Contains(capturedModifierId);
-            if (ctrlHeld)
-            {
-                var doc2 = RhinoDoc.ActiveDoc;
-                var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
-                if (t != null)
-                {
-                    if (nowCollapsed)
-                        foreach (var m in t.Modifiers) _collapsedModifiers.Add(m.Id);
-                    else
-                        _collapsedModifiers.Clear();
-                }
-            }
-            else
-            {
-                if (nowCollapsed)
-                    _collapsedModifiers.Add(capturedModifierId);
-                else
-                    _collapsedModifiers.Remove(capturedModifierId);
-            }
-
-            var doc = RhinoDoc.ActiveDoc;
-            RebuildModifierLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
-        }
+        void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
+            _collapsedModifiers,
+            capturedModifierId,
+            ctrlHeld,
+            t => t.Modifiers.Select(m => m.Id),
+            RebuildModifierLayout);
 
         return CreateSharedCardShell(new SharedCardShellOptions
         {
@@ -3793,12 +3693,7 @@ public sealed class MoleHillPanel : Panel
     private Panel CreateZoneCard(TerrainDefinition terrain, CollageZoneDefinition zone)
     {
         bool collapsed = _collapsedZones.Contains(zone.ZoneId);
-        var collapseLabel = new Label
-        {
-            Text = collapsed ? "\u25B6" : "\u25BC",
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = 14
-        };
+        var collapseLabel = CreateCollapseChevron(collapsed);
 
         var nameBox = new TextBox { Text = zone.Name };
         StyleTextBox(nameBox);
@@ -3814,17 +3709,7 @@ public sealed class MoleHillPanel : Panel
         var capturedZoneId = zone.ZoneId;
         var capturedTerrainId = terrain.TerrainId;
 
-        var handle = CreateDragHandle();
-        ApplyHelp(handle, "Drag to reorder this zone. Later zones win when priorities tie.");
-        handle.MouseDown += (_, e) =>
-        {
-            if (e.Buttons != MouseButtons.Primary)
-                return;
-
-            var data = new DataObject();
-            data.SetString(capturedZoneId.ToString(), "zone-drag");
-            handle.DoDragDrop(data, DragEffects.Move);
-        };
+        var handle = CreateReorderHandle(capturedZoneId, "zone-drag", "Drag to reorder this zone. Later zones win when priorities tie.");
 
         var accent = UiTheme.ZoneStripColor;
         var iconPlate = CreateIconPlate(accent, new Label
@@ -3833,64 +3718,24 @@ public sealed class MoleHillPanel : Panel
             VerticalAlignment = VerticalAlignment.Center
         });
 
-        Control titleBlock = collapsed
-            ? new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 1,
-                Items =
-                {
-                    new Label
-                    {
-                        Text = zone.Name,
-                        Font = new Font(SystemFont.Bold),
-                        VerticalAlignment = VerticalAlignment.Center
-                    },
-                    CreateCardMetaLabel(GetZoneCollapsedSummary(zone))
-                }
-            }
-            : new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 2,
-                Items =
-                {
-                    nameBox,
-                    CreateCardMetaLabel(zone.UseInputElevationForPriority
-                        ? "Higher inputs win overlaps"
-                        : "Later zones win ties")
-                }
-            };
+        Control titleBlock = CreateCardTitleBlock(
+            collapsed,
+            zone.Name,
+            GetZoneCollapsedSummary(zone),
+            nameBox,
+            zone.UseInputElevationForPriority
+                ? "Higher inputs win overlaps"
+                : "Later zones win ties");
 
         var badge = CreateCardStatusLabel(zone.IsEnabled ? "Enabled" : "Disabled");
 
         var deleteButton = MakeMiniButton("Del", (_, _) => RemoveZone(capturedTerrainId, capturedZoneId), "Delete this zone.", width: 38);
-        void ToggleCollapsed(bool ctrlHeld)
-        {
-            bool nowCollapsed = !_collapsedZones.Contains(capturedZoneId);
-            if (ctrlHeld)
-            {
-                var doc2 = RhinoDoc.ActiveDoc;
-                var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
-                if (t != null)
-                {
-                    if (nowCollapsed)
-                        foreach (var item in t.Zones) _collapsedZones.Add(item.ZoneId);
-                    else
-                        _collapsedZones.Clear();
-                }
-            }
-            else
-            {
-                if (nowCollapsed)
-                    _collapsedZones.Add(capturedZoneId);
-                else
-                    _collapsedZones.Remove(capturedZoneId);
-            }
-
-            var doc = RhinoDoc.ActiveDoc;
-            RebuildZonesLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
-        }
+        void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
+            _collapsedZones,
+            capturedZoneId,
+            ctrlHeld,
+            t => t.Zones.Select(item => item.ZoneId),
+            RebuildZonesLayout);
 
         return CreateSharedCardShell(new SharedCardShellOptions
         {
@@ -4025,12 +3870,7 @@ public sealed class MoleHillPanel : Panel
     private Panel CreateObjectCard(TerrainDefinition terrain, TerrainObjectDefinition definition)
     {
         bool collapsed = _collapsedObjects.Contains(definition.Id);
-        var collapseLabel = new Label
-        {
-            Text = collapsed ? "\u25B6" : "\u25BC",
-            VerticalAlignment = VerticalAlignment.Center,
-            Width = 14
-        };
+        var collapseLabel = CreateCollapseChevron(collapsed);
 
         var enabledCheck = new CheckBox { Checked = definition.IsEnabled };
         enabledCheck.CheckedChanged += (_, _) =>
@@ -4047,10 +3887,7 @@ public sealed class MoleHillPanel : Panel
         BindCommittedText(nameBox, () => definition.Name, text =>
             MutateObjectDefinition(capturedTerrainId, capturedDefinitionId, item => item.Name = text, scheduleRebuild: false));
 
-        var handle = CreateDragHandle();
-        handle.Enabled = false;
-        handle.Cursor = Cursors.Default;
-        ApplyHelp(handle, "Object definition cards use the modifier card layout. Reordering is not enabled yet.");
+        var handle = CreateDisabledReorderHandle("Object definition cards use the modifier card layout. Reordering is not enabled yet.");
 
         var accent = TerrainObjectTypeColor(kind);
         var iconPlate = CreateIconPlate(accent, new Label
@@ -4059,32 +3896,12 @@ public sealed class MoleHillPanel : Panel
             VerticalAlignment = VerticalAlignment.Center
         });
 
-        Control titleBlock = collapsed
-            ? new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 1,
-                Items =
-                {
-                    new Label
-                    {
-                        Text = definition.Name,
-                        Font = new Font(SystemFont.Bold),
-                        VerticalAlignment = VerticalAlignment.Center
-                    },
-                    CreateCardMetaLabel(GetTerrainObjectCollapsedSummary(definition))
-                }
-            }
-            : new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 2,
-                Items =
-                {
-                    nameBox,
-                    CreateCardMetaLabel(GetTerrainObjectSubtitle(definition))
-                }
-            };
+        Control titleBlock = CreateCardTitleBlock(
+            collapsed,
+            definition.Name,
+            GetTerrainObjectCollapsedSummary(definition),
+            nameBox,
+            GetTerrainObjectSubtitle(definition));
 
         var copyButton = MakeMiniButton("Copy", (_, _) =>
         {
@@ -4099,32 +3916,12 @@ public sealed class MoleHillPanel : Panel
                 _controller.RemoveObjectDefinition(doc, capturedTerrainId, capturedDefinitionId);
         }, "Delete this object definition and restore any currently placed objects.", width: 38);
 
-        void ToggleCollapsed(bool ctrlHeld)
-        {
-            bool nowCollapsed = !_collapsedObjects.Contains(capturedDefinitionId);
-            if (ctrlHeld)
-            {
-                var doc2 = RhinoDoc.ActiveDoc;
-                var t = doc2 == null ? null : _controller.GetSelectedTerrain(doc2);
-                if (t != null)
-                {
-                    if (nowCollapsed)
-                        foreach (var item in t.Objects) _collapsedObjects.Add(item.Id);
-                    else
-                        _collapsedObjects.Clear();
-                }
-            }
-            else
-            {
-                if (nowCollapsed)
-                    _collapsedObjects.Add(capturedDefinitionId);
-                else
-                    _collapsedObjects.Remove(capturedDefinitionId);
-            }
-
-            var doc = RhinoDoc.ActiveDoc;
-            RebuildObjectsLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
-        }
+        void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
+            _collapsedObjects,
+            capturedDefinitionId,
+            ctrlHeld,
+            t => t.Objects.Select(item => item.Id),
+            RebuildObjectsLayout);
 
         return CreateSharedCardShell(new SharedCardShellOptions
         {
