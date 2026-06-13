@@ -264,7 +264,7 @@ public static partial class PathGrader
             }
 
             GradedRegionAssembler.SubMesh? fill = BuildCorridorHoleFill(
-                boundaryXyz, boundaryLoop.Length, corridors[corridorIndex], paths, hardConstraints, terrain, tolerance);
+                boundaryXyz, boundaryLoop, boundaryLoop.Length, corridors[corridorIndex], paths, hardConstraints, terrain, tolerance);
             if (fill is null)
             {
                 errorMessage = "Grade Path hole fill failed; deferring to constraint-first path.";
@@ -428,6 +428,7 @@ public static partial class PathGrader
     /// </summary>
     private static GradedRegionAssembler.SubMesh? BuildCorridorHoleFill(
         double[] boundaryXyz,
+        int[] boundaryLoop,
         int boundaryCount,
         PathCorridor corridor,
         PathDefinition[] paths,
@@ -457,11 +458,16 @@ public static partial class PathGrader
         }
 
         // Conformed boundary first (indices [0, boundaryPointCount) are perimeter vertices to pin).
+        // Record which fill input index each terrain hole-boundary vertex mapped to, so the weld can
+        // stitch by shared identity and collapse any terrain pair the dedup merged (see BuildHoleFill).
+        var loopToInput = new int[boundaryCount];
         int firstB = AddPoint(boundaryXyz[0], boundaryXyz[1], boundaryXyz[2]);
+        loopToInput[0] = firstB;
         int prevB = firstB;
         for (int i = 1; i < boundaryCount; i++)
         {
             int cur = AddPoint(boundaryXyz[i * 3], boundaryXyz[i * 3 + 1], boundaryXyz[i * 3 + 2]);
+            loopToInput[i] = cur;
             if (cur != prevB)
                 segments.Add((prevB, cur));
             prevB = cur;
@@ -471,6 +477,23 @@ public static partial class PathGrader
             segments.Add((prevB, firstB));
 
         int boundaryPointCount = xyList.Count / 2;
+
+        var inputToTerrain = new int[boundaryPointCount];
+        for (int i = 0; i < boundaryPointCount; i++)
+            inputToTerrain[i] = -1;
+
+        var terrainMerges = new List<(int From, int To)>();
+        for (int k = 0; k < boundaryCount; k++)
+        {
+            int input = loopToInput[k];
+            if (input < 0 || input >= boundaryPointCount)
+                continue;
+
+            if (inputToTerrain[input] < 0)
+                inputToTerrain[input] = boundaryLoop[k];
+            else if (inputToTerrain[input] != boundaryLoop[k])
+                terrainMerges.Add((boundaryLoop[k], inputToTerrain[input]));
+        }
 
         int n = corridor.N;
         // Road edges (left + right) as open constraints + end-cap edges → crisp road top boundary.
@@ -551,12 +574,25 @@ public static partial class PathGrader
                 graded[i * 3 + 2] = pinZ;
         }
 
+        // Identity weld map: a fill vertex sourced from a boundary input point reproduces terrain
+        // vertex inputToTerrain[sourceId]; everything else is the fill's own interior (-1).
+        var boundaryTerrainIndex = new int[vc];
+        for (int i = 0; i < vc; i++)
+        {
+            int sourceId = extracted.SourceIds[i];
+            boundaryTerrainIndex[i] = sourceId >= 0 && sourceId < boundaryPointCount
+                ? inputToTerrain[sourceId]
+                : -1;
+        }
+
         return new GradedRegionAssembler.SubMesh
         {
             Vertices = graded,
             VertexCount = vc,
             Faces = extracted.Faces,
-            FaceCount = extracted.FaceCount
+            FaceCount = extracted.FaceCount,
+            BoundaryTerrainIndex = boundaryTerrainIndex,
+            TerrainMerges = terrainMerges.Count > 0 ? terrainMerges.ToArray() : null
         };
     }
 }
