@@ -22,6 +22,24 @@ internal static class GradedRegionAssembler
         public required int[] Faces { get; init; }
 
         public required int FaceCount { get; init; }
+
+        /// <summary>
+        /// Optional per-vertex map from this sub-mesh's vertices to the SHARED terrain vertex index
+        /// each one reproduces (or -1 for the sub-mesh's own interior vertices). When present,
+        /// <see cref="WeldGradedRegion"/> stitches the sub-mesh onto the terrain by this identity
+        /// (Triangle.NET's preserved <c>Vertex.ID</c>) instead of by spatial proximity — exact by
+        /// construction, so the two independent triangulations cannot disagree on the shared boundary
+        /// (the source of hairline cracks and overlapping slivers). Null falls back to the position weld.
+        /// </summary>
+        public int[]? BoundaryTerrainIndex { get; init; }
+
+        /// <summary>
+        /// Optional terrain-vertex merges this sub-mesh's (deduplicated) boundary implied: when two
+        /// terrain boundary vertices are near-coincident, the fill triangulates them as ONE clean input
+        /// point (Triangle.NET wants non-degenerate input), so the weld must collapse that terrain pair
+        /// too or the dropped one would dangle. Each pair is (terrainIndexToReplace, keepTerrainIndex).
+        /// </summary>
+        public (int From, int To)[]? TerrainMerges { get; init; }
     }
 
     internal sealed class RegionInsert
@@ -504,16 +522,35 @@ internal static class GradedRegionAssembler
         double tolerance)
     {
         double weldTolerance = Math.Max(tolerance, 1e-6);
-        var welder = new VertexWelder(weldTolerance);
-        var faces = new List<int>(outsideFaceCount * 3);
-        var seenFaces = new HashSet<(int, int, int)>();
 
-        AppendMesh(welder, faces, seenFaces, outsideVertices, outsideFaces, outsideFaceCount);
-        foreach (SubMesh fill in fills)
-            AppendMesh(welder, faces, seenFaces, fill.Vertices, fill.Faces, fill.FaceCount);
+        double[] weldedVertices;
+        int[] faceArray;
+        int weldedVertexCount;
 
-        double[] weldedVertices = welder.ToVertexArray();
-        int[] faceArray = faces.ToArray();
+        if (fills.Count > 0 && fills.All(fill => fill.BoundaryTerrainIndex != null))
+        {
+            // Identity weld (Triangle.NET's preserved Vertex.ID): each fill boundary vertex reproduces
+            // a known terrain vertex, so stitch by that shared index — reuse the terrain vertex, append
+            // only the fill's interior vertices. Exact by construction: no position-dedup tolerance, so
+            // the two independent triangulations cannot disagree on the shared boundary.
+            (weldedVertices, faceArray) = WeldByIdentity(outsideVertices, outsideFaces, outsideFaceCount, fills);
+            weldedVertexCount = weldedVertices.Length / 3;
+        }
+        else
+        {
+            var welder = new VertexWelder(weldTolerance);
+            var faces = new List<int>(outsideFaceCount * 3);
+            var seenFaces = new HashSet<(int, int, int)>();
+
+            AppendMesh(welder, faces, seenFaces, outsideVertices, outsideFaces, outsideFaceCount);
+            foreach (SubMesh fill in fills)
+                AppendMesh(welder, faces, seenFaces, fill.Vertices, fill.Faces, fill.FaceCount);
+
+            weldedVertices = welder.ToVertexArray();
+            faceArray = faces.ToArray();
+            weldedVertexCount = welder.Count;
+        }
+
         int faceCount = faceArray.Length / 3;
 
         // Enforce the watertight 2.5D invariant: zip hairline seam cracks (near-coincident boundary
@@ -530,7 +567,7 @@ internal static class GradedRegionAssembler
         if (!weldAnalysis.HasSingleClosedBoundaryLoop)
         {
             (weldedVertices, faceArray) = MeshTopologyOperations.MakeWatertight(
-                weldedVertices, welder.Count, faceArray, faceCount, weldTolerance, out _, out _);
+                weldedVertices, weldedVertexCount, faceArray, faceCount, weldTolerance, out _, out _);
             faceCount = faceArray.Length / 3;
         }
 
@@ -544,6 +581,121 @@ internal static class GradedRegionAssembler
             Faces = faceArray,
             FaceCount = faceCount
         };
+    }
+
+    /// <summary>
+    /// Stitches the fills onto the outside terrain by SHARED VERTEX IDENTITY. A fill boundary vertex
+    /// (BoundaryTerrainIndex &gt;= 0) reuses that terrain vertex; interior fill vertices are appended.
+    /// Any terrain-vertex merges the fills' deduplicated boundaries implied (near-coincident terrain
+    /// vertices the fill collapsed to one) are applied to BOTH the outside faces and the boundary map
+    /// via union-find, so both sides agree and nothing dangles. Unreferenced vertices (the carved-away
+    /// terrain interior, and merged-away duplicates) are compacted out.
+    /// </summary>
+    private static (double[] vertices, int[] faces) WeldByIdentity(
+        double[] outsideVertices,
+        int[] outsideFaces,
+        int outsideFaceCount,
+        IReadOnlyList<SubMesh> fills)
+    {
+        int terrainVertexCount = outsideVertices.Length / 3;
+
+        // Union-find over terrain indices for the implied near-coincident merges.
+        var parent = new int[terrainVertexCount];
+        for (int i = 0; i < terrainVertexCount; i++)
+            parent[i] = i;
+
+        int Find(int x)
+        {
+            while (parent[x] != x)
+            {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+
+            return x;
+        }
+
+        foreach (SubMesh fill in fills)
+        {
+            if (fill.TerrainMerges is null)
+                continue;
+
+            foreach ((int from, int to) in fill.TerrainMerges)
+            {
+                if (from >= 0 && from < terrainVertexCount && to >= 0 && to < terrainVertexCount)
+                {
+                    int rf = Find(from), rt = Find(to);
+                    if (rf != rt)
+                        parent[rf] = rt;
+                }
+            }
+        }
+
+        var globalVertices = new List<double>(outsideVertices);
+        var rawFaces = new List<int>(outsideFaceCount * 3);
+        var seen = new HashSet<(int, int, int)>();
+
+        void AddFace(int a, int b, int c)
+        {
+            if (a == b || b == c || a == c)
+                return;
+            if (!seen.Add(SortedTriple(a, b, c)))
+                return;
+
+            rawFaces.Add(a);
+            rawFaces.Add(b);
+            rawFaces.Add(c);
+        }
+
+        for (int f = 0; f < outsideFaceCount; f++)
+            AddFace(Find(outsideFaces[f * 3]), Find(outsideFaces[f * 3 + 1]), Find(outsideFaces[f * 3 + 2]));
+
+        foreach (SubMesh fill in fills)
+        {
+            int[] map = fill.BoundaryTerrainIndex!;
+            var fillToGlobal = new int[fill.VertexCount];
+            for (int v = 0; v < fill.VertexCount; v++)
+            {
+                if (map[v] >= 0)
+                {
+                    fillToGlobal[v] = Find(map[v]);
+                }
+                else
+                {
+                    fillToGlobal[v] = globalVertices.Count / 3;
+                    globalVertices.Add(fill.Vertices[v * 3]);
+                    globalVertices.Add(fill.Vertices[v * 3 + 1]);
+                    globalVertices.Add(fill.Vertices[v * 3 + 2]);
+                }
+            }
+
+            for (int f = 0; f < fill.FaceCount; f++)
+                AddFace(fillToGlobal[fill.Faces[f * 3]], fillToGlobal[fill.Faces[f * 3 + 1]], fillToGlobal[fill.Faces[f * 3 + 2]]);
+        }
+
+        // Compact: keep only vertices a face references (drops carved-away terrain + merged duplicates).
+        int total = globalVertices.Count / 3;
+        var remap = new int[total];
+        for (int i = 0; i < total; i++)
+            remap[i] = -1;
+
+        var compactVertices = new List<double>(globalVertices.Count);
+        var compactFaces = new int[rawFaces.Count];
+        for (int i = 0; i < rawFaces.Count; i++)
+        {
+            int old = rawFaces[i];
+            if (remap[old] < 0)
+            {
+                remap[old] = compactVertices.Count / 3;
+                compactVertices.Add(globalVertices[old * 3]);
+                compactVertices.Add(globalVertices[old * 3 + 1]);
+                compactVertices.Add(globalVertices[old * 3 + 2]);
+            }
+
+            compactFaces[i] = remap[old];
+        }
+
+        return (compactVertices.ToArray(), compactFaces);
     }
 
     /// <summary>Builds the terrain's single naked-edge outline loop as flat XY, or null if it has 0/many.</summary>

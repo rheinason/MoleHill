@@ -113,7 +113,7 @@ public static partial class PadGrader
             }
 
             GradedRegionAssembler.SubMesh? fill = BuildHoleFill(
-                boundaryXyz, boundaryLoop.Length, holeMembers, terrain, barriers, tolerance);
+                boundaryXyz, boundaryLoop, boundaryLoop.Length, holeMembers, terrain, barriers, tolerance);
             if (fill is null)
             {
                 errorMessage = "Grade Pad hole fill failed; deferring to constraint-first path.";
@@ -616,6 +616,7 @@ public static partial class PadGrader
     /// </summary>
     private static GradedRegionAssembler.SubMesh? BuildHoleFill(
         double[] boundaryXyz,
+        int[] boundaryLoop,
         int boundaryCount,
         List<PadBuild> group,
         TerrainFaceGrid terrain,
@@ -691,10 +692,51 @@ public static partial class PadGrader
         }
 
         // Conformed boundary first: input indices [0, boundaryPointCount) are perimeter vertices and
-        // segments [0, boundarySegmentCount) are the perimeter constraint edges.
-        AddClosed(boundaryXyz, xyz: true, boundaryCount);
+        // segments [0, boundarySegmentCount) are the perimeter constraint edges. Dedup the boundary
+        // (Triangle.NET wants non-degenerate input — near-coincident points trigger non-deterministic
+        // slivers), but RECORD which fill input index each terrain hole-boundary vertex mapped to, so
+        // the weld can (a) stitch by shared identity and (b) collapse any terrain pair the dedup merged.
+        var loopToInput = new int[boundaryCount];
+        if (boundaryCount >= 3)
+        {
+            int first = AddPoint(boundaryXyz[0], boundaryXyz[1], boundaryXyz[2]);
+            loopToInput[0] = first;
+            int previous = first;
+            for (int i = 1; i < boundaryCount; i++)
+            {
+                int current = AddPoint(boundaryXyz[i * 3], boundaryXyz[i * 3 + 1], boundaryXyz[i * 3 + 2]);
+                loopToInput[i] = current;
+                if (current != previous)
+                    segments.Add((previous, current));
+                previous = current;
+            }
+
+            if (previous != first)
+                segments.Add((previous, first));
+        }
+
         int boundaryPointCount = xyList.Count / 2;
         int boundarySegmentCount = segments.Count;
+
+        // Representative terrain index for each boundary INPUT index (the first loop position that
+        // produced it), and the merges the dedup implied (later loop positions that collapsed onto an
+        // earlier one map a distinct terrain vertex onto the representative).
+        var inputToTerrain = new int[boundaryPointCount];
+        for (int i = 0; i < boundaryPointCount; i++)
+            inputToTerrain[i] = -1;
+
+        var terrainMerges = new List<(int From, int To)>();
+        for (int k = 0; k < boundaryCount; k++)
+        {
+            int input = loopToInput[k];
+            if (input < 0 || input >= boundaryPointCount)
+                continue;
+
+            if (inputToTerrain[input] < 0)
+                inputToTerrain[input] = boundaryLoop[k];
+            else if (inputToTerrain[input] != boundaryLoop[k])
+                terrainMerges.Add((boundaryLoop[k], inputToTerrain[input]));
+        }
 
         foreach (PadBuild build in group)
             AddClosed(build.PadLoop.XyVertices, xyz: false, build.PadLoop.VertexCount);
@@ -774,12 +816,25 @@ public static partial class PadGrader
             graded, extracted.Faces, extracted.FaceCount, extracted.SourceIds,
             boundaryPointCount, segments, boundarySegmentCount);
 
+        // Identity weld map: a fill vertex sourced from a boundary input point reproduces terrain
+        // vertex inputToTerrain[sourceId]; everything else is the fill's own interior (-1).
+        var boundaryTerrainIndex = new int[vc];
+        for (int i = 0; i < vc; i++)
+        {
+            int sourceId = extracted.SourceIds[i];
+            boundaryTerrainIndex[i] = sourceId >= 0 && sourceId < boundaryPointCount
+                ? inputToTerrain[sourceId]
+                : -1;
+        }
+
         return new GradedRegionAssembler.SubMesh
         {
             Vertices = graded,
             VertexCount = vc,
             Faces = interiorFaces,
-            FaceCount = interiorFaces.Length / 3
+            FaceCount = interiorFaces.Length / 3,
+            BoundaryTerrainIndex = boundaryTerrainIndex,
+            TerrainMerges = terrainMerges.Count > 0 ? terrainMerges.ToArray() : null
         };
     }
 
