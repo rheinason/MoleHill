@@ -135,8 +135,15 @@ public static partial class PadGrader
             return null;
         }
 
-        // 4. Each hole's rim, as ordered ORIGINAL vertex indices.
-        if (!MeshBoundaryLoopBuilder.TryBuildBoundaryLoopsIndexed(droppedFaces.ToArray(), droppedFaces.Count / 3, out List<int[]> rimLoops))
+        // 4. Each hole's rim, as ordered ORIGINAL vertex indices. A carved region can PINCH — two
+        // carved parts meeting at a single shared terrain vertex (a degree-4 boundary junction, a
+        // "figure-eight"), e.g. where two pads' grown regions, or a region and the terrain edge, just
+        // touch at one corner. The boundary walker needs every boundary vertex to have exactly two
+        // boundary edges, so a single pinch makes it bail on the whole region. Repair locally: drop
+        // the kept faces still touching each pinch vertex so the two parts merge into one
+        // simply-connected hole and the vertex becomes interior, then retry. The handful of extra
+        // dropped faces are slivers of untouched terrain the remesh restores at terrain elevation.
+        if (!TryExtractRimsWithPinchRepair(droppedFaces, keptFaces, out List<int[]> rimLoops))
         {
             errorMessage = "Grade Pad region remesh could not extract clean hole boundaries; deferring.";
             return null;
@@ -190,7 +197,7 @@ public static partial class PadGrader
                 }
 
                 keptFaces = newKept;
-                if (!MeshBoundaryLoopBuilder.TryBuildBoundaryLoopsIndexed(droppedFaces.ToArray(), droppedFaces.Count / 3, out rimLoops))
+                if (!TryExtractRimsWithPinchRepair(droppedFaces, keptFaces, out rimLoops))
                 {
                     errorMessage = "Grade Pad region remesh could not extract clean hole boundaries after small-pad carve; deferring.";
                     return null;
@@ -725,5 +732,101 @@ public static partial class PadGrader
                 faces[f + 2] = b;
             }
         }
+    }
+
+    /// <summary>
+    /// Extracts the dropped region's rim loops, repairing PINCH vertices (see
+    /// <see cref="TryBreakDroppedRegionPinches"/>) and retrying until the boundary traces cleanly or
+    /// the repair can make no further progress (then returns false to defer). Used at both carve
+    /// stages — the initial vertex-based carve and the small-pad targeted carve — since either can
+    /// leave a single-point self-touch.
+    /// </summary>
+    private static bool TryExtractRimsWithPinchRepair(List<int> droppedFaces, List<int> keptFaces, out List<int[]> rimLoops)
+    {
+        int passes = 0;
+        while (!MeshBoundaryLoopBuilder.TryBuildBoundaryLoopsIndexed(droppedFaces.ToArray(), droppedFaces.Count / 3, out rimLoops))
+        {
+            if (passes++ >= 4 || !TryBreakDroppedRegionPinches(keptFaces, droppedFaces))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Repairs a PINCHED dropped region — a boundary vertex where the carved hole touches itself at a
+    /// single point (naked-edge degree &gt; 2), so its outline is a figure-eight the loop walker cannot
+    /// trace. For each such vertex, every KEPT face still incident to it is moved into the dropped set,
+    /// which merges the touching parts into one simply-connected hole and makes the vertex interior.
+    /// Returns true if any face was moved (the caller should retry boundary extraction).
+    /// </summary>
+    private static bool TryBreakDroppedRegionPinches(List<int> keptFaces, List<int> droppedFaces)
+    {
+        // Naked-edge degree per vertex over the dropped region (an edge on exactly one dropped face).
+        var edgeCount = new Dictionary<long, int>();
+        void Inc(int a, int b)
+        {
+            long k = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+            edgeCount[k] = edgeCount.GetValueOrDefault(k, 0) + 1;
+        }
+
+        int droppedCount = droppedFaces.Count / 3;
+        for (int f = 0; f < droppedCount; f++)
+        {
+            int a = droppedFaces[f * 3], b = droppedFaces[f * 3 + 1], c = droppedFaces[f * 3 + 2];
+            Inc(a, b);
+            Inc(b, c);
+            Inc(c, a);
+        }
+
+        var nakedDegree = new Dictionary<int, int>();
+        foreach (var kv in edgeCount)
+        {
+            if (kv.Value != 1)
+                continue;
+
+            int a = (int)(kv.Key >> 32);
+            int b = (int)(kv.Key & 0xFFFFFFFFL);
+            nakedDegree[a] = nakedDegree.GetValueOrDefault(a, 0) + 1;
+            nakedDegree[b] = nakedDegree.GetValueOrDefault(b, 0) + 1;
+        }
+
+        var pinchVertices = new HashSet<int>();
+        foreach (var kv in nakedDegree)
+        {
+            if (kv.Value > 2)
+                pinchVertices.Add(kv.Key);
+        }
+
+        if (pinchVertices.Count == 0)
+            return false;
+
+        var newKept = new List<int>(keptFaces.Count);
+        bool moved = false;
+        for (int f = 0; f < keptFaces.Count; f += 3)
+        {
+            int a = keptFaces[f], b = keptFaces[f + 1], c = keptFaces[f + 2];
+            if (pinchVertices.Contains(a) || pinchVertices.Contains(b) || pinchVertices.Contains(c))
+            {
+                droppedFaces.Add(a);
+                droppedFaces.Add(b);
+                droppedFaces.Add(c);
+                moved = true;
+            }
+            else
+            {
+                newKept.Add(a);
+                newKept.Add(b);
+                newKept.Add(c);
+            }
+        }
+
+        if (moved)
+        {
+            keptFaces.Clear();
+            keptFaces.AddRange(newKept);
+        }
+
+        return moved;
     }
 }
