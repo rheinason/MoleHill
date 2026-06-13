@@ -61,38 +61,6 @@ public static partial class PadGrader
         return points;
     }
 
-    private static void AddClosedLoopSegments(
-        double[] xyVertices,
-        int vertexCount,
-        Func<double, double, int> addVertex,
-        List<(int a, int b)> segList)
-    {
-        if (vertexCount < 3)
-            return;
-
-        int first = addVertex(xyVertices[0], xyVertices[1]);
-        int previous = first;
-        for (int i = 1; i < vertexCount; i++)
-        {
-            int current = addVertex(xyVertices[i * 2], xyVertices[i * 2 + 1]);
-            if (previous != current)
-                segList.Add((previous, current));
-            previous = current;
-        }
-
-        if (previous != first)
-            segList.Add((previous, first));
-    }
-
-    private static void AddClosedLoopVertices(
-        double[] xyVertices,
-        int vertexCount,
-        Func<double, double, int> addVertex)
-    {
-        for (int i = 0; i < vertexCount; i++)
-            addVertex(xyVertices[i * 2], xyVertices[i * 2 + 1]);
-    }
-
     private static bool TryBuildExpandedOffsetPolygon(
         double[] polygonXy,
         int vertexCount,

@@ -53,21 +53,6 @@ public static partial class PathGrader
         return GradingBarriers.IsCrossedByBarrier(
             preparedBarriers, edgeX, edgeY, px, py, barrierScratch, barrierCandidates);
     }
-
-    private static bool TryFindClosestPathSample(PathDefinition path, double px, double py, out double closestDist, out double closestPathZ)
-    {
-        if (!TryFindClosestPathLocation(path.XyVertices, path.ZValues, path.VertexCount, px, py, out ClosestPathLocation closest))
-        {
-            closestDist = double.MaxValue;
-            closestPathZ = 0.0;
-            return false;
-        }
-
-        closestDist = closest.Distance;
-        closestPathZ = closest.PathZ;
-        return true;
-    }
-
     private static bool TryFindClosestPathLocation(
         ConstraintPath path,
         double px,

@@ -159,25 +159,4 @@ public static partial class PathGrader
         double gradeZ = edgeZ + (branchSign * slopeRatio * reach);
         return terrainZ - gradeZ;
     }
-
-    private static double SampleShoulderSectionElevation(
-        Func<double, double, double> interpolateOriginalZ,
-        double edgeX,
-        double edgeY,
-        double shoulderX,
-        double shoulderY)
-    {
-        double dx = shoulderX - edgeX;
-        double dy = shoulderY - edgeY;
-        if ((dx * dx) + (dy * dy) <= 1e-12)
-            return interpolateOriginalZ(edgeX, edgeY);
-
-        double midX0 = edgeX + (dx * 0.5);
-        double midY0 = edgeY + (dy * 0.5);
-        double midX1 = edgeX + (dx * 0.75);
-        double midY1 = edgeY + (dy * 0.75);
-        return (interpolateOriginalZ(midX0, midY0) +
-                interpolateOriginalZ(midX1, midY1) +
-                interpolateOriginalZ(shoulderX, shoulderY)) / 3.0;
-    }
 }

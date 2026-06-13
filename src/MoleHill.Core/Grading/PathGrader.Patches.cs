@@ -174,46 +174,4 @@ public static partial class PathGrader
             diagnostics.ToMessages(),
             diagnostics.ToStructuredDiagnostics());
     }
-
-    private static bool TryFindClosestClosedLoopLocation(
-        double[] loopXy,
-        int vertexCount,
-        double px,
-        double py,
-        out ClosestClosedLoopLocation closest)
-    {
-        closest = default;
-        if (vertexCount < 2)
-            return false;
-
-        double bestDistSq = double.MaxValue;
-        bool found = false;
-        for (int i = 0; i < vertexCount; i++)
-        {
-            int next = (i + 1) % vertexCount;
-            double ax = loopXy[i * 2];
-            double ay = loopXy[(i * 2) + 1];
-            double bx = loopXy[next * 2];
-            double by = loopXy[(next * 2) + 1];
-            double abx = bx - ax;
-            double aby = by - ay;
-            double lengthSq = (abx * abx) + (aby * aby);
-            double t = lengthSq > 1e-12
-                ? Math.Clamp((((px - ax) * abx) + ((py - ay) * aby)) / lengthSq, 0.0, 1.0)
-                : 0.0;
-            double qx = ax + (abx * t);
-            double qy = ay + (aby * t);
-            double dx = px - qx;
-            double dy = py - qy;
-            double distSq = (dx * dx) + (dy * dy);
-            if (distSq >= bestDistSq)
-                continue;
-
-            bestDistSq = distSq;
-            closest = new ClosestClosedLoopLocation(i, t, Math.Sqrt(distSq));
-            found = true;
-        }
-
-        return found;
-    }
 }

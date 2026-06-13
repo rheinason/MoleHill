@@ -52,13 +52,6 @@ public static partial class PathGrader
                 target[j] = true;
         }
     }
-
-    private static double ComputeGuideSpacing(double width, double shoulderDistance)
-    {
-        double baseSpacing = Math.Max(width * 2.0, shoulderDistance * 2.0);
-        return Math.Clamp(baseSpacing, 4.0, 15.0);
-    }
-
     private static bool[] ComputeGuideSelection(
         double[] xyVertices,
         int vertexCount,
@@ -446,64 +439,6 @@ public static partial class PathGrader
 
         return false;
     }
-
-    private static int[]? AddShoulderConstraint(
-        double[] shoulderXy,
-        int vertexCount,
-        bool hasBoundaryLoop,
-        double[] boundaryLoop,
-        int boundaryVertexCount,
-        double tolerance,
-        Func<double, double, int> addVertex,
-        List<(int a, int b)> segList,
-        PreparedBarriers barriers,
-        SpatialHashGrid2D.QueryScratch barrierScratch,
-        List<int> barrierCandidates)
-    {
-        var indices = new int[vertexCount];
-        Array.Fill(indices, -1);
-        bool hasSegment = false;
-
-        for (int i = 0; i < vertexCount - 1; i++)
-        {
-            double startX = shoulderXy[i * 2];
-            double startY = shoulderXy[i * 2 + 1];
-            double endX = shoulderXy[(i + 1) * 2];
-            double endY = shoulderXy[(i + 1) * 2 + 1];
-
-            bool clippedByBarrier = GradingBarriers.TryClipSegment(
-                barriers, startX, startY, endX, endY,
-                barrierScratch, barrierCandidates,
-                out endX, out endY);
-
-            List<ClippedSegment> pieces = BoundaryClipper.ClipSegmentToBoundary(
-                startX, startY, 0.0,
-                endX, endY, 0.0,
-                hasBoundaryLoop,
-                boundaryLoop,
-                boundaryVertexCount,
-                tolerance);
-
-            foreach (ClippedSegment piece in pieces)
-            {
-                int startIndex = piece.StartT <= 1e-9
-                    ? EnsureShoulderSampleIndex(indices, i, shoulderXy, addVertex)
-                    : addVertex(piece.StartX, piece.StartY);
-                int endIndex = (!clippedByBarrier && piece.EndT >= 1.0 - 1e-9)
-                    ? EnsureShoulderSampleIndex(indices, i + 1, shoulderXy, addVertex)
-                    : addVertex(piece.EndX, piece.EndY);
-
-                if (startIndex == endIndex)
-                    continue;
-
-                segList.Add((startIndex, endIndex));
-                hasSegment = true;
-            }
-        }
-
-        return hasSegment ? indices : null;
-    }
-
     private static void AddShoulderGuideConstraints(
         List<SurfaceRemesher.ConstraintPolyline> constraints,
         double[] roadXy,
@@ -533,78 +468,6 @@ public static partial class PathGrader
             new SpatialHashGrid2D.QueryScratch(1),
             new List<int>(8));
     }
-
-    private static void AddShoulderGuideSegments(
-        List<double> xyList,
-        int[] roadIndices,
-        double[]? shoulderXy,
-        int[]? shoulderIndices,
-        int vertexCount,
-        bool[]? keepGuides,
-        bool hasBoundaryLoop,
-        double[] boundaryLoop,
-        int boundaryVertexCount,
-        double tolerance,
-        Func<double, double, int> addVertex,
-        List<(int a, int b)> segList,
-        PreparedBarriers barriers,
-        SpatialHashGrid2D.QueryScratch barrierScratch,
-        List<int> barrierCandidates)
-    {
-        if (shoulderXy == null)
-            return;
-
-        for (int i = 0; i < vertexCount; i++)
-        {
-            if (keepGuides != null && !keepGuides[i])
-                continue;
-
-            double roadX = xyList[roadIndices[i] * 2];
-            double roadY = xyList[roadIndices[i] * 2 + 1];
-            double shoulderX = shoulderXy[i * 2];
-            double shoulderY = shoulderXy[i * 2 + 1];
-
-            bool clippedByBarrier = GradingBarriers.TryClipSegment(
-                barriers, roadX, roadY, shoulderX, shoulderY,
-                barrierScratch, barrierCandidates,
-                out shoulderX, out shoulderY);
-
-            List<ClippedSegment> pieces = BoundaryClipper.ClipSegmentToBoundary(
-                roadX, roadY, 0.0,
-                shoulderX, shoulderY, 0.0,
-                hasBoundaryLoop,
-                boundaryLoop,
-                boundaryVertexCount,
-                tolerance);
-
-            foreach (ClippedSegment piece in pieces)
-            {
-                int startIndex = piece.StartT <= 1e-9
-                    ? roadIndices[i]
-                    : addVertex(piece.StartX, piece.StartY);
-                int endIndex = (!clippedByBarrier && piece.EndT >= 1.0 - 1e-9 && shoulderIndices != null && shoulderIndices[i] >= 0)
-                    ? shoulderIndices[i]
-                    : addVertex(piece.EndX, piece.EndY);
-
-                if (startIndex != endIndex)
-                    segList.Add((startIndex, endIndex));
-            }
-        }
-    }
-
-    private static int EnsureShoulderSampleIndex(
-        int[] indices,
-        int pointIndex,
-        double[] shoulderXy,
-        Func<double, double, int> addVertex)
-    {
-        if (indices[pointIndex] >= 0)
-            return indices[pointIndex];
-
-        indices[pointIndex] = addVertex(shoulderXy[pointIndex * 2], shoulderXy[pointIndex * 2 + 1]);
-        return indices[pointIndex];
-    }
-
     private static void AddShoulderGuideConstraints(
         List<SurfaceRemesher.ConstraintPolyline> constraints,
         double[] roadXy,

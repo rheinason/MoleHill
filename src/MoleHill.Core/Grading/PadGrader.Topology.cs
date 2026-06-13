@@ -71,25 +71,6 @@ public static partial class PadGrader
             useNearestShoulderCandidate: useNearestShoulderCandidate);
         return gradedVertices;
     }
-
-    internal static double[] ApplyGradingZWithBarriers(
-        double[] topologyVertices,
-        int vertexCount,
-        PadBoundary[] pads,
-        PreparedBarriers barriers)
-    {
-        ValidateApplyGradingZInputs(topologyVertices, vertexCount, pads, Array.Empty<LockCurve>());
-
-        if (pads.Length == 0)
-            return (double[])topologyVertices.Clone();
-
-        pads = OrderPadsForOwnership(pads);
-
-        var gradedVertices = (double[])topologyVertices.Clone();
-        ApplyGradingToVertices(gradedVertices, topologyVertices, vertexCount, pads, barriers);
-        return gradedVertices;
-    }
-
     private static double[] ApplyGradingZWithDefaultCornerFans(
         double[] topologyVertices,
         int vertexCount,
@@ -515,95 +496,6 @@ public static partial class PadGrader
             PreserveInputElevation: false));
         suggestedEdgeLength = UpdateSuggestedEdgeLength(suggestedEdgeLength, loopXy, vertexCount, stride: 2, isClosed: true);
     }
-
-    private static SurfaceRemesher.ConstraintPolyline CreateSoftGuideLoop(
-        double[] loopXy,
-        int vertexCount,
-        double targetSpacing,
-        double tolerance,
-        int padIndex,
-        PadBoundary[] pads,
-        double[] padInfluenceDistances)
-    {
-        if (vertexCount < 3 || loopXy.Length < vertexCount * 2)
-        {
-            return new SurfaceRemesher.ConstraintPolyline(
-                Array.Empty<double>(),
-                PointCount: 0,
-                IsClosed: true,
-                PreserveInputElevation: false);
-        }
-
-        double spacing = Math.Max(targetSpacing, tolerance * 16.0);
-        var guideXy = new List<double>(Math.Max(8, vertexCount / 4));
-        double distanceSinceLast = spacing;
-        for (int i = 0; i < vertexCount; i++)
-        {
-            int previous = (i + vertexCount - 1) % vertexCount;
-            double x = loopXy[i * 2];
-            double y = loopXy[i * 2 + 1];
-            if (IsInsideOtherPadInfluence(x, y, padIndex, pads, padInfluenceDistances, tolerance))
-                continue;
-
-            double px = loopXy[previous * 2];
-            double py = loopXy[previous * 2 + 1];
-            distanceSinceLast += Math.Sqrt(((x - px) * (x - px)) + ((y - py) * (y - py)));
-            if (guideXy.Count > 0 && distanceSinceLast < spacing)
-                continue;
-
-            guideXy.Add(x);
-            guideXy.Add(y);
-            distanceSinceLast = 0.0;
-        }
-
-        if (guideXy.Count < 6)
-        {
-            return new SurfaceRemesher.ConstraintPolyline(
-                Array.Empty<double>(),
-                PointCount: 0,
-                IsClosed: true,
-                PreserveInputElevation: false);
-        }
-
-        int guideVertexCount = guideXy.Count / 2;
-        return new SurfaceRemesher.ConstraintPolyline(
-            CreateConstraintPoints(guideXy.ToArray(), guideVertexCount),
-            guideVertexCount,
-            IsClosed: true,
-            PreserveInputElevation: false);
-    }
-
-    private static bool IsInsideOtherPadInfluence(
-        double x,
-        double y,
-        int padIndex,
-        PadBoundary[] pads,
-        double[] padInfluenceDistances,
-        double tolerance)
-    {
-        for (int otherIndex = 0; otherIndex < pads.Length; otherIndex++)
-        {
-            if (otherIndex == padIndex)
-                continue;
-
-            PadBoundary other = pads[otherIndex];
-            if (PointInPolygon(x, y, other.XyVertices, other.VertexCount))
-                return true;
-
-            double influenceDistance = otherIndex < padInfluenceDistances.Length
-                ? padInfluenceDistances[otherIndex]
-                : other.MaxDistance;
-            if (influenceDistance <= tolerance)
-                continue;
-
-            double distance = DistToPolygon(x, y, other.XyVertices, other.VertexCount);
-            if (distance <= influenceDistance + tolerance)
-                return true;
-        }
-
-        return false;
-    }
-
     private static bool StationCrossesOtherPadTop(
         double ax,
         double ay,

@@ -38,14 +38,4 @@ public static partial class PadGrader
 
         return Math.Clamp(shoulderDistance * 0.2, 0.5, 1.0);
     }
-
-    private static double ComputeMinimumStitchSegmentLength(double modelTolerance, double terrainDetailSize)
-    {
-        double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
-        double resolvedDetail = double.IsFinite(terrainDetailSize) && terrainDetailSize > 0.0
-            ? terrainDetailSize
-            : tolerance * 20.0;
-        double targetStitchSpacing = Math.Max(tolerance * 8.0, resolvedDetail * 0.5);
-        return Math.Max(tolerance * 4.0, targetStitchSpacing * 0.35);
-    }
 }
