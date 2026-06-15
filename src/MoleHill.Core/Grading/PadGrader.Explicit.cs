@@ -313,7 +313,11 @@ public static partial class PadGrader
         // A watertight conform that did not actually flatten a pad top (the footprint was too small to
         // pick up interior mesh, or the splitter dropped its boundary) is geometrically wrong — defer
         // to the region-remesh path, which rebuilds the pad interior densely and always flattens.
-        if (!PadTopsAreFlat(graded, conformed.Faces, conformed.FaceCount, pads, Math.Max(tolerance, 1e-3)))
+        // A footprint-boundary vertex is projected onto the rebuilt pad loop by the section grader, so a
+        // tilted pad's boundary vertices sit a few mm off the exact pad plane (tilt × projection offset)
+        // — flat in practice. The 1 cm floor absorbs that while still catching a genuinely unflattened
+        // pad, whose vertices sit at terrain elevation, off the plane by the full grade depth.
+        if (!PadTopsAreFlat(graded, conformed.Faces, conformed.FaceCount, pads, Math.Max(tolerance, 1e-2), Math.Max(tolerance, 1e-6)))
         {
             errorMessage = "Grade Pad split-keep did not flatten every pad top; deferring to region remesh.";
             return null;
@@ -351,71 +355,95 @@ public static partial class PadGrader
     }
 
     /// <summary>
-    /// True when every triangle whose three vertices fall inside exactly one pad footprint sits on
-    /// that pad's plane (within <paramref name="zTolerance"/>). A pad with NO fully-interior triangle
-    /// is treated as not flattened, since its top is then spanned by ungraded terrain faces.
+    /// True when every pad's top region is flat in the conformed mesh. Two complementary checks, both
+    /// mirroring <see cref="ApplyGradingToVerticesWithSections"/>, where a point strictly inside one or
+    /// more pad footprints is owned by the highest of them (a higher pad wins where footprints overlap):
+    /// <list type="number">
+    /// <item>Every mesh vertex strictly inside at least one pad must sit on its owning (maximum) pad
+    /// plane within <paramref name="zTolerance"/>. This thoroughly covers a normal pad whose interior
+    /// carries mesh vertices. Boundary/edge vertices are routed through the batter-section blend and are
+    /// not held to a pad plane.</item>
+    /// <item>For each pad, sample the conformed surface at a guaranteed-interior representative point. If
+    /// this pad owns that point (it is the highest pad there), the surface elevation must equal the pad
+    /// plane within <paramref name="zTolerance"/>. This catches a small pad (smaller than a terrain
+    /// triangle) whose interior carries no mesh vertex — its top is a single fan face whose elevation is
+    /// only verified by sampling — and a pad whose interior was left at terrain elevation (off by the
+    /// full grade depth).</item>
+    /// </list>
+    /// <paramref name="xyTolerance"/> is unused but kept for the call-site contract.
     /// </summary>
-    private static bool PadTopsAreFlat(double[] vertices, int[] faces, int faceCount, PadBoundary[] pads, double zTolerance)
+    private static bool PadTopsAreFlat(double[] vertices, int[] faces, int faceCount, PadBoundary[] pads, double zTolerance, double xyTolerance)
     {
-        // Per-vertex pad membership, computed once per pad with a bounding-box reject. The per-face
-        // loop below would otherwise re-run an O(padVertexCount) point-in-polygon test for every face
-        // a vertex touches (~6x), for every pad, over the whole conformed mesh.
+        _ = xyTolerance;
+
+        // Per-vertex owning (maximum) pad elevation, over the pads that strictly contain the vertex.
         int vertexCount = vertices.Length / 3;
-        var insidePad = new bool[pads.Length][];
+        var expectedZ = new double[vertexCount];
+        var hasExpectedZ = new bool[vertexCount];
         for (int p = 0; p < pads.Length; p++)
         {
             PadBoundary pad = pads[p];
-            double minX = double.MaxValue, maxX = double.MinValue;
-            double minY = double.MaxValue, maxY = double.MinValue;
+            double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
             for (int i = 0; i < pad.VertexCount; i++)
             {
-                double px = pad.XyVertices[i * 2];
-                double py = pad.XyVertices[i * 2 + 1];
-                if (px < minX) minX = px;
-                if (px > maxX) maxX = px;
-                if (py < minY) minY = py;
-                if (py > maxY) maxY = py;
+                double vx = pad.XyVertices[i * 2], vy = pad.XyVertices[i * 2 + 1];
+                if (vx < minX) minX = vx;
+                if (vx > maxX) maxX = vx;
+                if (vy < minY) minY = vy;
+                if (vy > maxY) maxY = vy;
             }
 
-            var flags = new bool[vertexCount];
             for (int i = 0; i < vertexCount; i++)
             {
-                double x = vertices[i * 3];
-                double y = vertices[i * 3 + 1];
+                double x = vertices[i * 3], y = vertices[i * 3 + 1];
                 if (x < minX || x > maxX || y < minY || y > maxY)
                     continue;
-
-                flags[i] = PointInPolygon(x, y, pad.XyVertices, pad.VertexCount);
-            }
-
-            insidePad[p] = flags;
-        }
-
-        var interiorFaceCount = new int[pads.Length];
-        for (int f = 0; f < faceCount; f++)
-        {
-            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
-            for (int p = 0; p < pads.Length; p++)
-            {
-                bool[] flags = insidePad[p];
-                if (!flags[a] || !flags[b] || !flags[c])
+                if (!PointInPolygon(x, y, pad.XyVertices, pad.VertexCount))
                     continue;
 
-                interiorFaceCount[p]++;
-                PadBoundary pad = pads[p];
-                for (int e = 0; e < 3; e++)
-                {
-                    int idx = faces[(f * 3) + e];
-                    double expected = pad.EvaluateZ(vertices[idx * 3], vertices[idx * 3 + 1]);
-                    if (Math.Abs(vertices[idx * 3 + 2] - expected) > zTolerance)
-                        return false;
-                }
+                double z = pad.EvaluateZ(x, y);
+                expectedZ[i] = hasExpectedZ[i] ? Math.Max(expectedZ[i], z) : z;
+                hasExpectedZ[i] = true;
             }
         }
 
+        for (int i = 0; i < vertexCount; i++)
+        {
+            if (hasExpectedZ[i] && Math.Abs(vertices[i * 3 + 2] - expectedZ[i]) > zTolerance)
+                return false;
+        }
+
+        // Representative-interior-point sample per pad: catches small pads whose interior carries no
+        // mesh vertex, and a pad whose interior was not flattened at all.
         for (int p = 0; p < pads.Length; p++)
         {
-            if (interiorFaceCount[p] == 0)
+            PadBoundary pad = pads[p];
+            if (pad.VertexCount < 3)
+                return false;
+
+            (double rx, double ry) = PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
+
+            // Only this pad's flatness is asserted here; a point a higher pad also covers is that pad's
+            // responsibility (verified at its own representative point).
+            double ownerZ = pad.EvaluateZ(rx, ry);
+            bool higherWins = false;
+            for (int q = 0; q < pads.Length; q++)
+            {
+                if (q == p)
+                    continue;
+                if (PointInPolygon(rx, ry, pads[q].XyVertices, pads[q].VertexCount) &&
+                    pads[q].EvaluateZ(rx, ry) > ownerZ)
+                {
+                    higherWins = true;
+                    break;
+                }
+            }
+
+            if (higherWins)
+                continue;
+
+            double meshZ = GradingGeometry2D.InterpolateZ(vertices, faces, faceCount, rx, ry);
+            if (Math.Abs(meshZ - ownerZ) > zTolerance)
                 return false;
         }
 

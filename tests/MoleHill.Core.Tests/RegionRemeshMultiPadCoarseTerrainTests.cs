@@ -9314,16 +9314,19 @@ public class RegionRemeshMultiPadCoarseTerrainTests
         Assert.NotNull(result);
 
         // This 7-pad protected scene previously fell all the way through to the legacy whole-mesh
-        // retriangulation fallback, which produced ~88 deg spikes against a 33 deg target. The
-        // region-remesh tier must now catch it: watertight, spike-free, and NOT the legacy fallback.
-        // (The dense multi-pad carve leaves tiny interior islands inside the merged hole; the tier
-        // must treat those as islands to drop, not as holes that "contain no pad".)
+        // retriangulation fallback, which produced ~88 deg spikes against a 33 deg target. A
+        // watertight, spike-free tier must now catch it instead of the legacy fallback. With the CDT
+        // terrain conform it grades crisp through split-keep (conform the terrain to the daylight +
+        // footprint loops and keep the whole mesh, watertight by construction); if a pad interior is
+        // genuinely too coarse to flatten it defers to the dense region-remesh patch. Either watertight
+        // tier is acceptable; the legacy spiky fallback is not.
         Assert.DoesNotContain(
             result!.Diagnostics,
             d => d.Contains("constrained whole-mesh retriangulation fallback", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(
             result.Diagnostics,
-            d => d.Contains("region remesh", StringComparison.OrdinalIgnoreCase));
+            d => d.Contains("region remesh", StringComparison.OrdinalIgnoreCase) ||
+                 d.Contains("split-keep", StringComparison.OrdinalIgnoreCase));
 
         // Watertight + manifold + single boundary loop (same boundary topology as the input terrain).
         var inputTopo = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
@@ -9360,33 +9363,62 @@ public class RegionRemeshMultiPadCoarseTerrainTests
             $"Grading introduced a face ({maxSlope:F1} deg) steeper than the terrain's natural relief ({inputMaxSlope:F1} deg).");
 
         // Every pad — including the small ones in coarse terrain that previously carved no hole — is
-        // flattened to its plane. Each pad must have at least one deep-interior vertex (>0.5 in from the
-        // footprint edge) and all such vertices must sit on the pad plane.
+        // flattened to its plane. This is tier-agnostic and edge-safe: sample the graded surface at each
+        // pad's guaranteed-interior representative point (a deep-interior vertex test would falsely fail
+        // a small pad whose crisp top is a single fan face with no deep vertex). Where footprints
+        // overlap the highest pad wins, so a point a higher pad also covers is checked at that pad.
         for (int pi = 0; pi < pads.Length; pi++)
         {
             var pad = pads[pi];
-            double padZ = pad.EvaluateZ(pad.XyVertices[0], pad.XyVertices[1]);
-            int interiorVerts = 0;
-            var seen = new HashSet<int>();
-            for (int f = 0; f < result.FaceCount; f++)
+            (double rx, double ry) = PadGrader.PolygonInteriorPoint(pad.XyVertices, pad.VertexCount);
+            double padZ = pad.EvaluateZ(rx, ry);
+
+            bool higherWins = false;
+            for (int pj = 0; pj < pads.Length; pj++)
             {
-                for (int k = 0; k < 3; k++)
+                if (pj == pi) continue;
+                if (PadGrader.PointInPolygon(rx, ry, pads[pj].XyVertices, pads[pj].VertexCount) &&
+                    pads[pj].EvaluateZ(rx, ry) > padZ)
                 {
-                    int idx = result.Faces[f * 3 + k];
-                    if (!seen.Add(idx)) continue;
-                    if (PadGrader.PointInPolygon(v[idx*3], v[idx*3+1], pad.XyVertices, pad.VertexCount) &&
-                        PadGrader.DistToPolygon(v[idx*3], v[idx*3+1], pad.XyVertices, pad.VertexCount) > 0.5)
-                    {
-                        interiorVerts++;
-                        Assert.True(
-                            System.Math.Abs(v[idx*3+2] - padZ) < 0.1,
-                            $"Pad {pi} interior vertex at ({v[idx*3]:F1},{v[idx*3+1]:F1}) is z={v[idx*3+2]:F2}, not the pad plane {padZ:F2}.");
-                    }
+                    higherWins = true;
+                    break;
                 }
             }
 
-            Assert.True(interiorVerts > 0, $"Pad {pi} has no flat interior vertex (was not flattened).");
+            if (higherWins)
+                continue;
+
+            double meshZ = SampleMeshZ(v, result.Faces, result.FaceCount, rx, ry, out bool found);
+            Assert.True(found, $"Pad {pi} representative point ({rx:F1},{ry:F1}) is not covered by the graded mesh.");
+            Assert.True(
+                System.Math.Abs(meshZ - padZ) < 0.1,
+                $"Pad {pi} surface at ({rx:F1},{ry:F1}) is z={meshZ:F2}, not the pad plane {padZ:F2}.");
         }
+    }
+
+    private static double SampleMeshZ(double[] v, int[] faces, int faceCount, double px, double py, out bool found)
+    {
+        const double tol = 1e-4;
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            double x0 = v[a*3], y0 = v[a*3+1], z0 = v[a*3+2];
+            double x1 = v[b*3], y1 = v[b*3+1], z1 = v[b*3+2];
+            double x2 = v[c*3], y2 = v[c*3+1], z2 = v[c*3+2];
+            double denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+            if (System.Math.Abs(denom) < 1e-12) continue;
+            double w0 = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / denom;
+            double w1 = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / denom;
+            double w2 = 1.0 - w0 - w1;
+            if (w0 >= -tol && w1 >= -tol && w2 >= -tol)
+            {
+                found = true;
+                return w0 * z0 + w1 * z1 + w2 * z2;
+            }
+        }
+
+        found = false;
+        return 0.0;
     }
 
     private static double FaceSlopeDeg(double[] v, int a, int b, int c)

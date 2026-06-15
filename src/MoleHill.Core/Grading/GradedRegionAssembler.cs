@@ -396,19 +396,212 @@ internal static class GradedRegionAssembler
     {
         double[]? terrainOutline = TryBuildTerrainOutline(terrainFaces, terrainFaceCount, terrainVertices);
         var areas = new List<MeshAreaSplitter.AreaBoundary>(daylightLoopsXy.Count);
+        var clippedLoops = new List<double[]>(daylightLoopsXy.Count);
         foreach (double[] xy in daylightLoopsXy)
         {
             double[] effective = ClipLoopToTerrain(xy, terrainOutline, tolerance);
             int count = effective.Length / 2;
             if (count >= 3)
+            {
                 areas.Add(new MeshAreaSplitter.AreaBoundary(effective, count));
+                clippedLoops.Add(effective);
+            }
         }
 
         if (areas.Count == 0)
             return null;
 
-        return MeshAreaSplitter.SplitPreservingTopology(
+        MeshAreaSplitter.SplitResult? handRolled = MeshAreaSplitter.SplitPreservingTopology(
             terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, areas.ToArray(), tolerance, out _);
+
+        // The hand-rolled per-face conforming subdivision preserves terrain detail but can emit a
+        // non-manifold sliver when a daylight×terrain-edge cut point lands a hair off an existing
+        // terrain vertex (distinct at model tolerance → two degenerate faces on a shared edge). When
+        // that happens, re-conform with a single Triangle.NET CDT, which is always a valid
+        // (non-overlapping, manifold) triangulation. Keep the hand-rolled result whenever it is clean
+        // so the terrain-detail-preserving path is unchanged for the scenes it already handles.
+        if (handRolled is not null && !HasNonManifoldEdge(handRolled.Faces, handRolled.FaceCount))
+            return handRolled;
+
+        MeshAreaSplitter.SplitResult? cdt = SplitConformViaCdt(
+            terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, clippedLoops, terrainOutline, tolerance);
+        return cdt ?? handRolled;
+    }
+
+    private static bool HasNonManifoldEdge(int[] faces, int faceCount)
+    {
+        var edgeCount = new Dictionary<long, int>(faceCount * 3);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            edgeCount[EdgeKey(a, b)] = edgeCount.GetValueOrDefault(EdgeKey(a, b)) + 1;
+            edgeCount[EdgeKey(b, c)] = edgeCount.GetValueOrDefault(EdgeKey(b, c)) + 1;
+            edgeCount[EdgeKey(c, a)] = edgeCount.GetValueOrDefault(EdgeKey(c, a)) + 1;
+        }
+
+        foreach (int count in edgeCount.Values)
+            if (count > 2)
+                return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Triangle.NET-native terrain conform: re-triangulate the terrain points with the terrain outline
+    /// and each clipped daylight loop inserted as exact constraint segments (one CDT — always a valid,
+    /// non-overlapping triangulation), then keep every face whose centroid lies inside the terrain
+    /// outline (dropping only the convex-hull skirt). The result is one manifold surface bounded by the
+    /// terrain outline, conformed to the daylight loops, with all original terrain vertices preserved
+    /// (so terrain elevations are exact) — watertight by construction for the split-keep path. Returns
+    /// null when the terrain is non-simple (no single outline) or the CDT/extract did not produce a
+    /// clean manifold mesh, so the caller can defer.
+    /// </summary>
+    private static MeshAreaSplitter.SplitResult? SplitConformViaCdt(
+        double[] terrainVertices,
+        int terrainVertexCount,
+        int[] terrainFaces,
+        int terrainFaceCount,
+        IReadOnlyList<double[]> clippedLoops,
+        double[]? terrainOutline,
+        double tolerance)
+    {
+        if (terrainOutline is null || clippedLoops.Count == 0)
+            return null;
+
+        double weldTol = Math.Max(tolerance, 1e-6);
+        double inverseCell = 1.0 / weldTol;
+        var xy = new List<double>(terrainVertexCount * 2);
+        var zin = new List<double>(terrainVertexCount);
+        var pointIndex = new Dictionary<(long, long), int>(terrainVertexCount * 2);
+
+        int AddPoint(double x, double y, double z)
+        {
+            var key = ((long)Math.Round(x * inverseCell), (long)Math.Round(y * inverseCell));
+            if (pointIndex.TryGetValue(key, out int existing))
+                return existing;
+
+            int index = zin.Count;
+            xy.Add(x);
+            xy.Add(y);
+            zin.Add(z);
+            pointIndex[key] = index;
+            return index;
+        }
+
+        var terrainMap = new int[terrainVertexCount];
+        for (int i = 0; i < terrainVertexCount; i++)
+            terrainMap[i] = AddPoint(terrainVertices[i * 3], terrainVertices[i * 3 + 1], terrainVertices[i * 3 + 2]);
+
+        var segments = new List<(int a, int b)>();
+        var terrainBoundary = new List<(int a, int b)>();
+        MeshConstraintTools.AddBoundarySegments(terrainBoundary, new HashSet<long>(), terrainFaces, terrainFaceCount);
+        foreach (var (a, b) in terrainBoundary)
+        {
+            int ai = terrainMap[a], bi = terrainMap[b];
+            if (ai != bi)
+                segments.Add((ai, bi));
+        }
+
+        var grid = new TerrainFaceGrid(terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount);
+        foreach (double[] loop in clippedLoops)
+        {
+            int n = loop.Length / 2;
+            var li = new int[n];
+            for (int j = 0; j < n; j++)
+                li[j] = AddPoint(loop[j * 2], loop[j * 2 + 1], grid.InterpolateZ(loop[j * 2], loop[j * 2 + 1]));
+
+            for (int j = 0; j < n; j++)
+            {
+                int u = li[j], v = li[(j + 1) % n];
+                if (u != v)
+                    segments.Add((u, v));
+            }
+        }
+
+        TriangulationOutcome outcome = TriangulationHelper.Triangulate(
+            xy, xy.Count / 2, segments, maxArea: 0.0, minAngle: 0.0, convex: false, segmentSplitting: 0);
+        if (outcome.Mesh is null)
+            return null;
+
+        TriangleNetExtractor.Result ex = TriangleNetExtractor.Extract(outcome.Mesh);
+        if (ex.FaceCount == 0)
+            return null;
+
+        int vc = ex.VertexCount;
+        var verts = new double[vc * 3];
+        for (int i = 0; i < vc; i++)
+        {
+            double x = ex.Xy[i * 2], y = ex.Xy[i * 2 + 1];
+            int sid = ex.SourceIds[i];
+            verts[i * 3] = x;
+            verts[i * 3 + 1] = y;
+            verts[i * 3 + 2] = sid >= 0 && sid < zin.Count ? zin[sid] : grid.InterpolateZ(x, y);
+        }
+
+        // Keep every face inside the terrain outline (the convex-hull skirt is dropped by the centroid
+        // test; because the outline is a constraint, no CDT face straddles it, so the test is exact).
+        int outlineCount = terrainOutline.Length / 2;
+        var keptFaces = new List<int>(ex.FaceCount * 3);
+        var keptAreaIndex = new List<int>(ex.FaceCount);
+        for (int f = 0; f < ex.FaceCount; f++)
+        {
+            int a = ex.Faces[f * 3], b = ex.Faces[f * 3 + 1], c = ex.Faces[f * 3 + 2];
+            double cx = (verts[a * 3] + verts[b * 3] + verts[c * 3]) / 3.0;
+            double cy = (verts[a * 3 + 1] + verts[b * 3 + 1] + verts[c * 3 + 1]) / 3.0;
+            if (!GradingGeometry2D.PointInPolygon(cx, cy, terrainOutline, outlineCount))
+                continue;
+
+            int areaIndex = -1;
+            for (int k = 0; k < clippedLoops.Count; k++)
+            {
+                if (GradingGeometry2D.PointInPolygon(cx, cy, clippedLoops[k], clippedLoops[k].Length / 2))
+                {
+                    areaIndex = k;
+                    break;
+                }
+            }
+
+            keptFaces.Add(a);
+            keptFaces.Add(b);
+            keptFaces.Add(c);
+            keptAreaIndex.Add(areaIndex);
+        }
+
+        if (keptFaces.Count == 0)
+            return null;
+
+        int keptFaceCount = keptFaces.Count / 3;
+        int[] keptFaceArray = keptFaces.ToArray();
+        if (HasNonManifoldEdge(keptFaceArray, keptFaceCount))
+            return null;
+
+        // Compact to the vertices the kept faces reference (drop the skirt-only terrain points).
+        var remap = new int[vc];
+        for (int i = 0; i < vc; i++)
+            remap[i] = -1;
+
+        var compactVertices = new List<double>(vc * 3);
+        for (int i = 0; i < keptFaceArray.Length; i++)
+        {
+            int v = keptFaceArray[i];
+            if (remap[v] < 0)
+            {
+                remap[v] = compactVertices.Count / 3;
+                compactVertices.Add(verts[v * 3]);
+                compactVertices.Add(verts[v * 3 + 1]);
+                compactVertices.Add(verts[v * 3 + 2]);
+            }
+
+            keptFaceArray[i] = remap[v];
+        }
+
+        return new MeshAreaSplitter.SplitResult(
+            compactVertices.ToArray(),
+            compactVertices.Count / 3,
+            keptFaceArray,
+            keptFaceCount,
+            keptAreaIndex.ToArray(),
+            clippedLoops.Count);
     }
 
     /// <summary>
