@@ -75,6 +75,12 @@ internal sealed partial class TerrainBuildService
             ? modifier.Tolerance
             : toleranceProfile.CurveChordTolerance;
 
+        // Work-region crop: a Triangulate boundary limits which inputs are triangulated so the user can
+        // work fast on a sub-area; clearing/growing the boundary restores the full terrain.
+        double workBoundaryMargin = Math.Max(toleranceProfile.DetailSize * 3.0, curveTolerance);
+        (points, breaklineCurves, contourCurves) = FilterInputsToWorkBoundary(
+            points, breaklineCurves, contourCurves, boundaryCurves, curveTolerance, workBoundaryMargin, build);
+
         var spotXyz = new double[points.Count * 3];
         for (int i = 0; i < points.Count; i++)
         {

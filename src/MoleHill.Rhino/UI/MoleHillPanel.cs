@@ -3288,6 +3288,7 @@ public sealed partial class MoleHillPanel : Panel
                     apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((TriangulateModifierDefinition)item).Boundary)),
                     RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
+                layout.AddRow(CreateWorkAreaRow(terrain.TerrainId, modifier.Id));
                 AddBoundaryPeelEditors(layout, terrain, triangulate);
                 break;
             case AddGeometryModifierDefinition addGeometry:
@@ -3454,6 +3455,44 @@ public sealed partial class MoleHillPanel : Panel
         }
 
         return layout;
+    }
+
+    private Control CreateWorkAreaRow(Guid terrainId, Guid modifierId)
+    {
+        var rectangleButton = MakeMiniButton("Rectangle", (_, _) =>
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc == null)
+                return;
+
+            Application.Instance.AsyncInvoke(() =>
+            {
+                if (IsDisposed)
+                    return;
+
+                _controller.SetModifierBoundaryRectangle(doc, terrainId, modifierId);
+            });
+        }, "Drag a rectangle to limit terrain computation to that area (work fast on part of the terrain).", width: 86);
+
+        var clearButton = MakeMiniButton("Clear", (_, _) =>
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc != null)
+                _controller.ClearModifierBoundary(doc, terrainId, modifierId);
+        }, "Clear the work area and rebuild the full terrain.", width: 60);
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items =
+            {
+                new Label { Text = "Work area", VerticalAlignment = VerticalAlignment.Center },
+                rectangleButton,
+                clearButton
+            }
+        };
     }
 
     private void AddBoundaryPeelEditors(DynamicLayout layout, TerrainDefinition terrain, GeometryInputModifierDefinition modifier)
