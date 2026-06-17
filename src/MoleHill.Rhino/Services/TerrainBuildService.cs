@@ -209,6 +209,7 @@ internal sealed partial class TerrainBuildService
                 shouldCancel);
 
             BuildObjectPlacements(snapshot, terrain, analysisMesh, build, shouldCancel);
+            BuildScatterPlacements(snapshot, terrain, analysisMesh, build, shouldCancel);
         }
 
         ThrowIfCancellationRequested(shouldCancel);

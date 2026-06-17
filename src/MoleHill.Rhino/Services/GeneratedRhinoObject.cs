@@ -29,4 +29,8 @@ internal sealed class GeneratedRhinoObject
     public Transform InstanceTransform { get; init; } = Transform.Identity;
 
     public double? PlotWeight { get; init; }
+
+    /// <summary>When set, this is a scatter instance owned by the given scatter definition; the display
+    /// conduit uses the definition's preview mode/cap to decide how to draw it. Bake ignores this.</summary>
+    public Guid? ScatterDefinitionId { get; init; }
 }

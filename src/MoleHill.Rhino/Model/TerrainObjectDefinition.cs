@@ -5,6 +5,7 @@ namespace MoleHill.Rhino.Model;
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(LowestPointObjectDefinition), "lowest-point")]
 [JsonDerivedType(typeof(SurfaceOrientedObjectDefinition), "surface-oriented")]
+[JsonDerivedType(typeof(ScatterObjectDefinition), "scatter")]
 public abstract class TerrainObjectDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();

@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Linq;
 using MoleHill.Rhino.Model;
 using Rhino.Display;
 using Rhino.Geometry;
@@ -38,6 +39,122 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
         foreach (var marker in displayState.MarkerObjects)
             DrawGeneratedObject(e, doc, terrain, marker);
+
+        if (displayState.ScatterObjects.Count > 0)
+            DrawScatterObjects(e, doc, terrain, displayState);
+    }
+
+    private static void DrawScatterObjects(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState displayState)
+    {
+        var definitions = terrain.Objects
+            .OfType<ScatterObjectDefinition>()
+            .ToDictionary(definition => definition.Id);
+        var drawnByDefinition = new Dictionary<Guid, int>();
+
+        foreach (var scatter in displayState.ScatterObjects)
+        {
+            ScatterObjectDefinition? definition = null;
+            if (scatter.ScatterDefinitionId.HasValue)
+                definitions.TryGetValue(scatter.ScatterDefinitionId.Value, out definition);
+
+            ScatterPreviewMode mode = definition?.PreviewMode ?? ScatterPreviewMode.Instances;
+            int cap = definition is { PreviewCap: > 0 } ? definition.PreviewCap : int.MaxValue;
+            var color = ResolveColor(doc, scatter.LayerPath, scatter.SourceLayerPath, scatter.ColorArgb);
+
+            switch (mode)
+            {
+                case ScatterPreviewMode.Points:
+                {
+                    Point3d origin = Point3d.Origin;
+                    origin.Transform(scatter.InstanceTransform);
+                    e.Display.DrawPoint(origin, color);
+                    break;
+                }
+                case ScatterPreviewMode.BoundingBox:
+                {
+                    if (TryGetScatterBox(doc, scatter, out Box box))
+                        e.Display.DrawBox(box, color, 1);
+                    break;
+                }
+                default:
+                {
+                    Guid key = scatter.ScatterDefinitionId ?? Guid.Empty;
+                    drawnByDefinition.TryGetValue(key, out int drawn);
+                    if (drawn >= cap)
+                        break;
+
+                    DrawScatterInstanceGeometry(e, doc, terrain, scatter, color);
+                    drawnByDefinition[key] = drawn + 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    private static bool TryGetScatterBox(global::Rhino.RhinoDoc doc, GeneratedRhinoObject scatter, out Box box)
+    {
+        box = Box.Unset;
+        if (string.IsNullOrWhiteSpace(scatter.InstanceDefinitionName))
+            return false;
+
+        var definition = doc.InstanceDefinitions.Find(scatter.InstanceDefinitionName!);
+        if (definition == null)
+            return false;
+
+        BoundingBox bounds = BoundingBox.Empty;
+        foreach (var instanceObject in definition.GetObjects())
+        {
+            if (instanceObject?.Geometry == null)
+                continue;
+
+            BoundingBox geometryBounds = instanceObject.Geometry.GetBoundingBox(true);
+            if (geometryBounds.IsValid)
+                bounds.Union(geometryBounds);
+        }
+
+        if (!bounds.IsValid)
+            return false;
+
+        box = new Box(bounds);
+        return box.Transform(scatter.InstanceTransform) && box.IsValid;
+    }
+
+    private static void DrawScatterInstanceGeometry(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject scatter, Color color)
+    {
+        if (string.IsNullOrWhiteSpace(scatter.InstanceDefinitionName))
+            return;
+
+        var definition = doc.InstanceDefinitions.Find(scatter.InstanceDefinitionName!);
+        if (definition == null)
+            return;
+
+        var material = new DisplayMaterial(GetOpaqueColor(color));
+        foreach (var instanceObject in definition.GetObjects())
+        {
+            GeometryBase? source = instanceObject?.Geometry;
+            if (source == null)
+                continue;
+
+            GeometryBase geometry = source.Duplicate();
+            if (!geometry.Transform(scatter.InstanceTransform))
+                continue;
+
+            switch (geometry)
+            {
+                case Mesh mesh:
+                    e.Display.DrawMeshShaded(mesh, material);
+                    break;
+                case Brep brep:
+                    e.Display.DrawBrepShaded(brep, material);
+                    break;
+                case Extrusion extrusion when extrusion.ToBrep() is { } extrusionBrep:
+                    e.Display.DrawBrepShaded(extrusionBrep, material);
+                    break;
+                case Curve curve:
+                    e.Display.DrawCurve(curve, color, 2);
+                    break;
+            }
+        }
     }
 
     private static void DrawGeneratedObject(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject generated)

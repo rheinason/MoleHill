@@ -4,6 +4,7 @@ using Eto.Drawing;
 using Eto.Forms;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Grading;
+using MoleHill.Core.Scattering;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -3666,6 +3667,18 @@ public sealed partial class MoleHillPanel : Panel
                 _controller.AddObjectDefinition(doc, terrain.TerrainId, "surface-oriented");
         };
         menu.Items.Add(surfaceItem);
+
+        var scatterItem = new ButtonMenuItem
+        {
+            Text = "Scatter"
+        };
+        scatterItem.Click += (_, _) =>
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc != null)
+                _controller.AddObjectDefinition(doc, terrain.TerrainId, "scatter");
+        };
+        menu.Items.Add(scatterItem);
         addButton.Click += (_, _) => menu.Show(addButton);
 
         return CreateSectionToolbar(
@@ -3753,6 +3766,9 @@ public sealed partial class MoleHillPanel : Panel
 
     private Control CreateObjectBody(TerrainDefinition terrain, TerrainObjectDefinition definition)
     {
+        if (definition is ScatterObjectDefinition scatter)
+            return CreateScatterObjectBody(terrain, scatter);
+
         var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
         layout.AddRow(CreateSourceEditor("Sources", definition.Sources,
             apply => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => apply(item.Sources)),
@@ -3813,6 +3829,142 @@ public sealed partial class MoleHillPanel : Panel
             "Bindings",
             $"{CountReferences(definition.Sources)} source refs",
             "Explicit picks plus watched layers drive the objects in this definition. Objects keep their original Rhino layers."));
+        return layout;
+    }
+
+    private Control CreateScatterObjectBody(TerrainDefinition terrain, ScatterObjectDefinition scatter)
+    {
+        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
+
+        void Mutate(Action<ScatterObjectDefinition> apply, bool scheduleRebuild = true) =>
+            MutateObjectDefinition(terrain.TerrainId, scatter.Id, item =>
+            {
+                if (item is ScatterObjectDefinition target)
+                    apply(target);
+            }, scheduleRebuild);
+
+        layout.AddRow(CreateSourceEditor("Boundaries", scatter.Boundaries,
+            apply => Mutate(s => apply(s.Boundaries)),
+            RhinoObjectType.Curve,
+            doc => _controller.GetSelectedLayerPaths(doc),
+            "Closed boundary curves and/or layers the scatter fills. Multiple boundaries are accepted."));
+
+        // Weighted block mix: one source + weight per entry, plus add/remove.
+        for (int blockIndex = 0; blockIndex < scatter.Blocks.Count; blockIndex++)
+        {
+            int index = blockIndex;
+            ScatterBlockEntry entry = scatter.Blocks[index];
+            layout.AddRow(CreateSourceEditor($"Block {index + 1}", entry.Source,
+                apply => Mutate(s => { if (index < s.Blocks.Count) apply(s.Blocks[index].Source); }),
+                RhinoObjectType.InstanceReference,
+                doc => _controller.GetSelectedLayerPaths(doc),
+                "Block instance(s) to scatter for this entry."));
+            layout.AddRow(CreateSliderNumericEditor(
+                $"Weight {index + 1}",
+                entry.Weight,
+                value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }),
+                softMin: 0.0,
+                softMax: 10.0,
+                decimalPlaces: 2,
+                hardMin: 0.0,
+                help: "Relative likelihood this block is chosen per instance."));
+            layout.AddRow(MakeMiniButton($"Remove Block {index + 1}", (_, _) =>
+                Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); }), "Remove this block from the mix.", width: 120));
+        }
+
+        layout.AddRow(MakeToolbarButton("Add Block", (_, _) =>
+            Mutate(s => s.Blocks.Add(new ScatterBlockEntry())), "Add a block to the weighted mix.", width: 100));
+
+        layout.AddRow(CreateDropDownEditor(
+            "Pattern",
+            new (string, string)[] { ("Random", "Random"), ("Grid", "Grid"), ("JitteredGrid", "Jittered Grid"), ("PoissonDisk", "Poisson") },
+            scatter.Pattern.ToString(),
+            key => Mutate(s => s.Pattern = Enum.Parse<ScatterPattern>(key)),
+            "How instances are arranged inside the boundary."));
+
+        layout.AddRow(CreateDropDownEditor(
+            "Density Mode",
+            new (string, string)[] { ("Count", "Total count"), ("PerArea", "Per area"), ("Spacing", "Min spacing") },
+            scatter.DensityMode.ToString(),
+            key => Mutate(s => s.DensityMode = Enum.Parse<ScatterDensityMode>(key)),
+            "Count: a total number. Per area: instances per unit area. Min spacing: blue-noise radius."));
+
+        switch (scatter.DensityMode)
+        {
+            case ScatterDensityMode.PerArea:
+                layout.AddRow(CreateNumericEditor("Per Area", scatter.PerAreaDensity,
+                    value => Mutate(s => s.PerAreaDensity = value), decimalPlaces: 4,
+                    help: "Instances per square model unit.", minValue: 0.0));
+                break;
+            case ScatterDensityMode.Spacing:
+                layout.AddRow(CreateNumericEditor("Spacing", scatter.Spacing,
+                    value => Mutate(s => s.Spacing = value), decimalPlaces: 3,
+                    help: "Minimum centre-to-centre distance between instances.", minValue: 0.0));
+                break;
+            default:
+                layout.AddRow(CreateSliderNumericEditor("Count", scatter.Count,
+                    value => Mutate(s => s.Count = value), softMin: 1.0, softMax: 1000.0,
+                    decimalPlaces: 0, hardMin: 0.0, help: "Total number of instances to scatter."));
+                break;
+        }
+
+        layout.AddRow(CreateCheckEditor("Align to slope", scatter.AlignToSlope,
+            value => Mutate(s => s.AlignToSlope = value),
+            "Orient instances to the terrain normal. When off, instances stay upright (world Z)."));
+
+        layout.AddRow(CreateCheckEditor("Slope filter", scatter.SlopeFilterEnabled,
+            value => Mutate(s => s.SlopeFilterEnabled = value),
+            "Only place instances where the terrain slope is within the range below."));
+        if (scatter.SlopeFilterEnabled)
+        {
+            layout.AddRow(CreateSliderNumericEditor("Slope Min", scatter.SlopeMinDegrees,
+                value => Mutate(s => s.SlopeMinDegrees = value), softMin: 0.0, softMax: 90.0,
+                decimalPlaces: 1, hardMin: 0.0, hardMax: 90.0, help: "Minimum terrain slope in degrees."));
+            layout.AddRow(CreateSliderNumericEditor("Slope Max", scatter.SlopeMaxDegrees,
+                value => Mutate(s => s.SlopeMaxDegrees = value), softMin: 0.0, softMax: 90.0,
+                decimalPlaces: 1, hardMin: 0.0, hardMax: 90.0, help: "Maximum terrain slope in degrees."));
+        }
+
+        layout.AddRow(CreateCheckEditor("Elevation filter", scatter.ElevationFilterEnabled,
+            value => Mutate(s => s.ElevationFilterEnabled = value),
+            "Only place instances where the terrain elevation is within the range below."));
+        if (scatter.ElevationFilterEnabled)
+        {
+            layout.AddRow(CreateNumericEditor("Elevation Min", scatter.ElevationMin,
+                value => Mutate(s => s.ElevationMin = value), decimalPlaces: 3, help: "Minimum terrain elevation.", minValue: null));
+            layout.AddRow(CreateNumericEditor("Elevation Max", scatter.ElevationMax,
+                value => Mutate(s => s.ElevationMax = value), decimalPlaces: 3, help: "Maximum terrain elevation.", minValue: null));
+        }
+
+        layout.AddRow(CreateSliderNumericEditor("Rotate Min", scatter.RandomRotationMinDegrees,
+            value => Mutate(s => s.RandomRotationMinDegrees = value), softMin: 0.0, softMax: 360.0,
+            decimalPlaces: 1, hardMin: 0.0, hardMax: 360.0, help: "Minimum random rotation about the placement up axis."));
+        layout.AddRow(CreateSliderNumericEditor("Rotate Max", scatter.RandomRotationMaxDegrees,
+            value => Mutate(s => s.RandomRotationMaxDegrees = value), softMin: 0.0, softMax: 360.0,
+            decimalPlaces: 1, hardMin: 0.0, hardMax: 360.0, help: "Maximum random rotation. Set equal to min to disable."));
+        layout.AddRow(CreateSliderNumericEditor("Scale Min", scatter.RandomScaleMin,
+            value => Mutate(s => s.RandomScaleMin = value), softMin: 0.25, softMax: 2.0,
+            decimalPlaces: 3, hardMin: 0.01, help: "Minimum random uniform scale."));
+        layout.AddRow(CreateSliderNumericEditor("Scale Max", scatter.RandomScaleMax,
+            value => Mutate(s => s.RandomScaleMax = value), softMin: 0.25, softMax: 2.0,
+            decimalPlaces: 3, hardMin: 0.01, help: "Maximum random uniform scale. Set both to 1 for no variation."));
+        layout.AddRow(CreateNumericEditor("Z Offset", scatter.ZOffset,
+            value => Mutate(s => s.ZOffset = value), decimalPlaces: 3,
+            help: "Lift or sink instances along the placement up axis.", minValue: null));
+        layout.AddRow(CreateNumericEditor("Seed", scatter.RandomSeed,
+            value => Mutate(s => s.RandomSeed = (int)Math.Round(value)), decimalPlaces: 0,
+            help: "Stable random seed. Change it to reroll the whole scatter."));
+
+        layout.AddRow(CreateDropDownEditor(
+            "Preview",
+            new (string, string)[] { ("Points", "Point cloud"), ("BoundingBox", "Bounding boxes"), ("Instances", "Real (capped)") },
+            scatter.PreviewMode.ToString(),
+            key => Mutate(s => s.PreviewMode = Enum.Parse<ScatterPreviewMode>(key), scheduleRebuild: false),
+            "How the scatter draws while editing. Bake always produces real block instances."));
+        layout.AddRow(CreateNumericEditor("Preview Cap", scatter.PreviewCap,
+            value => Mutate(s => s.PreviewCap = (int)Math.Round(value), scheduleRebuild: false), decimalPlaces: 0,
+            help: "Maximum real instances drawn in 'Real (capped)' preview mode.", minValue: 0.0));
+
         return layout;
     }
 
@@ -4927,6 +5079,7 @@ public sealed partial class MoleHillPanel : Panel
         {
             LowestPointObjectDefinition => "Plant",
             SurfaceOrientedObjectDefinition => "Orient",
+            ScatterObjectDefinition => "Scatter",
             _ => "Objects"
         };
     }
@@ -4935,6 +5088,7 @@ public sealed partial class MoleHillPanel : Panel
     {
         LowestPointObjectDefinition => "lowest-point",
         SurfaceOrientedObjectDefinition => "surface-oriented",
+        ScatterObjectDefinition => "scatter",
         _ => string.Empty
     };
 
@@ -4942,6 +5096,7 @@ public sealed partial class MoleHillPanel : Panel
     {
         "lowest-point" => Color.FromArgb(30, 136, 229),
         "surface-oriented" => Color.FromArgb(67, 160, 71),
+        "scatter" => Color.FromArgb(142, 68, 173),
         _ => Color.FromArgb(120, 120, 120)
     };
 
@@ -4949,6 +5104,7 @@ public sealed partial class MoleHillPanel : Panel
     {
         LowestPointObjectDefinition => "Z",
         SurfaceOrientedObjectDefinition => "XY",
+        ScatterObjectDefinition => "S",
         _ => "O"
     };
 
@@ -4956,6 +5112,7 @@ public sealed partial class MoleHillPanel : Panel
     {
         LowestPointObjectDefinition => "Place lowest point on terrain",
         SurfaceOrientedObjectDefinition => "Orient to terrain slope",
+        ScatterObjectDefinition => "Scatter blocks across boundaries",
         _ => "Terrain objects"
     };
 

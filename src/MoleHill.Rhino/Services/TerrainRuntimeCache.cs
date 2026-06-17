@@ -527,7 +527,8 @@ internal static class TerrainRuntimeCacheCloner
             InstanceUserStrings = generated.InstanceUserStrings == null
                 ? null
                 : new Dictionary<string, string>(generated.InstanceUserStrings, StringComparer.Ordinal),
-            InstanceTransform = generated.InstanceTransform
+            InstanceTransform = generated.InstanceTransform,
+            ScatterDefinitionId = generated.ScatterDefinitionId
         };
     }
 

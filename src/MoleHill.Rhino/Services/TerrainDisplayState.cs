@@ -27,6 +27,8 @@ internal sealed class TerrainDisplayState
 
     public List<GeneratedRhinoObject> MarkerObjects { get; } = new();
 
+    public List<GeneratedRhinoObject> ScatterObjects { get; } = new();
+
     public TerrainDisplayState Clone()
     {
         var clone = new TerrainDisplayState
@@ -43,6 +45,7 @@ internal sealed class TerrainDisplayState
         clone.ZoneObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(ZoneObjects));
         clone.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(AuxiliaryObjects));
         clone.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(MarkerObjects));
+        clone.ScatterObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(ScatterObjects));
         return clone;
     }
 }

@@ -440,6 +440,7 @@ internal sealed class TerrainController
             {
                 "lowest-point" => new LowestPointObjectDefinition(),
                 "surface-oriented" => new SurfaceOrientedObjectDefinition(),
+                "scatter" => new ScatterObjectDefinition(),
                 _ => throw new InvalidOperationException($"Unknown object definition kind '{objectKind}'.")
             };
 
@@ -695,6 +696,13 @@ internal sealed class TerrainController
         foreach (var marker in displayState.MarkerObjects)
         {
             Guid id = AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(marker), blockAttributeRefreshIds);
+            if (id != Guid.Empty)
+                bakedIds.Add(id);
+        }
+
+        foreach (var scatter in displayState.ScatterObjects)
+        {
+            Guid id = AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(scatter), blockAttributeRefreshIds);
             if (id != Guid.Empty)
                 bakedIds.Add(id);
         }
@@ -2956,6 +2964,7 @@ internal sealed class TerrainController
             displayState.ZoneObjects.AddRange(build.ZoneObjects);
             displayState.AuxiliaryObjects.AddRange(build.AuxiliaryObjects);
             displayState.MarkerObjects.AddRange(build.MarkerObjects);
+            displayState.ScatterObjects.AddRange(build.ScatterObjects);
         }
         runtimeCache.DisplayState = displayState;
         UpdateRuntimePreview(doc, terrain, runtimeCache);
@@ -2987,7 +2996,8 @@ internal sealed class TerrainController
         int outputCount = (displayState.PreviewTerrainMesh != null ? 1 : 0) +
                           displayState.ZoneObjects.Count +
                           displayState.AuxiliaryObjects.Count +
-                          displayState.MarkerObjects.Count;
+                          displayState.MarkerObjects.Count +
+                          displayState.ScatterObjects.Count;
         return displayState.IsPreview
             ? $"{outputCount:N0} preview outputs; deferred exact outputs"
             : $"{outputCount:N0} preview outputs";

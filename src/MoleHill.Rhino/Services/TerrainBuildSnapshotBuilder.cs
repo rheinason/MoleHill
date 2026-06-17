@@ -52,11 +52,13 @@ internal static class TerrainBuildSnapshotBuilder
 
         Transform sourceTransform = Transform.Identity;
         bool hasSourceTransform = false;
+        string? instanceDefinitionName = null;
         BoundingBox localBoundingBox = geometry.GetBoundingBox(true);
         if (obj is global::Rhino.DocObjects.InstanceObject instanceObject)
         {
             sourceTransform = instanceObject.InstanceXform;
             hasSourceTransform = true;
+            instanceDefinitionName = instanceObject.InstanceDefinition?.Name;
             if (TryGetInstanceDefinitionBoundingBox(instanceObject.InstanceDefinition, out BoundingBox instanceDefinitionBoundingBox))
                 localBoundingBox = instanceDefinitionBoundingBox;
         }
@@ -73,6 +75,7 @@ internal static class TerrainBuildSnapshotBuilder
         {
             ObjectId = obj.Id,
             LayerPath = GetLayerPath(doc, obj.Attributes.LayerIndex),
+            InstanceDefinitionName = instanceDefinitionName,
             Geometry = geometry,
             LocalBoundingBox = localBoundingBox,
             WorldBoundingBox = worldBoundingBox,
