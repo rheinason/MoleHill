@@ -3986,18 +3986,21 @@ public sealed partial class MoleHillPanel : Panel
         if (doc == null)
             return;
 
-        var blockNames = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var blocks = new List<(string Name, Eto.Drawing.Bitmap? Thumbnail)>();
         foreach (var definition in doc.InstanceDefinitions)
         {
             if (definition == null || definition.IsDeleted || string.IsNullOrWhiteSpace(definition.Name))
                 continue;
+            if (!seen.Add(definition.Name))
+                continue;
 
-            blockNames.Add(definition.Name);
+            blocks.Add((definition.Name, BlockThumbnailRenderer.Get(definition, 40)));
         }
 
-        blockNames = blockNames.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
+        blocks.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
-        var selected = BlockSelectorDialog.Show(doc, blockNames);
+        var selected = BlockSelectorDialog.Show(doc, blocks);
         if (selected == null || selected.Count == 0)
             return;
 

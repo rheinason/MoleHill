@@ -16,12 +16,14 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
     private sealed class BlockRow
     {
         public required string Name { get; init; }
+
+        public Bitmap? Thumbnail { get; init; }
     }
 
     private readonly GridView _grid;
     private readonly List<BlockRow> _allRows;
 
-    private BlockSelectorDialog(IReadOnlyList<string> blockNames)
+    private BlockSelectorDialog(IReadOnlyList<(string Name, Bitmap? Thumbnail)> blocks)
     {
         Title = "Add Blocks to Scatter";
         Resizable = true;
@@ -29,9 +31,9 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
         MinimumSize = new Size(360, 480);
         this.UseRhinoStyle();
 
-        _allRows = blockNames
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Select(name => new BlockRow { Name = name })
+        _allRows = blocks
+            .Where(block => !string.IsNullOrWhiteSpace(block.Name))
+            .Select(block => new BlockRow { Name = block.Name, Thumbnail = block.Thumbnail })
             .ToList();
 
         _grid = new GridView
@@ -39,6 +41,7 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
             DataStore = _allRows,
             AllowMultipleSelection = true,
             ShowHeader = false,
+            RowHeight = 44,
             Size = new Size(340, 380)
         };
         _grid.Columns.Add(new GridColumn
@@ -46,7 +49,11 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
             HeaderText = "Block",
             Editable = false,
             Expand = true,
-            DataCell = new TextBoxCell { Binding = Binding.Property((BlockRow row) => row.Name) }
+            DataCell = new ImageTextCell
+            {
+                ImageBinding = Binding.Property((BlockRow row) => (Image?)row.Thumbnail),
+                TextBinding = Binding.Property((BlockRow row) => row.Name)
+            }
         });
 
         var addButton = new Button { Text = "Add Selected" };
@@ -109,9 +116,9 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
         Content = layout;
     }
 
-    public static List<string>? Show(RhinoDoc doc, IReadOnlyList<string> blockNames)
+    public static List<string>? Show(RhinoDoc doc, IReadOnlyList<(string Name, Bitmap? Thumbnail)> blocks)
     {
-        var dialog = new BlockSelectorDialog(blockNames);
+        var dialog = new BlockSelectorDialog(blocks);
         return dialog.ShowModal(RhinoEtoApp.MainWindowForDocument(doc));
     }
 }
