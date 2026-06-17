@@ -37,6 +37,12 @@ internal sealed partial class TerrainBuildService
         {
             ThrowIfCancellationRequested(shouldCancel);
 
+            // A disabled analysis produces no output, so skip its (sometimes expensive) computation
+            // entirely instead of computing it and discarding the result — this was a per-solve cost,
+            // most painfully for contours, which scanned the whole mesh per level even when disabled.
+            if (!analysis.IsEnabled)
+                continue;
+
             TerrainAnalysisSummary? summary = analysis switch
             {
                 EarthworkAnalysisDefinition earthwork => BuildEarthworkSummary(
@@ -129,6 +135,7 @@ internal sealed partial class TerrainBuildService
                     contour,
                     elevMinZ,
                     elevMaxZ,
+                    snapshot.ModelAbsoluteTolerance,
                     build),
                 _ => null
             };
@@ -249,9 +256,10 @@ internal sealed partial class TerrainBuildService
         ContourAnalysisDefinition analysis,
         double elevMinZ,
         double elevMaxZ,
+        double tolerance,
         TerrainBuildResult build)
     {
-        var (objects, summary) = BuildContourCore(currentMesh, analysis, elevMinZ, elevMaxZ,
+        var (objects, summary) = BuildContourCore(currentMesh, analysis, elevMinZ, elevMaxZ, tolerance,
             TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath));
         build.AuxiliaryObjects.AddRange(objects);
         return summary;
@@ -259,13 +267,14 @@ internal sealed partial class TerrainBuildService
 
     internal static (List<GeneratedRhinoObject> Objects, TerrainAnalysisSummary Summary) BuildContourObjects(
         RhinoMesh mesh,
-        ContourAnalysisDefinition analysis)
+        ContourAnalysisDefinition analysis,
+        double tolerance = 1e-4)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out _))
             return (new List<GeneratedRhinoObject>(), new TerrainAnalysisSummary { AnalysisId = analysis.Id });
 
         GetElevationRange(vertices, mesh.Vertices.Count, out double minZ, out double maxZ);
-        return BuildContourCore(mesh, analysis, minZ, maxZ);
+        return BuildContourCore(mesh, analysis, minZ, maxZ, tolerance);
     }
 
     private static (List<GeneratedRhinoObject> Objects, TerrainAnalysisSummary Summary) BuildContourCore(
@@ -273,54 +282,59 @@ internal sealed partial class TerrainBuildService
         ContourAnalysisDefinition analysis,
         double elevMinZ,
         double elevMaxZ,
+        double tolerance,
         string? fallbackLayerPath = null)
     {
         var objects = new List<GeneratedRhinoObject>();
-        var levels = BuildContourLevels(elevMinZ, elevMaxZ, analysis.StartZ, Math.Max(analysis.Interval, 0.01));
         int contourCurveCount = 0;
         int contourLevelCount = 0;
         double firstLevel = 0.0;
         double lastLevel = 0.0;
 
-        foreach (double level in levels)
+        if (RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
         {
-            var plane = new Plane(new Point3d(0.0, 0.0, level), Vector3d.ZAxis);
-            Polyline[]? polylines = Intersection.MeshPlane(mesh, plane);
-            if (polylines == null || polylines.Length == 0)
-                continue;
+            var levels = BuildContourLevels(elevMinZ, elevMaxZ, analysis.StartZ, Math.Max(analysis.Interval, 0.01));
 
-            int levelCurveIndex = 0;
-            bool levelHasCurves = false;
-            foreach (var polyline in polylines)
+            // Single pass over the faces (marching triangles) instead of one mesh-plane intersection
+            // per level. Each triangle only contributes to the levels inside its own Z-span.
+            var contourLevels = ContourGenerator.Generate(
+                vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, levels, Math.Max(tolerance, 1e-6));
+
+            foreach (var contourLevel in contourLevels)
             {
-                if (polyline.Count < 2)
-                    continue;
-
-                levelHasCurves = true;
-                contourCurveCount++;
-                if (!analysis.IsEnabled)
-                    continue;
-
-                levelCurveIndex++;
-                objects.Add(new GeneratedRhinoObject
+                int levelCurveIndex = 0;
+                bool levelHasCurves = false;
+                foreach (var polyline in contourLevel.Polylines)
                 {
-                    Geometry = new PolylineCurve(polyline),
-                    Name = levelCurveIndex == 1
-                        ? $"{analysis.Label} {level:G4}"
-                        : $"{analysis.Label} {level:G4} ({levelCurveIndex})",
-                    AnalysisId = analysis.Id,
-                    ColorArgb = analysis.ColorArgb,
-                    LayerPath = analysis.OutputLayerPath ?? fallbackLayerPath
-                });
+                    if (polyline.PointCount < 2)
+                        continue;
+
+                    levelHasCurves = true;
+                    contourCurveCount++;
+                    if (!analysis.IsEnabled)
+                        continue;
+
+                    levelCurveIndex++;
+                    objects.Add(new GeneratedRhinoObject
+                    {
+                        Geometry = new PolylineCurve(ToRhinoPolyline(polyline)),
+                        Name = levelCurveIndex == 1
+                            ? $"{analysis.Label} {contourLevel.Z:G4}"
+                            : $"{analysis.Label} {contourLevel.Z:G4} ({levelCurveIndex})",
+                        AnalysisId = analysis.Id,
+                        ColorArgb = analysis.ColorArgb,
+                        LayerPath = analysis.OutputLayerPath ?? fallbackLayerPath
+                    });
+                }
+
+                if (!levelHasCurves)
+                    continue;
+
+                contourLevelCount++;
+                if (contourLevelCount == 1)
+                    firstLevel = contourLevel.Z;
+                lastLevel = contourLevel.Z;
             }
-
-            if (!levelHasCurves)
-                continue;
-
-            contourLevelCount++;
-            if (contourLevelCount == 1)
-                firstLevel = level;
-            lastLevel = level;
         }
 
         var summary = new TerrainAnalysisSummary
@@ -332,6 +346,19 @@ internal sealed partial class TerrainBuildService
             ContourLastLevel = contourLevelCount > 0 ? lastLevel : 0.0
         };
         return (objects, summary);
+    }
+
+    private static Polyline ToRhinoPolyline(MoleHill.Core.Analysis.ContourPolyline polyline)
+    {
+        int count = polyline.PointCount;
+        var result = new Polyline(count + (polyline.IsClosed ? 1 : 0));
+        for (int i = 0; i < count; i++)
+            result.Add(new Point3d(polyline.PointsXyz[i * 3], polyline.PointsXyz[i * 3 + 1], polyline.PointsXyz[i * 3 + 2]));
+
+        if (polyline.IsClosed && count > 0)
+            result.Add(result[0]);
+
+        return result;
     }
 
     private static ReferenceComparisonStats ComputeReferenceComparisonStats(

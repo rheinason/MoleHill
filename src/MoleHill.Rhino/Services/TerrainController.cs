@@ -1038,7 +1038,7 @@ internal sealed class TerrainController
         if (toDelete.Count > 0)
             terrain.AuxiliaryObjectIds.RemoveAll(toDelete.Contains);
 
-        var (newObjects, summary) = TerrainBuildService.BuildContourObjects(mesh, analysis);
+        var (newObjects, summary) = TerrainBuildService.BuildContourObjects(mesh, analysis, doc.ModelAbsoluteTolerance);
 
         var existing = terrain.LastAnalysisResults.FirstOrDefault(r => r.AnalysisId == analysisId);
         if (existing != null)
