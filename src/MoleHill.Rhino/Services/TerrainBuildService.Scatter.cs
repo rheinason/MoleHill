@@ -162,7 +162,21 @@ internal sealed partial class TerrainBuildService
         if (definition.Blocks.Count > 0)
         {
             foreach (var entry in definition.Blocks)
-                Accumulate(entry.Source, Math.Max(entry.Weight, 0.0));
+            {
+                double weight = Math.Max(entry.Weight, 0.0);
+                if (weight <= 0.0)
+                    continue;
+
+                if (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
+                {
+                    weightByName.TryGetValue(entry.BlockDefinitionName!, out double current);
+                    weightByName[entry.BlockDefinitionName!] = current + weight;
+                }
+                else
+                {
+                    Accumulate(entry.Source, weight);
+                }
+            }
         }
         else
         {

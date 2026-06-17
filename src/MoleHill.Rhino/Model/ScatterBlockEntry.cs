@@ -7,6 +7,12 @@ namespace MoleHill.Rhino.Model;
 /// </summary>
 public sealed class ScatterBlockEntry
 {
+    /// <summary>Block definition selected directly by name (via the block selector). Preferred over
+    /// <see cref="Source"/> when set.</summary>
+    public string? BlockDefinitionName { get; set; }
+
+    /// <summary>Alternative source: block instance(s)/layers picked in the document, resolved to their
+    /// block definition name(s) at build time. Used when <see cref="BlockDefinitionName"/> is empty.</summary>
     public SourceReferenceSet Source { get; set; } = new();
 
     public double Weight { get; set; } = 1.0;

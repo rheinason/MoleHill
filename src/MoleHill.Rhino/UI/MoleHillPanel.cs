@@ -3849,16 +3849,28 @@ public sealed partial class MoleHillPanel : Panel
             doc => _controller.GetSelectedLayerPaths(doc),
             "Closed boundary curves and/or layers the scatter fills. Multiple boundaries are accepted."));
 
-        // Weighted block mix: one source + weight per entry, plus add/remove.
+        // Weighted block mix: one block + weight per entry, plus add/remove. Name-based entries (from
+        // the block selector) show the block name; legacy instance-based entries keep a source editor.
         for (int blockIndex = 0; blockIndex < scatter.Blocks.Count; blockIndex++)
         {
             int index = blockIndex;
             ScatterBlockEntry entry = scatter.Blocks[index];
-            layout.AddRow(CreateSourceEditor($"Block {index + 1}", entry.Source,
-                apply => Mutate(s => { if (index < s.Blocks.Count) apply(s.Blocks[index].Source); }),
-                RhinoObjectType.InstanceReference,
-                doc => _controller.GetSelectedLayerPaths(doc),
-                "Block instance(s) to scatter for this entry."));
+            if (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
+            {
+                layout.AddRow(CreateReadOnlyValueRow(
+                    $"Block {index + 1}",
+                    entry.BlockDefinitionName!,
+                    "Block definition scattered for this entry."));
+            }
+            else
+            {
+                layout.AddRow(CreateSourceEditor($"Block {index + 1}", entry.Source,
+                    apply => Mutate(s => { if (index < s.Blocks.Count) apply(s.Blocks[index].Source); }),
+                    RhinoObjectType.InstanceReference,
+                    doc => _controller.GetSelectedLayerPaths(doc),
+                    "Block instance(s) to scatter for this entry."));
+            }
+
             layout.AddRow(CreateSliderNumericEditor(
                 $"Weight {index + 1}",
                 entry.Weight,
@@ -3872,8 +3884,8 @@ public sealed partial class MoleHillPanel : Panel
                 Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); }), "Remove this block from the mix.", width: 120));
         }
 
-        layout.AddRow(MakeToolbarButton("Add Block", (_, _) =>
-            Mutate(s => s.Blocks.Add(new ScatterBlockEntry())), "Add a block to the weighted mix.", width: 100));
+        layout.AddRow(MakeToolbarButton("Add Blocks…", (_, _) => AddScatterBlocksFromSelector(terrain, scatter.Id),
+            "Pick block definitions to add to the weighted mix.", width: 120));
 
         layout.AddRow(CreateDropDownEditor(
             "Pattern",
@@ -3966,6 +3978,46 @@ public sealed partial class MoleHillPanel : Panel
             help: "Maximum real instances drawn in 'Real (capped)' preview mode.", minValue: 0.0));
 
         return layout;
+    }
+
+    private void AddScatterBlocksFromSelector(TerrainDefinition terrain, Guid scatterId)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        var blockNames = new List<string>();
+        foreach (var definition in doc.InstanceDefinitions)
+        {
+            if (definition == null || definition.IsDeleted || string.IsNullOrWhiteSpace(definition.Name))
+                continue;
+
+            blockNames.Add(definition.Name);
+        }
+
+        blockNames = blockNames.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
+
+        var selected = BlockSelectorDialog.Show(doc, blockNames);
+        if (selected == null || selected.Count == 0)
+            return;
+
+        MutateObjectDefinition(terrain.TerrainId, scatterId, item =>
+        {
+            if (item is not ScatterObjectDefinition scatter)
+                return;
+
+            var existing = new HashSet<string>(
+                scatter.Blocks
+                    .Where(entry => !string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
+                    .Select(entry => entry.BlockDefinitionName!),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (string name in selected)
+            {
+                if (existing.Add(name))
+                    scatter.Blocks.Add(new ScatterBlockEntry { BlockDefinitionName = name, Weight = 1.0 });
+            }
+        });
     }
 
     private Control CreateMarkerGroup(TerrainDefinition terrain, MarkerDefinition marker)
