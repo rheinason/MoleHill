@@ -1,0 +1,18 @@
+# Normalize line endings so the working tree stops churning between LF and CRLF.
+* text=auto
+*.cs text
+*.md text
+*.json text
+*.props text
+*.csproj text
+*.sln text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets
+*.3dm binary
+*.gha binary
+*.rhp binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.mcpb binary
