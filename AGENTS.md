@@ -3,11 +3,26 @@
 ## Project Structure & Module Organization
 `MoleHill.sln` is the solution entry point. Active source projects live under `src/`:
 - `src/TriangleNet/`: vendored triangulation engine and meshing internals.
-- `src/MoleHill.Core/`: reusable terrain logic in `Engine/`, `Processing/`, `Grading/`, and `Analysis/`.
+- `src/MoleHill.Core/`: reusable terrain logic in `Engine/`, `Processing/`, `Grading/`, `Analysis/`, and `Scattering/`.
 - `src/MoleHill.Grasshopper/`: Grasshopper plugin code in `Components/`, `Utilities/`, `Resources/`, and plugin metadata in `MoleHillInfo.cs`.
 - `src/MoleHill.Rhino/`: Rhino plugin code in `Commands/`, `UI/`, `Services/`, `Model/`, `Resources/`, and `EmbeddedResources/`.
 
-Automated tests live in `tests/MoleHill.Core.Tests/` and `tests/MoleHill.Grasshopper.Tests/`. `tests/TopoTIN.Tests/` is a legacy empty placeholder. Additional docs live in `docs/` (currently `docs/retainingWall.md`). Utility scripts remain at repo root, including `generate-icons.ps1`, `generate-new-icons.ps1`, and `build-yak-package.ps1`.
+Automated tests live in `tests/MoleHill.Core.Tests/` and `tests/MoleHill.Grasshopper.Tests/`. Utility scripts remain at repo root, including `generate-icons.ps1`, `generate-new-icons.ps1`, `build-yak-package.ps1`, and `generate-file-index.ps1`.
+
+**Start here for navigation:** `docs/architecture.md` (the high-level map — pipeline, grading tier
+cascade, preview vs bake), `docs/file-index.md` (path → one-line summary for every source file;
+regenerate with `generate-file-index.ps1`), and the `README.md` in each source folder. Completed plan
+docs are archived under `docs/archive/`.
+
+**Load-bearing conventions** an agent must know:
+- `MoleHill.Core` is pure and unit-tested; `MoleHill.Rhino`/`MoleHill.Grasshopper` are thin hosts. Put
+  reusable math in Core (with a test), Rhino/GH API calls in the host projects.
+- Large classes are decomposed into `partial class` files (`TerrainBuildService.*.cs`,
+  `MoleHillPanel.*.cs`). Moving static methods between partials is byte-identical: compile-clean ⟹
+  behavior-identical.
+- The `.gha`/`.dll`/`.rhp` is locked while Rhino is open, so the build's copy step fails (MSB3021/
+  MSB3027) even after a clean compile — judge a build by `error CS`, not the copy error.
+- Grading is always watertight 2.5D (no holes/spikes); see the tier cascade in `docs/architecture.md`.
 
 ## Build, Test, and Development Commands
 - `dotnet restore MoleHill.sln`: restore NuGet dependencies.
