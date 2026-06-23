@@ -91,7 +91,7 @@ public class GradedRegionAssemblerTests
     [Fact]
     public void Grade_PadDaylightReachingTerrainEdge_ClipsAndUsesExplicit()
     {
-        // Flat grid terrain at z=10 over [0,40]; a pad at z=0 near the +x edge so the 45° batter
+        // Flat grid terrain at z=10 over [0,40]; a pad at z=0 near the +x edge so the 45Â° batter
         // (reach 10) runs past x=40 and must clip to the terrain boundary instead of deferring.
         var t = FlatGrid(21, 2.0, 10.0);
         double[] padXy = { 32, 16, 38, 16, 38, 24, 32, 24 };
@@ -102,96 +102,5 @@ public class GradedRegionAssemblerTests
         Assert.True(result != null, err);
         Assert.Contains("explicit batter", string.Join(" ", result!.Diagnostics), StringComparison.OrdinalIgnoreCase);
         PadInvariantAssert.AssertWatertightManifold(result);
-    }
-
-    [Fact]
-    public void Assemble_PadIntoFlatTerrain_ProducesWatertightManifoldMesh()
-    {
-        var terrain = FlatTerrain(10.0);
-
-        // Explicit batter from a square pad at z=0 up to flat terrain at z=10.
-        var stations = BatterStripBuilder.BuildClosedFootprintStations(Square(5.0), 4, cornerFanSegments: 6);
-        BatterStripBuilder.DaylightLoop loop = BatterStripBuilder.BuildDaylightLoop(
-            stations.Xy,
-            stations.Count,
-            isClosed: true,
-            outwardNormals: stations.Normals,
-            footprintZ: (_, _) => 0.0,
-            cutSlopeAngleDeg: 45.0,
-            fillSlopeAngleDeg: 45.0,
-            maxDistance: 0.0,
-            terrain: new TerrainFaceGrid(terrain.vertices, terrain.count, terrain.faces, terrain.faceCount),
-            barriers: PreparedBarriers.Empty,
-            tolerance: 1e-3);
-        BatterStripBuilder.BatterStrip strip = BatterStripBuilder.BuildBatterStrip(loop, edgeLength: 2.0);
-
-        // Pad top: the footprint square at z=0, two triangles.
-        var padTop = new GradedRegionAssembler.SubMesh
-        {
-            Vertices = new[]
-            {
-                -5.0, -5.0, 0.0,
-                 5.0, -5.0, 0.0,
-                 5.0,  5.0, 0.0,
-                -5.0,  5.0, 0.0
-            },
-            VertexCount = 4,
-            Faces = new[] { 0, 1, 2, 0, 2, 3 },
-            FaceCount = 2
-        };
-
-        var batter = new GradedRegionAssembler.SubMesh
-        {
-            Vertices = strip.Vertices,
-            VertexCount = strip.VertexCount,
-            Faces = strip.Faces,
-            FaceCount = strip.FaceCount
-        };
-
-        var insert = new GradedRegionAssembler.RegionInsert
-        {
-            DaylightLoopXyz = loop.DaylightXyz(),
-            DaylightLoopCount = loop.Count,
-            SubMeshes = new[] { batter, padTop }
-        };
-
-        GradedRegionAssembler.AssembledMesh result = GradedRegionAssembler.Assemble(
-            terrain.vertices,
-            terrain.count,
-            terrain.faces,
-            terrain.faceCount,
-            new[] { insert },
-            tolerance: 1e-3);
-
-        Assert.True(result.Success, result.Warning);
-        Assert.True(result.FaceCount > strip.FaceCount);
-
-        MeshTopologyValidator.BoundaryGraphAnalysis analysis =
-            MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
-
-        Assert.Equal(0, analysis.NonManifoldEdgeCount);
-        Assert.True(analysis.HasSingleClosedBoundaryLoop,
-            $"Expected one closed boundary loop; got components={analysis.BoundaryComponentCount}, openChains={analysis.HasOpenBoundaryChains}, nonManifold={analysis.NonManifoldEdgeCount}.");
-
-        // No interior vertex should sit at the original terrain elevation across the pad footprint:
-        // the pad interior must have been carved out and replaced by the graded surface.
-        Assert.All(EnumerateFaceCentroidZInsidePad(result, 5.0), z => Assert.True(z < 9.0));
-    }
-
-    private static IEnumerable<double> EnumerateFaceCentroidZInsidePad(
-        GradedRegionAssembler.AssembledMesh mesh,
-        double padHalf)
-    {
-        for (int f = 0; f < mesh.FaceCount; f++)
-        {
-            int a = mesh.Faces[f * 3], b = mesh.Faces[f * 3 + 1], c = mesh.Faces[f * 3 + 2];
-            double cx = (mesh.Vertices[a * 3] + mesh.Vertices[b * 3] + mesh.Vertices[c * 3]) / 3.0;
-            double cy = (mesh.Vertices[a * 3 + 1] + mesh.Vertices[b * 3 + 1] + mesh.Vertices[c * 3 + 1]) / 3.0;
-            if (Math.Abs(cx) <= padHalf && Math.Abs(cy) <= padHalf)
-            {
-                double cz = (mesh.Vertices[a * 3 + 2] + mesh.Vertices[b * 3 + 2] + mesh.Vertices[c * 3 + 2]) / 3.0;
-                yield return cz;
-            }
-        }
     }
 }

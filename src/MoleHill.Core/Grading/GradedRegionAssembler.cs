@@ -27,7 +27,7 @@ internal static class GradedRegionAssembler
         /// Optional per-vertex map from this sub-mesh's vertices to the SHARED terrain vertex index
         /// each one reproduces (or -1 for the sub-mesh's own interior vertices). When present,
         /// <see cref="WeldGradedRegion"/> stitches the sub-mesh onto the terrain by this identity
-        /// (Triangle.NET's preserved <c>Vertex.ID</c>) instead of by spatial proximity — exact by
+        /// (Triangle.NET's preserved <c>Vertex.ID</c>) instead of by spatial proximity â€” exact by
         /// construction, so the two independent triangulations cannot disagree on the shared boundary
         /// (the source of hairline cracks and overlapping slivers). Null falls back to the position weld.
         /// </summary>
@@ -40,17 +40,6 @@ internal static class GradedRegionAssembler
         /// too or the dropped one would dangle. Each pair is (terrainIndexToReplace, keepTerrainIndex).
         /// </summary>
         public (int From, int To)[]? TerrainMerges { get; init; }
-    }
-
-    internal sealed class RegionInsert
-    {
-        /// <summary>Closed daylight ring as flat XYZ, carrying the exact terrain elevation.</summary>
-        public required double[] DaylightLoopXyz { get; init; }
-
-        public required int DaylightLoopCount { get; init; }
-
-        /// <summary>The graded sub-meshes that fill the daylight loop (batter strip, pad top, ...).</summary>
-        public required IReadOnlyList<SubMesh> SubMeshes { get; init; }
     }
 
     internal sealed class AssembledMesh
@@ -66,296 +55,6 @@ internal static class GradedRegionAssembler
         public int[] Faces { get; init; } = Array.Empty<int>();
 
         public int FaceCount { get; init; }
-    }
-
-    internal static AssembledMesh Assemble(
-        double[] terrainVertices,
-        int terrainVertexCount,
-        int[] terrainFaces,
-        int terrainFaceCount,
-        IReadOnlyList<RegionInsert> inserts,
-        double tolerance,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null)
-    {
-        if (terrainVertexCount <= 0 || terrainFaceCount <= 0)
-            return new AssembledMesh { Success = false, Warning = "Terrain mesh is empty." };
-        if (inserts.Count == 0)
-            return new AssembledMesh { Success = false, Warning = "No graded inserts supplied." };
-
-        double weldTolerance = Math.Max(tolerance, 1e-6);
-        var terrainGrid = new TerrainFaceGrid(terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount);
-
-        if (!TryBuildOutsideTerrain(
-                terrainVertices,
-                terrainVertexCount,
-                terrainFaces,
-                terrainFaceCount,
-                inserts,
-                hardConstraints ?? Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
-                terrainGrid,
-                weldTolerance,
-                out double[] outsideVertices,
-                out int outsideVertexCount,
-                out int[] outsideFaces,
-                out int outsideFaceCount,
-                out string? outsideWarning))
-        {
-            return new AssembledMesh { Success = false, Warning = outsideWarning };
-        }
-
-        // Concatenate the carved terrain with every graded sub-mesh, then weld coincident
-        // vertices (daylight rings, footprint rings) so the seams close.
-        var welder = new VertexWelder(weldTolerance);
-        var faces = new List<int>(outsideFaceCount * 3);
-        // Sub-meshes can tile the same sliver where a batter collapses to ~zero reach (e.g. a station
-        // at grade). After welding those become duplicate triangles → non-manifold edges. Track the
-        // welded triangles and drop duplicates.
-        var seenFaces = new HashSet<(int, int, int)>();
-
-        AppendMesh(welder, faces, seenFaces, outsideVertices, outsideFaces, outsideFaceCount);
-        foreach (RegionInsert insert in inserts)
-        {
-            foreach (SubMesh subMesh in insert.SubMeshes)
-                AppendMesh(welder, faces, seenFaces, subMesh.Vertices, subMesh.Faces, subMesh.FaceCount);
-        }
-
-        double[] weldedVertices = welder.ToVertexArray();
-        int weldedVertexCount = welder.Count;
-        int[] faceArray = faces.ToArray();
-        int faceCount = faceArray.Length / 3;
-
-        // Sub-meshes (terrain seam, batter, pad top) come from different sources with independent
-        // winding. Grading surfaces never overhang, so orient every face to face upward (+Z) for a
-        // consistent normal field without relying on downstream UnifyNormals.
-        OrientFacesUpward(weldedVertices, faceArray, faceCount);
-
-        return new AssembledMesh
-        {
-            Success = true,
-            Vertices = weldedVertices,
-            VertexCount = weldedVertexCount,
-            Faces = faceArray,
-            FaceCount = faceCount
-        };
-    }
-
-    private static bool TryBuildOutsideTerrain(
-        double[] terrainVertices,
-        int terrainVertexCount,
-        int[] terrainFaces,
-        int terrainFaceCount,
-        IReadOnlyList<RegionInsert> inserts,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
-        TerrainFaceGrid terrainGrid,
-        double weldTolerance,
-        out double[] outsideVertices,
-        out int outsideVertexCount,
-        out int[] outsideFaces,
-        out int outsideFaceCount,
-        out string? warning)
-    {
-        outsideVertices = Array.Empty<double>();
-        outsideVertexCount = 0;
-        outsideFaces = Array.Empty<int>();
-        outsideFaceCount = 0;
-        warning = null;
-
-        var xyList = new List<double>(terrainVertexCount * 2);
-        var zInput = new List<double>(terrainVertexCount);
-        var pointIndex = new Dictionary<(long, long), int>(terrainVertexCount * 2);
-        double inverseCell = 1.0 / weldTolerance;
-
-        int AddPoint(double x, double y, double z)
-        {
-            var key = ((long)Math.Round(x * inverseCell), (long)Math.Round(y * inverseCell));
-            if (pointIndex.TryGetValue(key, out int existing))
-                return existing;
-
-            int index = zInput.Count;
-            xyList.Add(x);
-            xyList.Add(y);
-            zInput.Add(z);
-            pointIndex[key] = index;
-            return index;
-        }
-
-        var terrainMap = new int[terrainVertexCount];
-        for (int i = 0; i < terrainVertexCount; i++)
-            terrainMap[i] = AddPoint(terrainVertices[i * 3], terrainVertices[i * 3 + 1], terrainVertices[i * 3 + 2]);
-
-        var segments = new List<(int a, int b)>();
-
-        // The original terrain boundary must be part of the PSLG. Without it Triangle.NET would
-        // treat the daylight loop as the outermost contour and discard everything beyond it; with
-        // it the mesh covers the whole (possibly non-convex) terrain region and the loop becomes an
-        // internal constraint whose interior we drop by classification.
-        var terrainBoundary = new List<(int a, int b)>();
-        MeshConstraintTools.AddBoundarySegments(terrainBoundary, new HashSet<long>(), terrainFaces, terrainFaceCount);
-        foreach (var (a, b) in terrainBoundary)
-        {
-            int ai = terrainMap[a];
-            int bi = terrainMap[b];
-            if (ai != bi)
-                segments.Add((ai, bi));
-        }
-
-        int loopSegmentCount = 0;
-        foreach (RegionInsert insert in inserts)
-        {
-            int count = insert.DaylightLoopCount;
-            if (count < 3)
-                continue;
-
-            int first = AddPoint(insert.DaylightLoopXyz[0], insert.DaylightLoopXyz[1], insert.DaylightLoopXyz[2]);
-            int previous = first;
-            for (int i = 1; i < count; i++)
-            {
-                int current = AddPoint(
-                    insert.DaylightLoopXyz[i * 3],
-                    insert.DaylightLoopXyz[i * 3 + 1],
-                    insert.DaylightLoopXyz[i * 3 + 2]);
-                if (current != previous)
-                {
-                    segments.Add((previous, current));
-                    loopSegmentCount++;
-                }
-
-                previous = current;
-            }
-
-            if (previous != first)
-            {
-                segments.Add((previous, first));
-                loopSegmentCount++;
-            }
-        }
-
-        if (loopSegmentCount == 0)
-        {
-            warning = "Daylight loops were degenerate; nothing to embed in the terrain.";
-            return false;
-        }
-
-        // Embed hard constraints (lock curves / preserved breaklines) that lie outside the carved
-        // regions, so they survive as creases in the welded terrain at their preserved elevation.
-        foreach (SurfaceRemesher.ConstraintPolyline constraint in hardConstraints)
-        {
-            int pc = constraint.PointCount;
-            if (pc < 2 || constraint.Points is null || constraint.Points.Length < pc * 3)
-                continue;
-
-            double ConstraintZ(int p, double x, double y) =>
-                constraint.PreserveInputElevation ? constraint.Points[p * 3 + 2] : terrainGrid.InterpolateZ(x, y);
-
-            int Segments = pc + (constraint.IsClosed ? 0 : -1);
-            for (int s = 0; s < Segments; s++)
-            {
-                int p0 = s;
-                int p1 = (s + 1) % pc;
-                double x0 = constraint.Points[p0 * 3], y0 = constraint.Points[p0 * 3 + 1];
-                double x1 = constraint.Points[p1 * 3], y1 = constraint.Points[p1 * 3 + 1];
-
-                // Skip segments that enter a carved region; grading owns that area.
-                if (IsInsideAnyDaylightLoop(x0, y0, inserts) || IsInsideAnyDaylightLoop(x1, y1, inserts))
-                    continue;
-
-                int a = AddPoint(x0, y0, ConstraintZ(p0, x0, y0));
-                int b = AddPoint(x1, y1, ConstraintZ(p1, x1, y1));
-                if (a != b)
-                    segments.Add((a, b));
-            }
-        }
-
-        TriangulationOutcome outcome = TriangulationHelper.Triangulate(
-            xyList,
-            zInput.Count,
-            segments,
-            maxArea: 0.0,
-            minAngle: 0.0,
-            convex: false,
-            segmentSplitting: 0);
-
-        if (outcome.Mesh == null)
-        {
-            warning = outcome.WarningMessage ?? "Failed to embed daylight loops in the terrain.";
-            return false;
-        }
-
-        TriangleNetExtractor.Result extracted = TriangleNetExtractor.Extract(outcome.Mesh);
-        if (extracted.FaceCount == 0)
-        {
-            warning = "Embedding the daylight loops produced no terrain triangles.";
-            return false;
-        }
-
-        var vertices = new double[extracted.VertexCount * 3];
-        for (int i = 0; i < extracted.VertexCount; i++)
-        {
-            double x = extracted.Xy[i * 2];
-            double y = extracted.Xy[i * 2 + 1];
-            int sourceId = extracted.SourceIds[i];
-            vertices[i * 3] = x;
-            vertices[i * 3 + 1] = y;
-            vertices[i * 3 + 2] = sourceId >= 0 && sourceId < zInput.Count
-                ? zInput[sourceId]
-                : terrainGrid.InterpolateZ(x, y);
-        }
-
-        // Keep only faces whose centroid is outside every daylight loop. The interior is replaced
-        // by the explicit graded sub-meshes.
-        var keptFaces = new List<int>(extracted.FaceCount * 3);
-        for (int f = 0; f < extracted.FaceCount; f++)
-        {
-            int a = extracted.Faces[f * 3];
-            int b = extracted.Faces[f * 3 + 1];
-            int c = extracted.Faces[f * 3 + 2];
-            double cx = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
-            double cy = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0;
-
-            if (IsInsideAnyDaylightLoop(cx, cy, inserts))
-                continue;
-
-            keptFaces.Add(a);
-            keptFaces.Add(b);
-            keptFaces.Add(c);
-        }
-
-        if (keptFaces.Count == 0)
-        {
-            warning = "All terrain faces fell inside the daylight loops.";
-            return false;
-        }
-
-        outsideVertices = vertices;
-        outsideVertexCount = extracted.VertexCount;
-        outsideFaces = keptFaces.ToArray();
-        outsideFaceCount = keptFaces.Count / 3;
-        return true;
-    }
-
-    private static bool IsInsideAnyDaylightLoop(double x, double y, IReadOnlyList<RegionInsert> inserts)
-    {
-        foreach (RegionInsert insert in inserts)
-        {
-            if (insert.DaylightLoopCount < 3)
-                continue;
-            if (GradingGeometry2D.PointInPolygon(x, y, ToXy(insert.DaylightLoopXyz, insert.DaylightLoopCount), insert.DaylightLoopCount))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static double[] ToXy(double[] xyz, int count)
-    {
-        var xy = new double[count * 2];
-        for (int i = 0; i < count; i++)
-        {
-            xy[i * 2] = xyz[i * 3];
-            xy[i * 2 + 1] = xyz[i * 3 + 1];
-        }
-
-        return xy;
     }
 
     /// <summary>
@@ -383,7 +82,7 @@ internal static class GradedRegionAssembler
 
     /// <summary>
     /// Conforms the terrain to the daylight loops (clipped to the terrain outline) and returns the
-    /// FULL split mesh — every face kept. The caller keeps the whole conformed mesh and assigns Z by
+    /// FULL split mesh â€” every face kept. The caller keeps the whole conformed mesh and assigns Z by
     /// section, so there is no carve/fill/weld seam (watertight by construction when the split succeeds).
     /// </summary>
     internal static MeshAreaSplitter.SplitResult? SplitConform(
@@ -415,8 +114,8 @@ internal static class GradedRegionAssembler
             terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, areas.ToArray(), tolerance, out _);
 
         // The hand-rolled per-face conforming subdivision preserves terrain detail but can emit a
-        // non-manifold sliver when a daylight×terrain-edge cut point lands a hair off an existing
-        // terrain vertex (distinct at model tolerance → two degenerate faces on a shared edge). When
+        // non-manifold sliver when a daylightÃ—terrain-edge cut point lands a hair off an existing
+        // terrain vertex (distinct at model tolerance â†’ two degenerate faces on a shared edge). When
         // that happens, re-conform with a single Triangle.NET CDT, which is always a valid
         // (non-overlapping, manifold) triangulation. Keep the hand-rolled result whenever it is clean
         // so the terrain-detail-preserving path is unchanged for the scenes it already handles.
@@ -448,11 +147,11 @@ internal static class GradedRegionAssembler
 
     /// <summary>
     /// Triangle.NET-native terrain conform: re-triangulate the terrain points with the terrain outline
-    /// and each clipped daylight loop inserted as exact constraint segments (one CDT — always a valid,
+    /// and each clipped daylight loop inserted as exact constraint segments (one CDT â€” always a valid,
     /// non-overlapping triangulation), then keep every face whose centroid lies inside the terrain
     /// outline (dropping only the convex-hull skirt). The result is one manifold surface bounded by the
     /// terrain outline, conformed to the daylight loops, with all original terrain vertices preserved
-    /// (so terrain elevations are exact) — watertight by construction for the split-keep path. Returns
+    /// (so terrain elevations are exact) â€” watertight by construction for the split-keep path. Returns
     /// null when the terrain is non-simple (no single outline) or the CDT/extract did not produce a
     /// clean manifold mesh, so the caller can defer.
     /// </summary>
@@ -723,7 +422,7 @@ internal static class GradedRegionAssembler
         if (fills.Count > 0 && fills.All(fill => fill.BoundaryTerrainIndex != null))
         {
             // Identity weld (Triangle.NET's preserved Vertex.ID): each fill boundary vertex reproduces
-            // a known terrain vertex, so stitch by that shared index — reuse the terrain vertex, append
+            // a known terrain vertex, so stitch by that shared index â€” reuse the terrain vertex, append
             // only the fill's interior vertices. Exact by construction: no position-dedup tolerance, so
             // the two independent triangulations cannot disagree on the shared boundary.
             (weldedVertices, faceArray) = WeldByIdentity(outsideVertices, outsideFaces, outsideFaceCount, fills);
@@ -752,7 +451,7 @@ internal static class GradedRegionAssembler
         // instead of deferring to the fallback.
         //
         // BUT only when the exact weld actually left a defect: when the assembly is ALREADY a single
-        // closed manifold, the crack-repair is at best a no-op and at worst harmful — StitchBoundary
+        // closed manifold, the crack-repair is at best a no-op and at worst harmful â€” StitchBoundary
         // cracks would merge legitimately-distinct near-coincident vertices on the ORIGINAL terrain
         // outline (tight boundary notches far from any pad), turning a clean mesh non-manifold and
         // forcing the whole explicit path to defer. Skip the repair when nothing needs repairing.
@@ -1068,7 +767,7 @@ internal static class GradedRegionAssembler
 
     /// <summary>
     /// Merges coincident vertices (within tolerance) as they are appended, merging by actual Euclidean
-    /// distance — NOT by exact cell match. A naive single-cell hash misses pairs that fall within
+    /// distance â€” NOT by exact cell match. A naive single-cell hash misses pairs that fall within
     /// tolerance but straddle a cell boundary (e.g. x*100 = 2849.4999 vs 2849.5001 round to different
     /// cells), leaving hairline seam cracks that show up as non-manifold/open edges at the
     /// fill-to-terrain weld. The cell size is 2x the tolerance and Add scans the 2x2x2 cell block
