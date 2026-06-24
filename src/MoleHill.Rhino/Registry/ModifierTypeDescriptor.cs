@@ -21,6 +21,18 @@ internal abstract class ModifierTypeDescriptor
     /// <summary>Human label for menus/headers.</summary>
     public abstract string DisplayName { get; }
 
+    /// <summary>Panel icon resource name (loaded via <c>PanelIcons.Load</c>).</summary>
+    public abstract string IconName { get; }
+
+    /// <summary>Ordering within the Add-Modifier menu.</summary>
+    public virtual int SortOrder => 0;
+
+    /// <summary>Whether this type appears in the Add-Modifier menu (the base triangulate does not).</summary>
+    public virtual bool CanCreateFromMenu => true;
+
+    /// <summary>Short card subtitle. Defaults to the display name.</summary>
+    public virtual string Subtitle => DisplayName;
+
     /// <summary>Creates a new definition with unit-aware defaults.</summary>
     public abstract ModifierDefinition Create(UnitSystem unitSystem);
 }

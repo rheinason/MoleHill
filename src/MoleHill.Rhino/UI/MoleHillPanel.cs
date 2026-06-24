@@ -6,6 +6,7 @@ using MoleHill.Core.Analysis;
 using MoleHill.Core.Grading;
 using MoleHill.Core.Scattering;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
 using Rhino;
 using Rhino.UI;
@@ -19,16 +20,6 @@ namespace MoleHill.Rhino.UI;
 [System.Runtime.InteropServices.Guid("E8A65B83-74A6-4325-B66D-D7005A4A8257")]
 public sealed partial class MoleHillPanel : Panel
 {
-    private static readonly (string Label, string Kind)[] ModifierKinds =
-    {
-        ("Add Geometry", "add-geometry"),
-        ("Remesh", "remesh"),
-        ("Smooth", "smooth"),
-        ("Retaining Wall", "retaining-wall"),
-        ("Grade Pad", "grade-pad"),
-        ("Grade Path", "grade-path"),
-        ("In-Situ Stair", "in-situ-stair")
-    };
 
     private static readonly (string Label, string Kind)[] AnalysisKinds =
     {
@@ -2036,14 +2027,16 @@ public sealed partial class MoleHillPanel : Panel
         if (terrain != null)
         {
             var menu = new ContextMenu();
-            foreach (var (label, kind) in ModifierKinds)
+            foreach (var descriptor in TerrainTypeRegistry.Modifiers
+                         .Where(d => d.CanCreateFromMenu)
+                         .OrderBy(d => d.SortOrder))
             {
                 var item = new ButtonMenuItem
                 {
-                    Text = label,
-                    Image = PanelIcons.Load(GetModifierIconName(kind))
+                    Text = descriptor.DisplayName,
+                    Image = PanelIcons.Load(descriptor.IconName)
                 };
-                var capturedKind = kind;
+                var capturedKind = descriptor.Kind;
                 var capturedTerrainId = terrain.TerrainId;
                 item.Click += (_, _) =>
                 {
@@ -5938,57 +5931,22 @@ public sealed partial class MoleHillPanel : Panel
         _                => Color.FromArgb(120, 120, 120)
     };
 
-    private static string GetModifierKind(ModifierDefinition modifier) => modifier switch
-    {
-        TriangulateModifierDefinition    => "triangulate",
-        AddGeometryModifierDefinition    => "add-geometry",
-        RemeshModifierDefinition         => "remesh",
-        SmoothModifierDefinition         => "smooth",
-        RetainingWallModifierDefinition  => "retaining-wall",
-        GradePadModifierDefinition       => "grade-pad",
-        GradePathModifierDefinition      => "grade-path",
-        InSituStairModifierDefinition    => "in-situ-stair",
-        _                                => string.Empty
-    };
+    private static string GetModifierKind(ModifierDefinition modifier) =>
+        TerrainTypeRegistry.ForModifierType(modifier.GetType())?.Kind ?? string.Empty;
 
-    private static string GetModifierTypeLabel(ModifierDefinition modifier) => modifier switch
-    {
-        TriangulateModifierDefinition    => "Triangulate",
-        AddGeometryModifierDefinition    => "Add Geometry",
-        RemeshModifierDefinition         => "Remesh",
-        SmoothModifierDefinition         => "Smooth",
-        RetainingWallModifierDefinition  => "Retaining Wall",
-        GradePadModifierDefinition       => "Grade Pad",
-        GradePathModifierDefinition      => "Grade Path",
-        InSituStairModifierDefinition    => "In-Situ Stair",
-        _                                => "Modifier"
-    };
+    private static string GetModifierTypeLabel(ModifierDefinition modifier) =>
+        TerrainTypeRegistry.ForModifierType(modifier.GetType())?.DisplayName ?? "Modifier";
 
-    private static string GetModifierIconName(string kind) => kind switch
-    {
-        "triangulate" => "ModTriangulate",
-        "add-geometry" => "ModAddGeometry",
-        "remesh" => "ModRemesh",
-        "smooth" => "ModSmooth",
-        "retaining-wall" => "ModRetainingWall",
-        "grade-pad" => "ModGradePad",
-        "grade-path" => "ModGradePath",
-        "in-situ-stair" => "ModGradePath",
-        _ => "ModTriangulate"
-    };
+    private static string GetModifierIconName(string kind) =>
+        TerrainTypeRegistry.ForModifierKind(kind)?.IconName ?? "ModTriangulate";
 
-    private static string GetModifierSubtitle(ModifierDefinition modifier, bool isPinnedBaseTriangulate) => modifier switch
+    private static string GetModifierSubtitle(ModifierDefinition modifier, bool isPinnedBaseTriangulate)
     {
-        TriangulateModifierDefinition => isPinnedBaseTriangulate ? "Base geometry" : "Terrain geometry",
-        AddGeometryModifierDefinition => "Add source geometry",
-        RemeshModifierDefinition => "Constraint-preserving remesh",
-        SmoothModifierDefinition => "Z-only smoothing",
-        RetainingWallModifierDefinition => "Wall breaklines",
-        GradePadModifierDefinition => "Pad + daylight grading",
-        GradePathModifierDefinition => "Path corridor grading",
-        InSituStairModifierDefinition => "Support surface + stair Breps",
-        _ => "Modifier"
-    };
+        if (isPinnedBaseTriangulate && modifier is TriangulateModifierDefinition)
+            return "Base geometry";
+
+        return TerrainTypeRegistry.ForModifierType(modifier.GetType())?.Subtitle ?? "Modifier";
+    }
 
     private static string GetCollapsedSummary(ModifierDefinition modifier)
     {
