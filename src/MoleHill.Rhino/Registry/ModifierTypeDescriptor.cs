@@ -35,4 +35,10 @@ internal abstract class ModifierTypeDescriptor
 
     /// <summary>Creates a new definition with unit-aware defaults.</summary>
     public abstract ModifierDefinition Create(UnitSystem unitSystem);
+
+    /// <summary>
+    /// Runs this type's build step, reading the incoming mesh from <paramref name="context"/> and writing
+    /// back the outgoing mesh/fingerprint. Replaces the central modifier switch in the build service.
+    /// </summary>
+    public abstract void RunBuildStage(ModifierBuildContext context);
 }

@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
 using Rhino;
 
 namespace MoleHill.Rhino.Registry;
@@ -12,4 +13,5 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
     public override int SortOrder => 1;
     public override string Subtitle => "Add source geometry";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new AddGeometryModifierDefinition();
+    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunAddGeometryStage(context);
 }

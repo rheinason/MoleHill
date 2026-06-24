@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
 using Rhino;
 
 namespace MoleHill.Rhino.Registry;
@@ -12,4 +13,5 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
     public override bool CanCreateFromMenu => false; // pinned base modifier
     public override string Subtitle => "Terrain geometry";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new TriangulateModifierDefinition();
+    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunTriangulateStage(context);
 }

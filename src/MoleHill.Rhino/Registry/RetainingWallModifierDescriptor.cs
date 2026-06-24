@@ -14,4 +14,5 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
     public override string Subtitle => "Wall breaklines";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new RetainingWallModifierDefinition { MaxWallWidth = ModelUnits.FromMeters(1.0, unitSystem) };
+    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetainingWallStage(context);
 }

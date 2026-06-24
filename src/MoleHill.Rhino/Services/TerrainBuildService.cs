@@ -5,6 +5,7 @@ using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Core.Processing;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.Geometry;
@@ -59,124 +60,39 @@ internal sealed partial class TerrainBuildService
             string stageKey = TerrainStageKey.ForMode(mode, TerrainStageKey.CreateModifier(indexedModifier.index, modifier));
             usedStageKeys.Add(stageKey);
 
-            switch (modifier)
+            // Registry dispatch (Blender-style): the type's descriptor owns its build step. A null
+            // descriptor means an unregistered modifier type — skip it, exactly as the old switch's
+            // missing case did.
+            ModifierTypeDescriptor? descriptor = TerrainTypeRegistry.ForModifierType(modifier.GetType());
+            if (descriptor == null)
             {
-                case TriangulateModifierDefinition triangulate:
-                    currentMesh = BuildTinMesh(snapshot, terrain, triangulate, build, runtimeCache, stageKey, out currentMeshFingerprint, shouldCancel);
-                    if (currentMesh != null && baseMesh == null)
-                    {
-                        baseMesh = currentMesh.DuplicateMesh();
-                        baseMeshFingerprint = ComputeMeshFingerprint(baseMesh);
-                    }
-                    break;
-                case AddGeometryModifierDefinition addGeometry:
-                    currentMesh = ExecuteCachedMeshStage(
-                        build,
-                        runtimeCache,
-                        stageKey,
-                        "Add Geometry",
-                        ComputeModifierStageFingerprint(snapshot, terrain, addGeometry, currentMeshFingerprint),
-                        () => currentMesh == null ? WarnMissingMesh(build, addGeometry.Label) : ApplyAddGeometry(snapshot, terrain, currentMesh, addGeometry, build, runtimeCache, shouldCancel),
-                        result => DescribeModifierMeshResult(addGeometry.Label, result),
-                        out currentMeshFingerprint,
-                        shouldCancel);
-                    break;
-                case RemeshModifierDefinition remesh:
-                    currentMesh = ExecuteCachedMeshStage(
-                        build,
-                        runtimeCache,
-                        stageKey,
-                        "Remesh",
-                        ComputeModifierStageFingerprint(snapshot, terrain, remesh, currentMeshFingerprint),
-                        () => currentMesh == null ? WarnMissingMesh(build, remesh.Label) : ApplyRemesh(snapshot, terrain, currentMesh, remesh, build, mode),
-                        result => DescribeModifierMeshResult(remesh.Label, result),
-                        out currentMeshFingerprint,
-                        shouldCancel);
-                    break;
-                case SmoothModifierDefinition smooth:
-                    usedStageKeys.Add(TerrainStageKey.CreateSmoothPrepared(stageKey));
-                    currentMesh = ExecuteCachedMeshStage(
-                        build,
-                        runtimeCache,
-                        stageKey,
-                        "Smooth",
-                        ComputeModifierStageFingerprint(snapshot, terrain, smooth, currentMeshFingerprint),
-                        () => currentMesh == null ? WarnMissingMesh(build, smooth.Label) : ApplySmooth(snapshot, terrain, currentMesh, smooth, build, runtimeCache, stageKey, mode),
-                        result => DescribeModifierMeshResult(smooth.Label, result),
-                        out currentMeshFingerprint,
-                        shouldCancel);
-                    break;
-                case RetainingWallModifierDefinition retainingWall:
-                    currentMesh = ExecuteCachedMeshStage(
-                        build,
-                        runtimeCache,
-                        stageKey,
-                        "Retaining Wall",
-                        ComputeModifierStageFingerprint(snapshot, terrain, retainingWall, currentMeshFingerprint),
-                        () => currentMesh == null ? WarnMissingMesh(build, retainingWall.Label) : ApplyRetainingWalls(snapshot, terrain, currentMesh, retainingWall, build, mode),
-                        result => DescribeModifierMeshResult(retainingWall.Label, result),
-                        out currentMeshFingerprint,
-                        shouldCancel);
-                    break;
-                case GradePadModifierDefinition gradePad:
-                    usedStageKeys.Add(TerrainStageKey.CreateGradingTopology(stageKey, "Pad"));
-                    currentMesh = BuildGradePadMesh(
-                        snapshot,
-                        terrain,
-                        gradePad,
-                        build,
-                        runtimeCache,
-                        indexedModifier.index,
-                        stageKey,
-                        currentMesh,
-                        currentMeshFingerprint,
-                        mode,
-                        out currentMeshFingerprint,
-                        shouldCancel);
-                    break;
-                case GradePathModifierDefinition gradePath:
-                    usedStageKeys.Add(TerrainStageKey.CreateGradingTopology(stageKey, "Path"));
-                    currentMesh = ExecuteCachedMeshStage(
-                        build,
-                        runtimeCache,
-                        stageKey,
-                        "Grade Path",
-                        ComputeModifierStageFingerprint(snapshot, terrain, gradePath, currentMeshFingerprint),
-                        () => currentMesh == null ? WarnMissingMesh(build, gradePath.Label) : ApplyGradePath(snapshot, terrain, currentMesh, gradePath, build, runtimeCache, indexedModifier.index, stageKey, mode),
-                        result => DescribeModifierMeshResult(gradePath.Label, result),
-                        out currentMeshFingerprint,
-                        shouldCancel);
-                    break;
-                case InSituStairModifierDefinition inSituStair:
-                    currentMesh = ExecuteCachedMeshStage(
-                        build,
-                        runtimeCache,
-                        stageKey,
-                        "In-Situ Stair",
-                        ComputeModifierStageFingerprint(snapshot, terrain, inSituStair, currentMeshFingerprint),
-                        () => currentMesh == null
-                            ? WarnMissingMesh(build, inSituStair.Label)
-                            : ApplyInSituStair(snapshot, terrain, currentMesh, inSituStair, build, mode),
-                        result => DescribeModifierMeshResult(inSituStair.Label, result),
-                        out currentMeshFingerprint,
-                        shouldCancel);
-                    if (runtimeCache.StageEntries.TryGetValue(stageKey, out var stairStageEntry))
-                    {
-                        if (!string.IsNullOrWhiteSpace(inSituStair.ComputedTreadDepthSummary))
-                        {
-                            stairStageEntry.StairSurfaceCount = inSituStair.ComputedSurfaceCount;
-                            stairStageEntry.StairTreadDepthSummary = inSituStair.ComputedTreadDepthSummary;
-                            stairStageEntry.StairStepCountSummary = inSituStair.ComputedStepCountSummary;
-                        }
-                        else if (!string.IsNullOrWhiteSpace(stairStageEntry.StairTreadDepthSummary))
-                        {
-                            inSituStair.ComputedSurfaceCount = stairStageEntry.StairSurfaceCount;
-                            inSituStair.ComputedTreadDepthSummary = stairStageEntry.StairTreadDepthSummary;
-                            inSituStair.ComputedStepCountSummary = stairStageEntry.StairStepCountSummary;
-                        }
-                    }
-                    break;
+                continue;
             }
+
+            var context = new ModifierBuildContext
+            {
+                Snapshot = snapshot,
+                Terrain = terrain,
+                Modifier = modifier,
+                Index = indexedModifier.index,
+                StageKey = stageKey,
+                Mode = mode,
+                Build = build,
+                RuntimeCache = runtimeCache,
+                UsedStageKeys = usedStageKeys,
+                ShouldCancel = shouldCancel,
+                CurrentMesh = currentMesh,
+                CurrentMeshFingerprint = currentMeshFingerprint,
+                BaseMesh = baseMesh,
+                BaseMeshFingerprint = baseMeshFingerprint,
+            };
+
+            descriptor.RunBuildStage(context);
+
+            currentMesh = context.CurrentMesh;
+            currentMeshFingerprint = context.CurrentMeshFingerprint;
+            baseMesh = context.BaseMesh;
+            baseMeshFingerprint = context.BaseMeshFingerprint;
         }
 
         build.PrimaryMesh = currentMesh;

@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
 using Rhino;
 
 namespace MoleHill.Rhino.Registry;
@@ -12,4 +13,5 @@ internal sealed class SmoothModifierDescriptor : ModifierTypeDescriptor
     public override int SortOrder => 3;
     public override string Subtitle => "Z-only smoothing";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new SmoothModifierDefinition();
+    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunSmoothStage(context);
 }

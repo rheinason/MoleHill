@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
 using Rhino;
 
 namespace MoleHill.Rhino.Registry;
@@ -12,4 +13,5 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
     public override int SortOrder => 2;
     public override string Subtitle => "Constraint-preserving remesh";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new RemeshModifierDefinition();
+    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRemeshStage(context);
 }
