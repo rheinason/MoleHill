@@ -2819,18 +2819,10 @@ internal sealed class TerrainController
         return objectFilter == 0 || MatchesObjectFilter(obj, objectFilter);
     }
 
-    private static ModifierDefinition? CreateModifier(string modifierKind, UnitSystem unitSystem) => modifierKind switch
-    {
-        "triangulate" => new TriangulateModifierDefinition(),
-        "add-geometry" => new AddGeometryModifierDefinition(),
-        "remesh" => new RemeshModifierDefinition(),
-        "smooth" => new SmoothModifierDefinition(),
-        "retaining-wall" => new RetainingWallModifierDefinition { MaxWallWidth = ModelUnits.FromMeters(1.0, unitSystem) },
-        "grade-pad" => new GradePadModifierDefinition(),
-        "grade-path" => new GradePathModifierDefinition { Width = ModelUnits.FromMeters(2.0, unitSystem) },
-        "in-situ-stair" => new InSituStairModifierDefinition { RiserHeight = ModelUnits.FromMeters(0.15, unitSystem) },
-        _ => null
-    };
+    // Modifier creation is driven by the type registry (one descriptor per modifier) so adding a
+    // modifier no longer needs a case here. See MoleHill.Rhino/Registry.
+    private static ModifierDefinition? CreateModifier(string modifierKind, UnitSystem unitSystem) =>
+        Registry.TerrainTypeRegistry.CreateModifier(modifierKind, unitSystem);
 
     private static bool IsPinnedBaseTriangulate(TerrainDefinition terrain, ModifierDefinition modifier)
     {
