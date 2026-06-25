@@ -1,8 +1,18 @@
 # Grasshopper parity — design
 
-Status: **B2 framework + Remesh vertical slice DONE** (2026-06-24); remaining components pending. Goal:
-let registry-described terrain types surface as Grasshopper components with as little per-type
-duplication as possible.
+Status: **B2 DONE** (2026-06-24). 8 of 10 components migrated to the spec framework; 2 intentionally
+bespoke. Goal achieved: a Grasshopper component is now a small spec (ports + Core-call `Solve`) on a
+shared base, with mesh/curve plumbing deduped.
+
+## Outcome
+Migrated onto `RegistryTerrainComponent`: **Remesh, Grade Pad, Grade Path, Mesh Smooth, Retaining Wall,
+In-Situ Stair, Slope Analysis, Mesh Areas**. Bespoke (escape hatch, `Grasshopper`-spec not used):
+- **TIN Surface** — keeps per-instance caching (`_engine`, `_cachedMerged`) which the static-spec model
+  can't hold.
+- **Mesh Collage** — dual-mode (2D/3D) with Colour I/O and `GH_Hatch` geometry outputs; not worth
+  forcing through the spec.
+`GhPort` types: Mesh, Curve, Number, Integer, Boolean, Brep, Line, Text, Geometry. Each migrated
+component kept its original `ComponentGuid` and input/output schema (verified in real GH via rhino-mcp).
 
 ## Implemented (B2)
 `src/MoleHill.Grasshopper/Registry/`: `GhPort` + `GhComponentSpec` (declarative ports + `Solve`),
