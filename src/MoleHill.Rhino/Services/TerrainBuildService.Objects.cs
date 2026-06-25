@@ -102,15 +102,17 @@ internal sealed partial class TerrainBuildService
         TerrainBuildResult build,
         Func<bool>? shouldCancel)
     {
-        int enabledObjectCount = terrain.Objects.Count(item => item.IsEnabled);
+        var placeableDefinitions = terrain.Objects
+            .Where(item => item.IsEnabled && item is not ScatterObjectDefinition)
+            .ToList();
+        int enabledObjectCount = placeableDefinitions.Count;
         if (enabledObjectCount == 0)
             return;
 
         var timer = Stopwatch.StartNew();
         mesh.Normals.ComputeNormals();
 
-        var resolvedEntries = terrain.Objects
-            .Where(item => item.IsEnabled)
+        var resolvedEntries = placeableDefinitions
             .Select(item => (Definition: item, Objects: TerrainBuildSnapshotResolver.ResolveObjects(snapshot, item.Sources)))
             .ToList();
 

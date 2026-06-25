@@ -31,6 +31,7 @@ public static class ContourGenerator
         for (int i = 0; i < levelCount; i++)
             segments[i] = new List<double>();
 
+        var pts = new double[6];
         for (int f = 0; f < faceCount; f++)
         {
             int ia = faces[f * 3], ib = faces[f * 3 + 1], ic = faces[f * 3 + 2];
@@ -49,7 +50,6 @@ public static class ContourGenerator
             {
                 double level = sortedLevels[li];
                 // A plane strictly between zmin and zmax crosses exactly two of the three edges.
-                Span<double> pts = stackalloc double[6];
                 int found = 0;
                 AddCrossing(ax, ay, az, bx, by, bz, level, pts, ref found);
                 AddCrossing(bx, by, bz, cx, cy, cz, level, pts, ref found);
