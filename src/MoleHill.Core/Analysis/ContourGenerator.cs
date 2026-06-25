@@ -44,12 +44,20 @@ public static class ContourGenerator
             if (zmax - zmin <= 0.0)
                 continue;
 
-            // First level strictly above zmin.
+            // First level strictly above zmin. (A level == zmin can never emit: no vertex is below the
+            // minimum, so AddCrossing finds no below->above transition.) The upper bound is INCLUSIVE of
+            // zmax: a face with an edge exactly at the level — e.g. a batter triangle whose two rim
+            // vertices sit at a round pad elevation and whose toe is below — has zmax == level and must
+            // still emit that rim edge. Excluding it (the old strict `< zmax`) silently dropped the
+            // pad-outline contour whenever users contoured at the pad's exact design elevation.
             int start = UpperBound(sortedLevels, zmin);
-            for (int li = start; li < levelCount && sortedLevels[li] < zmax; li++)
+            for (int li = start; li < levelCount && sortedLevels[li] <= zmax; li++)
             {
                 double level = sortedLevels[li];
-                // A plane strictly between zmin and zmax crosses exactly two of the three edges.
+                // A level between zmin and zmax (inclusive of zmax) crosses exactly two of the three
+                // edges. At-level vertices count as "above" (AddCrossing uses pz < level), so a face with
+                // two vertices exactly at the level and the third below emits the segment along that edge
+                // via crossings landing on the two at-level vertices (t = 0 / t = 1).
                 int found = 0;
                 AddCrossing(ax, ay, az, bx, by, bz, level, pts, ref found);
                 AddCrossing(bx, by, bz, cx, cy, cz, level, pts, ref found);

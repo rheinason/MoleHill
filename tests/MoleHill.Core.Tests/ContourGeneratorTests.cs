@@ -89,6 +89,41 @@ public class ContourGeneratorTests
     }
 
     [Fact]
+    public void Generate_LevelAtVertexElevation_StillProducesContour()
+    {
+        // Regression: a contour level that equals a face's zmax (e.g. a graded pad's rim, where two
+        // vertices sit at the exact design elevation and the toe is below) was silently dropped by the
+        // old strict `< zmax` range bound. Quad x in [0,10]: the x=0 edge is at z=5, the x=10 edge at
+        // z=0; split into two triangles. The z=5 contour runs along the x=0 edge.
+        double[] vertices =
+        {
+            0, 0, 5,    // v0
+            0, 10, 5,   // v1
+            10, 0, 0,   // v2
+            10, 10, 0   // v3
+        };
+        int[] faces = { 0, 2, 1, 1, 2, 3 };
+
+        var levels = ContourGenerator.Generate(vertices, 4, faces, 2, new[] { 5.0 }, 0.001);
+
+        Assert.Single(levels);
+        ContourLevel level = levels[0];
+        Assert.Equal(5.0, level.Z, 9);
+        Assert.Single(level.Polylines);
+        ContourPolyline polyline = level.Polylines[0];
+        Assert.True(polyline.PointCount >= 2);
+        for (int i = 0; i < polyline.PointCount; i++)
+        {
+            Assert.Equal(0.0, polyline.PointsXyz[i * 3], 6);     // x == 0 (the rim edge)
+            Assert.Equal(5.0, polyline.PointsXyz[i * 3 + 2], 6); // z == 5
+        }
+        double minY = Enumerable.Range(0, polyline.PointCount).Min(i => polyline.PointsXyz[i * 3 + 1]);
+        double maxY = Enumerable.Range(0, polyline.PointCount).Max(i => polyline.PointsXyz[i * 3 + 1]);
+        Assert.Equal(0.0, minY, 6);
+        Assert.Equal(10.0, maxY, 6);
+    }
+
+    [Fact]
     public void Generate_LevelOutsideRange_Skipped()
     {
         double[] vertices = { 0, 0, 0, 10, 0, 10, 10, 10, 10, 0, 10, 0 };
