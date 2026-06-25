@@ -10,7 +10,9 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   definition that reads doc geometry.
 
 ## Definition hierarchies (JSON-polymorphic base → subtypes)
-- **Modifiers** — `ModifierDefinition` → `GeometryInputModifierDefinition`
+- **Modifiers** — polymorphism is registry-driven (`Services/TerrainJsonTypeResolver` reads each
+  descriptor's `Kind`), **not** `[JsonDerivedType]` attributes. `ModifierDefinition` →
+  `GeometryInputModifierDefinition`
   (`TriangulateModifierDefinition`, `AddGeometryModifierDefinition`; carry `Points/Breaklines/Contours/
   Boundary`), `GradePadModifierDefinition`, `GradePathModifierDefinition`, `RemeshModifierDefinition`,
   `SmoothModifierDefinition`, `MeshAreasModifierDefinition`, `MeshCollageModifierDefinition`,
@@ -22,6 +24,10 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   `ScatterPreviewMode`; reuses Core's `ScatterPattern`/`ScatterDensityMode`).
 - **Markers** — `MarkerDefinition` → `ElevationMarkerDefinition`, `SlopeMarkerDefinition`.
 
-**To add a new modifier/analysis/object/marker type:** create the subtype here, register its
-`[JsonDerivedType]` on the base, handle it in the matching `TerrainBuildService.*.cs` stage and the
+**To add a new modifier:** create the subtype here, then add a `ModifierTypeDescriptor` in `Registry/`
+(see `Registry/README.md`) — that one descriptor supplies the JSON discriminator, factory, build step,
+panel card, and menu entry. No attribute, build switch, or card switch to edit.
+
+**To add an analysis/object/marker type** (not yet on the registry): create the subtype here, register
+its `[JsonDerivedType]` on the base, handle it in the matching `TerrainBuildService.*.cs` stage and the
 `MoleHillPanel` card switch, and add its add-menu entry in the panel.

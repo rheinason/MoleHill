@@ -32,7 +32,15 @@ descriptor (+ its `Model/*Definition.cs`). See `docs/architecture.md`.
   appended by `MoleHillPanel.AppendBespokeModifierRows` — the custom-draw escape hatch.
 
 ## Adding a modifier
-1. Add `Model/<Name>ModifierDefinition.cs` (with its `[JsonDerivedType]` discriminator).
+1. Add `Model/<Name>ModifierDefinition.cs` (no `[JsonDerivedType]` — the resolver registers it from the
+   descriptor's `Kind`).
 2. Add `<Name>ModifierDescriptor.cs` here: set `Kind`/metadata, `Create`, a `RunXStage` shim in
    `Services/TerrainBuildService.ModifierStages.cs`, and a `Parameters` schema.
-3. That's it — menu, factory, build dispatch, and card all pick it up via reflection.
+3. That's it — serialization, menu, factory, build dispatch, and card all pick it up via reflection.
+
+## Serialization
+`Services/TerrainJsonTypeResolver` builds `ModifierDefinition` JSON polymorphism from this registry
+(descriptor `Kind` = discriminator) plus two deserialize-only legacy shims (`mesh-areas`,
+`mesh-collage`). It's wired into `TerrainSerializer.SharedOptions`, used by every whole-terrain
+(de)serialization site (save/load + the clone paths). Keep each `Kind` stable — it's the on-disk
+discriminator.
