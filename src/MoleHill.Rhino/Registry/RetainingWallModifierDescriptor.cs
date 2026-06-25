@@ -1,6 +1,7 @@
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
+using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -15,4 +16,22 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new RetainingWallModifierDefinition { MaxWallWidth = ModelUnits.FromMeters(1.0, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetainingWallStage(context);
+
+    public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
+    {
+        ParameterDescriptor.Sources(
+            "WallCurves", "Wall Curves",
+            m => ((RetainingWallModifierDefinition)m).WallCurves,
+            RhinoObjectType.Curve),
+        ParameterDescriptor.Layer(
+            "OutputLayerPath", "Wall Layer",
+            m => ((RetainingWallModifierDefinition)m).OutputLayerPath,
+            (m, v) => ((RetainingWallModifierDefinition)m).OutputLayerPath = v,
+            "Layer used for retaining-wall Breps. Leave empty to use the terrain auxiliary layer."),
+        ParameterDescriptor.Number(
+            "MaxWallWidth", "Max Wall Width",
+            m => ((RetainingWallModifierDefinition)m).MaxWallWidth,
+            (m, v) => ((RetainingWallModifierDefinition)m).MaxWallWidth = v,
+            "Maximum expected spacing between paired wall rails. Wall cleanup uses an automatic internal tolerance derived from wall width and terrain detail size."),
+    };
 }
