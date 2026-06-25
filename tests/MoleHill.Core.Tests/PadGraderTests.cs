@@ -937,6 +937,25 @@ public class PadGraderTests
             slopeAngleDeg: 45.0);
     }
 
+    // Regression for the clockwise corner-fan sweep bug: ComputeOutwardAngleSweep returned the long way
+    // around for clockwise-wound pads (e.g. +3pi/2 instead of -pi/2), throwing intermediate fan rays into
+    // the pad interior. The corner fan only runs on convex corners, where the outward normal turns the
+    // SHORT way, so the sweep must be the signed shortest turn for both windings.
+    [Theory]
+    // CCW convex corner: outward normal turns left (positive short turn).
+    [InlineData(0.0, Math.PI / 2, Math.PI / 2)]
+    // CW convex corner: outward normal turns right. The old code returned +3pi/2 here.
+    [InlineData(0.0, -Math.PI / 2, -Math.PI / 2)]
+    // Wraparound across +/-pi must still take the short signed turn, not the 2pi complement.
+    [InlineData(3 * Math.PI / 4, -3 * Math.PI / 4, Math.PI / 2)]
+    [InlineData(-3 * Math.PI / 4, 3 * Math.PI / 4, -Math.PI / 2)]
+    public void ComputeOutwardAngleSweep_ReturnsSignedShortestTurn(double fromAngle, double toAngle, double expected)
+    {
+        double sweep = PadGrader.ComputeOutwardAngleSweep(fromAngle, toAngle);
+        Assert.Equal(expected, sweep, precision: 9);
+        Assert.True(Math.Abs(sweep) <= Math.PI + 1e-9, $"sweep {sweep} is not the shortest turn");
+    }
+
     private static double[] BuildGridVertices(int size, double spacing)
     {
         var vertices = new double[size * size * 3];

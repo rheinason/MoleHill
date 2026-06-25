@@ -857,7 +857,11 @@ internal static class GradedRegionAssembler
         var reasons = new List<string>(3);
         if (assembled.NonManifoldEdgeCount > 0)
             reasons.Add($"{assembled.NonManifoldEdgeCount} non-manifold edge(s)");
-        if (assembled.HasOpenBoundaryChains)
+        // Guard on BoundaryEdgeCount: the analysis uses HasOpenBoundaryChains=true as a sentinel when
+        // there are zero boundary edges (a closed/non-manifold shell), so without this guard a purely
+        // non-manifold defect would also emit a spurious "open boundary chains" clause naming a defect
+        // that doesn't exist. The sentinel itself is left intact because gates elsewhere rely on it.
+        if (assembled.HasOpenBoundaryChains && assembled.BoundaryEdgeCount > 0)
             reasons.Add("open boundary chains (the graded region did not weld watertight to the terrain)");
         if (assembled.BoundaryComponentCount > terrain.BoundaryComponentCount)
             reasons.Add(

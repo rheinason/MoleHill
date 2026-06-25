@@ -155,7 +155,7 @@ public static partial class PadGrader
             {
                 double prevAngle = Math.Atan2(n0y, n0x);
                 double nextAngle = Math.Atan2(n1y, n1x);
-                double sweep = ComputeOutwardAngleSweep(prevAngle, nextAngle, ccw);
+                double sweep = ComputeOutwardAngleSweep(prevAngle, nextAngle);
                 if (Math.Abs(sweep) > 10.0 * Math.PI / 180.0)
                 {
                     int fanCount = cornerFanSegments + 1;
@@ -263,8 +263,9 @@ public static partial class PadGrader
             pad.MaxDistance);
     }
 
-    private static double ComputeOutwardAngleSweep(double fromAngle, double toAngle, bool ccw)
+    internal static double ComputeOutwardAngleSweep(double fromAngle, double toAngle)
     {
+        bool ccw = true; // BUGGY-TEST: force old CCW-only logic
         double diff = toAngle - fromAngle;
         diff = ((diff % (2.0 * Math.PI)) + 2.0 * Math.PI) % (2.0 * Math.PI);
         if (!ccw && diff < Math.PI) diff = diff - 2.0 * Math.PI;
