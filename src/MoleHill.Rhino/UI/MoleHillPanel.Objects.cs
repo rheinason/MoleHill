@@ -32,8 +32,11 @@ public sealed partial class MoleHillPanel
             item.Click += (_, _) =>
             {
                 var doc = RhinoDoc.ActiveDoc;
-                if (doc != null)
-                    _controller.AddObjectDefinition(doc, terrain.TerrainId, kind);
+                if (doc == null)
+                    return;
+
+                _controller.AddObjectDefinition(doc, terrain.TerrainId, kind);
+                RebuildObjectsLayout(_controller.GetSelectedTerrain(doc));
             };
             menu.Items.Add(item);
         }
@@ -136,7 +139,8 @@ public sealed partial class MoleHillPanel
         layout.AddRow(CreateSliderNumericEditor(
             "Rotate Min",
             definition.RandomRotationMinDegrees,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomRotationMinDegrees = value),
+            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomRotationMinDegrees = value,
+                deferDocumentSave: true, suppressImmediateUiRefresh: true),
             softMin: 0.0,
             softMax: 360.0,
             decimalPlaces: 1,
@@ -146,7 +150,8 @@ public sealed partial class MoleHillPanel
         layout.AddRow(CreateSliderNumericEditor(
             "Rotate Max",
             definition.RandomRotationMaxDegrees,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomRotationMaxDegrees = value),
+            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomRotationMaxDegrees = value,
+                deferDocumentSave: true, suppressImmediateUiRefresh: true),
             softMin: 0.0,
             softMax: 360.0,
             decimalPlaces: 1,
@@ -156,7 +161,8 @@ public sealed partial class MoleHillPanel
         layout.AddRow(CreateSliderNumericEditor(
             "Scale Min",
             definition.RandomScaleMin,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomScaleMin = value),
+            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomScaleMin = value,
+                deferDocumentSave: true, suppressImmediateUiRefresh: true),
             softMin: 0.25,
             softMax: 2.0,
             decimalPlaces: 3,
@@ -165,7 +171,8 @@ public sealed partial class MoleHillPanel
         layout.AddRow(CreateSliderNumericEditor(
             "Scale Max",
             definition.RandomScaleMax,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomScaleMax = value),
+            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomScaleMax = value,
+                deferDocumentSave: true, suppressImmediateUiRefresh: true),
             softMin: 0.25,
             softMax: 2.0,
             decimalPlaces: 3,
@@ -174,16 +181,20 @@ public sealed partial class MoleHillPanel
         layout.AddRow(CreateNumericEditor(
             "Seed",
             definition.RandomSeed,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomSeed = (int)Math.Round(value)),
+            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.RandomSeed = (int)Math.Round(value),
+                deferDocumentSave: true, suppressImmediateUiRefresh: true),
             decimalPlaces: 0,
-            help: "Stable random seed for this object card. Change it to reroll all matched objects."));
+            help: "Stable random seed for this object card. Change it to reroll all matched objects.",
+            liveEdit: true));
         layout.AddRow(CreateNumericEditor(
             "Z Offset",
             definition.ZOffset,
-            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.ZOffset = value),
+            value => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => item.ZOffset = value,
+                deferDocumentSave: true, suppressImmediateUiRefresh: true),
             decimalPlaces: 3,
             help: "Lift or sink placed objects. Project mode offsets in world Z; Surface mode offsets along the terrain normal.",
-            minValue: null));
+            minValue: null,
+            liveEdit: true));
         layout.AddRow(CreateReadOnlyValueRow(
             "Bindings",
             $"{CountReferences(definition.Sources)} source refs",
@@ -195,12 +206,23 @@ public sealed partial class MoleHillPanel
     {
         var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
 
-        void Mutate(Action<ScatterObjectDefinition> apply, bool scheduleRebuild = true) =>
+        // liveScrub defers the document save and the immediate panel refresh for continuous edits
+        // (sliders + steppers), so dragging/typing doesn't write the .3dm every tick or tear the card
+        // down mid-edit. The slider editor and the liveEdit numeric editor bracket the gesture in the
+        // controller refresh deferral, which applies one refresh when the gesture ends.
+        void Mutate(Action<ScatterObjectDefinition> apply, bool scheduleRebuild = true, bool liveScrub = false) =>
             MutateObjectDefinition(terrain.TerrainId, scatter.Id, item =>
             {
                 if (item is ScatterObjectDefinition target)
                     apply(target);
-            }, scheduleRebuild);
+            }, scheduleRebuild, deferDocumentSave: liveScrub, suppressImmediateUiRefresh: liveScrub);
+
+        void MutateAndRefresh(Action<ScatterObjectDefinition> apply, bool scheduleRebuild = true)
+        {
+            Mutate(apply, scheduleRebuild);
+            var doc = RhinoDoc.ActiveDoc;
+            RebuildObjectsLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
+        }
 
         layout.AddRow(CreateSourceEditor("Boundaries", scatter.Boundaries,
             apply => Mutate(s => apply(s.Boundaries)),
@@ -208,43 +230,39 @@ public sealed partial class MoleHillPanel
             doc => _controller.GetSelectedLayerPaths(doc),
             "Closed boundary curves and/or layers the scatter fills. Multiple boundaries are accepted."));
 
-        // Weighted block mix: one block + weight per entry, plus add/remove. Name-based entries (from
-        // the block selector) show the block name; legacy instance-based entries keep a source editor.
+        layout.AddRow(CreateScatterBlockMixHeader(scatter.Blocks.Count, (_, _) => AddScatterBlocksFromSelector(terrain, scatter.Id)));
+
+        // Weighted block mix: keep the common name/weight/remove path compact, while legacy
+        // instance-source entries still expose the source picker they were created with.
         for (int blockIndex = 0; blockIndex < scatter.Blocks.Count; blockIndex++)
         {
             int index = blockIndex;
             ScatterBlockEntry entry = scatter.Blocks[index];
             if (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
             {
-                layout.AddRow(CreateReadOnlyValueRow(
-                    $"Block {index + 1}",
+                layout.AddRow(CreateScatterBlockRow(
                     entry.BlockDefinitionName!,
-                    "Block definition scattered for this entry."));
+                    entry.Weight,
+                    value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }),
+                    () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); })));
             }
             else
             {
-                layout.AddRow(CreateSourceEditor($"Block {index + 1}", entry.Source,
+                var sourceEditor = CreateSourceEditor($"Block {index + 1}", entry.Source,
                     apply => Mutate(s => { if (index < s.Blocks.Count) apply(s.Blocks[index].Source); }),
                     RhinoObjectType.InstanceReference,
                     doc => _controller.GetSelectedLayerPaths(doc),
-                    "Block instance(s) to scatter for this entry."));
+                    "Block instance(s) to scatter for this entry.");
+                layout.AddRow(CreateLegacyScatterBlockRow(
+                    sourceEditor,
+                    entry.Weight,
+                    value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }),
+                    () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); })));
             }
-
-            layout.AddRow(CreateSliderNumericEditor(
-                $"Weight {index + 1}",
-                entry.Weight,
-                value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }),
-                softMin: 0.0,
-                softMax: 10.0,
-                decimalPlaces: 2,
-                hardMin: 0.0,
-                help: "Relative likelihood this block is chosen per instance."));
-            layout.AddRow(MakeMiniButton($"Remove Block {index + 1}", (_, _) =>
-                Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); }), "Remove this block from the mix.", width: 120));
         }
 
-        layout.AddRow(MakeToolbarButton("Add Blocks…", (_, _) => AddScatterBlocksFromSelector(terrain, scatter.Id),
-            "Pick block definitions to add to the weighted mix.", width: 120));
+        if (scatter.Blocks.Count == 0)
+            layout.AddRow(CreateScatterBlockEmptyState());
 
         layout.AddRow(CreateDropDownEditor(
             "Pattern",
@@ -257,24 +275,24 @@ public sealed partial class MoleHillPanel
             "Density Mode",
             new (string, string)[] { ("Count", "Total count"), ("PerArea", "Per area"), ("Spacing", "Min spacing") },
             scatter.DensityMode.ToString(),
-            key => Mutate(s => s.DensityMode = Enum.Parse<ScatterDensityMode>(key)),
+            key => MutateAndRefresh(s => s.DensityMode = Enum.Parse<ScatterDensityMode>(key)),
             "Count: a total number. Per area: instances per unit area. Min spacing: blue-noise radius."));
 
         switch (scatter.DensityMode)
         {
             case ScatterDensityMode.PerArea:
                 layout.AddRow(CreateNumericEditor("Per Area", scatter.PerAreaDensity,
-                    value => Mutate(s => s.PerAreaDensity = value), decimalPlaces: 4,
-                    help: "Instances per square model unit.", minValue: 0.0));
+                    value => Mutate(s => s.PerAreaDensity = value, liveScrub: true), decimalPlaces: 4,
+                    help: "Instances per square model unit.", minValue: 0.0, liveEdit: true));
                 break;
             case ScatterDensityMode.Spacing:
                 layout.AddRow(CreateNumericEditor("Spacing", scatter.Spacing,
-                    value => Mutate(s => s.Spacing = value), decimalPlaces: 3,
-                    help: "Minimum centre-to-centre distance between instances.", minValue: 0.0));
+                    value => Mutate(s => s.Spacing = value, liveScrub: true), decimalPlaces: 3,
+                    help: "Minimum centre-to-centre distance between instances.", minValue: 0.0, liveEdit: true));
                 break;
             default:
                 layout.AddRow(CreateSliderNumericEditor("Count", scatter.Count,
-                    value => Mutate(s => s.Count = value), softMin: 1.0, softMax: 1000.0,
+                    value => Mutate(s => s.Count = value, liveScrub: true), softMin: 1.0, softMax: 1000.0,
                     decimalPlaces: 0, hardMin: 0.0, help: "Total number of instances to scatter."));
                 break;
         }
@@ -284,59 +302,336 @@ public sealed partial class MoleHillPanel
             "Orient instances to the terrain normal. When off, instances stay upright (world Z)."));
 
         layout.AddRow(CreateCheckEditor("Slope filter", scatter.SlopeFilterEnabled,
-            value => Mutate(s => s.SlopeFilterEnabled = value),
+            value => MutateAndRefresh(s => s.SlopeFilterEnabled = value),
             "Only place instances where the terrain slope is within the range below."));
         if (scatter.SlopeFilterEnabled)
         {
             layout.AddRow(CreateSliderNumericEditor("Slope Min", scatter.SlopeMinDegrees,
-                value => Mutate(s => s.SlopeMinDegrees = value), softMin: 0.0, softMax: 90.0,
+                value => Mutate(s => s.SlopeMinDegrees = value, liveScrub: true), softMin: 0.0, softMax: 90.0,
                 decimalPlaces: 1, hardMin: 0.0, hardMax: 90.0, help: "Minimum terrain slope in degrees."));
             layout.AddRow(CreateSliderNumericEditor("Slope Max", scatter.SlopeMaxDegrees,
-                value => Mutate(s => s.SlopeMaxDegrees = value), softMin: 0.0, softMax: 90.0,
+                value => Mutate(s => s.SlopeMaxDegrees = value, liveScrub: true), softMin: 0.0, softMax: 90.0,
                 decimalPlaces: 1, hardMin: 0.0, hardMax: 90.0, help: "Maximum terrain slope in degrees."));
         }
 
         layout.AddRow(CreateCheckEditor("Elevation filter", scatter.ElevationFilterEnabled,
-            value => Mutate(s => s.ElevationFilterEnabled = value),
+            value => MutateAndRefresh(s => s.ElevationFilterEnabled = value),
             "Only place instances where the terrain elevation is within the range below."));
         if (scatter.ElevationFilterEnabled)
         {
             layout.AddRow(CreateNumericEditor("Elevation Min", scatter.ElevationMin,
-                value => Mutate(s => s.ElevationMin = value), decimalPlaces: 3, help: "Minimum terrain elevation.", minValue: null));
+                value => Mutate(s => s.ElevationMin = value, liveScrub: true), decimalPlaces: 3, help: "Minimum terrain elevation.", minValue: null, liveEdit: true));
             layout.AddRow(CreateNumericEditor("Elevation Max", scatter.ElevationMax,
-                value => Mutate(s => s.ElevationMax = value), decimalPlaces: 3, help: "Maximum terrain elevation.", minValue: null));
+                value => Mutate(s => s.ElevationMax = value, liveScrub: true), decimalPlaces: 3, help: "Maximum terrain elevation.", minValue: null, liveEdit: true));
         }
 
         layout.AddRow(CreateSliderNumericEditor("Rotate Min", scatter.RandomRotationMinDegrees,
-            value => Mutate(s => s.RandomRotationMinDegrees = value), softMin: 0.0, softMax: 360.0,
+            value => Mutate(s => s.RandomRotationMinDegrees = value, liveScrub: true), softMin: 0.0, softMax: 360.0,
             decimalPlaces: 1, hardMin: 0.0, hardMax: 360.0, help: "Minimum random rotation about the placement up axis."));
         layout.AddRow(CreateSliderNumericEditor("Rotate Max", scatter.RandomRotationMaxDegrees,
-            value => Mutate(s => s.RandomRotationMaxDegrees = value), softMin: 0.0, softMax: 360.0,
+            value => Mutate(s => s.RandomRotationMaxDegrees = value, liveScrub: true), softMin: 0.0, softMax: 360.0,
             decimalPlaces: 1, hardMin: 0.0, hardMax: 360.0, help: "Maximum random rotation. Set equal to min to disable."));
         layout.AddRow(CreateSliderNumericEditor("Scale Min", scatter.RandomScaleMin,
-            value => Mutate(s => s.RandomScaleMin = value), softMin: 0.25, softMax: 2.0,
+            value => Mutate(s => s.RandomScaleMin = value, liveScrub: true), softMin: 0.25, softMax: 2.0,
             decimalPlaces: 3, hardMin: 0.01, help: "Minimum random uniform scale."));
         layout.AddRow(CreateSliderNumericEditor("Scale Max", scatter.RandomScaleMax,
-            value => Mutate(s => s.RandomScaleMax = value), softMin: 0.25, softMax: 2.0,
+            value => Mutate(s => s.RandomScaleMax = value, liveScrub: true), softMin: 0.25, softMax: 2.0,
             decimalPlaces: 3, hardMin: 0.01, help: "Maximum random uniform scale. Set both to 1 for no variation."));
         layout.AddRow(CreateNumericEditor("Z Offset", scatter.ZOffset,
-            value => Mutate(s => s.ZOffset = value), decimalPlaces: 3,
-            help: "Lift or sink instances along the placement up axis.", minValue: null));
+            value => Mutate(s => s.ZOffset = value, liveScrub: true), decimalPlaces: 3,
+            help: "Lift or sink instances along the placement up axis.", minValue: null, liveEdit: true));
         layout.AddRow(CreateNumericEditor("Seed", scatter.RandomSeed,
-            value => Mutate(s => s.RandomSeed = (int)Math.Round(value)), decimalPlaces: 0,
-            help: "Stable random seed. Change it to reroll the whole scatter."));
+            value => Mutate(s => s.RandomSeed = (int)Math.Round(value), liveScrub: true), decimalPlaces: 0,
+            help: "Stable random seed. Change it to reroll the whole scatter.", liveEdit: true));
 
         layout.AddRow(CreateDropDownEditor(
             "Preview",
-            new (string, string)[] { ("Points", "Point cloud"), ("BoundingBox", "Bounding boxes"), ("Instances", "Real (capped)") },
+            new (string, string)[] { ("Points", "Point cloud"), ("ShapePoints", "Shape points"), ("BoundingBox", "Bounding boxes"), ("Instances", "Real (capped)") },
             scatter.PreviewMode.ToString(),
             key => Mutate(s => s.PreviewMode = Enum.Parse<ScatterPreviewMode>(key), scheduleRebuild: false),
             "How the scatter draws while editing. Bake always produces real block instances."));
         layout.AddRow(CreateNumericEditor("Preview Cap", scatter.PreviewCap,
-            value => Mutate(s => s.PreviewCap = (int)Math.Round(value), scheduleRebuild: false), decimalPlaces: 0,
-            help: "Maximum real instances drawn in 'Real (capped)' preview mode.", minValue: 0.0));
+            value => Mutate(s => s.PreviewCap = (int)Math.Round(value), scheduleRebuild: false, liveScrub: true), decimalPlaces: 0,
+            help: "Maximum scatter items drawn in live preview. Set to 0 for no cap.", minValue: 0.0, liveEdit: true));
 
         return layout;
+    }
+
+    private Control CreateScatterBlockRow(
+        string blockName,
+        double weight,
+        Action<double> onWeightChanged,
+        Action onRemove)
+    {
+        const string weightHelp = "Relative likelihood this block is chosen per instance.";
+        const string removeHelp = "Remove this block from the scatter mix.";
+
+        var nameLabel = new Label
+        {
+            Text = TruncateMiddle(blockName, 22),
+            TextColor = UiTheme.InputText,
+            VerticalAlignment = VerticalAlignment.Center,
+            Wrap = WrapMode.None
+        };
+        if (!UseStackedFormRows())
+            nameLabel.Width = NumericLabelWidth;
+        ApplyHelp(nameLabel, blockName);
+
+        var weightEditor = CreateCompactScatterWeightEditor(weight, onWeightChanged, weightHelp);
+        var removeButton = MakeMiniButton("X", (_, _) => onRemove(), removeHelp, width: 28);
+
+        if (UseStackedFormRows())
+        {
+            var topRow = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayoutItem(nameLabel, expand: true),
+                    removeButton
+                }
+            };
+
+            return new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 4,
+                Padding = new Padding(0, 3),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayoutItem(topRow, HorizontalAlignment.Stretch),
+                    new StackLayoutItem(weightEditor, HorizontalAlignment.Stretch)
+                }
+            };
+        }
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Padding = new Padding(0, 3),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                nameLabel,
+                new StackLayoutItem(weightEditor, expand: true),
+                removeButton
+            }
+        };
+    }
+
+    private Control CreateScatterBlockMixHeader(int blockCount, EventHandler<EventArgs> addBlocks)
+    {
+        string countText = blockCount == 1 ? "1 block" : $"{blockCount} blocks";
+        var label = new Label
+        {
+            Text = "Block Mix",
+            TextColor = UiTheme.MutedText,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var count = new Label
+        {
+            Text = countText,
+            TextColor = UiTheme.MutedText,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var addButton = MakeMiniButton("Add", addBlocks, "Pick block definitions to add to the weighted mix.", width: 44);
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Padding = new Padding(0, 5, 0, 1),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                label,
+                new StackLayoutItem(new Panel(), expand: true),
+                count,
+                addButton
+            }
+        };
+    }
+
+    private static Control CreateScatterBlockEmptyState()
+    {
+        return new Panel
+        {
+            BackgroundColor = UiTheme.InputBackground,
+            Padding = new Padding(8, 6),
+            Content = new Label
+            {
+                Text = "No blocks selected",
+                TextColor = UiTheme.MutedText,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+    }
+
+    private Control CreateLegacyScatterBlockRow(
+        Control sourceEditor,
+        double weight,
+        Action<double> onWeightChanged,
+        Action onRemove)
+    {
+        var weightEditor = CreateCompactScatterWeightEditor(
+            weight,
+            onWeightChanged,
+            "Relative likelihood this legacy source block is chosen per instance.");
+        var removeButton = MakeMiniButton("X", (_, _) => onRemove(), "Remove this block from the scatter mix.", width: 28);
+
+        var controls = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(weightEditor, expand: true),
+                removeButton
+            }
+        };
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 4,
+            Padding = new Padding(0, 3),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(sourceEditor, HorizontalAlignment.Stretch),
+                new StackLayoutItem(controls, HorizontalAlignment.Stretch)
+            }
+        };
+    }
+
+    private Control CreateCompactScatterWeightEditor(double value, Action<double> onChanged, string help)
+    {
+        double currentMin = 0.0;
+        double currentMax = 10.0;
+        ExpandSliderRange(value, ref currentMin, ref currentMax);
+
+        var slider = new Slider
+        {
+            MinValue = 0,
+            MaxValue = 1000
+        };
+        if (!UseStackedFormRows())
+            slider.Width = 120;
+
+        var valueLabel = new Label
+        {
+            Width = 42,
+            TextColor = UiTheme.MutedText,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Right
+        };
+
+        ApplyHelp(slider, help);
+        ApplyHelp(valueLabel, help);
+
+        double committedValue = ClampSliderValue(value, 0.0, null);
+        double pendingValue = committedValue;
+        bool syncing = false;
+        bool sliderEditActive = false;
+        var timer = new UITimer { Interval = 0.12 };
+
+        void BeginSliderEdit()
+        {
+            if (sliderEditActive)
+                return;
+
+            sliderEditActive = true;
+            BeginControllerRefreshDeferral();
+        }
+
+        void EndSliderEdit()
+        {
+            if (!sliderEditActive)
+                return;
+
+            sliderEditActive = false;
+            EndControllerRefreshDeferral();
+        }
+
+        void SyncControls(double numericValue)
+        {
+            numericValue = ClampSliderValue(numericValue, 0.0, null);
+            syncing = true;
+            ExpandSliderRange(numericValue, ref currentMin, ref currentMax);
+            slider.Value = ToSliderValue(numericValue, currentMin, currentMax, slider.MaxValue);
+            valueLabel.Text = FormatSliderValue(numericValue, 2);
+            syncing = false;
+        }
+
+        void Commit(double numericValue)
+        {
+            timer.Stop();
+            numericValue = ClampSliderValue(numericValue, 0.0, null);
+            pendingValue = numericValue;
+            SyncControls(numericValue);
+            if (!TerrainCommitGuard.HasMeaningfulNumericChange(committedValue, numericValue))
+                return;
+
+            committedValue = numericValue;
+            onChanged(numericValue);
+        }
+
+        timer.Elapsed += (_, _) => Commit(pendingValue);
+        slider.MouseDown += (_, e) =>
+        {
+            if (e.Buttons == MouseButtons.Primary)
+                BeginSliderEdit();
+        };
+        slider.MouseUp += (_, e) =>
+        {
+            if (e.Buttons == MouseButtons.Primary)
+                EndSliderEdit();
+        };
+        slider.LostFocus += (_, _) => EndSliderEdit();
+        slider.ValueChanged += (_, _) =>
+        {
+            if (_isRefreshing || syncing)
+                return;
+
+            BeginSliderEdit();
+            pendingValue = FromSliderValue(slider.Value, currentMin, currentMax, slider.MaxValue);
+            SyncControls(pendingValue);
+            timer.Stop();
+            timer.Start();
+        };
+
+        SyncControls(committedValue);
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(slider, expand: true),
+                valueLabel
+            }
+        };
+    }
+
+    private static string TruncateMiddle(string value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength || maxLength < 5)
+            return value;
+
+        int left = (maxLength - 3) / 2;
+        int right = maxLength - 3 - left;
+        return string.Concat(value.AsSpan(0, left), "...", value.AsSpan(value.Length - right, right));
     }
 
     private void AddScatterBlocksFromSelector(TerrainDefinition terrain, Guid scatterId)

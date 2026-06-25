@@ -23,6 +23,8 @@ namespace MoleHill.Rhino.Services;
 // Output sync + bake: generated/baked object creation, attributes, block definitions, layers, owned-object lifecycle.
 internal sealed partial class TerrainController
 {
+    private const string EmptyBlockAttributeValue = "\u200B";
+
     private OutputSyncMetrics SyncOutputs(RhinoDoc doc, TerrainDefinition terrain, TerrainBuildResult build)
     {
         int deletedObjectCount = AllOwnedIds(terrain).Distinct().Count();
@@ -273,7 +275,7 @@ internal sealed partial class TerrainController
         IReadOnlyDictionary<string, string>? userStrings)
     {
         foreach (var pair in BlockAttributePayload.BuildValues(userStrings, GetBlockAttributeFieldDefinitions(definition)))
-            SetUserStringPreservingEmpty(attributes, pair.Key, pair.Value);
+            SetBlockAttributeUserString(attributes, pair.Key, pair.Value);
     }
 
     private bool EnsureBlockInstanceAttributeKeys(
@@ -301,7 +303,7 @@ internal sealed partial class TerrainController
             if (string.IsNullOrWhiteSpace(pair.Key) || attributes.GetUserString(pair.Key) != null)
                 continue;
 
-            changed |= SetUserStringPreservingEmpty(attributes, pair.Key, pair.Value);
+            changed |= SetBlockAttributeUserString(attributes, pair.Key, pair.Value);
         }
 
         if (!changed)
@@ -319,7 +321,7 @@ internal sealed partial class TerrainController
             if (string.IsNullOrWhiteSpace(pair.Key) || instanceObject.Attributes.GetUserString(pair.Key) != null)
                 continue;
 
-            objectChanged |= SetUserStringPreservingEmpty(instanceObject, pair.Key, pair.Value);
+            objectChanged |= SetBlockAttributeUserString(instanceObject, pair.Key, pair.Value);
         }
 
         if (objectChanged)
@@ -394,6 +396,12 @@ internal sealed partial class TerrainController
             InstanceDefinition definition => definition.SetUserString(key, value),
             _ => false
         };
+    }
+
+    private static bool SetBlockAttributeUserString(CommonObject target, string key, string value)
+    {
+        string storedValue = string.IsNullOrEmpty(value) ? EmptyBlockAttributeValue : value;
+        return SetUserStringPreservingEmpty(target, key, storedValue);
     }
 
     private static bool TryInvokeInternalSetUserString(CommonObject target, string key, string value)

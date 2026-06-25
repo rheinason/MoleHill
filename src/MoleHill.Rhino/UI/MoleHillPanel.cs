@@ -2021,8 +2021,11 @@ public sealed partial class MoleHillPanel : Panel
                 item.Click += (_, _) =>
                 {
                     var doc = RhinoDoc.ActiveDoc;
-                    if (doc != null)
-                        _controller.AddModifier(doc, capturedTerrainId, capturedKind);
+                    if (doc == null)
+                        return;
+
+                    _controller.AddModifier(doc, capturedTerrainId, capturedKind);
+                    RebuildModifierLayout(_controller.GetSelectedTerrain(doc));
                 };
                 menu.Items.Add(item);
             }
@@ -2292,8 +2295,11 @@ public sealed partial class MoleHillPanel : Panel
             buttons.Add(MakeButton(descriptor.AddButtonText, (_, _) =>
             {
                 var doc = RhinoDoc.ActiveDoc;
-                if (doc != null)
-                    _controller.AddMarker(doc, terrain.TerrainId, kind);
+                if (doc == null)
+                    return;
+
+                _controller.AddMarker(doc, terrain.TerrainId, kind);
+                RebuildMarkerLayout(_controller.GetSelectedTerrain(doc));
             }, descriptor.AddButtonHelp));
         }
 
@@ -2345,22 +2351,20 @@ public sealed partial class MoleHillPanel : Panel
         switch (marker)
         {
             case ElevationMarkerDefinition elevation:
-                var formatBox = new TextBox { Text = elevation.Format };
-                StyleTextBox(formatBox);
-                ApplyHelp(formatBox, "Numeric format string for elevation labels. Default F2 gives two decimals.");
-                BindCommittedText(formatBox, () => elevation.Format, text =>
-                    MutateMarker(terrain.TerrainId, marker.Id, item => ((ElevationMarkerDefinition)item).Format = text, scheduleRebuild: true), trim: false);
-                layout.AddSeparateRow(new Label { Text = "Format", Width = 82 }, formatBox, null);
+                var formatDropDown = CreateValueFormatDropDown(
+                    elevation.Format,
+                    format => MutateMarker(terrain.TerrainId, marker.Id, item => ((ElevationMarkerDefinition)item).Format = format, scheduleRebuild: true),
+                    "Number of decimal places shown in elevation marker labels.");
+                layout.AddSeparateRow(new Label { Text = "Decimals", Width = 82 }, formatDropDown, null);
                 break;
             case SlopeMarkerDefinition slope:
-                var slopeFormatBox = new TextBox { Text = slope.Format };
-                StyleTextBox(slopeFormatBox);
-                ApplyHelp(slopeFormatBox, "Numeric format string for slope labels. Default F1 is usually enough.");
-                BindCommittedText(slopeFormatBox, () => slope.Format, text =>
-                    MutateMarker(terrain.TerrainId, marker.Id, item => ((SlopeMarkerDefinition)item).Format = text, scheduleRebuild: true), trim: false);
+                var slopeFormatDropDown = CreateValueFormatDropDown(
+                    slope.Format,
+                    format => MutateMarker(terrain.TerrainId, marker.Id, item => ((SlopeMarkerDefinition)item).Format = format, scheduleRebuild: true),
+                    "Number of decimal places shown in slope marker labels.");
                 var percentCheck = new CheckBox { Text = "Percent", Checked = slope.AsPercent };
                 percentCheck.CheckedChanged += (_, _) => MutateMarker(terrain.TerrainId, marker.Id, item => ((SlopeMarkerDefinition)item).AsPercent = percentCheck.Checked == true, scheduleRebuild: true);
-                layout.AddSeparateRow(new Label { Text = "Format", Width = 82 }, slopeFormatBox, percentCheck, null);
+                layout.AddSeparateRow(new Label { Text = "Decimals", Width = 82 }, slopeFormatDropDown, percentCheck, null);
                 break;
         }
 
@@ -3342,7 +3346,13 @@ public sealed partial class MoleHillPanel : Panel
         }, scheduleRebuild);
     }
 
-    private void MutateObjectDefinition(Guid terrainId, Guid definitionId, Action<TerrainObjectDefinition> mutator, bool scheduleRebuild = true)
+    private void MutateObjectDefinition(
+        Guid terrainId,
+        Guid definitionId,
+        Action<TerrainObjectDefinition> mutator,
+        bool scheduleRebuild = true,
+        bool deferDocumentSave = false,
+        bool suppressImmediateUiRefresh = false)
     {
         var doc = RhinoDoc.ActiveDoc;
         if (doc == null)
@@ -3353,7 +3363,7 @@ public sealed partial class MoleHillPanel : Panel
             var definition = terrain.Objects.FirstOrDefault(item => item.Id == definitionId);
             if (definition != null)
                 mutator(definition);
-        }, scheduleRebuild);
+        }, scheduleRebuild, deferDocumentSave, suppressImmediateUiRefresh);
     }
 
     private void MutateAnalysis(Guid terrainId, Guid analysisId, Action<AnalysisDefinition> mutator, bool scheduleRebuild = false)

@@ -46,7 +46,7 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
     /// <summary>Orient instances to the terrain normal; when false they stay upright (world Z).</summary>
     public bool AlignToSlope { get; set; }
 
-    public ScatterPreviewMode PreviewMode { get; set; } = ScatterPreviewMode.Points;
+    public ScatterPreviewMode PreviewMode { get; set; } = ScatterPreviewMode.ShapePoints;
 
     public int PreviewCap { get; set; } = 2000;
 

@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Linq;
 using MoleHill.Rhino.Model;
+using Rhino.DocObjects;
 using Rhino.Display;
 using Rhino.Geometry;
 
@@ -8,6 +9,8 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed class TerrainDisplayConduit : DisplayConduit
 {
+    private const int ScatterShapePointBudget = 32;
+
     protected override void PostDrawObjects(DrawEventArgs e)
     {
         if (e.RhinoDoc == null)
@@ -46,115 +49,359 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
     private static void DrawScatterObjects(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState displayState)
     {
+        if (displayState.ScatterObjectRanges.Count == 0)
+            displayState.RebuildScatterObjectRanges();
+
         var definitions = terrain.Objects
             .OfType<ScatterObjectDefinition>()
             .ToDictionary(definition => definition.Id);
-        var drawnByDefinition = new Dictionary<Guid, int>();
+        var frame = new ScatterPreviewDrawFrame(doc);
 
-        foreach (var scatter in displayState.ScatterObjects)
+        foreach (var rangeEntry in displayState.ScatterObjectRanges)
         {
+            Guid key = rangeEntry.Key;
             ScatterObjectDefinition? definition = null;
-            if (scatter.ScatterDefinitionId.HasValue)
-                definitions.TryGetValue(scatter.ScatterDefinitionId.Value, out definition);
+            if (key != Guid.Empty)
+                definitions.TryGetValue(key, out definition);
 
             ScatterPreviewMode mode = definition?.PreviewMode ?? ScatterPreviewMode.Instances;
-            int cap = definition is { PreviewCap: > 0 } ? definition.PreviewCap : int.MaxValue;
-            var color = ResolveColor(doc, scatter.LayerPath, scatter.SourceLayerPath, scatter.ColorArgb);
+            ScatterObjectRange range = rangeEntry.Value;
+            int drawCount = definition is { PreviewCap: > 0 }
+                ? Math.Min(range.Count, definition.PreviewCap)
+                : range.Count;
+            if (drawCount <= 0)
+                continue;
 
-            switch (mode)
+            int end = Math.Min(range.StartIndex + drawCount, displayState.ScatterObjects.Count);
+            for (int index = range.StartIndex; index < end; index++)
+                DrawScatterObject(e, frame, displayState.ScatterObjects[index], mode);
+        }
+    }
+
+    private static void DrawScatterObject(
+        DrawEventArgs e,
+        ScatterPreviewDrawFrame frame,
+        GeneratedRhinoObject scatter,
+        ScatterPreviewMode mode)
+    {
+        switch (mode)
+        {
+            case ScatterPreviewMode.Points:
             {
-                case ScatterPreviewMode.Points:
+                var color = frame.ResolveColor(scatter.LayerPath, scatter.SourceLayerPath, scatter.ColorArgb);
+                Point3d origin = Point3d.Origin;
+                origin.Transform(scatter.InstanceTransform);
+                e.Display.DrawPoint(origin, color);
+                break;
+            }
+            case ScatterPreviewMode.ShapePoints:
+            {
+                var color = frame.ResolveColor(scatter.LayerPath, scatter.SourceLayerPath, scatter.ColorArgb);
+                if (frame.TryGetScatterShapePoints(scatter, out var points))
+                {
+                    foreach (Point3d sourcePoint in points)
+                    {
+                        Point3d point = sourcePoint;
+                        point.Transform(scatter.InstanceTransform);
+                        e.Display.DrawPoint(point, color);
+                    }
+                }
+                else
                 {
                     Point3d origin = Point3d.Origin;
                     origin.Transform(scatter.InstanceTransform);
                     e.Display.DrawPoint(origin, color);
-                    break;
                 }
-                case ScatterPreviewMode.BoundingBox:
-                {
-                    if (TryGetScatterBox(doc, scatter, out Box box))
-                        e.Display.DrawBox(box, color, 1);
-                    break;
-                }
-                default:
-                {
-                    Guid key = scatter.ScatterDefinitionId ?? Guid.Empty;
-                    drawnByDefinition.TryGetValue(key, out int drawn);
-                    if (drawn >= cap)
-                        break;
 
-                    DrawScatterInstanceGeometry(e, doc, terrain, scatter, color);
-                    drawnByDefinition[key] = drawn + 1;
-                    break;
-                }
+                break;
             }
+            case ScatterPreviewMode.BoundingBox:
+            {
+                var color = frame.ResolveColor(scatter.LayerPath, scatter.SourceLayerPath, scatter.ColorArgb);
+                if (frame.TryGetScatterBox(scatter, out Box box))
+                    e.Display.DrawBox(box, color, 1);
+                break;
+            }
+            default:
+                DrawScatterInstanceGeometry(e, frame, scatter);
+                break;
         }
     }
 
-    private static bool TryGetScatterBox(global::Rhino.RhinoDoc doc, GeneratedRhinoObject scatter, out Box box)
+    private sealed class ScatterPreviewDrawFrame
     {
-        box = Box.Unset;
-        if (string.IsNullOrWhiteSpace(scatter.InstanceDefinitionName))
-            return false;
+        private readonly global::Rhino.RhinoDoc _doc;
+        private readonly Dictionary<string, InstanceDefinition?> _definitions = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, Box?> _definitionBoxes = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, Point3d[]> _definitionShapePoints = new(StringComparer.Ordinal);
+        private readonly Dictionary<(string? LayerPath, string? SourceLayerPath, int? ColorArgb), Color> _colors = new();
 
-        var definition = doc.InstanceDefinitions.Find(scatter.InstanceDefinitionName!);
-        if (definition == null)
-            return false;
-
-        BoundingBox bounds = BoundingBox.Empty;
-        foreach (var instanceObject in definition.GetObjects())
+        public ScatterPreviewDrawFrame(global::Rhino.RhinoDoc doc)
         {
-            if (instanceObject?.Geometry == null)
-                continue;
-
-            BoundingBox geometryBounds = instanceObject.Geometry.GetBoundingBox(true);
-            if (geometryBounds.IsValid)
-                bounds.Union(geometryBounds);
+            _doc = doc;
         }
 
-        if (!bounds.IsValid)
-            return false;
-
-        box = new Box(bounds);
-        return box.Transform(scatter.InstanceTransform) && box.IsValid;
-    }
-
-    private static void DrawScatterInstanceGeometry(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject scatter, Color color)
-    {
-        if (string.IsNullOrWhiteSpace(scatter.InstanceDefinitionName))
-            return;
-
-        var definition = doc.InstanceDefinitions.Find(scatter.InstanceDefinitionName!);
-        if (definition == null)
-            return;
-
-        var material = new DisplayMaterial(GetOpaqueColor(color));
-        foreach (var instanceObject in definition.GetObjects())
+        public Color ResolveColor(string? layerPath, string? sourceLayerPath, int? colorArgb)
         {
-            GeometryBase? source = instanceObject?.Geometry;
-            if (source == null)
-                continue;
+            var key = (layerPath, sourceLayerPath, colorArgb);
+            if (_colors.TryGetValue(key, out var color))
+                return color;
 
-            GeometryBase geometry = source.Duplicate();
-            if (!geometry.Transform(scatter.InstanceTransform))
-                continue;
+            color = TerrainDisplayConduit.ResolveColor(_doc, layerPath, sourceLayerPath, colorArgb);
+            _colors[key] = color;
+            return color;
+        }
 
+        public InstanceDefinition? FindDefinition(string? definitionName)
+        {
+            if (string.IsNullOrWhiteSpace(definitionName))
+                return null;
+
+            if (_definitions.TryGetValue(definitionName!, out var cached))
+                return cached;
+
+            var definition = _doc.InstanceDefinitions.Find(definitionName!);
+            _definitions[definitionName!] = definition;
+            return definition;
+        }
+
+        public bool TryGetScatterBox(GeneratedRhinoObject scatter, out Box box)
+        {
+            box = Box.Unset;
+            if (string.IsNullOrWhiteSpace(scatter.InstanceDefinitionName))
+                return false;
+
+            if (!_definitionBoxes.TryGetValue(scatter.InstanceDefinitionName!, out Box? cachedBox))
+            {
+                cachedBox = TryBuildDefinitionBox(scatter.InstanceDefinitionName!, out Box definitionBox)
+                    ? definitionBox
+                    : null;
+                _definitionBoxes[scatter.InstanceDefinitionName!] = cachedBox;
+            }
+
+            if (!cachedBox.HasValue)
+                return false;
+
+            box = cachedBox.Value;
+            return box.Transform(scatter.InstanceTransform) && box.IsValid;
+        }
+
+        public bool TryGetScatterShapePoints(GeneratedRhinoObject scatter, out Point3d[] points)
+        {
+            points = Array.Empty<Point3d>();
+            if (string.IsNullOrWhiteSpace(scatter.InstanceDefinitionName))
+                return false;
+
+            if (!_definitionShapePoints.TryGetValue(scatter.InstanceDefinitionName!, out points!))
+            {
+                points = BuildDefinitionShapePoints(scatter.InstanceDefinitionName!);
+                _definitionShapePoints[scatter.InstanceDefinitionName!] = points;
+            }
+
+            return points.Length > 0;
+        }
+
+        private bool TryBuildDefinitionBox(string definitionName, out Box box)
+        {
+            box = Box.Unset;
+            var definition = FindDefinition(definitionName);
+            if (definition == null)
+                return false;
+
+            BoundingBox bounds = BoundingBox.Empty;
+            foreach (var instanceObject in definition.GetObjects())
+            {
+                if (instanceObject?.Geometry == null)
+                    continue;
+
+                BoundingBox geometryBounds = instanceObject.Geometry.GetBoundingBox(true);
+                if (geometryBounds.IsValid)
+                    bounds.Union(geometryBounds);
+            }
+
+            if (!bounds.IsValid)
+                return false;
+
+            box = new Box(bounds);
+            return box.IsValid;
+        }
+
+        private Point3d[] BuildDefinitionShapePoints(string definitionName)
+        {
+            var definition = FindDefinition(definitionName);
+            if (definition == null)
+                return Array.Empty<Point3d>();
+
+            var points = new List<Point3d>(ScatterShapePointBudget);
+            BoundingBox definitionBounds = BoundingBox.Empty;
+            foreach (var instanceObject in definition.GetObjects())
+            {
+                GeometryBase? geometry = instanceObject?.Geometry;
+                if (geometry == null)
+                    continue;
+
+                BoundingBox bounds = geometry.GetBoundingBox(true);
+                if (bounds.IsValid)
+                    definitionBounds.Union(bounds);
+            }
+
+            if (definitionBounds.IsValid)
+                AddBoundingBoxShapePoints(definitionBounds, points, includeCorners: true);
+
+            foreach (var instanceObject in definition.GetObjects())
+            {
+                if (points.Count >= ScatterShapePointBudget)
+                    break;
+
+                GeometryBase? geometry = instanceObject?.Geometry;
+                if (geometry == null)
+                    continue;
+
+                AddGeometryShapePoints(geometry, points);
+            }
+
+            return points.ToArray();
+        }
+
+        private static void AddGeometryShapePoints(GeometryBase geometry, List<Point3d> points)
+        {
             switch (geometry)
             {
                 case Mesh mesh:
-                    e.Display.DrawMeshShaded(mesh, material);
-                    break;
+                    AddMeshShapePoints(mesh, points);
+                    return;
                 case Brep brep:
-                    e.Display.DrawBrepShaded(brep, material);
-                    break;
-                case Extrusion extrusion when extrusion.ToBrep() is { } extrusionBrep:
-                    e.Display.DrawBrepShaded(extrusionBrep, material);
-                    break;
+                    AddBrepShapePoints(brep, points);
+                    return;
                 case Curve curve:
-                    e.Display.DrawCurve(curve, color, 2);
-                    break;
+                    AddCurveShapePoints(curve, points);
+                    return;
+                case global::Rhino.Geometry.Point point:
+                    AddShapePoint(point.Location, points);
+                    return;
+                case PointCloud pointCloud:
+                    AddPointCloudShapePoints(pointCloud, points);
+                    return;
+            }
+
+            BoundingBox bounds = geometry.GetBoundingBox(true);
+            if (bounds.IsValid)
+                AddBoundingBoxShapePoints(bounds, points, includeCorners: false);
+        }
+
+        private static void AddMeshShapePoints(Mesh mesh, List<Point3d> points)
+        {
+            int count = mesh.Vertices.Count;
+            if (count == 0)
+                return;
+
+            int remaining = ScatterShapePointBudget - points.Count;
+            int samples = Math.Min(remaining, Math.Min(12, count));
+            if (samples <= 0)
+                return;
+
+            if (samples == 1)
+            {
+                AddShapePoint(mesh.Vertices.Point3dAt(0), points);
+                return;
+            }
+
+            for (int i = 0; i < samples && points.Count < ScatterShapePointBudget; i++)
+            {
+                int index = (int)Math.Round(i * (count - 1) / (double)(samples - 1));
+                AddShapePoint(mesh.Vertices.Point3dAt(index), points);
             }
         }
+
+        private static void AddBrepShapePoints(Brep brep, List<Point3d> points)
+        {
+            int remaining = ScatterShapePointBudget - points.Count;
+            int samples = Math.Min(remaining, Math.Min(8, brep.Vertices.Count));
+            for (int i = 0; i < samples && points.Count < ScatterShapePointBudget; i++)
+                AddShapePoint(brep.Vertices[i].Location, points);
+        }
+
+        private static void AddCurveShapePoints(Curve curve, List<Point3d> points)
+        {
+            int samples = Math.Min(6, ScatterShapePointBudget - points.Count);
+            if (samples <= 0)
+                return;
+
+            if (samples == 1)
+            {
+                AddShapePoint(curve.PointAtStart, points);
+                return;
+            }
+
+            double[]? parameters = curve.DivideByCount(samples - 1, includeEnds: true);
+            if (parameters == null || parameters.Length == 0)
+            {
+                AddShapePoint(curve.PointAtStart, points);
+                AddShapePoint(curve.PointAtEnd, points);
+                return;
+            }
+
+            foreach (double parameter in parameters)
+            {
+                if (points.Count >= ScatterShapePointBudget)
+                    break;
+
+                AddShapePoint(curve.PointAt(parameter), points);
+            }
+        }
+
+        private static void AddPointCloudShapePoints(PointCloud pointCloud, List<Point3d> points)
+        {
+            int count = pointCloud.Count;
+            if (count == 0)
+                return;
+
+            int samples = Math.Min(ScatterShapePointBudget - points.Count, Math.Min(12, count));
+            for (int i = 0; i < samples && points.Count < ScatterShapePointBudget; i++)
+            {
+                int index = samples == 1 ? 0 : (int)Math.Round(i * (count - 1) / (double)(samples - 1));
+                AddShapePoint(pointCloud[index].Location, points);
+            }
+        }
+
+        private static void AddBoundingBoxShapePoints(BoundingBox bounds, List<Point3d> points, bool includeCorners)
+        {
+            AddShapePoint(bounds.Center, points);
+            if (!includeCorners)
+                return;
+
+            foreach (Point3d corner in bounds.GetCorners())
+            {
+                if (points.Count >= ScatterShapePointBudget)
+                    return;
+
+                AddShapePoint(corner, points);
+            }
+        }
+
+        private static void AddShapePoint(Point3d point, List<Point3d> points)
+        {
+            if (!point.IsValid || points.Count >= ScatterShapePointBudget)
+                return;
+
+            foreach (Point3d existing in points)
+            {
+                if (existing.DistanceTo(point) <= 1e-9)
+                    return;
+            }
+
+            points.Add(point);
+        }
+    }
+
+    private static bool DrawScatterInstanceGeometry(DrawEventArgs e, ScatterPreviewDrawFrame frame, GeneratedRhinoObject scatter)
+    {
+        var definition = frame.FindDefinition(scatter.InstanceDefinitionName);
+        if (definition == null)
+            return false;
+
+        e.Display.DrawInstanceDefinition(definition, scatter.InstanceTransform);
+        return true;
     }
 
     private static void DrawGeneratedObject(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject generated)

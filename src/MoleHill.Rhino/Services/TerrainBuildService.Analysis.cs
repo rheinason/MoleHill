@@ -406,11 +406,10 @@ internal sealed partial class TerrainBuildService
             if (!IsInsideBoundaries(centroid, boundaries, tolerance))
                 continue;
 
-            var mp = baseMesh.ClosestMeshPoint(centroid, 0.0);
-            if (mp == null)
+            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(baseMesh, centroid, tolerance, out Point3d basePoint))
                 continue;
 
-            double delta = Math.Abs(centroid.Z - baseMesh.PointAt(mp).Z);
+            double delta = Math.Abs(centroid.Z - basePoint.Z);
             if (delta > cutFillAbsMax)
                 cutFillAbsMax = delta;
         }
@@ -526,12 +525,10 @@ internal sealed partial class TerrainBuildService
             if (!IsInsideBoundaries(centroid, boundaries, tolerance))
                 continue;
 
-            var basePoint = baseMesh.ClosestMeshPoint(centroid, 0.0);
-            if (basePoint == null)
+            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(baseMesh, centroid, tolerance, out Point3d basePoint))
                 continue;
 
-            double baseZ = baseMesh.PointAt(basePoint).Z;
-            double deltaZ = centroid.Z - baseZ;
+            double deltaZ = centroid.Z - basePoint.Z;
             double projectedArea = Math.Abs(
                 (pb.X - pa.X) * (pc.Y - pa.Y) -
                 (pb.Y - pa.Y) * (pc.X - pa.X)) * 0.5;

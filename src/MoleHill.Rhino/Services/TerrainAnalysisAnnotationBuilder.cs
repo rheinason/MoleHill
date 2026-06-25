@@ -41,16 +41,13 @@ internal static class TerrainAnalysisAnnotationBuilder
 
                 var previous = divisions[sampleIndex - 1];
                 var current = divisions[sampleIndex];
-                var previousMeshPoint = mesh.ClosestMeshPoint(previous.Point, 0.0);
-                var currentMeshPoint = mesh.ClosestMeshPoint(current.Point, 0.0);
-                if (previousMeshPoint == null || currentMeshPoint == null)
+                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, previous.Point, snapshot.ModelAbsoluteTolerance, out Point3d previousWorld) ||
+                    !TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, current.Point, snapshot.ModelAbsoluteTolerance, out Point3d currentWorld))
                 {
                     cumulativeDistance += Math.Max(0.0, curve.GetLength(new Interval(previous.Parameter, current.Parameter)));
                     continue;
                 }
 
-                Point3d previousWorld = mesh.PointAt(previousMeshPoint);
-                Point3d currentWorld = mesh.PointAt(currentMeshPoint);
                 double horizontalRun = Math.Sqrt(
                     ((currentWorld.X - previousWorld.X) * (currentWorld.X - previousWorld.X)) +
                     ((currentWorld.Y - previousWorld.Y) * (currentWorld.Y - previousWorld.Y)));
@@ -121,10 +118,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                     ThrowIfCancellationRequested(shouldCancel);
 
                 var current = divisions[sampleIndex];
-                var meshPoint = mesh.ClosestMeshPoint(current.Point, 0.0);
-                if (meshPoint != null)
+                if (TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, current.Point, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint))
                 {
-                    Point3d worldPoint = mesh.PointAt(meshPoint);
                     stats.Add(worldPoint.Z);
                     outputCount++;
 
@@ -173,11 +168,9 @@ internal static class TerrainAnalysisAnnotationBuilder
             sourceCount++;
             foreach (var samplePoint in ExtractElevationSamples(obj.Geometry, snapshot.ModelAbsoluteTolerance))
             {
-                var meshPoint = mesh.ClosestMeshPoint(samplePoint, 0.0);
-                if (meshPoint == null)
+                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, samplePoint, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint))
                     continue;
 
-                Point3d worldPoint = mesh.PointAt(meshPoint);
                 stats.Add(worldPoint.Z);
                 outputCount++;
 
@@ -222,11 +215,12 @@ internal static class TerrainAnalysisAnnotationBuilder
                 continue;
 
             sourceCount++;
-            var meshPoint = mesh.ClosestMeshPoint(point.Location, 0.0);
+            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, point.Location, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint, out var meshPoint))
+                continue;
+
             if (meshPoint == null)
                 continue;
 
-            Point3d worldPoint = mesh.PointAt(meshPoint);
             Vector3d normal = mesh.NormalAt(meshPoint);
             double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
             double slopeRatio = Math.Tan(slopeRadians);

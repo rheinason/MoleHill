@@ -202,14 +202,17 @@ internal static class TerrainAnalysisPreviewBuilder
                 continue;
             }
 
-            var referencePoint = referenceMesh.ClosestMeshPoint(centroid, 0.0);
-            if (referencePoint == null)
+            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(
+                    referenceMesh,
+                    centroid,
+                    doc.ModelAbsoluteTolerance,
+                    out Point3d referencePoint))
             {
                 WriteColor(colors, faceIndex, 130, 130, 130);
                 continue;
             }
 
-            double delta = centroid.Z - referenceMesh.PointAt(referencePoint).Z;
+            double delta = centroid.Z - referencePoint.Z;
             values[faceIndex] = delta;
             maxAbs = Math.Max(maxAbs, Math.Abs(delta));
         }

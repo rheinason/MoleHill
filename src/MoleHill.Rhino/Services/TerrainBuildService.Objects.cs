@@ -8,7 +8,6 @@ using MoleHill.Rhino.Model;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.Geometry;
-using Rhino.Geometry.Intersect;
 using TriangleNet.Meshing;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
@@ -37,11 +36,9 @@ internal sealed partial class TerrainBuildService
                     ThrowIfCancellationRequested(shouldCancel);
 
                 var samplePoint = samplePoints[sampleIndex];
-                var meshPoint = mesh.ClosestMeshPoint(samplePoint, 0.0);
-                if (meshPoint == null)
+                if (!TryResolveTerrainPoint(snapshot, mesh, samplePoint, out Point3d worldPoint, out Vector3d normal, out _))
                     continue;
 
-                Point3d worldPoint = mesh.PointAt(meshPoint);
                 string text;
 
                 switch (marker)
@@ -50,7 +47,6 @@ internal sealed partial class TerrainBuildService
                         text = worldPoint.Z.ToString(elevation.Format);
                         break;
                     case SlopeMarkerDefinition slope:
-                        var normal = mesh.NormalAt(meshPoint);
                         double slopeRadians = Math.Atan2(Math.Sqrt(normal.X * normal.X + normal.Y * normal.Y), Math.Abs(normal.Z));
                         double value = slope.AsPercent
                             ? Math.Tan(slopeRadians) * 100.0
@@ -660,25 +656,17 @@ internal sealed partial class TerrainBuildService
         terrainNormal = Vector3d.Unset;
         diagnostic = null;
 
-        BoundingBox meshBounds = mesh.GetBoundingBox(true);
-        if (!meshBounds.IsValid)
-        {
-            diagnostic = "Objects skipped a source object because the terrain bounds are invalid.";
-            return false;
-        }
-
-        double zMargin = Math.Max(snapshot.ModelAbsoluteTolerance * 10.0, ModelUnits.FromMeters(1.0, snapshot.ModelUnitSystem));
-        double rayStartZ = Math.Max(samplePoint.Z, meshBounds.Max.Z) + zMargin;
-        var ray = new Ray3d(new Point3d(samplePoint.X, samplePoint.Y, rayStartZ), -Vector3d.ZAxis);
-        double rayDistance = Intersection.MeshRay(mesh, ray);
-        if (rayDistance < 0.0)
+        if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(
+                mesh,
+                samplePoint,
+                Math.Max(snapshot.ModelAbsoluteTolerance, ModelUnits.FromMeters(1e-4, snapshot.ModelUnitSystem)),
+                out terrainPoint,
+                out var meshPoint))
         {
             diagnostic = "Objects skipped a source object because it is outside the terrain footprint.";
             return false;
         }
 
-        terrainPoint = ray.PointAt(rayDistance);
-        var meshPoint = mesh.ClosestMeshPoint(terrainPoint, Math.Max(snapshot.ModelAbsoluteTolerance * 4.0, ModelUnits.FromMeters(1e-4, snapshot.ModelUnitSystem)));
         if (meshPoint == null)
         {
             diagnostic = "Objects skipped a source object because no terrain sample point was found.";

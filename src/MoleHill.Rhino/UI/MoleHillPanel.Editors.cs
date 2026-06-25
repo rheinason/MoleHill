@@ -168,7 +168,8 @@ public sealed partial class MoleHillPanel
         int decimalPlaces = 3,
         string? help = null,
         double? minValue = 0,
-        double? maxValue = null)
+        double? maxValue = null,
+        bool liveEdit = false)
     {
         help ??= GetNumericHelp(label);
         var stepper = new NumericStepper
@@ -194,12 +195,36 @@ public sealed partial class MoleHillPanel
             committedValue = numericValue;
             onChanged(numericValue);
         }
+
+        // liveEdit brackets the focus gesture in the controller refresh deferral (like the slider editor),
+        // so commits while the field is focused don't tear the card down mid-edit (focus loss / scroll
+        // jump). Callers pair this with deferDocumentSave + suppressImmediateUiRefresh on their mutate.
+        bool editActive = false;
+        void BeginEdit()
+        {
+            if (!liveEdit || editActive)
+                return;
+
+            editActive = true;
+            BeginControllerRefreshDeferral();
+        }
+        void EndEdit()
+        {
+            if (!editActive)
+                return;
+
+            editActive = false;
+            EndControllerRefreshDeferral();
+        }
+        if (liveEdit)
+            stepper.GotFocus += (_, _) => BeginEdit();
         timer.Elapsed += (_, _) => Commit(stepper.Value);
         stepper.ValueChanged += (_, _) =>
         {
             if (_isRefreshing)
                 return;
 
+            BeginEdit();
             timer.Stop();
             timer.Start();
         };
@@ -210,6 +235,7 @@ public sealed partial class MoleHillPanel
 
             timer.Stop();
             Commit(stepper.Value);
+            EndEdit();
         };
         if (UseStackedFormRows())
         {
@@ -331,9 +357,11 @@ public sealed partial class MoleHillPanel
         string? help = null)
     {
         help ??= GetNumericHelp(label);
+        double committedValue = ClampSliderValue(value, hardMin, hardMax);
         double currentMin = softMin;
         double currentMax = softMax;
-        ExpandSliderRange(value, ref currentMin, ref currentMax);
+        ExpandSliderRange(committedValue, ref currentMin, ref currentMax);
+        ClampSliderRangeToHardBounds(ref currentMin, ref currentMax, hardMin, hardMax);
 
         var slider = new Slider
         {
@@ -347,17 +375,9 @@ public sealed partial class MoleHillPanel
             Width = 88
         };
         StyleTextBox(textBox);
-        var valueLabel = new Label
-        {
-            Width = 56,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextColor = UiTheme.InputText
-        };
         ApplyHelp(slider, help);
         ApplyHelp(textBox, help);
-        ApplyHelp(valueLabel, help);
 
-        double committedValue = ClampSliderValue(value, hardMin, hardMax);
         double pendingValue = committedValue;
         bool syncing = false;
         bool sliderEditActive = false;
@@ -405,10 +425,10 @@ public sealed partial class MoleHillPanel
             numericValue = ClampSliderValue(numericValue, hardMin, hardMax);
             syncing = true;
             ExpandSliderRange(numericValue, ref currentMin, ref currentMax);
+            ClampSliderRangeToHardBounds(ref currentMin, ref currentMax, hardMin, hardMax);
             if (updateTextBox)
                 textBox.Text = FormatSliderValue(numericValue, decimalPlaces);
             slider.Value = ToSliderValue(numericValue, currentMin, currentMax, slider.MaxValue);
-            valueLabel.Text = FormatSliderValue(numericValue, decimalPlaces);
             syncing = false;
         }
 
@@ -502,7 +522,6 @@ public sealed partial class MoleHillPanel
                         Items =
                         {
                             textBox,
-                            valueLabel,
                             new StackLayoutItem(new Panel(), expand: true)
                         }
                     }
@@ -532,8 +551,7 @@ public sealed partial class MoleHillPanel
             {
                 CreateHelpLabel(label, help, NumericLabelWidth),
                 slider,
-                textBox,
-                valueLabel
+                textBox
             }
         };
     }
@@ -549,6 +567,16 @@ public sealed partial class MoleHillPanel
             max = NiceNumber(Math.Max(value, max));
         if (value < min * 1.02 && value > 0)
             min = Math.Min(min, NiceNumber(value * 0.5));
+    }
+
+    private static void ClampSliderRangeToHardBounds(ref double min, ref double max, double? hardMin, double? hardMax)
+    {
+        if (hardMin.HasValue)
+            min = Math.Max(min, hardMin.Value);
+        if (hardMax.HasValue)
+            max = Math.Min(max, hardMax.Value);
+        if (max <= min)
+            max = min + 1.0;
     }
 
     private static int ToSliderValue(double value, double min, double max, int sliderMax)
@@ -572,8 +600,8 @@ public sealed partial class MoleHillPanel
     private static string FormatSliderValue(double value, int decimalPlaces)
     {
         return decimalPlaces == 0
-            ? ((int)Math.Round(value)).ToString(CultureInfo.CurrentCulture)
-            : value.ToString($"F{decimalPlaces}", CultureInfo.CurrentCulture);
+            ? ((int)Math.Round(value)).ToString(CultureInfo.InvariantCulture)
+            : value.ToString($"F{decimalPlaces}", CultureInfo.InvariantCulture);
     }
 
     private static bool TryParseSliderNumericValue(string text, out double value)
@@ -764,6 +792,90 @@ public sealed partial class MoleHillPanel
         };
     }
 
+    private DropDown CreateValueFormatDropDown(string selectedFormat, Action<string> onChanged, string help)
+    {
+        var options = GetValueFormatOptions(selectedFormat);
+        var dropDown = new DropDown();
+        if (!UseStackedFormRows())
+            dropDown.Width = 160;
+
+        foreach (var option in options)
+            dropDown.Items.Add(new ListItem { Text = option.Label });
+
+        int selectedIndex = options.FindIndex(option => string.Equals(option.Key, selectedFormat, StringComparison.OrdinalIgnoreCase));
+        dropDown.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+        ApplyHelp(dropDown, help);
+        dropDown.SelectedIndexChanged += (_, _) =>
+        {
+            if (_isRefreshing)
+                return;
+
+            int index = dropDown.SelectedIndex;
+            if (index < 0 || index >= options.Count)
+                return;
+
+            onChanged(options[index].Key);
+        };
+
+        return dropDown;
+    }
+
+    private Control CreateValueFormatEditor(
+        string label,
+        string selectedFormat,
+        Action<string> onChanged,
+        string help)
+    {
+        var dropDown = CreateValueFormatDropDown(selectedFormat, onChanged, help);
+
+        if (UseStackedFormRows())
+        {
+            return new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 4,
+                Padding = new Padding(0, 3),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    CreateHelpLabel(label, help, 0),
+                    dropDown
+                }
+            };
+        }
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Items =
+            {
+                CreateHelpLabel(label, help, NumericLabelWidth),
+                dropDown
+            }
+        };
+    }
+
+    private static List<(string Key, string Label)> GetValueFormatOptions(string selectedFormat)
+    {
+        var options = new List<(string Key, string Label)>
+        {
+            ("F0", "Whole number"),
+            ("F1", "1 decimal place"),
+            ("F2", "2 decimal places"),
+            ("F3", "3 decimal places"),
+            ("G4", "Compact")
+        };
+
+        if (!string.IsNullOrWhiteSpace(selectedFormat) &&
+            !options.Any(option => string.Equals(option.Key, selectedFormat, StringComparison.OrdinalIgnoreCase)))
+        {
+            options.Add((selectedFormat, $"Custom ({selectedFormat})"));
+        }
+
+        return options;
+    }
+
     private Control CreateCommittedTextEditor(
         string label,
         string value,
@@ -844,12 +956,11 @@ public sealed partial class MoleHillPanel
             doc => _controller.GetSelectedLayerPaths(doc),
             sourceHelp));
         extraRows?.Invoke(layout);
-        layout.AddRow(CreateCommittedTextEditor(
-            "Format",
+        layout.AddRow(CreateValueFormatEditor(
+            "Decimals",
             analysis.ValueFormat,
-            text => mutate(item => item.ValueFormat = text),
-            formatHelp,
-            trim: false));
+            format => mutate(item => item.ValueFormat = format),
+            formatHelp));
         layout.AddRow(CreateCommittedTextEditor(
             "Prefix",
             analysis.AttributePrefix,

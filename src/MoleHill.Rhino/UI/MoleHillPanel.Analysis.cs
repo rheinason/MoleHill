@@ -304,7 +304,7 @@ public sealed partial class MoleHillPanel
                     RhinoObjectType.Curve,
                     MutateCurveElevation,
                     "Curve objects or layers sampled along the terrain at regular stations for elevation labels.",
-                    "Numeric format string applied to sampled elevation values, for example F2 or 0.00.",
+                    "Number of decimal places shown in curve elevation labels.",
                     extraRows: extraLayout =>
                     {
                         extraLayout.AddRow(CreateNumericEditor(
@@ -359,7 +359,7 @@ public sealed partial class MoleHillPanel
                     RhinoObjectType.Curve,
                     MutateCurveSlope,
                     "Curve objects or layers projected to the terrain before grade is sampled.",
-                    "Numeric format string applied to the sampled slope value, for example F1 or 0.0.",
+                    "Number of decimal places shown in curve slope labels.",
                     extraRows: extraLayout =>
                     {
                         extraLayout.AddRow(CreateNumericEditor(
@@ -423,7 +423,7 @@ public sealed partial class MoleHillPanel
                     RhinoObjectType.Point | RhinoObjectType.Curve,
                     MutateProjectedElevation,
                     "Point objects and curve edit points projected to the terrain for elevation labels.",
-                    "Numeric format string applied to projected elevation values, for example F2 or 0.00.");
+                    "Number of decimal places shown in projected elevation labels.");
 
                 if (summary != null)
                 {
@@ -468,7 +468,7 @@ public sealed partial class MoleHillPanel
                     RhinoObjectType.Point,
                     MutatePointSlope,
                     "Point objects or layers projected to the terrain before local slope is sampled.",
-                    "Numeric format string applied to sampled terrain slope values, for example F1 or 0.0.",
+                    "Number of decimal places shown in point slope labels.",
                     extraRows: extraLayout =>
                     {
                         extraLayout.AddRow(CreateSlopeUnitDropDown(
