@@ -1,4 +1,4 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
 VisualStudioVersion = 18.2.11415.280 d18.0
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -17,6 +17,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MoleHill.Core.Tests", "tests\MoleHill.Core.Tests\MoleHill.Core.Tests.csproj", "{17E31E94-A43A-4ED8-9FEA-EE3B2DD5E825}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MoleHill.Grasshopper.Tests", "tests\MoleHill.Grasshopper.Tests\MoleHill.Grasshopper.Tests.csproj", "{304EFBE2-A8AD-478E-90B5-F5FE7AD2CBCF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MoleHill.Rhino.Tests", "tests\MoleHill.Rhino.Tests\MoleHill.Rhino.Tests.csproj", "{918D9349-9F79-494C-A86E-D43CB5666764}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -136,6 +138,24 @@ Global
 		{304EFBE2-A8AD-478E-90B5-F5FE7AD2CBCF}.RhinoDebug|x64.Build.0 = Debug|Any CPU
 		{304EFBE2-A8AD-478E-90B5-F5FE7AD2CBCF}.RhinoDebug|x86.ActiveCfg = Debug|Any CPU
 		{304EFBE2-A8AD-478E-90B5-F5FE7AD2CBCF}.RhinoDebug|x86.Build.0 = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Debug|x64.Build.0 = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Debug|x86.Build.0 = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Release|Any CPU.Build.0 = Release|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Release|x64.ActiveCfg = Release|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Release|x64.Build.0 = Release|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Release|x86.ActiveCfg = Release|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.Release|x86.Build.0 = Release|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.RhinoDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.RhinoDebug|Any CPU.Build.0 = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.RhinoDebug|x64.ActiveCfg = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.RhinoDebug|x64.Build.0 = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.RhinoDebug|x86.ActiveCfg = Debug|Any CPU
+		{918D9349-9F79-494C-A86E-D43CB5666764}.RhinoDebug|x86.Build.0 = Debug|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -147,5 +167,6 @@ Global
 		{F1B2C3D4-0004-0004-0004-000000000004} = {A1B2C3D4-F001-F001-F001-000000000001}
 		{17E31E94-A43A-4ED8-9FEA-EE3B2DD5E825} = {A1B2C3D4-F002-F002-F002-000000000002}
 		{304EFBE2-A8AD-478E-90B5-F5FE7AD2CBCF} = {A1B2C3D4-F002-F002-F002-000000000002}
+		{918D9349-9F79-494C-A86E-D43CB5666764} = {A1B2C3D4-F002-F002-F002-000000000002}
 	EndGlobalSection
 EndGlobal
