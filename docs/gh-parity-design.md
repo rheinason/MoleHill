@@ -1,8 +1,29 @@
 # Grasshopper parity — design
 
-Status: **proposal, not yet implemented.** Goal: let registry-described terrain types surface as
-Grasshopper components with as little per-type duplication as possible, building on the
-`ParameterDescriptor` schema introduced for the Rhino panel.
+Status: **B2 framework + Remesh vertical slice DONE** (2026-06-24); remaining components pending. Goal:
+let registry-described terrain types surface as Grasshopper components with as little per-type
+duplication as possible.
+
+## Implemented (B2)
+`src/MoleHill.Grasshopper/Registry/`: `GhPort` + `GhComponentSpec` (declarative ports + `Solve`),
+`GhSolveContext` (DA wrapper + shared mesh/curve plumbing), and the generic
+`RegistryTerrainComponent` base. A concrete component is now a thin subclass: a static `GhComponentSpec`,
+`ComponentGuid`, icon, and the `Solve` body. **Gotcha learned:** `GH_Component`'s base ctor calls
+`PostConstructor → RegisterInputParams` *before* the derived ctor body, so the spec must be reached via a
+`protected abstract GhComponentSpec Spec { get; }` (virtual dispatch, backed by a static field), **not** a
+field assigned after `base(...)`. Also fixed a latent ILRepack failure (Grasshopper/RhinoCommon are
+`ExcludeAssets=runtime`, so pass reference dirs as ILRepack `LibraryPath`). Remesh migrated + verified in
+real GH (registers with the exact original schema, places, solves).
+
+## Remaining migrations (one commit each, keep `ComponentGuid`s)
+Grade Pad, Grade Path, In-Situ Stair, Retaining Wall, TIN (`TinFromPointsAndBreaklines`), Mesh Smooth,
+Mesh Areas, Mesh Collage, Slope Analysis — move each `SolveInstance` body into a `spec.Solve`, reusing
+`GhSolveContext` helpers; delete the hand-written param registration. Verify each in GH.
+
+---
+*Original analysis (kept for reference):* let registry-described terrain types surface as Grasshopper
+components with as little per-type duplication as possible, building on the `ParameterDescriptor` schema
+introduced for the Rhino panel.
 
 ## The reality (why this is a feature, not a wrapper)
 
