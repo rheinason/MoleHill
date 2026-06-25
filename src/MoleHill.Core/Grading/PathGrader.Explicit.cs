@@ -436,24 +436,52 @@ public static partial class PathGrader
         TerrainFaceGrid terrain,
         double tolerance)
     {
+        // Input point dedup. Cell size is 2x the weld tolerance and lookups scan the 2x2 cell block
+        // covering [p - tol, p + tol], merging by actual Euclidean distance — a single-cell hash both
+        // misses near pairs that straddle a cell boundary (banker's rounding splits p +/- epsilon across
+        // cells) and falsely merges far pairs sharing a cell (cell diagonal = tol*sqrt(2)), corrupting
+        // the boundary loop the fill relies on. Mirrors PadGrader.BuildHoleFill.
         double weldTol = Math.Max(tolerance, 1e-6);
-        double inverseCell = 1.0 / weldTol;
+        double weldTolSq = weldTol * weldTol;
+        double inverseCell = 1.0 / (2.0 * weldTol);
         var xyList = new List<double>();
         var inputZ = new List<double>();
-        var pointIndex = new Dictionary<(long, long), int>();
+        var pointCells = new Dictionary<(long, long), List<int>>();
         var segments = new List<(int a, int b)>();
 
         int AddPoint(double x, double y, double z)
         {
-            var key = ((long)Math.Round(x * inverseCell), (long)Math.Round(y * inverseCell));
-            if (pointIndex.TryGetValue(key, out int existing))
-                return existing;
+            long cx0 = (long)Math.Round((x - weldTol) * inverseCell);
+            long cy0 = (long)Math.Round((y - weldTol) * inverseCell);
+            for (long cx = cx0; cx <= cx0 + 1; cx++)
+            {
+                for (long cy = cy0; cy <= cy0 + 1; cy++)
+                {
+                    if (!pointCells.TryGetValue((cx, cy), out List<int>? bucket))
+                        continue;
+
+                    foreach (int existing in bucket)
+                    {
+                        double dx = xyList[existing * 2] - x;
+                        double dy = xyList[(existing * 2) + 1] - y;
+                        if ((dx * dx) + (dy * dy) <= weldTolSq)
+                            return existing;
+                    }
+                }
+            }
 
             int index = xyList.Count / 2;
             xyList.Add(x);
             xyList.Add(y);
             inputZ.Add(z);
-            pointIndex[key] = index;
+            var key = ((long)Math.Round(x * inverseCell), (long)Math.Round(y * inverseCell));
+            if (!pointCells.TryGetValue(key, out List<int>? list))
+            {
+                list = new List<int>(1);
+                pointCells[key] = list;
+            }
+
+            list.Add(index);
             return index;
         }
 
