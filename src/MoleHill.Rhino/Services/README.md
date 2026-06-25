@@ -13,9 +13,13 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 - `TerrainBuildResult.cs` — outputs (meshes, generated-object lists, diagnostics, timings).
 
 ## State, preview, bake
-- `TerrainController.cs` — owns document state (JSON in the .3dm), build scheduling, display-state
-  publication, source-object editing, work-boundary set/clear, and **bake**. Largest service; a
-  decomposition target (`docs/cleanup-plan.md`).
+- `TerrainController.cs` + `TerrainController.*.cs` partials — owns document state (JSON in the .3dm)
+  and the terrain command surface; split by concern: `.Build` (scheduling + background-build lifecycle),
+  `.Output` (output sync + bake + attributes + owned-object lifecycle), `.Events` (Rhino doc events,
+  idle, source sync), `.Display` (display state, placement sync, materials). The root file keeps CRUD
+  commands, state/save/undo, sources/selection, and contour helpers.
+- `TerrainJsonTypeResolver.cs` — registry-driven `ModifierDefinition` JSON polymorphism (replaces the
+  hand-maintained `[JsonDerivedType]` list); wired into `TerrainSerializer.SharedOptions`.
 - `TerrainDisplayConduit.cs` / `TerrainDisplayState.cs` — transient viewport preview of generated
   objects (no doc objects until bake).
 - `TerrainRuntimeCache.cs` — per-terrain runtime cache (stage entries, TinEngine, display state, cloner).

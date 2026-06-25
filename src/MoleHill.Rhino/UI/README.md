@@ -3,11 +3,12 @@
 The dockable terrain panel (Eto.Forms) and its dialogs. Composes reusable card/editor primitives — add
 fields by composing them, not by copying boilerplate.
 
-- `MoleHillPanel.cs` + `MoleHillPanel.*.cs` partials — the panel. `MoleHillPanel.Cards.cs` holds the
-  collapsible "stack card" framework (shared by modifier/zone/object/analysis cards);
-  `MoleHillPanel.Editors.cs` holds the form-control vocabulary (`CreateSourceEditor`,
-  `CreateNumericEditor`, `CreateDropDownEditor`, `CreateCheckEditor`, …). The main file is large and a
-  decomposition target (`docs/cleanup-plan.md`) — extract per-tab card builders into more partials.
+- `MoleHillPanel.cs` + `MoleHillPanel.*.cs` partials — the panel, split by concern:
+  `.Cards.cs` (collapsible "stack card" framework), `.Editors.cs` (form-control vocabulary —
+  `CreateSourceEditor`/`CreateNumericEditor`/`CreateDropDownEditor`/…), `.Schema.cs` (schema → card-row
+  builder for registry-driven modifier cards), and per-tab card builders `.Modifiers.cs`, `.Analysis.cs`,
+  `.Objects.cs`, `.LayerPickers.cs`. The main file holds the toolbar, terrain-level actions, layout
+  refresh, zones/markers cards, and shared helpers.
 - `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` — the Insert-style block picker for Scatter,
   with Eto-drawn isometric thumbnails.
 - `LayerTemplateEditorDialog.cs`, `SlowBuildWarningDialog.cs` — other dialogs.
