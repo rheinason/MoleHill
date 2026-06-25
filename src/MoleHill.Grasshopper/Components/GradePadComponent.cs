@@ -2,114 +2,85 @@ using Grasshopper.Kernel;
 using Rhino;
 using Rhino.Geometry;
 using MoleHill.Core.Grading;
+using MoleHill.Grasshopper.Registry;
 
 namespace MoleHill.Grasshopper.Components;
 
 /// <summary>
-/// Grade terrain to a planar surface defined by 3D boundary curves,
-/// with controlled slope transitions. Reports cut/fill volumes.
-/// Per-pad settings via matching-length lists.
+/// Grade terrain to a planar surface defined by 3D boundary curves, with controlled slope transitions.
+/// Reports cut/fill volumes. Per-pad settings via matching-length lists. Spec-driven
+/// (<see cref="RegistryTerrainComponent"/>).
 /// </summary>
-public class GradePadComponent : GH_Component
+public sealed class GradePadComponent : RegistryTerrainComponent
 {
     private const double MinRepresentablePlaneNormalZ = 1e-3;
 
-    public GradePadComponent()
-        : base("Grade Pad", "GradePad",
-               "Grade terrain within boundary curves to a planar surface with slope transitions. Flat curves make flat pads; 3D curves define angled pads.",
-               "MoleHill", "Grading")
+    private static readonly GhComponentSpec ComponentSpec = BuildSpec();
+
+    public GradePadComponent() : base(ComponentSpec)
     {
     }
+
+    protected override GhComponentSpec Spec => ComponentSpec;
 
     protected override System.Drawing.Bitmap? Icon =>
         MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.GradePad.png");
 
     public override Guid ComponentGuid => new("B3C4D5E6-F7A8-9012-CDEF-123456789012");
 
-    protected override void RegisterInputParams(GH_InputParamManager pManager)
+    private static GhComponentSpec BuildSpec() => new()
     {
-        pManager.AddMeshParameter("Mesh", "M", "Existing terrain mesh.", GH_ParamAccess.item);
-        pManager.AddCurveParameter("Boundaries", "B", "Closed curves defining pad areas. Flat curves make flat pads; 3D curves define the finished pad plane.", GH_ParamAccess.list);
-        pManager.AddNumberParameter("Slope Angle", "S", "Cut slope angle in degrees per boundary (terrain above the pad). Shorter lists repeat last value.", GH_ParamAccess.list);
-        pManager[2].Optional = true;
-        pManager.AddNumberParameter("Max Distance", "D", "Max horizontal transition distance per boundary. 0 = auto. Shorter lists repeat last value.", GH_ParamAccess.list);
-        pManager[3].Optional = true;
-        pManager.AddCurveParameter("Lock Curves", "L", "Curves whose edges are preserved as constrained segments in the remesh.", GH_ParamAccess.list);
-        pManager[4].Optional = true;
-        pManager.AddIntegerParameter("Corner Segments", "CS", "Arc vertices per convex corner. 0 = sharp ridge (hip), ≥1 = rounded fan. Shorter lists repeat last value.", GH_ParamAccess.list);
-        pManager[5].Optional = true;
-        pManager.AddNumberParameter("Fill Slope", "Sf", "Fill slope angle in degrees per boundary (terrain below the pad). 0 = same as cut slope. Shorter lists repeat last value.", GH_ParamAccess.list);
-        pManager[6].Optional = true;
-    }
+        Name = "Grade Pad",
+        Nick = "GradePad",
+        Description = "Grade terrain within boundary curves to a planar surface with slope transitions. Flat curves make flat pads; 3D curves define angled pads.",
+        SubCategory = "Grading",
+        Inputs = new[]
+        {
+            GhPort.Mesh("Mesh", "M", "Existing terrain mesh."),
+            GhPort.Curve("Boundaries", "B", "Closed curves defining pad areas. Flat curves make flat pads; 3D curves define the finished pad plane.", optional: false),
+            GhPort.Number("Slope Angle", "S", "Cut slope angle in degrees per boundary (terrain above the pad). Shorter lists repeat last value.", access: GH_ParamAccess.list),
+            GhPort.Number("Max Distance", "D", "Max horizontal transition distance per boundary. 0 = auto. Shorter lists repeat last value.", access: GH_ParamAccess.list),
+            GhPort.Curve("Lock Curves", "L", "Curves whose edges are preserved as constrained segments in the remesh."),
+            GhPort.Integer("Corner Segments", "CS", "Arc vertices per convex corner. 0 = sharp ridge (hip), >=1 = rounded fan. Shorter lists repeat last value.", access: GH_ParamAccess.list),
+            GhPort.Number("Fill Slope", "Sf", "Fill slope angle in degrees per boundary (terrain below the pad). 0 = same as cut slope. Shorter lists repeat last value.", access: GH_ParamAccess.list),
+        },
+        Outputs = new[]
+        {
+            GhPort.Mesh("Mesh", "M", "Modified terrain mesh."),
+            GhPort.Number("Cut Volume", "Cv", "Total excavation volume."),
+            GhPort.Number("Fill Volume", "Fv", "Total embankment volume."),
+            GhPort.Number("Net Volume", "Nv", "Cut - Fill (positive = net cut)."),
+        },
+        Solve = Solve,
+    };
 
-    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    private static void Solve(GhSolveContext ctx)
     {
-        pManager.AddMeshParameter("Mesh", "M", "Modified terrain mesh.", GH_ParamAccess.item);
-        pManager.AddNumberParameter("Cut Volume", "Cv", "Total excavation volume.", GH_ParamAccess.item);
-        pManager.AddNumberParameter("Fill Volume", "Fv", "Total embankment volume.", GH_ParamAccess.item);
-        pManager.AddNumberParameter("Net Volume", "Nv", "Cut - Fill (positive = net cut).", GH_ParamAccess.item);
-    }
+        if (!ctx.TryGetMesh(0, out var mesh))
+            return;
 
-    private static T GetListValue<T>(List<T> list, int index, T defaultVal)
-    {
-        if (list.Count == 0) return defaultVal;
-        return list[Math.Min(index, list.Count - 1)];
-    }
+        var boundaryCurves = ctx.GetCurves(1);
+        if (boundaryCurves.Count == 0)
+            return;
 
-    protected override void SolveInstance(IGH_DataAccess DA)
-    {
-        Mesh? mesh = null;
-        if (!DA.GetData(0, ref mesh) || mesh == null) return;
+        var slopeAngles = ctx.GetNumbers(2);
+        var maxDists = ctx.GetNumbers(3);
+        var lockCurves = ctx.GetCurves(4);
+        var cornerSegmentsList = ctx.GetInts(5);
+        var fillSlopeAngles = ctx.GetNumbers(6);
 
-        var boundaryCurves = new List<Curve>();
-        if (!DA.GetDataList(1, boundaryCurves) || boundaryCurves.Count == 0) return;
-
-        var slopeAngles = new List<double>();
-        var maxDists = new List<double>();
-        var cornerSegmentsList = new List<int>();
-        var fillSlopeAngles = new List<double>();
-        DA.GetDataList(2, slopeAngles);
-        DA.GetDataList(3, maxDists);
-
-        var lockCurves = new List<Curve>();
-        DA.GetDataList(4, lockCurves);
-        DA.GetDataList(5, cornerSegmentsList);
-        DA.GetDataList(6, fillSlopeAngles);
-
-        double tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
-
-        // Extract mesh data
-        int vertexCount = mesh.Vertices.Count;
+        double tolerance = ctx.Tolerance;
         int faceCount = mesh.Faces.Count;
-
         if (faceCount == 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Input mesh has no faces.");
+            ctx.Warn("Input mesh has no faces.");
             return;
         }
 
-        var vertices = new double[vertexCount * 3];
-        for (int i = 0; i < vertexCount; i++)
-        {
-            var pt = mesh.Vertices[i];
-            vertices[i * 3] = pt.X;
-            vertices[i * 3 + 1] = pt.Y;
-            vertices[i * 3 + 2] = pt.Z;
-        }
-
-        var faces = new int[faceCount * 3];
-        for (int i = 0; i < faceCount; i++)
-        {
-            var face = mesh.Faces[i];
-            if (face.IsQuad)
-            {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Mesh contains quad faces. Only triangle meshes are supported.");
-                return;
-            }
-            faces[i * 3] = face.A;
-            faces[i * 3 + 1] = face.B;
-            faces[i * 3 + 2] = face.C;
-        }
+        var vertices = GhSolveContext.ToFlatVertices(mesh);
+        int vertexCount = mesh.Vertices.Count;
+        if (!ctx.TryToFlatFaces(mesh, out var faces))
+            return;
 
         // Convert boundary curves with per-pad settings
         var pads = new List<PadGrader.PadBoundary>();
@@ -120,7 +91,7 @@ public class GradePadComponent : GH_Component
 
             if (!crv.IsClosed)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Boundary curve is not closed. Skipping.");
+                ctx.Warn("Boundary curve is not closed. Skipping.");
                 padIdx++;
                 continue;
             }
@@ -131,7 +102,7 @@ public class GradePadComponent : GH_Component
                 var polyCrv = crv.ToPolyline(tolerance, Math.PI / 36.0, 0.0, 0.0);
                 if (polyCrv == null || !polyCrv.TryGetPolyline(out pl))
                 {
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Could not tessellate boundary curve. Skipping.");
+                    ctx.Warn("Could not tessellate boundary curve. Skipping.");
                     padIdx++;
                     continue;
                 }
@@ -143,14 +114,14 @@ public class GradePadComponent : GH_Component
             if (pl[0].DistanceTo(pl[plCount - 1]) < tolerance)
                 plCount--;
 
-            double slope = GetListValue(slopeAngles, padIdx, 33.0);
-            double dist = GetListValue(maxDists, padIdx, 0.0);
-            int cornerSegs = GetListValue(cornerSegmentsList, padIdx, 0);
-            double fillSlope = GetListValue(fillSlopeAngles, padIdx, 0.0);
-            double stitchApronDistance = ConvertMetersToModelUnits(0.5, Rhino.RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters);
+            double slope = GhSolveContext.ListValue(slopeAngles, padIdx, 33.0);
+            double dist = GhSolveContext.ListValue(maxDists, padIdx, 0.0);
+            int cornerSegs = GhSolveContext.ListValue(cornerSegmentsList, padIdx, 0);
+            double fillSlope = GhSolveContext.ListValue(fillSlopeAngles, padIdx, 0.0);
+            double stitchApronDistance = ConvertMetersToModelUnits(0.5, ctx.ModelUnitSystem);
             if (!TryCreatePadBoundary(pl, plCount, slope, dist, cornerSegs, stitchApronDistance, fillSlope, out var pad, out string? warning))
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning ?? "Boundary curve did not define a stable pad plane. Skipping.");
+                ctx.Warn(warning ?? "Boundary curve did not define a stable pad plane. Skipping.");
                 padIdx++;
                 continue;
             }
@@ -161,7 +132,7 @@ public class GradePadComponent : GH_Component
 
         if (pads.Count == 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "No valid boundary curves.");
+            ctx.Error("No valid boundary curves.");
             return;
         }
 
@@ -194,7 +165,6 @@ public class GradePadComponent : GH_Component
             if (lockList.Count > 0) locks = lockList.ToArray();
         }
 
-        // Grade
         var result = PadGrader.Grade(
             vertices, vertexCount,
             faces, faceCount,
@@ -204,42 +174,17 @@ public class GradePadComponent : GH_Component
 
         if (result == null)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, errorMessage ?? "Grading failed.");
+            ctx.Error(errorMessage ?? "Grading failed.");
             return;
         }
 
         if (errorMessage != null)
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, errorMessage);
+            ctx.Warn(errorMessage);
 
-        // Build output mesh
-        var outMesh = new Mesh();
-        outMesh.Vertices.Capacity = result.VertexCount;
-        outMesh.Faces.Capacity = result.FaceCount;
-
-        for (int i = 0; i < result.VertexCount; i++)
-        {
-            outMesh.Vertices.Add(
-                result.Vertices[i * 3],
-                result.Vertices[i * 3 + 1],
-                result.Vertices[i * 3 + 2]);
-        }
-
-        for (int i = 0; i < result.FaceCount; i++)
-        {
-            outMesh.Faces.AddFace(
-                result.Faces[i * 3],
-                result.Faces[i * 3 + 1],
-                result.Faces[i * 3 + 2]);
-        }
-
-        outMesh.Normals.ComputeNormals();
-        outMesh.UnifyNormals();
-        outMesh.Compact();
-
-        DA.SetData(0, outMesh);
-        DA.SetData(1, result.CutVolume);
-        DA.SetData(2, result.FillVolume);
-        DA.SetData(3, result.NetVolume);
+        ctx.SetData(0, GhSolveContext.BuildMesh(result.Vertices, result.Faces));
+        ctx.SetData(1, result.CutVolume);
+        ctx.SetData(2, result.FillVolume);
+        ctx.SetData(3, result.NetVolume);
     }
 
     private static bool TryCreatePadBoundary(

@@ -1,71 +1,81 @@
-using Grasshopper.Kernel;
 using MoleHill.Core.Engine;
+using MoleHill.Grasshopper.Registry;
 using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Components;
 
-public class RetainingWallComponent : GH_Component
+/// <summary>
+/// Generate retaining wall solids from curve pairs and insert their rails as hard terrain breaklines.
+/// Spec-driven (<see cref="RegistryTerrainComponent"/>).
+/// </summary>
+public sealed class RetainingWallComponent : RegistryTerrainComponent
 {
-    public RetainingWallComponent()
-        : base("Retaining Wall", "RetainWall",
-               "Generate retaining wall solids from curve pairs and insert their rails as hard terrain breaklines.",
-               "MoleHill", "Grading")
+    private static readonly GhComponentSpec ComponentSpec = BuildSpec();
+
+    public RetainingWallComponent() : base(ComponentSpec)
     {
     }
+
+    protected override GhComponentSpec Spec => ComponentSpec;
 
     protected override System.Drawing.Bitmap? Icon =>
         MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.RetainingWall.png");
 
     public override Guid ComponentGuid => new("D4E3F8A1-8B13-4CC1-8E56-5390F6D63C4D");
 
-    protected override void RegisterInputParams(GH_InputParamManager pManager)
+    private static GhComponentSpec BuildSpec() => new()
     {
-        pManager.AddMeshParameter("Mesh", "M", "Terrain mesh (triangles only).", GH_ParamAccess.item);
-        pManager.AddCurveParameter("Wall Curves", "C", "Unordered open or closed 3D curves defining retaining walls.", GH_ParamAccess.list);
-        pManager.AddNumberParameter("Max Wall Width", "W", "Maximum expected spacing between paired wall rails.", GH_ParamAccess.item, 1.0);
-    }
+        Name = "Retaining Wall",
+        Nick = "RetainWall",
+        Description = "Generate retaining wall solids from curve pairs and insert their rails as hard terrain breaklines.",
+        SubCategory = "Grading",
+        Inputs = new[]
+        {
+            GhPort.Mesh("Mesh", "M", "Terrain mesh (triangles only)."),
+            GhPort.Curve("Wall Curves", "C", "Unordered open or closed 3D curves defining retaining walls.", optional: false),
+            GhPort.Number("Max Wall Width", "W", "Maximum expected spacing between paired wall rails.", @default: 1.0),
+        },
+        Outputs = new[]
+        {
+            GhPort.Mesh("Mesh", "M", "Terrain mesh with accepted wall rails inserted as hard breaklines."),
+            GhPort.Brep("Wall Breps", "W", "Solid retaining wall Breps."),
+            GhPort.Line("Pairs", "P", "Preview lines connecting matched pairs."),
+            GhPort.Text("Report", "R", "Info / warning / error report entries."),
+        },
+        Solve = Solve,
+    };
 
-    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    private static void Solve(GhSolveContext ctx)
     {
-        pManager.AddMeshParameter("Mesh", "M", "Terrain mesh with accepted wall rails inserted as hard breaklines.", GH_ParamAccess.item);
-        pManager.AddBrepParameter("Wall Breps", "W", "Solid retaining wall Breps.", GH_ParamAccess.list);
-        pManager.AddLineParameter("Pairs", "P", "Preview lines connecting matched pairs.", GH_ParamAccess.list);
-        pManager.AddTextParameter("Report", "R", "Info / warning / error report entries.", GH_ParamAccess.list);
-    }
-
-    protected override void SolveInstance(IGH_DataAccess DA)
-    {
-        Mesh? mesh = null;
-        if (!DA.GetData(0, ref mesh) || mesh == null)
+        if (!ctx.TryGetMesh(0, out var mesh))
             return;
 
-        var wallCurves = new List<Curve>();
-        if (!DA.GetDataList(1, wallCurves) || wallCurves.Count == 0)
+        var wallCurves = ctx.GetCurves(1);
+        if (wallCurves.Count == 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "No wall curves provided.");
-            DA.SetData(0, mesh);
-            DA.SetDataList(1, Array.Empty<Brep>());
-            DA.SetDataList(2, Array.Empty<Line>());
-            DA.SetDataList(3, new[] { "[Warning] No wall curves provided." });
+            ctx.Warn("No wall curves provided.");
+            ctx.SetData(0, mesh);
+            ctx.SetDataList(1, Array.Empty<Brep>());
+            ctx.SetDataList(2, Array.Empty<Line>());
+            ctx.SetDataList(3, new[] { "[Warning] No wall curves provided." });
             return;
         }
 
-        double maxWallWidth = 0.0;
-        DA.GetData(2, ref maxWallWidth);
+        double maxWallWidth = ctx.GetNumber(2, 1.0);
         if (maxWallWidth <= 0.0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Max wall width must be > 0.");
+            ctx.Error("Max wall width must be > 0.");
             return;
         }
 
         if (!TryExtractTriangleMesh(mesh, out double[] vertices, out int[] faces, out string? meshError))
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, meshError ?? "Could not extract a triangle mesh.");
+            ctx.Error(meshError ?? "Could not extract a triangle mesh.");
             return;
         }
 
-        double modelTolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
+        double modelTolerance = ctx.Tolerance;
         var plan = RetainingWallPlannerCore.Plan(
             wallCurves,
             Math.Max(modelTolerance, maxWallWidth),
@@ -77,23 +87,23 @@ public class RetainingWallComponent : GH_Component
             switch (entry.Level)
             {
                 case RetainingWallPlannerCore.ReportLevel.Error:
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Error, entry.Message);
+                    ctx.Error(entry.Message);
                     break;
                 case RetainingWallPlannerCore.ReportLevel.Warning:
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, entry.Message);
+                    ctx.Warn(entry.Message);
                     break;
                 default:
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, entry.Message);
+                    ctx.Remark(entry.Message);
                     break;
             }
         }
 
         if (plan.Walls.Count == 0)
         {
-            DA.SetData(0, mesh);
-            DA.SetDataList(1, Array.Empty<Brep>());
-            DA.SetDataList(2, plan.PairLines);
-            DA.SetDataList(3, reportOut);
+            ctx.SetData(0, mesh);
+            ctx.SetDataList(1, Array.Empty<Brep>());
+            ctx.SetDataList(2, plan.PairLines);
+            ctx.SetDataList(3, reportOut);
             return;
         }
 
@@ -124,24 +134,24 @@ public class RetainingWallComponent : GH_Component
         Mesh outMesh = mesh;
         if (remeshResult.Success)
         {
-            outMesh = BuildMesh(remeshResult.Vertices, remeshResult.Faces);
+            outMesh = GhSolveContext.BuildMesh(remeshResult.Vertices, remeshResult.Faces);
             if (!string.IsNullOrWhiteSpace(remeshResult.Warning))
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, remeshResult.Warning);
+                ctx.Warn(remeshResult.Warning);
                 reportOut.Add($"[Warning] {remeshResult.Warning}");
             }
         }
         else
         {
             string warning = remeshResult.Warning ?? "Retaining wall breakline remesh failed. Output mesh equals input mesh.";
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning);
+            ctx.Warn(warning);
             reportOut.Add($"[Warning] {warning}");
         }
 
-        DA.SetData(0, outMesh);
-        DA.SetDataList(1, wallBreps);
-        DA.SetDataList(2, plan.PairLines);
-        DA.SetDataList(3, reportOut);
+        ctx.SetData(0, outMesh);
+        ctx.SetDataList(1, wallBreps);
+        ctx.SetDataList(2, plan.PairLines);
+        ctx.SetDataList(3, reportOut);
     }
 
     private static bool TryExtractTriangleMesh(Mesh mesh, out double[] vertices, out int[] faces, out string? error)
@@ -204,23 +214,5 @@ public class RetainingWallComponent : GH_Component
         }
 
         return new SurfaceRemesher.ConstraintPolyline(points, count, isClosed, PreserveInputElevation: true);
-    }
-
-    private static Mesh BuildMesh(double[] vertices, int[] faces)
-    {
-        var mesh = new Mesh();
-        mesh.Vertices.Capacity = vertices.Length / 3;
-        mesh.Faces.Capacity = faces.Length / 3;
-
-        for (int i = 0; i < vertices.Length / 3; i++)
-            mesh.Vertices.Add(vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]);
-
-        for (int i = 0; i < faces.Length / 3; i++)
-            mesh.Faces.AddFace(faces[i * 3], faces[i * 3 + 1], faces[i * 3 + 2]);
-
-        mesh.Normals.ComputeNormals();
-        mesh.UnifyNormals();
-        mesh.Compact();
-        return mesh;
     }
 }

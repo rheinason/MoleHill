@@ -10,6 +10,9 @@ public enum GhPortType
     Number,
     Integer,
     Boolean,
+    Brep,
+    Line,
+    Text,
 }
 
 /// <summary>
@@ -42,6 +45,15 @@ public sealed class GhPort
 
     public static GhPort Boolean(string name, string nick, string desc, GH_ParamAccess access = GH_ParamAccess.item, bool optional = true) =>
         new() { Name = name, Nick = nick, Description = desc, Type = GhPortType.Boolean, Access = access, Optional = optional };
+
+    public static GhPort Brep(string name, string nick, string desc, GH_ParamAccess access = GH_ParamAccess.list, bool optional = false) =>
+        new() { Name = name, Nick = nick, Description = desc, Type = GhPortType.Brep, Access = access, Optional = optional };
+
+    public static GhPort Line(string name, string nick, string desc, GH_ParamAccess access = GH_ParamAccess.list, bool optional = false) =>
+        new() { Name = name, Nick = nick, Description = desc, Type = GhPortType.Line, Access = access, Optional = optional };
+
+    public static GhPort Text(string name, string nick, string desc, GH_ParamAccess access = GH_ParamAccess.list, bool optional = false) =>
+        new() { Name = name, Nick = nick, Description = desc, Type = GhPortType.Text, Access = access, Optional = optional };
 }
 
 /// <summary>

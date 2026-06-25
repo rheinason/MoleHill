@@ -84,6 +84,8 @@ public sealed class GhSolveContext
     // ── outputs / messages ────────────────────────────────────────────────
     public void SetData(int index, object value) => _access.SetData(index, value);
 
+    public void SetDataList(int index, System.Collections.IEnumerable values) => _access.SetDataList(index, values);
+
     public void Warn(string message) => _component.AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, message);
 
     public void Error(string message) => _component.AddRuntimeMessage(GH_RuntimeMessageLevel.Error, message);

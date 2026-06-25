@@ -37,6 +37,9 @@ public abstract class RegistryTerrainComponent : GH_Component
                     ? pManager.AddIntegerParameter(port.Name, port.Nick, port.Description, port.Access, port.IntegerDefault.Value)
                     : pManager.AddIntegerParameter(port.Name, port.Nick, port.Description, port.Access),
                 GhPortType.Boolean => pManager.AddBooleanParameter(port.Name, port.Nick, port.Description, port.Access),
+                GhPortType.Brep => pManager.AddBrepParameter(port.Name, port.Nick, port.Description, port.Access),
+                GhPortType.Line => pManager.AddLineParameter(port.Name, port.Nick, port.Description, port.Access),
+                GhPortType.Text => pManager.AddTextParameter(port.Name, port.Nick, port.Description, port.Access),
                 _ => throw new ArgumentOutOfRangeException(nameof(port.Type), port.Type, "Unhandled port type."),
             };
             if (port.Optional)
@@ -55,6 +58,9 @@ public abstract class RegistryTerrainComponent : GH_Component
                 case GhPortType.Number: pManager.AddNumberParameter(port.Name, port.Nick, port.Description, port.Access); break;
                 case GhPortType.Integer: pManager.AddIntegerParameter(port.Name, port.Nick, port.Description, port.Access); break;
                 case GhPortType.Boolean: pManager.AddBooleanParameter(port.Name, port.Nick, port.Description, port.Access); break;
+                case GhPortType.Brep: pManager.AddBrepParameter(port.Name, port.Nick, port.Description, port.Access); break;
+                case GhPortType.Line: pManager.AddLineParameter(port.Name, port.Nick, port.Description, port.Access); break;
+                case GhPortType.Text: pManager.AddTextParameter(port.Name, port.Nick, port.Description, port.Access); break;
                 default: throw new ArgumentOutOfRangeException(nameof(port.Type), port.Type, "Unhandled port type.");
             }
         }
