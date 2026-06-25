@@ -47,6 +47,7 @@
     <Compile Include="..\..\src\MoleHill.Grasshopper\MoleHillInfo.cs" Link="Grasshopper\MoleHillInfo.cs" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\Components\*.cs" LinkBase="Grasshopper\Components" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\Utilities\*.cs" LinkBase="Grasshopper\Utilities" />
+    <Compile Include="..\..\src\MoleHill.Grasshopper\Registry\*.cs" LinkBase="Grasshopper\Registry" />
   </ItemGroup>
 </Project>
 

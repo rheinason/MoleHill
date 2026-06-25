@@ -1,109 +1,89 @@
-using Grasshopper.Kernel;
 using MoleHill.Core.Engine;
+using MoleHill.Grasshopper.Registry;
 using MoleHill.Shared;
 using Rhino.Geometry;
-using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Grasshopper.Components;
 
 /// <summary>
-/// Refine a triangle mesh by re-triangulating with quality constraints.
-/// Preserves constraint curves as mesh edges. Prepares meshes for smoothing.
+/// Refine a triangle mesh by re-triangulating with quality constraints. Spec-driven
+/// (<see cref="RegistryTerrainComponent"/>): parameter registration + mesh/curve plumbing are shared; only
+/// the remesh-specific solve body lives here.
 /// </summary>
-public class RemeshComponent : GH_Component
+public sealed class RemeshComponent : RegistryTerrainComponent
 {
-    public RemeshComponent()
-        : base("Remesh", "Remesh",
-               "Refine a triangle mesh with quality constraints. Adds vertices to improve triangle shape and density.",
-               "MoleHill", "Surface")
+    private static readonly GhComponentSpec ComponentSpec = BuildSpec();
+
+    public RemeshComponent() : base(ComponentSpec)
     {
     }
+
+    protected override GhComponentSpec Spec => ComponentSpec;
 
     protected override System.Drawing.Bitmap? Icon =>
         MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.Remesh.png");
 
     public override Guid ComponentGuid => new("D5E6F7A8-B9C0-1234-EF01-345678901234");
 
-    protected override void RegisterInputParams(GH_InputParamManager pManager)
+    private static GhComponentSpec BuildSpec() => new()
     {
-        pManager.AddMeshParameter("Mesh", "M", "Triangle mesh to refine.", GH_ParamAccess.item);
-        pManager.AddCurveParameter("Constraints", "C", "Curves to preserve as mesh edges (breaklines, boundaries).", GH_ParamAccess.list);
-        pManager[1].Optional = true;
-        pManager.AddNumberParameter("Edge Length", "E", "Maximum edge length. Controls point density. 0 = no constraint.", GH_ParamAccess.item, 0.0);
-        pManager[2].Optional = true;
-        pManager.AddNumberParameter("Max Area", "A", "Maximum triangle area. 0 = no constraint. Overrides Edge Length if both set.", GH_ParamAccess.item, 0.0);
-        pManager[3].Optional = true;
-        pManager.AddNumberParameter("Min Angle", "N", "Minimum triangle angle in degrees. 0 = no constraint.", GH_ParamAccess.item, 20.0);
-        pManager[4].Optional = true;
-    }
+        Name = "Remesh",
+        Nick = "Remesh",
+        Description = "Refine a triangle mesh with quality constraints. Adds vertices to improve triangle shape and density.",
+        SubCategory = "Surface",
+        Inputs = new[]
+        {
+            GhPort.Mesh("Mesh", "M", "Triangle mesh to refine."),
+            GhPort.Curve("Constraints", "C", "Curves to preserve as mesh edges (breaklines, boundaries)."),
+            GhPort.Number("Edge Length", "E", "Maximum edge length. Controls point density. 0 = no constraint.", @default: 0.0),
+            GhPort.Number("Max Area", "A", "Maximum triangle area. 0 = no constraint. Overrides Edge Length if both set.", @default: 0.0),
+            GhPort.Number("Min Angle", "N", "Minimum triangle angle in degrees. 0 = no constraint.", @default: 20.0),
+        },
+        Outputs = new[]
+        {
+            GhPort.Mesh("Mesh", "M", "Refined mesh."),
+            GhPort.Integer("Face Count", "F", "Number of faces."),
+            GhPort.Integer("Vertex Count", "V", "Number of vertices."),
+        },
+        Solve = Solve,
+    };
 
-    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    private static void Solve(GhSolveContext ctx)
     {
-        pManager.AddMeshParameter("Mesh", "M", "Refined mesh.", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Face Count", "F", "Number of faces.", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Vertex Count", "V", "Number of vertices.", GH_ParamAccess.item);
-    }
+        if (!ctx.TryGetMesh(0, out var mesh))
+            return;
 
-    protected override void SolveInstance(IGH_DataAccess DA)
-    {
-        RhinoMesh? mesh = null;
-        if (!DA.GetData(0, ref mesh) || mesh == null) return;
-
-        var constraints = new List<Curve>();
-        DA.GetDataList(1, constraints);
-
-        double edgeLength = 0.0, maxArea = 0.0, minAngle = 20.0;
-        DA.GetData(2, ref edgeLength);
-        DA.GetData(3, ref maxArea);
-        DA.GetData(4, ref minAngle);
+        var constraints = ctx.GetCurves(1);
+        double edgeLength = ctx.GetNumber(2, 0.0);
+        double maxArea = ctx.GetNumber(3, 0.0);
+        double minAngle = ctx.GetNumber(4, 20.0);
 
         // Convert edge length to max area (equilateral triangle: area = edge^2 * sqrt(3) / 4)
         if (edgeLength > 0 && maxArea <= 0)
             maxArea = edgeLength * edgeLength * Math.Sqrt(3.0) / 4.0;
 
-        double tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
-
+        double tolerance = ctx.Tolerance;
         int vertexCount = mesh.Vertices.Count;
         int faceCount = mesh.Faces.Count;
 
         if (faceCount == 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Input mesh has no faces.");
+            ctx.Warn("Input mesh has no faces.");
             return;
         }
 
         if (maxArea <= 0 && minAngle <= 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "No quality constraints set. Output equals input.");
-            DA.SetData(0, mesh);
-            DA.SetData(1, faceCount);
-            DA.SetData(2, vertexCount);
+            ctx.Remark("No quality constraints set. Output equals input.");
+            ctx.SetData(0, mesh);
+            ctx.SetData(1, faceCount);
+            ctx.SetData(2, vertexCount);
             return;
         }
 
-        // Extract mesh vertices
-        var origVerts = new double[vertexCount * 3];
-        for (int i = 0; i < vertexCount; i++)
-        {
-            var pt = mesh.Vertices[i];
-            origVerts[i * 3] = pt.X;
-            origVerts[i * 3 + 1] = pt.Y;
-            origVerts[i * 3 + 2] = pt.Z;
-        }
-
-        var origFaces = new int[faceCount * 3];
-        for (int i = 0; i < faceCount; i++)
-        {
-            var face = mesh.Faces[i];
-            if (face.IsQuad)
-            {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Mesh contains quad faces. Only triangle meshes are supported.");
-                return;
-            }
-            origFaces[i * 3] = face.A;
-            origFaces[i * 3 + 1] = face.B;
-            origFaces[i * 3 + 2] = face.C;
-        }
+        var origVerts = GhSolveContext.ToFlatVertices(mesh);
+        if (!ctx.TryToFlatFaces(mesh, out var origFaces))
+            return;
 
         var remeshConstraints = new List<SurfaceRemesher.ConstraintPolyline>();
         foreach (var crv in constraints)
@@ -111,7 +91,7 @@ public class RemeshComponent : GH_Component
             if (crv == null)
                 continue;
 
-            if (!TryGetPolyline(crv, tolerance, edgeLength, maxArea, out var polyline))
+            if (!AdaptivePolylineBuilder.TryGetPolyline(crv, tolerance, requireClosed: false, edgeLength, maxArea, out var polyline))
                 continue;
 
             remeshConstraints.Add(ToConstraintPolyline(polyline, crv.IsClosed));
@@ -127,44 +107,25 @@ public class RemeshComponent : GH_Component
                 RequestedEdgeLength = edgeLength,
                 MaxArea = maxArea,
                 MinAngle = minAngle,
-                ProtectSharpEdges = true
+                ProtectSharpEdges = true,
             });
 
         if (!remeshResult.Success)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, remeshResult.Warning ?? "Remesh could not preserve the mesh boundary or supplied constraints. Output equals input mesh.");
-            DA.SetData(0, mesh);
-            DA.SetData(1, faceCount);
-            DA.SetData(2, vertexCount);
+            ctx.Warn(remeshResult.Warning ?? "Remesh could not preserve the mesh boundary or supplied constraints. Output equals input mesh.");
+            ctx.SetData(0, mesh);
+            ctx.SetData(1, faceCount);
+            ctx.SetData(2, vertexCount);
             return;
         }
 
         if (!string.IsNullOrWhiteSpace(remeshResult.Warning))
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, remeshResult.Warning);
+            ctx.Warn(remeshResult.Warning);
 
-        var outMesh = BuildMesh(remeshResult.Vertices, remeshResult.Faces);
-        int outVertCount = remeshResult.Vertices.Length / 3;
-        int outFaceCount = remeshResult.Faces.Length / 3;
-
-        DA.SetData(0, outMesh);
-        DA.SetData(1, outFaceCount);
-        DA.SetData(2, outVertCount);
-    }
-
-    private static bool TryGetPolyline(
-        Curve curve,
-        double tolerance,
-        double requestedEdgeLength,
-        double maxArea,
-        out Polyline polyline)
-    {
-        return AdaptivePolylineBuilder.TryGetPolyline(
-            curve,
-            tolerance,
-            requireClosed: false,
-            requestedEdgeLength,
-            maxArea,
-            out polyline);
+        var outMesh = GhSolveContext.BuildMesh(remeshResult.Vertices, remeshResult.Faces);
+        ctx.SetData(0, outMesh);
+        ctx.SetData(1, remeshResult.Faces.Length / 3);
+        ctx.SetData(2, remeshResult.Vertices.Length / 3);
     }
 
     private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)
@@ -178,23 +139,5 @@ public class RemeshComponent : GH_Component
         }
 
         return new SurfaceRemesher.ConstraintPolyline(points, polyline.Count, isClosed);
-    }
-
-    private static RhinoMesh BuildMesh(double[] vertices, int[] faces)
-    {
-        var mesh = new RhinoMesh();
-        mesh.Vertices.Capacity = vertices.Length / 3;
-        mesh.Faces.Capacity = faces.Length / 3;
-
-        for (int i = 0; i < vertices.Length / 3; i++)
-            mesh.Vertices.Add(vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]);
-
-        for (int i = 0; i < faces.Length / 3; i++)
-            mesh.Faces.AddFace(faces[i * 3], faces[i * 3 + 1], faces[i * 3 + 2]);
-
-        mesh.Normals.ComputeNormals();
-        mesh.UnifyNormals();
-        mesh.Compact();
-        return mesh;
     }
 }

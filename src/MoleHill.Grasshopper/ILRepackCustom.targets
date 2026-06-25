@@ -9,6 +9,10 @@
     <ItemGroup>
       <InputAssemblies Include="$(OutputPath)$(TargetName)$(TargetExt)" />
       <InputAssemblies Include="$(OutputPath)MoleHill.Core.dll" />
+      <!-- Search directories for resolving referenced (but not merged) assemblies such as Grasshopper
+           and RhinoCommon, which are ExcludeAssets=runtime and therefore not copied to OutputPath. -->
+      <ILRepackSearchDir Include="$(OutputPath)" />
+      <ILRepackSearchDir Include="@(ReferencePath->'%(RootDir)%(Directory)')" />
     </ItemGroup>
 
     <MakeDir Directories="$(MoleHillILRepackDirectory)" />
@@ -18,6 +22,7 @@
       DebugInfo="true"
       AllowDuplicateResources="false"
       InputAssemblies="@(InputAssemblies)"
+      LibraryPath="@(ILRepackSearchDir->Distinct())"
       TargetKind="SameAsPrimaryAssembly"
       OutputFile="$(MoleHillILRepackOutputFile)" />
 
