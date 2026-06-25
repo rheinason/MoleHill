@@ -1,18 +1,8 @@
-using System.Text.Json.Serialization;
-
 namespace MoleHill.Rhino.Model;
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
-[JsonDerivedType(typeof(TriangulateModifierDefinition), "triangulate")]
-[JsonDerivedType(typeof(AddGeometryModifierDefinition), "add-geometry")]
-[JsonDerivedType(typeof(RemeshModifierDefinition), "remesh")]
-[JsonDerivedType(typeof(SmoothModifierDefinition), "smooth")]
-[JsonDerivedType(typeof(MeshAreasModifierDefinition), "mesh-areas")]
-[JsonDerivedType(typeof(MeshCollageModifierDefinition), "mesh-collage")]
-[JsonDerivedType(typeof(RetainingWallModifierDefinition), "retaining-wall")]
-[JsonDerivedType(typeof(GradePadModifierDefinition), "grade-pad")]
-[JsonDerivedType(typeof(GradePathModifierDefinition), "grade-path")]
-[JsonDerivedType(typeof(InSituStairModifierDefinition), "in-situ-stair")]
+// JSON polymorphism for ModifierDefinition is supplied by the registry-driven TerrainJsonTypeResolver
+// (Services), not a hand-maintained [JsonDerivedType] list — registering a modifier descriptor is enough.
+// Discriminator strings are unchanged so saved .3dm terrains still load.
 public abstract class ModifierDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();

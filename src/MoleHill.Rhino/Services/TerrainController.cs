@@ -625,8 +625,8 @@ internal sealed class TerrainController
         if (terrain == null)
             return null!;
 
-        var json = System.Text.Json.JsonSerializer.Serialize(terrain);
-        var clone = System.Text.Json.JsonSerializer.Deserialize<TerrainDefinition>(json)!;
+        var json = System.Text.Json.JsonSerializer.Serialize(terrain, TerrainSerializer.SharedOptions);
+        var clone = System.Text.Json.JsonSerializer.Deserialize<TerrainDefinition>(json, TerrainSerializer.SharedOptions)!;
         clone.TerrainId = Guid.NewGuid();
         clone.Name = terrain.Name + " Copy";
         clone.OutputObjectIds.Clear();

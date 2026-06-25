@@ -35,8 +35,8 @@ internal static class TerrainBuildSnapshotBuilder
 
     private static TerrainDefinition CloneTerrain(TerrainDefinition terrain)
     {
-        string json = JsonSerializer.Serialize(terrain);
-        TerrainDefinition? clone = JsonSerializer.Deserialize<TerrainDefinition>(json);
+        string json = JsonSerializer.Serialize(terrain, TerrainSerializer.SharedOptions);
+        TerrainDefinition? clone = JsonSerializer.Deserialize<TerrainDefinition>(json, TerrainSerializer.SharedOptions);
         if (clone == null)
             throw new InvalidOperationException("Could not clone terrain definition for background rebuild.");
 

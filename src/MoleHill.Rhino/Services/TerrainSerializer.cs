@@ -11,8 +11,16 @@ internal static class TerrainSerializer
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        TypeInfoResolver = new TerrainJsonTypeResolver()
     };
+
+    /// <summary>
+    /// Shared options carrying the registry-driven modifier polymorphism resolver. All whole-terrain
+    /// (de)serialization (save/load here, plus the in-memory clone paths) must use these so modifier
+    /// `$type` discriminators round-trip — the modifier base no longer declares `[JsonDerivedType]`.
+    /// </summary>
+    internal static JsonSerializerOptions SharedOptions => JsonOptions;
 
     public static string Serialize(IReadOnlyList<TerrainDefinition> terrains)
     {
