@@ -129,12 +129,6 @@ public static partial class PadGrader
             }
         }
 
-        if (droppedFaces.Count == 0)
-        {
-            errorMessage = "Grade Pad region remesh dropped no faces; deferring.";
-            return null;
-        }
-
         // 4. Each hole's rim, as ordered ORIGINAL vertex indices. A carved region can PINCH — two
         // carved parts meeting at a single shared terrain vertex (a degree-4 boundary junction, a
         // "figure-eight"), e.g. where two pads' grown regions, or a region and the terrain edge, just
@@ -143,7 +137,12 @@ public static partial class PadGrader
         // the kept faces still touching each pinch vertex so the two parts merge into one
         // simply-connected hole and the vertex becomes interior, then retry. The handful of extra
         // dropped faces are slivers of untouched terrain the remesh restores at terrain elevation.
-        if (!TryExtractRimsWithPinchRepair(droppedFaces, keptFaces, out List<int[]> rimLoops))
+        List<int[]> rimLoops;
+        if (droppedFaces.Count == 0)
+        {
+            rimLoops = new List<int[]>();
+        }
+        else if (!TryExtractRimsWithPinchRepair(droppedFaces, keptFaces, out rimLoops))
         {
             errorMessage = "Grade Pad region remesh could not extract clean hole boundaries; deferring.";
             return null;
@@ -203,6 +202,12 @@ public static partial class PadGrader
                     return null;
                 }
             }
+        }
+
+        if (droppedFaces.Count == 0)
+        {
+            errorMessage = "Grade Pad region remesh dropped no faces; deferring.";
+            return null;
         }
 
         // 4b. Partition the rim loops. A rim that encloses at least one pad footprint is a graded hole
@@ -284,13 +289,31 @@ public static partial class PadGrader
         int[] finalFaces = globalFaces.ToArray();
         int finalFaceCount = finalFaces.Length / 3;
 
-        // 7. Watertight/manifold gate (should hold by construction).
+        // 7. Watertight/manifold gate (should hold by construction). If the replacement patch left a
+        // seam defect, run the same topology repair used by the explicit assembler, then gate again.
         MeshTopologyValidator.BoundaryGraphAnalysis topology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(finalFaces, finalFaceCount);
         MeshTopologyValidator.BoundaryGraphAnalysis terrainTopology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
+        if (topology.NonManifoldEdgeCount == 0 &&
+            (topology.HasOpenBoundaryChains || topology.BoundaryComponentCount > terrainTopology.BoundaryComponentCount))
+        {
+            (graded, finalFaces) = MeshTopologyOperations.MakeWatertight(
+                graded,
+                finalVertexCount,
+                finalFaces,
+                finalFaceCount,
+                Math.Max(tolerance, 1e-6),
+                out _,
+                out _);
+            finalVertexCount = graded.Length / 3;
+            finalFaceCount = finalFaces.Length / 3;
+            topology = MeshTopologyValidator.AnalyzeBoundaryGraph(finalFaces, finalFaceCount);
+        }
+
+        bool hasNewOpenBoundaryChains = topology.HasOpenBoundaryChains && !terrainTopology.HasOpenBoundaryChains;
         if (topology.NonManifoldEdgeCount > 0 ||
-            topology.HasOpenBoundaryChains ||
+            hasNewOpenBoundaryChains ||
             topology.BoundaryComponentCount > terrainTopology.BoundaryComponentCount)
         {
             errorMessage = GradedRegionAssembler.DescribeWeldTopologyFailure("Grade Pad region remesh", topology, terrainTopology);
