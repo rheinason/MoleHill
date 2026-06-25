@@ -21,26 +21,6 @@ namespace MoleHill.Rhino.UI;
 public sealed partial class MoleHillPanel : Panel
 {
 
-    private static readonly (string Label, string Kind)[] AnalysisKinds =
-    {
-        ("Earthworks", "earthwork"),
-        ("Slope", "slope"),
-        ("Elevation", "elevation"),
-        ("Cut / Fill", "cut-fill"),
-    };
-
-    private static readonly (string Label, string Kind)[] AnnotationKinds =
-    {
-        ("Contours", "contour"),
-        ("Curve Elevation Labels", "curve-elevation-label"),
-        ("Curve Slope Labels", "curve-slope-label"),
-        ("Projected Elevation Labels", "projected-elevation-label"),
-        ("Point Slope Labels", "point-slope-label"),
-        ("Terrain Section", "terrain-section"),
-        ("Cross-Sections at Stations", "cross-section-station"),
-        ("Section Along Curve", "longitudinal-section"),
-    };
-
     private readonly TerrainController _controller = TerrainController.Instance;
     private readonly TextBox _terrainName = new();
     private readonly CheckBox _liveUpdate = new() { Text = "Live" };
@@ -2184,13 +2164,10 @@ public sealed partial class MoleHillPanel : Panel
     {
         var addButton = MakeToolbarButton("Add Analysis", (_, _) => { }, "Add an analysis card", width: 110);
         var menu = new ContextMenu();
-        foreach (var (label, kind) in AnalysisKinds)
+        foreach (var descriptor in AnalysisTypeRegistry.Analyses.Where(item => !item.IsAnnotation).OrderBy(item => item.SortOrder))
         {
-            var item = new ButtonMenuItem
-            {
-                Text = label
-            };
-            var capturedKind = kind;
+            var item = new ButtonMenuItem { Text = descriptor.MenuLabel };
+            var capturedKind = descriptor.Kind;
             item.Click += (_, _) => AddAnalysis(capturedKind);
             menu.Items.Add(item);
         }
@@ -2203,10 +2180,10 @@ public sealed partial class MoleHillPanel : Panel
     {
         var addButton = MakeToolbarButton("Add Annotation", (_, _) => { }, "Add an annotation card", width: 120);
         var menu = new ContextMenu();
-        foreach (var (label, kind) in AnnotationKinds)
+        foreach (var descriptor in AnalysisTypeRegistry.Analyses.Where(item => item.IsAnnotation).OrderBy(item => item.SortOrder))
         {
-            var item = new ButtonMenuItem { Text = label };
-            var capturedKind = kind;
+            var item = new ButtonMenuItem { Text = descriptor.MenuLabel };
+            var capturedKind = descriptor.Kind;
             item.Click += (_, _) => AddAnalysis(capturedKind);
             menu.Items.Add(item);
         }
@@ -3293,23 +3270,7 @@ public sealed partial class MoleHillPanel : Panel
     {
         MutateSelectedTerrain(terrain =>
         {
-            AnalysisDefinition? analysis = kind switch
-            {
-                "earthwork" => new EarthworkAnalysisDefinition(),
-                "slope" => new SlopeAnalysisDefinition(),
-                "elevation" => new ElevationAnalysisDefinition(),
-                "cut-fill" => new CutFillAnalysisDefinition(),
-                "contour" => new ContourAnalysisDefinition(),
-                "curve-elevation-label" => new CurveElevationLabelAnalysisDefinition(),
-                "curve-slope-label" => new CurveSlopeLabelAnalysisDefinition(),
-                "projected-elevation-label" => new ProjectedElevationLabelAnalysisDefinition(),
-                "point-slope-label" => new PointSlopeLabelAnalysisDefinition(),
-                "terrain-section" => new TerrainSectionAnalysisDefinition(),
-                "cross-section-station" => new CrossSectionStationAnalysisDefinition(),
-                "longitudinal-section" => new LongitudinalSectionAnalysisDefinition(),
-                _ => null
-            };
-
+            AnalysisDefinition? analysis = AnalysisTypeRegistry.Create(kind);
             if (analysis != null)
                 terrain.Analyses.Insert(0, analysis);
         }, scheduleRebuild: false);
@@ -3427,25 +3388,8 @@ public sealed partial class MoleHillPanel : Panel
         return terrain.LastAnalysisResults.FirstOrDefault(item => item.AnalysisId == analysisId);
     }
 
-    private static string GetAnalysisTypeLabel(AnalysisDefinition analysis)
-    {
-        return analysis switch
-        {
-            EarthworkAnalysisDefinition => "Earthworks",
-            SlopeAnalysisDefinition => "Slope",
-            ElevationAnalysisDefinition => "Elevation",
-            CutFillAnalysisDefinition => "Cut / Fill",
-            ContourAnalysisDefinition => "Contours",
-            CurveElevationLabelAnalysisDefinition => "Curve Elevation",
-            CurveSlopeLabelAnalysisDefinition => "Curve Slope",
-            ProjectedElevationLabelAnalysisDefinition => "Proj. Elevation",
-            PointSlopeLabelAnalysisDefinition => "Point Slope",
-            TerrainSectionAnalysisDefinition => "Terrain Section",
-            CrossSectionStationAnalysisDefinition => "Cross-Sections",
-            LongitudinalSectionAnalysisDefinition => "Long. Section",
-            _ => "Analysis"
-        };
-    }
+    private static string GetAnalysisTypeLabel(AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.TypeLabel ?? "Analysis";
 
     private static string GetTerrainObjectTypeLabel(TerrainObjectDefinition definition) =>
         ObjectTypeRegistry.ForType(definition.GetType())?.DisplayName ?? "Objects";
@@ -3503,83 +3447,28 @@ public sealed partial class MoleHillPanel : Panel
         return string.Join(" | ", parts);
     }
 
-    private static string GetAnalysisKind(AnalysisDefinition analysis) => analysis switch
-    {
-        EarthworkAnalysisDefinition => "earthwork",
-        SlopeAnalysisDefinition => "slope",
-        ElevationAnalysisDefinition => "elevation",
-        CutFillAnalysisDefinition => "cut-fill",
-        ContourAnalysisDefinition => "contour",
-        CurveElevationLabelAnalysisDefinition => "curve-elevation-label",
-        CurveSlopeLabelAnalysisDefinition => "curve-slope-label",
-        ProjectedElevationLabelAnalysisDefinition => "projected-elevation-label",
-        PointSlopeLabelAnalysisDefinition => "point-slope-label",
-        TerrainSectionAnalysisDefinition => "terrain-section",
-        CrossSectionStationAnalysisDefinition => "cross-section-station",
-        LongitudinalSectionAnalysisDefinition => "longitudinal-section",
-        _ => string.Empty
-    };
+    private static string GetAnalysisKind(AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.Kind ?? string.Empty;
 
-    private static bool IsAnnotationAnalysis(AnalysisDefinition analysis) => analysis is
-        ContourAnalysisDefinition or
-        CurveElevationLabelAnalysisDefinition or
-        CurveSlopeLabelAnalysisDefinition or
-        ProjectedElevationLabelAnalysisDefinition or
-        PointSlopeLabelAnalysisDefinition or
-        TerrainSectionAnalysisDefinitionBase;
+    private static bool IsAnnotationAnalysis(AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.IsAnnotation ?? false;
 
-    private static Color AnalysisTypeColor(string kind) => kind switch
+    private static Color AnalysisTypeColor(string kind)
     {
-        "earthwork" => Color.FromArgb(141, 110, 99),
-        "slope" => Color.FromArgb(67, 160, 71),
-        "elevation" => Color.FromArgb(30, 136, 229),
-        "cut-fill" => Color.FromArgb(239, 108, 0),
-        "contour" => Color.FromArgb(0, 121, 107),
-        "curve-elevation-label" => Color.FromArgb(21, 101, 192),
-        "curve-slope-label" => Color.FromArgb(46, 125, 50),
-        "projected-elevation-label" => Color.FromArgb(21, 101, 192),
-        "point-slope-label" => Color.FromArgb(2, 136, 209),
-        "terrain-section" => Color.FromArgb(123, 31, 162),
-        "cross-section-station" => Color.FromArgb(142, 36, 170),
-        "longitudinal-section" => Color.FromArgb(94, 53, 177),
-        _ => Color.FromArgb(120, 120, 120)
-    };
+        int argb = AnalysisTypeRegistry.ForKind(kind)?.AccentArgb ?? unchecked((int)0xFF787878);
+        return Color.FromArgb((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
+    }
 
-    private static string GetAnalysisIconLabel(AnalysisDefinition analysis) => analysis switch
-    {
-        EarthworkAnalysisDefinition => "EW",
-        SlopeAnalysisDefinition => "%",
-        ElevationAnalysisDefinition => "Z",
-        CutFillAnalysisDefinition => "+/-",
-        ContourAnalysisDefinition => "CT",
-        CurveElevationLabelAnalysisDefinition => "CE",
-        CurveSlopeLabelAnalysisDefinition => "C%",
-        ProjectedElevationLabelAnalysisDefinition => "PZ",
-        PointSlopeLabelAnalysisDefinition => "P%",
-        TerrainSectionAnalysisDefinition => "TS",
-        CrossSectionStationAnalysisDefinition => "XS",
-        LongitudinalSectionAnalysisDefinition => "LS",
-        _ => "A"
-    };
+    private static string GetAnalysisIconLabel(AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.IconLabel ?? "A";
 
     private static string GetAnalysisSubtitle(AnalysisDefinition analysis, bool isActive)
     {
-        return analysis switch
-        {
-            EarthworkAnalysisDefinition => "Refs + summary",
-            SlopeAnalysisDefinition => isActive ? "Preview colors" : "Slope preview",
-            ElevationAnalysisDefinition => isActive ? "Preview colors" : "Elevation preview",
-            CutFillAnalysisDefinition => isActive ? "Preview colors" : "Signed delta preview",
-            ContourAnalysisDefinition => "Contour output",
-            CurveElevationLabelAnalysisDefinition => "Curve elevation blocks",
-            CurveSlopeLabelAnalysisDefinition => "Curve grade blocks",
-            ProjectedElevationLabelAnalysisDefinition => "Projected elevation blocks",
-            PointSlopeLabelAnalysisDefinition => "Point slope blocks",
-            TerrainSectionAnalysisDefinition => "Geländeschnitt profile",
-            CrossSectionStationAnalysisDefinition => "Stations + grid",
-            LongitudinalSectionAnalysisDefinition => "Unrolled longitudinal",
-            _ => "Analysis"
-        };
+        var descriptor = AnalysisTypeRegistry.ForType(analysis.GetType());
+        if (descriptor == null)
+            return "Analysis";
+
+        return isActive && descriptor.ActiveSubtitle != null ? descriptor.ActiveSubtitle : descriptor.Subtitle;
     }
 
     private static string GetAnalysisCollapsedSummary(TerrainDefinition terrain, AnalysisDefinition analysis)

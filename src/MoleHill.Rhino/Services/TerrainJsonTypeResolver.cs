@@ -40,11 +40,16 @@ internal sealed class TerrainJsonTypeResolver : DefaultJsonTypeInfoResolver
             .Select(descriptor => (descriptor.DefinitionType, descriptor.Kind))
             .ToList();
 
+        var analyses = AnalysisTypeRegistry.Analyses
+            .Select(descriptor => (descriptor.DefinitionType, descriptor.Kind))
+            .ToList();
+
         return new Dictionary<Type, IReadOnlyList<(Type, string)>>
         {
             [typeof(ModifierDefinition)] = modifiers,
             [typeof(TerrainObjectDefinition)] = objects,
             [typeof(MarkerDefinition)] = markers,
+            [typeof(AnalysisDefinition)] = analyses,
         };
     }
 

@@ -1,20 +1,7 @@
-using System.Text.Json.Serialization;
-
 namespace MoleHill.Rhino.Model;
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
-[JsonDerivedType(typeof(EarthworkAnalysisDefinition), "earthwork")]
-[JsonDerivedType(typeof(SlopeAnalysisDefinition), "slope")]
-[JsonDerivedType(typeof(ElevationAnalysisDefinition), "elevation")]
-[JsonDerivedType(typeof(CutFillAnalysisDefinition), "cut-fill")]
-[JsonDerivedType(typeof(ContourAnalysisDefinition), "contour")]
-[JsonDerivedType(typeof(CurveElevationLabelAnalysisDefinition), "curve-elevation-label")]
-[JsonDerivedType(typeof(CurveSlopeLabelAnalysisDefinition), "curve-slope-label")]
-[JsonDerivedType(typeof(ProjectedElevationLabelAnalysisDefinition), "projected-elevation-label")]
-[JsonDerivedType(typeof(PointSlopeLabelAnalysisDefinition), "point-slope-label")]
-[JsonDerivedType(typeof(TerrainSectionAnalysisDefinition), "terrain-section")]
-[JsonDerivedType(typeof(CrossSectionStationAnalysisDefinition), "cross-section-station")]
-[JsonDerivedType(typeof(LongitudinalSectionAnalysisDefinition), "longitudinal-section")]
+// JSON polymorphism is registry-driven (Services/TerrainJsonTypeResolver reads AnalysisTypeRegistry),
+// not [JsonDerivedType] — registering an AnalysisTypeDescriptor is enough. Discriminators are unchanged.
 public abstract class AnalysisDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();
