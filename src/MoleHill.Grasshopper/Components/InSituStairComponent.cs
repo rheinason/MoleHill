@@ -1,70 +1,74 @@
 using Grasshopper.Kernel;
 using MoleHill.Core.Grading;
+using MoleHill.Grasshopper.Registry;
 using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Components;
 
-public class InSituStairComponent : GH_Component
+/// <summary>
+/// Grade terrain to a sloping support surface and generate separate stair Breps from a target riser
+/// height. Spec-driven (<see cref="RegistryTerrainComponent"/>).
+/// </summary>
+public sealed class InSituStairComponent : RegistryTerrainComponent
 {
-    public InSituStairComponent()
-        : base(
-            "In-Situ Stair",
-            "InSituStair",
-            "Grade terrain to a sloping support surface and generate separate stair Breps from a target riser height.",
-            "MoleHill",
-            "Grading")
+    private static readonly GhComponentSpec ComponentSpec = BuildSpec();
+
+    public InSituStairComponent() : base(ComponentSpec)
     {
     }
+
+    protected override GhComponentSpec Spec => ComponentSpec;
 
     protected override System.Drawing.Bitmap? Icon =>
         MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.GradePath.png");
 
     public override Guid ComponentGuid => new("2D5B1419-4E82-4D77-93A8-6760D14F4302");
 
-    protected override void RegisterInputParams(GH_InputParamManager pManager)
+    private static GhComponentSpec BuildSpec() => new()
     {
-        pManager.AddMeshParameter("Mesh", "M", "Existing terrain mesh.", GH_ParamAccess.item);
-        pManager.AddGeometryParameter("Reference Surface", "R", "Mesh, Brep, extrusion, or surface describing the stair run.", GH_ParamAccess.list);
-        pManager.AddNumberParameter("Riser Height", "H", "Vertical rise per step.", GH_ParamAccess.item, 0.15);
-        pManager.AddNumberParameter("Slope Angle", "S", "Daylight slope angle in degrees.", GH_ParamAccess.item, 33.0);
-        pManager[3].Optional = true;
-        pManager.AddNumberParameter("Max Distance", "D", "Maximum grading reach away from the stair. 0 = unlimited.", GH_ParamAccess.item, 0.0);
-        pManager[4].Optional = true;
-    }
+        Name = "In-Situ Stair",
+        Nick = "InSituStair",
+        Description = "Grade terrain to a sloping support surface and generate separate stair Breps from a target riser height.",
+        SubCategory = "Grading",
+        Inputs = new[]
+        {
+            GhPort.Mesh("Mesh", "M", "Existing terrain mesh."),
+            GhPort.Geometry("Reference Surface", "R", "Mesh, Brep, extrusion, or surface describing the stair run."),
+            GhPort.Number("Riser Height", "H", "Vertical rise per step.", optional: false, @default: 0.15),
+            GhPort.Number("Slope Angle", "S", "Daylight slope angle in degrees.", @default: 33.0),
+            GhPort.Number("Max Distance", "D", "Maximum grading reach away from the stair. 0 = unlimited.", @default: 0.0),
+        },
+        Outputs = new[]
+        {
+            GhPort.Mesh("Mesh", "M", "Terrain mesh graded to the support surface beneath the stair."),
+            GhPort.Brep("Stair Breps", "B", "Generated stair Breps that remain visible above the graded support surface."),
+            GhPort.Number("Tread Depths", "Td", "Derived tread depth for each interpreted stair surface.", access: GH_ParamAccess.list),
+            GhPort.Integer("Step Counts", "Sc", "Generated tread count for each interpreted stair surface.", access: GH_ParamAccess.list),
+            GhPort.Number("Cut Volume", "Cv", "Total excavation volume."),
+            GhPort.Number("Fill Volume", "Fv", "Total embankment volume."),
+            GhPort.Number("Net Volume", "Nv", "Cut - Fill (positive = net cut)."),
+            GhPort.Text("Warning", "W", "Surface interpretation or grading warning text.", access: GH_ParamAccess.item),
+        },
+        Solve = Solve,
+    };
 
-    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    private static void Solve(GhSolveContext ctx)
     {
-        pManager.AddMeshParameter("Mesh", "M", "Terrain mesh graded to the support surface beneath the stair.", GH_ParamAccess.item);
-        pManager.AddBrepParameter("Stair Breps", "B", "Generated stair Breps that remain visible above the graded support surface.", GH_ParamAccess.list);
-        pManager.AddNumberParameter("Tread Depths", "Td", "Derived tread depth for each interpreted stair surface.", GH_ParamAccess.list);
-        pManager.AddIntegerParameter("Step Counts", "Sc", "Generated tread count for each interpreted stair surface.", GH_ParamAccess.list);
-        pManager.AddNumberParameter("Cut Volume", "Cv", "Total excavation volume.", GH_ParamAccess.item);
-        pManager.AddNumberParameter("Fill Volume", "Fv", "Total embankment volume.", GH_ParamAccess.item);
-        pManager.AddNumberParameter("Net Volume", "Nv", "Cut - Fill (positive = net cut).", GH_ParamAccess.item);
-        pManager.AddTextParameter("Warning", "W", "Surface interpretation or grading warning text.", GH_ParamAccess.item);
-    }
-
-    protected override void SolveInstance(IGH_DataAccess DA)
-    {
-        Mesh? mesh = null;
-        if (!DA.GetData(0, ref mesh) || mesh == null)
+        if (!ctx.TryGetMesh(0, out var mesh))
             return;
 
-        var referenceGeometry = new List<GeometryBase>();
-        if (!DA.GetDataList(1, referenceGeometry) || referenceGeometry.Count == 0)
+        var referenceGeometry = ctx.GetGeometry(1);
+        if (referenceGeometry.Count == 0)
             return;
 
-        double riserHeight = 0.15;
-        double slopeAngle = 33.0;
-        double maxDistance = 0.0;
-        DA.GetData(2, ref riserHeight);
-        DA.GetData(3, ref slopeAngle);
-        DA.GetData(4, ref maxDistance);
+        double riserHeight = ctx.GetNumber(2, 0.15);
+        double slopeAngle = ctx.GetNumber(3, 33.0);
+        double maxDistance = ctx.GetNumber(4, 0.0);
 
         if (riserHeight <= 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Riser Height must be positive.");
+            ctx.Error("Riser Height must be positive.");
             return;
         }
 
@@ -74,7 +78,7 @@ public class InSituStairComponent : GH_Component
 
         if (referenceMeshes.Count == 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "No usable reference surface geometry was supplied.");
+            ctx.Error("No usable reference surface geometry was supplied.");
             return;
         }
 
@@ -86,13 +90,13 @@ public class InSituStairComponent : GH_Component
                 out var stairBuild,
                 out string? errorMessage))
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, errorMessage ?? "Could not derive an in-situ stair from the reference surface.");
+            ctx.Error(errorMessage ?? "Could not derive an in-situ stair from the reference surface.");
             return;
         }
 
         if (!TryExtractMesh(mesh, out var vertices, out var faces, out errorMessage))
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, errorMessage ?? "Could not extract terrain mesh data.");
+            ctx.Error(errorMessage ?? "Could not extract terrain mesh data.");
             return;
         }
 
@@ -116,7 +120,7 @@ public class InSituStairComponent : GH_Component
 
             if (result == null)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, gradingWarning ?? "In-situ stair grading failed.");
+                ctx.Error(gradingWarning ?? "In-situ stair grading failed.");
                 return;
             }
 
@@ -132,28 +136,16 @@ public class InSituStairComponent : GH_Component
 
         string warning = string.Join(" | ", warnings.Where(text => !string.IsNullOrWhiteSpace(text)));
         if (!string.IsNullOrWhiteSpace(warning))
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning);
+            ctx.Warn(warning);
 
-        var outMesh = new Mesh();
-        outMesh.Vertices.Capacity = currentVertexCount;
-        outMesh.Faces.Capacity = currentFaceCount;
-        for (int i = 0; i < currentVertexCount; i++)
-            outMesh.Vertices.Add(currentVertices[i * 3], currentVertices[i * 3 + 1], currentVertices[i * 3 + 2]);
-        for (int i = 0; i < currentFaceCount; i++)
-            outMesh.Faces.AddFace(currentFaces[i * 3], currentFaces[i * 3 + 1], currentFaces[i * 3 + 2]);
-
-        outMesh.Normals.ComputeNormals();
-        outMesh.UnifyNormals();
-        outMesh.Compact();
-
-        DA.SetData(0, outMesh);
-        DA.SetDataList(1, stairBuild.References.SelectMany(reference => reference.StairBreps));
-        DA.SetDataList(2, stairBuild.References.Select(reference => reference.TreadDepth));
-        DA.SetDataList(3, stairBuild.References.Select(reference => reference.StepCount));
-        DA.SetData(4, cutVolume);
-        DA.SetData(5, fillVolume);
-        DA.SetData(6, cutVolume - fillVolume);
-        DA.SetData(7, warning);
+        ctx.SetData(0, GhSolveContext.BuildMesh(currentVertices, currentFaces));
+        ctx.SetDataList(1, stairBuild.References.SelectMany(reference => reference.StairBreps));
+        ctx.SetDataList(2, stairBuild.References.Select(reference => reference.TreadDepth));
+        ctx.SetDataList(3, stairBuild.References.Select(reference => reference.StepCount));
+        ctx.SetData(4, cutVolume);
+        ctx.SetData(5, fillVolume);
+        ctx.SetData(6, cutVolume - fillVolume);
+        ctx.SetData(7, warning);
     }
 
     private static bool TryExtractMesh(Mesh mesh, out double[] vertices, out int[] faces, out string? errorMessage)

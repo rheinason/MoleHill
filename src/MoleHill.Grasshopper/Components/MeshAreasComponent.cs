@@ -1,93 +1,76 @@
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Data;
-using Grasshopper.Kernel.Types;
 using MoleHill.Core.Engine;
-using Rhino.Geometry;
 using MoleHill.Core.Grading;
+using MoleHill.Grasshopper.Registry;
+using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Components;
 
 /// <summary>
-/// Cut areas from a terrain mesh by closed boundary curves.
-/// Each area becomes a separate mesh that can be baked with its own material.
+/// Cut areas from a terrain mesh by closed boundary curves. Each area becomes a separate mesh that can be
+/// baked with its own material. Spec-driven (<see cref="RegistryTerrainComponent"/>).
 /// </summary>
-public class MeshAreasComponent : GH_Component
+public sealed class MeshAreasComponent : RegistryTerrainComponent
 {
-    public MeshAreasComponent()
-        : base("Mesh Areas", "Areas",
-               "Cut areas from a mesh by closed boundary curves. Each area becomes a separate mesh for independent materials/baking.",
-               "MoleHill", "Analysis")
+    private static readonly GhComponentSpec ComponentSpec = BuildSpec();
+
+    public MeshAreasComponent() : base(ComponentSpec)
     {
     }
 
-    public override Guid ComponentGuid => new("C4D5E6F7-A8B9-0123-DEF0-234567890123");
+    protected override GhComponentSpec Spec => ComponentSpec;
 
     protected override System.Drawing.Bitmap? Icon =>
         MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.MeshAreas.png");
 
-    protected override void RegisterInputParams(GH_InputParamManager pManager)
+    public override Guid ComponentGuid => new("C4D5E6F7-A8B9-0123-DEF0-234567890123");
+
+    private static GhComponentSpec BuildSpec() => new()
     {
-        pManager.AddMeshParameter("Mesh", "M", "Terrain mesh.", GH_ParamAccess.item);
-        pManager.AddCurveParameter("Boundaries", "B", "Closed curves defining area boundaries.", GH_ParamAccess.list);
-        pManager.AddNumberParameter("Max Area", "A", "Maximum triangle area for mesh refinement. 0 = no constraint.", GH_ParamAccess.item, 0.0);
-        pManager[2].Optional = true;
-        pManager.AddNumberParameter("Min Angle", "N", "Minimum triangle angle in degrees for mesh refinement. 0 = no constraint.", GH_ParamAccess.item, 0.0);
-        pManager[3].Optional = true;
-    }
+        Name = "Mesh Areas",
+        Nick = "Areas",
+        Description = "Cut areas from a mesh by closed boundary curves. Each area becomes a separate mesh for independent materials/baking.",
+        SubCategory = "Analysis",
+        Inputs = new[]
+        {
+            GhPort.Mesh("Mesh", "M", "Terrain mesh."),
+            GhPort.Curve("Boundaries", "B", "Closed curves defining area boundaries.", optional: false),
+            GhPort.Number("Max Area", "A", "Maximum triangle area for mesh refinement. 0 = no constraint.", @default: 0.0),
+            GhPort.Number("Min Angle", "N", "Minimum triangle angle in degrees for mesh refinement. 0 = no constraint.", @default: 0.0),
+        },
+        Outputs = new[]
+        {
+            GhPort.Mesh("Area Meshes", "M", "One mesh per boundary area.", access: GH_ParamAccess.list),
+            GhPort.Mesh("Remainder", "R", "Mesh of faces not inside any area."),
+            GhPort.Integer("Face Counts", "F", "Number of faces per area.", access: GH_ParamAccess.list),
+        },
+        Solve = Solve,
+    };
 
-    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    private static void Solve(GhSolveContext ctx)
     {
-        pManager.AddMeshParameter("Area Meshes", "M", "One mesh per boundary area.", GH_ParamAccess.list);
-        pManager.AddMeshParameter("Remainder", "R", "Mesh of faces not inside any area.", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Face Counts", "F", "Number of faces per area.", GH_ParamAccess.list);
-    }
+        if (!ctx.TryGetMesh(0, out var mesh))
+            return;
 
-    protected override void SolveInstance(IGH_DataAccess DA)
-    {
-        Mesh? mesh = null;
-        if (!DA.GetData(0, ref mesh) || mesh == null) return;
+        var boundaryCurves = ctx.GetCurves(1);
+        if (boundaryCurves.Count == 0)
+            return;
 
-        var boundaryCurves = new List<Curve>();
-        if (!DA.GetDataList(1, boundaryCurves) || boundaryCurves.Count == 0) return;
+        double maxArea = ctx.GetNumber(2, 0.0);
+        double minAngle = ctx.GetNumber(3, 0.0);
 
-        double maxArea = 0.0, minAngle = 0.0;
-        DA.GetData(2, ref maxArea);
-        DA.GetData(3, ref minAngle);
-
-        double tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
-
-        // Extract mesh data
-        int vertexCount = mesh.Vertices.Count;
+        double tolerance = ctx.Tolerance;
         int faceCount = mesh.Faces.Count;
-
         if (faceCount == 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Input mesh has no faces.");
+            ctx.Warn("Input mesh has no faces.");
             return;
         }
 
-        var vertices = new double[vertexCount * 3];
-        for (int i = 0; i < vertexCount; i++)
-        {
-            var pt = mesh.Vertices[i];
-            vertices[i * 3] = pt.X;
-            vertices[i * 3 + 1] = pt.Y;
-            vertices[i * 3 + 2] = pt.Z;
-        }
-
-        var faces = new int[faceCount * 3];
-        for (int i = 0; i < faceCount; i++)
-        {
-            var face = mesh.Faces[i];
-            if (face.IsQuad)
-            {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Mesh contains quad faces. Only triangle meshes are supported.");
-                return;
-            }
-            faces[i * 3] = face.A;
-            faces[i * 3 + 1] = face.B;
-            faces[i * 3 + 2] = face.C;
-        }
+        var vertices = GhSolveContext.ToFlatVertices(mesh);
+        int vertexCount = mesh.Vertices.Count;
+        if (!ctx.TryToFlatFaces(mesh, out var faces))
+            return;
 
         // Convert boundary curves
         var areas = new List<MeshAreaSplitter.AreaBoundary>();
@@ -97,7 +80,7 @@ public class MeshAreasComponent : GH_Component
 
             if (!crv.IsClosed)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Boundary curve is not closed. Skipping.");
+                ctx.Warn("Boundary curve is not closed. Skipping.");
                 continue;
             }
 
@@ -107,7 +90,7 @@ public class MeshAreasComponent : GH_Component
                 var polyCrv = crv.ToPolyline(tolerance, Math.PI / 36.0, 0.0, 0.0);
                 if (polyCrv == null || !polyCrv.TryGetPolyline(out pl))
                 {
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Could not tessellate boundary curve. Skipping.");
+                    ctx.Warn("Could not tessellate boundary curve. Skipping.");
                     continue;
                 }
             }
@@ -130,11 +113,10 @@ public class MeshAreasComponent : GH_Component
 
         if (areas.Count == 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "No valid boundary curves.");
+            ctx.Error("No valid boundary curves.");
             return;
         }
 
-        // Split
         var result = MeshAreaSplitter.Split(
             vertices, vertexCount,
             faces, faceCount,
@@ -146,14 +128,13 @@ public class MeshAreasComponent : GH_Component
 
         if (result == null)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, errorMessage ?? "Mesh area split failed.");
+            ctx.Error(errorMessage ?? "Mesh area split failed.");
             return;
         }
 
         if (errorMessage != null)
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, errorMessage);
+            ctx.Warn(errorMessage);
 
-        // Build separate meshes per area
         var areaMeshes = new List<Mesh>();
         var faceCounts = new List<int>();
 
@@ -165,17 +146,14 @@ public class MeshAreasComponent : GH_Component
 
         var remainder = BuildSubMesh(result, -1);
 
-        DA.SetDataList(0, areaMeshes);
-        DA.SetData(1, remainder);
-        DA.SetDataList(2, faceCounts);
+        ctx.SetDataList(0, areaMeshes);
+        ctx.SetData(1, remainder);
+        ctx.SetDataList(2, faceCounts);
     }
 
-    /// <summary>
-    /// Build a Rhino Mesh from faces matching a specific area index.
-    /// </summary>
+    /// <summary>Build a Rhino Mesh from faces matching a specific area index.</summary>
     private static Mesh BuildSubMesh(MeshAreaSplitter.SplitResult result, int areaIndex)
     {
-        // Collect faces for this area
         var faceIndices = new List<int>();
         for (int f = 0; f < result.FaceCount; f++)
         {
@@ -183,7 +161,6 @@ public class MeshAreasComponent : GH_Component
                 faceIndices.Add(f);
         }
 
-        // Collect unique vertices used by these faces
         var usedVerts = new HashSet<int>();
         foreach (int f in faceIndices)
         {
@@ -192,7 +169,6 @@ public class MeshAreasComponent : GH_Component
             usedVerts.Add(result.Faces[f * 3 + 2]);
         }
 
-        // Build vertex remapping
         var oldToNew = new Dictionary<int, int>();
         var mesh = new Mesh();
         mesh.Vertices.Capacity = usedVerts.Count;

@@ -1,91 +1,75 @@
 using Grasshopper.Kernel;
-using Rhino.Geometry;
 using MoleHill.Core.Analysis;
+using MoleHill.Grasshopper.Registry;
+using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Components;
 
 /// <summary>
-/// Color-code a mesh by per-face slope angle/percent.
+/// Color-code a mesh by per-face slope angle/percent. Spec-driven (<see cref="RegistryTerrainComponent"/>).
 /// </summary>
-public class SlopeAnalysisComponent : GH_Component
+public sealed class SlopeAnalysisComponent : RegistryTerrainComponent
 {
-    public SlopeAnalysisComponent()
-        : base("Slope Analysis", "Slope",
-               "Color-code a mesh by per-face slope. Green = flat, yellow = moderate, red = steep.",
-               "MoleHill", "Analysis")
+    private static readonly GhComponentSpec ComponentSpec = BuildSpec();
+
+    public SlopeAnalysisComponent() : base(ComponentSpec)
     {
     }
 
-    public override Guid ComponentGuid => new("A2B3C4D5-E6F7-8901-BCDE-F12345678901");
+    protected override GhComponentSpec Spec => ComponentSpec;
 
     protected override System.Drawing.Bitmap? Icon =>
         MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.SlopeAnalysis.png");
 
-    protected override void RegisterInputParams(GH_InputParamManager pManager)
-    {
-        pManager.AddMeshParameter("Mesh", "M", "Terrain mesh to analyze.", GH_ParamAccess.item);
-        pManager.AddIntegerParameter("Unit", "U", "Slope unit: 0=ratio, 1=percent, 2=degrees.", GH_ParamAccess.item, 1);
-        pManager[1].Optional = true;
-        pManager.AddNumberParameter("Low", "L", "Low end of color range (green). Default 0.", GH_ParamAccess.item, 0.0);
-        pManager[2].Optional = true;
-        pManager.AddNumberParameter("High", "H", "High end of color range (red). 0 = auto from data.", GH_ParamAccess.item, 0.0);
-        pManager[3].Optional = true;
-    }
+    public override Guid ComponentGuid => new("A2B3C4D5-E6F7-8901-BCDE-F12345678901");
 
-    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    private static GhComponentSpec BuildSpec() => new()
     {
-        pManager.AddMeshParameter("Colored Mesh", "M", "Mesh colored by slope.", GH_ParamAccess.item);
-        pManager.AddNumberParameter("Slopes", "S", "Per-face slope values.", GH_ParamAccess.list);
-        pManager.AddNumberParameter("Min", "Mn", "Minimum slope.", GH_ParamAccess.item);
-        pManager.AddNumberParameter("Max", "Mx", "Maximum slope.", GH_ParamAccess.item);
-        pManager.AddNumberParameter("Average", "Av", "Area-weighted average slope.", GH_ParamAccess.item);
-    }
+        Name = "Slope Analysis",
+        Nick = "Slope",
+        Description = "Color-code a mesh by per-face slope. Green = flat, yellow = moderate, red = steep.",
+        SubCategory = "Analysis",
+        Inputs = new[]
+        {
+            GhPort.Mesh("Mesh", "M", "Terrain mesh to analyze."),
+            GhPort.Integer("Unit", "U", "Slope unit: 0=ratio, 1=percent, 2=degrees.", @default: 1),
+            GhPort.Number("Low", "L", "Low end of color range (green). Default 0.", @default: 0.0),
+            GhPort.Number("High", "H", "High end of color range (red). 0 = auto from data.", @default: 0.0),
+        },
+        Outputs = new[]
+        {
+            GhPort.Mesh("Colored Mesh", "M", "Mesh colored by slope."),
+            GhPort.Number("Slopes", "S", "Per-face slope values.", access: GH_ParamAccess.list),
+            GhPort.Number("Min", "Mn", "Minimum slope."),
+            GhPort.Number("Max", "Mx", "Maximum slope."),
+            GhPort.Number("Average", "Av", "Area-weighted average slope."),
+        },
+        Solve = Solve,
+    };
 
-    protected override void SolveInstance(IGH_DataAccess DA)
+    private static void Solve(GhSolveContext ctx)
     {
-        Mesh? mesh = null;
-        if (!DA.GetData(0, ref mesh) || mesh == null) return;
+        if (!ctx.TryGetMesh(0, out var mesh))
+            return;
 
-        int unit = 1;
-        DA.GetData(1, ref unit);
+        int unit = ctx.GetInt(1, 1);
         if (unit < 0 || unit > 2) unit = 1;
 
-        double colorLow = 0.0, colorHigh = 0.0;
-        DA.GetData(2, ref colorLow);
-        DA.GetData(3, ref colorHigh);
+        double colorLow = ctx.GetNumber(2, 0.0);
+        double colorHigh = ctx.GetNumber(3, 0.0);
 
-        // Extract flat arrays from Rhino mesh
         int vertexCount = mesh.Vertices.Count;
         int faceCount = mesh.Faces.Count;
 
         if (faceCount == 0)
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Mesh has no faces.");
+            ctx.Warn("Mesh has no faces.");
             return;
         }
 
-        var vertices = new double[vertexCount * 3];
-        for (int i = 0; i < vertexCount; i++)
-        {
-            var pt = mesh.Vertices[i];
-            vertices[i * 3] = pt.X;
-            vertices[i * 3 + 1] = pt.Y;
-            vertices[i * 3 + 2] = pt.Z;
-        }
-
-        var faces = new int[faceCount * 3];
-        for (int i = 0; i < faceCount; i++)
-        {
-            var face = mesh.Faces[i];
-            if (face.IsQuad)
-            {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Mesh contains quad faces. Only triangle meshes are supported.");
-                return;
-            }
-            faces[i * 3] = face.A;
-            faces[i * 3 + 1] = face.B;
-            faces[i * 3 + 2] = face.C;
-        }
+        var vertices = GhSolveContext.ToFlatVertices(mesh);
+        if (!ctx.TryToFlatFaces(mesh, out var faces))
+            return;
 
         var result = SlopeAnalyzer.Analyze(vertices, vertexCount, faces, faceCount,
                                             (SlopeAnalyzer.SlopeUnit)unit,
@@ -124,10 +108,10 @@ public class SlopeAnalysisComponent : GH_Component
         coloredMesh.UnifyNormals();
         coloredMesh.Compact();
 
-        DA.SetData(0, coloredMesh);
-        DA.SetDataList(1, result.Slopes);
-        DA.SetData(2, result.Min);
-        DA.SetData(3, result.Max);
-        DA.SetData(4, result.Average);
+        ctx.SetData(0, coloredMesh);
+        ctx.SetDataList(1, result.Slopes);
+        ctx.SetData(2, result.Min);
+        ctx.SetData(3, result.Max);
+        ctx.SetData(4, result.Average);
     }
 }

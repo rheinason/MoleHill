@@ -74,6 +74,13 @@ public sealed class GhSolveContext
         return values;
     }
 
+    public List<GeometryBase> GetGeometry(int index)
+    {
+        var values = new List<GeometryBase>();
+        _access.GetDataList(index, values);
+        return values;
+    }
+
     public bool GetBool(int index, bool fallback = false)
     {
         bool value = fallback;
