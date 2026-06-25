@@ -6,12 +6,11 @@ using MoleHill.Rhino.Registry;
 namespace MoleHill.Rhino.Services;
 
 /// <summary>
-/// Builds <see cref="ModifierDefinition"/> JSON polymorphism from the type registry instead of a
-/// hand-maintained <c>[JsonDerivedType]</c> list — so registering a modifier descriptor is all that's
-/// needed for it to serialize/deserialize. Discriminator strings are unchanged (they come from each
-/// descriptor's <see cref="ModifierTypeDescriptor.Kind"/>), so saved .3dm terrains still load. Every
-/// other polymorphic type (analyses, markers, objects) keeps its attribute-driven contract via the base
-/// resolver.
+/// Builds JSON polymorphism for the registry-driven definition families (modifiers, terrain objects,
+/// markers) from their type registries instead of hand-maintained <c>[JsonDerivedType]</c> lists — so
+/// registering a descriptor is all that's needed for a type to serialize/deserialize. Discriminator
+/// strings are unchanged (they come from each descriptor's <c>Kind</c>), so saved .3dm terrains still
+/// load. Types not in a registry (analyses) keep their attribute-driven contract via the base resolver.
 /// </summary>
 internal sealed class TerrainJsonTypeResolver : DefaultJsonTypeInfoResolver
 {
@@ -24,22 +23,44 @@ internal sealed class TerrainJsonTypeResolver : DefaultJsonTypeInfoResolver
         (typeof(MeshCollageModifierDefinition), "mesh-collage"),
     };
 
+    private static readonly Dictionary<Type, IReadOnlyList<(Type Type, string Kind)>> Families = BuildFamilies();
+
+    private static Dictionary<Type, IReadOnlyList<(Type, string)>> BuildFamilies()
+    {
+        var modifiers = TerrainTypeRegistry.Modifiers
+            .Select(descriptor => (descriptor.DefinitionType, descriptor.Kind))
+            .Concat(LegacyModifierKinds)
+            .ToList();
+
+        var objects = ObjectTypeRegistry.Objects
+            .Select(descriptor => (descriptor.DefinitionType, descriptor.Kind))
+            .ToList();
+
+        var markers = MarkerTypeRegistry.Markers
+            .Select(descriptor => (descriptor.DefinitionType, descriptor.Kind))
+            .ToList();
+
+        return new Dictionary<Type, IReadOnlyList<(Type, string)>>
+        {
+            [typeof(ModifierDefinition)] = modifiers,
+            [typeof(TerrainObjectDefinition)] = objects,
+            [typeof(MarkerDefinition)] = markers,
+        };
+    }
+
     public override JsonTypeInfo GetTypeInfo(Type type, JsonSerializerOptions options)
     {
         JsonTypeInfo info = base.GetTypeInfo(type, options);
 
-        if (type == typeof(ModifierDefinition))
+        if (Families.TryGetValue(type, out var derivedTypes))
         {
             var polymorphism = new JsonPolymorphismOptions
             {
                 TypeDiscriminatorPropertyName = "$type",
             };
 
-            foreach (var descriptor in TerrainTypeRegistry.Modifiers)
-                polymorphism.DerivedTypes.Add(new JsonDerivedType(descriptor.DefinitionType, descriptor.Kind));
-
-            foreach (var (legacyType, legacyKind) in LegacyModifierKinds)
-                polymorphism.DerivedTypes.Add(new JsonDerivedType(legacyType, legacyKind));
+            foreach (var (derivedType, kind) in derivedTypes)
+                polymorphism.DerivedTypes.Add(new JsonDerivedType(derivedType, kind));
 
             info.PolymorphismOptions = polymorphism;
         }

@@ -2308,19 +2308,26 @@ public sealed partial class MoleHillPanel : Panel
 
     private Control BuildMarkerAddButtons(TerrainDefinition terrain)
     {
-        var elevationButton = MakeButton("+ Elevation", (_, _) =>
+        var buttons = new List<Control>();
+        foreach (var descriptor in MarkerTypeRegistry.Markers)
         {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.AddMarker(doc, terrain.TerrainId, "elevation");
-        }, "Add elevation markers. By default these place an editable block symbol plus a value label.");
+            string kind = descriptor.Kind;
+            buttons.Add(MakeButton(descriptor.AddButtonText, (_, _) =>
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                if (doc != null)
+                    _controller.AddMarker(doc, terrain.TerrainId, kind);
+            }, descriptor.AddButtonHelp));
+        }
 
-        var slopeButton = MakeButton("+ Slope", (_, _) =>
+        var buttonRow = new StackLayout
         {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.AddMarker(doc, terrain.TerrainId, "slope");
-        }, "Add slope markers. By default these place an editable block symbol plus a slope value label.");
+            Orientation = UseStackedFormRows() ? Orientation.Vertical : Orientation.Horizontal,
+            Spacing = 4,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        foreach (var button in buttons)
+            buttonRow.Items.Add(button);
 
         return new StackLayout
         {
@@ -2330,28 +2337,7 @@ public sealed partial class MoleHillPanel : Panel
             Items =
             {
                 new Label { Text = "MARKERS", TextColor = UiTheme.MutedText },
-                UseStackedFormRows()
-                    ? new StackLayout
-                    {
-                        Orientation = Orientation.Vertical,
-                        Spacing = 4,
-                        HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                        Items =
-                        {
-                            elevationButton,
-                            slopeButton
-                        }
-                    }
-                    : new StackLayout
-                    {
-                        Orientation = Orientation.Horizontal,
-                        Spacing = 4,
-                        Items =
-                        {
-                            elevationButton,
-                            slopeButton
-                        }
-                    }
+                buttonRow
             }
         };
     }
@@ -3461,48 +3447,23 @@ public sealed partial class MoleHillPanel : Panel
         };
     }
 
-    private static string GetTerrainObjectTypeLabel(TerrainObjectDefinition definition)
+    private static string GetTerrainObjectTypeLabel(TerrainObjectDefinition definition) =>
+        ObjectTypeRegistry.ForType(definition.GetType())?.DisplayName ?? "Objects";
+
+    private static string GetTerrainObjectKind(TerrainObjectDefinition definition) =>
+        ObjectTypeRegistry.ForType(definition.GetType())?.Kind ?? string.Empty;
+
+    private static Color TerrainObjectTypeColor(string kind)
     {
-        return definition switch
-        {
-            LowestPointObjectDefinition => "Plant",
-            SurfaceOrientedObjectDefinition => "Orient",
-            ScatterObjectDefinition => "Scatter",
-            _ => "Objects"
-        };
+        int argb = ObjectTypeRegistry.ForKind(kind)?.AccentArgb ?? unchecked((int)0xFF787878);
+        return Color.FromArgb((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
     }
 
-    private static string GetTerrainObjectKind(TerrainObjectDefinition definition) => definition switch
-    {
-        LowestPointObjectDefinition => "lowest-point",
-        SurfaceOrientedObjectDefinition => "surface-oriented",
-        ScatterObjectDefinition => "scatter",
-        _ => string.Empty
-    };
+    private static string GetTerrainObjectIconLabel(TerrainObjectDefinition definition) =>
+        ObjectTypeRegistry.ForType(definition.GetType())?.IconLabel ?? "O";
 
-    private static Color TerrainObjectTypeColor(string kind) => kind switch
-    {
-        "lowest-point" => Color.FromArgb(30, 136, 229),
-        "surface-oriented" => Color.FromArgb(67, 160, 71),
-        "scatter" => Color.FromArgb(142, 68, 173),
-        _ => Color.FromArgb(120, 120, 120)
-    };
-
-    private static string GetTerrainObjectIconLabel(TerrainObjectDefinition definition) => definition switch
-    {
-        LowestPointObjectDefinition => "Z",
-        SurfaceOrientedObjectDefinition => "XY",
-        ScatterObjectDefinition => "S",
-        _ => "O"
-    };
-
-    private static string GetTerrainObjectSubtitle(TerrainObjectDefinition definition) => definition switch
-    {
-        LowestPointObjectDefinition => "Place lowest point on terrain",
-        SurfaceOrientedObjectDefinition => "Orient to terrain slope",
-        ScatterObjectDefinition => "Scatter blocks across boundaries",
-        _ => "Terrain objects"
-    };
+    private static string GetTerrainObjectSubtitle(TerrainObjectDefinition definition) =>
+        ObjectTypeRegistry.ForType(definition.GetType())?.Subtitle ?? "Terrain objects";
 
     private static string GetTerrainObjectCollapsedSummary(TerrainObjectDefinition definition)
     {

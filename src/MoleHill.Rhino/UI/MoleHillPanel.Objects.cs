@@ -25,41 +25,19 @@ public sealed partial class MoleHillPanel
         var addButton = MakeToolbarButton("Add Object", (_, _) => { }, "Add a terrain object definition.", width: 100);
         var menu = new ContextMenu();
 
-        var projectItem = new ButtonMenuItem
+        foreach (var descriptor in ObjectTypeRegistry.Objects)
         {
-            Text = "Plant"
-        };
-        projectItem.Click += (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.AddObjectDefinition(doc, terrain.TerrainId, "lowest-point");
-        };
-        menu.Items.Add(projectItem);
+            string kind = descriptor.Kind;
+            var item = new ButtonMenuItem { Text = descriptor.DisplayName, ToolTip = descriptor.Subtitle };
+            item.Click += (_, _) =>
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                if (doc != null)
+                    _controller.AddObjectDefinition(doc, terrain.TerrainId, kind);
+            };
+            menu.Items.Add(item);
+        }
 
-        var surfaceItem = new ButtonMenuItem
-        {
-            Text = "Orient"
-        };
-        surfaceItem.Click += (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.AddObjectDefinition(doc, terrain.TerrainId, "surface-oriented");
-        };
-        menu.Items.Add(surfaceItem);
-
-        var scatterItem = new ButtonMenuItem
-        {
-            Text = "Scatter"
-        };
-        scatterItem.Click += (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.AddObjectDefinition(doc, terrain.TerrainId, "scatter");
-        };
-        menu.Items.Add(scatterItem);
         addButton.Click += (_, _) => menu.Show(addButton);
 
         return CreateSectionToolbar(

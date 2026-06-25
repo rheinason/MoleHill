@@ -1,10 +1,7 @@
-using System.Text.Json.Serialization;
-
 namespace MoleHill.Rhino.Model;
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
-[JsonDerivedType(typeof(ElevationMarkerDefinition), "elevation")]
-[JsonDerivedType(typeof(SlopeMarkerDefinition), "slope")]
+// JSON polymorphism is registry-driven (Services/TerrainJsonTypeResolver reads MarkerTypeRegistry),
+// not [JsonDerivedType] — registering a MarkerTypeDescriptor is enough. Discriminators are unchanged.
 public abstract class MarkerDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();

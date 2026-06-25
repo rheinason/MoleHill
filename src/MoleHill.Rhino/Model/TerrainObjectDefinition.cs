@@ -1,11 +1,7 @@
-using System.Text.Json.Serialization;
-
 namespace MoleHill.Rhino.Model;
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
-[JsonDerivedType(typeof(LowestPointObjectDefinition), "lowest-point")]
-[JsonDerivedType(typeof(SurfaceOrientedObjectDefinition), "surface-oriented")]
-[JsonDerivedType(typeof(ScatterObjectDefinition), "scatter")]
+// JSON polymorphism is registry-driven (Services/TerrainJsonTypeResolver reads ObjectTypeRegistry),
+// not [JsonDerivedType] — registering an ObjectTypeDescriptor is enough. Discriminators are unchanged.
 public abstract class TerrainObjectDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();

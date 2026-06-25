@@ -421,12 +421,8 @@ internal sealed partial class TerrainController
     {
         MutateTerrain(doc, terrainId, terrain =>
         {
-            MarkerDefinition marker = markerKind switch
-            {
-                "elevation" => new ElevationMarkerDefinition(),
-                "slope" => new SlopeMarkerDefinition(),
-                _ => throw new InvalidOperationException($"Unknown marker kind '{markerKind}'.")
-            };
+            MarkerDefinition marker = Registry.MarkerTypeRegistry.Create(markerKind)
+                ?? throw new InvalidOperationException($"Unknown marker kind '{markerKind}'.");
 
             terrain.Markers.Add(marker);
         });
@@ -436,13 +432,8 @@ internal sealed partial class TerrainController
     {
         MutateTerrain(doc, terrainId, terrain =>
         {
-            TerrainObjectDefinition definition = objectKind switch
-            {
-                "lowest-point" => new LowestPointObjectDefinition(),
-                "surface-oriented" => new SurfaceOrientedObjectDefinition(),
-                "scatter" => new ScatterObjectDefinition(),
-                _ => throw new InvalidOperationException($"Unknown object definition kind '{objectKind}'.")
-            };
+            TerrainObjectDefinition definition = Registry.ObjectTypeRegistry.Create(objectKind)
+                ?? throw new InvalidOperationException($"Unknown object definition kind '{objectKind}'.");
 
             terrain.Objects.Insert(0, definition);
         });
