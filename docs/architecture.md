@@ -54,9 +54,10 @@ a tier cascade, taking the first that produces a watertight, manifold result:
    non-manifold.
 3. **region-remesh** (`PadGrader.RegionRemesh.cs`) — replace the affected region with a fresh dense
    patch graded by distance field; soft but always watertight.
-4. **legacy** (`ConstraintFirstGradingEngine` + refined-Z `PadGrader.RefinedFallback.cs`) — whole-mesh
-   rebuild; spiky last resort. **Runtime-proven unreached across the test suite; pending deletion
-   (see `docs/cleanup-plan.md`).**
+
+If all three tiers defer, `Grade` fails cleanly (returns null with a diagnostic) rather than emit a
+non-watertight mesh. (The former tier 4 — `ConstraintFirstGradingEngine` + refined-Z whole-mesh rebuild —
+was deleted; it produced spikes on exactly the degenerate scenes that reached it.)
 
 `PathGrader.*` is the corridor analogue. Shared: `GradingGeometry2D` (all 2D primitives —
 point-in-polygon, distance, interior point; `PadGrader.Spatial.cs` are thin compat wrappers),

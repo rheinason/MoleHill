@@ -35,7 +35,7 @@ foreach ($project in $projects) {
     $full = Join-Path $root $project
     if (-not (Test-Path $full)) { continue }
     $files = Get-ChildItem -Path $full -Recurse -Filter *.cs |
-        Where-Object { $_.FullName -notmatch '\\(obj|bin|artifacts)\\' } |
+        Where-Object { $_.FullName -notmatch '[\\/](obj|bin|artifacts)[\\/]' } |
         Sort-Object FullName
     if (-not $files) { continue }
     [void]$sb.AppendLine("## $project")
