@@ -37,6 +37,13 @@ internal abstract class ModifierTypeDescriptor
     public abstract ModifierDefinition Create(UnitSystem unitSystem);
 
     /// <summary>
+    /// Declarative parameter schema for this type. The panel generates the card from this list, and the
+    /// same schema is the contract for Grasshopper-component generation. Empty means "no schema yet" —
+    /// the panel falls back to its hand-written card body for that type.
+    /// </summary>
+    public virtual IReadOnlyList<ParameterDescriptor> Parameters => Array.Empty<ParameterDescriptor>();
+
+    /// <summary>
     /// Runs this type's build step, reading the incoming mesh from <paramref name="context"/> and writing
     /// back the outgoing mesh/fingerprint. Replaces the central modifier switch in the build service.
     /// </summary>

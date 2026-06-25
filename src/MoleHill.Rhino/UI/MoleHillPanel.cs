@@ -3262,6 +3262,12 @@ public sealed partial class MoleHillPanel : Panel
     {
         var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
 
+        if (TryBuildSchemaModifierBody(layout, terrain, modifier))
+        {
+            AppendBespokeModifierRows(layout, terrain, modifier);
+            return layout;
+        }
+
         switch (modifier)
         {
             case TriangulateModifierDefinition triangulate:
@@ -3302,21 +3308,6 @@ public sealed partial class MoleHillPanel : Panel
                     RhinoObjectType.Curve,
                     doc => _controller.GetSelectedLayerPaths(doc)));
                 AddBoundaryPeelEditors(layout, terrain, addGeometry);
-                break;
-            case RemeshModifierDefinition remesh:
-                layout.AddRow(CreateSourceEditor("Constraints", remesh.Constraints,
-                    apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((RemeshModifierDefinition)item).Constraints)),
-                    RhinoObjectType.Curve,
-                    doc => _controller.GetSelectedLayerPaths(doc)));
-                layout.AddRow(CreateNumericEditor("Edge Length", remesh.EdgeLength, value =>
-                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((RemeshModifierDefinition)item).EdgeLength = value),
-                    help: "Target triangle edge length. Smaller values make denser meshes; larger values make coarser meshes. Leave at 0 to let Max Area drive remeshing."));
-                layout.AddRow(CreateNumericEditor("Max Area", remesh.MaxArea, value =>
-                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((RemeshModifierDefinition)item).MaxArea = value),
-                    help: "Maximum triangle area. Smaller values create finer remeshes; large values keep larger faces. Leave at 0 to disable this limit."));
-                layout.AddRow(CreateNumericEditor("Min Angle", remesh.MinAngle, value =>
-                    MutateModifier(terrain.TerrainId, modifier.Id, item => ((RemeshModifierDefinition)item).MinAngle = value),
-                    help: "Minimum triangle angle in degrees. Around 20-30 is moderate quality; pushing high can overconstrain or fail on awkward meshes."));
                 break;
             case SmoothModifierDefinition smooth:
                 layout.AddRow(CreateSourceEditor("Boundaries", smooth.Boundaries,
@@ -3448,6 +3439,25 @@ public sealed partial class MoleHillPanel : Panel
         }
 
         return layout;
+    }
+
+    /// <summary>
+    /// Adds the few card rows that can't be expressed by the parameter schema (custom-draw escape hatch):
+    /// the Triangulate work-area picker and the geometry-input boundary-peel block. Runs after the
+    /// schema-generated rows so row order matches the former hand-written cards. No-op for other types.
+    /// </summary>
+    private void AppendBespokeModifierRows(DynamicLayout layout, TerrainDefinition terrain, ModifierDefinition modifier)
+    {
+        switch (modifier)
+        {
+            case TriangulateModifierDefinition triangulate:
+                layout.AddRow(CreateWorkAreaRow(terrain.TerrainId, modifier.Id));
+                AddBoundaryPeelEditors(layout, terrain, triangulate);
+                break;
+            case AddGeometryModifierDefinition addGeometry:
+                AddBoundaryPeelEditors(layout, terrain, addGeometry);
+                break;
+        }
     }
 
     private Control CreateWorkAreaRow(Guid terrainId, Guid modifierId)
