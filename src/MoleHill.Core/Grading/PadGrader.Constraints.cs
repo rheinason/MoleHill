@@ -345,6 +345,25 @@ public static partial class PadGrader
         return ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
     }
 
+    private static bool PointInTriangle(
+        double px,
+        double py,
+        double ax,
+        double ay,
+        double bx,
+        double by,
+        double cx,
+        double cy)
+    {
+        const double tolerance = 1e-12;
+        double o1 = Orientation(ax, ay, bx, by, px, py);
+        double o2 = Orientation(bx, by, cx, cy, px, py);
+        double o3 = Orientation(cx, cy, ax, ay, px, py);
+        bool hasNegative = o1 < -tolerance || o2 < -tolerance || o3 < -tolerance;
+        bool hasPositive = o1 > tolerance || o2 > tolerance || o3 > tolerance;
+        return !(hasNegative && hasPositive);
+    }
+
     private static bool OnSegment(double ax, double ay, double bx, double by, double px, double py)
     {
         return px >= Math.Min(ax, bx) - 1e-12 &&
