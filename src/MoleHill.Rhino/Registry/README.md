@@ -1,8 +1,21 @@
 # MoleHill.Rhino/Registry
 
-The Blender-style **type registry**: each modifier type ships one self-describing descriptor and the app
-discovers it everywhere by reflection — no central switches to edit. Adding a modifier = drop one
-descriptor (+ its `Model/*Definition.cs`). See `docs/architecture.md`.
+The Blender-style **type registry**: each terrain type ships one self-describing descriptor and the app
+discovers it everywhere by reflection — no central switches to edit. Adding a type = drop one descriptor
+(+ its `Model/*Definition.cs`). See `docs/architecture.md`.
+
+There are four parallel families, each with a `*TypeDescriptor` base + reflection-discovered
+`*TypeRegistry`:
+- **Modifiers** — `ModifierTypeDescriptor` (richest: factory + `RunBuildStage` build dispatch + `Parameters`
+  schema cards + menu chrome). Detailed below.
+- **Objects** — `ObjectTypeDescriptor`/`ObjectTypeRegistry` (factory + card chrome: label/icon/subtitle/accent).
+- **Markers** — `MarkerTypeDescriptor`/`MarkerTypeRegistry` (factory + add-button text/help).
+- **Analyses** — `AnalysisTypeDescriptor`/`AnalysisTypeRegistry` (factory + menu grouping + card chrome;
+  the bespoke `CreateAnalysisBody` + per-type collapsed summary stay in the panel).
+
+All four feed `Services/TerrainJsonTypeResolver`, which builds JSON polymorphism for every family from
+its registry — there are **no `[JsonDerivedType]` lists** on the definition bases anymore. Discriminator
+strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` files load.
 
 ## Core
 - `TerrainTypeRegistry.cs` — static registry; its static ctor reflects over this assembly, instantiates

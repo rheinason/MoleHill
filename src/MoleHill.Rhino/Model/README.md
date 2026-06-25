@@ -24,10 +24,9 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   `ScatterPreviewMode`; reuses Core's `ScatterPattern`/`ScatterDensityMode`).
 - **Markers** — `MarkerDefinition` → `ElevationMarkerDefinition`, `SlopeMarkerDefinition`.
 
-**To add a new modifier:** create the subtype here, then add a `ModifierTypeDescriptor` in `Registry/`
-(see `Registry/README.md`) — that one descriptor supplies the JSON discriminator, factory, build step,
-panel card, and menu entry. No attribute, build switch, or card switch to edit.
-
-**To add an analysis/object/marker type** (not yet on the registry): create the subtype here, register
-its `[JsonDerivedType]` on the base, handle it in the matching `TerrainBuildService.*.cs` stage and the
-`MoleHillPanel` card switch, and add its add-menu entry in the panel.
+**To add a modifier/object/marker/analysis type:** create the subtype here (no `[JsonDerivedType]` — JSON
+polymorphism for all four families is registry-driven via `Services/TerrainJsonTypeResolver`), then add the
+matching descriptor in `Registry/` (see `Registry/README.md`). The descriptor supplies the JSON
+discriminator, factory, menu entry, and card chrome. Modifiers also get their build step + schema card from
+the descriptor; objects/markers/analyses still have bespoke card bodies (and analyses keep their
+`TerrainBuildService.Analysis.cs` build stage).
