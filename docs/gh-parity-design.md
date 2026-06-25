@@ -73,11 +73,43 @@ Discover `GH_Component` subclasses by reflection / a marker attribute; no shared
 
 - *Pros:* tiny. *Cons:* doesn't reduce the per-component boilerplate the plan was about; near-zero payoff.
 
+## Revised finding (2026-06-24, during build): the shared-assembly path is blocked
+
+Two facts discovered while starting the assembly move change the tradeoff:
+
+1. **Circular dependency.** `ModifierTypeDescriptor.RunBuildStage` (Stage 3) calls
+   `TerrainBuildService.RunXStage` in `MoleHill.Rhino`, and `ModifierBuildContext` references
+   `TerrainBuildSnapshot/Result/RuntimeCache` (also `MoleHill.Rhino`). So the descriptors **depend on the
+   Rhino plugin**. Moving them to a shared assembly that `MoleHill.Rhino` references creates a cycle.
+   Unifying panel + GH on one descriptor therefore requires *decoupling build dispatch from the
+   descriptor* (revert/rework part of Stage 3, e.g. Rhino registers build handlers into descriptors at
+   startup, or a Rhino-side type→handler map) — real churn on already-working, verified code.
+
+2. **GH needs none of it.** `GradePadComponent` (and the others) reference **no** `*Definition` or
+   descriptor type — they take `Mesh` + curves + numbers and call Core (`PadGrader` etc.). So GH parity
+   does not need the Rhino `Model`/`Registry` at all; it only needs `MoleHill.Core` + RhinoCommon/GH.
+
+**Consequence:** the unified-descriptor dream (one file driving panel *and* GH) is what forces the
+assembly move and hits the cycle. If GH specs live in the GH project instead, there is **no assembly
+move and no circular dependency** — at the cost of a type's GH spec sitting in `MoleHill.Grasshopper`
+rather than next to its panel descriptor.
+
+### Revised options
+- **B1 — Unified descriptor in a shared assembly.** Original Option B + new `MoleHill.Registry`, but
+  first decouple `RunBuildStage` from the descriptor to break the cycle. Highest churn; truest "one file
+  per type". 
+- **B2 — Parallel GH registry inside `MoleHill.Grasshopper` (recommended).** A GH-only
+  `GhComponentDescriptor`/registry + generic `RegistryTerrainComponent`, referencing only
+  `MoleHill.Core`. No assembly move, no cycle, no risk to the verified Rhino registry. Dedupes the
+  per-component mesh/curve plumbing; each type's GH spec is one file in the GH project. Loses only the
+  literal co-location of GH spec with panel descriptor (they already had to be different shapes anyway).
+
 ## Recommendation
 
-**Option B.** It delivers the plan's payoff (a registered type appears in GH, Core-call logic lives with
-the type, shared geometry plumbing deduped) without distorting the panel schema into a GH dialect. Keep
-`Parameters` (panel) and `Grasshopper` (GH) as sibling facets on the descriptor.
+Originally Option B (unified). Given the circular-dependency finding, **B2** is now recommended: same
+payoff (generic component + per-type spec + deduped plumbing) with none of the assembly-move/cycle risk.
+Keep `Parameters` (panel, in `MoleHill.Rhino`) and the GH spec (in `MoleHill.Grasshopper`) as
+plugin-local facets — they target different surfaces and already have different shapes.
 
 `MoleHill.Grasshopper` would take a reference to the registry. The registry currently lives in
 `MoleHill.Rhino` (RhinoCommon only — no Grasshopper dependency), but `ModifierDefinition` and the
