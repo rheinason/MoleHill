@@ -12,11 +12,25 @@ namespace MoleHill.Core.Scattering;
 /// </summary>
 public static class ScatterSampler
 {
+    /// <summary>Safety cap on generated points when the request doesn't specify one; guards against a
+    /// runaway density (tiny spacing / huge count) hanging the build.</summary>
+    public const int DefaultMaxSamples = 200_000;
+
     public static List<(double X, double Y)> Sample(ScatterRequest request)
     {
         var result = new List<(double X, double Y)>();
         if (request is null)
             return result;
+
+        int cap = request.MaxSamples > 0 ? request.MaxSamples : DefaultMaxSamples;
+        Func<bool> cancelled = request.ShouldCancel ?? (static () => false);
+
+        if (request.Source == ScatterSourceMode.Curve)
+        {
+            foreach (ScatterCurvePoint point in SampleCurve(request, itemExtent: null))
+                result.Add((point.X, point.Y));
+            return result;
+        }
 
         var loops = new List<double[]>();
         foreach (double[] loop in request.Boundaries)
@@ -79,22 +93,24 @@ public static class ScatterSampler
         };
         if (targetCount < 0)
             targetCount = 0;
+        if (targetCount > cap)
+            targetCount = cap;
 
         var rng = new SplitMix64(Mix(request.Seed));
 
         switch (request.Pattern)
         {
             case ScatterPattern.Grid:
-                SampleGrid(result, Inside, minX, minY, maxX, maxY, cellSize, jitter: false, ref rng);
+                SampleGrid(result, Inside, minX, minY, maxX, maxY, cellSize, jitter: false, cap, cancelled, ref rng);
                 break;
             case ScatterPattern.JitteredGrid:
-                SampleGrid(result, Inside, minX, minY, maxX, maxY, cellSize, jitter: true, ref rng);
+                SampleGrid(result, Inside, minX, minY, maxX, maxY, cellSize, jitter: true, cap, cancelled, ref rng);
                 break;
             case ScatterPattern.PoissonDisk:
-                SamplePoisson(result, Inside, minX, minY, maxX, maxY, cellSize, ref rng);
+                SamplePoisson(result, Inside, minX, minY, maxX, maxY, cellSize, cap, cancelled, ref rng);
                 break;
             default:
-                SampleRandom(result, Inside, minX, minY, maxX, maxY, targetCount, ref rng);
+                SampleRandom(result, Inside, minX, minY, maxX, maxY, targetCount, cancelled, ref rng);
                 break;
         }
 
@@ -106,6 +122,7 @@ public static class ScatterSampler
         Func<double, double, bool> inside,
         double minX, double minY, double maxX, double maxY,
         int targetCount,
+        Func<bool> cancelled,
         ref SplitMix64 rng)
     {
         if (targetCount <= 0)
@@ -118,6 +135,9 @@ public static class ScatterSampler
         while (result.Count < targetCount && attempts < maxAttempts)
         {
             attempts++;
+            if ((attempts & 8191) == 0 && cancelled())
+                return;
+
             double x = minX + rng.NextUnit() * width;
             double y = minY + rng.NextUnit() * height;
             if (inside(x, y))
@@ -131,6 +151,8 @@ public static class ScatterSampler
         double minX, double minY, double maxX, double maxY,
         double cellSize,
         bool jitter,
+        int cap,
+        Func<bool> cancelled,
         ref SplitMix64 rng)
     {
         int columns = (int)Math.Ceiling((maxX - minX) / cellSize);
@@ -140,8 +162,14 @@ public static class ScatterSampler
 
         for (int row = 0; row < rows; row++)
         {
+            if (result.Count >= cap || cancelled())
+                return;
+
             for (int column = 0; column < columns; column++)
             {
+                if (result.Count >= cap)
+                    return;
+
                 double x = minX + (column + 0.5) * cellSize;
                 double y = minY + (row + 0.5) * cellSize;
                 if (jitter)
@@ -169,6 +197,8 @@ public static class ScatterSampler
         Func<double, double, bool> inside,
         double minX, double minY, double maxX, double maxY,
         double radius,
+        int cap,
+        Func<bool> cancelled,
         ref SplitMix64 rng)
     {
         double cell = radius / Math.Sqrt(2.0);
@@ -251,6 +281,9 @@ public static class ScatterSampler
         const int candidatesPerPoint = 30;
         while (active.Count > 0)
         {
+            if (result.Count >= cap || cancelled())
+                return;
+
             int activeIndex = (int)(rng.NextUnit() * active.Count);
             if (activeIndex >= active.Count)
                 activeIndex = active.Count - 1;
@@ -276,6 +309,205 @@ public static class ScatterSampler
             if (!found)
                 active.RemoveAt(activeIndex);
         }
+    }
+
+    /// <summary>
+    /// Curve mode: distribute points ALONG open polylines, returning each point's curve tangent (for
+    /// align-to-tangent). Density is center-to-center Spacing, Count→spacing, or — when
+    /// <paramref name="itemExtent"/> is supplied and the mode is <see cref="ScatterDensityMode.EdgeToEdge"/>
+    /// — edge-to-edge by per-item footprint (extent supplied by the caller, which knows block sizes) plus
+    /// <see cref="ScatterRequest.EdgeGap"/>. Patterns for the spacing/count modes: Grid = regular,
+    /// JitteredGrid = regular + along-curve nudge, Random = random arc positions, PoissonDisk = forward
+    /// walk with a variable gap >= spacing. A perpendicular-free disk XY jitter is applied last.
+    /// <paramref name="itemExtent"/> receives the global item index and returns that item's along-curve
+    /// footprint; the caller must select the block for the same index deterministically so extents match.
+    /// </summary>
+    public static List<ScatterCurvePoint> SampleCurve(ScatterRequest request, Func<int, double>? itemExtent)
+    {
+        var result = new List<ScatterCurvePoint>();
+        if (request is null)
+            return result;
+
+        int cap = request.MaxSamples > 0 ? request.MaxSamples : DefaultMaxSamples;
+        Func<bool> cancelled = request.ShouldCancel ?? (static () => false);
+
+        var paths = new List<(double[] Xy, int Count, double[] Cumulative, double Length)>();
+        double totalLength = 0.0;
+        foreach (double[] path in request.Paths)
+        {
+            if (path is null || path.Length < 4 || path.Length % 2 != 0)
+                continue;
+
+            int count = path.Length / 2;
+            var cumulative = new double[count];
+            double length = 0.0;
+            for (int i = 1; i < count; i++)
+            {
+                double dx = path[i * 2] - path[(i - 1) * 2];
+                double dy = path[i * 2 + 1] - path[(i - 1) * 2 + 1];
+                length += Math.Sqrt(dx * dx + dy * dy);
+                cumulative[i] = length;
+            }
+
+            if (length > 0.0)
+            {
+                paths.Add((path, count, cumulative, length));
+                totalLength += length;
+            }
+        }
+
+        if (paths.Count == 0 || !(totalLength > 0.0))
+            return result;
+
+        var rng = new SplitMix64(Mix(request.Seed));
+        double jitter = Math.Max(0.0, request.JitterXy);
+
+        (double X, double Y, double Tangent) PointOn((double[] Xy, int Count, double[] Cumulative, double Length) path, double s)
+        {
+            s = Math.Clamp(s, 0.0, path.Length);
+            int i = 1;
+            while (i < path.Count && path.Cumulative[i] < s)
+                i++;
+            if (i >= path.Count)
+                i = path.Count - 1;
+
+            double dxSeg = path.Xy[i * 2] - path.Xy[(i - 1) * 2];
+            double dySeg = path.Xy[i * 2 + 1] - path.Xy[(i - 1) * 2 + 1];
+            double segment = path.Cumulative[i] - path.Cumulative[i - 1];
+            double t = segment > 1e-12 ? (s - path.Cumulative[i - 1]) / segment : 0.0;
+            double x = path.Xy[(i - 1) * 2] + dxSeg * t;
+            double y = path.Xy[(i - 1) * 2 + 1] + dySeg * t;
+            return (x, y, Math.Atan2(dySeg, dxSeg));
+        }
+
+        void Emit(double x, double y, double tangent)
+        {
+            if (jitter > 0.0)
+            {
+                double radius = jitter * Math.Sqrt(rng.NextUnit());
+                double angle = rng.NextUnit() * Math.PI * 2.0;
+                x += Math.Cos(angle) * radius;
+                y += Math.Sin(angle) * radius;
+            }
+
+            result.Add(new ScatterCurvePoint(x, y, tangent));
+        }
+
+        // Edge-to-edge: a sequential walk advancing by each item's footprint + gap. Needs per-item
+        // extents from the caller; without them, fall through to the spacing/count modes below.
+        if (request.DensityMode == ScatterDensityMode.EdgeToEdge && itemExtent != null)
+        {
+            double gap = Math.Max(0.0, request.EdgeGap);
+            int index = 0;
+            foreach (var path in paths)
+            {
+                if (result.Count >= cap || cancelled())
+                    return result;
+
+                double s = 0.0;
+                double prevHalf = 0.0;
+                bool first = true;
+                while (true)
+                {
+                    if (result.Count >= cap || cancelled())
+                        return result;
+
+                    double extent = itemExtent(index);
+                    if (!(extent > 0.0) || !double.IsFinite(extent))
+                        extent = Math.Max(gap, 1e-3);
+                    double half = extent * 0.5;
+
+                    s = first ? half : s + prevHalf + gap + half;
+                    first = false;
+                    if (s + half > path.Length + 1e-9)
+                        break;
+
+                    (double x, double y, double tangent) = PointOn(path, s);
+                    Emit(x, y, tangent);
+                    index++;
+                    prevHalf = half;
+                }
+            }
+
+            return result;
+        }
+
+        // Center-to-center spacing along the arc (or a target count mapped to one).
+        double step = request.DensityMode == ScatterDensityMode.Spacing
+            ? request.Spacing
+            : request.Count >= 1.0 ? totalLength / request.Count : 0.0;
+        if (!(step > 0.0) || !double.IsFinite(step))
+            return result;
+
+        foreach (var path in paths)
+        {
+            if (result.Count >= cap || cancelled())
+                return result;
+
+            switch (request.Pattern)
+            {
+                case ScatterPattern.Random:
+                {
+                    int n = Math.Max(0, (int)Math.Round(path.Length / step));
+                    for (int k = 0; k < n; k++)
+                    {
+                        if (result.Count >= cap)
+                            return result;
+                        if ((k & 1023) == 0 && cancelled())
+                            return result;
+
+                        (double x, double y, double tangent) = PointOn(path, rng.NextUnit() * path.Length);
+                        Emit(x, y, tangent);
+                    }
+
+                    break;
+                }
+                case ScatterPattern.PoissonDisk:
+                {
+                    double s = rng.NextUnit() * step; // random phase
+                    while (s <= path.Length + 1e-9)
+                    {
+                        if (result.Count >= cap || cancelled())
+                            return result;
+
+                        (double x, double y, double tangent) = PointOn(path, s);
+                        Emit(x, y, tangent);
+                        s += step * (1.0 + rng.NextUnit()); // variable gap in [step, 2*step)
+                    }
+
+                    break;
+                }
+                case ScatterPattern.JitteredGrid:
+                {
+                    for (double s = 0.0; s <= path.Length + 1e-9; s += step)
+                    {
+                        if (result.Count >= cap || cancelled())
+                            return result;
+
+                        double jittered = Math.Clamp(s + (rng.NextUnit() - 0.5) * step, 0.0, path.Length);
+                        (double x, double y, double tangent) = PointOn(path, jittered);
+                        Emit(x, y, tangent);
+                    }
+
+                    break;
+                }
+                default: // Grid / even regular spacing
+                {
+                    for (double s = 0.0; s <= path.Length + 1e-9; s += step)
+                    {
+                        if (result.Count >= cap || cancelled())
+                            return result;
+
+                        (double x, double y, double tangent) = PointOn(path, s);
+                        Emit(x, y, tangent);
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        return result;
     }
 
     private static double SignedArea(double[] loop, int count)

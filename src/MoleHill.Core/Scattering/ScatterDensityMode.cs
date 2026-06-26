@@ -10,5 +10,8 @@ public enum ScatterDensityMode
     PerArea = 1,
 
     /// <summary>A minimum centre-to-centre spacing; the count follows from the area.</summary>
-    Spacing = 2
+    Spacing = 2,
+
+    /// <summary>Curve mode only: space items edge-to-edge by their footprint plus a fixed gap.</summary>
+    EdgeToEdge = 3
 }

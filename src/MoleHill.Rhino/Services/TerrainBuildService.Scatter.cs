@@ -68,7 +68,10 @@ internal sealed partial class TerrainBuildService
                 Count = definition.Count,
                 PerAreaDensity = definition.PerAreaDensity,
                 Spacing = definition.Spacing,
-                Seed = definition.RandomSeed
+                Seed = definition.RandomSeed,
+                // Make the sampler itself abortable so a superseded build doesn't hang inside a runaway
+                // (tiny spacing / huge count) sample; ThrowIfCancellationRequested below unwinds the rest.
+                ShouldCancel = shouldCancel
             });
 
             int placed = 0;

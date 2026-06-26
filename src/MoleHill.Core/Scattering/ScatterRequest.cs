@@ -8,7 +8,14 @@ namespace MoleHill.Core.Scattering;
 /// </summary>
 public sealed class ScatterRequest
 {
+    /// <summary>Region mode: closed XY loops <c>[x0,y0,x1,y1,…]</c> (≥3 vertices) to fill.</summary>
     public IReadOnlyList<double[]> Boundaries { get; init; } = Array.Empty<double[]>();
+
+    /// <summary>Curve mode: open XY polylines <c>[x0,y0,x1,y1,…]</c> (≥2 vertices) to distribute along.</summary>
+    public IReadOnlyList<double[]> Paths { get; init; } = Array.Empty<double[]>();
+
+    /// <summary>Whether to fill a region or distribute along curves.</summary>
+    public ScatterSourceMode Source { get; init; } = ScatterSourceMode.Region;
 
     public ScatterPattern Pattern { get; init; } = ScatterPattern.Random;
 
@@ -23,5 +30,18 @@ public sealed class ScatterRequest
     /// <summary>Minimum centre-to-centre spacing (<see cref="ScatterDensityMode.Spacing"/>).</summary>
     public double Spacing { get; init; }
 
+    /// <summary>Curve mode only: random XY offset radius (model units) applied to each on-curve point.</summary>
+    public double JitterXy { get; init; }
+
+    /// <summary>Curve + <see cref="ScatterDensityMode.EdgeToEdge"/>: gap (model units) left between item
+    /// footprints. The per-item footprint extent is supplied by the caller's extent callback.</summary>
+    public double EdgeGap { get; init; }
+
     public int Seed { get; init; }
+
+    /// <summary>Hard upper bound on generated points; guards against runaway density. 0 = use the default.</summary>
+    public int MaxSamples { get; init; }
+
+    /// <summary>Cooperative cancellation polled during sampling so superseded builds abort promptly.</summary>
+    public Func<bool>? ShouldCancel { get; init; }
 }
