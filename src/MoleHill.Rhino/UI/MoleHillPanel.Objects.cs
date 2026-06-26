@@ -224,11 +224,37 @@ public sealed partial class MoleHillPanel
             RebuildObjectsLayout(doc == null ? null : _controller.GetSelectedTerrain(doc));
         }
 
-        layout.AddRow(CreateSourceEditor("Boundaries", scatter.Boundaries,
-            apply => Mutate(s => apply(s.Boundaries)),
-            RhinoObjectType.Curve,
-            doc => _controller.GetSelectedLayerPaths(doc),
-            "Closed boundary curves and/or layers the scatter fills. Multiple boundaries are accepted."));
+        layout.AddRow(CreateDropDownEditor(
+            "Source",
+            new (string, string)[] { ("Region", "Within region"), ("Curve", "Along curve") },
+            scatter.SourceMode.ToString(),
+            key => MutateAndRefresh(s =>
+            {
+                s.SourceMode = Enum.Parse<ScatterSourceMode>(key);
+                // Coerce density modes that don't apply to the new source so the dropdown stays valid.
+                if (s.SourceMode == ScatterSourceMode.Curve && s.DensityMode == ScatterDensityMode.PerArea)
+                    s.DensityMode = ScatterDensityMode.Count;
+                if (s.SourceMode == ScatterSourceMode.Region && s.DensityMode == ScatterDensityMode.EdgeToEdge)
+                    s.DensityMode = ScatterDensityMode.Spacing;
+            }),
+            "Region: fill inside closed boundaries. Curve: distribute along open curves."));
+
+        if (scatter.SourceMode == ScatterSourceMode.Curve)
+        {
+            layout.AddRow(CreateSourceEditor("Curves", scatter.Paths,
+                apply => Mutate(s => apply(s.Paths)),
+                RhinoObjectType.Curve,
+                doc => _controller.GetSelectedLayerPaths(doc),
+                "Open curves and/or layers to distribute instances along."));
+        }
+        else
+        {
+            layout.AddRow(CreateSourceEditor("Boundaries", scatter.Boundaries,
+                apply => Mutate(s => apply(s.Boundaries)),
+                RhinoObjectType.Curve,
+                doc => _controller.GetSelectedLayerPaths(doc),
+                "Closed boundary curves and/or layers the scatter fills. Multiple boundaries are accepted."));
+        }
 
         layout.AddRow(CreateScatterBlockMixHeader(scatter.Blocks.Count, (_, _) => AddScatterBlocksFromSelector(terrain, scatter.Id)));
 
@@ -271,12 +297,18 @@ public sealed partial class MoleHillPanel
             key => Mutate(s => s.Pattern = Enum.Parse<ScatterPattern>(key)),
             "How instances are arranged inside the boundary."));
 
+        bool curveMode = scatter.SourceMode == ScatterSourceMode.Curve;
+        var densityOptions = curveMode
+            ? new (string, string)[] { ("Count", "Total count"), ("Spacing", "Centre spacing"), ("EdgeToEdge", "Edge-to-edge") }
+            : new (string, string)[] { ("Count", "Total count"), ("PerArea", "Per area"), ("Spacing", "Min spacing") };
         layout.AddRow(CreateDropDownEditor(
             "Density Mode",
-            new (string, string)[] { ("Count", "Total count"), ("PerArea", "Per area"), ("Spacing", "Min spacing") },
+            densityOptions,
             scatter.DensityMode.ToString(),
             key => MutateAndRefresh(s => s.DensityMode = Enum.Parse<ScatterDensityMode>(key)),
-            "Count: a total number. Per area: instances per unit area. Min spacing: blue-noise radius."));
+            curveMode
+                ? "Count: total along the curve(s). Centre spacing: centre-to-centre distance. Edge-to-edge: by block footprint + gap."
+                : "Count: a total number. Per area: instances per unit area. Min spacing: blue-noise radius."));
 
         switch (scatter.DensityMode)
         {
@@ -288,13 +320,32 @@ public sealed partial class MoleHillPanel
             case ScatterDensityMode.Spacing:
                 layout.AddRow(CreateNumericEditor("Spacing", scatter.Spacing,
                     value => Mutate(s => s.Spacing = value, liveScrub: true), decimalPlaces: 3,
-                    help: "Minimum centre-to-centre distance between instances.", minValue: 0.0, liveEdit: true));
+                    help: curveMode
+                        ? "Centre-to-centre distance between instances along the curve."
+                        : "Minimum centre-to-centre distance between instances.",
+                    minValue: 0.0, liveEdit: true));
+                break;
+            case ScatterDensityMode.EdgeToEdge:
+                layout.AddRow(CreateNumericEditor("Edge Gap", scatter.EdgeGap,
+                    value => Mutate(s => s.EdgeGap = value, liveScrub: true), decimalPlaces: 3,
+                    help: "Gap left between block footprints (model units). Spacing follows each block's size.",
+                    minValue: 0.0, liveEdit: true));
                 break;
             default:
                 layout.AddRow(CreateSliderNumericEditor("Count", scatter.Count,
                     value => Mutate(s => s.Count = value, liveScrub: true), softMin: 1.0, softMax: 1000.0,
                     decimalPlaces: 0, hardMin: 0.0, help: "Total number of instances to scatter."));
                 break;
+        }
+
+        if (curveMode)
+        {
+            layout.AddRow(CreateSliderNumericEditor("XY Jitter", scatter.JitterXy,
+                value => Mutate(s => s.JitterXy = value, liveScrub: true), softMin: 0.0, softMax: 5.0,
+                decimalPlaces: 3, hardMin: 0.0, help: "Random XY offset radius applied to each on-curve point (widens the line into a band)."));
+            layout.AddRow(CreateCheckEditor("Align to tangent", scatter.AlignToTangent,
+                value => Mutate(s => s.AlignToTangent = value),
+                "Orient instances to follow the curve direction. Random rotation still adds on top."));
         }
 
         layout.AddRow(CreateCheckEditor("Align to slope", scatter.AlignToSlope,

@@ -15,8 +15,14 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
         Name = "Scatter";
     }
 
-    /// <summary>Boundary region(s) to fill (closed planar curves and/or layers; multiple accepted).</summary>
+    /// <summary>Whether scatter fills a region or distributes along curves.</summary>
+    public ScatterSourceMode SourceMode { get; set; } = ScatterSourceMode.Region;
+
+    /// <summary>Region mode: boundary region(s) to fill (closed planar curves and/or layers).</summary>
     public SourceReferenceSet Boundaries { get; set; } = new();
+
+    /// <summary>Curve mode: open curve(s) to distribute along (curves and/or layers).</summary>
+    public SourceReferenceSet Paths { get; set; } = new();
 
     /// <summary>Weighted mix of blocks to scatter.</summary>
     public List<ScatterBlockEntry> Blocks { get; set; } = new();
@@ -30,6 +36,15 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
     public double PerAreaDensity { get; set; } = 0.1;
 
     public double Spacing { get; set; } = 1.0;
+
+    /// <summary>Curve + <see cref="ScatterDensityMode.EdgeToEdge"/>: gap between block footprints.</summary>
+    public double EdgeGap { get; set; }
+
+    /// <summary>Curve mode: random XY offset radius applied to each on-curve point.</summary>
+    public double JitterXy { get; set; }
+
+    /// <summary>Curve mode: orient instances to the curve tangent direction.</summary>
+    public bool AlignToTangent { get; set; }
 
     public bool SlopeFilterEnabled { get; set; }
 
@@ -54,6 +69,7 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
     {
         yield return Sources;
         yield return Boundaries;
+        yield return Paths;
         foreach (var entry in Blocks)
             yield return entry.Source;
     }

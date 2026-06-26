@@ -33,20 +33,7 @@ internal sealed partial class TerrainBuildService
         {
             ThrowIfCancellationRequested(shouldCancel);
 
-            var loops = new List<double[]>();
-            foreach (Curve curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, definition.Boundaries))
-            {
-                if (TryCurveToXyLoop(curve, snapshot.ModelAbsoluteTolerance, out double[] loop))
-                    loops.Add(loop);
-            }
-
-            if (loops.Count == 0)
-            {
-                build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: no closed boundary curves were resolved.");
-                continue;
-            }
-
-            var blocks = ResolveScatterBlocks(snapshot, definition);
+            var blocks = ResolveScatterBlocks(snapshot, definition, out var footprintByName);
             if (blocks.Count == 0)
             {
                 build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: no block instances were selected.");
@@ -60,27 +47,93 @@ internal sealed partial class TerrainBuildService
                 continue;
             }
 
-            var points = ScatterSampler.Sample(new ScatterRequest
+            // Sample the scatter domain into a flat list of (point, optional curve tangent).
+            var samples = new List<(double X, double Y, double? Tangent)>();
+            if (definition.SourceMode == ScatterSourceMode.Curve)
             {
-                Boundaries = loops,
-                Pattern = definition.Pattern,
-                DensityMode = definition.DensityMode,
-                Count = definition.Count,
-                PerAreaDensity = definition.PerAreaDensity,
-                Spacing = definition.Spacing,
-                Seed = definition.RandomSeed,
-                // Make the sampler itself abortable so a superseded build doesn't hang inside a runaway
-                // (tiny spacing / huge count) sample; ThrowIfCancellationRequested below unwinds the rest.
-                ShouldCancel = shouldCancel
-            });
+                var paths = new List<double[]>();
+                foreach (Curve curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, definition.Paths))
+                {
+                    if (TryCurveToXyPolyline(curve, snapshot.ModelAbsoluteTolerance, out double[] polyline))
+                        paths.Add(polyline);
+                }
+
+                if (paths.Count == 0)
+                {
+                    build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: no curves were resolved.");
+                    continue;
+                }
+
+                // Edge-to-edge needs each item's footprint; the chosen block (deterministic per index)
+                // and its bounding-box size give the along-curve extent, scaled by the mean random scale.
+                double meanScale = (Math.Max(0.01, definition.RandomScaleMin) + Math.Max(0.01, definition.RandomScaleMax)) * 0.5;
+                Func<int, double>? itemExtent = definition.DensityMode == ScatterDensityMode.EdgeToEdge
+                    ? index =>
+                    {
+                        Guid key = InstanceKeyFromIndex(index);
+                        string name = PickWeightedBlock(blocks, totalWeight, definition.Id, key, definition.RandomSeed);
+                        double footprint = footprintByName.TryGetValue(name, out double f) && f > 0.0 ? f : 1.0;
+                        return footprint * meanScale;
+                    }
+                    : null;
+
+                var request = new ScatterRequest
+                {
+                    Source = ScatterSourceMode.Curve,
+                    Paths = paths,
+                    Pattern = definition.Pattern,
+                    DensityMode = definition.DensityMode,
+                    Count = definition.Count,
+                    Spacing = definition.Spacing,
+                    EdgeGap = definition.EdgeGap,
+                    JitterXy = definition.JitterXy,
+                    Seed = definition.RandomSeed,
+                    ShouldCancel = shouldCancel
+                };
+
+                foreach (ScatterCurvePoint point in ScatterSampler.SampleCurve(request, itemExtent))
+                    samples.Add((point.X, point.Y, point.TangentRadians));
+            }
+            else
+            {
+                var loops = new List<double[]>();
+                foreach (Curve curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, definition.Boundaries))
+                {
+                    if (TryCurveToXyLoop(curve, snapshot.ModelAbsoluteTolerance, out double[] loop))
+                        loops.Add(loop);
+                }
+
+                if (loops.Count == 0)
+                {
+                    build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: no closed boundary curves were resolved.");
+                    continue;
+                }
+
+                var request = new ScatterRequest
+                {
+                    Boundaries = loops,
+                    Pattern = definition.Pattern,
+                    DensityMode = definition.DensityMode,
+                    Count = definition.Count,
+                    PerAreaDensity = definition.PerAreaDensity,
+                    Spacing = definition.Spacing,
+                    Seed = definition.RandomSeed,
+                    // Make the sampler itself abortable so a superseded build doesn't hang inside a
+                    // runaway sample; ThrowIfCancellationRequested below unwinds the rest.
+                    ShouldCancel = shouldCancel
+                };
+
+                foreach ((double px, double py) in ScatterSampler.Sample(request))
+                    samples.Add((px, py, null));
+            }
 
             int placed = 0;
-            for (int index = 0; index < points.Count; index++)
+            for (int index = 0; index < samples.Count; index++)
             {
                 if ((index & 63) == 0)
                     ThrowIfCancellationRequested(shouldCancel);
 
-                (double px, double py) = points[index];
+                (double px, double py, double? tangent) = samples[index];
                 if (!TryResolveTerrainPoint(snapshot, mesh, new Point3d(px, py, 0.0), out Point3d terrainPoint, out Vector3d terrainNormal, out _))
                     continue;
 
@@ -97,16 +150,22 @@ internal sealed partial class TerrainBuildService
                     continue;
                 }
 
+                // Align-to-tangent (curve mode) sets the frame's X axis along the curve direction.
+                Vector3d referenceX = definition.SourceMode == ScatterSourceMode.Curve &&
+                                      definition.AlignToTangent && tangent.HasValue
+                    ? new Vector3d(Math.Cos(tangent.Value), Math.Sin(tangent.Value), 0.0)
+                    : Vector3d.XAxis;
+
                 Vector3d up = definition.AlignToSlope ? terrainNormal : Vector3d.ZAxis;
                 Plane frame;
                 if (definition.AlignToSlope)
                 {
-                    if (!TryCreateTerrainFrame(terrainPoint, terrainNormal, Vector3d.XAxis, out frame))
-                        frame = new Plane(terrainPoint, Vector3d.XAxis, Vector3d.YAxis);
+                    if (!TryCreateTerrainFrame(terrainPoint, terrainNormal, referenceX, out frame))
+                        frame = new Plane(terrainPoint, referenceX, Vector3d.CrossProduct(Vector3d.ZAxis, referenceX));
                 }
                 else
                 {
-                    frame = new Plane(terrainPoint, Vector3d.XAxis, Vector3d.YAxis);
+                    frame = new Plane(terrainPoint, referenceX, Vector3d.CrossProduct(Vector3d.ZAxis, referenceX));
                 }
 
                 if (Math.Abs(definition.ZOffset) > 1e-9)
@@ -143,9 +202,22 @@ internal sealed partial class TerrainBuildService
 
     private static List<(string Name, double Weight)> ResolveScatterBlocks(
         TerrainBuildSnapshot snapshot,
-        ScatterObjectDefinition definition)
+        ScatterObjectDefinition definition,
+        out Dictionary<string, double> footprintByName)
     {
         var weightByName = new Dictionary<string, double>(StringComparer.Ordinal);
+        var footprints = new Dictionary<string, double>(StringComparer.Ordinal);
+        footprintByName = footprints;
+
+        static double HorizontalFootprint(BoundingBox bbox)
+        {
+            if (!bbox.IsValid)
+                return 0.0;
+
+            double dx = bbox.Max.X - bbox.Min.X;
+            double dy = bbox.Max.Y - bbox.Min.Y;
+            return Math.Max(dx, dy);
+        }
 
         void Accumulate(SourceReferenceSet source, double weight)
         {
@@ -159,6 +231,13 @@ internal sealed partial class TerrainBuildService
 
                 weightByName.TryGetValue(resolved.InstanceDefinitionName!, out double current);
                 weightByName[resolved.InstanceDefinitionName!] = current + weight;
+
+                double footprint = HorizontalFootprint(resolved.LocalBoundingBox);
+                if (footprint > 0.0)
+                {
+                    footprints.TryGetValue(resolved.InstanceDefinitionName!, out double existing);
+                    footprints[resolved.InstanceDefinitionName!] = Math.Max(existing, footprint);
+                }
             }
         }
 
@@ -227,6 +306,38 @@ internal sealed partial class TerrainBuildService
         var bytes = new byte[16];
         BitConverter.TryWriteBytes(bytes.AsSpan(0, 4), index);
         return new Guid(bytes);
+    }
+
+    private static bool TryCurveToXyPolyline(Curve curve, double tolerance, out double[] polyline)
+    {
+        polyline = Array.Empty<double>();
+        if (curve == null)
+            return false;
+
+        Polyline pl;
+        if (!curve.TryGetPolyline(out pl) || !pl.IsValid || pl.Count < 2)
+        {
+            double chord = Math.Max(tolerance * 10.0, 1e-3);
+            int segments = Math.Clamp((int)Math.Ceiling(curve.GetLength() / chord), 8, 1024);
+            double[]? parameters = curve.DivideByCount(segments, includeEnds: true);
+            if (parameters == null || parameters.Length < 2)
+                return false;
+
+            pl = new Polyline(parameters.Select(curve.PointAt));
+        }
+
+        int count = pl.Count;
+        if (count < 2)
+            return false;
+
+        polyline = new double[count * 2];
+        for (int i = 0; i < count; i++)
+        {
+            polyline[i * 2] = pl[i].X;
+            polyline[i * 2 + 1] = pl[i].Y;
+        }
+
+        return true;
     }
 
     private static bool TryCurveToXyLoop(Curve curve, double tolerance, out double[] loop)
