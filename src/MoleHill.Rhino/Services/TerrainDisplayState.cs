@@ -31,6 +31,72 @@ internal sealed class TerrainDisplayState
 
     public Dictionary<Guid, ScatterObjectRange> ScatterObjectRanges { get; } = new();
 
+    private BoundingBox? _previewBounds;
+
+    /// <summary>
+    /// Union of the extents this state draws through the display conduit (terrain mesh, generated
+    /// objects, scatter instance origins). Cached once — the state is immutable after a build and is
+    /// swapped atomically. The conduit feeds this to <c>CalculateBoundingBox</c> so Rhino invalidates
+    /// and redraws the scatter region on incremental operations; without it, partial redraws can leave
+    /// ghost pixels of the previous frame (looks like duplicate instances, though bake is unaffected).
+    /// </summary>
+    public BoundingBox GetPreviewBounds()
+    {
+        if (_previewBounds.HasValue)
+            return _previewBounds.Value;
+
+        var bounds = BoundingBox.Empty;
+        UnionMesh(ref bounds, PreviewTerrainMesh);
+        UnionMesh(ref bounds, TerrainMesh);
+
+        foreach (var generated in ZoneObjects)
+            UnionGeometry(ref bounds, generated.Geometry);
+        foreach (var generated in AuxiliaryObjects)
+            UnionGeometry(ref bounds, generated.Geometry);
+        foreach (var generated in MarkerObjects)
+            UnionGeometry(ref bounds, generated.Geometry);
+
+        foreach (var scatter in ScatterObjects)
+        {
+            Point3d origin = Point3d.Origin;
+            origin.Transform(scatter.InstanceTransform);
+            if (origin.IsValid)
+                bounds.Union(origin);
+        }
+
+        if (bounds.IsValid)
+        {
+            // Scatter instances (and markers/text) extend beyond their origin point; pad the box so
+            // their full footprint stays inside the invalidated/redrawn region.
+            double diagonal = bounds.Diagonal.Length;
+            double margin = Math.Max(diagonal * 0.05, 1.0);
+            bounds.Inflate(margin);
+        }
+
+        _previewBounds = bounds;
+        return bounds;
+    }
+
+    private static void UnionMesh(ref BoundingBox bounds, Mesh? mesh)
+    {
+        if (mesh == null)
+            return;
+
+        BoundingBox meshBounds = mesh.GetBoundingBox(true);
+        if (meshBounds.IsValid)
+            bounds.Union(meshBounds);
+    }
+
+    private static void UnionGeometry(ref BoundingBox bounds, GeometryBase? geometry)
+    {
+        if (geometry == null)
+            return;
+
+        BoundingBox geometryBounds = geometry.GetBoundingBox(true);
+        if (geometryBounds.IsValid)
+            bounds.Union(geometryBounds);
+    }
+
     public void RebuildScatterObjectRanges()
     {
         ScatterObjectRanges.Clear();

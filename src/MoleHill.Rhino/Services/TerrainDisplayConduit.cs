@@ -11,6 +11,22 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 {
     private const int ScatterShapePointBudget = 32;
 
+    protected override void CalculateBoundingBox(CalculateBoundingBoxEventArgs e)
+    {
+        if (e.RhinoDoc == null)
+            return;
+
+        foreach (var view in TerrainController.Instance.GetPreviewViews(e.RhinoDoc))
+        {
+            if (!view.Terrain.IsVisible)
+                continue;
+
+            BoundingBox bounds = view.DisplayState.GetPreviewBounds();
+            if (bounds.IsValid)
+                e.IncludeBoundingBox(bounds);
+        }
+    }
+
     protected override void PostDrawObjects(DrawEventArgs e)
     {
         if (e.RhinoDoc == null)
