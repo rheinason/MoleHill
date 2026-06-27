@@ -33,7 +33,7 @@ internal sealed partial class TerrainBuildService
         {
             ThrowIfCancellationRequested(shouldCancel);
 
-            var blocks = ResolveScatterBlocks(snapshot, definition, out var footprintByName);
+            var blocks = ResolveScatterBlocks(snapshot, definition, out var extentByName);
             if (blocks.Count == 0)
             {
                 build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: no block instances were selected.");
@@ -45,6 +45,22 @@ internal sealed partial class TerrainBuildService
             {
                 build.Diagnostics.Add($"Scatter '{definition.Name}' skipped: block weights sum to zero.");
                 continue;
+            }
+
+            // Block selection per slot. Curve + Sequence cycles the mix in order (repeating pattern);
+            // everything else picks weighted-random. The same index must select the same block at
+            // footprint time (edge-to-edge) and placement time, so extents and instances stay in sync.
+            string SelectBlockName(int slotIndex, Guid instanceKey)
+            {
+                if (definition.SourceMode == ScatterSourceMode.Curve &&
+                    definition.BlockOrder == ScatterBlockOrder.Sequence &&
+                    blocks.Count > 1)
+                {
+                    int wrapped = ((slotIndex % blocks.Count) + blocks.Count) % blocks.Count;
+                    return blocks[wrapped].Name;
+                }
+
+                return PickWeightedBlock(blocks, totalWeight, definition.Id, instanceKey, definition.RandomSeed);
             }
 
             // Sample the scatter domain into a flat list of (point, optional curve tangent).
@@ -64,16 +80,14 @@ internal sealed partial class TerrainBuildService
                     continue;
                 }
 
-                // Edge-to-edge needs each item's footprint; the chosen block (deterministic per index)
-                // and its bounding-box size give the along-curve extent, scaled by the mean random scale.
-                double meanScale = (Math.Max(0.01, definition.RandomScaleMin) + Math.Max(0.01, definition.RandomScaleMax)) * 0.5;
+                // Edge-to-edge needs each item's along-curve footprint. ResolveScatterBlocks already folds
+                // in worst-case random scale + rotation/orientation so blocks never overlap; just look the
+                // extent up for the block this slot will use (same selector as placement → in sync).
                 Func<int, double>? itemExtent = definition.DensityMode == ScatterDensityMode.EdgeToEdge
                     ? index =>
                     {
-                        Guid key = InstanceKeyFromIndex(index);
-                        string name = PickWeightedBlock(blocks, totalWeight, definition.Id, key, definition.RandomSeed);
-                        double footprint = footprintByName.TryGetValue(name, out double f) && f > 0.0 ? f : 1.0;
-                        return footprint * meanScale;
+                        string name = SelectBlockName(index, InstanceKeyFromIndex(index));
+                        return extentByName.TryGetValue(name, out double e) && e > 0.0 ? e : 1.0;
                     }
                     : null;
 
@@ -81,12 +95,12 @@ internal sealed partial class TerrainBuildService
                 {
                     Source = ScatterSourceMode.Curve,
                     Paths = paths,
-                    Pattern = definition.Pattern,
                     DensityMode = definition.DensityMode,
                     Count = definition.Count,
                     Spacing = definition.Spacing,
                     EdgeGap = definition.EdgeGap,
                     JitterXy = definition.JitterXy,
+                    AlongJitter = definition.AlongJitter,
                     Seed = definition.RandomSeed,
                     ShouldCancel = shouldCancel
                 };
@@ -172,7 +186,7 @@ internal sealed partial class TerrainBuildService
                     frame.Origin += frame.Normal * definition.ZOffset;
 
                 Guid instanceKey = InstanceKeyFromIndex(index);
-                string blockName = PickWeightedBlock(blocks, totalWeight, definition.Id, instanceKey, definition.RandomSeed);
+                string blockName = SelectBlockName(index, instanceKey);
                 Transform basePlacement = Transform.PlaneToPlane(Plane.WorldXY, frame);
                 Transform random = CreateRandomPlacementTransform(definition, instanceKey, frame.Origin, up);
                 Transform instanceTransform = random * basePlacement;
@@ -203,23 +217,38 @@ internal sealed partial class TerrainBuildService
     private static List<(string Name, double Weight)> ResolveScatterBlocks(
         TerrainBuildSnapshot snapshot,
         ScatterObjectDefinition definition,
-        out Dictionary<string, double> footprintByName)
+        out Dictionary<string, double> extentByName)
     {
         var weightByName = new Dictionary<string, double>(StringComparer.Ordinal);
-        var footprints = new Dictionary<string, double>(StringComparer.Ordinal);
-        footprintByName = footprints;
+        var boundsByName = new Dictionary<string, BoundingBox>(StringComparer.Ordinal);
+        var order = new List<string>(); // first-appearance order — drives Sequence block ordering.
 
-        static double HorizontalFootprint(BoundingBox bbox)
+        void Note(string name, double weight, BoundingBox bbox)
         {
-            if (!bbox.IsValid)
-                return 0.0;
+            if (string.IsNullOrWhiteSpace(name) || weight <= 0.0)
+                return;
 
-            double dx = bbox.Max.X - bbox.Min.X;
-            double dy = bbox.Max.Y - bbox.Min.Y;
-            return Math.Max(dx, dy);
+            if (!weightByName.ContainsKey(name))
+                order.Add(name);
+
+            weightByName.TryGetValue(name, out double current);
+            weightByName[name] = current + weight;
+
+            if (bbox.IsValid)
+            {
+                if (boundsByName.TryGetValue(name, out BoundingBox existing) && existing.IsValid)
+                {
+                    existing.Union(bbox);
+                    boundsByName[name] = existing;
+                }
+                else
+                {
+                    boundsByName[name] = bbox;
+                }
+            }
         }
 
-        void Accumulate(SourceReferenceSet source, double weight)
+        void AccumulateSource(SourceReferenceSet source, double weight)
         {
             if (weight <= 0.0)
                 return;
@@ -229,15 +258,7 @@ internal sealed partial class TerrainBuildService
                 if (string.IsNullOrWhiteSpace(resolved.InstanceDefinitionName))
                     continue;
 
-                weightByName.TryGetValue(resolved.InstanceDefinitionName!, out double current);
-                weightByName[resolved.InstanceDefinitionName!] = current + weight;
-
-                double footprint = HorizontalFootprint(resolved.LocalBoundingBox);
-                if (footprint > 0.0)
-                {
-                    footprints.TryGetValue(resolved.InstanceDefinitionName!, out double existing);
-                    footprints[resolved.InstanceDefinitionName!] = Math.Max(existing, footprint);
-                }
+                Note(resolved.InstanceDefinitionName!, weight, resolved.LocalBoundingBox);
             }
         }
 
@@ -251,24 +272,71 @@ internal sealed partial class TerrainBuildService
 
                 if (!string.IsNullOrWhiteSpace(entry.BlockDefinitionName))
                 {
-                    weightByName.TryGetValue(entry.BlockDefinitionName!, out double current);
-                    weightByName[entry.BlockDefinitionName!] = current + weight;
+                    // Named blocks aren't resolved as source objects, so their size comes from the
+                    // snapshot's block-bounds catalog (captured on the main thread).
+                    snapshot.BlockDefinitionBounds.TryGetValue(entry.BlockDefinitionName!, out BoundingBox bbox);
+                    Note(entry.BlockDefinitionName!, weight, bbox);
                 }
                 else
                 {
-                    Accumulate(entry.Source, weight);
+                    AccumulateSource(entry.Source, weight);
                 }
             }
         }
         else
         {
-            Accumulate(definition.Sources, 1.0);
+            AccumulateSource(definition.Sources, 1.0);
         }
 
-        return weightByName
-            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-            .Select(pair => (pair.Key, pair.Value))
-            .ToList();
+        extentByName = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (string name in order)
+        {
+            boundsByName.TryGetValue(name, out BoundingBox bbox);
+            extentByName[name] = WorstAlongExtent(bbox, definition);
+        }
+
+        return order.Select(name => (name, weightByName[name])).ToList();
+    }
+
+    // Worst-case along-curve footprint of a block, so edge-to-edge spacing never overlaps regardless of
+    // the per-instance random scale/rotation. Folds in the maximum random scale; for align-to-tangent the
+    // worst projection of the axis-aligned footprint over the yaw range, otherwise the diagonal (the
+    // tangent can meet the un-aligned block at any angle).
+    private static double WorstAlongExtent(BoundingBox bbox, ScatterObjectDefinition definition)
+    {
+        if (!bbox.IsValid)
+            return 0.0;
+
+        double dx = bbox.Max.X - bbox.Min.X;
+        double dy = bbox.Max.Y - bbox.Min.Y;
+        if (!(dx > 0.0) && !(dy > 0.0))
+            return 0.0;
+
+        double scaleMax = Math.Max(0.01, Math.Max(definition.RandomScaleMin, definition.RandomScaleMax));
+
+        double extent;
+        if (definition.AlignToTangent)
+        {
+            double a = Math.Min(definition.RandomRotationMinDegrees, definition.RandomRotationMaxDegrees);
+            double b = Math.Max(definition.RandomRotationMinDegrees, definition.RandomRotationMaxDegrees);
+            double best = 0.0;
+            const int steps = 24;
+            for (int i = 0; i <= steps; i++)
+            {
+                double theta = (a + (b - a) * i / steps) * Math.PI / 180.0;
+                double e = (dx * Math.Abs(Math.Cos(theta))) + (dy * Math.Abs(Math.Sin(theta)));
+                if (e > best)
+                    best = e;
+            }
+
+            extent = best;
+        }
+        else
+        {
+            extent = Math.Sqrt((dx * dx) + (dy * dy));
+        }
+
+        return extent * scaleMax;
     }
 
     private static string PickWeightedBlock(

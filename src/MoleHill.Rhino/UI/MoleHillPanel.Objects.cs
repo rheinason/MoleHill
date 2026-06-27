@@ -290,12 +290,17 @@ public sealed partial class MoleHillPanel
         if (scatter.Blocks.Count == 0)
             layout.AddRow(CreateScatterBlockEmptyState());
 
-        layout.AddRow(CreateDropDownEditor(
-            "Pattern",
-            new (string, string)[] { ("Random", "Random"), ("Grid", "Grid"), ("JitteredGrid", "Jittered Grid"), ("PoissonDisk", "Poisson") },
-            scatter.Pattern.ToString(),
-            key => Mutate(s => s.Pattern = Enum.Parse<ScatterPattern>(key)),
-            "How instances are arranged inside the boundary."));
+        // A spatial "pattern" only makes sense filling a 2-D region; along a 1-D curve, evenness +
+        // randomness + block order are the meaningful controls (added below in the curve block).
+        if (scatter.SourceMode == ScatterSourceMode.Region)
+        {
+            layout.AddRow(CreateDropDownEditor(
+                "Pattern",
+                new (string, string)[] { ("Random", "Random"), ("Grid", "Grid"), ("JitteredGrid", "Jittered Grid"), ("PoissonDisk", "Poisson") },
+                scatter.Pattern.ToString(),
+                key => Mutate(s => s.Pattern = Enum.Parse<ScatterPattern>(key)),
+                "How instances are arranged inside the boundary."));
+        }
 
         bool curveMode = scatter.SourceMode == ScatterSourceMode.Curve;
         var densityOptions = curveMode
@@ -340,6 +345,24 @@ public sealed partial class MoleHillPanel
 
         if (curveMode)
         {
+            if (scatter.DensityMode != ScatterDensityMode.EdgeToEdge)
+            {
+                layout.AddRow(CreateSliderNumericEditor("Randomness", scatter.AlongJitter,
+                    value => Mutate(s => s.AlongJitter = value, liveScrub: true), softMin: 0.0, softMax: 1.0,
+                    decimalPlaces: 2, hardMin: 0.0, hardMax: 1.0,
+                    help: "Along-curve randomness: 0 = perfectly even, 1 = each item may shift up to ±half the spacing."));
+            }
+
+            if (scatter.Blocks.Count > 1)
+            {
+                layout.AddRow(CreateDropDownEditor(
+                    "Block order",
+                    new (string, string)[] { ("Random", "Random (by weight)"), ("Sequence", "In sequence") },
+                    scatter.BlockOrder.ToString(),
+                    key => Mutate(s => s.BlockOrder = Enum.Parse<ScatterBlockOrder>(key)),
+                    "Random: each slot picks a block by weight. Sequence: cycle the block list in order (A→B→C→A…)."));
+            }
+
             layout.AddRow(CreateSliderNumericEditor("XY Jitter", scatter.JitterXy,
                 value => Mutate(s => s.JitterXy = value, liveScrub: true), softMin: 0.0, softMax: 5.0,
                 decimalPlaces: 3, hardMin: 0.0, help: "Random XY offset radius applied to each on-curve point (widens the line into a band)."));

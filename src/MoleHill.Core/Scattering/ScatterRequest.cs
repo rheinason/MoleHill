@@ -33,6 +33,10 @@ public sealed class ScatterRequest
     /// <summary>Curve mode only: random XY offset radius (model units) applied to each on-curve point.</summary>
     public double JitterXy { get; init; }
 
+    /// <summary>Curve mode only: along-curve randomness as a fraction [0,1] of the spacing step. 0 = evenly
+    /// spaced; 1 = each point may wander up to ±½ a step along the arc. Ignored by edge-to-edge.</summary>
+    public double AlongJitter { get; init; }
+
     /// <summary>Curve + <see cref="ScatterDensityMode.EdgeToEdge"/>: gap (model units) left between item
     /// footprints. The per-item footprint extent is supplied by the caller's extent callback.</summary>
     public double EdgeGap { get; init; }

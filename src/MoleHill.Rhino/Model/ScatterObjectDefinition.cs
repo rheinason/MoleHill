@@ -27,7 +27,15 @@ public sealed class ScatterObjectDefinition : TerrainObjectDefinition
     /// <summary>Weighted mix of blocks to scatter.</summary>
     public List<ScatterBlockEntry> Blocks { get; set; } = new();
 
+    /// <summary>Region mode: spatial arrangement pattern. Unused in curve mode (a 1-D line has no
+    /// meaningful spatial pattern; see <see cref="AlongJitter"/> and <see cref="BlockOrder"/>).</summary>
     public ScatterPattern Pattern { get; set; } = ScatterPattern.Random;
+
+    /// <summary>Curve mode: along-curve randomness as a fraction [0,1] of the spacing step.</summary>
+    public double AlongJitter { get; set; }
+
+    /// <summary>Curve mode, multi-block: whether blocks are picked weighted-random or cycled in order.</summary>
+    public ScatterBlockOrder BlockOrder { get; set; } = ScatterBlockOrder.Random;
 
     public ScatterDensityMode DensityMode { get; set; } = ScatterDensityMode.Count;
 

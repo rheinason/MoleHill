@@ -606,7 +606,11 @@ public sealed partial class MoleHillPanel
 
     private static bool TryParseSliderNumericValue(string text, out double value)
     {
-        const NumberStyles Styles = NumberStyles.Float | NumberStyles.AllowThousands;
+        // No AllowThousands: the slider formats with InvariantCulture (e.g. "1.000"), and in locales where
+        // '.' is the group separator (de-DE, nb-NO, …) AllowThousands would re-read that as 1000. Without
+        // it, a '.' is only ever a decimal point — CurrentCulture parse fails for "1.000" in those locales
+        // and the InvariantCulture fallback yields 1.0, while locale decimals (e.g. "1,5") still parse.
+        const NumberStyles Styles = NumberStyles.Float;
         return double.TryParse(text, Styles, CultureInfo.CurrentCulture, out value) ||
                double.TryParse(text, Styles, CultureInfo.InvariantCulture, out value);
     }

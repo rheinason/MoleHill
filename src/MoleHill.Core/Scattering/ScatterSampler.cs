@@ -316,11 +316,11 @@ public static class ScatterSampler
     /// align-to-tangent). Density is center-to-center Spacing, Count→spacing, or — when
     /// <paramref name="itemExtent"/> is supplied and the mode is <see cref="ScatterDensityMode.EdgeToEdge"/>
     /// — edge-to-edge by per-item footprint (extent supplied by the caller, which knows block sizes) plus
-    /// <see cref="ScatterRequest.EdgeGap"/>. Patterns for the spacing/count modes: Grid = regular,
-    /// JitteredGrid = regular + along-curve nudge, Random = random arc positions, PoissonDisk = forward
-    /// walk with a variable gap >= spacing. A perpendicular-free disk XY jitter is applied last.
-    /// <paramref name="itemExtent"/> receives the global item index and returns that item's along-curve
-    /// footprint; the caller must select the block for the same index deterministically so extents match.
+    /// <see cref="ScatterRequest.EdgeGap"/>. Spacing/count modes place points evenly, then nudge each along
+    /// the arc by <see cref="ScatterRequest.AlongJitter"/> (fraction of the step). A perpendicular disk XY
+    /// jitter (<see cref="ScatterRequest.JitterXy"/>) is applied last. <paramref name="itemExtent"/> receives
+    /// the global item index and returns that item's along-curve footprint; the caller must select the block
+    /// for the same index deterministically so extents match.
     /// </summary>
     public static List<ScatterCurvePoint> SampleCurve(ScatterRequest request, Func<int, double>? itemExtent)
     {
@@ -432,78 +432,32 @@ public static class ScatterSampler
             return result;
         }
 
-        // Center-to-center spacing along the arc (or a target count mapped to one).
+        // Center-to-center spacing along the arc (or a target count mapped to one). Points are placed
+        // evenly, then nudged along the arc by an optional randomness fraction of the step (0 = even,
+        // 1 = up to ±half a step). A "pattern" has no meaning along a 1-D line — order/randomness do.
         double step = request.DensityMode == ScatterDensityMode.Spacing
             ? request.Spacing
             : request.Count >= 1.0 ? totalLength / request.Count : 0.0;
         if (!(step > 0.0) || !double.IsFinite(step))
             return result;
 
+        double alongJitter = Math.Clamp(request.AlongJitter, 0.0, 1.0);
+
         foreach (var path in paths)
         {
             if (result.Count >= cap || cancelled())
                 return result;
 
-            switch (request.Pattern)
+            for (double s = 0.0; s <= path.Length + 1e-9; s += step)
             {
-                case ScatterPattern.Random:
-                {
-                    int n = Math.Max(0, (int)Math.Round(path.Length / step));
-                    for (int k = 0; k < n; k++)
-                    {
-                        if (result.Count >= cap)
-                            return result;
-                        if ((k & 1023) == 0 && cancelled())
-                            return result;
+                if (result.Count >= cap || cancelled())
+                    return result;
 
-                        (double x, double y, double tangent) = PointOn(path, rng.NextUnit() * path.Length);
-                        Emit(x, y, tangent);
-                    }
-
-                    break;
-                }
-                case ScatterPattern.PoissonDisk:
-                {
-                    double s = rng.NextUnit() * step; // random phase
-                    while (s <= path.Length + 1e-9)
-                    {
-                        if (result.Count >= cap || cancelled())
-                            return result;
-
-                        (double x, double y, double tangent) = PointOn(path, s);
-                        Emit(x, y, tangent);
-                        s += step * (1.0 + rng.NextUnit()); // variable gap in [step, 2*step)
-                    }
-
-                    break;
-                }
-                case ScatterPattern.JitteredGrid:
-                {
-                    for (double s = 0.0; s <= path.Length + 1e-9; s += step)
-                    {
-                        if (result.Count >= cap || cancelled())
-                            return result;
-
-                        double jittered = Math.Clamp(s + (rng.NextUnit() - 0.5) * step, 0.0, path.Length);
-                        (double x, double y, double tangent) = PointOn(path, jittered);
-                        Emit(x, y, tangent);
-                    }
-
-                    break;
-                }
-                default: // Grid / even regular spacing
-                {
-                    for (double s = 0.0; s <= path.Length + 1e-9; s += step)
-                    {
-                        if (result.Count >= cap || cancelled())
-                            return result;
-
-                        (double x, double y, double tangent) = PointOn(path, s);
-                        Emit(x, y, tangent);
-                    }
-
-                    break;
-                }
+                double arc = alongJitter > 0.0
+                    ? Math.Clamp(s + (rng.NextUnit() - 0.5) * step * alongJitter, 0.0, path.Length)
+                    : s;
+                (double x, double y, double tangent) = PointOn(path, arc);
+                Emit(x, y, tangent);
             }
         }
 

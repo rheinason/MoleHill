@@ -30,7 +30,28 @@ internal static class TerrainBuildSnapshotBuilder
             snapshot.SourceFingerprints[sourceSet] = ComputeSourceSetFingerprint(sourceSet, resolvedObjects);
         }
 
+        PopulateBlockDefinitionBounds(doc, terrainClone, snapshot);
+
         return snapshot;
+    }
+
+    // Capture local bounds of every named block referenced by a scatter mix. The background build picks
+    // blocks by name and can't reach the doc, so edge-to-edge spacing reads sizes from here.
+    private static void PopulateBlockDefinitionBounds(RhinoDoc doc, TerrainDefinition terrain, TerrainBuildSnapshot snapshot)
+    {
+        foreach (var scatter in terrain.Objects.OfType<ScatterObjectDefinition>())
+        {
+            foreach (var entry in scatter.Blocks)
+            {
+                string? name = entry.BlockDefinitionName;
+                if (string.IsNullOrWhiteSpace(name) || snapshot.BlockDefinitionBounds.ContainsKey(name!))
+                    continue;
+
+                InstanceDefinition? definition = doc.InstanceDefinitions.Find(name!);
+                if (definition != null && TryGetInstanceDefinitionBoundingBox(definition, out BoundingBox bbox))
+                    snapshot.BlockDefinitionBounds[name!] = bbox;
+            }
+        }
     }
 
     private static TerrainDefinition CloneTerrain(TerrainDefinition terrain)

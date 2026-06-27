@@ -12,13 +12,12 @@ public class ScatterSamplerCurveTests
     private static double[] StraightLine(double length) => new[] { 0.0, 0.0, length, 0.0 };
 
     [Fact]
-    public void Curve_SpacingMode_EvenPattern_PlacesAtCenterToCenterSpacing()
+    public void Curve_SpacingMode_PlacesAtCenterToCenterSpacing()
     {
         var request = new ScatterRequest
         {
             Source = ScatterSourceMode.Curve,
             Paths = new[] { StraightLine(100.0) },
-            Pattern = ScatterPattern.Grid, // even
             DensityMode = ScatterDensityMode.Spacing,
             Spacing = 10.0,
             Seed = 1
@@ -42,7 +41,6 @@ public class ScatterSamplerCurveTests
         {
             Source = ScatterSourceMode.Curve,
             Paths = new[] { StraightLine(100.0) },
-            Pattern = ScatterPattern.Grid,
             DensityMode = ScatterDensityMode.Count,
             Count = 20,
             Seed = 1
@@ -62,7 +60,6 @@ public class ScatterSamplerCurveTests
         {
             Source = ScatterSourceMode.Curve,
             Paths = new[] { StraightLine(100.0) },
-            Pattern = ScatterPattern.Grid,
             DensityMode = ScatterDensityMode.Spacing,
             Spacing = 5.0,
             JitterXy = 2.0,
@@ -91,9 +88,10 @@ public class ScatterSamplerCurveTests
         {
             Source = ScatterSourceMode.Curve,
             Paths = new[] { StraightLine(50.0) },
-            Pattern = ScatterPattern.Random,
             DensityMode = ScatterDensityMode.Spacing,
             Spacing = 5.0,
+            JitterXy = 1.5,
+            AlongJitter = 0.8,
             Seed = 42
         };
 
@@ -109,23 +107,31 @@ public class ScatterSamplerCurveTests
     }
 
     [Fact]
-    public void Curve_PoissonPattern_KeepsMinimumCenterToCenterGap()
+    public void Curve_AlongJitter_KeepsPointsWithinHalfStepOfEvenPositions()
     {
+        const double spacing = 10.0;
         var request = new ScatterRequest
         {
             Source = ScatterSourceMode.Curve,
             Paths = new[] { StraightLine(100.0) },
-            Pattern = ScatterPattern.PoissonDisk,
             DensityMode = ScatterDensityMode.Spacing,
-            Spacing = 8.0,
-            Seed = 3
+            Spacing = spacing,
+            AlongJitter = 1.0, // full ±half-step wander
+            Seed = 5
         };
 
-        var points = ScatterSampler.Sample(request).OrderBy(p => p.X).ToList();
+        var points = ScatterSampler.Sample(request);
 
-        Assert.True(points.Count >= 2);
-        for (int i = 1; i < points.Count; i++)
-            Assert.True(points[i].X - points[i - 1].X >= 8.0 - 1e-6, "consecutive gap below the minimum spacing");
+        Assert.NotEmpty(points);
+        // Each point stays within half a step of some even multiple (no jitter pushes it further).
+        Assert.All(points, p =>
+        {
+            double nearestEven = Math.Round(p.X / spacing) * spacing;
+            Assert.True(Math.Abs(p.X - nearestEven) <= spacing / 2.0 + 1e-6,
+                $"point at {p.X} wandered more than half a step");
+        });
+        // And the randomness actually moved some points off their even positions.
+        Assert.Contains(points, p => Math.Abs(p.X - Math.Round(p.X / spacing) * spacing) > 1e-6);
     }
 
     [Fact]
@@ -158,7 +164,6 @@ public class ScatterSamplerCurveTests
         {
             Source = ScatterSourceMode.Curve,
             Paths = new[] { new[] { 0.0, 0.0, 10.0, 10.0 } }, // 45-degree line
-            Pattern = ScatterPattern.Grid,
             DensityMode = ScatterDensityMode.Spacing,
             Spacing = 2.0,
             Seed = 1
