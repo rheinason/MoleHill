@@ -16,6 +16,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         Func<bool>? shouldCancel,
         string? fallbackLayerPath = null)
     {
+        mesh.Normals.ComputeNormals();
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         int sourceCount = 0;
         int outputCount = 0;
@@ -41,31 +42,30 @@ internal static class TerrainAnalysisAnnotationBuilder
 
                 var previous = divisions[sampleIndex - 1];
                 var current = divisions[sampleIndex];
-                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, previous.Point, snapshot.ModelAbsoluteTolerance, out Point3d previousWorld) ||
-                    !TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, current.Point, snapshot.ModelAbsoluteTolerance, out Point3d currentWorld))
-                {
-                    cumulativeDistance += Math.Max(0.0, curve.GetLength(new Interval(previous.Parameter, current.Parameter)));
-                    continue;
-                }
-
-                double horizontalRun = Math.Sqrt(
-                    ((currentWorld.X - previousWorld.X) * (currentWorld.X - previousWorld.X)) +
-                    ((currentWorld.Y - previousWorld.Y) * (currentWorld.Y - previousWorld.Y)));
                 double segmentLength = Math.Max(0.0, curve.GetLength(new Interval(previous.Parameter, current.Parameter)));
-                if (horizontalRun <= snapshot.ModelAbsoluteTolerance)
+
+                // Label at the segment midpoint, draped onto the terrain. Both the slope magnitude and
+                // the arrow come from the terrain normal there (true steepest grade + downhill aspect),
+                // independent of the curve's own direction or Z.
+                Point3d midXy = Midpoint(previous.Point, current.Point);
+                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, midXy, snapshot.ModelAbsoluteTolerance, out Point3d labelPoint, out var meshPoint) ||
+                    meshPoint == null)
                 {
                     cumulativeDistance += segmentLength;
                     continue;
                 }
 
-                double slopeRatio = Math.Abs(currentWorld.Z - previousWorld.Z) / horizontalRun;
+                Vector3d normal = mesh.NormalAt(meshPoint);
+                double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
+                double slopeRatio = Math.Tan(slopeRadians);
                 double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
+                Vector3d direction = GetTerrainSlopeDirection(normal, snapshot.ModelAbsoluteTolerance, analysis.FlipDirection);
+
                 stats.Add(slopeValue);
                 outputCount++;
 
                 if (analysis.IsEnabled)
                 {
-                    Point3d labelPoint = Midpoint(previousWorld, currentWorld);
                     double distance = cumulativeDistance + (segmentLength * 0.5);
                     build.AuxiliaryObjects.Add(CreateAnnotationObject(
                         analysis,
@@ -77,7 +77,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                         analysis.BlockDefinitionName,
                         MarkerBlockTemplate.AnnotationSlope,
                         fallbackLayerPath,
-                        GetCurveSlopeDirection(previousWorld, currentWorld, snapshot.ModelAbsoluteTolerance, analysis.FlipDirection)));
+                        direction));
                 }
 
                 cumulativeDistance += segmentLength;
@@ -857,19 +857,6 @@ internal static class TerrainAnalysisAnnotationBuilder
             normal = -normal;
 
         var direction = new Vector3d(-normal.X, -normal.Y, 0.0);
-        if (flip)
-            direction = -direction;
-        return direction.Length <= tolerance
-            ? Vector3d.Unset
-            : direction;
-    }
-
-    private static Vector3d GetCurveSlopeDirection(Point3d a, Point3d b, double tolerance, bool flip)
-    {
-        Vector3d direction = b.Z <= a.Z + tolerance
-            ? b - a
-            : a - b;
-        direction.Z = 0.0;
         if (flip)
             direction = -direction;
         return direction.Length <= tolerance
