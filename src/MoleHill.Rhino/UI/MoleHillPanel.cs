@@ -2045,7 +2045,7 @@ public sealed partial class MoleHillPanel : Panel
     private Control BuildZonesToolbar(TerrainDefinition? terrain)
     {
         var addButton = MakeToolbarButton("Add Zone", (_, _) => { }, "Add a zone definition.", width: 94);
-        ApplyHelp(addButton, "Add a blank zone, or create zones from highlighted layers.");
+        ApplyHelp(addButton, "Add a blank zone, pick layers from a list, or create zones from the layers selected in Rhino's Layers panel.");
         addButton.Enabled = terrain != null;
         if (terrain != null)
         {
@@ -2062,7 +2062,49 @@ public sealed partial class MoleHillPanel : Panel
             };
             menu.Items.Add(addBlankItem);
 
-            var addFromLayersItem = new ButtonMenuItem { Text = "From Highlighted Layers" };
+            var addFromModalItem = new ButtonMenuItem { Text = "From Layers…" };
+            addFromModalItem.Click += (_, _) =>
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                if (doc == null)
+                    return;
+
+                var selectedTerrain = _controller.GetSelectedTerrain(doc);
+                var used = (selectedTerrain?.Zones ?? Enumerable.Empty<CollageZoneDefinition>())
+                    .SelectMany(zone => zone.Boundaries.LayerPaths)
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                var chosen = ZoneLayerPickerDialog.ShowDialog(doc, used);
+                if (chosen == null || chosen.Count == 0)
+                    return;
+
+                MutateSelectedTerrain(selected =>
+                {
+                    var existing = selected.Zones
+                        .SelectMany(zone => zone.Boundaries.LayerPaths)
+                        .Where(path => !string.IsNullOrWhiteSpace(path))
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var layerPath in chosen)
+                    {
+                        if (!existing.Add(layerPath))
+                            continue;
+
+                        selected.Zones.Add(new CollageZoneDefinition
+                        {
+                            Name = GetLeafLayerName(layerPath),
+                            Boundaries = new SourceReferenceSet
+                            {
+                                LayerPaths = new List<string> { layerPath }
+                            }
+                        });
+                    }
+                });
+            };
+            menu.Items.Add(addFromModalItem);
+
+            var addFromLayersItem = new ButtonMenuItem { Text = "From Selected Layers" };
             addFromLayersItem.Click += (_, _) =>
             {
                 var doc = RhinoDoc.ActiveDoc;
