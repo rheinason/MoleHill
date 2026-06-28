@@ -95,7 +95,7 @@ internal sealed partial class TerrainBuildService
             {
                 Geometry = subMesh,
                 Name = outputName,
-                ColorArgb = null,
+                ColorArgb = zone.UseColorOverride ? zone.ColorArgb : null,
                 LayerPath = GetBakedLayerPath(entries[i].InputLayerPath),
                 SourceLayerPath = entries[i].InputLayerPath,
                 MaterialName = null

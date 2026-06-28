@@ -382,6 +382,7 @@ internal static class TerrainSerializer
             Name = zone.Name,
             Boundaries = CloneSourceSet(zone.Boundaries),
             ColorArgb = zone.ColorArgb,
+            UseColorOverride = zone.UseColorOverride,
             LayerName = zone.LayerName,
             MaterialName = zone.MaterialName,
             UseInputElevationForPriority = zone.UseInputElevationForPriority,

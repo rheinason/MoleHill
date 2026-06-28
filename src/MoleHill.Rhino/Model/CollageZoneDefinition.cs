@@ -12,6 +12,10 @@ public sealed class CollageZoneDefinition
 
     public int ColorArgb { get; set; } = unchecked((int)0xFF78B464);
 
+    /// <summary>When true, <see cref="ColorArgb"/> overrides the source-layer color for this zone's
+    /// output. When false (the default) the zone is coloured by its source layer.</summary>
+    public bool UseColorOverride { get; set; }
+
     public string? LayerName { get; set; }
 
     public string? MaterialName { get; set; }

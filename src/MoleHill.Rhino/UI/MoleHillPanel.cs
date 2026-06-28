@@ -2215,12 +2215,7 @@ public sealed partial class MoleHillPanel : Panel
 
         var handle = CreateReorderHandle(capturedZoneId, "zone-drag", "Drag to reorder this zone. Later zones win when priorities tie.");
 
-        var accent = UiTheme.ZoneStripColor;
-        var iconPlate = CreateIconPlate(accent, new Label
-        {
-            Text = "ZN",
-            VerticalAlignment = VerticalAlignment.Center
-        });
+        var iconPlate = CreateZoneColorSwatch(terrain, zone);
 
         Control titleBlock = CreateCardTitleBlock(
             collapsed,
@@ -2284,6 +2279,106 @@ public sealed partial class MoleHillPanel : Panel
             "Assign the curves and layers that define this zone's area."));
         layout.AddSeparateRow(useInputElevationCheck, null);
         return layout;
+    }
+
+    /// <summary>The zone's resolved display color: the override when set, else the first source layer's
+    /// color, else a neutral grey. Mirrors the build-time color resolution so the card matches output.</summary>
+    private static Color ResolveZoneSwatchColor(CollageZoneDefinition zone)
+    {
+        if (zone.UseColorOverride)
+            return ToEtoColor(System.Drawing.Color.FromArgb(zone.ColorArgb));
+
+        string? layerPath = zone.Boundaries.LayerPaths.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
+        int argb = ResolveLayerColorArgb(layerPath) ?? unchecked((int)0xFFB4B4B4);
+        return ToEtoColor(System.Drawing.Color.FromArgb(argb));
+    }
+
+    private Control CreateZoneColorSwatch(TerrainDefinition terrain, CollageZoneDefinition zone)
+    {
+        var capturedTerrainId = terrain.TerrainId;
+        var capturedZoneId = zone.ZoneId;
+
+        var swatch = new Panel
+        {
+            Width = 26,
+            Height = 18,
+            BackgroundColor = ResolveZoneSwatchColor(zone)
+        };
+        var bordered = new Panel
+        {
+            Padding = new Padding(1),
+            BackgroundColor = UiTheme.MutedText,
+            Content = swatch
+        };
+        ApplyHelp(bordered, zone.UseColorOverride
+            ? "Zone color override. Click to change it or revert to the source-layer color."
+            : "Zone color, taken from its source layer. Click to set an override color.");
+        swatch.MouseDown += (_, e) =>
+        {
+            if (e.Buttons == MouseButtons.Primary)
+                ShowZoneColorPopup(swatch, capturedTerrainId, capturedZoneId);
+        };
+        return bordered;
+    }
+
+    private void ShowZoneColorPopup(Control anchor, Guid terrainId, Guid zoneId)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        var zone = _controller.GetSelectedTerrain(doc)?.Zones.FirstOrDefault(item => item.ZoneId == zoneId);
+        if (zone == null)
+            return;
+
+        var popup = CreateLayerPickerPopup(doc);
+        var preview = new Panel { Height = 22, BackgroundColor = ResolveZoneSwatchColor(zone) };
+
+        void ApplyOverride()
+        {
+            int initialArgb = zone.UseColorOverride
+                ? zone.ColorArgb
+                : ResolveLayerColorArgb(zone.Boundaries.LayerPaths.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path))) ?? unchecked((int)0xFF808080);
+            var colorDialog = new ColorDialog { Color = ToEtoColor(System.Drawing.Color.FromArgb(initialArgb)) };
+            if (colorDialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok)
+                return;
+
+            MutateZone(terrainId, zoneId, item =>
+            {
+                item.UseColorOverride = true;
+                item.ColorArgb = ToArgb(colorDialog.Color);
+            }, scheduleRebuild: true);
+            if (!popup.IsDisposed)
+                popup.Close();
+            RebuildZonesLayout(_controller.GetSelectedTerrain(doc));
+        }
+
+        void UseSourceLayer()
+        {
+            MutateZone(terrainId, zoneId, item => item.UseColorOverride = false, scheduleRebuild: true);
+            if (!popup.IsDisposed)
+                popup.Close();
+            RebuildZonesLayout(_controller.GetSelectedTerrain(doc));
+        }
+
+        var chooseButton = MakeCompactButton("Choose Color…", (_, _) => ApplyOverride(), "Pick an explicit override color for this zone.");
+        var byLayerButton = MakeCompactButton("Use Source Layer", (_, _) => UseSourceLayer(), "Clear the override and color this zone by its source layer.");
+
+        popup.Content = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 6,
+            Padding = new Padding(8),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(preview, HorizontalAlignment.Stretch),
+                new StackLayoutItem(chooseButton, HorizontalAlignment.Stretch),
+                new StackLayoutItem(byLayerButton, HorizontalAlignment.Stretch)
+            }
+        };
+        PositionLayerPickerPopup(popup, anchor, new Size(200, 130));
+        popup.Show();
     }
 
     private Control BuildMarkerAddButtons(TerrainDefinition terrain)

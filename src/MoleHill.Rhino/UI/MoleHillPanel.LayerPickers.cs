@@ -305,7 +305,7 @@ public sealed partial class MoleHillPanel
         return popup;
     }
 
-    private void PositionLayerPickerPopup(Form popup, Button anchor, Size preferredSize)
+    private void PositionLayerPickerPopup(Form popup, Control anchor, Size preferredSize)
     {
         var anchorTop = anchor.PointToScreen(PointF.Empty);
         var anchorBottom = anchor.PointToScreen(new PointF(0, anchor.Height));
