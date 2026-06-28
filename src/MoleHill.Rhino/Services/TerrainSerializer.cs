@@ -208,6 +208,11 @@ internal static class TerrainSerializer
                 {
                     case ContourAnalysisDefinition contour:
                         contour.Interval = Math.Max(contour.Interval, 0.01);
+                        contour.LabelEveryNth = Math.Max(1, contour.LabelEveryNth);
+                        contour.LabelTextHeight = contour.LabelTextHeight > 0.0 ? contour.LabelTextHeight : 1.0;
+                        contour.LabelInterval = Math.Max(0.0, contour.LabelInterval);
+                        if (string.IsNullOrWhiteSpace(contour.LabelFormat))
+                            contour.LabelFormat = "F2";
                         break;
                     case ReferenceComparisonAnalysisDefinition comparison:
                         comparison.Reference ??= new SourceReferenceSet();
@@ -229,6 +234,18 @@ internal static class TerrainSerializer
                         NormalizeBlockAttributeAnalysis(pointSlope);
                         if (string.IsNullOrWhiteSpace(pointSlope.ValueFormat))
                             pointSlope.ValueFormat = "F1";
+                        break;
+                    case SlopeArrowAnalysisDefinition slopeArrows:
+                        NormalizeBlockAttributeAnalysis(slopeArrows);
+                        slopeArrows.GridSpacing = Math.Max(0.01, slopeArrows.GridSpacing);
+                        if (string.IsNullOrWhiteSpace(slopeArrows.ValueFormat))
+                            slopeArrows.ValueFormat = "F1";
+                        break;
+                    case GradeBetweenPointsAnalysisDefinition gradeCallout:
+                        NormalizeBlockAttributeAnalysis(gradeCallout);
+                        gradeCallout.TextHeight = gradeCallout.TextHeight > 0.0 ? gradeCallout.TextHeight : 1.0;
+                        if (string.IsNullOrWhiteSpace(gradeCallout.ValueFormat))
+                            gradeCallout.ValueFormat = "F1";
                         break;
                     case ProjectedElevationLabelAnalysisDefinition projectedElevation:
                         NormalizeBlockAttributeAnalysis(projectedElevation);

@@ -24,6 +24,6 @@ public sealed class CrossSectionStationAnalysisDefinition : TerrainSectionAnalys
 
     public CrossSectionStationAnalysisDefinition()
     {
-        Label = "Cross-Sections at Stations";
+        Label = "Cross-Sections";
     }
 }

@@ -56,11 +56,8 @@ public sealed partial class MoleHillPanel
         var handle = CreateReorderHandle(analysis.Id, "analysis-drag", "Drag to reorder this analysis.");
 
         var accent = AnalysisTypeColor(kind);
-        var iconPlate = CreateIconPlate(accent, new Label
-        {
-            Text = GetAnalysisIconLabel(analysis),
-            VerticalAlignment = VerticalAlignment.Center
-        });
+        var iconPlate = CreateIconPlate(accent,
+            CreateCardIconControl(GetAnalysisIconName(analysis), GetAnalysisIconLabel(analysis)));
 
         Control titleBlock = CreateCardTitleBlock(
             collapsed,
@@ -507,6 +504,138 @@ public sealed partial class MoleHillPanel
                 break;
             }
 
+            case SlopeArrowAnalysisDefinition slopeArrows:
+            {
+                void MutateSlopeArrows(Action<SlopeArrowAnalysisDefinition> apply) =>
+                    MutateAnalysis(terrain.TerrainId, slopeArrows.Id, item => apply((SlopeArrowAnalysisDefinition)item), scheduleRebuild: true);
+
+                AddBlockAttributeAnalysisRows(
+                    layout,
+                    terrain,
+                    slopeArrows,
+                    RhinoObjectType.Curve,
+                    MutateSlopeArrows,
+                    "Optional closed boundary curves limiting where flow arrows are placed. Leave empty to cover the whole terrain.",
+                    "Number of decimal places shown on flow-arrow slope labels.",
+                    extraRows: extraLayout =>
+                    {
+                        extraLayout.AddRow(CreateNumericEditor(
+                            "Grid Spacing",
+                            slopeArrows.GridSpacing,
+                            value => MutateSlopeArrows(item => item.GridSpacing = Math.Max(0.01, value)),
+                            decimalPlaces: 3,
+                            help: "Spacing of the sampling grid across the terrain. Smaller spacing = more arrows.",
+                            minValue: 0.01));
+                        extraLayout.AddRow(CreateSlopeUnitDropDown(
+                            slopeArrows.Unit,
+                            unit => MutateSlopeArrows(item => item.Unit = unit),
+                            "Show flow-arrow slope labels as percent, promille, ratio, or degrees."));
+                        extraLayout.AddRow(CreateCheckEditor(
+                            "Flip Arrow",
+                            slopeArrows.FlipDirection,
+                            value => MutateSlopeArrows(item => item.FlipDirection = value),
+                            "Rotate arrows 180 degrees (point uphill instead of downhill)."));
+                    });
+
+                if (summary != null)
+                {
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Arrows",
+                        $"{summary.GeneratedOutputCount} arrow(s)",
+                        "Flow arrows emitted across the terrain by the last build."));
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Min / Avg / Max",
+                        summary.GeneratedOutputCount > 0
+                            ? $"{FormatSlopeValue(summary.SampleMinValue, slopeArrows.Unit)} / {FormatSlopeValue(summary.SampleAverageValue, slopeArrows.Unit)} / {FormatSlopeValue(summary.SampleMaxValue, slopeArrows.Unit)}"
+                            : "No samples",
+                        "Slope magnitudes sampled across the grid during the last build."));
+                }
+                else
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to generate flow arrows.",
+                        minHeight: 42));
+                }
+
+                break;
+            }
+
+            case GradeBetweenPointsAnalysisDefinition gradeCallout:
+            {
+                void MutateGrade(Action<GradeBetweenPointsAnalysisDefinition> apply) =>
+                    MutateAnalysis(terrain.TerrainId, gradeCallout.Id, item => apply((GradeBetweenPointsAnalysisDefinition)item), scheduleRebuild: true);
+
+                layout.AddRow(CreateSourceEditor(
+                    "Sources",
+                    gradeCallout.Sources,
+                    apply => MutateGrade(item => apply(item.Sources)),
+                    RhinoObjectType.Curve,
+                    doc => _controller.GetSelectedLayerPaths(doc),
+                    "Lines whose two endpoints define the grade. Each line emits one callout."));
+                layout.AddRow(CreateValueFormatEditor(
+                    "Decimals",
+                    gradeCallout.ValueFormat,
+                    format => MutateGrade(item => item.ValueFormat = format),
+                    "Number of decimal places shown on the percentage part of the callout."));
+                layout.AddRow(CreateCommittedTextEditor(
+                    "Prefix",
+                    gradeCallout.AttributePrefix,
+                    text => MutateGrade(item => item.AttributePrefix = text),
+                    "Text prepended to the grade callout.",
+                    trim: false));
+                layout.AddRow(CreateCommittedTextEditor(
+                    "Suffix",
+                    gradeCallout.AttributeSuffix,
+                    text => MutateGrade(item => item.AttributeSuffix = text),
+                    "Text appended to the grade callout.",
+                    trim: false));
+                layout.AddRow(CreateNumericEditor(
+                    "Text Height",
+                    gradeCallout.TextHeight,
+                    value => MutateGrade(item => item.TextHeight = Math.Max(0.001, value)),
+                    decimalPlaces: 3,
+                    help: "Text height of the callout label, and the size of the downhill arrow.",
+                    minValue: 0.001));
+                layout.AddRow(CreateLayerAssignmentEditor(
+                    "Output Layer",
+                    gradeCallout.OutputLayerPath,
+                    path => MutateGrade(item => item.OutputLayerPath = path),
+                    "Layer used for the callout line, arrow, and text. Leave empty to use the terrain annotation layer."));
+                layout.AddRow(CreateOptionalColorEditor(
+                    "Color",
+                    gradeCallout.ColorArgb,
+                    value => MutateGrade(item => item.ColorArgb = value),
+                    "Explicit display and bake color for the callout. Clear to use the output layer color.",
+                    ResolveLayerColorArgb(gradeCallout.OutputLayerPath ?? terrain.AnnotationLayerPath),
+                    GetAnalysisOutputColorText(terrain, gradeCallout.OutputLayerPath)));
+
+                if (summary != null)
+                {
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Lines / Callouts",
+                        $"{summary.SampleSourceCount} line(s) -> {summary.GeneratedOutputCount} callout(s)",
+                        "Source lines resolved and grade callouts emitted by the last build."));
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Min / Avg / Max %",
+                        summary.GeneratedOutputCount > 0
+                            ? $"{FormatAnalysisValue(summary.SampleMinValue, gradeCallout.ValueFormat)} / {FormatAnalysisValue(summary.SampleAverageValue, gradeCallout.ValueFormat)} / {FormatAnalysisValue(summary.SampleMaxValue, gradeCallout.ValueFormat)}"
+                            : "No samples",
+                        "Grade percentages computed for the source lines during the last build."));
+                }
+                else
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to generate grade callouts.",
+                        minHeight: 42));
+                }
+
+                break;
+            }
+
             case ContourAnalysisDefinition contour:
             {
                 Guid capturedContourTerrainId = terrain.TerrainId;
@@ -566,6 +695,47 @@ public sealed partial class MoleHillPanel
                     "Explicit display and bake color for generated contour curves. Clear to use the output layer color.",
                     ResolveLayerColorArgb(contour.OutputLayerPath ?? terrain.AnnotationLayerPath),
                     defaultColorText));
+
+                void MutateContour(Action<ContourAnalysisDefinition> apply)
+                {
+                    MutateAnalysis(capturedContourTerrainId, capturedContourId, item => apply((ContourAnalysisDefinition)item), scheduleRebuild: false);
+                    var doc = RhinoDoc.ActiveDoc;
+                    if (doc != null)
+                        _controller.RebuildContourAnalysis(doc, capturedContourTerrainId, capturedContourId);
+                }
+
+                layout.AddRow(CreateCheckEditor(
+                    "Label Contours",
+                    contour.ShowLabels,
+                    value => MutateContour(item => item.ShowLabels = value),
+                    "Place elevation text along generated contour curves."));
+                layout.AddRow(CreateNumericEditor(
+                    "Label Interval",
+                    contour.LabelInterval,
+                    value => MutateContour(item => item.LabelInterval = Math.Max(0.0, value)),
+                    decimalPlaces: 3,
+                    help: "Spacing between repeated labels along each contour. 0 places one label per contour curve.",
+                    minValue: 0.0));
+                layout.AddRow(CreateNumericEditor(
+                    "Label Every Nth",
+                    contour.LabelEveryNth,
+                    value => MutateContour(item => item.LabelEveryNth = Math.Max(1, (int)Math.Round(value))),
+                    decimalPlaces: 0,
+                    help: "Label only every Nth contour level (index contours). 1 labels every level.",
+                    minValue: 1));
+                layout.AddRow(CreateNumericEditor(
+                    "Label Height",
+                    contour.LabelTextHeight,
+                    value => MutateContour(item => item.LabelTextHeight = Math.Max(0.001, value)),
+                    decimalPlaces: 3,
+                    help: "Text height of contour labels in model units.",
+                    minValue: 0.001));
+                layout.AddRow(CreateValueFormatEditor(
+                    "Label Decimals",
+                    contour.LabelFormat,
+                    format => MutateContour(item => item.LabelFormat = format),
+                    "Number of decimal places shown in contour elevation labels."));
+
                 if (summary != null)
                 {
                     layout.AddRow(CreateReadOnlyValueRow(

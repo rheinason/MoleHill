@@ -114,6 +114,93 @@ public class TerrainAnalysisAnnotationBuilderTests
         Assert.Equal("1000.0", output.InstanceUserStrings?[GeneratedBlockCatalog.ValueToken]);
     }
 
+    [RhinoNativeFact]
+    public void BuildSlopeArrowSummary_SamplesGridAndOrientsDownhill()
+    {
+        var analysis = new SlopeArrowAnalysisDefinition
+        {
+            IsEnabled = true,
+            GridSpacing = 4.0,
+            ValueFormat = "F1"
+        };
+        // The point source is ignored as a boundary (only closed curves clip), so the grid covers the whole mesh.
+        var snapshot = CreateSnapshot(analysis, new Point(new Point3d(5.0, 5.0, 0.0)));
+
+        var build = new TerrainBuildResult();
+        var summary = TerrainAnalysisAnnotationBuilder.BuildSlopeArrowSummary(
+            snapshot,
+            CreateSlopedMesh(),
+            analysis,
+            build,
+            shouldCancel: null);
+
+        Assert.True(summary.GeneratedOutputCount > 0);
+        Assert.Equal(1000.0, summary.SampleMaxValue, precision: 3);
+        Assert.NotEmpty(build.AuxiliaryObjects);
+        Assert.All(build.AuxiliaryObjects, output =>
+        {
+            Assert.Equal(MarkerBlockTemplate.AnnotationSlope, output.MarkerBlockTemplate);
+            Assert.Equal("1000.0", output.InstanceUserStrings?[GeneratedBlockCatalog.ValueToken]);
+        });
+    }
+
+    [RhinoNativeFact]
+    public void BuildGradeCalloutSummary_ComputesChordGradeBetweenEndpoints()
+    {
+        var analysis = new GradeBetweenPointsAnalysisDefinition
+        {
+            IsEnabled = true,
+            ValueFormat = "F1",
+            TextHeight = 1.0
+        };
+        // z = 10x on the test mesh: endpoints project to 20 and 80 over a 6-unit run -> 1000%.
+        var sourceLine = new LineCurve(
+            new Point3d(2.0, 5.0, 0.0),
+            new Point3d(8.0, 5.0, 0.0));
+        var snapshot = CreateSnapshot(analysis, sourceLine);
+
+        var build = new TerrainBuildResult();
+        var summary = TerrainAnalysisAnnotationBuilder.BuildGradeCalloutSummary(
+            snapshot,
+            CreateSlopedMesh(),
+            analysis,
+            build,
+            shouldCancel: null);
+
+        Assert.Equal(1, summary.GeneratedOutputCount);
+        Assert.Equal(1000.0, summary.SampleMinValue, precision: 3);
+        Assert.Equal(3, build.AuxiliaryObjects.Count); // connector + arrowhead + text
+        var text = Assert.Single(build.AuxiliaryObjects, output => output.Geometry is TextEntity);
+        Assert.Contains("1000.0", ((TextEntity)text.Geometry!).PlainText);
+    }
+
+    [RhinoNativeFact]
+    public void BuildContourObjects_WithLabels_EmitsTextEntities()
+    {
+        var withLabels = new ContourAnalysisDefinition
+        {
+            IsEnabled = true,
+            Interval = 20.0,
+            StartZ = 0.0,
+            ShowLabels = true,
+            LabelEveryNth = 1,
+            LabelTextHeight = 1.0,
+            LabelFormat = "F1"
+        };
+        var (labelled, _) = TerrainBuildService.BuildContourObjects(CreateSlopedMesh(), withLabels);
+        Assert.Contains(labelled, output => output.Geometry is TextEntity);
+
+        var noLabels = new ContourAnalysisDefinition
+        {
+            IsEnabled = true,
+            Interval = 20.0,
+            StartZ = 0.0,
+            ShowLabels = false
+        };
+        var (plain, _) = TerrainBuildService.BuildContourObjects(CreateSlopedMesh(), noLabels);
+        Assert.DoesNotContain(plain, output => output.Geometry is TextEntity);
+    }
+
     private static TerrainBuildSnapshot CreateSnapshot(BlockAttributeAnalysisDefinition analysis, GeometryBase geometry)
     {
         var terrain = new TerrainDefinition

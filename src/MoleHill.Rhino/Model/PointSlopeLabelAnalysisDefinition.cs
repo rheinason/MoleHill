@@ -10,7 +10,7 @@ public sealed class PointSlopeLabelAnalysisDefinition : BlockAttributeAnalysisDe
 
     public PointSlopeLabelAnalysisDefinition()
     {
-        Label = "Point Slope";
+        Label = "Spot Slope (Points)";
         ValueFormat = "F1";
     }
 }

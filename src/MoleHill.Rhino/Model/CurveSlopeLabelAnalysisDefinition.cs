@@ -12,7 +12,7 @@ public sealed class CurveSlopeLabelAnalysisDefinition : BlockAttributeAnalysisDe
 
     public CurveSlopeLabelAnalysisDefinition()
     {
-        Label = "Curve Slope";
+        Label = "Spot Slope (Curve)";
         ValueFormat = "F1";
     }
 }

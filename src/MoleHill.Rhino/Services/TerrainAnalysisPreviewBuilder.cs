@@ -78,6 +78,8 @@ internal static class TerrainAnalysisPreviewBuilder
             or CurveSlopeLabelAnalysisDefinition
             or ProjectedElevationLabelAnalysisDefinition
             or PointSlopeLabelAnalysisDefinition
+            or SlopeArrowAnalysisDefinition
+            or GradeBetweenPointsAnalysisDefinition
             or TerrainSectionAnalysisDefinitionBase;
     }
 

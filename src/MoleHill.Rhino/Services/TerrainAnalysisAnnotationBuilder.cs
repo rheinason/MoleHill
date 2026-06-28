@@ -249,6 +249,188 @@ internal static class TerrainAnalysisAnnotationBuilder
         return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
     }
 
+    public static TerrainAnalysisSummary BuildSlopeArrowSummary(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        SlopeArrowAnalysisDefinition analysis,
+        TerrainBuildResult build,
+        Func<bool>? shouldCancel,
+        string? fallbackLayerPath = null)
+    {
+        mesh.Normals.ComputeNormals();
+        double tolerance = snapshot.ModelAbsoluteTolerance;
+        var boundaries = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, analysis.Sources);
+        var bounds = mesh.GetBoundingBox(true);
+        int sourceCount = boundaries.Count;
+        int outputCount = 0;
+        var stats = new ValueStats();
+        string unitSuffix = GetSlopeUnitSuffix(analysis.Unit);
+
+        if (!bounds.IsValid)
+            return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
+
+        double spacing = Math.Max(analysis.GridSpacing, tolerance * 10.0);
+
+        for (double y = bounds.Min.Y; y <= bounds.Max.Y + (spacing * 0.5); y += spacing)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            for (double x = bounds.Min.X; x <= bounds.Max.X + (spacing * 0.5); x += spacing)
+            {
+                var sampleXy = new Point3d(x, y, 0.0);
+                if (boundaries.Count > 0 && !IsInsideAnyBoundary(sampleXy, boundaries, tolerance))
+                    continue;
+
+                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, sampleXy, tolerance, out Point3d worldPoint, out var meshPoint) ||
+                    meshPoint == null)
+                    continue;
+
+                Vector3d normal = mesh.NormalAt(meshPoint);
+                Vector3d direction = GetTerrainSlopeDirection(normal, tolerance, analysis.FlipDirection);
+                if (!direction.IsValid)
+                    continue; // flat node: no meaningful downhill aspect, so no arrow
+
+                double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
+                double slopeRatio = Math.Tan(slopeRadians);
+                double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
+
+                stats.Add(slopeValue);
+                outputCount++;
+
+                if (analysis.IsEnabled)
+                {
+                    build.AuxiliaryObjects.Add(CreateAnnotationObject(
+                        analysis,
+                        outputCount,
+                        worldPoint,
+                        slopeValue,
+                        unitSuffix,
+                        null,
+                        analysis.BlockDefinitionName,
+                        MarkerBlockTemplate.AnnotationSlope,
+                        fallbackLayerPath,
+                        direction));
+                }
+            }
+        }
+
+        return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
+    }
+
+    public static TerrainAnalysisSummary BuildGradeCalloutSummary(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        GradeBetweenPointsAnalysisDefinition analysis,
+        TerrainBuildResult build,
+        Func<bool>? shouldCancel,
+        string? fallbackLayerPath = null)
+    {
+        double tolerance = snapshot.ModelAbsoluteTolerance;
+        var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
+        string? layerPath = analysis.OutputLayerPath ?? fallbackLayerPath;
+        double textHeight = Math.Max(analysis.TextHeight, 1e-3);
+        int sourceCount = 0;
+        int outputCount = 0;
+        var stats = new ValueStats();
+
+        foreach (var entry in objects)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            if (entry.Geometry is not Curve curve)
+                continue;
+
+            sourceCount++;
+            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, curve.PointAtStart, tolerance, out Point3d startPoint) ||
+                !TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, curve.PointAtEnd, tolerance, out Point3d endPoint))
+                continue;
+
+            double planDistance = startPoint.DistanceTo(new Point3d(endPoint.X, endPoint.Y, startPoint.Z));
+            if (planDistance <= tolerance)
+                continue;
+
+            // Orient high -> low so the arrow always points downhill.
+            Point3d high = startPoint.Z >= endPoint.Z ? startPoint : endPoint;
+            Point3d low = startPoint.Z >= endPoint.Z ? endPoint : startPoint;
+            double rise = high.Z - low.Z;
+            double percent = (rise / planDistance) * 100.0;
+
+            stats.Add(percent);
+            outputCount++;
+
+            if (!analysis.IsEnabled)
+                continue;
+
+            // Connector chord between the two terrain points.
+            build.AuxiliaryObjects.Add(BuildGradeGeometry(analysis, new LineCurve(startPoint, endPoint), $"{analysis.Label} {outputCount}", layerPath));
+
+            // Downhill arrowhead at the low end.
+            var descent = new Vector3d(low.X - high.X, low.Y - high.Y, 0.0);
+            if (descent.Unitize())
+            {
+                double size = textHeight * 1.5;
+                var perp = Vector3d.CrossProduct(descent, Vector3d.ZAxis);
+                perp.Unitize();
+                Point3d back = low - (descent * size);
+                var head = new Polyline(3)
+                {
+                    back + (perp * size * 0.4),
+                    low,
+                    back - (perp * size * 0.4)
+                };
+                build.AuxiliaryObjects.Add(BuildGradeGeometry(analysis, new PolylineCurve(head), $"{analysis.Label} {outputCount} arrow", layerPath));
+            }
+
+            // "1:n (x%)" label at the midpoint, oriented along the connector.
+            var mid = new Point3d((startPoint.X + endPoint.X) * 0.5, (startPoint.Y + endPoint.Y) * 0.5, (startPoint.Z + endPoint.Z) * 0.5);
+            var along = new Vector3d(endPoint.X - startPoint.X, endPoint.Y - startPoint.Y, 0.0);
+            Plane labelPlane = SectionLayoutHelper.FrameFromCurveTangent(mid, along);
+            var label = new TextEntity
+            {
+                Plane = labelPlane,
+                PlainText = FormatGradeCallout(rise, planDistance, percent, analysis),
+                TextHeight = textHeight,
+                Justification = TextJustification.BottomCenter
+            };
+            build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+            {
+                Geometry = label,
+                Name = $"{analysis.Label} {outputCount} label",
+                AnalysisId = analysis.Id,
+                ColorArgb = analysis.ColorArgb,
+                LayerPath = layerPath
+            });
+        }
+
+        return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
+    }
+
+    private static GeneratedRhinoObject BuildGradeGeometry(GradeBetweenPointsAnalysisDefinition analysis, Curve geometry, string name, string? layerPath)
+    {
+        return new GeneratedRhinoObject
+        {
+            Geometry = geometry,
+            Name = name,
+            AnalysisId = analysis.Id,
+            ColorArgb = analysis.ColorArgb,
+            LayerPath = layerPath
+        };
+    }
+
+    private static string FormatGradeCallout(double rise, double planDistance, double percent, GradeBetweenPointsAnalysisDefinition analysis)
+    {
+        string core;
+        if (Math.Abs(rise) <= 1e-9)
+        {
+            core = "level";
+        }
+        else
+        {
+            double n = planDistance / Math.Abs(rise);
+            core = $"1:{n.ToString("0.#")} ({FormatValue(percent, analysis.ValueFormat)}%)";
+        }
+
+        return string.Concat(analysis.AttributePrefix ?? string.Empty, core, analysis.AttributeSuffix ?? string.Empty);
+    }
+
     public static TerrainAnalysisSummary BuildTerrainSectionSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
@@ -862,6 +1044,21 @@ internal static class TerrainAnalysisAnnotationBuilder
         return direction.Length <= tolerance
             ? Vector3d.Unset
             : direction;
+    }
+
+    private static bool IsInsideAnyBoundary(Point3d point, IReadOnlyList<Curve> boundaries, double tolerance)
+    {
+        foreach (var curve in boundaries)
+        {
+            if (curve == null || !curve.IsClosed)
+                continue;
+
+            var containment = curve.Contains(new Point3d(point.X, point.Y, curve.PointAtStart.Z), Plane.WorldXY, Math.Max(tolerance, RhinoMath.ZeroTolerance));
+            if (containment == PointContainment.Inside || containment == PointContainment.Coincident)
+                return true;
+        }
+
+        return false;
     }
 
     private static string GetSlopeUnitSuffix(SlopeAnalyzer.SlopeUnit unit)

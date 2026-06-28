@@ -14,6 +14,6 @@ public sealed class TerrainSectionAnalysisDefinition : TerrainSectionAnalysisDef
 
     public TerrainSectionAnalysisDefinition()
     {
-        Label = "Terrain Section";
+        Label = "Section Cut";
     }
 }

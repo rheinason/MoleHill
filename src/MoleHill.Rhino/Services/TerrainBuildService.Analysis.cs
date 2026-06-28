@@ -97,6 +97,20 @@ internal sealed partial class TerrainBuildService
                     build,
                     shouldCancel,
                     TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                SlopeArrowAnalysisDefinition slopeArrows => TerrainAnalysisAnnotationBuilder.BuildSlopeArrowSummary(
+                    snapshot,
+                    currentMesh,
+                    slopeArrows,
+                    build,
+                    shouldCancel,
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                GradeBetweenPointsAnalysisDefinition gradeCallout => TerrainAnalysisAnnotationBuilder.BuildGradeCalloutSummary(
+                    snapshot,
+                    currentMesh,
+                    gradeCallout,
+                    build,
+                    shouldCancel,
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
                 TerrainSectionAnalysisDefinition terrainSection => TerrainAnalysisAnnotationBuilder.BuildTerrainSectionSummary(
                     snapshot,
                     currentMesh,
@@ -300,10 +314,15 @@ internal sealed partial class TerrainBuildService
             var contourLevels = ContourGenerator.Generate(
                 vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, levels, Math.Max(tolerance, 1e-6));
 
+            int everyNth = Math.Max(1, analysis.LabelEveryNth);
+            bool wantLabels = analysis.ShowLabels && analysis.IsEnabled;
+            string? labelLayerPath = analysis.OutputLayerPath ?? fallbackLayerPath;
+
             foreach (var contourLevel in contourLevels)
             {
                 int levelCurveIndex = 0;
                 bool levelHasCurves = false;
+                List<Polyline>? levelPolylines = wantLabels ? new List<Polyline>() : null;
                 foreach (var polyline in contourLevel.Polylines)
                 {
                     if (polyline.PointCount < 2)
@@ -315,9 +334,10 @@ internal sealed partial class TerrainBuildService
                         continue;
 
                     levelCurveIndex++;
+                    var rhinoPolyline = ToRhinoPolyline(polyline);
                     objects.Add(new GeneratedRhinoObject
                     {
-                        Geometry = new PolylineCurve(ToRhinoPolyline(polyline)),
+                        Geometry = new PolylineCurve(rhinoPolyline),
                         Name = levelCurveIndex == 1
                             ? $"{analysis.Label} {contourLevel.Z:G4}"
                             : $"{analysis.Label} {contourLevel.Z:G4} ({levelCurveIndex})",
@@ -325,6 +345,7 @@ internal sealed partial class TerrainBuildService
                         ColorArgb = analysis.ColorArgb,
                         LayerPath = analysis.OutputLayerPath ?? fallbackLayerPath
                     });
+                    levelPolylines?.Add(rhinoPolyline);
                 }
 
                 if (!levelHasCurves)
@@ -334,6 +355,13 @@ internal sealed partial class TerrainBuildService
                 if (contourLevelCount == 1)
                     firstLevel = contourLevel.Z;
                 lastLevel = contourLevel.Z;
+
+                // Index-contour labelling: only every Nth drawn level carries elevation text.
+                if (levelPolylines != null && ((contourLevelCount - 1) % everyNth == 0))
+                {
+                    foreach (var rhinoPolyline in levelPolylines)
+                        EmitContourLabels(objects, rhinoPolyline, contourLevel.Z, analysis, labelLayerPath);
+                }
             }
         }
 
@@ -346,6 +374,80 @@ internal sealed partial class TerrainBuildService
             ContourLastLevel = contourLevelCount > 0 ? lastLevel : 0.0
         };
         return (objects, summary);
+    }
+
+    private static void EmitContourLabels(
+        List<GeneratedRhinoObject> objects,
+        Polyline polyline,
+        double levelZ,
+        ContourAnalysisDefinition analysis,
+        string? layerPath)
+    {
+        if (polyline.Count < 2)
+            return;
+
+        var curve = new PolylineCurve(polyline);
+        double length = curve.GetLength();
+        if (length <= 1e-9)
+            return;
+
+        double textHeight = Math.Max(analysis.LabelTextHeight, 1e-3);
+        string text = FormatContourLabel(levelZ, analysis.LabelFormat);
+
+        // Repeat along the contour when an interval is set; otherwise a single label at the midpoint.
+        var stations = new List<double>();
+        if (analysis.LabelInterval > 1e-9)
+        {
+            for (double s = analysis.LabelInterval * 0.5; s < length; s += analysis.LabelInterval)
+                stations.Add(s);
+            if (stations.Count == 0)
+                stations.Add(length * 0.5);
+        }
+        else
+        {
+            stations.Add(length * 0.5);
+        }
+
+        foreach (double station in stations)
+        {
+            if (!curve.LengthParameter(station, out double t))
+                continue;
+
+            Point3d point = curve.PointAt(t);
+            Vector3d tangent = curve.TangentAt(t);
+            Plane plane = SectionLayoutHelper.FrameFromCurveTangent(point, tangent);
+            var label = new TextEntity
+            {
+                Plane = plane,
+                PlainText = text,
+                TextHeight = textHeight,
+                Justification = TextJustification.MiddleCenter
+            };
+
+            objects.Add(new GeneratedRhinoObject
+            {
+                Geometry = label,
+                Name = $"{analysis.Label} {levelZ:G4} label",
+                AnalysisId = analysis.Id,
+                ColorArgb = analysis.ColorArgb,
+                LayerPath = layerPath
+            });
+        }
+    }
+
+    private static string FormatContourLabel(double value, string? format)
+    {
+        if (string.IsNullOrWhiteSpace(format))
+            return value.ToString("F2");
+
+        try
+        {
+            return value.ToString(format);
+        }
+        catch (FormatException)
+        {
+            return value.ToString("F2");
+        }
     }
 
     private static Polyline ToRhinoPolyline(MoleHill.Core.Analysis.ContourPolyline polyline)

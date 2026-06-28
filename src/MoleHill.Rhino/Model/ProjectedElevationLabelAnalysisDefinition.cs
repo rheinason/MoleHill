@@ -4,7 +4,7 @@ public sealed class ProjectedElevationLabelAnalysisDefinition : BlockAttributeAn
 {
     public ProjectedElevationLabelAnalysisDefinition()
     {
-        Label = "Projected Elevation";
+        Label = "Spot Heights (Points)";
         ValueFormat = "F2";
     }
 }

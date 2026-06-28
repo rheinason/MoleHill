@@ -6,7 +6,7 @@ public sealed class CurveElevationLabelAnalysisDefinition : BlockAttributeAnalys
 
     public CurveElevationLabelAnalysisDefinition()
     {
-        Label = "Curve Elevation";
+        Label = "Spot Heights (Curve)";
         ValueFormat = "F2";
     }
 }
