@@ -8,6 +8,7 @@ internal sealed class SurfaceOrientedObjectDescriptor : ObjectTypeDescriptor
     public override Type DefinitionType => typeof(SurfaceOrientedObjectDefinition);
     public override string DisplayName => "Orient";
     public override string IconLabel => "XY";
+    public override string? IconName => "ObjSurfaceOriented";
     public override string Subtitle => "Orient to terrain slope";
     public override int AccentArgb => unchecked((int)0xFF43A047); // 67,160,71
     public override int SortOrder => 1;

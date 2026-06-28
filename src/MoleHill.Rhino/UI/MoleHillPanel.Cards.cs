@@ -183,6 +183,19 @@ public sealed partial class MoleHillPanel
         };
     }
 
+    /// <summary>
+    /// Builds a card's type-icon control: the 16×16 PNG named <paramref name="iconName"/> when it
+    /// resolves, otherwise a text-glyph label (<paramref name="glyphFallback"/>). Mirrors the modifier
+    /// card's icon handling so Object/Analysis/Annotation cards can carry real icons too.
+    /// </summary>
+    private static Control CreateCardIconControl(string? iconName, string glyphFallback)
+    {
+        var image = string.IsNullOrEmpty(iconName) ? null : PanelIcons.Load(iconName);
+        return image != null
+            ? new ImageView { Image = image, Size = new Size(16, 16) }
+            : new Label { Text = glyphFallback, VerticalAlignment = VerticalAlignment.Center };
+    }
+
     /// <summary>A tinted square plate holding a card's type icon, coloured by the card's accent.</summary>
     private static Panel CreateIconPlate(Color accent, Control content)
     {

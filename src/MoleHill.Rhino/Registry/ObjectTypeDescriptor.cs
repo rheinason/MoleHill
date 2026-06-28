@@ -18,8 +18,11 @@ internal abstract class ObjectTypeDescriptor
     /// <summary>Short type label used in the add-menu and card header (e.g. "Plant", "Orient", "Scatter").</summary>
     public abstract string DisplayName { get; }
 
-    /// <summary>Icon-plate glyph text (e.g. "Z", "XY", "S").</summary>
+    /// <summary>Icon-plate glyph text (e.g. "Z", "XY", "S"), used as a fallback when <see cref="IconName"/> is null.</summary>
     public abstract string IconLabel { get; }
+
+    /// <summary>Optional panel icon resource name (loaded via <c>PanelIcons.Load</c>). Null falls back to <see cref="IconLabel"/>.</summary>
+    public virtual string? IconName => null;
 
     /// <summary>One-line card subtitle.</summary>
     public abstract string Subtitle { get; }

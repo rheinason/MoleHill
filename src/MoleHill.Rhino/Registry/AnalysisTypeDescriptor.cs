@@ -21,8 +21,11 @@ internal abstract class AnalysisTypeDescriptor
     /// <summary>Label shown in the add-menu (may differ from <see cref="TypeLabel"/>).</summary>
     public abstract string MenuLabel { get; }
 
-    /// <summary>Icon-plate glyph text (e.g. "EW", "%", "Z").</summary>
+    /// <summary>Icon-plate glyph text (e.g. "EW", "%", "Z"), used as a fallback when <see cref="IconName"/> is null.</summary>
     public abstract string IconLabel { get; }
+
+    /// <summary>Optional panel icon resource name (loaded via <c>PanelIcons.Load</c>). Null falls back to <see cref="IconLabel"/>.</summary>
+    public virtual string? IconName => null;
 
     /// <summary>Accent strip ARGB color for the card.</summary>
     public abstract int AccentArgb { get; }

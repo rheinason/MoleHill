@@ -71,11 +71,8 @@ public sealed partial class MoleHillPanel
         var handle = CreateDisabledReorderHandle("Object definition cards use the modifier card layout. Reordering is not enabled yet.");
 
         var accent = TerrainObjectTypeColor(kind);
-        var iconPlate = CreateIconPlate(accent, new Label
-        {
-            Text = GetTerrainObjectIconLabel(definition),
-            VerticalAlignment = VerticalAlignment.Center
-        });
+        var iconPlate = CreateIconPlate(accent,
+            CreateCardIconControl(GetTerrainObjectIconName(definition), GetTerrainObjectIconLabel(definition)));
 
         Control titleBlock = CreateCardTitleBlock(
             collapsed,

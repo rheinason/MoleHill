@@ -1038,7 +1038,7 @@ public sealed partial class MoleHillPanel : Panel
             Items =
             {
                 MakeTabHeader("Modifiers", "TabModifiers", 0),
-                MakeTabHeader("Objects", "TabMarkers", 1),
+                MakeTabHeader("Objects", "TabObjects", 1),
                 MakeTabHeader("Zones", "TabZones", 2, _zonesEyeButton),
                 MakeTabHeader("Analysis", "TabAnalysis", 3, _analysisEyeButton),
                 MakeTabHeader("Annotation", "TabAnnotation", 4),
@@ -3416,6 +3416,9 @@ public sealed partial class MoleHillPanel : Panel
     private static string GetTerrainObjectIconLabel(TerrainObjectDefinition definition) =>
         ObjectTypeRegistry.ForType(definition.GetType())?.IconLabel ?? "O";
 
+    private static string? GetTerrainObjectIconName(TerrainObjectDefinition definition) =>
+        ObjectTypeRegistry.ForType(definition.GetType())?.IconName;
+
     private static string GetTerrainObjectSubtitle(TerrainObjectDefinition definition) =>
         ObjectTypeRegistry.ForType(definition.GetType())?.Subtitle ?? "Terrain objects";
 
@@ -3471,6 +3474,9 @@ public sealed partial class MoleHillPanel : Panel
 
     private static string GetAnalysisIconLabel(AnalysisDefinition analysis) =>
         AnalysisTypeRegistry.ForType(analysis.GetType())?.IconLabel ?? "A";
+
+    private static string? GetAnalysisIconName(AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.IconName;
 
     private static string GetAnalysisSubtitle(AnalysisDefinition analysis, bool isActive)
     {
