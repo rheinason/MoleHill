@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <RhinoUI major_ver="3" minor_ver="0" guid="2a2c43ad-453a-4741-bf48-80250c0c2471" localize="False" default_language_id="1033" dpi_scale="100">
   <extend_rhino_menus>
     <menu guid="d58ceae7-fdb0-4104-80da-274b94ad44a9">
