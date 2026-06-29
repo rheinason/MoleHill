@@ -50,6 +50,9 @@ internal sealed class LayerTemplateStore
         return Path.Combine(appData, "MoleHill", TemplatesFileName);
     }
 
+    /// <summary>Returns a fresh copy of the built-in factory templates without touching the saved file.</summary>
+    public IReadOnlyList<LayerTemplateDefinition> GetDefaultTemplates() => CreateDefaultTemplates();
+
     private static List<LayerTemplateDefinition> NormalizeTemplates(List<LayerTemplateDefinition> templates)
     {
         foreach (var template in templates)
@@ -75,27 +78,30 @@ internal sealed class LayerTemplateStore
 
     private static List<LayerTemplateDefinition> CreateDefaultTemplates()
     {
+        // Mirrors the layers MoleHill actually uses: inputs the user draws or imports (spots,
+        // contours, breaklines, boundary), grading feature curves (walls, pads, paths), plus the
+        // output layers the plugin bakes to (Terrain / Auxiliary / Annotation). Output paths and the
+        // terrain color reuse TerrainDefinition so the template stays aligned with the plugin's defaults.
         return new List<LayerTemplateDefinition>
         {
             new()
             {
-                Name = "Landscape Starter",
+                Name = "MoleHill Terrain",
                 Entries = new List<LayerTemplateEntry>
                 {
-                    CreateEntry("Topography", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.25),
-                    CreateEntry("Topography::Contours", unchecked((int)0xFFAAAAAA), unchecked((int)0xFFAAAAAA), 0.18),
-                    CreateEntry("Topography::Spots", unchecked((int)0xFF008900), unchecked((int)0xFF008900), 0.18),
-                    CreateEntry("Topography::Breaklines", unchecked((int)0xFFFFC000), unchecked((int)0xFFFFC000), 0.25),
-                    CreateEntry("Topography::Other_Geo", unchecked((int)0xFFE19032), unchecked((int)0xFFE19032), 0.18),
-                    CreateEntry("Topography::Mend", unchecked((int)0xFF73C878), unchecked((int)0xFF73C878), 0.18),
-                    CreateEntry("Topography::Boundaries", unchecked((int)0xFF5F24F8), unchecked((int)0xFF5F24F8), 0.25),
-                    CreateEntry("Features", unchecked((int)0xFF7D26CD), unchecked((int)0xFF7D26CD), 0.25),
-                    CreateEntry("Features::Wall_Curves", unchecked((int)0xFF00FF00), unchecked((int)0xFF00FF00), 0.25),
-                    CreateEntry("Features::Wall_Curves::Wall_Spots", unchecked((int)0xFF00FF00), unchecked((int)0xFF00FF00), 0.18),
-                    CreateEntry("Features::Curb_Curves", unchecked((int)0xFFBF3FFF), unchecked((int)0xFFBF3FFF), 0.25),
-                    CreateEntry("Features::Curb_Curves::Curb_Spots", unchecked((int)0xFFBF3FFF), unchecked((int)0xFFBF3FFF), 0.18),
-                    CreateEntry("Features::Stair_Surface", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.25),
-                    CreateEntry("Features::Path_Curve", unchecked((int)0xFFFFBF00), unchecked((int)0xFFFFBF00), 0.25)
+                    CreateEntry("MoleHill", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.25),
+                    CreateEntry("MoleHill::Inputs", unchecked((int)0xFF808080), unchecked((int)0xFF808080), 0.25),
+                    CreateEntry("MoleHill::Inputs::Spots", unchecked((int)0xFF008900), unchecked((int)0xFF008900), 0.18),
+                    CreateEntry("MoleHill::Inputs::Contours", unchecked((int)0xFF8C8C8C), unchecked((int)0xFF8C8C8C), 0.13),
+                    CreateEntry("MoleHill::Inputs::Breaklines", unchecked((int)0xFFFFC000), unchecked((int)0xFFFFC000), 0.25),
+                    CreateEntry("MoleHill::Inputs::Boundary", unchecked((int)0xFF1E64FF), unchecked((int)0xFF1E64FF), 0.35),
+                    CreateEntry("MoleHill::Features", unchecked((int)0xFF7D26CD), unchecked((int)0xFF7D26CD), 0.25),
+                    CreateEntry("MoleHill::Features::Walls", unchecked((int)0xFFC00000), unchecked((int)0xFFC00000), 0.25),
+                    CreateEntry("MoleHill::Features::Pads", unchecked((int)0xFF00B0F0), unchecked((int)0xFF00B0F0), 0.25),
+                    CreateEntry("MoleHill::Features::Paths", unchecked((int)0xFFFFBF00), unchecked((int)0xFFFFBF00), 0.25),
+                    CreateEntry(TerrainDefinition.DefaultTerrainLayerPath, TerrainDefinition.DefaultTerrainColorArgb, TerrainDefinition.DefaultTerrainColorArgb, 0.18),
+                    CreateEntry(TerrainDefinition.DefaultAuxiliaryLayerPath, unchecked((int)0xFFAAAAAA), unchecked((int)0xFFAAAAAA), 0.13),
+                    CreateEntry(TerrainDefinition.DefaultAnnotationLayerPath, unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.13)
                 }
             }
         };

@@ -11,7 +11,9 @@ fields by composing them, not by copying boilerplate.
   refresh, zones/markers cards, and shared helpers.
 - `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` — the Insert-style block picker for Scatter,
   with Eto-drawn isometric thumbnails.
-- `LayerTemplateEditorDialog.cs`, `SlowBuildWarningDialog.cs` — other dialogs.
+- `LayerTemplateEditorDialog.cs` — graphical layer-template editor: a `TreeGridView` of the layer
+  hierarchy with display/print color swatches and plot-weight, a properties panel for the selected
+  layer, multi-template management, and JSON import/export. `SlowBuildWarningDialog.cs` — other dialog.
 - `PanelIcons.cs` — 16×16 panel tab/badge icon loader. `UiTheme.cs` — colors/spacing.
 
 Tabs: Modifiers, Zones (Objects), Analysis, Markers. The panel talks to `Services/TerrainController`;

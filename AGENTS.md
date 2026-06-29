@@ -14,6 +14,11 @@ cascade, preview vs bake), `docs/file-index.md` (path → one-line summary for e
 regenerate with `generate-file-index.ps1`), and the `README.md` in each source folder. Completed plan
 docs are archived under `docs/archive/`.
 
+**Keep the docs current:** any architectural change (new/removed/renamed source file, new component or
+service, changed pipeline/data flow, or a shifted convention) must update the docs in the same change —
+regenerate `docs/file-index.md` with `generate-file-index.ps1`, revise `docs/architecture.md` and the
+relevant folder `README.md`, and update `CLAUDE.md`/`AGENTS.md` when conventions move.
+
 **Load-bearing conventions** an agent must know:
 - `MoleHill.Core` is pure and unit-tested; `MoleHill.Rhino`/`MoleHill.Grasshopper` are thin hosts. Put
   reusable math in Core (with a test), Rhino/GH API calls in the host projects.

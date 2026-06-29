@@ -7,6 +7,11 @@ preview vs bake), then `docs/file-index.md` (path → one-line summary for every
 with `generate-file-index.ps1`) and the `README.md` in each source folder. `AGENTS.md` has the full
 build/test/convention reference.
 
+**Keep the docs current:** for any architectural change (new/removed/renamed source file, new component
+or service, changed pipeline/data flow, or a shifted convention), update the docs in the same change:
+regenerate `docs/file-index.md` via `generate-file-index.ps1`, revise `docs/architecture.md` and the
+relevant folder `README.md`, and refresh these entry docs (`CLAUDE.md`/`AGENTS.md`) when conventions move.
+
 ## Build & Test
 
 ```bash
