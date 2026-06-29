@@ -90,12 +90,10 @@ public static partial class PadGrader
                     : loop);
         }
 
-        // 3. Drop every terrain face whose centroid falls inside a grown region. The kept faces' rim
-        // is then made of original terrain vertices only — no cut points, so nothing to conform.
-        // Keep a face only when ALL three of its vertices lie outside every grown region. Dropping a
-        // face if ANY vertex is inside makes the carved region solid (no straddling faces left behind
-        // as interior islands or holes), and guarantees the rim is built from faces entirely in
-        // untouched terrain — so every rim vertex is an original terrain vertex shared with the keep.
+        // 3. Drop every terrain face touched by a grown region. The kept faces' rim is made of
+        // original terrain vertices only, so there are no cut points to conform. Testing full
+        // face-region overlap matters on coarse upstream meshes: a pad can cross a terrain face even
+        // when none of that face's vertices fall inside the grown region.
         bool VertexInsideAnyRegion(int vertexIndex)
         {
             double px = vertices[vertexIndex * 3];
@@ -109,12 +107,54 @@ public static partial class PadGrader
             return false;
         }
 
+        bool FaceTouchesAnyRegion(int a, int b, int c)
+        {
+            if (VertexInsideAnyRegion(a) || VertexInsideAnyRegion(b) || VertexInsideAnyRegion(c))
+                return true;
+
+            double ax = vertices[a * 3], ay = vertices[a * 3 + 1];
+            double bx = vertices[b * 3], by = vertices[b * 3 + 1];
+            double cx = vertices[c * 3], cy = vertices[c * 3 + 1];
+            double faceCx = (ax + bx + cx) / 3.0;
+            double faceCy = (ay + by + cy) / 3.0;
+
+            foreach (double[] loop in offsetLoops)
+            {
+                int loopCount = loop.Length / 2;
+                if (PointInPolygon(faceCx, faceCy, loop, loopCount))
+                    return true;
+
+                for (int i = 0; i < loopCount; i++)
+                {
+                    double px = loop[i * 2];
+                    double py = loop[i * 2 + 1];
+                    if (PointInTriangle(px, py, ax, ay, bx, by, cx, cy))
+                        return true;
+                }
+
+                for (int i = 0; i < loopCount; i++)
+                {
+                    int j = (i + 1) % loopCount;
+                    double px = loop[i * 2], py = loop[i * 2 + 1];
+                    double qx = loop[j * 2], qy = loop[j * 2 + 1];
+                    if (SegmentsIntersect(ax, ay, bx, by, px, py, qx, qy) ||
+                        SegmentsIntersect(bx, by, cx, cy, px, py, qx, qy) ||
+                        SegmentsIntersect(cx, cy, ax, ay, px, py, qx, qy))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         var keptFaces = new List<int>(faceCount * 3);
         var droppedFaces = new List<int>();
         for (int f = 0; f < faceCount; f++)
         {
             int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
-            bool touchesRegion = VertexInsideAnyRegion(a) || VertexInsideAnyRegion(b) || VertexInsideAnyRegion(c);
+            bool touchesRegion = FaceTouchesAnyRegion(a, b, c);
             if (touchesRegion)
             {
                 droppedFaces.Add(a);
