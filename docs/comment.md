@@ -363,3 +363,50 @@ origin). Tests: `LocalMeshRefinerRegionTests`, `SculptFieldRasterizerTests`,
 Residual (accepted): the DynTopo'd band on an anisotropic fan still *looks* stripy — subdivision honestly
 mirrors the base topology. The clean fix remains the parked upstream lever from iteration 4 (light quality
 refinement / even boundary resampling in the corridor fill), or sculpting on a Local-refined base.
+
+## Iteration 18 — the raze: incremental isotropic remesh + tri-to-quad retopo (2026-07-03)
+User verdict on iterations 1–17: neither Remesh nor Retopo markedly improved smoothness or
+feature-following — authorized razing both. Root diagnoses: the default Remesh ("Local refine") was
+subdivision-only after the flip lessons, so it could only densify, never regularize; and the Retopo quad
+extraction rode a non-seamless parametrization that structurally produced lattice holes. Both replaced:
+
+**Remesh → `IsotropicRemesher`** (new, `Core/Engine/`): the full Botsch–Kobbelt loop — split > 4/3·L,
+collapse < 4/5·L, Lawson flips, tangential relaxation, back-projection. The two objections that killed
+pieces of this before dissolve in 2.5D: relaxation re-samples Z from the ORIGINAL mesh at the new XY
+(`TerrainFaceGrid.TryInterpolateZ`, wall faces excluded from the grid), so every vertex stays exactly on
+the input surface; and flips stop shredding corridors once vertices also move/collapse and features are
+hard-pinned. `FeaturePolylineGraph` chains boundary ∪ creases ∪ constraints into polylines with
+arc-length params: feature vertices slide 1-D along their polyline, corners never move, collapses never
+merge across polylines. **Hard invariants (user):** retaining walls (≥ 70° faces) are FROZEN — never
+split/collapsed/flipped/moved — so walls can't be buried; the mesh must always come out hole-free.
+The old modes are gone: `LocalRefine`/`MinAngle`/`MergeDistance` removed from the modifier (schema 22
+migrates `MaxArea` → equivalent edge length); `SmoothInteriorDiagonals` deleted; `LocalMeshRefiner`
+survives solely as Sculpt DynTopo's engine; `SurfaceRemesher` survives for grading rebuilds + GH.
+
+Hardening against real grading output (GradePadTest forensics, mesh exported via the stage cache):
+- Faces touching non-manifold edges are **quarantined** (frozen like walls). Duplicate faces from
+  imperfect pad welds otherwise multiply under subdivision — 28 sick edges → 44k after splits (≈2⁸×).
+- The acceptance gate is **relative**: output must be no worse than the input's topology.
+- **Collapse runs before split** each iteration and to an internal fixpoint, and split rounds are
+  capped per phase (4): grading's anisotropic fans otherwise split-cascade to 193k intermediate faces
+  before collapsing could catch up. Result on the scene: 7.2k → 17.7k faces at a 3 m target in 2.8 s
+  (was 193k in 14.5 s), uniform 2–4 m edges, road/toe chains crisp, batter fans gone.
+- Crease chains shorter than 3·L are not pinned (fold noise in badly triangulated fan webs is real
+  geometry but garbage; real toes/roads form long coherent chains).
+
+**Retopo → field-aligned remesh + pairing** (razed: `GuidedParametrizer`, `QuadExtractor`,
+`QuadRetopoCleanup`, `WallQuadStripBuilder` + tests — the weld-only wall join and fan-fill cleanup were
+exactly where holes came from). New pipeline: `CrossFieldSolver` (kept, user-validated) →
+`IsotropicRemesher` with `FieldTheta` (relaxation damped across the local quad direction — vertices
+slide along field lines) → `TriQuadPairer` (greedy best-first merge of triangle pairs, scored by corner
+angles + 4-RoSy alignment at the quad centroid + planarity; feature edges never removed; wall triangles
+pair only with each other in their own best-fit plane). Geometry never changes during pairing and every
+triangle is used exactly once → one connected quad-dominant mesh, hole-free by construction; walls pass
+through frozen. `ApplyRetopoQuads` lost the strip merge/weld path; its topology gate is relative too.
+Pairing rate ~78 % of triangles on the real scene at final quality (threshold 0.8 admits the 60/120°
+rhombi an isotropic mesh naturally makes — score still ranks, so better pairs win).
+
+Known follow-ups: a field-alignment flip objective in the remesh (Lawson prefers 60° triangles; right
+triangles pair into better quads), Blossom matching behind the same scoring, SubD output. Tests:
+`IsotropicRemesherTests`, `IsotropicRemesherBenchTests`, `IsotropicRemesherForensicTests` (uses
+`scratch_graded_input.obj` when present), `TriQuadPairerTests`, `QuadRemesherTests`.

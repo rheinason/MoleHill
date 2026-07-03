@@ -43,30 +43,29 @@ XY topology and Z separately (XxHash64) and takes the cheapest path: **Z-only up
 chain). `TinBoundaryPreparer` turns an optional boundary into an explicit constraint loop.
 `ConformingDelaunay=true` is avoided (fails on tight parallel segments).
 
-The **Remesh** modifier has two modes. New modifiers default to **"Local refine"** (`LocalMeshRefiner`, a
-`RemeshModifierDefinition.LocalRefine` toggle), a connectivity-preserving retopology: keep every input edge,
-split only coarse triangles in place at edge midpoints (Rivara — new vertices stay exactly on the surface),
-and preserve the existing flow lines. The Core refiner still supports guarded Lawson quality flips for
-callers that opt in, but Rhino Remesh leaves them off because they can scramble graded corridor topology.
-Features (boundary ∪ creases at `CreaseAngle` ∪ breaklines) are pinned.
-The legacy **global constrained-Delaunay** rebuild (`SurfaceRemesher`) remains available by turning local
-refine off; it is good for constraint insertion / dense analysis meshes, but it re-triangulates from scratch
-and can discard graded flow lines / creases.
+The **Remesh** modifier is a full incremental **isotropic remesh** (`Engine/IsotropicRemesher`, the
+Botsch–Kobbelt loop: split long / collapse short / Lawson flips / tangential relax / back-project).
+2.5D makes the loop safe: every moved or added vertex re-samples Z from the ORIGINAL mesh at its new
+XY, so the output sits exactly on the input surface. Feature polylines (`Engine/FeaturePolylineGraph`:
+boundary ∪ creases at `CreaseAngle` ∪ the whole constraint stack) are pinned — vertices slide 1-D
+along them, corners stay fixed, no edge flips across, no collapse merges across features. Steep
+retaining-wall faces (≥ 70°) and faces touching non-manifold edges (imperfect upstream welds) are
+frozen and pass through verbatim; the acceptance gate only requires the output to be no worse than the
+input's topology. Params: Edge Length (0 = keep the mesh's own median density) and Crease Angle.
+The **global constrained-Delaunay** rebuild (`SurfaceRemesher`) is no longer a Remesh modifier mode; it
+remains the engine for grading rebuilds and the GH Remesh component.
 
 The **Retopo** modifier (finishing, meant to run last) is field-guided **quad** retopology
-(`Core/Retopo/`, staged). Stage 1 (now) computes a 2-D **cross-field** (`CrossFieldSolver` — 4-RoSy
-directions pinned to feature tangents — from boundary ∪ creases ∪ the whole constraint stack incl.
-grade-path road edges — smoothed by matrix-free diffusion) and, in preview, draws it as a flow-cross overlay
-so the flow can be validated. Stage 2/3 (now, `Quads` toggle) builds and cleans the quad-dominant mesh:
-`GuidedParametrizer` (field-guided u,v via a matrix-free Poisson / cotangent-Laplacian CG) →
-`QuadExtractor` (integer (u,v) lattice, dedup by (i,j), Z lifted from the source triangle) →
-`QuadRetopoCleanup` (fan-fill only small internal lattice holes and weld assembled quad sets) →
-`QuadRemesher` orchestrates. This is still non-seamless; large extraction gaps are left open instead of
-being turned into bad fan geometry. Retaining
-walls (near-vertical → a sliver in plan) are excluded from the field by `WallFaceMinSlopeDeg` and rebuilt as
-dedicated quad strips (`WallQuadStripBuilder`, rails from `RetainingWallPlannerCore`) before the final weld.
-Quad output is terminal: display/bake handle quads and `RhinoGeometryConversions.BuildMeshData` is quad-aware
-(quad → 2 tris) so downstream reads stay correct, but Retopo is meant to run last.
+(`Core/Retopo/`): `CrossFieldSolver` (a 2-D 4-RoSy cross-field pinned to feature tangents — boundary ∪
+creases ∪ the whole constraint stack incl. grade-path road edges — smoothed by matrix-free diffusion;
+previewable as a flow-cross overlay) → the isotropic remesh with **field-aligned relaxation**
+(`IsotropicRemesher.Options.FieldTheta` — vertices slide along field lines) → `TriQuadPairer` (adjacent
+triangle pairs merge into quads scored by corner angles, field alignment, and planarity). Pairing never
+moves geometry and every triangle appears exactly once as a tri or half a quad, so the output is one
+connected quad-dominant mesh, **hole-free by construction**; retaining walls stay frozen in place and
+pair among themselves in their own plane. Quad output is terminal: display/bake handle quads and
+`RhinoGeometryConversions.BuildMeshData` is quad-aware (quad → 2 tris) so downstream reads stay
+correct, but Retopo is meant to run last.
 
 ## Core + Rhino: sculpting
 
