@@ -17,6 +17,9 @@ namespace MoleHill.Core.Engine;
 /// regular triangles (no off-surface Steiner darts). Feature edges (boundary ∪ creases ∪ constraints) are
 /// pinned: never flipped, and their split midpoints stay on the feature line. No vertex ever moves and no
 /// vertex is removed — this is a pure retopology, a clean base for a following Smooth.
+/// The Remesh modifier now uses <see cref="IsotropicRemesher"/> instead; this refiner remains the engine
+/// behind the Sculpt modifier's region-gated DynTopo (which needs the cheap region early-out and the
+/// no-vertex-motion guarantee for its displacement-field bookkeeping).
 /// </summary>
 public static class LocalMeshRefiner
 {

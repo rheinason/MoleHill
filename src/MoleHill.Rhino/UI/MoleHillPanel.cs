@@ -3181,13 +3181,10 @@ public sealed partial class MoleHillPanel : Panel
                 int addCtr = a.Contours.ObjectIds.Count + a.Contours.LayerPaths.Count;
                 return $"{addPts} pts | {addBkl} breaks | {addCtr} contours";
             case RemeshModifierDefinition r:
-                if (r.EdgeLength == 0 && r.MaxArea == 0 && r.MinAngle == 0)
-                    return "(defaults)";
                 var parts = new System.Collections.Generic.List<string>();
-                if (r.EdgeLength > 0) parts.Add($"MaxLen: {r.EdgeLength:G4}");
-                if (r.MaxArea > 0) parts.Add($"MaxArea: {r.MaxArea:G4}");
-                if (r.MinAngle > 0) parts.Add($"MinAngle: {r.MinAngle:G4} deg");
-                return parts.Count > 0 ? string.Join(" | ", parts) : "(defaults)";
+                parts.Add(r.EdgeLength > 0 ? $"Edge: {r.EdgeLength:G4}" : "Edge: auto");
+                if (r.CreaseAngle > 0) parts.Add($"Crease: {r.CreaseAngle:G4} deg");
+                return string.Join(" | ", parts);
             case SmoothModifierDefinition s:
                 return $"{s.Iterations} iter | Str {s.Strength:G3}";
             case GradePadModifierDefinition p:

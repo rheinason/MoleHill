@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 21;
+    private const int DocumentSchemaVersion = 22;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -66,6 +66,7 @@ internal static class TerrainSerializer
             PromoteDisplaySettings(terrain);
             MigrateZones(terrain);
             MigrateAnalyses(terrain);
+            MigrateRemeshModifiers(terrain, sourceSchemaVersion);
             terrain.EnsureBaseModifier();
             terrain.SchemaVersion = TerrainDefinition.CurrentSchemaVersion;
         }
@@ -113,6 +114,25 @@ internal static class TerrainSerializer
 
         if (migrated)
             terrain.SchemaVersion = TerrainDefinition.CurrentSchemaVersion;
+    }
+
+    /// <summary>
+    /// Schema 22: the Remesh modifier became a pure isotropic remesh with a single Edge Length target.
+    /// Old documents that drove refinement via MaxArea get the equivalent edge length (equilateral
+    /// triangle of that area — the same mapping the old local-refine mode used); the legacy value is
+    /// then zeroed so it can't be re-migrated or re-serialized as meaningful.
+    /// </summary>
+    private static void MigrateRemeshModifiers(TerrainDefinition terrain, int sourceSchemaVersion)
+    {
+        if (sourceSchemaVersion >= 22)
+            return;
+
+        foreach (var remesh in terrain.Modifiers.OfType<RemeshModifierDefinition>())
+        {
+            if (remesh.MaxArea > 0 && remesh.EdgeLength <= 0)
+                remesh.EdgeLength = Math.Sqrt(remesh.MaxArea * 4.0 / Math.Sqrt(3.0));
+            remesh.MaxArea = 0;
+        }
     }
 
     private static void PromoteLegacyTolerance(TerrainDefinition terrain)

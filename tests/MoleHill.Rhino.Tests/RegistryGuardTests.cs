@@ -92,13 +92,13 @@ public class RegistryGuardTests
     }
 
     [Fact]
-    public void DescriptorCreate_Remesh_DefaultsToLocalRefineForNewModifiers()
+    public void DescriptorCreate_Remesh_DefaultsToAutoEdgeAndCreasePreservation()
     {
         var descriptor = TerrainTypeRegistry.Modifiers.Single(d => d.DefinitionType == typeof(RemeshModifierDefinition));
 
         var remesh = Assert.IsType<RemeshModifierDefinition>(descriptor.Create(UnitSystem.Meters));
 
-        Assert.True(remesh.LocalRefine);
+        Assert.Equal(0.0, remesh.EdgeLength, 9);
         Assert.Equal(30.0, remesh.CreaseAngle, 9);
     }
 
@@ -166,7 +166,7 @@ public class RegistryGuardTests
     }
 
     [Fact]
-    public void LegacyRemeshDocument_WithoutLocalRefine_KeepsGlobalMode()
+    public void LegacyRemeshDocument_MaxAreaOnly_MigratesToEquivalentEdgeLength()
     {
         const string legacyJson = """
         {
@@ -175,9 +175,10 @@ public class RegistryGuardTests
             {
               "terrainId": "22222222-2222-2222-2222-222222222222",
               "name": "Legacy Remesh",
+              "schemaVersion": 21,
               "modifiers": [
                 { "$type": "triangulate" },
-                { "$type": "remesh", "minAngle": 20.0 }
+                { "$type": "remesh", "localRefine": false, "minAngle": 20.0, "maxArea": 20.0, "mergeDistance": 0.05 }
               ]
             }
           ]
@@ -187,7 +188,36 @@ public class RegistryGuardTests
         var terrain = TerrainSerializer.Deserialize(legacyJson).Single();
         var remesh = Assert.IsType<RemeshModifierDefinition>(terrain.Modifiers.Single(m => m is RemeshModifierDefinition));
 
-        Assert.False(remesh.LocalRefine);
-        Assert.Equal(0.0, remesh.CreaseAngle, 9);
+        // maxArea 20 → edge of the equilateral triangle with that area: sqrt(20·4/√3) ≈ 6.796.
+        Assert.Equal(Math.Sqrt(20.0 * 4.0 / Math.Sqrt(3.0)), remesh.EdgeLength, 6);
+        Assert.Equal(0.0, remesh.MaxArea, 9);
+        Assert.Equal(0.0, remesh.CreaseAngle, 9); // unknown legacy props (localRefine, minAngle, mergeDistance) are dropped
+    }
+
+    [Fact]
+    public void CurrentSchemaRemeshDocument_ExplicitEdgeLength_IsNotRemigrated()
+    {
+        string currentJson = """
+        {
+          "schemaVersion": 22,
+          "terrains": [
+            {
+              "terrainId": "33333333-3333-3333-3333-333333333333",
+              "name": "Current Remesh",
+              "schemaVersion": 22,
+              "modifiers": [
+                { "$type": "triangulate" },
+                { "$type": "remesh", "edgeLength": 2.5, "creaseAngle": 30.0 }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var terrain = TerrainSerializer.Deserialize(currentJson).Single();
+        var remesh = Assert.IsType<RemeshModifierDefinition>(terrain.Modifiers.Single(m => m is RemeshModifierDefinition));
+
+        Assert.Equal(2.5, remesh.EdgeLength, 9);
+        Assert.Equal(30.0, remesh.CreaseAngle, 9);
     }
 }

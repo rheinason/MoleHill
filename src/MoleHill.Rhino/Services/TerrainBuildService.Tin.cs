@@ -572,6 +572,15 @@ internal sealed partial class TerrainBuildService
         return true;
     }
 
+    /// <summary>Faces steeper than this are frozen retaining walls in the Remesh modifier (never touched).</summary>
+    private const double RemeshWallFaceMinSlopeDeg = 70.0;
+
+    /// <summary>
+    /// Isotropic remesh (split / collapse / flip / relax / back-project): regularizes the whole terrain
+    /// toward even triangles of the target edge length while every vertex stays exactly on the input
+    /// surface. Features (boundary ∪ creases at Crease Angle ∪ the whole constraint stack incl.
+    /// grade-path road edges) are pinned polylines; steep retaining-wall faces pass through verbatim.
+    /// </summary>
     private static RhinoMesh ApplyRemesh(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
@@ -582,115 +591,86 @@ internal sealed partial class TerrainBuildService
     {
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
         double tolerance = toleranceProfile.CurveChordTolerance;
-        double previewEdgeLength = modifier.EdgeLength;
-        double previewMaxArea = modifier.MaxArea;
-        double previewMinAngle = modifier.MinAngle;
-        if (mode == TerrainBuildMode.Preview)
-        {
-            if (previewEdgeLength > 0)
-                previewEdgeLength *= 2.0;
-            if (previewMaxArea > 0)
-                previewMaxArea *= 4.0;
-            previewMinAngle = 0.0;
-        }
+        double edgeLength = modifier.EdgeLength;
+        if (mode == TerrainBuildMode.Preview && edgeLength > 0)
+            edgeLength *= 2.0;
 
         var localConstraints = CreateConstraintPolylines(
             TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Constraints),
             tolerance,
             preserveInputElevation: false,
-            requestedEdgeLength: previewEdgeLength,
-            maxArea: previewMaxArea);
-
-        if (!modifier.LocalRefine &&
-            modifier.EdgeLength <= 0 && modifier.MaxArea <= 0 && modifier.MinAngle <= 0 &&
-            modifier.MergeDistance <= 0 && modifier.CreaseAngle <= 0 && localConstraints.Count == 0)
-        {
-            return mesh.DuplicateMesh();
-        }
+            requestedEdgeLength: edgeLength,
+            maxArea: 0);
 
         var constraints = CombineConstraints(build.PersistentHardConstraints, localConstraints);
 
-        if (modifier.LocalRefine)
-        {
-            return RefineMeshLocally(
-                mesh,
-                constraints,
-                previewEdgeLength,
-                previewMaxArea,
-                modifier.CreaseAngle,
-                toleranceProfile.RemeshConstraintTolerance,
-                "Remesh",
-                build);
-        }
-
-        var remeshed = RebuildMeshWithConstraints(
-            snapshot,
-            terrain,
-            mesh,
-            constraints,
-            previewEdgeLength,
-            previewMaxArea,
-            previewMinAngle,
-            "Remesh",
-            build,
-            out _,
-            toleranceOverride: toleranceProfile.RemeshConstraintTolerance,
-            // Merge near-duplicate input/constraint vertices (e.g. batter-toe pinches) within this
-            // distance instead of protecting the tiny edge between them. 0 = off.
-            vertexMergeTolerance: modifier.MergeDistance,
-            // Transiently pin crease edges (batter toes, slope breaks) at/above this dihedral angle so the
-            // remesh keeps them smooth; detected from geometry, never persisted. 0 = off.
-            preserveCreaseAngleDeg: modifier.CreaseAngle);
-
-        return remeshed;
-    }
-
-    /// <summary>
-    /// Connectivity-preserving "Local refine" remesh: keeps the input topology (flow lines), splits only
-    /// coarse triangles in place on the surface, and flips toward a regular mesh — respecting creases. Unlike
-    /// the global-Delaunay <see cref="RebuildMeshWithConstraints"/>, it never re-triangulates from scratch,
-    /// so graded corridor structure survives and no off-surface Steiner points are introduced.
-    /// </summary>
-    private static RhinoMesh RefineMeshLocally(
-        RhinoMesh mesh,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
-        double requestedEdgeLength,
-        double maxArea,
-        double creaseAngleDeg,
-        double tolerance,
-        string label,
-        TerrainBuildResult build)
-    {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
         {
-            build.Diagnostics.Add(errorMessage ?? $"Could not extract mesh data for {label.ToLowerInvariant()}.");
+            build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for remesh.");
             return mesh.DuplicateMesh();
         }
 
-        LocalMeshRefiner.Result result = LocalMeshRefiner.Refine(
+        // EdgeLength 0 = regularize at the mesh's own density (median input edge length).
+        double target = edgeLength > 0 ? edgeLength : MedianEdgeLength(vertices, faces);
+        if (mode == TerrainBuildMode.Preview && modifier.EdgeLength <= 0)
+            target *= 2.0;
+        if (target <= 0)
+        {
+            build.Diagnostics.Add("Remesh skipped: could not derive a target edge length.");
+            return mesh.DuplicateMesh();
+        }
+
+        IsotropicRemesher.Result result = IsotropicRemesher.Remesh(
             vertices,
             faces,
             constraints,
-            new LocalMeshRefiner.Options
+            new IsotropicRemesher.Options
             {
-                TargetEdgeLength = requestedEdgeLength,
-                MaxArea = maxArea,
-                CreaseAngleDeg = creaseAngleDeg,
-                Tolerance = tolerance,
-                DoFlips = false
+                TargetEdgeLength = target,
+                CreaseAngleDeg = modifier.CreaseAngle,
+                Tolerance = toleranceProfile.RemeshConstraintTolerance,
+                WallFaceMinSlopeDeg = RemeshWallFaceMinSlopeDeg,
+                Iterations = mode == TerrainBuildMode.Preview ? 3 : 5
             });
 
         if (!result.Success)
         {
-            build.Diagnostics.Add(result.Warning ?? $"{label} local refine kept the upstream mesh unchanged.");
+            build.Diagnostics.Add(result.Warning ?? "Remesh kept the upstream mesh unchanged.");
             return mesh.DuplicateMesh();
         }
 
         build.Diagnostics.Add(
-            $"{label} local refine: +{result.AddedVertices:N0} vertices, preserved input flow " +
-            $"({result.Faces.Length / 3:N0} faces).");
+            $"Remesh isotropic: {result.Splits:N0} splits, {result.Collapses:N0} collapses, " +
+            $"{result.Flips:N0} flips at target {target:0.###} " +
+            $"({result.Faces.Length / 3:N0} faces; features and walls pinned).");
 
         return BuildMeshFromArrays(result.Vertices, result.Faces);
+    }
+
+    /// <summary>Median 3-D edge length over the mesh's unique edges (the "keep this density" target).</summary>
+    private static double MedianEdgeLength(double[] vertices, int[] faces)
+    {
+        var seen = new HashSet<long>();
+        var lengths = new List<double>(faces.Length);
+        for (int t = 0; t < faces.Length / 3; t++)
+        {
+            for (int corner = 0; corner < 3; corner++)
+            {
+                int a = faces[t * 3 + corner];
+                int b = faces[t * 3 + ((corner + 1) % 3)];
+                if (!seen.Add(IndexedMeshTools.GetEdgeKey(a, b)))
+                    continue;
+                double dx = vertices[a * 3] - vertices[b * 3];
+                double dy = vertices[a * 3 + 1] - vertices[b * 3 + 1];
+                double dz = vertices[a * 3 + 2] - vertices[b * 3 + 2];
+                lengths.Add(Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz)));
+            }
+        }
+
+        if (lengths.Count == 0)
+            return 0.0;
+        lengths.Sort();
+        return lengths[lengths.Count / 2];
     }
 
     /// <summary>
