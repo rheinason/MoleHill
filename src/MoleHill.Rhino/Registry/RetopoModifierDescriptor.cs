@@ -12,7 +12,7 @@ internal sealed class RetopoModifierDescriptor : ModifierTypeDescriptor
     public override string DisplayName => "Retopo";
     public override string IconName => "ModRetopo";
     public override int SortOrder => 4;
-    public override string Subtitle => "Quad retopology (field preview)";
+    public override string Subtitle => "Field-aligned quad retopology";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new RetopoModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetopoStage(context);
 
@@ -27,7 +27,7 @@ internal sealed class RetopoModifierDescriptor : ModifierTypeDescriptor
             "Quads", "Quads",
             m => ((RetopoModifierDefinition)m).Quads,
             (m, v) => ((RetopoModifierDefinition)m).Quads = v,
-            "Replace the terrain with the extracted quad-dominant mesh that flows along the features (uses Edge Length as the quad size). Terminal — keep Retopo last in the stack, after grading and analysis. Off = keep the input mesh and only preview the field."),
+            "Replace the terrain with a quad-dominant mesh that flows along the features (field-aligned remesh + triangle pairing; uses Edge Length as the quad size). Hole-free by construction; retaining walls pass through untouched. Terminal — keep Retopo last in the stack. Off = keep the input mesh and only preview the field."),
         ParameterDescriptor.Bool(
             "ShowField", "Show field",
             m => ((RetopoModifierDefinition)m).ShowField,
@@ -42,6 +42,6 @@ internal sealed class RetopoModifierDescriptor : ModifierTypeDescriptor
             "TargetEdgeLength", "Edge Length",
             m => ((RetopoModifierDefinition)m).TargetEdgeLength,
             (m, v) => ((RetopoModifierDefinition)m).TargetEdgeLength = v,
-            "Target quad size for the later extraction stages. Not used yet by the Stage 1 field preview."),
+            "Target quad size for the extracted quad-dominant mesh. 0 auto-derives from the mesh's extent and density. Preview builds run at twice this size."),
     };
 }

@@ -103,6 +103,46 @@ public class IsotropicRemesherForensicTests
     }
 
     [Fact]
+    public void QuadRemesh_RealGradedScene_ThresholdSweep()
+    {
+        string? path = FindObj();
+        if (path == null)
+        {
+            _output.WriteLine("scratch_graded_input.obj not found; skipping.");
+            return;
+        }
+
+        var (vertices, faces) = LoadObj(path);
+        foreach (double threshold in new[] { 0.8, 1.0, 1.2, 1.5 })
+        {
+            var field = MoleHill.Core.Retopo.CrossFieldSolver.Solve(vertices, faces,
+                Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                new MoleHill.Core.Retopo.CrossFieldSolver.Options { CreaseAngleDeg = 30, Tolerance = 0.01 });
+            var remesh = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                new IsotropicRemesher.Options { TargetEdgeLength = 3.0, CreaseAngleDeg = 30, Tolerance = 0.01, FieldTheta = field.Theta });
+            Assert.True(remesh.Success, remesh.Warning);
+
+            var featureEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
+            for (int i = 0; i < remesh.FeatureEdges.Length; i += 2)
+                featureEdges.Add(IndexedMeshTools.GetEdgeKey(remesh.FeatureEdges[i], remesh.FeatureEdges[i + 1]));
+            var sampler = new IsotropicRemesher.FieldSampler(vertices, faces, field.Theta,
+                new MoleHill.Core.Grading.TerrainFaceGrid(vertices, vertices.Length / 3, faces, faces.Length / 3, 1.5));
+
+            var paired = MoleHill.Core.Retopo.TriQuadPairer.Pair(remesh.Vertices, remesh.Faces, featureEdges, remesh.FrozenFaces,
+                new MoleHill.Core.Retopo.TriQuadPairer.Options
+                {
+                    ThetaSampler = (x, y) => sampler.SampleTheta(x, y, double.NaN),
+                    AcceptThreshold = threshold
+                });
+
+            int pairedTris = paired.QuadCount * 2;
+            int total = remesh.Faces.Length / 3;
+            _output.WriteLine($"threshold {threshold:0.0}: {paired.QuadCount} quads, {paired.Tris.Length / 3} tris " +
+                              $"({100.0 * pairedTris / total:0}% of triangles paired)");
+        }
+    }
+
+    [Fact]
     public void Remesh_RealGradedScene_PhaseByPhaseTopology()
     {
         string? path = FindObj();

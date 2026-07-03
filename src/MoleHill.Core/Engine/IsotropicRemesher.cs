@@ -33,6 +33,15 @@ public static class IsotropicRemesher
 
         /// <summary>Full split/collapse/flip/relax rounds. Preview builds pass fewer.</summary>
         public int Iterations { get; init; } = 5;
+
+        /// <summary>
+        /// Optional per-INPUT-vertex 4-RoSy cross-field angle θ ∈ [0, π/2) (from
+        /// <c>CrossFieldSolver</c>). When set, tangential relaxation becomes field-aligned: the
+        /// displacement component ACROSS the local quad direction is damped, so vertices
+        /// preferentially slide along field lines and edges straighten into the quad flow — the base
+        /// for downstream tri-to-quad pairing. Null = plain isotropic relaxation.
+        /// </summary>
+        public double[]? FieldTheta { get; init; }
     }
 
     public sealed class Result
@@ -101,6 +110,12 @@ public static class IsotropicRemesher
             return new Result { Success = true, Vertices = vertices, Faces = faces, Warning = "All faces are steep (frozen); nothing to remesh." };
 
         var state = new MeshState(vertices, faces, graph);
+        // The sampler gets its own grid over the FULL input mesh: the projection grid excludes wall
+        // faces and renumbers the survivors, so its face indices don't match the theta array's mesh.
+        state.Field = options.FieldTheta != null && options.FieldTheta.Length == vertexCount
+            ? new FieldSampler(vertices, faces, options.FieldTheta,
+                new TerrainFaceGrid(vertices, vertexCount, faces, faceCount, options.TargetEdgeLength * 0.5))
+            : null;
 
         // Imperfect upstream grading can hand us a mesh that is already non-manifold or has open
         // chains. The acceptance gate is therefore relative: the output must be no WORSE than the
@@ -143,6 +158,51 @@ public static class IsotropicRemesher
 
         string timing = $"graph {msGraph:0} ms, split {msSplit:0} ms, collapse {msCollapse:0} ms, flip {msFlip:0} ms, relax {msRelax:0} ms";
         return state.ToResult(vertices, faces, inputTopology, totalSplits, totalCollapses, totalFlips, totalRelaxed, timing);
+    }
+
+    /// <summary>
+    /// Samples the per-input-vertex 4-RoSy angle at any XY by barycentric interpolation in
+    /// (cos 4θ, sin 4θ) space — never raw θ, which is discontinuous across the π/2 symmetry. Near a
+    /// field singularity the interpolated vector vanishes; the caller's fallback angle is returned.
+    /// </summary>
+    internal sealed class FieldSampler
+    {
+        private readonly double[] _vertices;
+        private readonly int[] _faces;
+        private readonly double[] _cos4;
+        private readonly double[] _sin4;
+        private readonly TerrainFaceGrid _grid;
+
+        public FieldSampler(double[] vertices, int[] faces, double[] theta, TerrainFaceGrid grid)
+        {
+            _vertices = vertices;
+            _faces = faces;
+            _grid = grid;
+            _cos4 = new double[theta.Length];
+            _sin4 = new double[theta.Length];
+            for (int i = 0; i < theta.Length; i++)
+            {
+                _cos4[i] = Math.Cos(4.0 * theta[i]);
+                _sin4[i] = Math.Sin(4.0 * theta[i]);
+            }
+        }
+
+        public double SampleTheta(double x, double y, double fallback)
+        {
+            if (!_grid.TryFindFace(x, y, out int face, out double w0, out double w1, out double w2))
+                return fallback;
+
+            int i0 = _faces[face * 3], i1 = _faces[face * 3 + 1], i2 = _faces[face * 3 + 2];
+            double c = (w0 * _cos4[i0]) + (w1 * _cos4[i1]) + (w2 * _cos4[i2]);
+            double s = (w0 * _sin4[i0]) + (w1 * _sin4[i1]) + (w2 * _sin4[i2]);
+            if ((c * c) + (s * s) < 1e-6)
+                return fallback; // singularity — no reliable direction here
+
+            double theta = Math.Atan2(s, c) / 4.0;
+            if (theta < 0)
+                theta += Math.PI / 2.0;
+            return theta;
+        }
     }
 
     private static TerrainFaceGrid? BuildProjectionGrid(double[] vertices, int[] faces, int faceCount, bool[] frozenFaces, double cellSizeHint)
@@ -191,6 +251,9 @@ public static class IsotropicRemesher
         public readonly List<double> Param;
         public readonly Dictionary<long, int> FeatureEdges;
         public readonly FeaturePolylineGraph Graph;
+
+        /// <summary>Cross-field sampler over the ORIGINAL mesh; null = plain isotropic relaxation.</summary>
+        public FieldSampler? Field;
 
         public MeshState(double[] vertices, int[] faces, FeaturePolylineGraph graph)
         {
@@ -909,6 +972,27 @@ public static class IsotropicRemesher
         double dy = (cy - py) * RelaxLambda;
         if ((dx * dx) + (dy * dy) < 1e-24)
             return false;
+
+        if (state.Field != null)
+        {
+            // Field-aligned relaxation: damp the displacement component across the local quad
+            // direction so vertices slide along field lines (edges straighten into the quad flow).
+            double theta = state.Field.SampleTheta(px, py, fallback: double.NaN);
+            if (!double.IsNaN(theta))
+            {
+                double e1x = Math.Cos(theta), e1y = Math.Sin(theta);
+                double along = (dx * e1x) + (dy * e1y);
+                double across = (dx * -e1y) + (dy * e1x);
+                double a1 = Math.Abs(along), a2 = Math.Abs(across);
+                const double damp = 0.3;
+                if (a1 >= a2)
+                    across *= damp;
+                else
+                    along *= damp;
+                dx = (along * e1x) - (across * e1y);
+                dy = (along * e1y) + (across * e1x);
+            }
+        }
 
         for (int attempt = 0; attempt < 2; attempt++)
         {

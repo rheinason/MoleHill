@@ -179,6 +179,58 @@ internal class TerrainFaceGrid
         return TryInterpolateZ(px, py, out double z) ? z : NearestVertexZ(px, py);
     }
 
+    /// <summary>
+    /// Containing face and barycentric weights at (px, py); false when the point lies outside the
+    /// mesh. Same search as <see cref="TryInterpolateZ"/> — used to interpolate per-vertex attributes
+    /// other than Z (e.g. a direction field).
+    /// </summary>
+    public bool TryFindFace(double px, double py, out int face, out double w0, out double w1, out double w2)
+    {
+        const double tol = 1e-4;
+        face = -1;
+        w0 = w1 = w2 = 0.0;
+        long cx = (long)Math.Floor(px * _invCell);
+        long cy = (long)Math.Floor(py * _invCell);
+
+        for (long dx = -1; dx <= 1; dx++)
+        {
+            for (long dy = -1; dy <= 1; dy++)
+            {
+                long key = ((cx + dx) * 0x100000001L) ^ ((cy + dy) * 0x27d4eb2dL);
+                if (!_grid.TryGetValue(key, out var faceIndices))
+                    continue;
+
+                foreach (int f in faceIndices)
+                {
+                    int i0 = _faces[f * 3];
+                    int i1 = _faces[f * 3 + 1];
+                    int i2 = _faces[f * 3 + 2];
+                    double x0 = _verts[i0 * 3], y0 = _verts[i0 * 3 + 1];
+                    double x1 = _verts[i1 * 3], y1 = _verts[i1 * 3 + 1];
+                    double x2 = _verts[i2 * 3], y2 = _verts[i2 * 3 + 1];
+
+                    double denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+                    if (Math.Abs(denom) < 1e-12)
+                        continue;
+
+                    double b0 = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / denom;
+                    double b1 = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / denom;
+                    double b2 = 1.0 - b0 - b1;
+                    if (b0 >= -tol && b1 >= -tol && b2 >= -tol)
+                    {
+                        face = f;
+                        w0 = b0;
+                        w1 = b1;
+                        w2 = b2;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Barycentric Z at (px, py) when a containing face exists; false when the point lies
     /// outside the mesh (no nearest-vertex fallback — callers that must not extrapolate use this).</summary>
     public bool TryInterpolateZ(double px, double py, out double z)

@@ -674,10 +674,11 @@ internal sealed partial class TerrainBuildService
     }
 
     /// <summary>
-    /// Field-guided quad retopology, Stage 2: replace the terrain with the extracted quad-dominant mesh whose
-    /// edges flow along the features. Runs <see cref="QuadRemesher"/> on the input mesh + the whole
-    /// constraint stack (incl. grade-path road edges via <c>PersistentHardConstraints</c>), then builds a
-    /// quad-preserving Rhino mesh. Falls back to the input mesh if extraction yields nothing.
+    /// Field-guided quad retopology: replace the terrain with a quad-dominant mesh whose edges flow
+    /// along the features. Runs <see cref="QuadRemesher"/> (cross-field → field-aligned isotropic
+    /// remesh → tri-to-quad pairing) on the input mesh + the whole constraint stack (incl. grade-path
+    /// road edges via <c>PersistentHardConstraints</c>). One connected mesh, hole-free by construction;
+    /// steep retaining-wall faces pass through frozen. Falls back to the input mesh on failure.
     /// </summary>
     private static RhinoMesh ApplyRetopoQuads(
         TerrainBuildSnapshot snapshot,
@@ -718,125 +719,41 @@ internal sealed partial class TerrainBuildService
                 EdgeLength = effectiveEdge,
                 CreaseAngleDeg = modifier.CreaseAngle,
                 Tolerance = toleranceProfile.RemeshConstraintTolerance,
-                // Exclude near-vertical retaining-wall faces from the heightfield field; they are rebuilt
-                // as dedicated quad strips below.
+                // Steep retaining-wall faces are frozen through the retopo (never cut out or rebuilt),
+                // so walls pass through exactly and the output cannot acquire holes at wall joins.
                 WallFaceMinSlopeDeg = RetopoWallFaceMinSlopeDeg,
-                EnableCleanup = true
+                Iterations = mode == TerrainBuildMode.Preview ? 3 : 5
             });
 
-        List<WallQuadStripBuilder.Strip> wallStrips = GatherWallQuadStrips(snapshot, terrain, effectiveEdge, build);
-
-        int terrainQuadCount = result.Quads.Length / 4;
-        int cleanupTriCount = result.Tris.Length / 3;
-        int wallQuadCount = 0;
-        foreach (WallQuadStripBuilder.Strip strip in wallStrips)
-            wallQuadCount += strip.QuadCount;
-
-        if (terrainQuadCount + wallQuadCount == 0)
+        if (!result.Success || result.QuadCount == 0)
         {
             build.Diagnostics.Add(result.Warning ?? "Retopo produced no quads; kept the input mesh.");
             return mesh.DuplicateMesh();
         }
 
-        (double[] mergedVertices, int[] mergedQuads, int[] mergedTris, QuadRetopoCleanup.WeldResult weld) =
-            MergeQuadSets(result.Vertices, result.Quads, result.Tris, wallStrips, toleranceProfile.RemeshConstraintTolerance);
-
-        if (!ValidateQuadDominantTopology(mergedQuads, mergedTris, out string? topologyWarning))
+        if (!ValidateQuadDominantTopology(faces, result.Quads, result.Tris, out string? topologyWarning))
         {
-            build.Diagnostics.Add(topologyWarning ?? "Retopo cleanup produced invalid topology; kept the input mesh.");
+            build.Diagnostics.Add(topologyWarning ?? "Retopo produced invalid topology; kept the input mesh.");
             return mesh.DuplicateMesh();
         }
 
         build.Diagnostics.Add(
-            $"Retopo quads: {terrainQuadCount:N0} terrain + {wallQuadCount:N0} wall = {terrainQuadCount + wallQuadCount:N0} quads" +
-            (cleanupTriCount > 0 ? $" + {cleanupTriCount:N0} cleanup tris" : "") +
-            $" over {mergedVertices.Length / 3:N0} vertices" +
-            (result.ClosedGapLoopCount > 0 ? $" ({result.ClosedGapLoopCount:N0} gap loop(s) closed)" : "") +
-            (result.SkippedLargeGapLoopCount > 0 ? $" ({result.SkippedLargeGapLoopCount:N0} large gap loop(s) left open)" : "") +
-            (weld.RemovedVertexCount > 0 ? $", welded {weld.RemovedVertexCount:N0} duplicate vertices" : "") +
-            (weld.DroppedFaceCount > 0 ? $", dropped {weld.DroppedFaceCount:N0} degenerate faces" : "") +
-            "." +
+            $"Retopo quads: {result.QuadCount:N0} quads + {result.TriangleCount:N0} triangles over " +
+            $"{result.Vertices.Length / 3:N0} vertices (field-aligned remesh + pairing; features and walls pinned)." +
             (string.IsNullOrWhiteSpace(result.Warning) ? "" : $" {result.Warning}"));
 
-        return RhinoGeometryConversions.BuildQuadDominantMesh(mergedVertices, mergedQuads, mergedTris);
+        return RhinoGeometryConversions.BuildQuadDominantMesh(result.Vertices, result.Quads, result.Tris);
     }
 
-    // Near-vertical faces (retaining walls) are excluded from the heightfield quad field at this slope.
+    // Near-vertical faces (retaining walls) are frozen through the retopo at this slope.
     private const double RetopoWallFaceMinSlopeDeg = 70.0;
 
     /// <summary>
-    /// Rebuilds each enabled retaining wall as a quad strip between its top &amp; toe rails. Re-derives the rails
-    /// with the same planner the retaining-wall stage uses; runs inside the retopo stage cache, so it only
-    /// recomputes when the upstream mesh/params change.
+    /// Accepts the quad-dominant output only when its topology is no worse than the input's — imperfect
+    /// upstream grading may already be non-manifold, and the retopo carries those quarantined zones
+    /// through unchanged rather than repairing or worsening them.
     /// </summary>
-    private static List<WallQuadStripBuilder.Strip> GatherWallQuadStrips(
-        TerrainBuildSnapshot snapshot, TerrainDefinition terrain, double edgeLength, TerrainBuildResult build)
-    {
-        var strips = new List<WallQuadStripBuilder.Strip>();
-        double rowSpacing = edgeLength > 0 ? edgeLength : 1.0;
-
-        foreach (ModifierDefinition definition in terrain.Modifiers)
-        {
-            if (definition is not RetainingWallModifierDefinition wallModifier || !wallModifier.IsEnabled)
-                continue;
-
-            TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
-            double wallTolerance = toleranceProfile.RetainingWallTolerance(wallModifier.MaxWallWidth);
-            double maxWallWidth = Math.Max(wallTolerance, wallModifier.MaxWallWidth);
-
-            var wallCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, wallModifier.WallCurves);
-            if (wallCurves.Count == 0)
-                continue;
-
-            var plan = RetainingWallPlannerCore.Plan(wallCurves, maxWallWidth, curveParsingTolerance: wallTolerance);
-            foreach (var wall in plan.Walls)
-            {
-                if (!IsWallStripUsable(wall.Rails, wallTolerance, out _))
-                    continue;
-
-                WallQuadStripBuilder.Strip strip = WallQuadStripBuilder.Build(
-                    ToFlatXyz(wall.Rails.TopPoints),
-                    ToFlatXyz(wall.Rails.ToePoints),
-                    wall.Rails.IsClosed,
-                    rowSpacing);
-                if (strip.QuadCount > 0)
-                    strips.Add(strip);
-            }
-        }
-
-        return strips;
-    }
-
-    private static (double[] vertices, int[] quads, int[] tris, QuadRetopoCleanup.WeldResult weld) MergeQuadSets(
-        double[] terrainVertices,
-        int[] terrainQuads,
-        int[] terrainTris,
-        List<WallQuadStripBuilder.Strip> wallStrips,
-        double tolerance)
-    {
-        var vertices = new List<double>(terrainVertices);
-        var quads = new List<int>(terrainQuads);
-        var tris = new List<int>(terrainTris);
-        int offset = terrainVertices.Length / 3;
-
-        foreach (WallQuadStripBuilder.Strip strip in wallStrips)
-        {
-            vertices.AddRange(strip.Vertices);
-            for (int i = 0; i < strip.Quads.Length; i++)
-                quads.Add(strip.Quads[i] + offset);
-            offset += strip.VertexCount;
-        }
-
-        QuadRetopoCleanup.WeldResult weld = QuadRetopoCleanup.WeldByTolerance(
-            vertices.ToArray(),
-            quads.ToArray(),
-            tris.ToArray(),
-            tolerance);
-
-        return (weld.Vertices, weld.Quads, weld.Tris, weld);
-    }
-
-    private static bool ValidateQuadDominantTopology(int[] quads, int[] tris, out string? warning)
+    private static bool ValidateQuadDominantTopology(int[] inputFaces, int[] quads, int[] tris, out string? warning)
     {
         int[] triangleFaces = BuildTriangleFacesForValidation(quads, tris);
         if (triangleFaces.Length == 0)
@@ -845,17 +762,20 @@ internal sealed partial class TerrainBuildService
             return false;
         }
 
+        MeshTopologyValidator.BoundaryGraphAnalysis input =
+            MeshTopologyValidator.AnalyzeBoundaryGraph(inputFaces, inputFaces.Length / 3);
         MeshTopologyValidator.BoundaryGraphAnalysis topology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(triangleFaces, triangleFaces.Length / 3);
-        if (topology.NonManifoldEdgeCount != 0)
+        if (topology.NonManifoldEdgeCount > input.NonManifoldEdgeCount)
         {
-            warning = $"Retopo cleanup produced {topology.NonManifoldEdgeCount:N0} non-manifold edge(s); kept the input mesh.";
+            warning = $"Retopo produced {topology.NonManifoldEdgeCount:N0} non-manifold edge(s) " +
+                $"(input had {input.NonManifoldEdgeCount:N0}); kept the input mesh.";
             return false;
         }
 
-        if (topology.HasOpenBoundaryChains)
+        if (topology.HasOpenBoundaryChains && !input.HasOpenBoundaryChains)
         {
-            warning = "Retopo cleanup produced open naked-edge chains; kept the input mesh.";
+            warning = "Retopo produced open naked-edge chains; kept the input mesh.";
             return false;
         }
 
@@ -883,19 +803,6 @@ internal sealed partial class TerrainBuildService
 
         Array.Copy(tris, 0, faces, t, tris.Length);
         return faces;
-    }
-
-    private static double[] ToFlatXyz(Point3d[] points)
-    {
-        var flat = new double[points.Length * 3];
-        for (int i = 0; i < points.Length; i++)
-        {
-            flat[i * 3] = points[i].X;
-            flat[i * 3 + 1] = points[i].Y;
-            flat[i * 3 + 2] = points[i].Z;
-        }
-
-        return flat;
     }
 
     private static double EstimateQuadSpacing(double[] vertices)
