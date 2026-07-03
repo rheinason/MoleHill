@@ -15,7 +15,7 @@ public static partial class PadGrader
     /// is along original shared vertices, the result is manifold and watertight by construction — none
     /// of the conforming / near-duplicate / weld degeneracies can occur. Slopes are smooth but the
     /// daylight line is a dense-mesh iso-contour (soft), which is acceptable for a fallback. Returns
-    /// null (deferring to the legacy path) when the region cannot be carved into clean single holes.
+    /// null when the region cannot be carved into clean single holes.
     /// </summary>
     internal static GradingResult? GradeWithRegionRemesh(
         double[] vertices,

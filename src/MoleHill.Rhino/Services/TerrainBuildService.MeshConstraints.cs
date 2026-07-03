@@ -206,7 +206,9 @@ internal sealed partial class TerrainBuildService
         bool addConstraintCorridorSeeds = true,
         double? toleranceOverride = null,
         bool protectSharpEdges = true,
-        bool recordDetailedTimings = false)
+        bool recordDetailedTimings = false,
+        double vertexMergeTolerance = 0.0,
+        double preserveCreaseAngleDeg = 0.0)
     {
         keptInputMesh = false;
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var originalVertices, out var originalFaces, out var errorMessage))
@@ -233,7 +235,9 @@ internal sealed partial class TerrainBuildService
                 AddConstraintCorridorSeeds = addConstraintCorridorSeeds,
                 // When no quality params are set, RequestedEdgeLength controls only constraint
                 // pre-densification spacing — do not use it to drive Steiner interior refinement.
-                ConstraintInsertionOnly = maxArea <= 0 && minAngle <= 0
+                ConstraintInsertionOnly = maxArea <= 0 && minAngle <= 0,
+                VertexMergeTolerance = vertexMergeTolerance,
+                PreserveCreaseAngleDeg = preserveCreaseAngleDeg
             });
         remeshCoreTimer.Stop();
         if (recordDetailedTimings)

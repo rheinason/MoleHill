@@ -11,12 +11,13 @@ public static partial class PathGrader
     /// exactly like a pad with a non-planar footprint. The road surface is an explicit ruled strip
     /// between the edges, the side batters daylight outward, and everything is welded into the
     /// terrain by <see cref="GradedRegionAssembler"/>. Returns null (without throwing) when it cannot
-    /// produce a watertight, manifold result so the caller can fall back to the legacy path.
+    /// produce a watertight, manifold result.
     /// </summary>
     /// <summary>
     /// Detects a road edge (centerline or either offset edge) crossing a hard-constraint barrier,
     /// honouring endpoint-touch tolerances so a path that merely starts/ends on a barrier is allowed.
-    /// Mirrors the legacy preflight so the explicit path defers crossings to it for the error.
+    /// Keeps barrier crossings out of the explicit path so the main path can report the unsupported
+    /// condition consistently.
     /// </summary>
     private static bool AnyRoadEdgeCrossesBarrier(
         PathDefinition[] paths,
@@ -89,10 +90,10 @@ public static partial class PathGrader
         double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
         var terrain = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
 
-        // A road edge crossing a barrier is an error the legacy preflight reports; defer to it.
+        // A road edge crossing a barrier is unsupported by the explicit path; defer cleanly.
         if (AnyRoadEdgeCrossesBarrier(paths, hardConstraints, modelTolerance))
         {
-            errorMessage = "Grade Path road edge crosses a hard constraint; deferring to constraint-first path.";
+            errorMessage = "Grade Path road edge crosses a hard constraint; explicit corridor grading deferred.";
             return null;
         }
 
@@ -218,7 +219,7 @@ public static partial class PathGrader
                     !ClipperGeometry.TryPickLargestLoop(cleanedLoops, out double[] envelope) ||
                     GradingGeometry2D.ClosedPolylineSelfIntersects(envelope, envelope.Length / 2))
                 {
-                    errorMessage = "Grade Path daylight loop self-intersects and could not be resolved; deferring to constraint-first path.";
+                    errorMessage = "Grade Path daylight loop self-intersects and could not be resolved; deferring to topology rebuild.";
                     return null;
                 }
 
@@ -238,7 +239,7 @@ public static partial class PathGrader
             {
                 if (GradingGeometry2D.PolygonsOverlap(daylightLoopsXy[i], daylightLoopsXy[j]))
                 {
-                    errorMessage = "Grade Path corridors interact; deferring to constraint-first path.";
+                    errorMessage = "Grade Path corridors interact; deferring to topology rebuild.";
                     return null;
                 }
             }
@@ -267,7 +268,7 @@ public static partial class PathGrader
                 boundaryXyz, boundaryLoop, boundaryLoop.Length, corridors[corridorIndex], paths, hardConstraints, terrain, tolerance);
             if (fill is null)
             {
-                errorMessage = "Grade Path hole fill failed; deferring to constraint-first path.";
+                errorMessage = "Grade Path hole fill failed; deferring to topology rebuild.";
                 return null;
             }
 
@@ -562,11 +563,11 @@ public static partial class PathGrader
                 boundaryXy[i * 2 + 1] = boundaryXyz[i * 3 + 1];
             }
 
-            BatterStripBuilder.BatterStrip strip = BatterStripBuilder.BuildBatterStrip(corridor.Loop, corridor.Spacing);
-            for (int i = 0; i < strip.VertexCount; i++)
+            double[] seeds = BatterStripBuilder.BuildBatterSeeds(corridor.Loop, corridor.Spacing);
+            for (int i = 0; i < seeds.Length / 3; i++)
             {
-                double sx = strip.Vertices[i * 3];
-                double sy = strip.Vertices[i * 3 + 1];
+                double sx = seeds[i * 3];
+                double sy = seeds[i * 3 + 1];
                 if (GradingGeometry2D.PointInPolygon(sx, sy, boundaryXy, boundaryCount))
                     AddPoint(sx, sy, 0.0);
             }

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
@@ -22,8 +21,6 @@ internal sealed partial class TerrainBuildService
         if (enabledMarkerCount == 0)
             return;
 
-        int outputCountBefore = build.MarkerObjects.Count;
-        var timer = Stopwatch.StartNew();
         mesh.Normals.ComputeNormals();
 
         foreach (var marker in terrain.Markers.Where(marker => marker.IsEnabled))
@@ -81,14 +78,6 @@ internal sealed partial class TerrainBuildService
                 });
             }
         }
-
-        timer.Stop();
-        int addedOutputs = build.MarkerObjects.Count - outputCountBefore;
-        build.RecordTiming(
-            "Markers",
-            timer.Elapsed,
-            $"{enabledMarkerCount:N0} enabled markers produced {addedOutputs:N0} outputs on {mesh.Faces.Count:N0} faces",
-            StageTimingDiagnosticThresholdMs);
     }
 
     private static void BuildObjectPlacements(
@@ -101,11 +90,9 @@ internal sealed partial class TerrainBuildService
         var placeableDefinitions = terrain.Objects
             .Where(item => item.IsEnabled && item is not ScatterObjectDefinition)
             .ToList();
-        int enabledObjectCount = placeableDefinitions.Count;
-        if (enabledObjectCount == 0)
+        if (placeableDefinitions.Count == 0)
             return;
 
-        var timer = Stopwatch.StartNew();
         mesh.Normals.ComputeNormals();
 
         var resolvedEntries = placeableDefinitions
@@ -126,7 +113,6 @@ internal sealed partial class TerrainBuildService
         foreach (var objectId in overlappingObjectIds.OrderBy(id => id))
             build.Diagnostics.Add($"Objects skipped {FormatObjectRef(objectId)} because it is matched by multiple object definitions.");
 
-        int placedCount = 0;
         foreach (var entry in resolvedEntries)
         {
             ThrowIfCancellationRequested(shouldCancel);
@@ -161,16 +147,8 @@ internal sealed partial class TerrainBuildService
             if (placementGroup.Placements.Count == 0)
                 continue;
 
-            placedCount += placementGroup.Placements.Count;
             build.ObjectPlacements.Add(placementGroup);
         }
-
-        timer.Stop();
-        build.RecordTiming(
-            "Objects",
-            timer.Elapsed,
-            $"{enabledObjectCount:N0} enabled definitions produced {placedCount:N0} object placements",
-            StageTimingDiagnosticThresholdMs);
     }
 
     private static bool TryBuildObjectPlacement(

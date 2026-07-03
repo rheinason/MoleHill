@@ -92,6 +92,17 @@ public class RegistryGuardTests
     }
 
     [Fact]
+    public void DescriptorCreate_Remesh_DefaultsToLocalRefineForNewModifiers()
+    {
+        var descriptor = TerrainTypeRegistry.Modifiers.Single(d => d.DefinitionType == typeof(RemeshModifierDefinition));
+
+        var remesh = Assert.IsType<RemeshModifierDefinition>(descriptor.Create(UnitSystem.Meters));
+
+        Assert.True(remesh.LocalRefine);
+        Assert.Equal(30.0, remesh.CreaseAngle, 9);
+    }
+
+    [Fact]
     public void AllRegisteredTypes_RoundTripThroughSerializer_WithCorrectDiscriminators()
     {
         var terrain = new TerrainDefinition();
@@ -152,5 +163,31 @@ public class RegistryGuardTests
         Assert.DoesNotContain(terrain.Modifiers, m => m is MeshAreasModifierDefinition or MeshCollageModifierDefinition);
         Assert.Contains(terrain.Modifiers, m => m is RemeshModifierDefinition);
         Assert.Contains(terrain.Zones, z => z.Name == "Z1");
+    }
+
+    [Fact]
+    public void LegacyRemeshDocument_WithoutLocalRefine_KeepsGlobalMode()
+    {
+        const string legacyJson = """
+        {
+          "schemaVersion": 21,
+          "terrains": [
+            {
+              "terrainId": "22222222-2222-2222-2222-222222222222",
+              "name": "Legacy Remesh",
+              "modifiers": [
+                { "$type": "triangulate" },
+                { "$type": "remesh", "minAngle": 20.0 }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var terrain = TerrainSerializer.Deserialize(legacyJson).Single();
+        var remesh = Assert.IsType<RemeshModifierDefinition>(terrain.Modifiers.Single(m => m is RemeshModifierDefinition));
+
+        Assert.False(remesh.LocalRefine);
+        Assert.Equal(0.0, remesh.CreaseAngle, 9);
     }
 }

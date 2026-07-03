@@ -29,7 +29,7 @@ The high-level map an agent reads first. Sections:
   analysis → zones → objects/scatter; which stages cache (fingerprints) and which run only in Final
   mode; the `TerrainBuildMode` distinction; conduit-preview vs SyncOutputs vs Bake.
 - **Grading tier cascade** (Pad): explicit batter → split-keep (CDT conform) → region-remesh →
-  legacy constraint-first/refined-Z; the "always watertight 2.5D" invariant; where each tier lives.
+  clean structured failure; the "always watertight 2.5D" invariant; where each tier lives.
 - **Flat-array data format**, the XY-hash caching in `TinEngine`, and the Steiner-Z priority order
   (these already live in `CLAUDE.md` — move the authoritative copy here and link from both entry docs).
 - A simple ASCII data-flow diagram (GH path and Rhino path).

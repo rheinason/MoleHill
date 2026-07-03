@@ -1,8 +1,9 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
 using MoleHill.Core.Grading;
 using TriangleNet.Geometry;
 using TriangleNet.Meshing;
+using static MoleHill.Core.Engine.MeshFlipGeometry;
 
 namespace MoleHill.Core.Engine;
 
@@ -64,6 +65,25 @@ public static class SurfaceRemesher
         /// constraints would cross or over-constrain the network.
         /// </summary>
         public IReadOnlyList<ConstraintPolyline> GuidePolylines { get; init; } = Array.Empty<ConstraintPolyline>();
+
+        /// <summary>
+        /// When &gt; 0, near-coincident input vertices (and constraint vertices) within this distance are
+        /// merged before triangulation — a "merge by distance" / short-edge collapse. Grading often leaves
+        /// near-duplicate vertices at batter toes; without this the remesh keeps both and *protects* the
+        /// tiny edge between them, which refinement then fans into a pinched cone. This is an explicit
+        /// decimation threshold (larger than the model tolerance), so it overrides the constraint-chain
+        /// dedup cap. 0 leaves the default tolerance-only dedup.
+        /// </summary>
+        public double VertexMergeTolerance { get; init; }
+
+        /// <summary>
+        /// When &gt; 0, interior edges whose adjacent faces meet at a dihedral angle of at least this many
+        /// degrees (a crease — e.g. a batter TOE where the slope meets terrain) are constrained for this
+        /// remesh so the triangulation can't flip across them and spike the feature. These crease
+        /// constraints are detected from the input geometry every pass and are NOT persisted, so stacking
+        /// grades does not accumulate breaklines. 0 disables it.
+        /// </summary>
+        public double PreserveCreaseAngleDeg { get; init; }
     }
 
     public sealed class TimingProfile
@@ -529,7 +549,7 @@ public static class SurfaceRemesher
             {
                 if (fallbackAttempt is not null &&
                     fallbackAttempt.Accepted &&
-                    (options.PreferReducedInteriorSeed || ShouldPreferBoundaryAndGuideSeedFallback(firstAttempt, fallbackAttempt)))
+                    (options.PreferReducedInteriorSeed || ShouldPreferBoundaryAndGuideSeedFallback(firstAttempt, fallbackAttempt, GetEffectiveMaxArea(options))))
                 {
                     profile.SetOutcome(success: true, returnedInputMesh: false, usedBoundaryAndGuideSeedFallback: true, selectedAttempt: "fallback");
                     return BuildAcceptedResult(fallbackAttempt, usedBoundaryAndGuideSeedFallback: true, profile);
@@ -587,6 +607,15 @@ public static class SurfaceRemesher
         // cause "Constraints could not be enforced" failures.
         if (targetLength > 0)
             dedupTolerance = Math.Min(dedupTolerance, targetLength * 0.25);
+        // Merge-by-distance: an explicit decimation threshold collapses near-duplicate input/constraint
+        // vertices (e.g. batter-toe pinches) that the model-tolerance dedup leaves distinct. It overrides
+        // the chain-protection caps above because it is a deliberate user request, not identity dedup.
+        if (options.VertexMergeTolerance > 0)
+        {
+            seedReuseTolerance = Math.Max(seedReuseTolerance, options.VertexMergeTolerance);
+            dedupTolerance = Math.Max(dedupTolerance, options.VertexMergeTolerance);
+        }
+
         double exactReuseTolerance = Math.Max(Math.Min(dedupTolerance * 0.01, 1e-6), 1e-9);
         var nearVertices = new NearVertexIndex(xyList, Math.Max(seedReuseTolerance, dedupTolerance));
 
@@ -760,6 +789,18 @@ public static class SurfaceRemesher
             }
         }
 
+        // Transient crease preservation: pin sharp feature edges (batter toes, slope breaks) so the
+        // re-triangulation keeps them smooth instead of flipping across them. Detected from geometry each
+        // pass and never persisted — stacking grades does not accumulate breaklines. Runs in BOTH the full
+        // and reduced-seed passes (EnsureSeedVertex adds any crease endpoint the reduced seed dropped), so
+        // enabling MaxArea — which often makes the remesh prefer the reduced-seed pass — keeps the creases.
+        if (options.PreserveCreaseAngleDeg > 0)
+        {
+            double cosThreshold = Math.Cos(Math.Clamp(options.PreserveCreaseAngleDeg, 1.0, 179.0) * Math.PI / 180.0);
+            foreach ((int a, int b) in DetectCreaseEdges(originalVertices, originalFaces, faceCount, cosThreshold))
+                MeshConstraintTools.TryAddSegment(segments, segmentKeys, EnsureSeedVertex(a), EnsureSeedVertex(b));
+        }
+
         if (options.GuidePolylines.Count > 0)
         {
             AddGuidePolylineSeeds(
@@ -886,6 +927,65 @@ public static class SurfaceRemesher
                 : fallbackAttempt.Prepared.AddedProtectedVertices,
             Profile = profile
         };
+    }
+
+    /// <summary>
+    /// Interior edges whose two faces meet at a dihedral angle ≥ the threshold (cos ≤
+    /// <paramref name="cosThreshold"/>) — the mesh's crease/feature lines (batter toes, slope breaks).
+    /// Returned as original-vertex index pairs. Boundary edges (one face) are excluded; they are already
+    /// constrained as the mesh outline.
+    /// </summary>
+    internal static List<(int a, int b)> DetectCreaseEdges(double[] vertices, int[] faces, int faceCount, double cosThreshold)
+    {
+        var edgeFaces = new Dictionary<long, (int f0, int f1, int count)>(faceCount * 2);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int v0 = faces[f * 3], v1 = faces[f * 3 + 1], v2 = faces[f * 3 + 2];
+            Accumulate(v0, v1, f);
+            Accumulate(v1, v2, f);
+            Accumulate(v2, v0, f);
+        }
+
+        var creases = new List<(int, int)>();
+        foreach (KeyValuePair<long, (int f0, int f1, int count)> entry in edgeFaces)
+        {
+            if (entry.Value.count != 2)
+                continue;
+
+            FaceNormal(vertices, faces, entry.Value.f0, out double n0x, out double n0y, out double n0z);
+            FaceNormal(vertices, faces, entry.Value.f1, out double n1x, out double n1y, out double n1z);
+            double l0 = Math.Sqrt((n0x * n0x) + (n0y * n0y) + (n0z * n0z));
+            double l1 = Math.Sqrt((n1x * n1x) + (n1y * n1y) + (n1z * n1z));
+            if (l0 <= 1e-18 || l1 <= 1e-18)
+                continue;
+
+            double cos = ((n0x * n1x) + (n0y * n1y) + (n0z * n1z)) / (l0 * l1);
+            if (cos <= cosThreshold)
+                creases.Add(((int)(entry.Key >> 32), (int)(entry.Key & 0xFFFFFFFFL)));
+        }
+
+        return creases;
+
+        void Accumulate(int a, int b, int face)
+        {
+            long key = ((long)Math.Min(a, b) << 32) | (uint)Math.Max(a, b);
+            if (!edgeFaces.TryGetValue(key, out (int f0, int f1, int count) e))
+                edgeFaces[key] = (face, -1, 1);
+            else if (e.count == 1)
+                edgeFaces[key] = (e.f0, face, 2);
+            else
+                edgeFaces[key] = (e.f0, e.f1, e.count + 1);
+        }
+    }
+
+    private static void FaceNormal(double[] v, int[] faces, int face, out double nx, out double ny, out double nz)
+    {
+        int a = faces[face * 3], b = faces[face * 3 + 1], c = faces[face * 3 + 2];
+        double ux = v[b * 3] - v[a * 3], uy = v[b * 3 + 1] - v[a * 3 + 1], uz = v[b * 3 + 2] - v[a * 3 + 2];
+        double wx = v[c * 3] - v[a * 3], wy = v[c * 3 + 1] - v[a * 3 + 1], wz = v[c * 3 + 2] - v[a * 3 + 2];
+        nx = (uy * wz) - (uz * wy);
+        ny = (uz * wx) - (ux * wz);
+        nz = (ux * wy) - (uy * wx);
     }
 
     private static AttemptEvaluation EvaluateAttempt(
@@ -1074,7 +1174,11 @@ public static class SurfaceRemesher
             GuidePolylines = options.GuidePolylines,
             MaxArea = maxArea,
             MinAngle = 0.0,
-            ProtectSharpEdges = options.ProtectSharpEdges
+            ProtectSharpEdges = options.ProtectSharpEdges,
+            // Carry the feature-preserving knobs so the reduced-seed fallback (which a MaxArea pass often
+            // prefers) keeps creases merged/pinned too — otherwise enabling MaxArea silently dropped them.
+            VertexMergeTolerance = options.VertexMergeTolerance,
+            PreserveCreaseAngleDeg = options.PreserveCreaseAngleDeg
         };
     }
 
@@ -1201,12 +1305,20 @@ public static class SurfaceRemesher
         }
     }
 
-    private static bool ShouldPreferBoundaryAndGuideSeedFallback(AttemptEvaluation initialAttempt, AttemptEvaluation fallbackAttempt)
+    private static bool ShouldPreferBoundaryAndGuideSeedFallback(
+        AttemptEvaluation initialAttempt, AttemptEvaluation fallbackAttempt, double targetMaxArea)
     {
         double initialScore = Math.Max(initialAttempt.MaxConstraintTriangleArea, initialAttempt.MaxPerimeterTriangleArea);
         double fallbackScore = Math.Max(fallbackAttempt.MaxConstraintTriangleArea, fallbackAttempt.MaxPerimeterTriangleArea);
 
         if (initialScore <= 0.0 || fallbackScore <= 0.0)
+            return false;
+
+        // Keep the full-seed result — it preserves the input's structured topology (batter rows, graded
+        // corridors) — whenever it already satisfies the area target near constraints. The coarse
+        // boundary/guide re-seed is only worth its loss of structure when the full-seed pass genuinely
+        // could not refine there (carried/constraint vertices blocked it), i.e. it overshoots the target.
+        if (targetMaxArea > 0.0 && initialScore <= targetMaxArea)
             return false;
 
         return fallbackScore < initialScore * 0.85;

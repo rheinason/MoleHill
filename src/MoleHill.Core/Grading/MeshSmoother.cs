@@ -565,7 +565,12 @@ public static class MeshSmoother
         }
     }
 
-    private static void BuildNeighborGraph(
+    /// <summary>
+    /// Builds CSR vertex adjacency from a triangle list: <paramref name="neighborOffsets"/>[v] ..
+    /// [v+1] index into <paramref name="neighborIndices"/>; <paramref name="isMeshBoundary"/> marks
+    /// vertices on a naked edge. Public because the sculpt brush engine reuses it for its Smooth brush.
+    /// </summary>
+    public static void BuildNeighborGraph(
         int vertexCount,
         int[] faces,
         int faceCount,

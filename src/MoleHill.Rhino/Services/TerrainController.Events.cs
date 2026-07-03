@@ -195,6 +195,9 @@ internal sealed partial class TerrainController
             return;
 
         var key = nextItem.Value;
+        if (ShouldDeferBuildForSculpt(key.terrainId))
+            return; // an active sculpt stroke owns the preview mesh; dispatch between strokes instead
+
         var doc = RhinoDoc.FromRuntimeSerialNumber(key.docSerial);
         if (doc == null)
         {

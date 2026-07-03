@@ -124,8 +124,38 @@ internal sealed partial class TerrainBuildService
                 () => $"{build.ZoneObjects.Count:N0} zone outputs",
                 shouldCancel);
 
-            BuildObjectPlacements(snapshot, terrain, analysisMesh, build, shouldCancel);
-            BuildScatterPlacements(snapshot, terrain, analysisMesh, build, shouldCancel);
+            string markersStageKey = TerrainStageKey.ForMode(mode, "markers");
+            usedStageKeys.Add(markersStageKey);
+            ExecuteCachedMarkersStage(
+                build,
+                runtimeCache,
+                markersStageKey,
+                ComputeMarkersFingerprint(snapshot, terrain, analysisMesh, currentMeshFingerprint),
+                () => BuildMarkers(snapshot, terrain, analysisMesh, build, shouldCancel),
+                () => $"{build.MarkerObjects.Count:N0} marker outputs",
+                shouldCancel);
+
+            string objectsStageKey = TerrainStageKey.ForMode(mode, "objects");
+            usedStageKeys.Add(objectsStageKey);
+            ExecuteCachedObjectsStage(
+                build,
+                runtimeCache,
+                objectsStageKey,
+                ComputeObjectsFingerprint(snapshot, terrain, analysisMesh, currentMeshFingerprint),
+                () => BuildObjectPlacements(snapshot, terrain, analysisMesh, build, shouldCancel),
+                () => $"{build.ObjectPlacements.Sum(static group => group.Placements.Count):N0} object placements",
+                shouldCancel);
+
+            string scatterStageKey = TerrainStageKey.ForMode(mode, "scatter");
+            usedStageKeys.Add(scatterStageKey);
+            ExecuteCachedScatterStage(
+                build,
+                runtimeCache,
+                scatterStageKey,
+                ComputeScatterFingerprint(snapshot, terrain, analysisMesh, currentMeshFingerprint),
+                () => BuildScatterPlacements(snapshot, terrain, analysisMesh, build, shouldCancel),
+                () => $"{build.ScatterObjects.Count:N0} scatter outputs",
+                shouldCancel);
         }
 
         ThrowIfCancellationRequested(shouldCancel);
@@ -316,6 +346,94 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(stageName, timer.Elapsed, detailFactory());
     }
 
+    private static void ExecuteCachedObjectsStage(
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey,
+        ulong stageFingerprint,
+        Action action,
+        Func<string?> detailFactory,
+        Func<bool>? shouldCancel)
+    {
+        const string stageName = "Objects";
+        var timer = Stopwatch.StartNew();
+        ThrowIfCancellationRequested(shouldCancel);
+        if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
+            cachedEntry.PreResolutionFingerprint == stageFingerprint)
+        {
+            build.Diagnostics.AddRange(cachedEntry.Diagnostics);
+            build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
+            build.ObjectPlacements.AddRange(TerrainRuntimeCacheCloner.CloneObjectPlacementGroups(cachedEntry.ObjectPlacements));
+            timer.Stop();
+            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
+            return;
+        }
+
+        int diagnosticsStart = build.Diagnostics.Count;
+        int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
+        int objectStart = build.ObjectPlacements.Count;
+        action();
+        ThrowIfCancellationRequested(shouldCancel);
+        timer.Stop();
+
+        runtimeCache.StageEntries[stageKey] = new StageCacheEntry
+        {
+            StageName = stageName,
+            PreResolutionFingerprint = stageFingerprint,
+            ResolvedInputFingerprint = stageFingerprint,
+            OutputFingerprint = stageFingerprint,
+            ObjectPlacements = TerrainRuntimeCacheCloner.CloneObjectPlacementGroups(build.ObjectPlacements.Skip(objectStart)),
+            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
+            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
+        };
+
+        build.RecordTiming(stageName, timer.Elapsed, detailFactory());
+    }
+
+    private static void ExecuteCachedScatterStage(
+        TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey,
+        ulong stageFingerprint,
+        Action action,
+        Func<string?> detailFactory,
+        Func<bool>? shouldCancel)
+    {
+        const string stageName = "Scatter";
+        var timer = Stopwatch.StartNew();
+        ThrowIfCancellationRequested(shouldCancel);
+        if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
+            cachedEntry.PreResolutionFingerprint == stageFingerprint)
+        {
+            build.Diagnostics.AddRange(cachedEntry.Diagnostics);
+            build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
+            build.ScatterObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.ScatterObjects));
+            timer.Stop();
+            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
+            return;
+        }
+
+        int diagnosticsStart = build.Diagnostics.Count;
+        int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
+        int scatterStart = build.ScatterObjects.Count;
+        action();
+        ThrowIfCancellationRequested(shouldCancel);
+        timer.Stop();
+
+        runtimeCache.StageEntries[stageKey] = new StageCacheEntry
+        {
+            StageName = stageName,
+            PreResolutionFingerprint = stageFingerprint,
+            ResolvedInputFingerprint = stageFingerprint,
+            OutputFingerprint = stageFingerprint,
+            ScatterObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.ScatterObjects.Skip(scatterStart)),
+            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
+            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
+        };
+
+        build.RecordTiming(stageName, timer.Elapsed, detailFactory());
+    }
+
     private static RhinoMesh? WarnMissingMesh(TerrainBuildResult build, string modifierLabel)
     {
         build.Diagnostics.Add($"{modifierLabel} requires a terrain mesh generated earlier in the stack.");
@@ -496,7 +614,9 @@ internal sealed partial class TerrainBuildService
     private static string DescribeBuildOutputs(TerrainBuildResult build)
     {
         return $"{DescribeMesh(build.PrimaryMesh) ?? "no mesh"}; " +
-               $"{build.ZoneObjects.Count:N0} zone outputs, {build.AuxiliaryObjects.Count:N0} auxiliary outputs, {CountObjectPlacements(build):N0} object placements";
+               $"{build.ZoneObjects.Count:N0} zone outputs, {build.AuxiliaryObjects.Count:N0} auxiliary outputs, " +
+               $"{build.MarkerObjects.Count:N0} marker outputs, {CountObjectPlacements(build):N0} object placements, " +
+               $"{build.ScatterObjects.Count:N0} scatter outputs";
     }
 
     private static int CountObjectPlacements(TerrainBuildResult build)

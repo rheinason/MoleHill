@@ -16,7 +16,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         Func<bool>? shouldCancel,
         string? fallbackLayerPath = null)
     {
-        mesh.Normals.ComputeNormals();
+        mesh.FaceNormals.ComputeFaceNormals();
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         int sourceCount = 0;
         int outputCount = 0;
@@ -45,7 +45,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 double segmentLength = Math.Max(0.0, curve.GetLength(new Interval(previous.Parameter, current.Parameter)));
 
                 // Label at the segment midpoint, draped onto the terrain. Both the slope magnitude and
-                // the arrow come from the terrain normal there (true steepest grade + downhill aspect),
+                // the arrow come from the terrain normal there (true steepest grade + uphill aspect),
                 // independent of the curve's own direction or Z.
                 Point3d midXy = Midpoint(previous.Point, current.Point);
                 if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, midXy, snapshot.ModelAbsoluteTolerance, out Point3d labelPoint, out var meshPoint) ||
@@ -55,7 +55,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                     continue;
                 }
 
-                Vector3d normal = mesh.NormalAt(meshPoint);
+                Vector3d normal = GetTerrainSlopeNormal(mesh, meshPoint);
                 double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
                 double slopeRatio = Math.Tan(slopeRadians);
                 double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
@@ -201,7 +201,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         Func<bool>? shouldCancel,
         string? fallbackLayerPath = null)
     {
-        mesh.Normals.ComputeNormals();
+        mesh.FaceNormals.ComputeFaceNormals();
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         int sourceCount = 0;
         int outputCount = 0;
@@ -221,7 +221,7 @@ internal static class TerrainAnalysisAnnotationBuilder
             if (meshPoint == null)
                 continue;
 
-            Vector3d normal = mesh.NormalAt(meshPoint);
+            Vector3d normal = GetTerrainSlopeNormal(mesh, meshPoint);
             double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
             double slopeRatio = Math.Tan(slopeRadians);
             double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
@@ -257,7 +257,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         Func<bool>? shouldCancel,
         string? fallbackLayerPath = null)
     {
-        mesh.Normals.ComputeNormals();
+        mesh.FaceNormals.ComputeFaceNormals();
         double tolerance = snapshot.ModelAbsoluteTolerance;
         var boundaries = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, analysis.Sources);
         var bounds = mesh.GetBoundingBox(true);
@@ -284,7 +284,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                     meshPoint == null)
                     continue;
 
-                Vector3d normal = mesh.NormalAt(meshPoint);
+                Vector3d normal = GetTerrainSlopeNormal(mesh, meshPoint);
                 Vector3d direction = GetTerrainSlopeDirection(normal, tolerance, analysis.FlipDirection);
                 if (!direction.IsValid)
                     continue; // flat node: no meaningful downhill aspect, so no arrow
@@ -1044,6 +1044,19 @@ internal static class TerrainAnalysisAnnotationBuilder
         return direction.Length <= tolerance
             ? Vector3d.Unset
             : direction;
+    }
+
+    private static Vector3d GetTerrainSlopeNormal(RhinoMesh mesh, MeshPoint meshPoint)
+    {
+        int faceIndex = meshPoint.FaceIndex;
+        if (faceIndex >= 0 && faceIndex < mesh.FaceNormals.Count)
+        {
+            Vector3d faceNormal = mesh.FaceNormals[faceIndex];
+            if (faceNormal.IsValid && faceNormal.Unitize())
+                return faceNormal;
+        }
+
+        return mesh.NormalAt(meshPoint);
     }
 
     private static bool IsInsideAnyBoundary(Point3d point, IReadOnlyList<Curve> boundaries, double tolerance)

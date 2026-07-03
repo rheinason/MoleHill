@@ -73,6 +73,59 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
+    private static ulong ComputeObjectsFingerprint(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        RhinoMesh mesh,
+        ulong currentMeshFingerprint)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("Objects");
+        builder.Add(snapshot.ModelAbsoluteTolerance);
+        builder.Add(currentMeshFingerprint != 0 ? currentMeshFingerprint : ComputeMeshFingerprint(mesh));
+
+        foreach (var definition in terrain.Objects.Where(item => item.IsEnabled && item is not ScatterObjectDefinition))
+        {
+            AddSerializedFingerprint(ref builder, definition, definition.GetType());
+            foreach (var sourceSet in definition.EnumerateSourceSets())
+                builder.Add(ComputeSourceSetFingerprint(snapshot, sourceSet));
+        }
+
+        return builder.ToUInt64();
+    }
+
+    private static ulong ComputeScatterFingerprint(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        RhinoMesh mesh,
+        ulong currentMeshFingerprint)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("Scatter");
+        builder.Add(snapshot.ModelAbsoluteTolerance);
+        builder.Add(currentMeshFingerprint != 0 ? currentMeshFingerprint : ComputeMeshFingerprint(mesh));
+
+        foreach (var definition in terrain.Objects.OfType<ScatterObjectDefinition>().Where(item => item.IsEnabled))
+        {
+            AddSerializedFingerprint(ref builder, definition, definition.GetType());
+            foreach (var sourceSet in definition.EnumerateSourceSets())
+                builder.Add(ComputeSourceSetFingerprint(snapshot, sourceSet));
+        }
+
+        foreach (var entry in snapshot.BlockDefinitionBounds.OrderBy(static item => item.Key, StringComparer.Ordinal))
+        {
+            builder.Add(entry.Key);
+            builder.Add(entry.Value.Min.X);
+            builder.Add(entry.Value.Min.Y);
+            builder.Add(entry.Value.Min.Z);
+            builder.Add(entry.Value.Max.X);
+            builder.Add(entry.Value.Max.Y);
+            builder.Add(entry.Value.Max.Z);
+        }
+
+        return builder.ToUInt64();
+    }
+
     private static ulong ComputeSourceSetFingerprint(TerrainBuildSnapshot snapshot, SourceReferenceSet sourceSet)
     {
         return TerrainBuildSnapshotResolver.GetSourceSetFingerprint(snapshot, sourceSet);

@@ -270,23 +270,23 @@ public class PadGraderTests
         var faces = BuildGridFaces(5);
         var pads = BuildPads();
 
-        var legacy = PadGrader.Grade(
+        var result = PadGrader.Grade(
             vertices,
             vertices.Length / 3,
             faces,
             faces.Length / 3,
             pads,
             null,
-            out var legacyWarning);
+            out var warning);
 
-        Assert.True(legacy != null, legacyWarning);
-        Assert.True(string.IsNullOrWhiteSpace(legacyWarning) || !legacyWarning.Contains("failed", StringComparison.OrdinalIgnoreCase));
+        Assert.True(result != null, warning);
+        Assert.True(string.IsNullOrWhiteSpace(warning) || !warning.Contains("failed", StringComparison.OrdinalIgnoreCase));
 
-        Assert.True(legacy!.VertexCount > 0);
-        Assert.True(legacy.FaceCount > 0);
-        Assert.Equal(pads.Length, legacy.OutputPolylines.Count);
-        Assert.All(legacy.OutputPolylines, polyline => Assert.True(polyline.IsClosed));
-        Assert.All(legacy.Vertices, static value => Assert.True(double.IsFinite(value)));
+        Assert.True(result!.VertexCount > 0);
+        Assert.True(result.FaceCount > 0);
+        Assert.Equal(pads.Length, result.OutputPolylines.Count);
+        Assert.All(result.OutputPolylines, polyline => Assert.True(polyline.IsClosed));
+        Assert.All(result.Vertices, static value => Assert.True(double.IsFinite(value)));
     }
 
     [Fact]

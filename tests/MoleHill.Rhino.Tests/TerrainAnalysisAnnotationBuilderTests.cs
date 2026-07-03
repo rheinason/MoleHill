@@ -37,6 +37,35 @@ public class TerrainAnalysisAnnotationBuilderTests
     }
 
     [RhinoNativeFact]
+    public void BuildCurveSlopeSummary_UsesHitFaceNormal_NotSmoothedVertexNormal()
+    {
+        var analysis = new CurveSlopeLabelAnalysisDefinition
+        {
+            IsEnabled = true,
+            Interval = 100.0,
+            Unit = MoleHill.Core.Analysis.SlopeAnalyzer.SlopeUnit.Degrees,
+            ValueFormat = "F1"
+        };
+        var sourceCurve = new LineCurve(
+            new Point3d(0.20, 0.20, 10.0),
+            new Point3d(0.30, 0.20, 10.0));
+        var snapshot = CreateSnapshot(analysis, sourceCurve);
+
+        var build = new TerrainBuildResult();
+        var summary = TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(
+            snapshot,
+            CreateSlopedFaceWithSkewedNeighborMesh(),
+            analysis,
+            build,
+            shouldCancel: null);
+
+        Assert.Equal(1, summary.GeneratedOutputCount);
+        Assert.Equal(45.0, summary.SampleMinValue, precision: 3);
+        var output = Assert.Single(build.AuxiliaryObjects);
+        Assert.Equal("45.0", output.InstanceUserStrings?[GeneratedBlockCatalog.ValueToken]);
+    }
+
+    [RhinoNativeFact]
     public void BuildCurveElevationSummary_ProjectsSamplesAlongWorldZ()
     {
         var analysis = new CurveElevationLabelAnalysisDefinition
@@ -240,6 +269,21 @@ public class TerrainAnalysisAnnotationBuilderTests
         mesh.Vertices.Add(10.0, 10.0, 100.0);
         mesh.Faces.AddFace(0, 1, 3, 2);
         mesh.Normals.ComputeNormals();
+        mesh.Compact();
+        return mesh;
+    }
+
+    private static Mesh CreateSlopedFaceWithSkewedNeighborMesh()
+    {
+        var mesh = new Mesh();
+        mesh.Vertices.Add(0.0, 0.0, 0.0);
+        mesh.Vertices.Add(1.0, 0.0, 1.0);
+        mesh.Vertices.Add(0.0, 1.0, 0.0);
+        mesh.Vertices.Add(1.0, 1.0, 100.0);
+        mesh.Faces.AddFace(0, 1, 2);
+        mesh.Faces.AddFace(1, 3, 2);
+        mesh.Normals.ComputeNormals();
+        mesh.FaceNormals.ComputeFaceNormals();
         mesh.Compact();
         return mesh;
     }

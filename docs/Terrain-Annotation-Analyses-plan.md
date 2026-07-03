@@ -40,17 +40,17 @@
   - Default block strategy:                                                                                                             
     - Ship one MoleHill annotation block family for analysis outputs.                                                                   
     - Allow per-analysis override to an existing Rhino block definition.                                                                
-    - Default orientation is `World XY`.                                                                                                
-    - No live rotation logic in v1; if users want rotated results, that is a post-bake/manual workflow for now.                         
+    - Default slope annotation arrows point uphill, matching typical landscape slope annotation.                                        
+    - Use the per-card `Flip Arrow` option only when an alternate office convention needs the opposite direction.                       
                                                                                                                                         
   ### Tool-specific behavior                                                                                                            
                                                                                                                                         
   #### CurveSlopeLabelAnalysisDefinition                                                                                                
   - Curve sources only.                                                                                                                 
   - Fixed interval sampling by curve length.                                                                                            
-  - Terrain-projected slope only.                                                                                                       
+  - Terrain-projected slope only; the curve controls label placement, not measured slope direction or magnitude.                       
   - Include start/end and curve segment breakpoints in addition to interval samples.                                                    
-  - Compute grade from projected spans using horizontal run.                                                                            
+  - Sample local terrain slope from the mesh normal at each projected label point.                                                      
   - Place one block per span midpoint.                                                                                                  
   - Tokens:                                                                                                                             
     - `VALUE` = slope value                                                                                                             

@@ -111,8 +111,8 @@ public static partial class PadGrader
         pads = OrderPadsForOwnership(pads);
 
         // Primary path: explicit batter construction. Deterministic geometry, slope exact by
-        // construction, terrain outside the daylight loops left intact. Falls through to the legacy
-        // constraint-first path only when it cannot produce a watertight, manifold result.
+        // construction, terrain outside the daylight loops left intact. Defers only when it cannot
+        // produce a watertight, manifold result.
         GradingResult? explicitResult = GradeWithExplicitBatter(
             vertices,
             vertexCount,
@@ -140,8 +140,8 @@ public static partial class PadGrader
 
         // Middle tier: conform the terrain to the daylight loops and keep the whole mesh. Watertight
         // by construction (no carve/fill/weld seam); batter slopes follow conformed terrain density so
-        // they can be slightly faceted, but there are no holes or spikes. Defers cleanly to the legacy
-        // constraint-first rebuild when the area splitter cannot conform the scene manifold.
+        // they can be slightly faceted, but there are no holes or spikes. Defers cleanly to
+        // region-remesh when the area splitter cannot conform the scene manifold.
         GradingResult? splitKeep = GradeWithSplitKeep(
             vertices,
             vertexCount,
@@ -170,7 +170,7 @@ public static partial class PadGrader
         // Robust fallback: replace the affected region with a clean dense remesh graded by distance
         // field. Watertight by construction (rim is original terrain vertices, interior is one fresh
         // triangulation), so it catches dense/degenerate scenes the conforming tiers defer — a
-        // spike-free, hole-free result instead of the legacy whole-mesh rebuild's spikes.
+        // spike-free, hole-free result.
         GradingResult? regionRemesh = GradeWithRegionRemesh(
             vertices,
             vertexCount,
@@ -192,8 +192,8 @@ public static partial class PadGrader
         }
 
         // All construction tiers (explicit batter, split-keep conform, region remesh) deferred. The
-        // legacy constraint-first / refined-Z whole-mesh rebuild used to catch this, but it produced
-        // spikes on exactly the degenerate scenes that reach here, so it was removed. Fail cleanly with
+        // The removed whole-mesh rebuild used to catch this, but it produced spikes on exactly the
+        // degenerate scenes that reach here. Fail cleanly with
         // the recorded reason rather than emit a non-watertight result.
         errorMessage = string.IsNullOrWhiteSpace(regionRemeshFailureReason)
             ? "Grade Pad could not produce a watertight result for this scene."

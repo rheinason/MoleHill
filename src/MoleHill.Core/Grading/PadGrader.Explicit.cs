@@ -20,7 +20,7 @@ public static partial class PadGrader
     /// away. The slope is exact by construction and independent of terrain density. Interacting pads
     /// (overlapping daylight) are resolved together over their unified region by priority ownership.
     /// Returns null (without throwing) when it cannot produce a watertight, manifold result, so the
-    /// caller can fall back to the legacy constraint-first path.
+    /// caller can try the next watertight tier.
     /// </summary>
     private static GradingResult? GradeWithExplicitBatter(
         double[] vertices,
@@ -78,7 +78,7 @@ public static partial class PadGrader
             List<double[]>? unionLoops = UnionGroupDaylight(members, tolerance);
             if (unionLoops is null)
             {
-                errorMessage = "Grade Pad interacting pad group could not be unioned; deferring to constraint-first path.";
+                errorMessage = "Grade Pad interacting pad group could not be unioned; deferring to the next tier.";
                 return null;
             }
 
@@ -116,7 +116,7 @@ public static partial class PadGrader
                 boundaryXyz, boundaryLoop, boundaryLoop.Length, holeMembers, terrain, barriers, tolerance);
             if (fill is null)
             {
-                errorMessage = "Grade Pad hole fill failed; deferring to constraint-first path.";
+                errorMessage = "Grade Pad hole fill failed; deferring to the next tier.";
                 return null;
             }
 
@@ -278,7 +278,7 @@ public static partial class PadGrader
         }
 
         // Watertight/manifold by construction — but gate anyway: the area splitter can go non-manifold
-        // on dense/nested loops, and we must defer cleanly to the legacy path rather than emit it.
+        // on dense/nested loops, and we must defer cleanly rather than emit it.
         MeshTopologyValidator.BoundaryGraphAnalysis topology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(conformed.Faces, conformed.FaceCount);
         MeshTopologyValidator.BoundaryGraphAnalysis terrainTopology =
@@ -501,11 +501,17 @@ public static partial class PadGrader
                 nonDaylightingStations++;
         }
 
-        double[] daylightXy = loop.DaylightXy();
+        // A batter run clamped to a retaining-wall barrier emits one daylight point per footprint
+        // station, all on the wall's straight breakline segments. Left dense, the kept terrain below
+        // the wall is fanned from that ring down to the sparse wall-toe vertices, slivering the wall
+        // face. Collapse each clamped run back to the barrier's own (terrain) vertices so the carve loop
+        // follows the wall breakline instead of re-tessellating it. The full-density station loop is
+        // kept for the batter strip seeds; only the carve loop is decimated.
+        double[] daylightXy = BatterStripBuilder.BuildDecimatedCarveXy(loop, barriers, tolerance);
 
         // Self-overlapping shoulders (narrow or concave pads whose opposite batters collide) fold
         // the daylight loop back across the footprint. The simple ruled strip cannot resolve that
-        // collision, so defer to the constraint-first path.
+        // collision, so defer to the next tier.
         // A daylight point that lands strictly inside the footprint means the shoulder folded back
         // across the pad. Stations where terrain already sits at pad grade are Flat: their daylight
         // point collapses ONTO the footprint boundary (reach ~ 0), which is not a fold — exclude
@@ -514,7 +520,7 @@ public static partial class PadGrader
         // figure-8. Resolve that self-overlap into the clean outer envelope with a Clipper union
         // (as the path corridor does) rather than deferring the whole batch; batter seeds that fall
         // outside the envelope are dropped later in BuildHoleFill.
-        int daylightCount = loop.Count;
+        int daylightCount = daylightXy.Length / 2;
         if (ClosedPolylineHasSelfIntersection(daylightXy, daylightCount))
         {
             if (ClipperGeometry.TryUnionClosedLoops(new[] { daylightXy }, tolerance, out List<double[]> cleanedLoops) &&
@@ -526,7 +532,7 @@ public static partial class PadGrader
             }
             else
             {
-                errorMessage = "Grade Pad batter shoulders self-overlap and could not be resolved; deferring to constraint-first path.";
+                errorMessage = "Grade Pad batter shoulders self-overlap and could not be resolved; deferring to the next tier.";
                 return null;
             }
         }
@@ -536,7 +542,7 @@ public static partial class PadGrader
         double foldMargin = Math.Max(tolerance, segmentLength * 0.05);
         if (AnyPointInsidePolygon(daylightXy, daylightCount, pad.XyVertices, pad.VertexCount, foldMargin))
         {
-            errorMessage = "Grade Pad batter shoulders fold across the pad; deferring to constraint-first path.";
+            errorMessage = "Grade Pad batter shoulders fold across the pad; deferring to the next tier.";
             return null;
         }
 

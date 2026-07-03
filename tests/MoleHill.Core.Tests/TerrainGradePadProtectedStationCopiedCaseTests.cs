@@ -7,7 +7,7 @@ namespace MoleHill.Core.Tests;
 public class TerrainGradePadProtectedStationCopiedCaseTests
 {
     [Fact]
-    public void Grade_ProtectedSinglePad_UsesConstraintFirstStationTopology()
+    public void Grade_ProtectedSinglePad_ProducesWatertightFlatResult()
     {
         double[] vertices =
         {

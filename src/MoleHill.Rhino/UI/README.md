@@ -1,21 +1,28 @@
 # MoleHill.Rhino/UI
 
-The dockable terrain panel (Eto.Forms) and its dialogs. Composes reusable card/editor primitives — add
+The dockable terrain panel (Eto.Forms) and its dialogs. Composes reusable card/editor primitives - add
 fields by composing them, not by copying boilerplate.
 
-- `MoleHillPanel.cs` + `MoleHillPanel.*.cs` partials — the panel, split by concern:
-  `.Cards.cs` (collapsible "stack card" framework), `.Editors.cs` (form-control vocabulary —
-  `CreateSourceEditor`/`CreateNumericEditor`/`CreateDropDownEditor`/…), `.Schema.cs` (schema → card-row
-  builder for registry-driven modifier cards), and per-tab card builders `.Modifiers.cs`, `.Analysis.cs`,
-  `.Objects.cs`, `.LayerPickers.cs`. The main file holds the toolbar, terrain-level actions, layout
-  refresh, zones/markers cards, and shared helpers.
-- `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` — the Insert-style block picker for Scatter,
+- `MoleHillPanel.cs` + `MoleHillPanel.*.cs` partials - the panel, split by concern:
+  `.Actions.cs` (terrain-level create/copy/delete/convert/bake/rebuild/reset actions),
+  `.Cards.cs` (collapsible "stack card" framework), `.Editors.cs` (form-control vocabulary -
+  `CreateSourceEditor`/`CreateNumericEditor`/`CreateDropDownEditor`/...), `.Schema.cs` (schema to
+  card-row builder for registry-driven modifier cards), `.Status.cs` (build status, copy log, copy case,
+  and structured diagnostic formatting), and per-tab card builders `.Modifiers.cs`, `.Zones.cs`,
+  `.Markers.cs`, `.Analysis.cs`, `.Objects.cs`, `.LayerPickers.cs`. The main file holds the toolbar,
+  layout refresh, and shared helpers.
+- `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter,
   with Eto-drawn isometric thumbnails.
-- `LayerTemplateEditorDialog.cs` — graphical layer-template editor: a `TreeGridView` of the layer
+- `LayerTemplateEditorDialog.cs` - graphical layer-template editor: a `TreeGridView` of the layer
   hierarchy with display/print color swatches and plot-weight, a properties panel for the selected
-  layer, multi-template management, and JSON import/export. `SlowBuildWarningDialog.cs` — other dialog.
-- `PanelIcons.cs` — 16×16 panel tab/badge icon loader. `UiTheme.cs` — colors/spacing.
+  layer, multi-template management, and JSON import/export. `SlowBuildWarningDialog.cs` is the other
+  dialog.
+- `SculptToolbarForm.cs` - the floating sculpt mini-toolbar: borderless, non-activating, Topmost,
+  pinned over the active viewport corner while a sculpt session runs (brush buttons, radius/strength
+  sliders, falloff, DynTopo, Done). Only edits session prefs; returns focus to Rhino after every
+  interaction so viewport shortcuts keep working. Owned by `Services/SculptSessionController`.
+- `PanelIcons.cs` - 16x16 panel tab/badge icon loader. `UiTheme.cs` - colors/spacing.
 
 Tabs: Modifiers, Zones (Objects), Analysis, Markers. The panel talks to `Services/TerrainController`;
-it holds no terrain logic. No automated tests (needs the Rhino runtime) — verify UI changes by compile
-+ a Rhino smoke load.
+it holds no terrain logic. No automated UI tests (needs the Rhino runtime) - verify UI changes by compile
+and a Rhino smoke load.

@@ -1,0 +1,47 @@
+using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
+using Rhino;
+using RhinoObjectType = Rhino.DocObjects.ObjectType;
+
+namespace MoleHill.Rhino.Registry;
+
+internal sealed class RetopoModifierDescriptor : ModifierTypeDescriptor
+{
+    public override string Kind => "retopo";
+    public override Type DefinitionType => typeof(RetopoModifierDefinition);
+    public override string DisplayName => "Retopo";
+    public override string IconName => "ModRetopo";
+    public override int SortOrder => 4;
+    public override string Subtitle => "Quad retopology (field preview)";
+    public override ModifierDefinition Create(UnitSystem unitSystem) => new RetopoModifierDefinition();
+    public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetopoStage(context);
+
+    public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
+    {
+        ParameterDescriptor.Sources(
+            "Constraints", "Constraints",
+            m => ((RetopoModifierDefinition)m).Constraints,
+            RhinoObjectType.Curve,
+            "Extra feature curves (road edges, ridges) the quad flow should follow, in addition to detected creases and the terrain boundary."),
+        ParameterDescriptor.Bool(
+            "Quads", "Quads",
+            m => ((RetopoModifierDefinition)m).Quads,
+            (m, v) => ((RetopoModifierDefinition)m).Quads = v,
+            "Replace the terrain with the extracted quad-dominant mesh that flows along the features (uses Edge Length as the quad size). Terminal — keep Retopo last in the stack, after grading and analysis. Off = keep the input mesh and only preview the field."),
+        ParameterDescriptor.Bool(
+            "ShowField", "Show field",
+            m => ((RetopoModifierDefinition)m).ShowField,
+            (m, v) => ((RetopoModifierDefinition)m).ShowField = v,
+            "Draw the computed cross-field as a flow-cross overlay (short crossed segments along the two quad directions, colored by direction) so you can confirm the flow runs along features. Off = no overlay."),
+        ParameterDescriptor.Number(
+            "CreaseAngle", "Crease Angle",
+            m => ((RetopoModifierDefinition)m).CreaseAngle,
+            (m, v) => ((RetopoModifierDefinition)m).CreaseAngle = v,
+            "Align the field to interior creases (batter toes, slope breaks) folding at least this many degrees. Around 20-35 catches feature lines; 0 = align to boundary + constraint curves only."),
+        ParameterDescriptor.Number(
+            "TargetEdgeLength", "Edge Length",
+            m => ((RetopoModifierDefinition)m).TargetEdgeLength,
+            (m, v) => ((RetopoModifierDefinition)m).TargetEdgeLength = v,
+            "Target quad size for the later extraction stages. Not used yet by the Stage 1 field preview."),
+    };
+}

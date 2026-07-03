@@ -43,7 +43,15 @@ internal static class BatterStripBuilder
         double DayY,
         double DayZ,
         double Reach,
-        DaylightStatus Status);
+        DaylightStatus Status)
+    {
+        /// <summary>
+        /// When <see cref="Status"/> is <see cref="DaylightStatus.ClampedToBarrier"/>, the index (into
+        /// the prepared barriers) of the barrier segment the ray clipped against; -1 otherwise. Lets the
+        /// daylight loop be collapsed back onto the barrier's own (terrain) vertices along clamped runs.
+        /// </summary>
+        public int BarrierSegmentIndex { get; init; } = -1;
+    }
 
     /// <summary>An ordered ring (or open chain) of daylight stations around one footprint.</summary>
     internal sealed class DaylightLoop
@@ -221,8 +229,68 @@ internal static class BatterStripBuilder
                 barrierCandidates);
         }
 
+        RegularizeDaylightSpikes(stations, isClosed, terrain);
         return new DaylightLoop { Stations = stations, IsClosed = isClosed };
     }
+
+    /// <summary>
+    /// Tames the grazing-daylight instability. Where a cut batter daylights into rising terrain at a near
+    /// tangent angle, the zero-crossing of (grade − terrain) is ill-conditioned, so one station's ray
+    /// reaches far out while its neighbours stop short — a jagged daylight line that becomes sliver
+    /// "spikes" downstream. A one-pass median filter on the per-station reach clamps DOWN only the clear
+    /// outliers (a reach well above both neighbours): a smooth ramp keeps its median (unchanged), a single
+    /// spike collapses to its larger neighbour. Only daylighted stations are touched; the clamped point is
+    /// re-read on terrain so it still meets ground. Conservative by design — it never lengthens a reach, so
+    /// it cannot push a daylight point past where the batter actually meets the ground.
+    /// </summary>
+    internal static void RegularizeDaylightSpikes(DaylightStation[] stations, bool isClosed, TerrainFaceGrid terrain)
+    {
+        int n = stations.Length;
+        if (n < 3)
+            return;
+
+        const double spikeFactor = 1.5; // only clamp a reach more than 50% above its larger neighbour
+        var updated = (DaylightStation[])stations.Clone();
+        bool any = false;
+
+        int lo = isClosed ? 0 : 1;
+        int hi = isClosed ? n : n - 1;
+        for (int i = lo; i < hi; i++)
+        {
+            DaylightStation s = stations[i];
+            if (s.Status != DaylightStatus.Daylighted || s.Reach <= 1e-9)
+                continue;
+
+            int p = (i - 1 + n) % n;
+            int q = (i + 1) % n;
+            double median = Median3(stations[p].Reach, s.Reach, stations[q].Reach);
+            if (s.Reach <= median * spikeFactor)
+                continue;
+
+            double dirX = s.DayX - s.FootX;
+            double dirY = s.DayY - s.FootY;
+            double len = Math.Sqrt((dirX * dirX) + (dirY * dirY));
+            if (len <= 1e-12)
+                continue;
+
+            dirX /= len;
+            dirY /= len;
+            double dayX = s.FootX + (dirX * median);
+            double dayY = s.FootY + (dirY * median);
+            double dayZ = terrain.InterpolateZ(dayX, dayY);
+            updated[i] = new DaylightStation(s.FootX, s.FootY, s.FootZ, dayX, dayY, dayZ, median, s.Status)
+            {
+                BarrierSegmentIndex = s.BarrierSegmentIndex
+            };
+            any = true;
+        }
+
+        if (any)
+            Array.Copy(updated, stations, n);
+    }
+
+    private static double Median3(double a, double b, double c) =>
+        Math.Max(Math.Min(a, b), Math.Min(Math.Max(a, b), c));
 
     private static DaylightStation BuildStation(
         double fx,
@@ -287,6 +355,7 @@ internal static class BatterStripBuilder
         double dayX = fx + (nx * reach);
         double dayY = fy + (ny * reach);
 
+        int barrierSegmentIndex = -1;
         if (barriers.Segments.Length > 0 &&
             GradingBarriers.TryClipSegment(
                 barriers,
@@ -297,7 +366,8 @@ internal static class BatterStripBuilder
                 barrierScratch,
                 barrierCandidates,
                 out double clippedX,
-                out double clippedY))
+                out double clippedY,
+                out barrierSegmentIndex))
         {
             dayX = clippedX;
             dayY = clippedY;
@@ -314,11 +384,146 @@ internal static class BatterStripBuilder
             ? terrain.InterpolateZ(dayX, dayY)
             : fz + (branchSign * slopeRatio * reach);
 
-        return new DaylightStation(fx, fy, fz, dayX, dayY, dayZ, reach, status);
+        return new DaylightStation(fx, fy, fz, dayX, dayY, dayZ, reach, status)
+        {
+            BarrierSegmentIndex = status == DaylightStatus.ClampedToBarrier ? barrierSegmentIndex : -1
+        };
     }
 
     private static DaylightStation Flat(double fx, double fy, double fz) =>
         new(fx, fy, fz, fx, fy, fz, 0.0, DaylightStatus.Flat);
+
+    /// <summary>
+    /// Builds the carve-loop XY for the daylight loop, collapsing the over-tessellation a barrier-clamped
+    /// batter run introduces. When a contiguous run of stations all clamp to the same lock-curve barrier
+    /// (a retaining wall), each footprint station contributes a daylight point on that barrier — far more
+    /// points than the barrier breakline itself has. The kept terrain below the wall is then fanned from
+    /// this dense ring down to the sparse wall-toe vertices, producing thin near-vertical slivers
+    /// ("spikes") along the wall. Along each clamped run this emits only the run endpoints (where it
+    /// transitions to a terrain-following daylighted station) and the barrier's own vertices at each
+    /// segment change — the lock-curve vertices, which are existing terrain vertices — so the carve loop
+    /// rides the wall breakline exactly and the splitter leaves the wall face intact instead of
+    /// re-tessellating it. Daylighted, max-distance and flat stations follow terrain and keep their
+    /// density. Returns the plain <see cref="DaylightLoop.DaylightXy"/> when nothing was clamped or the
+    /// collapse would drop below a valid polygon.
+    /// </summary>
+    internal static double[] BuildDecimatedCarveXy(DaylightLoop loop, PreparedBarriers barriers, double tolerance)
+    {
+        DaylightStation[] stations = loop.Stations;
+        int n = stations.Length;
+        if (n < 4 || barriers.Segments.Length == 0)
+            return loop.DaylightXy();
+
+        bool anyClamped = false;
+        for (int i = 0; i < n; i++)
+        {
+            if (stations[i].Status == DaylightStatus.ClampedToBarrier)
+            {
+                anyClamped = true;
+                break;
+            }
+        }
+
+        if (!anyClamped)
+            return loop.DaylightXy();
+
+        double eps = Math.Max(tolerance, 1e-9);
+        var result = new List<double>(n * 2);
+
+        void Emit(double x, double y)
+        {
+            if (result.Count >= 2)
+            {
+                double lx = result[^2];
+                double ly = result[^1];
+                if (((x - lx) * (x - lx)) + ((y - ly) * (y - ly)) <= eps * eps)
+                    return;
+            }
+
+            result.Add(x);
+            result.Add(y);
+        }
+
+        for (int i = 0; i < n; i++)
+        {
+            DaylightStation s = stations[i];
+            if (s.Status != DaylightStatus.ClampedToBarrier)
+            {
+                Emit(s.DayX, s.DayY);
+                continue;
+            }
+
+            int prev = ((i - 1) % n + n) % n;
+            int next = (i + 1) % n;
+            DaylightStation p = stations[prev];
+
+            // Within a clamped run, insert the barrier vertex shared by the two segments at a
+            // segment change — that vertex is a lock-curve (terrain) vertex, so the carve aligns
+            // to the wall breakline there.
+            if (p.Status == DaylightStatus.ClampedToBarrier &&
+                s.BarrierSegmentIndex >= 0 &&
+                p.BarrierSegmentIndex >= 0 &&
+                s.BarrierSegmentIndex != p.BarrierSegmentIndex &&
+                TrySharedBarrierVertex(barriers, p.BarrierSegmentIndex, s.BarrierSegmentIndex, eps, out double vx, out double vy))
+            {
+                Emit(vx, vy);
+            }
+
+            // Run endpoints (a neighbour daylights) carry the transition between the wall and the
+            // terrain-following batter, so they are kept; interior same-segment points are dropped.
+            bool isEntry = p.Status != DaylightStatus.ClampedToBarrier;
+            bool isExit = stations[next].Status != DaylightStatus.ClampedToBarrier;
+            if (isEntry || isExit)
+                Emit(s.DayX, s.DayY);
+        }
+
+        // Drop a duplicate closing point the wrap-around may have produced.
+        if (result.Count >= 4)
+        {
+            double fx = result[0], fy = result[1];
+            double lx = result[^2], ly = result[^1];
+            if (((fx - lx) * (fx - lx)) + ((fy - ly) * (fy - ly)) <= eps * eps)
+            {
+                result.RemoveAt(result.Count - 1);
+                result.RemoveAt(result.Count - 1);
+            }
+        }
+
+        if (result.Count / 2 < 3)
+            return loop.DaylightXy();
+
+        return result.ToArray();
+    }
+
+    /// <summary>Returns the endpoint shared by two barrier segments (adjacent on a polyline), if any.</summary>
+    private static bool TrySharedBarrierVertex(
+        PreparedBarriers barriers, int indexA, int indexB, double eps, out double vx, out double vy)
+    {
+        BarrierSegment a = barriers.Segments[indexA];
+        BarrierSegment b = barriers.Segments[indexB];
+        double epsSq = eps * eps;
+
+        (double x, double y)[] endpointsA = { (a.Ax, a.Ay), (a.Bx, a.By) };
+        (double x, double y)[] endpointsB = { (b.Ax, b.Ay), (b.Bx, b.By) };
+        foreach ((double x, double y) ea in endpointsA)
+        {
+            foreach ((double x, double y) eb in endpointsB)
+            {
+                double dx = ea.x - eb.x;
+                double dy = ea.y - eb.y;
+                if ((dx * dx) + (dy * dy) <= epsSq)
+                {
+                    vx = ea.x;
+                    vy = ea.y;
+                    return true;
+                }
+            }
+        }
+
+        vx = 0.0;
+        vy = 0.0;
+        return false;
+    }
 
     /// <summary>
     /// Computes one outward unit normal per vertex of a closed footprint loop, using the
@@ -604,6 +809,44 @@ internal static class BatterStripBuilder
             DaylightRingIndices = daylightRing,
             RowCount = rows
         };
+    }
+
+    /// <summary>
+    /// Interior batter seed points (flat XYZ) for the corridor/pad hole-fill triangulation, with the row
+    /// count chosen <b>per station from that station's own reach</b> (≈ one seed every
+    /// <paramref name="edgeLength"/> down the slope). This is the uniform-density alternative to
+    /// harvesting <see cref="BuildBatterStrip"/>'s ruled grid, whose row count is a single
+    /// <c>ceil(maxReach / edgeLength)</c> taken from the <i>deepest</i> cross-section and applied to every
+    /// station — so a shallow batter gets the deep section's many rows crammed into a short reach, which
+    /// shows up as tight parallel bands. Only the interior rows are emitted (the footprint and daylight
+    /// rings are already added as constraints/boundary by the caller); a station shallower than one
+    /// <paramref name="edgeLength"/> contributes no interior seed at all. Z is the slope-plane blend, but
+    /// callers seed by XY only and re-derive Z from the section grader.
+    /// </summary>
+    internal static double[] BuildBatterSeeds(DaylightLoop loop, double edgeLength, int maxRows = 64)
+    {
+        if (loop is null) throw new ArgumentNullException(nameof(loop));
+
+        var seeds = new List<double>();
+        foreach (DaylightStation s in loop.Stations)
+        {
+            if (s.Status == DaylightStatus.Flat || s.Reach <= 1e-9)
+                continue;
+
+            int rows = 1;
+            if (edgeLength > 1e-9 && s.Reach > edgeLength)
+                rows = Math.Min(maxRows, (int)Math.Ceiling(s.Reach / edgeLength));
+
+            for (int r = 1; r < rows; r++)
+            {
+                double t = r / (double)rows;
+                seeds.Add(s.FootX + ((s.DayX - s.FootX) * t));
+                seeds.Add(s.FootY + ((s.DayY - s.FootY) * t));
+                seeds.Add(s.FootZ + ((s.DayZ - s.FootZ) * t));
+            }
+        }
+
+        return seeds.ToArray();
     }
 
     private static void AddTriangleIfNonDegenerate(List<int> faces, double[] vertices, int a, int b, int c)

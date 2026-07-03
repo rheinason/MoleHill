@@ -7,8 +7,8 @@ namespace MoleHill.Core.Tests;
 public class RegionRemeshMultiPadCoarseTerrainTests
 {
     // Repro bundle Terrain-1-20260611-191443: 7 protected pads on coarse, cliffy terrain. This scene
-    // previously fell through every conforming tier to the legacy whole-mesh fallback (which produced
-    // ~88 deg batter spikes). It exercises three region-remesh robustness fixes at once: interior
+    // previously fell through the watertight tiers and produced ~88 deg batter spikes. It exercises
+    // three region-remesh robustness fixes at once: interior
     // islands left by the merged carve (must be dropped, not remeshed as no-pad holes), small pads in
     // coarse terrain that carve no hole (must get a targeted containing-face drop), and footprint
     // seeding so those small pads actually flatten.
@@ -9313,13 +9313,11 @@ public class RegionRemeshMultiPadCoarseTerrainTests
 
         Assert.NotNull(result);
 
-        // This 7-pad protected scene previously fell all the way through to the legacy whole-mesh
-        // retriangulation fallback, which produced ~88 deg spikes against a 33 deg target. A
-        // watertight, spike-free tier must now catch it instead of the legacy fallback. With the CDT
-        // terrain conform it grades crisp through split-keep (conform the terrain to the daylight +
-        // footprint loops and keep the whole mesh, watertight by construction); if a pad interior is
-        // genuinely too coarse to flatten it defers to the dense region-remesh patch. Either watertight
-        // tier is acceptable; the legacy spiky fallback is not.
+        // This 7-pad protected scene previously produced ~88 deg spikes against a 33 deg target. A
+        // watertight, spike-free tier must now catch it. With the CDT terrain conform it grades crisp
+        // through split-keep (conform the terrain to the daylight + footprint loops and keep the whole
+        // mesh, watertight by construction); if a pad interior is genuinely too coarse to flatten it
+        // defers to the dense region-remesh patch. Either watertight tier is acceptable.
         Assert.DoesNotContain(
             result!.Diagnostics,
             d => d.Contains("constrained whole-mesh retriangulation fallback", StringComparison.OrdinalIgnoreCase));
@@ -9338,8 +9336,8 @@ public class RegionRemeshMultiPadCoarseTerrainTests
         // The grading introduces no face steeper than the terrain's own natural relief. This input is
         // genuinely cliffy (source spot heights jump several units over <1 unit XY, so the terrain has
         // ~90 deg walls), so a fixed slope threshold cannot tell a grading spike apart from natural
-        // terrain. The invariant that distinguishes the spike-free region-remesh tier from the legacy
-        // whole-mesh fallback (which added ~88 deg batter spikes) is: the result's steepest face does
+        // terrain. The invariant that distinguishes the spike-free region-remesh tier from the old
+        // spiky behavior is: the result's steepest face does
         // not exceed the input terrain's steepest face.
         double[] v = result.Vertices;
         double maxSlope = 0.0;

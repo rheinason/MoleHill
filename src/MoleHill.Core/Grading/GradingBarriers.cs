@@ -108,7 +108,25 @@ internal static class GradingBarriers
         List<int> candidates,
         out double clippedBx,
         out double clippedBy)
+        => TryClipSegment(barriers, ax, ay, bx, by, scratch, candidates, out clippedBx, out clippedBy, out _);
+
+    /// <summary>
+    /// As <see cref="TryClipSegment(PreparedBarriers,double,double,double,double,SpatialHashGrid2D.QueryScratch,List{int},out double,out double)"/>,
+    /// but also reports the index (into <see cref="PreparedBarriers.Segments"/>) of the barrier segment
+    /// that produced the nearest crossing, or -1 when no crossing was found. Lets callers reconstruct
+    /// the barrier polyline a clamped run rode along.
+    /// </summary>
+    internal static bool TryClipSegment(
+        PreparedBarriers barriers,
+        double ax, double ay,
+        double bx, double by,
+        SpatialHashGrid2D.QueryScratch scratch,
+        List<int> candidates,
+        out double clippedBx,
+        out double clippedBy,
+        out int clippedSegmentIndex)
     {
+        clippedSegmentIndex = -1;
         if (barriers.Segments.Length == 0)
         {
             clippedBx = bx;
@@ -139,7 +157,10 @@ internal static class GradingBarriers
 
             // Only accept crossings strictly along the segment, away from the start
             if (t > 1e-9 && t < minT)
+            {
                 minT = t;
+                clippedSegmentIndex = idx;
+            }
         }
 
         if (minT <= 1.0)
@@ -149,6 +170,7 @@ internal static class GradingBarriers
             return true;
         }
 
+        clippedSegmentIndex = -1;
         clippedBx = bx;
         clippedBy = by;
         return false;

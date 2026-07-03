@@ -173,6 +173,13 @@ internal class TerrainFaceGrid
 
     public double InterpolateZ(double px, double py)
     {
+        return TryInterpolateZ(px, py, out double z) ? z : NearestVertexZ(px, py);
+    }
+
+    /// <summary>Barycentric Z at (px, py) when a containing face exists; false when the point lies
+    /// outside the mesh (no nearest-vertex fallback — callers that must not extrapolate use this).</summary>
+    public bool TryInterpolateZ(double px, double py, out double z)
+    {
         const double tol = 1e-4;
         long cx = (long)Math.Floor(px * _invCell);
         long cy = (long)Math.Floor(py * _invCell);
@@ -209,12 +216,16 @@ internal class TerrainFaceGrid
                     double w2 = 1.0 - w0 - w1;
 
                     if (w0 >= -tol && w1 >= -tol && w2 >= -tol)
-                        return w0 * z0 + w1 * z1 + w2 * z2;
+                    {
+                        z = w0 * z0 + w1 * z1 + w2 * z2;
+                        return true;
+                    }
                 }
             }
         }
 
-        return NearestVertexZ(px, py);
+        z = 0.0;
+        return false;
     }
 
     private static void ComputeBarycentric(

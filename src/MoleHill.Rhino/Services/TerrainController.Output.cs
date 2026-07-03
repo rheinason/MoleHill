@@ -494,6 +494,7 @@ internal sealed partial class TerrainController
             Brep brep => doc.Objects.AddBrep(PrepareBrepForBake(doc, brep), attributes),
             Curve curve => doc.Objects.AddCurve(curve, attributes),
             TextDot textDot => doc.Objects.AddTextDot(textDot, attributes),
+            TextEntity textEntity => AddTextEntity(doc, textEntity, attributes),
             _ => Guid.Empty
         };
     }

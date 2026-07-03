@@ -37,7 +37,7 @@ The Grasshopper project builds two output dirs (`bin/Debug/net7.0/` and `bin/Deb
 Three source projects, two test projects:
 
 - **TriangleNet** (`src/TriangleNet/`, net7.0) — Triangle.NET constrained Delaunay library, nullable disabled, included as source and merged into the .gha
-- **MoleHill.Core** (`src/MoleHill.Core/`, net7.0) — Pure terrain logic (no Rhino/GH dependency). Sub-namespaces: `Engine/`, `Processing/`, `Grading/`, `Analysis/`, `Scattering/` (each has a `README.md`)
+- **MoleHill.Core** (`src/MoleHill.Core/`, net7.0) — Pure terrain logic (no Rhino/GH dependency). Sub-namespaces: `Engine/`, `Processing/`, `Grading/`, `Analysis/`, `Scattering/`, `Sculpting/` (each has a `README.md`)
 - **MoleHill.Grasshopper** (`src/MoleHill.Grasshopper/`, net7.0-windows + net7.0) — GH components, plugin metadata (`MoleHillInfo.cs`), icon resources, `RhinoConverter.cs`. No terrain logic here.
 - **MoleHill.Rhino** (`src/MoleHill.Rhino/`, net7.0) — Native Rhino plugin (.rhp). Dockable panel UI (Eto.Forms in `UI/`), three commands (`MoleHillPanel`, `MoleHillCreateTerrain`, `MoleHillConvertToRhino`), terrain definition model (`Model/`), `TerrainController`/`TerrainBuildService` pipeline (`Services/`). Persists terrain state as JSON in .3dm via WriteDocument/ReadDocument. 16×16 PNG icons in `Resources/` loaded via `PanelIcons.Load()`. Bake and Detach are in the terrain picker `▾` dropdown, not inline buttons.
 - **MoleHill.Core.Tests** / **MoleHill.Grasshopper.Tests** (`tests/`, xunit 2.9.2) — Test naming: `MethodName_Scenario_ExpectedResult`
@@ -119,6 +119,7 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
 - **Zone layer editor**: `Use Current` · `▾` · `Clear` — consistent with all other layer assignment patterns.
 - **Modifier name**: editable `TextBox` (collapsed state shows read-only bold label).
 - **"Priority by elevation"**: checkbox on zone cards (was "Use input Z").
+- **Sculpt modifier**: durable data = a sparse world-XY displacement field (tiles on the definition), never vertex indices — that's what makes it stackable. Brush prefs (radius/strength/falloff) live on `SculptSessionController`, NOT the definition (the stage fingerprint serializes the whole definition and would churn). The session GetPoint loop owns Ctrl+Z (stroke undo) because Rhino blocks its Undo accelerator inside a get.
 
 ## Coding Style
 

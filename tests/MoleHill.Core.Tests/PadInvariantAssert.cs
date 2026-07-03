@@ -5,9 +5,8 @@ using Xunit;
 namespace MoleHill.Core.Tests;
 
 /// <summary>
-/// Geometric invariants the explicit-batter Grade Pad engine guarantees, independent of the
-/// removed constraint-first/fallback internals. These replace the old characterization tests that
-/// asserted legacy diagnostic vocabulary and heuristics.
+    /// Geometric invariants the Grade Pad cascade guarantees, independent of removed fallback internals.
+    /// These replace old characterization tests that asserted diagnostic vocabulary and heuristics.
 /// </summary>
 internal static class PadInvariantAssert
 {
@@ -17,8 +16,8 @@ internal static class PadInvariantAssert
     /// terrain, and flat at the pad plane across each pad top.
     /// </summary>
     /// <summary>
-    /// The diagnostic emitted by the explicit-batter mode (and only that mode). The legacy fallback
-    /// emits its own mode line plus a <c>grade_pad.explicit.fallback</c> note recording why it ran.
+    /// The diagnostic emitted by the explicit-batter mode (and only that mode). Later cascade tiers emit
+    /// their own mode lines plus <c>grade_pad.*.fallback</c> notes recording why earlier tiers deferred.
     /// </summary>
     private const string ExplicitModeMarker = "explicit batter construction (ruled";
 
@@ -34,7 +33,7 @@ internal static class PadInvariantAssert
     {
         Assert.True(
             UsedExplicitMode(result),
-            "Expected the explicit-batter path, but the result came from the constraint-first fallback. " +
+            "Expected the explicit-batter path, but the result came from a later Grade Pad tier. " +
             "Diagnostics:" + Environment.NewLine + string.Join(Environment.NewLine, result.Diagnostics));
     }
 
@@ -64,9 +63,8 @@ internal static class PadInvariantAssert
         if (requireExplicit)
             AssertExplicitModeUsed(result);
 
-        // Exact pad-top flatness is a guarantee of the explicit-batter engine. Cases that still defer
-        // to the legacy constraint-first path (interacting/self-overlapping pads, pending ownership
-        // resolution) are not held to it here; they only need to be watertight and manifold.
+        // Exact pad-top flatness is a guarantee of the explicit-batter engine. Cases that defer to later
+        // watertight tiers are not held to it here; they only need to be watertight and manifold.
         if (UsedExplicitMode(result))
             AssertPadTopsFlat(result, pads, padTopZTolerance);
     }

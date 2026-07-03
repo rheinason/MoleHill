@@ -44,6 +44,12 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         if (terrain.ShowTerrainMesh && displayState.PreviewTerrainMesh != null)
             DrawGeneratedMesh(e, doc, terrain, displayState.PreviewTerrainMesh, TerrainDefinition.ResolveTerrainLayerPath(terrain.TerrainLayerPath), null, terrain.TerrainColorArgb);
 
+        if (displayState.FieldLines.Count > 0)
+        {
+            foreach (FieldOverlayLine field in displayState.FieldLines)
+                e.Display.DrawLine(field.Line, Color.FromArgb(field.Argb), 2);
+        }
+
         if (terrain.ShowZoneMeshes)
         {
             foreach (var zone in displayState.ZoneObjects)
@@ -439,6 +445,13 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         {
             var color = ResolveColor(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
             e.Display.DrawDot(textDot.Point, textDot.Text, color, Color.White);
+            return;
+        }
+
+        if (generated.Geometry is TextEntity textEntity)
+        {
+            var color = ResolveColor(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+            e.Display.DrawText(textEntity, color);
             return;
         }
 

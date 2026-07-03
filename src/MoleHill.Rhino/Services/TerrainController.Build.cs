@@ -432,6 +432,7 @@ internal sealed partial class TerrainController
 
         var displayTimer = Stopwatch.StartNew();
         UpdateDisplayState(doc, terrain, runtimeCache, build);
+        ReassertSculptPreviewMesh(doc.RuntimeSerialNumber, terrain.TerrainId);
         displayTimer.Stop();
         TerrainDisplayState displayState = runtimeCache.DisplayState
             ?? throw new InvalidOperationException("Terrain display state was not produced by the build.");

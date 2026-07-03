@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using MoleHill.Core.Scattering;
 using MoleHill.Rhino.Model;
 using Rhino.Geometry;
@@ -25,9 +24,7 @@ internal sealed partial class TerrainBuildService
         if (scatters.Count == 0)
             return;
 
-        var timer = Stopwatch.StartNew();
         mesh.Normals.ComputeNormals();
-        int emitted = 0;
 
         foreach (var definition in scatters)
         {
@@ -201,17 +198,9 @@ internal sealed partial class TerrainBuildService
                 placed++;
             }
 
-            emitted += placed;
             if (placed == 0)
                 build.Diagnostics.Add($"Scatter '{definition.Name}' produced no instances (all samples fell outside the terrain or its filters).");
         }
-
-        timer.Stop();
-        build.RecordTiming(
-            "Scatter",
-            timer.Elapsed,
-            $"{scatters.Count:N0} scatter definitions produced {emitted:N0} instances",
-            StageTimingDiagnosticThresholdMs);
     }
 
     private static List<(string Name, double Weight)> ResolveScatterBlocks(

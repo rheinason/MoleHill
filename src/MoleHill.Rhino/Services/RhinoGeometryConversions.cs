@@ -110,6 +110,34 @@ internal static class RhinoGeometryConversions
         return mesh;
     }
 
+    /// <summary>
+    /// Builds a quad-dominant mesh from flat arrays, <b>preserving quads</b> (unlike
+    /// <see cref="BuildMesh"/>, which triangulates via <see cref="NormalizeMeshInPlace"/>). Used by the
+    /// Retopo quad output. <paramref name="quads"/> is 4 indices/face, <paramref name="tris"/> 3/face.
+    /// </summary>
+    public static Mesh BuildQuadDominantMesh(double[] vertices, int[] quads, int[] tris)
+    {
+        var mesh = new Mesh();
+        int vertexCount = vertices.Length / 3;
+        mesh.Vertices.Capacity = vertexCount;
+        mesh.Faces.Capacity = (quads.Length / 4) + (tris.Length / 3);
+
+        for (int i = 0; i < vertexCount; i++)
+            mesh.Vertices.Add(vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]);
+
+        for (int i = 0; i < quads.Length / 4; i++)
+            mesh.Faces.AddFace(quads[i * 4], quads[i * 4 + 1], quads[i * 4 + 2], quads[i * 4 + 3]);
+
+        for (int i = 0; i < tris.Length / 3; i++)
+            mesh.Faces.AddFace(tris[i * 3], tris[i * 3 + 1], tris[i * 3 + 2]);
+
+        mesh.Normals.ComputeNormals();
+        mesh.UnifyNormals();
+        mesh.Compact();
+        CacheMeshData(mesh, BuildMeshData(mesh));
+        return mesh;
+    }
+
     public static Mesh BuildSubMesh(MeshAreaSplitter.SplitResult result, int areaIndex)
     {
         var faceIndices = new List<int>();
@@ -186,13 +214,28 @@ internal static class RhinoGeometryConversions
             vertices[i * 3 + 2] = pt.Z;
         }
 
-        var faces = new int[mesh.Faces.Count * 3];
+        // Quad-aware flattening: a quad face becomes two triangles (A,B,C)+(A,C,D). Triangle meshes are
+        // unaffected; this keeps quad output (from Retopo) geometrically correct for any triangle consumer.
+        int triangleCount = 0;
+        for (int i = 0; i < mesh.Faces.Count; i++)
+            triangleCount += mesh.Faces[i].IsQuad ? 2 : 1;
+
+        var faces = new int[triangleCount * 3];
+        int t = 0;
         for (int i = 0; i < mesh.Faces.Count; i++)
         {
             var face = mesh.Faces[i];
-            faces[i * 3] = face.A;
-            faces[i * 3 + 1] = face.B;
-            faces[i * 3 + 2] = face.C;
+            faces[t * 3] = face.A;
+            faces[t * 3 + 1] = face.B;
+            faces[t * 3 + 2] = face.C;
+            t++;
+            if (face.IsQuad)
+            {
+                faces[t * 3] = face.A;
+                faces[t * 3 + 1] = face.C;
+                faces[t * 3 + 2] = face.D;
+                t++;
+            }
         }
 
         return new ExtractedMeshData
@@ -200,7 +243,7 @@ internal static class RhinoGeometryConversions
             Vertices = vertices,
             VertexCount = mesh.Vertices.Count,
             Faces = faces,
-            FaceCount = mesh.Faces.Count
+            FaceCount = triangleCount
         };
     }
 

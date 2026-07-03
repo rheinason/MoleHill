@@ -4,6 +4,7 @@ using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Core.Processing;
+using MoleHill.Core.Retopo;
 using MoleHill.Rhino.Model;
 using MoleHill.Shared;
 using Rhino;
@@ -600,10 +601,27 @@ internal sealed partial class TerrainBuildService
             requestedEdgeLength: previewEdgeLength,
             maxArea: previewMaxArea);
 
-        if (modifier.EdgeLength <= 0 && modifier.MaxArea <= 0 && modifier.MinAngle <= 0 && localConstraints.Count == 0)
+        if (!modifier.LocalRefine &&
+            modifier.EdgeLength <= 0 && modifier.MaxArea <= 0 && modifier.MinAngle <= 0 &&
+            modifier.MergeDistance <= 0 && modifier.CreaseAngle <= 0 && localConstraints.Count == 0)
+        {
             return mesh.DuplicateMesh();
+        }
 
         var constraints = CombineConstraints(build.PersistentHardConstraints, localConstraints);
+
+        if (modifier.LocalRefine)
+        {
+            return RefineMeshLocally(
+                mesh,
+                constraints,
+                previewEdgeLength,
+                previewMaxArea,
+                modifier.CreaseAngle,
+                toleranceProfile.RemeshConstraintTolerance,
+                "Remesh",
+                build);
+        }
 
         var remeshed = RebuildMeshWithConstraints(
             snapshot,
@@ -616,9 +634,438 @@ internal sealed partial class TerrainBuildService
             "Remesh",
             build,
             out _,
-            toleranceOverride: toleranceProfile.RemeshConstraintTolerance);
+            toleranceOverride: toleranceProfile.RemeshConstraintTolerance,
+            // Merge near-duplicate input/constraint vertices (e.g. batter-toe pinches) within this
+            // distance instead of protecting the tiny edge between them. 0 = off.
+            vertexMergeTolerance: modifier.MergeDistance,
+            // Transiently pin crease edges (batter toes, slope breaks) at/above this dihedral angle so the
+            // remesh keeps them smooth; detected from geometry, never persisted. 0 = off.
+            preserveCreaseAngleDeg: modifier.CreaseAngle);
 
         return remeshed;
+    }
+
+    /// <summary>
+    /// Connectivity-preserving "Local refine" remesh: keeps the input topology (flow lines), splits only
+    /// coarse triangles in place on the surface, and flips toward a regular mesh — respecting creases. Unlike
+    /// the global-Delaunay <see cref="RebuildMeshWithConstraints"/>, it never re-triangulates from scratch,
+    /// so graded corridor structure survives and no off-surface Steiner points are introduced.
+    /// </summary>
+    private static RhinoMesh RefineMeshLocally(
+        RhinoMesh mesh,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        double requestedEdgeLength,
+        double maxArea,
+        double creaseAngleDeg,
+        double tolerance,
+        string label,
+        TerrainBuildResult build)
+    {
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        {
+            build.Diagnostics.Add(errorMessage ?? $"Could not extract mesh data for {label.ToLowerInvariant()}.");
+            return mesh.DuplicateMesh();
+        }
+
+        LocalMeshRefiner.Result result = LocalMeshRefiner.Refine(
+            vertices,
+            faces,
+            constraints,
+            new LocalMeshRefiner.Options
+            {
+                TargetEdgeLength = requestedEdgeLength,
+                MaxArea = maxArea,
+                CreaseAngleDeg = creaseAngleDeg,
+                Tolerance = tolerance,
+                DoFlips = false
+            });
+
+        if (!result.Success)
+        {
+            build.Diagnostics.Add(result.Warning ?? $"{label} local refine kept the upstream mesh unchanged.");
+            return mesh.DuplicateMesh();
+        }
+
+        build.Diagnostics.Add(
+            $"{label} local refine: +{result.AddedVertices:N0} vertices, preserved input flow " +
+            $"({result.Faces.Length / 3:N0} faces).");
+
+        return BuildMeshFromArrays(result.Vertices, result.Faces);
+    }
+
+    /// <summary>
+    /// Field-guided quad retopology, Stage 2: replace the terrain with the extracted quad-dominant mesh whose
+    /// edges flow along the features. Runs <see cref="QuadRemesher"/> on the input mesh + the whole
+    /// constraint stack (incl. grade-path road edges via <c>PersistentHardConstraints</c>), then builds a
+    /// quad-preserving Rhino mesh. Falls back to the input mesh if extraction yields nothing.
+    /// </summary>
+    private static RhinoMesh ApplyRetopoQuads(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        RhinoMesh mesh,
+        RetopoModifierDefinition modifier,
+        TerrainBuildResult build,
+        TerrainBuildMode mode)
+    {
+        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        {
+            build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for retopo.");
+            return mesh.DuplicateMesh();
+        }
+
+        double edgeLength = modifier.TargetEdgeLength;
+        if (mode == TerrainBuildMode.Preview && edgeLength > 0)
+            edgeLength *= 2.0; // coarser quads for the fast preview
+
+        var localConstraints = CreateConstraintPolylines(
+            TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Constraints),
+            toleranceProfile.CurveChordTolerance,
+            preserveInputElevation: false,
+            requestedEdgeLength: 0,
+            maxArea: 0);
+        var constraints = CombineConstraints(build.PersistentHardConstraints, localConstraints);
+
+        double effectiveEdge = edgeLength > 0 ? edgeLength : EstimateQuadSpacing(vertices);
+
+        QuadRemesher.Result result = QuadRemesher.Remesh(
+            vertices,
+            faces,
+            constraints,
+            new QuadRemesher.Options
+            {
+                EdgeLength = effectiveEdge,
+                CreaseAngleDeg = modifier.CreaseAngle,
+                Tolerance = toleranceProfile.RemeshConstraintTolerance,
+                // Exclude near-vertical retaining-wall faces from the heightfield field; they are rebuilt
+                // as dedicated quad strips below.
+                WallFaceMinSlopeDeg = RetopoWallFaceMinSlopeDeg,
+                EnableCleanup = true
+            });
+
+        List<WallQuadStripBuilder.Strip> wallStrips = GatherWallQuadStrips(snapshot, terrain, effectiveEdge, build);
+
+        int terrainQuadCount = result.Quads.Length / 4;
+        int cleanupTriCount = result.Tris.Length / 3;
+        int wallQuadCount = 0;
+        foreach (WallQuadStripBuilder.Strip strip in wallStrips)
+            wallQuadCount += strip.QuadCount;
+
+        if (terrainQuadCount + wallQuadCount == 0)
+        {
+            build.Diagnostics.Add(result.Warning ?? "Retopo produced no quads; kept the input mesh.");
+            return mesh.DuplicateMesh();
+        }
+
+        (double[] mergedVertices, int[] mergedQuads, int[] mergedTris, QuadRetopoCleanup.WeldResult weld) =
+            MergeQuadSets(result.Vertices, result.Quads, result.Tris, wallStrips, toleranceProfile.RemeshConstraintTolerance);
+
+        if (!ValidateQuadDominantTopology(mergedQuads, mergedTris, out string? topologyWarning))
+        {
+            build.Diagnostics.Add(topologyWarning ?? "Retopo cleanup produced invalid topology; kept the input mesh.");
+            return mesh.DuplicateMesh();
+        }
+
+        build.Diagnostics.Add(
+            $"Retopo quads: {terrainQuadCount:N0} terrain + {wallQuadCount:N0} wall = {terrainQuadCount + wallQuadCount:N0} quads" +
+            (cleanupTriCount > 0 ? $" + {cleanupTriCount:N0} cleanup tris" : "") +
+            $" over {mergedVertices.Length / 3:N0} vertices" +
+            (result.ClosedGapLoopCount > 0 ? $" ({result.ClosedGapLoopCount:N0} gap loop(s) closed)" : "") +
+            (result.SkippedLargeGapLoopCount > 0 ? $" ({result.SkippedLargeGapLoopCount:N0} large gap loop(s) left open)" : "") +
+            (weld.RemovedVertexCount > 0 ? $", welded {weld.RemovedVertexCount:N0} duplicate vertices" : "") +
+            (weld.DroppedFaceCount > 0 ? $", dropped {weld.DroppedFaceCount:N0} degenerate faces" : "") +
+            "." +
+            (string.IsNullOrWhiteSpace(result.Warning) ? "" : $" {result.Warning}"));
+
+        return RhinoGeometryConversions.BuildQuadDominantMesh(mergedVertices, mergedQuads, mergedTris);
+    }
+
+    // Near-vertical faces (retaining walls) are excluded from the heightfield quad field at this slope.
+    private const double RetopoWallFaceMinSlopeDeg = 70.0;
+
+    /// <summary>
+    /// Rebuilds each enabled retaining wall as a quad strip between its top &amp; toe rails. Re-derives the rails
+    /// with the same planner the retaining-wall stage uses; runs inside the retopo stage cache, so it only
+    /// recomputes when the upstream mesh/params change.
+    /// </summary>
+    private static List<WallQuadStripBuilder.Strip> GatherWallQuadStrips(
+        TerrainBuildSnapshot snapshot, TerrainDefinition terrain, double edgeLength, TerrainBuildResult build)
+    {
+        var strips = new List<WallQuadStripBuilder.Strip>();
+        double rowSpacing = edgeLength > 0 ? edgeLength : 1.0;
+
+        foreach (ModifierDefinition definition in terrain.Modifiers)
+        {
+            if (definition is not RetainingWallModifierDefinition wallModifier || !wallModifier.IsEnabled)
+                continue;
+
+            TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+            double wallTolerance = toleranceProfile.RetainingWallTolerance(wallModifier.MaxWallWidth);
+            double maxWallWidth = Math.Max(wallTolerance, wallModifier.MaxWallWidth);
+
+            var wallCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, wallModifier.WallCurves);
+            if (wallCurves.Count == 0)
+                continue;
+
+            var plan = RetainingWallPlannerCore.Plan(wallCurves, maxWallWidth, curveParsingTolerance: wallTolerance);
+            foreach (var wall in plan.Walls)
+            {
+                if (!IsWallStripUsable(wall.Rails, wallTolerance, out _))
+                    continue;
+
+                WallQuadStripBuilder.Strip strip = WallQuadStripBuilder.Build(
+                    ToFlatXyz(wall.Rails.TopPoints),
+                    ToFlatXyz(wall.Rails.ToePoints),
+                    wall.Rails.IsClosed,
+                    rowSpacing);
+                if (strip.QuadCount > 0)
+                    strips.Add(strip);
+            }
+        }
+
+        return strips;
+    }
+
+    private static (double[] vertices, int[] quads, int[] tris, QuadRetopoCleanup.WeldResult weld) MergeQuadSets(
+        double[] terrainVertices,
+        int[] terrainQuads,
+        int[] terrainTris,
+        List<WallQuadStripBuilder.Strip> wallStrips,
+        double tolerance)
+    {
+        var vertices = new List<double>(terrainVertices);
+        var quads = new List<int>(terrainQuads);
+        var tris = new List<int>(terrainTris);
+        int offset = terrainVertices.Length / 3;
+
+        foreach (WallQuadStripBuilder.Strip strip in wallStrips)
+        {
+            vertices.AddRange(strip.Vertices);
+            for (int i = 0; i < strip.Quads.Length; i++)
+                quads.Add(strip.Quads[i] + offset);
+            offset += strip.VertexCount;
+        }
+
+        QuadRetopoCleanup.WeldResult weld = QuadRetopoCleanup.WeldByTolerance(
+            vertices.ToArray(),
+            quads.ToArray(),
+            tris.ToArray(),
+            tolerance);
+
+        return (weld.Vertices, weld.Quads, weld.Tris, weld);
+    }
+
+    private static bool ValidateQuadDominantTopology(int[] quads, int[] tris, out string? warning)
+    {
+        int[] triangleFaces = BuildTriangleFacesForValidation(quads, tris);
+        if (triangleFaces.Length == 0)
+        {
+            warning = "Retopo produced no valid faces; kept the input mesh.";
+            return false;
+        }
+
+        MeshTopologyValidator.BoundaryGraphAnalysis topology =
+            MeshTopologyValidator.AnalyzeBoundaryGraph(triangleFaces, triangleFaces.Length / 3);
+        if (topology.NonManifoldEdgeCount != 0)
+        {
+            warning = $"Retopo cleanup produced {topology.NonManifoldEdgeCount:N0} non-manifold edge(s); kept the input mesh.";
+            return false;
+        }
+
+        if (topology.HasOpenBoundaryChains)
+        {
+            warning = "Retopo cleanup produced open naked-edge chains; kept the input mesh.";
+            return false;
+        }
+
+        warning = null;
+        return true;
+    }
+
+    private static int[] BuildTriangleFacesForValidation(int[] quads, int[] tris)
+    {
+        var faces = new int[(quads.Length / 4 * 6) + tris.Length];
+        int t = 0;
+        for (int i = 0; i < quads.Length / 4; i++)
+        {
+            int a = quads[i * 4];
+            int b = quads[i * 4 + 1];
+            int c = quads[i * 4 + 2];
+            int d = quads[i * 4 + 3];
+            faces[t++] = a;
+            faces[t++] = b;
+            faces[t++] = c;
+            faces[t++] = a;
+            faces[t++] = c;
+            faces[t++] = d;
+        }
+
+        Array.Copy(tris, 0, faces, t, tris.Length);
+        return faces;
+    }
+
+    private static double[] ToFlatXyz(Point3d[] points)
+    {
+        var flat = new double[points.Length * 3];
+        for (int i = 0; i < points.Length; i++)
+        {
+            flat[i * 3] = points[i].X;
+            flat[i * 3 + 1] = points[i].Y;
+            flat[i * 3 + 2] = points[i].Z;
+        }
+
+        return flat;
+    }
+
+    private static double EstimateQuadSpacing(double[] vertices)
+    {
+        int vertexCount = vertices.Length / 3;
+        if (vertexCount == 0)
+            return 1.0;
+
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double x = vertices[i * 3], y = vertices[i * 3 + 1];
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+
+        double diagonal = Math.Sqrt(((maxX - minX) * (maxX - minX)) + ((maxY - minY) * (maxY - minY)));
+        double spacing = diagonal / Math.Max(1.0, Math.Sqrt(vertexCount));
+        return spacing > 1e-9 ? spacing : 1.0;
+    }
+
+    /// <summary>
+    /// Field-guided quad retopology, Stage 1 (cross-field preview). Computes a 2-D cross-field aligned to
+    /// features via <see cref="CrossFieldSolver"/> and emits it as a decimated <b>flow-cross overlay</b> —
+    /// short perpendicular segment pairs along the two quad directions, colored by θ — so the flow can be
+    /// read directly (hue alone was unreadable) and validated before quad extraction (Stages 2–3) is built.
+    /// Preview only; the mesh is unchanged. Features come from the whole stack: the boundary, detected
+    /// creases, the modifier's own constraint curves, AND <c>PersistentHardConstraints</c> — grade-path road
+    /// edges are generated from a centerline, so they only reach us through the stack, not as drawn curves.
+    /// </summary>
+    private static void BuildRetopoFieldOverlay(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        RhinoMesh mesh,
+        RetopoModifierDefinition modifier,
+        TerrainBuildResult build)
+    {
+        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        {
+            build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for retopo field preview.");
+            return;
+        }
+
+        var localConstraints = CreateConstraintPolylines(
+            TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Constraints),
+            toleranceProfile.CurveChordTolerance,
+            preserveInputElevation: false,
+            requestedEdgeLength: 0,
+            maxArea: 0);
+        var constraints = CombineConstraints(build.PersistentHardConstraints, localConstraints);
+
+        CrossFieldSolver.Result field = CrossFieldSolver.Solve(
+            vertices,
+            faces,
+            constraints,
+            new CrossFieldSolver.Options
+            {
+                CreaseAngleDeg = modifier.CreaseAngle,
+                Tolerance = toleranceProfile.RemeshConstraintTolerance
+            });
+
+        if (!field.Success)
+        {
+            build.Diagnostics.Add(field.Warning ?? "Retopo cross-field could not be computed.");
+            return;
+        }
+
+        int vertexCount = vertices.Length / 3;
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double x = vertices[i * 3], y = vertices[i * 3 + 1];
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+
+        double diagonal = Math.Sqrt(((maxX - minX) * (maxX - minX)) + ((maxY - minY) * (maxY - minY)));
+        double spacing = diagonal / Math.Max(1.0, Math.Sqrt(vertexCount));
+        double crossHalf = 0.5 * (modifier.TargetEdgeLength > 0 ? modifier.TargetEdgeLength : spacing);
+        if (crossHalf <= 1e-9)
+            crossHalf = Math.Max(spacing, 1e-6) * 0.5;
+
+        // Decimate onto a grid ~3 crosses apart so the comb reads instead of matting into a solid patch.
+        double cellSize = crossHalf * 3.0;
+        double invCell = 1.0 / cellSize;
+        var used = new HashSet<long>();
+
+        int pinnedCount = 0;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            if (field.Pinned[i])
+                pinnedCount++;
+
+            double x = vertices[i * 3], y = vertices[i * 3 + 1], z = vertices[i * 3 + 2];
+            long cx = (long)Math.Floor(x * invCell);
+            long cy = (long)Math.Floor(y * invCell);
+            if (!used.Add((cx * 73856093L) ^ (cy * 19349663L)))
+                continue;
+
+            double theta = field.Theta[i];
+            var point = new Point3d(x, y, z);
+            var along = new Vector3d(Math.Cos(theta), Math.Sin(theta), 0.0) * crossHalf;
+            var across = new Vector3d(-Math.Sin(theta), Math.Cos(theta), 0.0) * crossHalf;
+            int argb = FieldColor(theta, field.Pinned[i]).ToArgb();
+            build.FieldOverlayLines.Add(new FieldOverlayLine(new Line(point - along, point + along), argb));
+            build.FieldOverlayLines.Add(new FieldOverlayLine(new Line(point - across, point + across), argb));
+        }
+
+        build.Diagnostics.Add(
+            $"Retopo Stage 1 field preview: {vertexCount:N0} vertices, {pinnedCount:N0} feature-pinned, " +
+            $"{build.FieldOverlayLines.Count:N0} overlay segments." +
+            (string.IsNullOrWhiteSpace(field.Warning) ? "" : $" {field.Warning}"));
+    }
+
+    /// <summary>Maps a cross-field angle θ∈[0,π/2) to a hue so the quad-flow direction reads as color; pins pop brighter.</summary>
+    private static System.Drawing.Color FieldColor(double theta, bool pinned)
+    {
+        double hue = Math.Clamp(theta / (Math.PI / 2.0), 0.0, 1.0) * 360.0;
+        return HsvToColor(hue, pinned ? 1.0 : 0.7, pinned ? 1.0 : 0.9);
+    }
+
+    private static System.Drawing.Color HsvToColor(double hueDegrees, double saturation, double value)
+    {
+        double h = (hueDegrees % 360.0) / 60.0;
+        int sector = (int)Math.Floor(h);
+        double f = h - sector;
+        double p = value * (1.0 - saturation);
+        double q = value * (1.0 - (saturation * f));
+        double t = value * (1.0 - (saturation * (1.0 - f)));
+        double r, g, b;
+        switch (sector)
+        {
+            case 0: r = value; g = t; b = p; break;
+            case 1: r = q; g = value; b = p; break;
+            case 2: r = p; g = value; b = t; break;
+            case 3: r = p; g = q; b = value; break;
+            case 4: r = t; g = p; b = value; break;
+            default: r = value; g = p; b = q; break;
+        }
+
+        return System.Drawing.Color.FromArgb(
+            (int)Math.Round(r * 255.0),
+            (int)Math.Round(g * 255.0),
+            (int)Math.Round(b * 255.0));
     }
 
     private static RhinoMesh ApplySmooth(

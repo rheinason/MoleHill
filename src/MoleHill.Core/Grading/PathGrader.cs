@@ -47,8 +47,8 @@ public static partial class PathGrader
             return null;
 
         // Primary path: explicit corridor construction (ruled road surface + side batters welded into
-        // terrain). Falls through to the legacy constraint-first path for interacting corridors, hard
-        // constraints, or any case it cannot make watertight and manifold.
+        // terrain). Defers for interacting corridors, hard constraints, or any case it cannot make
+        // watertight and manifold.
         GradingResult? explicitResult = GradeWithExplicitCorridor(
             vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out string? explicitFailureReason);
         if (explicitResult != null)
@@ -63,7 +63,7 @@ public static partial class PathGrader
             ? null
             : GradingDiagnostic.Information(
                 "grade_path.explicit.fallback",
-                $"Explicit corridor construction deferred to the constraint-first path: {explicitFailureReason}",
+                $"Explicit corridor construction deferred to the topology rebuild: {explicitFailureReason}",
                 operation: "grade_path");
 
         // Grade Path must own and rebuild topology. Do not silently fall back to Z-only grading.

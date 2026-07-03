@@ -10,8 +10,8 @@ public class TerrainGradePadPathFirstCopiedCaseTests
     // pipeline from the real captured geometry (raw terrain + path + protected pads): the terrain is
     // graded by the path first, then the protected pads are graded on the path's output. The previous
     // copy of this test fed a terrain that an OLD path grader had left non-watertight (open boundary
-    // chains, bc=3); that stale snapshot forced the pad grade onto the legacy whole-mesh fallback. The
-    // current path grader produces a watertight terrain, so the pad grade now resolves crisp.
+    // chains, bc=3); that stale snapshot forced the pad grade into a spiky whole-mesh route. The current
+    // path grader produces a watertight terrain, so the pad grade now resolves crisp.
     [Fact]
     public void Grade_PathThenProtectedPad_DoesNotFailAtPatchBoundary()
     {
@@ -1143,8 +1143,8 @@ public class TerrainGradePadPathFirstCopiedCaseTests
             topology.HasOpenBoundaryChains,
             $"boundary edges={topology.BoundaryEdgeCount}, components={topology.BoundaryComponentCount}, nonmanifold={topology.NonManifoldEdgeCount}{Environment.NewLine}{diagnostics}");
 
-        // With a watertight path terrain the pad grade resolves through a crisp tier and never reaches
-        // the legacy whole-mesh retriangulation / refined-Z fallback (the thing Phase 7 removes).
+        // With a watertight path terrain the pad grade resolves through a crisp tier and never uses the
+        // old whole-mesh retriangulation / refined-Z behavior.
         Assert.DoesNotContain("whole-mesh retriangulation", diagnostics, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("refined-Z", diagnostics, StringComparison.OrdinalIgnoreCase);
     }

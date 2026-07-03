@@ -111,6 +111,28 @@ public class SlopeAnalyzerTests
         }
     }
 
+    [Fact]
+    public void Analyze_OneToOneSlope_ReportsEquivalentSlopeUnits()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 1.0,
+            0.0, 1.0, 0.0
+        };
+        int[] faces = { 0, 1, 2 };
+
+        var percent = SlopeAnalyzer.Analyze(vertices, 3, faces, 1, SlopeAnalyzer.SlopeUnit.Percent);
+        var promille = SlopeAnalyzer.Analyze(vertices, 3, faces, 1, SlopeAnalyzer.SlopeUnit.Promille);
+        var degrees = SlopeAnalyzer.Analyze(vertices, 3, faces, 1, SlopeAnalyzer.SlopeUnit.Degrees);
+        var ratio = SlopeAnalyzer.Analyze(vertices, 3, faces, 1, SlopeAnalyzer.SlopeUnit.Ratio);
+
+        Assert.InRange(percent.Slopes[0], 99.999, 100.001);
+        Assert.InRange(promille.Slopes[0], 999.999, 1000.001);
+        Assert.InRange(degrees.Slopes[0], 44.999, 45.001);
+        Assert.InRange(ratio.Slopes[0], 0.999, 1.001);
+    }
+
     private static double[] CreateHalfSlopeVertices()
     {
         return new[]

@@ -31,7 +31,18 @@ internal sealed class TerrainDisplayState
 
     public Dictionary<Guid, ScatterObjectRange> ScatterObjectRanges { get; } = new();
 
+    /// <summary>Retopo Stage-1 cross-field flow segments, drawn by the conduit (preview only).</summary>
+    public List<FieldOverlayLine> FieldLines { get; } = new();
+
     private BoundingBox? _previewBounds;
+
+    /// <summary>
+    /// Drops the cached preview bounds. Only the sculpt session needs this: it mutates
+    /// <see cref="PreviewTerrainMesh"/> vertices in place between builds (a deliberate, gated exception
+    /// to the swap-only convention), and stale bounds would clip viewport invalidation once strokes
+    /// exceed the original bounding box.
+    /// </summary>
+    public void InvalidatePreviewBounds() => _previewBounds = null;
 
     /// <summary>
     /// Union of the extents this state draws through the display conduit (terrain mesh, generated
@@ -130,6 +141,7 @@ internal sealed class TerrainDisplayState
         clone.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(AuxiliaryObjects));
         clone.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(MarkerObjects));
         clone.ScatterObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(ScatterObjects));
+        clone.FieldLines.AddRange(FieldLines);
         clone.RebuildScatterObjectRanges();
         return clone;
     }

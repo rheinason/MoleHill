@@ -1274,8 +1274,11 @@ public class TerrainGradePathOvalPadCopiedCaseTests
         // (it previously self-intersected and fell back). Explicit output is watertight and manifold
         // with the side batters welded into the terrain.
         Assert.Contains("explicit corridor construction", diagnostics, StringComparison.OrdinalIgnoreCase);
-        Assert.InRange(result.VertexCount, 2_000, 5_000);
-        Assert.InRange(result.FaceCount, 4_000, 10_000);
+        // Per-station batter seeding (BuildBatterSeeds) keeps the corridor uniform rather than packing
+        // shallow cross-sections with the deepest section's row count, so the mesh is leaner than the old
+        // global-row strip while staying watertight and manifold.
+        Assert.InRange(result.VertexCount, 1_000, 2_500);
+        Assert.InRange(result.FaceCount, 2_000, 5_000);
 
         var topology = MeshTopologyValidator.AnalyzeBoundaryGraph(result.Faces, result.FaceCount);
         Assert.True(topology.HasSingleClosedBoundaryLoop, diagnostics);

@@ -5,11 +5,11 @@ using Xunit;
 namespace MoleHill.Core.Tests;
 
 /// <summary>
-/// Regression for the bug where the explicit-batter engine deferred to the legacy fallback on
+/// Regression for the bug where the explicit-batter engine deferred on
 /// almost every real pad: when a pad edge crosses the terrain contour that sits at the pad's own
 /// grade elevation, those stations are Flat (no batter), so their daylight point collapses ONTO the
 /// footprint boundary. The shoulder-fold gate used a boundary-inclusive point-in-polygon test, so it
-/// mistook that boundary-coincident point for a fold-back and bailed to the constraint-first path.
+/// mistook that boundary-coincident point for a fold-back and bailed out of the explicit tier.
 /// </summary>
 public class PadFlatStationContourTests
 {

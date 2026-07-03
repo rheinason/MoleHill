@@ -477,6 +477,25 @@ New-Icon "$rhinoDir\ModSmooth.png" {
     $penSmooth.Dispose()
 } -size 16
 
+# ModSculpt - teal sculpted mound with white brush cursor ring
+New-Icon "$rhinoDir\ModSculpt.png" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddBezier(1.0, 14.0, 5.0, 3.0, 11.0, 3.0, 15.0, 14.0)
+    $path.AddLine(15, 14, 1, 14)
+    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(0, 137, 123))
+    $g.FillPath($brush, $path)
+    $brush.Dispose()
+    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 77, 64), 1.5)
+    $g.DrawPath($pen, $path)
+    $pen.Dispose()
+    $path.Dispose()
+    # Brush cursor ring hovering over the crest
+    $ringPen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, 1.5)
+    $g.DrawEllipse($ringPen, 5.5, 5.0, 5, 5)
+    $ringPen.Dispose()
+} -size 16
+
 # ModRetainingWall - block wall, bolder outlines
 New-Icon "$rhinoDir\ModRetainingWall.png" {
     param($g)

@@ -345,6 +345,10 @@ internal sealed class StageCacheEntry
 
     public List<GeneratedRhinoObject> MarkerObjects { get; init; } = new();
 
+    public List<GeneratedRhinoObject> ScatterObjects { get; init; } = new();
+
+    public List<TerrainObjectPlacementGroup> ObjectPlacements { get; init; } = new();
+
     public List<SurfaceRemesher.ConstraintPolyline> PersistentHardConstraints { get; init; } = new();
 
     public List<SurfaceRemesher.ConstraintPolyline> PersistentElevationConstraints { get; init; } = new();
@@ -510,6 +514,30 @@ internal static class TerrainRuntimeCacheCloner
         return objects.Select(CloneGeneratedObject).ToList();
     }
 
+    public static List<TerrainObjectPlacementGroup> CloneObjectPlacementGroups(IEnumerable<TerrainObjectPlacementGroup> groups)
+    {
+        return groups.Select(CloneObjectPlacementGroup).ToList();
+    }
+
+    private static TerrainObjectPlacementGroup CloneObjectPlacementGroup(TerrainObjectPlacementGroup group)
+    {
+        var clone = new TerrainObjectPlacementGroup
+        {
+            DefinitionId = group.DefinitionId
+        };
+
+        foreach (var placement in group.Placements)
+        {
+            clone.Placements.Add(new TerrainObjectPlacement
+            {
+                ObjectId = placement.ObjectId,
+                AppliedTransform = placement.AppliedTransform
+            });
+        }
+
+        return clone;
+    }
+
     public static GeneratedRhinoObject CloneGeneratedObject(GeneratedRhinoObject generated)
     {
         return new GeneratedRhinoObject
@@ -585,6 +613,8 @@ internal static class TerrainRuntimeCacheCloner
             ZoneObjects = entry.ZoneObjects,
             AuxiliaryObjects = entry.AuxiliaryObjects,
             MarkerObjects = entry.MarkerObjects,
+            ScatterObjects = entry.ScatterObjects,
+            ObjectPlacements = entry.ObjectPlacements,
             PersistentHardConstraints = entry.PersistentHardConstraints,
             PersistentElevationConstraints = entry.PersistentElevationConstraints,
             Diagnostics = entry.Diagnostics,

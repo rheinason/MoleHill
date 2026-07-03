@@ -140,7 +140,58 @@ public sealed partial class MoleHillPanel
             case AddGeometryModifierDefinition addGeometry:
                 AddBoundaryPeelEditors(layout, terrain, addGeometry);
                 break;
+            case SculptModifierDefinition:
+                layout.AddRow(CreateSculptSessionRow(terrain.TerrainId, modifier.Id));
+                break;
         }
+    }
+
+    private Control CreateSculptSessionRow(Guid terrainId, Guid modifierId)
+    {
+        var sculptButton = MakeMiniButton("Sculpt", (_, _) =>
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc == null)
+                return;
+
+            Application.Instance.AsyncInvoke(() =>
+            {
+                if (IsDisposed)
+                    return;
+
+                SculptSessionController.Instance.BeginSession(doc, terrainId, modifierId);
+            });
+        }, "Start sculpting in the viewport. Drag to sculpt, Ctrl inverts, Shift smooths; Enter or Esc ends the session.", width: 86);
+
+        var clearButton = MakeMiniButton("Clear", (_, _) =>
+        {
+            if (SculptSessionController.Instance.IsActive)
+                return;
+
+            var confirm = MessageBox.Show(
+                this,
+                "Delete all sculpt strokes stored on this modifier?",
+                "Clear Sculpt",
+                MessageBoxButtons.YesNo,
+                MessageBoxType.Question);
+            if (confirm != DialogResult.Yes)
+                return;
+
+            MutateModifier(terrainId, modifierId, item => ((SculptModifierDefinition)item).Tiles.Clear());
+        }, "Delete all stored sculpt displacement for this modifier.", width: 60);
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items =
+            {
+                new Label { Text = "Sculpting", VerticalAlignment = VerticalAlignment.Center },
+                sculptButton,
+                clearButton
+            }
+        };
     }
 
     private Control CreateWorkAreaRow(Guid terrainId, Guid modifierId)
