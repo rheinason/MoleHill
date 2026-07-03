@@ -321,12 +321,16 @@ internal static class GradedRegionAssembler
         double[]? terrainOutline = TryBuildTerrainOutline(terrainFaces, terrainFaceCount, terrainVertices);
 
         var areas = new List<MeshAreaSplitter.AreaBoundary>(daylightLoopsXy.Count);
+        var clippedLoops = new List<double[]>(daylightLoopsXy.Count);
         foreach (double[] xy in daylightLoopsXy)
         {
             double[] effective = ClipLoopToTerrain(xy, terrainOutline, tolerance);
             int count = effective.Length / 2;
             if (count >= 3)
+            {
                 areas.Add(new MeshAreaSplitter.AreaBoundary(effective, count));
+                clippedLoops.Add(effective);
+            }
         }
 
         if (areas.Count == 0)
@@ -334,11 +338,178 @@ internal static class GradedRegionAssembler
 
         MeshAreaSplitter.SplitResult? split = MeshAreaSplitter.SplitPreservingTopology(
             terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, areas.ToArray(), tolerance, out string? warning);
-        if (split is null)
-            return new SplitOutsideResult { Success = false, Warning = warning ?? "Terrain split failed." };
 
-        var edgeCounts = new Dictionary<long, (int inside, int outside)>();
+        string handRolledFailure = warning ?? "Terrain split failed.";
+        if (split is not null)
+        {
+            SplitOutsideResult handRolled = ExtractOutsideRegion(split);
+            if (handRolled.Success)
+                return handRolled;
+
+            handRolledFailure = handRolled.Warning ?? handRolledFailure;
+        }
+
+        // The hand-rolled per-face conforming split can emit overlapping slivers (non-manifold or
+        // duplicated perimeter edges) where a daylight loop hugs the terrain outline, which makes its
+        // hole boundary untraceable. Re-conform with a single Triangle.NET CDT — always a valid,
+        // non-overlapping triangulation — and retry the extraction on that.
+        MeshAreaSplitter.SplitResult? cdt = SplitConformViaCdt(
+            terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, clippedLoops, terrainOutline, tolerance);
+        if (cdt is not null)
+        {
+            SplitOutsideResult viaCdt = ExtractOutsideRegion(cdt);
+            if (viaCdt.Success)
+                return viaCdt;
+        }
+
+        return new SplitOutsideResult { Success = false, Warning = handRolledFailure };
+    }
+
+    /// <summary>
+    /// Classifies a conformed split into carve (inside) and kept (outside) faces, traces the conformed
+    /// hole boundary loops, and repairs pinched/branched boundaries by pulling the outside faces at
+    /// irregular vertices into the carve region.
+    /// </summary>
+    private static SplitOutsideResult ExtractOutsideRegion(MeshAreaSplitter.SplitResult split)
+    {
+        var baseInsideFlags = new bool[split.FaceCount];
+        int insideCount = 0;
+        for (int f = 0; f < split.FaceCount; f++)
+        {
+            if (split.FaceAreaIndex[f] != -1)
+            {
+                baseInsideFlags[f] = true;
+                insideCount++;
+            }
+        }
+
+        if (insideCount == split.FaceCount)
+            return new SplitOutsideResult { Success = false, Warning = "All terrain fell inside the daylight loops." };
+
+        // The conformed daylight boundary = edges separating an inside face from an outside face, OR
+        // naked edges of an inside face (where the carve region meets the terrain perimeter because
+        // the daylight was clipped to the boundary). ChainBoundaryLoops can only walk degree-2
+        // vertices, so a "pinched" boundary (the carve region touching itself or the terrain
+        // perimeter at a branch vertex) leaves loops untraced. Repair by pulling the outside faces at
+        // each branch vertex into the carve region — the parts merge and the vertex becomes regular —
+        // and retry; the enlarged hole is filled and graded like the rest of the carve region.
+        const int maxRepairPasses = 4;
+        var flags = baseInsideFlags;
+        List<int[]>? loops = null;
+        List<int[]>? firstPassLoops = null;
+        bool[]? firstPassFlags = null;
+        string repairTrace = string.Empty;
+
+        for (int pass = 0; pass <= maxRepairPasses; pass++)
+        {
+            Dictionary<int, List<int>> adjacency = BuildHoleBoundaryAdjacency(split.Faces, split.FaceCount, flags);
+            List<int[]> traced = ChainBoundaryLoops(adjacency);
+
+            int totalBoundaryEdges = 0;
+            foreach (List<int> neighbours in adjacency.Values)
+                totalBoundaryEdges += neighbours.Count;
+            totalBoundaryEdges /= 2;
+
+            int consumedEdges = 0;
+            foreach (int[] loop in traced)
+                consumedEdges += loop.Length;
+
+            if (pass == 0)
+            {
+                firstPassLoops = traced;
+                firstPassFlags = flags;
+            }
+
+            if (traced.Count > 0 && consumedEdges == totalBoundaryEdges)
+            {
+                loops = traced;
+                break;
+            }
+
+            // Vertices where the boundary graph is not a simple cycle (branch or dead end).
+            var irregularVertices = new HashSet<int>();
+            foreach (KeyValuePair<int, List<int>> entry in adjacency)
+            {
+                if (entry.Value.Count != 2)
+                    irregularVertices.Add(entry.Key);
+            }
+
+            repairTrace += $" pass {pass}: loops={traced.Count} edges={consumedEdges}/{totalBoundaryEdges} irregular={irregularVertices.Count};";
+            if (irregularVertices.Count == 0)
+                break;
+
+            var repaired = (bool[])flags.Clone();
+            bool changed = false;
+            for (int f = 0; f < split.FaceCount; f++)
+            {
+                if (repaired[f])
+                    continue;
+
+                if (irregularVertices.Contains(split.Faces[f * 3]) ||
+                    irregularVertices.Contains(split.Faces[f * 3 + 1]) ||
+                    irregularVertices.Contains(split.Faces[f * 3 + 2]))
+                {
+                    repaired[f] = true;
+                    changed = true;
+                }
+            }
+
+            if (!changed)
+                break;
+
+            flags = repaired;
+        }
+
+        if (loops == null)
+        {
+            // Repair did not converge. Fall back to the pre-repair trace (partial traces were
+            // historically accepted; downstream topology gates catch anything unsound).
+            if (firstPassLoops == null || firstPassLoops.Count == 0)
+            {
+                return new SplitOutsideResult
+                {
+                    Success = false,
+                    Warning = "Could not trace a closed conformed daylight boundary (daylight likely reaches the terrain edge)." + repairTrace
+                };
+            }
+
+            loops = firstPassLoops;
+            flags = firstPassFlags!;
+        }
+
         var outsideFaces = new List<int>(split.FaceCount * 3);
+        for (int f = 0; f < split.FaceCount; f++)
+        {
+            if (flags[f])
+                continue;
+
+            outsideFaces.Add(split.Faces[f * 3]);
+            outsideFaces.Add(split.Faces[f * 3 + 1]);
+            outsideFaces.Add(split.Faces[f * 3 + 2]);
+        }
+
+        if (outsideFaces.Count == 0)
+            return new SplitOutsideResult { Success = false, Warning = "All terrain fell inside the daylight loops." };
+
+        return new SplitOutsideResult
+        {
+            Success = true,
+            Vertices = split.Vertices,
+            VertexCount = split.VertexCount,
+            OutsideFaces = outsideFaces.ToArray(),
+            OutsideFaceCount = outsideFaces.Count / 3,
+            HoleBoundaryLoops = loops
+        };
+    }
+
+    /// <summary>
+    /// Boundary graph of the carve region for a given inside/outside face classification: edges
+    /// shared by an inside and an outside face, plus naked inside edges (carve region on the terrain
+    /// perimeter).
+    /// </summary>
+    private static Dictionary<int, List<int>> BuildHoleBoundaryAdjacency(int[] faces, int faceCount, bool[] insideFlags)
+    {
+        var edgeCounts = new Dictionary<long, (int inside, int outside)>();
 
         void Bump(int a, int b, bool inside)
         {
@@ -348,30 +519,17 @@ internal static class GradedRegionAssembler
             edgeCounts[key] = c;
         }
 
-        for (int f = 0; f < split.FaceCount; f++)
+        for (int f = 0; f < faceCount; f++)
         {
-            int a = split.Faces[f * 3];
-            int b = split.Faces[f * 3 + 1];
-            int c = split.Faces[f * 3 + 2];
-            bool inside = split.FaceAreaIndex[f] != -1;
+            int a = faces[f * 3];
+            int b = faces[f * 3 + 1];
+            int c = faces[f * 3 + 2];
+            bool inside = insideFlags[f];
             Bump(a, b, inside);
             Bump(b, c, inside);
             Bump(c, a, inside);
-
-            if (!inside)
-            {
-                outsideFaces.Add(a);
-                outsideFaces.Add(b);
-                outsideFaces.Add(c);
-            }
         }
 
-        if (outsideFaces.Count == 0)
-            return new SplitOutsideResult { Success = false, Warning = "All terrain fell inside the daylight loops." };
-
-        // The conformed daylight loop = edges that separate an inside face from an outside face, OR
-        // naked edges of an inside face (where the carve region meets the terrain perimeter because
-        // the daylight was clipped to the boundary).
         var adjacency = new Dictionary<int, List<int>>();
         foreach (KeyValuePair<long, (int inside, int outside)> entry in edgeCounts)
         {
@@ -386,19 +544,7 @@ internal static class GradedRegionAssembler
             AddAdjacency(adjacency, b, a);
         }
 
-        List<int[]> loops = ChainBoundaryLoops(adjacency);
-        if (loops.Count == 0)
-            return new SplitOutsideResult { Success = false, Warning = "Could not trace a closed conformed daylight boundary (daylight likely reaches the terrain edge)." };
-
-        return new SplitOutsideResult
-        {
-            Success = true,
-            Vertices = split.Vertices,
-            VertexCount = split.VertexCount,
-            OutsideFaces = outsideFaces.ToArray(),
-            OutsideFaceCount = outsideFaces.Count / 3,
-            HoleBoundaryLoops = loops
-        };
+        return adjacency;
     }
 
     /// <summary>

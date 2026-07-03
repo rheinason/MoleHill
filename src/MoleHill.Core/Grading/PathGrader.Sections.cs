@@ -639,6 +639,7 @@ public static partial class PathGrader
         }
 
         double resolvedReach = 0.0;
+        bool capToTerrainZ = false;
         if (TryFindPathDaylightReach(
                 interpolateOriginalZ,
                 edgeX,
@@ -666,6 +667,17 @@ public static partial class PathGrader
             resolvedReach = bestApproachReach;
             status = PathSectionResolutionStatus.ResolvedDaylight;
         }
+        else if (clipKind == ShoulderRayClipKind.Boundary)
+        {
+            // The ray ran off the surveyed terrain before daylighting. Cap the section AT the terrain
+            // boundary with the terrain's own elevation there (the terrain outline keeps its Z by
+            // convention) so the shoulder blends continuously from road edge to rim. Leaving the
+            // section unresolved keeps its vertices at terrain Z next to graded neighbours, which
+            // reads as a near-vertical rim spike along the boundary.
+            resolvedReach = clippedReach;
+            status = PathSectionResolutionStatus.ResolvedCap;
+            capToTerrainZ = true;
+        }
 
         if (resolvedReach <= 1e-9)
         {
@@ -684,7 +696,17 @@ public static partial class PathGrader
 
         resolvedX = edgeX + (dirX * resolvedReach);
         resolvedY = edgeY + (dirY * resolvedReach);
-        resolvedZ = edgeZ + (branchSign * slopeRatio * resolvedReach);
+        if (capToTerrainZ)
+        {
+            double terrainZ = interpolateOriginalZ(resolvedX, resolvedY);
+            resolvedZ = double.IsFinite(terrainZ)
+                ? terrainZ
+                : edgeZ + (branchSign * slopeRatio * resolvedReach);
+        }
+        else
+        {
+            resolvedZ = edgeZ + (branchSign * slopeRatio * resolvedReach);
+        }
     }
 
     private static PathSectionBranchStatus TryDeterminePathSectionBranch(

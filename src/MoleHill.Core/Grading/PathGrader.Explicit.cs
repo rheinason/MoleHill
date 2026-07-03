@@ -100,137 +100,16 @@ public static partial class PathGrader
         // Lock curves clip the corridor batters (passed as barriers to the daylight ray-march).
         PreparedBarriers barriers = GradingBarriers.Build(hardConstraints);
 
-        var corridors = new List<PathCorridor>(paths.Length);
-        var daylightLoopsXy = new List<double[]>(paths.Length);
         var outputPolylines = new List<OutputPolyline>(paths.Length * 2);
         int nonDaylightingStations = 0;
+        List<PathCorridor>? corridors = BuildCorridors(
+            paths, terrain, barriers, tolerance, outputPolylines, ref nonDaylightingStations, out errorMessage);
+        if (corridors is null)
+            return null;
 
-        foreach (PathDefinition path in paths)
-        {
-            if (path.VertexCount < 2 || path.Width <= tolerance)
-            {
-                errorMessage = "Grade Path definition was degenerate.";
-                return null;
-            }
-
-            double spacing = ComputeConstraintSegmentLength(path, shoulderDistance: 0.0);
-            ConstraintPath center = BuildConstraintPolyline(path, spacing, tolerance);
-            int n = center.VertexCount;
-            if (n < 2)
-            {
-                errorMessage = "Grade Path centerline collapsed.";
-                return null;
-            }
-
-            double halfWidth = path.Width * 0.5;
-            var leftXyz = new double[n * 3];
-            var rightXyz = new double[n * 3];
-            for (int i = 0; i < n; i++)
-            {
-                double cx = center.XyVertices[i * 2];
-                double cy = center.XyVertices[i * 2 + 1];
-                double cz = center.ZValues[i];
-                double nx = -center.TangentY[i];
-                double ny = center.TangentX[i];
-
-                leftXyz[i * 3] = cx + (nx * halfWidth);
-                leftXyz[i * 3 + 1] = cy + (ny * halfWidth);
-                leftXyz[i * 3 + 2] = cz;
-                rightXyz[i * 3] = cx - (nx * halfWidth);
-                rightXyz[i * 3 + 1] = cy - (ny * halfWidth);
-                rightXyz[i * 3 + 2] = cz;
-            }
-
-            // Side stations only (left edge forward, right edge backward); the daylight at the road
-            // ends is rounded by an arc afterward to avoid the overlapping-corner-fan pinch.
-            int sideCount = n * 2;
-            var stationXy = new double[sideCount * 2];
-            var normals = new double[sideCount * 2];
-            var footZ = new double[sideCount];
-            for (int i = 0; i < n; i++)
-            {
-                stationXy[i * 2] = leftXyz[i * 3];
-                stationXy[i * 2 + 1] = leftXyz[i * 3 + 1];
-                normals[i * 2] = -center.TangentY[i];
-                normals[i * 2 + 1] = center.TangentX[i];
-                footZ[i] = center.ZValues[i];
-            }
-
-            for (int i = 0; i < n; i++)
-            {
-                int src = n - 1 - i;
-                int dst = n + i;
-                stationXy[dst * 2] = rightXyz[src * 3];
-                stationXy[dst * 2 + 1] = rightXyz[src * 3 + 1];
-                normals[dst * 2] = center.TangentY[src];
-                normals[dst * 2 + 1] = -center.TangentX[src];
-                footZ[dst] = center.ZValues[src];
-            }
-
-            BatterStripBuilder.DaylightLoop loop = BatterStripBuilder.BuildDaylightLoop(
-                stationXy, sideCount, isClosed: true, normals, footZ,
-                path.SlopeAngleDeg, path.FillSlopeAngleDeg, path.MaxDistance, terrain, barriers, tolerance);
-
-            foreach (BatterStripBuilder.DaylightStation station in loop.Stations)
-            {
-                if (station.Status == BatterStripBuilder.DaylightStatus.NonDaylighting)
-                    nonDaylightingStations++;
-            }
-
-            // Build the daylight polygon: left-side day points, a rounded end arc, right-side day
-            // points, a rounded start arc. Arcs connect the side day points smoothly (no pinch).
-            double[] dayXy = loop.DaylightXy();
-            var dayZ = new double[loop.Count];
-            for (int i = 0; i < loop.Count; i++)
-                dayZ[i] = loop.Stations[i].DayZ;
-
-            var polyXy = new List<double>(dayXy.Length + 32);
-            for (int i = 0; i < n; i++)
-            {
-                polyXy.Add(dayXy[i * 2]);
-                polyXy.Add(dayXy[i * 2 + 1]);
-            }
-
-            // End arc bulges along +tangent at the last station; start arc along -tangent at the first.
-            AddEndArc(polyXy, dayXy[(n - 1) * 2], dayXy[(n - 1) * 2 + 1], dayXy[n * 2], dayXy[n * 2 + 1],
-                center.XyVertices[(n - 1) * 2], center.XyVertices[(n - 1) * 2 + 1],
-                center.TangentX[n - 1], center.TangentY[n - 1], spacing);
-
-            for (int i = n; i < sideCount; i++)
-            {
-                polyXy.Add(dayXy[i * 2]);
-                polyXy.Add(dayXy[i * 2 + 1]);
-            }
-
-            AddEndArc(polyXy, dayXy[(sideCount - 1) * 2], dayXy[(sideCount - 1) * 2 + 1], dayXy[0], dayXy[1],
-                center.XyVertices[0], center.XyVertices[1],
-                -center.TangentX[0], -center.TangentY[0], spacing);
-
-            double[] daylightPolyXy = polyXy.ToArray();
-
-            // The raw per-station daylight points can fold over themselves where the daylight reach
-            // varies sharply between neighbours (a tight curve, rapidly changing terrain, or a barrier
-            // clipping some rays short but not others). Resolve any self-overlap into the clean outer
-            // envelope with a Clipper union instead of deferring to the fallback. Batter seeds that end
-            // up outside this envelope are filtered out later in BuildCorridorHoleFill.
-            if (GradingGeometry2D.ClosedPolylineSelfIntersects(daylightPolyXy, daylightPolyXy.Length / 2))
-            {
-                if (!ClipperGeometry.TryUnionClosedLoops(new[] { daylightPolyXy }, tolerance, out List<double[]> cleanedLoops) ||
-                    !ClipperGeometry.TryPickLargestLoop(cleanedLoops, out double[] envelope) ||
-                    GradingGeometry2D.ClosedPolylineSelfIntersects(envelope, envelope.Length / 2))
-                {
-                    errorMessage = "Grade Path daylight loop self-intersects and could not be resolved; deferring to topology rebuild.";
-                    return null;
-                }
-
-                daylightPolyXy = envelope;
-            }
-
-            corridors.Add(new PathCorridor(leftXyz, rightXyz, n, daylightPolyXy, spacing, loop));
-            daylightLoopsXy.Add(daylightPolyXy);
-            outputPolylines.Add(new OutputPolyline(leftXyz, n, isClosed: false));
-            outputPolylines.Add(new OutputPolyline(rightXyz, n, isClosed: false));
-        }
+        var daylightLoopsXy = new List<double[]>(corridors.Count);
+        foreach (PathCorridor corridor in corridors)
+            daylightLoopsXy.Add(corridor.DaylightXy);
 
         // Interacting corridors need junction ownership; defer those.
         for (int i = 0; i < daylightLoopsXy.Count; i++)
@@ -327,6 +206,156 @@ public static partial class PathGrader
             diagnostics,
             BuildPathPatchSummaries(paths),
             structured);
+    }
+
+    /// <summary>
+    /// Builds one corridor per path: resampled centerline, offset left/right road edges, the
+    /// daylight loop from the shared batter-strip ray-march, and the corridor daylight polygon
+    /// (side day points + rounded end arcs, self-overlap resolved to the Clipper outer envelope).
+    /// Shared by the explicit corridor tier and the split-keep conform tier so both grade the exact
+    /// same corridor geometry. Appends the road edges to <paramref name="outputPolylines"/> when
+    /// provided. Returns null (with a reason) when a path is degenerate or a self-intersecting
+    /// daylight loop cannot be resolved.
+    /// </summary>
+    private static List<PathCorridor>? BuildCorridors(
+        PathDefinition[] paths,
+        TerrainFaceGrid terrain,
+        PreparedBarriers barriers,
+        double tolerance,
+        List<OutputPolyline>? outputPolylines,
+        ref int nonDaylightingStations,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        var corridors = new List<PathCorridor>(paths.Length);
+
+        foreach (PathDefinition path in paths)
+        {
+            if (path.VertexCount < 2 || path.Width <= tolerance)
+            {
+                errorMessage = "Grade Path definition was degenerate.";
+                return null;
+            }
+
+            double spacing = ComputeConstraintSegmentLength(path, shoulderDistance: 0.0);
+            ConstraintPath center = BuildConstraintPolyline(path, spacing, tolerance);
+            int n = center.VertexCount;
+            if (n < 2)
+            {
+                errorMessage = "Grade Path centerline collapsed.";
+                return null;
+            }
+
+            double halfWidth = path.Width * 0.5;
+            var leftXyz = new double[n * 3];
+            var rightXyz = new double[n * 3];
+            for (int i = 0; i < n; i++)
+            {
+                double cx = center.XyVertices[i * 2];
+                double cy = center.XyVertices[i * 2 + 1];
+                double cz = center.ZValues[i];
+                double nx = -center.TangentY[i];
+                double ny = center.TangentX[i];
+
+                leftXyz[i * 3] = cx + (nx * halfWidth);
+                leftXyz[i * 3 + 1] = cy + (ny * halfWidth);
+                leftXyz[i * 3 + 2] = cz;
+                rightXyz[i * 3] = cx - (nx * halfWidth);
+                rightXyz[i * 3 + 1] = cy - (ny * halfWidth);
+                rightXyz[i * 3 + 2] = cz;
+            }
+
+            // Side stations only (left edge forward, right edge backward); the daylight at the road
+            // ends is rounded by an arc afterward to avoid the overlapping-corner-fan pinch.
+            int sideCount = n * 2;
+            var stationXy = new double[sideCount * 2];
+            var normals = new double[sideCount * 2];
+            var footZ = new double[sideCount];
+            for (int i = 0; i < n; i++)
+            {
+                stationXy[i * 2] = leftXyz[i * 3];
+                stationXy[i * 2 + 1] = leftXyz[i * 3 + 1];
+                normals[i * 2] = -center.TangentY[i];
+                normals[i * 2 + 1] = center.TangentX[i];
+                footZ[i] = center.ZValues[i];
+            }
+
+            for (int i = 0; i < n; i++)
+            {
+                int src = n - 1 - i;
+                int dst = n + i;
+                stationXy[dst * 2] = rightXyz[src * 3];
+                stationXy[dst * 2 + 1] = rightXyz[src * 3 + 1];
+                normals[dst * 2] = center.TangentY[src];
+                normals[dst * 2 + 1] = -center.TangentX[src];
+                footZ[dst] = center.ZValues[src];
+            }
+
+            BatterStripBuilder.DaylightLoop loop = BatterStripBuilder.BuildDaylightLoop(
+                stationXy, sideCount, isClosed: true, normals, footZ,
+                path.SlopeAngleDeg, path.FillSlopeAngleDeg, path.MaxDistance, terrain, barriers, tolerance);
+
+            foreach (BatterStripBuilder.DaylightStation station in loop.Stations)
+            {
+                if (station.Status == BatterStripBuilder.DaylightStatus.NonDaylighting)
+                    nonDaylightingStations++;
+            }
+
+            // Build the daylight polygon: left-side day points, a rounded end arc, right-side day
+            // points, a rounded start arc. Arcs connect the side day points smoothly (no pinch).
+            double[] dayXy = loop.DaylightXy();
+
+            var polyXy = new List<double>(dayXy.Length + 32);
+            for (int i = 0; i < n; i++)
+            {
+                polyXy.Add(dayXy[i * 2]);
+                polyXy.Add(dayXy[i * 2 + 1]);
+            }
+
+            // End arc bulges along +tangent at the last station; start arc along -tangent at the first.
+            AddEndArc(polyXy, dayXy[(n - 1) * 2], dayXy[(n - 1) * 2 + 1], dayXy[n * 2], dayXy[n * 2 + 1],
+                center.XyVertices[(n - 1) * 2], center.XyVertices[(n - 1) * 2 + 1],
+                center.TangentX[n - 1], center.TangentY[n - 1], spacing);
+
+            for (int i = n; i < sideCount; i++)
+            {
+                polyXy.Add(dayXy[i * 2]);
+                polyXy.Add(dayXy[i * 2 + 1]);
+            }
+
+            AddEndArc(polyXy, dayXy[(sideCount - 1) * 2], dayXy[(sideCount - 1) * 2 + 1], dayXy[0], dayXy[1],
+                center.XyVertices[0], center.XyVertices[1],
+                -center.TangentX[0], -center.TangentY[0], spacing);
+
+            double[] daylightPolyXy = polyXy.ToArray();
+
+            // The raw per-station daylight points can fold over themselves where the daylight reach
+            // varies sharply between neighbours (a tight curve, rapidly changing terrain, or a barrier
+            // clipping some rays short but not others). Resolve any self-overlap into the clean outer
+            // envelope with a Clipper union instead of deferring to the fallback. Batter seeds that end
+            // up outside this envelope are filtered out later in BuildCorridorHoleFill.
+            if (GradingGeometry2D.ClosedPolylineSelfIntersects(daylightPolyXy, daylightPolyXy.Length / 2))
+            {
+                if (!ClipperGeometry.TryUnionClosedLoops(new[] { daylightPolyXy }, tolerance, out List<double[]> cleanedLoops) ||
+                    !ClipperGeometry.TryPickLargestLoop(cleanedLoops, out double[] envelope) ||
+                    GradingGeometry2D.ClosedPolylineSelfIntersects(envelope, envelope.Length / 2))
+                {
+                    errorMessage = "Grade Path daylight loop self-intersects and could not be resolved; deferring to topology rebuild.";
+                    return null;
+                }
+
+                daylightPolyXy = envelope;
+            }
+
+            corridors.Add(new PathCorridor(leftXyz, rightXyz, n, daylightPolyXy, spacing, loop));
+            if (outputPolylines != null)
+            {
+                outputPolylines.Add(new OutputPolyline(leftXyz, n, isClosed: false));
+                outputPolylines.Add(new OutputPolyline(rightXyz, n, isClosed: false));
+            }
+        }
+
+        return corridors;
     }
 
     /// <summary>
@@ -563,13 +592,68 @@ public static partial class PathGrader
                 boundaryXy[i * 2 + 1] = boundaryXyz[i * 3 + 1];
             }
 
+            // Seed density guard: a seed within roughly a quarter station-spacing of ANY existing fill
+            // input point (boundary, road edge, or another seed) creates near-degenerate micro-faces
+            // whose blended Z reads as jagged spikes; occupancy of a coarse grid approximates that
+            // min-distance cheaply.
+            double seedSpacing = Math.Max(1.0, corridor.Spacing * 0.25);
+            double invSeedCell = 1.0 / seedSpacing;
+            var seedCells = new HashSet<(long, long)>();
+            for (int i = 0; i < xyList.Count / 2; i++)
+                seedCells.Add(((long)Math.Floor(xyList[i * 2] * invSeedCell), (long)Math.Floor(xyList[(i * 2) + 1] * invSeedCell)));
+
+            void AddSeedPoint(double sx, double sy)
+            {
+                var cell = ((long)Math.Floor(sx * invSeedCell), (long)Math.Floor(sy * invSeedCell));
+                for (long cx = cell.Item1 - 1; cx <= cell.Item1 + 1; cx++)
+                {
+                    for (long cy = cell.Item2 - 1; cy <= cell.Item2 + 1; cy++)
+                    {
+                        if (seedCells.Contains((cx, cy)))
+                            return;
+                    }
+                }
+
+                AddPoint(sx, sy, 0.0);
+                seedCells.Add(cell);
+            }
+
             double[] seeds = BatterStripBuilder.BuildBatterSeeds(corridor.Loop, corridor.Spacing);
             for (int i = 0; i < seeds.Length / 3; i++)
             {
                 double sx = seeds[i * 3];
                 double sy = seeds[i * 3 + 1];
                 if (GradingGeometry2D.PointInPolygon(sx, sy, boundaryXy, boundaryCount))
-                    AddPoint(sx, sy, 0.0);
+                    AddSeedPoint(sx, sy);
+            }
+
+            // Where the pre-clip batter rows were dropped (a barrier clipped the ray, or the daylight
+            // envelope was Clipper-simplified past the fold), re-seed each station against the ACTUAL
+            // conformed boundary: find how far the station ray stays inside the hole and place rows
+            // within that span. Without this the fill spans long steep slivers from the road edge
+            // straight to the boundary in exactly those regions.
+            foreach (BatterStripBuilder.DaylightStation station in corridor.Loop.Stations)
+            {
+                double dx = station.DayX - station.FootX;
+                double dy = station.DayY - station.FootY;
+                if ((dx * dx) + (dy * dy) <= 1e-12)
+                    continue;
+
+                double tMax = 0.0;
+                for (double t = 1.0; t >= 0.15; t -= 0.1)
+                {
+                    if (GradingGeometry2D.PointInPolygon(station.FootX + (dx * t), station.FootY + (dy * t), boundaryXy, boundaryCount))
+                    {
+                        tMax = t;
+                        break;
+                    }
+                }
+
+                if (tMax <= 0.0)
+                    continue;
+
+                AddSeedPoint(station.FootX + (dx * tMax / 3.0), station.FootY + (dy * tMax / 3.0));
+                AddSeedPoint(station.FootX + (dx * tMax * 2.0 / 3.0), station.FootY + (dy * tMax * 2.0 / 3.0));
             }
         }
 
