@@ -9,7 +9,7 @@ internal class TerrainFaceGrid
 
     public double BoundsDiagonal { get; }
 
-    public TerrainFaceGrid(double[] vertices, int vertexCount, int[] faces, int faceCount)
+    public TerrainFaceGrid(double[] vertices, int vertexCount, int[] faces, int faceCount, double cellSizeHint = 0.0)
     {
         _verts = vertices;
         _faces = faces;
@@ -30,8 +30,11 @@ internal class TerrainFaceGrid
 
         double span = Math.Max(maxX - minX, maxY - minY);
         BoundsDiagonal = Math.Sqrt(((maxX - minX) * (maxX - minX)) + ((maxY - minY) * (maxY - minY)));
+        // The default cell (span-average by face count) degrades badly on strongly non-uniform meshes
+        // (huge outer faces + tiny graded-corridor faces put hundreds of faces per corridor cell).
+        // Callers doing many point queries at a known working scale pass that scale as the hint.
         int gridRes = Math.Max(1, (int)Math.Sqrt(faceCount / 4.0));
-        double cellSize = Math.Max(span / gridRes, 1e-6);
+        double cellSize = cellSizeHint > 0 ? Math.Max(cellSizeHint, 1e-6) : Math.Max(span / gridRes, 1e-6);
         _invCell = 1.0 / cellSize;
 
         _grid = new Dictionary<long, List<int>>(faceCount);

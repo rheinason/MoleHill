@@ -35,3 +35,4 @@ artifacts/
 # Local skill state
 skills/
 skills-lock.json
+scratch_*.obj

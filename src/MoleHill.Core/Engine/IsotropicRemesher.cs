@@ -1,4 +1,4 @@
-using MoleHill.Core.Grading;
+﻿using MoleHill.Core.Grading;
 using static MoleHill.Core.Engine.MeshFlipGeometry;
 
 namespace MoleHill.Core.Engine;
@@ -58,13 +58,19 @@ public static class IsotropicRemesher
 
         /// <summary>Per output face: true when the face is a frozen (steep retaining-wall) face.</summary>
         public bool[] FrozenFaces { get; init; } = Array.Empty<bool>();
+
+        /// <summary>Coarse phase timing (milliseconds), for build diagnostics.</summary>
+        public string Timing { get; init; } = string.Empty;
     }
 
     private const double SplitFactor = 4.0 / 3.0;
     private const double CollapseFactor = 4.0 / 5.0;
     private const double RelaxLambda = 0.5;
     private const double FlipAngleImproveEps = 1e-3;
-    private const int MaxSplitRounds = 24;
+    // Split rounds per phase are capped low so extreme anisotropic fans (long thin grading triangles)
+    // don't cascade to enormous intermediate face counts before the next collapse phase can coarsen
+    // them; the outer iterations provide the remaining rounds where genuinely needed.
+    private const int MaxSplitRounds = 4;
     private const int MaxFlipSweeps = 16;
 
     public static Result Remesh(
@@ -80,26 +86,53 @@ public static class IsotropicRemesher
         if (options.TargetEdgeLength <= 0)
             return new Result { Success = false, Vertices = vertices, Faces = faces, Warning = "Isotropic remesh requires a positive target edge length." };
 
+        long tsStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var graph = FeaturePolylineGraph.Build(
-            vertices, faces, faceCount, constraints, options.CreaseAngleDeg, options.WallFaceMinSlopeDeg, options.Tolerance);
+            vertices, faces, faceCount, constraints, options.CreaseAngleDeg, options.WallFaceMinSlopeDeg, options.Tolerance,
+            minCreaseChainLength: options.TargetEdgeLength * 3.0);
+        double msGraph = System.Diagnostics.Stopwatch.GetElapsedTime(tsStart).TotalMilliseconds;
 
         // Back-projection grid over the ORIGINAL mesh with wall faces excluded: a near-vertical wall is
         // an XY sliver, so sampling it would return a mid-wall Z and smear the wall onto the terrain.
-        TerrainFaceGrid? projection = BuildProjectionGrid(vertices, faces, faceCount, graph.FrozenFaces);
+        // Cell size = half the target so queries in dense graded corridors stay near-constant time.
+        TerrainFaceGrid? projection = BuildProjectionGrid(
+            vertices, faces, faceCount, graph.FrozenFaces, options.TargetEdgeLength * 0.5);
         if (projection is null)
             return new Result { Success = true, Vertices = vertices, Faces = faces, Warning = "All faces are steep (frozen); nothing to remesh." };
 
         var state = new MeshState(vertices, faces, graph);
 
+        // Imperfect upstream grading can hand us a mesh that is already non-manifold or has open
+        // chains. The acceptance gate is therefore relative: the output must be no WORSE than the
+        // input (the sick edges themselves are pinned by the feature graph and pass through).
+        var inputTopology = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
+
         double target = options.TargetEdgeLength;
         int totalSplits = 0, totalCollapses = 0, totalFlips = 0, totalRelaxed = 0;
+        double msSplit = 0, msCollapse = 0, msFlip = 0, msRelax = 0;
         int iterations = Math.Max(1, options.Iterations);
         for (int iteration = 0; iteration < iterations; iteration++)
         {
-            int splits = SplitLongEdges(state, target * SplitFactor, projection);
+            // Collapse before split: terrain grading leaves dense anisotropic fans whose long edges
+            // would otherwise split-cascade into enormous face counts before collapsing could catch
+            // up. Eating the short edges first coarsens the fans at their base, so the split phase
+            // only refines what is genuinely coarse.
+            long ts = System.Diagnostics.Stopwatch.GetTimestamp();
             int collapses = CollapseShortEdges(state, target, projection);
+            msCollapse += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
+
+            ts = System.Diagnostics.Stopwatch.GetTimestamp();
+            int splits = SplitLongEdges(state, target * SplitFactor, projection);
+            msSplit += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
+
+            ts = System.Diagnostics.Stopwatch.GetTimestamp();
             int flips = FlipForQuality(state);
+            msFlip += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
+
+            ts = System.Diagnostics.Stopwatch.GetTimestamp();
             int relaxed = RelaxAndProject(state, target, projection);
+            msRelax += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
+
             totalSplits += splits;
             totalCollapses += collapses;
             totalFlips += flips;
@@ -108,10 +141,11 @@ public static class IsotropicRemesher
                 break;
         }
 
-        return state.ToResult(vertices, faces, totalSplits, totalCollapses, totalFlips, totalRelaxed);
+        string timing = $"graph {msGraph:0} ms, split {msSplit:0} ms, collapse {msCollapse:0} ms, flip {msFlip:0} ms, relax {msRelax:0} ms";
+        return state.ToResult(vertices, faces, inputTopology, totalSplits, totalCollapses, totalFlips, totalRelaxed, timing);
     }
 
-    private static TerrainFaceGrid? BuildProjectionGrid(double[] vertices, int[] faces, int faceCount, bool[] frozenFaces)
+    private static TerrainFaceGrid? BuildProjectionGrid(double[] vertices, int[] faces, int faceCount, bool[] frozenFaces, double cellSizeHint)
     {
         int activeCount = 0;
         for (int f = 0; f < faceCount; f++)
@@ -123,7 +157,7 @@ public static class IsotropicRemesher
         if (activeCount == 0)
             return null;
         if (activeCount == faceCount)
-            return new TerrainFaceGrid(vertices, vertices.Length / 3, faces, faceCount);
+            return new TerrainFaceGrid(vertices, vertices.Length / 3, faces, faceCount, cellSizeHint);
 
         var activeFaces = new int[activeCount * 3];
         int next = 0;
@@ -137,7 +171,7 @@ public static class IsotropicRemesher
             next++;
         }
 
-        return new TerrainFaceGrid(vertices, vertices.Length / 3, activeFaces, activeCount);
+        return new TerrainFaceGrid(vertices, vertices.Length / 3, activeFaces, activeCount, cellSizeHint);
     }
 
     // === Working state =================================================================================
@@ -147,7 +181,7 @@ public static class IsotropicRemesher
     /// collapses are tombstoned (first index -1) and swept out at the end of the collapse phase; vertices
     /// orphaned by collapses stay in the arrays and are dropped by the final compaction.
     /// </summary>
-    private sealed class MeshState
+    internal sealed class MeshState
     {
         public readonly List<double> Verts;
         public readonly List<int> Tris;
@@ -215,21 +249,37 @@ public static class IsotropicRemesher
             FaceFrozen.RemoveRange(write, count - write);
         }
 
-        public Result ToResult(double[] inputVertices, int[] inputFaces, int splits, int collapses, int flips, int relaxed)
+        public Result ToResult(
+            double[] inputVertices,
+            int[] inputFaces,
+            MeshTopologyValidator.BoundaryGraphAnalysis inputTopology,
+            int splits,
+            int collapses,
+            int flips,
+            int relaxed,
+            string timing)
         {
             var faces = Tris.ToArray();
             var compaction = IndexedMeshTools.Compact(VertexCount, faces, faces.Length / 3);
             double[] outVertices = IndexedMeshTools.CompactDoubleData(Verts.ToArray(), 3, compaction.NewToOld, compaction.VertexCount);
 
+            // Relative gate: never accept an output sicker than the input (non-manifold edges that
+            // were already there are pinned and pass through unchanged).
             var topology = MeshTopologyValidator.AnalyzeBoundaryGraph(compaction.Faces, compaction.FaceCount);
-            if (topology.NonManifoldEdgeCount != 0 || topology.HasOpenBoundaryChains)
+            bool worseNonManifold = topology.NonManifoldEdgeCount > inputTopology.NonManifoldEdgeCount;
+            bool worseOpenChains = topology.HasOpenBoundaryChains && !inputTopology.HasOpenBoundaryChains;
+            if (worseNonManifold || worseOpenChains)
             {
                 return new Result
                 {
                     Success = false,
                     Vertices = inputVertices,
                     Faces = inputFaces,
-                    Warning = "Isotropic remesh produced invalid topology; kept the input mesh unchanged."
+                    Warning = "Isotropic remesh produced invalid topology " +
+                        $"(non-manifold {inputTopology.NonManifoldEdgeCount} -> {topology.NonManifoldEdgeCount}, " +
+                        $"open chains {inputTopology.HasOpenBoundaryChains} -> {topology.HasOpenBoundaryChains}); " +
+                        "kept the input mesh unchanged.",
+                    Timing = timing
                 };
             }
 
@@ -255,7 +305,8 @@ public static class IsotropicRemesher
                 Flips = flips,
                 RelaxedVertices = relaxed,
                 FeatureEdges = featurePairs.ToArray(),
-                FrozenFaces = FaceFrozen.ToArray()
+                FrozenFaces = FaceFrozen.ToArray(),
+                Timing = timing
             };
         }
     }
@@ -268,7 +319,7 @@ public static class IsotropicRemesher
     /// midpoints are evaluated ON the feature polyline; free midpoints take the chord XY and re-sample Z
     /// from the original surface. Frozen faces and their edges are never touched.
     /// </summary>
-    private static int SplitLongEdges(MeshState state, double threshold, TerrainFaceGrid projection)
+    internal static int SplitLongEdges(MeshState state, double threshold, TerrainFaceGrid projection)
     {
         double thresholdSquared = threshold * threshold;
         int added = 0;
@@ -287,6 +338,10 @@ public static class IsotropicRemesher
                 int v0 = state.Tris[t * 3], v1 = state.Tris[t * 3 + 1], v2 = state.Tris[t * 3 + 2];
                 long longest = LongestEdgeKey(state.Verts, v0, v1, v2, out double longestSquared);
                 if (longestSquared <= thresholdSquared || frozenEdges.Contains(longest))
+                    continue;
+                // Chainless pinned features are contained sickness (non-manifold edges from imperfect
+                // upstream welds): splitting one would double its non-manifold count. Leave it alone.
+                if (state.FeatureEdges.TryGetValue(longest, out int longestChain) && longestChain < 0)
                     continue;
                 if (markedSet.Add(longest))
                     marked.Add(longest);
@@ -395,7 +450,27 @@ public static class IsotropicRemesher
     /// corner/frozen vertex, and never a non-feature edge between two feature vertices (which would pinch
     /// two feature lines through one vertex).
     /// </summary>
-    private static int CollapseShortEdges(MeshState state, double target, TerrainFaceGrid projection)
+    /// <summary>
+    /// Runs collapse rounds until no short edge can be collapsed (each round only takes an
+    /// independent set — the one-ring locks — so dense regions need several rounds to fully coarsen;
+    /// stopping after one would let the split phase outrun collapsing on fan-heavy grading output).
+    /// </summary>
+    internal static int CollapseShortEdges(MeshState state, double target, TerrainFaceGrid projection)
+    {
+        const int maxRounds = 8;
+        int total = 0;
+        for (int round = 0; round < maxRounds; round++)
+        {
+            int collapses = CollapseShortEdgesRound(state, target, projection);
+            total += collapses;
+            if (collapses == 0)
+                break;
+        }
+
+        return total;
+    }
+
+    private static int CollapseShortEdgesRound(MeshState state, double target, TerrainFaceGrid projection)
     {
         double collapseSquared = target * CollapseFactor * target * CollapseFactor;
         double maxResultSquared = target * SplitFactor * target * SplitFactor;
@@ -676,7 +751,7 @@ public static class IsotropicRemesher
     /// move and re-project in this loop, re-forming the mesh is the contract, and every structure that
     /// must survive is expressed as a pinned feature or frozen wall.
     /// </summary>
-    private static int FlipForQuality(MeshState state)
+    internal static int FlipForQuality(MeshState state)
     {
         int totalFlips = 0;
         double[] vertices = state.Verts.ToArray(); // positions don't change during the flip phase
@@ -695,6 +770,7 @@ public static class IsotropicRemesher
             }
 
             var touched = new bool[faceCount];
+            var createdEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
             int flips = 0;
             foreach (KeyValuePair<long, (int t0, int o0, int t1, int o1, int count)> entry in adjacency)
             {
@@ -713,7 +789,11 @@ public static class IsotropicRemesher
                 int c = e.o0;
                 int d = e.o1;
 
-                if (adjacency.ContainsKey(EdgeKey(c, d)))
+                // The new diagonal must not duplicate a pre-existing edge NOR one another flip created
+                // this sweep (two disjoint quads can propose the same diagonal — that would be a
+                // non-manifold double edge).
+                long newKey = EdgeKey(c, d);
+                if (adjacency.ContainsKey(newKey) || createdEdges.Contains(newKey))
                     continue;
                 if (!QuadIsConvexForFlip(vertices, p, q, c, d))
                     continue;
@@ -725,6 +805,7 @@ public static class IsotropicRemesher
 
                 WriteOrientedFaceToList(vertices, state.Tris, e.t0, p, c, d);
                 WriteOrientedFaceToList(vertices, state.Tris, e.t1, c, q, d);
+                createdEdges.Add(newKey);
                 touched[e.t0] = true;
                 touched[e.t1] = true;
                 flips++;
@@ -758,7 +839,7 @@ public static class IsotropicRemesher
     /// makes crossing a feature line impossible (the line is always a set of mesh edges — crossing it
     /// would invert a triangle first).
     /// </summary>
-    private static int RelaxAndProject(MeshState state, double target, TerrainFaceGrid projection)
+    internal static int RelaxAndProject(MeshState state, double target, TerrainFaceGrid projection)
     {
         int faceCount = state.FaceCount;
         int vertexCount = state.VertexCount;

@@ -635,14 +635,14 @@ internal sealed partial class TerrainBuildService
 
         if (!result.Success)
         {
-            build.Diagnostics.Add(result.Warning ?? "Remesh kept the upstream mesh unchanged.");
+            build.Diagnostics.Add((result.Warning ?? "Remesh kept the upstream mesh unchanged.") + $" [{result.Timing}]");
             return mesh.DuplicateMesh();
         }
 
         build.Diagnostics.Add(
             $"Remesh isotropic: {result.Splits:N0} splits, {result.Collapses:N0} collapses, " +
             $"{result.Flips:N0} flips at target {target:0.###} " +
-            $"({result.Faces.Length / 3:N0} faces; features and walls pinned).");
+            $"({result.Faces.Length / 3:N0} faces; features and walls pinned) [{result.Timing}].");
 
         return BuildMeshFromArrays(result.Vertices, result.Faces);
     }

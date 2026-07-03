@@ -65,7 +65,8 @@ internal sealed class FeaturePolylineGraph
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
         double creaseAngleDeg,
         double wallFaceMinSlopeDeg,
-        double tolerance)
+        double tolerance,
+        double minCreaseChainLength = 0.0)
     {
         int vertexCount = vertices.Length / 3;
         var graph = new FeaturePolylineGraph
@@ -84,11 +85,67 @@ internal sealed class FeaturePolylineGraph
         foreach ((int a, int b) in boundarySegments)
             featureEdges.Add(EdgeKey(a, b));
 
+        // Non-manifold edges (imperfect upstream grading welds) are contained, not repaired: pin their
+        // endpoints so no operator can touch or spread them. The remesh acceptance gate only requires
+        // the output to be no worse than the input.
+        var edgeIncidence = new Dictionary<long, int>(faceCount * 2, IndexedMeshTools.EdgeKeyComparer.Instance);
+        for (int f = 0; f < faceCount; f++)
+        {
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            CountIncidence(edgeIncidence, a, b);
+            CountIncidence(edgeIncidence, b, c);
+            CountIncidence(edgeIncidence, c, a);
+        }
+
+        var pinnedNonManifold = new List<long>();
+        var nonManifoldEdges = new HashSet<long>();
+        foreach ((long key, int count) in edgeIncidence)
+        {
+            if (count > 2)
+            {
+                pinnedNonManifold.Add(key);
+                nonManifoldEdges.Add(key);
+            }
+        }
+
+        // Quarantine at FACE level: any face touching a non-manifold edge is frozen like a wall face.
+        // Duplicate/overlapping faces (imperfect grading welds) otherwise multiply under subdivision —
+        // splitting a duplicated face's healthy-looking edge duplicates its children too, doubling the
+        // non-manifold count every round.
+        if (nonManifoldEdges.Count > 0)
+        {
+            for (int f = 0; f < faceCount; f++)
+            {
+                int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+                if (nonManifoldEdges.Contains(EdgeKey(a, b)) ||
+                    nonManifoldEdges.Contains(EdgeKey(b, c)) ||
+                    nonManifoldEdges.Contains(EdgeKey(c, a)))
+                {
+                    graph.FrozenFaces[f] = true;
+                }
+            }
+        }
+
         if (creaseAngleDeg > 0)
         {
             double cosThreshold = Math.Cos(Math.Clamp(creaseAngleDeg, 1.0, 179.0) * Math.PI / 180.0);
+            var creaseEdges = new HashSet<long>();
             foreach ((int a, int b) in SurfaceRemesher.DetectCreaseEdges(vertices, faces, faceCount, cosThreshold))
-                featureEdges.Add(EdgeKey(a, b));
+            {
+                long key = EdgeKey(a, b);
+                if (!featureEdges.Contains(key))
+                    creaseEdges.Add(key);
+            }
+
+            // Real terrain features (batter toes, slope breaks, road shoulders) form LONG coherent
+            // crease chains. Badly triangulated fan regions also fold past the crease angle, but as a
+            // dense web of short zigzag fragments; pinning those freezes the very topology the remesh
+            // exists to clean up. Keep only crease chains longer than the threshold.
+            if (minCreaseChainLength > 0)
+                FilterShortCreaseChains(vertices, creaseEdges, minCreaseChainLength);
+
+            foreach (long key in creaseEdges)
+                featureEdges.Add(key);
         }
 
         MarkConstraintFeatureEdges(vertices, vertexCount, faces, faceCount, constraints, Math.Max(tolerance, 1e-6), featureEdges);
@@ -165,6 +222,10 @@ internal sealed class FeaturePolylineGraph
             if (graph.VertexKind[v] != KindFrozen)
                 graph.VertexKind[v] = KindCorner;
         }
+
+        // Pin non-manifold edges as chainless features (endpoints become corners below).
+        foreach (long key in pinnedNonManifold)
+            featureEdges.Add(key);
 
         // Any raw feature edge that did not land in a chain (degenerate-length chain, defensive walk
         // break) is still a feature: register it chainless (-1) and pin its endpoints so nothing can
@@ -361,6 +422,101 @@ internal sealed class FeaturePolylineGraph
     // === Helpers =======================================================================================
 
     private static long CornerKey(int vertex, int chainId) => ((long)vertex << 32) | (uint)chainId;
+
+    private static void CountIncidence(Dictionary<long, int> edgeIncidence, int a, int b)
+    {
+        long key = EdgeKey(a, b);
+        edgeIncidence[key] = edgeIncidence.TryGetValue(key, out int count) ? count + 1 : 1;
+    }
+
+    /// <summary>
+    /// Removes crease edges that only form short chains. Chains are walked corner-to-corner (degree ≠ 2
+    /// or a sharp turn breaks a chain, matching the main walk), then every chain whose polyline length
+    /// is under <paramref name="minLength"/> has its edges dropped from the set.
+    /// </summary>
+    private static void FilterShortCreaseChains(double[] vertices, HashSet<long> creaseEdges, double minLength)
+    {
+        if (creaseEdges.Count == 0)
+            return;
+
+        var neighbors = new Dictionary<int, List<int>>();
+        foreach (long key in creaseEdges)
+        {
+            int a = (int)(key >> 32);
+            int b = (int)(key & 0xFFFFFFFFL);
+            AddNeighbor(neighbors, a, b);
+            AddNeighbor(neighbors, b, a);
+        }
+
+        double cosSharp = Math.Cos(SharpTurnDeg * Math.PI / 180.0);
+        var breaks = new HashSet<int>();
+        foreach (KeyValuePair<int, List<int>> entry in neighbors)
+        {
+            List<int> n = entry.Value;
+            if (n.Count != 2 || TangentTurnCos(vertices, n[0], entry.Key, n[1]) < cosSharp)
+                breaks.Add(entry.Key);
+        }
+
+        var visited = new HashSet<long>();
+        var toDrop = new List<long>();
+        var chain = new List<long>();
+
+        void Walk(int start, int second)
+        {
+            chain.Clear();
+            double length = 0;
+            int previous = start;
+            int current = second;
+            long key = EdgeKey(start, second);
+            visited.Add(key);
+            chain.Add(key);
+            length += Distance(vertices, start, second);
+            while (!breaks.Contains(current))
+            {
+                List<int> n = neighbors[current];
+                if (n.Count != 2)
+                    break;
+                int next = n[0] == previous ? n[1] : n[0];
+                long nextKey = EdgeKey(current, next);
+                if (!visited.Add(nextKey))
+                    break;
+                chain.Add(nextKey);
+                length += Distance(vertices, current, next);
+                if (next == start)
+                    break;
+                previous = current;
+                current = next;
+            }
+
+            if (length < minLength)
+                toDrop.AddRange(chain);
+        }
+
+        var breakList = new List<int>(breaks);
+        breakList.Sort();
+        foreach (int start in breakList)
+        {
+            foreach (int next in SortedCopy(neighbors[start]))
+            {
+                if (!visited.Contains(EdgeKey(start, next)))
+                    Walk(start, next);
+            }
+        }
+
+        var loopStarts = new List<int>(neighbors.Keys);
+        loopStarts.Sort();
+        foreach (int start in loopStarts)
+        {
+            foreach (int next in SortedCopy(neighbors[start]))
+            {
+                if (!visited.Contains(EdgeKey(start, next)))
+                    Walk(start, next);
+            }
+        }
+
+        foreach (long key in toDrop)
+            creaseEdges.Remove(key);
+    }
 
     /// <summary>Per-face steep test: frozen where the 3-D normal leans further than the wall threshold.</summary>
     internal static bool[] BuildFrozenFaceMask(double[] vertices, int[] faces, int faceCount, double wallFaceMinSlopeDeg)
