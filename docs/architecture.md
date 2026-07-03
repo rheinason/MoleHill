@@ -104,7 +104,13 @@ If all three tiers defer, `Grade` fails cleanly (returns null with a diagnostic)
 non-watertight mesh. (The former tier 4 — `ConstraintFirstGradingEngine` + refined-Z whole-mesh rebuild —
 was deleted; it produced spikes on exactly the degenerate scenes that reached it.)
 
-`PathGrader.*` is the corridor analogue. Shared: `GradingGeometry2D` (all 2D primitives —
+`PathGrader.Grade` is the corridor analogue with its own cascade: **explicit corridor**
+(`PathGrader.Explicit.cs`, carve/fill with density-guarded batter + station seeds) → **split-keep**
+(`PathGrader.SplitKeep.cs`, conform corridor daylight + road-edge footprint loops in place — also
+covers daylight reaching the terrain edge) → **constraint insertion** (`PathGrader.Patches.cs`, last
+resort). `GradedRegionAssembler.SplitOutside` repairs pinched hole boundaries (outside faces at
+irregular vertices are pulled into the carve) and re-conforms via a single CDT when the hand-rolled
+splitter emits an untraceable boundary. Shared: `GradingGeometry2D` (all 2D primitives —
 point-in-polygon, distance, interior point; `PadGrader.Spatial.cs` are thin compat wrappers),
 `BatterStripBuilder`, `MeshAreaTopologySplitter`, `GradedRegionAssembler.WeldGradedRegion`.
 

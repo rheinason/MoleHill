@@ -63,7 +63,27 @@ public static partial class PathGrader
             ? null
             : GradingDiagnostic.Information(
                 "grade_path.explicit.fallback",
-                $"Explicit corridor construction deferred to the topology rebuild: {explicitFailureReason}",
+                $"Explicit corridor construction deferred: {explicitFailureReason}",
+                operation: "grade_path");
+
+        // Middle tier: conform the terrain to the corridor loops and keep the whole mesh (watertight
+        // by construction) — covers corridors the explicit carve/fill/weld cannot trace, without
+        // dropping to the sliver-prone constraint-insertion rebuild.
+        GradingResult? splitKeep = GradeWithSplitKeep(
+            vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out string? splitKeepFailureReason);
+        if (splitKeep != null)
+        {
+            errorMessage = null;
+            return explicitFallbackDiagnostic != null
+                ? WithExtraDiagnostic(splitKeep, explicitFallbackDiagnostic.Value)
+                : splitKeep;
+        }
+
+        GradingDiagnostic? splitKeepFallbackDiagnostic = string.IsNullOrWhiteSpace(splitKeepFailureReason)
+            ? null
+            : GradingDiagnostic.Information(
+                "grade_path.split_keep.fallback",
+                $"Split-keep conform deferred to the topology rebuild: {splitKeepFailureReason}",
                 operation: "grade_path");
 
         // Grade Path must own and rebuild topology. Do not silently fall back to Z-only grading.
@@ -71,9 +91,11 @@ public static partial class PathGrader
         if (result != null)
         {
             errorMessage = null;
-            return explicitFallbackDiagnostic != null
-                ? WithExtraDiagnostic(result, explicitFallbackDiagnostic.Value)
-                : result;
+            if (explicitFallbackDiagnostic != null)
+                result = WithExtraDiagnostic(result, explicitFallbackDiagnostic.Value);
+            if (splitKeepFallbackDiagnostic != null)
+                result = WithExtraDiagnostic(result, splitKeepFallbackDiagnostic.Value);
+            return result;
         }
 
         errorMessage = string.IsNullOrWhiteSpace(topologyError)
