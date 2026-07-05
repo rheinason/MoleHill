@@ -27,9 +27,15 @@ emitting a non-watertight result.
 
 `GradedRegionAssembler.SplitOutside` (used by both explicit tiers) repairs pinched/branched hole
 boundaries by pulling outside faces at irregular vertices into the carve region, and falls back to a
-single-CDT re-conform when the hand-rolled splitter emits an untraceable (overlapping-sliver)
-boundary. Path shoulder sections whose daylight ray runs off the surveyed terrain cap AT the terrain
-boundary with the terrain's own elevation (`PathGrader.Sections.cs`) instead of staying unresolved.
+single-CDT re-conform (`SplitConformViaCdt`) when the hand-rolled splitter emits an untraceable
+(overlapping-sliver) boundary — as happens when the daylight loop reaches the terrain edge. That
+re-conform re-triangulates the WHOLE terrain, so it must re-insert the caller's hard-constraint
+breaklines (retaining walls) as exact constraint edges; otherwise the CDT flips away the near-vertical
+wall-face edges and orphans wall-top vertices into tent-pole spikes. `SplitOutside`/`SplitConform`
+therefore take the `hardConstraints` list and thread it through (Path passes them; Pad's public entry
+does not carry them yet). Path shoulder sections whose daylight ray runs off the surveyed terrain cap
+AT the terrain boundary with the terrain's own elevation (`PathGrader.Sections.cs`) instead of
+staying unresolved.
 
 `PadGrader` is split across `PadGrader.*.cs` partials (`.Explicit`, `.RegionRemesh`, `.Surfaces`,
 `.Daylighting`, `.Spatial`, `.Support`, `.Types`, ...). `PathGrader.*.cs` is the corridor analogue.

@@ -69,7 +69,7 @@ public static partial class PathGrader
         }
 
         MeshAreaSplitter.SplitResult? conformed = GradedRegionAssembler.SplitConform(
-            vertices, vertexCount, faces, faceCount, conformLoops, tolerance);
+            vertices, vertexCount, faces, faceCount, conformLoops, tolerance, hardConstraints);
         if (conformed is null)
         {
             errorMessage = "Grade Path terrain conform (split-keep) failed; deferring.";

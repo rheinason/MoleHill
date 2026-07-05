@@ -57,39 +57,18 @@ public static partial class PathGrader
                 ComputeConstraintSegmentLength(path, shoulderDistance),
                 dedupTol: 1e-6);
 
-            double[] leftReferenceDz, rightReferenceDz;
-            if (interpolateOriginalZ != null)
-            {
-                BuildShoulderReferenceProfileDirect(
-                    samplePath,
-                    halfWidth,
-                    shoulderDistance,
-                    interpolateOriginalZ,
-                    preparedBarriers,
-                    setupScratch,
-                    setupCandidates,
-                    hasBoundaryLoop,
-                    boundaryLoop ?? Array.Empty<double>(),
-                    boundaryVertexCount,
-                    boundaryTolerance,
-                    out leftReferenceDz,
-                    out rightReferenceDz);
-            }
-            else
-            {
-                BuildShoulderReferenceProfile(
-                    samplePath,
-                    halfWidth,
-                    shoulderDistance,
-                    outXy,
-                    origZ,
-                    vertCount,
-                    preparedBarriers,
-                    setupScratch,
-                    setupCandidates,
-                    out leftReferenceDz,
-                    out rightReferenceDz);
-            }
+            BuildShoulderReferenceProfile(
+                samplePath,
+                halfWidth,
+                shoulderDistance,
+                outXy,
+                origZ,
+                vertCount,
+                preparedBarriers,
+                setupScratch,
+                setupCandidates,
+                out double[] leftReferenceDz,
+                out double[] rightReferenceDz);
 
             double mnX = double.MaxValue, mxX = double.MinValue;
             double mnY = double.MaxValue, mxY = double.MinValue;

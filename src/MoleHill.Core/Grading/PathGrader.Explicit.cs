@@ -125,7 +125,7 @@ public static partial class PathGrader
         }
 
         GradedRegionAssembler.SplitOutsideResult split = GradedRegionAssembler.SplitOutside(
-            vertices, vertexCount, faces, faceCount, daylightLoopsXy, tolerance);
+            vertices, vertexCount, faces, faceCount, daylightLoopsXy, tolerance, hardConstraints);
         if (!split.Success)
         {
             errorMessage = split.Warning ?? "Grade Path terrain split failed.";

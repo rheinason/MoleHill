@@ -160,6 +160,41 @@ public class RetainingWallPlannerGeometryTests
         Assert.True(brep!.IsSolid);
     }
 
+    // Regression for the copied Terrain 1 retaining wall: two dense, steeply-climbing rails with
+    // unequal point counts and a narrow (~0.25) footprint. The old per-segment box builder produced
+    // hundreds of faces that JoinBreps fragmented into an invalid, non-solid Brep, so the wall solid
+    // silently failed while breaklines were still inserted. The continuous-rail loft must weld into a
+    // single watertight solid instead.
+    [RhinoNativeFact]
+    public void BrepBuilder_DenseSteepUnequalRails_BuildsWatertightSolid()
+    {
+        Point3d[] toe = ClimbingRail(count: 60, yOffset: 0.0, zBase: 0.0);
+        Point3d[] top = ClimbingRail(count: 71, yOffset: 0.25, zBase: 2.0);
+
+        Brep? brep = RetainingWallBrepBuilder.Build(toe, top, 0.01);
+
+        Assert.NotNull(brep);
+        Assert.True(brep!.IsValid);
+        Assert.True(brep.IsSolid);
+        Assert.All(brep.Edges, edge => Assert.NotEqual(EdgeAdjacency.Naked, edge.Valence));
+    }
+
+    // A rail that climbs ~23 units in Z along a gentle S-curve in XY, sampled at `count` stations.
+    private static Point3d[] ClimbingRail(int count, double yOffset, double zBase)
+    {
+        var points = new Point3d[count];
+        for (int i = 0; i < count; i++)
+        {
+            double t = (double)i / (count - 1);
+            double x = t * 114.0;
+            double y = yOffset + (Math.Sin(t * Math.PI) * 40.0);
+            double z = zBase + (t * 23.0);
+            points[i] = new Point3d(x, y, z);
+        }
+
+        return points;
+    }
+
     private static Curve ClosedPolyline(params Point3d[] points)
     {
         var closed = new Point3d[points.Length + 1];

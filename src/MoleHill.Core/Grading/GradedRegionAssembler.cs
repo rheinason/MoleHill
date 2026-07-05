@@ -91,7 +91,8 @@ internal static class GradedRegionAssembler
         int[] terrainFaces,
         int terrainFaceCount,
         IReadOnlyList<double[]> daylightLoopsXy,
-        double tolerance)
+        double tolerance,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null)
     {
         double[]? terrainOutline = TryBuildTerrainOutline(terrainFaces, terrainFaceCount, terrainVertices);
         var areas = new List<MeshAreaSplitter.AreaBoundary>(daylightLoopsXy.Count);
@@ -123,7 +124,7 @@ internal static class GradedRegionAssembler
             return handRolled;
 
         MeshAreaSplitter.SplitResult? cdt = SplitConformViaCdt(
-            terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, clippedLoops, terrainOutline, tolerance);
+            terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, clippedLoops, terrainOutline, tolerance, hardConstraints);
         return cdt ?? handRolled;
     }
 
@@ -162,7 +163,8 @@ internal static class GradedRegionAssembler
         int terrainFaceCount,
         IReadOnlyList<double[]> clippedLoops,
         double[]? terrainOutline,
-        double tolerance)
+        double tolerance,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null)
     {
         if (terrainOutline is null || clippedLoops.Count == 0)
             return null;
@@ -214,6 +216,33 @@ internal static class GradedRegionAssembler
                 int u = li[j], v = li[(j + 1) % n];
                 if (u != v)
                     segments.Add((u, v));
+            }
+        }
+
+        // Re-insert the hard-constraint breaklines (retaining walls, etc.) as exact constraint edges.
+        // Without them, a full-terrain CDT re-conform silently flips away the near-vertical wall-face
+        // edges — orphaning wall-top vertices into tent-pole spikes. The wall vertices are already
+        // terrain points, so AddPoint maps each constraint vertex onto its existing terrain point
+        // (preserving the surveyed wall elevation); forcing the segment keeps the wall face intact.
+        if (hardConstraints is not null)
+        {
+            foreach (SurfaceRemesher.ConstraintPolyline constraint in hardConstraints)
+            {
+                int cn = constraint.PointCount;
+                if (cn < 2)
+                    continue;
+
+                var ci = new int[cn];
+                for (int j = 0; j < cn; j++)
+                    ci[j] = AddPoint(constraint.Points[j * 3], constraint.Points[j * 3 + 1], constraint.Points[j * 3 + 2]);
+
+                int lastSeg = constraint.IsClosed ? cn : cn - 1;
+                for (int j = 0; j < lastSeg; j++)
+                {
+                    int u = ci[j], v = ci[(j + 1) % cn];
+                    if (u != v)
+                        segments.Add((u, v));
+                }
             }
         }
 
@@ -314,7 +343,8 @@ internal static class GradedRegionAssembler
         int[] terrainFaces,
         int terrainFaceCount,
         IReadOnlyList<double[]> daylightLoopsXy,
-        double tolerance)
+        double tolerance,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null)
     {
         // A daylight loop that runs off the terrain edge is clipped to the terrain outline so the
         // carve region stays closed (following the boundary) instead of leaving an open chain.
@@ -354,7 +384,7 @@ internal static class GradedRegionAssembler
         // hole boundary untraceable. Re-conform with a single Triangle.NET CDT — always a valid,
         // non-overlapping triangulation — and retry the extraction on that.
         MeshAreaSplitter.SplitResult? cdt = SplitConformViaCdt(
-            terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, clippedLoops, terrainOutline, tolerance);
+            terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, clippedLoops, terrainOutline, tolerance, hardConstraints);
         if (cdt is not null)
         {
             SplitOutsideResult viaCdt = ExtractOutsideRegion(cdt);
