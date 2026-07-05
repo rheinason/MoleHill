@@ -201,4 +201,174 @@ public class TinEngineTests
         Assert.Equal(2, first!.FaceCount);
         Assert.Equal(1, second!.FaceCount);
     }
+
+    private static (double[] Xy, double[] Z) BuildJitteredGrid(int rows, int cols)
+    {
+        int count = rows * cols;
+        var xy = new double[count * 2];
+        var z = new double[count];
+        for (int i = 0; i < count; i++)
+        {
+            int row = i / cols;
+            int col = i % cols;
+            xy[i * 2] = col + 0.011 * i;
+            xy[i * 2 + 1] = row + 0.013 * i;
+            z[i] = i * 10.0;
+        }
+        return (xy, z);
+    }
+
+    private static (double[] Xy, double[] Z) RemovePoint((double[] Xy, double[] Z) input, int index)
+    {
+        int count = input.Z.Length;
+        var xy = new double[(count - 1) * 2];
+        var z = new double[count - 1];
+        int w = 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (i == index) continue;
+            xy[w * 2] = input.Xy[i * 2];
+            xy[w * 2 + 1] = input.Xy[i * 2 + 1];
+            z[w] = input.Z[i];
+            w++;
+        }
+        return (xy, z);
+    }
+
+    private static (double[] Xy, double[] Z) InsertPoint((double[] Xy, double[] Z) input, int index, double x, double y, double zVal)
+    {
+        int count = input.Z.Length;
+        var xy = new double[(count + 1) * 2];
+        var z = new double[count + 1];
+        int w = 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (i == index)
+            {
+                xy[w * 2] = x;
+                xy[w * 2 + 1] = y;
+                z[w] = zVal;
+                w++;
+            }
+            xy[w * 2] = input.Xy[i * 2];
+            xy[w * 2 + 1] = input.Xy[i * 2 + 1];
+            z[w] = input.Z[i];
+            w++;
+        }
+        if (index >= count)
+        {
+            xy[w * 2] = x;
+            xy[w * 2 + 1] = y;
+            z[w] = zVal;
+        }
+        return (xy, z);
+    }
+
+    private static void AssertVertexZMatchesInputByXy(TinResult result, double[] inputXy, double[] inputZ)
+    {
+        const double tol = 1e-6;
+        int inputCount = inputZ.Length;
+        for (int outIndex = 0; outIndex < result.VertexCount; outIndex++)
+        {
+            double x = result.Vertices[outIndex * 3];
+            double y = result.Vertices[outIndex * 3 + 1];
+            double z = result.Vertices[outIndex * 3 + 2];
+
+            for (int i = 0; i < inputCount; i++)
+            {
+                double dx = inputXy[i * 2] - x;
+                double dy = inputXy[i * 2 + 1] - y;
+                if (dx * dx + dy * dy < tol * tol)
+                {
+                    Assert.True(
+                        Math.Abs(inputZ[i] - z) < 1e-6,
+                        $"Vertex at ({x},{y}) expected Z={inputZ[i]} but got Z={z}.");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Build_RemoveMiddlePoint_IncrementalEditKeepsCorrectZ()
+    {
+        var engine = new TinEngine();
+        var grid = BuildJitteredGrid(4, 4);
+
+        TinResult? first = engine.Build(grid.Xy, grid.Z, Array.Empty<int>(), QualitySettings.None, out string? firstError, useConvexHull: true);
+        Assert.Null(firstError);
+        Assert.NotNull(first);
+
+        var edited = RemovePoint(grid, index: 5);
+        TinResult? second = engine.Build(edited.Xy, edited.Z, Array.Empty<int>(), QualitySettings.None, out string? secondError, useConvexHull: true);
+
+        Assert.Null(secondError);
+        Assert.NotNull(second);
+        AssertVertexZMatchesInputByXy(second!, edited.Xy, edited.Z);
+    }
+
+    [Fact]
+    public void Build_InsertMiddlePoint_IncrementalEditKeepsCorrectZ()
+    {
+        var engine = new TinEngine();
+        var grid = BuildJitteredGrid(4, 4);
+        var reduced = RemovePoint(grid, index: 5);
+
+        TinResult? first = engine.Build(reduced.Xy, reduced.Z, Array.Empty<int>(), QualitySettings.None, out string? firstError, useConvexHull: true);
+        Assert.Null(firstError);
+        Assert.NotNull(first);
+
+        var edited = InsertPoint(reduced, index: 5, x: 1.5, y: 1.4, zVal: 999.0);
+        TinResult? second = engine.Build(edited.Xy, edited.Z, Array.Empty<int>(), QualitySettings.None, out string? secondError, useConvexHull: true);
+
+        Assert.Null(secondError);
+        Assert.NotNull(second);
+        AssertVertexZMatchesInputByXy(second!, edited.Xy, edited.Z);
+    }
+
+    [Fact]
+    public void Build_ZOnlyChangeAfterIncrementalEdit_UpdatesCorrectVertices()
+    {
+        var engine = new TinEngine();
+        var grid = BuildJitteredGrid(4, 4);
+
+        TinResult? first = engine.Build(grid.Xy, grid.Z, Array.Empty<int>(), QualitySettings.None, out string? firstError, useConvexHull: true);
+        Assert.Null(firstError);
+        Assert.NotNull(first);
+
+        var edited = RemovePoint(grid, index: 5);
+        TinResult? second = engine.Build(edited.Xy, edited.Z, Array.Empty<int>(), QualitySettings.None, out string? secondError, useConvexHull: true);
+        Assert.Null(secondError);
+        Assert.NotNull(second);
+
+        var zChanged = (double[])edited.Z.Clone();
+        zChanged[0] = 12345.0;
+        TinResult? third = engine.Build(edited.Xy, zChanged, Array.Empty<int>(), QualitySettings.None, out string? thirdError, useConvexHull: true);
+
+        Assert.Null(thirdError);
+        Assert.NotNull(third);
+        AssertVertexZMatchesInputByXy(third!, edited.Xy, zChanged);
+    }
+
+    [Fact]
+    public void Build_TwoSequentialMiddleRemovals_IncrementalEditsKeepCorrectZ()
+    {
+        var engine = new TinEngine();
+        var grid = BuildJitteredGrid(5, 5);
+
+        TinResult? first = engine.Build(grid.Xy, grid.Z, Array.Empty<int>(), QualitySettings.None, out string? firstError, useConvexHull: true);
+        Assert.Null(firstError);
+        Assert.NotNull(first);
+
+        var firstEdit = RemovePoint(grid, index: 7);
+        TinResult? second = engine.Build(firstEdit.Xy, firstEdit.Z, Array.Empty<int>(), QualitySettings.None, out string? secondError, useConvexHull: true);
+        Assert.Null(secondError);
+        Assert.NotNull(second);
+
+        var secondEdit = RemovePoint(firstEdit, index: 12);
+        TinResult? third = engine.Build(secondEdit.Xy, secondEdit.Z, Array.Empty<int>(), QualitySettings.None, out string? thirdError, useConvexHull: true);
+
+        Assert.Null(thirdError);
+        Assert.NotNull(third);
+        AssertVertexZMatchesInputByXy(third!, secondEdit.Xy, secondEdit.Z);
+    }
 }

@@ -160,7 +160,32 @@ internal sealed partial class TerrainBuildService
 
     private static ulong ComputeMeshFingerprint(RhinoMesh? mesh)
     {
-        return mesh == null ? 0UL : mesh.DataCRC(0u);
+        if (mesh == null)
+            return 0UL;
+
+        var builder = new FingerprintBuilder();
+        builder.Add("RhinoMesh");
+        builder.Add(mesh.Vertices.Count);
+        for (int i = 0; i < mesh.Vertices.Count; i++)
+        {
+            var vertex = mesh.Vertices[i];
+            builder.Add((double)vertex.X);
+            builder.Add((double)vertex.Y);
+            builder.Add((double)vertex.Z);
+        }
+
+        builder.Add(mesh.Faces.Count);
+        for (int i = 0; i < mesh.Faces.Count; i++)
+        {
+            var face = mesh.Faces[i];
+            builder.Add(face.IsQuad);
+            builder.Add(face.A);
+            builder.Add(face.B);
+            builder.Add(face.C);
+            builder.Add(face.D);
+        }
+
+        return builder.ToUInt64();
     }
 
     private static ulong ComputeConstraintsFingerprint(IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)

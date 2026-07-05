@@ -27,9 +27,27 @@ internal sealed partial class TerrainBuildService
         double CutVolume,
         double FillVolume,
         double CutFillDisplayAbsMax,
-        bool IsEstimated)
+        bool IsEstimated,
+        int GridProjectionCount,
+        int FallbackProjectionCount)
     {
         public double NetVolume => CutVolume - FillVolume;
+    }
+
+    private readonly record struct ReferenceComparisonCacheKey(
+        ulong ReferenceFingerprint,
+        ulong BoundaryFingerprint,
+        bool UsesFallbackBaseMesh);
+
+    private sealed class ReferenceProjectionContext
+    {
+        public required global::Rhino.Geometry.Mesh Mesh { get; init; }
+
+        public MeshHeightProjector? Projector { get; init; }
+
+        public int GridProjectionCount { get; set; }
+
+        public int FallbackProjectionCount { get; set; }
     }
 
     private sealed class ResolvedGradePadInputs

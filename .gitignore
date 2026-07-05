@@ -11,6 +11,7 @@ TestResults/
 
 # Claude Code
 .claude/
+.codex/
 *.tmp.*
 .agents/
 .codex-build/

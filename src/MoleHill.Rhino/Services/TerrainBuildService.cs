@@ -491,6 +491,19 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
+    private static ulong ComputeSmoothStageFingerprint(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        SmoothModifierDefinition modifier,
+        int modifierIndex,
+        ulong upstreamFingerprint)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add(ComputeModifierStageFingerprint(snapshot, terrain, modifier, upstreamFingerprint));
+        builder.Add(ComputeSelectedGradePathRoadBreaklinesFingerprint(snapshot, terrain, modifier, modifierIndex));
+        return builder.ToUInt64();
+    }
+
     private static ulong ComputeTriangulatePreResolutionFingerprint(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
@@ -573,6 +586,7 @@ internal sealed partial class TerrainBuildService
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
         SmoothModifierDefinition modifier,
+        int modifierIndex,
         ulong upstreamFingerprint)
     {
         var builder = new FingerprintBuilder();
@@ -582,6 +596,7 @@ internal sealed partial class TerrainBuildService
         builder.Add(terrain.GlobalTolerance);
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Boundaries));
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Breaklines));
+        builder.Add(ComputeSelectedGradePathRoadBreaklinesFingerprint(snapshot, terrain, modifier, modifierIndex));
         return builder.ToUInt64();
     }
 

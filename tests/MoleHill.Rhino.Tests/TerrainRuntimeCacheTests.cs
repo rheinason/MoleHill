@@ -1,6 +1,7 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Services;
+using Rhino.Geometry;
 using Xunit;
 
 namespace MoleHill.Rhino.Tests;
@@ -117,6 +118,37 @@ public class TerrainRuntimeCacheTests
 
         Assert.Contains("preview:modifier:1:RetainingWallModifierDefinition:wall", cache.StageEntries.Keys);
         Assert.Contains("final:modifier:1:RetainingWallModifierDefinition:wall", cache.StageEntries.Keys);
+    }
+
+    [RhinoNativeFact]
+    public void ReplaceBuildCachesFrom_ReturnsOnlyDisplacedMeshes()
+    {
+        var retainedMesh = new Mesh();
+        var displacedMesh = new Mesh();
+        var incomingMesh = new Mesh();
+        try
+        {
+            var cache = new TerrainRuntimeCache();
+            cache.StageEntries["retained"] = new StageCacheEntry { MeshOutput = retainedMesh };
+            cache.StageEntries["old"] = new StageCacheEntry { MeshOutput = displacedMesh };
+
+            var source = new TerrainRuntimeCache();
+            source.StageEntries["retained"] = new StageCacheEntry { MeshOutput = retainedMesh };
+            source.StageEntries["new"] = new StageCacheEntry { MeshOutput = incomingMesh };
+
+            List<Mesh> displacedMeshes = cache.ReplaceBuildCachesFrom(source);
+
+            Assert.Same(displacedMesh, Assert.Single(displacedMeshes));
+            Assert.Same(retainedMesh, cache.StageEntries["retained"].MeshOutput);
+            Assert.Same(incomingMesh, cache.StageEntries["new"].MeshOutput);
+            Assert.Empty(source.StageEntries);
+        }
+        finally
+        {
+            retainedMesh.Dispose();
+            displacedMesh.Dispose();
+            incomingMesh.Dispose();
+        }
     }
 
     [Fact]

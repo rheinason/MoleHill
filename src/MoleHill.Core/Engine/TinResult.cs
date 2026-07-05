@@ -30,10 +30,19 @@ public sealed class TinResult
     /// <summary>Number of naked edges.</summary>
     public int NakedEdgeCount { get; }
 
+    /// <summary>
+    /// Per-output-vertex index into the original input Z array (Triangle.NET's Vertex.ID at build
+    /// time), or a negative value for Steiner points with no direct input correspondence. This is
+    /// the only safe key for re-applying a new Z array — output vertex order does not match input
+    /// order in general.
+    /// </summary>
+    public int[] SourceIds { get; }
+
     public TinResult(double[] vertices, int vertexCount,
                      int[] faces, int faceCount,
                      int[] edges, int edgeCount,
-                     int[] nakedEdges, int nakedEdgeCount)
+                     int[] nakedEdges, int nakedEdgeCount,
+                     int[] sourceIds)
     {
         Vertices = vertices;
         VertexCount = vertexCount;
@@ -43,23 +52,27 @@ public sealed class TinResult
         EdgeCount = edgeCount;
         NakedEdges = nakedEdges;
         NakedEdgeCount = nakedEdgeCount;
+        SourceIds = sourceIds;
     }
 
     /// <summary>
-    /// Create a new TinResult with updated Z values but same topology.
+    /// Create a new TinResult with updated Z values but same topology. Maps each output vertex back
+    /// to its input Z via <see cref="SourceIds"/> — never by output position (see H1 in
+    /// docs/release-review-2026-07-04.md for why the old positional mapping was unsafe).
     /// </summary>
     public TinResult WithUpdatedZ(double[] zValues)
     {
-        if (zValues.Length != VertexCount)
-            throw new ArgumentException($"Expected {VertexCount} Z values, got {zValues.Length}");
-
         var newVerts = new double[Vertices.Length];
         Array.Copy(Vertices, newVerts, Vertices.Length);
 
         for (int i = 0; i < VertexCount; i++)
-            newVerts[i * 3 + 2] = zValues[i];
+        {
+            int srcId = SourceIds[i];
+            if (srcId >= 0 && srcId < zValues.Length)
+                newVerts[i * 3 + 2] = zValues[srcId];
+        }
 
         return new TinResult(newVerts, VertexCount, Faces, FaceCount,
-                             Edges, EdgeCount, NakedEdges, NakedEdgeCount);
+                             Edges, EdgeCount, NakedEdges, NakedEdgeCount, SourceIds);
     }
 }

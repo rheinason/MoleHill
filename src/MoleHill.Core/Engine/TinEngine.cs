@@ -155,7 +155,7 @@ public class TinEngine
 
             ThrowIfCancellationRequested(shouldCancel);
 
-            int xyHash = InputSnapshot.ComputeXyHash(
+            ulong xyHash = InputSnapshot.ComputeXyHash(
                 xyCoords,
                 segments,
                 quality,
@@ -164,10 +164,9 @@ public class TinEngine
                 peelSettings);
 
             if (_cachedSnapshot != null && _cachedResult != null &&
-                xyHash == _cachedSnapshot.XyHash &&
-                zValues.Length == _cachedResult.VertexCount)
+                xyHash == _cachedSnapshot.XyHash)
             {
-                int zHash = InputSnapshot.ComputeZHash(zValues);
+                ulong zHash = InputSnapshot.ComputeZHash(zValues);
                 if (zHash == _cachedSnapshot.ZHash)
                 {
                     return _cachedResult;
@@ -188,7 +187,7 @@ public class TinEngine
 
             if (TryApplyIncrementalEdit(xyCoords, zValues, segments, quality, useConvexHull, peelSettings, out var incrementalResult))
             {
-                int zHash = InputSnapshot.ComputeZHash(zValues);
+                ulong zHash = InputSnapshot.ComputeZHash(zValues);
                 _cachedSnapshot = new InputSnapshot(xyHash, zHash);
                 _cachedResult = incrementalResult;
                 errorMessage = null;
@@ -378,8 +377,6 @@ public class TinEngine
             {
                 return false;
             }
-
-            previousMap.Remove(key);
         }
         else if (added.Count == 1)
         {
@@ -387,12 +384,27 @@ public class TinEngine
             double x = BitConverter.Int64BitsToDouble(key.XBits);
             double y = BitConverter.Int64BitsToDouble(key.YBits);
 
-            if (!_cachedMesh.TryInsertPoint(x, y, out int vertexId))
+            if (!_cachedMesh.TryInsertPoint(x, y, out _))
             {
                 return false;
             }
+        }
 
-            previousMap[key] = vertexId;
+        // The insert/delete shifted the input array, so every surviving mesh vertex's Vertex.ID
+        // (assigned at full-rebuild time as its input index) is now stale. Re-key every vertex to
+        // its CURRENT input index so BuildResult's zValues[srcId] lookup stays valid; anything not
+        // found (Steiner points) gets -1, which BuildResult already treats as "needs interpolation".
+        foreach (var v in _cachedMesh.Vertices)
+        {
+            v.ID = currentIndexByKey.TryGetValue(XyKey.FromValues(v.X, v.Y), out int inputIndex)
+                ? inputIndex
+                : -1;
+        }
+
+        previousMap.Clear();
+        foreach (var kv in currentIndexByKey)
+        {
+            previousMap[kv.Key] = kv.Value;
         }
 
         result = BuildResult(_cachedMesh, xyCoords, zValues, segments, boundaryPeelSettings);
@@ -536,7 +548,6 @@ public class TinEngine
             }
 
             var plainOpts = new ConstraintOptions { ConformingDelaunay = false, Convex = false };
-            var mesher = new GenericMesher();
             try
             {
                 var plainPoly = new Polygon(vertexCount);
@@ -548,7 +559,7 @@ public class TinEngine
                     plainPoly.Add(new Vertex(xyCoords[i * 2], xyCoords[i * 2 + 1]) { ID = i });
                 }
 
-                var mesh = mesher.Triangulate(plainPoly, plainOpts, null);
+                var mesh = TriangulationHelper.TriangulatePolygon(plainPoly, plainOpts, null);
                 if (mesh.Triangles.Count > 0)
                 {
                     builtMesh = mesh;
@@ -558,7 +569,14 @@ public class TinEngine
                     return BuildResult(mesh, xyCoords, zValues, Array.Empty<int>(), boundaryPeelSettings);
                 }
             }
-            catch { }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = AppendBuildMessage(errorMessage, $"Plain Delaunay fallback failed: {ex.Message}");
+            }
         }
 
         double minX = double.MaxValue, maxX = double.MinValue;
@@ -611,11 +629,10 @@ public class TinEngine
             qualityOpts.SteinerPoints = ComputeSteinerPointCap(vertexCount, segCount, quality, conforming);
         }
 
-        var mesher = new GenericMesher();
         IMesh mesh;
         try
         {
-            mesh = mesher.Triangulate(polygon, constraintOpts, qualityOpts);
+            mesh = TriangulationHelper.TriangulatePolygon(polygon, constraintOpts, qualityOpts);
         }
         catch (Exception ex)
         {
@@ -670,6 +687,7 @@ public class TinEngine
         var extracted = TriangleNetExtractor.Extract(mesh);
         int outVertexCount = extracted.VertexCount;
         var outVerts = new double[outVertexCount * 3];
+        var sourceIds = extracted.SourceIds;
         int inputVertexCount = xyCoords.Length / 2;
 
         // Use sourceIds (= original Vertex.ID = input index) for direct Z lookup.
@@ -736,6 +754,10 @@ public class TinEngine
         if (cullResult.Changed)
         {
             outVerts = IndexedMeshTools.CompactDoubleData(outVerts, 3, cullResult.NewToOld, cullResult.VertexCount);
+            var compactedSourceIds = new int[cullResult.VertexCount];
+            for (int newIdx = 0; newIdx < cullResult.VertexCount; newIdx++)
+                compactedSourceIds[newIdx] = sourceIds[cullResult.NewToOld[newIdx]];
+            sourceIds = compactedSourceIds;
             outFaces = cullResult.Faces;
             outVertexCount = cullResult.VertexCount;
             faceCount = cullResult.FaceCount;
@@ -748,7 +770,8 @@ public class TinEngine
             outVerts, outVertexCount,
             outFaces, faceCount,
             edgeList, edgeCount,
-            topology.NakedEdges, topology.NakedEdgeCount);
+            topology.NakedEdges, topology.NakedEdgeCount,
+            sourceIds);
     }
 
     private static void InterpolateSteinerZ(double[] verts, int vertCount,

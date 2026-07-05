@@ -366,33 +366,37 @@ namespace TriangleNet
         {
             deltri = default;
 
-            if (!vertices.TryGetValue(vertexId, out Vertex target))
+            if (!TryFindVertexById(vertexId, out Vertex target))
             {
                 return false;
             }
 
-            bool found = false;
-            foreach (var tri in triangles)
+            if (!TryOrientAtVertex(target, out deltri))
             {
-                deltri.tri = tri;
-                for (deltri.orient = 0; deltri.orient < 3; deltri.orient++)
+                bool found = false;
+                foreach (var tri in triangles)
                 {
-                    if (ReferenceEquals(deltri.Org(), target))
+                    deltri.tri = tri;
+                    for (deltri.orient = 0; deltri.orient < 3; deltri.orient++)
                     {
-                        found = true;
+                        if (ReferenceEquals(deltri.Org(), target))
+                        {
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (found)
+                    {
+                        target.tri = deltri;
                         break;
                     }
                 }
 
-                if (found)
+                if (!found)
                 {
-                    break;
+                    return false;
                 }
-            }
-
-            if (!found)
-            {
-                return false;
             }
 
             // Only interior vertices not on constrained segments are removable.
@@ -417,6 +421,46 @@ namespace TriangleNet
             } while (!scan.Equals(deltri));
 
             return true;
+        }
+
+        private bool TryFindVertexById(int vertexId, out Vertex target)
+        {
+            if (vertices.TryGetValue(vertexId, out target) && target.ID == vertexId)
+            {
+                return true;
+            }
+
+            foreach (var candidate in vertices.Values)
+            {
+                if (candidate.ID == vertexId)
+                {
+                    target = candidate;
+                    return true;
+                }
+            }
+
+            target = null;
+            return false;
+        }
+
+        private bool TryOrientAtVertex(Vertex target, out Otri handle)
+        {
+            handle = target.tri;
+            if (handle.tri == null || Otri.IsDead(handle.tri) || handle.tri.id == DUMMY)
+            {
+                return false;
+            }
+
+            for (handle.orient = 0; handle.orient < 3; handle.orient++)
+            {
+                if (ReferenceEquals(handle.Org(), target))
+                {
+                    return true;
+                }
+            }
+
+            handle = default;
+            return false;
         }
 
         #region Misc

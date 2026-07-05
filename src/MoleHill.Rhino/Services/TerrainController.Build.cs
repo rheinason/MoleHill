@@ -409,7 +409,8 @@ internal sealed partial class TerrainController
         build.RecordTiming("Worker cache clone", result.WorkerCacheCloneElapsed, null, MinorTimingDiagnosticThresholdMs);
 
         var cacheMergeTimer = Stopwatch.StartNew();
-        runtimeCache.ReplaceBuildCachesFrom(result.WorkerCache);
+        List<Mesh> displacedMeshes = runtimeCache.ReplaceBuildCachesFrom(result.WorkerCache);
+        DisposeDisplacedCacheMeshesWhenSafe(displacedMeshes, rebuildState);
         cacheMergeTimer.Stop();
         build.RecordTiming("Worker cache merge", cacheMergeTimer.Elapsed, null, MinorTimingDiagnosticThresholdMs);
 

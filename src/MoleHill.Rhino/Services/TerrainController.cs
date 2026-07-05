@@ -114,6 +114,8 @@ internal sealed partial class TerrainController
         public Task<BackgroundBuildResult>? WorkerTask { get; set; }
 
         public CancellationTokenSource? WorkerCancellation { get; set; }
+
+        public List<Task> RetiredWorkers { get; } = new();
     }
 
     public static TerrainController Instance { get; } = new();
@@ -157,8 +159,16 @@ internal sealed partial class TerrainController
         RhinoApp.Idle -= OnIdle;
         _displayConduit.Enabled = false;
 
+        var workers = new List<(CancellationTokenSource? Cancellation, Task? Task)>();
+        foreach (TerrainRebuildState state in _rebuildStates.Values)
+        {
+            workers.Add((state.WorkerCancellation, state.WorkerTask));
+            foreach (Task retiredWorker in state.RetiredWorkers)
+                workers.Add((null, retiredWorker));
+        }
+
         bool workersStopped = TerrainWorkerCancellation.CancelAndWaitForWorkers(
-            _rebuildStates.Values.Select(static state => (state.WorkerCancellation, state.WorkerTask as Task)).ToList(),
+            workers,
             ShutdownWorkerDrainTimeout);
 
         if (workersStopped)
@@ -177,6 +187,13 @@ internal sealed partial class TerrainController
     }
 
     public IReadOnlyList<TerrainDefinition> GetTerrains(RhinoDoc doc) => GetState(doc).Terrains;
+
+    /// <summary>
+    /// True when this document's stored terrain JSON could not be read. The panel should surface a
+    /// "Reset terrain data" action while this is set, since <see cref="GetTerrains"/> will otherwise
+    /// silently look like "no terrains" and any save is refused (see <see cref="ResetTerrainDataAfterFailedLoad"/>).
+    /// </summary>
+    public bool IsTerrainDataUnreadable(RhinoDoc doc) => GetState(doc).LoadFailed;
 
     public void ReloadDocumentState(RhinoDoc doc)
     {
@@ -978,10 +995,18 @@ internal sealed partial class TerrainController
         if (_states.TryGetValue(doc.RuntimeSerialNumber, out var state))
             return state;
 
+        List<TerrainDefinition>? terrains = _documentStore.Load(doc, out string? failureMessage);
         state = new DocumentState
         {
-            Terrains = _documentStore.Load(doc)
+            Terrains = terrains ?? new List<TerrainDefinition>(),
+            LoadFailed = terrains == null
         };
+        if (terrains == null)
+        {
+            RhinoApp.WriteLine(
+                $"[MoleHill] Could not read terrain data in this document: {failureMessage}. " +
+                "Terrain state is read-only until resolved (use \"Reset terrain data\" in the terrain picker to discard it).");
+        }
         state.SelectedTerrainId = state.Terrains.FirstOrDefault()?.TerrainId;
         _states[doc.RuntimeSerialNumber] = state;
         return state;
@@ -989,10 +1014,32 @@ internal sealed partial class TerrainController
 
     private void Save(RhinoDoc doc, DocumentState state, bool raiseStateChanged = true)
     {
+        if (state.LoadFailed)
+        {
+            RhinoApp.WriteLine("[MoleHill] Not saving terrain data: the stored data could not be read " +
+                "and would be overwritten with an empty list. Use \"Reset terrain data\" in the terrain picker to discard it.");
+            return;
+        }
+
         RemovePendingDocumentSave(doc.RuntimeSerialNumber);
         _documentStore.Save(doc, state.Terrains);
         if (raiseStateChanged)
             RaiseStateChanged();
+    }
+
+    /// <summary>
+    /// Explicit user action to discard unreadable terrain JSON (from the terrain picker's
+    /// "Reset terrain data" item) so the document can be saved to again. Not reachable from any
+    /// automatic path.
+    /// </summary>
+    public void ResetTerrainDataAfterFailedLoad(RhinoDoc doc)
+    {
+        var state = GetState(doc);
+        if (!state.LoadFailed)
+            return;
+
+        state.LoadFailed = false;
+        Save(doc, state);
     }
 
     private static string FormatElapsed(TimeSpan elapsed)
@@ -1200,23 +1247,37 @@ internal sealed partial class TerrainController
 
     private void RemoveRuntimeCache(uint docSerial, Guid terrainId)
     {
+        TerrainRebuildState? rebuildState = null;
+        if (_rebuildStates.TryGetValue((docSerial, terrainId), out var existingRebuildState))
+        {
+            rebuildState = existingRebuildState;
+            RetireRunningWorker(rebuildState, invalidateGeneration: true);
+        }
+
         if (_runtimeCaches.TryGetValue((docSerial, terrainId), out var cache))
-            cache.Clear();
+        {
+            List<Mesh> detachedMeshes = cache.DetachMeshOutputs();
+            if (rebuildState != null)
+                DisposeDisplacedCacheMeshesWhenSafe(detachedMeshes, rebuildState);
+            else
+                DisposeMeshes(detachedMeshes);
+        }
+
         _runtimeCaches.Remove((docSerial, terrainId));
     }
 
     private void ClearRuntimeCaches(uint docSerial)
     {
         foreach (var key in _runtimeCaches.Keys.Where(key => key.docSerial == docSerial).ToList())
-            _runtimeCaches.Remove(key);
+            RemoveRuntimeCache(key.docSerial, key.terrainId);
     }
 
     private void ClearDocumentState(uint docSerial)
     {
         _states.Remove(docSerial);
         _pendingSourceReferencePrunes.Remove(docSerial);
-        ClearRebuildStates(docSerial);
         ClearRuntimeCaches(docSerial);
+        ClearRebuildStates(docSerial);
         RemovePendingDocumentSave(docSerial);
     }
 
@@ -1279,10 +1340,15 @@ internal sealed partial class TerrainController
 
     private static void RetireRunningWorker(TerrainRebuildState rebuildState, bool invalidateGeneration)
     {
+        PruneCompletedRetiredWorkers(rebuildState);
+
         Task<BackgroundBuildResult>? workerTask = rebuildState.WorkerTask;
         CancellationTokenSource? cancellation = rebuildState.WorkerCancellation;
 
         cancellation?.Cancel();
+        if (workerTask != null && !workerTask.IsCompleted)
+            rebuildState.RetiredWorkers.Add(workerTask);
+
         if (workerTask != null && !workerTask.IsCompleted && cancellation != null)
         {
             _ = workerTask.ContinueWith(
@@ -1307,10 +1373,59 @@ internal sealed partial class TerrainController
             rebuildState.BuildGeneration++;
     }
 
+    private void PruneCompletedRetiredWorkers()
+    {
+        foreach (var rebuildState in _rebuildStates.Values)
+            PruneCompletedRetiredWorkers(rebuildState);
+    }
+
+    private static void PruneCompletedRetiredWorkers(TerrainRebuildState rebuildState)
+    {
+        for (int i = rebuildState.RetiredWorkers.Count - 1; i >= 0; i--)
+        {
+            if (rebuildState.RetiredWorkers[i].IsCompleted)
+                rebuildState.RetiredWorkers.RemoveAt(i);
+        }
+    }
+
+    private static void DisposeDisplacedCacheMeshesWhenSafe(List<Mesh> meshes, TerrainRebuildState rebuildState)
+    {
+        if (meshes.Count == 0)
+            return;
+
+        PruneCompletedRetiredWorkers(rebuildState);
+        if (rebuildState.RetiredWorkers.Count == 0)
+        {
+            DisposeMeshes(meshes);
+            return;
+        }
+
+        Task[] retiredWorkers = rebuildState.RetiredWorkers.ToArray();
+        _ = Task.WhenAll(retiredWorkers).ContinueWith(
+            static (_, state) => DisposeMeshes((List<Mesh>)state!),
+            meshes,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private static void DisposeMeshes(IEnumerable<Mesh> meshes)
+    {
+        foreach (Mesh mesh in meshes)
+            mesh.Dispose();
+    }
+
     private sealed class DocumentState
     {
         public List<TerrainDefinition> Terrains { get; set; } = new();
         public Guid? SelectedTerrainId { get; set; }
+
+        /// <summary>
+        /// Set when the stored terrain JSON could not be read (truncated, or an unrecognized
+        /// `$type`). While set, <see cref="Save"/> refuses to persist so the unreadable original is
+        /// never overwritten with an empty list. Cleared only by an explicit user reset.
+        /// </summary>
+        public bool LoadFailed { get; set; }
     }
 
     private sealed class UndoState

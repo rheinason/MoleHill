@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Rhino;
 using MoleHill.Rhino.Model;
 
@@ -7,13 +8,29 @@ internal sealed class TerrainDocumentStore
 {
     private const string Section = "MoleHill.Rhino";
     private const string Entry = "Terrains";
+    private const string BackupEntry = "Terrains.backup";
 
     public string? LoadJson(RhinoDoc doc) => doc.Strings.GetValue(Section, Entry);
 
-    public List<TerrainDefinition> Load(RhinoDoc doc)
+    /// <summary>
+    /// Loads and deserializes the stored terrain JSON. Returns null (rather than throwing) when the
+    /// JSON is truncated or carries a `$type` discriminator this build's registry doesn't know —
+    /// e.g. a document saved by a newer plugin version. Callers must treat null as "unreadable",
+    /// distinct from "no terrains" (an empty list).
+    /// </summary>
+    public List<TerrainDefinition>? Load(RhinoDoc doc, out string? failureMessage)
     {
+        failureMessage = null;
         string? json = LoadJson(doc);
-        return TerrainSerializer.Deserialize(json, doc.ModelUnitSystem);
+        try
+        {
+            return TerrainSerializer.Deserialize(json, doc.ModelUnitSystem);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
+        {
+            failureMessage = ex.Message;
+            return null;
+        }
     }
 
     public void SaveJson(RhinoDoc doc, string json)
@@ -23,6 +40,10 @@ internal sealed class TerrainDocumentStore
 
     public void Save(RhinoDoc doc, IReadOnlyList<TerrainDefinition> terrains)
     {
+        string? previousJson = LoadJson(doc);
+        if (!string.IsNullOrWhiteSpace(previousJson))
+            doc.Strings.SetString(Section, BackupEntry, previousJson);
+
         string json = TerrainSerializer.Serialize(terrains);
         SaveJson(doc, json);
     }

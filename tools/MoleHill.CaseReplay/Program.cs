@@ -26,15 +26,6 @@ internal static class Program
         string casePath = Path.GetFullPath(args[0]);
         string pluginDirectory = Path.GetFullPath(args.Length > 1 ? args[1] : DefaultPluginDirectory);
         string pluginAssemblyPath = Path.Combine(pluginDirectory, "MoleHill.Rhino.rhp");
-        if (!File.Exists(pluginAssemblyPath))
-        {
-            Console.Error.WriteLine($"Could not find plugin assembly at {pluginAssemblyPath}");
-            return 1;
-        }
-
-        PrependToPath(RhinoSystemDirectory);
-        PrependToPath(RhinoNetCoreDirectory);
-        RegisterAssemblyResolver(pluginDirectory);
 
         string caseDirectory;
         bool deleteExtractedDirectory = false;
@@ -55,15 +46,142 @@ internal static class Program
 
         try
         {
-            Rhino.Runtime.HostUtils.InitializeRhinoCommon();
-            var pluginAssembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(pluginAssemblyPath);
-            BuildCase(pluginAssembly, caseDirectory);
-            return 0;
+            PrintCaseInventory(caseDirectory);
+
+            if (!File.Exists(pluginAssemblyPath))
+            {
+                Console.Error.WriteLine($"Could not find plugin assembly at {pluginAssemblyPath}");
+                return 1;
+            }
+
+            PrependToPath(RhinoSystemDirectory);
+            PrependToPath(RhinoNetCoreDirectory);
+            RegisterAssemblyResolver(pluginDirectory);
+
+            try
+            {
+                Rhino.Runtime.HostUtils.InitializeRhinoCommon();
+                var pluginAssembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(pluginAssemblyPath);
+                BuildCase(pluginAssembly, caseDirectory);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("Replay failed after bundle inventory was read.");
+                Console.Error.WriteLine($"{ex.GetType().FullName}: {ex.Message}");
+                if (ex.InnerException != null)
+                    Console.Error.WriteLine($"Inner: {ex.InnerException.GetType().FullName}: {ex.InnerException.Message}");
+                return 2;
+            }
         }
         finally
         {
             if (deleteExtractedDirectory && Directory.Exists(caseDirectory))
                 Directory.Delete(caseDirectory, recursive: true);
+        }
+    }
+
+    private static void PrintCaseInventory(string caseDirectory)
+    {
+        Console.WriteLine($"Case bundle: {caseDirectory}");
+
+        string manifestJsonPath = Path.Combine(caseDirectory, "manifest.json");
+        if (!File.Exists(manifestJsonPath))
+        {
+            Console.WriteLine("Manifest: missing");
+            return;
+        }
+
+        using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(manifestJsonPath));
+        JsonElement root = manifest.RootElement;
+        Console.WriteLine($"Terrain: {ReadString(root, "terrainName") ?? "(unknown)"} ({ReadString(root, "terrainId") ?? "no id"})");
+        Console.WriteLine($"Exported UTC: {ReadString(root, "exportedUtc") ?? "(unknown)"}");
+        Console.WriteLine($"Plugin version: {ReadString(root, "pluginVersion") ?? "(unknown)"}");
+        Console.WriteLine($"Rhino document: {ReadString(root, "rhinoDocumentName") ?? "(unknown)"}");
+        if (root.TryGetProperty("modelAbsoluteTolerance", out JsonElement toleranceElement) &&
+            toleranceElement.TryGetDouble(out double tolerance))
+        {
+            Console.WriteLine($"Model absolute tolerance: {tolerance:G17}");
+        }
+
+        WriteManifestFileStatus(caseDirectory, root, "terrainDefinitionFile", "Terrain definition");
+        WriteManifestFileStatus(caseDirectory, root, "buildLogFile", "Build log");
+        WriteManifestFileStatus(caseDirectory, root, "sourceModelFile", "Source model");
+        WriteManifestFileStatus(caseDirectory, root, "coreTestFile", "Core copied case");
+
+        if (root.TryGetProperty("retainingWallPlannerTestFiles", out JsonElement plannerFiles) &&
+            plannerFiles.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement fileElement in plannerFiles.EnumerateArray())
+            {
+                string? fileName = fileElement.GetString();
+                if (!string.IsNullOrWhiteSpace(fileName))
+                    WriteFileStatus(caseDirectory, fileName, "Retaining-wall copied case");
+            }
+        }
+
+        foreach (string objPath in Directory.GetFiles(caseDirectory, "output-*.obj").OrderBy(static path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            CountObjMesh(objPath, out int vertexCount, out int faceCount);
+            Console.WriteLine($"{Path.GetFileName(objPath)}: {vertexCount:N0} verts / {faceCount:N0} faces");
+        }
+
+        if (root.TryGetProperty("sourceSets", out JsonElement sourceSets) &&
+            sourceSets.ValueKind == JsonValueKind.Array)
+        {
+            int sourceSetCount = 0;
+            int resolvedObjectCount = 0;
+            foreach (JsonElement sourceSet in sourceSets.EnumerateArray())
+            {
+                sourceSetCount++;
+                if (sourceSet.TryGetProperty("resolvedObjectCount", out JsonElement resolvedElement) &&
+                    resolvedElement.TryGetInt32(out int resolved))
+                {
+                    resolvedObjectCount += resolved;
+                }
+            }
+
+            Console.WriteLine($"Source sets: {sourceSetCount:N0}; resolved objects: {resolvedObjectCount:N0}");
+        }
+    }
+
+    private static string? ReadString(JsonElement root, string propertyName)
+    {
+        return root.TryGetProperty(propertyName, out JsonElement value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+    }
+
+    private static void WriteManifestFileStatus(string caseDirectory, JsonElement root, string propertyName, string label)
+    {
+        string? fileName = ReadString(root, propertyName);
+        if (!string.IsNullOrWhiteSpace(fileName))
+            WriteFileStatus(caseDirectory, fileName, label);
+    }
+
+    private static void WriteFileStatus(string caseDirectory, string fileName, string label)
+    {
+        string path = Path.Combine(caseDirectory, fileName);
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"{label}: {fileName} (missing)");
+            return;
+        }
+
+        var info = new FileInfo(path);
+        Console.WriteLine($"{label}: {fileName} ({info.Length:N0} bytes)");
+    }
+
+    private static void CountObjMesh(string objPath, out int vertexCount, out int faceCount)
+    {
+        vertexCount = 0;
+        faceCount = 0;
+        foreach (string line in File.ReadLines(objPath))
+        {
+            if (line.StartsWith("v ", StringComparison.Ordinal))
+                vertexCount++;
+            else if (line.StartsWith("f ", StringComparison.Ordinal))
+                faceCount++;
         }
     }
 

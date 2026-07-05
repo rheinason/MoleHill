@@ -176,6 +176,7 @@ internal sealed partial class TerrainController
         }
 
         ProcessPendingBlockAttributeKeyRepairs();
+        PruneCompletedRetiredWorkers();
 
         if (TryCompleteFinishedBuild())
             return;

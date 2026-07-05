@@ -9,12 +9,12 @@ namespace MoleHill.Core.Engine;
 public sealed class InputSnapshot
 {
     /// <summary>Hash of XY coordinates + segment definitions + quality settings + domain mode.</summary>
-    public int XyHash { get; }
+    public ulong XyHash { get; }
 
     /// <summary>Hash of Z values only.</summary>
-    public int ZHash { get; }
+    public ulong ZHash { get; }
 
-    public InputSnapshot(int xyHash, int zHash)
+    public InputSnapshot(ulong xyHash, ulong zHash)
     {
         XyHash = xyHash;
         ZHash = zHash;
@@ -23,7 +23,7 @@ public sealed class InputSnapshot
     /// <summary>
     /// Compute hash of XY coordinates + segment definitions + quality settings + domain mode.
     /// </summary>
-    public static int ComputeXyHash(
+    public static ulong ComputeXyHash(
         double[] xyCoords,
         int[] segments,
         QualitySettings quality,
@@ -31,7 +31,7 @@ public sealed class InputSnapshot
         double maxBoundaryEdgeLength = 0,
         BoundaryTrianglePeelSettings? boundaryPeelSettings = null)
     {
-        var xyHasher = new HashCode();
+        var xyHasher = new XxHash64Builder();
         xyHasher.AddBytes(MemoryMarshal.AsBytes(xyCoords.AsSpan()));
         xyHasher.AddBytes(MemoryMarshal.AsBytes(segments.AsSpan()));
 
@@ -47,16 +47,16 @@ public sealed class InputSnapshot
         xyHasher.Add(settings.MaxInteriorAngleDegrees);
         xyHasher.Add(settings.MaxSlopeAngleDegrees);
 
-        return xyHasher.ToHashCode();
+        return xyHasher.ToUInt64();
     }
 
     /// <summary>
     /// Compute hash of Z values only.
     /// </summary>
-    public static int ComputeZHash(double[] zValues)
+    public static ulong ComputeZHash(double[] zValues)
     {
-        var zHasher = new HashCode();
+        var zHasher = new XxHash64Builder();
         zHasher.AddBytes(MemoryMarshal.AsBytes(zValues.AsSpan()));
-        return zHasher.ToHashCode();
+        return zHasher.ToUInt64();
     }
 }

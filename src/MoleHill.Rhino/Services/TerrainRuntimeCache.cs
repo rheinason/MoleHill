@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Text;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
@@ -30,6 +29,12 @@ internal sealed class TerrainRuntimeCache
     {
         var copy = new TerrainRuntimeCache
         {
+            // Share the persistent TinEngine so incremental edits (single spot-point add/remove)
+            // stay reachable from Rhino background builds instead of forcing a full CDT every time
+            // inputs change. TinEngine.Build is internally serialized by its own gate, so concurrent
+            // old/new workers queue rather than race. Safe now that H1 (Vertex.ID re-keying after
+            // incremental edits) is fixed — see docs/release-review-2026-07-04.md P1.
+            TinEngine = TinEngine,
             LastPreviewDuration = LastPreviewDuration,
             LastFinalDuration = LastFinalDuration
         };
@@ -46,21 +51,19 @@ internal sealed class TerrainRuntimeCache
         return copy;
     }
 
-    public void ReplaceBuildCachesFrom(TerrainRuntimeCache source)
+    public List<RhinoMesh> ReplaceBuildCachesFrom(TerrainRuntimeCache source)
     {
-        // Dispose old mesh outputs before clearing — Rhino meshes wrap native C++ objects
-        // that the .NET GC cannot account for; explicitly disposing releases them immediately.
-        // IMPORTANT: only dispose meshes that are NOT being carried back from the worker.
-        // The worker holds shallow refs to unchanged entries; disposing them would corrupt
-        // the objects the worker copied in. Use reference equality to detect carry-overs.
+        // Collect displaced meshes here; the controller disposes them after retired workers drain.
         var incomingMeshes = new HashSet<RhinoMesh>(ReferenceEqualityComparer.Instance);
         foreach (var entry in source.StageEntries.Values)
             if (entry.MeshOutput != null)
                 incomingMeshes.Add(entry.MeshOutput);
 
+        var displacedMeshes = new List<RhinoMesh>();
+        var displacedSet = new HashSet<RhinoMesh>(ReferenceEqualityComparer.Instance);
         foreach (var entry in StageEntries.Values)
             if (entry.MeshOutput != null && !incomingMeshes.Contains(entry.MeshOutput))
-                entry.MeshOutput.Dispose();
+                AddMeshOutput(displacedMeshes, displacedSet, entry.MeshOutput);
 
         StageEntries.Clear();
         foreach (var entry in source.StageEntries)
@@ -76,11 +79,23 @@ internal sealed class TerrainRuntimeCache
         foreach (var entry in source.SmoothEntries)
             SmoothEntries[entry.Key] = entry.Value;
         source.SmoothEntries.Clear();
+
+        return displacedMeshes;
     }
 
     public void Clear()
     {
-        DisposeAllMeshOutputs(StageEntries);
+        DisposeMeshOutputs(DetachMeshOutputs());
+    }
+
+    public List<RhinoMesh> DetachMeshOutputs()
+    {
+        var meshOutputs = new List<RhinoMesh>();
+        var meshSet = new HashSet<RhinoMesh>(ReferenceEqualityComparer.Instance);
+        foreach (var entry in StageEntries.Values)
+            if (entry.MeshOutput != null)
+                AddMeshOutput(meshOutputs, meshSet, entry.MeshOutput);
+
         StageEntries.Clear();
         GradingTopologyEntries.Clear();
         SmoothEntries.Clear();
@@ -88,6 +103,7 @@ internal sealed class TerrainRuntimeCache
         LastPreviewDuration = null;
         LastFinalDuration = null;
         TinEngine.InvalidateCache();
+        return meshOutputs;
     }
 
     public void PruneUnused(IReadOnlySet<string> usedStageKeys, TerrainBuildMode mode)
@@ -210,10 +226,16 @@ internal sealed class TerrainRuntimeCache
         }
     }
 
-    private static void DisposeAllMeshOutputs(Dictionary<string, StageCacheEntry> entries)
+    private static void AddMeshOutput(List<RhinoMesh> meshes, HashSet<RhinoMesh> meshSet, RhinoMesh mesh)
     {
-        foreach (var entry in entries.Values)
-            entry.MeshOutput?.Dispose();
+        if (meshSet.Add(mesh))
+            meshes.Add(mesh);
+    }
+
+    private static void DisposeMeshOutputs(IEnumerable<RhinoMesh> meshes)
+    {
+        foreach (var mesh in meshes)
+            mesh.Dispose();
     }
 
     private static bool HasPatchOverlap(IReadOnlyList<GradingPatch> left, IReadOnlyList<GradingPatch> right)
@@ -394,53 +416,25 @@ internal sealed class SmoothStageCacheEntry
     public required MeshSmoother.PreparedSmoothingData Prepared { get; init; }
 }
 
-internal struct FingerprintBuilder
+internal sealed class FingerprintBuilder
 {
-    private const ulong OffsetBasis = 14695981039346656037UL;
-    private const ulong Prime = 1099511628211UL;
-
-    private ulong _value = OffsetBasis;
-
-    public FingerprintBuilder()
-    {
-        _value = OffsetBasis;
-    }
+    private readonly XxHash64Builder _hasher = new();
 
     public void Add(bool value) => Add(value ? 1 : 0);
 
-    public void Add(byte value) => _value = (_value ^ value) * Prime;
+    public void Add(byte value) => _hasher.Add(value);
 
-    public void Add(int value)
-    {
-        Span<int> buffer = stackalloc int[1];
-        buffer[0] = value;
-        AddBytes(MemoryMarshal.AsBytes(buffer));
-    }
+    public void Add(int value) => _hasher.Add(value);
 
-    public void Add(uint value)
-    {
-        Span<uint> buffer = stackalloc uint[1];
-        buffer[0] = value;
-        AddBytes(MemoryMarshal.AsBytes(buffer));
-    }
+    public void Add(uint value) => _hasher.Add(value);
 
-    public void Add(long value)
-    {
-        Span<long> buffer = stackalloc long[1];
-        buffer[0] = value;
-        AddBytes(MemoryMarshal.AsBytes(buffer));
-    }
+    public void Add(long value) => _hasher.Add(value);
 
-    public void Add(ulong value)
-    {
-        Span<ulong> buffer = stackalloc ulong[1];
-        buffer[0] = value;
-        AddBytes(MemoryMarshal.AsBytes(buffer));
-    }
+    public void Add(ulong value) => _hasher.Add(value);
 
-    public void Add(double value) => Add(BitConverter.DoubleToInt64Bits(value));
+    public void Add(double value) => _hasher.Add(value);
 
-    public void Add(Guid value) => AddBytes(value.ToByteArray());
+    public void Add(Guid value) => _hasher.Add(value);
 
     public void Add(string? value)
     {
@@ -456,11 +450,10 @@ internal struct FingerprintBuilder
 
     public void AddBytes(ReadOnlySpan<byte> bytes)
     {
-        foreach (byte b in bytes)
-            Add(b);
+        _hasher.AddBytes(bytes);
     }
 
-    public ulong ToUInt64() => _value;
+    public ulong ToUInt64() => _hasher.ToUInt64();
 }
 
 internal static class TerrainRuntimeCacheCloner
