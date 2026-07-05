@@ -14,10 +14,11 @@ internal sealed class SculptModifierDescriptor : ModifierTypeDescriptor
     public override int SortOrder => 4;
     public override string Subtitle => "Interactive Z sculpting";
 
-    // 1 m default: fine enough for landscape work, coarse enough that DynTopo refinement and the
-    // per-stroke rebuild stay interactive on large terrains (0.25 m was visibly laggy in the field).
+    // Hidden detail scale retained for field cell-size and session radius defaults. DynTopo is disabled
+    // and hidden until the refinement path is stable on real graded terrain.
     public override ModifierDefinition Create(UnitSystem unitSystem) => new SculptModifierDefinition
     {
+        DynTopo = false,
         DetailSize = ModelUnits.FromMeters(1.0, unitSystem),
     };
 
@@ -25,17 +26,6 @@ internal sealed class SculptModifierDescriptor : ModifierTypeDescriptor
 
     public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
     {
-        ParameterDescriptor.Bool(
-            "DynTopo", "DynTopo",
-            m => ((SculptModifierDefinition)m).DynTopo,
-            (m, v) => ((SculptModifierDefinition)m).DynTopo = v,
-            help: "Refine terrain triangles under sculpted areas to the Detail size, so brushes always have vertex resolution. Off = brushes only move the vertices the mesh already has."),
-        ParameterDescriptor.Slider(
-            "DetailSize", "Detail",
-            m => ((SculptModifierDefinition)m).DetailSize,
-            (m, v) => ((SculptModifierDefinition)m).DetailSize = Math.Max(v, 1e-4),
-            softMin: 0.05, softMax: 2.0, decimalPlaces: 3, hardMin: 1e-4,
-            help: "Target edge length for DynTopo refinement (model units). Smaller = finer sculpt detail and denser mesh. Changing it re-triangulates the sculpted region, so it does not live-scrub."),
         ParameterDescriptor.ReadOnly(
             "Field", "Field",
             m =>

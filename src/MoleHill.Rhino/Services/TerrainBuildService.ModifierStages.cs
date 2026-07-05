@@ -119,8 +119,8 @@ internal sealed partial class TerrainBuildService
             c.RuntimeCache,
             c.StageKey,
             "Smooth",
-            ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, smooth, c.CurrentMeshFingerprint),
-            () => input == null ? WarnMissingMesh(c.Build, smooth.Label) : ApplySmooth(c.Snapshot, c.Terrain, input, smooth, c.Build, c.RuntimeCache, c.StageKey, c.Mode),
+            ComputeSmoothStageFingerprint(c.Snapshot, c.Terrain, smooth, c.Index, c.CurrentMeshFingerprint),
+            () => input == null ? WarnMissingMesh(c.Build, smooth.Label) : ApplySmooth(c.Snapshot, c.Terrain, input, smooth, c.Build, c.RuntimeCache, c.Index, c.StageKey, c.Mode),
             result => DescribeModifierMeshResult(smooth.Label, result),
             out ulong fingerprint,
             c.ShouldCancel);

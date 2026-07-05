@@ -461,6 +461,29 @@ New-Icon "$rhinoDir\ModRemesh.png" {
     $innerPen.Dispose()
 } -size 16
 
+# ModRetopo - indigo quad grid with white field-aligned cross marks
+New-Icon "$rhinoDir\ModRetopo.png" {
+    param($g)
+    $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(63, 81, 181))
+    $g.FillRectangle($brush, 2, 2, 12, 12)
+    $brush.Dispose()
+    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(30, 40, 100), 1.5)
+    $g.DrawRectangle($pen, 2, 2, 12, 12)
+    $pen.Dispose()
+    # Quad grid divider lines
+    $gridPen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, 1)
+    $g.DrawLine($gridPen, 8, 2, 8, 14)
+    $g.DrawLine($gridPen, 2, 8, 14, 8)
+    $gridPen.Dispose()
+    # Field-aligned cross marks in two quads
+    $crossPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(255, 202, 40), 1.2)
+    $g.DrawLine($crossPen, 4, 3.5, 4, 6.5)
+    $g.DrawLine($crossPen, 2.5, 5, 5.5, 5)
+    $g.DrawLine($crossPen, 10, 9.5, 10, 12.5)
+    $g.DrawLine($crossPen, 8.5, 11, 11.5, 11)
+    $crossPen.Dispose()
+} -size 16
+
 # ModSmooth - two curves: jagged gray above, smooth purple below
 New-Icon "$rhinoDir\ModSmooth.png" {
     param($g)

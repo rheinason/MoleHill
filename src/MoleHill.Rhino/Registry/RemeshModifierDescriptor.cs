@@ -15,9 +15,17 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
     public override string Subtitle => "Isotropic remesh (feature-preserving)";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new RemeshModifierDefinition
     {
+        Mode = "isotropic",
         CreaseAngle = 30.0
     };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRemeshStage(context);
+
+    private static readonly IReadOnlyList<(string Key, string Label)> ModeOptions = new[]
+    {
+        ("isotropic", "Isotropic (best quality)"),
+        ("rebuild", "Full Rebuild (classic, wall-safe)"),
+        ("local", "Local Refine (preserve topology)"),
+    };
 
     public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
     {
@@ -25,6 +33,11 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
             "Constraints", "Constraints",
             m => ((RemeshModifierDefinition)m).Constraints,
             RhinoObjectType.Curve),
+        ParameterDescriptor.Choice(
+            "Mode", "Algorithm", ModeOptions,
+            m => ((RemeshModifierDefinition)m).Mode,
+            (m, v) => ((RemeshModifierDefinition)m).Mode = v ?? "isotropic",
+            "Isotropic regularizes the whole terrain to even triangles (best overall quality, can be slow on very large terrains and may occasionally cross retaining walls on shallow wall angles). Full Rebuild is the classic constrained-Delaunay re-triangulation — never crosses a wall or constraint, coarser triangle shapes. Local Refine only splits/flips triangles in place, preserving existing topology exactly — fastest and safest on huge terrains, coarsest quality."),
         ParameterDescriptor.Number(
             "EdgeLength", "Edge Length",
             m => ((RemeshModifierDefinition)m).EdgeLength,

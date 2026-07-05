@@ -12,7 +12,7 @@ public sealed class SculptModifierDefinition : ModifierDefinition
 {
     /// <summary>When true, the build stage refines terrain triangles under the sculpted region to
     /// <see cref="DetailSize"/> before displacing, so brushes always have vertex resolution.</summary>
-    public bool DynTopo { get; set; } = true;
+    public bool DynTopo { get; set; } = false;
 
     /// <summary>DynTopo target edge length in model units.</summary>
     public double DetailSize { get; set; } = 0.25;

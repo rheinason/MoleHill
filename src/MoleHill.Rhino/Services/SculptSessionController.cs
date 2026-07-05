@@ -1,3 +1,4 @@
+using Eto.Forms;
 using MoleHill.Core.Sculpting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.UI;
@@ -45,7 +46,9 @@ internal sealed class SculptSessionController
     private SculptBrushEngine _engine = null!;
     private RhinoMesh _workingMesh = null!;
     private SculptNormalPatcher _normalPatcher = null!;
+    private SculptAnalysisColorizer? _analysisColorizer;
     private SculptToolbarForm? _toolbar;
+    private UITimer? _shortcutPollTimer;
     private readonly SculptUndoStack _undoStack = new();
     private readonly List<int> _recordAffected = new();
 
@@ -54,8 +57,6 @@ internal sealed class SculptSessionController
     private double _adjustOriginal;
     private Point3d _lastCursor = Point3d.Unset;
     private bool _doneRequested;
-    private bool _dynTopo;
-    private double _detailSize;
 
     /// <summary>Blocks in the get loop until the session ends — invoke via AsyncInvoke from UI code.</summary>
     public void BeginSession(RhinoDoc doc, Guid terrainId, Guid modifierId)
@@ -82,16 +83,17 @@ internal sealed class SculptSessionController
         if (Radius <= 0.0)
             Radius = sculpt.DetailSize * 20.0;
 
-        _dynTopo = sculpt.DynTopo;
-        _detailSize = sculpt.DetailSize;
         IsActive = true;
         _doneRequested = false;
         _adjustMode = AdjustMode.None;
         _lastCursor = Point3d.Unset;
+        _fWasDown = false;
+        _yWasDown = false;
 
         uint undoRecord = _controller.BeginTerrainStateUndoRecord(doc, "Sculpt Terrain");
         _controller.BeginSculptDisplayLock(doc, terrainId, _workingMesh);
         ShowToolbar(doc, sculpt);
+        StartShortcutPolling();
         doc.Views.Redraw();
 
         try
@@ -100,16 +102,24 @@ internal sealed class SculptSessionController
         }
         finally
         {
-            CloseToolbar();
+            try
+            {
+                StopShortcutPolling();
+                CloseToolbar();
 
-            // Flush the deferred per-stroke saves with one immediate save, close the single
-            // session-wide undo step, then hand display back and rebuild canonically.
-            _controller.MutateTerrain(doc, terrainId, _ => { }, scheduleRebuild: false);
-            if (undoRecord > 0)
-                doc.EndUndoRecord(undoRecord);
-            _controller.NotifySculptSessionEnded(doc, terrainId);
-            _undoStack.Clear();
-            IsActive = false;
+                // Flush the deferred per-stroke saves with one immediate save, close the single
+                // session-wide undo step, then hand display back and rebuild canonically.
+                _controller.MutateTerrain(doc, terrainId, _ => { }, scheduleRebuild: false);
+                if (undoRecord > 0)
+                    doc.EndUndoRecord(undoRecord);
+                _controller.NotifySculptSessionEnded(doc, terrainId);
+            }
+            finally
+            {
+                DisposeWorkingMesh();
+                _undoStack.Clear();
+                IsActive = false;
+            }
         }
     }
 
@@ -137,6 +147,8 @@ internal sealed class SculptSessionController
         // built 1:1 from the extracted arrays (never normalized — that can reorder vertices).
         _workingMesh = BuildIndexParityMesh(vertices, vertexCount, faces, faceCount);
         _normalPatcher = new SculptNormalPatcher(vertexCount, faces, faceCount);
+        _analysisColorizer = SculptAnalysisColorizer.TryCreate(terrain, vertices, faces, faceCount);
+        _analysisColorizer?.ColorAll(_workingMesh);
 
         var field = SculptFieldCodec.Decode(sculpt);
         _engine = new SculptBrushEngine((double[])vertices.Clone(), vertexCount, faces, faceCount, field);
@@ -175,24 +187,11 @@ internal sealed class SculptSessionController
 
     private void ShowToolbar(RhinoDoc doc, SculptModifierDefinition sculpt)
     {
-        var toolbar = new SculptToolbarForm(doc, radiusReference: Radius, dynTopo: sculpt.DynTopo);
+        var toolbar = new SculptToolbarForm(doc, radiusReference: Radius);
         toolbar.BrushChanged += brush => { ActiveBrush = brush; SyncToolbar(); };
         toolbar.RadiusChanged += radius => { Radius = Math.Max(radius, 1e-6); SyncToolbar(); };
         toolbar.StrengthChanged += strength => { Strength = Math.Clamp(strength, 0.0, 1.0); SyncToolbar(); };
         toolbar.FalloffChanged += falloff => { Falloff = falloff; SyncToolbar(); };
-        toolbar.DynTopoChanged += enabled =>
-        {
-            _dynTopo = enabled;
-            _controller.MutateTerrain(
-                _doc,
-                _terrainId,
-                terrain =>
-                {
-                    if (terrain.Modifiers.FirstOrDefault(m => m.Id == _modifierId) is SculptModifierDefinition s)
-                        s.DynTopo = enabled;
-                },
-                suppressImmediateUiRefresh: true);
-        };
         toolbar.DoneRequested += RequestDone;
         toolbar.Closed += (_, _) =>
         {
@@ -288,7 +287,8 @@ internal sealed class SculptSessionController
 
     // ── Keyboard (F / Shift+F / Ctrl+Y) ────────────────────────────────────
     //
-    // Polled with GetAsyncKeyState from the getter's mouse events instead of RhinoApp.KeyboardEvent:
+    // Polled with GetAsyncKeyState from a short UI timer plus getter mouse events instead of
+    // RhinoApp.KeyboardEvent:
     // the app-level hook stops firing once the command-line edit box takes focus (which the stray
     // typed characters inevitably cause), making the shortcuts flaky. Polling is focus-independent.
 
@@ -300,7 +300,33 @@ internal sealed class SculptSessionController
     private bool _fWasDown;
     private bool _yWasDown;
 
-    /// <summary>Edge-triggered shortcut detection, called on every getter mouse event.</summary>
+    private void StartShortcutPolling()
+    {
+        StopShortcutPolling();
+        _shortcutPollTimer = new UITimer { Interval = 0.03 };
+        _shortcutPollTimer.Elapsed += OnShortcutPollTimerElapsed;
+        _shortcutPollTimer.Start();
+    }
+
+    private void StopShortcutPolling()
+    {
+        if (_shortcutPollTimer == null)
+            return;
+
+        _shortcutPollTimer.Stop();
+        _shortcutPollTimer.Elapsed -= OnShortcutPollTimerElapsed;
+        _shortcutPollTimer = null;
+    }
+
+    private void OnShortcutPollTimerElapsed(object? sender, EventArgs e)
+    {
+        if (!IsActive || _doneRequested)
+            return;
+
+        PollShortcuts();
+    }
+
+    /// <summary>Edge-triggered shortcut detection, called from the poll timer and getter mouse events.</summary>
     private void PollShortcuts()
     {
         const int VkShift = 0x10;
@@ -377,19 +403,7 @@ internal sealed class SculptSessionController
     private void BeginStroke(in SculptDabParams p)
     {
         _controller.SetSculptStrokeInProgress(true);
-        // Grab captures vertex indices at stroke start, so its region must be refined before the
-        // capture — and never again mid-drag.
-        if (_dynTopo)
-            RefineUnderBrush(p.CenterX, p.CenterY, Radius);
         _engine.BeginStroke(p);
-    }
-
-    /// <summary>DynTopo densification for one drag segment — called once per mouse event (not per
-    /// dab: several dabs can fire per event and each refine scans the whole mesh).</summary>
-    private void RefineForSpan(double cx, double cy, double spanRadius)
-    {
-        if (_dynTopo)
-            RefineUnderBrush(cx, cy, spanRadius);
     }
 
     private void ApplyDab(in SculptDabParams p, double grabDeltaZ = 0.0)
@@ -403,18 +417,15 @@ internal sealed class SculptSessionController
             _workingMesh.Vertices.SetVertex(i, v[i * 3], v[i * 3 + 1], v[i * 3 + 2]);
 
         _normalPatcher.PatchNormals(_workingMesh, affected);
+        _analysisColorizer?.Recolor(_workingMesh, _normalPatcher.LastTouchedVertices);
     }
 
-    /// <summary>DynTopo: densify the working mesh under the brush; on topology change, rebuild the
-    /// display mesh and normal index from the engine arrays and re-point the display lock.</summary>
-    private void RefineUnderBrush(double cx, double cy, double radius)
+    private void DisposeWorkingMesh()
     {
-        if (!_engine.RefineRegion(cx, cy, radius, _detailSize))
-            return;
-
-        _workingMesh = BuildIndexParityMesh(_engine.Vertices, _engine.VertexCount, _engine.Faces, _engine.FaceCount);
-        _normalPatcher = new SculptNormalPatcher(_engine.VertexCount, _engine.Faces, _engine.FaceCount);
-        _controller.UpdateSculptPreviewMesh(_doc, _terrainId, _workingMesh);
+        _workingMesh?.Dispose();
+        _workingMesh = null!;
+        _normalPatcher = null!;
+        _analysisColorizer = null;
     }
 
     private void FinishStroke()
@@ -479,6 +490,7 @@ internal sealed class SculptSessionController
         }
 
         _normalPatcher.PatchNormals(_workingMesh, _recordAffected);
+        _analysisColorizer?.Recolor(_workingMesh, _normalPatcher.LastTouchedVertices);
     }
 
     private void RefreshSculptDisplay()
@@ -638,12 +650,6 @@ internal sealed class SculptSessionController
             if (travel < spacing)
                 return;
 
-            // One DynTopo pass covering the whole drag segment (cheaper than per dab).
-            _session.RefineForSpan(
-                (from2.X + to2.X) * 0.5,
-                (from2.Y + to2.Y) * 0.5,
-                _session.Radius + travel * 0.5);
-
             // Emit evenly spaced dabs along the drag segment so stroke speed doesn't change intensity.
             Vector3d direction = (to2 - from2) / travel;
             bool applied = false;
@@ -778,6 +784,10 @@ internal sealed class SculptNormalPatcher
             _vertexFaceIndices[cursors[_faces[f * 3 + 2]]++] = f;
         }
     }
+
+    /// <summary>Vertices re-averaged by the last <see cref="PatchNormals"/> call (the moved vertices
+    /// plus their one-ring). Backed by a reused buffer — consume before the next patch.</summary>
+    public IReadOnlyList<int> LastTouchedVertices => _touchedVertices;
 
     public void PatchNormals(RhinoMesh mesh, IReadOnlyList<int> movedVertices)
     {

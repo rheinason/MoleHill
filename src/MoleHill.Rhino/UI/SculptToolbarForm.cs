@@ -9,8 +9,8 @@ namespace MoleHill.Rhino.UI;
 /// <summary>
 /// The floating sculpt mini-toolbar: a small borderless, non-activating window pinned over the active
 /// viewport's corner while a sculpt session runs. It only edits session preferences (brush, radius,
-/// strength, falloff) plus the modifier's DynTopo flag; all document mutation goes through the session
-/// controller. Non-activating + explicit focus return keep viewport keys (F, Esc, Ctrl+Z) working.
+/// strength, falloff); all document mutation goes through the session controller. Non-activating +
+/// explicit focus return keep viewport keys (F, Esc, Ctrl+Z) working.
 /// </summary>
 internal sealed class SculptToolbarForm : Form
 {
@@ -20,7 +20,6 @@ internal sealed class SculptToolbarForm : Form
     private readonly Slider _strengthSlider;
     private readonly Label _strengthValue;
     private readonly DropDown _falloffDropDown;
-    private readonly CheckBox _dynTopoCheck;
     private readonly double _radiusReference;
     private bool _isRefreshing;
     private PointF? _dragOffset;
@@ -29,10 +28,9 @@ internal sealed class SculptToolbarForm : Form
     public event Action<double>? RadiusChanged;
     public event Action<double>? StrengthChanged;
     public event Action<SculptFalloff>? FalloffChanged;
-    public event Action<bool>? DynTopoChanged;
     public event Action? DoneRequested;
 
-    public SculptToolbarForm(RhinoDoc doc, double radiusReference, bool dynTopo)
+    public SculptToolbarForm(RhinoDoc doc, double radiusReference)
     {
         _radiusReference = Math.Max(radiusReference, 1e-6);
 
@@ -93,20 +91,6 @@ internal sealed class SculptToolbarForm : Form
             RhinoApp.SetFocusToMainWindow();
         };
 
-        _dynTopoCheck = new CheckBox
-        {
-            Text = "DynTopo",
-            Checked = dynTopo,
-            ToolTip = "Refine triangles under the brush to the modifier's Detail size while sculpting.",
-        };
-        _dynTopoCheck.CheckedChanged += (_, _) =>
-        {
-            if (_isRefreshing)
-                return;
-            DynTopoChanged?.Invoke(_dynTopoCheck.Checked == true);
-            RhinoApp.SetFocusToMainWindow();
-        };
-
         var doneButton = new Button { Text = "Done", Width = 52, ToolTip = "End the sculpt session (Enter or Esc in the viewport also ends it)." };
         doneButton.Click += (_, _) => DoneRequested?.Invoke();
 
@@ -140,7 +124,6 @@ internal sealed class SculptToolbarForm : Form
                 _strengthValue,
                 _falloffDropDown,
                 MakeSeparator(),
-                _dynTopoCheck,
                 doneButton,
             }
         };

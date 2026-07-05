@@ -1,4 +1,3 @@
-using MoleHill.Core.Engine;
 using MoleHill.Core.Sculpting;
 using MoleHill.Rhino.Model;
 using RhinoMesh = Rhino.Geometry.Mesh;
@@ -41,43 +40,8 @@ internal sealed partial class TerrainBuildService
         if (shouldCancel?.Invoke() == true)
             return mesh;
 
-        // DynTopo: refine the *base* mesh to the detail edge length wherever the field has influence
-        // (re-derived from field occupancy every build, so it stays consistent after upstream changes),
-        // THEN displace. Breaklines and other persistent constraints stay pinned.
-        if (modifier.DynTopo && modifier.DetailSize > 0)
-        {
-            LocalMeshRefiner.Result refined = LocalMeshRefiner.Refine(
-                vertices,
-                faces,
-                build.PersistentHardConstraints,
-                new LocalMeshRefiner.Options
-                {
-                    TargetEdgeLength = modifier.DetailSize,
-                    Tolerance = Math.Max(snapshot.ModelAbsoluteTolerance, 1e-6),
-                    // Split-only, like Remesh's local refine: regularizing flips can scramble graded
-                    // corridor topology, and the displacement replay doesn't need them.
-                    DoFlips = false,
-                    RegionFilter = (x, y) => field.HasInfluenceNear(x, y, modifier.DetailSize),
-                });
-
-            if (refined.Success)
-            {
-                vertices = refined.Vertices;
-                faces = refined.Faces;
-                vertexCount = vertices.Length / 3;
-                faceCount = faces.Length / 3;
-                if (refined.AddedVertices > 0)
-                {
-                    build.Diagnostics.Add(
-                        $"{modifier.Label} DynTopo: +{refined.AddedVertices:N0} vertices under the sculpt, " +
-                        $"preserved input flow ({faceCount:N0} faces).");
-                }
-            }
-            else if (refined.Warning != null)
-            {
-                build.Diagnostics.Add($"{modifier.Label}: {refined.Warning}");
-            }
-        }
+        // DynTopo refinement is intentionally disabled for now: the subdivision path can be unstable
+        // on real graded terrain. Sculpt replay remains displacement-only against the incoming mesh.
 
         if (shouldCancel?.Invoke() == true)
             return mesh;

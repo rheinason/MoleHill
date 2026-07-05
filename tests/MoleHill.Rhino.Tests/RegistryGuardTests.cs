@@ -98,8 +98,21 @@ public class RegistryGuardTests
 
         var remesh = Assert.IsType<RemeshModifierDefinition>(descriptor.Create(UnitSystem.Meters));
 
+        Assert.Equal("isotropic", remesh.Mode);
         Assert.Equal(0.0, remesh.EdgeLength, 9);
         Assert.Equal(30.0, remesh.CreaseAngle, 9);
+    }
+
+    [Fact]
+    public void DescriptorCreate_Sculpt_DefaultsToDynTopoOffAndHidesTuningParameters()
+    {
+        var descriptor = TerrainTypeRegistry.Modifiers.Single(d => d.DefinitionType == typeof(SculptModifierDefinition));
+
+        var sculpt = Assert.IsType<SculptModifierDefinition>(descriptor.Create(UnitSystem.Meters));
+
+        Assert.False(new SculptModifierDefinition().DynTopo);
+        Assert.False(sculpt.DynTopo);
+        Assert.DoesNotContain(descriptor.Parameters, p => p.Key is "DynTopo" or "DetailSize");
     }
 
     [Fact]
@@ -192,6 +205,7 @@ public class RegistryGuardTests
         Assert.Equal(Math.Sqrt(20.0 * 4.0 / Math.Sqrt(3.0)), remesh.EdgeLength, 6);
         Assert.Equal(0.0, remesh.MaxArea, 9);
         Assert.Equal(0.0, remesh.CreaseAngle, 9); // unknown legacy props (localRefine, minAngle, mergeDistance) are dropped
+        Assert.Equal("isotropic", remesh.Mode);
     }
 
     [Fact]
@@ -219,5 +233,33 @@ public class RegistryGuardTests
 
         Assert.Equal(2.5, remesh.EdgeLength, 9);
         Assert.Equal(30.0, remesh.CreaseAngle, 9);
+        Assert.Equal("isotropic", remesh.Mode);
+    }
+
+    [Fact]
+    public void LegacyRemeshDocument_WithoutModeField_DefaultsToIsotropic()
+    {
+        string legacyJson = """
+        {
+          "schemaVersion": 22,
+          "terrains": [
+            {
+              "terrainId": "44444444-4444-4444-4444-444444444444",
+              "name": "Pre-Mode Remesh",
+              "schemaVersion": 22,
+              "modifiers": [
+                { "$type": "triangulate" },
+                { "$type": "remesh", "edgeLength": 3.0, "creaseAngle": 20.0 }
+              ]
+            }
+          ]
+        }
+        """;
+
+        var terrain = TerrainSerializer.Deserialize(legacyJson).Single();
+        var remesh = Assert.IsType<RemeshModifierDefinition>(terrain.Modifiers.Single(m => m is RemeshModifierDefinition));
+
+        Assert.Equal("isotropic", remesh.Mode);
+        Assert.Equal(3.0, remesh.EdgeLength, 9);
     }
 }

@@ -5,7 +5,14 @@ public sealed class RemeshModifierDefinition : ModifierDefinition
     public SourceReferenceSet Constraints { get; set; } = new();
 
     /// <summary>
-    /// Target edge length for the isotropic remesh. 0 = auto-derive from the input mesh's median edge
+    /// Remesh algorithm: "isotropic" (default, best quality), "rebuild" (classic SurfaceRemesher full
+    /// re-triangulation, wall-safe), or "local" (LocalMeshRefiner, topology-preserving). Schema 23; old
+    /// documents without this field deserialize to "isotropic" via this property's initializer.
+    /// </summary>
+    public string Mode { get; set; } = "isotropic";
+
+    /// <summary>
+    /// Target edge length for the remesh. 0 = auto-derive from the input mesh's median edge
     /// length (the remesh then regularizes at the mesh's own scale instead of changing density).
     /// </summary>
     public double EdgeLength { get; set; }

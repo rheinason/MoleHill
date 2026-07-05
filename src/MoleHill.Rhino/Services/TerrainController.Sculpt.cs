@@ -44,11 +44,25 @@ internal sealed partial class TerrainController
         ReassertSculptPreviewMesh(doc.RuntimeSerialNumber, terrainId);
     }
 
-    internal void EndSculptDisplayLock()
+    internal void EndSculptDisplayLock(RhinoDoc doc, Guid terrainId)
     {
+        Mesh? releasedMesh = _sculptSessionTerrainId == terrainId
+            ? _sculptSessionPreviewMesh
+            : null;
+
         _sculptSessionTerrainId = null;
         _sculptSessionPreviewMesh = null;
         _sculptStrokeInProgress = false;
+
+        if (releasedMesh == null)
+            return;
+
+        var displayState = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId).DisplayState;
+        if (displayState == null || !ReferenceEquals(displayState.PreviewTerrainMesh, releasedMesh))
+            return;
+
+        displayState.PreviewTerrainMesh = displayState.TerrainMesh;
+        displayState.InvalidatePreviewBounds();
     }
 
     private bool ShouldDeferBuildForSculpt(Guid terrainId)
@@ -102,7 +116,7 @@ internal sealed partial class TerrainController
 
     internal void NotifySculptSessionEnded(RhinoDoc doc, Guid terrainId)
     {
-        EndSculptDisplayLock();
+        EndSculptDisplayLock(doc, terrainId);
         RebuildTerrain(doc, terrainId);
     }
 }
