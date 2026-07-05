@@ -7,4 +7,9 @@ Terrain analysis math. Pure, unit-tested.
   Returns `ContourLevel`s of `ContourPolyline`s. The Rhino side (`TerrainBuildService.Analysis.cs`)
   wraps these as curves.
 - `ContourLevel.cs` / `ContourPolyline.cs` — result types.
-- `SlopeAnalyzer.cs` — per-face slope + palette mapping for the Slope analysis.
+- `SlopeAnalyzer.cs` — slope analysis. `Summarize` computes min/max/area-weighted average without
+  allocating preview colors; `Analyze` keeps the per-face slope + palette mapping path for colored
+  previews.
+- `MeshHeightProjector.cs` — fast 2.5D XY-to-Z lookup for reference comparison analysis. It returns a
+  fallback-required status for overlapping or near-vertical XY regions so Rhino-side callers can keep
+  exact legacy projection behavior there.

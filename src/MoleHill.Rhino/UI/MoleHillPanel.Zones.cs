@@ -265,7 +265,7 @@ public sealed partial class MoleHillPanel
 
         var badge = CreateCardStatusLabel(zone.IsEnabled ? "Enabled" : "Disabled");
 
-        var deleteButton = MakeMiniButton("Del", (_, _) => RemoveZone(capturedTerrainId, capturedZoneId), "Delete this zone.", width: 38);
+        var deleteButton = MakeDeleteIconButton(() => RemoveZone(capturedTerrainId, capturedZoneId), "Delete this zone.");
         void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
             _collapsedZones,
             capturedZoneId,
@@ -280,11 +280,7 @@ public sealed partial class MoleHillPanel
             IconPlate = iconPlate,
             EnabledControl = enabledCheck,
             TitleBlock = titleBlock,
-            StatusControls = new Control[]
-            {
-                CreateCardStatusLabel("Zone"),
-                badge
-            },
+            StatusControls = new Control[] { badge },
             ActionControls = new Control[]
             {
                 deleteButton
@@ -425,12 +421,12 @@ public sealed partial class MoleHillPanel
 
         var assignedLayerLabel = new Label
         {
-            Text = string.IsNullOrWhiteSpace(layerPath) ? "No layer" : GetLeafLayerName(layerPath),
+            Text = string.IsNullOrWhiteSpace(layerPath) ? "No layer" : EllipsizeText(GetLeafLayerName(layerPath), 18),
             VerticalAlignment = VerticalAlignment.Center,
-            Wrap = WrapMode.Word
+            Wrap = WrapMode.None
         };
         ApplyHelp(assignedLayerLabel, layerPath ?? "No input layer assigned.");
-        var useCurrentButton = MakeCompactButton("Use Current", (_, _) =>
+        var useCurrentButton = MakeCompactButton("Current", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
@@ -469,33 +465,16 @@ public sealed partial class MoleHillPanel
         }, "Remove the assigned input layer.");
         var bakedLayerLabel = new Label
         {
-            Text = $"Bake -> {bakedLayer}",
+            Text = EllipsizeText($"Bake -> {bakedLayer}", 22),
             VerticalAlignment = VerticalAlignment.Center,
             TextColor = UiTheme.MutedText,
-            Wrap = WrapMode.Word
+            Wrap = WrapMode.None,
+            ToolTip = $"Bake -> {bakedLayer}"
         };
         ApplyHelp(bakedLayerLabel, "Generated zone meshes preview using the source layer color and bake under this output layer.");
         var buttonRow = CreateResponsiveControlGroup(4, useCurrentButton, browseButton, clearButton);
 
-        if (UseStackedFormRows())
-        {
-            return new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 4,
-                Padding = new Padding(0, 3),
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Items =
-                {
-                    CreateHelpLabel("Layer", "Zones are driven by Rhino layers. The baked output layer is generated automatically.", 0),
-                    assignedLayerLabel,
-                    bakedLayerLabel,
-                    new StackLayoutItem(buttonRow, HorizontalAlignment.Stretch)
-                }
-            };
-        }
-
-        return new StackLayout
+        var editor = new StackLayout
         {
             Orientation = Orientation.Horizontal,
             Spacing = 3,
@@ -504,14 +483,15 @@ public sealed partial class MoleHillPanel
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
-                CreateHelpLabel("Layer", "Zones are driven by Rhino layers. The baked output layer is generated automatically.", PropertyLabelWidth),
                 new StackLayoutItem(assignedLayerLabel, expand: true),
-                useCurrentButton,
-                browseButton,
-                clearButton,
+                buttonRow,
                 bakedLayerLabel
             }
         };
+        return new PropertyRow(
+            CreateHelpLabel("Layer", "Zones are driven by Rhino layers. The baked output layer is generated automatically.", 0),
+            editor,
+            expandWidget: true);
     }
 
     private void MoveZone(Guid terrainId, Guid zoneId, int direction)

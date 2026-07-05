@@ -1,9 +1,39 @@
+using System.Globalization;
 using Rhino;
 
 namespace MoleHill.Rhino.Services;
 
 internal static class ModelUnits
 {
+    /// <summary>Short unit abbreviation for doc-unit display strings (e.g. "m", "ft", "mm").</summary>
+    public static string Abbreviation(UnitSystem unitSystem) => unitSystem switch
+    {
+        UnitSystem.Microns => "µm",
+        UnitSystem.Millimeters => "mm",
+        UnitSystem.Centimeters => "cm",
+        UnitSystem.Decimeters => "dm",
+        UnitSystem.Meters => "m",
+        UnitSystem.Dekameters => "dam",
+        UnitSystem.Hectometers => "hm",
+        UnitSystem.Kilometers => "km",
+        UnitSystem.Microinches => "µin",
+        UnitSystem.Mils => "mil",
+        UnitSystem.Inches => "in",
+        UnitSystem.Feet => "ft",
+        UnitSystem.Yards => "yd",
+        UnitSystem.Miles => "mi",
+        _ => "units"
+    };
+
+    public static string FormatLength(double value, UnitSystem unitSystem, string format = "F2") =>
+        $"{value.ToString(format, CultureInfo.InvariantCulture)} {Abbreviation(unitSystem)}";
+
+    public static string FormatArea(double value, UnitSystem unitSystem, string format = "F2") =>
+        $"{value.ToString(format, CultureInfo.InvariantCulture)} {Abbreviation(unitSystem)}²";
+
+    public static string FormatVolume(double value, UnitSystem unitSystem, string format = "F2") =>
+        $"{value.ToString(format, CultureInfo.InvariantCulture)} {Abbreviation(unitSystem)}³";
+
     public static double FromMeters(double meters, UnitSystem unitSystem)
     {
         return unitSystem switch

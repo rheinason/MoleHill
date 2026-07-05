@@ -132,6 +132,28 @@ public sealed partial class MoleHillPanel
         _controller.ForceResetTerrainBuild(doc, terrain.TerrainId);
     }
 
+    private void OnResetTerrainData(object? sender, EventArgs e)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        var result = MessageBox.Show(
+            RhinoEtoApp.MainWindowForDocument(doc),
+            "The terrain data stored in this document could not be read (truncated, or saved by a " +
+            "newer plugin version) and is being kept untouched so it isn't lost. Resetting discards it " +
+            "permanently and starts this document with no terrains.",
+            "Reset Unreadable Terrain Data",
+            MessageBoxButtons.YesNo,
+            MessageBoxType.Warning,
+            MessageBoxDefaultButton.No);
+        if (result != DialogResult.Yes)
+            return;
+
+        _controller.ResetTerrainDataAfterFailedLoad(doc);
+        RefreshUi();
+    }
+
     private void SetActionButtonsEnabled(bool enabled)
     {
         _dupButton.Enabled             = enabled;

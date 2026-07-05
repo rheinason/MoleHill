@@ -1,9 +1,12 @@
+using System.Runtime.CompilerServices;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
 
 internal sealed class GeneratedRhinoObject
 {
+    private readonly Dictionary<(int SourceIdentity, string DisplayText), TextEntity> _previewTextCache = new();
+
     public GeometryBase? Geometry { get; init; }
 
     public required string Name { get; init; }
@@ -33,4 +36,18 @@ internal sealed class GeneratedRhinoObject
     /// <summary>When set, this is a scatter instance owned by the given scatter definition; the display
     /// conduit uses the definition's preview mode/cap to decide how to draw it. Bake ignores this.</summary>
     public Guid? ScatterDefinitionId { get; init; }
+
+    internal TextEntity? GetPreviewTextEntity(TextEntity source, string displayText)
+    {
+        var key = (RuntimeHelpers.GetHashCode(source), displayText);
+        if (_previewTextCache.TryGetValue(key, out TextEntity? cached))
+            return cached;
+
+        if (source.Duplicate() is not TextEntity clone)
+            return null;
+
+        clone.RichText = displayText;
+        _previewTextCache[key] = clone;
+        return clone;
+    }
 }

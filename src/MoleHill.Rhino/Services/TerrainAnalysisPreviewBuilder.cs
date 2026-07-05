@@ -178,6 +178,7 @@ internal static class TerrainAnalysisPreviewBuilder
         if (referenceMesh == null)
             return terrainMesh;
 
+        MeshHeightProjector? referenceProjector = CreateReferenceProjector(referenceMesh);
         var boundaries = RhinoSourceResolver.ResolveCurves(doc, analysis.Boundary);
         int faceCount = terrainMesh.Faces.Count;
         var values = new double[faceCount];
@@ -204,8 +205,9 @@ internal static class TerrainAnalysisPreviewBuilder
                 continue;
             }
 
-            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(
+            if (!TryProjectReferencePoint(
                     referenceMesh,
+                    referenceProjector,
                     centroid,
                     doc.ModelAbsoluteTolerance,
                     out Point3d referencePoint))
@@ -241,6 +243,35 @@ internal static class TerrainAnalysisPreviewBuilder
         }
 
         return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
+    }
+
+    private static MeshHeightProjector? CreateReferenceProjector(RhinoMesh referenceMesh)
+    {
+        return RhinoGeometryConversions.TryExtractMeshData(referenceMesh, out var vertices, out var faces, out _)
+            ? new MeshHeightProjector(vertices, vertices.Length / 3, faces, faces.Length / 3)
+            : null;
+    }
+
+    private static bool TryProjectReferencePoint(
+        RhinoMesh referenceMesh,
+        MeshHeightProjector? projector,
+        Point3d point,
+        double tolerance,
+        out Point3d projectedPoint)
+    {
+        MeshHeightProjector.ProjectionStatus status = MeshHeightProjector.ProjectionStatus.OutsideMesh;
+        if (projector != null &&
+            projector.TryProjectZ(point.X, point.Y, point.Z, tolerance, out double z, out status))
+        {
+            projectedPoint = new Point3d(point.X, point.Y, z);
+            return true;
+        }
+
+        if (projector == null || status == MeshHeightProjector.ProjectionStatus.RequiresFallback)
+            return TerrainMeshProjection.TryProjectPointAlongWorldZ(referenceMesh, point, tolerance, out projectedPoint);
+
+        projectedPoint = Point3d.Unset;
+        return false;
     }
 
     private static RhinoMesh? ResolveReferenceMesh(RhinoDoc doc, SourceReferenceSet referenceSet)
@@ -336,7 +367,7 @@ internal static class TerrainAnalysisPreviewBuilder
         return colors;
     }
 
-    private static void SamplePaletteColor(
+    internal static void SamplePaletteColor(
         double value,
         double low,
         double high,

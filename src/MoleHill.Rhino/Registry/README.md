@@ -10,8 +10,11 @@ There are four parallel families, each with a `*TypeDescriptor` base + reflectio
   schema cards + menu chrome). Detailed below.
 - **Objects** — `ObjectTypeDescriptor`/`ObjectTypeRegistry` (factory + card chrome: label/icon/subtitle/accent).
 - **Markers** — `MarkerTypeDescriptor`/`MarkerTypeRegistry` (factory + add-button text/help).
-- **Analyses** — `AnalysisTypeDescriptor`/`AnalysisTypeRegistry` (factory + menu grouping + card chrome;
-  the bespoke `CreateAnalysisBody` + per-type collapsed summary stay in the panel).
+- **Analyses** — `AnalysisTypeDescriptor`/`AnalysisTypeRegistry` (factory + menu grouping + card chrome +
+  `Parameters` schema cards, same shape as modifiers). Per-type collapsed summary, computed
+  summaries/legends, the slope-unit-with-range-conversion editor, and the section insertion-origin picker
+  aren't schema-expressible and stay bespoke in `MoleHillPanel.Analysis.cs`
+  (`AppendBespokeAnalysisRowsBefore`/`After`).
 
 All four feed `Services/TerrainJsonTypeResolver`, which builds JSON polymorphism for every family from
 its registry — there are **no `[JsonDerivedType]` lists** on the definition bases anymore. Discriminator
@@ -37,12 +40,24 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
   generation (GH parity).
 
 ## Parameter schema
-- `ParameterDescriptor.cs` — one declarative input: `Kind` (Sources/Number/OptionalNumber/Slider/Bool/
-  Layer/ReadOnly), `Label`/`Help`, numeric bounds, and typed get/set accessor delegates against the
-  concrete definition (cast inside, mirroring the old hand-written mutations). Use the static factories
-  (`Number`, `Slider`, `Sources`, …) to keep schemas terse.
+- `ParameterDescriptor.cs` — one declarative input against `ModifierDefinition`: `Kind` (Sources/Number/
+  OptionalNumber/Slider/Bool/Layer/ReadOnly/Choice/Color/Text), `Label`/`Help`, numeric bounds, and typed
+  get/set accessor delegates against the concrete definition (cast inside, mirroring the old hand-written
+  mutations). Use the static factories (`Number`, `Slider`, `Sources`, …) to keep schemas terse.
+- `AnalysisParameterDescriptor.cs` — the same shape against `AnalysisDefinition` (separate type because the
+  accessor delegates are typed differently). Adds two mutate-mode flags plain modifiers don't need:
+  `RefreshOnly` (cheap preview recolor via `MutateAndRefreshAnalysis`, e.g. palette/range on Slope/
+  Elevation/Cut-Fill) and `IncrementalCommit` (skip the full rebuild and run the type's own incremental
+  rebuild — today only Contour, via `TerrainController.RebuildContourAnalysis`/`RefreshContourColor`).
+  Also supports `LabelFor`/`ChoiceOptionsFor` overrides for rows whose label or option list depends on
+  live definition state (e.g. slope-unit suffix on the range labels, the value-format "Custom" entry).
+- `AnalysisFormatting.cs` — pure slope-unit/value-format/layer-color formatting helpers shared by the
+  schema descriptors and the panel's hand-written rows. Lives here (not in `MoleHill.Rhino.UI`) so
+  `MoleHill.Rhino.Tests`, which links `Registry/*.cs` directly without a UI reference, can still compile
+  the analysis descriptors that use them.
 - Rows the schema can't express (Triangulate work-area picker, geometry-input boundary-peel block) are
-  appended by `MoleHillPanel.AppendBespokeModifierRows` — the custom-draw escape hatch.
+  appended by `MoleHillPanel.AppendBespokeModifierRows` — the custom-draw escape hatch. The analysis
+  equivalent is `AppendBespokeAnalysisRowsBefore`/`After` in `MoleHillPanel.Analysis.cs`.
 
 ## Adding a modifier
 1. Add `Model/<Name>ModifierDefinition.cs` (no `[JsonDerivedType]` — the resolver registers it from the

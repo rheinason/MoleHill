@@ -62,32 +62,25 @@ public sealed partial class MoleHillPanel
             GetModifierSubtitle(modifier, isPinnedBaseTriangulate));
 
         Control[] statusControls = isPinnedBaseTriangulate
-            ? new Control[]
-            {
-                CreateCardStatusLabel(typeLabel),
-                CreateCardStatusLabel("Pinned", accent)
-            }
-            : new Control[]
-            {
-                CreateCardStatusLabel(typeLabel)
-            };
+            ? new Control[] { CreateCardStatusLabel("Pinned", accent) }
+            : Array.Empty<Control>();
 
         Control[] actionControls = Array.Empty<Control>();
         if (!isPinnedBaseTriangulate)
         {
-            var copyButton = MakeMiniButton("Copy", (_, _) =>
+            var duplicateButton = MakeDuplicateIconButton(() =>
             {
                 var doc = RhinoDoc.ActiveDoc;
                 if (doc != null)
                     _controller.DuplicateModifier(doc, capturedTerrainId, capturedModifierId);
-            }, "Duplicate this modifier.", width: 46);
-            var deleteButton = MakeMiniButton("Del", (_, _) =>
+            }, "Duplicate this modifier.");
+            var deleteButton = MakeDeleteIconButton(() =>
             {
                 var doc = RhinoDoc.ActiveDoc;
                 if (doc != null)
                     _controller.RemoveModifier(doc, capturedTerrainId, capturedModifierId);
-            }, "Delete this modifier.", width: 38);
-            actionControls = new Control[] { copyButton, deleteButton };
+            }, "Delete this modifier.");
+            actionControls = new Control[] { duplicateButton, deleteButton };
         }
 
         void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(

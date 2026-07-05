@@ -48,14 +48,7 @@ public sealed partial class MoleHillPanel
             }, descriptor.AddButtonHelp));
         }
 
-        var buttonRow = new StackLayout
-        {
-            Orientation = UseStackedFormRows() ? Orientation.Vertical : Orientation.Horizontal,
-            Spacing = 4,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch
-        };
-        foreach (var button in buttons)
-            buttonRow.Items.Add(button);
+        var buttonRow = new AdaptiveControlGroup(4, buttons.ToArray());
 
         return new StackLayout
         {
@@ -100,7 +93,7 @@ public sealed partial class MoleHillPanel
                     elevation.Format,
                     format => MutateMarker(terrain.TerrainId, marker.Id, item => ((ElevationMarkerDefinition)item).Format = format, scheduleRebuild: true),
                     "Number of decimal places shown in elevation marker labels.");
-                layout.AddSeparateRow(new Label { Text = "Decimals", Width = 82 }, formatDropDown, null);
+                layout.AddSeparateRow(new Label { Text = "Decimals", Width = UiMetrics.ShortLabel }, formatDropDown, null);
                 break;
             case SlopeMarkerDefinition slope:
                 var slopeFormatDropDown = CreateValueFormatDropDown(
@@ -109,7 +102,7 @@ public sealed partial class MoleHillPanel
                     "Number of decimal places shown in slope marker labels.");
                 var percentCheck = new CheckBox { Text = "Percent", Checked = slope.AsPercent };
                 percentCheck.CheckedChanged += (_, _) => MutateMarker(terrain.TerrainId, marker.Id, item => ((SlopeMarkerDefinition)item).AsPercent = percentCheck.Checked == true, scheduleRebuild: true);
-                layout.AddSeparateRow(new Label { Text = "Decimals", Width = 82 }, slopeFormatDropDown, percentCheck, null);
+                layout.AddSeparateRow(new Label { Text = "Decimals", Width = UiMetrics.ShortLabel }, slopeFormatDropDown, percentCheck, null);
                 break;
         }
 
@@ -130,7 +123,7 @@ public sealed partial class MoleHillPanel
             MutateMarker(terrain.TerrainId, marker.Id, item => item.BlockDefinitionName = string.IsNullOrWhiteSpace(text) ? null : text, scheduleRebuild: true), trim: true);
 
         layout.AddSeparateRow(blockCheck, showLabelCheck, null);
-        layout.AddSeparateRow(new Label { Text = "Block Def", Width = 82 }, blockNameBox, null);
+        layout.AddSeparateRow(new Label { Text = "Block Def", Width = UiMetrics.ShortLabel }, blockNameBox, null);
         var scaleRow = CreateNumericEditor("Symbol Scale", marker.BlockScale, value =>
             MutateMarker(terrain.TerrainId, marker.Id, item => item.BlockScale = value),
             help: "Scale factor for the block-instance marker symbol. 1.0 is the default; below 1.0 is smaller; above 1.0 is larger.");

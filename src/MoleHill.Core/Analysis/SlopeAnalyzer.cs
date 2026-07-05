@@ -5,6 +5,8 @@ namespace MoleHill.Core.Analysis;
 /// </summary>
 public static class SlopeAnalyzer
 {
+    private const int ParallelSlopeThreshold = 20_000;
+
     public readonly struct ColorStop
     {
         public ColorStop(double position, byte r, byte g, byte b)
@@ -90,6 +92,53 @@ public static class SlopeAnalyzer
     }
 
     /// <summary>
+    /// Summary-only slope analysis on a triangle mesh. Does not allocate per-face slopes or colors.
+    /// </summary>
+    public sealed class SlopeSummary
+    {
+        public double Min { get; }
+
+        public double Max { get; }
+
+        public double Average { get; }
+
+        public int FaceCount { get; }
+
+        public double ColorLow { get; }
+
+        public double ColorHigh { get; }
+
+        public SlopeSummary(double min, double max, double average, int faceCount, double colorLow, double colorHigh)
+        {
+            Min = min;
+            Max = max;
+            Average = average;
+            FaceCount = faceCount;
+            ColorLow = colorLow;
+            ColorHigh = colorHigh;
+        }
+    }
+
+    /// <summary>
+    /// Compute min, max, and area-weighted average slope without allocating per-face colors.
+    /// </summary>
+    public static SlopeSummary Summarize(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        SlopeUnit unit,
+        double colorLow = 0,
+        double colorHigh = 0)
+    {
+        SlopeAccumulator accumulator = faceCount >= ParallelSlopeThreshold
+            ? AccumulateSlopesParallel(vertices, faces, faceCount, unit, null)
+            : AccumulateSlopes(vertices, faces, faceCount, unit, null);
+
+        return CreateSummary(accumulator, faceCount, colorLow, colorHigh);
+    }
+
+    /// <summary>
     /// Compute per-face slopes for a triangle mesh.
     /// </summary>
     /// <param name="vertices">Flat XYZ: [x0,y0,z0, x1,y1,z1, ...]</param>
@@ -111,86 +160,197 @@ public static class SlopeAnalyzer
         IReadOnlyList<ColorStop>? palette = null)
     {
         var slopes = new double[faceCount];
+        SlopeAccumulator accumulator = faceCount >= ParallelSlopeThreshold
+            ? AccumulateSlopesParallel(vertices, faces, faceCount, unit, slopes)
+            : AccumulateSlopes(vertices, faces, faceCount, unit, slopes);
+        SlopeSummary summary = CreateSummary(accumulator, faceCount, colorLow, colorHigh);
+
         var colors = new byte[faceCount * 3];
-        double min = double.MaxValue;
-        double max = double.MinValue;
-        double weightedSum = 0;
-        double totalArea = 0;
-
-        for (int f = 0; f < faceCount; f++)
+        var effectivePalette = ResolvePalette(palette);
+        if (faceCount >= ParallelSlopeThreshold)
         {
-            int i0 = faces[f * 3];
-            int i1 = faces[f * 3 + 1];
-            int i2 = faces[f * 3 + 2];
-
-            double ax = vertices[i0 * 3];
-            double ay = vertices[i0 * 3 + 1];
-            double az = vertices[i0 * 3 + 2];
-            double bx = vertices[i1 * 3];
-            double by = vertices[i1 * 3 + 1];
-            double bz = vertices[i1 * 3 + 2];
-            double cx = vertices[i2 * 3];
-            double cy = vertices[i2 * 3 + 1];
-            double cz = vertices[i2 * 3 + 2];
-
-            double e1x = bx - ax;
-            double e1y = by - ay;
-            double e1z = bz - az;
-            double e2x = cx - ax;
-            double e2y = cy - ay;
-            double e2z = cz - az;
-
-            double nx = e1y * e2z - e1z * e2y;
-            double ny = e1z * e2x - e1x * e2z;
-            double nz = e1x * e2y - e1y * e2x;
-
-            double normalLen = Math.Sqrt(nx * nx + ny * ny + nz * nz);
-            double area = normalLen * 0.5;
-
-            double absNz = Math.Abs(nz);
-            double slopeRatio = absNz < 1e-12
-                ? double.PositiveInfinity
-                : Math.Sqrt(nx * nx + ny * ny) / absNz;
-
-            double slope = ConvertRatioToUnit(slopeRatio, unit);
-
-            slopes[f] = slope;
-
-            if (!double.IsInfinity(slope) && !double.IsNaN(slope))
+            Parallel.For(0, faceCount, f =>
             {
-                if (slope < min)
-                    min = slope;
-
-                if (slope > max)
-                    max = slope;
-
-                weightedSum += slope * area;
-                totalArea += area;
+                SlopeToColor(slopes[f], summary.ColorLow, summary.ColorHigh, effectivePalette, out byte r, out byte g, out byte b);
+                colors[f * 3] = r;
+                colors[f * 3 + 1] = g;
+                colors[f * 3 + 2] = b;
+            });
+        }
+        else
+        {
+            for (int f = 0; f < faceCount; f++)
+            {
+                SlopeToColor(slopes[f], summary.ColorLow, summary.ColorHigh, effectivePalette, out byte r, out byte g, out byte b);
+                colors[f * 3] = r;
+                colors[f * 3 + 1] = g;
+                colors[f * 3 + 2] = b;
             }
         }
 
-        if (min == double.MaxValue)
-            min = 0;
+        return new SlopeResult(
+            slopes,
+            summary.Min,
+            summary.Max,
+            summary.Average,
+            colors,
+            faceCount,
+            summary.ColorLow,
+            summary.ColorHigh);
+    }
 
-        if (max == double.MinValue)
-            max = 0;
+    private static SlopeAccumulator AccumulateSlopes(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        SlopeUnit unit,
+        double[]? slopes)
+    {
+        var accumulator = SlopeAccumulator.Create();
+        for (int f = 0; f < faceCount; f++)
+        {
+            double slope = ComputeFaceSlope(vertices, faces, f, unit, out double area);
+            if (slopes != null)
+                slopes[f] = slope;
+            accumulator.Add(slope, area);
+        }
 
-        double average = totalArea > 0 ? weightedSum / totalArea : 0;
+        return accumulator;
+    }
+
+    private static SlopeAccumulator AccumulateSlopesParallel(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        SlopeUnit unit,
+        double[]? slopes)
+    {
+        var accumulator = SlopeAccumulator.Create();
+        object gate = new();
+        Parallel.For(0, faceCount,
+            () => SlopeAccumulator.Create(),
+            (f, _, local) =>
+            {
+                double slope = ComputeFaceSlope(vertices, faces, f, unit, out double area);
+                if (slopes != null)
+                    slopes[f] = slope;
+                local.Add(slope, area);
+                return local;
+            },
+            local =>
+            {
+                lock (gate)
+                {
+                    accumulator.Merge(local);
+                }
+            });
+
+        return accumulator;
+    }
+
+    private static SlopeSummary CreateSummary(SlopeAccumulator accumulator, int faceCount, double colorLow, double colorHigh)
+    {
+        double min = accumulator.HasFinite ? accumulator.Min : 0.0;
+        double max = accumulator.HasFinite ? accumulator.Max : 0.0;
+        double average = accumulator.TotalArea > 0 ? accumulator.WeightedSum / accumulator.TotalArea : 0.0;
         double lo = colorLow;
         double hi = colorHigh > lo ? colorHigh : max;
         if (hi <= lo)
             hi = lo + 1;
 
-        var effectivePalette = ResolvePalette(palette);
-        for (int f = 0; f < faceCount; f++)
+        return new SlopeSummary(min, max, average, faceCount, lo, hi);
+    }
+
+    private static double ComputeFaceSlope(double[] vertices, int[] faces, int faceIndex, SlopeUnit unit, out double area)
+    {
+        int i0 = faces[faceIndex * 3];
+        int i1 = faces[faceIndex * 3 + 1];
+        int i2 = faces[faceIndex * 3 + 2];
+
+        double ax = vertices[i0 * 3];
+        double ay = vertices[i0 * 3 + 1];
+        double az = vertices[i0 * 3 + 2];
+        double bx = vertices[i1 * 3];
+        double by = vertices[i1 * 3 + 1];
+        double bz = vertices[i1 * 3 + 2];
+        double cx = vertices[i2 * 3];
+        double cy = vertices[i2 * 3 + 1];
+        double cz = vertices[i2 * 3 + 2];
+
+        double e1x = bx - ax;
+        double e1y = by - ay;
+        double e1z = bz - az;
+        double e2x = cx - ax;
+        double e2y = cy - ay;
+        double e2z = cz - az;
+
+        double nx = e1y * e2z - e1z * e2y;
+        double ny = e1z * e2x - e1x * e2z;
+        double nz = e1x * e2y - e1y * e2x;
+
+        double normalLen = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+        area = normalLen * 0.5;
+
+        double absNz = Math.Abs(nz);
+        double slopeRatio = absNz < 1e-12
+            ? double.PositiveInfinity
+            : Math.Sqrt(nx * nx + ny * ny) / absNz;
+
+        return ConvertRatioToUnit(slopeRatio, unit);
+    }
+
+    private struct SlopeAccumulator
+    {
+        public double Min;
+        public double Max;
+        public double WeightedSum;
+        public double TotalArea;
+        public bool HasFinite;
+
+        public static SlopeAccumulator Create()
         {
-            SlopeToColor(slopes[f], lo, hi, effectivePalette, out byte r, out byte g, out byte b);
-            colors[f * 3] = r;
-            colors[f * 3 + 1] = g;
-            colors[f * 3 + 2] = b;
+            return new SlopeAccumulator
+            {
+                Min = double.MaxValue,
+                Max = double.MinValue
+            };
         }
 
-        return new SlopeResult(slopes, min, max, average, colors, faceCount, lo, hi);
+        public void Add(double slope, double area)
+        {
+            if (double.IsInfinity(slope) || double.IsNaN(slope))
+                return;
+
+            if (slope < Min)
+                Min = slope;
+            if (slope > Max)
+                Max = slope;
+
+            WeightedSum += slope * area;
+            TotalArea += area;
+            HasFinite = true;
+        }
+
+        public void Merge(SlopeAccumulator other)
+        {
+            if (!other.HasFinite)
+                return;
+
+            if (!HasFinite)
+            {
+                Min = other.Min;
+                Max = other.Max;
+            }
+            else
+            {
+                Min = Math.Min(Min, other.Min);
+                Max = Math.Max(Max, other.Max);
+            }
+
+            WeightedSum += other.WeightedSum;
+            TotalArea += other.TotalArea;
+            HasFinite = true;
+        }
     }
 
     public static double ConvertRatioToUnit(double slopeRatio, SlopeUnit unit)

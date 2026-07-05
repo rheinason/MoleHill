@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 22;
+    private const int DocumentSchemaVersion = 23;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -121,17 +121,23 @@ internal static class TerrainSerializer
     /// Old documents that drove refinement via MaxArea get the equivalent edge length (equilateral
     /// triangle of that area — the same mapping the old local-refine mode used); the legacy value is
     /// then zeroed so it can't be re-migrated or re-serialized as meaningful.
+    /// Schema 23: the Remesh modifier gained a Mode choice (isotropic/rebuild/local). Mode's property
+    /// initializer already resolves missing JSON to "isotropic" for any older document, so this is only a
+    /// defensive normalize for hand-edited documents with an explicit null.
     /// </summary>
     private static void MigrateRemeshModifiers(TerrainDefinition terrain, int sourceSchemaVersion)
     {
-        if (sourceSchemaVersion >= 22)
-            return;
-
         foreach (var remesh in terrain.Modifiers.OfType<RemeshModifierDefinition>())
         {
-            if (remesh.MaxArea > 0 && remesh.EdgeLength <= 0)
-                remesh.EdgeLength = Math.Sqrt(remesh.MaxArea * 4.0 / Math.Sqrt(3.0));
-            remesh.MaxArea = 0;
+            if (sourceSchemaVersion < 22)
+            {
+                if (remesh.MaxArea > 0 && remesh.EdgeLength <= 0)
+                    remesh.EdgeLength = Math.Sqrt(remesh.MaxArea * 4.0 / Math.Sqrt(3.0));
+                remesh.MaxArea = 0;
+            }
+
+            if (sourceSchemaVersion < 23 && string.IsNullOrWhiteSpace(remesh.Mode))
+                remesh.Mode = "isotropic";
         }
     }
 

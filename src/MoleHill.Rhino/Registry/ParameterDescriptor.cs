@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using MoleHill.Rhino.Model;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
@@ -13,6 +14,20 @@ internal enum ParameterKind
     Bool,
     Layer,
     ReadOnly,
+    Choice,
+    Color,
+    Text,
+}
+
+/// <summary>Semantic unit for a numeric parameter — drives suffix labels and formatting once threaded through.</summary>
+internal enum ParameterUnit
+{
+    None,
+    Length,
+    Angle,
+    Percent,
+    Factor,
+    Count,
 }
 
 /// <summary>
@@ -40,6 +55,12 @@ internal sealed class ParameterDescriptor
     public double SoftMin { get; init; }
     public double SoftMax { get; init; }
 
+    /// <summary>Stepper/slider increment. Defaults from <see cref="DecimalPlaces"/> when unset (0 decimals → 1, else 0.1).</summary>
+    public double? Step { get; init; }
+
+    /// <summary>Semantic unit — drives suffix labels/defaults once threaded through the editors.</summary>
+    public ParameterUnit Unit { get; init; } = ParameterUnit.None;
+
     /// <summary>Slider: defer document save + suppress UI refresh while scrubbing (live drag).</summary>
     public bool LiveScrub { get; init; }
 
@@ -48,6 +69,18 @@ internal sealed class ParameterDescriptor
 
     // Sources
     public RhinoObjectType ObjectFilter { get; init; }
+
+    // Choice
+    public IReadOnlyList<(string Key, string Label)>? ChoiceOptions { get; init; }
+
+    // Color
+    public Func<ModifierDefinition, int?>? GetColor { get; init; }
+    public Action<ModifierDefinition, int?>? SetColor { get; init; }
+    public Func<ModifierDefinition, int?>? FallbackColor { get; init; }
+    public string ColorDefaultText { get; init; } = "(by layer)";
+
+    // Text
+    public bool TrimText { get; init; } = true;
 
     // Accessors (the relevant pair for this kind is set)
     public Func<ModifierDefinition, double>? GetNumber { get; init; }
@@ -174,6 +207,62 @@ internal sealed class ParameterDescriptor
             Label = label,
             GetText = get,
             SetText = set,
+            Help = help,
+        };
+
+    public static ParameterDescriptor Choice(
+        string key,
+        string label,
+        IReadOnlyList<(string Key, string Label)> options,
+        Func<ModifierDefinition, string?> get,
+        Action<ModifierDefinition, string?> set,
+        string? help = null) =>
+        new()
+        {
+            Kind = ParameterKind.Choice,
+            Key = key,
+            Label = label,
+            ChoiceOptions = options,
+            GetText = get,
+            SetText = set,
+            Help = help,
+        };
+
+    public static ParameterDescriptor Color(
+        string key,
+        string label,
+        Func<ModifierDefinition, int?> get,
+        Action<ModifierDefinition, int?> set,
+        string? help = null,
+        Func<ModifierDefinition, int?>? fallbackColor = null,
+        string defaultText = "(by layer)") =>
+        new()
+        {
+            Kind = ParameterKind.Color,
+            Key = key,
+            Label = label,
+            GetColor = get,
+            SetColor = set,
+            FallbackColor = fallbackColor,
+            ColorDefaultText = defaultText,
+            Help = help,
+        };
+
+    public static ParameterDescriptor Text(
+        string key,
+        string label,
+        Func<ModifierDefinition, string?> get,
+        Action<ModifierDefinition, string?> set,
+        string? help = null,
+        bool trim = true) =>
+        new()
+        {
+            Kind = ParameterKind.Text,
+            Key = key,
+            Label = label,
+            GetText = get,
+            SetText = set,
+            TrimText = trim,
             Help = help,
         };
 

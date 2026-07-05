@@ -10,6 +10,10 @@ namespace MoleHill.Rhino.Services;
 internal sealed class TerrainDisplayConduit : DisplayConduit
 {
     private const int ScatterShapePointBudget = 32;
+    private static readonly object DisplayMaterialCacheGate = new();
+    private static readonly Dictionary<(int Argb, double Transparency), DisplayMaterial> DisplayMaterialCache = new();
+    private static readonly object MarkerBlockGeometryCacheGate = new();
+    private static readonly Dictionary<MarkerBlockTemplate, GeometryBase[]> MarkerBlockGeometryCache = new();
 
     protected override void CalculateBoundingBox(CalculateBoundingBoxEventArgs e)
     {
@@ -505,11 +509,20 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
     private static DisplayMaterial CreateDisplayMaterial(global::Rhino.RhinoDoc doc, TerrainDefinition terrain, string? layerPath, string? sourceLayerPath, int? colorArgb)
     {
         var color = GetOpaqueColor(ResolveColor(doc, layerPath, sourceLayerPath, colorArgb));
-        var material = new DisplayMaterial(color)
+        double transparency = ResolveTransparency(terrain, colorArgb);
+        var key = (color.ToArgb(), transparency);
+        lock (DisplayMaterialCacheGate)
         {
-            Transparency = ResolveTransparency(terrain, colorArgb)
-        };
-        return material;
+            if (DisplayMaterialCache.TryGetValue(key, out DisplayMaterial? material))
+                return material;
+
+            material = new DisplayMaterial(color)
+            {
+                Transparency = transparency
+            };
+            DisplayMaterialCache[key] = material;
+            return material;
+        }
     }
 
     private static Color ResolveColor(global::Rhino.RhinoDoc doc, string? layerPath, string? sourceLayerPath, int? colorArgb)
@@ -571,7 +584,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         if (TryDrawBlockDefinitionGeometry(e, doc, generated, color))
             return;
 
-        foreach (var geometry in CreateMarkerBlockGeometry(generated.MarkerBlockTemplate))
+        foreach (var geometry in GetMarkerBlockGeometry(generated.MarkerBlockTemplate))
             DrawMarkerGeometry(e, generated, geometry, color, substituteDisplayText: true);
     }
 
@@ -608,24 +621,37 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         {
             case Curve curve:
             {
-                var transformed = curve.DuplicateCurve();
-                transformed.Transform(generated.InstanceTransform);
-                e.Display.DrawCurve(transformed, color, 2);
+                e.Display.PushModelTransform(generated.InstanceTransform);
+                try
+                {
+                    e.Display.DrawCurve(curve, color, 2);
+                }
+                finally
+                {
+                    e.Display.PopModelTransform();
+                }
+
                 return true;
             }
             case TextEntity text:
             {
-                if (text.Duplicate() is not TextEntity transformedText)
-                    return false;
-
+                TextEntity textToDraw = text;
                 if (substituteDisplayText &&
                     TryBuildPreviewDisplayText(generated.InstanceUserStrings, out var displayText))
                 {
-                    transformedText.RichText = displayText;
+                    textToDraw = generated.GetPreviewTextEntity(text, displayText) ?? text;
                 }
 
-                transformedText.Transform(generated.InstanceTransform);
-                e.Display.DrawText(transformedText, color);
+                e.Display.PushModelTransform(generated.InstanceTransform);
+                try
+                {
+                    e.Display.DrawText(textToDraw, color);
+                }
+                finally
+                {
+                    e.Display.PopModelTransform();
+                }
+
                 return true;
             }
             default:
@@ -660,9 +686,16 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         return value;
     }
 
-    private static IEnumerable<GeometryBase> CreateMarkerBlockGeometry(MarkerBlockTemplate template)
+    private static IReadOnlyList<GeometryBase> GetMarkerBlockGeometry(MarkerBlockTemplate template)
     {
-        foreach (var geometry in GeneratedBlockCatalog.CreateBlockGeometry(template))
-            yield return geometry;
+        lock (MarkerBlockGeometryCacheGate)
+        {
+            if (MarkerBlockGeometryCache.TryGetValue(template, out GeometryBase[]? geometry))
+                return geometry;
+
+            geometry = GeneratedBlockCatalog.CreateBlockGeometry(template).ToArray();
+            MarkerBlockGeometryCache[template] = geometry;
+            return geometry;
+        }
     }
 }

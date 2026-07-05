@@ -32,6 +32,7 @@ internal sealed partial class TerrainBuildService
 
         GetElevationRange(currentVertices, currentMesh.Vertices.Count, out double elevMinZ, out double elevMaxZ);
         double surfaceArea = AreaMassProperties.Compute(currentMesh)?.Area ?? 0.0;
+        var referenceComparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>();
 
         foreach (var analysis in terrain.Analyses)
         {
@@ -55,6 +56,8 @@ internal sealed partial class TerrainBuildService
                     surfaceArea,
                     elevMinZ,
                     elevMaxZ,
+                    build,
+                    referenceComparisonCache,
                     shouldCancel),
                 SlopeAnalysisDefinition slope => BuildSlopeSummary(
                     currentMesh,
@@ -142,6 +145,8 @@ internal sealed partial class TerrainBuildService
                     surfaceArea,
                     elevMinZ,
                     elevMaxZ,
+                    build,
+                    referenceComparisonCache,
                     shouldCancel),
                 ContourAnalysisDefinition contour => BuildContourSummary(
                     terrain,
@@ -170,16 +175,14 @@ internal sealed partial class TerrainBuildService
     {
         double lowPercent = ConvertSlopeUnitToPercent(analysis.RangeLow, analysis.Unit);
         double highPercent = ConvertSlopeUnitToPercent(analysis.RangeHigh, analysis.Unit);
-        var palette = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset);
-        var slope = SlopeAnalyzer.Analyze(
+        var slope = SlopeAnalyzer.Summarize(
             currentVertices,
             currentMesh.Vertices.Count,
             currentFaces,
             currentMesh.Faces.Count,
             SlopeAnalyzer.SlopeUnit.Percent,
             Math.Max(0.0, lowPercent),
-            Math.Max(0.0, highPercent),
-            palette.Stops);
+            Math.Max(0.0, highPercent));
 
         return new TerrainAnalysisSummary
         {
@@ -203,6 +206,8 @@ internal sealed partial class TerrainBuildService
         double surfaceArea,
         double elevMinZ,
         double elevMaxZ,
+        TerrainBuildResult build,
+        Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats> referenceComparisonCache,
         Func<bool>? shouldCancel)
     {
         var stats = ComputeReferenceComparisonStats(
@@ -213,6 +218,8 @@ internal sealed partial class TerrainBuildService
             currentFaces,
             analysis.Reference,
             analysis.Boundary,
+            build,
+            referenceComparisonCache,
             shouldCancel);
 
         return new TerrainAnalysisSummary
@@ -238,6 +245,8 @@ internal sealed partial class TerrainBuildService
         double surfaceArea,
         double elevMinZ,
         double elevMaxZ,
+        TerrainBuildResult build,
+        Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats> referenceComparisonCache,
         Func<bool>? shouldCancel)
     {
         var stats = ComputeReferenceComparisonStats(
@@ -248,6 +257,8 @@ internal sealed partial class TerrainBuildService
             currentFaces,
             analysis.Reference,
             analysis.Boundary,
+            build,
+            referenceComparisonCache,
             shouldCancel);
 
         return new TerrainAnalysisSummary
@@ -471,52 +482,53 @@ internal sealed partial class TerrainBuildService
         int[] currentFaces,
         SourceReferenceSet referenceSet,
         SourceReferenceSet boundarySet,
+        TerrainBuildResult build,
+        Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats> referenceComparisonCache,
         Func<bool>? shouldCancel)
     {
+        var cacheKey = new ReferenceComparisonCacheKey(
+            ComputeSourceSetFingerprint(snapshot, referenceSet),
+            ComputeSourceSetFingerprint(snapshot, boundarySet),
+            !referenceSet.HasReferences);
+        if (referenceComparisonCache.TryGetValue(cacheKey, out ReferenceComparisonStats cachedStats))
+            return cachedStats;
+
         RhinoMesh baseMesh = ResolveReferenceMesh(snapshot, referenceSet) ?? fallbackBaseMesh;
         var boundaries = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, boundarySet);
-        EstimateEarthworks(baseMesh, currentMesh, boundaries, snapshot.ModelAbsoluteTolerance, out double cutVolume, out double fillVolume, shouldCancel);
+        var projection = CreateReferenceProjectionContext(baseMesh);
 
-        return new ReferenceComparisonStats(
-            cutVolume,
-            fillVolume,
-            ComputeCutFillDisplayAbsMax(baseMesh, currentVertices, currentFaces, currentMesh.Faces.Count, boundaries, snapshot.ModelAbsoluteTolerance),
-            !referenceSet.HasReferences);
-    }
+        ReferenceComparisonStats stats = EstimateReferenceComparison(
+            projection,
+            currentVertices,
+            currentFaces,
+            currentFaces.Length / 3,
+            boundaries,
+            snapshot.ModelAbsoluteTolerance,
+            !referenceSet.HasReferences,
+            shouldCancel);
 
-    private static double ComputeCutFillDisplayAbsMax(
-        RhinoMesh baseMesh,
-        double[] currentVertices,
-        int[] currentFaces,
-        int faceCount,
-        IReadOnlyList<Curve> boundaries,
-        double tolerance)
-    {
-        double cutFillAbsMax = 0.0;
-        if (!RhinoGeometryConversions.TryExtractMeshData(baseMesh, out _, out _, out _))
-            return cutFillAbsMax;
-
-        for (int fi = 0; fi < faceCount; fi++)
+        referenceComparisonCache[cacheKey] = stats;
+        if (stats.FallbackProjectionCount > 0)
         {
-            int a = currentFaces[fi * 3];
-            int b = currentFaces[fi * 3 + 1];
-            int c = currentFaces[fi * 3 + 2];
-            var centroid = new Point3d(
-                (currentVertices[a * 3] + currentVertices[b * 3] + currentVertices[c * 3]) / 3.0,
-                (currentVertices[a * 3 + 1] + currentVertices[b * 3 + 1] + currentVertices[c * 3 + 1]) / 3.0,
-                (currentVertices[a * 3 + 2] + currentVertices[b * 3 + 2] + currentVertices[c * 3 + 2]) / 3.0);
-            if (!IsInsideBoundaries(centroid, boundaries, tolerance))
-                continue;
-
-            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(baseMesh, centroid, tolerance, out Point3d basePoint))
-                continue;
-
-            double delta = Math.Abs(centroid.Z - basePoint.Z);
-            if (delta > cutFillAbsMax)
-                cutFillAbsMax = delta;
+            build.Diagnostics.Add(
+                $"Reference comparison projection used Rhino fallback for {stats.FallbackProjectionCount:N0} samples " +
+                $"after {stats.GridProjectionCount:N0} 2.5D grid hits.");
         }
 
-        return cutFillAbsMax;
+        return stats;
+    }
+
+    private static ReferenceProjectionContext CreateReferenceProjectionContext(RhinoMesh baseMesh)
+    {
+        MeshHeightProjector? projector = null;
+        if (RhinoGeometryConversions.TryExtractMeshData(baseMesh, out var baseVertices, out var baseFaces, out _))
+            projector = new MeshHeightProjector(baseVertices, baseVertices.Length / 3, baseFaces, baseFaces.Length / 3);
+
+        return new ReferenceProjectionContext
+        {
+            Mesh = baseMesh,
+            Projector = projector
+        };
     }
 
     private static void GetElevationRange(double[] vertices, int vertexCount, out double minZ, out double maxZ)
@@ -598,15 +610,21 @@ internal sealed partial class TerrainBuildService
         return coloredMesh;
     }
 
-    private static void EstimateEarthworks(RhinoMesh baseMesh, RhinoMesh currentMesh, IReadOnlyList<Curve> boundaries, double tolerance, out double cutVolume, out double fillVolume, Func<bool>? shouldCancel)
+    private static ReferenceComparisonStats EstimateReferenceComparison(
+        ReferenceProjectionContext projection,
+        double[] currentVertices,
+        int[] currentFaces,
+        int faceCount,
+        IReadOnlyList<Curve> boundaries,
+        double tolerance,
+        bool isEstimated,
+        Func<bool>? shouldCancel)
     {
-        cutVolume = 0.0;
-        fillVolume = 0.0;
+        double cutVolume = 0.0;
+        double fillVolume = 0.0;
+        double cutFillAbsMax = 0.0;
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(currentMesh, out var currentVertices, out var currentFaces, out _))
-            return;
-
-        for (int faceIndex = 0; faceIndex < currentMesh.Faces.Count; faceIndex++)
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             if ((faceIndex & 127) == 0)
                 ThrowIfCancellationRequested(shouldCancel);
@@ -627,10 +645,12 @@ internal sealed partial class TerrainBuildService
             if (!IsInsideBoundaries(centroid, boundaries, tolerance))
                 continue;
 
-            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(baseMesh, centroid, tolerance, out Point3d basePoint))
+            if (!TryProjectReferencePoint(projection, centroid, tolerance, out Point3d basePoint))
                 continue;
 
             double deltaZ = centroid.Z - basePoint.Z;
+            cutFillAbsMax = Math.Max(cutFillAbsMax, Math.Abs(deltaZ));
+
             double projectedArea = Math.Abs(
                 (pb.X - pa.X) * (pc.Y - pa.Y) -
                 (pb.Y - pa.Y) * (pc.X - pa.X)) * 0.5;
@@ -641,6 +661,47 @@ internal sealed partial class TerrainBuildService
             else
                 cutVolume += -volume;
         }
+
+        return new ReferenceComparisonStats(
+            cutVolume,
+            fillVolume,
+            cutFillAbsMax,
+            isEstimated,
+            projection.GridProjectionCount,
+            projection.FallbackProjectionCount);
+    }
+
+    private static bool TryProjectReferencePoint(
+        ReferenceProjectionContext projection,
+        Point3d point,
+        double tolerance,
+        out Point3d projectedPoint)
+    {
+        MeshHeightProjector.ProjectionStatus status = MeshHeightProjector.ProjectionStatus.OutsideMesh;
+        if (projection.Projector != null)
+        {
+            if (projection.Projector.TryProjectZ(
+                point.X,
+                point.Y,
+                point.Z,
+                tolerance,
+                out double z,
+                out status))
+            {
+                projection.GridProjectionCount++;
+                projectedPoint = new Point3d(point.X, point.Y, z);
+                return true;
+            }
+        }
+
+        if (projection.Projector == null || status == MeshHeightProjector.ProjectionStatus.RequiresFallback)
+        {
+            projection.FallbackProjectionCount++;
+            return TerrainMeshProjection.TryProjectPointAlongWorldZ(projection.Mesh, point, tolerance, out projectedPoint);
+        }
+
+        projectedPoint = Point3d.Unset;
+        return false;
     }
 
     private static RhinoMesh? ResolveReferenceMesh(TerrainBuildSnapshot snapshot, SourceReferenceSet referenceSet)

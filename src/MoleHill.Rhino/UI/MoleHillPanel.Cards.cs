@@ -41,7 +41,7 @@ public sealed partial class MoleHillPanel
     {
         Text = collapsed ? "▶" : "▼",
         VerticalAlignment = VerticalAlignment.Center,
-        Width = 14
+        Width = 12
     };
 
     /// <summary>
@@ -67,7 +67,9 @@ public sealed partial class MoleHillPanel
                     {
                         Text = collapsedName,
                         Font = new Font(SystemFont.Bold),
-                        VerticalAlignment = VerticalAlignment.Center
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Wrap = WrapMode.None,
+                        ToolTip = collapsedName
                     },
                     CreateCardMetaLabel(collapsedSummary)
                 }
@@ -167,7 +169,9 @@ public sealed partial class MoleHillPanel
             Text = text,
             TextColor = textColor ?? UiTheme.MutedText,
             VerticalAlignment = VerticalAlignment.Center,
-            Wrap = WrapMode.Word
+            Wrap = WrapMode.None,
+            Width = UiMetrics.Chs(7),
+            ToolTip = text
         };
     }
 
@@ -179,7 +183,8 @@ public sealed partial class MoleHillPanel
             Text = text,
             VerticalAlignment = VerticalAlignment.Center,
             TextColor = UiTheme.MutedText,
-            Wrap = WrapMode.Word
+            Wrap = WrapMode.None,
+            ToolTip = text
         };
     }
 
@@ -193,7 +198,14 @@ public sealed partial class MoleHillPanel
         var image = string.IsNullOrEmpty(iconName) ? null : PanelIcons.Load(iconName);
         return image != null
             ? new ImageView { Image = image, Size = new Size(16, 16) }
-            : new Label { Text = glyphFallback, VerticalAlignment = VerticalAlignment.Center };
+            : new Label
+            {
+                Text = glyphFallback,
+                VerticalAlignment = VerticalAlignment.Center,
+                Width = UiMetrics.Chs(2),
+                Wrap = WrapMode.None,
+                ToolTip = glyphFallback
+            };
     }
 
     /// <summary>A tinted square plate holding a card's type icon, coloured by the card's accent.</summary>
@@ -202,7 +214,7 @@ public sealed partial class MoleHillPanel
         return new Panel
         {
             BackgroundColor = new Color(accent.R, accent.G, accent.B, 0.20f),
-            Padding = new Padding(6, 4),
+            Padding = new Padding(4, 3),
             Content = content
         };
     }
@@ -236,71 +248,27 @@ public sealed partial class MoleHillPanel
     /// </summary>
     private Panel CreateSharedCardShell(SharedCardShellOptions options)
     {
-        bool wrapActions = UseWrappedModifierActions();
-        bool compactHeader = UseCompactCardHeaders();
-
         var header = new StackLayout
         {
-            Orientation = Orientation.Vertical,
-            Spacing = compactHeader || wrapActions ? 4 : 0,
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
             Padding = new Padding(8, 6, 8, 6),
-            BackgroundColor = options.HeaderBackground
-        };
-
-        if (compactHeader)
-        {
-            var compactMetaRow = new StackLayout
+            BackgroundColor = options.HeaderBackground,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
             {
-                Orientation = Orientation.Horizontal,
-                Spacing = 6,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Items =
-                {
-                    options.Handle,
-                    options.CollapseControl,
-                    options.IconPlate,
-                    options.EnabledControl,
-                    new StackLayoutItem(new Panel(), expand: true)
-                }
-            };
-            header.Items.Add(new StackLayoutItem(compactMetaRow, HorizontalAlignment.Stretch));
-            header.Items.Add(new StackLayoutItem(options.TitleBlock, HorizontalAlignment.Stretch));
-            if (options.StatusControls.Count > 0)
-                header.Items.Add(new StackLayoutItem(CreateCardStatusRow(options.StatusControls), HorizontalAlignment.Stretch));
-            if (options.ActionControls.Count > 0)
-                header.Items.Add(new StackLayoutItem(CreateCardActionRow(options.ActionControls), HorizontalAlignment.Stretch));
-        }
-        else
-        {
-            var headerTopRow = new StackLayout
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 6,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Items =
-                {
-                    options.Handle,
-                    options.CollapseControl,
-                    options.IconPlate,
-                    options.EnabledControl,
-                    new StackLayoutItem(options.TitleBlock, expand: true)
-                }
-            };
-            foreach (var statusControl in options.StatusControls)
-                headerTopRow.Items.Add(new StackLayoutItem(statusControl));
-
-            if (options.ActionControls.Count > 0 && !wrapActions)
-            {
-                foreach (var actionControl in options.ActionControls)
-                    headerTopRow.Items.Add(new StackLayoutItem(actionControl));
+                options.Handle,
+                options.CollapseControl,
+                options.IconPlate,
+                options.EnabledControl,
+                new StackLayoutItem(options.TitleBlock, expand: true)
             }
-
-            header.Items.Add(new StackLayoutItem(headerTopRow, HorizontalAlignment.Stretch));
-            if (options.ActionControls.Count > 0 && wrapActions)
-                header.Items.Add(new StackLayoutItem(CreateCardActionRow(options.ActionControls), HorizontalAlignment.Stretch));
-        }
+        };
+        foreach (var statusControl in options.StatusControls)
+            header.Items.Add(new StackLayoutItem(statusControl));
+        foreach (var actionControl in options.ActionControls)
+            header.Items.Add(new StackLayoutItem(actionControl));
 
         header.MouseDown += (_, e) => options.ToggleCollapsed(e.Modifiers.HasFlag(Keys.Control));
 
@@ -320,45 +288,11 @@ public sealed partial class MoleHillPanel
         };
     }
 
-    /// <summary>The status row (first control stretches, the rest sit at the right) used in compact headers.</summary>
-    private static StackLayout CreateCardStatusRow(IReadOnlyList<Control> controls)
-    {
-        var row = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch
-        };
+    /// <summary>Stacked-squares "duplicate this card" icon button — pairs with <see cref="MakeDeleteIconButton"/>.</summary>
+    private static Button MakeDuplicateIconButton(Action onClick, string help) =>
+        MakeIconButton("⧉", (_, _) => onClick(), help);
 
-        if (controls.Count == 0)
-            return row;
-
-        row.Items.Add(new StackLayoutItem(controls[0], expand: true));
-        for (int index = 1; index < controls.Count; index++)
-            row.Items.Add(new StackLayoutItem(controls[index]));
-
-        return row;
-    }
-
-    /// <summary>The right-aligned action-button row used when actions wrap onto their own line.</summary>
-    private static StackLayout CreateCardActionRow(IReadOnlyList<Control> actions)
-    {
-        var row = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(new Panel(), expand: true)
-            }
-        };
-
-        foreach (var action in actions)
-            row.Items.Add(new StackLayoutItem(action));
-
-        return row;
-    }
+    /// <summary>"Delete this card" icon button — pairs with <see cref="MakeDuplicateIconButton"/>.</summary>
+    private static Button MakeDeleteIconButton(Action onClick, string help) =>
+        MakeIconButton("X", (_, _) => onClick(), help);
 }

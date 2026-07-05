@@ -1,10 +1,99 @@
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
+using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
 namespace MoleHill.Rhino.Registry;
 
 // One descriptor per concrete analysis/annotation type. Grouped in a single file for brevity; reflection
 // discovery in AnalysisTypeRegistry treats each class independently. Metadata mirrors the former panel
 // switches verbatim (kind/label/icon/accent/annotation/subtitle); discriminators are unchanged.
+//
+// Parameters cover every field the schema card builder can express; anything left out here (summaries,
+// legends, the slope-unit-with-range-conversion editor, the insertion-origin picker) stays in the panel's
+// AppendBespokeAnalysisRowsBefore/After hooks (MoleHillPanel.Analysis.cs).
+
+internal static class AnalysisParameterCatalog
+{
+    public static readonly IReadOnlyList<(string Key, string Label)> PaletteOptions =
+        SlopePreviewPaletteCatalog.All.Select(item => (item.Key, item.Label)).ToList();
+
+    public static readonly IReadOnlyList<(string Key, string Label)> SlopeUnitOptions = new[]
+    {
+        (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
+        (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Promille), "Promille"),
+        (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Ratio), "Ratio"),
+        (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Degrees), "Degrees"),
+    };
+
+    public static AnalysisParameterDescriptor SlopeUnitChoice(string help) =>
+        AnalysisParameterDescriptor.Choice(
+            "Unit", "Units", SlopeUnitOptions,
+            a => AnalysisFormatting.GetSlopeUnitKey(GetUnit(a)),
+            (a, v) => SetUnit(a, AnalysisFormatting.ParseSlopeUnit(v ?? "percent")),
+            help);
+
+    private static SlopeAnalyzer.SlopeUnit GetUnit(AnalysisDefinition a) => a switch
+    {
+        CurveSlopeLabelAnalysisDefinition d => d.Unit,
+        PointSlopeLabelAnalysisDefinition d => d.Unit,
+        SlopeArrowAnalysisDefinition d => d.Unit,
+        _ => SlopeAnalyzer.SlopeUnit.Percent
+    };
+
+    private static void SetUnit(AnalysisDefinition a, SlopeAnalyzer.SlopeUnit unit)
+    {
+        switch (a)
+        {
+            case CurveSlopeLabelAnalysisDefinition d: d.Unit = unit; break;
+            case PointSlopeLabelAnalysisDefinition d: d.Unit = unit; break;
+            case SlopeArrowAnalysisDefinition d: d.Unit = unit; break;
+        }
+    }
+
+    /// <summary>The shared tail of every block-attribute analysis card: value format, prefix/suffix,
+    /// block scale, output layer, and color. Mirrors the former AddBlockAttributeAnalysisRows helper.</summary>
+    public static IEnumerable<AnalysisParameterDescriptor> BlockAttributeTail<TAnalysis>(string formatHelp)
+        where TAnalysis : BlockAttributeAnalysisDefinition
+    {
+        yield return AnalysisParameterDescriptor.Choice(
+            "ValueFormat", "Decimals", null,
+            a => ((TAnalysis)a).ValueFormat,
+            (a, v) => ((TAnalysis)a).ValueFormat = v ?? "F1",
+            formatHelp,
+            optionsFor: a => AnalysisFormatting.GetValueFormatOptions(((TAnalysis)a).ValueFormat));
+        yield return AnalysisParameterDescriptor.Text(
+            "AttributePrefix", "Prefix",
+            a => ((TAnalysis)a).AttributePrefix,
+            (a, v) => ((TAnalysis)a).AttributePrefix = v ?? string.Empty,
+            "Text prepended to the formatted value when filling the DISPLAY block attribute.",
+            trim: false);
+        yield return AnalysisParameterDescriptor.Text(
+            "AttributeSuffix", "Suffix",
+            a => ((TAnalysis)a).AttributeSuffix,
+            (a, v) => ((TAnalysis)a).AttributeSuffix = v ?? string.Empty,
+            "Text appended after the formatted value and unit when filling the DISPLAY block attribute.",
+            trim: false);
+        yield return AnalysisParameterDescriptor.Number(
+            "BlockScale", "Block Scale",
+            a => ((TAnalysis)a).BlockScale,
+            (a, v) => ((TAnalysis)a).BlockScale = v,
+            "Scale factor for inserted annotation blocks.",
+            min: 0.01);
+        yield return AnalysisParameterDescriptor.Layer(
+            "OutputLayerPath", "Output Layer",
+            a => ((TAnalysis)a).OutputLayerPath,
+            (a, v) => ((TAnalysis)a).OutputLayerPath = v,
+            "Layer used for generated annotation instances. Leave empty to use the terrain auxiliary layer.");
+        yield return AnalysisParameterDescriptor.Color(
+            "ColorArgb", "Color",
+            a => ((TAnalysis)a).ColorArgb,
+            (a, v) => ((TAnalysis)a).ColorArgb = v,
+            "Explicit display and bake color for generated annotation blocks. Clear to use the output layer color.",
+            fallbackColor: (terrain, a) => AnalysisFormatting.ResolveLayerColorArgb(((TAnalysis)a).OutputLayerPath ?? terrain.AnnotationLayerPath),
+            defaultText: (terrain, a) => AnalysisFormatting.GetAnalysisOutputColorText(terrain, ((TAnalysis)a).OutputLayerPath));
+    }
+}
 
 internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
 {
@@ -19,6 +108,18 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
     public override string Subtitle => "Refs + summary";
     public override int SortOrder => 0;
     public override AnalysisDefinition Create() => new EarthworkAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Sources(
+            "Reference", "Compare To",
+            a => ((EarthworkAnalysisDefinition)a).Reference,
+            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion),
+        AnalysisParameterDescriptor.Sources(
+            "Boundary", "Boundary",
+            a => ((EarthworkAnalysisDefinition)a).Boundary,
+            RhinoObjectType.Curve),
+    };
 }
 
 internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
@@ -35,6 +136,32 @@ internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
     public override string? ActiveSubtitle => "Preview colors";
     public override int SortOrder => 1;
     public override AnalysisDefinition Create() => new SlopeAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Choice(
+            "PalettePreset", "Palette", AnalysisParameterCatalog.PaletteOptions,
+            a => a.PalettePreset,
+            (a, v) => a.PalettePreset = v ?? SlopePreviewPaletteCatalog.DefaultKey,
+            "Color ramp used for the slope analysis preview.",
+            refreshOnly: true),
+        AnalysisParameterDescriptor.Number(
+            "RangeLow", "Low",
+            a => a.RangeLow,
+            (a, v) => a.RangeLow = v,
+            "Values at or below this slope use the low end of the selected palette.",
+            decimalPlaces: 2,
+            refreshOnly: true,
+            labelFor: a => $"Low {AnalysisFormatting.GetSlopeUnitSuffixLabel(((SlopeAnalysisDefinition)a).Unit)}"),
+        AnalysisParameterDescriptor.Number(
+            "RangeHigh", "High",
+            a => a.RangeHigh,
+            (a, v) => a.RangeHigh = v,
+            "Values at or above this slope use the high end of the selected palette. Leave at 0 to auto-fit.",
+            decimalPlaces: 2,
+            refreshOnly: true,
+            labelFor: a => $"High {AnalysisFormatting.GetSlopeUnitSuffixLabel(((SlopeAnalysisDefinition)a).Unit)}"),
+    };
 }
 
 internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
@@ -51,6 +178,30 @@ internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
     public override string? ActiveSubtitle => "Preview colors";
     public override int SortOrder => 2;
     public override AnalysisDefinition Create() => new ElevationAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Choice(
+            "PalettePreset", "Palette", AnalysisParameterCatalog.PaletteOptions,
+            a => a.PalettePreset,
+            (a, v) => a.PalettePreset = v ?? SlopePreviewPaletteCatalog.DefaultKey,
+            "Color ramp used for the elevation analysis preview.",
+            refreshOnly: true),
+        AnalysisParameterDescriptor.Number(
+            "RangeLow", "Low Z",
+            a => a.RangeLow,
+            (a, v) => a.RangeLow = v,
+            "Values at or below this elevation use the low end of the selected palette. Set to 0 to auto-fit.",
+            decimalPlaces: 2,
+            refreshOnly: true),
+        AnalysisParameterDescriptor.Number(
+            "RangeHigh", "High Z",
+            a => a.RangeHigh,
+            (a, v) => a.RangeHigh = v,
+            "Values at or above this elevation use the high end of the selected palette. Set to 0 to auto-fit.",
+            decimalPlaces: 2,
+            refreshOnly: true),
+    };
 }
 
 internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
@@ -67,6 +218,24 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
     public override string? ActiveSubtitle => "Preview colors";
     public override int SortOrder => 3;
     public override AnalysisDefinition Create() => new CutFillAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Sources(
+            "Reference", "Compare To",
+            a => ((CutFillAnalysisDefinition)a).Reference,
+            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion),
+        AnalysisParameterDescriptor.Sources(
+            "Boundary", "Boundary",
+            a => ((CutFillAnalysisDefinition)a).Boundary,
+            RhinoObjectType.Curve),
+        AnalysisParameterDescriptor.Choice(
+            "PalettePreset", "Palette", AnalysisParameterCatalog.PaletteOptions,
+            a => a.PalettePreset,
+            (a, v) => a.PalettePreset = v ?? SlopePreviewPaletteCatalog.DefaultKey,
+            "Color ramp used for cut/fill analysis. Auto-fits symmetrically to the largest delta.",
+            refreshOnly: true),
+    };
 }
 
 internal sealed class ContourAnalysisDescriptor : AnalysisTypeDescriptor
@@ -82,6 +251,67 @@ internal sealed class ContourAnalysisDescriptor : AnalysisTypeDescriptor
     public override string Subtitle => "Contour lines at fixed intervals";
     public override int SortOrder => 0;
     public override AnalysisDefinition Create() => new ContourAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Number(
+            "Interval", "Interval",
+            a => ((ContourAnalysisDefinition)a).Interval,
+            (a, v) => ((ContourAnalysisDefinition)a).Interval = Math.Max(0.01, v),
+            "Vertical spacing between generated contour levels.",
+            min: 0.01, incrementalCommit: true),
+        AnalysisParameterDescriptor.Number(
+            "StartZ", "Start Z",
+            a => ((ContourAnalysisDefinition)a).StartZ,
+            (a, v) => ((ContourAnalysisDefinition)a).StartZ = v,
+            "Base elevation offset from which contour levels are stepped.",
+            min: null, incrementalCommit: true),
+        AnalysisParameterDescriptor.Layer(
+            "OutputLayerPath", "Output Layer",
+            a => ((ContourAnalysisDefinition)a).OutputLayerPath,
+            (a, v) => ((ContourAnalysisDefinition)a).OutputLayerPath = v,
+            "Layer used for generated contour curves. Leave empty to use the terrain annotation layer.",
+            incrementalCommit: true),
+        AnalysisParameterDescriptor.Color(
+            "ColorArgb", "Color",
+            a => ((ContourAnalysisDefinition)a).ColorArgb,
+            (a, v) => ((ContourAnalysisDefinition)a).ColorArgb = v,
+            "Explicit display and bake color for generated contour curves. Clear to use the output layer color.",
+            fallbackColor: (terrain, a) => AnalysisFormatting.ResolveLayerColorArgb(((ContourAnalysisDefinition)a).OutputLayerPath ?? terrain.AnnotationLayerPath),
+            defaultText: (terrain, a) => AnalysisFormatting.GetAnalysisOutputColorText(terrain, ((ContourAnalysisDefinition)a).OutputLayerPath),
+            incrementalCommit: true),
+        AnalysisParameterDescriptor.Bool(
+            "ShowLabels", "Label Contours",
+            a => ((ContourAnalysisDefinition)a).ShowLabels,
+            (a, v) => ((ContourAnalysisDefinition)a).ShowLabels = v,
+            "Place elevation text along generated contour curves.",
+            incrementalCommit: true),
+        AnalysisParameterDescriptor.Number(
+            "LabelInterval", "Label Interval",
+            a => ((ContourAnalysisDefinition)a).LabelInterval,
+            (a, v) => ((ContourAnalysisDefinition)a).LabelInterval = Math.Max(0.0, v),
+            "Spacing between repeated labels along each contour. 0 places one label per contour curve.",
+            min: 0.0, incrementalCommit: true),
+        AnalysisParameterDescriptor.Number(
+            "LabelEveryNth", "Label Every Nth",
+            a => ((ContourAnalysisDefinition)a).LabelEveryNth,
+            (a, v) => ((ContourAnalysisDefinition)a).LabelEveryNth = Math.Max(1, (int)Math.Round(v)),
+            "Label only every Nth contour level (index contours). 1 labels every level.",
+            min: 1, decimalPlaces: 0, incrementalCommit: true),
+        AnalysisParameterDescriptor.Number(
+            "LabelTextHeight", "Label Height",
+            a => ((ContourAnalysisDefinition)a).LabelTextHeight,
+            (a, v) => ((ContourAnalysisDefinition)a).LabelTextHeight = Math.Max(0.001, v),
+            "Text height of contour labels in model units.",
+            min: 0.001, incrementalCommit: true),
+        AnalysisParameterDescriptor.Choice(
+            "LabelFormat", "Label Decimals", null,
+            a => ((ContourAnalysisDefinition)a).LabelFormat,
+            (a, v) => ((ContourAnalysisDefinition)a).LabelFormat = v ?? "F2",
+            "Number of decimal places shown in contour elevation labels.",
+            incrementalCommit: true,
+            optionsFor: a => AnalysisFormatting.GetValueFormatOptions(((ContourAnalysisDefinition)a).LabelFormat)),
+    };
 }
 
 internal sealed class CurveElevationLabelAnalysisDescriptor : AnalysisTypeDescriptor
@@ -97,6 +327,22 @@ internal sealed class CurveElevationLabelAnalysisDescriptor : AnalysisTypeDescri
     public override string Subtitle => "Elevation labels sampled along a curve";
     public override int SortOrder => 1;
     public override AnalysisDefinition Create() => new CurveElevationLabelAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Sources(
+            "Sources", "Sources",
+            a => ((CurveElevationLabelAnalysisDefinition)a).Sources,
+            RhinoObjectType.Curve,
+            "Curve objects or layers sampled along the terrain at regular stations for elevation labels."),
+        AnalysisParameterDescriptor.Number(
+            "Interval", "Interval",
+            a => ((CurveElevationLabelAnalysisDefinition)a).Interval,
+            (a, v) => ((CurveElevationLabelAnalysisDefinition)a).Interval = Math.Max(0.01, v),
+            "Distance along each source curve between elevation sample stations.",
+            min: 0.01),
+    }.Concat(AnalysisParameterCatalog.BlockAttributeTail<CurveElevationLabelAnalysisDefinition>(
+        "Number of decimal places shown in curve elevation labels.")).ToArray();
 }
 
 internal sealed class CurveSlopeLabelAnalysisDescriptor : AnalysisTypeDescriptor
@@ -112,6 +358,29 @@ internal sealed class CurveSlopeLabelAnalysisDescriptor : AnalysisTypeDescriptor
     public override string Subtitle => "Slope labels sampled along a curve";
     public override int SortOrder => 2;
     public override AnalysisDefinition Create() => new CurveSlopeLabelAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Sources(
+            "Sources", "Sources",
+            a => ((CurveSlopeLabelAnalysisDefinition)a).Sources,
+            RhinoObjectType.Curve,
+            "Curve objects or layers projected to the terrain before grade is sampled."),
+        AnalysisParameterDescriptor.Number(
+            "Interval", "Interval",
+            a => ((CurveSlopeLabelAnalysisDefinition)a).Interval,
+            (a, v) => ((CurveSlopeLabelAnalysisDefinition)a).Interval = Math.Max(0.01, v),
+            "Distance along each source curve between sampled slope spans.",
+            min: 0.01),
+        AnalysisParameterCatalog.SlopeUnitChoice(
+            "Show terrain-projected curve slope labels as percent, promille, ratio, or degrees."),
+        AnalysisParameterDescriptor.Bool(
+            "FlipDirection", "Flip Arrow",
+            a => ((CurveSlopeLabelAnalysisDefinition)a).FlipDirection,
+            (a, v) => ((CurveSlopeLabelAnalysisDefinition)a).FlipDirection = v,
+            "Rotate slope arrows 180 degrees to match alternate office conventions."),
+    }.Concat(AnalysisParameterCatalog.BlockAttributeTail<CurveSlopeLabelAnalysisDefinition>(
+        "Number of decimal places shown in curve slope labels.")).ToArray();
 }
 
 internal sealed class ProjectedElevationLabelAnalysisDescriptor : AnalysisTypeDescriptor
@@ -127,6 +396,16 @@ internal sealed class ProjectedElevationLabelAnalysisDescriptor : AnalysisTypeDe
     public override string Subtitle => "Elevation labels at picked points";
     public override int SortOrder => 3;
     public override AnalysisDefinition Create() => new ProjectedElevationLabelAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Sources(
+            "Sources", "Sources",
+            a => ((ProjectedElevationLabelAnalysisDefinition)a).Sources,
+            RhinoObjectType.Point | RhinoObjectType.Curve,
+            "Point objects and curve edit points projected to the terrain for elevation labels."),
+    }.Concat(AnalysisParameterCatalog.BlockAttributeTail<ProjectedElevationLabelAnalysisDefinition>(
+        "Number of decimal places shown in projected elevation labels.")).ToArray();
 }
 
 internal sealed class PointSlopeLabelAnalysisDescriptor : AnalysisTypeDescriptor
@@ -142,6 +421,23 @@ internal sealed class PointSlopeLabelAnalysisDescriptor : AnalysisTypeDescriptor
     public override string Subtitle => "Slope labels at picked points";
     public override int SortOrder => 4;
     public override AnalysisDefinition Create() => new PointSlopeLabelAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Sources(
+            "Sources", "Sources",
+            a => ((PointSlopeLabelAnalysisDefinition)a).Sources,
+            RhinoObjectType.Point,
+            "Point objects or layers projected to the terrain before local slope is sampled."),
+        AnalysisParameterCatalog.SlopeUnitChoice(
+            "Show terrain slope labels as percent, promille, ratio, or degrees."),
+        AnalysisParameterDescriptor.Bool(
+            "FlipDirection", "Flip Arrow",
+            a => ((PointSlopeLabelAnalysisDefinition)a).FlipDirection,
+            (a, v) => ((PointSlopeLabelAnalysisDefinition)a).FlipDirection = v,
+            "Rotate slope arrows 180 degrees to match alternate office conventions."),
+    }.Concat(AnalysisParameterCatalog.BlockAttributeTail<PointSlopeLabelAnalysisDefinition>(
+        "Number of decimal places shown in point slope labels.")).ToArray();
 }
 
 internal sealed class SlopeArrowAnalysisDescriptor : AnalysisTypeDescriptor
@@ -157,6 +453,29 @@ internal sealed class SlopeArrowAnalysisDescriptor : AnalysisTypeDescriptor
     public override string Subtitle => "Downhill arrows on a grid";
     public override int SortOrder => 5;
     public override AnalysisDefinition Create() => new SlopeArrowAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Sources(
+            "Sources", "Sources",
+            a => ((SlopeArrowAnalysisDefinition)a).Sources,
+            RhinoObjectType.Curve,
+            "Optional closed boundary curves limiting where flow arrows are placed. Leave empty to cover the whole terrain."),
+        AnalysisParameterDescriptor.Number(
+            "GridSpacing", "Grid Spacing",
+            a => ((SlopeArrowAnalysisDefinition)a).GridSpacing,
+            (a, v) => ((SlopeArrowAnalysisDefinition)a).GridSpacing = Math.Max(0.01, v),
+            "Spacing of the sampling grid across the terrain. Smaller spacing = more arrows.",
+            min: 0.01),
+        AnalysisParameterCatalog.SlopeUnitChoice(
+            "Show flow-arrow slope labels as percent, promille, ratio, or degrees."),
+        AnalysisParameterDescriptor.Bool(
+            "FlipDirection", "Flip Arrow",
+            a => ((SlopeArrowAnalysisDefinition)a).FlipDirection,
+            (a, v) => ((SlopeArrowAnalysisDefinition)a).FlipDirection = v,
+            "Rotate arrows 180 degrees (point uphill instead of downhill)."),
+    }.Concat(AnalysisParameterCatalog.BlockAttributeTail<SlopeArrowAnalysisDefinition>(
+        "Number of decimal places shown on flow-arrow slope labels.")).ToArray();
 }
 
 internal sealed class GradeBetweenPointsAnalysisDescriptor : AnalysisTypeDescriptor
@@ -172,6 +491,51 @@ internal sealed class GradeBetweenPointsAnalysisDescriptor : AnalysisTypeDescrip
     public override string Subtitle => "Grade between two points (1:n + %)";
     public override int SortOrder => 6;
     public override AnalysisDefinition Create() => new GradeBetweenPointsAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Sources(
+            "Sources", "Sources",
+            a => ((GradeBetweenPointsAnalysisDefinition)a).Sources,
+            RhinoObjectType.Curve,
+            "Lines whose two endpoints define the grade. Each line emits one callout."),
+        AnalysisParameterDescriptor.Choice(
+            "ValueFormat", "Decimals", null,
+            a => ((GradeBetweenPointsAnalysisDefinition)a).ValueFormat,
+            (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).ValueFormat = v ?? "F1",
+            "Number of decimal places shown on the percentage part of the callout.",
+            optionsFor: a => AnalysisFormatting.GetValueFormatOptions(((GradeBetweenPointsAnalysisDefinition)a).ValueFormat)),
+        AnalysisParameterDescriptor.Text(
+            "AttributePrefix", "Prefix",
+            a => ((GradeBetweenPointsAnalysisDefinition)a).AttributePrefix,
+            (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).AttributePrefix = v ?? string.Empty,
+            "Text prepended to the grade callout.",
+            trim: false),
+        AnalysisParameterDescriptor.Text(
+            "AttributeSuffix", "Suffix",
+            a => ((GradeBetweenPointsAnalysisDefinition)a).AttributeSuffix,
+            (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).AttributeSuffix = v ?? string.Empty,
+            "Text appended to the grade callout.",
+            trim: false),
+        AnalysisParameterDescriptor.Number(
+            "TextHeight", "Text Height",
+            a => ((GradeBetweenPointsAnalysisDefinition)a).TextHeight,
+            (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).TextHeight = Math.Max(0.001, v),
+            "Text height of the callout label, and the size of the downhill arrow.",
+            min: 0.001),
+        AnalysisParameterDescriptor.Layer(
+            "OutputLayerPath", "Output Layer",
+            a => ((GradeBetweenPointsAnalysisDefinition)a).OutputLayerPath,
+            (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).OutputLayerPath = v,
+            "Layer used for the callout line, arrow, and text. Leave empty to use the terrain annotation layer."),
+        AnalysisParameterDescriptor.Color(
+            "ColorArgb", "Color",
+            a => ((GradeBetweenPointsAnalysisDefinition)a).ColorArgb,
+            (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).ColorArgb = v,
+            "Explicit display and bake color for the callout. Clear to use the output layer color.",
+            fallbackColor: (terrain, a) => AnalysisFormatting.ResolveLayerColorArgb(((GradeBetweenPointsAnalysisDefinition)a).OutputLayerPath ?? terrain.AnnotationLayerPath),
+            defaultText: (terrain, a) => AnalysisFormatting.GetAnalysisOutputColorText(terrain, ((GradeBetweenPointsAnalysisDefinition)a).OutputLayerPath)),
+    };
 }
 
 internal sealed class TerrainSectionAnalysisDescriptor : AnalysisTypeDescriptor
@@ -187,6 +551,37 @@ internal sealed class TerrainSectionAnalysisDescriptor : AnalysisTypeDescriptor
     public override string Subtitle => "True-scale profile at the cut line";
     public override int SortOrder => 7;
     public override AnalysisDefinition Create() => new TerrainSectionAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Number(
+            "StationTickInterval", "Station Tick Interval",
+            a => ((TerrainSectionAnalysisDefinition)a).StationTickInterval,
+            (a, v) => ((TerrainSectionAnalysisDefinition)a).StationTickInterval = Math.Max(0.0, v),
+            "Spacing between station tick marks along the profile baseline. 0 disables ticks.",
+            min: 0.0),
+        AnalysisParameterDescriptor.Number(
+            "ElevationGridInterval", "Elevation Grid Interval",
+            a => ((TerrainSectionAnalysisDefinition)a).ElevationGridInterval,
+            (a, v) => ((TerrainSectionAnalysisDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
+            "Vertical spacing of horizontal grid lines drawn on the section. 0 disables the grid.",
+            min: 0.0),
+        AnalysisParameterDescriptor.Bool(
+            "ShowStationTicks", "Show Station Ticks",
+            a => ((TerrainSectionAnalysisDefinition)a).ShowStationTicks,
+            (a, v) => ((TerrainSectionAnalysisDefinition)a).ShowStationTicks = v,
+            "Draw tick marks at each station along the profile baseline."),
+        AnalysisParameterDescriptor.Bool(
+            "ShowElevationGrid", "Show Elevation Grid",
+            a => ((TerrainSectionAnalysisDefinition)a).ShowElevationGrid,
+            (a, v) => ((TerrainSectionAnalysisDefinition)a).ShowElevationGrid = v,
+            "Draw horizontal grid lines at each elevation increment."),
+        AnalysisParameterDescriptor.Bool(
+            "ShowStationLabels", "Show Station Labels",
+            a => ((TerrainSectionAnalysisDefinition)a).ShowStationLabels,
+            (a, v) => ((TerrainSectionAnalysisDefinition)a).ShowStationLabels = v,
+            "Print station distance text below each tick."),
+    };
 }
 
 internal sealed class CrossSectionStationAnalysisDescriptor : AnalysisTypeDescriptor
@@ -202,6 +597,67 @@ internal sealed class CrossSectionStationAnalysisDescriptor : AnalysisTypeDescri
     public override string Subtitle => "Unrolled cuts at stations, in a grid";
     public override int SortOrder => 8;
     public override AnalysisDefinition Create() => new CrossSectionStationAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Number(
+            "StationInterval", "Station Interval",
+            a => ((CrossSectionStationAnalysisDefinition)a).StationInterval,
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).StationInterval = Math.Max(0.01, v),
+            "Distance between cross-section stations along the alignment.",
+            min: 0.01),
+        AnalysisParameterDescriptor.Number(
+            "CrossSectionWidth", "Cross-Section Width",
+            a => ((CrossSectionStationAnalysisDefinition)a).CrossSectionWidth,
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).CrossSectionWidth = Math.Max(0.01, v),
+            "Total perpendicular width of each cross-section cut, centered on the alignment.",
+            min: 0.01),
+        AnalysisParameterDescriptor.Number(
+            "VerticalExaggeration", "Vertical Exaggeration",
+            a => ((CrossSectionStationAnalysisDefinition)a).VerticalExaggeration,
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).VerticalExaggeration = Math.Max(0.1, v),
+            "Vertical scale factor applied to the unrolled cross-section profiles. 1.0 = true scale.",
+            min: 0.1),
+        AnalysisParameterDescriptor.Number(
+            "GridColumns", "Grid Columns",
+            a => ((CrossSectionStationAnalysisDefinition)a).GridColumns,
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).GridColumns = Math.Max(1, (int)Math.Round(v)),
+            "Number of columns in the unrolled cross-section grid layout.",
+            min: 1, decimalPlaces: 0),
+        AnalysisParameterDescriptor.Number(
+            "GridCellWidth", "Grid Cell Width",
+            a => ((CrossSectionStationAnalysisDefinition)a).GridCellWidth,
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).GridCellWidth = Math.Max(0.0, v),
+            "Override cell width for the grid layout. 0 = auto.",
+            min: 0.0),
+        AnalysisParameterDescriptor.Number(
+            "GridCellHeight", "Grid Cell Height",
+            a => ((CrossSectionStationAnalysisDefinition)a).GridCellHeight,
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).GridCellHeight = Math.Max(0.0, v),
+            "Override cell height for the grid layout. 0 = auto.",
+            min: 0.0),
+        AnalysisParameterDescriptor.Bool(
+            "ShowCutLinesOnTerrain", "Cut Lines on Terrain",
+            a => ((CrossSectionStationAnalysisDefinition)a).ShowCutLinesOnTerrain,
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).ShowCutLinesOnTerrain = v,
+            "Draw the perpendicular cut polylines on the terrain at each station."),
+        AnalysisParameterDescriptor.Bool(
+            "LabelStations", "Label Stations",
+            a => ((CrossSectionStationAnalysisDefinition)a).LabelStations,
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).LabelStations = v,
+            "Print station distance text on each unrolled cross-section."),
+        AnalysisParameterDescriptor.Bool(
+            "ShowElevationGrid", "Show Elevation Grid",
+            a => ((CrossSectionStationAnalysisDefinition)a).ShowElevationGrid,
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).ShowElevationGrid = v,
+            "Draw horizontal grid lines on each unrolled cross-section."),
+        AnalysisParameterDescriptor.Number(
+            "ElevationGridInterval", "Elevation Grid Interval",
+            a => ((CrossSectionStationAnalysisDefinition)a).ElevationGridInterval,
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
+            "Vertical spacing of grid lines on the unrolled cross-sections. 0 disables.",
+            min: 0.0),
+    };
 }
 
 internal sealed class LongitudinalSectionAnalysisDescriptor : AnalysisTypeDescriptor
@@ -217,4 +673,47 @@ internal sealed class LongitudinalSectionAnalysisDescriptor : AnalysisTypeDescri
     public override string Subtitle => "Unrolled profile that follows a curve";
     public override int SortOrder => 9;
     public override AnalysisDefinition Create() => new LongitudinalSectionAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Number(
+            "SampleInterval", "Sample Interval",
+            a => ((LongitudinalSectionAnalysisDefinition)a).SampleInterval,
+            (a, v) => ((LongitudinalSectionAnalysisDefinition)a).SampleInterval = Math.Max(0.01, v),
+            "Distance between elevation samples along the curve.",
+            min: 0.01),
+        AnalysisParameterDescriptor.Number(
+            "VerticalExaggeration", "Vertical Exaggeration",
+            a => ((LongitudinalSectionAnalysisDefinition)a).VerticalExaggeration,
+            (a, v) => ((LongitudinalSectionAnalysisDefinition)a).VerticalExaggeration = Math.Max(0.1, v),
+            "Vertical scale factor applied to the unrolled profile. 1.0 = true scale.",
+            min: 0.1),
+        AnalysisParameterDescriptor.Bool(
+            "ShowBaseline", "Show Baseline",
+            a => ((LongitudinalSectionAnalysisDefinition)a).ShowBaseline,
+            (a, v) => ((LongitudinalSectionAnalysisDefinition)a).ShowBaseline = v,
+            "Draw the horizontal baseline (zero elevation reference) under the profile."),
+        AnalysisParameterDescriptor.Bool(
+            "ShowElevationGrid", "Show Elevation Grid",
+            a => ((LongitudinalSectionAnalysisDefinition)a).ShowElevationGrid,
+            (a, v) => ((LongitudinalSectionAnalysisDefinition)a).ShowElevationGrid = v,
+            "Draw horizontal grid lines at each elevation increment."),
+        AnalysisParameterDescriptor.Number(
+            "ElevationGridInterval", "Elevation Grid Interval",
+            a => ((LongitudinalSectionAnalysisDefinition)a).ElevationGridInterval,
+            (a, v) => ((LongitudinalSectionAnalysisDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
+            "Vertical spacing of horizontal grid lines. 0 disables.",
+            min: 0.0),
+        AnalysisParameterDescriptor.Bool(
+            "ShowStationLabels", "Show Station Labels",
+            a => ((LongitudinalSectionAnalysisDefinition)a).ShowStationLabels,
+            (a, v) => ((LongitudinalSectionAnalysisDefinition)a).ShowStationLabels = v,
+            "Print station distance text along the baseline."),
+        AnalysisParameterDescriptor.Number(
+            "StationLabelInterval", "Station Label Interval",
+            a => ((LongitudinalSectionAnalysisDefinition)a).StationLabelInterval,
+            (a, v) => ((LongitudinalSectionAnalysisDefinition)a).StationLabelInterval = Math.Max(0.0, v),
+            "Spacing between station labels. 0 = auto (~quarter of total length).",
+            min: 0.0),
+    };
 }

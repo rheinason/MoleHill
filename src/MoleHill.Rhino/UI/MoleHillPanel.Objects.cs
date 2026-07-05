@@ -60,8 +60,6 @@ public sealed partial class MoleHillPanel
         var capturedDefinitionId = definition.Id;
         var capturedTerrainId = terrain.TerrainId;
         string kind = GetTerrainObjectKind(definition);
-        string typeLabel = GetTerrainObjectTypeLabel(definition);
-
         var nameBox = new TextBox { Text = definition.Name };
         StyleTextBox(nameBox);
         ApplyHelp(nameBox, "Object definition label. Press Enter or click away to rename.");
@@ -81,18 +79,18 @@ public sealed partial class MoleHillPanel
             nameBox,
             GetTerrainObjectSubtitle(definition));
 
-        var copyButton = MakeMiniButton("Copy", (_, _) =>
+        var duplicateButton = MakeDuplicateIconButton(() =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc != null)
                 _controller.DuplicateObjectDefinition(doc, capturedTerrainId, capturedDefinitionId);
-        }, "Duplicate this object definition.", width: 46);
-        var deleteButton = MakeMiniButton("Del", (_, _) =>
+        }, "Duplicate this object definition.");
+        var deleteButton = MakeDeleteIconButton(() =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc != null)
                 _controller.RemoveObjectDefinition(doc, capturedTerrainId, capturedDefinitionId);
-        }, "Delete this object definition and restore any currently placed objects.", width: 38);
+        }, "Delete this object definition and restore any currently placed objects.");
 
         void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
             _collapsedObjects,
@@ -108,13 +106,10 @@ public sealed partial class MoleHillPanel
             IconPlate = iconPlate,
             EnabledControl = enabledCheck,
             TitleBlock = titleBlock,
-            StatusControls = new Control[]
-            {
-                CreateCardStatusLabel(typeLabel)
-            },
+            StatusControls = Array.Empty<Control>(),
             ActionControls = new Control[]
             {
-                copyButton,
+                duplicateButton,
                 deleteButton
             },
             ToggleCollapsed = ToggleCollapsed,
@@ -444,56 +439,24 @@ public sealed partial class MoleHillPanel
             VerticalAlignment = VerticalAlignment.Center,
             Wrap = WrapMode.None
         };
-        if (!UseStackedFormRows())
-            nameLabel.Width = NumericLabelWidth;
         ApplyHelp(nameLabel, blockName);
 
         var weightEditor = CreateCompactScatterWeightEditor(weight, onWeightChanged, weightHelp);
         var removeButton = MakeMiniButton("X", (_, _) => onRemove(), removeHelp, width: 28);
 
-        if (UseStackedFormRows())
-        {
-            var topRow = new StackLayout
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 6,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Items =
-                {
-                    new StackLayoutItem(nameLabel, expand: true),
-                    removeButton
-                }
-            };
-
-            return new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 4,
-                Padding = new Padding(0, 3),
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Items =
-                {
-                    new StackLayoutItem(topRow, HorizontalAlignment.Stretch),
-                    new StackLayoutItem(weightEditor, HorizontalAlignment.Stretch)
-                }
-            };
-        }
-
-        return new StackLayout
+        var editor = new StackLayout
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
-            Padding = new Padding(0, 3),
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
-                nameLabel,
                 new StackLayoutItem(weightEditor, expand: true),
                 removeButton
             }
         };
+        return new PropertyRow(nameLabel, editor, expandWidget: true);
     }
 
     private Control CreateScatterBlockMixHeader(int blockCount, EventHandler<EventArgs> addBlocks)
@@ -593,14 +556,13 @@ public sealed partial class MoleHillPanel
         var slider = new Slider
         {
             MinValue = 0,
-            MaxValue = 1000
+            MaxValue = 1000,
+            Width = UiMetrics.SliderMin
         };
-        if (!UseStackedFormRows())
-            slider.Width = 120;
 
         var valueLabel = new Label
         {
-            Width = 42,
+            Width = UiMetrics.ShortLabel,
             TextColor = UiTheme.MutedText,
             VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = TextAlignment.Right
@@ -679,6 +641,7 @@ public sealed partial class MoleHillPanel
             timer.Stop();
             timer.Start();
         };
+        slider.UnLoad += (_, _) => timer.Stop();
 
         SyncControls(committedValue);
         return new StackLayout

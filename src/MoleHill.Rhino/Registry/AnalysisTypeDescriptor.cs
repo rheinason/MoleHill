@@ -43,4 +43,12 @@ internal abstract class AnalysisTypeDescriptor
     public virtual int SortOrder => 0;
 
     public abstract AnalysisDefinition Create();
+
+    /// <summary>
+    /// Declarative parameter schema for this type's card body. The panel generates rows from this list via
+    /// the schema builder; anything not expressible here (summaries, legends, the insertion-origin picker)
+    /// stays in the panel's bespoke before/after hooks. Empty means "schema covers nothing" — the panel
+    /// falls back entirely to bespoke rows for this type.
+    /// </summary>
+    public virtual IReadOnlyList<AnalysisParameterDescriptor> Parameters => Array.Empty<AnalysisParameterDescriptor>();
 }

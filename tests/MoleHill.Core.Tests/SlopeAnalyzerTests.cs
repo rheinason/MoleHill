@@ -133,6 +133,48 @@ public class SlopeAnalyzerTests
         Assert.InRange(ratio.Slopes[0], 0.999, 1.001);
     }
 
+    [Fact]
+    public void Summarize_MatchesAnalyzeSummaryValues()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 1.0,
+            0.0, 1.0, 0.0,
+            1.0, 1.0, 0.5
+        };
+        int[] faces =
+        {
+            0, 1, 2,
+            1, 3, 2
+        };
+
+        var summary = SlopeAnalyzer.Summarize(vertices, 4, faces, 2, SlopeAnalyzer.SlopeUnit.Percent);
+        var analyze = SlopeAnalyzer.Analyze(vertices, 4, faces, 2, SlopeAnalyzer.SlopeUnit.Percent);
+
+        Assert.Equal(analyze.Min, summary.Min, precision: 12);
+        Assert.Equal(analyze.Max, summary.Max, precision: 12);
+        Assert.Equal(analyze.Average, summary.Average, precision: 12);
+        Assert.Equal(analyze.ColorLow, summary.ColorLow, precision: 12);
+        Assert.Equal(analyze.ColorHigh, summary.ColorHigh, precision: 12);
+        Assert.Equal(2, summary.FaceCount);
+    }
+
+    [Fact]
+    public void Summarize_DoesNotExposeFaceColors()
+    {
+        var summary = SlopeAnalyzer.Summarize(
+            CreateHalfSlopeVertices(),
+            vertexCount: 3,
+            new[] { 0, 1, 2 },
+            faceCount: 1,
+            SlopeAnalyzer.SlopeUnit.Percent);
+
+        Assert.DoesNotContain(
+            summary.GetType().GetProperties(),
+            property => string.Equals(property.Name, nameof(SlopeAnalyzer.SlopeResult.FaceColors), StringComparison.Ordinal));
+    }
+
     private static double[] CreateHalfSlopeVertices()
     {
         return new[]
