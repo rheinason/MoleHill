@@ -20,6 +20,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
 - **`src/MoleHill.Rhino/`** — the Rhino plugin: dockable panel UI (`UI/`, Eto.Forms), commands
   (`Commands/`), the terrain definition model (`Model/`), and the build/persistence services
   (`Services/`). **All Rhino API use lives here; all reusable math lives in Core.**
+  The dock panel uses local Eto responsive primitives (`PropertyRow`, adaptive button groups, and
+  `UiMetrics`) instead of rebuilding the full panel on width changes.
 
 ## Two hosts, one core
 
@@ -43,17 +45,28 @@ XY topology and Z separately (XxHash64) and takes the cheapest path: **Z-only up
 chain). `TinBoundaryPreparer` turns an optional boundary into an explicit constraint loop.
 `ConformingDelaunay=true` is avoided (fails on tight parallel segments).
 
-The **Remesh** modifier is a full incremental **isotropic remesh** (`Engine/IsotropicRemesher`, the
-Botsch–Kobbelt loop: split long / collapse short / Lawson flips / tangential relax / back-project).
-2.5D makes the loop safe: every moved or added vertex re-samples Z from the ORIGINAL mesh at its new
-XY, so the output sits exactly on the input surface. Feature polylines (`Engine/FeaturePolylineGraph`:
-boundary ∪ creases at `CreaseAngle` ∪ the whole constraint stack) are pinned — vertices slide 1-D
-along them, corners stay fixed, no edge flips across, no collapse merges across features. Steep
-retaining-wall faces (≥ 70°) and faces touching non-manifold edges (imperfect upstream welds) are
-frozen and pass through verbatim; the acceptance gate only requires the output to be no worse than the
-input's topology. Params: Edge Length (0 = keep the mesh's own median density) and Crease Angle.
-The **global constrained-Delaunay** rebuild (`SurfaceRemesher`) is no longer a Remesh modifier mode; it
-remains the engine for grading rebuilds and the GH Remesh component.
+The **Remesh** modifier offers three algorithms via its **Algorithm** dropdown (`Mode`: `"isotropic"`
+default, `"rebuild"`, `"local"`), all sharing the same constraint stack (persistent hard constraints —
+walls, breaklines, grade-path road edges — plus the modifier's own Constraints input):
+
+- **Isotropic** (`Engine/IsotropicRemesher`, the Botsch–Kobbelt loop: split long / collapse short /
+  Lawson flips / tangential relax / back-project). 2.5D makes the loop safe: every moved or added vertex
+  re-samples Z from the ORIGINAL mesh at its new XY, so the output sits exactly on the input surface.
+  Feature polylines (`Engine/FeaturePolylineGraph`: boundary ∪ creases at `CreaseAngle` ∪ the whole
+  constraint stack) are pinned — vertices slide 1-D along them, corners stay fixed, no edge flips
+  across, no collapse merges across features. Steep retaining-wall faces (≥ 70°) and faces touching
+  non-manifold edges (imperfect upstream welds) are frozen and pass through verbatim; the acceptance
+  gate only requires the output to be no worse than the input's topology. Best overall quality, but can
+  be slow on very large terrains and may occasionally cross a wall on a shallow wall angle.
+- **Full Rebuild** (`Engine/SurfaceRemesher` via the shared `RebuildMeshWithConstraints` helper, also
+  used by Retaining Wall rebuilds and the GH Remesh component) — classic constrained-Delaunay
+  re-triangulation from scratch; every constraint including wall rails becomes a hard edge, so it
+  structurally cannot cross a wall. Coarser triangle shapes than Isotropic.
+- **Local Refine** (`Engine/LocalMeshRefiner`, also the dormant Sculpt DynTopo engine) — connectivity-preserving:
+  only splits/flips triangles in place, never re-triangulates from scratch. Fastest and safest on huge
+  terrains/delicate wall topology since it can't introduce new topology at all, but coarsest quality.
+
+Params: Algorithm, Edge Length (0 = keep the mesh's own median density), and Crease Angle.
 
 The **Retopo** modifier (finishing, meant to run last) is field-guided **quad** retopology
 (`Core/Retopo/`): `CrossFieldSolver` (a 2-D 4-RoSy cross-field pinned to feature tangents — boundary ∪
@@ -75,8 +88,9 @@ Clay/Noise; F = radius, Shift+F = strength, Ctrl = invert, Shift = temp smooth, 
 modifier definition, `Core/Sculpting/SculptDisplacementField`), applied at build time as
 `z += field.Sample(x, y)` — never vertex indices — so the modifier is fully stackable: upstream edits
 re-flow and the sculpt re-applies on top; multiple sculpts compose. Smooth/Flatten therefore bake a
-static delta (Displace-style), by design. **DynTopo** (toggle) refines triangles under the field/brush
-to a Detail edge length (`LocalMeshRefiner` with `RegionFilter`), re-derived every build.
+static delta (Displace-style), by design. **DynTopo is currently disabled and hidden** because the
+subdivision path can be unstable on real graded terrain; sculpt replay is displacement-only against
+the incoming mesh.
 
 The interactive session (`Services/SculptSessionController`) runs a long-lived `GetPoint` loop
 (mouse-up = stroke end; inside a get, Rhino's own Ctrl+Z accelerator is blocked, so stroke-undo is
@@ -85,7 +99,8 @@ safe) painting dabs on a working copy of the sculpt stage's cached output
 into the field (`SculptFieldRasterizer`), commits via `MutateTerrain` (deferred save), and the normal
 debounced rebuild reruns downstream stages while a **display lock** (`TerrainController.Sculpt.cs`)
 keeps the working mesh on screen. A floating Eto mini-toolbar (`UI/SculptToolbarForm`) hosts
-brush/radius/strength/falloff/DynTopo/Done. Session exit = one document undo record.
+brush/radius/strength/falloff/Done; the modifier card stays limited to Sculpt/Clear and the
+stored-field summary. Session exit = one document undo record.
 
 ## Core: grading (the watertight invariant)
 
@@ -126,7 +141,20 @@ grade path) → analysis → zones → markers → object placements → scatter
 - **TIN inputs** are resolved by `TerrainBuildSnapshotResolver` from a `TerrainBuildSnapshot` (built by
   `TerrainBuildSnapshotBuilder` from the live doc). A Triangulate **Boundary** now pre-filters inputs to
   its area (`FilterInputsToWorkBoundary` + Core `RegionInputFilter`) — the fast "work region".
+- `TerrainRuntimeCache.CreateWorkerCopy()` shares the persistent `TinEngine` instance with each
+  background build worker (rather than a fresh one per build), so `TinEngine`'s Z-only/incremental-edit
+  shortcuts are reachable from Rhino, not just Grasshopper — safe because `TinEngine.Build` is
+  internally serialized by its own gate and re-keys `Vertex.ID` after every incremental edit.
+- Stage-cache mesh outputs are shallow-copied into worker caches for fast dispatch. When a worker is
+  retired by a newer build, the controller keeps its task around and defers disposal of displaced
+  main-cache meshes until those retired workers have finished reading them.
 - **Contours** use a single-pass marching-triangles `ContourGenerator` (not one mesh-plane per level).
+- **Slope summaries** use `SlopeAnalyzer.Summarize` so final-build panel numbers do not allocate
+  preview color arrays. Slope preview coloring still uses `SlopeAnalyzer.Analyze`.
+- **Cut/fill and earthwork reference comparisons** share one centroid-delta pass per reference/boundary
+  fingerprint. The 2.5D case projects reference Z through Core `MeshHeightProjector`; overlapping or
+  near-vertical XY regions fall back to the legacy Rhino world-Z mesh-line projection and report a
+  diagnostic.
 
 ## Rhino: preview vs bake (generated objects)
 
@@ -143,7 +171,8 @@ publication, source-object editing, and bake. It is the largest service and a de
 
 ## Determinism & gotchas
 
-- Deterministic seeded randomness (FNV / SplitMix64) so scatter and grading don't reshuffle per solve.
+- Deterministic seeded randomness (FNV / SplitMix64) so scatter and grading don't reshuffle per solve;
+  cache fingerprints use the shared Core XXH64 builder.
 - TriangleNet RNG is fixed-seeded for reproducibility.
 - The `.gha`/`.dll` is locked while Rhino is open → the build's output-copy step fails (MSB3021/MSB3027)
   even after a clean compile; grep `error CS` to judge a build.

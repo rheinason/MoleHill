@@ -11,6 +11,9 @@ fields by composing them, not by copying boilerplate.
   and structured diagnostic formatting), and per-tab card builders `.Modifiers.cs`, `.Zones.cs`,
   `.Markers.cs`, `.Analysis.cs`, `.Objects.cs`, `.LayerPickers.cs`. The main file holds the toolbar,
   layout refresh, and shared helpers.
+- `UiMetrics.cs`, `PropertyRow.cs`, `AdaptiveControlGroup.cs`, and `AdaptivePrimaryActionRow.cs` -
+  local responsive primitives for the dock panel. Rows restack by their own width, so resizing the panel
+  does not rebuild the whole content tree or drop editor focus.
 - `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter,
   with Eto-drawn isometric thumbnails.
 - `LayerTemplateEditorDialog.cs` - graphical layer-template editor: a `TreeGridView` of the layer
@@ -19,8 +22,8 @@ fields by composing them, not by copying boilerplate.
   dialog.
 - `SculptToolbarForm.cs` - the floating sculpt mini-toolbar: borderless, non-activating, Topmost,
   pinned over the active viewport corner while a sculpt session runs (brush buttons, radius/strength
-  sliders, falloff, DynTopo, Done). Only edits session prefs; returns focus to Rhino after every
-  interaction so viewport shortcuts keep working. Owned by `Services/SculptSessionController`.
+  sliders, falloff, Done). Only edits session prefs; returns focus to Rhino after every interaction so
+  viewport shortcuts keep working. Owned by `Services/SculptSessionController`.
 - `PanelIcons.cs` - 16x16 panel tab/badge icon loader. `UiTheme.cs` - colors/spacing.
 
 Tabs: Modifiers, Zones (Objects), Analysis, Markers. The panel talks to `Services/TerrainController`;
