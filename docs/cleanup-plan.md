@@ -1,9 +1,21 @@
 # Codebase cleanup plan
 
-Grounded in a survey of the current tree (2026-06). Ordered by value/risk: do the safe, high-value
+Grounded in a survey of the current tree (2026-07-11). Ordered by value/risk: do the safe, high-value
 items first. The bar for every step: **`dotnet build` clean + `dotnet test tests/MoleHill.Core.Tests`
 green**; for static-only code moves, compile-clean implies behavior-identical. Do NOT touch
 `src/TriangleNet/**` (vendored).
+
+## Progress snapshot (2026-07-11)
+
+Status: active, with repository hygiene and documentation maintenance substantially complete.
+
+- **Complete:** generated directories are ignored, completed plans are archived, `.gitattributes` is
+  present, and the full solution test pass is green.
+- **In progress:** the panel/build-service partial decomposition continues; `TerrainController.cs` and
+  several large Core/Rhino files remain intentionally monolithic.
+- **Not started:** a fresh dead-code sweep and the broader 2D-helper deduplication audit.
+- **Grading follow-up:** the tier cascade and copied-case coverage are in place; add a regression whenever
+  a real case reaches `grade_pad.all_tiers_deferred`.
 
 ## 1. Delete dead code (safe, compiler-verifiable)
 - The previously listed `GradedRegionAssembler.Assemble`, `TryBuildOutsideTerrain`, and `RegionInsert`

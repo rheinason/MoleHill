@@ -639,7 +639,7 @@ internal sealed partial class TerrainBuildService
                 samplePoint,
                 Math.Max(snapshot.ModelAbsoluteTolerance, ModelUnits.FromMeters(1e-4, snapshot.ModelUnitSystem)),
                 out terrainPoint,
-                out var meshPoint))
+                out MeshPoint? meshPoint))
         {
             diagnostic = "Objects skipped a source object because it is outside the terrain footprint.";
             return false;

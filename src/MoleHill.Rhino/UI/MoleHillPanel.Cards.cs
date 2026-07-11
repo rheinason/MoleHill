@@ -290,9 +290,9 @@ public sealed partial class MoleHillPanel
 
     /// <summary>Stacked-squares "duplicate this card" icon button — pairs with <see cref="MakeDeleteIconButton"/>.</summary>
     private static Button MakeDuplicateIconButton(Action onClick, string help) =>
-        MakeIconButton("⧉", (_, _) => onClick(), help);
+        MakeIconButton(PanelButtonIcon.Duplicate, (_, _) => onClick(), help);
 
     /// <summary>"Delete this card" icon button — pairs with <see cref="MakeDuplicateIconButton"/>.</summary>
     private static Button MakeDeleteIconButton(Action onClick, string help) =>
-        MakeIconButton("X", (_, _) => onClick(), help);
+        MakeIconButton(PanelButtonIcon.Delete, (_, _) => onClick(), help);
 }

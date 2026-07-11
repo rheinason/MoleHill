@@ -94,6 +94,42 @@ public class QuadRemesherTests
         AssertWatertight(result);
     }
 
+    /// <summary>Deterministic hash jitter on interior vertices (breaks the pre-aligned grid diagonals).</summary>
+    private static void JitterInterior(double[] vertices, double amount, double minX, double maxX, double minY, double maxY)
+    {
+        for (int i = 0; i < vertices.Length / 3; i++)
+        {
+            double x = vertices[i * 3], y = vertices[i * 3 + 1];
+            if (x <= minX + 1e-9 || x >= maxX - 1e-9 || y <= minY + 1e-9 || y >= maxY - 1e-9)
+                continue;
+            uint h = (uint)(i * 2654435761u);
+            vertices[i * 3] = x + ((((h & 0xFFFF) / 65535.0) - 0.5) * 2.0 * amount);
+            vertices[i * 3 + 1] = y + (((((h >> 16) & 0xFFFF) / 65535.0) - 0.5) * 2.0 * amount);
+        }
+    }
+
+    [Fact]
+    public void Remesh_JitteredPatch_FieldFlipYieldsQuadMajority()
+    {
+        // A jittered patch has no pre-aligned diagonals, so the pairing outcome is governed by the
+        // remesh's flip objective. The field-alignment flip (θ steers diagonals to the ±45° hypotenuse)
+        // must yield a clear quad majority — pure-Lawson equilateral triangles would leave mostly tris.
+        var (vertices, faces) = BuildGrid(Steps(0, 14, 1.0), Steps(0, 14, 1.0), (_, _) => 0.0);
+        JitterInterior(vertices, 0.3, 0, 14, 0, 14);
+
+        var result = QuadRemesher.Remesh(vertices, faces, NoConstraints, new QuadRemesher.Options
+        {
+            EdgeLength = 1.5,
+            CreaseAngleDeg = 30,
+            Tolerance = 0.01
+        });
+
+        Assert.True(result.Success, result.Warning);
+        AssertWatertight(result);
+        Assert.True(result.QuadCount > result.TriangleCount,
+            $"field flip did not yield a quad majority: {result.QuadCount} quads vs {result.TriangleCount} tris");
+    }
+
     [Fact]
     public void Remesh_CreasedRoof_RidgeSurvivesAndNoQuadStraddlesIt()
     {

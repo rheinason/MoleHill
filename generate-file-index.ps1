@@ -43,7 +43,12 @@ foreach ($project in $projects) {
     foreach ($file in $files) {
         $rel = $file.FullName.Substring($root.Length + 1).Replace('\', '/')
         $summary = Get-Summary $file.FullName
-        [void]$sb.AppendLine("- ``$rel`` - $summary")
+        if ($summary) {
+            [void]$sb.AppendLine("- ``$rel`` - $summary")
+        }
+        else {
+            [void]$sb.AppendLine("- ``$rel`` -")
+        }
     }
     [void]$sb.AppendLine()
 }

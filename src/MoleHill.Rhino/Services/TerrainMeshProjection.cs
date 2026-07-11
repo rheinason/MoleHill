@@ -12,7 +12,7 @@ internal static class TerrainMeshProjection
         double tolerance,
         out Point3d projectedPoint)
     {
-        return TryProjectPointAlongWorldZ(mesh, point, tolerance, out projectedPoint, out _);
+        return TryProjectPointAlongWorldZ(mesh, point, tolerance, out projectedPoint, out int _);
     }
 
     public static bool TryProjectPointAlongWorldZ(
@@ -22,8 +22,24 @@ internal static class TerrainMeshProjection
         out Point3d projectedPoint,
         out MeshPoint? meshPoint)
     {
-        projectedPoint = Point3d.Unset;
         meshPoint = null;
+        if (!TryProjectPointAlongWorldZ(mesh, point, tolerance, out projectedPoint))
+            return false;
+
+        double meshPointTolerance = Math.Max(tolerance * 4.0, 1e-6);
+        meshPoint = mesh.ClosestMeshPoint(projectedPoint, meshPointTolerance);
+        return true;
+    }
+
+    public static bool TryProjectPointAlongWorldZ(
+        RhinoMesh mesh,
+        Point3d point,
+        double tolerance,
+        out Point3d projectedPoint,
+        out int faceIndex)
+    {
+        projectedPoint = Point3d.Unset;
+        faceIndex = -1;
 
         BoundingBox bounds = mesh.GetBoundingBox(true);
         if (!bounds.IsValid)
@@ -35,18 +51,29 @@ internal static class TerrainMeshProjection
             new Point3d(point.X, point.Y, bounds.Min.Z - padding),
             new Point3d(point.X, point.Y, bounds.Max.Z + padding));
 
-        var hits = Intersection.MeshLineSorted(mesh, line, out _);
+        var hits = Intersection.MeshLineSorted(mesh, line, out int[] faceIds);
         if (hits == null || hits.Length == 0)
             return false;
 
-        projectedPoint = hits
-            .OrderBy(hit => Math.Abs(hit.Z - point.Z))
-            .First();
-        if (!projectedPoint.IsValid)
+        int hitIndex = 0;
+        double bestDistance = Math.Abs(hits[0].Z - point.Z);
+        for (int i = 1; i < hits.Length; i++)
+        {
+            double distance = Math.Abs(hits[i].Z - point.Z);
+            if (distance < bestDistance)
+            {
+                hitIndex = i;
+                bestDistance = distance;
+            }
+        }
+
+        var hit = hits[hitIndex];
+        if (!hit.IsValid)
             return false;
 
-        double meshPointTolerance = Math.Max(tolerance * 4.0, 1e-6);
-        meshPoint = mesh.ClosestMeshPoint(projectedPoint, meshPointTolerance);
+        projectedPoint = new Point3d(point.X, point.Y, hit.Z);
+        if (faceIds != null && hitIndex < faceIds.Length)
+            faceIndex = faceIds[hitIndex];
         return true;
     }
 }

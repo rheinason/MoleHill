@@ -48,14 +48,13 @@ internal static class TerrainAnalysisAnnotationBuilder
                 // the arrow come from the terrain normal there (true steepest grade + uphill aspect),
                 // independent of the curve's own direction or Z.
                 Point3d midXy = Midpoint(previous.Point, current.Point);
-                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, midXy, snapshot.ModelAbsoluteTolerance, out Point3d labelPoint, out var meshPoint) ||
-                    meshPoint == null)
+                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, midXy, snapshot.ModelAbsoluteTolerance, out Point3d labelPoint, out int faceIndex) ||
+                    !TryGetTerrainSlopeNormal(mesh, faceIndex, out Vector3d normal))
                 {
                     cumulativeDistance += segmentLength;
                     continue;
                 }
 
-                Vector3d normal = GetTerrainSlopeNormal(mesh, meshPoint);
                 double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
                 double slopeRatio = Math.Tan(slopeRadians);
                 double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
@@ -215,13 +214,10 @@ internal static class TerrainAnalysisAnnotationBuilder
                 continue;
 
             sourceCount++;
-            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, point.Location, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint, out var meshPoint))
+            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, point.Location, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint, out int faceIndex) ||
+                !TryGetTerrainSlopeNormal(mesh, faceIndex, out Vector3d normal))
                 continue;
 
-            if (meshPoint == null)
-                continue;
-
-            Vector3d normal = GetTerrainSlopeNormal(mesh, meshPoint);
             double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
             double slopeRatio = Math.Tan(slopeRadians);
             double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
@@ -280,11 +276,10 @@ internal static class TerrainAnalysisAnnotationBuilder
                 if (boundaries.Count > 0 && !IsInsideAnyBoundary(sampleXy, boundaries, tolerance))
                     continue;
 
-                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, sampleXy, tolerance, out Point3d worldPoint, out var meshPoint) ||
-                    meshPoint == null)
+                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, sampleXy, tolerance, out Point3d worldPoint, out int faceIndex) ||
+                    !TryGetTerrainSlopeNormal(mesh, faceIndex, out Vector3d normal))
                     continue;
 
-                Vector3d normal = GetTerrainSlopeNormal(mesh, meshPoint);
                 Vector3d direction = GetTerrainSlopeDirection(normal, tolerance, analysis.FlipDirection);
                 if (!direction.IsValid)
                     continue; // flat node: no meaningful downhill aspect, so no arrow
@@ -1046,17 +1041,20 @@ internal static class TerrainAnalysisAnnotationBuilder
             : direction;
     }
 
-    private static Vector3d GetTerrainSlopeNormal(RhinoMesh mesh, MeshPoint meshPoint)
+    private static bool TryGetTerrainSlopeNormal(RhinoMesh mesh, int faceIndex, out Vector3d normal)
     {
-        int faceIndex = meshPoint.FaceIndex;
+        normal = Vector3d.Unset;
         if (faceIndex >= 0 && faceIndex < mesh.FaceNormals.Count)
         {
             Vector3d faceNormal = mesh.FaceNormals[faceIndex];
             if (faceNormal.IsValid && faceNormal.Unitize())
-                return faceNormal;
+            {
+                normal = faceNormal;
+                return true;
+            }
         }
 
-        return mesh.NormalAt(meshPoint);
+        return false;
     }
 
     private static bool IsInsideAnyBoundary(Point3d point, IReadOnlyList<Curve> boundaries, double tolerance)

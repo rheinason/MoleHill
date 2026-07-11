@@ -18,11 +18,20 @@ public sealed class RemeshModifierDefinition : ModifierDefinition
     public double EdgeLength { get; set; }
 
     /// <summary>
-    /// Legacy (pre-schema-22) quality target, kept only so old documents deserialize; the serializer
-    /// migrates it into <see cref="EdgeLength"/> (equilateral-triangle mapping) and zeroes it. Not
-    /// exposed in the UI and ignored by the build.
+    /// Maximum triangle area for the <c>"rebuild"</c> (classic constrained-Delaunay) mode — a quality
+    /// refinement target. 0 = no area constraint. Ignored by the "isotropic" and "local" modes, which
+    /// regularize by <see cref="EdgeLength"/> instead. Pre-schema-22 documents drove refinement through
+    /// this field globally; the serializer migrates those into <see cref="EdgeLength"/> and zeroes it,
+    /// so a nonzero value here only ever comes from a schema-24+ rebuild-mode edit.
     /// </summary>
     public double MaxArea { get; set; }
+
+    /// <summary>
+    /// Minimum triangle angle in degrees for the <c>"rebuild"</c> mode — Triangle.NET's quality knob that
+    /// forces skinny triangles to be refined. 0 = no angle constraint. Ignored by the "isotropic" and
+    /// "local" modes. Schema 24.
+    /// </summary>
+    public double MinAngle { get; set; }
 
     /// <summary>
     /// Crease-preservation dihedral angle (degrees). Feature edges (batter toes, slope breaks) at or above

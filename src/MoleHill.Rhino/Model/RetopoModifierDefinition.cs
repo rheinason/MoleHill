@@ -18,7 +18,7 @@ public sealed class RetopoModifierDefinition : ModifierDefinition
     public double TargetEdgeLength { get; set; }
 
     /// <summary>Draw the cross-field as a flow-cross overlay to preview the flow. Off = no overlay.</summary>
-    public bool ShowField { get; set; } = true;
+    public bool ShowField { get; set; } = false;
 
     /// <summary>
     /// Replace the terrain with the quad-dominant mesh. Off keeps the input mesh and only previews the

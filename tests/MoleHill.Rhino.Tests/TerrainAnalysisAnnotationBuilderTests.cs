@@ -34,6 +34,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         Assert.Equal(1000.0, summary.SampleMinValue, precision: 6);
         var output = Assert.Single(build.AuxiliaryObjects);
         Assert.Equal("1000.0", output.InstanceUserStrings?[GeneratedBlockCatalog.ValueToken]);
+        AssertBlockOrigin(output, 3.0, 5.0, 30.0);
     }
 
     [RhinoNativeFact]
@@ -91,6 +92,8 @@ public class TerrainAnalysisAnnotationBuilderTests
         Assert.Equal(90.0, summary.SampleMinValue, precision: 6);
         Assert.All(build.AuxiliaryObjects, output =>
             Assert.Equal("90.00", output.InstanceUserStrings?[GeneratedBlockCatalog.ValueToken]));
+        AssertBlockOrigin(build.AuxiliaryObjects[0], 9.0, 5.0, 90.0);
+        AssertBlockOrigin(build.AuxiliaryObjects[1], 9.0, 6.0, 90.0);
     }
 
     [RhinoNativeFact]
@@ -116,6 +119,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         Assert.Equal(90.0, summary.SampleMinValue, precision: 6);
         var output = Assert.Single(build.AuxiliaryObjects);
         Assert.Equal("90.00", output.InstanceUserStrings?[GeneratedBlockCatalog.ValueToken]);
+        AssertBlockOrigin(output, 9.0, 5.0, 90.0);
     }
 
     [RhinoNativeFact]
@@ -141,6 +145,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         Assert.Equal(1000.0, summary.SampleMinValue, precision: 6);
         var output = Assert.Single(build.AuxiliaryObjects);
         Assert.Equal("1000.0", output.InstanceUserStrings?[GeneratedBlockCatalog.ValueToken]);
+        AssertBlockOrigin(output, 9.0, 5.0, 90.0);
     }
 
     [RhinoNativeFact]
@@ -258,6 +263,13 @@ public class TerrainAnalysisAnnotationBuilderTests
             }
         };
         return snapshot;
+    }
+
+    private static void AssertBlockOrigin(GeneratedRhinoObject output, double x, double y, double z)
+    {
+        Assert.Equal(x, output.InstanceTransform.M03, precision: 6);
+        Assert.Equal(y, output.InstanceTransform.M13, precision: 6);
+        Assert.Equal(z, output.InstanceTransform.M23, precision: 6);
     }
 
     private static Mesh CreateSlopedMesh()

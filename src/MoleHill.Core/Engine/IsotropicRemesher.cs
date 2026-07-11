@@ -76,6 +76,11 @@ public static class IsotropicRemesher
     private const double CollapseFactor = 4.0 / 5.0;
     private const double RelaxLambda = 0.5;
     private const double FlipAngleImproveEps = 1e-3;
+    // Field-aligned flip objective (retopo only, when a cross-field is present): prefer the diagonal
+    // that runs at ~45° to the field (the hypotenuse of an axis-aligned quad), guarded by a hard
+    // min-angle floor so a noisy/singular field never carves slivers.
+    private const double FlipMinAngleFloorRad = 20.0 * Math.PI / 180.0;
+    private const double FlipFieldImproveEps = 0.05; // hysteresis on the [0,1] score → stable fixpoint
     // Split rounds per phase are capped low so extreme anisotropic fans (long thin grading triangles)
     // don't cascade to enormous intermediate face counts before the next collapse phase can coarsen
     // them; the outer iterations provide the remaining rounds where genuinely needed.
@@ -727,8 +732,12 @@ public static class IsotropicRemesher
                 continue;
             double dx = state.Verts[n * 3] - newX;
             double dy = state.Verts[n * 3 + 1] - newY;
-            double dz = state.Verts[n * 3 + 2] - newZ;
-            if ((dx * dx) + (dy * dy) + (dz * dz) > maxResultSquared)
+            // XY footprint only (no dz): a narrow high-relief sliver's merged edge is long in Z but
+            // small in plan, so a 3D cap would veto exactly the collapses that coarsen pinched batter
+            // ridges (e.g. off wall ends). The collapse candidate gate is still 3D (CollapseShortEdgesRound,
+            // length² < (0.8·L)²), which confines this relaxation to already-over-refined regions —
+            // broad steep slopes sit at 3D ≈ L and are never candidates, so they are never decimated.
+            if ((dx * dx) + (dy * dy) > maxResultSquared)
                 return false;
         }
 
@@ -861,10 +870,42 @@ public static class IsotropicRemesher
                 if (!QuadIsConvexForFlip(vertices, p, q, c, d))
                     continue;
 
-                double minBefore = Math.Min(MinTriangleAngle(vertices, p, q, c), MinTriangleAngle(vertices, p, q, d));
                 double minAfter = Math.Min(MinTriangleAngle(vertices, p, c, d), MinTriangleAngle(vertices, c, q, d));
-                if (minAfter <= minBefore + FlipAngleImproveEps)
-                    continue;
+                if (state.Field == null)
+                {
+                    // Plain Remesh path: pure Lawson max-min-angle — flip only when it raises the
+                    // minimum angle. Unchanged from the original behaviour.
+                    double minBefore = Math.Min(MinTriangleAngle(vertices, p, q, c), MinTriangleAngle(vertices, p, q, d));
+                    if (minAfter <= minBefore + FlipAngleImproveEps)
+                        continue;
+                }
+                else
+                {
+                    // Retopo path: pick the diagonal that best serves as the ~45° hypotenuse of a
+                    // field-aligned quad, so tri-to-quad pairing (which removes the shared diagonal)
+                    // yields axis-aligned quads instead of 60/120° rhombi. Hard min-angle floor first
+                    // so a noisy/singular field can never carve a sliver.
+                    if (minAfter < FlipMinAngleFloorRad)
+                        continue;
+
+                    double cx = 0.25 * (vertices[p * 3]     + vertices[c * 3]     + vertices[q * 3]     + vertices[d * 3]);
+                    double cy = 0.25 * (vertices[p * 3 + 1] + vertices[c * 3 + 1] + vertices[q * 3 + 1] + vertices[d * 3 + 1]);
+                    double theta = state.Field.SampleTheta(cx, cy, double.NaN);
+                    if (double.IsNaN(theta))
+                    {
+                        // Singular field here → fall back to Lawson so we never do worse than isotropic.
+                        double minBefore = Math.Min(MinTriangleAngle(vertices, p, q, c), MinTriangleAngle(vertices, p, q, d));
+                        if (minAfter <= minBefore + FlipAngleImproveEps)
+                            continue;
+                    }
+                    else
+                    {
+                        double sPQ = DiagonalFieldScore(vertices[q * 3] - vertices[p * 3], vertices[q * 3 + 1] - vertices[p * 3 + 1], theta); // current diagonal p-q
+                        double sCD = DiagonalFieldScore(vertices[d * 3] - vertices[c * 3], vertices[d * 3 + 1] - vertices[c * 3 + 1], theta); // flipped diagonal c-d
+                        if (sCD <= sPQ + FlipFieldImproveEps)
+                            continue; // hysteresis: only flip toward a strictly better hypotenuse
+                    }
+                }
 
                 WriteOrientedFaceToList(vertices, state.Tris, e.t0, p, c, d);
                 WriteOrientedFaceToList(vertices, state.Tris, e.t1, c, q, d);
@@ -889,6 +930,18 @@ public static class IsotropicRemesher
         tris[triangle * 3] = p;
         tris[triangle * 3 + 1] = q;
         tris[triangle * 3 + 2] = r;
+    }
+
+    /// <summary>
+    /// Alignment of a diagonal (heading atan2(dy,dx)) to a 4-RoSy field of angle θ: 1.0 when the
+    /// diagonal runs at θ±45° (the ideal hypotenuse of an axis-aligned quad), 0.0 when it is edge
+    /// aligned to θ or θ+90°. The 2× folds it to mod-180° and sin² to mod-90°, so it is independent
+    /// of both the field's 4-fold ambiguity and the diagonal's endpoint order.
+    /// </summary>
+    private static double DiagonalFieldScore(double dx, double dy, double theta)
+    {
+        double s = Math.Sin(2.0 * (Math.Atan2(dy, dx) - theta));
+        return s * s;
     }
 
     // === Phase 4: tangential relaxation + back-projection =============================================

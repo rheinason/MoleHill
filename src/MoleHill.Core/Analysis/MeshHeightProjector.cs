@@ -82,50 +82,47 @@ public sealed class MeshHeightProjector
         long cellX = (long)Math.Floor(x * _invCell);
         long cellY = (long)Math.Floor(y * _invCell);
 
-        for (long offsetY = -1; offsetY <= 1; offsetY++)
+        // Faces are registered in every grid cell touched by their XY bounding box, so a triangle
+        // containing (x,y) must already be in the owning cell. The former 3x3 scan retested the same
+        // faces from neighbouring buckets up to nine times on regular meshes.
+        long key = HashCell(cellX, cellY);
+        if (_grid.TryGetValue(key, out var faceIndices))
         {
-            for (long offsetX = -1; offsetX <= 1; offsetX++)
+            foreach (int face in faceIndices)
             {
-                long key = HashCell(cellX + offsetX, cellY + offsetY);
-                if (!_grid.TryGetValue(key, out var faceIndices))
+                if (!TryReadFace(face, out var triangle))
                     continue;
 
-                foreach (int face in faceIndices)
+                if (IsNearVerticalOrDegenerate(triangle))
                 {
-                    if (!TryReadFace(face, out var triangle))
-                        continue;
-
-                    if (IsNearVerticalOrDegenerate(triangle))
-                    {
-                        if (IsPointNearFaceFootprint(x, y, triangle, insideTolerance))
-                            requiresFallback = true;
-                        continue;
-                    }
-
-                    if (!TryGetBarycentric(x, y, triangle, out double w0, out double w1, out double w2))
-                        continue;
-
-                    if (w0 < -insideTolerance || w1 < -insideTolerance || w2 < -insideTolerance)
-                        continue;
-
-                    double faceZ = (w0 * triangle.Z0) + (w1 * triangle.Z1) + (w2 * triangle.Z2);
-                    if (!found)
-                    {
-                        z = faceZ;
-                        found = true;
-                        continue;
-                    }
-
-                    if (Math.Abs(faceZ - z) > distinctZTolerance)
-                    {
-                        status = ProjectionStatus.RequiresFallback;
-                        z = 0.0;
-                        return false;
-                    }
-
-                    if (Math.Abs(faceZ - sampleZ) < Math.Abs(z - sampleZ))
-                        z = faceZ;
+                    if (IsPointNearFaceFootprint(x, y, triangle, insideTolerance))
+                        requiresFallback = true;
+                    continue;
                 }
+
+                if (!TryGetBarycentric(x, y, triangle, out double w0, out double w1, out double w2))
+                    continue;
+
+                if (w0 < -insideTolerance || w1 < -insideTolerance || w2 < -insideTolerance)
+                    continue;
+
+                double faceZ = (w0 * triangle.Z0) + (w1 * triangle.Z1) + (w2 * triangle.Z2);
+                if (!found)
+                {
+                    z = faceZ;
+                    found = true;
+                    continue;
+                }
+
+                if (Math.Abs(faceZ - z) > distinctZTolerance)
+                {
+                    status = ProjectionStatus.RequiresFallback;
+                    z = 0.0;
+                    return false;
+                }
+
+                if (Math.Abs(faceZ - sampleZ) < Math.Abs(z - sampleZ))
+                    z = faceZ;
             }
         }
 

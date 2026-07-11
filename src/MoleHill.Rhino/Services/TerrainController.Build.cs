@@ -539,7 +539,15 @@ internal sealed partial class TerrainController
 
         lines.Add("stages:");
         foreach (TerrainBuildTiming timing in timings.Where(t => t.Stage != totalStageName))
-            lines.Add($"  {timing.Stage}: {FormatElapsed(timing.Elapsed)}");
+        {
+            string detail = timing.Detail ?? string.Empty;
+            if (timing.IsCacheHit && !detail.Contains("cache hit", StringComparison.OrdinalIgnoreCase))
+                detail = string.IsNullOrWhiteSpace(detail) ? "cache hit" : $"{detail}; cache hit";
+
+            lines.Add(string.IsNullOrWhiteSpace(detail)
+                ? $"  {timing.Stage}: {FormatElapsed(timing.Elapsed)}"
+                : $"  {timing.Stage}: {FormatElapsed(timing.Elapsed)} ({detail})");
+        }
 
         return string.Join(System.Environment.NewLine, lines);
     }

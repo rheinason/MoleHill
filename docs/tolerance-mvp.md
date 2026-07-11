@@ -2,6 +2,17 @@
 
 Date: April 20, 2026
 
+## Progress snapshot (2026-07-11)
+
+Status: implementation complete in the Rhino build path; final user-facing validation remains.
+
+- **Phase 1 complete:** `TerrainTolerancePolicy` derives bounded input, curve, remesh, Grade Path,
+  Grade Pad, and retaining-wall tolerances from terrain detail size plus document tolerance.
+- **Phase 2 complete:** build diagnostics report the resolved profile, and `TerrainBuildHeuristicsTests`
+  cover legacy-detail migration, unit conversion, and the Grade Path/Pad bounds.
+- **Acceptance still open:** run coarse and dense real Rhino cases, confirm users no longer need to tune
+  the global value for grading, then archive this MVP document if the results hold.
+
 ## Summary
 
 Tolerance handling is currently too hard for users to reason about.

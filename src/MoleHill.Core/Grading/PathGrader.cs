@@ -21,9 +21,10 @@ public static partial class PathGrader
         int[] faces, int faceCount,
         PathDefinition[] paths,
         out string? errorMessage,
-        double modelTolerance = GradingTolerances.DefaultModelTolerance)
+        double modelTolerance = GradingTolerances.DefaultModelTolerance,
+        bool preferSplitKeep = false)
     {
-        return Grade(vertices, vertexCount, faces, faceCount, paths, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out errorMessage, modelTolerance);
+        return Grade(vertices, vertexCount, faces, faceCount, paths, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out errorMessage, modelTolerance, preferSplitKeep);
     }
 
     public static GradingResult? Grade(
@@ -32,7 +33,8 @@ public static partial class PathGrader
         PathDefinition[] paths,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
         out string? errorMessage,
-        double modelTolerance = GradingTolerances.DefaultModelTolerance)
+        double modelTolerance = GradingTolerances.DefaultModelTolerance,
+        bool preferSplitKeep = false)
     {
         errorMessage = null;
         hardConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
@@ -45,6 +47,23 @@ public static partial class PathGrader
 
         if (!GradingInputValidator.ValidatePathDefinitions(paths, out errorMessage))
             return null;
+
+        string? preferredSplitKeepFailureReason = null;
+        if (preferSplitKeep)
+        {
+            GradingResult? preferredSplitKeep = GradeWithSplitKeep(
+                vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out preferredSplitKeepFailureReason);
+            if (preferredSplitKeep != null)
+            {
+                errorMessage = null;
+                return WithExtraDiagnostic(
+                    preferredSplitKeep,
+                    GradingDiagnostic.Information(
+                        "grade_path.split_keep.preferred",
+                        "Grade Path performance mode: terrain conform (split-keep) was selected before explicit corridor assembly for this large constrained mesh.",
+                        operation: "grade_path"));
+            }
+        }
 
         // Primary path: explicit corridor construction (ruled road surface + side batters welded into
         // terrain). Defers for interacting corridors, hard constraints, or any case it cannot make
@@ -69,8 +88,13 @@ public static partial class PathGrader
         // Middle tier: conform the terrain to the corridor loops and keep the whole mesh (watertight
         // by construction) — covers corridors the explicit carve/fill/weld cannot trace, without
         // dropping to the sliver-prone constraint-insertion rebuild.
-        GradingResult? splitKeep = GradeWithSplitKeep(
-            vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out string? splitKeepFailureReason);
+        GradingResult? splitKeep = null;
+        string? splitKeepFailureReason = preferredSplitKeepFailureReason;
+        if (!preferSplitKeep)
+        {
+            splitKeep = GradeWithSplitKeep(
+                vertices, vertexCount, faces, faceCount, paths, hardConstraints, modelTolerance, out splitKeepFailureReason);
+        }
         if (splitKeep != null)
         {
             errorMessage = null;

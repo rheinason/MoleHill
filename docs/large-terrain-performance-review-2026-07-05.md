@@ -18,6 +18,42 @@ Severity legend: **HIGH** = highest expected user-visible performance win on lar
 **MEDIUM** = meaningful improvement or important scaling guard. **LOW** = instrumentation,
 ergonomics, or hardening.
 
+## Completion snapshot (2026-07-11)
+
+All jobs from this review are now closed, either by implementing the proposed work or by replacing it
+with a safer measured optimization. Debug benchmark timings below are machine-specific and are intended
+for before/after comparison, not as release-mode guarantees.
+
+- **H1 complete:** `MeshHeightProjector` is used for cut/fill and preview projection. Because every face
+  is registered in each grid cell touched by its XY bounds, queries now inspect only the owning cell.
+  A 100,000-query benchmark fell from 836.4 ms to 90.9 ms with the same checksum and zero misses; index
+  construction remained approximately 50 ms.
+- **H2 complete:** summary-only slope builds avoid face-color allocation, and both summary and preview
+  analysis use the large-mesh parallel path above 20,000 faces.
+- **H3 complete:** environment-gated Grade Path, height-projector, and retaining-wall planner benchmarks
+  cover the copied large-terrain case without slowing the normal test run.
+- **M1 closed with a safer alternative:** full dirty-region crop/stitch remains available as future
+  substrate through `DirtyRegionPlanner`, but it was not integrated because of the topology risk at the
+  stitch boundary. Large final Rhino Grade Path builds with persistent hard constraints instead prefer
+  the existing split-and-keep tier. The copied case fell from 2,496.5 ms / 174.1 MB allocated to
+  825.4 ms / 94.8 MB with the same 8,410 vertices, 16,547 faces, and healthy topology.
+- **M2 complete/superseded:** the reduced-interior-seed remesh attempt was already prepared first and is
+  accepted before the carried-interior pass when requested. Retaining-wall self-intersection validation
+  now uses spatial segment buckets while retaining the exact intersection predicate. End-to-end planner
+  time fell from 2,134.9 ms to 323.0 ms; preprocessing fell from 1,902.7 ms to 15.5 ms. This removed the
+  measured need for a separate retained-plan cache.
+- **M3 complete/superseded:** enabled analyses are cached independently by analysis id and fingerprint,
+  and shared mesh/elevation/area context is built lazily only for cache misses. Cached generated output
+  is restored per analysis. Summaries remain current rather than adding the proposed stale/deferred mode.
+- **L1 complete:** timing records expose structured cache-hit state, build logs show cache-hit details,
+  and hot restores no longer replay cold timing diagnostics.
+- **L2 complete for the safe measured scope:** output fingerprints remain threaded through cache entries
+  and cached meshes are no longer normalized a second time after cloning. The clone remains an ownership
+  boundary so callers cannot mutate a cache entry in place.
+
+The original item descriptions and work order below remain as implementation history. New dirty-region
+work should be reopened only when a benchmark demonstrates a material gap beyond the split-and-keep path.
+
 ---
 
 ## Start Here (junior dev onboarding)
@@ -79,12 +115,10 @@ loading the `.rhp` in Rhino — close Rhino before rebuilding (it locks the outp
 - **Stage cache / fingerprint** — each build stage hashes its inputs; an unchanged fingerprint restores
   the cached output instead of recomputing. Central to items L1, L2, M2, M3.
 
-**How to approach any item:** each has *Where* (files + lines — verify them, code drifts), *Problem*,
-*Do this* (ordered steps), and *Acceptance* (what "done" means). Start from Acceptance so you know the
-target, write/adjust a test that encodes it, then implement. Follow the **Suggested Order Of Work**
-table at the bottom — item 1 (H3 harness) exists partly to make every later item measurable, so do it
-first. When in doubt on scope, prefer the smallest change that satisfies Acceptance and keep the
-fallback paths the items describe.
+**How to read the historical items:** each has *Where* (files + lines — verify them, code drifts),
+*Problem*, *Do this* (the originally proposed steps), and *Acceptance* (the intended outcome). The
+completion snapshot above is authoritative where the final implementation differs from that proposal.
+The work-order table at the bottom records the sequence originally recommended before the jobs closed.
 
 ---
 
@@ -386,7 +420,7 @@ for this 16k-face output, but it will become visible on much larger meshes with 
 
 ---
 
-## Suggested Order Of Work
+## Historical Suggested Order Of Work
 
 | # | Item | Size | Risk | Why first |
 |---|---|---:|---|---|

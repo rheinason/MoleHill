@@ -442,7 +442,7 @@ public sealed partial class MoleHillPanel
         ApplyHelp(nameLabel, blockName);
 
         var weightEditor = CreateCompactScatterWeightEditor(weight, onWeightChanged, weightHelp);
-        var removeButton = MakeMiniButton("X", (_, _) => onRemove(), removeHelp, width: 28);
+        var removeButton = MakeMiniIconButton(PanelButtonIcon.Clear, (_, _) => onRemove(), removeHelp, width: 28);
 
         var editor = new StackLayout
         {
@@ -518,7 +518,7 @@ public sealed partial class MoleHillPanel
             weight,
             onWeightChanged,
             "Relative likelihood this legacy source block is chosen per instance.");
-        var removeButton = MakeMiniButton("X", (_, _) => onRemove(), "Remove this block from the scatter mix.", width: 28);
+        var removeButton = MakeMiniIconButton(PanelButtonIcon.Clear, (_, _) => onRemove(), "Remove this block from the scatter mix.", width: 28);
 
         var controls = new StackLayout
         {

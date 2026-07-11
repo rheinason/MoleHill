@@ -9,11 +9,17 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   `.Scatter`, `.Sculpt` (replays the sculpt displacement field as displacement-only); plus
   `.Cache`, `.Fingerprints`, `.Types`. Most stages are fingerprint-cached
   (`StageCacheEntry`); analysis, zones, markers, object placements, and scatter run only in
-  `TerrainBuildMode.Final` and have final-stage cache entries.
+  `TerrainBuildMode.Final`. Analysis entries are per analysis id, so changing one card does not
+  invalidate unrelated summaries/outputs; a fully cached analysis pass skips mesh extraction,
+  elevation scanning, and area computation.
+- Cache-hit timings carry a structured cache-hit flag. Cached cold timing reports are filtered on
+  restore, and normalized cached meshes are duplicated without a redundant normalization pass.
 - Reference-comparison analyses (Cut / Fill and Earthwork) share one centroid-delta pass per
   reference/boundary fingerprint. The common 2.5D reference lookup uses Core `MeshHeightProjector`;
   Rhino mesh-line projection is kept only for overlapping/near-vertical reference regions and records a
   diagnostic when used.
+- Large final Grade Path stages with persistent hard constraints ask Core to try split-keep before the
+  explicit carve/weld tier; smaller and unconstrained paths remain explicit-first.
 - `TerrainBuildSnapshot.cs` / `TerrainBuildSnapshotBuilder.cs` / `TerrainBuildSnapshotResolver.cs` -
   resolve doc geometry (points/curves/blocks/layers) into the immutable build snapshot the service reads.
 - `TerrainBuildResult.cs` - outputs (meshes, generated-object lists, diagnostics, timings).

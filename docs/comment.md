@@ -406,7 +406,8 @@ through frozen. `ApplyRetopoQuads` lost the strip merge/weld path; its topology 
 Pairing rate ~78 % of triangles on the real scene at final quality (threshold 0.8 admits the 60/120°
 rhombi an isotropic mesh naturally makes — score still ranks, so better pairs win).
 
-Known follow-ups: a field-alignment flip objective in the remesh (Lawson prefers 60° triangles; right
-triangles pair into better quads), Blossom matching behind the same scoring, SubD output. Tests:
+Progress update (2026-07-11): the field-alignment flip objective is now implemented in
+`IsotropicRemesher` and documented in `src/MoleHill.Core/Retopo/README.md`. Remaining follow-ups are
+Blossom matching behind the same scoring and optional SubD output. Tests:
 `IsotropicRemesherTests`, `IsotropicRemesherBenchTests`, `IsotropicRemesherForensicTests` (uses
 `scratch_graded_input.obj` when present), `TriQuadPairerTests`, `QuadRemesherTests`.

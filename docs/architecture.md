@@ -21,7 +21,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   (`Commands/`), the terrain definition model (`Model/`), and the build/persistence services
   (`Services/`). **All Rhino API use lives here; all reusable math lives in Core.**
   The dock panel uses local Eto responsive primitives (`PropertyRow`, adaptive button groups, and
-  `UiMetrics`) instead of rebuilding the full panel on width changes.
+  `UiMetrics`) instead of rebuilding the full panel on width changes. Compact action buttons use
+  `UI/PanelButtonIcons.cs`, a theme-aware vector icon set rendered to Eto images.
 
 ## Two hosts, one core
 
@@ -123,7 +124,10 @@ was deleted; it produced spikes on exactly the degenerate scenes that reached it
 (`PathGrader.Explicit.cs`, carve/fill with density-guarded batter + station seeds) → **split-keep**
 (`PathGrader.SplitKeep.cs`, conform corridor daylight + road-edge footprint loops in place — also
 covers daylight reaching the terrain edge) → **constraint insertion** (`PathGrader.Patches.cs`, last
-resort). `GradedRegionAssembler.SplitOutside` repairs pinched hole boundaries (outside faces at
+resort). Final Rhino builds prefer split-keep first for large meshes with persistent hard constraints;
+this avoids paying for an explicit carve/weld that commonly defers on those already-complex meshes,
+while direct Core callers keep explicit-first behavior by default. `GradedRegionAssembler.SplitOutside`
+repairs pinched hole boundaries (outside faces at
 irregular vertices are pulled into the carve) and re-conforms via a single CDT when the hand-rolled
 splitter emits an untraceable boundary. Shared: `GradingGeometry2D` (all 2D primitives —
 point-in-polygon, distance, interior point; `PadGrader.Spatial.cs` are thin compat wrappers),
@@ -136,7 +140,8 @@ fingerprint cache (`runtimeCache.StageEntries`); decomposed into `TerrainBuildSe
 (`.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Sculpt`,
 plus `.Cache`, `.Fingerprints`, `.Types`). Order: TIN → modifiers (smooth/remesh/sculpt/grade pad/
 grade path) → analysis → zones → markers → object placements → scatter. **The generated-output stages run only in
-`TerrainBuildMode.Final` and are fingerprint-cached** (analysis, zones, markers, objects, scatter).
+`TerrainBuildMode.Final` and are fingerprint-cached**. Analyses are cached independently by analysis id;
+zones, markers, objects, and scatter retain stage-level entries.
 
 - **TIN inputs** are resolved by `TerrainBuildSnapshotResolver` from a `TerrainBuildSnapshot` (built by
   `TerrainBuildSnapshotBuilder` from the live doc). A Triangulate **Boundary** now pre-filters inputs to
@@ -147,10 +152,13 @@ grade path) → analysis → zones → markers → object placements → scatter
   internally serialized by its own gate and re-keys `Vertex.ID` after every incremental edit.
 - Stage-cache mesh outputs are shallow-copied into worker caches for fast dispatch. When a worker is
   retired by a newer build, the controller keeps its task around and defers disposal of displaced
-  main-cache meshes until those retired workers have finished reading them.
+  main-cache meshes until those retired workers have finished reading them. Hot restores duplicate the
+  normalized cached mesh but do not normalize it again; timing records identify cache hits and omit
+  replayed cold-run timing diagnostics.
 - **Contours** use a single-pass marching-triangles `ContourGenerator` (not one mesh-plane per level).
 - **Slope summaries** use `SlopeAnalyzer.Summarize` so final-build panel numbers do not allocate
-  preview color arrays. Slope preview coloring still uses `SlopeAnalyzer.Analyze`.
+  preview color arrays. Both summary accumulation and preview color generation parallelize above the
+  large-face threshold. Slope preview coloring still uses `SlopeAnalyzer.Analyze`.
 - **Cut/fill and earthwork reference comparisons** share one centroid-delta pass per reference/boundary
   fingerprint. The 2.5D case projects reference Z through Core `MeshHeightProjector`; overlapping or
   near-vertical XY regions fall back to the legacy Rhino world-Z mesh-line projection and report a

@@ -48,5 +48,21 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
             m => ((RemeshModifierDefinition)m).CreaseAngle,
             (m, v) => ((RemeshModifierDefinition)m).CreaseAngle = v,
             "Preserve creases: feature edges (batter toes, slope breaks) folding at least this many degrees are pinned — vertices slide only along them and no edge flips across. Detected from the mesh each pass and never persisted as breaklines. Around 20-35 catches toe lines; leave at 0 to disable."),
+        ParameterDescriptor.Number(
+            "MinAngle", "Min Angle",
+            m => ((RemeshModifierDefinition)m).MinAngle,
+            (m, v) => ((RemeshModifierDefinition)m).MinAngle = v,
+            "Full Rebuild only: minimum triangle angle in degrees. The constrained-Delaunay refinement splits skinny triangles until none is sharper than this. Around 20-30 gives well-shaped triangles; above ~34 the refinement may not terminate. Leave at 0 for no angle constraint.",
+            max: 34.0,
+            visibleWhen: IsRebuild),
+        ParameterDescriptor.Number(
+            "MaxArea", "Max Area",
+            m => ((RemeshModifierDefinition)m).MaxArea,
+            (m, v) => ((RemeshModifierDefinition)m).MaxArea = v,
+            "Full Rebuild only: maximum triangle area. The refinement inserts points until every triangle is under this area, capping triangle size independently of Edge Length. Leave at 0 for no area constraint.",
+            visibleWhen: IsRebuild),
     };
+
+    private static bool IsRebuild(ModifierDefinition m) =>
+        string.Equals(((RemeshModifierDefinition)m).Mode, "rebuild", StringComparison.OrdinalIgnoreCase);
 }

@@ -102,15 +102,16 @@ internal sealed partial class TerrainBuildService
             ThrowIfCancellationRequested(shouldCancel);
             RhinoMesh analysisMesh = currentMesh;
             RhinoMesh baselineMesh = baseMesh ?? analysisMesh;
-            string analysisStageKey = TerrainStageKey.ForMode(mode, "analysis");
-            usedStageKeys.Add(analysisStageKey);
-            build.AnalysisResults.AddRange(ExecuteCachedAnalysisStage(
+            build.AnalysisResults.AddRange(BuildAnalyses(
+                snapshot,
+                terrain,
+                baselineMesh,
+                analysisMesh,
+                baseMeshFingerprint,
+                currentMeshFingerprint,
                 build,
                 runtimeCache,
-                analysisStageKey,
-                ComputeAnalysisFingerprint(snapshot, terrain, baselineMesh, analysisMesh, baseMeshFingerprint, currentMeshFingerprint),
-                () => BuildAnalyses(snapshot, terrain, baselineMesh, analysisMesh, build, shouldCancel),
-                _ => DescribeMesh(analysisMesh),
+                usedStageKeys,
                 shouldCancel));
 
             string zonesStageKey = TerrainStageKey.ForMode(mode, "zones");
@@ -211,53 +212,6 @@ internal sealed partial class TerrainBuildService
             structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
     }
 
-    private static List<TerrainAnalysisSummary> ExecuteCachedAnalysisStage(
-        TerrainBuildResult build,
-        TerrainRuntimeCache runtimeCache,
-        string stageKey,
-        ulong stageFingerprint,
-        Func<List<TerrainAnalysisSummary>> action,
-        Func<IReadOnlyList<TerrainAnalysisSummary>, string?> detailFactory,
-        Func<bool>? shouldCancel)
-    {
-        const string stageName = "Analysis";
-        var timer = Stopwatch.StartNew();
-        ThrowIfCancellationRequested(shouldCancel);
-        if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
-            cachedEntry.PreResolutionFingerprint == stageFingerprint)
-        {
-            build.Diagnostics.AddRange(cachedEntry.Diagnostics);
-            build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
-            List<TerrainAnalysisSummary> cachedAnalysis = TerrainRuntimeCacheCloner.CloneAnalyses(cachedEntry.AnalysisOutput);
-            build.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.AuxiliaryObjects));
-            timer.Stop();
-            build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory(cachedAnalysis)));
-            return cachedAnalysis;
-        }
-
-        int diagnosticsStart = build.Diagnostics.Count;
-        int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
-        int auxiliaryStart = build.AuxiliaryObjects.Count;
-        List<TerrainAnalysisSummary> analysis = action();
-        ThrowIfCancellationRequested(shouldCancel);
-        timer.Stop();
-
-        runtimeCache.StageEntries[stageKey] = new StageCacheEntry
-        {
-            StageName = stageName,
-            PreResolutionFingerprint = stageFingerprint,
-            ResolvedInputFingerprint = stageFingerprint,
-            OutputFingerprint = stageFingerprint,
-            AnalysisOutput = TerrainRuntimeCacheCloner.CloneAnalyses(analysis),
-            AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.AuxiliaryObjects.Skip(auxiliaryStart)),
-            Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
-            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
-        };
-
-        build.RecordTiming(stageName, timer.Elapsed, detailFactory(analysis));
-        return analysis;
-    }
-
     private static void ExecuteCachedZonesStage(
         TerrainBuildResult build,
         TerrainRuntimeCache runtimeCache,
@@ -273,8 +227,7 @@ internal sealed partial class TerrainBuildService
         if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
-            build.Diagnostics.AddRange(cachedEntry.Diagnostics);
-            build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
+            RestoreCachedDiagnostics(build, cachedEntry);
             build.ZoneObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.ZoneObjects));
             timer.Stop();
             build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
@@ -317,8 +270,7 @@ internal sealed partial class TerrainBuildService
         if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
-            build.Diagnostics.AddRange(cachedEntry.Diagnostics);
-            build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
+            RestoreCachedDiagnostics(build, cachedEntry);
             build.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.MarkerObjects));
             timer.Stop();
             build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
@@ -361,8 +313,7 @@ internal sealed partial class TerrainBuildService
         if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
-            build.Diagnostics.AddRange(cachedEntry.Diagnostics);
-            build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
+            RestoreCachedDiagnostics(build, cachedEntry);
             build.ObjectPlacements.AddRange(TerrainRuntimeCacheCloner.CloneObjectPlacementGroups(cachedEntry.ObjectPlacements));
             timer.Stop();
             build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
@@ -405,8 +356,7 @@ internal sealed partial class TerrainBuildService
         if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
             cachedEntry.PreResolutionFingerprint == stageFingerprint)
         {
-            build.Diagnostics.AddRange(cachedEntry.Diagnostics);
-            build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
+            RestoreCachedDiagnostics(build, cachedEntry);
             build.ScatterObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.ScatterObjects));
             timer.Stop();
             build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));

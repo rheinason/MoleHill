@@ -1157,25 +1157,104 @@ internal static class RetainingWallPlannerCore
     private static bool HasSelfIntersection(Point3d[] points, bool isClosed, double tolerance)
     {
         int segmentCount = isClosed ? points.Length : points.Length - 1;
+        if (segmentCount < 3)
+            return false;
+
+        double minX = double.PositiveInfinity;
+        double minY = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity;
+        double maxY = double.NegativeInfinity;
+        for (int i = 0; i < points.Length; i++)
+        {
+            minX = Math.Min(minX, points[i].X);
+            minY = Math.Min(minY, points[i].Y);
+            maxX = Math.Max(maxX, points[i].X);
+            maxY = Math.Max(maxY, points[i].Y);
+        }
+
+        // The former all-pairs scan was O(n^2) and dominated planning for survey rails with tens of
+        // thousands of points. Bucket segment bounds into roughly sqrt(n) cells along the longest
+        // axis, then run the exact same intersection predicate only for spatial neighbours.
+        double span = Math.Max(maxX - minX, maxY - minY);
+        double cellSize = Math.Max(
+            span / Math.Max(8.0, Math.Sqrt(segmentCount)),
+            Math.Max(tolerance * 4.0, 1e-9));
+        var cells = new Dictionary<long, List<int>>();
+        var seenAtStamp = new int[segmentCount];
+        int stamp = 0;
+
         for (int i = 0; i < segmentCount; i++)
         {
             int iNext = (i + 1) % points.Length;
-            for (int j = i + 1; j < segmentCount; j++)
-            {
-                int jNext = (j + 1) % points.Length;
-                bool adjacent = i == j || iNext == j || jNext == i;
-                if (isClosed && i == 0 && jNext == 0)
-                    adjacent = true;
-                if (adjacent)
-                    continue;
+            GetSegmentCellRange(points[i], points[iNext], minX, minY, cellSize, tolerance,
+                out int ix0, out int iy0, out int ix1, out int iy1);
 
-                if (TrySegmentsIntersect2D(points[i], points[iNext], points[j], points[jNext], tolerance))
-                    return true;
+            stamp++;
+            for (int ix = ix0; ix <= ix1; ix++)
+            {
+                for (int iy = iy0; iy <= iy1; iy++)
+                {
+                    long key = CellKey(ix, iy);
+                    if (!cells.TryGetValue(key, out List<int>? candidates))
+                        continue;
+
+                    foreach (int j in candidates)
+                    {
+                        if (seenAtStamp[j] == stamp)
+                            continue;
+                        seenAtStamp[j] = stamp;
+
+                        int jNext = (j + 1) % points.Length;
+                        bool adjacent = iNext == j || jNext == i;
+                        if (isClosed && i == segmentCount - 1 && j == 0)
+                            adjacent = true;
+                        if (adjacent)
+                            continue;
+
+                        if (TrySegmentsIntersect2D(points[i], points[iNext], points[j], points[jNext], tolerance))
+                            return true;
+                    }
+                }
+            }
+
+            for (int ix = ix0; ix <= ix1; ix++)
+            {
+                for (int iy = iy0; iy <= iy1; iy++)
+                {
+                    long key = CellKey(ix, iy);
+                    if (!cells.TryGetValue(key, out List<int>? bucket))
+                    {
+                        bucket = new List<int>(4);
+                        cells.Add(key, bucket);
+                    }
+                    bucket.Add(i);
+                }
             }
         }
 
         return false;
     }
+
+    private static void GetSegmentCellRange(
+        Point3d a,
+        Point3d b,
+        double originX,
+        double originY,
+        double cellSize,
+        double tolerance,
+        out int ix0,
+        out int iy0,
+        out int ix1,
+        out int iy1)
+    {
+        double padding = Math.Max(tolerance, 1e-9);
+        ix0 = (int)Math.Floor((Math.Min(a.X, b.X) - padding - originX) / cellSize);
+        iy0 = (int)Math.Floor((Math.Min(a.Y, b.Y) - padding - originY) / cellSize);
+        ix1 = (int)Math.Floor((Math.Max(a.X, b.X) + padding - originX) / cellSize);
+        iy1 = (int)Math.Floor((Math.Max(a.Y, b.Y) + padding - originY) / cellSize);
+    }
+
+    private static long CellKey(int x, int y) => ((long)x << 32) ^ (uint)y;
 
     private static bool TrySegmentsIntersect2D(Point3d a0, Point3d a1, Point3d b0, Point3d b1, double tolerance)
     {

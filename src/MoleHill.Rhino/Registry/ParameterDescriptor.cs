@@ -82,6 +82,14 @@ internal sealed class ParameterDescriptor
     // Text
     public bool TrimText { get; init; } = true;
 
+    /// <summary>
+    /// Optional visibility gate. When set and it returns false for the current definition, the schema
+    /// builder omits this row entirely — the mechanism behind mode-dependent parameters (e.g. the Remesh
+    /// quality knobs that only apply to Full Rebuild). Re-evaluated on every card rebuild, and since any
+    /// edit (including the gating Choice) rebuilds the card, the row appears/disappears live.
+    /// </summary>
+    public Func<ModifierDefinition, bool>? VisibleWhen { get; init; }
+
     // Accessors (the relevant pair for this kind is set)
     public Func<ModifierDefinition, double>? GetNumber { get; init; }
     public Action<ModifierDefinition, double>? SetNumber { get; init; }
@@ -116,7 +124,8 @@ internal sealed class ParameterDescriptor
         string? help = null,
         double? min = 0,
         double? max = null,
-        int decimalPlaces = 3) =>
+        int decimalPlaces = 3,
+        Func<ModifierDefinition, bool>? visibleWhen = null) =>
         new()
         {
             Kind = ParameterKind.Number,
@@ -128,6 +137,7 @@ internal sealed class ParameterDescriptor
             Min = min,
             Max = max,
             DecimalPlaces = decimalPlaces,
+            VisibleWhen = visibleWhen,
         };
 
     public static ParameterDescriptor OptionalNumber(

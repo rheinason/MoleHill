@@ -22,17 +22,39 @@ internal sealed partial class TerrainBuildService
         TerrainDefinition terrain,
         RhinoMesh fallbackBaseMesh,
         RhinoMesh currentMesh,
+        ulong baseMeshFingerprint,
+        ulong currentMeshFingerprint,
         TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
+        ISet<string> usedStageKeys,
         Func<bool>? shouldCancel)
     {
+        var totalTimer = Stopwatch.StartNew();
         var results = new List<TerrainAnalysisSummary>(terrain.Analyses.Count);
         ThrowIfCancellationRequested(shouldCancel);
-        if (!RhinoGeometryConversions.TryExtractMeshData(currentMesh, out var currentVertices, out var currentFaces, out _))
-            return results;
-
-        GetElevationRange(currentVertices, currentMesh.Vertices.Count, out double elevMinZ, out double elevMaxZ);
-        double surfaceArea = AreaMassProperties.Compute(currentMesh)?.Area ?? 0.0;
+        double[] currentVertices = Array.Empty<double>();
+        int[] currentFaces = Array.Empty<int>();
+        double elevMinZ = 0.0;
+        double elevMaxZ = 0.0;
+        double surfaceArea = 0.0;
+        bool analysisContextPrepared = false;
         var referenceComparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>();
+
+        bool EnsureAnalysisContext()
+        {
+            if (analysisContextPrepared)
+                return true;
+
+            if (!RhinoGeometryConversions.TryExtractMeshData(currentMesh, out double[] vertices, out int[] faces, out _))
+                return false;
+
+            currentVertices = vertices;
+            currentFaces = faces;
+            GetElevationRange(currentVertices, currentMesh.Vertices.Count, out elevMinZ, out elevMaxZ);
+            surfaceArea = AreaMassProperties.Compute(currentMesh)?.Area ?? 0.0;
+            analysisContextPrepared = true;
+            return true;
+        }
 
         foreach (var analysis in terrain.Analyses)
         {
@@ -43,6 +65,40 @@ internal sealed partial class TerrainBuildService
             // most painfully for contours, which scanned the whole mesh per level even when disabled.
             if (!analysis.IsEnabled)
                 continue;
+
+            string stageKey = TerrainStageKey.ForMode(TerrainBuildMode.Final, $"analysis:{analysis.Id:N}");
+            usedStageKeys.Add(stageKey);
+            ulong fingerprint = ComputeAnalysisFingerprint(
+                snapshot,
+                terrain,
+                analysis,
+                fallbackBaseMesh,
+                currentMesh,
+                baseMeshFingerprint,
+                currentMeshFingerprint);
+            var analysisTimer = Stopwatch.StartNew();
+            if (runtimeCache.StageEntries.TryGetValue(stageKey, out StageCacheEntry? cachedEntry) &&
+                cachedEntry.PreResolutionFingerprint == fingerprint)
+            {
+                RestoreCachedDiagnostics(build, cachedEntry);
+                List<TerrainAnalysisSummary> cachedResults = TerrainRuntimeCacheCloner.CloneAnalyses(cachedEntry.AnalysisOutput);
+                build.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.AuxiliaryObjects));
+                results.AddRange(cachedResults);
+                analysisTimer.Stop();
+                build.RecordTiming(
+                    $"Analysis {analysis.Label}",
+                    analysisTimer.Elapsed,
+                    AppendCacheHitDetail($"{cachedResults.Count:N0} summaries, {cachedEntry.AuxiliaryObjects.Count:N0} outputs"),
+                    isCacheHit: true);
+                continue;
+            }
+
+            if (!EnsureAnalysisContext())
+                break;
+
+            int diagnosticsStart = build.Diagnostics.Count;
+            int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
+            int auxiliaryStart = build.AuxiliaryObjects.Count;
 
             TerrainAnalysisSummary? summary = analysis switch
             {
@@ -161,8 +217,29 @@ internal sealed partial class TerrainBuildService
 
             if (summary != null)
                 results.Add(summary);
+
+            analysisTimer.Stop();
+            runtimeCache.StageEntries[stageKey] = new StageCacheEntry
+            {
+                StageName = $"Analysis {analysis.Label}",
+                PreResolutionFingerprint = fingerprint,
+                ResolvedInputFingerprint = fingerprint,
+                OutputFingerprint = fingerprint,
+                AnalysisOutput = summary == null
+                    ? new List<TerrainAnalysisSummary>()
+                    : TerrainRuntimeCacheCloner.CloneAnalyses(new[] { summary }),
+                AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.AuxiliaryObjects.Skip(auxiliaryStart)),
+                Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
+                StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
+            };
+            build.RecordTiming(
+                $"Analysis {analysis.Label}",
+                analysisTimer.Elapsed,
+                $"{(summary == null ? 0 : 1):N0} summaries, {build.AuxiliaryObjects.Count - auxiliaryStart:N0} outputs");
         }
 
+        totalTimer.Stop();
+        build.RecordTiming("Analysis", totalTimer.Elapsed, $"{results.Count:N0} enabled analyses");
         return results;
     }
 

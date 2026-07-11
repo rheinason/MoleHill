@@ -44,6 +44,10 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
   OptionalNumber/Slider/Bool/Layer/ReadOnly/Choice/Color/Text), `Label`/`Help`, numeric bounds, and typed
   get/set accessor delegates against the concrete definition (cast inside, mirroring the old hand-written
   mutations). Use the static factories (`Number`, `Slider`, `Sources`, …) to keep schemas terse.
+  A `VisibleWhen` gate (`Func<ModifierDefinition,bool>?`) hides a row when it returns false, so parameters
+  can depend on another field — e.g. the Remesh Min Angle / Max Area rows only show when `Mode ==
+  "rebuild"`. It re-evaluates on every card rebuild, and since any edit (including the gating `Choice`
+  dropdown) rebuilds the card via `StateChanged → RefreshUi`, gated rows appear/disappear live.
 - `AnalysisParameterDescriptor.cs` — the same shape against `AnalysisDefinition` (separate type because the
   accessor delegates are typed differently). Adds two mutate-mode flags plain modifiers don't need:
   `RefreshOnly` (cheap preview recolor via `MutateAndRefreshAnalysis`, e.g. palette/range on Slope/

@@ -25,6 +25,11 @@ emitting a non-watertight result.
 3. **constraint insertion** - `PathGrader.Patches.cs` (local topology insertion + Z-only grading;
    last resort, may emit unhealthy topology - diagnostics record why the upper tiers deferred).
 
+The optional `preferSplitKeep` performance flag reverses the first two attempts for large constrained
+meshes that are likely to reject explicit carve/weld assembly. Rhino final builds enable it only for
+meshes with at least 10,000 faces and persistent hard constraints; the default Core contract remains
+explicit-first.
+
 `GradedRegionAssembler.SplitOutside` (used by both explicit tiers) repairs pinched/branched hole
 boundaries by pulling outside faces at irregular vertices into the carve region, and falls back to a
 single-CDT re-conform (`SplitConformViaCdt`) when the hand-rolled splitter emits an untraceable

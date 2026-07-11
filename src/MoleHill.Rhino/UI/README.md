@@ -24,7 +24,8 @@ fields by composing them, not by copying boilerplate.
   pinned over the active viewport corner while a sculpt session runs (brush buttons, radius/strength
   sliders, falloff, Done). Only edits session prefs; returns focus to Rhino after every interaction so
   viewport shortcuts keep working. Owned by `Services/SculptSessionController`.
-- `PanelIcons.cs` - 16x16 panel tab/badge icon loader. `UiTheme.cs` - colors/spacing.
+- `PanelIcons.cs` - 16x16 panel tab/badge icon loader. `PanelButtonIcons.cs` - theme-aware
+  vector line icons for compact action buttons. `UiTheme.cs` - colors/spacing.
 
 Tabs: Modifiers, Zones (Objects), Analysis, Markers. The panel talks to `Services/TerrainController`;
 it holds no terrain logic. No automated UI tests (needs the Rhino runtime) - verify UI changes by compile

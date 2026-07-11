@@ -40,6 +40,10 @@ Curves are paired by conservative mutual nearest matching. `W` below means the w
 
 Diagnostics carry a reason enum and curve ids where applicable, including ambiguous pairs, mixed open/closed candidates, self-intersecting rails, sub-tolerance width, mapping rejection, and solid failure.
 
+Self-intersection validation places segment XY bounds into spatial grid buckets and compares only segments
+that share a bucket. It still uses the exact intersection predicate and adjacency exclusions, avoiding the
+quadratic all-pairs scan on long rails without changing acceptance behavior.
+
 ## Stationing And Corners
 
 Wall width is the minimum synchronized toe/top rail spacing. A pair is rejected when this width is below `max(0.1T, 1e-6)`.
@@ -67,5 +71,9 @@ If solid generation fails, the entire pair is skipped and no terrain breaklines 
 ## Terrain Insertion
 
 Rhino tries direct topology insertion first. The result is accepted only when the terrain boundary remains safe and wall constraints are represented. If direct insertion fails, the workflow falls back to `SurfaceRemesher.Remesh`.
+
+For retaining-wall fallback, the reduced boundary/guide seed is prepared first. When that reduced seed
+passes the remesh acceptance checks, it is returned before attempting the more expensive carried-interior
+seed path.
 
 Grasshopper uses the shared `SurfaceRemesher` breakline insertion path for accepted wall pairs.

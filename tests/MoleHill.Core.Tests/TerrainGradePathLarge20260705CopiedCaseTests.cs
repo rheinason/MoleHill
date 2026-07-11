@@ -12,7 +12,7 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
         RunCase();
     }
 
-    internal static CopiedCaseRun RunCase()
+    internal static CopiedCaseRun RunCase(bool preferSplitKeep = false)
     {
         double[] vertices =
         {
@@ -19028,7 +19028,8 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
             faceCount,
             paths,
             hardConstraints,
-            out string? errorMessage);
+            out string? errorMessage,
+            preferSplitKeep: preferSplitKeep);
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
@@ -19046,7 +19047,8 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
             topology.BoundaryVertexCount,
             topology.BoundaryComponentCount,
             topology.NonManifoldEdgeCount,
-            topology.HasOpenBoundaryChains);
+            topology.HasOpenBoundaryChains,
+            result.Diagnostics.ToArray());
     }
 
     internal readonly record struct CopiedCaseRun(
@@ -19058,5 +19060,6 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
         int BoundaryVertexCount,
         int BoundaryComponentCount,
         int NonManifoldEdgeCount,
-        bool HasOpenBoundaryChains);
+        bool HasOpenBoundaryChains,
+        string[] Diagnostics);
 }

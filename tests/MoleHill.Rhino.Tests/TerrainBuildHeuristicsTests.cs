@@ -6,6 +6,30 @@ namespace MoleHill.Rhino.Tests;
 public class TerrainBuildHeuristicsTests
 {
     [Fact]
+    public void ShouldPreferSplitKeepGradePath_LargeConstrainedFinalMesh_ReturnsTrue()
+    {
+        Assert.True(TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
+            TerrainBuildMode.Final,
+            hasPersistentHardConstraints: true,
+            faceCount: 12_411));
+    }
+
+    [Theory]
+    [InlineData((int)TerrainBuildMode.Preview, true, 12_411)]
+    [InlineData((int)TerrainBuildMode.Final, false, 12_411)]
+    [InlineData((int)TerrainBuildMode.Final, true, 9_999)]
+    public void ShouldPreferSplitKeepGradePath_UnsafeOrSmallCase_ReturnsFalse(
+        int modeValue,
+        bool hasPersistentHardConstraints,
+        int faceCount)
+    {
+        Assert.False(TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
+            (TerrainBuildMode)modeValue,
+            hasPersistentHardConstraints,
+            faceCount));
+    }
+
+    [Fact]
     public void ShouldUseLegacyPathTriangulation_FinalBuildWithPersistentHardConstraints_ReturnsFalse()
     {
         bool useLegacy = TerrainBuildHeuristics.ShouldUseLegacyPathTriangulation(

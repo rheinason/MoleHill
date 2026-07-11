@@ -124,6 +124,9 @@ internal static class TerrainSerializer
     /// Schema 23: the Remesh modifier gained a Mode choice (isotropic/rebuild/local). Mode's property
     /// initializer already resolves missing JSON to "isotropic" for any older document, so this is only a
     /// defensive normalize for hand-edited documents with an explicit null.
+    /// Schema 24: the "rebuild" mode re-exposes Min Angle / Max Area quality knobs. MaxArea is already
+    /// zeroed for pre-22 documents above; the same &lt;22 gate also zeroes the legacy global MinAngle so a
+    /// stray old value can't quietly refine a terrain the first time its mode is switched to rebuild.
     /// </summary>
     private static void MigrateRemeshModifiers(TerrainDefinition terrain, int sourceSchemaVersion)
     {
@@ -134,6 +137,7 @@ internal static class TerrainSerializer
                 if (remesh.MaxArea > 0 && remesh.EdgeLength <= 0)
                     remesh.EdgeLength = Math.Sqrt(remesh.MaxArea * 4.0 / Math.Sqrt(3.0));
                 remesh.MaxArea = 0;
+                remesh.MinAngle = 0;
             }
 
             if (sourceSchemaVersion < 23 && string.IsNullOrWhiteSpace(remesh.Mode))

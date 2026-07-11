@@ -433,4 +433,215 @@ public class IsotropicRemesherTests
         Assert.False(result.Success);
         Assert.Same(vertices, result.Vertices);
     }
+
+    // === Collapse: narrow high-relief slivers (XY-footprint veto) ======================================
+
+    [Fact]
+    public void Remesh_NarrowHighReliefSliver_CoarsensToTargetDensity()
+    {
+        // A flat-low plateau, a steep-but-sub-70° batter (rise 1.6 over run 0.6 ≈ 69.4°), and a
+        // flat-high plateau. The batter is pre-refined with a dense column of tiny triangles (0.15
+        // spacing) — the "pinched ridge" case off a wall end. With the XY-footprint collapse veto the
+        // batter interior must coarsen to ~target density; a 3D veto would preserve the pinch.
+        double[] xs = { 0, 1.5, 3.0, 4.0, 4.15, 4.30, 4.45, 4.6, 6.0, 7.5, 9.0 };
+        double[] ys = Steps(0, 6, 1.5);
+        (double[] vertices, int[] faces) = BuildGrid(xs, ys, (x, _) =>
+            x <= 4.0 ? 0.0 : (x >= 4.6 ? 1.6 : (x - 4.0) / 0.6 * 1.6));
+
+        var reference = new TerrainFaceGrid(vertices, vertices.Length / 3, faces, faces.Length / 3);
+        int inputInterior = CountVerticesInXBand(vertices, 4.0, 4.6);
+
+        var result = RemeshOrThrow(vertices, faces, NoConstraints, new IsotropicRemesher.Options
+        {
+            TargetEdgeLength = 1.5,
+            CreaseAngleDeg = 30,
+            Tolerance = 0.01,
+            WallFaceMinSlopeDeg = 70
+        });
+
+        Assert.True(result.Collapses > 0, "no collapses ran on the pre-refined batter");
+
+        // The dense batter interior (between the two pinned fold lines at x=4.0 and x=4.6) collapses:
+        // at target 3D spacing on a ~69° batter the XY step exceeds the 0.6 band, so ~no interior
+        // vertex is needed. Assert a large reduction from the pre-refined input.
+        int outputInterior = CountVerticesInXBand(result.Vertices, 4.0, 4.6);
+        Assert.True(outputInterior < inputInterior / 2,
+            $"batter did not coarsen: {inputInterior} interior verts -> {outputInterior}");
+
+        // Every output vertex still sits exactly on the input surface, and the mesh stays watertight.
+        for (int i = 0; i < result.Vertices.Length / 3; i++)
+        {
+            double x = result.Vertices[i * 3], y = result.Vertices[i * 3 + 1], z = result.Vertices[i * 3 + 2];
+            Assert.True(reference.TryInterpolateZ(x, y, out double expected), $"vertex {i} left the input footprint");
+            Assert.True(Math.Abs(z - expected) < 1e-6, $"vertex {i} off surface by {Math.Abs(z - expected):E2}");
+        }
+
+        AssertWatertight(result.Faces);
+    }
+
+    [Fact]
+    public void Remesh_BroadSteepSlope_NotOverDecimated()
+    {
+        // A broad, uniform ~60° slope already at target density (slope-direction 3D edge ≈ target,
+        // contour edge ≈ target). The XY-footprint veto must NOT touch it: collapse candidacy is still
+        // measured in 3D, so equilibrium slope edges are never candidates. (A candidate test on XY —
+        // the rejected option — would flag every slope-direction edge and gut the relief.)
+        const double tan60 = 1.7320508075688772;
+        double[] xs = Steps(0, 9, 0.75); // slope-dir 3D edge = 0.75 / cos60° = 1.5 = target
+        double[] ys = Steps(0, 9, 1.5);  // contour edge = 1.5 = target
+        (double[] vertices, int[] faces) = BuildGrid(xs, ys, (x, _) => x * tan60);
+
+        int inputCount = vertices.Length / 3;
+        double inputRelief = ZRange(vertices);
+
+        var result = RemeshOrThrow(vertices, faces, NoConstraints, new IsotropicRemesher.Options
+        {
+            TargetEdgeLength = 1.5,
+            CreaseAngleDeg = 30,
+            Tolerance = 0.01
+        });
+
+        // Relief preserved (not flattened) and vertex budget kept (not decimated to a few big faces).
+        Assert.True(Math.Abs(ZRange(result.Vertices) - inputRelief) < inputRelief * 0.02,
+            $"slope relief changed: {inputRelief:F2} -> {ZRange(result.Vertices):F2}");
+        Assert.True(result.Vertices.Length / 3 >= inputCount * 0.7,
+            $"broad slope was over-decimated: {inputCount} -> {result.Vertices.Length / 3} vertices");
+
+        // Edge lengths stay clustered near target (uniform density retained). Band top allows the grid
+        // diagonals of a target square (~√2·contour on this slope ≈ 2.2), which are legitimately present.
+        var edges = CollectEdges(result.Faces);
+        int within = edges.Count(e => { double l = EdgeLength(result.Vertices, e.a, e.b); return l >= 1.0 && l <= 2.3; });
+        Assert.True(within >= edges.Count * 0.75, $"only {within}/{edges.Count} slope edges near target");
+        AssertWatertight(result.Faces);
+    }
+
+    private static int CountVerticesInXBand(double[] vertices, double xLow, double xHigh)
+    {
+        int count = 0;
+        for (int i = 0; i < vertices.Length / 3; i++)
+        {
+            double x = vertices[i * 3];
+            if (x > xLow + 1e-6 && x < xHigh - 1e-6)
+                count++;
+        }
+
+        return count;
+    }
+
+    private static double ZRange(double[] vertices)
+    {
+        double min = double.MaxValue, max = double.MinValue;
+        for (int i = 0; i < vertices.Length / 3; i++)
+        {
+            double z = vertices[i * 3 + 2];
+            if (z < min) min = z;
+            if (z > max) max = z;
+        }
+
+        return max - min;
+    }
+
+    // === Field-aligned flip objective (retopo) ========================================================
+
+    [Fact]
+    public void Remesh_UniformField_ProducesMoreRightTrianglesThanIsotropic()
+    {
+        // Flat jittered patch (z=0 isolates the flip from the planarity term). Isotropic Lawson drives
+        // toward equilibrium ~60° triangles; a uniform 4-RoSy field (θ=0) should instead steer flips so
+        // diagonals run at ±45° to the axes, yielding axis-aligned RIGHT triangles that pair into quads.
+        (double[] vertices, int[] faces) = BuildGrid(Steps(0, 12, 1.0), Steps(0, 12, 1.0), (_, _) => 0.0);
+        JitterInterior(vertices, 0.28, 0, 12, 0, 12);
+
+        var baseOptions = new IsotropicRemesher.Options { TargetEdgeLength = 1.0, CreaseAngleDeg = 30, Tolerance = 0.01 };
+        var isotropic = RemeshOrThrow((double[])vertices.Clone(), (int[])faces.Clone(), NoConstraints, baseOptions);
+
+        var field = new double[vertices.Length / 3]; // θ = 0 everywhere
+        var aligned = RemeshOrThrow((double[])vertices.Clone(), (int[])faces.Clone(), NoConstraints,
+            new IsotropicRemesher.Options
+            {
+                TargetEdgeLength = 1.0,
+                CreaseAngleDeg = 30,
+                Tolerance = 0.01,
+                FieldTheta = field
+            });
+
+        double isoRight = RightTriangleFraction(isotropic.Vertices, isotropic.Faces);
+        double alignedRight = RightTriangleFraction(aligned.Vertices, aligned.Faces);
+        Assert.True(alignedRight > isoRight * 1.25,
+            $"field did not raise right-triangle fraction: isotropic {isoRight:F3} vs field {alignedRight:F3}");
+        AssertWatertight(aligned.Faces);
+    }
+
+    [Fact]
+    public void Remesh_NoisyField_DoesNotCarveSlivers()
+    {
+        // A deliberately incoherent per-vertex field must not let the flip objective produce degenerate
+        // slivers — the hard min-angle floor (~20°) guards it. Field-aligned right triangles legitimately
+        // have a SMALLER min angle than isotropic ~60° equilateral ones, so we don't require the field to
+        // match the baseline; we require it to stay near the flip floor, comfortably above degenerate.
+        (double[] vertices, int[] faces) = BuildGrid(Steps(0, 10, 1.0), Steps(0, 10, 1.0), (_, _) => 0.0);
+        JitterInterior(vertices, 0.3, 0, 10, 0, 10);
+
+        int count = vertices.Length / 3;
+        var noisy = new double[count];
+        for (int i = 0; i < count; i++)
+        {
+            uint h = (uint)(i * 2246822519u);
+            noisy[i] = (h % 1000) / 1000.0 * (Math.PI / 2.0); // θ ∈ [0, π/2)
+        }
+
+        var field = RemeshOrThrow((double[])vertices.Clone(), (int[])faces.Clone(), NoConstraints,
+            new IsotropicRemesher.Options
+            {
+                TargetEdgeLength = 1.0,
+                CreaseAngleDeg = 30,
+                Tolerance = 0.01,
+                FieldTheta = noisy
+            });
+
+        // No sliver: worst triangle stays within a small margin of the ~20° flip floor (collapse/relax,
+        // which don't consult the floor, may nudge a few degrees under). Well above degenerate.
+        double fieldMin = MinAngleOverMesh(field.Vertices, field.Faces);
+        Assert.True(fieldMin > 15.0 * Math.PI / 180.0,
+            $"noisy field carved a sliver: worst triangle {fieldMin * 180.0 / Math.PI:F1}° (floor ~20°)");
+        AssertWatertight(field.Faces);
+    }
+
+    /// <summary>Fraction of faces whose largest interior angle is ≥ 80° — right-ish (pairable) triangles.</summary>
+    private static double RightTriangleFraction(double[] vertices, int[] faces)
+    {
+        int faceCount = faces.Length / 3;
+        int right = 0;
+        for (int t = 0; t < faceCount; t++)
+        {
+            if (MaxTriangleAngle(vertices, faces[t * 3], faces[t * 3 + 1], faces[t * 3 + 2]) >= 80.0 * Math.PI / 180.0)
+                right++;
+        }
+
+        return faceCount == 0 ? 0.0 : (double)right / faceCount;
+    }
+
+    private static double MinAngleOverMesh(double[] vertices, int[] faces)
+    {
+        double min = double.MaxValue;
+        for (int t = 0; t < faces.Length / 3; t++)
+            min = Math.Min(min, MeshFlipGeometry.MinTriangleAngle(vertices, faces[t * 3], faces[t * 3 + 1], faces[t * 3 + 2]));
+        return min;
+    }
+
+    private static double MaxTriangleAngle(double[] v, int a, int b, int c)
+    {
+        double a1 = Corner(v, a, b, c);
+        double a2 = Corner(v, b, c, a);
+        return Math.Max(a1, Math.Max(a2, Math.PI - a1 - a2));
+    }
+
+    private static double Corner(double[] v, int apex, int p, int q)
+    {
+        double ux = v[p * 3] - v[apex * 3], uy = v[p * 3 + 1] - v[apex * 3 + 1];
+        double wx = v[q * 3] - v[apex * 3], wy = v[q * 3 + 1] - v[apex * 3 + 1];
+        double dot = (ux * wx) + (uy * wy);
+        double det = (ux * wy) - (uy * wx);
+        return Math.Abs(Math.Atan2(det, dot));
+    }
 }

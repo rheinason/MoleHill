@@ -16,9 +16,14 @@ Pipeline (`QuadRemesher.Remesh` is the entry point; returns the field too for th
    modifier stack (boundary, creases, the Retopo constraint curves, and `PersistentHardConstraints` —
    grade-path road edges arrive that way). The Retopo modifier draws it as a flow-cross overlay.
 2. **`Engine/IsotropicRemesher` with `FieldTheta`** — the field-aligned isotropic remesh: split /
-   collapse / flip / relax / back-project with feature polylines pinned, and tangential relaxation
-   damped ACROSS the local field direction so vertices slide along field lines and edges straighten
-   into the quad flow. Steep retaining-wall faces are frozen (never moved, split, or cut out).
+   collapse / flip / relax / back-project with feature polylines pinned. Tangential relaxation is
+   damped ACROSS the local field direction so vertices slide along field lines, and the **flip
+   objective becomes field-aligned** when a field is present: instead of Lawson max-min-angle (which
+   drives toward 60° equilateral triangles that pair into 60/120° rhombi), it prefers the diagonal
+   running at ±45° to the field — the hypotenuse of an axis-aligned quad — so `TriQuadPairer` merges
+   pairs into clean 90° quads. A hard min-angle floor guards against slivers where the field is noisy,
+   and the plain Remesh path (no field) keeps pure Lawson unchanged. Steep retaining-wall faces are
+   frozen (never moved, split, or cut out).
 3. **`TriQuadPairer.cs`** — merges adjacent triangle pairs into quads, scored by corner angles near
    90°, edge alignment to the field, and planarity across the removed diagonal; greedy best-first.
    Geometry never changes, every triangle appears exactly once as a tri or half a quad, so the output
@@ -31,6 +36,6 @@ QuadRetopoCleanup / WallQuadStripBuilder) was removed: a non-seamless parametriz
 produced lattice holes at singularities and boundaries, and the weld-only wall join could gap — see
 `docs/comment.md` iteration 18.
 
-**Roadmap**: a field-alignment flip objective in the remesh (Lawson prefers 60° triangles; right
-triangles pair into better quads), Blossom perfect matching behind the same pair scoring, optional
-SubD output.
+**Roadmap**: Blossom perfect matching behind the same pair scoring (the current matcher is greedy
+best-first, so parity/ordering leftovers remain), optional SubD output. The field-alignment flip
+objective (step 2) is implemented.

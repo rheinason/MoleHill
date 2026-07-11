@@ -79,7 +79,7 @@ public sealed partial class MoleHillPanel
         };
         if (liveObjectIds.Count > 0)
         {
-            objectsRow.Items.Add(MakeMiniButton("X", (_, _) =>
+            objectsRow.Items.Add(MakeMiniIconButton(PanelButtonIcon.Clear, (_, _) =>
                     mutateSourceSet(set => set.ReplaceObjects(Array.Empty<Guid>())),
                 "Clear all referenced objects.", width: 28));
         }
@@ -94,7 +94,7 @@ public sealed partial class MoleHillPanel
             path => mutateSourceSet(set => set.AddLayer(path)),
             path => mutateSourceSet(set => set.RemoveLayer(path)));
 
-        var layersClear = MakeMiniButton("X", (_, _) =>
+        var layersClear = MakeMiniIconButton(PanelButtonIcon.Clear, (_, _) =>
             mutateSourceSet(set => set.ReplaceLayers(Array.Empty<string>())),
             "Clear all assigned layers.", width: 28);
         var layersRow = new StackLayout

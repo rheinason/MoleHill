@@ -310,9 +310,9 @@ public sealed partial class MoleHillPanel : Panel
 
     private Control BuildContent()
     {
-        var newButton = MakeIconButton("+", OnNewTerrain, "Create a new terrain");
-        _dupButton = MakeIconButton("⧉", OnDuplicateTerrain, "Duplicate selected terrain");
-        _deleteButton = MakeIconButton("✕", OnDeleteTerrain, "Delete selected terrain");
+        var newButton = MakeIconButton(PanelButtonIcon.Add, OnNewTerrain, "Create a new terrain");
+        _dupButton = MakeIconButton(PanelButtonIcon.Duplicate, OnDuplicateTerrain, "Duplicate selected terrain");
+        _deleteButton = MakeIconButton(PanelButtonIcon.Delete, OnDeleteTerrain, "Delete selected terrain");
         _rebuildButton = MakeToolbarButton("Rebuild", OnRebuildTerrain, "Force rebuild terrain now");
         _resetBuildButton = MakeToolbarButton("Reset Build", OnResetTerrainBuild, "Cancel the current worker, clear queued rebuilds, and drop cached preview state.");
         _bakeButton = MakeToolbarButton("Bake", OnBakeTerrain, "Bake the terrain to document objects");
@@ -442,10 +442,10 @@ public sealed partial class MoleHillPanel : Panel
         };
 
         // ── Settings card (collapsible, expanded by default) ─────────
-        _settingsChevron = MakeMiniButton("▼", (_, _) =>
+        _settingsChevron = MakeMiniIconButton(PanelButtonIcon.ChevronDown, (_, _) =>
         {
             _settingsExpanded = !_settingsExpanded;
-            _settingsChevron!.Text = _settingsExpanded ? "▼" : "▶";
+            SetButtonIcon(_settingsChevron!, _settingsExpanded ? PanelButtonIcon.ChevronDown : PanelButtonIcon.ChevronRight);
             _settingsContent!.Visible = _settingsExpanded;
         }, "Collapse terrain settings", width: 24);
 
@@ -578,10 +578,10 @@ public sealed partial class MoleHillPanel : Panel
             bakeTrackingControls,
             expandWidget: true);
         // ── Nested "Layer Settings" sub-section (collapsible, collapsed by default) ─────
-        _layerSettingsChevron = MakeMiniButton("▶", (_, _) =>
+        _layerSettingsChevron = MakeMiniIconButton(PanelButtonIcon.ChevronRight, (_, _) =>
         {
             _layerSettingsExpanded = !_layerSettingsExpanded;
-            _layerSettingsChevron!.Text = _layerSettingsExpanded ? "▼" : "▶";
+            SetButtonIcon(_layerSettingsChevron!, _layerSettingsExpanded ? PanelButtonIcon.ChevronDown : PanelButtonIcon.ChevronRight);
             _layerSettingsContent!.Visible = _layerSettingsExpanded;
         }, "Show or hide layer settings", width: 24);
 
@@ -660,10 +660,10 @@ public sealed partial class MoleHillPanel : Panel
         var settingsCard = WrapCardControl(settingsCardBody, settingsStrip, UiTheme.CardBackground);
 
         // ── Status card (collapsible, collapsed by default) ───────────
-        _statusChevron = MakeMiniButton("▶", (_, _) =>
+        _statusChevron = MakeMiniIconButton(PanelButtonIcon.ChevronRight, (_, _) =>
         {
             _statusExpanded = !_statusExpanded;
-            _statusChevron!.Text = _statusExpanded ? "▼" : "▶";
+            SetButtonIcon(_statusChevron!, _statusExpanded ? PanelButtonIcon.ChevronDown : PanelButtonIcon.ChevronRight);
             _statusContent!.Visible = _statusExpanded;
             _statusHintLabel.Visible = !_statusExpanded;
         }, "Show or hide build status", width: 24);
@@ -1247,10 +1247,9 @@ public sealed partial class MoleHillPanel : Panel
                 _terrainPickerDropDown.Items.Clear();
                 _terrainPickerDropDown.SelectedIndex = -1;
                 _isUpdatingTerrainPicker = false;
-                _visibilityButton.Text = "👁";
-                _visibilityButton.TextColor = UiTheme.MutedText;
+                SetButtonIcon(_visibilityButton, PanelButtonIcon.Eye, muted: true);
                 _visibilityButton.ToolTip = "Terrain visible. Click to hide.";
-                _lockButton.Text = "🔓";
+                SetButtonIcon(_lockButton, PanelButtonIcon.Unlock, muted: true);
                 _lockButton.ToolTip = "Terrain unlocked. Click to lock.";
                 SetActionButtonsEnabled(false);
                 _terrainName.Enabled = false;
@@ -1320,13 +1319,12 @@ public sealed partial class MoleHillPanel : Panel
                 selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.",
                 selectedTerrain?.LastStructuredDiagnostics);
             bool terrainVisible = selectedTerrain?.IsVisible != false;
-            _visibilityButton.Text = "👁";
-            _visibilityButton.TextColor = terrainVisible ? UiTheme.PrimaryText : UiTheme.MutedText;
+            SetButtonIcon(_visibilityButton, terrainVisible ? PanelButtonIcon.Eye : PanelButtonIcon.EyeOff, muted: !terrainVisible);
             _visibilityButton.ToolTip = terrainVisible
                 ? "Terrain visible. Click to hide."
                 : "Terrain hidden. Click to show.";
             bool terrainLocked = selectedTerrain?.IsLocked == true;
-            _lockButton.Text = terrainLocked ? "🔒" : "🔓";
+            SetButtonIcon(_lockButton, terrainLocked ? PanelButtonIcon.Lock : PanelButtonIcon.Unlock, muted: !terrainLocked);
             _lockButton.ToolTip = terrainLocked
                 ? "Terrain locked. Click to unlock."
                 : "Terrain unlocked. Click to lock.";
@@ -2049,9 +2047,10 @@ public sealed partial class MoleHillPanel : Panel
         return button;
     }
 
-    private static Button MakeIconButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null)
+    private static Button MakeIconButton(PanelButtonIcon icon, EventHandler<EventArgs> onClick, string? toolTip = null)
     {
-        var button = new Button { Text = text, Width = UiMetrics.Chs(4), Height = HeaderActionHeight, MinimumSize = new Size(0, HeaderActionHeight) };
+        var button = new Button { Width = UiMetrics.Chs(4), Height = HeaderActionHeight, MinimumSize = new Size(0, HeaderActionHeight) };
+        SetButtonIcon(button, icon);
         if (!string.IsNullOrWhiteSpace(toolTip))
             button.ToolTip = toolTip;
         button.Click += onClick;
@@ -2075,6 +2074,19 @@ public sealed partial class MoleHillPanel : Panel
         button.Click += onClick;
         return button;
     }
+
+    private static Button MakeMiniIconButton(PanelButtonIcon icon, EventHandler<EventArgs> onClick, string? toolTip = null, int width = 28)
+    {
+        var button = new Button { Width = width, Height = HeaderActionHeight, MinimumSize = new Size(0, HeaderActionHeight) };
+        SetButtonIcon(button, icon);
+        if (!string.IsNullOrWhiteSpace(toolTip))
+            button.ToolTip = toolTip;
+        button.Click += onClick;
+        return button;
+    }
+
+    private static void SetButtonIcon(Button button, PanelButtonIcon icon, bool muted = false) =>
+        PanelButtonIcons.Apply(button, icon, muted);
 
     private static Button MakePillButton(string text, string? tooltip = null)
     {

@@ -23,7 +23,12 @@ public sealed partial class MoleHillPanel
             return false;
 
         foreach (var parameter in descriptor.Parameters)
+        {
+            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(modifier))
+                continue;
+
             layout.AddRow(BuildSchemaRow(terrain, modifier, parameter));
+        }
 
         return true;
     }

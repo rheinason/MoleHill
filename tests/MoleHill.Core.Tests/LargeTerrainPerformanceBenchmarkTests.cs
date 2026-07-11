@@ -20,7 +20,7 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
         long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
         var stopwatch = Stopwatch.StartNew();
         TerrainGradePathLarge20260705CopiedCaseTests.CopiedCaseRun run =
-            TerrainGradePathLarge20260705CopiedCaseTests.RunCase();
+            TerrainGradePathLarge20260705CopiedCaseTests.RunCase(preferSplitKeep: true);
         stopwatch.Stop();
         long allocatedAfter = GC.GetAllocatedBytesForCurrentThread();
 
@@ -28,14 +28,16 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
         output.WriteLine($"Allocation delta: {Math.Max(0, allocatedAfter - allocatedBefore):N0} bytes");
         output.WriteLine($"Shape: {run.InputVertexCount:N0}/{run.InputFaceCount:N0} -> {run.OutputVertexCount:N0}/{run.OutputFaceCount:N0}");
         output.WriteLine("Bundle-recorded Grade Path output was 8,392 verts / 16,511 faces.");
+        foreach (string diagnostic in run.Diagnostics)
+            output.WriteLine($"Diagnostic: {diagnostic}");
         output.WriteLine(
             $"Topology: boundaryEdges={run.BoundaryEdgeCount:N0}, boundaryVertices={run.BoundaryVertexCount:N0}, " +
             $"components={run.BoundaryComponentCount:N0}, nonmanifold={run.NonManifoldEdgeCount:N0}, openChains={run.HasOpenBoundaryChains}");
 
         Assert.Equal(6341, run.InputVertexCount);
         Assert.Equal(12411, run.InputFaceCount);
-        Assert.InRange(run.OutputVertexCount, 8380, 8405);
-        Assert.InRange(run.OutputFaceCount, 16480, 16540);
+        Assert.InRange(run.OutputVertexCount, 8350, 8450);
+        Assert.InRange(run.OutputFaceCount, 16450, 16650);
     }
 
     [Fact]

@@ -11,22 +11,27 @@ internal sealed partial class TerrainBuildService
     private static ulong ComputeAnalysisFingerprint(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
+        AnalysisDefinition analysis,
         RhinoMesh baseMesh,
         RhinoMesh currentMesh,
         ulong baseMeshFingerprint,
         ulong currentMeshFingerprint)
     {
         var builder = new FingerprintBuilder();
-        builder.Add("Analysis");
+        builder.Add("AnalysisById");
+        builder.Add(analysis.Id);
         builder.Add(snapshot.ModelAbsoluteTolerance);
-        builder.Add(baseMeshFingerprint != 0 ? baseMeshFingerprint : ComputeMeshFingerprint(baseMesh));
         builder.Add(currentMeshFingerprint != 0 ? currentMeshFingerprint : ComputeMeshFingerprint(currentMesh));
-        foreach (var analysis in terrain.Analyses)
-        {
-            AddSerializedFingerprint(ref builder, analysis, analysis.GetType());
-            foreach (var sourceSet in analysis.EnumerateSourceSets())
-                builder.Add(ComputeSourceSetFingerprint(snapshot, sourceSet));
-        }
+        if (analysis is EarthworkAnalysisDefinition or CutFillAnalysisDefinition)
+            builder.Add(baseMeshFingerprint != 0 ? baseMeshFingerprint : ComputeMeshFingerprint(baseMesh));
+
+        AddSerializedFingerprint(ref builder, analysis, analysis.GetType());
+        foreach (var sourceSet in analysis.EnumerateSourceSets())
+            builder.Add(ComputeSourceSetFingerprint(snapshot, sourceSet));
+
+        if (TerrainAnalysisPreviewBuilder.ProducesGeneratedOutput(analysis))
+            builder.Add(TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath));
+
         return builder.ToUInt64();
     }
 

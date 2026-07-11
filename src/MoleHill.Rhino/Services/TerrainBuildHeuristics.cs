@@ -7,6 +7,7 @@ internal static class TerrainBuildHeuristics
     private const double GradePathCurveSamplingWidthFactor = 0.5;
     private const int MaxLocalizedGradePathRoadEdgeFallbackVertices = 300;
     private const int MaxLocalizedGradePathRoadEdgeFallbackFaces = 500;
+    private const int MinSplitKeepPreferredFaces = 10_000;
 
     public static bool ShouldUseLegacyPathTriangulation(
         TerrainBuildMode mode,
@@ -41,5 +42,15 @@ internal static class TerrainBuildHeuristics
     {
         return vertexCount <= MaxLocalizedGradePathRoadEdgeFallbackVertices ||
                faceCount <= MaxLocalizedGradePathRoadEdgeFallbackFaces;
+    }
+
+    public static bool ShouldPreferSplitKeepGradePath(
+        TerrainBuildMode mode,
+        bool hasPersistentHardConstraints,
+        int faceCount)
+    {
+        return mode == TerrainBuildMode.Final &&
+               hasPersistentHardConstraints &&
+               faceCount >= MinSplitKeepPreferredFaces;
     }
 }

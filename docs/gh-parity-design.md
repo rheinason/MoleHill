@@ -25,10 +25,17 @@ field assigned after `base(...)`. Also fixed a latent ILRepack failure (Grasshop
 `ExcludeAssets=runtime`, so pass reference dirs as ILRepack `LibraryPath`). Remesh migrated + verified in
 real GH (registers with the exact original schema, places, solves).
 
-## Remaining migrations (one commit each, keep `ComponentGuid`s)
-Grade Pad, Grade Path, In-Situ Stair, Retaining Wall, TIN (`TinFromPointsAndBreaklines`), Mesh Smooth,
-Mesh Areas, Mesh Collage, Slope Analysis — move each `SolveInstance` body into a `spec.Solve`, reusing
-`GhSolveContext` helpers; delete the hand-written param registration. Verify each in GH.
+## Intentional bespoke components
+
+The B2 migration is complete. The two components that remain outside the registry-spec framework are
+intentional escape hatches:
+
+- **TIN Surface** (`TinFromPointsAndBreaklines`) — retains per-instance caching that the static-spec
+  model cannot hold.
+- **Mesh Collage** — keeps its dual 2D/3D modes, colour input, and `GH_Hatch` output.
+
+The other eight components use `RegistryTerrainComponent`; future changes should preserve their existing
+`ComponentGuid`s and verify the contract in Grasshopper.
 
 ---
 *Original analysis (kept for reference):* let registry-described terrain types surface as Grasshopper

@@ -835,7 +835,11 @@ internal sealed partial class TerrainBuildService
             resolvedInputs.Paths,
             build.PersistentHardConstraints,
             out string? warning,
-            gradePathTolerance);
+            gradePathTolerance,
+            preferSplitKeep: TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
+                mode,
+                build.PersistentHardConstraints.Count > 0,
+                mesh.Faces.Count));
         coreTimer.Stop();
         runtimeCache.CoreCaseRecorder?.RecordPath(
             modifier.Label,

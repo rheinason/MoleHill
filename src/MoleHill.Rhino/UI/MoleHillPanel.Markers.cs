@@ -73,12 +73,12 @@ public sealed partial class MoleHillPanel
         layout.AddSeparateRow(
             new Label { Text = marker.Name, Font = new Font(SystemFont.Bold), VerticalAlignment = VerticalAlignment.Center },
             enabledCheck,
-            MakeMiniButton("Delete", (_, _) =>
+            MakeMiniIconButton(PanelButtonIcon.Delete, (_, _) =>
             {
                 var doc = RhinoDoc.ActiveDoc;
                 if (doc != null)
                     _controller.RemoveMarker(doc, terrain.TerrainId, marker.Id);
-            }, width: 58),
+            }, "Delete this marker set.", width: 28),
             null);
 
         layout.AddRow(CreateSourceEditor("Sources", marker.Sources,

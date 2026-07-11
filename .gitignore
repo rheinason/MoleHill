@@ -17,6 +17,7 @@ TestResults/
 .codex-build/
 .codex-dotnet/
 .codex-cases/
+.codex_tmp/
 .tmp_build/
 .artifacts/
 

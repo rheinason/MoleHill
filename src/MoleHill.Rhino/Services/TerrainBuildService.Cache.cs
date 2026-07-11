@@ -11,15 +11,33 @@ internal sealed partial class TerrainBuildService
 {
     private static RhinoMesh? RestoreCachedMeshStage(TerrainBuildResult build, StageCacheEntry cachedEntry, out ulong outputFingerprint)
     {
-        build.Diagnostics.AddRange(cachedEntry.Diagnostics);
-        build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics);
+        RestoreCachedDiagnostics(build, cachedEntry);
         build.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.AuxiliaryObjects));
         build.PersistentHardConstraints.Clear();
         build.PersistentHardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(cachedEntry.PersistentHardConstraints));
         build.PersistentElevationConstraints.Clear();
         build.PersistentElevationConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(cachedEntry.PersistentElevationConstraints));
         outputFingerprint = cachedEntry.OutputFingerprint;
-        return NormalizeTerrainMesh(TerrainRuntimeCacheCloner.CloneMesh(cachedEntry.MeshOutput));
+        // StoreMeshStageCache normalizes before caching. DuplicateMesh preserves that topology, so
+        // normalizing again on every hot-cache restore is redundant O(vertices + faces) work.
+        return TerrainRuntimeCacheCloner.CloneMesh(cachedEntry.MeshOutput);
+    }
+
+    private static void RestoreCachedDiagnostics(TerrainBuildResult build, StageCacheEntry cachedEntry)
+    {
+        build.Diagnostics.AddRange(cachedEntry.Diagnostics.Where(static line => !IsCachedTimingDiagnostic(line)));
+        build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics.Where(
+            static diagnostic => !diagnostic.Code.StartsWith("timing.", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    internal static bool IsCachedTimingDiagnostic(string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+
+        return line.StartsWith("timing.", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains(" remesh timing", StringComparison.OrdinalIgnoreCase) ||
+               line.Contains(" planner timing:", StringComparison.OrdinalIgnoreCase);
     }
 
     private static RhinoMesh? StoreMeshStageCache(
