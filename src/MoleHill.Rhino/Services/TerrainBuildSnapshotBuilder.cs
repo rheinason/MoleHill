@@ -20,7 +20,7 @@ internal static class TerrainBuildSnapshotBuilder
 
         foreach (var sourceSet in terrainClone.EnumerateSourceSets().Distinct(ReferenceEqualityComparer<SourceReferenceSet>.Instance))
         {
-            List<ResolvedSourceObject> resolvedObjects = RhinoSourceResolver.ResolveObjects(doc, sourceSet)
+            List<ResolvedSourceObject> resolvedObjects = RhinoSourceResolver.ResolveObjects(doc, sourceSet, out SourceResolutionDiagnostics diagnostics)
                 .Select(obj => CreateResolvedSourceObject(doc, obj))
                 .Where(entry => entry != null)
                 .Cast<ResolvedSourceObject>()
@@ -28,6 +28,7 @@ internal static class TerrainBuildSnapshotBuilder
 
             snapshot.SourceObjects[sourceSet] = resolvedObjects;
             snapshot.SourceFingerprints[sourceSet] = ComputeSourceSetFingerprint(sourceSet, resolvedObjects);
+            snapshot.SourceDiagnostics[sourceSet] = diagnostics;
         }
 
         PopulateBlockDefinitionBounds(doc, terrainClone, snapshot);

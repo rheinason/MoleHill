@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillOffset3dPolylineCommand : Command
 {
-    public override string EnglishName => "MoleHillOffset3dPolyline";
+    public override string EnglishName => "mhOffset3dPolyline";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

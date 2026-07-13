@@ -163,9 +163,16 @@ internal sealed partial class TerrainController
         if (!ConfirmLongRunningBuild(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), rebuildState, mode, buildVersion))
             return;
 
+        while (rebuildState.ProgressUpdates.TryDequeue(out _))
+        {
+        }
+        terrain.LastBuildMessage = $"{(mode == TerrainBuildMode.Preview ? "Preview" : "Build")} #{buildVersion:N0}: snapshot starting...";
+        RhinoApp.WriteLine($"[MoleHill] {terrain.Name}: {terrain.LastBuildMessage}");
+        RaiseStateChanged();
         var snapshotTimer = Stopwatch.StartNew();
         TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
         snapshotTimer.Stop();
+        RhinoApp.WriteLine($"[MoleHill] {terrain.Name}: snapshot complete in {snapshotTimer.Elapsed.TotalSeconds:0.###} s; managed {GC.GetTotalMemory(false) / (1024.0 * 1024.0):0.0} MB.");
 
         var workerCacheTimer = Stopwatch.StartNew();
         TerrainRuntimeCache workerCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).CreateWorkerCopy();
@@ -178,6 +185,8 @@ internal sealed partial class TerrainController
         rebuildState.CancelRequested = false;
         rebuildState.IsBuilding = true;
         rebuildState.WorkerCancellation = cancellation;
+        Action<TerrainBuildProgress> reportProgress = progress =>
+            rebuildState.ProgressUpdates.Enqueue(new QueuedBuildProgress(buildVersion, buildGeneration, mode, progress));
         rebuildState.WorkerTask = Task.Run(() => ExecuteBackgroundBuild(
             snapshot,
             workerCache,
@@ -186,7 +195,8 @@ internal sealed partial class TerrainController
             buildGeneration,
             snapshotTimer.Elapsed,
             workerCacheTimer.Elapsed,
-            cancellation.Token));
+            cancellation.Token,
+            reportProgress));
 
         terrain.LastBuildMessage = mode == TerrainBuildMode.Preview
             ? $"Previewing terrain #{buildVersion:N0}..."
@@ -283,7 +293,8 @@ internal sealed partial class TerrainController
         long buildGeneration,
         TimeSpan snapshotElapsed,
         TimeSpan workerCacheCloneElapsed,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<TerrainBuildProgress>? reportProgress = null)
     {
         var timer = Stopwatch.StartNew();
         try
@@ -292,7 +303,8 @@ internal sealed partial class TerrainController
                 snapshot,
                 workerCache,
                 mode,
-                () => cancellationToken.IsCancellationRequested);
+                () => cancellationToken.IsCancellationRequested,
+                reportProgress);
             timer.Stop();
             return new BackgroundBuildResult(
                 buildVersion,

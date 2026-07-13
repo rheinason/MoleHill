@@ -32,53 +32,137 @@ internal static class CommandScriptRunner
         if (objectIds.Count == 0 || !transform.IsValid || transform.IsIdentity)
             return true;
 
-        var selectedBefore = doc.Objects.GetSelectedObjects(false, false).Select(obj => obj.Id).ToArray();
-        var lockedObjects = new List<Guid>();
-        var transformedOriginalIds = new HashSet<Guid>();
-        var transformedSelectionIds = new List<Guid>();
-        var updatedIds = new List<Guid>(transformedIds.Length);
+        if (!transform.TryGetInverse(out Transform inverse))
+        {
+            error = "The requested transform is not invertible.";
+            return false;
+        }
+
+        var objects = transformedIds
+            .Select(id => doc.Objects.FindId(id))
+            .OfType<RhinoObject>()
+            .ToList();
+        RhinoObject? lockedLayerObject = objects.FirstOrDefault(obj => IsLayerOrParentLocked(doc, obj.Attributes.LayerIndex));
+        if (lockedLayerObject != null)
+        {
+            string layerName = GetLayerPath(doc, lockedLayerObject.Attributes.LayerIndex) ?? "(unknown layer)";
+            error = $"Cannot transform object {lockedLayerObject.Id} because layer '{layerName}' is locked. Unlock the layer and retry.";
+            return false;
+        }
+
+        var selectedBefore = doc.Objects.GetSelectedObjects(false, false).Select(obj => obj.Id).ToHashSet();
+        var updated = new List<TransformedObject>(objects.Count);
         try
         {
-            foreach (Guid id in transformedIds)
+            foreach (RhinoObject obj in objects)
             {
-                var obj = doc.Objects.FindId(id);
-                if (obj == null)
-                    continue;
-
-                transformedOriginalIds.Add(id);
                 bool wasLocked = obj.IsLocked;
                 if (wasLocked)
-                    doc.Objects.Unlock(id, ignoreLayerMode: true);
+                    doc.Objects.Unlock(obj.Id, ignoreLayerMode: true);
 
-                Guid newId = doc.Objects.Transform(id, transform, deleteOriginal: true);
+                Guid newId = doc.Objects.Transform(obj.Id, transform, deleteOriginal: true);
                 if (newId == Guid.Empty)
                 {
-                    error = $"Failed to transform object {id}.";
+                    if (wasLocked)
+                        doc.Objects.Lock(obj.Id, ignoreLayerMode: true);
+
+                    error = $"Failed to transform object {obj.Id}.";
+                    RollBackTransforms(doc, updated, inverse, ref error);
+                    transformedIds = updated.Select(item => item.CurrentId).ToArray();
                     return false;
                 }
 
-                updatedIds.Add(newId);
                 if (wasLocked)
-                    lockedObjects.Add(newId);
+                    doc.Objects.Lock(newId, ignoreLayerMode: true);
 
-                if (selectedBefore.Contains(id))
-                    transformedSelectionIds.Add(newId);
+                updated.Add(new TransformedObject(obj.Id, newId, wasLocked));
             }
 
-            transformedIds = updatedIds.ToArray();
+            transformedIds = updated.Select(item => item.CurrentId).ToArray();
             return true;
         }
         finally
         {
             doc.Objects.UnselectAll();
-            foreach (Guid id in lockedObjects)
-                doc.Objects.Lock(id, ignoreLayerMode: true);
-
-            foreach (Guid id in selectedBefore.Where(id => !transformedOriginalIds.Contains(id)))
-                doc.Objects.Select(id, true, true);
-
-            foreach (Guid id in transformedSelectionIds)
-                doc.Objects.Select(id, true, true);
+            var currentByOriginal = updated.ToDictionary(item => item.OriginalId, item => item.CurrentId);
+            foreach (Guid selectedId in selectedBefore)
+            {
+                Guid currentId = currentByOriginal.TryGetValue(selectedId, out Guid replacementId)
+                    ? replacementId
+                    : selectedId;
+                if (doc.Objects.FindId(currentId) != null)
+                    doc.Objects.Select(currentId, true, true);
+            }
         }
     }
+
+    private static void RollBackTransforms(
+        RhinoDoc doc,
+        List<TransformedObject> updated,
+        Transform inverse,
+        ref string? error)
+    {
+        bool rollbackFailed = false;
+        for (int index = updated.Count - 1; index >= 0; index--)
+        {
+            TransformedObject item = updated[index];
+            if (item.WasLocked)
+                doc.Objects.Unlock(item.CurrentId, ignoreLayerMode: true);
+
+            Guid restoredId = doc.Objects.Transform(item.CurrentId, inverse, deleteOriginal: true);
+            if (restoredId == Guid.Empty)
+            {
+                rollbackFailed = true;
+                if (item.WasLocked)
+                    doc.Objects.Lock(item.CurrentId, ignoreLayerMode: true);
+                continue;
+            }
+
+            if (item.WasLocked)
+                doc.Objects.Lock(restoredId, ignoreLayerMode: true);
+            updated[index] = item with { CurrentId = restoredId };
+        }
+
+        if (rollbackFailed)
+            error = $"{error} Automatic rollback was incomplete; use Undo before continuing.";
+    }
+
+    private static bool IsLayerOrParentLocked(RhinoDoc doc, int layerIndex)
+    {
+        var visited = new HashSet<Guid>();
+        while (layerIndex >= 0 && layerIndex < doc.Layers.Count)
+        {
+            Layer layer = doc.Layers[layerIndex];
+            if (!visited.Add(layer.Id))
+                break;
+            if (layer.IsLocked)
+                return true;
+            if (layer.ParentLayerId == Guid.Empty)
+                break;
+
+            layerIndex = FindLayerIndex(doc, layer.ParentLayerId);
+        }
+
+        return false;
+    }
+
+    private static int FindLayerIndex(RhinoDoc doc, Guid layerId)
+    {
+        for (int index = 0; index < doc.Layers.Count; index++)
+        {
+            if (doc.Layers[index].Id == layerId)
+                return index;
+        }
+
+        return -1;
+    }
+
+    private static string? GetLayerPath(RhinoDoc doc, int layerIndex)
+    {
+        return layerIndex >= 0 && layerIndex < doc.Layers.Count
+            ? doc.Layers[layerIndex].FullPath
+            : null;
+    }
+
+    private readonly record struct TransformedObject(Guid OriginalId, Guid CurrentId, bool WasLocked);
 }

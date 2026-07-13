@@ -14,3 +14,5 @@ Terrain analysis math. Pure, unit-tested.
   fallback-required status for overlapping or near-vertical XY regions so Rhino-side callers can keep
   exact legacy projection behavior there. Faces are registered in every touched grid cell, so queries
   inspect only the owning cell rather than repeating work across a 3x3 neighbourhood.
+- `MeshRegularityAnalyzer.cs` — sampled density and minimum-angle checks used to identify coarse or
+  skinny triangulations before vertex-based Smooth/Sculpt operations.

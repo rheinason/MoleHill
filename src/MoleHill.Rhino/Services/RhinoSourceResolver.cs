@@ -10,39 +10,123 @@ internal static class RhinoSourceResolver
 {
     public static List<RhinoObject> ResolveObjects(RhinoDoc doc, SourceReferenceSet sourceSet)
     {
+        return ResolveObjects(doc, sourceSet, out _);
+    }
+
+    public static List<RhinoObject> ResolveObjects(
+        RhinoDoc doc,
+        SourceReferenceSet sourceSet,
+        out SourceResolutionDiagnostics diagnostics)
+    {
         var objectsById = new Dictionary<Guid, RhinoObject>();
+        var candidateIds = new HashSet<Guid>();
+        var resultDiagnostics = new SourceResolutionDiagnostics();
+
+        void Consider(RhinoObject? obj)
+        {
+            if (obj == null)
+            {
+                resultDiagnostics.MissingReferences++;
+                return;
+            }
+
+            if (!candidateIds.Add(obj.Id))
+                return;
+
+            if (obj.IsDeleted)
+            {
+                resultDiagnostics.RejectedDeletedObjects++;
+                return;
+            }
+
+            if (obj.IsInstanceDefinitionGeometry)
+            {
+                resultDiagnostics.RejectedInstanceDefinitionObjects++;
+                return;
+            }
+
+            if (obj.IsReference)
+            {
+                resultDiagnostics.RejectedReferenceObjects++;
+                return;
+            }
+
+            if (!IsSupportedSourceSpace(obj.Attributes.Space))
+            {
+                resultDiagnostics.RejectedPageSpaceObjects++;
+                return;
+            }
+
+            if (obj.IsHidden)
+                resultDiagnostics.AcceptedObjectHiddenObjects++;
+            else
+                resultDiagnostics.AcceptedNormalOrLayerHiddenObjects++;
+
+            if (obj.IsLocked)
+                resultDiagnostics.AcceptedLockedObjects++;
+            if (obj.IsSelectable())
+                resultDiagnostics.AcceptedSelectableObjects++;
+
+            BoundingBox objectBounds = obj.Geometry?.GetBoundingBox(true) ?? BoundingBox.Empty;
+            if (objectBounds.IsValid)
+            {
+                if (resultDiagnostics.AcceptedBounds.IsValid)
+                {
+                    BoundingBox acceptedBounds = resultDiagnostics.AcceptedBounds;
+                    acceptedBounds.Union(objectBounds);
+                    resultDiagnostics.AcceptedBounds = acceptedBounds;
+                }
+                else
+                    resultDiagnostics.AcceptedBounds = objectBounds;
+            }
+
+            objectsById[obj.Id] = obj;
+        }
 
         foreach (var objectId in sourceSet.ObjectIds)
-        {
-            var obj = doc.Objects.FindId(objectId);
-            if (obj != null)
-                objectsById[objectId] = obj;
-        }
+            Consider(doc.Objects.FindId(objectId));
 
         foreach (var layerPath in sourceSet.LayerPaths)
         {
             int layerIndex = doc.Layers.FindByFullPath(layerPath, -1);
             if (layerIndex < 0)
+            {
+                resultDiagnostics.MissingLayers++;
                 continue;
+            }
 
-            var settings = new ObjectEnumeratorSettings
-            {
-                NormalObjects = true,
-                LockedObjects = true,
-                HiddenObjects = true,
-                ActiveObjects = true,
-                DeletedObjects = false,
-                LayerIndexFilter = layerIndex
-            };
+            resultDiagnostics.ResolvedLayers++;
+            Layer layer = doc.Layers[layerIndex];
 
-            foreach (var obj in doc.Objects.GetObjectList(settings))
+            foreach (var layerObject in doc.Objects.FindByLayer(layer))
             {
-                if (obj != null)
-                    objectsById[obj.Id] = obj;
+                // FindByLayer can expose stale object-table wrappers retained by Rhino. Resolve the ID
+                // back through the active object table; deleted objects cannot be found by ID.
+                RhinoObject? activeObject = layerObject == null ? null : doc.Objects.FindId(layerObject.Id);
+                if (activeObject == null)
+                {
+                    resultDiagnostics.RejectedStaleLayerObjects++;
+                    continue;
+                }
+
+                if (activeObject.Attributes.LayerIndex != layerIndex)
+                {
+                    resultDiagnostics.RejectedWrongLayerObjects++;
+                    continue;
+                }
+
+                Consider(activeObject);
             }
         }
 
+        resultDiagnostics.AcceptedObjects = objectsById.Count;
+        diagnostics = resultDiagnostics;
         return objectsById.Values.ToList();
+    }
+
+    internal static bool IsSupportedSourceSpace(ActiveSpace space)
+    {
+        return space == ActiveSpace.ModelSpace;
     }
 
     public static List<Point3d> ResolvePoints(RhinoDoc doc, SourceReferenceSet sourceSet)

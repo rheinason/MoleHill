@@ -21,6 +21,7 @@ internal sealed class ModifierBuildContext
     public required TerrainRuntimeCache RuntimeCache { get; init; }
     public required HashSet<string> UsedStageKeys { get; init; }
     public Func<bool>? ShouldCancel { get; init; }
+    public Action<TerrainBuildProgress>? ReportProgress { get; init; }
 
     public RhinoMesh? CurrentMesh { get; set; }
     public ulong CurrentMeshFingerprint { get; set; }

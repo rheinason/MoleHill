@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillExternalizeBlockCommand : Command
 {
-    public override string EnglishName => "MoleHillExternalizeBlock";
+    public override string EnglishName => "mhExternalizeBlock";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

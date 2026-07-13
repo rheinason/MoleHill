@@ -8,7 +8,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillCreateTerrainCommand : Command
 {
-    public override string EnglishName => "MoleHillCreateTerrain";
+    public override string EnglishName => "mhCreateTerrain";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

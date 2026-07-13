@@ -1,4 +1,3 @@
-using System.Globalization;
 using DialogResult = Eto.Forms.DialogResult;
 using FileFilter = Eto.Forms.FileFilter;
 using OpenFileDialog = Eto.Forms.OpenFileDialog;
@@ -20,7 +19,7 @@ internal static class DocumentCommandService
     public static Result RunOrientToOrigin(RhinoDoc doc)
     {
         var getBasePoint = new GetPoint();
-        getBasePoint.SetCommandPrompt("Select project base point");
+        getBasePoint.SetCommandPrompt("Select project XY base point (elevation will be preserved)");
         if (getBasePoint.Get() != GetResult.Point)
             return getBasePoint.CommandResult();
 
@@ -47,18 +46,18 @@ internal static class DocumentCommandService
         return result;
     }
 
-    public static Result RunApplySavedGeoref(RhinoDoc doc, bool removeGeoref)
+    public static Result RunApplySavedGeoref(RhinoDoc doc, bool toProjectCoordinates)
     {
-        if (!ProjectBaseCPlaneService.TryGetTransform(removeGeoref, doc, out Transform transform))
+        if (!ProjectBaseCPlaneService.TryGetTransform(toProjectCoordinates, doc, out Transform transform))
         {
             RhinoApp.WriteLine("MoleHill: no project georef CPlane found.");
             return Result.Nothing;
         }
 
         var getObject = new GetObject();
-        getObject.SetCommandPrompt(removeGeoref
+        getObject.SetCommandPrompt(toProjectCoordinates
             ? "Select geometry to convert to local project space"
-            : "Select geometry to georeference");
+            : "Select geometry to convert to real-world coordinates");
         getObject.EnablePreSelect(true, true);
         getObject.SubObjectSelect = false;
         getObject.GroupSelect = true;
@@ -79,9 +78,22 @@ internal static class DocumentCommandService
         return ran ? Result.Success : Result.Failure;
     }
 
+    public static Result RunClearProjectBase(RhinoDoc doc)
+    {
+        if (!ProjectBaseCPlaneService.ClearProjectBasePlane(doc))
+        {
+            RhinoApp.WriteLine("MoleHill: no saved project base was found.");
+            return Result.Nothing;
+        }
+
+        RhinoApp.WriteLine("MoleHill: cleared the saved project base. Document geometry was not moved.");
+        doc.Views.Redraw();
+        return Result.Success;
+    }
+
     public static Result RunImportWithGeoref(RhinoDoc doc)
     {
-        if (!ProjectBaseCPlaneService.TryGetTransform(removeGeoref: true, doc, out Transform transform))
+        if (!ProjectBaseCPlaneService.TryGetTransform(toProjectCoordinates: true, doc, out Transform transform))
         {
             RhinoApp.WriteLine("MoleHill: no project georef CPlane found.");
             return Result.Nothing;
@@ -169,7 +181,7 @@ internal static class DocumentCommandService
 
     public static Result RunExportWithGeoref(RhinoDoc doc)
     {
-        if (!ProjectBaseCPlaneService.TryGetTransform(removeGeoref: false, doc, out Transform transform))
+        if (!ProjectBaseCPlaneService.TryGetTransform(toProjectCoordinates: false, doc, out Transform transform))
         {
             RhinoApp.WriteLine("MoleHill: no project georef CPlane found.");
             return Result.Nothing;
@@ -233,42 +245,92 @@ internal static class DocumentCommandService
             return Result.Cancel;
 
         string geotiffPath = imageDialog.FileName;
-        string tfwPath = Path.ChangeExtension(geotiffPath, ".tfw");
-        if (!File.Exists(tfwPath))
-        {
-            var tfwDialog = new Eto.Forms.OpenFileDialog { Title = "Select TFW file", MultiSelect = false };
-            tfwDialog.Filters.Add(new FileFilter("World File", ".tfw"));
-            if (tfwDialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok ||
-                string.IsNullOrWhiteSpace(tfwDialog.FileName))
-                return Result.Cancel;
-
-            tfwPath = tfwDialog.FileName;
-        }
-
-        string[] lines = File.ReadAllLines(tfwPath);
-        if (lines.Length != 6)
-        {
-            RhinoApp.WriteLine("Invalid TFW file.");
-            return Result.Failure;
-        }
-
-        double xScale = double.Parse(lines[0], CultureInfo.InvariantCulture);
-        double yScale = -double.Parse(lines[3], CultureInfo.InvariantCulture);
-        double xOrigin = double.Parse(lines[4], CultureInfo.InvariantCulture);
-        double yOrigin = double.Parse(lines[5], CultureInfo.InvariantCulture);
-
         using var image = System.Drawing.Image.FromFile(geotiffPath);
-        double worldWidth = image.Width * xScale;
-        double worldHeight = image.Height * yScale;
+        RasterGeoreference georeference;
+        string sourceDescription;
+        if (!GeoTiffMetadataReader.TryRead(image, out georeference, out sourceDescription))
+        {
+            string? worldFilePath = FindWorldFile(geotiffPath);
+            if (worldFilePath == null)
+            {
+                var worldFileDialog = new Eto.Forms.OpenFileDialog
+                {
+                    Title = "GeoTIFF has no embedded placement; select a world file",
+                    MultiSelect = false
+                };
+                worldFileDialog.Filters.Add(new FileFilter("World File", ".tfw", ".tifw", ".wld"));
+                if (worldFileDialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok ||
+                    string.IsNullOrWhiteSpace(worldFileDialog.FileName))
+                    return Result.Cancel;
+
+                worldFilePath = worldFileDialog.FileName;
+            }
+
+            if (!RasterGeoreference.TryReadWorldFile(worldFilePath, out georeference, out string? worldFileError))
+            {
+                RhinoApp.WriteLine($"MoleHill: {worldFileError ?? "Invalid world file."}");
+                return Result.Failure;
+            }
+
+            sourceDescription = $"world file '{Path.GetFileName(worldFilePath)}'";
+        }
 
         Plane plane = Plane.WorldXY;
-        plane.Origin = new Point3d(xOrigin, yOrigin - worldHeight, 0.0);
-        Guid pictureId = doc.Objects.AddPictureFrame(plane, geotiffPath, false, worldWidth, Math.Abs(worldHeight), false, false);
+        Guid pictureId = doc.Objects.AddPictureFrame(
+            plane,
+            geotiffPath,
+            false,
+            image.Width,
+            image.Height,
+            false,
+            false);
         if (pictureId == Guid.Empty)
             return Result.Failure;
 
+        Transform placement = georeference.CreatePictureFrameToWorldTransform(image.Height);
+        bool placedInProjectCoordinates = ProjectBaseCPlaneService.TryGetTransform(
+            toProjectCoordinates: true,
+            doc,
+            out Transform worldToProject);
+        if (placedInProjectCoordinates)
+            placement = worldToProject * placement;
+
+        if (!CommandScriptRunner.RunTransformScript(
+                doc,
+                new[] { pictureId },
+                placement,
+                out string? placementError,
+                out Guid[] placedIds))
+        {
+            doc.Objects.Delete(placedIds, quiet: true);
+            RhinoApp.WriteLine(placementError ?? "MoleHill: could not place the GeoTIFF picture frame.");
+            return Result.Failure;
+        }
+
+        RhinoApp.WriteLine(
+            $"MoleHill: imported GeoTIFF using {sourceDescription} " +
+            (placedInProjectCoordinates ? "in local project coordinates." : "in real-world coordinates.") +
+            " Coordinate values were used directly; no CRS reprojection was applied.");
         doc.Views.Redraw();
         return Result.Success;
+    }
+
+    private static string? FindWorldFile(string geotiffPath)
+    {
+        string directory = Path.GetDirectoryName(geotiffPath) ?? string.Empty;
+        string stem = Path.GetFileNameWithoutExtension(geotiffPath);
+        foreach (string extension in new[] { ".tfw", ".tifw", ".wld" })
+        {
+            string candidate = Path.Combine(directory, stem + extension);
+            if (File.Exists(candidate))
+                return candidate;
+
+            string upperCandidate = Path.Combine(directory, stem + extension.ToUpperInvariant());
+            if (File.Exists(upperCandidate))
+                return upperCandidate;
+        }
+
+        return null;
     }
 
     private static IEnumerable<Guid> EnumerateActiveObjectIds(RhinoDoc doc)

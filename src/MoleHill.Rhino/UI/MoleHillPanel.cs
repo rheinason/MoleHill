@@ -22,7 +22,7 @@ public sealed partial class MoleHillPanel : Panel
 {
 
     private readonly TerrainController _controller = TerrainController.Instance;
-    private readonly TextBox _terrainName = new();
+    private readonly ComboBox _terrainSelector = new() { AutoComplete = true };
     private readonly CheckBox _liveUpdate = new() { Text = "Live" };
     private readonly TextArea _statusTextArea = new() { ReadOnly = true, Wrap = true, Height = 180 };
     private readonly Label _terrainLayerLabel    = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
@@ -57,8 +57,7 @@ public sealed partial class MoleHillPanel : Panel
     private Button _resetBuildButton = new();
     private Button _bakeButton = new();
     private Button _resetTerrainDataButton = new();
-    private readonly DropDown _terrainPickerDropDown = new();
-    private bool _isUpdatingTerrainPicker;
+    private bool _isUpdatingTerrainSelector;
     private readonly HashSet<Guid> _collapsedModifiers = new();
     private readonly HashSet<Guid> _collapsedObjects = new();
     private readonly HashSet<Guid> _collapsedZones = new();
@@ -146,16 +145,9 @@ public sealed partial class MoleHillPanel : Panel
     {
         _stateChangedHandler = HandleControllerStateChanged;
 
-        ApplyHelp(_terrainName, "Terrain name. Commits when you press Enter or leave the field.");
-        StyleTextBox(_terrainName);
-        BindCommittedText(
-            _terrainName,
-            () =>
-            {
-                var doc = RhinoDoc.ActiveDoc;
-                return doc == null ? string.Empty : _controller.GetSelectedTerrain(doc)?.Name ?? string.Empty;
-            },
-            text => MutateSelectedTerrain(terrain => terrain.Name = text, scheduleRebuild: false));
+        ApplyHelp(_terrainSelector, "Rename the active terrain, or open the list to select another terrain. Renames commit when you press Enter or leave the field.");
+        StyleComboBox(_terrainSelector);
+        BindTerrainSelector();
 
         _liveUpdate.CheckedChanged += (_, _) =>
         {
@@ -186,7 +178,7 @@ public sealed partial class MoleHillPanel : Panel
             MutateSelectedTerrain(t => t.GlobalTolerance = value, scheduleRebuild: true);
         }
 
-        var toleranceTimer = new UITimer { Interval = 0.25 };
+        var toleranceTimer = new UITimer { Interval = UiTiming.ToleranceCommitSeconds };
         toleranceTimer.Elapsed += (_, _) =>
         {
             toleranceTimer.Stop();
@@ -297,7 +289,7 @@ public sealed partial class MoleHillPanel : Panel
         };
         ApplyHelp(_liveUpdate, "Automatically rebuild when referenced Rhino geometry or layers change.");
         ApplyHelp(_visibilityButton, "Hide or show all generated terrain outputs.");
-        ApplyHelp(_lockButton, "Lock or unlock all generated terrain outputs.");
+        ApplyHelp(_lockButton, "Lock or unlock MoleHill-managed live document outputs. Source geometry and previously baked objects are unaffected.");
 
         SubscribeControllerStateChanged();
         LoadComplete += OnPanelLoadComplete;
@@ -317,26 +309,19 @@ public sealed partial class MoleHillPanel : Panel
         _resetBuildButton = MakeToolbarButton("Reset Build", OnResetTerrainBuild, "Cancel the current worker, clear queued rebuilds, and drop cached preview state.");
         _bakeButton = MakeToolbarButton("Bake", OnBakeTerrain, "Bake the terrain to document objects");
         _resetTerrainDataButton = MakeToolbarButton("Reset Terrain Data", OnResetTerrainData,
-            "The stored terrain data in this document is unreadable and is being preserved untouched. Click to discard it.",
-            width: 118);
+            "The stored terrain data in this document is unreadable and is being preserved untouched. Click to discard it.");
         _resetTerrainDataButton.Visible = false;
-        _visibilityButton.Width = 34;
-        _lockButton.Width = 34;
+        _visibilityButton.Width = UiMetrics.Chs(4);
+        _lockButton.Width = UiMetrics.Chs(4);
         _visibilityButton.Height = 26;
         _lockButton.Height = 26;
         _liveUpdate.Height = 26;
 
-        _terrainPickerDropDown.ToolTip = "Select the active terrain";
-        _terrainPickerDropDown.Height = 26;
-        _terrainPickerDropDown.Width = UiMetrics.Chs(16);
-        _isUpdatingTerrainPicker = false;
-        _terrainPickerDropDown.SelectedIndexChanged -= OnTerrainPickerDropDownChanged;
-        _terrainPickerDropDown.SelectedIndexChanged += OnTerrainPickerDropDownChanged;
+        _terrainSelector.Height = 26;
 
         // ── Toolbar (two rows) ────────────────────────────────────────
-        // Row 1: Terrain label + name (primary) | New / Copy / Del / picker dropdown (actions, wrap below
-        // if they don't fit). Row 2: every remaining action button in one wrapping group — no more fixed
-        // left/right clusters, so nothing gets silently clipped off the right edge at narrow widths.
+        // Row 1: editable terrain selector (primary) | New / Copy / Delete (actions, wrap below
+        // if they don't fit). Row 2: all terrain actions stay on one uninterrupted toolbar line.
         var terrainLabel = new Label { Text = "Terrain", TextColor = UiTheme.MutedText, VerticalAlignment = VerticalAlignment.Center };
         var terrainIdentity = new StackLayout
         {
@@ -346,7 +331,7 @@ public sealed partial class MoleHillPanel : Panel
             Items =
             {
                 terrainLabel,
-                new StackLayoutItem(_terrainName, expand: true)
+                new StackLayoutItem(_terrainSelector, expand: true)
             }
         };
         var identityRow = new AdaptivePrimaryActionRow(
@@ -354,8 +339,7 @@ public sealed partial class MoleHillPanel : Panel
             6,
             newButton,
             _dupButton,
-            _deleteButton,
-            _terrainPickerDropDown);
+            _deleteButton);
         var identityGroup = new Panel
         {
             BackgroundColor = UiTheme.ToolbarBackground,
@@ -363,9 +347,9 @@ public sealed partial class MoleHillPanel : Panel
             Content = identityRow
         };
 
-        // Left cluster (Rebuild/Reset Build/Live/Bake) packs left and shrinks its own text; visibility/lock
-        // are the fixed right-hand actions, so they land flush against the right edge — same column as
-        // row 1's New/Copy/Del/picker — instead of trailing wherever the left cluster happens to end.
+        // Rebuild/Reset Build/Live pack left and shrink their text as needed; Bake/visibility/lock stay
+        // on that same line and land flush against the right edge — the same column as row 1's
+        // New/Copy/Delete controls — instead of wrapping independently.
         // Now that MakeToolbarButton buttons actually shrink to their (already-abbreviated) text instead of
         // sitting at the platform's minimum-button-width floor, the left cluster has plenty of room to
         // spare before it would ever need to fight the right-hand icons for space.
@@ -374,13 +358,22 @@ public sealed partial class MoleHillPanel : Panel
             Orientation = Orientation.Horizontal,
             Spacing = 6,
             VerticalContentAlignment = VerticalAlignment.Center,
-            Items = { _rebuildButton, _resetBuildButton, _liveUpdate, _resetTerrainDataButton, _bakeButton }
+            Items = { _rebuildButton, _resetBuildButton, _liveUpdate, _resetTerrainDataButton }
         };
-        var actionsRow = new AdaptivePrimaryActionRow(
-            actionsPrimaryCluster,
-            6,
-            _visibilityButton,
-            _lockButton);
+        var actionsRow = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(actionsPrimaryCluster, expand: true),
+                _bakeButton,
+                _visibilityButton,
+                _lockButton
+            }
+        };
         // Matches identityGroup's padding so row 2's right-hand icons land in exactly the same column as
         // row 1's — without this, row 1's extra 8px inset (from identityGroup's own Padding) shifts it
         // relative to row 2's bare StackLayoutItem.
@@ -398,20 +391,18 @@ public sealed partial class MoleHillPanel : Panel
         // Thresholds are computed from the same text-length estimate AdaptiveWidth uses, not guessed
         // pixel constants — a guessed constant here previously forced "Rbld" well before the full-text
         // row actually needed the room.
-        const int actionsIconsWidth = 34 + 34; // visibility + lock, both explicit MakeIconButton widths
-        const int rowSpacing = 6 * 5; // 4 gaps inside the primary cluster + 1 before the icons
+        int trailingActionsWidth = AdaptiveWidth.Estimate(_bakeButton) + 34 + 34;
+        const int rowSpacing = 6 * 5; // gaps across the three primary and three trailing controls
         int RoomyNeeded() =>
             UiMetrics.Chs("Rebuild".Length + 3) +
             UiMetrics.Chs("Reset Build".Length + 3) +
             UiMetrics.Chs("Live".Length + 4) +
-            UiMetrics.Chs("Bake".Length + 3) +
-            actionsIconsWidth + rowSpacing;
+            trailingActionsWidth + rowSpacing;
         int LiveTextNeeded() =>
             UiMetrics.Chs("Rbld".Length + 3) +
             UiMetrics.Chs("Rst Bld".Length + 3) +
             UiMetrics.Chs("Live".Length + 4) +
-            UiMetrics.Chs("Bake".Length + 3) +
-            actionsIconsWidth + rowSpacing;
+            trailingActionsWidth + rowSpacing;
 
         void UpdateToolbarTextDensity()
         {
@@ -442,12 +433,12 @@ public sealed partial class MoleHillPanel : Panel
         };
 
         // ── Settings card (collapsible, expanded by default) ─────────
-        _settingsChevron = MakeMiniIconButton(PanelButtonIcon.ChevronDown, (_, _) =>
+        _settingsChevron = MakeIconButton(PanelButtonIcon.ChevronDown, (_, _) =>
         {
             _settingsExpanded = !_settingsExpanded;
             SetButtonIcon(_settingsChevron!, _settingsExpanded ? PanelButtonIcon.ChevronDown : PanelButtonIcon.ChevronRight);
             _settingsContent!.Visible = _settingsExpanded;
-        }, "Collapse terrain settings", width: 24);
+        }, "Collapse terrain settings");
 
         var settingsHeader = new StackLayout
         {
@@ -471,11 +462,11 @@ public sealed partial class MoleHillPanel : Panel
 
         // Fixed width on the Current/Default/Clear trio (Pick is already fixed via MakeLayerPickerButton) so
         // the three layer-assignment rows share one button column regardless of "Default" vs "Clear" length.
-        const int layerActionButtonWidth = 62;
-        var terrainLayerUseCurrentButton = MakeCompactButton("Current", OnAssignTerrainLayer, "Assign the current Rhino layer.");
+        int layerActionButtonWidth = UiMetrics.Chs(9);
+        var terrainLayerUseCurrentButton = MakeInlineButton("Current", OnAssignTerrainLayer, "Assign the current Rhino layer.");
         terrainLayerUseCurrentButton.Width = layerActionButtonWidth;
         var terrainLayerBrowseButton = MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.TerrainLayerPath = path, scheduleRebuild: false), "Browse and pick the terrain layer");
-        var terrainLayerDefaultButton = MakeCompactButton("Default", (_, _) =>
+        var terrainLayerDefaultButton = MakeInlineButton("Default", (_, _) =>
         {
             MutateSelectedTerrain(t => t.TerrainLayerPath = null, scheduleRebuild: false);
             RefreshUi();
@@ -487,30 +478,29 @@ public sealed partial class MoleHillPanel : Panel
             terrainLayerUseCurrentButton,
             terrainLayerBrowseButton,
             terrainLayerDefaultButton);
-        var bakeLayerStylesButton = MakeCompactButton("Bake Layers", (_, _) =>
-                BakeLayerPaths(Array.Empty<string>()),
-            "Create or refresh baked output layers for highlighted source layers.");
+        var bakeLayerStylesButton = MakeInlineButton("Bake Layers", (_, _) => BakeOutputLayers(),
+            "Create or refresh this terrain's configured Terrain, Auxiliary, and Annotation output layers.");
         var bakeLayerStylesControls = CreateResponsivePrimaryActionRow(
             new Label
             {
-                Text = "Highlighted source layers",
+                Text = "Terrain, Auxiliary, Annotation",
                 TextColor = UiTheme.MutedText,
                 VerticalAlignment = VerticalAlignment.Center
             },
             4,
             bakeLayerStylesButton);
         var bakeLayerStylesRow = new PropertyRow(
-            CreateHelpLabel("Bake Layers", "Create or refresh baked output layers for highlighted source layers.", 0),
+            CreateHelpLabel("Bake Layers", "Create or refresh this terrain's configured output layers.", 0),
             bakeLayerStylesControls,
             expandWidget: true);
         var terrainLayerRow = new PropertyRow(
             CreateHelpLabel("Terrain Layer", "Output layer for the main terrain mesh.", 0),
             terrainLayerControls,
             expandWidget: true);
-        var auxLayerUseCurrentButton = MakeCompactButton("Current", OnAssignAuxLayer, "Assign the current Rhino layer for retaining walls and other auxiliary outputs.");
+        var auxLayerUseCurrentButton = MakeInlineButton("Current", OnAssignAuxLayer, "Assign the current Rhino layer for retaining walls and other auxiliary outputs.");
         auxLayerUseCurrentButton.Width = layerActionButtonWidth;
         var auxLayerBrowseButton = MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = path, scheduleRebuild: true), "Browse and pick the walls / auxiliary layer");
-        var auxLayerClearButton = MakeCompactButton("Clear", (_, _) =>
+        var auxLayerClearButton = MakeInlineButton("Clear", (_, _) =>
         {
             MutateSelectedTerrain(t => t.AuxiliaryLayerPath = null, scheduleRebuild: true);
             RefreshUi();
@@ -526,10 +516,10 @@ public sealed partial class MoleHillPanel : Panel
             CreateHelpLabel("Walls / Aux", "Output layer for retaining walls, stair solids, and other auxiliary geometry.", 0),
             auxLayerControls,
             expandWidget: true);
-        var annotationLayerUseCurrentButton = MakeCompactButton("Current", OnAssignAnnotationLayer, "Assign the current Rhino layer for annotation outputs.");
+        var annotationLayerUseCurrentButton = MakeInlineButton("Current", OnAssignAnnotationLayer, "Assign the current Rhino layer for annotation outputs.");
         annotationLayerUseCurrentButton.Width = layerActionButtonWidth;
         var annotationLayerBrowseButton = MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AnnotationLayerPath = path, scheduleRebuild: false), "Browse and pick the annotation layer");
-        var annotationLayerClearButton = MakeCompactButton("Clear", (_, _) =>
+        var annotationLayerClearButton = MakeInlineButton("Clear", (_, _) =>
         {
             MutateSelectedTerrain(t => t.AnnotationLayerPath = null, scheduleRebuild: false);
             RefreshUi();
@@ -549,7 +539,7 @@ public sealed partial class MoleHillPanel : Panel
             CreateHelpLabel("Detail Size", "Smallest terrain detail to preserve automatically. Smaller values keep more detail; larger values simplify and merge nearby geometry more aggressively.", 0),
             _toleranceStepper);
         var opacityLabel = CreateHelpLabel("Opacity", "Terrain opacity used for preview and bake.", UiMetrics.ShortLabel);
-        var resetTerrainColorButton = MakeCompactButton("Reset", (_, _) => ResetTerrainColor(), "Restore the default terrain display color.");
+        var resetTerrainColorButton = MakeInlineButton("Reset", (_, _) => ResetTerrainColor(), "Restore the default terrain display color.");
         var terrainColorPrimary = new StackLayout
         {
             Orientation = Orientation.Horizontal,
@@ -578,12 +568,12 @@ public sealed partial class MoleHillPanel : Panel
             bakeTrackingControls,
             expandWidget: true);
         // ── Nested "Layer Settings" sub-section (collapsible, collapsed by default) ─────
-        _layerSettingsChevron = MakeMiniIconButton(PanelButtonIcon.ChevronRight, (_, _) =>
+        _layerSettingsChevron = MakeIconButton(PanelButtonIcon.ChevronRight, (_, _) =>
         {
             _layerSettingsExpanded = !_layerSettingsExpanded;
             SetButtonIcon(_layerSettingsChevron!, _layerSettingsExpanded ? PanelButtonIcon.ChevronDown : PanelButtonIcon.ChevronRight);
             _layerSettingsContent!.Visible = _layerSettingsExpanded;
-        }, "Show or hide layer settings", width: 24);
+        }, "Show or hide layer settings");
 
         var layerSettingsHeader = new StackLayout
         {
@@ -660,13 +650,13 @@ public sealed partial class MoleHillPanel : Panel
         var settingsCard = WrapCardControl(settingsCardBody, settingsStrip, UiTheme.CardBackground);
 
         // ── Status card (collapsible, collapsed by default) ───────────
-        _statusChevron = MakeMiniIconButton(PanelButtonIcon.ChevronRight, (_, _) =>
+        _statusChevron = MakeIconButton(PanelButtonIcon.ChevronRight, (_, _) =>
         {
             _statusExpanded = !_statusExpanded;
             SetButtonIcon(_statusChevron!, _statusExpanded ? PanelButtonIcon.ChevronDown : PanelButtonIcon.ChevronRight);
             _statusContent!.Visible = _statusExpanded;
             _statusHintLabel.Visible = !_statusExpanded;
-        }, "Show or hide build status", width: 24);
+        }, "Show or hide build status");
 
         var statusHeader = new StackLayout
         {
@@ -684,8 +674,8 @@ public sealed partial class MoleHillPanel : Panel
         };
 
         StyleTextArea(_statusTextArea);
-        var copyStatusButton = MakeMiniButton("Copy Log", (_, _) => CopyStatusLog(), "Copy the full build log to the clipboard.", width: 74);
-        var copyCaseButton = MakeMiniButton("Copy Case", (_, _) => CopyCaseBundle(), "Export a repro case bundle and copy a runnable core xUnit test source when one can be generated.", width: 82);
+        var copyStatusButton = MakeInlineButton("Copy Log", (_, _) => CopyStatusLog(), "Copy the full build log to the clipboard.");
+        var copyCaseButton = MakeInlineButton("Copy Case", (_, _) => CopyCaseBundle(), "Export a repro case bundle and copy a runnable core xUnit test source when one can be generated.");
         _statusContent = new Panel
         {
             Content = new StackLayout
@@ -1110,22 +1100,24 @@ public sealed partial class MoleHillPanel : Panel
         RefreshUi();
     }
 
-    private void OnTerrainPickerDropDownChanged(object? sender, EventArgs e)
+    private void OnTerrainSelectorChanged(object? sender, EventArgs e)
     {
-        if (_isUpdatingTerrainPicker || _isRefreshing)
+        if (_isUpdatingTerrainSelector || _isRefreshing)
             return;
 
         var doc = RhinoDoc.ActiveDoc;
         if (doc == null)
             return;
 
-        int index = _terrainPickerDropDown.SelectedIndex;
-        var terrains = _controller.GetTerrains(doc).ToList();
-        if (index >= 0 && index < terrains.Count)
-        {
-            _controller.SetSelectedTerrain(doc, terrains[index].TerrainId);
-            RefreshUi();
-        }
+        if (!Guid.TryParse(_terrainSelector.SelectedKey, out Guid terrainId))
+            return;
+
+        var selectedTerrain = _controller.GetSelectedTerrain(doc);
+        if (selectedTerrain?.TerrainId == terrainId)
+            return;
+
+        _controller.SetSelectedTerrain(doc, terrainId);
+        RefreshUi();
     }
 
     private void OnAssignTerrainLayer(object? sender, EventArgs e)
@@ -1228,7 +1220,7 @@ public sealed partial class MoleHillPanel : Panel
         {
             if (doc == null)
             {
-                _terrainName.Text = string.Empty;
+                _terrainSelector.Text = string.Empty;
                 _liveUpdate.Checked = false;
                 SetStatusText("No active Rhino document.");
                 _terrainLayerLabel.Text = "-";
@@ -1243,16 +1235,16 @@ public sealed partial class MoleHillPanel : Panel
                 _untrackSelectedBakesButton.Enabled = false;
                 _untrackAllBakesButton.Enabled = false;
                 _toleranceStepper.Value = 0;
-                _isUpdatingTerrainPicker = true;
-                _terrainPickerDropDown.Items.Clear();
-                _terrainPickerDropDown.SelectedIndex = -1;
-                _isUpdatingTerrainPicker = false;
+                _isUpdatingTerrainSelector = true;
+                _terrainSelector.Items.Clear();
+                _terrainSelector.SelectedIndex = -1;
+                _isUpdatingTerrainSelector = false;
                 SetButtonIcon(_visibilityButton, PanelButtonIcon.Eye, muted: true);
                 _visibilityButton.ToolTip = "Terrain visible. Click to hide.";
                 SetButtonIcon(_lockButton, PanelButtonIcon.Unlock, muted: true);
                 _lockButton.ToolTip = "Terrain unlocked. Click to lock.";
                 SetActionButtonsEnabled(false);
-                _terrainName.Enabled = false;
+                _terrainSelector.Enabled = false;
                 _modifierStack.Items.Clear();
                 _objectsStack.Items.Clear();
                 _zonesStack.Items.Clear();
@@ -1276,23 +1268,22 @@ public sealed partial class MoleHillPanel : Panel
                 selectedTerrain = terrains[0];
             }
 
-            _isUpdatingTerrainPicker = true;
-            _terrainPickerDropDown.Items.Clear();
+            _isUpdatingTerrainSelector = true;
+            _terrainSelector.Items.Clear();
             int selectedPickerIndex = 0;
             for (int ti = 0; ti < terrains.Count; ti++)
             {
-                _terrainPickerDropDown.Items.Add(terrains[ti].Name);
+                _terrainSelector.Items.Add(new ListItem
+                {
+                    Text = terrains[ti].Name,
+                    Key = terrains[ti].TerrainId.ToString("D")
+                });
                 if (selectedTerrain != null && terrains[ti].TerrainId == selectedTerrain.TerrainId)
                     selectedPickerIndex = ti;
             }
-            _terrainPickerDropDown.SelectedIndex = terrains.Count > 0 ? selectedPickerIndex : -1;
-            _terrainPickerDropDown.Enabled = terrains.Count > 1;
-            // The picker only earns its keep once there's something to pick between — with a single
-            // terrain it's pure duplication of the rename box directly to its left.
-            _terrainPickerDropDown.Visible = terrains.Count > 1;
-            _isUpdatingTerrainPicker = false;
-
-            _terrainName.Text = selectedTerrain?.Name ?? string.Empty;
+            _terrainSelector.SelectedIndex = terrains.Count > 0 ? selectedPickerIndex : -1;
+            _terrainSelector.Text = selectedTerrain?.Name ?? string.Empty;
+            _isUpdatingTerrainSelector = false;
             _liveUpdate.Checked = selectedTerrain?.LiveUpdateEnabled ?? false;
             _terrainLayerLabel.Text = string.IsNullOrWhiteSpace(selectedTerrain?.TerrainLayerPath) ||
                 string.Equals(selectedTerrain.TerrainLayerPath, TerrainDefinition.DefaultTerrainLayerPath, StringComparison.OrdinalIgnoreCase)
@@ -1326,14 +1317,14 @@ public sealed partial class MoleHillPanel : Panel
             bool terrainLocked = selectedTerrain?.IsLocked == true;
             SetButtonIcon(_lockButton, terrainLocked ? PanelButtonIcon.Lock : PanelButtonIcon.Unlock, muted: !terrainLocked);
             _lockButton.ToolTip = terrainLocked
-                ? "Terrain locked. Click to unlock."
-                : "Terrain unlocked. Click to lock.";
+                ? "MoleHill live outputs locked. Click to unlock; source and baked objects are unaffected."
+                : "MoleHill live outputs unlocked. Click to lock; source and baked objects are unaffected.";
             bool hasTerrain = selectedTerrain != null;
             SetActionButtonsEnabled(hasTerrain);
             bool hasTrackedBakes = selectedTerrain != null && selectedTerrain.BakedObjectIds.Count > 0;
             _untrackSelectedBakesButton.Enabled = hasTerrain && hasTrackedBakes;
             _untrackAllBakesButton.Enabled = hasTerrain && hasTrackedBakes;
-            _terrainName.Enabled = hasTerrain;
+            _terrainSelector.Enabled = hasTerrain;
 
             UpdateZonesTabButton(_zonesEyeButton, selectedTerrain);
             UpdateAnalysisTabButton(_analysisEyeButton, selectedTerrain);
@@ -1619,7 +1610,7 @@ public sealed partial class MoleHillPanel : Panel
 
     private Control BuildAddModifierBar(TerrainDefinition? terrain)
     {
-        var addButton = MakeToolbarButton("Add Modifier", (_, _) => { }, "Add a modifier above the base geometry", width: 110);
+        var addButton = MakeToolbarButton("Add Modifier", (_, _) => { }, "Add a modifier above the base geometry");
         if (terrain != null)
         {
             var menu = new ContextMenu();
@@ -1660,7 +1651,7 @@ public sealed partial class MoleHillPanel : Panel
 
     private Control BuildAnalysisToolbar(TerrainDefinition terrain)
     {
-        var addButton = MakeToolbarButton("Add Analysis", (_, _) => { }, "Add an analysis card", width: 110);
+        var addButton = MakeToolbarButton("Add Analysis", (_, _) => { }, "Add an analysis card");
         var menu = new ContextMenu();
         foreach (var descriptor in AnalysisTypeRegistry.Analyses.Where(item => !item.IsAnnotation).OrderBy(item => item.SortOrder))
         {
@@ -1676,7 +1667,7 @@ public sealed partial class MoleHillPanel : Panel
 
     private Control BuildAnnotationToolbar(TerrainDefinition terrain)
     {
-        var addButton = MakeToolbarButton("Add Annotation", (_, _) => { }, "Add an annotation card", width: 120);
+        var addButton = MakeToolbarButton("Add Annotation", (_, _) => { }, "Add an annotation card");
         var menu = new ContextMenu();
         foreach (var descriptor in AnalysisTypeRegistry.Analyses.Where(item => item.IsAnnotation).OrderBy(item => item.SortOrder))
         {
@@ -1876,7 +1867,7 @@ public sealed partial class MoleHillPanel : Panel
             Wrap = WrapMode.None
         };
         ApplyHelp(assignedLabel, $"{help}\n{layerText}");
-        var useCurrentButton = MakeCompactButton("Current", (_, _) =>
+        var useCurrentButton = MakeInlineButton("Current", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             onCommit(doc?.Layers.CurrentLayer?.FullPath);
@@ -1884,7 +1875,7 @@ public sealed partial class MoleHillPanel : Panel
 
         var browseButton = MakeLayerPickerButton(path => onCommit(path), "Browse and pick a layer");
 
-        var clearButton = MakeCompactButton("Clear", (_, _) => onCommit(null), "Clear the explicit layer assignment and fall back to the default.");
+        var clearButton = MakeInlineButton("Clear", (_, _) => onCommit(null), "Clear the explicit layer assignment and fall back to the default.");
         var buttonRow = CreateResponsiveControlGroup(3, useCurrentButton, browseButton, clearButton);
         var editor = new StackLayout
         {
@@ -1951,8 +1942,8 @@ public sealed partial class MoleHillPanel : Panel
                 PickColor();
         };
 
-        var pickButton = MakeCompactButton("Pick", (_, _) => PickColor(), "Choose an explicit color for this output.");
-        var clearButton = MakeCompactButton("Clear", (_, _) => onCommit(null), "Clear the explicit color and use the layer color instead.");
+        var pickButton = MakeInlineButton("Pick", (_, _) => PickColor(), "Choose an explicit color for this output.");
+        var clearButton = MakeInlineButton("Clear", (_, _) => onCommit(null), "Clear the explicit color and use the layer color instead.");
         var summaryRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
@@ -2010,12 +2001,50 @@ public sealed partial class MoleHillPanel : Panel
         };
     }
 
+    private void BindTerrainSelector()
+    {
+        void CommitName()
+        {
+            if (_isRefreshing || _isUpdatingTerrainSelector)
+                return;
+
+            var doc = RhinoDoc.ActiveDoc;
+            var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+            if (doc == null || terrain == null)
+                return;
+
+            string name = (_terrainSelector.Text ?? string.Empty).Trim();
+            if (string.Equals(name, terrain.Name, StringComparison.Ordinal))
+                return;
+
+            _controller.MutateTerrain(doc, terrain.TerrainId, item => item.Name = name, scheduleRebuild: false);
+            RefreshUi();
+        }
+
+        _terrainSelector.SelectedIndexChanged += OnTerrainSelectorChanged;
+        _terrainSelector.LostFocus += (_, _) => CommitName();
+        _terrainSelector.KeyDown += (_, e) =>
+        {
+            if (e.Key != Keys.Enter)
+                return;
+
+            CommitName();
+            e.Handled = true;
+        };
+    }
+
     private static string GetLeafLayerName(string layerPath) => AnalysisFormatting.GetLeafLayerName(layerPath);
 
     private static void StyleTextBox(TextBox textBox)
     {
         textBox.BackgroundColor = UiTheme.InputBackground;
         textBox.TextColor = UiTheme.InputText;
+    }
+
+    private static void StyleComboBox(ComboBox comboBox)
+    {
+        comboBox.BackgroundColor = UiTheme.InputBackground;
+        comboBox.TextColor = UiTheme.InputText;
     }
 
     private static void StyleTextArea(TextArea textArea)
@@ -2033,14 +2062,12 @@ public sealed partial class MoleHillPanel : Panel
         return button;
     }
 
-    private static Button MakeToolbarButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null, int width = 0)
+    private static Button MakeToolbarButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null)
     {
         // MinimumSize.Width defaults to the platform's native button floor (WPF: ~75px) regardless of
         // text — without clearing it, a button whose Text later shrinks (e.g. "Rebuild" -> "Rbld") stays
         // padded out to that floor instead of actually shrinking.
         var button = new Button { Text = text, Height = 26, MinimumSize = new Size(0, 26) };
-        if (width > 0)
-            button.Width = width;
         if (!string.IsNullOrWhiteSpace(toolTip))
             button.ToolTip = toolTip;
         button.Click += onClick;
@@ -2057,28 +2084,9 @@ public sealed partial class MoleHillPanel : Panel
         return button;
     }
 
-    private static Button MakeCompactButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null)
+    private static Button MakeInlineButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null)
     {
         var button = new Button { Text = text, Height = HeaderActionHeight, MinimumSize = new Size(0, HeaderActionHeight) };
-        if (!string.IsNullOrWhiteSpace(toolTip))
-            button.ToolTip = toolTip;
-        button.Click += onClick;
-        return button;
-    }
-
-    private static Button MakeMiniButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null, int width = 46)
-    {
-        var button = new Button { Text = text, Width = width, Height = HeaderActionHeight, MinimumSize = new Size(0, HeaderActionHeight) };
-        if (!string.IsNullOrWhiteSpace(toolTip))
-            button.ToolTip = toolTip;
-        button.Click += onClick;
-        return button;
-    }
-
-    private static Button MakeMiniIconButton(PanelButtonIcon icon, EventHandler<EventArgs> onClick, string? toolTip = null, int width = 28)
-    {
-        var button = new Button { Width = width, Height = HeaderActionHeight, MinimumSize = new Size(0, HeaderActionHeight) };
-        SetButtonIcon(button, icon);
         if (!string.IsNullOrWhiteSpace(toolTip))
             button.ToolTip = toolTip;
         button.Click += onClick;
@@ -2986,7 +2994,7 @@ public sealed partial class MoleHillPanel : Panel
     private Button MakeLayerPickerButton(Action<string?> onPick, string toolTip = "Browse layers")
     {
         Button? btn = null;
-        btn = MakeMiniButton("Pick", (_, _) => ShowSingleLayerPickerPopover(btn!, onPick), toolTip, width: 42);
+        btn = MakeInlineButton("Pick", (_, _) => ShowSingleLayerPickerPopover(btn!, onPick), toolTip);
         btn.ToolTip = toolTip;
         return btn;
     }

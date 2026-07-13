@@ -71,11 +71,11 @@ public sealed partial class MoleHillPanel
             var capturedPath = path;
             var rhinoLayer = doc.Layers.FirstOrDefault(layer => !layer.IsDeleted &&
                 string.Equals(layer.FullPath, path, StringComparison.OrdinalIgnoreCase));
-            var removeButton = MakeMiniButton("Remove", (_, _) =>
+            var removeButton = MakeInlineButton("Remove", (_, _) =>
             {
                 onRemoveLayer?.Invoke(capturedPath);
                 popup.Close();
-            }, "Remove this watched layer.", width: 62);
+            }, "Remove this watched layer.");
             selectedStack.Items.Add(new StackLayoutItem(
                 CreateLayerPickerRow(
                     GetLeafLayerName(path),
@@ -228,11 +228,11 @@ public sealed partial class MoleHillPanel
         };
         if (onClear != null)
         {
-            toolbar.Items.Add(MakeMiniButton("Clear", (_, _) =>
+            toolbar.Items.Add(MakeInlineButton("Clear", (_, _) =>
             {
                 onClear();
                 popup.Close();
-            }, clearToolTip, width: 48));
+            }, clearToolTip));
         }
 
         var content = new DynamicLayout { DefaultSpacing = new Size(0, 0), Padding = new Padding(0) };

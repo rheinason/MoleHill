@@ -404,7 +404,7 @@ internal sealed partial class TerrainBuildService
 
             int everyNth = Math.Max(1, analysis.LabelEveryNth);
             bool wantLabels = analysis.ShowLabels && analysis.IsEnabled;
-            string? labelLayerPath = analysis.OutputLayerPath ?? fallbackLayerPath;
+            string? outputLayerPath = ResolveContourOutputLayerPath(analysis.OutputLayerPath, fallbackLayerPath);
 
             foreach (var contourLevel in contourLevels)
             {
@@ -431,7 +431,7 @@ internal sealed partial class TerrainBuildService
                             : $"{analysis.Label} {contourLevel.Z:G4} ({levelCurveIndex})",
                         AnalysisId = analysis.Id,
                         ColorArgb = analysis.ColorArgb,
-                        LayerPath = analysis.OutputLayerPath ?? fallbackLayerPath
+                        LayerPath = outputLayerPath
                     });
                     levelPolylines?.Add(rhinoPolyline);
                 }
@@ -448,7 +448,7 @@ internal sealed partial class TerrainBuildService
                 if (levelPolylines != null && ((contourLevelCount - 1) % everyNth == 0))
                 {
                     foreach (var rhinoPolyline in levelPolylines)
-                        EmitContourLabels(objects, rhinoPolyline, contourLevel.Z, analysis, labelLayerPath);
+                        EmitContourLabels(objects, rhinoPolyline, contourLevel.Z, analysis, outputLayerPath);
                 }
             }
         }
@@ -462,6 +462,14 @@ internal sealed partial class TerrainBuildService
             ContourLastLevel = contourLevelCount > 0 ? lastLevel : 0.0
         };
         return (objects, summary);
+    }
+
+    internal static string? ResolveContourOutputLayerPath(string? outputLayerPath, string? fallbackLayerPath)
+    {
+        if (!string.IsNullOrWhiteSpace(outputLayerPath))
+            return outputLayerPath;
+
+        return string.IsNullOrWhiteSpace(fallbackLayerPath) ? null : fallbackLayerPath;
     }
 
     private static void EmitContourLabels(

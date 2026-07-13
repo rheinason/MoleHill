@@ -7,7 +7,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillPanelCommand : Command
 {
-    public override string EnglishName => "MoleHillPanel";
+    public override string EnglishName => "mhPanel";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

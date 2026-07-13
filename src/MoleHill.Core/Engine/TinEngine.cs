@@ -1,8 +1,18 @@
+using System.Diagnostics;
 using TriangleNet;
 using TriangleNet.Geometry;
 using TriangleNet.Meshing;
 
 namespace MoleHill.Core.Engine;
+
+public enum TinEngineBuildPhase
+{
+    WaitingForGate,
+    GateAcquired,
+    FullRebuildStarting
+}
+
+public readonly record struct TinEngineBuildProgress(TinEngineBuildPhase Phase, TimeSpan GateWait);
 
 /// <summary>
 /// Main TIN triangulation orchestrator with XY-hash caching.
@@ -130,13 +140,18 @@ public class TinEngine
     public TinResult? Build(double[] xyCoords, double[] zValues,
                             int[] segments, QualitySettings quality,
                             out string? errorMessage,
-                            bool useConvexHull = true,
-                            double maxBoundaryEdgeLength = 0,
-                            BoundaryTrianglePeelSettings? boundaryPeelSettings = null,
-                            Func<bool>? shouldCancel = null)
+                             bool useConvexHull = true,
+                             double maxBoundaryEdgeLength = 0,
+                             BoundaryTrianglePeelSettings? boundaryPeelSettings = null,
+                             Func<bool>? shouldCancel = null,
+                             Action<TinEngineBuildProgress>? reportProgress = null)
     {
+        var gateTimer = Stopwatch.StartNew();
+        reportProgress?.Invoke(new TinEngineBuildProgress(TinEngineBuildPhase.WaitingForGate, TimeSpan.Zero));
         lock (_gate)
         {
+            gateTimer.Stop();
+            reportProgress?.Invoke(new TinEngineBuildProgress(TinEngineBuildPhase.GateAcquired, gateTimer.Elapsed));
             errorMessage = null;
             BoundaryTrianglePeelSettings peelSettings = boundaryPeelSettings
                 ?? BoundaryTrianglePeelSettings.FromLegacyMaxBoundaryEdgeLength(maxBoundaryEdgeLength);
@@ -195,6 +210,7 @@ public class TinEngine
             }
 
             ThrowIfCancellationRequested(shouldCancel);
+            reportProgress?.Invoke(new TinEngineBuildProgress(TinEngineBuildPhase.FullRebuildStarting, gateTimer.Elapsed));
             var result = FullRebuild(
                 xyCoords, zValues, segments, quality,
                 out errorMessage, out IMesh? builtMesh, useConvexHull, peelSettings, shouldCancel);

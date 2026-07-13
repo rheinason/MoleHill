@@ -413,7 +413,7 @@ public class MeshCollageComponent : GH_Component
                 polygon.Add(new Segment(verts[i], verts[(i + 1) % vertCount], 1), false);
 
             var opts = new ConstraintOptions { ConformingDelaunay = false, Convex = false };
-            var mesh = new GenericMesher().Triangulate(polygon, opts, new QualityOptions());
+            var mesh = TriangulationHelper.TriangulatePolygon(polygon, opts, new QualityOptions());
 
             if (mesh.Triangles.Count == 0) return null;
 

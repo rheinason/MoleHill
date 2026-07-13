@@ -14,6 +14,11 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   elevation scanning, and area computation.
 - Cache-hit timings carry a structured cache-hit flag. Cached cold timing reports are filtered on
   restore, and normalized cached meshes are duplicated without a redundant normalization pass.
+- Long-running builds emit live phase, elapsed-time, and managed-memory updates through the controller's
+  idle loop, so the panel and command history identify a stalled phase before the build completes.
+- `LargeTinDiagnostic.cs` backs `mhBenchmarkLargeTin`, a background, deterministic 247k-point benchmark
+  that times the shared TIN engine separately from Rhino conversion, normalization, fingerprints, and
+  mesh-cache duplication without requiring a user model.
 - Reference-comparison analyses (Cut / Fill and Earthwork) share one centroid-delta pass per
   reference/boundary fingerprint. The common 2.5D reference lookup uses Core `MeshHeightProjector`;
   Rhino mesh-line projection is kept only for overlapping/near-vertical reference regions and records a
@@ -22,6 +27,11 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   explicit carve/weld tier; smaller and unconstrained paths remain explicit-first.
 - `TerrainBuildSnapshot.cs` / `TerrainBuildSnapshotBuilder.cs` / `TerrainBuildSnapshotResolver.cs` -
   resolve doc geometry (points/curves/blocks/layers) into the immutable build snapshot the service reads.
+- Layer-backed source sets use Rhino's native `FindByLayer` lookup, then re-resolve every result by ID through
+  the active object table before accepting normal, locked, or hidden geometry. This rejects stale wrappers and
+  transform predecessors that Rhino's layer lookup can retain. Terrain sources are restricted to ModelSpace;
+  PageSpace objects on the same layer are excluded. Instance-definition, reference,
+  grip, light, and phantom objects remain excluded.
 - `TerrainBuildResult.cs` - outputs (meshes, generated-object lists, diagnostics, timings).
 - Smooth Breaklines can select curves already used by earlier Grade Path modifiers; the Smooth stage
   expands those selected centerlines into local road center/left/right breaklines without persisting
@@ -39,8 +49,13 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   objects (no doc objects until bake).
 - `TerrainRuntimeCache.cs` - per-terrain runtime cache (stage entries, TinEngine, display state, cloner).
   Worker caches shallow-copy stage mesh outputs; the controller defers disposal of displaced main-cache
-  meshes until retired worker tasks have drained.
+  meshes until retired worker tasks have drained. The controller also inspects the cached incoming stage
+  for Smooth/Sculpt mesh-regularity warnings when no earlier Remesh is enabled.
 - `GeneratedRhinoObject.cs` - a previewable/bakeable output (geometry or block instance).
+- Contour curves and labels use their configured output layer, with blank values resolved to the selected
+  terrain's Annotation layer before preview/sync/bake.
+- The layer command surface creates the selected terrain's configured Terrain, Auxiliary, and Annotation
+  output layers directly; it does not depend on highlighted source layers.
 - `SculptSessionController.cs` - the interactive sculpt session: GetPoint loop (drag = stroke,
   Enter/Esc = done), brush dabs onto a working mesh via `Core/Sculpting/SculptBrushEngine`, incremental
   normal patching, per-stroke field commit + stroke undo stack, and F/Shift+F adjust modes. DynTopo is
@@ -54,5 +69,12 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 ## Other
 - `GeometryCommandService.cs`, `BlockCommandService.cs`, `LayerTemplateStore.cs`,
   `RhinoSourceResolver.cs`, `RhinoGeometryConversions.cs` - command/geometry helpers.
+- `ProjectBaseCPlaneService.cs` - reversible project-local/real-world transform storage and ModelSpace
+  orientation; PageSpace layout content is left unchanged. Reorientation post-composes the new local inverse;
+  the modern named plane is preferred and legacy `Georef` is migration-only.
+- `RasterGeoreference.cs` / `GeoTiffMetadataReader.cs` - dependency-free affine raster placement from
+  embedded GeoTIFF model tags or full six-value world files. CRS reprojection is intentionally out of scope.
+- `CommandScriptRunner.cs` - replacement-aware batch transforms with locked-layer preflight and inverse
+  rollback if an unexpected object transformation fails.
 - `TerrainCoreCaseRecorder.cs` / `TerrainCoreCaseTestExporter.cs` / `TerrainCaseBundleExporter.cs` -
   the "Copy Case" repro-bundle exporters (generate the `*_CopiedCase.cs` Core tests).

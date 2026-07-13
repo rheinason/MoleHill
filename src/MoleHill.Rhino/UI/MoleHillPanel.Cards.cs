@@ -265,10 +265,25 @@ public sealed partial class MoleHillPanel
                 new StackLayoutItem(options.TitleBlock, expand: true)
             }
         };
+        var statusHosts = new List<Panel>();
         foreach (var statusControl in options.StatusControls)
-            header.Items.Add(new StackLayoutItem(statusControl));
+        {
+            var host = new Panel { Content = statusControl };
+            statusHosts.Add(host);
+            header.Items.Add(new StackLayoutItem(host));
+        }
         foreach (var actionControl in options.ActionControls)
             header.Items.Add(new StackLayoutItem(actionControl));
+
+        void UpdateStatusVisibility()
+        {
+            bool showStatus = header.Width <= 0 || header.Width >= UiMetrics.HeaderStatusBreak;
+            foreach (var host in statusHosts)
+                host.Visible = showStatus;
+        }
+
+        header.SizeChanged += (_, _) => UpdateStatusVisibility();
+        UpdateStatusVisibility();
 
         header.MouseDown += (_, e) => options.ToggleCollapsed(e.Modifiers.HasFlag(Keys.Control));
 
@@ -288,11 +303,11 @@ public sealed partial class MoleHillPanel
         };
     }
 
-    /// <summary>Stacked-squares "duplicate this card" icon button — pairs with <see cref="MakeDeleteIconButton"/>.</summary>
-    private static Button MakeDuplicateIconButton(Action onClick, string help) =>
-        MakeIconButton(PanelButtonIcon.Duplicate, (_, _) => onClick(), help);
+    /// <summary>Stacked-squares "duplicate this card" icon button.</summary>
+    private static Button MakeDuplicateIconButton(Action action, string help) =>
+        MakeIconButton(PanelButtonIcon.Duplicate, (_, _) => action(), help);
 
-    /// <summary>"Delete this card" icon button — pairs with <see cref="MakeDuplicateIconButton"/>.</summary>
-    private static Button MakeDeleteIconButton(Action onClick, string help) =>
-        MakeIconButton(PanelButtonIcon.Delete, (_, _) => onClick(), help);
+    /// <summary>Outline-bin "delete this card" icon button.</summary>
+    private static Button MakeDeleteIconButton(Action action, string help) =>
+        MakeIconButton(PanelButtonIcon.Delete, (_, _) => action(), help);
 }

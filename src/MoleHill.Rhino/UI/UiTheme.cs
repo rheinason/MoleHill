@@ -54,4 +54,6 @@ internal static class UiTheme
     public static Color SepHighlight  => IsDark ? Color.FromArgb(110, 170, 255, 255) : Color.FromArgb(80,  130, 220, 255);
     public static Color ActiveBadge   => IsDark ? Color.FromArgb(255, 210, 80)       : Color.FromArgb(160, 100, 0);
     public static Color ListSelectionBackground => IsDark ? Color.FromArgb(58, 78, 108) : Color.FromArgb(220, 236, 255);
+    public static Color WarningBackground => IsDark ? Color.FromArgb(86, 67, 25) : Color.FromArgb(255, 240, 196);
+    public static Color WarningText => IsDark ? Color.FromArgb(255, 220, 132) : Color.FromArgb(112, 68, 0);
 }

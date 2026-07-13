@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using MoleHill.Rhino.Model;
 
 namespace MoleHill.Rhino.Registry;
@@ -32,6 +33,8 @@ internal abstract class ObjectTypeDescriptor
 
     /// <summary>Ordering within the Add-Object menu.</summary>
     public virtual int SortOrder => 0;
+
+    public virtual IReadOnlyList<ObjectParameterDescriptor> Parameters => ObjectParameterCatalog.Common;
 
     public abstract TerrainObjectDefinition Create();
 }

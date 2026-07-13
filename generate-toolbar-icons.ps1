@@ -127,7 +127,7 @@ $teal = Argb 0 121 107
 
 # ── Per-command icon designs (keyed by macro script name) ────────────────────
 $designs = @{
-    'MoleHillTwoPointInterpolation' = {
+    'mhTwoPointInterpolation' = {
         param($g, $s)
         $p = Pen $green ([Math]::Max(1.0, $s * 0.06)); $g.DrawLine($p, ($s * 0.16), ($s * 0.78), ($s * 0.84), ($s * 0.22)); $p.Dispose()
         $b1 = Brush (Argb 25 70 130); $b2 = Brush $green
@@ -136,7 +136,7 @@ $designs = @{
         $g.FillEllipse($b2, ($s * 0.40), ($s * 0.40), ($s * 0.18), ($s * 0.18))
         $b1.Dispose(); $b2.Dispose()
     }
-    'MoleHillGradientInterpolation' = {
+    'mhGradientInterpolation' = {
         param($g, $s)
         $p = Pen (Argb 120 120 120) ([Math]::Max(0.8, $s * 0.04)); $g.DrawLine($p, ($s * 0.14), ($s * 0.80), ($s * 0.86), ($s * 0.24)); $p.Dispose()
         $b = Brush $green; $i = 0
@@ -147,7 +147,7 @@ $designs = @{
         }
         $b.Dispose()
     }
-    'MoleHillOffset3dPolyline' = {
+    'mhOffset3dPolyline' = {
         param($g, $s)
         $p1 = Pen $green ([Math]::Max(1.0, $s * 0.06))
         $g.DrawLines($p1, @((PtF ($s * 0.14) ($s * 0.42)), (PtF ($s * 0.40) ($s * 0.20)), (PtF ($s * 0.66) ($s * 0.42)), (PtF ($s * 0.86) ($s * 0.26))))
@@ -156,18 +156,18 @@ $designs = @{
         $g.DrawLines($p2, @((PtF ($s * 0.14) ($s * 0.66)), (PtF ($s * 0.40) ($s * 0.44)), (PtF ($s * 0.66) ($s * 0.66)), (PtF ($s * 0.86) ($s * 0.50))))
         $p2.Dispose()
     }
-    'MoleHillReplaceCurveSection' = {
+    'mhReplaceCurveSection' = {
         param($g, $s)
         $p = Pen (Argb 120 120 120) ([Math]::Max(0.9, $s * 0.05)); $p.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
         $g.DrawBezier($p, ($s * 0.12), ($s * 0.74), ($s * 0.30), ($s * 0.30), ($s * 0.55), ($s * 0.90), ($s * 0.88), ($s * 0.40)); $p.Dispose()
         $p2 = Pen $green ([Math]::Max(1.2, $s * 0.08)); $g.DrawBezier($p2, ($s * 0.34), ($s * 0.52), ($s * 0.45), ($s * 0.70), ($s * 0.55), ($s * 0.72), ($s * 0.66), ($s * 0.56)); $p2.Dispose()
     }
-    'MoleHillSlopeCurve' = {
+    'mhSlopeCurve' = {
         param($g, $s)
         $p = Pen $green ([Math]::Max(1.2, $s * 0.07)); $g.DrawBezier($p, ($s * 0.14), ($s * 0.82), ($s * 0.45), ($s * 0.74), ($s * 0.55), ($s * 0.28), ($s * 0.86), ($s * 0.20))
         Draw-Arrowhead $g $s $p ($s * 0.86) ($s * 0.20) (1) (-0.4); $p.Dispose()
     }
-    'MoleHillTrimBoundary' = {
+    'mhTrimBoundary' = {
         param($g, $s)
         $p = Pen $green ([Math]::Max(1.0, $s * 0.06))
         $g.DrawPolygon($p, @((PtF ($s * 0.18) ($s * 0.22)), (PtF ($s * 0.82) ($s * 0.28)), (PtF ($s * 0.74) ($s * 0.80)), (PtF ($s * 0.22) ($s * 0.72))))
@@ -182,35 +182,35 @@ $designs = @{
         foreach ($pt in @(@(0.16, 0.66), @(0.46, 0.46), @(0.82, 0.36))) { $g.FillEllipse($b, ($s * $pt[0] - $s * 0.07), ($s * $pt[1] - $s * 0.07), ($s * 0.14), ($s * 0.14)) }
         $b.Dispose()
     }
-    'MoleHillOrientToOrigin' = {
+    'mhOrientToOrigin' = {
         param($g, $s)
         $ox = $s * 0.30; $oy = $s * 0.70
         $pz = Pen (Argb 41 128 185) ([Math]::Max(1.2, $s * 0.07)); $g.DrawLine($pz, $ox, $oy, $ox, ($s * 0.16)); Draw-Arrowhead $g $s $pz $ox ($s * 0.16) (0) (-1); $pz.Dispose()
         $px = Pen (Argb 192 57 43) ([Math]::Max(1.2, $s * 0.07)); $g.DrawLine($px, $ox, $oy, ($s * 0.86), $oy); Draw-Arrowhead $g $s $px ($s * 0.86) $oy 1 0; $px.Dispose()
         $py = Pen (Argb 39 174 96) ([Math]::Max(1.2, $s * 0.07)); $g.DrawLine($py, $ox, $oy, ($s * 0.60), ($s * 0.40)); Draw-Arrowhead $g $s $py ($s * 0.60) ($s * 0.40) (0.7) (-0.7); $py.Dispose()
     }
-    'MoleHillApplyLayerTemplate' = {
+    'mhApplyLayerTemplate' = {
         param($g, $s)
         Draw-Layers $g $s
         $p = Pen (Argb 39 174 96) ([Math]::Max(1.4, $s * 0.09)); $g.DrawLines($p, @((PtF ($s * 0.58) ($s * 0.66)), (PtF ($s * 0.70) ($s * 0.80)), (PtF ($s * 0.92) ($s * 0.42)))); $p.Dispose()
     }
-    'MoleHillSoftEditCurves' = {
+    'mhSoftEditCurves' = {
         param($g, $s)
         $p = Pen $green ([Math]::Max(1.2, $s * 0.07)); $g.DrawBezier($p, ($s * 0.12), ($s * 0.74), ($s * 0.40), ($s * 0.10), ($s * 0.60), ($s * 0.90), ($s * 0.88), ($s * 0.30)); $p.Dispose()
         $ph = Pen (Argb 150 150 150) ([Math]::Max(0.7, $s * 0.03)); $ph.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dot; $g.DrawLine($ph, ($s * 0.40), ($s * 0.10), ($s * 0.40), ($s * 0.50)); $ph.Dispose()
         $b = Brush (Argb 230 126 34); $g.FillEllipse($b, ($s * 0.33), ($s * 0.04), ($s * 0.14), ($s * 0.14)); $b.Dispose()
     }
-    'MoleHillExternalizeBlock' = {
+    'mhExternalizeBlock' = {
         param($g, $s)
         Draw-Cube $g $s 0.12 0.30 0.40
         $p = Pen (Argb 41 128 185) ([Math]::Max(1.4, $s * 0.08)); $g.DrawLine($p, ($s * 0.58), ($s * 0.42), ($s * 0.90), ($s * 0.20)); Draw-Arrowhead $g $s $p ($s * 0.90) ($s * 0.20) (1) (-0.7); $p.Dispose()
     }
-    'MoleHillUpdateAllLinkedBlocks' = {
+    'mhUpdateAllLinkedBlocks' = {
         param($g, $s)
         Draw-Cube $g $s 0.16 0.34 0.38
         Draw-Refresh $g $s (Argb 41 128 185) 0.5 0.5 0.40
     }
-    'MoleHillSetSunNorth' = {
+    'mhSetSunNorth' = {
         param($g, $s)
         $b = Brush (Argb 245 176 26); $g.FillEllipse($b, ($s * 0.34), ($s * 0.42), ($s * 0.32), ($s * 0.32)); $b.Dispose()
         $p = Pen (Argb 245 176 26) ([Math]::Max(1.0, $s * 0.05))
@@ -221,40 +221,40 @@ $designs = @{
         $p.Dispose()
         $pn = Pen (Argb 192 57 43) ([Math]::Max(1.2, $s * 0.07)); $g.DrawLine($pn, ($s * 0.5), ($s * 0.34), ($s * 0.5), ($s * 0.08)); Draw-Arrowhead $g $s $pn ($s * 0.5) ($s * 0.08) (0) (-1); $pn.Dispose()
     }
-    'MoleHillEditLayerTemplates' = {
+    'mhEditLayerTemplates' = {
         param($g, $s)
         Draw-Layers $g $s
         $p = Pen (Argb 80 80 80) ([Math]::Max(1.2, $s * 0.07)); $g.DrawLine($p, ($s * 0.62), ($s * 0.82), ($s * 0.90), ($s * 0.40)); $p.Dispose()
         $b = Brush (Argb 245 176 26); $g.FillPolygon($b, @((PtF ($s * 0.58) ($s * 0.88)), (PtF ($s * 0.66) ($s * 0.78)), (PtF ($s * 0.62) ($s * 0.92)))); $b.Dispose()
     }
-    'MoleHillImportWithGeoref' = {
+    'mhImportWithGeoref' = {
         param($g, $s)
         Draw-Globe $g $s
         $p = Pen (Argb 39 174 96) ([Math]::Max(1.4, $s * 0.08)); $g.DrawLine($p, ($s * 0.66), ($s * 0.20), ($s * 0.66), ($s * 0.66)); Draw-Arrowhead $g $s $p ($s * 0.66) ($s * 0.66) 0 1; $p.Dispose()
     }
-    'MoleHillExportWithGeoref' = {
+    'mhExportWithGeoref' = {
         param($g, $s)
         Draw-Globe $g $s
         $p = Pen (Argb 41 128 185) ([Math]::Max(1.4, $s * 0.08)); $g.DrawLine($p, ($s * 0.66), ($s * 0.66), ($s * 0.66), ($s * 0.20)); Draw-Arrowhead $g $s $p ($s * 0.66) ($s * 0.20) (0) (-1); $p.Dispose()
     }
-    'MoleHillLiftCurvesWithLine' = {
+    'mhLiftCurvesWithLine' = {
         param($g, $s)
         $p = Pen $green ([Math]::Max(1.2, $s * 0.07)); $g.DrawBezier($p, ($s * 0.12), ($s * 0.84), ($s * 0.38), ($s * 0.64), ($s * 0.62), ($s * 0.88), ($s * 0.88), ($s * 0.66)); $p.Dispose()
         $pa = Pen (Argb 41 128 185) ([Math]::Max(1.4, $s * 0.08)); $g.DrawLine($pa, ($s * 0.5), ($s * 0.70), ($s * 0.5), ($s * 0.14)); Draw-Arrowhead $g $s $pa ($s * 0.5) ($s * 0.14) (0) (-1); $pa.Dispose()
     }
-    'MoleHillRemoveSavedGeoref' = {
+    'mhConvertToProjectCoordinates' = {
         param($g, $s)
         Draw-Globe $g $s (Argb 120 120 120)
         $p = Pen (Argb 211 47 47) ([Math]::Max(1.4, $s * 0.09)); $g.DrawLine($p, ($s * 0.56), ($s * 0.30), ($s * 0.86), ($s * 0.60)); $g.DrawLine($p, ($s * 0.86), ($s * 0.30), ($s * 0.56), ($s * 0.60)); $p.Dispose()
     }
-    'MoleHillCreateTerrain' = {
+    'mhCreateTerrain' = {
         param($g, $s)
         Draw-Triangle $g $s
         $b = Brush (Argb 39 174 96); $g.FillEllipse($b, ($s * 0.60), ($s * 0.60), ($s * 0.34), ($s * 0.34)); $b.Dispose()
         $p = Pen ([System.Drawing.Color]::White) ([Math]::Max(1.2, $s * 0.07)); $cx = $s * 0.77; $cy = $s * 0.77
         $g.DrawLine($p, $cx, ($cy - $s * 0.10), $cx, ($cy + $s * 0.10)); $g.DrawLine($p, ($cx - $s * 0.10), $cy, ($cx + $s * 0.10), $cy); $p.Dispose()
     }
-    'MoleHillImportGeoTiff' = {
+    'mhImportGeoTiff' = {
         param($g, $s)
         $cols = 4; $cell = $s * 0.50 / $cols; $x0 = $s * 0.14; $y0 = $s * 0.14
         for ($r = 0; $r -lt 4; $r++) { for ($c = 0; $c -lt 4; $c++) {
@@ -265,27 +265,27 @@ $designs = @{
         $op = Pen (Argb 60 60 60) ([Math]::Max(0.7, $s * 0.03)); $g.DrawRectangle($op, $x0, $y0, ($s * 0.50), ($s * 0.50)); $op.Dispose()
         $p = Pen (Argb 39 174 96) ([Math]::Max(1.4, $s * 0.08)); $g.DrawLine($p, ($s * 0.74), ($s * 0.40), ($s * 0.74), ($s * 0.84)); Draw-Arrowhead $g $s $p ($s * 0.74) ($s * 0.84) 0 1; $p.Dispose()
     }
-    'MoleHillApplySavedGeoref' = {
+    'mhConvertToRealWorldCoordinates' = {
         param($g, $s)
         Draw-Globe $g $s
         $p = Pen (Argb 39 174 96) ([Math]::Max(1.4, $s * 0.09)); $g.DrawLines($p, @((PtF ($s * 0.52) ($s * 0.58)), (PtF ($s * 0.64) ($s * 0.72)), (PtF ($s * 0.90) ($s * 0.34)))); $p.Dispose()
     }
-    'MoleHillPanel' = {
+    'mhPanel' = {
         param($g, $s)
         Draw-Triangle $g $s
     }
-    'MoleHillConvertToRhino' = {
+    'mhConvertToRhino' = {
         param($g, $s)
         Draw-Triangle $g ($s * 0.62) $blue (Argb 30 70 140) $true
         $p = Pen (Argb 80 80 80) ([Math]::Max(1.2, $s * 0.07)); $g.DrawLine($p, ($s * 0.42), ($s * 0.62), ($s * 0.66), ($s * 0.62)); Draw-Arrowhead $g $s $p ($s * 0.66) ($s * 0.62) 1 0; $p.Dispose()
         Draw-Cube $g $s 0.58 0.50 0.30 (Argb 120 130 140)
     }
-    'MoleHillResetTerrainBuild' = {
+    'mhResetTerrainBuild' = {
         param($g, $s)
         Draw-Triangle $g $s $blue (Argb 30 70 140) $false
         Draw-Refresh $g $s ([System.Drawing.Color]::White) 0.5 0.56 0.26
     }
-    'MoleHillAddMarkerParentheses' = {
+    'mhAddMarkerParentheses' = {
         param($g, $s)
         $p = Pen (Argb 41 128 185) ([Math]::Max(1.6, $s * 0.10))
         $g.DrawArc($p, ($s * 0.14), ($s * 0.18), ($s * 0.30), ($s * 0.50), 110, 140)
@@ -293,7 +293,7 @@ $designs = @{
         $pp = Pen (Argb 39 174 96) ([Math]::Max(1.4, $s * 0.09)); $cx = $s * 0.78; $cy = $s * 0.74
         $g.DrawLine($pp, $cx, ($cy - $s * 0.13), $cx, ($cy + $s * 0.13)); $g.DrawLine($pp, ($cx - $s * 0.13), $cy, ($cx + $s * 0.13), $cy); $pp.Dispose()
     }
-    'MoleHillRemoveMarkerParentheses' = {
+    'mhRemoveMarkerParentheses' = {
         param($g, $s)
         $p = Pen (Argb 120 120 120) ([Math]::Max(1.6, $s * 0.10))
         $g.DrawArc($p, ($s * 0.14), ($s * 0.18), ($s * 0.30), ($s * 0.50), 110, 140)
@@ -314,7 +314,7 @@ $designs = @{
     }
     # Note: 'SetPathwidth' (lowercase w) resolves to the 'SetPathWidth' design — hashtable lookup is
     # case-insensitive, so no separate entry is needed (and would collide as a duplicate key).
-    'MoleHillSlopeCheckAndMark' = {
+    'mhSlopeCheckAndMark' = {
         param($g, $s)
         $pts = @((PtF ($s * 0.14) ($s * 0.82)), (PtF ($s * 0.80) ($s * 0.82)), (PtF ($s * 0.14) ($s * 0.26)))
         $b = Brush $green; $g.FillPolygon($b, $pts); $b.Dispose()
@@ -324,6 +324,8 @@ $designs = @{
 }
 
 # ── Render + repack ──────────────────────────────────────────────────────────
+$designs['mhClearProjectBase'] = $designs['mhOrientToOrigin']
+
 [xml]$rui = Get-Content $ruiPath -Raw
 $raw = Get-Content $ruiPath -Raw
 

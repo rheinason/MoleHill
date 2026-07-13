@@ -79,13 +79,13 @@ internal static class PanelButtonIcons
                 break;
 
             case PanelButtonIcon.Delete:
-                Segment(5, 4.25f, 11, 4.25f);
-                Segment(6.5f, 2.75f, 9.5f, 2.75f);
-                Segment(7, 2.75f, 7.5f, 2.25f);
-                Segment(9, 2.75f, 8.5f, 2.25f);
-                Rect(5.5f, 5.75f, 5, 7);
-                Segment(7, 7, 7, 11.25f);
-                Segment(9, 7, 9, 11.25f);
+                // Familiar outline bin: a broad lid and handle remain legible beside the duplicate icon,
+                // while the tapered body avoids reading as another small square.
+                Stroke(P(3, 4.5f), P(13, 4.5f));
+                Stroke(P(6, 4.5f), P(6, 2.75f), P(10, 2.75f), P(10, 4.5f));
+                Stroke(P(4.25f, 5.75f), P(5.15f, 13), P(10.85f, 13), P(11.75f, 5.75f));
+                Segment(7, 6.75f, 7.25f, 11.75f);
+                Segment(9, 6.75f, 8.75f, 11.75f);
                 break;
 
             case PanelButtonIcon.Clear:

@@ -27,17 +27,19 @@ internal sealed partial class TerrainBuildService
         TerrainDefinition terrain,
         TerrainRuntimeCache runtimeCache,
         TerrainBuildMode mode = TerrainBuildMode.Final,
-        Func<bool>? shouldCancel = null)
+        Func<bool>? shouldCancel = null,
+        Action<TerrainBuildProgress>? reportProgress = null)
     {
         TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
-        return Build(snapshot, runtimeCache, mode, shouldCancel);
+        return Build(snapshot, runtimeCache, mode, shouldCancel, reportProgress);
     }
 
     public TerrainBuildResult Build(
         TerrainBuildSnapshot snapshot,
         TerrainRuntimeCache runtimeCache,
         TerrainBuildMode mode = TerrainBuildMode.Final,
-        Func<bool>? shouldCancel = null)
+        Func<bool>? shouldCancel = null,
+        Action<TerrainBuildProgress>? reportProgress = null)
     {
         var totalTimer = Stopwatch.StartNew();
         TerrainDefinition terrain = snapshot.Terrain;
@@ -81,6 +83,7 @@ internal sealed partial class TerrainBuildService
                 RuntimeCache = runtimeCache,
                 UsedStageKeys = usedStageKeys,
                 ShouldCancel = shouldCancel,
+                ReportProgress = reportProgress,
                 CurrentMesh = currentMesh,
                 CurrentMeshFingerprint = currentMeshFingerprint,
                 BaseMesh = baseMesh,

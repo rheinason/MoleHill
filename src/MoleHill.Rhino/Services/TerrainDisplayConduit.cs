@@ -637,7 +637,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             {
                 TextEntity textToDraw = text;
                 if (substituteDisplayText &&
-                    TryBuildPreviewDisplayText(generated.InstanceUserStrings, out var displayText))
+                    generated.TryGetPreviewDisplayText(out var displayText))
                 {
                     textToDraw = generated.GetPreviewTextEntity(text, displayText) ?? text;
                 }
@@ -657,33 +657,6 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             default:
                 return false;
         }
-    }
-
-    private static bool TryBuildPreviewDisplayText(
-        IReadOnlyDictionary<string, string>? userStrings,
-        out string displayText)
-    {
-        displayText = string.Empty;
-        if (userStrings == null || userStrings.Count == 0)
-            return false;
-
-        string prefix = GetUserString(userStrings, GeneratedBlockCatalog.PrefixToken);
-        string value = GetUserString(userStrings, GeneratedBlockCatalog.ValueToken);
-        string suffix = GetUserString(userStrings, GeneratedBlockCatalog.SuffixToken);
-        displayText = string.Concat(prefix, value, suffix);
-        if (!string.IsNullOrWhiteSpace(displayText))
-            return true;
-
-        displayText = GetUserString(userStrings, GeneratedBlockCatalog.DisplayToken);
-        return !string.IsNullOrWhiteSpace(displayText);
-    }
-
-    private static string GetUserString(IReadOnlyDictionary<string, string> userStrings, string key)
-    {
-        if (!userStrings.TryGetValue(key, out var value) || value == null)
-            return string.Empty;
-
-        return value;
     }
 
     private static IReadOnlyList<GeometryBase> GetMarkerBlockGeometry(MarkerBlockTemplate template)

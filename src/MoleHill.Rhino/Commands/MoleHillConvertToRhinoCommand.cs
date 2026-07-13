@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillConvertToRhinoCommand : Command
 {
-    public override string EnglishName => "MoleHillConvertToRhino";
+    public override string EnglishName => "mhConvertToRhino";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillOrientToOriginCommand : Command
 {
-    public override string EnglishName => "MoleHillOrientToOrigin";
+    public override string EnglishName => "mhOrientToOrigin";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

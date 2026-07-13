@@ -55,21 +55,31 @@ internal sealed partial class TerrainBuildService
         Stopwatch timer,
         out ulong outputFingerprint,
         Func<bool>? shouldCancel = null,
-        IEnumerable<GradingDiagnostic>? structuredDiagnostics = null)
+        IEnumerable<GradingDiagnostic>? structuredDiagnostics = null,
+        TerrainBuildProgressReporter? reportProgress = null)
     {
         timer.Stop();
         ThrowIfCancellationRequested(shouldCancel);
+        reportProgress?.Start("Stage mesh normalization");
         mesh = NormalizeTerrainMesh(mesh);
+        reportProgress?.Complete(
+            "Stage mesh normalization",
+            mesh == null ? "no mesh" : $"{mesh.Vertices.Count:N0} vertices, {mesh.Faces.Count:N0} faces");
         outputFingerprint = ComputeMeshStageOutputFingerprint(
             mesh,
             CombineConstraints(persistentHardConstraints, build.PersistentElevationConstraints));
+        reportProgress?.Start("Stage cache clone");
+        RhinoMesh? cachedMesh = TerrainRuntimeCacheCloner.CloneMesh(mesh);
+        reportProgress?.Complete(
+            "Stage cache clone",
+            cachedMesh == null ? "no mesh" : $"{cachedMesh.Vertices.Count:N0} vertices, {cachedMesh.Faces.Count:N0} faces");
         runtimeCache.StageEntries[stageKey] = new StageCacheEntry
         {
             StageName = stageName,
             PreResolutionFingerprint = preResolutionFingerprint,
             ResolvedInputFingerprint = resolvedInputFingerprint,
             OutputFingerprint = outputFingerprint,
-            MeshOutput = TerrainRuntimeCacheCloner.CloneMesh(mesh),
+            MeshOutput = cachedMesh,
             AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(auxiliaryObjects),
             PersistentHardConstraints = TerrainRuntimeCacheCloner.CloneConstraints(persistentHardConstraints),
             PersistentElevationConstraints = TerrainRuntimeCacheCloner.CloneConstraints(build.PersistentElevationConstraints),
@@ -84,6 +94,9 @@ internal sealed partial class TerrainBuildService
     private static RhinoMesh? NormalizeTerrainMesh(RhinoMesh? mesh)
     {
         if (mesh == null || mesh.Faces.Count == 0)
+            return mesh;
+
+        if (RhinoGeometryConversions.IsNormalizedMesh(mesh))
             return mesh;
 
         RhinoGeometryConversions.NormalizeMeshInPlace(mesh);

@@ -1,16 +1,30 @@
 using System;
+using Eto.Drawing;
 
 namespace MoleHill.Rhino.UI;
 
 internal static class UiMetrics
 {
-    private const float Ch = 7f;
+    private static float _characterWidth = -1f;
 
-    public static void Invalidate()
+    private static float CharacterWidth
     {
+        get
+        {
+            if (_characterWidth >= 0f)
+                return _characterWidth;
+
+            using var font = new Font(SystemFont.Bold);
+            float measured = font.MeasureString("0000000000").Width / 10f;
+            _characterWidth = measured > 0f ? measured : 7f;
+            return _characterWidth;
+        }
     }
 
-    public static int Chs(double count) => (int)Math.Ceiling(count * Ch);
+    /// <summary>Call when Rhino's UI font or theme may have changed.</summary>
+    public static void Invalidate() => _characterWidth = -1f;
+
+    public static int Chs(double count) => (int)Math.Ceiling(count * CharacterWidth);
 
     public static int LabelColumn => Chs(10);
 

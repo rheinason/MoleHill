@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillSoftEditCurvesCommand : Command
 {
-    public override string EnglishName => "MoleHillSoftEditCurves";
+    public override string EnglishName => "mhSoftEditCurves";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

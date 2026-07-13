@@ -1,11 +1,13 @@
 using System.Security.Cryptography;
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Eto.Forms;
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.UI;
 using Rhino;
@@ -47,6 +49,7 @@ internal sealed partial class TerrainController
     private readonly Dictionary<(uint docSerial, Guid terrainId, TerrainBuildMode mode), PendingBuildRequest> _pendingRebuilds = new();
     private readonly Dictionary<uint, DateTime> _pendingDocumentSaves = new();
     private readonly HashSet<uint> _pendingSourceReferencePrunes = new();
+    private readonly Dictionary<uint, Queue<Guid>> _pendingObjectReplacements = new();
     private readonly Dictionary<uint, HashSet<Guid>> _pendingBlockAttributeKeyRepairs = new();
     private readonly Dictionary<(uint docSerial, Guid terrainId), TerrainRuntimeCache> _runtimeCaches = new();
     private readonly Dictionary<(uint docSerial, Guid terrainId), TerrainRebuildState> _rebuildStates = new();
@@ -116,7 +119,15 @@ internal sealed partial class TerrainController
         public CancellationTokenSource? WorkerCancellation { get; set; }
 
         public List<Task> RetiredWorkers { get; } = new();
+
+        public ConcurrentQueue<QueuedBuildProgress> ProgressUpdates { get; } = new();
     }
+
+    private sealed record QueuedBuildProgress(
+        long Version,
+        long Generation,
+        TerrainBuildMode Mode,
+        TerrainBuildProgress Progress);
 
     public static TerrainController Instance { get; } = new();
 
@@ -951,27 +962,33 @@ internal sealed partial class TerrainController
             .ToList();
     }
 
-    public BakedLayerEnsureResult EnsureBakedLayersForSourceLayers(RhinoDoc doc, IEnumerable<string> sourceLayerPaths)
+    public BakedLayerEnsureResult EnsureTerrainOutputLayers(RhinoDoc doc, Guid terrainId)
     {
+        var terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
+        if (terrain == null)
+            return default;
+
         int created = 0;
         int refreshed = 0;
         int skipped = 0;
 
-        foreach (string sourceLayerPath in sourceLayerPaths
-                     .Where(path => !string.IsNullOrWhiteSpace(path))
-                     .Select(path => path.Trim())
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        var outputLayerPaths = new[]
         {
-            string? bakedLayerPath = TerrainBuildService.GetBakedLayerPath(sourceLayerPath);
-            if (string.IsNullOrWhiteSpace(bakedLayerPath) ||
-                doc.Layers.FindByFullPath(sourceLayerPath, -1) < 0)
+            TerrainDefinition.ResolveTerrainLayerPath(terrain.TerrainLayerPath),
+            TerrainDefinition.ResolveAuxiliaryLayerPath(terrain.AuxiliaryLayerPath),
+            TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)
+        };
+
+        foreach (string outputLayerPath in outputLayerPaths.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(outputLayerPath))
             {
                 skipped++;
                 continue;
             }
 
-            bool existed = doc.Layers.FindByFullPath(bakedLayerPath, -1) >= 0;
-            int layerIndex = EnsureLayer(doc, bakedLayerPath, sourceLayerPath);
+            bool existed = doc.Layers.FindByFullPath(outputLayerPath, -1) >= 0;
+            int layerIndex = EnsureLayer(doc, outputLayerPath);
             if (layerIndex < 0)
             {
                 skipped++;
@@ -988,6 +1005,68 @@ internal sealed partial class TerrainController
             doc.Views.Redraw();
 
         return new BakedLayerEnsureResult(created, refreshed, skipped);
+    }
+
+    public string? GetModifierMeshQualityWarning(RhinoDoc doc, Guid terrainId, Guid modifierId)
+    {
+        var terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
+        int modifierIndex = terrain?.Modifiers.FindIndex(item => item.Id == modifierId) ?? -1;
+        if (terrain == null || modifierIndex < 0 ||
+            terrain.Modifiers[modifierIndex] is not (SmoothModifierDefinition or SculptModifierDefinition))
+        {
+            return null;
+        }
+
+        bool hasPriorRemesh = terrain.Modifiers
+            .Take(modifierIndex)
+            .Any(item => item.IsEnabled && item is RemeshModifierDefinition);
+        if (hasPriorRemesh)
+            return null;
+
+        var runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId);
+        Mesh? incomingMesh = FindIncomingModifierMesh(runtimeCache, terrain, modifierIndex);
+        if (incomingMesh == null)
+            return null;
+
+        ExtractedMeshData meshData = RhinoGeometryConversions.GetNormalizedMeshData(incomingMesh);
+        MeshRegularitySummary summary = MeshRegularityAnalyzer.Analyze(meshData.Vertices, meshData.Faces);
+        bool isSparse = MeshRegularityAnalyzer.IsVerySparse(summary);
+        bool hasSkinnyTriangles = MeshRegularityAnalyzer.HasVerySkinnyTriangles(summary);
+        if (!isSparse && !hasSkinnyTriangles)
+            return null;
+
+        var reasons = new List<string>();
+        if (isSparse)
+            reasons.Add($"only {summary.FaceCount:N0} faces / coarse spacing");
+        if (hasSkinnyTriangles)
+            reasons.Add($"{summary.SkinnyFraction:P0} very skinny sampled triangles");
+
+        return $"Incoming mesh has {string.Join(" and ", reasons)}. Add an enabled Remesh modifier below this card for a more even surface before applying {terrain.Modifiers[modifierIndex].Label}.";
+    }
+
+    private static Mesh? FindIncomingModifierMesh(
+        TerrainRuntimeCache runtimeCache,
+        TerrainDefinition terrain,
+        int modifierIndex)
+    {
+        TerrainBuildMode preferredMode = runtimeCache.DisplayState?.IsPreview == true
+            ? TerrainBuildMode.Preview
+            : TerrainBuildMode.Final;
+        foreach (TerrainBuildMode mode in new[] { preferredMode, preferredMode == TerrainBuildMode.Final ? TerrainBuildMode.Preview : TerrainBuildMode.Final })
+        {
+            for (int index = modifierIndex - 1; index >= 0; index--)
+            {
+                ModifierDefinition previous = terrain.Modifiers[index];
+                if (!previous.IsEnabled)
+                    continue;
+
+                string stageKey = TerrainStageKey.ForMode(mode, TerrainStageKey.CreateModifier(index, previous));
+                if (runtimeCache.StageEntries.TryGetValue(stageKey, out StageCacheEntry? entry) && entry.MeshOutput != null)
+                    return entry.MeshOutput;
+            }
+        }
+
+        return runtimeCache.DisplayState?.BaseTerrainMesh;
     }
 
     private DocumentState GetState(RhinoDoc doc)
@@ -1276,6 +1355,7 @@ internal sealed partial class TerrainController
     {
         _states.Remove(docSerial);
         _pendingSourceReferencePrunes.Remove(docSerial);
+        _pendingObjectReplacements.Remove(docSerial);
         ClearRuntimeCaches(docSerial);
         ClearRebuildStates(docSerial);
         RemovePendingDocumentSave(docSerial);

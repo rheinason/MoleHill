@@ -66,6 +66,7 @@ public sealed partial class MoleHillPanel
                     return;
 
                 mutateSourceSet(set => set.ReplaceObjects(selectedIds));
+                RefreshUi();
             });
         };
 
@@ -79,9 +80,12 @@ public sealed partial class MoleHillPanel
         };
         if (liveObjectIds.Count > 0)
         {
-            objectsRow.Items.Add(MakeMiniIconButton(PanelButtonIcon.Clear, (_, _) =>
-                    mutateSourceSet(set => set.ReplaceObjects(Array.Empty<Guid>())),
-                "Clear all referenced objects.", width: 28));
+            objectsRow.Items.Add(MakeIconButton(PanelButtonIcon.Clear, (_, _) =>
+                {
+                    mutateSourceSet(set => set.ReplaceObjects(Array.Empty<Guid>()));
+                    RefreshUi();
+                },
+                "Clear all referenced objects."));
         }
 
         // ── Layers pill ───────────────────────────────────────────
@@ -91,12 +95,23 @@ public sealed partial class MoleHillPanel
         layersPill.Click += (_, _) => ShowLayerSourcePopover(
             layersPill,
             sourceSet.LayerPaths,
-            path => mutateSourceSet(set => set.AddLayer(path)),
-            path => mutateSourceSet(set => set.RemoveLayer(path)));
+            path =>
+            {
+                mutateSourceSet(set => set.AddLayer(path));
+                RefreshUi();
+            },
+            path =>
+            {
+                mutateSourceSet(set => set.RemoveLayer(path));
+                RefreshUi();
+            });
 
-        var layersClear = MakeMiniIconButton(PanelButtonIcon.Clear, (_, _) =>
-            mutateSourceSet(set => set.ReplaceLayers(Array.Empty<string>())),
-            "Clear all assigned layers.", width: 28);
+        var layersClear = MakeIconButton(PanelButtonIcon.Clear, (_, _) =>
+        {
+            mutateSourceSet(set => set.ReplaceLayers(Array.Empty<string>()));
+            RefreshUi();
+        },
+            "Clear all assigned layers.");
         var layersRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
@@ -161,7 +176,7 @@ public sealed partial class MoleHillPanel
         if (maxValue.HasValue)
             stepper.MaxValue = maxValue.Value;
         ApplyHelp(stepper, help);
-        var timer = new UITimer { Interval = 0.25 };
+        var timer = new UITimer { Interval = UiTiming.NumericCommitSeconds };
         double committedValue = value;
         void Commit(double numericValue)
         {
@@ -229,7 +244,11 @@ public sealed partial class MoleHillPanel
             Commit(stepper.Value);
             EndEdit();
         };
-        stepper.UnLoad += (_, _) => timer.Stop();
+        stepper.UnLoad += (_, _) =>
+        {
+            timer.Stop();
+            EndEdit();
+        };
         return new PropertyRow(CreateHelpLabel(label, help, 0), stepper);
     }
 
@@ -329,7 +348,7 @@ public sealed partial class MoleHillPanel
         bool syncing = false;
         bool sliderEditActive = false;
         bool textEditActive = false;
-        var timer = new UITimer { Interval = 0.12 };
+        var timer = new UITimer { Interval = UiTiming.SliderCommitSeconds };
 
         void BeginSliderEdit()
         {
@@ -449,8 +468,18 @@ public sealed partial class MoleHillPanel
             EndTextEdit();
             e.Handled = true;
         };
-        slider.UnLoad += (_, _) => timer.Stop();
-        textBox.UnLoad += (_, _) => timer.Stop();
+        slider.UnLoad += (_, _) =>
+        {
+            timer.Stop();
+            EndSliderEdit();
+            EndTextEdit();
+        };
+        textBox.UnLoad += (_, _) =>
+        {
+            timer.Stop();
+            EndSliderEdit();
+            EndTextEdit();
+        };
 
         SyncControls(committedValue);
         var editor = new StackLayout

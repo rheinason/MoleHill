@@ -308,7 +308,12 @@ public static class TerrainConstraintPreprocessor
         double median = lengths.Count % 2 == 0
             ? (lengths[middle - 1] + lengths[middle]) * 0.5
             : lengths[middle];
-        return Math.Clamp(median, tolerance * 8.0, Math.Max(tolerance * 200.0, tolerance * 8.0));
+        // Once the source supplies enough samples, its median segment length is the meaningful terrain
+        // scale. Capping it at tolerance * 200 made a 0.0125 model tolerance force 2.5-unit stations
+        // across kilometre-scale contour datasets, multiplying otherwise usable inputs by 8x or more.
+        // Keep only the lower guard against microscopic/noisy source segments; isolated sparse lines
+        // still use the explicit fallback above.
+        return Math.Max(median, tolerance * 8.0);
     }
 
     private static double Distance(Vertex a, Vertex b)

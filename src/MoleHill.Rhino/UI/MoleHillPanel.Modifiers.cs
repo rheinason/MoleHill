@@ -68,19 +68,21 @@ public sealed partial class MoleHillPanel
         Control[] actionControls = Array.Empty<Control>();
         if (!isPinnedBaseTriangulate)
         {
-            var duplicateButton = MakeDuplicateIconButton(() =>
+            actionControls = new Control[]
             {
-                var doc = RhinoDoc.ActiveDoc;
-                if (doc != null)
-                    _controller.DuplicateModifier(doc, capturedTerrainId, capturedModifierId);
-            }, "Duplicate this modifier.");
-            var deleteButton = MakeDeleteIconButton(() =>
-            {
-                var doc = RhinoDoc.ActiveDoc;
-                if (doc != null)
-                    _controller.RemoveModifier(doc, capturedTerrainId, capturedModifierId);
-            }, "Delete this modifier.");
-            actionControls = new Control[] { duplicateButton, deleteButton };
+                MakeDuplicateIconButton(() =>
+                {
+                    var doc = RhinoDoc.ActiveDoc;
+                    if (doc != null)
+                        _controller.DuplicateModifier(doc, capturedTerrainId, capturedModifierId);
+                }, "Duplicate this modifier."),
+                MakeDeleteIconButton(() =>
+                {
+                    var doc = RhinoDoc.ActiveDoc;
+                    if (doc != null)
+                        _controller.RemoveModifier(doc, capturedTerrainId, capturedModifierId);
+                }, "Delete this modifier.")
+            };
         }
 
         void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
@@ -111,10 +113,40 @@ public sealed partial class MoleHillPanel
     {
         var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
 
+        var meshQualityWarning = CreateModifierMeshQualityWarning(terrain, modifier);
+        if (meshQualityWarning != null)
+            layout.AddRow(meshQualityWarning);
+
         if (TryBuildSchemaModifierBody(layout, terrain, modifier))
             AppendBespokeModifierRows(layout, terrain, modifier);
 
         return layout;
+    }
+
+    private Control? CreateModifierMeshQualityWarning(TerrainDefinition terrain, ModifierDefinition modifier)
+    {
+        if (modifier is not (SmoothModifierDefinition or SculptModifierDefinition))
+            return null;
+
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return null;
+
+        string? warning = _controller.GetModifierMeshQualityWarning(doc, terrain.TerrainId, modifier.Id);
+        if (string.IsNullOrWhiteSpace(warning))
+            return null;
+
+        return new Panel
+        {
+            BackgroundColor = UiTheme.WarningBackground,
+            Padding = new Padding(8, 6),
+            Content = new Label
+            {
+                Text = $"⚠ {warning}",
+                TextColor = UiTheme.WarningText,
+                Wrap = WrapMode.Word
+            }
+        };
     }
 
     /// <summary>
@@ -141,7 +173,7 @@ public sealed partial class MoleHillPanel
 
     private Control CreateSculptSessionRow(Guid terrainId, Guid modifierId)
     {
-        var sculptButton = MakeMiniButton("Sculpt", (_, _) =>
+        var sculptButton = MakeInlineButton("Sculpt", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
@@ -154,9 +186,9 @@ public sealed partial class MoleHillPanel
 
                 SculptSessionController.Instance.BeginSession(doc, terrainId, modifierId);
             });
-        }, "Start sculpting in the viewport. Drag to sculpt, Ctrl inverts, Shift smooths; Enter or Esc ends the session.", width: 86);
+        }, "Start sculpting in the viewport. Drag to sculpt, Ctrl inverts, Shift smooths; Enter or Esc ends the session.");
 
-        var clearButton = MakeMiniButton("Clear", (_, _) =>
+        var clearButton = MakeInlineButton("Clear", (_, _) =>
         {
             if (SculptSessionController.Instance.IsActive)
                 return;
@@ -171,7 +203,7 @@ public sealed partial class MoleHillPanel
                 return;
 
             MutateModifier(terrainId, modifierId, item => ((SculptModifierDefinition)item).Tiles.Clear());
-        }, "Delete all stored sculpt displacement for this modifier.", width: 60);
+        }, "Delete all stored sculpt displacement for this modifier.");
 
         return new StackLayout
         {
@@ -189,7 +221,7 @@ public sealed partial class MoleHillPanel
 
     private Control CreateWorkAreaRow(Guid terrainId, Guid modifierId)
     {
-        var rectangleButton = MakeMiniButton("Rectangle", (_, _) =>
+        var rectangleButton = MakeInlineButton("Rectangle", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
@@ -202,14 +234,14 @@ public sealed partial class MoleHillPanel
 
                 _controller.SetModifierBoundaryRectangle(doc, terrainId, modifierId);
             });
-        }, "Drag a rectangle to limit terrain computation to that area (work fast on part of the terrain).", width: 86);
+        }, "Drag a rectangle to limit terrain computation to that area (work fast on part of the terrain).");
 
-        var clearButton = MakeMiniButton("Clear", (_, _) =>
+        var clearButton = MakeInlineButton("Clear", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc != null)
                 _controller.ClearModifierBoundary(doc, terrainId, modifierId);
-        }, "Clear the work area and rebuild the full terrain.", width: 60);
+        }, "Clear the work area and rebuild the full terrain.");
 
         return new StackLayout
         {

@@ -588,7 +588,7 @@ public sealed partial class MoleHillPanel
         };
         ApplyHelp(summary, "Insertion origin where the laid-out section is placed. World X/Z axes are used for direction.");
 
-        var pickButton = MakeMiniButton("Pick", (_, _) =>
+        var pickButton = MakeInlineButton("Pick", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
@@ -617,9 +617,9 @@ public sealed partial class MoleHillPanel
                 }
             }, scheduleRebuild: true);
             RefreshUi();
-        }, "Pick the origin point where the laid-out section will be placed.", width: 46);
+        }, "Pick the origin point where the laid-out section will be placed.");
 
-        var resetButton = MakeMiniButton("Auto", (_, _) =>
+        var resetButton = MakeInlineButton("Auto", (_, _) =>
         {
             MutateAnalysis(terrain.TerrainId, analysis.Id, item =>
             {
@@ -627,7 +627,7 @@ public sealed partial class MoleHillPanel
                     section.HasInsertionPlane = false;
             }, scheduleRebuild: true);
             RefreshUi();
-        }, "Clear the insertion origin and let the section auto-position next to the terrain.", width: 46);
+        }, "Clear the insertion origin and let the section auto-position next to the terrain.");
 
         var fields = new StackLayout
         {

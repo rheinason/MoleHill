@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillTwoPointInterpolationCommand : Command
 {
-    public override string EnglishName => "MoleHillTwoPointInterpolation";
+    public override string EnglishName => "mhTwoPointInterpolation";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

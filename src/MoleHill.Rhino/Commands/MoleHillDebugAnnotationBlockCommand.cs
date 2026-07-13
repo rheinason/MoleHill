@@ -13,7 +13,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillDebugAnnotationBlockCommand : Command
 {
-    public override string EnglishName => "MoleHillDebugAnnotationBlock";
+    public override string EnglishName => "mhDebugAnnotationBlock";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

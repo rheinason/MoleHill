@@ -10,9 +10,14 @@ internal static class TerrainTriangulationInputBuilder
         IReadOnlyList<Curve> contourCurves,
         double tolerance)
     {
+        // Keep the panel's newer conditioning behavior for both source types. Core derives spacing from
+        // the observed source segments (with tolerance only as a microscopic floor), preventing the old
+        // large-site explosion while preserving straight-run normalization and breakline stations.
+        List<double[]> breaklines = CreateFlatPolylines(breaklineCurves, tolerance);
+        List<double[]> contours = CreateFlatPolylines(contourCurves, tolerance);
         return TerrainConstraintPreprocessor.Process(
-            CreateFlatPolylines(breaklineCurves, tolerance),
-            CreateFlatPolylines(contourCurves, tolerance),
+            breaklines,
+            contours,
             tolerance);
     }
 

@@ -8,7 +8,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillResetTerrainBuildCommand : global::Rhino.Commands.Command
 {
-    public override string EnglishName => "MoleHillResetTerrainBuild";
+    public override string EnglishName => "mhResetTerrainBuild";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

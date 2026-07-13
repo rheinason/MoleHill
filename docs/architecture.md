@@ -21,8 +21,16 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   (`Commands/`), the terrain definition model (`Model/`), and the build/persistence services
   (`Services/`). **All Rhino API use lives here; all reusable math lives in Core.**
   The dock panel uses local Eto responsive primitives (`PropertyRow`, adaptive button groups, and
-  `UiMetrics`) instead of rebuilding the full panel on width changes. Compact action buttons use
+  `UiMetrics`) instead of rebuilding the full panel on width changes. Modifier, analysis, and object
+  settings are descriptor-driven; only specialized summaries and the scatter block-mix editor remain
+  bespoke. Compact action buttons use
   `UI/PanelButtonIcons.cs`, a theme-aware vector icon set rendered to Eto images.
+- Rhino command names use the compact `mh...` prefix. The installed toolbar exposes Geometry, Blocks,
+  and Document utilities; terrain creation, editing, and bake/convert workflows stay in the dock panel.
+- Project-local ↔ real-world coordinates use the named `MoleHill_ProjectBase` plane as a reversible rigid
+  transform; object replacement ids are reconciled across terrain source/output tracking. GeoTIFF import
+  reads embedded model tags without GDAL, falls back to a full-affine world file, and applies the saved
+  real-world → project transform. See `docs/project-base-georeference.md`.
 
 ## Two hosts, one core
 
@@ -43,7 +51,8 @@ All Core pipeline data uses flat arrays for cache-friendliness:
 `PointCloudProcessor` (Z-aware dedup) + `BreaklineDiscretizer` feed `TinEngine.Build`, which fingerprints
 XY topology and Z separately (XxHash64) and takes the cheapest path: **Z-only update** →
 **incremental single-point edit** → **full rebuild** via `TriangulationHelper` (a 5-tier CDT fallback
-chain). `TinBoundaryPreparer` turns an optional boundary into an explicit constraint loop.
+chain). `TinBoundaryPreparer` turns an optional user boundary into an explicit constraint loop; open
+contour/breakline endpoints never infer a perimeter, so an absent boundary uses the ordinary convex hull.
 `ConformingDelaunay=true` is avoided (fails on tight parallel segments).
 
 The **Remesh** modifier offers three algorithms via its **Algorithm** dropdown (`Mode`: `"isotropic"`
@@ -103,6 +112,11 @@ keeps the working mesh on screen. A floating Eto mini-toolbar (`UI/SculptToolbar
 brush/radius/strength/falloff/Done; the modifier card stays limited to Sculpt/Clear and the
 stored-field summary. Session exit = one document undo record.
 
+Expanded **Smooth** and **Sculpt** cards inspect their incoming cached mesh when no enabled Remesh
+precedes them. A sampled Core regularity check warns when the mesh is very sparse or contains a
+meaningful proportion of triangles below an 8-degree minimum angle, recommending Remesh below the
+modifier before vertex-based editing.
+
 ## Core: grading (the watertight invariant)
 
 **Grading output is ALWAYS a watertight 2.5D mesh — never holes/spikes.** `PadGrader.Grade` dispatches
@@ -146,6 +160,15 @@ zones, markers, objects, and scatter retain stage-level entries.
 - **TIN inputs** are resolved by `TerrainBuildSnapshotResolver` from a `TerrainBuildSnapshot` (built by
   `TerrainBuildSnapshotBuilder` from the live doc). A Triangulate **Boundary** now pre-filters inputs to
   its area (`FilterInputsToWorkBoundary` + Core `RegionInputFilter`) — the fast "work region".
+- Layer-backed inputs use Rhino's native `FindByLayer` lookup, then re-resolve every result by ID through the
+  active object table before including normal, locked, or hidden document geometry. This rejects stale wrappers
+  and transform predecessors that Rhino's layer lookup can retain. Terrain sources are restricted to ModelSpace,
+  excluding PageSpace objects sharing the layer. Instance-definition, reference, grip,
+  light, and phantom objects are excluded.
+- Project-base document orientation transforms ModelSpace objects only; PageSpace layout geometry is not moved.
+- Tessellated contours and breaklines retain the panel's spacing conditioner, but its target comes from
+  observed source-segment medians rather than document tolerance. This preserves straight-run
+  normalization and intermediate long-breakline stations without large-site vertex explosions.
 - `TerrainRuntimeCache.CreateWorkerCopy()` shares the persistent `TinEngine` instance with each
   background build worker (rather than a fresh one per build), so `TinEngine`'s Z-only/incremental-edit
   shortcuts are reachable from Rhino, not just Grasshopper — safe because `TinEngine.Build` is
@@ -155,7 +178,14 @@ zones, markers, objects, and scatter retain stage-level entries.
   main-cache meshes until those retired workers have finished reading them. Hot restores duplicate the
   normalized cached mesh but do not normalize it again; timing records identify cache hits and omit
   replayed cold-run timing diagnostics.
+- Cold TIN conversion marks normalized Rhino meshes, allowing stage-cache storage to skip the otherwise
+  redundant second normalization while still normalizing meshes produced by other paths when needed.
+- Background builds enqueue live phase/elapsed/memory telemetry for the controller's UI-thread idle loop.
+  `mhBenchmarkLargeTin` supplies a deterministic 247k-point diagnostic that separates shared TIN time
+  from Rhino conversion, normalization, fingerprinting, and cache duplication.
 - **Contours** use a single-pass marching-triangles `ContourGenerator` (not one mesh-plane per level).
+  Their configured output layer falls back to the terrain Annotation layer when unset or whitespace, so
+  baked contours never leak onto Rhino's current layer.
 - **Slope summaries** use `SlopeAnalyzer.Summarize` so final-build panel numbers do not allocate
   preview color arrays. Both summary accumulation and preview color generation parallelize above the
   large-face threshold. Slope preview coloring still uses `SlopeAnalyzer.Analyze`.

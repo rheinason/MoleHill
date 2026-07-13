@@ -11,7 +11,8 @@ Key files:
 - `XxHash64Builder.cs` — deterministic 64-bit streaming fingerprints for `InputSnapshot` and staged
   Rhino cache keys.
 - `TriangulationHelper.cs` — shared 5-tier CDT fallback chain (used here, PadGrader, Remesh, splitters).
-- `TinBoundaryPreparer.cs` — turns an optional boundary into an explicit constraint loop (vs convex hull).
+- `TinBoundaryPreparer.cs` — turns an optional explicit boundary into a constraint loop; without one,
+  Triangle.NET uses its ordinary convex hull even when open contour or breakline segments are present.
 - `TriangleNetExtractor.cs` — Triangle.NET `IMesh` → flat arrays, preserving `Vertex.ID` as `SourceId`.
 - `SurfaceRemesher.cs` — global **constrained-Delaunay** rebuild with constraints. Rebuilds the region
   from scratch (every constraint incl. wall rails becomes a hard edge — structurally cannot cross a

@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillImportGeoTiffCommand : Command
 {
-    public override string EnglishName => "MoleHillImportGeoTiff";
+    public override string EnglishName => "mhImportGeoTiff";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

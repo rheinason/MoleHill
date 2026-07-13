@@ -54,30 +54,16 @@ public sealed partial class MoleHillPanel
         _controller.BakeTerrain(doc, terrain.TerrainId);
     }
 
-    private void BakeLayerPaths(IEnumerable<string?> assignedLayerPaths)
+    private void BakeOutputLayers()
     {
         var doc = RhinoDoc.ActiveDoc;
-        if (doc == null)
+        var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+        if (doc == null || terrain == null)
             return;
 
-        var layerPaths = assignedLayerPaths
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(path => path!.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (layerPaths.Count == 0)
-            layerPaths = _controller.GetSelectedLayerPaths(doc).ToList();
-
-        if (layerPaths.Count == 0)
-        {
-            RhinoApp.WriteLine("MoleHill: assign or highlight source layers before baking layer styles.");
-            return;
-        }
-
-        var result = _controller.EnsureBakedLayersForSourceLayers(doc, layerPaths);
+        var result = _controller.EnsureTerrainOutputLayers(doc, terrain.TerrainId);
         RhinoApp.WriteLine(
-            $"MoleHill: baked layer styles updated ({result.CreatedCount} created, {result.RefreshedCount} refreshed, {result.SkippedCount} skipped).");
+            $"MoleHill: output layers updated ({result.CreatedCount} created, {result.RefreshedCount} already present, {result.SkippedCount} skipped).");
     }
 
     private void OnUntrackSelectedBakes(object? sender, EventArgs e)

@@ -28,6 +28,7 @@ internal sealed partial class TerrainController
         if (_suppressDocEvents > 0 || e.TheObject == null)
             return;
 
+        CompletePendingObjectReplacement(e.TheObject.Document, e.ObjectId);
         ScheduleRelevantTerrains(e.TheObject.Document, e.ObjectId, GetLayerPath(e.TheObject.Document, e.TheObject.Attributes.LayerIndex));
     }
 
@@ -51,8 +52,11 @@ internal sealed partial class TerrainController
             : GetLayerPath(e.Document, e.NewRhinoObject.Attributes.LayerIndex);
 
         ScheduleRelevantTerrains(e.Document, e.OldRhinoObject.Id, oldLayerPath, newLayerPath);
+        // Rhino has not assigned the replacement object's id yet. ReplaceRhinoObject is followed
+        // synchronously by Delete + Add (or Delete + Undelete during undo/redo), so defer the id
+        // remap until that final event provides the live replacement id.
         if (e.NewRhinoObject != null)
-            ReplaceSourceObjectReferences(e.Document, e.OldRhinoObject.Id, e.NewRhinoObject.Id);
+            QueuePendingObjectReplacement(e.Document, e.OldRhinoObject.Id);
 
         ScheduleSourceReferencePrune(e.Document);
     }
@@ -62,6 +66,7 @@ internal sealed partial class TerrainController
         if (_suppressDocEvents > 0 || e.TheObject == null)
             return;
 
+        CompletePendingObjectReplacement(e.TheObject.Document, e.ObjectId);
         ScheduleRelevantTerrains(e.TheObject.Document, e.ObjectId, GetLayerPath(e.TheObject.Document, e.TheObject.Attributes.LayerIndex));
         ScheduleSourceReferencePrune(e.TheObject.Document);
     }
@@ -177,6 +182,7 @@ internal sealed partial class TerrainController
 
         ProcessPendingBlockAttributeKeyRepairs();
         PruneCompletedRetiredWorkers();
+        ProcessBuildProgressUpdates();
 
         if (TryCompleteFinishedBuild())
             return;
@@ -229,6 +235,43 @@ internal sealed partial class TerrainController
 
         _pendingRebuilds.Remove(key);
         StartBackgroundBuild(doc, state, terrain, key.mode, rebuildState.RequestedVersion);
+    }
+
+    private void ProcessBuildProgressUpdates()
+    {
+        bool changed = false;
+        foreach (var entry in _rebuildStates)
+        {
+            TerrainRebuildState rebuildState = entry.Value;
+            QueuedBuildProgress? latest = null;
+            while (rebuildState.ProgressUpdates.TryDequeue(out QueuedBuildProgress? update))
+            {
+                if (update.Generation != rebuildState.BuildGeneration ||
+                    update.Version != rebuildState.RunningVersion)
+                {
+                    continue;
+                }
+
+                latest = update;
+                RhinoApp.WriteLine($"[MoleHill] {update.Mode} #{update.Version:N0}: {update.Progress.Format()}");
+            }
+
+            if (latest == null)
+                continue;
+
+            RhinoDoc? doc = RhinoDoc.FromRuntimeSerialNumber(entry.Key.docSerial);
+            TerrainDefinition? terrain = doc == null
+                ? null
+                : GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == entry.Key.terrainId);
+            if (terrain == null)
+                continue;
+
+            terrain.LastBuildMessage = $"{latest.Mode} #{latest.Version:N0}: {latest.Progress.Format()}";
+            changed = true;
+        }
+
+        if (changed)
+            RaiseStateChanged();
     }
 
     private void ProcessPendingBlockAttributeKeyRepairs()
@@ -419,6 +462,12 @@ internal sealed partial class TerrainController
             foreach (var sourceSet in terrain.EnumerateSourceSets())
                 changed |= sourceSet.ReplaceObject(oldObjectId, newObjectId);
 
+            changed |= ReplaceTrackedObjectId(terrain.OutputObjectIds, oldObjectId, newObjectId);
+            changed |= ReplaceTrackedObjectId(terrain.ZoneObjectIds, oldObjectId, newObjectId);
+            changed |= ReplaceTrackedObjectId(terrain.AuxiliaryObjectIds, oldObjectId, newObjectId);
+            changed |= ReplaceTrackedObjectId(terrain.MarkerObjectIds, oldObjectId, newObjectId);
+            changed |= ReplaceTrackedObjectId(terrain.BakedObjectIds, oldObjectId, newObjectId);
+
             foreach (var definition in terrain.Objects)
             {
                 foreach (var placementState in definition.PlacementStates)
@@ -428,6 +477,51 @@ internal sealed partial class TerrainController
 
         if (changed)
             Save(doc, state);
+    }
+
+    private void QueuePendingObjectReplacement(RhinoDoc doc, Guid oldObjectId)
+    {
+        if (oldObjectId == Guid.Empty)
+            return;
+
+        uint docSerial = doc.RuntimeSerialNumber;
+        if (!_pendingObjectReplacements.TryGetValue(docSerial, out Queue<Guid>? pending))
+        {
+            pending = new Queue<Guid>();
+            _pendingObjectReplacements[docSerial] = pending;
+        }
+
+        pending.Enqueue(oldObjectId);
+    }
+
+    private void CompletePendingObjectReplacement(RhinoDoc doc, Guid newObjectId)
+    {
+        if (newObjectId == Guid.Empty ||
+            !_pendingObjectReplacements.TryGetValue(doc.RuntimeSerialNumber, out Queue<Guid>? pending) ||
+            pending.Count == 0)
+        {
+            return;
+        }
+
+        Guid oldObjectId = pending.Dequeue();
+        if (pending.Count == 0)
+            _pendingObjectReplacements.Remove(doc.RuntimeSerialNumber);
+
+        ReplaceSourceObjectReferences(doc, oldObjectId, newObjectId);
+    }
+
+    private static bool ReplaceTrackedObjectId(List<Guid> objectIds, Guid oldObjectId, Guid newObjectId)
+    {
+        int index = objectIds.IndexOf(oldObjectId);
+        if (index < 0)
+            return false;
+
+        if (objectIds.Contains(newObjectId))
+            objectIds.RemoveAt(index);
+        else
+            objectIds[index] = newObjectId;
+
+        return true;
     }
 
     private bool AdjustPlacementTransformsForUserTransform(RhinoDoc doc, IEnumerable<Guid> objectIds, Transform userTransform)

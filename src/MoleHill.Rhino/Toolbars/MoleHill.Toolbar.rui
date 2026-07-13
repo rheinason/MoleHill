@@ -13,12 +13,6 @@
       <text>
         <locale_1033>MoleHill</locale_1033>
       </text>
-      <tool_bar_group_item guid="3cd05182-d432-4677-984d-bca90d5ddcf5" major_version="1" minor_version="1">
-        <text>
-          <locale_1033>Terrain</locale_1033>
-        </text>
-        <tool_bar_id>a48c6e59-9911-4f59-9c18-3757dcf7a844</tool_bar_id>
-      </tool_bar_group_item>
       <tool_bar_group_item guid="9e1f62d5-a58e-41ef-812d-a367461d97e6" major_version="1" minor_version="1">
         <text>
           <locale_1033>Geometry</locale_1033>
@@ -75,9 +69,6 @@
       <tool_bar_item guid="458befc9-d48e-4a4f-9e0a-92726e8a4414">
         <left_macro_id>095de3e9-d0f6-4ab5-986c-f86454b8264d</left_macro_id>
       </tool_bar_item>
-      <tool_bar_item guid="0cad5ac8-48b7-4d65-8996-ef7f60e1bb04">
-        <left_macro_id>fc1a3e9a-dec8-4a8f-bb17-e3fd1b8ad46d</left_macro_id>
-      </tool_bar_item>
     </tool_bar>
     <tool_bar guid="d7327ec8-fc68-4179-aac0-f449a71f4fc2">
       <text>
@@ -85,6 +76,7 @@
       </text>
       <tool_bar_item guid="25031650-174a-41a0-8cee-9d10914e637f">
         <left_macro_id>94413b0c-00ec-4718-8450-79dbb3917c1c</left_macro_id>
+        <right_macro_id>d7f4b090-f26a-4f11-9fab-8707d24b163d</right_macro_id>
       </tool_bar_item>
       <tool_bar_item guid="03f70e61-4101-40e5-b446-5c60c85516d2">
         <left_macro_id>9b1e4fe2-dd5c-48d7-9a26-e8cd1163a966</left_macro_id>
@@ -127,90 +119,61 @@
         <right_macro_id>d1c8af16-7ea5-444c-b72c-aacc2ceaceeb</right_macro_id>
       </tool_bar_item>
     </tool_bar>
-    <tool_bar guid="a48c6e59-9911-4f59-9c18-3757dcf7a844">
-      <text>
-        <locale_1033>Terrain</locale_1033>
-      </text>
-      <tool_bar_item guid="ae3c7879-8552-42ee-9534-95e530e3882e">
-        <text>
-          <locale_1033>Toolbar item</locale_1033>
-        </text>
-        <left_macro_id>03e52941-ad7c-496f-8753-5c513c2c1d8b</left_macro_id>
-      </tool_bar_item>
-      <tool_bar_item guid="dee7db27-c229-4337-a738-5c8be61b0883">
-        <left_macro_id>8e64d1e5-64e0-45ad-ab6f-e364364529e4</left_macro_id>
-      </tool_bar_item>
-      <tool_bar_item guid="28b97bda-c0c8-486c-a1fd-dd63ff4409f7">
-        <left_macro_id>b48d996e-6222-4c01-b00b-2489c38f9ac2</left_macro_id>
-      </tool_bar_item>
-      <tool_bar_item guid="64bcb879-73f5-425e-aec5-5a799d9a9d48">
-        <left_macro_id>ca1d6110-837d-4693-b074-0c24fdf83974</left_macro_id>
-      </tool_bar_item>
-    </tool_bar>
   </tool_bars>
   <macros>
     <macro_item guid="f5f39d48-e5ff-45a4-ae67-e0d82620d5ed" bitmap_id="cad94496-f19d-4aa9-bede-e052775d9546">
       <text>
-        <locale_1033>MoleHillTwoPointInterpolation</locale_1033>
+        <locale_1033>mhTwoPointInterpolation</locale_1033>
       </text>
       <tooltip>
         <locale_1033>2 Point Interpolation</locale_1033>
       </tooltip>
-      <script>MoleHillTwoPointInterpolation</script>
+      <script>mhTwoPointInterpolation</script>
     </macro_item>
     <macro_item guid="fbf02868-7f22-477b-8d8d-a9d53a15c1bd" bitmap_id="bd1f3cca-e024-41ae-aec4-cf35fbeeea61">
       <text>
-        <locale_1033>MoleHillGradientInterpolation</locale_1033>
+        <locale_1033>mhGradientInterpolation</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Gradient Interpolation</locale_1033>
       </tooltip>
-      <script>MoleHillGradientInterpolation</script>
+      <script>mhGradientInterpolation</script>
     </macro_item>
     <macro_item guid="d4d0d5b9-d0a9-4d16-8d02-197bce584ffe" bitmap_id="9a0090c8-9c64-4d2a-884b-f771da06b691">
       <text>
-        <locale_1033>MoleHillOffset3dPolyline</locale_1033>
+        <locale_1033>mhOffset3dPolyline</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Offset 3D Polyline</locale_1033>
       </tooltip>
-      <script>MoleHillOffset3dPolyline</script>
+      <script>mhOffset3dPolyline</script>
     </macro_item>
     <macro_item guid="54b0756a-0bd3-4189-8cc2-ea9c4a33d48d" bitmap_id="ad51912c-5d02-44b9-b796-dc14109818f2">
       <text>
-        <locale_1033>MoleHillReplaceCurveSection</locale_1033>
+        <locale_1033>mhReplaceCurveSection</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Replace Curve Section</locale_1033>
       </tooltip>
-      <script>MoleHillReplaceCurveSection</script>
+      <script>mhReplaceCurveSection</script>
     </macro_item>
     <macro_item guid="7aa74b8f-6d9f-4857-88e4-daf51b370660" bitmap_id="b8598fe0-1a80-4a18-a9a0-0c723405f8cb">
       <text>
-        <locale_1033>MoleHillSlopeCurve</locale_1033>
+        <locale_1033>mhSlopeCurve</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Slope Curve</locale_1033>
       </tooltip>
-      <script>MoleHillSlopeCurve</script>
-    </macro_item>
-    <macro_item guid="fc1a3e9a-dec8-4a8f-bb17-e3fd1b8ad46d" bitmap_id="8efa40ef-fcaf-4231-a72e-5bbc0996c307">
-      <text>
-        <locale_1033>MoleHillTrimBoundary</locale_1033>
-      </text>
-      <tooltip>
-        <locale_1033>Trim Boundary</locale_1033>
-      </tooltip>
-      <script>MoleHillTrimBoundary</script>
+      <script>mhSlopeCurve</script>
     </macro_item>
     <macro_item guid="62d5e781-f096-4c08-849b-f724b9e193b8" bitmap_id="94088d95-cb72-4353-ac02-bc5028bbc504">
       <text>
-        <locale_1033>MoleHillSlopeCheckAndMark</locale_1033>
+        <locale_1033>mhSlopeCheckAndMark</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Slope Check and Mark</locale_1033>
       </tooltip>
-      <script>MoleHillSlopeCheckAndMark</script>
+      <script>mhSlopeCheckAndMark</script>
     </macro_item>
     <macro_item guid="fac125dd-d249-454a-b279-ff83b67eb997" ImportedFromFileGuid="c7da84fc-2991-4824-832a-4f2509bd0ede" ImportedFromItemGuid="c34a4892-472f-4405-9478-72b8f59e8fe6" bitmap_id="1ae591bd-3575-4540-81c4-ccb9b90c06b1">
       <text>
@@ -235,192 +198,165 @@ _CurveType=_Interpolated</script>
     </macro_item>
     <macro_item guid="94413b0c-00ec-4718-8450-79dbb3917c1c" bitmap_id="b1e48602-4823-42b4-ae0b-4fc694e6006f">
       <text>
-        <locale_1033>MoleHillOrientToOrigin</locale_1033>
+        <locale_1033>mhOrientToOrigin</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Orient To Origin</locale_1033>
       </tooltip>
-      <script>MoleHillOrientToOrigin</script>
+      <script>mhOrientToOrigin</script>
+    </macro_item>
+    <macro_item guid="d7f4b090-f26a-4f11-9fab-8707d24b163d" bitmap_id="b1e48602-4823-42b4-ae0b-4fc694e6006f">
+      <text>
+        <locale_1033>mhClearProjectBase</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Clear Project Base (does not move geometry)</locale_1033>
+      </tooltip>
+      <script>mhClearProjectBase</script>
     </macro_item>
     <macro_item guid="cdbe3426-b422-4639-aa6a-2fba66861de8" bitmap_id="126ab2d9-4097-4c7b-bd96-4abf90a89bdc">
       <text>
-        <locale_1033>MoleHillApplyLayerTemplate</locale_1033>
+        <locale_1033>mhApplyLayerTemplate</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Apply Layer Template</locale_1033>
       </tooltip>
-      <script>MoleHillApplyLayerTemplate</script>
+      <script>mhApplyLayerTemplate</script>
     </macro_item>
     <macro_item guid="6634b10d-42a6-441e-b53e-060124138df3" bitmap_id="e6053608-177e-4443-8078-278fa6fb0b18">
       <text>
-        <locale_1033>MoleHillSoftEditCurves</locale_1033>
+        <locale_1033>mhSoftEditCurves</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Soft Edit Curves</locale_1033>
       </tooltip>
-      <script>MoleHillSoftEditCurves</script>
+      <script>mhSoftEditCurves</script>
     </macro_item>
     <macro_item guid="6224be50-3b6e-4af1-a290-e38c8cce1e12" bitmap_id="d8ed26d6-8478-4d14-9d5f-807e8e99684f">
       <text>
-        <locale_1033>MoleHillExternalizeBlock</locale_1033>
+        <locale_1033>mhExternalizeBlock</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Externalize Block</locale_1033>
       </tooltip>
-      <script>MoleHillExternalizeBlock</script>
+      <script>mhExternalizeBlock</script>
     </macro_item>
     <macro_item guid="5543714b-a958-48d8-9166-58296bba1057" bitmap_id="7efdf381-7d44-4c5c-8ee3-3b17bfd00688">
       <text>
-        <locale_1033>MoleHillUpdateAllLinkedBlocks</locale_1033>
+        <locale_1033>mhUpdateAllLinkedBlocks</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Update all linked blocks</locale_1033>
       </tooltip>
-      <script>MoleHillUpdateAllLinkedBlocks</script>
+      <script>mhUpdateAllLinkedBlocks</script>
     </macro_item>
     <macro_item guid="2ac2a520-cf80-4cf4-b0df-151560bc2603" bitmap_id="049c5b36-cf1f-4401-9af0-17b8430bb923">
       <text>
-        <locale_1033>MoleHillSetSunNorth</locale_1033>
+        <locale_1033>mhSetSunNorth</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Set sun north</locale_1033>
       </tooltip>
-      <script>MoleHillSetSunNorth</script>
+      <script>mhSetSunNorth</script>
     </macro_item>
     <macro_item guid="d6041c6f-c21e-4e11-9343-72a48a2226f5" bitmap_id="d141fe51-0d32-4369-b920-23aeffa8740b">
       <text>
-        <locale_1033>MoleHillEditLayerTemplates</locale_1033>
+        <locale_1033>mhEditLayerTemplates</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Edit Layer Templates</locale_1033>
       </tooltip>
-      <script>MoleHillEditLayerTemplates</script>
+      <script>mhEditLayerTemplates</script>
     </macro_item>
     <macro_item guid="ac106061-6408-4919-936d-5d07dab803c9" bitmap_id="1dd63bc3-91ac-44cc-b8b5-78fdd15365c6">
       <text>
-        <locale_1033>MoleHillImportWithGeoref</locale_1033>
+        <locale_1033>mhImportWithGeoref</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Import With Georef</locale_1033>
       </tooltip>
-      <script>MoleHillImportWithGeoref</script>
+      <script>mhImportWithGeoref</script>
     </macro_item>
     <macro_item guid="b8e52fee-0bd4-4f88-9ef3-cae47d6358aa" bitmap_id="8efa019e-175c-4e2b-929c-57e53faa7913">
       <text>
-        <locale_1033>MoleHillExportWithGeoref</locale_1033>
+        <locale_1033>mhExportWithGeoref</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Export With Georef</locale_1033>
       </tooltip>
-      <script>MoleHillExportWithGeoref</script>
+      <script>mhExportWithGeoref</script>
     </macro_item>
     <macro_item guid="bbb7ecdc-0a4e-4244-ba4f-8f796d6b5749" bitmap_id="766733f4-4213-442c-977b-10bcd0fa0450">
       <text>
-        <locale_1033>MoleHillLiftCurvesWithLine</locale_1033>
+        <locale_1033>mhLiftCurvesWithLine</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Lift Curves with Line</locale_1033>
       </tooltip>
-      <script>MoleHillLiftCurvesWithLine</script>
+      <script>mhLiftCurvesWithLine</script>
     </macro_item>
     <macro_item guid="5de3309b-4fd2-481b-9e61-c7210ecb7e59" bitmap_id="2ca2ba4c-f2a0-4956-8e7e-8af51f567d0b">
       <text>
-        <locale_1033>MoleHillRemoveSavedGeoref</locale_1033>
+        <locale_1033>mhConvertToProjectCoordinates</locale_1033>
       </text>
       <tooltip>
-        <locale_1033>Remove Saved Georef</locale_1033>
+        <locale_1033>Convert to Project Coordinates</locale_1033>
       </tooltip>
-      <script>MoleHillRemoveSavedGeoref</script>
+      <script>mhConvertToProjectCoordinates</script>
     </macro_item>
     <macro_item guid="fba46a89-5660-4757-a0a0-204e3b7fda10" bitmap_id="2336a80a-90d8-4fa5-a64d-70a82aa2c319">
       <text>
-        <locale_1033>MoleHillCreateTerrain</locale_1033>
+        <locale_1033>mhCreateTerrain</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Create Terrain</locale_1033>
       </tooltip>
-      <script>MoleHillCreateTerrain</script>
+      <script>mhCreateTerrain</script>
     </macro_item>
     <macro_item guid="59d69b4e-0bc4-46c5-a8c6-b653a83e7b7a" bitmap_id="d80287b8-25dc-452d-a5cc-f55a967cce8b">
       <text>
-        <locale_1033>MoleHillImportGeoTiff</locale_1033>
+        <locale_1033>mhImportGeoTiff</locale_1033>
       </text>
       <tooltip>
         <locale_1033>ImportGeoTiff</locale_1033>
       </tooltip>
-      <script>MoleHillImportGeoTiff</script>
+      <script>mhImportGeoTiff</script>
     </macro_item>
     <macro_item guid="9b1e4fe2-dd5c-48d7-9a26-e8cd1163a966" bitmap_id="a74a9017-01e5-4fa3-a0be-4aa0811c1bf3">
       <text>
-        <locale_1033>MoleHillApplySavedGeoref</locale_1033>
+        <locale_1033>mhConvertToRealWorldCoordinates</locale_1033>
       </text>
       <tooltip>
-        <locale_1033>Apply Saved Georef</locale_1033>
+        <locale_1033>Convert to Real-World Coordinates</locale_1033>
       </tooltip>
-      <script>MoleHillApplySavedGeoref</script>
+      <script>mhConvertToRealWorldCoordinates</script>
     </macro_item>
     <macro_item guid="095de3e9-d0f6-4ab5-986c-f86454b8264d" bitmap_id="be6f3e52-998b-418b-a21a-8fa3a59f8a3f">
       <text>
-        <locale_1033>MoleHillTrimBoundary</locale_1033>
+        <locale_1033>mhTrimBoundary</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Trim Boundary</locale_1033>
       </tooltip>
-      <script>MoleHillTrimBoundary</script>
-    </macro_item>
-    <macro_item guid="03e52941-ad7c-496f-8753-5c513c2c1d8b" bitmap_id="a8a08603-9061-42e4-bb8f-cb8f6d1bb1b8">
-      <text>
-        <locale_1033>MoleHillPanel</locale_1033>
-      </text>
-      <tooltip>
-        <locale_1033>MoleHill Panel</locale_1033>
-      </tooltip>
-      <script>MoleHillPanel</script>
-    </macro_item>
-    <macro_item guid="8e64d1e5-64e0-45ad-ab6f-e364364529e4" bitmap_id="63a75e2a-40a3-4e42-aa38-5c45b4c7aab2">
-      <text>
-        <locale_1033>MoleHillCreateTerrain</locale_1033>
-      </text>
-      <tooltip>
-        <locale_1033>Create Terrain</locale_1033>
-      </tooltip>
-      <script>MoleHillCreateTerrain</script>
-    </macro_item>
-    <macro_item guid="b48d996e-6222-4c01-b00b-2489c38f9ac2" bitmap_id="bdafa79c-308e-471f-82a5-36858c1f2040">
-      <text>
-        <locale_1033>MoleHillConvertToRhino</locale_1033>
-      </text>
-      <tooltip>
-        <locale_1033>Convert To Rhino</locale_1033>
-      </tooltip>
-      <script>MoleHillConvertToRhino</script>
-    </macro_item>
-    <macro_item guid="ca1d6110-837d-4693-b074-0c24fdf83974" bitmap_id="8634d698-e2e0-43ec-a9c8-8c6e4f5c91bb">
-      <text>
-        <locale_1033>MoleHillResetTerrainBuild</locale_1033>
-      </text>
-      <tooltip>
-        <locale_1033>Reset Terrain Build</locale_1033>
-      </tooltip>
-      <script>MoleHillResetTerrainBuild</script>
+      <script>mhTrimBoundary</script>
     </macro_item>
     <macro_item guid="82105592-20b2-4d3f-8204-b306b263c57c" bitmap_id="b14ce923-981f-4379-af49-b8072e420254">
       <text>
-        <locale_1033>MoleHillAddMarkerParentheses</locale_1033>
+        <locale_1033>mhAddMarkerParentheses</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Add Marker Parentheses</locale_1033>
       </tooltip>
-      <script>MoleHillAddMarkerParentheses</script>
+      <script>mhAddMarkerParentheses</script>
     </macro_item>
     <macro_item guid="d1c8af16-7ea5-444c-b72c-aacc2ceaceeb" bitmap_id="543feee0-c0a4-463c-a19c-b7380bad5ea5">
       <text>
-        <locale_1033>MoleHillRemoveMarkerParentheses</locale_1033>
+        <locale_1033>mhRemoveMarkerParentheses</locale_1033>
       </text>
       <tooltip>
         <locale_1033>Remove Marker Parentheses</locale_1033>
       </tooltip>
-      <script>MoleHillRemoveMarkerParentheses</script>
+      <script>mhRemoveMarkerParentheses</script>
     </macro_item>
     <macro_item guid="e47a9151-96da-42bc-8b6f-4551e8971da6" bitmap_id="60d9040f-0513-4222-858f-62eda1a61610">
       <text>

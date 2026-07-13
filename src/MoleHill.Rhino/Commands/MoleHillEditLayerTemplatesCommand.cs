@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillEditLayerTemplatesCommand : Command
 {
-    public override string EnglishName => "MoleHillEditLayerTemplates";
+    public override string EnglishName => "mhEditLayerTemplates";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

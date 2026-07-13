@@ -115,7 +115,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         layout.AddRow(new Label
         {
             Text = "Edit layer templates graphically. Each layer's display color, print color and plot " +
-                   "weight are applied when you run MoleHillApplyLayerTemplate.",
+                   "weight are applied when you run mhApplyLayerTemplate.",
             Wrap = WrapMode.Word
         });
 

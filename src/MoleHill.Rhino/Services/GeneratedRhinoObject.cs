@@ -6,6 +6,8 @@ namespace MoleHill.Rhino.Services;
 internal sealed class GeneratedRhinoObject
 {
     private readonly Dictionary<(int SourceIdentity, string DisplayText), TextEntity> _previewTextCache = new();
+    private bool _previewDisplayTextInitialized;
+    private string? _previewDisplayText;
 
     public GeometryBase? Geometry { get; init; }
 
@@ -49,5 +51,33 @@ internal sealed class GeneratedRhinoObject
         clone.RichText = displayText;
         _previewTextCache[key] = clone;
         return clone;
+    }
+
+    internal bool TryGetPreviewDisplayText(out string displayText)
+    {
+        if (!_previewDisplayTextInitialized)
+        {
+            _previewDisplayTextInitialized = true;
+            if (InstanceUserStrings is { Count: > 0 } userStrings)
+            {
+                string prefix = GetUserString(userStrings, GeneratedBlockCatalog.PrefixToken);
+                string value = GetUserString(userStrings, GeneratedBlockCatalog.ValueToken);
+                string suffix = GetUserString(userStrings, GeneratedBlockCatalog.SuffixToken);
+                string combined = string.Concat(prefix, value, suffix);
+                _previewDisplayText = !string.IsNullOrWhiteSpace(combined)
+                    ? combined
+                    : GetUserString(userStrings, GeneratedBlockCatalog.DisplayToken);
+            }
+        }
+
+        displayText = _previewDisplayText ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(displayText);
+    }
+
+    private static string GetUserString(IReadOnlyDictionary<string, string> userStrings, string key)
+    {
+        return userStrings.TryGetValue(key, out string? value) && value != null
+            ? value
+            : string.Empty;
     }
 }

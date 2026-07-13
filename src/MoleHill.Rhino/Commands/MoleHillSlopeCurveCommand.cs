@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillSlopeCurveCommand : Command
 {
-    public override string EnglishName => "MoleHillSlopeCurve";
+    public override string EnglishName => "mhSlopeCurve";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

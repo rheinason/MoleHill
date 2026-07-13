@@ -269,4 +269,113 @@ public sealed partial class MoleHillPanel
 
         MutateAnalysis(terrainId, analysisId, apply, scheduleRebuild: true);
     }
+
+    private bool TryBuildSchemaObjectBody(DynamicLayout layout, TerrainDefinition terrain, TerrainObjectDefinition definition)
+    {
+        var descriptor = ObjectTypeRegistry.ForType(definition.GetType());
+        if (descriptor == null || descriptor.Parameters.Count == 0)
+            return false;
+
+        foreach (var parameter in descriptor.Parameters)
+        {
+            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(definition))
+                continue;
+
+            layout.AddRow(BuildObjectSchemaRow(terrain, definition, parameter));
+        }
+
+        return true;
+    }
+
+    private Control BuildObjectSchemaRow(
+        TerrainDefinition terrain,
+        TerrainObjectDefinition definition,
+        ObjectParameterDescriptor parameter)
+    {
+        Guid terrainId = terrain.TerrainId;
+        Guid definitionId = definition.Id;
+        string label = parameter.LabelFor?.Invoke(definition) ?? parameter.Label;
+
+        void Commit(Action<TerrainObjectDefinition> apply)
+        {
+            MutateObjectDefinition(
+                terrainId,
+                definitionId,
+                apply,
+                deferDocumentSave: parameter.LiveScrub,
+                suppressImmediateUiRefresh: parameter.LiveScrub);
+
+            if (parameter.RebuildAfterCommit)
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                if (doc != null)
+                    RebuildObjectsLayout(_controller.GetSelectedTerrain(doc));
+            }
+        }
+
+        switch (parameter.Kind)
+        {
+            case ObjectParameterKind.Sources:
+                return CreateSourceEditor(
+                    label,
+                    parameter.GetSources!(definition),
+                    apply => Commit(item => apply(parameter.GetSources!(item))),
+                    parameter.ObjectFilter,
+                    doc => _controller.GetSelectedLayerPaths(doc),
+                    parameter.Help);
+
+            case ObjectParameterKind.Number:
+                return CreateNumericEditor(
+                    label,
+                    parameter.GetNumber!(definition),
+                    value => Commit(item => parameter.SetNumber!(item, value)),
+                    decimalPlaces: parameter.DecimalPlaces,
+                    help: parameter.Help,
+                    minValue: parameter.Min,
+                    maxValue: parameter.Max,
+                    liveEdit: parameter.LiveEdit,
+                    step: parameter.Step);
+
+            case ObjectParameterKind.Slider:
+                return CreateSliderNumericEditor(
+                    label,
+                    parameter.GetNumber!(definition),
+                    value => Commit(item => parameter.SetNumber!(item, value)),
+                    parameter.SoftMin,
+                    parameter.SoftMax,
+                    parameter.DecimalPlaces,
+                    parameter.Min,
+                    parameter.Max,
+                    parameter.Help);
+
+            case ObjectParameterKind.Bool:
+                return CreateCheckEditor(
+                    label,
+                    parameter.GetBool!(definition),
+                    value => Commit(item => parameter.SetBool!(item, value)),
+                    parameter.Help ?? string.Empty);
+
+            case ObjectParameterKind.Choice:
+                return CreateDropDownEditor(
+                    label,
+                    parameter.ChoiceOptionsFor?.Invoke(definition) ?? parameter.ChoiceOptions!,
+                    parameter.GetText!(definition) ?? string.Empty,
+                    value => Commit(item => parameter.SetText!(item, value)),
+                    parameter.Help ?? string.Empty);
+
+            case ObjectParameterKind.ReadOnly:
+                return CreateReadOnlyValueRow(
+                    label,
+                    parameter.GetReadOnly!(definition),
+                    parameter.Help ?? string.Empty);
+
+            case ObjectParameterKind.BlockMix:
+                return definition is ScatterObjectDefinition scatter
+                    ? CreateScatterBlockMixEditor(terrain, scatter)
+                    : new Panel();
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(parameter), parameter.Kind, "Unhandled object parameter kind.");
+        }
+    }
 }

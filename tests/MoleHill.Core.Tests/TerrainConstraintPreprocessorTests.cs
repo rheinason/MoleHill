@@ -133,4 +133,34 @@ public class TerrainConstraintPreprocessorTests
 
         Assert.True(foundBacktrackVertex, "Expected backtracking station to survive instead of being collapsed into a monotonic straight run.");
     }
+
+    [Fact]
+    public void Process_LargeSiteContours_PreservesObservedSpacingInsteadOfToleranceScale()
+    {
+        const int contourCount = 100;
+        const int pointsPerContour = 200;
+        var contours = new List<double[]>(contourCount);
+        for (int contourIndex = 0; contourIndex < contourCount; contourIndex++)
+        {
+            var contour = new double[pointsPerContour * 3];
+            for (int pointIndex = 0; pointIndex < pointsPerContour; pointIndex++)
+            {
+                contour[pointIndex * 3] = pointIndex * 50.0;
+                contour[pointIndex * 3 + 1] = contourIndex * 50.0;
+                contour[pointIndex * 3 + 2] = contourIndex;
+            }
+
+            contours.Add(contour);
+        }
+
+        List<double[]> result = TerrainConstraintPreprocessor.Process(
+            Array.Empty<double[]>(),
+            contours,
+            tolerance: 0.0125);
+
+        int inputCount = contourCount * pointsPerContour;
+        int outputCount = result.Sum(static contour => contour.Length / 3);
+        Assert.Equal(contourCount, result.Count);
+        Assert.InRange(outputCount, inputCount, (int)(inputCount * 1.05));
+    }
 }

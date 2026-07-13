@@ -19,6 +19,7 @@ internal sealed class ExtractedMeshData
 internal static class RhinoGeometryConversions
 {
     private static readonly ConditionalWeakTable<Mesh, ExtractedMeshData> MeshDataCache = new();
+    private static readonly ConditionalWeakTable<Mesh, NormalizedMeshMarker> NormalizedMeshes = new();
 
     public static Mesh ToRhinoMesh(TinResult result)
     {
@@ -82,6 +83,21 @@ internal static class RhinoGeometryConversions
         vertices = data.Vertices;
         faces = data.Faces;
         return true;
+    }
+
+    /// <summary>
+    /// Extracts flat arrays from a mesh already normalized by the terrain stage-cache pipeline. Unlike
+    /// <see cref="TryGetMeshData"/>, this avoids duplicating and normalizing a potentially large mesh on
+    /// the Rhino UI thread. Callers must only pass cached terrain-stage meshes.
+    /// </summary>
+    public static ExtractedMeshData GetNormalizedMeshData(Mesh mesh)
+    {
+        if (MeshDataCache.TryGetValue(mesh, out ExtractedMeshData? data))
+            return data;
+
+        data = BuildMeshData(mesh);
+        CacheMeshData(mesh, data);
+        return data;
     }
 
     public static Mesh BuildMesh(double[] vertices, int vertexCount, int[] faces, int faceCount)
@@ -188,7 +204,10 @@ internal static class RhinoGeometryConversions
         mesh.UnifyNormals();
         mesh.Compact();
         CacheMeshData(mesh, BuildMeshData(mesh));
+        MarkNormalized(mesh);
     }
+
+    internal static bool IsNormalizedMesh(Mesh mesh) => NormalizedMeshes.TryGetValue(mesh, out _);
 
     private static bool TryBuildMeshData(Mesh mesh, out ExtractedMeshData data, out string? errorMessage)
     {
@@ -251,5 +270,15 @@ internal static class RhinoGeometryConversions
     {
         MeshDataCache.Remove(mesh);
         MeshDataCache.Add(mesh, data);
+    }
+
+    private static void MarkNormalized(Mesh mesh)
+    {
+        NormalizedMeshes.Remove(mesh);
+        NormalizedMeshes.Add(mesh, new NormalizedMeshMarker());
+    }
+
+    private sealed class NormalizedMeshMarker
+    {
     }
 }

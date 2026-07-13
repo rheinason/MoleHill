@@ -8,7 +8,8 @@ There are four parallel families, each with a `*TypeDescriptor` base + reflectio
 `*TypeRegistry`:
 - **Modifiers** — `ModifierTypeDescriptor` (richest: factory + `RunBuildStage` build dispatch + `Parameters`
   schema cards + menu chrome). Detailed below.
-- **Objects** — `ObjectTypeDescriptor`/`ObjectTypeRegistry` (factory + card chrome: label/icon/subtitle/accent).
+- **Objects** — `ObjectTypeDescriptor`/`ObjectTypeRegistry` (factory + card chrome + `ObjectParameterDescriptor`
+  schema rows). Scatter keeps only its weighted block-mix editor as a small custom row.
 - **Markers** — `MarkerTypeDescriptor`/`MarkerTypeRegistry` (factory + add-button text/help).
 - **Analyses** — `AnalysisTypeDescriptor`/`AnalysisTypeRegistry` (factory + menu grouping + card chrome +
   `Parameters` schema cards, same shape as modifiers). Per-type collapsed summary, computed
@@ -48,6 +49,9 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
   can depend on another field — e.g. the Remesh Min Angle / Max Area rows only show when `Mode ==
   "rebuild"`. It re-evaluates on every card rebuild, and since any edit (including the gating `Choice`
   dropdown) rebuilds the card via `StateChanged → RefreshUi`, gated rows appear/disappear live.
+- `ObjectParameterDescriptor.cs` — the matching object-card vocabulary against `TerrainObjectDefinition`.
+  Shared rotation/scale/seed controls are declared once; Scatter adds mode-dependent density, filter,
+  preview, and block-mix descriptors.
 - `AnalysisParameterDescriptor.cs` — the same shape against `AnalysisDefinition` (separate type because the
   accessor delegates are typed differently). Adds two mutate-mode flags plain modifiers don't need:
   `RefreshOnly` (cheap preview recolor via `MutateAndRefreshAnalysis`, e.g. palette/range on Slope/

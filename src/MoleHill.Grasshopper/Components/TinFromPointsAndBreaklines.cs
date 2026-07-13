@@ -16,6 +16,9 @@ public class TinFromPointsAndBreaklines : GH_Component
     private int _cachedPreprocessHash;
     private bool _hasCachedMerged;
     private PointCloudProcessor.MergedData _cachedMerged;
+    private int _cachedConstraintStationCount;
+    private int _cachedDirectPolylineCount;
+    private int _cachedDirectPolylineVertexCount;
 
     public TinFromPointsAndBreaklines()
         : base("TIN Surface", "TIN",
@@ -113,6 +116,8 @@ public class TinFromPointsAndBreaklines : GH_Component
 
             // Tessellate breakline curves to polylines
             var polylines = new List<double[]>();
+            int directPolylineCount = 0;
+            int directPolylineVertexCount = 0;
             foreach (var crv in curves)
             {
                 if (crv == null) continue;
@@ -120,7 +125,8 @@ public class TinFromPointsAndBreaklines : GH_Component
                 Polyline pl;
                 if (crv.TryGetPolyline(out pl))
                 {
-                    // Already a polyline
+                    directPolylineCount++;
+                    directPolylineVertexCount += pl.Count;
                 }
                 else
                 {
@@ -154,6 +160,9 @@ public class TinFromPointsAndBreaklines : GH_Component
             // Merge and deduplicate
             merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, tolerance);
             _cachedMerged = merged;
+            _cachedConstraintStationCount = polylines.Sum(static polyline => polyline.Length / 3);
+            _cachedDirectPolylineCount = directPolylineCount;
+            _cachedDirectPolylineVertexCount = directPolylineVertexCount;
             _cachedPreprocessHash = preprocessHash;
             _hasCachedMerged = true;
         }
@@ -162,6 +171,12 @@ public class TinFromPointsAndBreaklines : GH_Component
             AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, $"{merged.DuplicatesRemoved} duplicate points merged.");
         if (merged.InvalidsSkipped > 0)
             AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, merged.DescribeInvalidPoints());
+        AddRuntimeMessage(
+            GH_RuntimeMessageLevel.Remark,
+            $"TIN input: {points.Count:N0} spot points, {curves.Count:N0} curves, " +
+            $"{_cachedConstraintStationCount:N0} constraint vertices, {merged.VertexCount:N0} unique vertices; " +
+            $"tolerance {tolerance:G6}; direct polylines {_cachedDirectPolylineCount:N0}/{curves.Count:N0} " +
+            $"({_cachedDirectPolylineVertexCount:N0} source vertices).");
 
         if (merged.VertexCount < 3)
         {

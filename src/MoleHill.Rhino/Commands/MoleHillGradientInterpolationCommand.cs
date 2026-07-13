@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillGradientInterpolationCommand : Command
 {
-    public override string EnglishName => "MoleHillGradientInterpolation";
+    public override string EnglishName => "mhGradientInterpolation";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

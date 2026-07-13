@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillSlopeCheckAndMarkCommand : Command
 {
-    public override string EnglishName => "MoleHillSlopeCheckAndMark";
+    public override string EnglishName => "mhSlopeCheckAndMark";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

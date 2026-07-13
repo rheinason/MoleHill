@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillAddMarkerParenthesesCommand : Command
 {
-    public override string EnglishName => "MoleHillAddMarkerParentheses";
+    public override string EnglishName => "mhAddMarkerParentheses";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

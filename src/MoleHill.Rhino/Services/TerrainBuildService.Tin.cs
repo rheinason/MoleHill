@@ -26,10 +26,13 @@ internal sealed partial class TerrainBuildService
         TerrainRuntimeCache runtimeCache,
         string stageKey,
         out ulong outputFingerprint,
-        Func<bool>? shouldCancel = null)
+        Func<bool>? shouldCancel = null,
+        Action<TerrainBuildProgress>? reportProgress = null)
     {
         const string stageName = "Triangulate";
         var timer = Stopwatch.StartNew();
+        var progress = new TerrainBuildProgressReporter(reportProgress);
+        progress.Start("Source resolution");
         ulong preResolutionFingerprint = ComputeTriangulatePreResolutionFingerprint(snapshot, terrain, modifier);
         if (runtimeCache.StageEntries.TryGetValue(stageKey, out var cachedEntry) &&
             cachedEntry.PreResolutionFingerprint == preResolutionFingerprint)
@@ -47,6 +50,12 @@ internal sealed partial class TerrainBuildService
         var breaklineCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Breaklines);
         var contourCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Contours);
         var boundaryCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Boundary);
+        string contourSourceDetail = snapshot.SourceDiagnostics.TryGetValue(modifier.Contours, out SourceResolutionDiagnostics? contourDiagnostics)
+            ? $"; model-space layer validation v8; contour objects: {contourDiagnostics.Describe()}"
+            : "; model-space layer validation v8";
+        progress.Complete(
+            "Source resolution",
+            $"{points.Count:N0} points, {breaklineCurves.Count:N0} breaklines, {contourCurves.Count:N0} contours{contourSourceDetail}");
 
         if (points.Count == 0 && breaklineCurves.Count == 0 && contourCurves.Count == 0)
         {
@@ -82,6 +91,7 @@ internal sealed partial class TerrainBuildService
         (points, breaklineCurves, contourCurves) = FilterInputsToWorkBoundary(
             points, breaklineCurves, contourCurves, boundaryCurves, curveTolerance, workBoundaryMargin, build);
 
+        progress.Start("Input packing");
         var spotXyz = new double[points.Count * 3];
         for (int i = 0; i < points.Count; i++)
         {
@@ -100,14 +110,26 @@ internal sealed partial class TerrainBuildService
             preserveInputElevation: true);
 
         ThrowIfCancellationRequested(shouldCancel);
+        (int directPolylineCount, int directPolylineVertexCount) = CountDirectPolylineSources(
+            breaklineCurves,
+            contourCurves);
         var polylines = TerrainTriangulationInputBuilder.CreateTriangulationPolylines(
             breaklineCurves,
             contourCurves,
             curveTolerance);
         var boundaryPolylines = CreateBoundaryPolylines(boundaryCurves, curveTolerance);
+        int constraintVertexCount = polylines.Sum(static polyline => polyline.Length / 3);
+        int boundaryVertexCount = boundaryPolylines.Sum(static polyline => polyline.PointCount);
+        progress.Complete(
+            "Input packing",
+            $"{points.Count:N0} spot points, {constraintVertexCount:N0} constraint vertices, {boundaryVertexCount:N0} boundary vertices; " +
+            $"curve tolerance {curveTolerance:G6}; direct polylines {directPolylineCount:N0}/{breaklineCurves.Count + contourCurves.Count:N0} " +
+            $"({directPolylineVertexCount:N0} source vertices)");
 
+        progress.Start("Point deduplication");
         var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
         var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, inputTolerance, shouldCancel);
+        progress.Complete("Point deduplication", $"{merged.VertexCount:N0} unique vertices, {merged.SegmentCount:N0} segments");
         ThrowIfCancellationRequested(shouldCancel);
         ulong resolvedInputFingerprint = ComputeTriangulateResolvedInputFingerprint(
             terrain,
@@ -118,7 +140,6 @@ internal sealed partial class TerrainBuildService
             merged.Segments,
             persistentHardConstraints,
             boundaryPolylines);
-
         if (cachedEntry != null &&
             cachedEntry.ResolvedInputFingerprint == resolvedInputFingerprint)
         {
@@ -171,7 +192,8 @@ internal sealed partial class TerrainBuildService
             stageName,
             out var exactMesh,
             out var exactMessage,
-            shouldCancel))
+            shouldCancel,
+            progress))
         {
             build.PersistentHardConstraints.Clear();
             build.PersistentHardConstraints.AddRange(persistentHardConstraints);
@@ -192,7 +214,8 @@ internal sealed partial class TerrainBuildService
                 build.Diagnostics.Skip(diagnosticsStart),
                 DescribeModifierMeshResult(modifier.Label, exactMesh),
                 timer,
-                out outputFingerprint);
+                out outputFingerprint,
+                reportProgress: progress);
         }
 
         if (!ShouldAttemptTriangulationCleanupRetry(merged.VertexCount, merged.SegmentCount, shouldCancel, out var cleanupSkipMessage))
@@ -473,6 +496,30 @@ internal sealed partial class TerrainBuildService
         return cleanedMesh!;
     }
 
+    private static (int CurveCount, int VertexCount) CountDirectPolylineSources(
+        IReadOnlyList<Curve> breaklineCurves,
+        IReadOnlyList<Curve> contourCurves)
+    {
+        int curveCount = 0;
+        int vertexCount = 0;
+
+        void Count(IReadOnlyList<Curve> curves)
+        {
+            foreach (Curve curve in curves)
+            {
+                if (!curve.TryGetPolyline(out Polyline polyline))
+                    continue;
+
+                curveCount++;
+                vertexCount += polyline.Count;
+            }
+        }
+
+        Count(breaklineCurves);
+        Count(contourCurves);
+        return (curveCount, vertexCount);
+    }
+
     private static bool TryBuildValidatedTinMesh(
         double[] xyCoords,
         double[] zValues,
@@ -485,19 +532,25 @@ internal sealed partial class TerrainBuildService
         string stageName,
         out RhinoMesh? mesh,
         out string? message,
-        Func<bool>? shouldCancel = null)
+        Func<bool>? shouldCancel = null,
+        TerrainBuildProgressReporter? progress = null)
     {
         mesh = null;
         ThrowIfCancellationRequested(shouldCancel);
 
+        progress?.Start(
+            "Boundary preparation",
+            $"{xyCoords.Length / 2:N0} vertices, {segments.Length / 2:N0} segments, {boundaryPolylines.Length:N0} boundary polylines");
         var prepared = TinBoundaryPreparer.Prepare(
             xyCoords,
             zValues,
             segments,
             boundaryPolylines,
             tolerance);
+        progress?.Complete("Boundary preparation", $"{prepared.XyCoords.Length / 2:N0} vertices, {prepared.Segments.Length / 2:N0} segments");
         ThrowIfCancellationRequested(shouldCancel);
 
+        progress?.Start("TIN engine");
         var result = engine.Build(
             prepared.XyCoords,
             prepared.ZValues,
@@ -506,7 +559,26 @@ internal sealed partial class TerrainBuildService
             out message,
             useConvexHull: prepared.UseConvexHull,
             boundaryPeelSettings: boundaryPeelSettings,
-            shouldCancel: shouldCancel);
+            shouldCancel: shouldCancel,
+            reportProgress: update =>
+            {
+                switch (update.Phase)
+                {
+                    case TinEngineBuildPhase.WaitingForGate:
+                        progress?.Report("TIN engine", "waiting for shared engine gate");
+                        break;
+                    case TinEngineBuildPhase.GateAcquired:
+                        progress?.Report(
+                            "TIN engine",
+                            "shared engine gate acquired",
+                            $"gate wait {update.GateWait.TotalSeconds:0.###} s");
+                        break;
+                    case TinEngineBuildPhase.FullRebuildStarting:
+                        progress?.Report("TIN engine", "full triangulation running");
+                        break;
+                }
+            });
+        progress?.Complete("TIN engine", result == null ? "failed" : $"{result.VertexCount:N0} vertices, {result.FaceCount:N0} faces");
         ThrowIfCancellationRequested(shouldCancel);
 
         if (!string.IsNullOrWhiteSpace(prepared.WarningMessage))
@@ -531,10 +603,13 @@ internal sealed partial class TerrainBuildService
 
         try
         {
+            progress?.Start("Rhino mesh conversion");
             mesh = RhinoGeometryConversions.ToRhinoMesh(result);
+            progress?.Complete("Rhino mesh conversion", $"{mesh.Vertices.Count:N0} vertices, {mesh.Faces.Count:N0} faces");
         }
         catch (Exception ex)
         {
+            progress?.Report("Rhino mesh conversion", "failed", ex.Message);
             message = string.IsNullOrWhiteSpace(message)
                 ? $"Triangulation produced an invalid mesh: {ex.Message}"
                 : $"{message} Triangulation produced an invalid mesh: {ex.Message}";

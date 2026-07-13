@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Commands;
 
 public sealed class MoleHillTrimBoundaryCommand : Command
 {
-    public override string EnglishName => "MoleHillTrimBoundary";
+    public override string EnglishName => "mhTrimBoundary";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {

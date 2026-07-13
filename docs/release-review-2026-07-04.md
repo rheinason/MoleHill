@@ -2,15 +2,35 @@
 
 Full sweep of architecture, stability, and performance ahead of release. Reviewed: Core engine
 (TinEngine / caching / triangulation), Rhino build orchestration and threading, the sculpt subsystem
-(including the uncommitted `SculptAnalysisColorizer` work), persistence and display, and spot-checks
-of the grading core and GH components. Build is clean; **all 531 tests pass** (31 skipped =
-Rhino-runtime-gated).
+(including the then-uncommitted `SculptAnalysisColorizer` work), persistence and display, and
+spot-checks of the grading core and GH components. The original review build was clean with 531 tests
+passing (31 Rhino-runtime-gated skips). The 2026-07-12 completion audit passes **all 534 runnable
+tests** with 39 expected runtime-gated skips.
 
 **Overall assessment:** the architecture is in genuinely good shape — clean Core/host separation,
 disciplined flat-array pipeline, registry-driven type system, fingerprint-cached staged builds, and a
 carefully reasoned sculpt display-lock design. Exception discipline is excellent (two empty catches in
 the whole tree). The findings below are ranked; the two HIGH items should block release, the MEDIUMs
 are judgement calls, the LOWs are polish.
+
+## Completion audit — 2026-07-12
+
+- [x] H1 — incremental-edit elevation/source mapping.
+- [x] H2 — unreadable document JSON protection and backup.
+- [x] M1 — retired-worker mesh lifetime protection.
+- [x] M2 — consistent Triangle.NET serialization across Core and Grasshopper.
+- [x] M3 — sculpt working-mesh disposal.
+- [x] M4 — allocation-free steady-state conduit drawing and cached marker labels.
+- [x] P1 — persistent `TinEngine` reuse in Rhino worker caches.
+- [x] L1–L6 — low-severity hardening and housekeeping.
+- [x] `SculptAnalysisColorizer` selection parity verified in code: sculpt and baked preview use the
+  same first-enabled, preview-capable analysis selector.
+- [x] Full solution validation: 534 passed, 0 failed, 39 skipped (`dotnet test MoleHill.sln
+  --no-restore`).
+- [x] Release build: 0 warnings, 0 errors (`dotnet build MoleHill.sln -c Release --no-restore`).
+- [ ] Manual Rhino smoke test: exercise a long sculpt session and orbit several hundred markers in
+  multiple viewports while watching working set and frame time. This requires an interactive Rhino
+  session and is the only remaining non-automated release check from this review.
 
 Severity legend: **HIGH** = silent data corruption or data loss reachable by normal use.
 **MEDIUM** = crash/leak/stale-state risk under realistic-but-narrower conditions.
@@ -166,6 +186,13 @@ document store — where the stakes are much higher — has no equivalent.
 
 ## M1 — Use-after-dispose race on stage meshes shared with retired build workers (MEDIUM)
 
+**Status: Fixed. Audited 2026-07-12.** Retired worker tasks are retained in
+`TerrainRebuildState.RetiredWorkers`; cache replacement returns displaced meshes instead of disposing
+them inline; and `DisposeDisplacedCacheMeshesWhenSafe` waits for retired readers before disposal.
+Completed workers are pruned from the idle pump. Runtime-cache removal uses the same deferred-disposal
+path, and `TerrainRuntimeCacheTests.ReplaceBuildCachesFrom_ReturnsOnlyDisplacedMeshes` covers mesh
+ownership transfer.
+
 **Where:** `src/MoleHill.Rhino/Services/TerrainRuntimeCache.cs` — `CreateWorkerCopy` (:29-47) with
 `CloneStageCacheEntry` sharing `MeshOutput = entry.MeshOutput` shallowly (:611), and
 `ReplaceBuildCachesFrom` disposing displaced meshes (:49-79);
@@ -198,6 +225,11 @@ knows nothing about the *retired* worker.
 
 ## M2 — Inconsistent Triangle.NET locking discipline (MEDIUM)
 
+**Status: Fixed 2026-07-12 (Option A).** `TinEngine` already routed its constrained and fallback
+triangulations through `TriangulationHelper.TriangulatePolygon`. The completion audit found and fixed
+one remaining host bypass in `MeshCollageComponent`; all non-vendored production call sites in Core and
+Grasshopper now use `TriangulationHelper` and therefore share its serialization lock.
+
 **Where:** `src/MoleHill.Core/Engine/TriangulationHelper.cs:33-42,149-151` (global
 `TriangulateLock` around every `GenericMesher.Triangulate`) vs
 `src/MoleHill.Core/Engine/TinEngine.cs:539-551,614-618` (unlocked `Triangulate` calls).
@@ -226,6 +258,11 @@ Do not ship the current "half-locked" state — whichever assumption is wrong, i
 
 ## M3 — Sculpt working meshes are never disposed (MEDIUM)
 
+**Status: Fixed. Audited 2026-07-12.** The current sculpt workflow disposes its final working mesh in
+the session `finally`, after `NotifySculptSessionEnded` releases the display lock. The DynTopo
+`RefineUnderBrush` replacement path described below has since been removed (DynTopo is disabled), so
+there are no intermediate replacement meshes to dispose.
+
 **Where:** `src/MoleHill.Rhino/Services/SculptSessionController.cs` — `TryBindWorkingMesh` (:139),
 `RefineUnderBrush` (:414-423), session end (`BeginSession` finally block).
 
@@ -244,6 +281,12 @@ working mesh), dispose `_workingMesh` and null the fields.
 ---
 
 ## M4 — Display conduit allocates native objects every frame (MEDIUM, perf)
+
+**Status: Fixed 2026-07-12.** `DisplayMaterial` instances are cached by color/transparency; marker
+geometry is cached; curves and text draw under `PushModelTransform`/`PopModelTransform`; substituted
+`TextEntity` objects are cached on `GeneratedRhinoObject`; and the last per-frame label composition is
+now cached there as well. Focused `GeneratedRhinoObjectTests` cover label and text-entity reuse (native
+text tests remain Rhino-runtime-gated).
 
 **Where:** `src/MoleHill.Rhino/Services/TerrainDisplayConduit.cs` — `CreateDisplayMaterial`
 (:505-513, a new `DisplayMaterial` per mesh per frame per viewport, never disposed) and
@@ -314,7 +357,7 @@ Expected win: spot-point drags on large terrains go from full re-triangulation t
 
 ---
 
-## Uncommitted work reviewed: `SculptAnalysisColorizer`
+## Follow-up reviewed: `SculptAnalysisColorizer`
 
 `SculptAnalysisColorizer.cs` (new) + hookups in `SculptSessionController.cs` +
 `SamplePaletteColor` made internal. **Verdict: correct — safe to commit.**
@@ -326,11 +369,10 @@ Expected win: spot-point drags on large terrains go from full re-triangulation t
   is exactly the set whose normals (slope mode) changed; for elevation mode it's a harmless superset.
 - The pinned color range at session start deliberately avoids mid-stroke rescaling, and the canonical
   rebuild at session end restores the per-face baked preview.
-- One thing to verify in Rhino before release (needs the interactive session, which per project
-  memory has not yet been exercised in a real Rhino): that `TryCreate`'s
-  `FirstOrDefault(enabled && SupportsTerrainPreview)` selects the **same** analysis the baked preview
-  colors when several analyses are enabled — if the preview builder resolves differently, session
-  colors will briefly disagree with the baked look.
+- Selection parity was verified in code on 2026-07-12: `SculptAnalysisColorizer.TryCreate` and
+  `TerrainAnalysisPreviewBuilder.UpdatePreviewMesh` both select the first analysis satisfying
+  `IsEnabled && SupportsTerrainPreview`. An interactive Rhino visual smoke test is still listed in
+  the completion audit above.
 
 ---
 
@@ -355,19 +397,8 @@ Expected win: spot-point drags on large terrains go from full re-triangulation t
 
 ---
 
-## Suggested order of work
+## Completion record
 
-| # | Item | Size | Risk of fix |
-|---|------|------|-------------|
-| 1 | H1 — incremental-edit Z corruption + `WithUpdatedZ` via `SourceIds` + tests | ~½ day | Low (well-isolated) |
-| 2 | H2 — guarded load, save-refusal on failed load, backup entry | done 2026-07-04 | Low |
-| 3 | M3 — dispose sculpt working meshes | ~1 h | Low |
-| 4 | M4 — conduit material cache + `PushModelTransform` markers | ~2-3 h | Low |
-| 5 | M2 — unify triangulation locking (Option A) | ~1 h | Low |
-| 6 | M1 — deferred disposal behind retired workers | ~½ day | Medium (threading) — acceptable to ship behind if timeline is tight, but it is a crash bug |
-| 7 | P1 — share TinEngine into worker caches (after 1) | ~2 h | Medium |
-| 8 | L1–L6 | done 2026-07-04 | Low |
-
-Re-run `dotnet test` after each item; for H1 the new regression tests are the acceptance gate. For
-M3/M4, verify in Rhino with a large terrain: sculpt with DynTopo for a few minutes and watch working
-set; orbit a viewport with several hundred markers and watch frame time.
+All code findings H1–H2, M1–M4, P1, and L1–L6 are complete. Automated validation is recorded in the
+completion audit and status notes above. The remaining manual gate is the interactive Rhino sculpt and
+multi-viewport marker performance smoke test.

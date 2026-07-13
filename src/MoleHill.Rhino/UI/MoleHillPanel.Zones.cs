@@ -71,7 +71,7 @@ public sealed partial class MoleHillPanel
 
     private Control BuildZonesToolbar(TerrainDefinition? terrain)
     {
-        var addButton = MakeToolbarButton("Add Zone", (_, _) => { }, "Add a zone definition.", width: 94);
+        var addButton = MakeToolbarButton("Add Zone", (_, _) => { }, "Add a zone definition.");
         ApplyHelp(addButton, "Add a blank zone, pick layers from a list, or create zones from the layers selected in Rhino's Layers panel.");
         addButton.Enabled = terrain != null;
         if (terrain != null)
@@ -265,7 +265,9 @@ public sealed partial class MoleHillPanel
 
         var badge = CreateCardStatusLabel(zone.IsEnabled ? "Enabled" : "Disabled");
 
-        var deleteButton = MakeDeleteIconButton(() => RemoveZone(capturedTerrainId, capturedZoneId), "Delete this zone.");
+        var deleteButton = MakeDeleteIconButton(
+            () => RemoveZone(capturedTerrainId, capturedZoneId),
+            "Delete this zone.");
         void ToggleCollapsed(bool ctrlHeld) => ToggleCardCollapsed(
             _collapsedZones,
             capturedZoneId,
@@ -394,8 +396,8 @@ public sealed partial class MoleHillPanel
             RebuildZonesLayout(_controller.GetSelectedTerrain(doc));
         }
 
-        var chooseButton = MakeCompactButton("Choose Color...", (_, _) => ApplyOverride(), "Pick an explicit override color for this zone.");
-        var byLayerButton = MakeCompactButton("Use Source Layer", (_, _) => UseSourceLayer(), "Clear the override and color this zone by its source layer.");
+        var chooseButton = MakeInlineButton("Choose Color...", (_, _) => ApplyOverride(), "Pick an explicit override color for this zone.");
+        var byLayerButton = MakeInlineButton("Use Source Layer", (_, _) => UseSourceLayer(), "Clear the override and color this zone by its source layer.");
 
         popup.Content = new StackLayout
         {
@@ -426,7 +428,7 @@ public sealed partial class MoleHillPanel
             Wrap = WrapMode.None
         };
         ApplyHelp(assignedLayerLabel, layerPath ?? "No input layer assigned.");
-        var useCurrentButton = MakeCompactButton("Current", (_, _) =>
+        var useCurrentButton = MakeInlineButton("Current", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
@@ -455,7 +457,7 @@ public sealed partial class MoleHillPanel
             });
         }, "Browse and pick a layer for this zone.");
 
-        var clearButton = MakeCompactButton("Clear", (_, _) =>
+        var clearButton = MakeInlineButton("Clear", (_, _) =>
         {
             MutateZone(terrain.TerrainId, zone.ZoneId, item =>
             {
