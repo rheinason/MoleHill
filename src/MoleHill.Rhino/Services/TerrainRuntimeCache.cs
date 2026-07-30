@@ -394,6 +394,8 @@ internal sealed class GradingTopologyCacheEntry
 
     public required ulong OutputFingerprint { get; init; }
 
+    // Grade Pad reuses retained topology geometry on cache hits. Grade Path entries are summaries:
+    // their output counts/fingerprint and patch bounds are sufficient for downstream invalidation.
     public double[] Vertices { get; init; } = Array.Empty<double>();
 
     public int VertexCount { get; init; }

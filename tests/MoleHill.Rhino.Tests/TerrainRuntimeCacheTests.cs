@@ -191,6 +191,71 @@ public class TerrainRuntimeCacheTests
         Assert.Equal(2, diagnostic.TargetIndex);
     }
 
+    [Fact]
+    public void BuildPathTopologySummary_DiscardsGeometryButPreservesSummary()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 1.0,
+            2.0, 0.0, 2.0,
+            0.0, 2.0, 3.0
+        };
+        int[] faces = { 0, 1, 2, 2 };
+        GradingPatch patch = CreatePatch("path:0", -1.0, -1.0, 3.0, 3.0);
+
+        GradingTopologyCacheEntry entry = TerrainBuildService.BuildPathTopologySummary(
+            vertices,
+            3,
+            faces,
+            1,
+            gradingResult: null,
+            new[] { patch },
+            new[] { "path diagnostic" });
+
+        Assert.Equal("Path", entry.GraderKind);
+        Assert.Empty(entry.Vertices);
+        Assert.Equal(3, entry.VertexCount);
+        Assert.Empty(entry.Faces);
+        Assert.Equal(1, entry.FaceCount);
+        Assert.NotEqual(0UL, entry.OutputFingerprint);
+        Assert.NotSame(patch, Assert.Single(entry.PatchSummaries));
+        Assert.Equal("path diagnostic", Assert.Single(entry.Diagnostics));
+    }
+
+    [Fact]
+    public void BuildPathTopologySummary_FingerprintsGeometryBeforeDiscardingIt()
+    {
+        double[] vertices =
+        {
+            0.0, 0.0, 1.0,
+            2.0, 0.0, 2.0,
+            0.0, 2.0, 3.0
+        };
+        int[] faces = { 0, 1, 2, 2 };
+
+        GradingTopologyCacheEntry original = TerrainBuildService.BuildPathTopologySummary(
+            vertices,
+            3,
+            faces,
+            1,
+            gradingResult: null,
+            Array.Empty<GradingPatch>(),
+            Array.Empty<string>());
+        vertices[2] = 4.0;
+        GradingTopologyCacheEntry changed = TerrainBuildService.BuildPathTopologySummary(
+            vertices,
+            3,
+            faces,
+            1,
+            gradingResult: null,
+            Array.Empty<GradingPatch>(),
+            Array.Empty<string>());
+
+        Assert.NotEqual(original.OutputFingerprint, changed.OutputFingerprint);
+        Assert.Empty(original.Vertices);
+        Assert.Empty(changed.Vertices);
+    }
+
     [Theory]
     [InlineData("final:modifier:2:GradePadModifierDefinition:a:topology:Pad", 2)]
     [InlineData("preview:modifier:7:GradePathModifierDefinition:b", 7)]

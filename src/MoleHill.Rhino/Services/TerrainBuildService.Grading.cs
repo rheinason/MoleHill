@@ -784,18 +784,15 @@ internal sealed partial class TerrainBuildService
         if (resolvedInputs.Paths.Length == 0)
         {
             build.Diagnostics.Add("Grade Path has no valid paths.");
-            runtimeCache.GradingTopologyEntries[TerrainStageKey.CreateGradingTopology(stageKey, "Path")] = new GradingTopologyCacheEntry
-            {
-                GraderKind = "Path",
-                Fingerprint = 0,
-                OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Path", vertices, mesh.Vertices.Count, faces, mesh.Faces.Count),
-                Vertices = (double[])vertices.Clone(),
-                VertexCount = mesh.Vertices.Count,
-                Faces = (int[])faces.Clone(),
-                FaceCount = mesh.Faces.Count,
-                PatchSummaries = new List<GradingPatch>(),
-                Diagnostics = new List<string>()
-            };
+            runtimeCache.GradingTopologyEntries[TerrainStageKey.CreateGradingTopology(stageKey, "Path")] =
+                BuildPathTopologySummary(
+                    vertices,
+                    mesh.Vertices.Count,
+                    faces,
+                    mesh.Faces.Count,
+                    gradingResult: null,
+                    Array.Empty<GradingPatch>(),
+                    Array.Empty<string>());
             return mesh;
         }
 
@@ -858,8 +855,12 @@ internal sealed partial class TerrainBuildService
         {
             build.RecordTiming("Grade Path Core", coreTimer.Elapsed, "failed", StageTimingDiagnosticThresholdMs);
             build.Diagnostics.Add(warning ?? "Grade Path failed.");
-            runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologyEntryFromMesh(
-                mesh,
+            runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologySummary(
+                vertices,
+                mesh.Vertices.Count,
+                faces,
+                mesh.Faces.Count,
+                gradingResult: null,
                 patchSummaries,
                 build.Diagnostics);
             return mesh;
@@ -876,7 +877,7 @@ internal sealed partial class TerrainBuildService
 
         AddOutputPolylinesAsBreaklines(gradingResult.OutputPolylines, build);
         AddPersistentElevationConstraints(build, resolvedInputs.Constraints);
-        runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologyEntry(
+        runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologySummary(
             vertices,
             mesh.Vertices.Count,
             faces,
@@ -1330,7 +1331,7 @@ internal sealed partial class TerrainBuildService
         return patches;
     }
 
-    private static GradingTopologyCacheEntry BuildPathTopologyEntry(
+    internal static GradingTopologyCacheEntry BuildPathTopologySummary(
         IReadOnlyList<double> inputVertices,
         int inputVertexCount,
         IReadOnlyList<int> inputFaces,
@@ -1352,46 +1353,11 @@ internal sealed partial class TerrainBuildService
             GraderKind = "Path",
             Fingerprint = 0,
             OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Path", vertices, vertexCount, faces, faceCount),
-            Vertices = vertices.ToArray(),
+            Vertices = Array.Empty<double>(),
             VertexCount = vertexCount,
-            Faces = faces.ToArray(),
+            Faces = Array.Empty<int>(),
             FaceCount = faceCount,
             PatchSummaries = patchSummaries,
-            Diagnostics = diagnostics.ToList()
-        };
-    }
-
-    private static GradingTopologyCacheEntry BuildPathTopologyEntryFromMesh(
-        RhinoMesh mesh,
-        IReadOnlyList<GradingPatch> conservativePatchSummaries,
-        IReadOnlyList<string> diagnostics)
-    {
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
-        {
-            return new GradingTopologyCacheEntry
-            {
-                GraderKind = "Path",
-                Fingerprint = 0,
-                OutputFingerprint = 0,
-                Vertices = Array.Empty<double>(),
-                VertexCount = 0,
-                Faces = Array.Empty<int>(),
-                FaceCount = 0,
-                PatchSummaries = ClonePatchSummaries(conservativePatchSummaries),
-                Diagnostics = diagnostics.ToList()
-            };
-        }
-
-        return new GradingTopologyCacheEntry
-        {
-            GraderKind = "Path",
-            Fingerprint = 0,
-            OutputFingerprint = ComputeGradingTopologyOutputFingerprint("Path", vertices, mesh.Vertices.Count, faces, mesh.Faces.Count),
-            Vertices = vertices,
-            VertexCount = mesh.Vertices.Count,
-            Faces = faces,
-            FaceCount = mesh.Faces.Count,
-            PatchSummaries = ClonePatchSummaries(conservativePatchSummaries),
             Diagnostics = diagnostics.ToList()
         };
     }

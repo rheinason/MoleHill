@@ -209,7 +209,9 @@ zones, markers, objects, and scatter retain stage-level entries.
   retired by a newer build, the controller keeps its task around and defers disposal of displaced
   main-cache meshes until those retired workers have finished reading them. Hot restores duplicate the
   normalized cached mesh but do not normalize it again; timing records identify cache hits and omit
-  replayed cold-run timing diagnostics.
+  replayed cold-run timing diagnostics. Grade Pad topology entries retain flat geometry for their
+  topology cache hits; Grade Path topology entries retain only output counts/fingerprint, patch
+  summaries, and diagnostics because no Path restore consumes their full vertex/face arrays.
 - Cold TIN conversion marks normalized Rhino meshes, allowing stage-cache storage to skip the otherwise
   redundant second normalization while still normalizing meshes produced by other paths when needed.
 - Background builds enqueue live phase/elapsed/memory telemetry for the controller's UI-thread idle loop.

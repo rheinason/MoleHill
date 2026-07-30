@@ -57,8 +57,10 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   objects (no doc objects until bake).
 - `TerrainRuntimeCache.cs` - per-terrain runtime cache (stage entries, TinEngine, display state, cloner).
   Worker caches shallow-copy stage mesh outputs; the controller defers disposal of displaced main-cache
-  meshes until retired worker tasks have drained. The controller also inspects the cached incoming stage
-  for Smooth/Sculpt mesh-regularity warnings when no earlier Remesh is enabled.
+  meshes until retired worker tasks have drained. Grade Pad topology entries retain reusable flat
+  geometry, while Grade Path entries retain summary metadata and patch bounds without duplicating full
+  vertex/face arrays. The controller also inspects the cached incoming stage for Smooth/Sculpt
+  mesh-regularity warnings when no earlier Remesh is enabled.
 - `GeneratedRhinoObject.cs` - a previewable/bakeable output (geometry or block instance).
 - Contour curves and labels use their configured output layer, with blank values resolved to the selected
   terrain's Annotation layer before preview/sync/bake.

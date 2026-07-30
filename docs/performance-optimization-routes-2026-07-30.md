@@ -323,6 +323,35 @@ chains, edge runs greater than three, and billion-scale sparse vertex ids. The c
 fingerprint is `D2279766A1F503D6` both at clean step 3 and after step 4, proving identical vertex values,
 face indices, and ordering; topology remains one closed component with no non-manifold edge.
 
+### Implementation step 5 result — cache ownership trim
+
+The cache-consumer trace confirms that Grade Pad is the only grading-topology route that restores
+cached vertex and face arrays. Grade Path entries are consumed only for overlap invalidation through
+patch summaries and for output counts, fingerprints, and diagnostics. Path entries now compute their
+output fingerprint while the grading arrays are live, then retain empty geometry arrays alongside the
+original counts. Failed and no-input Path routes use the already-extracted input arrays rather than
+extracting or cloning the Rhino mesh again.
+
+This removes `vertexCount × 3 × 8 + faceCount × 4 × 4` retained bytes per Path topology entry, excluding
+small array headers. That is 466,592 bytes for the copied 8,410-vertex / 16,547-face case and
+13,803,136 bytes (13.16 MiB) for a 247,000-vertex / 492,196-face entry.
+
+The enhanced `mhBenchmarkLargeTin` command was run in a managed Rhino 8 MCP session. On its
+247,000-vertex / 492,196-face normalized mesh:
+
+| Rhino clone measurement | Time | Managed / allocated delta | Private-memory delta | Working-set delta |
+|---|---:|---:|---:|---:|
+| Stage-cache `DuplicateMesh()` | 6 ms | approximately 0 MB | +24.6 MB | +24.5 MB |
+| Second equivalent duplicate | 5 ms | approximately 0 MB | +24.5 MB | +24.5 MB |
+
+The second duplicate models the same Rhino operation used by hot-cache restore. Clone CPU is not
+material at this size, while the native ownership is material and deliberate: worker caches
+shallow-share stage meshes and displaced meshes are disposed only after retired workers drain.
+Consequently this step keeps both native duplicates and defers an immutable-flat-cache redesign until
+a representative model shows stage-stack retention is a real limit. Avoiding clones of diagnostics,
+constraints, or generated outputs is also deferred because their mutability contracts are not yet
+strong enough to safely share them.
+
 ### Scaling and omitted-workload results
 
 - Daylight no-hit queries were linear at approximately 8–11 ns per face-station. On 100,352 faces,
@@ -595,6 +624,7 @@ allocating by maximum referenced vertex id can be pathological for sparse ids.
 
 ## Route 5 — Reduce cache duplication and redundant retained geometry
 
+**Status:** Low-risk Path trim implemented; native ownership retained after Rhino measurement
 **Priority:** Medium
 **Expected impact:** High memory reduction on very large cached stacks; CPU benefit depends on Rhino
 clone measurements
@@ -610,20 +640,19 @@ Worker cache creation already shallow-shares each stage entry's `MeshOutput`; it
 the Rhino mesh again. Its remaining copy cost is primarily entry objects, constraints, diagnostics,
 and retained managed arrays.
 
-Grade Path topology entries also clone and retain flat vertex and face arrays. Current code only
-consumes cached topology geometry for Grade Pad; Path entries primarily provide fingerprints,
-diagnostics, and patch summaries.
+Before implementation step 5, Grade Path topology entries also cloned and retained flat vertex and
+face arrays. Current code only consumes cached topology geometry for Grade Pad; Path entries provide
+fingerprints, counts, diagnostics, and patch summaries without retaining those arrays.
 
 ### Proposed route
 
 Start with the low-risk reductions:
 
-1. Stop retaining full vertex and face arrays in Grade Path topology entries when no current consumer
-   needs them.
-2. Record time and managed/native memory around cache storage, hot restore, worker cache creation,
+1. **Implemented:** stop retaining full vertex and face arrays in Grade Path topology entries.
+2. **Partly measured:** record time and managed/native memory around cache storage, hot restore, worker cache creation,
    cache merge, and display publication for large meshes.
-3. Avoid cloning unchanged diagnostics, constraints, and generated-output collections where immutable
-   ownership is already guaranteed.
+3. **Deferred:** avoid cloning unchanged diagnostics, constraints, and generated-output collections
+   only after immutable ownership is established.
 
 If Rhino mesh cloning is material on 250k–1.2M vertex meshes, consider a larger architectural route:
 
@@ -776,8 +805,10 @@ its faster native adjacency representation.
 
 ### 5. Cache ownership and duplication
 
-Apply the easy Path topology-entry trim first. Make larger cache changes only after the Rhino
-diagnostic shows that clone time or memory is materially affecting real builds.
+**Implemented at the justified scope.** Path topology entries no longer retain geometry arrays.
+Rhino measured native duplication at 5–6 ms and approximately 24.5 MB on a 247k-vertex mesh, so the
+safe cache/hot-restore ownership boundary remains. Reconsider a larger immutable-flat-cache design
+only if a representative multi-stage model shows native retention is a practical limit.
 
 ### 6. Remesher connectivity
 
@@ -795,14 +826,16 @@ Completed in the Core Release benchmarks:
 4. Scaling cases for daylight stations/faces, closest path segments, conform-loop segment count,
    explicit TIN boundary preparation, and compact versus sparse Poisson domains.
 
-Implemented and ready to run inside Rhino:
+Implemented and run inside Rhino:
 
 5. `mhBenchmarkLargeTin` now reports managed heap, total allocation, process-private bytes, and
-   working-set deltas around Rhino conversion, cache clone, and base clone.
+   working-set deltas around Rhino conversion, cache clone, and base clone. The step-5 run measured
+   5–6 ms and approximately +24.5 MB native memory for each 247k-vertex mesh duplicate.
 
-Validation through implementation step 4:
+Validation through implementation step 5:
 
-- all 448 Core tests pass;
+- all 448 Core, 21 Grasshopper, and 117 non-native Rhino-host tests pass; 8 Grasshopper and 35
+  Rhino-native-attributed tests remain skipped outside their native harness;
 - the Rhino host build succeeds with zero warnings or errors;
 - randomized linear-versus-indexed equivalence tests cover 1,000 daylight rays and 5,000 closest-path
   queries; and
@@ -813,11 +846,15 @@ Validation through implementation step 4:
   executed both the normal finite-grid ray and a two-million-unit fallback ray successfully; and
 - the final step-4 DLL analyzed an actual 1,701-vertex / 3,200-face Rhino mesh in 3.0 ms, reported its
   200-edge single closed boundary exactly, and also passed billion-id sparse and four-face
-  non-manifold smoke cases in the Rhino process.
+  non-manifold smoke cases in the Rhino process; and
+- focused Rhino-host tests prove Path topology summaries retain counts, fingerprints, patch summaries,
+  and diagnostics while retaining no vertex or face arrays; and
+- a fresh managed Rhino 8 MCP session loaded the exact rebuilt Debug plug-in, observed zero retained
+  Path vertex/face values with preserved 3-vertex / 1-face counts, confirmed the output fingerprint
+  changes with source geometry, and accepted a valid live Rhino mesh.
 
 Remaining measurements that require a representative Rhino session/model:
 
-- run the enhanced `mhBenchmarkLargeTin` command;
 - measure scatter terrain projection at 1k, 10k, and 100k placements;
 - capture hot stage-cache restore and repeated cancel/rebuild/merge cycles; and
 - use a native-memory profiler if process-private deltas show material clone retention.
