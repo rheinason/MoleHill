@@ -257,6 +257,13 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
                 vertexCount,
                 queryXy,
                 queryCount);
+            _ = PathGrader.RunIndexedClosestPathQueriesForDiagnostics(
+                pathXy,
+                pathZ,
+                vertexCount,
+                queryXy,
+                queryCount,
+                maxDistance: 12.0);
 
             var stopwatch = Stopwatch.StartNew();
             double checksum = PathGrader.RunClosestPathQueriesForDiagnostics(
@@ -266,6 +273,15 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
                 queryXy,
                 queryCount);
             stopwatch.Stop();
+            var indexedStopwatch = Stopwatch.StartNew();
+            double indexedChecksum = PathGrader.RunIndexedClosestPathQueriesForDiagnostics(
+                pathXy,
+                pathZ,
+                vertexCount,
+                queryXy,
+                queryCount,
+                maxDistance: 12.0);
+            indexedStopwatch.Stop();
 
             long segmentQueries = (long)(vertexCount - 1) * queryCount;
             double nanosecondsPerSegmentQuery =
@@ -273,7 +289,9 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
             output.WriteLine(
                 $"Closest path with {vertexCount - 1:N0} segments × {queryCount:N0} queries: " +
                 $"{stopwatch.Elapsed.TotalMilliseconds:0.0}ms, " +
-                $"{nanosecondsPerSegmentQuery:0.00}ns/segment-query, checksum={checksum:G17}");
+                $"{nanosecondsPerSegmentQuery:0.00}ns/segment-query; " +
+                $"indexed={indexedStopwatch.Elapsed.TotalMilliseconds:0.0}ms, checksum={checksum:G17}");
+            Assert.Equal(checksum, indexedChecksum);
         }
     }
 

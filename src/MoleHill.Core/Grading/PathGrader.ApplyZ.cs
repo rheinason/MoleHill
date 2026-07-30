@@ -65,6 +65,76 @@ public static partial class PathGrader
             px, py, out closest);
     }
 
+    private static bool TryFindClosestPathLocation(
+        ConstraintPath path,
+        SpatialHashGrid2D? segmentGrid,
+        double maxDistance,
+        double px,
+        double py,
+        SpatialHashGrid2D.QueryScratch scratch,
+        List<int> candidates,
+        out ClosestPathLocation closest)
+    {
+        if (segmentGrid is null || !double.IsFinite(maxDistance))
+            return TryFindClosestPathLocation(path, px, py, out closest);
+
+        segmentGrid.GatherCandidates(
+            Bounds2D.FromPoint(px, py, Math.Max(maxDistance, 0.0)),
+            candidates,
+            scratch);
+        if (candidates.Count == 0)
+        {
+            closest = default;
+            return false;
+        }
+
+        // The linear implementation resolves equal-distance ties by source segment order.
+        candidates.Sort();
+        return TryFindClosestPathLocationCore(
+            path.XyVertices,
+            path.ZValues,
+            path.VertexCount,
+            path.TangentX,
+            path.TangentY,
+            px,
+            py,
+            candidates,
+            out closest);
+    }
+
+    private static SpatialHashGrid2D? BuildPathSegmentGrid(ConstraintPath path)
+    {
+        return BuildPathSegmentGrid(path.XyVertices, path.VertexCount);
+    }
+
+    private static SpatialHashGrid2D? BuildPathSegmentGrid(
+        double[] xyVertices,
+        int vertexCount,
+        bool force = false)
+    {
+        int segmentCount = Math.Max(0, vertexCount - 1);
+        if (!force && segmentCount < 64)
+            return null;
+
+        var bounds = new Bounds2D[segmentCount];
+        var valid = new bool[segmentCount];
+        for (int segment = 0; segment < segmentCount; segment++)
+        {
+            double ax = xyVertices[segment * 2];
+            double ay = xyVertices[segment * 2 + 1];
+            double bx = xyVertices[(segment + 1) * 2];
+            double by = xyVertices[(segment + 1) * 2 + 1];
+            bounds[segment] = new Bounds2D(
+                Math.Min(ax, bx),
+                Math.Max(ax, bx),
+                Math.Min(ay, by),
+                Math.Max(ay, by));
+            valid[segment] = ((bx - ax) * (bx - ax)) + ((by - ay) * (by - ay)) >= 1e-20;
+        }
+
+        return SpatialHashGrid2D.Build(bounds, valid);
+    }
+
     public static double[] ApplyGradingZ(double[] topologyVertices, int vertexCount, PathDefinition[] paths, out int changedVertexCount)
     {
         return ApplyGradingZ(topologyVertices, vertexCount, paths, Array.Empty<SurfaceRemesher.ConstraintPolyline>(), out changedVertexCount);
@@ -229,11 +299,36 @@ public static partial class PathGrader
         double py,
         out ClosestPathLocation closest)
     {
+        return TryFindClosestPathLocationCore(
+            xyVertices,
+            zValues,
+            vertexCount,
+            tangentX,
+            tangentY,
+            px,
+            py,
+            candidates: null,
+            out closest);
+    }
+
+    private static bool TryFindClosestPathLocationCore(
+        double[] xyVertices,
+        double[] zValues,
+        int vertexCount,
+        double[]? tangentX,
+        double[]? tangentY,
+        double px,
+        double py,
+        List<int>? candidates,
+        out ClosestPathLocation closest)
+    {
         double closestDistSq = double.MaxValue;
         closest = default;
+        int candidateCount = candidates?.Count ?? Math.Max(0, vertexCount - 1);
 
-        for (int s = 0; s < vertexCount - 1; s++)
+        for (int candidateIndex = 0; candidateIndex < candidateCount; candidateIndex++)
         {
+            int s = candidates is null ? candidateIndex : candidates[candidateIndex];
             double ax = xyVertices[s * 2];
             double ay = xyVertices[s * 2 + 1];
             double bx = xyVertices[(s + 1) * 2];
@@ -325,6 +420,45 @@ public static partial class PathGrader
                 x,
                 y,
                 out ClosestPathLocation closest))
+            {
+                checksum += closest.Distance + closest.PathZ + closest.SegmentIndex;
+            }
+        }
+
+        return checksum;
+    }
+
+    internal static double RunIndexedClosestPathQueriesForDiagnostics(
+        double[] xyVertices,
+        double[] zValues,
+        int vertexCount,
+        double[] queryXy,
+        int queryCount,
+        double maxDistance)
+    {
+        SpatialHashGrid2D grid = BuildPathSegmentGrid(xyVertices, vertexCount, force: true)!;
+        var scratch = new SpatialHashGrid2D.QueryScratch(Math.Max(0, vertexCount - 1));
+        var candidates = new List<int>(16);
+        double checksum = 0.0;
+        for (int index = 0; index < queryCount; index++)
+        {
+            double x = queryXy[index * 2];
+            double y = queryXy[index * 2 + 1];
+            grid.GatherCandidates(
+                Bounds2D.FromPoint(x, y, Math.Max(maxDistance, 0.0)),
+                candidates,
+                scratch);
+            candidates.Sort();
+            if (TryFindClosestPathLocationCore(
+                    xyVertices,
+                    zValues,
+                    vertexCount,
+                    null,
+                    null,
+                    x,
+                    y,
+                    candidates,
+                    out ClosestPathLocation closest))
             {
                 checksum += closest.Distance + closest.PathZ + closest.SegmentIndex;
             }

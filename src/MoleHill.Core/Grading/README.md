@@ -52,6 +52,11 @@ staying unresolved.
 - `BatterStripBuilder.cs` - daylight loop + ruled batter strip (pad and path). `BuildDecimatedCarveXy`
   collapses a lock-curve-clamped daylight run back onto the wall breakline's own (terrain) vertices, so
   the carve loop rides a retaining wall instead of re-slivering its face (the strip seeds stay dense).
+  Its terrain-ray solve uses `TerrainFaceGrid`'s finite grid corridor, restores source face order before
+  resolving hits, and retains a complete-scan fallback for invalid numeric bounds.
+- `PathGrader.ApplyZ.cs` - closest-path evaluation. Resampled paths with at least 64 segments retain a
+  segment-bounds grid and query only the maximum-influence neighbourhood; shorter paths keep the
+  measured-faster linear loop. Candidate ids are sorted before evaluation to preserve tie behaviour.
 - `GradedRegionAssembler.cs` - `SplitOutside`/`SplitConform` (terrain split) + `WeldGradedRegion`
   (identity weld of fills into terrain) + `AssembledMesh`.
 - `MeshAreaTopologySplitter.cs` / `MeshAreaSplitter.cs` - conforming terrain subdivision along loops.

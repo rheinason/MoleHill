@@ -159,6 +159,12 @@ splitter emits an untraceable boundary. Shared: `GradingGeometry2D` (all 2D prim
 point-in-polygon, distance, interior point; `PadGrader.Spatial.cs` are thin compat wrappers),
 `BatterStripBuilder`, `MeshAreaTopologySplitter`, `GradedRegionAssembler.WeldGradedRegion`.
 
+Grading search work is spatialized without changing deterministic tie order. `TerrainFaceGrid`
+collects candidate faces from the finite daylight-ray corridor, deduplicates them, and evaluates them
+in original face order. Grade Path builds one bounds grid for resampled paths with at least 64
+segments, limits closest-segment queries to the path's maximum influence distance, and evaluates
+candidates in original segment order; shorter paths retain the lower-overhead linear loop.
+
 ## Rhino: the build pipeline
 
 `TerrainBuildService.Build(snapshot, runtimeCache, mode)` runs stages, most behind a per-stage

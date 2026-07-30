@@ -6,6 +6,7 @@ public static partial class PathGrader
 {
     private static void BuildShoulderReferenceProfile(
         ConstraintPath samplePath,
+        SpatialHashGrid2D? segmentGrid,
         double halfWidth,
         double shoulderDistance,
         double[] xy,
@@ -31,7 +32,15 @@ public static partial class PathGrader
         {
             double px = xy[i * 2];
             double py = xy[i * 2 + 1];
-            if (!TryFindClosestPathLocation(samplePath, px, py, out ClosestPathLocation closest))
+            if (!TryFindClosestPathLocation(
+                    samplePath,
+                    segmentGrid,
+                    halfWidth + shoulderDistance + 1e-6,
+                    px,
+                    py,
+                    barrierScratch,
+                    barrierCandidates,
+                    out ClosestPathLocation closest))
                 continue;
 
             double distFromEdge = closest.Distance - halfWidth;

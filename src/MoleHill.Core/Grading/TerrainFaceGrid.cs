@@ -1,11 +1,51 @@
 namespace MoleHill.Core.Grading;
 
+// Uniform-grid terrain face lookup for point interpolation and finite daylight-ray traversal.
 internal class TerrainFaceGrid
 {
+    private sealed class RayQueryScratch
+    {
+        public readonly List<int> Candidates = new();
+        private int[] _marks = Array.Empty<int>();
+        private int _stamp;
+
+        public void Begin(int faceCount)
+        {
+            Candidates.Clear();
+            if (_marks.Length < faceCount)
+                _marks = new int[faceCount];
+
+            if (_stamp == int.MaxValue)
+            {
+                Array.Clear(_marks, 0, _marks.Length);
+                _stamp = 1;
+            }
+            else
+            {
+                _stamp++;
+                if (_stamp == 0)
+                    _stamp = 1;
+            }
+        }
+
+        public void Add(int face)
+        {
+            if (_marks[face] == _stamp)
+                return;
+
+            _marks[face] = _stamp;
+            Candidates.Add(face);
+        }
+    }
+
+    [ThreadStatic]
+    private static RayQueryScratch? _rayQueryScratch;
+
     private readonly double[] _verts;
     private readonly int[] _faces;
     private readonly Dictionary<long, List<int>> _grid;
     private readonly double _invCell;
+    private readonly int _faceCount;
 
     public double BoundsDiagonal { get; }
 
@@ -13,6 +53,7 @@ internal class TerrainFaceGrid
     {
         _verts = vertices;
         _faces = faces;
+        _faceCount = faceCount;
 
         double minX = double.MaxValue;
         double maxX = double.MinValue;
@@ -84,6 +125,75 @@ internal class TerrainFaceGrid
         out double daylightReach,
         out double bestApproachReach)
     {
+        if (!TryGatherRayCandidates(edgeX, edgeY, dirX, dirY, maxReach, out List<int> candidates))
+        {
+            return TryFindRayDaylightReachCore(
+                edgeX,
+                edgeY,
+                edgeZ,
+                dirX,
+                dirY,
+                slopeRatio,
+                branchSign,
+                maxReach,
+                candidates: null,
+                out daylightReach,
+                out bestApproachReach);
+        }
+
+        return TryFindRayDaylightReachCore(
+            edgeX,
+            edgeY,
+            edgeZ,
+            dirX,
+            dirY,
+            slopeRatio,
+            branchSign,
+            maxReach,
+            candidates,
+            out daylightReach,
+            out bestApproachReach);
+    }
+
+    internal bool TryFindRayDaylightReachLinearForDiagnostics(
+        double edgeX,
+        double edgeY,
+        double edgeZ,
+        double dirX,
+        double dirY,
+        double slopeRatio,
+        double branchSign,
+        double maxReach,
+        out double daylightReach,
+        out double bestApproachReach)
+    {
+        return TryFindRayDaylightReachCore(
+            edgeX,
+            edgeY,
+            edgeZ,
+            dirX,
+            dirY,
+            slopeRatio,
+            branchSign,
+            maxReach,
+            candidates: null,
+            out daylightReach,
+            out bestApproachReach);
+    }
+
+    private bool TryFindRayDaylightReachCore(
+        double edgeX,
+        double edgeY,
+        double edgeZ,
+        double dirX,
+        double dirY,
+        double slopeRatio,
+        double branchSign,
+        double maxReach,
+        List<int>? candidates,
+        out double daylightReach,
+        out double bestApproachReach)
+    {
         daylightReach = 0.0;
         bestApproachReach = 0.0;
         if (maxReach <= 1e-9)
@@ -93,10 +203,11 @@ internal class TerrainFaceGrid
         const double diffTolerance = 1e-5;
         double bestAbsDiff = double.MaxValue;
         double bestReach = 0.0;
-        int faceCount = _faces.Length / 3;
+        int candidateCount = candidates?.Count ?? _faceCount;
 
-        for (int f = 0; f < faceCount; f++)
+        for (int candidateIndex = 0; candidateIndex < candidateCount; candidateIndex++)
         {
+            int f = candidates is null ? candidateIndex : candidates[candidateIndex];
             int i0 = _faces[f * 3];
             int i1 = _faces[f * 3 + 1];
             int i2 = _faces[f * 3 + 2];
@@ -172,6 +283,82 @@ internal class TerrainFaceGrid
 
         bestApproachReach = bestReach;
         return false;
+    }
+
+    private bool TryGatherRayCandidates(
+        double edgeX,
+        double edgeY,
+        double dirX,
+        double dirY,
+        double maxReach,
+        out List<int> candidates)
+    {
+        RayQueryScratch scratch = _rayQueryScratch ??= new RayQueryScratch();
+        scratch.Begin(_faceCount);
+        candidates = scratch.Candidates;
+
+        double endX = edgeX + (dirX * maxReach);
+        double endY = edgeY + (dirY * maxReach);
+        if (!double.IsFinite(edgeX) ||
+            !double.IsFinite(edgeY) ||
+            !double.IsFinite(endX) ||
+            !double.IsFinite(endY))
+        {
+            return false;
+        }
+
+        double scaledMinX = Math.Floor(Math.Min(edgeX, endX) * _invCell);
+        double scaledMaxX = Math.Floor(Math.Max(edgeX, endX) * _invCell);
+        double scaledMinY = Math.Floor(Math.Min(edgeY, endY) * _invCell);
+        double scaledMaxY = Math.Floor(Math.Max(edgeY, endY) * _invCell);
+        if (!double.IsFinite(scaledMinX) ||
+            !double.IsFinite(scaledMaxX) ||
+            !double.IsFinite(scaledMinY) ||
+            !double.IsFinite(scaledMaxY) ||
+            scaledMinX <= long.MinValue + 1.0 ||
+            scaledMaxX >= long.MaxValue - 1.0 ||
+            scaledMinY <= long.MinValue + 1.0 ||
+            scaledMaxY >= long.MaxValue - 1.0)
+        {
+            return false;
+        }
+
+        // Include one neighbouring cell around the ray AABB. This retains the barycentric
+        // inside-tolerance behaviour for rays that run exactly on, or just outside, a face edge.
+        long minCellX = (long)scaledMinX - 1;
+        long maxCellX = (long)scaledMaxX + 1;
+        long minCellY = (long)scaledMinY - 1;
+        long maxCellY = (long)scaledMaxY + 1;
+
+        double columnCount = (double)maxCellX - minCellX + 1.0;
+        double rowCount = (double)maxCellY - minCellY + 1.0;
+        double cellVisitLimit = Math.Max(4_096.0, _faceCount * 4.0);
+        if (columnCount <= 0.0 ||
+            rowCount <= 0.0 ||
+            columnCount > cellVisitLimit ||
+            rowCount > cellVisitLimit ||
+            columnCount * rowCount > cellVisitLimit)
+        {
+            return false;
+        }
+
+        for (long cy = minCellY; cy <= maxCellY; cy++)
+        {
+            for (long cx = minCellX; cx <= maxCellX; cx++)
+            {
+                long key = (cx * 0x100000001L) ^ (cy * 0x27d4eb2dL);
+                if (!_grid.TryGetValue(key, out List<int>? faceIndices))
+                    continue;
+
+                foreach (int face in faceIndices)
+                    scratch.Add(face);
+            }
+        }
+
+        // The previous linear scan visited faces in source order and returned the first hit.
+        // Grid bucket order is spatial, so restore source order before evaluating candidates.
+        candidates.Sort();
+        return true;
     }
 
     public double InterpolateZ(double px, double py)

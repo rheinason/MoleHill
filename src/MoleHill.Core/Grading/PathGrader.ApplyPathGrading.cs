@@ -56,9 +56,11 @@ public static partial class PathGrader
                 path,
                 ComputeConstraintSegmentLength(path, shoulderDistance),
                 dedupTol: 1e-6);
+            SpatialHashGrid2D? segmentGrid = BuildPathSegmentGrid(samplePath);
 
             BuildShoulderReferenceProfile(
                 samplePath,
+                segmentGrid,
                 halfWidth,
                 shoulderDistance,
                 outXy,
@@ -88,6 +90,7 @@ public static partial class PathGrader
                 shoulderDistance,
                 maxInfluence,
                 samplePath,
+                segmentGrid,
                 leftReferenceDz,
                 rightReferenceDz,
                 mnX - maxInfluence,

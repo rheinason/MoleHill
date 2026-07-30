@@ -24,9 +24,9 @@ Recommended order:
    them.
 6. Revisit isotropic-remesher connectivity only after the higher-impact routes are measured.
 
-The original review made no source changes. The follow-up measurement work described at the end of
-this document adds benchmark and opt-in diagnostic instrumentation only; it does not change production
-geometry behaviour.
+The original review made no source changes. Follow-up work first added benchmark and opt-in diagnostic
+instrumentation, then implemented the measured routes one commit at a time. Production changes and
+their validation are recorded below.
 
 Implementation work is recorded route-by-route below. Each route is validated and committed before the
 next begins.
@@ -256,6 +256,39 @@ The profile also isolates roughly 16–17 MB in the dictionary-based post-split 
 work is intentionally left for the shared flat-topology route rather than mixing two solutions in this
 commit.
 
+### Implementation step 3 result — grading search spatialization
+
+`TerrainFaceGrid.TryFindRayDaylightReach` now gathers faces from the finite ray's grid-cell corridor,
+deduplicates them in reusable thread-local scratch storage, and sorts face ids before evaluating them.
+Sorting retains the former linear traversal's first-qualifying-face behaviour. Invalid numeric ray
+bounds or pathologically large grid ranges retain the complete-scan fallback.
+
+Grade Path now builds a segment-bounds grid once per resampled path and queries only segments inside
+the path's maximum influence distance. Candidate segment ids are sorted to retain equal-distance
+tie-breaking. Release measurements showed that indexing is slower for a 31-segment path but beneficial
+from the 127-segment case onward, so production retains the linear loop below 64 segments.
+
+| Release benchmark | Before | After |
+|---|---:|---:|
+| Daylight, 8,192 faces × 128 no-hit stations | 11.8 ms | 6.1 ms |
+| Daylight, 32,768 faces × 128 no-hit stations | 33.9 ms | 11.2 ms |
+| Daylight, 100,352 faces × 128 no-hit stations | 100.1 ms | 17.2 ms |
+| Closest path, 127 segments × 10,000 queries | 4.2 ms | 2.5 ms |
+| Closest path, 462 segments × 10,000 queries | 15.0 ms | 5.3 ms |
+| Closest path, 1,023 segments × 10,000 queries | 33.0 ms | 7.5 ms |
+
+The daylight result changes the no-hit scaling from all terrain faces per station to the faces in the
+finite ray corridor; the largest captured case is 82.8% faster. The closest-path figures include index
+construction and retain identical diagnostic checksums. The copied Grade Path case remains within its
+existing elapsed range at 795 ms and retains 8,410 vertices / 16,547 faces, one closed boundary
+component, zero non-manifold edges, and no open chains. Total process-wide Grade Path allocation is
+54,142,560 bytes, approximately 0.6% above step 2 due to the retained path index.
+
+The conform-loop segment-count probe remains intentionally deferred: increasing the loop from 32 to
+384 segments changed runtime only from 10.6 to 14.2 ms while allocation stayed near 30 MB. That does
+not justify adding a second index in this solution; the fixed topology setup and validation work remain
+the larger route.
+
 ### Scaling and omitted-workload results
 
 - Daylight no-hit queries were linear at approximately 8–11 ns per face-station. On 100,352 faces,
@@ -349,16 +382,17 @@ Changing or disabling default peeling would be faster but carries greater output
 
 ## Route 2 — Spatialize Grade Path and Pad search work
 
+**Status:** Implemented in step 3
 **Priority:** High
 **Expected impact:** High for long paths and large terrains
 **Risk:** Medium
 
 ### Current cost
 
-`TerrainFaceGrid` builds a spatial grid over terrain faces, but
-`TryFindRayDaylightReach` does not use it. Each daylight station scans every terrain face and clips
-the search ray against each triangle. Grade Path creates stations along both sides of the corridor,
-so the cost trends toward:
+Before step 3, `TerrainFaceGrid` built a spatial grid over terrain faces, but
+`TryFindRayDaylightReach` did not use it. Each daylight station scanned every terrain face and clipped
+the search ray against each triangle. Grade Path and Pad workflows can create stations along both
+sides of a footprint, so the cost trended toward:
 
 `station count × terrain face count`
 
@@ -369,9 +403,9 @@ about 94.84 MB.
 later segment. Densely sampled, long, or multi-path corridor loops can therefore introduce a second
 quadratic path.
 
-Z application performs another repeated linear search: every candidate output vertex scans every
+Z application also performed a repeated linear search: every candidate output vertex scanned every
 segment in each resampled path to find the closest path location. The copied case has 463 path
-vertices, so its approximately 8,410 output vertices can perform several million segment tests even
+vertices, so its approximately 8,410 output vertices could perform several million segment tests even
 after the whole-path bounds check.
 
 ### Proposed route
@@ -694,8 +728,10 @@ isolated for Route 4.
 
 ### 3. Grade Path spatialization
 
-Spatialize daylight traversal, closest-path-segment lookup, and conform-loop pair preprocessing while
-preserving original face/segment order semantics.
+**Implemented for the measured material paths.** Daylight traversal and long-path closest-segment
+lookup use spatial candidates while preserving original face/segment order semantics. Conform-loop
+pair preprocessing is deferred because its scaling probe showed only a 3.6 ms increase from 32 to 384
+segments and nearly fixed allocation.
 
 ### 4. Shared topology analysis
 
@@ -729,12 +765,17 @@ Implemented and ready to run inside Rhino:
 5. `mhBenchmarkLargeTin` now reports managed heap, total allocation, process-private bytes, and
    working-set deltas around Rhino conversion, cache clone, and base clone.
 
-Validation of the follow-up harness:
+Validation through implementation step 3:
 
-- all 439 Core Release tests pass after implementation step 2;
-- the Rhino Release diagnostic build succeeds with zero warnings or errors; and
-- no Rhino slot was connected during this pass, so the enhanced command was not run against an
-  active model.
+- all 441 Core tests pass;
+- the Rhino host build succeeds with zero warnings or errors;
+- randomized linear-versus-indexed equivalence tests cover 1,000 daylight rays and 5,000 closest-path
+  queries; and
+- a managed Rhino 8 MCP session graded a 1,701-vertex / 3,200-face synthetic terrain along an
+  81-station path in 21.4 ms, changed 635 vertices, and accepted the finite output as a valid shaded
+  Rhino mesh; and
+- after the pathological-range guard was added, a second session loaded the exact final Core DLL and
+  executed both the normal finite-grid ray and a two-million-unit fallback ray successfully.
 
 Remaining measurements that require a representative Rhino session/model:
 

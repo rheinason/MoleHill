@@ -63,10 +63,12 @@ public static partial class PathGrader
                 if (y > mxY) mxY = y;
             }
 
+            SpatialHashGrid2D? segmentGrid = BuildPathSegmentGrid(samplePath);
             preparedPaths[pathIndex] = new PreparedPathSections(
                 path.Width * 0.5,
                 maxInfluence,
                 samplePath,
+                segmentGrid,
                 leftEdgeXy,
                 rightEdgeXy,
                 leftShoulderXy,
@@ -291,7 +293,15 @@ public static partial class PathGrader
         if (px < preparedPath.MinX || px > preparedPath.MaxX || py < preparedPath.MinY || py > preparedPath.MaxY)
             return false;
 
-        if (!TryFindClosestPathLocation(preparedPath.SamplePath, px, py, out ClosestPathLocation closest))
+        if (!TryFindClosestPathLocation(
+                preparedPath.SamplePath,
+                preparedPath.SegmentGrid,
+                preparedPath.MaxInfluence + 1e-6,
+                px,
+                py,
+                barrierScratch,
+                barrierCandidates,
+                out ClosestPathLocation closest))
             return false;
 
         if (closest.Distance > preparedPath.MaxInfluence + 1e-6)
