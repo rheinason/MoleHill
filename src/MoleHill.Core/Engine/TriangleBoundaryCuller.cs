@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace MoleHill.Core.Engine;
 
 internal static class TriangleBoundaryCuller
@@ -24,6 +26,37 @@ internal static class TriangleBoundaryCuller
             NewToOld = newToOld;
             VertexCount = vertexCount;
         }
+    }
+
+    internal sealed class PerformanceTimings
+    {
+        public double AutoThresholdMilliseconds { get; internal set; }
+
+        public long AutoThresholdAllocatedBytes { get; internal set; }
+
+        public double ConstraintIndexMilliseconds { get; internal set; }
+
+        public long ConstraintIndexAllocatedBytes { get; internal set; }
+
+        public double EdgeMapsMilliseconds { get; internal set; }
+
+        public long EdgeMapsAllocatedBytes { get; internal set; }
+
+        public double SeedQueueMilliseconds { get; internal set; }
+
+        public long SeedQueueAllocatedBytes { get; internal set; }
+
+        public double PeelMilliseconds { get; internal set; }
+
+        public long PeelAllocatedBytes { get; internal set; }
+
+        public double CompactionMilliseconds { get; internal set; }
+
+        public long CompactionAllocatedBytes { get; internal set; }
+
+        public int InitialQueuedFaceCount { get; internal set; }
+
+        public int RemovedFaceCount { get; internal set; }
     }
 
     public static Result Cull(
@@ -54,6 +87,31 @@ internal static class TriangleBoundaryCuller
         int[] inputSegments,
         BoundaryTrianglePeelSettings? settings)
     {
+        return Cull(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            inputXy,
+            inputSegments,
+            settings,
+            performanceTimings: null);
+    }
+
+    internal static Result Cull(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        double[] inputXy,
+        int[] inputSegments,
+        BoundaryTrianglePeelSettings? settings,
+        PerformanceTimings? performanceTimings)
+    {
+        Stopwatch? phaseTimer = performanceTimings != null ? Stopwatch.StartNew() : null;
+        long phaseAllocatedBefore = performanceTimings != null
+            ? GC.GetTotalAllocatedBytes(precise: true)
+            : 0;
         settings ??= BoundaryTrianglePeelSettings.Default;
         if (faceCount <= 0 || !settings.Enabled || settings.MaxBoundaryEdgeLength < 0)
             return new Result(false, faces, faceCount, Array.Empty<int>(), vertexCount);
@@ -61,6 +119,14 @@ internal static class TriangleBoundaryCuller
         double effectiveThreshold = settings.MaxBoundaryEdgeLength > 0
             ? settings.MaxBoundaryEdgeLength
             : ComputeAutoThreshold(vertices, faces, faceCount);
+        if (performanceTimings != null)
+        {
+            performanceTimings.AutoThresholdMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.AutoThresholdAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
 
         bool canUseEdgeAngle =
             effectiveThreshold > 0 &&
@@ -78,6 +144,15 @@ internal static class TriangleBoundaryCuller
             return new Result(false, faces, faceCount, Array.Empty<int>(), vertexCount);
 
         var spatialIndex = ConstraintSpatialIndex.Build(inputXy, inputSegments);
+        if (performanceTimings != null)
+        {
+            performanceTimings.ConstraintIndexMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.ConstraintIndexAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
+
         var active = new bool[faceCount];
         Array.Fill(active, true);
         int activeFaceCount = faceCount;
@@ -98,6 +173,14 @@ internal static class TriangleBoundaryCuller
                 else if (pair.F1 < 0)
                     edgeToFaces[key] = (pair.F0, f);
             }
+        }
+        if (performanceTimings != null)
+        {
+            performanceTimings.EdgeMapsMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.EdgeMapsAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
         }
 
         // Seed queue with boundary faces that meet cull criteria
@@ -121,6 +204,15 @@ internal static class TriangleBoundaryCuller
                 queue.Enqueue(f);
                 inQueue[f] = true;
             }
+        }
+        if (performanceTimings != null)
+        {
+            performanceTimings.InitialQueuedFaceCount = queue.Count;
+            performanceTimings.SeedQueueMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.SeedQueueAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
         }
 
         bool changed = false;
@@ -178,6 +270,15 @@ internal static class TriangleBoundaryCuller
                 }
             }
         }
+        if (performanceTimings != null)
+        {
+            performanceTimings.RemovedFaceCount = faceCount - activeFaceCount;
+            performanceTimings.PeelMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.PeelAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
 
         if (!changed)
             return new Result(false, faces, faceCount, Array.Empty<int>(), vertexCount);
@@ -194,6 +295,13 @@ internal static class TriangleBoundaryCuller
         }
 
         var compact = IndexedMeshTools.Compact(vertexCount, filteredFaces, activeFaceCount);
+        if (performanceTimings != null)
+        {
+            performanceTimings.CompactionMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.CompactionAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+        }
+
         return new Result(true, compact.Faces, compact.FaceCount, compact.NewToOld, compact.VertexCount);
     }
 

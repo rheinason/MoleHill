@@ -305,4 +305,31 @@ public static partial class PathGrader
 
         return closestDistSq < double.MaxValue;
     }
+
+    internal static double RunClosestPathQueriesForDiagnostics(
+        double[] xyVertices,
+        double[] zValues,
+        int vertexCount,
+        double[] queryXy,
+        int queryCount)
+    {
+        double checksum = 0.0;
+        for (int index = 0; index < queryCount; index++)
+        {
+            double x = queryXy[index * 2];
+            double y = queryXy[index * 2 + 1];
+            if (TryFindClosestPathLocation(
+                xyVertices,
+                zValues,
+                vertexCount,
+                x,
+                y,
+                out ClosestPathLocation closest))
+            {
+                checksum += closest.Distance + closest.PathZ + closest.SegmentIndex;
+            }
+        }
+
+        return checksum;
+    }
 }

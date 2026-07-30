@@ -25,7 +25,8 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   unused, or degenerate data. Mesh fingerprints stream the cached flat arrays in bulk.
 - `LargeTinDiagnostic.cs` backs `mhBenchmarkLargeTin`, a background, deterministic 247k-point benchmark
   that times the shared TIN engine separately from Rhino conversion, normalization, fingerprints, and
-  mesh-cache duplication without requiring a user model.
+  mesh-cache duplication without requiring a user model. Each phase reports managed heap, total
+  allocation, process-private bytes, and working-set deltas so Rhino/native clone costs remain visible.
 - Reference-comparison analyses (Cut / Fill and Earthwork) share one centroid-delta pass per
   reference/boundary fingerprint. The common 2.5D reference lookup uses Core `MeshHeightProjector`;
   Rhino mesh-line projection is kept only for overlapping/near-vertical reference regions and records a

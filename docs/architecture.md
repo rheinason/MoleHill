@@ -193,7 +193,8 @@ zones, markers, objects, and scatter retain stage-level entries.
   redundant second normalization while still normalizing meshes produced by other paths when needed.
 - Background builds enqueue live phase/elapsed/memory telemetry for the controller's UI-thread idle loop.
   `mhBenchmarkLargeTin` supplies a deterministic 247k-point diagnostic that separates shared TIN time
-  from Rhino conversion, normalization, fingerprinting, and cache duplication.
+  from Rhino conversion, normalization, fingerprinting, and cache duplication, with managed-allocation,
+  process-private, and working-set snapshots around every phase.
 - **Contours** use a single-pass marching-triangles `ContourGenerator` (not one mesh-plane per level).
   Their configured output layer falls back to the terrain Annotation layer when unset or whitespace, so
   baked contours never leak onto Rhino's current layer.

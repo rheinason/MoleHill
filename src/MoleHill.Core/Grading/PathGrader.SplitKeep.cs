@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
@@ -25,7 +26,8 @@ public static partial class PathGrader
         PathDefinition[] paths,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
         double modelTolerance,
-        out string? errorMessage)
+        out string? errorMessage,
+        PerformanceTimings? performanceTimings)
     {
         errorMessage = null;
 
@@ -36,7 +38,19 @@ public static partial class PathGrader
         }
 
         double tolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
+        Stopwatch? phaseTimer = performanceTimings != null ? Stopwatch.StartNew() : null;
+        long phaseAllocatedBefore = performanceTimings != null
+            ? GC.GetTotalAllocatedBytes(precise: true)
+            : 0;
         var terrain = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
+        if (performanceTimings != null)
+        {
+            performanceTimings.TerrainGridMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.TerrainGridAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
 
         // A road edge crossing a barrier is unsupported here just like in the explicit tier; defer so
         // the topology rebuild reports the condition consistently.
@@ -47,6 +61,14 @@ public static partial class PathGrader
         }
 
         PreparedBarriers barriers = GradingBarriers.Build(hardConstraints);
+        if (performanceTimings != null)
+        {
+            performanceTimings.BarrierPreparationMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.BarrierPreparationAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
 
         var outputPolylines = new List<OutputPolyline>(paths.Length * 2);
         int nonDaylightingStations = 0;
@@ -54,6 +76,14 @@ public static partial class PathGrader
             paths, terrain, barriers, tolerance, outputPolylines, ref nonDaylightingStations, out errorMessage);
         if (corridors is null)
             return null;
+        if (performanceTimings != null)
+        {
+            performanceTimings.CorridorDaylightMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.CorridorDaylightAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
 
         // Conform to each corridor's daylight envelope AND its road-edge footprint. Conforming to the
         // daylight alone leaves the road spanned by coarse terrain triangles with no crisp edge; the
@@ -67,6 +97,14 @@ public static partial class PathGrader
             if (footprint != null)
                 conformLoops.Add(footprint);
         }
+        if (performanceTimings != null)
+        {
+            performanceTimings.LoopPreparationMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.LoopPreparationAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
 
         MeshAreaSplitter.SplitResult? conformed = GradedRegionAssembler.SplitConform(
             vertices, vertexCount, faces, faceCount, conformLoops, tolerance, hardConstraints);
@@ -74,6 +112,14 @@ public static partial class PathGrader
         {
             errorMessage = "Grade Path terrain conform (split-keep) failed; deferring.";
             return null;
+        }
+        if (performanceTimings != null)
+        {
+            performanceTimings.ConformSplitMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.ConformSplitAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
         }
 
         // Watertight/manifold by construction — but gate anyway: the area splitter can go non-manifold
@@ -89,6 +135,14 @@ public static partial class PathGrader
             errorMessage = GradedRegionAssembler.DescribeWeldTopologyFailure("Grade Path split-keep", topology, terrainTopology);
             return null;
         }
+        if (performanceTimings != null)
+        {
+            performanceTimings.TopologyValidationMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.TopologyValidationAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
 
         double[] gradedVertices = ApplyGradingZ(
             conformed.Vertices,
@@ -98,6 +152,14 @@ public static partial class PathGrader
             paths,
             hardConstraints,
             out _);
+        if (performanceTimings != null)
+        {
+            performanceTimings.ApplyGradingZMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.ApplyGradingZAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
 
         int vc = conformed.VertexCount;
         var outXy = new double[vc * 2];
@@ -128,7 +190,7 @@ public static partial class PathGrader
         }
 
         errorMessage = null;
-        return BuildResult(
+        GradingResult result = BuildResult(
             outXy,
             origZ,
             newZ,
@@ -140,6 +202,14 @@ public static partial class PathGrader
             BuildPathPatchSummaries(paths),
             diagnostics,
             structured);
+        if (performanceTimings != null)
+        {
+            performanceTimings.ResultAssemblyMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.ResultAssemblyAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+        }
+
+        return result;
     }
 
     /// <summary>

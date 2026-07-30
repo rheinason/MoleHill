@@ -77,9 +77,12 @@ internal static class LargeTinDiagnostic
                 mesh.DuplicateMesh);
             _ = TerrainBuildService.ComputeMeshFingerprintForDiagnostics(baseClone);
 
+            ProcessMemorySnapshot finalMemory = CaptureMemory();
             report($"Diagnostic complete in {total.Elapsed.TotalSeconds:0.###} s; " +
                    $"{mesh.Vertices.Count:N0} vertices, {mesh.Faces.Count:N0} faces; " +
-                   $"managed {ManagedMegabytes():0.0} MB.");
+                   $"managed {ToMegabytes(finalMemory.ManagedBytes):0.0} MB; " +
+                   $"private {ToMegabytes(finalMemory.PrivateBytes):0.0} MB; " +
+                   $"working set {ToMegabytes(finalMemory.WorkingSetBytes):0.0} MB.");
         }
         catch (Exception ex)
         {
@@ -121,11 +124,24 @@ internal static class LargeTinDiagnostic
 
     private static T Measure<T>(string name, Action<string> report, Func<T> action)
     {
-        report($"{name}: starting; managed {ManagedMegabytes():0.0} MB.");
+        ProcessMemorySnapshot before = CaptureMemory();
+        report(
+            $"{name}: starting; managed {ToMegabytes(before.ManagedBytes):0.0} MB; " +
+            $"private {ToMegabytes(before.PrivateBytes):0.0} MB; " +
+            $"working set {ToMegabytes(before.WorkingSetBytes):0.0} MB.");
         var timer = Stopwatch.StartNew();
         T result = action();
         timer.Stop();
-        report($"{name}: {timer.Elapsed.TotalSeconds:0.###} s; managed {ManagedMegabytes():0.0} MB.");
+        ProcessMemorySnapshot after = CaptureMemory();
+        report(
+            $"{name}: {timer.Elapsed.TotalSeconds:0.###} s; " +
+            $"managed {ToMegabytes(after.ManagedBytes):0.0} MB " +
+            $"(Δ {ToSignedMegabytes(after.ManagedBytes - before.ManagedBytes)}); " +
+            $"private {ToMegabytes(after.PrivateBytes):0.0} MB " +
+            $"(Δ {ToSignedMegabytes(after.PrivateBytes - before.PrivateBytes)}); " +
+            $"working set {ToMegabytes(after.WorkingSetBytes):0.0} MB " +
+            $"(Δ {ToSignedMegabytes(after.WorkingSetBytes - before.WorkingSetBytes)}); " +
+            $"allocated Δ {ToMegabytes(after.TotalAllocatedBytes - before.TotalAllocatedBytes):0.0} MB.");
         return result;
     }
 
@@ -138,5 +154,25 @@ internal static class LargeTinDiagnostic
         });
     }
 
-    private static double ManagedMegabytes() => GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024.0);
+    private static ProcessMemorySnapshot CaptureMemory()
+    {
+        using Process process = Process.GetCurrentProcess();
+        process.Refresh();
+        return new ProcessMemorySnapshot(
+            GC.GetTotalMemory(forceFullCollection: false),
+            GC.GetTotalAllocatedBytes(precise: true),
+            process.PrivateMemorySize64,
+            process.WorkingSet64);
+    }
+
+    private static double ToMegabytes(long bytes) => bytes / (1024.0 * 1024.0);
+
+    private static string ToSignedMegabytes(long bytes) =>
+        $"{(bytes >= 0 ? "+" : string.Empty)}{ToMegabytes(bytes):0.0} MB";
+
+    private readonly record struct ProcessMemorySnapshot(
+        long ManagedBytes,
+        long TotalAllocatedBytes,
+        long PrivateBytes,
+        long WorkingSetBytes);
 }

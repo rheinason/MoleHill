@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using Xunit;
@@ -12,7 +13,9 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
         RunCase();
     }
 
-    internal static CopiedCaseRun RunCase(bool preferSplitKeep = false)
+    internal static CopiedCaseRun RunCase(
+        bool preferSplitKeep = false,
+        PathGrader.PerformanceTimings? performanceTimings = null)
     {
         double[] vertices =
         {
@@ -19021,15 +19024,42 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
                 true),
         };
 
-        GradingResult? result = PathGrader.Grade(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            paths,
-            hardConstraints,
-            out string? errorMessage,
-            preferSplitKeep: preferSplitKeep);
+        long gradeThreadAllocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        long gradeTotalAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+        var gradeStopwatch = Stopwatch.StartNew();
+        GradingResult? result;
+        string? errorMessage;
+        if (performanceTimings == null)
+        {
+            result = PathGrader.Grade(
+                vertices,
+                vertexCount,
+                faces,
+                faceCount,
+                paths,
+                hardConstraints,
+                out errorMessage,
+                preferSplitKeep: preferSplitKeep);
+        }
+        else
+        {
+            result = PathGrader.Grade(
+                vertices,
+                vertexCount,
+                faces,
+                faceCount,
+                paths,
+                hardConstraints,
+                out errorMessage,
+                GradingTolerances.DefaultModelTolerance,
+                preferSplitKeep,
+                performanceTimings);
+        }
+        gradeStopwatch.Stop();
+        long gradeTotalAllocatedBytes =
+            GC.GetTotalAllocatedBytes(precise: true) - gradeTotalAllocatedBefore;
+        long gradeThreadAllocatedBytes =
+            GC.GetAllocatedBytesForCurrentThread() - gradeThreadAllocatedBefore;
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
@@ -19048,7 +19078,10 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
             topology.BoundaryComponentCount,
             topology.NonManifoldEdgeCount,
             topology.HasOpenBoundaryChains,
-            result.Diagnostics.ToArray());
+            result.Diagnostics.ToArray(),
+            gradeStopwatch.Elapsed.TotalMilliseconds,
+            gradeThreadAllocatedBytes,
+            gradeTotalAllocatedBytes);
     }
 
     internal readonly record struct CopiedCaseRun(
@@ -19061,5 +19094,8 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
         int BoundaryComponentCount,
         int NonManifoldEdgeCount,
         bool HasOpenBoundaryChains,
-        string[] Diagnostics);
+        string[] Diagnostics,
+        double GradeElapsedMilliseconds,
+        long GradeThreadAllocatedBytes,
+        long GradeTotalAllocatedBytes);
 }
