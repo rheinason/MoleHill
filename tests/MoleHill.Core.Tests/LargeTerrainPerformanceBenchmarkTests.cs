@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using MoleHill.Core.Analysis;
+using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Core.Scattering;
 using Xunit;
@@ -82,6 +83,7 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
             $"one-internal={splitDetails.OneInternalSegmentFaceCount:N0}; " +
             $"multiple-internal={splitDetails.MultipleInternalSegmentFaceCount:N0}");
         output.WriteLine($"Shape: {run.InputVertexCount:N0}/{run.InputFaceCount:N0} -> {run.OutputVertexCount:N0}/{run.OutputFaceCount:N0}");
+        output.WriteLine($"Mesh fingerprint: {run.MeshFingerprint}");
         output.WriteLine("Bundle-recorded Grade Path output was 8,392 verts / 16,511 faces.");
         foreach (string diagnostic in run.Diagnostics)
             output.WriteLine($"Diagnostic: {diagnostic}");
@@ -344,6 +346,46 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
                 $"output={(result == null ? "null" : $"{result.VertexCount:N0}/{result.FaceCount:N0}")}, " +
                 $"error={errorMessage ?? "<none>"}");
             Assert.NotNull(result);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Performance")]
+    public void MeshTopologyValidator_FlatScaling_ReportsTimeAndAllocation()
+    {
+        if (!IsPerfEnabled())
+        {
+            output.WriteLine("Set MOLEHILL_PERF=1 to run the flat-topology scaling benchmark.");
+            return;
+        }
+
+        foreach (int gridSize in new[] { 72, 224, 708 })
+        {
+            BuildRegularGrid(
+                gridSize,
+                out _,
+                out _,
+                out int[] faces,
+                out int faceCount);
+
+            long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            var stopwatch = Stopwatch.StartNew();
+            MeshTopologyValidator.BoundaryGraphAnalysis analysis =
+                MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
+            stopwatch.Stop();
+            long allocated = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+
+            output.WriteLine(
+                $"Flat topology {faceCount:N0} faces: {stopwatch.Elapsed.TotalMilliseconds:0.0}ms, " +
+                $"allocated={allocated:N0}, boundary={analysis.BoundaryEdgeCount:N0}/" +
+                $"{analysis.BoundaryVertexCount:N0}, components={analysis.BoundaryComponentCount:N0}, " +
+                $"open={analysis.HasOpenBoundaryChains}, nonmanifold={analysis.NonManifoldEdgeCount:N0}");
+
+            Assert.Equal(gridSize * 4, analysis.BoundaryEdgeCount);
+            Assert.Equal(gridSize * 4, analysis.BoundaryVertexCount);
+            Assert.Equal(1, analysis.BoundaryComponentCount);
+            Assert.False(analysis.HasOpenBoundaryChains);
+            Assert.Equal(0, analysis.NonManifoldEdgeCount);
         }
     }
 

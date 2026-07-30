@@ -148,20 +148,7 @@ internal static class GradedRegionAssembler
 
     private static bool HasNonManifoldEdge(int[] faces, int faceCount)
     {
-        var edgeCount = new Dictionary<long, int>(faceCount * 3);
-        for (int f = 0; f < faceCount; f++)
-        {
-            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
-            edgeCount[EdgeKey(a, b)] = edgeCount.GetValueOrDefault(EdgeKey(a, b)) + 1;
-            edgeCount[EdgeKey(b, c)] = edgeCount.GetValueOrDefault(EdgeKey(b, c)) + 1;
-            edgeCount[EdgeKey(c, a)] = edgeCount.GetValueOrDefault(EdgeKey(c, a)) + 1;
-        }
-
-        foreach (int count in edgeCount.Values)
-            if (count > 2)
-                return true;
-
-        return false;
+        return MeshTopologyValidator.HasNonManifoldEdge(faces, faceCount);
     }
 
     /// <summary>

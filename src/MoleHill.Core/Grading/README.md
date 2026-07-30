@@ -65,5 +65,8 @@ staying unresolved.
   triangulation, and classification.
 - `MeshConstraintTopologyInserter.cs` - local constraint insertion (terrain-preserving); intersection
   results are value types in its allocation-sensitive inner loops.
+- `MeshBoundaryLoopBuilder.cs` - ordered single/multi-loop extraction over the shared flat
+  `MeshTopologyValidator` result. Split-keep carries its conformed analysis into Z application instead
+  of rebuilding the boundary graph.
 - `ClipperGeometry.cs` - polygon boolean/offset (Clipper) for daylight unions and offsets.
 - `GradingDiagnostic.cs` / `MeshTopologyOperations.cs` - diagnostics + watertight repair helpers.

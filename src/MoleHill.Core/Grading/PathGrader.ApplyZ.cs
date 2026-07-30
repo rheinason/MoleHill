@@ -213,7 +213,27 @@ public static partial class PathGrader
     {
         barrierConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
         ValidateApplyGradingZInputs(topologyVertices, vertexCount, faces, faceCount, paths, barrierConstraints);
+        return ApplyGradingZWithBoundaryTopology(
+            topologyVertices,
+            vertexCount,
+            faces,
+            faceCount,
+            paths,
+            barrierConstraints,
+            boundaryTopology: null,
+            out changedVertexCount);
+    }
 
+    private static double[] ApplyGradingZWithBoundaryTopology(
+        double[] topologyVertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        PathDefinition[] paths,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints,
+        MeshTopologyValidator.FlatBoundaryTopology? boundaryTopology,
+        out int changedVertexCount)
+    {
         if (paths.Length == 0)
         {
             changedVertexCount = 0;
@@ -223,7 +243,20 @@ public static partial class PathGrader
         var outXy = new double[vertexCount * 2];
         var origZ = new double[vertexCount];
         var newZ = new double[vertexCount];
-        bool hasBoundaryLoop = MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(topologyVertices, faces, faceCount, out double[] boundaryLoop, out int boundaryVertexCount);
+        double[] boundaryLoop;
+        int boundaryVertexCount;
+        bool hasBoundaryLoop = boundaryTopology is null
+            ? MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(
+                topologyVertices,
+                faces,
+                faceCount,
+                out boundaryLoop,
+                out boundaryVertexCount)
+            : MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(
+                topologyVertices,
+                boundaryTopology,
+                out boundaryLoop,
+                out boundaryVertexCount);
         var faceGrid = new TerrainFaceGrid(topologyVertices, vertexCount, faces, faceCount);
 
         for (int i = 0; i < vertexCount; i++)

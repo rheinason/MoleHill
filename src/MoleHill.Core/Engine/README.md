@@ -51,7 +51,8 @@ Key files:
   parent edge so sculpt can reconstruct BaseZ.
 - `MeshFlipGeometry.cs` — shared edge-flip / triangle-adjacency primitives (convexity, oriented-face write,
   min-angle, normal agreement, adjacency incidence) used by the remeshers and refiner.
-- `MeshTopologyValidator.cs` — boundary-graph analysis (non-manifold edges, open chains, loop count) —
-  the watertight gate used everywhere.
+- `MeshTopologyValidator.cs` — low-allocation sorted-edge boundary analysis (non-manifold edges, open
+  chains, loop count) and compressed flat adjacency for ordered boundary extraction. Storage scales
+  with edge/boundary counts rather than maximum vertex id; it is the watertight gate used everywhere.
 - `MeshConstraintTools.cs`, `TriangleBoundaryCuller.cs`, `BoundaryTrianglePeelSettings.cs`,
   `SpatialHashGrid2D.cs`, `IndexedMeshTools.cs`, `QualitySettings.cs` — supporting utilities.

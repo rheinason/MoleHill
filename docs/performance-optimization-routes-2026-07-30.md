@@ -289,6 +289,40 @@ The conform-loop segment-count probe remains intentionally deferred: increasing 
 not justify adding a second index in this solution; the fixed topology setup and validation work remain
 the larger route.
 
+### Implementation step 4 result — shared flat topology
+
+`MeshTopologyValidator` now sorts the three undirected edge keys per face, scans equal-key runs for
+naked and non-manifold edges, compresses only the vertex ids referenced by naked edges, and stores the
+boundary graph in flat offset/neighbor arrays. No array is sized from the maximum vertex id.
+`MeshBoundaryLoopBuilder` consumes the same representation for single- and multi-loop extraction.
+
+The conform splitter's post-split non-manifold gate now uses the same sorted run scanner instead of a
+capacity-sized edge dictionary. Grade Path split-keep also retains its conformed topology analysis
+through Z application, so boundary-loop extraction does not rebuild it.
+
+| Copied Grade Path metric | After step 3 | After step 4 |
+|---|---:|---:|
+| Process-wide allocation | 54,142,560 bytes | 46,433,800 bytes |
+| Conform-split allocation | 38,274,144 bytes | 35,865,344 bytes |
+| Topology-validation allocation | 3,630,416 bytes | 724,312 bytes |
+| Apply-Z allocation | 7,698,680 bytes | 5,303,048 bytes |
+| `PathGrader.Grade` elapsed range | approximately 795 ms | 672–735 ms |
+
+Step 4 removes 7.7 MB (14.2%) from the step-3 Grade Path allocation. Across the whole implementation
+series, the copied-case allocation has fallen from 92,187,632 to approximately 46.43 MB, a 49.6%
+reduction. The final three Release runs were 672–735 ms; this is a captured improvement over the
+751–790 ms step-2 range, but allocation remains the more stable claim.
+
+The standalone flat analysis allocated 264,520 bytes for 10,368 faces, 2,456,312 bytes for 100,352
+faces, and 24,211,176 bytes for 1,002,528 faces. The million-face case completed in 216.6 ms and
+reported the expected single closed component with 2,832 boundary edges/vertices.
+
+All 448 Core tests pass. A 500-case randomized sparse-id comparison matches every value from the former
+dictionary implementation, with explicit coverage for no-boundary meshes, multiple components, open
+chains, edge runs greater than three, and billion-scale sparse vertex ids. The copied Grade Path mesh
+fingerprint is `D2279766A1F503D6` both at clean step 3 and after step 4, proving identical vertex values,
+face indices, and ordering; topology remains one closed component with no non-manifold edge.
+
 ### Scaling and omitted-workload results
 
 - Daylight no-hit queries were linear at approximately 8–11 ns per face-station. On 100,352 faces,
@@ -499,6 +533,7 @@ measured before assigning most of that allocation to topology validation.
 
 ## Route 4 — Share a flat, low-allocation topology analysis primitive
 
+**Status:** Implemented in step 4
 **Priority:** Medium-to-high after allocation profiling
 **Expected impact:** Medium allocation reduction, with CPU benefits
 **Risk:** Low-to-medium
@@ -735,9 +770,9 @@ segments and nearly fixed allocation.
 
 ### 4. Shared topology analysis
 
-Unify validation and boundary-loop extraction after its share of Grade Path allocation is known.
-Reuse it where callers already hold compatible generic topology, without forcing the TIN-specific
-path away from native adjacency.
+**Implemented.** Validation and boundary-loop extraction share a sparse-safe sorted-edge analysis,
+and Grade Path reuses its conformed result during Z application. The TIN production path remains on
+its faster native adjacency representation.
 
 ### 5. Cache ownership and duplication
 
@@ -765,9 +800,9 @@ Implemented and ready to run inside Rhino:
 5. `mhBenchmarkLargeTin` now reports managed heap, total allocation, process-private bytes, and
    working-set deltas around Rhino conversion, cache clone, and base clone.
 
-Validation through implementation step 3:
+Validation through implementation step 4:
 
-- all 441 Core tests pass;
+- all 448 Core tests pass;
 - the Rhino host build succeeds with zero warnings or errors;
 - randomized linear-versus-indexed equivalence tests cover 1,000 daylight rays and 5,000 closest-path
   queries; and
@@ -775,7 +810,10 @@ Validation through implementation step 3:
   81-station path in 21.4 ms, changed 635 vertices, and accepted the finite output as a valid shaded
   Rhino mesh; and
 - after the pathological-range guard was added, a second session loaded the exact final Core DLL and
-  executed both the normal finite-grid ray and a two-million-unit fallback ray successfully.
+  executed both the normal finite-grid ray and a two-million-unit fallback ray successfully; and
+- the final step-4 DLL analyzed an actual 1,701-vertex / 3,200-face Rhino mesh in 3.0 ms, reported its
+  200-edge single closed boundary exactly, and also passed billion-id sparse and four-face
+  non-manifold smoke cases in the Rhino process.
 
 Remaining measurements that require a representative Rhino session/model:
 

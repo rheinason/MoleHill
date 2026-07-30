@@ -136,8 +136,9 @@ public static partial class PathGrader
 
         // Watertight/manifold by construction — but gate anyway: the area splitter can go non-manifold
         // on dense/nested loops, and we must defer cleanly rather than emit it.
-        MeshTopologyValidator.BoundaryGraphAnalysis topology =
-            MeshTopologyValidator.AnalyzeBoundaryGraph(conformed.Faces, conformed.FaceCount);
+        MeshTopologyValidator.FlatBoundaryTopology conformedTopology =
+            MeshTopologyValidator.AnalyzeBoundaryTopology(conformed.Faces, conformed.FaceCount);
+        MeshTopologyValidator.BoundaryGraphAnalysis topology = conformedTopology.Analysis;
         MeshTopologyValidator.BoundaryGraphAnalysis terrainTopology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
         if (topology.NonManifoldEdgeCount > 0 ||
@@ -156,13 +157,14 @@ public static partial class PathGrader
             phaseTimer.Restart();
         }
 
-        double[] gradedVertices = ApplyGradingZ(
+        double[] gradedVertices = ApplyGradingZWithBoundaryTopology(
             conformed.Vertices,
             conformed.VertexCount,
             conformed.Faces,
             conformed.FaceCount,
             paths,
             hardConstraints,
+            conformedTopology,
             out _);
         if (performanceTimings != null)
         {

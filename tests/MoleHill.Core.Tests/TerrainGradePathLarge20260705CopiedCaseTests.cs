@@ -19081,7 +19081,38 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
             result.Diagnostics.ToArray(),
             gradeStopwatch.Elapsed.TotalMilliseconds,
             gradeThreadAllocatedBytes,
-            gradeTotalAllocatedBytes);
+            gradeTotalAllocatedBytes,
+            ComputeMeshFingerprint(
+                result.Vertices,
+                result.VertexCount,
+                result.Faces,
+                result.FaceCount));
+    }
+
+    private static string ComputeMeshFingerprint(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount)
+    {
+        const ulong offsetBasis = 14695981039346656037UL;
+        const ulong prime = 1099511628211UL;
+        ulong hash = offsetBasis;
+
+        Mix((ulong)vertexCount);
+        Mix((ulong)faceCount);
+        for (int index = 0; index < vertexCount * 3; index++)
+            Mix((ulong)BitConverter.DoubleToInt64Bits(vertices[index]));
+        for (int index = 0; index < faceCount * 3; index++)
+            Mix((uint)faces[index]);
+
+        return hash.ToString("X16");
+
+        void Mix(ulong value)
+        {
+            hash ^= value;
+            hash *= prime;
+        }
     }
 
     internal readonly record struct CopiedCaseRun(
@@ -19097,5 +19128,6 @@ public class TerrainGradePathLarge20260705CopiedCaseTests
         string[] Diagnostics,
         double GradeElapsedMilliseconds,
         long GradeThreadAllocatedBytes,
-        long GradeTotalAllocatedBytes);
+        long GradeTotalAllocatedBytes,
+        string MeshFingerprint);
 }

@@ -165,6 +165,12 @@ in original face order. Grade Path builds one bounds grid for resampled paths wi
 segments, limits closest-segment queries to the path's maximum influence distance, and evaluates
 candidates in original segment order; shorter paths retain the lower-overhead linear loop.
 
+Watertightness gates and boundary-loop extraction share `MeshTopologyValidator`'s flat sorted-edge
+analysis. Edge run lengths identify naked/non-manifold edges; boundary ids are compressed before flat
+offset/neighbor adjacency is built, so sparse source ids do not cause dense max-id arrays. Grade Path
+split-keep reuses the conformed analysis when applying Z. This generic primitive does not replace the
+TIN production path's faster Triangle.NET-native adjacency.
+
 ## Rhino: the build pipeline
 
 `TerrainBuildService.Build(snapshot, runtimeCache, mode)` runs stages, most behind a per-stage
