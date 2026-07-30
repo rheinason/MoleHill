@@ -94,7 +94,7 @@ public static class TriangulationHelper
         }
 
         var constrainedPolygon = BuildPolygon(includeSegs: true);
-        var unconstrainedPolygon = hasSegs ? BuildPolygon(includeSegs: false) : constrainedPolygon;
+        Polygon? unconstrainedPolygon = hasSegs ? null : constrainedPolygon;
 
         QualityOptions? quality = null;
         if (hasQuality)
@@ -219,6 +219,7 @@ public static class TriangulationHelper
         }
 
         // Tier 5: Plain Delaunay (drop segments)
+        unconstrainedPolygon ??= BuildPolygon(includeSegs: false);
         result = TryMesh(unconstrainedPolygon, false, null, hasSegs ? "Plain Delaunay fallback" : "Delaunay");
         if (result != null)
         {

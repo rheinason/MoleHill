@@ -106,8 +106,20 @@ public static partial class PathGrader
             phaseTimer.Restart();
         }
 
+        MeshAreaTopologySplitter.PerformanceTimings? conformSplitDetails = performanceTimings != null
+            ? new MeshAreaTopologySplitter.PerformanceTimings()
+            : null;
+        if (performanceTimings != null)
+            performanceTimings.ConformSplitDetails = conformSplitDetails;
         MeshAreaSplitter.SplitResult? conformed = GradedRegionAssembler.SplitConform(
-            vertices, vertexCount, faces, faceCount, conformLoops, tolerance, hardConstraints);
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            conformLoops,
+            tolerance,
+            hardConstraints,
+            conformSplitDetails);
         if (conformed is null)
         {
             errorMessage = "Grade Path terrain conform (split-keep) failed; deferring.";

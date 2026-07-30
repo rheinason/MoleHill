@@ -39,15 +39,20 @@ namespace TriangleNet.Meshing
         public QualityMesher(Mesh mesh, Configuration config)
         {
             badsubsegs = new Queue<BadSubseg>();
-            queue = new BadTriQueue();
 
             this.mesh = mesh;
             this.predicates = config.Predicates();
 
             this.behavior = mesh.behavior;
+        }
 
+        private void EnsureQualityWorkspace()
+        {
+            if (queue != null)
+                return;
+
+            queue = new BadTriQueue();
             newLocation = new NewLocation(mesh, predicates);
-
             newvertex_tri = new Triangle();
         }
 
@@ -242,6 +247,8 @@ namespace TriangleNet.Meshing
         /// </remarks>
         public void TestTriangle(ref Otri testtri)
         {
+            EnsureQualityWorkspace();
+
             Otri tri1 = default(Otri), tri2 = default(Otri);
             Osub testsub = default(Osub);
             Vertex torg, tdest, tapex;
@@ -845,6 +852,8 @@ namespace TriangleNet.Meshing
         /// </summary>
         private void EnforceQuality(CancellationToken cancellationToken)
         {
+            EnsureQualityWorkspace();
+
             BadTriangle badtri;
 
             // Test all segments to see if they're encroached.

@@ -40,6 +40,8 @@ public static partial class PathGrader
 
         public long ConformSplitAllocatedBytes { get; internal set; }
 
+        internal MeshAreaTopologySplitter.PerformanceTimings? ConformSplitDetails { get; set; }
+
         public double TopologyValidationMilliseconds { get; internal set; }
 
         public long TopologyValidationAllocatedBytes { get; internal set; }

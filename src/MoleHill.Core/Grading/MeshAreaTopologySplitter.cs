@@ -1,9 +1,54 @@
+using System.Diagnostics;
 using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
+/// <summary>
+/// Conforms area loops into existing terrain faces while preserving shared-edge subdivision.
+/// </summary>
 internal static class MeshAreaTopologySplitter
 {
+    internal sealed class PerformanceTimings
+    {
+        public double FaceDataMilliseconds { get; internal set; }
+
+        public long FaceDataAllocatedBytes { get; internal set; }
+
+        public double BoundarySegmentsMilliseconds { get; internal set; }
+
+        public long BoundarySegmentsAllocatedBytes { get; internal set; }
+
+        public double FaceMappingMilliseconds { get; internal set; }
+
+        public long FaceMappingAllocatedBytes { get; internal set; }
+
+        public double SharedEdgeRegistryMilliseconds { get; internal set; }
+
+        public long SharedEdgeRegistryAllocatedBytes { get; internal set; }
+
+        public double OutputSetupMilliseconds { get; internal set; }
+
+        public long OutputSetupAllocatedBytes { get; internal set; }
+
+        public double TouchedFaceTriangulationMilliseconds { get; internal set; }
+
+        public long TouchedFaceTriangulationAllocatedBytes { get; internal set; }
+
+        public int TouchedFaceCount { get; internal set; }
+
+        public int RegistryOnlyFaceCount { get; internal set; }
+
+        public int ZeroInternalSegmentFaceCount { get; internal set; }
+
+        public int OneInternalSegmentFaceCount { get; internal set; }
+
+        public int MultipleInternalSegmentFaceCount { get; internal set; }
+
+        public double ClassificationMilliseconds { get; internal set; }
+
+        public long ClassificationAllocatedBytes { get; internal set; }
+    }
+
     private readonly record struct Point2D(double X, double Y);
     private readonly record struct BoundarySegment(Point2D Start, Point2D End);
     private readonly record struct SegmentPiece(Point2D Start, Point2D End);
@@ -247,7 +292,7 @@ internal static class MeshAreaTopologySplitter
         Overlap
     }
 
-    private sealed class SegmentIntersection
+    private readonly struct SegmentIntersection
     {
         public required SegmentIntersectionKind Kind { get; init; }
         public required double T0 { get; init; }
@@ -265,6 +310,27 @@ internal static class MeshAreaTopologySplitter
         double boundaryTolerance,
         out string? errorMessage)
     {
+        return Split(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            areas,
+            boundaryTolerance,
+            out errorMessage,
+            performanceTimings: null);
+    }
+
+    internal static MeshAreaSplitter.SplitResult? Split(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        MeshAreaSplitter.AreaBoundary[] areas,
+        double boundaryTolerance,
+        out string? errorMessage,
+        PerformanceTimings? performanceTimings)
+    {
         errorMessage = null;
 
         if (areas.Length == 0)
@@ -280,8 +346,30 @@ internal static class MeshAreaTopologySplitter
         }
 
         double tolerance = Math.Max(boundaryTolerance, 1e-9);
+        Stopwatch? phaseTimer = performanceTimings != null ? Stopwatch.StartNew() : null;
+        long phaseAllocatedBefore = performanceTimings != null
+            ? GC.GetTotalAllocatedBytes(precise: true)
+            : 0;
         var faceData = BuildFaceData(vertices, faces, faceCount);
+        if (performanceTimings != null)
+        {
+            performanceTimings.FaceDataMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.FaceDataAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
+
         var boundarySegments = BuildBoundarySegments(areas, tolerance);
+        if (performanceTimings != null)
+        {
+            performanceTimings.BoundarySegmentsMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.BoundarySegmentsAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
+
         if (boundarySegments.Count == 0)
         {
             // Exact topology split should classify strictly by area ownership rather than
@@ -291,6 +379,15 @@ internal static class MeshAreaTopologySplitter
         }
 
         var faceCuts = MapBoundarySegmentsToFaces(faceData, boundarySegments, tolerance);
+        if (performanceTimings != null)
+        {
+            performanceTimings.FaceMappingMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.FaceMappingAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
+
         bool hasTopologyEdits = false;
         for (int i = 0; i < faceCuts.Length; i++)
         {
@@ -310,10 +407,26 @@ internal static class MeshAreaTopologySplitter
         // re-triangulation cannot leave a T-junction / crack. This is what keeps dense and nested
         // boundary loops manifold instead of producing naked edges along shared terrain edges.
         var sharedEdgePoints = BuildSharedEdgeRegistry(faceData, faceCuts, tolerance);
+        if (performanceTimings != null)
+        {
+            performanceTimings.SharedEdgeRegistryMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.SharedEdgeRegistryAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
 
         var globalVertices = new List<double>(vertices);
         var globalFaces = new List<int>(faces.Length * 2);
         var pointLookup = new GlobalPointLookup(globalVertices, tolerance);
+        if (performanceTimings != null)
+        {
+            performanceTimings.OutputSetupMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.OutputSetupAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
 
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
@@ -332,11 +445,35 @@ internal static class MeshAreaTopologySplitter
                 continue;
             }
 
+            if (performanceTimings != null)
+            {
+                performanceTimings.TouchedFaceCount++;
+                if (!hasOwnCuts)
+                    performanceTimings.RegistryOnlyFaceCount++;
+
+                int internalSegmentCount = cuts?.InternalSegments.Count ?? 0;
+                if (internalSegmentCount == 0)
+                    performanceTimings.ZeroInternalSegmentFaceCount++;
+                else if (internalSegmentCount == 1)
+                    performanceTimings.OneInternalSegmentFaceCount++;
+                else
+                    performanceTimings.MultipleInternalSegmentFaceCount++;
+            }
+
             if (!TriangulateTouchedFace(face, cuts, sharedEdgePoints, pointLookup, globalFaces, tolerance, out errorMessage))
                 return null;
         }
 
-        return MeshAreaSplitter.Classify(
+        if (performanceTimings != null)
+        {
+            performanceTimings.TouchedFaceTriangulationMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.TouchedFaceTriangulationAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
+
+        MeshAreaSplitter.SplitResult? result = MeshAreaSplitter.Classify(
             globalVertices.ToArray(),
             globalVertices.Count / 3,
             globalFaces.ToArray(),
@@ -344,6 +481,14 @@ internal static class MeshAreaTopologySplitter
             areas,
             0.0,
             out errorMessage);
+        if (performanceTimings != null)
+        {
+            performanceTimings.ClassificationMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.ClassificationAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -564,6 +709,9 @@ internal static class MeshAreaTopologySplitter
         var scratch = new SpatialHashGrid2D.QueryScratch(faceData.Length);
         var candidates = new List<int>(16);
         var result = new FaceCutData[faceData.Length];
+        var edgePointBuffer = new EdgePoint[8];
+        var parameterBuffer = new double[8];
+        var clippedPieceBuffer = new SegmentPiece[7];
 
         // Cut endpoints within this distance of a terrain edge are projected onto it so they conform
         // (see the snap rationale in the clipped-piece loop). Several times the model tolerance — large
@@ -585,17 +733,25 @@ internal static class MeshAreaTopologySplitter
                 if (!face.Bounds.Intersects(queryBounds))
                     continue;
 
-                var edgePoints = CollectSegmentEdgeTouchPoints(face, segment, tolerance);
-                var clippedPieces = ClipSegmentToTriangle(face, segment, tolerance);
-                if (edgePoints.Count == 0 && clippedPieces.Count == 0)
+                AnalyzeSegmentAgainstFace(
+                    face,
+                    segment,
+                    tolerance,
+                    edgePointBuffer,
+                    out int edgePointCount,
+                    parameterBuffer,
+                    clippedPieceBuffer,
+                    out int clippedPieceCount);
+                if (edgePointCount == 0 && clippedPieceCount == 0)
                     continue;
 
-                result[faceIndex] ??= new FaceCutData();
-                foreach (var edgePoint in edgePoints)
-                    AddUniqueEdgePoint(result[faceIndex].EdgePoints, edgePoint, face, tolerance);
+                FaceCutData cuts = result[faceIndex] ??= new FaceCutData();
+                for (int edgePointIndex = 0; edgePointIndex < edgePointCount; edgePointIndex++)
+                    AddUniqueEdgePoint(cuts.EdgePoints, edgePointBuffer[edgePointIndex], face, tolerance);
 
-                foreach (var rawPiece in clippedPieces)
+                for (int clippedPieceIndex = 0; clippedPieceIndex < clippedPieceCount; clippedPieceIndex++)
                 {
+                    SegmentPiece rawPiece = clippedPieceBuffer[clippedPieceIndex];
                     // Conform a cut endpoint that lands NEAR (but not within the model tolerance of) a
                     // terrain edge onto that edge. Such a point is otherwise kept interior, and because
                     // each adjacent face detects it at a slightly different spot, they emit overlapping
@@ -612,13 +768,13 @@ internal static class MeshAreaTopologySplitter
                     int edgeIndex = GetPieceEdgeIndex(face, clippedPiece, tolerance);
                     if (edgeIndex >= 0)
                     {
-                        AddUniqueEdgePoint(result[faceIndex].EdgePoints, new EdgePoint(edgeIndex, clippedPiece.Start), face, tolerance);
-                        AddUniqueEdgePoint(result[faceIndex].EdgePoints, new EdgePoint(edgeIndex, clippedPiece.End), face, tolerance);
+                        AddUniqueEdgePoint(cuts.EdgePoints, new EdgePoint(edgeIndex, clippedPiece.Start), face, tolerance);
+                        AddUniqueEdgePoint(cuts.EdgePoints, new EdgePoint(edgeIndex, clippedPiece.End), face, tolerance);
                         continue;
                     }
 
-                    AddUniqueSegment(result[faceIndex].InternalSegments, clippedPiece, tolerance);
-                    AddPieceEndpointEdgePoints(result[faceIndex].EdgePoints, face, clippedPiece, tolerance);
+                    AddUniqueSegment(cuts.InternalSegments, clippedPiece, tolerance);
+                    AddPieceEndpointEdgePoints(cuts.EdgePoints, face, clippedPiece, tolerance);
                 }
             }
         }
@@ -790,76 +946,120 @@ internal static class MeshAreaTopologySplitter
         return true;
     }
 
-    private static List<EdgePoint> CollectSegmentEdgeTouchPoints(FaceData face, BoundarySegment segment, double tolerance)
+    private static void AnalyzeSegmentAgainstFace(
+        FaceData face,
+        BoundarySegment segment,
+        double tolerance,
+        EdgePoint[] edgePoints,
+        out int edgePointCount,
+        double[] parameters,
+        SegmentPiece[] clippedPieces,
+        out int clippedPieceCount)
     {
-        var result = new List<EdgePoint>(4);
+        edgePointCount = 0;
+        clippedPieceCount = 0;
+        int parameterCount = 0;
+        bool startInside = face.ContainsPoint(segment.Start, tolerance);
+        bool endInside = face.ContainsPoint(segment.End, tolerance);
+
+        if (startInside)
+            parameters[parameterCount++] = 0.0;
+        if (endInside)
+            parameters[parameterCount++] = 1.0;
+
         for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
         {
-            var edgeStart = face.GetEdgeStart(edgeIndex);
-            var edgeEnd = face.GetEdgeEnd(edgeIndex);
-            var intersection = IntersectSegments(segment.Start, segment.End, edgeStart, edgeEnd, tolerance);
+            SegmentIntersection intersection = IntersectSegments(
+                segment.Start,
+                segment.End,
+                face.GetEdgeStart(edgeIndex),
+                face.GetEdgeEnd(edgeIndex),
+                tolerance);
             if (intersection.Kind == SegmentIntersectionKind.None)
                 continue;
 
-            AddEdgeTouchPoint(result, face, edgeIndex, intersection.P0, tolerance);
+            AddScratchEdgeTouchPoint(
+                edgePoints,
+                ref edgePointCount,
+                face,
+                edgeIndex,
+                intersection.P0,
+                tolerance);
             if (intersection.Kind == SegmentIntersectionKind.Overlap)
-                AddEdgeTouchPoint(result, face, edgeIndex, intersection.P1, tolerance);
+            {
+                AddScratchEdgeTouchPoint(
+                    edgePoints,
+                    ref edgePointCount,
+                    face,
+                    edgeIndex,
+                    intersection.P1,
+                    tolerance);
+            }
+
+            parameters[parameterCount++] = intersection.T0;
+            parameters[parameterCount++] = intersection.T1;
         }
 
-        if (face.ContainsPoint(segment.Start, tolerance))
+        if (startInside)
         {
             int edgeIndex = face.GetEdgeIndex(segment.Start, tolerance);
             if (edgeIndex >= 0)
-                AddEdgeTouchPoint(result, face, edgeIndex, segment.Start, tolerance);
+            {
+                AddScratchEdgeTouchPoint(
+                    edgePoints,
+                    ref edgePointCount,
+                    face,
+                    edgeIndex,
+                    segment.Start,
+                    tolerance);
+            }
         }
 
-        if (face.ContainsPoint(segment.End, tolerance))
+        if (endInside)
         {
             int edgeIndex = face.GetEdgeIndex(segment.End, tolerance);
             if (edgeIndex >= 0)
-                AddEdgeTouchPoint(result, face, edgeIndex, segment.End, tolerance);
+            {
+                AddScratchEdgeTouchPoint(
+                    edgePoints,
+                    ref edgePointCount,
+                    face,
+                    edgeIndex,
+                    segment.End,
+                    tolerance);
+            }
         }
 
-        return result;
-    }
+        if (parameterCount == 0)
+            return;
 
-    private static List<SegmentPiece> ClipSegmentToTriangle(FaceData face, BoundarySegment segment, double tolerance)
-    {
-        var parameters = new List<double>(8);
-        if (face.ContainsPoint(segment.Start, tolerance))
-            parameters.Add(0.0);
-        if (face.ContainsPoint(segment.End, tolerance))
-            parameters.Add(1.0);
-
-        for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
+        for (int index = 1; index < parameterCount; index++)
         {
-            var intersection = IntersectSegments(segment.Start, segment.End, face.GetEdgeStart(edgeIndex), face.GetEdgeEnd(edgeIndex), tolerance);
-            if (intersection.Kind == SegmentIntersectionKind.None)
-                continue;
+            double value = parameters[index];
+            int writeIndex = index;
+            while (writeIndex > 0 && parameters[writeIndex - 1] > value)
+            {
+                parameters[writeIndex] = parameters[writeIndex - 1];
+                writeIndex--;
+            }
 
-            parameters.Add(intersection.T0);
-            parameters.Add(intersection.T1);
+            parameters[writeIndex] = value;
         }
 
-        if (parameters.Count == 0)
-            return new List<SegmentPiece>();
-
-        parameters.Sort();
         int uniqueCount = 0;
-        for (int i = 0; i < parameters.Count; i++)
+        for (int index = 0; index < parameterCount; index++)
         {
-            double value = Math.Clamp(parameters[i], 0.0, 1.0);
+            double value = Math.Clamp(parameters[index], 0.0, 1.0);
             if (uniqueCount > 0 && Math.Abs(value - parameters[uniqueCount - 1]) <= 1e-9)
                 continue;
 
             parameters[uniqueCount++] = value;
         }
 
-        var result = new List<SegmentPiece>(2);
-        for (int i = 0; i < uniqueCount - 1; i++)
+        for (int index = 0; index < uniqueCount - 1; index++)
         {
-            double t0 = parameters[i];
-            double t1 = parameters[i + 1];
+            double t0 = parameters[index];
+            double t1 = parameters[index + 1];
             if (t1 - t0 <= 1e-9)
                 continue;
 
@@ -873,10 +1073,49 @@ internal static class MeshAreaTopologySplitter
             if (DistanceSquared(start, end) <= tolerance * tolerance)
                 continue;
 
-            result.Add(new SegmentPiece(start, end));
+            clippedPieces[clippedPieceCount++] = new SegmentPiece(start, end);
+        }
+    }
+
+    private static void AddScratchEdgeTouchPoint(
+        EdgePoint[] destination,
+        ref int count,
+        FaceData face,
+        int edgeIndex,
+        Point2D point,
+        double tolerance)
+    {
+        Point2D snapped = SnapPointToEdge(
+            face.GetEdgeStart(edgeIndex),
+            face.GetEdgeEnd(edgeIndex),
+            point);
+        if (face.IsNearVertex(snapped, tolerance))
+            return;
+
+        var candidate = new EdgePoint(edgeIndex, snapped);
+        double toleranceSquared = tolerance * tolerance;
+        double vertexToleranceSquared = 4.0 * toleranceSquared;
+        for (int index = 0; index < count; index++)
+        {
+            EdgePoint existing = destination[index];
+            if (DistanceSquared(existing.Point, candidate.Point) > toleranceSquared)
+                continue;
+
+            if (existing.EdgeIndex == candidate.EdgeIndex)
+                return;
+
+            for (int vertexIndex = 0; vertexIndex < 3; vertexIndex++)
+            {
+                Point2D vertex = face.GetVertex(vertexIndex);
+                if (DistanceSquared(existing.Point, vertex) <= vertexToleranceSquared &&
+                    DistanceSquared(candidate.Point, vertex) <= vertexToleranceSquared)
+                {
+                    return;
+                }
+            }
         }
 
-        return result;
+        destination[count++] = candidate;
     }
 
     private static int GetPieceEdgeIndex(FaceData face, SegmentPiece piece, double tolerance)
@@ -901,15 +1140,6 @@ internal static class MeshAreaTopologySplitter
         int endEdge = face.GetEdgeIndex(piece.End, tolerance);
         if (endEdge >= 0)
             AddUniqueEdgePoint(edgePoints, new EdgePoint(endEdge, piece.End), face, tolerance);
-    }
-
-    private static void AddEdgeTouchPoint(List<EdgePoint> destination, FaceData face, int edgeIndex, Point2D point, double tolerance)
-    {
-        var snapped = SnapPointToEdge(face.GetEdgeStart(edgeIndex), face.GetEdgeEnd(edgeIndex), point);
-        if (face.IsNearVertex(snapped, tolerance))
-            return;
-
-        AddUniqueEdgePoint(destination, new EdgePoint(edgeIndex, snapped), face, tolerance);
     }
 
     private static void AddUniqueEdgePoint(List<EdgePoint> destination, EdgePoint candidate, FaceData face, double tolerance)

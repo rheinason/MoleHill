@@ -55,6 +55,10 @@ staying unresolved.
 - `GradedRegionAssembler.cs` - `SplitOutside`/`SplitConform` (terrain split) + `WeldGradedRegion`
   (identity weld of fills into terrain) + `AssembledMesh`.
 - `MeshAreaTopologySplitter.cs` / `MeshAreaSplitter.cs` - conforming terrain subdivision along loops.
-- `MeshConstraintTopologyInserter.cs` - local constraint insertion (terrain-preserving).
+  Segment/triangle mapping uses one fixed-buffer three-edge pass instead of per-candidate lists and
+  duplicate intersection calls; opt-in diagnostics split allocation by preparation, mapping, touched-face
+  triangulation, and classification.
+- `MeshConstraintTopologyInserter.cs` - local constraint insertion (terrain-preserving); intersection
+  results are value types in its allocation-sensitive inner loops.
 - `ClipperGeometry.cs` - polygon boolean/offset (Clipper) for daylight unions and offsets.
 - `GradingDiagnostic.cs` / `MeshTopologyOperations.cs` - diagnostics + watertight repair helpers.

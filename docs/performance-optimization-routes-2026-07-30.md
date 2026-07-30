@@ -225,6 +225,37 @@ at approximately 3.2 ns per segment-query after warmup; 10,000 queries against 4
 14.8 ms. It is a real scaling route for many or very long paths, but not the dominant cost in this
 single-path copied case.
 
+### Implementation step 2 result — conform-split allocation
+
+Route 2 replaces reference-type segment-intersection results in both local topology inserters and maps
+each area-boundary segment/face candidate with one fixed-buffer three-edge pass. This removes the two
+temporary lists and duplicate intersection calculations formerly created for each candidate.
+
+The deeper allocation profile showed that candidate mapping was not the largest remaining source.
+Touched faces each invoked Triangle.NET, whose `GenericMesher` eagerly constructed a quality-refinement
+engine even though these calls request neither quality constraints nor conforming Delaunay. Its
+4,096-bucket bad-triangle queues and refinement workspace were unused for all 311 touched faces.
+`GenericMesher` now creates that state only when either feature is requested; `IMesh.Refine` retains its
+existing lazy creation path. A lightweight quality component remains attached to every mesh because
+Triangle.NET's incremental point-deletion retriangulation calls back into it; the expensive queues and
+workspace are initialized on that first real use.
+
+| Metric | Before step 2 | After step 2 |
+|---|---:|---:|
+| `PathGrader.Grade` process-wide allocation | 92,187,632 bytes | 53,817,520 bytes |
+| Terrain conform-split allocation | 76,650,456 bytes | 38,273,184 bytes |
+| Touched-face triangulation allocation | approximately 47.1 MB | 14,537,344 bytes |
+| `PathGrader.Grade` elapsed range | 763–808 ms | 751–790 ms |
+
+This is a 41.7% reduction in total Grade Path allocation and a 50.1% reduction in the conform-split
+phase. Elapsed time remains within the existing run-to-run range, so the measured win is allocation
+and GC pressure rather than a claimed CPU step-change. Output remains 8,410 vertices / 16,547 faces
+with one closed boundary component, zero non-manifold edges, and no open chains.
+
+The profile also isolates roughly 16–17 MB in the dictionary-based post-split non-manifold check. That
+work is intentionally left for the shared flat-topology route rather than mixing two solutions in this
+commit.
+
 ### Scaling and omitted-workload results
 
 - Daylight no-hit queries were linear at approximately 8–11 ns per face-station. On 100,352 faces,
@@ -657,8 +688,9 @@ and requested edge output.
 
 ### 2. Grade Path conform-split allocation
 
-Remove reference-type intersection results, duplicate triangle-edge work, and tiny per-candidate
-lists. The phase profile now justifies doing this before the search-index work.
+**Implemented.** Intersection results are value types, segment/face mapping uses one fixed-buffer edge
+pass, unused Triangle.NET quality state is deferred, and the remaining post-split topology allocation is
+isolated for Route 4.
 
 ### 3. Grade Path spatialization
 
@@ -699,7 +731,7 @@ Implemented and ready to run inside Rhino:
 
 Validation of the follow-up harness:
 
-- all 437 Core Release tests pass after Route 1;
+- all 439 Core Release tests pass after implementation step 2;
 - the Rhino Release diagnostic build succeeds with zero warnings or errors; and
 - no Rhino slot was connected during this pass, so the enhanced command was not run against an
   active model.

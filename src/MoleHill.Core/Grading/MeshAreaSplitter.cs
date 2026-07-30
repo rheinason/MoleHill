@@ -172,6 +172,27 @@ public static class MeshAreaSplitter
             out errorMessage);
     }
 
+    internal static SplitResult? SplitPreservingTopology(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        AreaBoundary[] areas,
+        double boundaryTolerance,
+        out string? errorMessage,
+        MeshAreaTopologySplitter.PerformanceTimings performanceTimings)
+    {
+        return MeshAreaTopologySplitter.Split(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            areas,
+            boundaryTolerance,
+            out errorMessage,
+            performanceTimings);
+    }
+
     public static SplitResult? Classify(
         double[] vertices,
         int vertexCount,

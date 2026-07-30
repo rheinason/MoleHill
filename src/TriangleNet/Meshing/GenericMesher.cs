@@ -118,14 +118,18 @@ namespace TriangleNet.Meshing
 
             var cmesher = new ConstraintMesher(mesh, config);
             var qmesher = new QualityMesher(mesh, config);
-
             mesh.SetQualityMesher(qmesher);
 
             // Insert segments.
             cmesher.Apply(polygon, options);
 
-            // Refine mesh.
-            qmesher.Apply(quality, options?.ConformingDelaunay ?? false, cancellationToken);
+            bool conformingDelaunay = options?.ConformingDelaunay ?? false;
+            if (quality != null || conformingDelaunay)
+            {
+                // Refine mesh. The quality component retains only a lightweight shell until this
+                // call (or a later incremental mesh mutation) actually needs its large queues.
+                qmesher.Apply(quality, conformingDelaunay, cancellationToken);
+            }
 
             return mesh;
         }

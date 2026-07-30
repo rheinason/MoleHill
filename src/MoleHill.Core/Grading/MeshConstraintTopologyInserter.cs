@@ -2,6 +2,9 @@ using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
+/// <summary>
+/// Inserts constraint segments into existing terrain faces with topology-preserving local triangulation.
+/// </summary>
 internal static class MeshConstraintTopologyInserter
 {
     private readonly record struct Point2D(double X, double Y);
@@ -230,7 +233,7 @@ internal static class MeshConstraintTopologyInserter
         Overlap
     }
 
-    private sealed class SegmentIntersection
+    private readonly struct SegmentIntersection
     {
         public required SegmentIntersectionKind Kind { get; init; }
         public required double T0 { get; init; }

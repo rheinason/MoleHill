@@ -57,6 +57,30 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
             $"topology={performanceTimings.TopologyValidationAllocatedBytes:N0}; " +
             $"apply-Z={performanceTimings.ApplyGradingZAllocatedBytes:N0}; " +
             $"result={performanceTimings.ResultAssemblyAllocatedBytes:N0} bytes");
+        MeshAreaTopologySplitter.PerformanceTimings? splitDetails =
+            performanceTimings.ConformSplitDetails;
+        Assert.NotNull(splitDetails);
+        output.WriteLine(
+            $"Conform details: faces={splitDetails!.FaceDataMilliseconds:0.0}ms/" +
+            $"{splitDetails.FaceDataAllocatedBytes:N0}; " +
+            $"boundary={splitDetails.BoundarySegmentsMilliseconds:0.0}ms/" +
+            $"{splitDetails.BoundarySegmentsAllocatedBytes:N0}; " +
+            $"map={splitDetails.FaceMappingMilliseconds:0.0}ms/" +
+            $"{splitDetails.FaceMappingAllocatedBytes:N0}; " +
+            $"registry={splitDetails.SharedEdgeRegistryMilliseconds:0.0}ms/" +
+            $"{splitDetails.SharedEdgeRegistryAllocatedBytes:N0}; " +
+            $"setup={splitDetails.OutputSetupMilliseconds:0.0}ms/" +
+            $"{splitDetails.OutputSetupAllocatedBytes:N0}; " +
+            $"triangulate={splitDetails.TouchedFaceTriangulationMilliseconds:0.0}ms/" +
+            $"{splitDetails.TouchedFaceTriangulationAllocatedBytes:N0}; " +
+            $"classify={splitDetails.ClassificationMilliseconds:0.0}ms/" +
+            $"{splitDetails.ClassificationAllocatedBytes:N0} bytes");
+        output.WriteLine(
+            $"Conform touched faces: total={splitDetails.TouchedFaceCount:N0}; " +
+            $"registry-only={splitDetails.RegistryOnlyFaceCount:N0}; " +
+            $"zero-internal={splitDetails.ZeroInternalSegmentFaceCount:N0}; " +
+            $"one-internal={splitDetails.OneInternalSegmentFaceCount:N0}; " +
+            $"multiple-internal={splitDetails.MultipleInternalSegmentFaceCount:N0}");
         output.WriteLine($"Shape: {run.InputVertexCount:N0}/{run.InputFaceCount:N0} -> {run.OutputVertexCount:N0}/{run.OutputFaceCount:N0}");
         output.WriteLine("Bundle-recorded Grade Path output was 8,392 verts / 16,511 faces.");
         foreach (string diagnostic in run.Diagnostics)

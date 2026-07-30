@@ -61,6 +61,9 @@ sorted-edge/dictionary path; callers requesting output edge arrays still receive
 `TinBoundaryPreparer` turns an optional user boundary into an explicit constraint loop; open
 contour/breakline endpoints never infer a perimeter, so an absent boundary uses the ordinary convex hull.
 `ConformingDelaunay=true` is avoided (fails on tight parallel segments).
+Triangle.NET's large quality-refinement state is created only when quality, conforming Delaunay, or an
+incremental mesh mutation requests it. Plain and per-face conform triangulations avoid the otherwise
+unused 4,096-bucket refinement queues, while `IMesh.Refine` retains its lazy creation path.
 
 The **Remesh** modifier offers three algorithms via its **Algorithm** dropdown (`Mode`: `"isotropic"`
 default, `"rebuild"`, `"local"`), all sharing the same constraint stack (persistent hard constraints —
@@ -133,7 +136,9 @@ a tier cascade, taking the first that produces a watertight, manifold result:
 2. **split-keep** (`GradeWithSplitKeep` + `GradedRegionAssembler.SplitConform`) — conform the terrain to
    the daylight/footprint loops and keep the whole mesh, assigning Z by section. Watertight by
    construction (no weld). Uses a Triangle.NET CDT conform when the hand-rolled splitter goes
-   non-manifold.
+   non-manifold. The local splitter maps each segment/face candidate with one fixed-buffer three-edge
+   pass and avoids constructing unused quality-refinement state for its many small constrained
+   triangulations.
 3. **region-remesh** (`PadGrader.RegionRemesh.cs`) — replace the affected region with a fresh dense
    patch graded by distance field; soft but always watertight.
 

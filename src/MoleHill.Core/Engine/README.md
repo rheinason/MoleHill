@@ -17,6 +17,9 @@ Key files:
 - `XxHash64Builder.cs` — deterministic 64-bit streaming fingerprints for `InputSnapshot` and staged
   Rhino cache keys.
 - `TriangulationHelper.cs` — shared 5-tier CDT fallback chain (used here, PadGrader, Remesh, splitters).
+  Plain Triangle.NET triangulations defer creation of the large quality-refinement queues/workspace until
+  quality, conforming Delaunay, or an incremental mutation requests it; a later `IMesh.Refine` still
+  creates it lazily.
 - `TinBoundaryPreparer.cs` — turns an optional explicit boundary into a constraint loop; without one,
   Triangle.NET uses its ordinary convex hull even when open contour or breakline segments are present.
 - `TriangleNetExtractor.cs` — Triangle.NET `IMesh` → flat arrays, preserving `Vertex.ID` as `SourceId`;

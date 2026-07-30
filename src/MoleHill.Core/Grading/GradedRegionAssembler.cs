@@ -92,7 +92,8 @@ internal static class GradedRegionAssembler
         int terrainFaceCount,
         IReadOnlyList<double[]> daylightLoopsXy,
         double tolerance,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null)
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null,
+        MeshAreaTopologySplitter.PerformanceTimings? performanceTimings = null)
     {
         double[]? terrainOutline = TryBuildTerrainOutline(terrainFaces, terrainFaceCount, terrainVertices);
         var areas = new List<MeshAreaSplitter.AreaBoundary>(daylightLoopsXy.Count);
@@ -111,8 +112,25 @@ internal static class GradedRegionAssembler
         if (areas.Count == 0)
             return null;
 
-        MeshAreaSplitter.SplitResult? handRolled = MeshAreaSplitter.SplitPreservingTopology(
-            terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, areas.ToArray(), tolerance, out _);
+        MeshAreaSplitter.AreaBoundary[] areaArray = areas.ToArray();
+        MeshAreaSplitter.SplitResult? handRolled = performanceTimings == null
+            ? MeshAreaSplitter.SplitPreservingTopology(
+                terrainVertices,
+                terrainVertexCount,
+                terrainFaces,
+                terrainFaceCount,
+                areaArray,
+                tolerance,
+                out _)
+            : MeshAreaSplitter.SplitPreservingTopology(
+                terrainVertices,
+                terrainVertexCount,
+                terrainFaces,
+                terrainFaceCount,
+                areaArray,
+                tolerance,
+                out _,
+                performanceTimings);
 
         // The hand-rolled per-face conforming subdivision preserves terrain detail but can emit a
         // non-manifold sliver when a daylightÃ—terrain-edge cut point lands a hair off an existing
