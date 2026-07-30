@@ -216,4 +216,57 @@ public class ScatterSamplerCurveTests
         // Cancelled before the first row completes → far fewer than the uncancelled ~40k.
         Assert.True(points.Count < 1000, $"cancellation did not abort early (got {points.Count})");
     }
+
+    [Fact]
+    public void Curve_RunawaySpacing_UsesInteractiveSafetyCap()
+    {
+        var request = new ScatterRequest
+        {
+            Source = ScatterSourceMode.Curve,
+            Paths = new[] { StraightLine(100.0) },
+            DensityMode = ScatterDensityMode.Spacing,
+            Spacing = 1e-9,
+            Seed = 1
+        };
+
+        var points = ScatterSampler.SampleCurve(request, itemExtent: null);
+
+        Assert.Equal(ScatterSampler.DefaultMaxCurveSamples, points.Count);
+    }
+
+    [Fact]
+    public void Curve_ExplicitMaxSamples_OverridesInteractiveSafetyCap()
+    {
+        var request = new ScatterRequest
+        {
+            Source = ScatterSourceMode.Curve,
+            Paths = new[] { StraightLine(100.0) },
+            DensityMode = ScatterDensityMode.Spacing,
+            Spacing = 1e-9,
+            MaxSamples = 37,
+            Seed = 1
+        };
+
+        var points = ScatterSampler.SampleCurve(request, itemExtent: null);
+
+        Assert.Equal(37, points.Count);
+    }
+
+    [Fact]
+    public void Curve_Cancellation_AbortsBeforePathSampling()
+    {
+        var request = new ScatterRequest
+        {
+            Source = ScatterSourceMode.Curve,
+            Paths = new[] { StraightLine(100.0) },
+            DensityMode = ScatterDensityMode.Spacing,
+            Spacing = 1e-9,
+            ShouldCancel = () => true,
+            Seed = 1
+        };
+
+        var points = ScatterSampler.SampleCurve(request, itemExtent: null);
+
+        Assert.Empty(points);
+    }
 }

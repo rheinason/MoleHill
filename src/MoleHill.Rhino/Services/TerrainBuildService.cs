@@ -19,7 +19,7 @@ internal sealed partial class TerrainBuildService
 {
     private const int StageTimingDiagnosticThresholdMs = 250;
     private const double MinRepresentablePadPlaneNormalZ = 1e-3;
-    private const int TriangulateCacheVersion = 3;
+    private const int TriangulateCacheVersion = 4;
     private const int InSituStairTreadDepthWarningColorArgb = unchecked((int)0xFFFF0000);
 
     public TerrainBuildResult Build(

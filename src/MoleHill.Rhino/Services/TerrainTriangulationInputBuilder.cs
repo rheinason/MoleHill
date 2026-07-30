@@ -5,6 +5,8 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainTriangulationInputBuilder
 {
+    internal readonly record struct FlattenedPolyline(double[] Points, bool IsClosed);
+
     public static List<double[]> CreateTriangulationPolylines(
         IReadOnlyList<Curve> breaklineCurves,
         IReadOnlyList<Curve> contourCurves,
@@ -13,8 +15,12 @@ internal static class TerrainTriangulationInputBuilder
         // Keep the panel's newer conditioning behavior for both source types. Core derives spacing from
         // the observed source segments (with tolerance only as a microscopic floor), preventing the old
         // large-site explosion while preserving straight-run normalization and breakline stations.
-        List<double[]> breaklines = CreateFlatPolylines(breaklineCurves, tolerance);
-        List<double[]> contours = CreateFlatPolylines(contourCurves, tolerance);
+        List<double[]> breaklines = CreateFlattenedPolylines(breaklineCurves, tolerance)
+            .Select(static polyline => polyline.Points)
+            .ToList();
+        List<double[]> contours = CreateFlattenedPolylines(contourCurves, tolerance)
+            .Select(static polyline => polyline.Points)
+            .ToList();
         return TerrainConstraintPreprocessor.Process(
             breaklines,
             contours,
@@ -23,7 +29,14 @@ internal static class TerrainTriangulationInputBuilder
 
     public static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)
     {
-        var result = new List<double[]>();
+        return CreateFlattenedPolylines(curves, tolerance)
+            .Select(static polyline => polyline.Points)
+            .ToList();
+    }
+
+    internal static List<FlattenedPolyline> CreateFlattenedPolylines(IReadOnlyList<Curve> curves, double tolerance)
+    {
+        var result = new List<FlattenedPolyline>();
         foreach (var curve in curves)
         {
             if (curve == null)
@@ -32,7 +45,7 @@ internal static class TerrainTriangulationInputBuilder
             if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out var polyline))
                 continue;
 
-            result.Add(ToFlatPolyline(polyline));
+            result.Add(new FlattenedPolyline(ToFlatPolyline(polyline), curve.IsClosed));
         }
 
         return result;

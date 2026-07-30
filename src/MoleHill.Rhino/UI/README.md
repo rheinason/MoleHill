@@ -13,7 +13,8 @@ fields by composing them, not by copying boilerplate.
   layout refresh, and shared helpers. Its editable terrain selector combines active-terrain selection
   and rename in one field. Bake is grouped with the visibility/lock output actions; Bake Layers creates
   the terrain's configured output layers. Expanded Smooth/Sculpt cards show a sampled mesh-quality
-  warning when an uneven incoming TIN has no earlier Remesh modifier.
+  warning when an uneven incoming TIN has no earlier Remesh modifier. Triangulate keeps its source rows
+  together, then shows Work area, Contour Mode, and a titled Peel Border settings group.
 - `UiMetrics.cs`, `PropertyRow.cs`, `AdaptiveControlGroup.cs`, and `AdaptivePrimaryActionRow.cs` -
   local responsive primitives for the dock panel. `UiMetrics` measures the active Eto font, and rows
   restack by their own width, so resizing the panel does not rebuild the whole content tree or drop

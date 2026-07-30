@@ -14,9 +14,21 @@ public static class TerrainConstraintPreprocessor
         IReadOnlyList<double[]> contourPolylines,
         double tolerance)
     {
-        double combinedSpacing = ComputeTargetSpacing(breaklinePolylines, contourPolylines, tolerance);
-        double breaklineSpacing = ComputeTargetSpacing(breaklinePolylines, combinedSpacing, tolerance);
-        double contourSpacing = ComputeTargetSpacing(contourPolylines, combinedSpacing, tolerance);
+        // Collect and sort each source class once. Multi-million-station surveys used to scan and sort
+        // the populated class twice while deriving the combined and class-specific spacing values.
+        List<double> breaklineLengths = CollectSegmentLengths(breaklinePolylines, tolerance);
+        List<double> contourLengths = CollectSegmentLengths(contourPolylines, tolerance);
+        double? measuredBreaklineSpacing = breaklineLengths.Count >= 3
+            ? ComputeClampedMedian(breaklineLengths, tolerance)
+            : null;
+        double? measuredContourSpacing = contourLengths.Count >= 3
+            ? ComputeClampedMedian(contourLengths, tolerance)
+            : null;
+        double combinedSpacing = measuredBreaklineSpacing ??
+            measuredContourSpacing ??
+            ComputeClampedMedian(contourLengths, tolerance);
+        double breaklineSpacing = measuredBreaklineSpacing ?? combinedSpacing;
+        double contourSpacing = measuredContourSpacing ?? combinedSpacing;
 
         var result = new List<double[]>(breaklinePolylines.Count + contourPolylines.Count);
         result.AddRange(ProcessPolylines(breaklinePolylines, breaklineSpacing, tolerance));
@@ -108,31 +120,60 @@ public static class TerrainConstraintPreprocessor
     private static int FindCollinearRunEnd(List<Vertex> vertices, int startIndex, double lineTolerance, double zTolerance)
     {
         int best = startIndex + 1;
-        for (int end = startIndex + 2; end < vertices.Count; end++)
+        int seedEndIndex = startIndex + 2;
+        if (seedEndIndex >= vertices.Count ||
+            !TryGetCollinearParameter(
+                vertices[startIndex],
+                vertices[startIndex + 1],
+                vertices[seedEndIndex],
+                lineTolerance,
+                zTolerance,
+                out _))
         {
-            bool valid = true;
-            double previousT = 0.0;
-            for (int mid = startIndex + 1; mid < end; mid++)
-            {
-                if (!TryGetCollinearParameter(vertices[startIndex], vertices[mid], vertices[end], lineTolerance, zTolerance, out double t))
-                {
-                    valid = false;
-                    break;
-                }
+            return best;
+        }
 
-                // Preserve the source station order; backtracking runs should not be collapsed.
-                if (t <= previousT + 1e-6)
-                {
-                    valid = false;
-                    break;
-                }
+        // Anchor the accepted run to its first three stations. The former implementation moved the
+        // end point one station at a time and rechecked every earlier station, making a straight run
+        // O(n^2). Once the first three stations define a line, every later station only needs one
+        // projection/cross-track/Z check against that stable line, so the run scan is O(n).
+        Vertex start = vertices[startIndex];
+        Vertex seedEnd = vertices[seedEndIndex];
+        double dx = seedEnd.X - start.X;
+        double dy = seedEnd.Y - start.Y;
+        double length = Math.Sqrt((dx * dx) + (dy * dy));
+        if (length <= lineTolerance)
+            return best;
 
-                previousT = t;
-            }
+        double unitX = dx / length;
+        double unitY = dy / length;
+        double zPerUnit = (seedEnd.Z - start.Z) / length;
+        double previousProjection = length;
+        double lineToleranceSq = lineTolerance * lineTolerance;
+        best = seedEndIndex;
 
-            if (!valid)
+        for (int end = seedEndIndex + 1; end < vertices.Count; end++)
+        {
+            Vertex candidate = vertices[end];
+            double offsetX = candidate.X - start.X;
+            double offsetY = candidate.Y - start.Y;
+            double projection = (offsetX * unitX) + (offsetY * unitY);
+            double orderEpsilon = Math.Max(1e-12, Math.Abs(projection) * 1e-6);
+
+            // Preserve source station order; a backtracking station ends the straight run.
+            if (projection <= previousProjection + orderEpsilon)
                 break;
 
+            double crossTrackX = offsetX - (projection * unitX);
+            double crossTrackY = offsetY - (projection * unitY);
+            if ((crossTrackX * crossTrackX) + (crossTrackY * crossTrackY) > lineToleranceSq)
+                break;
+
+            double expectedZ = start.Z + (projection * zPerUnit);
+            if (Math.Abs(candidate.Z - expectedZ) > zTolerance)
+                break;
+
+            previousProjection = projection;
             best = end;
         }
 
@@ -254,28 +295,6 @@ public static class TerrainConstraintPreprocessor
         output.Add(vertex.X);
         output.Add(vertex.Y);
         output.Add(vertex.Z);
-    }
-
-    private static double ComputeTargetSpacing(
-        IReadOnlyList<double[]> primary,
-        IReadOnlyList<double[]> secondary,
-        double tolerance)
-    {
-        var lengths = CollectSegmentLengths(primary, tolerance);
-        if (lengths.Count < 3)
-            lengths = CollectSegmentLengths(secondary, tolerance);
-        return ComputeClampedMedian(lengths, tolerance);
-    }
-
-    private static double ComputeTargetSpacing(
-        IReadOnlyList<double[]> polylines,
-        double fallback,
-        double tolerance)
-    {
-        var lengths = CollectSegmentLengths(polylines, tolerance);
-        if (lengths.Count < 3)
-            return fallback;
-        return ComputeClampedMedian(lengths, tolerance);
     }
 
     private static List<double> CollectSegmentLengths(IReadOnlyList<double[]> polylines, double tolerance)

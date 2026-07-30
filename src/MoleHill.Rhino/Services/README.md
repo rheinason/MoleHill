@@ -16,6 +16,13 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   restore, and normalized cached meshes are duplicated without a redundant normalization pass.
 - Long-running builds emit live phase, elapsed-time, and managed-memory updates through the controller's
   idle loop, so the panel and command history identify a stalled phase before the build completes.
+- Triangulate flattens each source curve once and reuses the packed stations for constraints and TIN
+  input. Its Contour Mode is `Auto` / `Constrained` / `Vertices only`; Auto treats contour sets at or
+  above 250,000 source vertices as unconstrained samples while breaklines and the boundary stay exact.
+  This matches the fast exploded-vertices Grasshopper path for multi-million-point contour datasets.
+  The panel requests vertices/faces only from Core, skips unused edge-topology and large incremental-edit
+  indexes, and uses a known-valid TIN finalizer rather than rescanning the Rhino mesh for duplicate,
+  unused, or degenerate data. Mesh fingerprints stream the cached flat arrays in bulk.
 - `LargeTinDiagnostic.cs` backs `mhBenchmarkLargeTin`, a background, deterministic 247k-point benchmark
   that times the shared TIN engine separately from Rhino conversion, normalization, fingerprints, and
   mesh-cache duplication without requiring a user model.

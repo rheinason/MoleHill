@@ -51,7 +51,10 @@ All Core pipeline data uses flat arrays for cache-friendliness:
 `PointCloudProcessor` (Z-aware dedup) + `BreaklineDiscretizer` feed `TinEngine.Build`, which fingerprints
 XY topology and Z separately (XxHash64) and takes the cheapest path: **Z-only update** →
 **incremental single-point edit** → **full rebuild** via `TriangulationHelper` (a 5-tier CDT fallback
-chain). `TinBoundaryPreparer` turns an optional user boundary into an explicit constraint loop; open
+chain). Edge topology is optional: the Rhino panel consumes only vertices/faces and omits the expensive
+edge sort. Incremental-edit coordinate indexes are retained through 250,000 vertices; larger meshes keep
+exact-result and Z-only caching without retaining several multi-million-entry dictionaries.
+`TinBoundaryPreparer` turns an optional user boundary into an explicit constraint loop; open
 contour/breakline endpoints never infer a perimeter, so an absent boundary uses the ordinary convex hull.
 `ConformingDelaunay=true` is avoided (fails on tight parallel segments).
 
@@ -167,8 +170,16 @@ zones, markers, objects, and scatter retain stage-level entries.
   light, and phantom objects are excluded.
 - Project-base document orientation transforms ModelSpace objects only; PageSpace layout geometry is not moved.
 - Tessellated contours and breaklines retain the panel's spacing conditioner, but its target comes from
-  observed source-segment medians rather than document tolerance. This preserves straight-run
-  normalization and intermediate long-breakline stations without large-site vertex explosions.
+  observed source-segment medians rather than document tolerance. Segment lengths are collected once
+  per source class and collinear runs are scanned linearly, preserving straight-run normalization and
+  intermediate long-breakline stations without large-site vertex explosions or quadratic stalls.
+- Triangulate **Contour Mode** controls the large-input tradeoff: `Constrained` inserts every contour
+  segment, `Vertices only` matches an exploded-points Grasshopper solve, and the default `Auto` switches
+  contours to vertex samples at 250,000 source vertices. Breaklines and the terrain boundary always
+  remain constrained. The build diagnostics report every unconstrained contour solve.
+- Sparse point dedup uses a shared per-cell index store instead of millions of small cell lists. Panel TIN
+  conversion trusts Core's validated triangle topology, so it skips redundant duplicate/unused/degenerate
+  Rhino scans; cached flat arrays are also fingerprinted in bulk rather than through Rhino item accessors.
 - `TerrainRuntimeCache.CreateWorkerCopy()` shares the persistent `TinEngine` instance with each
   background build worker (rather than a fresh one per build), so `TinEngine`'s Z-only/incremental-edit
   shortcuts are reachable from Rhino, not just Grasshopper — safe because `TinEngine.Build` is

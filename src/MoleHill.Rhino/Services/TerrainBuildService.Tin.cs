@@ -92,7 +92,16 @@ internal sealed partial class TerrainBuildService
             points, breaklineCurves, contourCurves, boundaryCurves, curveTolerance, workBoundaryMargin, build);
 
         progress.Start("Input packing");
-        var spotXyz = new double[points.Count * 3];
+        List<TerrainTriangulationInputBuilder.FlattenedPolyline> flattenedBreaklines =
+            TerrainTriangulationInputBuilder.CreateFlattenedPolylines(breaklineCurves, curveTolerance);
+        List<TerrainTriangulationInputBuilder.FlattenedPolyline> flattenedContours =
+            TerrainTriangulationInputBuilder.CreateFlattenedPolylines(contourCurves, curveTolerance);
+        int breaklineSourceVertexCount = flattenedBreaklines.Sum(static polyline => polyline.Points.Length / 3);
+        int contourSourceVertexCount = flattenedContours.Sum(static polyline => polyline.Points.Length / 3);
+        bool constrainContours = modifier.ShouldConstrainContours(contourSourceVertexCount);
+        int sampledContourVertexCount = constrainContours ? 0 : contourSourceVertexCount;
+
+        var spotXyz = new double[(points.Count + sampledContourVertexCount) * 3];
         for (int i = 0; i < points.Count; i++)
         {
             spotXyz[i * 3] = points[i].X;
@@ -100,35 +109,49 @@ internal sealed partial class TerrainBuildService
             spotXyz[i * 3 + 2] = points[i].Z;
         }
 
+        if (!constrainContours && contourSourceVertexCount > 0)
+        {
+            int targetOffset = points.Count * 3;
+            foreach (TerrainTriangulationInputBuilder.FlattenedPolyline contour in flattenedContours)
+            {
+                Array.Copy(contour.Points, 0, spotXyz, targetOffset, contour.Points.Length);
+                targetOffset += contour.Points.Length;
+            }
+
+            string reason = string.Equals(modifier.ContourMode, TriangulateModifierDefinition.VerticesOnlyContourMode, StringComparison.OrdinalIgnoreCase)
+                ? "Contour Mode is Vertices only"
+                : $"Auto switches at {TriangulateModifierDefinition.AutoUnconstrainedContourVertexThreshold:N0} vertices";
+            build.Diagnostics.Add(
+                $"Triangulate treated {contourSourceVertexCount:N0} contour vertices as unconstrained TIN samples ({reason}). " +
+                "Breaklines and the terrain boundary remain constrained.");
+        }
+
         var persistentHardConstraints = CreateConstraintPolylines(
-            breaklineCurves,
-            curveTolerance,
+            flattenedBreaklines,
             preserveInputElevation: true);
-        var persistentElevationConstraints = CreateConstraintPolylines(
-            contourCurves,
-            curveTolerance,
-            preserveInputElevation: true);
+        var persistentElevationConstraints = constrainContours
+            ? CreateConstraintPolylines(flattenedContours, preserveInputElevation: true)
+            : new List<SurfaceRemesher.ConstraintPolyline>();
 
         ThrowIfCancellationRequested(shouldCancel);
-        (int directPolylineCount, int directPolylineVertexCount) = CountDirectPolylineSources(
-            breaklineCurves,
-            contourCurves);
-        var polylines = TerrainTriangulationInputBuilder.CreateTriangulationPolylines(
-            breaklineCurves,
-            contourCurves,
+        List<double[]> polylines = TerrainConstraintPreprocessor.Process(
+            flattenedBreaklines.Select(static polyline => polyline.Points).ToList(),
+            constrainContours
+                ? flattenedContours.Select(static polyline => polyline.Points).ToList()
+                : Array.Empty<double[]>(),
             curveTolerance);
         var boundaryPolylines = CreateBoundaryPolylines(boundaryCurves, curveTolerance);
         int constraintVertexCount = polylines.Sum(static polyline => polyline.Length / 3);
         int boundaryVertexCount = boundaryPolylines.Sum(static polyline => polyline.PointCount);
         progress.Complete(
             "Input packing",
-            $"{points.Count:N0} spot points, {constraintVertexCount:N0} constraint vertices, {boundaryVertexCount:N0} boundary vertices; " +
-            $"curve tolerance {curveTolerance:G6}; direct polylines {directPolylineCount:N0}/{breaklineCurves.Count + contourCurves.Count:N0} " +
-            $"({directPolylineVertexCount:N0} source vertices)");
+            $"{points.Count + sampledContourVertexCount:N0} sample points, {constraintVertexCount:N0} constraint vertices, {boundaryVertexCount:N0} boundary vertices; " +
+            $"curve tolerance {curveTolerance:G6}; {breaklineSourceVertexCount:N0} breakline vertices, {contourSourceVertexCount:N0} contour vertices; " +
+            $"contours {(constrainContours ? "constrained" : "vertices only")}");
 
         progress.Start("Point deduplication");
         var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
-        var merged = PointCloudProcessor.Merge(spotXyz, points.Count, breaklineData, inputTolerance, shouldCancel);
+        var merged = PointCloudProcessor.Merge(spotXyz, points.Count + sampledContourVertexCount, breaklineData, inputTolerance, shouldCancel);
         progress.Complete("Point deduplication", $"{merged.VertexCount:N0} unique vertices, {merged.SegmentCount:N0} segments");
         ThrowIfCancellationRequested(shouldCancel);
         ulong resolvedInputFingerprint = ComputeTriangulateResolvedInputFingerprint(
@@ -496,30 +519,6 @@ internal sealed partial class TerrainBuildService
         return cleanedMesh!;
     }
 
-    private static (int CurveCount, int VertexCount) CountDirectPolylineSources(
-        IReadOnlyList<Curve> breaklineCurves,
-        IReadOnlyList<Curve> contourCurves)
-    {
-        int curveCount = 0;
-        int vertexCount = 0;
-
-        void Count(IReadOnlyList<Curve> curves)
-        {
-            foreach (Curve curve in curves)
-            {
-                if (!curve.TryGetPolyline(out Polyline polyline))
-                    continue;
-
-                curveCount++;
-                vertexCount += polyline.Count;
-            }
-        }
-
-        Count(breaklineCurves);
-        Count(contourCurves);
-        return (curveCount, vertexCount);
-    }
-
     private static bool TryBuildValidatedTinMesh(
         double[] xyCoords,
         double[] zValues,
@@ -577,7 +576,8 @@ internal sealed partial class TerrainBuildService
                         progress?.Report("TIN engine", "full triangulation running");
                         break;
                 }
-            });
+            },
+            includeEdgeTopology: false);
         progress?.Complete("TIN engine", result == null ? "failed" : $"{result.VertexCount:N0} vertices, {result.FaceCount:N0} faces");
         ThrowIfCancellationRequested(shouldCancel);
 

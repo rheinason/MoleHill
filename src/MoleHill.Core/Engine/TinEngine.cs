@@ -20,6 +20,9 @@ public readonly record struct TinEngineBuildProgress(TinEngineBuildPhase Phase, 
 /// </summary>
 public class TinEngine
 {
+    // Incremental add/remove needs three coordinate dictionaries. Above this size their build cost and
+    // retained memory outweigh the shortcut; exact cache hits and Z-only updates remain available.
+    private const int IncrementalTopologyVertexLimit = 250_000;
     private const int MinSteinerPointCap = 25_000;
     private const int MaxSteinerPointCap = 250_000;
     private const int SteinerPointCapMultiplier = 12;
@@ -45,19 +48,22 @@ public class TinEngine
         public HashSet<XyKey> ProtectedKeys { get; }
         public bool QualityConstrained { get; }
         public bool UseConvexHull { get; }
+        public bool IncludeEdgeTopology { get; }
 
         public IncrementalTopologyState(
             int[] segments,
             Dictionary<XyKey, int> vertexIdByKey,
             HashSet<XyKey> protectedKeys,
             bool qualityConstrained,
-            bool useConvexHull)
+            bool useConvexHull,
+            bool includeEdgeTopology)
         {
             Segments = segments;
             VertexIdByKey = vertexIdByKey;
             ProtectedKeys = protectedKeys;
             QualityConstrained = qualityConstrained;
             UseConvexHull = useConvexHull;
+            IncludeEdgeTopology = includeEdgeTopology;
         }
     }
 
@@ -144,7 +150,8 @@ public class TinEngine
                              double maxBoundaryEdgeLength = 0,
                              BoundaryTrianglePeelSettings? boundaryPeelSettings = null,
                              Func<bool>? shouldCancel = null,
-                             Action<TinEngineBuildProgress>? reportProgress = null)
+                             Action<TinEngineBuildProgress>? reportProgress = null,
+                             bool includeEdgeTopology = true)
     {
         var gateTimer = Stopwatch.StartNew();
         reportProgress?.Invoke(new TinEngineBuildProgress(TinEngineBuildPhase.WaitingForGate, TimeSpan.Zero));
@@ -176,7 +183,8 @@ public class TinEngine
                 quality,
                 useConvexHull,
                 maxBoundaryEdgeLength,
-                peelSettings);
+                peelSettings,
+                includeEdgeTopology);
 
             if (_cachedSnapshot != null && _cachedResult != null &&
                 xyHash == _cachedSnapshot.XyHash)
@@ -190,7 +198,13 @@ public class TinEngine
                 _cachedSnapshot = new InputSnapshot(xyHash, zHash);
                 if (peelSettings.UsesSlopeCriterion && _cachedMesh != null)
                 {
-                    _cachedResult = BuildResult(_cachedMesh, xyCoords, zValues, segments, peelSettings);
+                    _cachedResult = BuildResult(
+                        _cachedMesh,
+                        xyCoords,
+                        zValues,
+                        segments,
+                        peelSettings,
+                        includeEdgeTopology);
                 }
                 else
                 {
@@ -200,7 +214,15 @@ public class TinEngine
                 return _cachedResult;
             }
 
-            if (TryApplyIncrementalEdit(xyCoords, zValues, segments, quality, useConvexHull, peelSettings, out var incrementalResult))
+            if (TryApplyIncrementalEdit(
+                xyCoords,
+                zValues,
+                segments,
+                quality,
+                useConvexHull,
+                peelSettings,
+                includeEdgeTopology,
+                out var incrementalResult))
             {
                 ulong zHash = InputSnapshot.ComputeZHash(zValues);
                 _cachedSnapshot = new InputSnapshot(xyHash, zHash);
@@ -213,14 +235,14 @@ public class TinEngine
             reportProgress?.Invoke(new TinEngineBuildProgress(TinEngineBuildPhase.FullRebuildStarting, gateTimer.Elapsed));
             var result = FullRebuild(
                 xyCoords, zValues, segments, quality,
-                out errorMessage, out IMesh? builtMesh, useConvexHull, peelSettings, shouldCancel);
+                out errorMessage, out IMesh? builtMesh, useConvexHull, peelSettings, includeEdgeTopology, shouldCancel);
             if (result != null)
             {
                 _cachedSnapshot = new InputSnapshot(xyHash, InputSnapshot.ComputeZHash(zValues));
                 _cachedResult = result;
                 _cachedMesh = builtMesh as Mesh;
-                _topologyState = _cachedMesh != null
-                    ? CreateTopologyState(_cachedMesh, xyCoords, segments, quality, useConvexHull)
+                _topologyState = _cachedMesh != null && vertexCount <= IncrementalTopologyVertexLimit
+                    ? CreateTopologyState(_cachedMesh, xyCoords, segments, quality, useConvexHull, includeEdgeTopology)
                     : null;
             }
             return result;
@@ -262,7 +284,12 @@ public class TinEngine
     }
 
     private static IncrementalTopologyState? CreateTopologyState(
-        Mesh mesh, double[] xyCoords, int[] segments, QualitySettings quality, bool useConvexHull)
+        Mesh mesh,
+        double[] xyCoords,
+        int[] segments,
+        QualitySettings quality,
+        bool useConvexHull,
+        bool includeEdgeTopology)
     {
         var inputIndexByKey = BuildInputIndexByKey(xyCoords);
         if (inputIndexByKey.Count != xyCoords.Length / 2)
@@ -307,12 +334,14 @@ public class TinEngine
             vertexIdByKey,
             protectedKeys,
             quality.HasConstraints,
-            useConvexHull);
+            useConvexHull,
+            includeEdgeTopology);
     }
 
     private bool TryApplyIncrementalEdit(
         double[] xyCoords, double[] zValues, int[] segments, QualitySettings quality, bool useConvexHull,
         BoundaryTrianglePeelSettings boundaryPeelSettings,
+        bool includeEdgeTopology,
         out TinResult? result)
     {
         result = null;
@@ -328,6 +357,11 @@ public class TinEngine
         }
 
         if (_topologyState.UseConvexHull != useConvexHull)
+        {
+            return false;
+        }
+
+        if (_topologyState.IncludeEdgeTopology != includeEdgeTopology)
         {
             return false;
         }
@@ -423,7 +457,13 @@ public class TinEngine
             previousMap[kv.Key] = kv.Value;
         }
 
-        result = BuildResult(_cachedMesh, xyCoords, zValues, segments, boundaryPeelSettings);
+        result = BuildResult(
+            _cachedMesh,
+            xyCoords,
+            zValues,
+            segments,
+            boundaryPeelSettings,
+            includeEdgeTopology);
         return true;
     }
 
@@ -464,6 +504,7 @@ public class TinEngine
                                            out string? errorMessage, out IMesh? builtMesh,
                                            bool useConvexHull,
                                            BoundaryTrianglePeelSettings boundaryPeelSettings,
+                                           bool includeEdgeTopology,
                                            Func<bool>? shouldCancel = null)
     {
         builtMesh = null;
@@ -509,7 +550,7 @@ public class TinEngine
         if (result != null)
         {
             builtMesh = result;
-            return BuildResult(result, xyCoords, zValues, segments, boundaryPeelSettings);
+            return BuildResult(result, xyCoords, zValues, segments, boundaryPeelSettings, includeEdgeTopology);
         }
 
         // Attempt 2: Non-conforming CDT with quality
@@ -521,7 +562,7 @@ public class TinEngine
             {
                 builtMesh = ncResult;
                 errorMessage = "Using non-conforming CDT for tightly spaced breaklines. Edges follow breaklines but mesh is not strictly Delaunay.";
-                return BuildResult(ncResult, xyCoords, zValues, segments, boundaryPeelSettings);
+                return BuildResult(ncResult, xyCoords, zValues, segments, boundaryPeelSettings, includeEdgeTopology);
             }
         }
 
@@ -534,7 +575,7 @@ public class TinEngine
             {
                 builtMesh = fallback;
                 errorMessage = "Quality constraints (max area / min angle) could not be applied. Using CDT without refinement.";
-                return BuildResult(fallback, xyCoords, zValues, segments, boundaryPeelSettings);
+                return BuildResult(fallback, xyCoords, zValues, segments, boundaryPeelSettings, includeEdgeTopology);
             }
         }
 
@@ -547,7 +588,7 @@ public class TinEngine
             {
                 builtMesh = ncFallback;
                 errorMessage = "Using non-conforming CDT without quality constraints. Breakline edges preserved but no refinement.";
-                return BuildResult(ncFallback, xyCoords, zValues, segments, boundaryPeelSettings);
+                return BuildResult(ncFallback, xyCoords, zValues, segments, boundaryPeelSettings, includeEdgeTopology);
             }
         }
 
@@ -582,7 +623,7 @@ public class TinEngine
                     errorMessage = segCount > 0
                         ? "Breakline constraints could not be enforced. Falling back to plain Delaunay."
                         : null;
-                    return BuildResult(mesh, xyCoords, zValues, Array.Empty<int>(), boundaryPeelSettings);
+                    return BuildResult(mesh, xyCoords, zValues, Array.Empty<int>(), boundaryPeelSettings, includeEdgeTopology);
                 }
             }
             catch (OperationCanceledException)
@@ -698,7 +739,8 @@ public class TinEngine
         double[] xyCoords,
         double[] zValues,
         int[] segments,
-        BoundaryTrianglePeelSettings boundaryPeelSettings)
+        BoundaryTrianglePeelSettings boundaryPeelSettings,
+        bool includeEdgeTopology)
     {
         var extracted = TriangleNetExtractor.Extract(mesh);
         int outVertexCount = extracted.VertexCount;
@@ -731,62 +773,70 @@ public class TinEngine
 
         int faceCount = extracted.FaceCount;
         int[] outFaces = extracted.Faces;
-        var topology = IndexedMeshTools.BuildEdgeTopology(outFaces, faceCount);
-        int[] edgeList = topology.Edges;
-        int edgeCount = topology.EdgeCount;
+        IndexedMeshTools.EdgeTopology? topology = null;
+        if (includeEdgeTopology || steinerIndices.Count > 0 || boundaryPeelSettings.Enabled)
+            topology = IndexedMeshTools.BuildEdgeTopology(outFaces, faceCount);
 
         if (steinerIndices.Count > 0)
         {
             InterpolateSteinerZ(outVerts, outVertexCount,
-                                edgeList, edgeCount,
+                                topology!.Edges, topology.EdgeCount,
                                 outFaces, faceCount,
                                 steinerIndices,
                                 xyCoords, zValues, segments);
         }
 
-        // When auto-threshold is requested (maxBoundaryEdgeLength == 0), compute it from the
-        // topology we already built rather than letting Cull rebuild edge topology internally.
-        double maxBoundaryEdgeLength = boundaryPeelSettings.MaxBoundaryEdgeLength;
-        double effectiveBoundaryEdgeLength = boundaryPeelSettings.Enabled && maxBoundaryEdgeLength == 0
-            ? TriangleBoundaryCuller.ComputeAutoThreshold(outVerts, topology)
-            : maxBoundaryEdgeLength;
-        BoundaryTrianglePeelSettings effectivePeelSettings = new()
+        if (boundaryPeelSettings.Enabled)
         {
-            Enabled = boundaryPeelSettings.Enabled,
-            MaxBoundaryEdgeLength = effectiveBoundaryEdgeLength,
-            MaxInteriorAngleDegrees = boundaryPeelSettings.MaxInteriorAngleDegrees,
-            MaxSlopeAngleDegrees = boundaryPeelSettings.MaxSlopeAngleDegrees
-        };
+            // When auto-threshold is requested (maxBoundaryEdgeLength == 0), compute it from the
+            // topology we already built rather than letting Cull rebuild edge topology internally.
+            double maxBoundaryEdgeLength = boundaryPeelSettings.MaxBoundaryEdgeLength;
+            double effectiveBoundaryEdgeLength = maxBoundaryEdgeLength == 0
+                ? TriangleBoundaryCuller.ComputeAutoThreshold(outVerts, topology!)
+                : maxBoundaryEdgeLength;
+            BoundaryTrianglePeelSettings effectivePeelSettings = new()
+            {
+                Enabled = true,
+                MaxBoundaryEdgeLength = effectiveBoundaryEdgeLength,
+                MaxInteriorAngleDegrees = boundaryPeelSettings.MaxInteriorAngleDegrees,
+                MaxSlopeAngleDegrees = boundaryPeelSettings.MaxSlopeAngleDegrees
+            };
 
-        var cullResult = TriangleBoundaryCuller.Cull(
-            outVerts,
-            outVertexCount,
-            outFaces,
-            faceCount,
-            xyCoords,
-            segments,
-            effectivePeelSettings);
+            var cullResult = TriangleBoundaryCuller.Cull(
+                outVerts,
+                outVertexCount,
+                outFaces,
+                faceCount,
+                xyCoords,
+                segments,
+                effectivePeelSettings);
 
-        if (cullResult.Changed)
-        {
-            outVerts = IndexedMeshTools.CompactDoubleData(outVerts, 3, cullResult.NewToOld, cullResult.VertexCount);
-            var compactedSourceIds = new int[cullResult.VertexCount];
-            for (int newIdx = 0; newIdx < cullResult.VertexCount; newIdx++)
-                compactedSourceIds[newIdx] = sourceIds[cullResult.NewToOld[newIdx]];
-            sourceIds = compactedSourceIds;
-            outFaces = cullResult.Faces;
-            outVertexCount = cullResult.VertexCount;
-            faceCount = cullResult.FaceCount;
-            topology = IndexedMeshTools.BuildEdgeTopology(outFaces, faceCount);
-            edgeList = topology.Edges;
-            edgeCount = topology.EdgeCount;
+            if (cullResult.Changed)
+            {
+                outVerts = IndexedMeshTools.CompactDoubleData(outVerts, 3, cullResult.NewToOld, cullResult.VertexCount);
+                var compactedSourceIds = new int[cullResult.VertexCount];
+                for (int newIdx = 0; newIdx < cullResult.VertexCount; newIdx++)
+                    compactedSourceIds[newIdx] = sourceIds[cullResult.NewToOld[newIdx]];
+                sourceIds = compactedSourceIds;
+                outFaces = cullResult.Faces;
+                outVertexCount = cullResult.VertexCount;
+                faceCount = cullResult.FaceCount;
+                topology = includeEdgeTopology
+                    ? IndexedMeshTools.BuildEdgeTopology(outFaces, faceCount)
+                    : null;
+            }
         }
+
+        int[] edgeList = includeEdgeTopology ? topology!.Edges : Array.Empty<int>();
+        int edgeCount = includeEdgeTopology ? topology!.EdgeCount : 0;
+        int[] nakedEdges = includeEdgeTopology ? topology!.NakedEdges : Array.Empty<int>();
+        int nakedEdgeCount = includeEdgeTopology ? topology!.NakedEdgeCount : 0;
 
         return new TinResult(
             outVerts, outVertexCount,
             outFaces, faceCount,
             edgeList, edgeCount,
-            topology.NakedEdges, topology.NakedEdgeCount,
+            nakedEdges, nakedEdgeCount,
             sourceIds);
     }
 

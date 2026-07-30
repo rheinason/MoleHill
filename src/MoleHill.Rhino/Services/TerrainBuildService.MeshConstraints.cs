@@ -362,6 +362,13 @@ internal sealed partial class TerrainBuildService
         double requestedEdgeLength = 0.0,
         double maxArea = 0.0)
     {
+        if (requestedEdgeLength <= 0.0 && maxArea <= 0.0)
+        {
+            return CreateConstraintPolylines(
+                TerrainTriangulationInputBuilder.CreateFlattenedPolylines(curves, tolerance),
+                preserveInputElevation);
+        }
+
         var result = new List<SurfaceRemesher.ConstraintPolyline>();
         foreach (var curve in curves)
         {
@@ -372,6 +379,26 @@ internal sealed partial class TerrainBuildService
                 continue;
 
             result.Add(ToConstraintPolyline(polyline, curve.IsClosed, preserveInputElevation));
+        }
+
+        return result;
+    }
+
+    private static List<SurfaceRemesher.ConstraintPolyline> CreateConstraintPolylines(
+        IReadOnlyList<TerrainTriangulationInputBuilder.FlattenedPolyline> polylines,
+        bool preserveInputElevation)
+    {
+        var result = new List<SurfaceRemesher.ConstraintPolyline>(polylines.Count);
+        foreach (TerrainTriangulationInputBuilder.FlattenedPolyline polyline in polylines)
+        {
+            if (polyline.Points.Length < 6)
+                continue;
+
+            result.Add(new SurfaceRemesher.ConstraintPolyline(
+                polyline.Points,
+                polyline.Points.Length / 3,
+                polyline.IsClosed,
+                preserveInputElevation));
         }
 
         return result;

@@ -43,7 +43,7 @@ internal static class RhinoGeometryConversions
                 result.Faces[i * 3 + 2]);
         }
 
-        NormalizeMeshInPlace(mesh);
+        FinalizeKnownTriangleMesh(mesh);
         return mesh;
     }
 
@@ -200,6 +200,19 @@ internal static class RhinoGeometryConversions
         mesh.Vertices.CombineIdentical(true, true);
         mesh.Vertices.CullUnused();
         mesh.Faces.CullDegenerateFaces();
+        mesh.Normals.ComputeNormals();
+        mesh.UnifyNormals();
+        mesh.Compact();
+        CacheMeshData(mesh, BuildMeshData(mesh));
+        MarkNormalized(mesh);
+    }
+
+    /// <summary>
+    /// Finalizes a triangle-only mesh whose vertices and faces have already been validated by Core.
+    /// Avoids repeating duplicate, unused-vertex, and degenerate-face scans over very large TINs.
+    /// </summary>
+    private static void FinalizeKnownTriangleMesh(Mesh mesh)
+    {
         mesh.Normals.ComputeNormals();
         mesh.UnifyNormals();
         mesh.Compact();

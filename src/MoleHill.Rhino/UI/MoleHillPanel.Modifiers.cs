@@ -150,9 +150,9 @@ public sealed partial class MoleHillPanel
     }
 
     /// <summary>
-    /// Adds the few card rows that can't be expressed by the parameter schema (custom-draw escape hatch):
-    /// the Triangulate work-area picker and the geometry-input boundary-peel block. Runs after the
-    /// schema-generated rows so row order matches the former hand-written cards. No-op for other types.
+    /// Adds the few card rows that need custom placement or can't be expressed by the parameter schema
+    /// (custom-draw escape hatch): the Triangulate work-area picker, its deferred Contour Mode row, and
+    /// the geometry-input boundary-peel group. No-op for other types.
     /// </summary>
     private void AppendBespokeModifierRows(DynamicLayout layout, TerrainDefinition terrain, ModifierDefinition modifier)
     {
@@ -160,10 +160,13 @@ public sealed partial class MoleHillPanel
         {
             case TriangulateModifierDefinition triangulate:
                 layout.AddRow(CreateWorkAreaRow(terrain.TerrainId, modifier.Id));
-                AddBoundaryPeelEditors(layout, terrain, triangulate);
+                Control? contourModeRow = BuildBespokePositionedModifierRow(terrain, modifier, "ContourMode");
+                if (contourModeRow != null)
+                    layout.AddRow(contourModeRow);
+                layout.AddRow(CreateBoundaryPeelSettingsGroup(terrain, triangulate));
                 break;
             case AddGeometryModifierDefinition addGeometry:
-                AddBoundaryPeelEditors(layout, terrain, addGeometry);
+                layout.AddRow(CreateBoundaryPeelSettingsGroup(terrain, addGeometry));
                 break;
             case SculptModifierDefinition:
                 layout.AddRow(CreateSculptSessionRow(terrain.TerrainId, modifier.Id));
@@ -257,17 +260,25 @@ public sealed partial class MoleHillPanel
         };
     }
 
-    private void AddBoundaryPeelEditors(DynamicLayout layout, TerrainDefinition terrain, GeometryInputModifierDefinition modifier)
+    private Control CreateBoundaryPeelSettingsGroup(
+        TerrainDefinition terrain,
+        GeometryInputModifierDefinition modifier)
     {
-        layout.AddRow(CreateCheckEditor(
-            "Peel Border",
+        var settings = new DynamicLayout
+        {
+            DefaultSpacing = new Size(6, 6),
+            Padding = new Padding(6, 2, 6, 6)
+        };
+
+        settings.AddRow(CreateCheckEditor(
+            "Enabled",
             modifier.PeelBoundaryTriangles,
             value => MutateModifier(
                 terrain.TerrainId,
                 modifier.Id,
                 item => ((GeometryInputModifierDefinition)item).PeelBoundaryTriangles = value),
             "Remove unwanted triangles only from the current TIN boundary. Interior faces are not candidates."));
-        layout.AddRow(CreateNumericEditor(
+        settings.AddRow(CreateNumericEditor(
             "Max Edge",
             modifier.MaxBoundaryEdgeLength,
             value => MutateModifier(
@@ -276,7 +287,7 @@ public sealed partial class MoleHillPanel
                 item => ((GeometryInputModifierDefinition)item).MaxBoundaryEdgeLength = value),
             help: "Boundary peeling edge threshold. 0 chooses an automatic threshold from mesh edge lengths.",
             minValue: 0));
-        layout.AddRow(CreateNumericEditor(
+        settings.AddRow(CreateNumericEditor(
             "Max Angle",
             modifier.MaxBoundaryAngleDegrees,
             value => MutateModifier(
@@ -286,7 +297,7 @@ public sealed partial class MoleHillPanel
             help: "Boundary triangles with a longer-than-threshold edge and an interior angle at or above this value are peeled.",
             minValue: 0,
             maxValue: 180));
-        layout.AddRow(CreateNumericEditor(
+        settings.AddRow(CreateNumericEditor(
             "Slope Limit",
             modifier.MaxBoundarySlopeDegrees,
             value => MutateModifier(
@@ -296,6 +307,12 @@ public sealed partial class MoleHillPanel
             help: "Boundary triangles with slope at or above this angle are peeled. 0 disables slope-based peeling.",
             minValue: 0,
             maxValue: 90));
+
+        return new GroupBox
+        {
+            Text = "Peel Border",
+            Content = settings
+        };
     }
 
 }

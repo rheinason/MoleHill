@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Eto.Forms;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
@@ -26,11 +27,30 @@ public sealed partial class MoleHillPanel
         {
             if (parameter.VisibleWhen != null && !parameter.VisibleWhen(modifier))
                 continue;
+            if (IsBespokePositionedModifierParameter(modifier, parameter))
+                continue;
 
             layout.AddRow(BuildSchemaRow(terrain, modifier, parameter));
         }
 
         return true;
+    }
+
+    private static bool IsBespokePositionedModifierParameter(
+        ModifierDefinition modifier,
+        ParameterDescriptor parameter) =>
+        modifier is TriangulateModifierDefinition &&
+        string.Equals(parameter.Key, "ContourMode", StringComparison.Ordinal);
+
+    private Control? BuildBespokePositionedModifierRow(
+        TerrainDefinition terrain,
+        ModifierDefinition modifier,
+        string parameterKey)
+    {
+        ModifierTypeDescriptor? descriptor = TerrainTypeRegistry.ForModifierType(modifier.GetType());
+        ParameterDescriptor? parameter = descriptor?.Parameters.FirstOrDefault(
+            item => string.Equals(item.Key, parameterKey, StringComparison.Ordinal));
+        return parameter == null ? null : BuildSchemaRow(terrain, modifier, parameter);
     }
 
     private Control BuildSchemaRow(TerrainDefinition terrain, ModifierDefinition modifier, ParameterDescriptor parameter)

@@ -17,6 +17,8 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   Boundary`), `GradePadModifierDefinition`, `GradePathModifierDefinition`, `RemeshModifierDefinition`,
   `SmoothModifierDefinition`, `MeshAreasModifierDefinition`, `MeshCollageModifierDefinition`,
   `RetainingWallModifierDefinition`, `InSituStairModifierDefinition`.
+  `TriangulateModifierDefinition.ContourMode` persists the Auto / Constrained / Vertices-only choice;
+  Auto switches dense contour sets to point samples while breaklines and Boundary remain constrained.
 - **Analyses** — `AnalysisDefinition` → `Slope`, `Elevation`, `Contour`, `CutFill`, `Earthwork`,
   section/label analyses, etc.
 - **Objects** — `TerrainObjectDefinition` → `LowestPointObjectDefinition`,

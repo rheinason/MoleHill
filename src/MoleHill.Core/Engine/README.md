@@ -5,6 +5,9 @@ See `docs/architecture.md` for how this fits the pipeline; `docs/file-index.md` 
 
 **Entry point:** `TinEngine.Build` — persistent across solves; `InputSnapshot` fingerprints XY topology
 and Z separately so it can take the cheapest path (Z-only update → incremental edit → full rebuild).
+Callers that only need vertices/faces can disable edge output; the Rhino terrain panel does this so a
+multi-million-face TIN does not build and sort unused edge topology. Incremental-edit dictionaries are
+retained only through 250,000 vertices; larger solves keep exact and Z-only caching without their memory cost.
 
 Key files:
 - `TinEngine.cs` — the caching triangulation engine; `TinResult.cs` its output (flat XYZ + faces + edges).

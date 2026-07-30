@@ -163,4 +163,27 @@ public class TerrainConstraintPreprocessorTests
         Assert.Equal(contourCount, result.Count);
         Assert.InRange(outputCount, inputCount, (int)(inputCount * 1.05));
     }
+
+    [Fact]
+    public void Process_VeryLongCollinearContour_CompletesWithLinearRunScan()
+    {
+        const int pointCount = 250_000;
+        var contour = new double[pointCount * 3];
+        for (int pointIndex = 0; pointIndex < pointCount; pointIndex++)
+        {
+            contour[pointIndex * 3] = pointIndex * 2.0;
+            contour[pointIndex * 3 + 1] = 100.0;
+            contour[pointIndex * 3 + 2] = 25.0;
+        }
+
+        List<double[]> result = TerrainConstraintPreprocessor.Process(
+            Array.Empty<double[]>(),
+            new[] { contour },
+            tolerance: 0.01);
+
+        double[] output = Assert.Single(result);
+        Assert.Equal(pointCount, output.Length / 3);
+        Assert.Equal(contour[0], output[0]);
+        Assert.Equal(contour[^3], output[^3]);
+    }
 }

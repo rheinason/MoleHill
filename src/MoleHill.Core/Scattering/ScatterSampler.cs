@@ -16,6 +16,11 @@ public static class ScatterSampler
     /// runaway density (tiny spacing / huge count) hanging the build.</summary>
     public const int DefaultMaxSamples = 200_000;
 
+    /// <summary>Curve placements are substantially more expensive than region samples because every
+    /// point is projected onto the terrain and turned into instance preview geometry. Keep their
+    /// implicit safety ceiling lower so a tiny spacing cannot stall the interactive rebuild.</summary>
+    public const int DefaultMaxCurveSamples = 20_000;
+
     public static List<(double X, double Y)> Sample(ScatterRequest request)
     {
         var result = new List<(double X, double Y)>();
@@ -328,13 +333,16 @@ public static class ScatterSampler
         if (request is null)
             return result;
 
-        int cap = request.MaxSamples > 0 ? request.MaxSamples : DefaultMaxSamples;
+        int cap = request.MaxSamples > 0 ? request.MaxSamples : DefaultMaxCurveSamples;
         Func<bool> cancelled = request.ShouldCancel ?? (static () => false);
 
         var paths = new List<(double[] Xy, int Count, double[] Cumulative, double Length)>();
         double totalLength = 0.0;
         foreach (double[] path in request.Paths)
         {
+            if (cancelled())
+                return result;
+
             if (path is null || path.Length < 4 || path.Length % 2 != 0)
                 continue;
 
@@ -365,9 +373,10 @@ public static class ScatterSampler
         (double X, double Y, double Tangent) PointOn((double[] Xy, int Count, double[] Cumulative, double Length) path, double s)
         {
             s = Math.Clamp(s, 0.0, path.Length);
-            int i = 1;
-            while (i < path.Count && path.Cumulative[i] < s)
-                i++;
+            int i = Array.BinarySearch(path.Cumulative, s);
+            if (i < 0)
+                i = ~i;
+            i = Math.Max(1, i);
             if (i >= path.Count)
                 i = path.Count - 1;
 

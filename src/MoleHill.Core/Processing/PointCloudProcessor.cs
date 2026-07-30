@@ -9,6 +9,18 @@ namespace MoleHill.Core.Processing;
 /// </summary>
 public static class PointCloudProcessor
 {
+    private struct CellBucket
+    {
+        public int First;
+        public int Last;
+
+        public CellBucket(int index)
+        {
+            First = index;
+            Last = index;
+        }
+    }
+
     [Flags]
     public enum VertexSource : byte
     {
@@ -105,11 +117,16 @@ public static class PointCloudProcessor
         double cellSize = tol * 2;
         double invCell = 1.0 / cellSize;
 
-        // Spatial hash grid for deduplication
-        var grid = new Dictionary<(long, long), List<int>>();
-        var xyList = new List<double>();
-        var zList = new List<double>();
-        var sources = new List<VertexSource>();
+        int inputCapacity = checked(spotCount + breaklineData.VertexCount);
+
+        // Spatial hash grid for deduplication. Each occupied cell stores first/last indices into one
+        // shared linked-index array. The former Dictionary<Cell, List<int>> allocated a separate List
+        // object for nearly every sparse survey cell (millions of tiny objects on large terrains).
+        var grid = new Dictionary<(long, long), CellBucket>(inputCapacity);
+        var nextInCell = new List<int>(inputCapacity);
+        var xyList = new List<double>(checked(inputCapacity * 2));
+        var zList = new List<double>(inputCapacity);
+        var sources = new List<VertexSource>(inputCapacity);
         int duplicates = 0;
         int invalidCoordinates = 0;
         int invalidElevations = 0;
@@ -141,7 +158,7 @@ public static class PointCloudProcessor
                 continue;
             }
 
-            int merged = TryInsert(grid, xyList, zList, sources, x, y, z, invCell, tolSq, true, tolSq, ref duplicates);
+            int merged = TryInsert(grid, nextInCell, xyList, zList, sources, x, y, z, invCell, tolSq, true, tolSq, ref duplicates);
             breaklineRemap[i] = merged;
             sources[merged] |= VertexSource.Breakline;
         }
@@ -168,14 +185,14 @@ public static class PointCloudProcessor
                 continue;
             }
 
-            int merged = TryInsert(grid, xyList, zList, sources, x, y, z, invCell, tolSq, false, 0, ref duplicates);
+            int merged = TryInsert(grid, nextInCell, xyList, zList, sources, x, y, z, invCell, tolSq, false, 0, ref duplicates);
             sources[merged] |= VertexSource.Spot;
         }
 
         int vertexCount = xyList.Count / 2;
 
         // 3. Remap breakline segments
-        var segList = new List<int>();
+        var segList = new List<int>(checked(breaklineData.SegmentCount * 2));
         for (int i = 0; i < breaklineData.SegmentCount; i++)
         {
             if ((i & 255) == 0)
@@ -214,7 +231,8 @@ public static class PointCloudProcessor
 
     /// <param name="checkZ">If true, also require Z proximity for merging (breakline mode).</param>
     /// <param name="zTolSq">Squared Z tolerance when checkZ is true.</param>
-    private static int TryInsert(Dictionary<(long, long), List<int>> grid,
+    private static int TryInsert(Dictionary<(long, long), CellBucket> grid,
+                                  List<int> nextInCell,
                                   List<double> xyList, List<double> zList, List<VertexSource> sources,
                                   double x, double y, double z,
                                   double invCell, double tolSq,
@@ -229,9 +247,10 @@ public static class PointCloudProcessor
             for (long dy = -1; dy <= 1; dy++)
             {
                 var key = (cx + dx, cy + dy);
-                if (grid.TryGetValue(key, out var indices))
+                if (grid.TryGetValue(key, out CellBucket bucket))
                 {
-                    foreach (int existingIdx in indices)
+                    int existingIdx = bucket.First;
+                    while (existingIdx >= 0)
                     {
                         double ex = xyList[existingIdx * 2];
                         double ey = xyList[existingIdx * 2 + 1];
@@ -251,6 +270,8 @@ public static class PointCloudProcessor
                             duplicates++;
                             return existingIdx;
                         }
+
+                        existingIdx = nextInCell[existingIdx];
                     }
                 }
             }
@@ -259,12 +280,17 @@ public static class PointCloudProcessor
         // New unique point
         int newIdx = xyList.Count / 2;
         var cellKey = (cx, cy);
-        if (!grid.TryGetValue(cellKey, out var list))
+        nextInCell.Add(-1);
+        if (grid.TryGetValue(cellKey, out CellBucket existingBucket))
         {
-            list = new List<int>();
-            grid[cellKey] = list;
+            nextInCell[existingBucket.Last] = newIdx;
+            existingBucket.Last = newIdx;
+            grid[cellKey] = existingBucket;
         }
-        list.Add(newIdx);
+        else
+        {
+            grid.Add(cellKey, new CellBucket(newIdx));
+        }
 
         xyList.Add(x);
         xyList.Add(y);

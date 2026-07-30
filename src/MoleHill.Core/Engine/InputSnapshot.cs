@@ -29,7 +29,8 @@ public sealed class InputSnapshot
         QualitySettings quality,
         bool useConvexHull = true,
         double maxBoundaryEdgeLength = 0,
-        BoundaryTrianglePeelSettings? boundaryPeelSettings = null)
+        BoundaryTrianglePeelSettings? boundaryPeelSettings = null,
+        bool includeEdgeTopology = true)
     {
         var xyHasher = new XxHash64Builder();
         xyHasher.AddBytes(MemoryMarshal.AsBytes(xyCoords.AsSpan()));
@@ -46,6 +47,7 @@ public sealed class InputSnapshot
         xyHasher.Add(settings.MaxBoundaryEdgeLength);
         xyHasher.Add(settings.MaxInteriorAngleDegrees);
         xyHasher.Add(settings.MaxSlopeAngleDegrees);
+        xyHasher.Add(includeEdgeTopology);
 
         return xyHasher.ToUInt64();
     }

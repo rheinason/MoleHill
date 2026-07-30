@@ -58,6 +58,90 @@ public class TinEngineTests
     }
 
     [Fact]
+    public void Build_WithoutEdgeTopology_ReturnsFacesWithoutEdgeArrays()
+    {
+        var engine = new TinEngine();
+        double[] xy =
+        {
+            0.0, 0.0,
+            10.0, 0.0,
+            10.0, 10.0,
+            0.0, 10.0
+        };
+        double[] z = { 0.0, 1.0, 2.0, 3.0 };
+
+        TinResult? result = engine.Build(
+            xy,
+            z,
+            Array.Empty<int>(),
+            QualitySettings.None,
+            out string? error,
+            useConvexHull: true,
+            boundaryPeelSettings: BoundaryTrianglePeelSettings.Disabled,
+            includeEdgeTopology: false);
+
+        Assert.Null(error);
+        Assert.NotNull(result);
+        Assert.Equal(2, result!.FaceCount);
+        Assert.Equal(0, result.EdgeCount);
+        Assert.Empty(result.Edges);
+        Assert.Equal(0, result.NakedEdgeCount);
+        Assert.Empty(result.NakedEdges);
+    }
+
+    [Fact]
+    public void Build_ChangingEdgeTopologyMode_DoesNotReuseIncompatibleCachedResult()
+    {
+        var engine = new TinEngine();
+        double[] xy =
+        {
+            0.0, 0.0,
+            10.0, 0.0,
+            10.0, 10.0,
+            0.0, 10.0
+        };
+        double[] z = { 0.0, 1.0, 2.0, 3.0 };
+
+        TinResult? withEdges = engine.Build(
+            xy,
+            z,
+            Array.Empty<int>(),
+            QualitySettings.None,
+            out string? withEdgesError,
+            useConvexHull: true,
+            boundaryPeelSettings: BoundaryTrianglePeelSettings.Disabled,
+            includeEdgeTopology: true);
+        TinResult? withoutEdges = engine.Build(
+            xy,
+            z,
+            Array.Empty<int>(),
+            QualitySettings.None,
+            out string? withoutEdgesError,
+            useConvexHull: true,
+            boundaryPeelSettings: BoundaryTrianglePeelSettings.Disabled,
+            includeEdgeTopology: false);
+        TinResult? withoutEdgesCached = engine.Build(
+            xy,
+            z,
+            Array.Empty<int>(),
+            QualitySettings.None,
+            out string? cachedError,
+            useConvexHull: true,
+            boundaryPeelSettings: BoundaryTrianglePeelSettings.Disabled,
+            includeEdgeTopology: false);
+
+        Assert.Null(withEdgesError);
+        Assert.Null(withoutEdgesError);
+        Assert.Null(cachedError);
+        Assert.NotNull(withEdges);
+        Assert.NotNull(withoutEdges);
+        Assert.NotSame(withEdges, withoutEdges);
+        Assert.True(withEdges!.EdgeCount > 0);
+        Assert.Equal(0, withoutEdges!.EdgeCount);
+        Assert.Same(withoutEdges, withoutEdgesCached);
+    }
+
+    [Fact]
     public void Build_AllNaNInput_PreservesUnresolvedVertexZAsNaN()
     {
         var engine = new TinEngine();

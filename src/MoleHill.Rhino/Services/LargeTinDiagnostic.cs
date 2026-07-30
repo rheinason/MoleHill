@@ -49,7 +49,8 @@ internal static class LargeTinDiagnostic
                     QualitySettings.None,
                     out _,
                     useConvexHull: true,
-                    boundaryPeelSettings: BoundaryTrianglePeelSettings.Default));
+                    boundaryPeelSettings: BoundaryTrianglePeelSettings.Default,
+                    includeEdgeTopology: false));
             if (result == null)
                 throw new InvalidOperationException("The synthetic TIN build returned no result.");
 

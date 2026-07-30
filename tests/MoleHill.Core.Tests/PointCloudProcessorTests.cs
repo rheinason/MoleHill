@@ -79,4 +79,26 @@ public class PointCloudProcessorTests
             "2 invalid points skipped (1 with invalid XY, 1 with invalid Z)",
             merged.DescribeInvalidPoints());
     }
+
+    [Fact]
+    public void Merge_MultipleCandidatesInOneCell_PreservesFirstMatchOrder()
+    {
+        double[] spotXyz =
+        {
+            0.0, 0.0, 10.0,
+            1.5, 0.0, 20.0,
+            0.75, 0.0, 30.0
+        };
+
+        var merged = PointCloudProcessor.Merge(
+            spotXyz,
+            spotCount: 3,
+            new BreaklineDiscretizer.BreaklineData(Array.Empty<double>(), 0, Array.Empty<int>(), 0),
+            tolerance: 1.0);
+
+        Assert.Equal(2, merged.VertexCount);
+        Assert.Equal(1, merged.DuplicatesRemoved);
+        Assert.Equal(new[] { 0.0, 0.0, 1.5, 0.0 }, merged.XyCoords);
+        Assert.Equal(new[] { 10.0, 20.0 }, merged.ZValues);
+    }
 }
