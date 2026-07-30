@@ -219,6 +219,48 @@ public class TinEngineTests
     }
 
     [Fact]
+    public void Build_AutoBoundaryPeelWithoutEdgeOutput_MatchesGenericTopologyOutput()
+    {
+        double[] xy =
+        {
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 0.02,
+            100.0, 0.0001
+        };
+        double[] z = { 0.0, 0.0, 0.0, 0.0 };
+
+        TinResult? withEdges = new TinEngine().Build(
+            xy,
+            z,
+            Array.Empty<int>(),
+            QualitySettings.None,
+            out string? withEdgesError,
+            useConvexHull: true,
+            maxBoundaryEdgeLength: 0,
+            includeEdgeTopology: true);
+        TinResult? withoutEdges = new TinEngine().Build(
+            xy,
+            z,
+            Array.Empty<int>(),
+            QualitySettings.None,
+            out string? withoutEdgesError,
+            useConvexHull: true,
+            maxBoundaryEdgeLength: 0,
+            includeEdgeTopology: false);
+
+        Assert.Null(withEdgesError);
+        Assert.Null(withoutEdgesError);
+        Assert.NotNull(withEdges);
+        Assert.NotNull(withoutEdges);
+        Assert.Equal(withEdges!.Vertices, withoutEdges!.Vertices);
+        Assert.Equal(withEdges.SourceIds, withoutEdges.SourceIds);
+        Assert.Equal(withEdges.Faces, withoutEdges.Faces);
+        Assert.Empty(withoutEdges.Edges);
+        Assert.Empty(withoutEdges.NakedEdges);
+    }
+
+    [Fact]
     public void Build_MaxBoundaryEdgeLengthChange_InvalidatesCachedTopologyResult()
     {
         var engine = new TinEngine();

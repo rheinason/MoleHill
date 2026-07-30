@@ -742,7 +742,9 @@ public class TinEngine
         BoundaryTrianglePeelSettings boundaryPeelSettings,
         bool includeEdgeTopology)
     {
-        var extracted = TriangleNetExtractor.Extract(mesh);
+        var extracted = TriangleNetExtractor.Extract(
+            mesh,
+            includeNativeAdjacency: boundaryPeelSettings.Enabled);
         int outVertexCount = extracted.VertexCount;
         var outVerts = new double[outVertexCount * 3];
         var sourceIds = extracted.SourceIds;
@@ -773,9 +775,15 @@ public class TinEngine
 
         int faceCount = extracted.FaceCount;
         int[] outFaces = extracted.Faces;
+        TriangleNetExtractor.NativeAdjacency? nativeAdjacency = extracted.Adjacency;
+        bool canUseNativeAdjacency = nativeAdjacency?.IsValid == true;
         IndexedMeshTools.EdgeTopology? topology = null;
-        if (includeEdgeTopology || steinerIndices.Count > 0 || boundaryPeelSettings.Enabled)
+        if (includeEdgeTopology ||
+            steinerIndices.Count > 0 ||
+            (boundaryPeelSettings.Enabled && !canUseNativeAdjacency))
+        {
             topology = IndexedMeshTools.BuildEdgeTopology(outFaces, faceCount);
+        }
 
         if (steinerIndices.Count > 0)
         {
@@ -792,7 +800,13 @@ public class TinEngine
             // topology we already built rather than letting Cull rebuild edge topology internally.
             double maxBoundaryEdgeLength = boundaryPeelSettings.MaxBoundaryEdgeLength;
             double effectiveBoundaryEdgeLength = maxBoundaryEdgeLength == 0
-                ? TriangleBoundaryCuller.ComputeAutoThreshold(outVerts, topology!)
+                ? topology != null
+                    ? TriangleBoundaryCuller.ComputeAutoThreshold(outVerts, topology)
+                    : TriangleBoundaryCuller.ComputeAutoThreshold(
+                        outVerts,
+                        outFaces,
+                        faceCount,
+                        nativeAdjacency!)
                 : maxBoundaryEdgeLength;
             BoundaryTrianglePeelSettings effectivePeelSettings = new()
             {
@@ -802,14 +816,24 @@ public class TinEngine
                 MaxSlopeAngleDegrees = boundaryPeelSettings.MaxSlopeAngleDegrees
             };
 
-            var cullResult = TriangleBoundaryCuller.Cull(
-                outVerts,
-                outVertexCount,
-                outFaces,
-                faceCount,
-                xyCoords,
-                segments,
-                effectivePeelSettings);
+            TriangleBoundaryCuller.Result cullResult = canUseNativeAdjacency
+                ? TriangleBoundaryCuller.CullUsingNativeAdjacency(
+                    outVerts,
+                    outVertexCount,
+                    outFaces,
+                    faceCount,
+                    xyCoords,
+                    segments,
+                    effectivePeelSettings,
+                    nativeAdjacency!)
+                : TriangleBoundaryCuller.Cull(
+                    outVerts,
+                    outVertexCount,
+                    outFaces,
+                    faceCount,
+                    xyCoords,
+                    segments,
+                    effectivePeelSettings);
 
             if (cullResult.Changed)
             {

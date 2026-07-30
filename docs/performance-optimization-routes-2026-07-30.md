@@ -28,6 +28,9 @@ The original review made no source changes. The follow-up measurement work descr
 this document adds benchmark and opt-in diagnostic instrumentation only; it does not change production
 geometry behaviour.
 
+Implementation work is recorded route-by-route below. Each route is validated and committed before the
+next begins.
+
 ## Review scope
 
 The review covered:
@@ -165,6 +168,34 @@ The native figure includes materializing triangle references, building the id ma
 the triangle references today, so a fused extractor could reuse part of that allocation. Native
 adjacency is now the preferred Route 1 prototype; packed generic edge records remain the fallback and
 comparison baseline.
+
+### Route 1 implementation result
+
+Route 1 now retains Triangle.NET triangle references during extraction, builds a dense
+triangle-id-to-face map when ids are reasonably dense, and validates every neighbour as reciprocal and
+edge-sharing. The TIN builder uses the validated graph for unique-edge median traversal and incremental
+peel exposure. It falls back to the previous generic topology/dictionary path when validation fails,
+while callers requesting edge output still receive the existing generic edge arrays.
+
+On the same 1.20 million-vertex / 2.40 million-face input:
+
+| Phase | Previous path | Native-adjacency path |
+|---|---:|---:|
+| Culler elapsed | 1,459 ms | 91 ms |
+| Culler allocation | 475,776,784 bytes | 72,084,616 bytes |
+| Initial boundary scan | 323 ms | 54 ms |
+| Actual peel | 0.8 ms | 0.3 ms |
+| Compaction | 37 ms | 36 ms |
+
+The native result matched the dictionary result exactly: threshold, changed flag, compacted face
+array, old/new vertex map, 1,201,507 output vertices, and 2,402,475 output faces. The native
+exact-median pass took 341 ms versus 347 ms for the generic-topology median and allocated the same
+28.84 MB length buffer.
+
+Adjacency retention and validation increased extraction from the earlier approximately 554 ms
+reference to 704 ms in this run, but removed the 403 ms generic topology build and almost all culler
+preparation. Three complete `TinEngine.Build` runs took 3,382–3,535 ms versus the earlier 4,428 ms
+reference, a measured approximately 20–24% cold-build reduction with identical output shape.
 
 ### Grade Path phase and allocation profile
 
@@ -620,9 +651,9 @@ benchmark.
 
 ### 1. Production-shaped TIN adjacency/peel
 
-Correct the benchmark first, then compare native Triangle.NET adjacency with packed edge references.
-Implement the smallest representation that preserves current face/vertex output and supports
-Steiner/topology fallbacks.
+**Implemented.** Native Triangle.NET adjacency is validated and used for exact-threshold traversal and
+peeling, with the generic topology path retained for invalid adjacency, Steiner interpolation needs,
+and requested edge output.
 
 ### 2. Grade Path conform-split allocation
 
@@ -668,7 +699,7 @@ Implemented and ready to run inside Rhino:
 
 Validation of the follow-up harness:
 
-- all 435 Core Release tests pass;
+- all 437 Core Release tests pass after Route 1;
 - the Rhino Release diagnostic build succeeds with zero warnings or errors; and
 - no Rhino slot was connected during this pass, so the enhanced command was not run against an
   active model.

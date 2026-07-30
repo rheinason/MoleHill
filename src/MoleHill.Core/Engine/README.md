@@ -6,8 +6,11 @@ See `docs/architecture.md` for how this fits the pipeline; `docs/file-index.md` 
 **Entry point:** `TinEngine.Build` — persistent across solves; `InputSnapshot` fingerprints XY topology
 and Z separately so it can take the cheapest path (Z-only update → incremental edit → full rebuild).
 Callers that only need vertices/faces can disable edge output; the Rhino terrain panel does this so a
-multi-million-face TIN does not build and sort unused edge topology. Incremental-edit dictionaries are
-retained only through 250,000 vertices; larger solves keep exact and Z-only caching without their memory cost.
+multi-million-face TIN does not build and sort unused edge topology. Boundary peeling retains and validates
+Triangle.NET's native face adjacency during extraction, then uses it for exact-median edge traversal and
+incremental exposure; invalid/native-incompatible meshes fall back to the generic edge-map culler.
+Incremental-edit dictionaries are retained only through 250,000 vertices; larger solves keep exact and Z-only
+caching without their memory cost.
 
 Key files:
 - `TinEngine.cs` — the caching triangulation engine; `TinResult.cs` its output (flat XYZ + faces + edges).
@@ -16,7 +19,8 @@ Key files:
 - `TriangulationHelper.cs` — shared 5-tier CDT fallback chain (used here, PadGrader, Remesh, splitters).
 - `TinBoundaryPreparer.cs` — turns an optional explicit boundary into a constraint loop; without one,
   Triangle.NET uses its ordinary convex hull even when open contour or breakline segments are present.
-- `TriangleNetExtractor.cs` — Triangle.NET `IMesh` → flat arrays, preserving `Vertex.ID` as `SourceId`.
+- `TriangleNetExtractor.cs` — Triangle.NET `IMesh` → flat arrays, preserving `Vertex.ID` as `SourceId`;
+  optionally retains a dense-id/native-reference adjacency view and validates reciprocal shared edges.
 - `SurfaceRemesher.cs` — global **constrained-Delaunay** rebuild with constraints. Rebuilds the region
   from scratch (every constraint incl. wall rails becomes a hard edge — structurally cannot cross a
   wall); also home of the shared `DetectCreaseEdges`. Used by grading rebuilds, the GH Remesh component,

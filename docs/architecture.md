@@ -54,6 +54,10 @@ XY topology and Z separately (XxHash64) and takes the cheapest path: **Z-only up
 chain). Edge topology is optional: the Rhino panel consumes only vertices/faces and omits the expensive
 edge sort. Incremental-edit coordinate indexes are retained through 250,000 vertices; larger meshes keep
 exact-result and Z-only caching without retaining several multi-million-entry dictionaries.
+When boundary peeling is enabled, extraction retains Triangle.NET's native triangle references and a
+dense-id face map, validates reciprocal shared-edge adjacency, and uses that graph both for exact-median
+unique-edge traversal and incremental boundary exposure. Invalid adjacency falls back to the generic
+sorted-edge/dictionary path; callers requesting output edge arrays still receive the generic topology.
 `TinBoundaryPreparer` turns an optional user boundary into an explicit constraint loop; open
 contour/breakline endpoints never infer a perimeter, so an absent boundary uses the ordinary convex hull.
 `ConformingDelaunay=true` is avoided (fails on tight parallel segments).

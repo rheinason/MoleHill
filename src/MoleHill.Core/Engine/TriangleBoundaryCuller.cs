@@ -2,6 +2,9 @@ using System.Diagnostics;
 
 namespace MoleHill.Core.Engine;
 
+/// <summary>
+/// Removes qualifying boundary triangles using validated Triangle.NET adjacency or a generic edge-map fallback.
+/// </summary>
 internal static class TriangleBoundaryCuller
 {
     internal const double DegenerateBoundaryAngleDegrees = BoundaryTrianglePeelSettings.DefaultMaxInteriorAngleDegrees;
@@ -41,6 +44,10 @@ internal static class TriangleBoundaryCuller
         public double EdgeMapsMilliseconds { get; internal set; }
 
         public long EdgeMapsAllocatedBytes { get; internal set; }
+
+        public double AdjacencySetupMilliseconds { get; internal set; }
+
+        public long AdjacencySetupAllocatedBytes { get; internal set; }
 
         public double SeedQueueMilliseconds { get; internal set; }
 
@@ -305,6 +312,205 @@ internal static class TriangleBoundaryCuller
         return new Result(true, compact.Faces, compact.FaceCount, compact.NewToOld, compact.VertexCount);
     }
 
+    internal static Result CullUsingNativeAdjacency(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        double[] inputXy,
+        int[] inputSegments,
+        BoundaryTrianglePeelSettings? settings,
+        TriangleNetExtractor.NativeAdjacency adjacency,
+        PerformanceTimings? performanceTimings = null)
+    {
+        if (!adjacency.IsValid || adjacency.FaceCount != faceCount)
+        {
+            return Cull(
+                vertices,
+                vertexCount,
+                faces,
+                faceCount,
+                inputXy,
+                inputSegments,
+                settings,
+                performanceTimings);
+        }
+
+        Stopwatch? phaseTimer = performanceTimings != null ? Stopwatch.StartNew() : null;
+        long phaseAllocatedBefore = performanceTimings != null
+            ? GC.GetTotalAllocatedBytes(precise: true)
+            : 0;
+        settings ??= BoundaryTrianglePeelSettings.Default;
+        if (faceCount <= 0 || !settings.Enabled || settings.MaxBoundaryEdgeLength < 0)
+            return new Result(false, faces, faceCount, Array.Empty<int>(), vertexCount);
+
+        double effectiveThreshold = settings.MaxBoundaryEdgeLength > 0
+            ? settings.MaxBoundaryEdgeLength
+            : ComputeAutoThreshold(vertices, faces, faceCount, adjacency);
+        if (performanceTimings != null)
+        {
+            performanceTimings.AutoThresholdMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.AutoThresholdAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
+
+        bool canUseEdgeAngle =
+            effectiveThreshold > 0 &&
+            !double.IsNaN(effectiveThreshold) &&
+            !double.IsInfinity(effectiveThreshold) &&
+            settings.MaxInteriorAngleDegrees > 0 &&
+            !double.IsNaN(settings.MaxInteriorAngleDegrees) &&
+            !double.IsInfinity(settings.MaxInteriorAngleDegrees);
+        bool canUseSlope =
+            settings.MaxSlopeAngleDegrees > 0 &&
+            !double.IsNaN(settings.MaxSlopeAngleDegrees) &&
+            !double.IsInfinity(settings.MaxSlopeAngleDegrees);
+
+        if (!canUseEdgeAngle && !canUseSlope && inputSegments.Length == 0)
+            return new Result(false, faces, faceCount, Array.Empty<int>(), vertexCount);
+
+        var spatialIndex = ConstraintSpatialIndex.Build(inputXy, inputSegments);
+        if (performanceTimings != null)
+        {
+            performanceTimings.ConstraintIndexMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.ConstraintIndexAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
+
+        var active = new bool[faceCount];
+        Array.Fill(active, true);
+        int activeFaceCount = faceCount;
+        var inQueue = new bool[faceCount];
+        var queue = new Queue<int>();
+        if (performanceTimings != null)
+        {
+            performanceTimings.AdjacencySetupMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.AdjacencySetupAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
+
+        for (int face = 0; face < faceCount; face++)
+        {
+            int i0 = faces[face * 3];
+            int i1 = faces[face * 3 + 1];
+            int i2 = faces[face * 3 + 2];
+            if (HasNativeNakedEdge(adjacency, face) &&
+                ShouldPeelBoundaryTriangle(
+                    vertices,
+                    i0,
+                    i1,
+                    i2,
+                    spatialIndex,
+                    effectiveThreshold,
+                    canUseEdgeAngle,
+                    canUseSlope,
+                    settings))
+            {
+                queue.Enqueue(face);
+                inQueue[face] = true;
+            }
+        }
+        if (performanceTimings != null)
+        {
+            performanceTimings.InitialQueuedFaceCount = queue.Count;
+            performanceTimings.SeedQueueMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.SeedQueueAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
+
+        bool changed = false;
+        while (queue.Count > 0)
+        {
+            int face = queue.Dequeue();
+            inQueue[face] = false;
+
+            if (!active[face])
+                continue;
+
+            if (activeFaceCount <= 1)
+                break;
+
+            active[face] = false;
+            changed = true;
+            activeFaceCount--;
+
+            for (int localEdge = 0; localEdge < 3; localEdge++)
+            {
+                int neighbor = adjacency.GetNeighborFace(face, localEdge);
+                if (neighbor < 0 || !active[neighbor] || inQueue[neighbor])
+                    continue;
+
+                int n0 = faces[neighbor * 3];
+                int n1 = faces[neighbor * 3 + 1];
+                int n2 = faces[neighbor * 3 + 2];
+                if (ShouldPeelBoundaryTriangle(
+                    vertices,
+                    n0,
+                    n1,
+                    n2,
+                    spatialIndex,
+                    effectiveThreshold,
+                    canUseEdgeAngle,
+                    canUseSlope,
+                    settings))
+                {
+                    queue.Enqueue(neighbor);
+                    inQueue[neighbor] = true;
+                }
+            }
+        }
+        if (performanceTimings != null)
+        {
+            performanceTimings.RemovedFaceCount = faceCount - activeFaceCount;
+            performanceTimings.PeelMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.PeelAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+            phaseAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+            phaseTimer.Restart();
+        }
+
+        if (!changed)
+            return new Result(false, faces, faceCount, Array.Empty<int>(), vertexCount);
+
+        var filteredFaces = new int[activeFaceCount * 3];
+        int nextFace = 0;
+        for (int face = 0; face < faceCount; face++)
+        {
+            if (!active[face])
+                continue;
+
+            Array.Copy(faces, face * 3, filteredFaces, nextFace * 3, 3);
+            nextFace++;
+        }
+
+        var compact = IndexedMeshTools.Compact(vertexCount, filteredFaces, activeFaceCount);
+        if (performanceTimings != null)
+        {
+            performanceTimings.CompactionMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
+            performanceTimings.CompactionAllocatedBytes =
+                GC.GetTotalAllocatedBytes(precise: true) - phaseAllocatedBefore;
+        }
+
+        return new Result(true, compact.Faces, compact.FaceCount, compact.NewToOld, compact.VertexCount);
+    }
+
+    private static bool HasNativeNakedEdge(
+        TriangleNetExtractor.NativeAdjacency adjacency,
+        int face)
+    {
+        return adjacency.GetNeighborFace(face, 0) < 0 ||
+               adjacency.GetNeighborFace(face, 1) < 0 ||
+               adjacency.GetNeighborFace(face, 2) < 0;
+    }
+
     private static bool ShouldPeelBoundaryTriangle(
         double[] vertices,
         int i0,
@@ -341,6 +547,44 @@ internal static class TriangleBoundaryCuller
             int b = topology.Edges[i * 2 + 1];
             lengths[i] = Distance2D(vertices, a, b);
         }
+
+        Array.Sort(lengths);
+        double median = lengths[lengths.Length / 2];
+        return median * 4.0;
+    }
+
+    internal static double ComputeAutoThreshold(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        TriangleNetExtractor.NativeAdjacency adjacency)
+    {
+        if (!adjacency.IsValid || adjacency.FaceCount != faceCount || faceCount == 0)
+            return 0;
+
+        int interiorEdgeReferences = checked((faceCount * 3) - adjacency.BoundaryEdgeCount);
+        if ((interiorEdgeReferences & 1) != 0)
+            return 0;
+
+        int uniqueEdgeCount = checked(adjacency.BoundaryEdgeCount + (interiorEdgeReferences / 2));
+        var lengths = new double[uniqueEdgeCount];
+        int lengthCount = 0;
+        for (int face = 0; face < faceCount; face++)
+        {
+            for (int localEdge = 0; localEdge < 3; localEdge++)
+            {
+                int neighbor = adjacency.GetNeighborFace(face, localEdge);
+                if (neighbor >= 0 && face > neighbor)
+                    continue;
+
+                int a = faces[face * 3 + localEdge];
+                int b = faces[face * 3 + ((localEdge + 1) % 3)];
+                lengths[lengthCount++] = Distance2D(vertices, a, b);
+            }
+        }
+
+        if (lengthCount != uniqueEdgeCount)
+            return 0;
 
         Array.Sort(lengths);
         double median = lengths[lengths.Length / 2];

@@ -114,11 +114,19 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
         sw.Stop();
         output.WriteLine($"1. Triangulate:              {sw.ElapsedMilliseconds}ms  ({mesh.Triangles.Count:N0} triangles)");
 
-        // TriangleNetExtractor.Extract
+        // TriangleNetExtractor.Extract with the adjacency retained by the optimized production path.
+        long extractedAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
         sw.Restart();
-        var extracted = TriangleNetExtractor.Extract(mesh);
+        var extracted = TriangleNetExtractor.Extract(mesh, includeNativeAdjacency: true);
         sw.Stop();
-        output.WriteLine($"2. TriangleNetExtractor:     {sw.ElapsedMilliseconds}ms  ({extracted.VertexCount:N0} verts, {extracted.FaceCount:N0} faces)");
+        long extractedAllocated =
+            GC.GetTotalAllocatedBytes(precise: true) - extractedAllocatedBefore;
+        output.WriteLine(
+            $"2. TriangleNetExtractor + adjacency validation: {sw.ElapsedMilliseconds}ms  " +
+            $"({extracted.VertexCount:N0} verts, {extracted.FaceCount:N0} faces, " +
+            $"allocated={extractedAllocated:N0}, valid={extracted.Adjacency?.IsValid})");
+        Assert.NotNull(extracted.Adjacency);
+        Assert.True(extracted.Adjacency!.IsValid);
 
         // Z lookup (sourceIds)
         sw.Restart();
@@ -127,7 +135,7 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
         var steinerIndices = new List<int>();
         for (int i = 0; i < extracted.VertexCount; i++)
         {
-            outVerts[i * 3]     = extracted.Xy[i * 2];
+            outVerts[i * 3] = extracted.Xy[i * 2];
             outVerts[i * 3 + 1] = extracted.Xy[i * 2 + 1];
             int srcId = extracted.SourceIds[i];
             if (srcId >= 0 && srcId < inputVertexCount && !double.IsNaN(merged.ZValues[srcId]))
@@ -141,7 +149,8 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
         sw.Stop();
         output.WriteLine($"3. Z lookup:                 {sw.ElapsedMilliseconds}ms  ({steinerIndices.Count} Steiners)");
 
-        // BuildEdgeTopology (first call)
+        // Generic topology retained here as the old-path comparison baseline. The optimized
+        // includeEdgeTopology=false production path no longer builds it.
         long topologyAllocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
         sw.Restart();
         var topology = IndexedMeshTools.BuildEdgeTopology(extracted.Faces, extracted.FaceCount);
@@ -149,25 +158,39 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
         long topologyAllocated =
             GC.GetTotalAllocatedBytes(precise: true) - topologyAllocatedBefore;
         output.WriteLine(
-            $"4. BuildEdgeTopology (1):    {sw.ElapsedMilliseconds}ms  " +
+            $"4a. Generic BuildEdgeTopology baseline: {sw.ElapsedMilliseconds}ms  " +
             $"({topology.EdgeCount:N0} edges, {topology.NakedEdgeCount:N0} naked, " +
             $"allocated={topologyAllocated:N0})");
 
-        // Exact automatic threshold from the topology already built above. This matches TinEngine's
-        // production path and avoids the benchmark-only topology rebuild caused by Cull(..., 0).
+        // Compare the exact threshold from generic topology with the native-adjacency unique-edge
+        // traversal used by the optimized production path.
         sw.Restart();
         long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
         double autoThreshold = TriangleBoundaryCuller.ComputeAutoThreshold(outVerts, topology);
         long autoThresholdAllocated = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
         sw.Stop();
         output.WriteLine(
-            $"5. Exact median threshold:    {sw.ElapsedMilliseconds}ms  " +
+            $"4b. Generic exact median threshold: {sw.ElapsedMilliseconds}ms  " +
             $"threshold={autoThreshold:G6}, allocated={autoThresholdAllocated:N0}");
+
+        sw.Restart();
+        allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+        double nativeAutoThreshold = TriangleBoundaryCuller.ComputeAutoThreshold(
+            outVerts,
+            extracted.Faces,
+            extracted.FaceCount,
+            extracted.Adjacency);
+        long nativeThresholdAllocated =
+            GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+        sw.Stop();
+        output.WriteLine(
+            $"5. Native exact median threshold: {sw.ElapsedMilliseconds}ms  " +
+            $"threshold={nativeAutoThreshold:G6}, allocated={nativeThresholdAllocated:N0}");
 
         var peelSettings = new BoundaryTrianglePeelSettings
         {
             Enabled = true,
-            MaxBoundaryEdgeLength = autoThreshold,
+            MaxBoundaryEdgeLength = nativeAutoThreshold,
             MaxInteriorAngleDegrees = BoundaryTrianglePeelSettings.Default.MaxInteriorAngleDegrees,
             MaxSlopeAngleDegrees = BoundaryTrianglePeelSettings.Default.MaxSlopeAngleDegrees
         };
@@ -183,7 +206,7 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
         sw.Stop();
         long cullAllocated = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
         output.WriteLine(
-            $"6. BoundaryCuller (production-shaped): {sw.ElapsedMilliseconds}ms  " +
+            $"6a. Dictionary BoundaryCuller baseline: {sw.ElapsedMilliseconds}ms  " +
             $"changed={cullResult.Changed}, faces={cullResult.FaceCount:N0}, allocated={cullAllocated:N0}");
         output.WriteLine(
             $"   constraint index={cullTimings.ConstraintIndexMilliseconds:0.0}ms; " +
@@ -198,9 +221,48 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
             $"seed={cullTimings.SeedQueueAllocatedBytes:N0}; " +
             $"peel={cullTimings.PeelAllocatedBytes:N0}; " +
             $"compaction={cullTimings.CompactionAllocatedBytes:N0} bytes");
-        output.WriteLine("   includeEdgeTopology=false: no post-cull topology materialization.");
+        var nativeCullTimings = new TriangleBoundaryCuller.PerformanceTimings();
+        allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+        sw.Restart();
+        var nativeCullResult = TriangleBoundaryCuller.CullUsingNativeAdjacency(
+            outVerts,
+            extracted.VertexCount,
+            extracted.Faces,
+            extracted.FaceCount,
+            merged.XyCoords,
+            merged.Segments,
+            peelSettings,
+            extracted.Adjacency,
+            nativeCullTimings);
+        sw.Stop();
+        long nativeCullAllocated =
+            GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+        output.WriteLine(
+            $"6b. Native-adjacency BoundaryCuller: {sw.ElapsedMilliseconds}ms  " +
+            $"changed={nativeCullResult.Changed}, faces={nativeCullResult.FaceCount:N0}, " +
+            $"allocated={nativeCullAllocated:N0}");
+        output.WriteLine(
+            $"   adjacency setup={nativeCullTimings.AdjacencySetupMilliseconds:0.0}ms; " +
+            $"seed={nativeCullTimings.SeedQueueMilliseconds:0.0}ms " +
+            $"({nativeCullTimings.InitialQueuedFaceCount:N0} queued); " +
+            $"peel={nativeCullTimings.PeelMilliseconds:0.0}ms " +
+            $"({nativeCullTimings.RemovedFaceCount:N0} removed); " +
+            $"compaction={nativeCullTimings.CompactionMilliseconds:0.0}ms");
+        output.WriteLine(
+            $"   phase allocations: adjacency setup={nativeCullTimings.AdjacencySetupAllocatedBytes:N0}; " +
+            $"seed={nativeCullTimings.SeedQueueAllocatedBytes:N0}; " +
+            $"peel={nativeCullTimings.PeelAllocatedBytes:N0}; " +
+            $"compaction={nativeCullTimings.CompactionAllocatedBytes:N0} bytes");
+        output.WriteLine(
+            "   optimized includeEdgeTopology=false: no generic or post-cull topology materialization.");
 
         Assert.True(extracted.FaceCount > 0);
+        Assert.Equal(autoThreshold, nativeAutoThreshold);
+        Assert.Equal(cullResult.Changed, nativeCullResult.Changed);
+        Assert.Equal(cullResult.VertexCount, nativeCullResult.VertexCount);
+        Assert.Equal(cullResult.FaceCount, nativeCullResult.FaceCount);
+        Assert.Equal(cullResult.Faces, nativeCullResult.Faces);
+        Assert.Equal(cullResult.NewToOld, nativeCullResult.NewToOld);
     }
 
     [Fact]
