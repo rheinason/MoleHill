@@ -5,7 +5,10 @@ using Xunit.Abstractions;
 
 namespace MoleHill.Core.Tests;
 
-/// <summary>Coarse perf guard for <see cref="IsotropicRemesher"/> on a grading-scale mesh.</summary>
+/// <summary>
+/// Coarse perf guard for <see cref="IsotropicRemesher"/> on a grading-scale mesh. Set
+/// <c>MOLEHILL_REMESH_PHASE_PROFILE=1</c> to rerun the operator loop and report per-phase allocation.
+/// </summary>
 public class IsotropicRemesherBenchTests
 {
     private readonly ITestOutputHelper _output;
@@ -16,6 +19,7 @@ public class IsotropicRemesherBenchTests
     public void Remesh_TwelveThousandFaces_CompletesInReasonableTime()
     {
         const int n = 80;
+        const int iterations = 5;
         var vertices = new double[(n + 1) * (n + 1) * 3];
         for (int j = 0; j <= n; j++)
         {
@@ -44,14 +48,23 @@ public class IsotropicRemesherBenchTests
             }
         }
 
+        long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
         var sw = Stopwatch.StartNew();
         var result = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
-            new IsotropicRemesher.Options { TargetEdgeLength = 1.2, CreaseAngleDeg = 30, Tolerance = 0.01 });
+            new IsotropicRemesher.Options
+            {
+                TargetEdgeLength = 1.2,
+                CreaseAngleDeg = 30,
+                Tolerance = 0.01,
+                Iterations = iterations
+            });
         sw.Stop();
+        long allocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
 
         _output.WriteLine($"faces {faces.Length / 3} -> {result.Faces.Length / 3}; " +
-                          $"splits={result.Splits} collapses={result.Collapses} flips={result.Flips} relaxed={result.RelaxedVertices}; " +
-                          $"elapsed {sw.ElapsedMilliseconds} ms");
+                           $"splits={result.Splits} collapses={result.Collapses} flips={result.Flips} relaxed={result.RelaxedVertices}; " +
+                           $"elapsed {sw.ElapsedMilliseconds} ms; allocated {allocatedBytes:N0} bytes; {result.Timing}");
+        WritePhaseAllocationProfile(vertices, faces, 1.2, iterations, result);
         Assert.True(result.Success, result.Warning);
         Assert.True(sw.ElapsedMilliseconds < 15000, $"remesh took {sw.ElapsedMilliseconds} ms");
     }
@@ -63,6 +76,7 @@ public class IsotropicRemesherBenchTests
     [Fact]
     public void Remesh_CoarseFieldWithDenseCorridor_CompletesInReasonableTime()
     {
+        const int iterations = 5;
         var xs = new List<double>();
         for (double x = 0; x <= 280; x += 14) xs.Add(x);
         var ys = new List<double>();
@@ -95,15 +109,99 @@ public class IsotropicRemesherBenchTests
             }
         }
 
+        long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
         var sw = Stopwatch.StartNew();
         var result = IsotropicRemesher.Remesh(vertices, faces, Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
-            new IsotropicRemesher.Options { TargetEdgeLength = 3.0, CreaseAngleDeg = 30, Tolerance = 0.01 });
+            new IsotropicRemesher.Options
+            {
+                TargetEdgeLength = 3.0,
+                CreaseAngleDeg = 30,
+                Tolerance = 0.01,
+                Iterations = iterations
+            });
         sw.Stop();
+        long allocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
 
         _output.WriteLine($"faces {faces.Length / 3} -> {result.Faces.Length / 3}; " +
-                          $"splits={result.Splits} collapses={result.Collapses} flips={result.Flips} relaxed={result.RelaxedVertices}; " +
-                          $"elapsed {sw.ElapsedMilliseconds} ms");
+                           $"splits={result.Splits} collapses={result.Collapses} flips={result.Flips} relaxed={result.RelaxedVertices}; " +
+                           $"elapsed {sw.ElapsedMilliseconds} ms; allocated {allocatedBytes:N0} bytes; {result.Timing}");
+        WritePhaseAllocationProfile(vertices, faces, 3.0, iterations, result);
         Assert.True(result.Success, result.Warning);
         Assert.True(sw.ElapsedMilliseconds < 15000, $"remesh took {sw.ElapsedMilliseconds} ms");
+    }
+
+    private void WritePhaseAllocationProfile(
+        double[] vertices,
+        int[] faces,
+        double target,
+        int iterations,
+        IsotropicRemesher.Result expected)
+    {
+        if (!string.Equals(
+                Environment.GetEnvironmentVariable("MOLEHILL_REMESH_PHASE_PROFILE"),
+                "1",
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        FeaturePolylineGraph graph = FeaturePolylineGraph.Build(
+            vertices,
+            faces,
+            faces.Length / 3,
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            creaseAngleDeg: 30.0,
+            wallFaceMinSlopeDeg: 0.0,
+            tolerance: 0.01,
+            minCreaseChainLength: target * 3.0);
+        var projection = new MoleHill.Core.Grading.TerrainFaceGrid(
+            vertices,
+            vertices.Length / 3,
+            faces,
+            faces.Length / 3,
+            target * 0.5);
+        var state = new IsotropicRemesher.MeshState(vertices, faces, graph);
+
+        long collapseBytes = 0;
+        long splitBytes = 0;
+        long flipBytes = 0;
+        long relaxBytes = 0;
+        int totalCollapses = 0;
+        int totalSplits = 0;
+        int totalFlips = 0;
+        int totalRelaxed = 0;
+        for (int iteration = 0; iteration < iterations; iteration++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            int collapses = IsotropicRemesher.CollapseShortEdges(state, target, projection);
+            collapseBytes += GC.GetAllocatedBytesForCurrentThread() - before;
+
+            before = GC.GetAllocatedBytesForCurrentThread();
+            int splits = IsotropicRemesher.SplitLongEdges(state, target * 4.0 / 3.0, projection);
+            splitBytes += GC.GetAllocatedBytesForCurrentThread() - before;
+
+            before = GC.GetAllocatedBytesForCurrentThread();
+            int flips = IsotropicRemesher.FlipForQuality(state);
+            flipBytes += GC.GetAllocatedBytesForCurrentThread() - before;
+
+            before = GC.GetAllocatedBytesForCurrentThread();
+            int relaxed = IsotropicRemesher.RelaxAndProject(state, target, projection);
+            relaxBytes += GC.GetAllocatedBytesForCurrentThread() - before;
+
+            totalCollapses += collapses;
+            totalSplits += splits;
+            totalFlips += flips;
+            totalRelaxed += relaxed;
+            if (collapses == 0 && splits == 0 && flips == 0 && relaxed == 0)
+                break;
+        }
+
+        Assert.Equal(expected.Collapses, totalCollapses);
+        Assert.Equal(expected.Splits, totalSplits);
+        Assert.Equal(expected.Flips, totalFlips);
+        Assert.Equal(expected.RelaxedVertices, totalRelaxed);
+        _output.WriteLine(
+            $"phase allocations: collapse {collapseBytes:N0}, split {splitBytes:N0}, " +
+            $"flip {flipBytes:N0}, relax {relaxBytes:N0} bytes");
     }
 }

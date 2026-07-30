@@ -2,14 +2,16 @@
 
 ## Executive summary
 
-The strongest measured opportunity remains the TIN boundary-peel path, but the original benchmark
-overstated the production-shaped cost by including an extra topology construction. Triangle.NET
-already retains triangle-to-triangle adjacency, so an adjacency-aware peel should be compared with a
-new packed-edge representation before selecting the implementation.
+The six-step sequence is complete at its measured scope. Native Triangle.NET adjacency removed the
+dominant TIN peel preparation, Grade Path allocation fell from 92.19 MB to approximately 46.43 MB,
+grading searches were spatialized, and topology validation/boundary extraction now share one flat
+primitive. The low-risk Path cache retention trim is also implemented, while measured Rhino-native
+mesh ownership remains unchanged.
 
-Grade Path CPU and allocation reduction is the second clear target. Its route should include not only
-daylight face search, but also closest-path-segment lookup and allocation churn in the terrain
-conform splitter.
+The final remesher reassessment does not justify a high-risk connectivity rewrite. In the larger
+synthetic case the entire flip phase accounts for about 11% of allocation and 17–23% of elapsed time;
+adjacency rebuild is only part of that phase, while collapse accounts for about 73% of allocation.
+Route 6 is therefore explicitly deferred behind a representative model measurement.
 
 Recommended order:
 
@@ -121,13 +123,13 @@ target. This does not cover high-volume Rhino scatter placement, which currently
 
 ### Isotropic remesher
 
-| Case | Observed time |
+| Initial review case | Observed time |
 |---|---:|
 | 12,800 faces coarsened to 2,693 | 465 ms |
 | Coarse field with dense corridor, 1,960 to 19,610 faces | 713 ms |
 
-These are acceptable current results. Remesher connectivity churn is a worthwhile later route, but
-the measured opportunity is smaller than TIN and Grade Path.
+These initial results made remesher connectivity a worthwhile later route, but the measured
+opportunity was smaller than TIN and Grade Path. Step 6 below repeats and phase-profiles both cases.
 
 ## Follow-up measurements
 
@@ -351,6 +353,31 @@ Consequently this step keeps both native duplicates and defers an immutable-flat
 a representative model shows stage-stack retention is a real limit. Avoiding clones of diagnostics,
 constraints, or generated outputs is also deferred because their mutability contracts are not yet
 strong enough to safely share them.
+
+### Implementation step 6 assessment — remesher connectivity deferred
+
+The Release remesher benchmarks now always report total allocation and the existing coarse phase
+timing. Setting `MOLEHILL_REMESH_PHASE_PROFILE=1` reruns the deterministic operator loop and reports
+current-thread allocation for collapse, split, flip, and relaxation independently; the rerun asserts
+that every operation count matches the normal result.
+
+| Release case | Total elapsed | Total allocation | Flip elapsed | Flip allocation | Dominant phase |
+|---|---:|---:|---:|---:|---|
+| 12,800 → 2,693 faces | 287–335 ms | 69.3–70.3 MB | 12–22 ms (4–7%) | 4,506,080 bytes (about 6%) | graph/collapse |
+| Dense corridor, 1,960 → 19,610 faces | 766–804 ms | approximately 346.7 MB | 175–183 ms (22–23%) | 37,697,160 bytes (about 11%) | collapse |
+
+The opt-in profile's dense-corridor rerun completed in 734 ms with collapse/split/flip/relax
+allocations of 252,918,448 / 10,102,848 / 37,697,160 / 38,850,008 bytes. Collapse alone therefore
+accounts for about 73% of total allocation. The full flip phase is an upper bound on the benefit of
+reusing adjacency; flip scoring, convexity/angle checks, face writes, and created-edge guards would
+remain after any connectivity change.
+
+No production remesher change is justified by these results. Reopen Route 6 only when a captured
+representative Rhino build shows Remesh is a material part of total rebuild time and its flip phase is
+itself dominant, or when profiling attributes practical memory pressure specifically to repeated
+adjacency. A managed Rhino 8 MCP smoke test using the rebuilt Core DLL remeshed a 3,200-face surface to
+671 faces in 72.1 ms, produced one closed boundary component with zero non-manifold edges, and created
+a valid Rhino mesh.
 
 ### Scaling and omitted-workload results
 
@@ -681,6 +708,7 @@ ownership boundary.
 
 ## Route 6 — Reuse isotropic-remesher connectivity
 
+**Status:** Reassessed in step 6 and deferred; measured gate not met
 **Priority:** Lower until a real model identifies Remesh as dominant
 **Expected impact:** Medium on large or repeatedly edited remesh stages
 **Risk:** High
@@ -691,8 +719,9 @@ ownership boundary.
 sweep, with up to sixteen sweeps. Collapse and relaxation phases also construct vertex-face and
 neighbour dictionaries.
 
-The current synthetic benchmarks complete in 465–713 ms, so this is not the first optimization to
-undertake.
+The current repeated synthetic benchmarks complete in 287–335 ms and 766–804 ms. The entire flip
+phase is only 4–7% of the smaller case and 22–23% of the larger case; repeated adjacency construction
+is a subset of that work.
 
 ### Proposed route
 
@@ -812,8 +841,10 @@ only if a representative multi-stage model shows native retention is a practical
 
 ### 6. Remesher connectivity
 
-Defer until a captured Rhino build shows Remesh dominating after the earlier work. The current
-benchmarks do not justify taking this higher-risk rewrite first.
+**Reassessed and deferred.** The entire flip phase is at most 23% of the measured larger remesh and
+about 11% of its allocation, while collapse owns about 73% of allocation. A dirty-edge/incremental-
+adjacency rewrite cannot recover the whole flip cost, so its current ceiling does not justify changing
+the kernel. Reopen only from a representative Rhino profile where Remesh and then flip are dominant.
 
 ## Measurement programme status
 
@@ -825,14 +856,16 @@ Completed in the Core Release benchmarks:
 3. Direct `PathGrader.Grade` current-thread/process-wide allocation and opt-in phase timing/allocation.
 4. Scaling cases for daylight stations/faces, closest path segments, conform-loop segment count,
    explicit TIN boundary preparation, and compact versus sparse Poisson domains.
+5. Repeated remesher timing and total allocation, plus opt-in collapse/split/flip/relax allocation with
+   operation-count equivalence assertions.
 
 Implemented and run inside Rhino:
 
-5. `mhBenchmarkLargeTin` now reports managed heap, total allocation, process-private bytes, and
+6. `mhBenchmarkLargeTin` now reports managed heap, total allocation, process-private bytes, and
    working-set deltas around Rhino conversion, cache clone, and base clone. The step-5 run measured
    5–6 ms and approximately +24.5 MB native memory for each 247k-vertex mesh duplicate.
 
-Validation through implementation step 5:
+Validation through implementation step 6:
 
 - all 448 Core, 21 Grasshopper, and 117 non-native Rhino-host tests pass; 8 Grasshopper and 35
   Rhino-native-attributed tests remain skipped outside their native harness;
@@ -851,13 +884,16 @@ Validation through implementation step 5:
   and diagnostics while retaining no vertex or face arrays; and
 - a fresh managed Rhino 8 MCP session loaded the exact rebuilt Debug plug-in, observed zero retained
   Path vertex/face values with preserved 3-vertex / 1-face counts, confirmed the output fingerprint
-  changes with source geometry, and accepted a valid live Rhino mesh.
+  changes with source geometry, and accepted a valid live Rhino mesh; and
+- the rebuilt Core DLL remeshed a live 3,200-face Rhino-process surface to 671 faces in 72.1 ms,
+  retaining one closed boundary component, zero non-manifold edges, and a valid Rhino mesh.
 
 Remaining measurements that require a representative Rhino session/model:
 
 - measure scatter terrain projection at 1k, 10k, and 100k placements;
 - capture hot stage-cache restore and repeated cancel/rebuild/merge cycles; and
-- use a native-memory profiler if process-private deltas show material clone retention.
+- use a native-memory profiler if process-private deltas show material clone retention; and
+- capture a representative model where Remesh and its flip phase are dominant before reopening Route 6.
 
 ## Measurement gates
 
