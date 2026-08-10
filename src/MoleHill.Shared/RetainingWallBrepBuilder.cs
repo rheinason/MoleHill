@@ -56,17 +56,19 @@ internal static class RetainingWallBrepBuilder
             return null;
 
         Brep[]? joined = Brep.JoinBreps(faces, tolerance);
-        if (joined == null || joined.Length == 0)
-            return null;
+        if (joined is { Length: 1 })
+        {
+            Brep result = joined[0];
+            if (!result.IsSolid)
+                result = result.CapPlanarHoles(tolerance) ?? result;
+            if (IsCompleteSolid(result))
+                return result;
+        }
 
-        Brep result = SelectBestJoined(joined);
-        if (result == null)
-            return null;
-
-        if (!result.IsSolid)
-            result = result.CapPlanarHoles(tolerance) ?? result;
-
-        return result.IsValid ? result : null;
+        // Never select the largest joined fragment: doing so silently publishes a wall with a missing
+        // section. A watertight mesh built from the same shared stations is a deterministic fallback
+        // when Rhino's surface join cannot weld a dense or sharply turning loft.
+        return BuildMeshFallback(rails, isClosed);
     }
 
     // Sample both rails at the union of their vertex stations, then split each station into the four
@@ -204,20 +206,51 @@ internal static class RetainingWallBrepBuilder
             faces.Add(cap);
     }
 
-    private static Brep SelectBestJoined(Brep[] joined)
+    private static bool IsCompleteSolid(Brep? brep)
     {
-        Brep? best = null;
-        foreach (Brep candidate in joined)
+        return brep is { IsValid: true, IsSolid: true } &&
+               brep.Edges.All(edge => edge.Valence != EdgeAdjacency.Naked);
+    }
+
+    private static Brep? BuildMeshFallback(RailSet rails, bool isClosed)
+    {
+        var mesh = new Mesh();
+        for (int i = 0; i < rails.Count; i++)
         {
-            if (candidate == null)
-                continue;
-            if (candidate.IsSolid)
-                return candidate;
-            if (best == null || candidate.Faces.Count > best.Faces.Count)
-                best = candidate;
+            mesh.Vertices.Add(rails.FrontBottom[i]);
+            mesh.Vertices.Add(rails.FrontTop[i]);
+            mesh.Vertices.Add(rails.BackTop[i]);
+            mesh.Vertices.Add(rails.BackBottom[i]);
         }
 
-        return best ?? joined[0];
+        int segmentCount = isClosed ? rails.Count : rails.Count - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            int next = (i + 1) % rails.Count;
+            int a = i * 4;
+            int b = next * 4;
+            mesh.Faces.AddFace(a, b, b + 1, a + 1);             // front
+            mesh.Faces.AddFace(a + 3, a + 2, b + 2, b + 3);     // back
+            mesh.Faces.AddFace(a, a + 3, b + 3, b);             // bottom
+            mesh.Faces.AddFace(a + 1, b + 1, b + 2, a + 2);     // top
+        }
+
+        if (!isClosed)
+        {
+            int last = (rails.Count - 1) * 4;
+            mesh.Faces.AddFace(0, 1, 2, 3);
+            mesh.Faces.AddFace(last, last + 3, last + 2, last + 1);
+        }
+
+        mesh.Vertices.CullUnused();
+        mesh.UnifyNormals();
+        mesh.Normals.ComputeNormals();
+        mesh.Compact();
+        if (!mesh.IsValid || !mesh.IsClosed)
+            return null;
+
+        Brep? fallback = Brep.CreateFromMesh(mesh, trimmedTriangles: true);
+        return IsCompleteSolid(fallback) ? fallback : null;
     }
 
     // Cumulative arc length per vertex. For a closed rail an extra trailing entry carries the length of

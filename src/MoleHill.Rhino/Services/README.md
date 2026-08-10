@@ -33,6 +33,17 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   diagnostic when used.
 - Large final Grade Path stages with persistent hard constraints ask Core to try split-keep before the
   explicit carve/weld tier; smaller and unconstrained paths remain explicit-first.
+- Retaining Wall inserts accepted toe/top rails directly into the incoming mesh first, splitting only
+  crossed faces and preserving untouched topology. A full constrained rebuild is reserved for cases
+  where local topology insertion cannot produce an accepted mesh.
+- Retaining-wall warnings carry local failure points/focus segments from the shared planner. The
+  viewport shows action-oriented labels such as `Ends do not match`, `Rail doubles back`, and
+  `Missing matching rail`; the whole input rail is retained only as subdued context.
+- Open rails that fail crossing/station validation get one bounded cleanup candidate using the smaller
+  of a tenth of Detail Size and a twentieth of wall width (never below wall tolerance). Successful
+  cleanup is informational; authored geometry that already passes is unchanged. Centerline crossings
+  are finite-segment tests and distinguish vertically separated plan crossings from likely physical
+  overlap.
 - `TerrainBuildSnapshot.cs` / `TerrainBuildSnapshotBuilder.cs` / `TerrainBuildSnapshotResolver.cs` -
   resolve doc geometry (points/curves/blocks/layers) into the immutable build snapshot the service reads.
 - Layer-backed source sets use Rhino's native `FindByLayer` lookup, then re-resolve every result by ID through
@@ -40,7 +51,7 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   transform predecessors that Rhino's layer lookup can retain. Terrain sources are restricted to ModelSpace;
   PageSpace objects on the same layer are excluded. Instance-definition, reference,
   grip, light, and phantom objects remain excluded.
-- `TerrainBuildResult.cs` - outputs (meshes, generated-object lists, diagnostics, timings).
+- `TerrainBuildResult.cs` - outputs (meshes, generated-object lists, diagnostics, runtime overlays, timings).
 - Smooth Breaklines can select curves already used by earlier Grade Path modifiers; the Smooth stage
   expands those selected centerlines into local road center/left/right breaklines without persisting
   them as global hard constraints.
@@ -54,14 +65,21 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 - `TerrainJsonTypeResolver.cs` - registry-driven `ModifierDefinition` JSON polymorphism (replaces the
   hand-maintained `[JsonDerivedType]` list); wired into `TerrainSerializer.SharedOptions`.
 - `TerrainDisplayConduit.cs` / `TerrainDisplayState.cs` - transient viewport preview of generated
-  objects (no doc objects until bake).
+  objects and runtime overlays (no doc objects until bake). Overlay drawing has per-terrain budgets and
+  severity ordering.
+- `RuntimeOverlay.cs` - explicit non-bakeable marker/dot/text/polyline/mesh contracts for reusable
+  Diagnostic and Guide channels. Owners are terrain/modifier/analysis/object/tool ids; palette, cloning,
+  stable issue metadata, and bounds live here.
 - `TerrainRuntimeCache.cs` - per-terrain runtime cache (stage entries, TinEngine, display state, cloner).
   Worker caches shallow-copy stage mesh outputs; the controller defers disposal of displaced main-cache
   meshes until retired worker tasks have drained. Grade Pad topology entries retain reusable flat
   geometry, while Grade Path entries retain summary metadata and patch bounds without duplicating full
   vertex/face arrays. The controller also inspects the cached incoming stage for Smooth/Sculpt
-  mesh-regularity warnings when no earlier Remesh is enabled.
-- `GeneratedRhinoObject.cs` - a previewable/bakeable output (geometry or block instance).
+  mesh-regularity warnings when no earlier Remesh is enabled. Per-owner diagnostic visibility is
+  session-only on the main cache, intentionally excluded from worker copies and build-cache merges.
+- `GeneratedRhinoObject.cs` - a previewable/bakeable output (geometry or block instance). Brep outputs
+  cache explicit meshes built with the document's render settings so conduit tessellation stays stable
+  across frames and closely matches the baked object.
 - Contour curves and labels use their configured output layer, with blank values resolved to the selected
   terrain's Annotation layer before preview/sync/bake.
 - The layer command surface creates the selected terrain's configured Terrain, Auxiliary, and Annotation

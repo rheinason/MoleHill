@@ -78,6 +78,26 @@ public class TerrainModifierStackIntegrationTests
                              timing.Detail?.Contains("cache hit", StringComparison.OrdinalIgnoreCase) == true);
     }
 
+    [RhinoNativeFact]
+    public void Build_RetainingWall_InsertsLocallyBeforeConstrainedRebuild()
+    {
+        StackFixture fixture = CreateFixture(wallBeforePad: true);
+        fixture.Pad.IsEnabled = false;
+
+        TerrainBuildResult result = new TerrainBuildService().Build(
+            fixture.Snapshot,
+            new TerrainRuntimeCache(),
+            TerrainBuildMode.Preview);
+
+        Assert.NotNull(result.PrimaryMesh);
+        Assert.NotNull(result.BaseMesh);
+        Assert.True(result.PrimaryMesh.Faces.Count >= result.BaseMesh.Faces.Count);
+        Assert.Contains(result.Diagnostics, static diagnostic =>
+            diagnostic.Contains("topology insertion inserted wall breaklines", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Timings, static timing => timing.Stage == "Retaining Wall Topology Insert");
+        Assert.DoesNotContain(result.Timings, static timing => timing.Stage == "Retaining Wall Remesh");
+    }
+
     private static bool IsStageKey(string key, int modifierIndex, Guid modifierId, string modifierType)
     {
         return key.StartsWith($"final:modifier:{modifierIndex}:{modifierType}:", StringComparison.Ordinal) &&

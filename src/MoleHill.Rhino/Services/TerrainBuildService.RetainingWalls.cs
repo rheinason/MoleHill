@@ -28,7 +28,10 @@ internal sealed partial class TerrainBuildService
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
         double wallTolerance = toleranceProfile.RetainingWallTolerance(modifier.MaxWallWidth);
         double maxWallWidth = Math.Max(wallTolerance, modifier.MaxWallWidth);
-        build.Diagnostics.Add($"Retaining Wall tolerance: {wallTolerance:G4}; max wall width: {maxWallWidth:G4}.");
+        double railCleanupTolerance = Math.Max(
+            wallTolerance,
+            Math.Min(toleranceProfile.DetailSize * 0.10, maxWallWidth * 0.05));
+        build.Diagnostics.Add($"Retaining Wall tolerance: {wallTolerance:G4}; bounded rail cleanup: {railCleanupTolerance:G4}; max wall width: {maxWallWidth:G4}.");
         var resolveTimer = Stopwatch.StartNew();
         var wallCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.WallCurves);
         resolveTimer.Stop();
@@ -47,7 +50,8 @@ internal sealed partial class TerrainBuildService
         var plan = RetainingWallPlannerCore.Plan(
             wallCurves,
             maxWallWidth,
-            curveParsingTolerance: wallTolerance);
+            curveParsingTolerance: wallTolerance,
+            curveCleanupTolerance: railCleanupTolerance);
         planTimer.Stop();
         build.RecordTiming(
             "Retaining Wall Plan",
@@ -55,7 +59,10 @@ internal sealed partial class TerrainBuildService
             DescribeRetainingWallPlanTiming(plan.Timing, plan.Walls.Count),
             StageTimingDiagnosticThresholdMs);
         foreach (var entry in plan.Report)
+        {
             build.Diagnostics.Add(entry.ToString());
+            AddRetainingWallReportOverlay(build, modifier, wallCurves, entry, wallTolerance);
+        }
 
         if (plan.Walls.Count == 0)
         {
@@ -132,6 +139,46 @@ internal sealed partial class TerrainBuildService
             return mesh;
         }
 
+        var topologyTimer = Stopwatch.StartNew();
+        bool inserted = TryInsertWallConstraintsIntoExistingMesh(
+            mesh,
+            wallConstraints,
+            wallTolerance,
+            build,
+            reportFailures: true,
+            afterCombinedRemeshFailed: false,
+            out RhinoMesh insertedMesh);
+        topologyTimer.Stop();
+        build.RecordTiming(
+            "Retaining Wall Topology Insert",
+            topologyTimer.Elapsed,
+            inserted ? $"{insertedMesh.Vertices.Count:N0} verts, {insertedMesh.Faces.Count:N0} faces" : "not inserted; trying constrained rebuild",
+            StageTimingDiagnosticThresholdMs);
+
+        if (inserted)
+        {
+            var persistTimer = Stopwatch.StartNew();
+            List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, wallConstraints);
+            build.PersistentHardConstraints.Clear();
+            build.PersistentHardConstraints.AddRange(mergedConstraints);
+            persistTimer.Stop();
+            build.RecordTiming(
+                "Retaining Wall Persist Constraints",
+                persistTimer.Elapsed,
+                $"{mergedConstraints.Count:N0} hard constraints",
+                StageTimingDiagnosticThresholdMs);
+            return insertedMesh;
+        }
+
+        AddRetainingWallConstraintOverlay(
+            build,
+            modifier,
+            wallConstraints,
+            RuntimeOverlaySeverity.Warning,
+            "retaining_wall.local_topology_fallback",
+            "Local wall-breakline insertion was rejected; the constrained rebuild fallback was used.",
+            "Topology fallback");
+
         var combineTimer = Stopwatch.StartNew();
         List<SurfaceRemesher.ConstraintPolyline> terrainElevationConstraints =
             CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints);
@@ -185,41 +232,170 @@ internal sealed partial class TerrainBuildService
             return remeshed;
         }
 
-        if (keptInputMesh)
-        {
-            var fallbackTimer = Stopwatch.StartNew();
-            bool inserted = TryInsertWallConstraintsIntoExistingMesh(
-                mesh,
-                wallConstraints,
-                wallTolerance,
-                build,
-                reportFailures: true,
-                afterCombinedRemeshFailed: true,
-                out RhinoMesh insertedMesh);
-            fallbackTimer.Stop();
-            build.RecordTiming(
-                "Retaining Wall Topology Fallback",
-                fallbackTimer.Elapsed,
-                inserted ? $"{insertedMesh.Vertices.Count:N0} verts, {insertedMesh.Faces.Count:N0} faces" : "not inserted",
-                StageTimingDiagnosticThresholdMs);
-
-            if (!inserted)
-                return remeshed;
-
-            var persistTimer = Stopwatch.StartNew();
-            List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, wallConstraints);
-            build.PersistentHardConstraints.Clear();
-            build.PersistentHardConstraints.AddRange(mergedConstraints);
-            persistTimer.Stop();
-            build.RecordTiming(
-                "Retaining Wall Persist Constraints",
-                persistTimer.Elapsed,
-                $"{mergedConstraints.Count:N0} hard constraints",
-                StageTimingDiagnosticThresholdMs);
-            return insertedMesh;
-        }
+        AddRetainingWallConstraintOverlay(
+            build,
+            modifier,
+            wallConstraints,
+            RuntimeOverlaySeverity.Error,
+            "retaining_wall.constraint_insertion_failed",
+            "Wall breaklines could not be inserted without damaging terrain topology; the upstream mesh was retained.",
+            "Breaklines failed");
 
         return remeshed;
+    }
+
+    private static void AddRetainingWallReportOverlay(
+        TerrainBuildResult build,
+        RetainingWallModifierDefinition modifier,
+        IReadOnlyList<Curve> curves,
+        RetainingWallPlannerCore.ReportEntry entry,
+        double tolerance)
+    {
+        if (entry.Level == RetainingWallPlannerCore.ReportLevel.Info &&
+            entry.Reason is not RetainingWallPlannerCore.ReportReason.RailDetailSimplified and
+            not RetainingWallPlannerCore.ReportReason.CrossingWalls)
+            return;
+
+        var primitives = new List<RuntimeOverlayPrimitive>();
+        bool informational = entry.Level == RetainingWallPlannerCore.ReportLevel.Info;
+        int contextColor = informational
+            ? System.Drawing.Color.FromArgb(112, 151, 170).ToArgb()
+            : System.Drawing.Color.FromArgb(170, 135, 78).ToArgb();
+        int focusColor = informational
+            ? System.Drawing.Color.FromArgb(76, 132, 158).ToArgb()
+            : System.Drawing.Color.FromArgb(235, 70, 45).ToArgb();
+        foreach (int curveIndex in entry.RelatedCurves)
+        {
+            if (curveIndex < 0 || curveIndex >= curves.Count)
+                continue;
+
+            Point3d[] points = SampleDiagnosticCurve(curves[curveIndex], tolerance);
+            if (points.Length >= 2)
+                primitives.Add(RuntimeOverlayPrimitive.Polyline(points, curves[curveIndex].IsClosed, thickness: 2, colorArgb: contextColor));
+        }
+
+        if (primitives.Count == 0)
+            return;
+
+        foreach (Line segment in entry.FocusSegments)
+        {
+            if (segment.IsValid && segment.Length > tolerance)
+                primitives.Add(RuntimeOverlayPrimitive.Polyline(new[] { segment.From, segment.To }, thickness: 5, colorArgb: focusColor));
+        }
+
+        Point3d anchor = entry.Location is Point3d location && location.IsValid
+            ? location
+            : primitives[0].Points[primitives[0].Points.Length / 2];
+        string shortLabel = entry.Reason switch
+        {
+            RetainingWallPlannerCore.ReportReason.AmbiguousPair => "Ambiguous pair",
+            RetainingWallPlannerCore.ReportReason.InvalidStationMapping when entry.Message.Contains("do not overlap", StringComparison.OrdinalIgnoreCase) => "Ends do not match",
+            RetainingWallPlannerCore.ReportReason.InvalidStationMapping => "Rail doubles back",
+            RetainingWallPlannerCore.ReportReason.RailDetailSimplified => "Tiny rail detail cleaned",
+            RetainingWallPlannerCore.ReportReason.SelfIntersectingRail => "Rail crosses itself",
+            RetainingWallPlannerCore.ReportReason.CrossingWalls when informational => "Walls cross in plan",
+            RetainingWallPlannerCore.ReportReason.CrossingWalls => "Walls may overlap",
+            RetainingWallPlannerCore.ReportReason.CornerRejected => "Corner rejected",
+            RetainingWallPlannerCore.ReportReason.SolidFailed => "Could not build wall",
+            RetainingWallPlannerCore.ReportReason.NoPair => "Missing matching rail",
+            _ => entry.Reason.ToString()
+        };
+        primitives.Add(RuntimeOverlayPrimitive.Marker(anchor, size: 7, colorArgb: focusColor));
+        primitives.Add(RuntimeOverlayPrimitive.Dot(anchor, shortLabel, colorArgb: focusColor));
+
+        string relatedCurveKey = entry.RelatedCurves.Count > 0
+            ? string.Join("-", entry.RelatedCurves)
+            : "x";
+        string stableSuffix = $"{entry.Reason}:{relatedCurveKey}:{entry.PairIndex?.ToString() ?? "x"}";
+        build.RuntimeOverlays.Add(new RuntimeOverlayItem
+        {
+            StableId = $"retaining-wall:{modifier.Id:N}:{stableSuffix}",
+            Owner = new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, modifier.Id),
+            Severity = entry.Level switch
+            {
+                RetainingWallPlannerCore.ReportLevel.Error => RuntimeOverlaySeverity.Error,
+                RetainingWallPlannerCore.ReportLevel.Warning => RuntimeOverlaySeverity.Warning,
+                _ => RuntimeOverlaySeverity.Information
+            },
+            Code = $"retaining_wall.{ToDiagnosticCode(entry.Reason)}",
+            Message = entry.Message,
+            ShortLabel = shortLabel,
+            Primitives = primitives
+        });
+    }
+
+    private static Point3d[] SampleDiagnosticCurve(Curve curve, double tolerance)
+    {
+        if (curve.TryGetPolyline(out Polyline polyline))
+        {
+            Point3d[] source = polyline.ToArray();
+            if (source.Length <= 256)
+                return source;
+
+            int step = (int)Math.Ceiling(source.Length / 255.0);
+            var sampled = new List<Point3d>(256);
+            for (int i = 0; i < source.Length; i += step)
+                sampled.Add(source[i]);
+            if (sampled[^1] != source[^1])
+                sampled.Add(source[^1]);
+            return sampled.ToArray();
+        }
+
+        double length = Math.Max(curve.GetLength(), tolerance);
+        int segmentCount = Math.Clamp((int)Math.Ceiling(length / Math.Max(tolerance * 20.0, length / 255.0)), 8, 255);
+        var points = new Point3d[segmentCount + 1];
+        for (int i = 0; i <= segmentCount; i++)
+            points[i] = curve.PointAtNormalizedLength((double)i / segmentCount);
+        return points;
+    }
+
+    private static string ToDiagnosticCode(RetainingWallPlannerCore.ReportReason reason)
+    {
+        string value = reason.ToString();
+        var builder = new System.Text.StringBuilder(value.Length + 8);
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (i > 0 && char.IsUpper(value[i]))
+                builder.Append('_');
+            builder.Append(char.ToLowerInvariant(value[i]));
+        }
+        return builder.ToString();
+    }
+
+    private static void AddRetainingWallConstraintOverlay(
+        TerrainBuildResult build,
+        RetainingWallModifierDefinition modifier,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        RuntimeOverlaySeverity severity,
+        string code,
+        string message,
+        string shortLabel)
+    {
+        var primitives = new List<RuntimeOverlayPrimitive>();
+        foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
+        {
+            var points = new Point3d[constraint.PointCount];
+            for (int i = 0; i < constraint.PointCount; i++)
+                points[i] = new Point3d(constraint.Points[i * 3], constraint.Points[i * 3 + 1], constraint.Points[i * 3 + 2]);
+            if (points.Length >= 2)
+                primitives.Add(RuntimeOverlayPrimitive.Polyline(points, constraint.IsClosed, thickness: 3));
+        }
+
+        if (primitives.Count == 0)
+            return;
+
+        Point3d anchor = primitives[0].Points[primitives[0].Points.Length / 2];
+        primitives.Add(RuntimeOverlayPrimitive.Dot(anchor, shortLabel));
+        build.RuntimeOverlays.Add(new RuntimeOverlayItem
+        {
+            StableId = $"retaining-wall:{modifier.Id:N}:{code}",
+            Owner = new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, modifier.Id),
+            Severity = severity,
+            Code = code,
+            Message = message,
+            ShortLabel = shortLabel,
+            Primitives = primitives
+        });
     }
 
     private static string DescribeRetainingWallPlanTiming(RetainingWallPlannerCore.PlanTiming timing, int wallCount)

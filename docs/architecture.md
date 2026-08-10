@@ -65,6 +65,11 @@ Triangle.NET's large quality-refinement state is created only when quality, conf
 incremental mesh mutation requests it. Plain and per-face conform triangulations avoid the otherwise
 unused 4,096-bucket refinement queues, while `IMesh.Refine` retains its lazy creation path.
 
+The Rhino **Retaining Wall** stage first uses `MeshConstraintTopologyInserter` to split only the faces
+crossed by accepted toe/top rails. Untouched terrain faces and vertices retain their existing topology,
+and inserted rails join the persistent hard-constraint stack for later modifiers. A full constrained
+`SurfaceRemesher` rebuild is used only when the local insertion cannot produce an accepted mesh.
+
 The **Remesh** modifier offers three algorithms via its **Algorithm** dropdown (`Mode`: `"isotropic"`
 default, `"rebuild"`, `"local"`), all sharing the same constraint stack (persistent hard constraints —
 walls, breaklines, grade-path road edges — plus the modifier's own Constraints input):
@@ -79,7 +84,7 @@ walls, breaklines, grade-path road edges — plus the modifier's own Constraints
   gate only requires the output to be no worse than the input's topology. Best overall quality, but can
   be slow on very large terrains and may occasionally cross a wall on a shallow wall angle.
 - **Full Rebuild** (`Engine/SurfaceRemesher` via the shared `RebuildMeshWithConstraints` helper, also
-  used by Retaining Wall rebuilds and the GH Remesh component) — classic constrained-Delaunay
+  used by Retaining Wall's local-insertion fallback and the GH Remesh component) — classic constrained-Delaunay
   re-triangulation from scratch; every constraint including wall rails becomes a hard edge, so it
   structurally cannot cross a wall. Coarser triangle shapes than Isotropic.
 - **Local Refine** (`Engine/LocalMeshRefiner`, also the dormant Sculpt DynTopo engine) — connectivity-preserving:
@@ -238,9 +243,46 @@ block-instance). They are:
 - **materialised** as real doc objects only by `TerrainController.BakeTerrain` (or the managed
   `SyncOutputs`). Scatter is conduit-preview + bake only (it can produce thousands of instances).
 
+Brep previews use the document's render-meshing parameters and cache the resulting mesh on each
+`GeneratedRhinoObject` instead of asking the display pipeline to tessellate the Brep again on every
+frame. This keeps long, thin retaining-wall faces stable and makes transient wall corners agree much
+more closely with the baked document object.
+
 `TerrainController` owns document state (load/save JSON in the .3dm), build scheduling, display-state
 publication, source-object editing, and bake. It is the largest service and a decomposition target
 (`docs/cleanup-plan.md`).
+
+### Runtime viewport overlays
+
+`RuntimeOverlay.cs` defines a small, explicit viewport vocabulary (marker, dot, text, polyline, mesh)
+with stable ids, owner kind/id, Diagnostic or Guide channel, severity, code, message, and short label.
+Overlay items travel with build results and stage-cache entries into `TerrainDisplayState`; they are
+separate from `GeneratedRhinoObject`, document sync, and bake.
+
+Guides are displayed when their feature requests them (Retopo's cross-field preview uses this channel).
+Diagnostics default off and are enabled per owning modifier/analysis/object by a card checkbox. That
+visibility set lives only on the UI-owned `TerrainRuntimeCache`: worker copies do not copy it and cache
+merges do not overwrite it. Toggling visibility invalidates bounds and redraws without a build, save,
+fingerprint, or undo record.
+
+`TerrainDisplayConduit` prioritizes errors, then warnings, then information in stable source order and
+caps each terrain at 50,000 line segments, 50,000 mesh faces, and 500 annotations. Lines/meshes use the
+normal depth-tested pass; dots/text draw as depth-disabled foreground annotations. Central palette defaults are
+red for errors, amber for warnings, and muted blue-grey for information, while Guide items may override
+color per primitive.
+
+Retaining-wall planner reports may carry an exact location and a small set of focus segments. Their
+overlay keeps the full source rail as quiet context, emphasizes only the local failure, and places the
+plain-language label at that failure. Internal codes such as `invalid_station_mapping` remain stable,
+but the UI describes the repair as either **Ends do not match** or **Rail doubles back**.
+
+Open retaining-wall rails that would otherwise fail self-crossing or ordered-station validation may use
+a bounded repair candidate. Rhino limits it to
+`max(wallTolerance, min(detailSize / 10, wallWidth / 20))`; the shared planner also preserves
+endpoints/Z extrema and caps removed path detour before re-running all normal acceptance checks. Valid
+rails and closed rails are not rewritten. Successful cleanup is an Information overlay. Finite
+wall-centerline crossings are split into vertically separated plan crossings (Information) and
+overlapping height ranges (Warning), with exact crossing geometry and all four rails.
 
 ## Determinism & gotchas
 

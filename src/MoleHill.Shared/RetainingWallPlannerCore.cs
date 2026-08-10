@@ -22,11 +22,13 @@ internal static class RetainingWallPlannerCore
         NullCurve,
         TessellationFailed,
         TooShort,
+        RailDetailSimplified,
         SelfIntersectingRail,
         MixedOpenClosed,
         NoPair,
         AmbiguousPair,
         PairDistanceRejected,
+        InvalidStationMapping,
         SubToleranceWidth,
         CrossingWalls,
         CornerResolved,
@@ -43,6 +45,9 @@ internal static class RetainingWallPlannerCore
         public int? CurveB { get; }
         public int? PairIndex { get; }
         public string Message { get; }
+        public Point3d? Location { get; }
+        public IReadOnlyList<Line> FocusSegments { get; }
+        public IReadOnlyList<int> RelatedCurves { get; }
 
         public ReportEntry(
             ReportLevel level,
@@ -50,7 +55,10 @@ internal static class RetainingWallPlannerCore
             string message,
             int? curveA = null,
             int? curveB = null,
-            int? pairIndex = null)
+            int? pairIndex = null,
+            Point3d? location = null,
+            IReadOnlyList<Line>? focusSegments = null,
+            IReadOnlyList<int>? relatedCurves = null)
         {
             Level = level;
             Reason = reason;
@@ -58,6 +66,13 @@ internal static class RetainingWallPlannerCore
             CurveA = curveA;
             CurveB = curveB;
             PairIndex = pairIndex;
+            Location = location;
+            FocusSegments = focusSegments?.ToArray() ?? Array.Empty<Line>();
+            RelatedCurves = relatedCurves?.Distinct().ToArray() ?? new[] { curveA, curveB }
+                .Where(index => index.HasValue)
+                .Select(index => index!.Value)
+                .Distinct()
+                .ToArray();
         }
 
         public override string ToString() => $"[{Level}] {Message}";
@@ -149,21 +164,34 @@ internal static class RetainingWallPlannerCore
         public int FragmentIndex { get; }
         public bool IsClosed { get; }
         public Point3d[] Points { get; private set; }
+        public Point3d[]? RepairPoints { get; }
         public double[] CumLen { get; private set; }
         public double Length { get; private set; }
 
-        public PreparedCurve(int workIndex, int sourceIndex, int fragmentIndex, Point3d[] points, bool isClosed)
+        public PreparedCurve(
+            int workIndex,
+            int sourceIndex,
+            int fragmentIndex,
+            Point3d[] points,
+            bool isClosed,
+            Point3d[]? repairPoints = null)
         {
             WorkIndex = workIndex;
             SourceIndex = sourceIndex;
             FragmentIndex = fragmentIndex;
             IsClosed = isClosed;
             Points = points;
+            RepairPoints = repairPoints;
             CumLen = Array.Empty<double>();
             RebuildLengths();
         }
 
-        public PreparedCurve Clone() => new(WorkIndex, SourceIndex, FragmentIndex, (Point3d[])Points.Clone(), IsClosed);
+        public PreparedCurve Clone(bool useRepair = false) => new(
+            WorkIndex,
+            SourceIndex,
+            FragmentIndex,
+            (Point3d[])(useRepair && RepairPoints != null ? RepairPoints : Points).Clone(),
+            IsClosed);
 
         public void Reverse()
         {
@@ -241,7 +269,38 @@ internal static class RetainingWallPlannerCore
         }
     }
 
-    private readonly record struct CandidateStats(int Index, double Mean, double Iqr, double Max, double Cost);
+    private enum StationMappingFailure
+    {
+        None,
+        EndsDoNotMatch,
+        ReversesDirection
+    }
+
+    private readonly record struct StationMappingCheck(
+        bool IsValid,
+        StationMappingFailure Failure,
+        Point3d Location,
+        Point3d PartnerLocation);
+
+    private readonly record struct CandidateStats(
+        int Index,
+        double Mean,
+        double Iqr,
+        double Max,
+        double Cost,
+        StationMappingCheck StationMapping,
+        bool UsesSourceRepair = false,
+        bool UsesTargetRepair = false)
+    {
+        public bool HasOrderedFullCoverage => StationMapping.IsValid;
+    }
+    private readonly record struct CenterlineSample(Point3d Point, double MinZ, double MaxZ);
+    private readonly record struct WallCrossing(
+        Point3d Location,
+        Line FirstSegment,
+        Line SecondSegment,
+        double AngleDegrees,
+        bool VerticalRangesOverlap);
     private readonly record struct CurveEnd(Point3d Point, Point2d Direction);
 
     /// <summary>
@@ -257,7 +316,8 @@ internal static class RetainingWallPlannerCore
     public static PlanResult Plan(
         IReadOnlyList<Curve> curves,
         double maxWallWidth,
-        double? curveParsingTolerance = null)
+        double? curveParsingTolerance = null,
+        double? curveCleanupTolerance = null)
     {
         double resolvedMaxWallWidth = Math.Max(maxWallWidth, 1e-9);
         double geometryTolerance = ResolveGeometryTolerance(resolvedMaxWallWidth, curveParsingTolerance);
@@ -289,7 +349,13 @@ internal static class RetainingWallPlannerCore
             rails[i] = new RailPolyline(polyline.ToArray(), curve.IsClosed);
         }
 
-        return PlanPolylines(rails, maxWallWidth, curveParsingTolerance, buildSolids: true, seedReport: report);
+        return PlanPolylines(
+            rails,
+            maxWallWidth,
+            curveParsingTolerance,
+            curveCleanupTolerance,
+            buildSolids: true,
+            seedReport: report);
     }
 
     /// <summary>
@@ -302,6 +368,7 @@ internal static class RetainingWallPlannerCore
         IReadOnlyList<RailPolyline?> rails,
         double maxWallWidth,
         double? curveParsingTolerance = null,
+        double? curveCleanupTolerance = null,
         bool buildSolids = true,
         List<ReportEntry>? seedReport = null)
     {
@@ -309,9 +376,10 @@ internal static class RetainingWallPlannerCore
         var totalTimer = Stopwatch.StartNew();
         double resolvedMaxWallWidth = Math.Max(maxWallWidth, 1e-9);
         double geometryTolerance = ResolveGeometryTolerance(resolvedMaxWallWidth, curveParsingTolerance);
+        double cleanupTolerance = Math.Max(curveCleanupTolerance ?? geometryTolerance, geometryTolerance);
 
         var preprocessTimer = Stopwatch.StartNew();
-        var prepared = PrepareCurves(rails, geometryTolerance, report);
+        var prepared = PrepareCurves(rails, geometryTolerance, cleanupTolerance, report);
         preprocessTimer.Stop();
         if (prepared.Count == 0)
         {
@@ -368,6 +436,7 @@ internal static class RetainingWallPlannerCore
     private static List<PreparedCurve> PrepareCurves(
         IReadOnlyList<RailPolyline?> rails,
         double geometryTolerance,
+        double cleanupTolerance,
         List<ReportEntry> report)
     {
         var result = new List<PreparedCurve>();
@@ -390,12 +459,37 @@ internal static class RetainingWallPlannerCore
                 continue;
             }
 
-            if (HasSelfIntersection(points, isClosed, geometryTolerance))
+            if (HasSelfIntersection(points, isClosed, geometryTolerance, out Point3d crossing, out Line firstSegment, out Line secondSegment))
             {
-                report.Add(new ReportEntry(ReportLevel.Warning, ReportReason.SelfIntersectingRail, $"Curve {i}: possible self-intersecting wall rail; continuing.", curveA: i));
+                Point3d[]? repaired = !isClosed
+                    ? CreateRepairCandidate(points, cleanupTolerance)
+                    : null;
+                if (repaired != null &&
+                    !HasSelfIntersection(repaired, false, geometryTolerance, out _, out _, out _))
+                {
+                    report.Add(CreateRailCleanupReport(i, points, repaired, crossing));
+                    points = repaired;
+                }
+                else
+                {
+                    report.Add(new ReportEntry(
+                        ReportLevel.Warning,
+                        ReportReason.SelfIntersectingRail,
+                        $"Curve {i} crosses itself in plan near the marker. Split or redraw it so the wall rail follows one continuous path without crossing itself.",
+                        curveA: i,
+                        location: crossing,
+                        focusSegments: new[] { firstSegment, secondSegment }));
+                    continue;
+                }
             }
 
-            result.Add(new PreparedCurve(result.Count, i, 0, points, isClosed));
+            if (!isClosed && points.Length > 512)
+                points = SimplifyOpenPolyline(points, geometryTolerance);
+
+            Point3d[]? repairPoints = !isClosed
+                ? CreateRepairCandidate(points, cleanupTolerance)
+                : null;
+            result.Add(new PreparedCurve(result.Count, i, 0, points, isClosed, repairPoints));
         }
 
         return result;
@@ -407,19 +501,25 @@ internal static class RetainingWallPlannerCore
         var candidatesByCurve = BuildPairingCandidates(curves, boundsByCurve, maxWallWidth, geometryTolerance);
         var byWorkIndex = curves.ToDictionary(curve => curve.WorkIndex);
         var bestFor = new Dictionary<int, (CandidateStats Best, CandidateStats? Second)>();
+        var invalidMappingFor = new Dictionary<int, CandidateStats>();
 
         foreach (PreparedCurve curve in curves)
         {
             if (curve.Length < 2.0 * geometryTolerance)
                 continue;
 
-            List<CandidateStats> candidates = candidatesByCurve[curve.WorkIndex]
+            List<CandidateStats> scoredCandidates = candidatesByCurve[curve.WorkIndex]
                 .Select(candidate => ScoreCandidate(curve, candidate, maxWallWidth))
                 .OrderBy(candidate => candidate.Cost)
+                .ToList();
+            List<CandidateStats> candidates = scoredCandidates
+                .Where(candidate => candidate.HasOrderedFullCoverage)
                 .ToList();
 
             if (candidates.Count > 0)
                 bestFor[curve.WorkIndex] = (candidates[0], candidates.Count > 1 ? candidates[1] : null);
+            else if (scoredCandidates.Count > 0 && PassesDistanceChecks(scoredCandidates[0], maxWallWidth))
+                invalidMappingFor[curve.WorkIndex] = scoredCandidates[0];
         }
 
         var pairs = new List<Pair>();
@@ -460,10 +560,49 @@ internal static class RetainingWallPlannerCore
                 continue;
             }
 
-            if (!PassesDistanceChecks(aBest, maxWallWidth) || !PassesDistanceChecks(bBest, maxWallWidth))
+            bool repairA = aBest.UsesSourceRepair || bBest.UsesTargetRepair;
+            bool repairB = aBest.UsesTargetRepair || bBest.UsesSourceRepair;
+            PreparedCurve a = baseA.Clone(repairA);
+            PreparedCurve b = baseB.Clone(repairB);
+            if ((repairA && HasSelfIntersection(a.Points, false, geometryTolerance, out Point3d crossingA, out Line crossingAFirst, out Line crossingASecond)) ||
+                (repairB && HasSelfIntersection(b.Points, false, geometryTolerance, out crossingA, out crossingAFirst, out crossingASecond)))
             {
-                double mean = Math.Max(aBest.Mean, bBest.Mean);
-                double max = Math.Max(aBest.Max, bBest.Max);
+                report.Add(new ReportEntry(
+                    ReportLevel.Warning,
+                    ReportReason.SelfIntersectingRail,
+                    $"Curves {aLabel} and {bLabel} still cross after bounded cleanup; the authored rails were left unchanged.",
+                    baseA.SourceIndex,
+                    baseB.SourceIndex,
+                    location: crossingA,
+                    focusSegments: new[] { crossingAFirst, crossingASecond }));
+                rejected.Add(aWorkIndex);
+                rejected.Add(bWorkIndex);
+                continue;
+            }
+
+            CandidateStats finalA = ScoreCandidateGeometry(a, b, maxWallWidth, usesSourceRepair: repairA, usesTargetRepair: repairB);
+            CandidateStats finalB = ScoreCandidateGeometry(b, a, maxWallWidth, usesSourceRepair: repairB, usesTargetRepair: repairA);
+
+            if (!finalA.HasOrderedFullCoverage || !finalB.HasOrderedFullCoverage)
+            {
+                StationMappingCheck mapping = !finalA.HasOrderedFullCoverage ? finalA.StationMapping : finalB.StationMapping;
+                report.Add(new ReportEntry(
+                    ReportLevel.Warning,
+                    ReportReason.InvalidStationMapping,
+                    $"Curves {aLabel} and {bLabel} still do not form one continuous end-to-end wall after bounded cleanup; they were left unchanged.",
+                    baseA.SourceIndex,
+                    baseB.SourceIndex,
+                    location: mapping.Location,
+                    focusSegments: new[] { new Line(mapping.Location, mapping.PartnerLocation) }));
+                rejected.Add(aWorkIndex);
+                rejected.Add(bWorkIndex);
+                continue;
+            }
+
+            if (!PassesDistanceChecks(finalA, maxWallWidth) || !PassesDistanceChecks(finalB, maxWallWidth))
+            {
+                double mean = Math.Max(finalA.Mean, finalB.Mean);
+                double max = Math.Max(finalA.Max, finalB.Max);
                 report.Add(new ReportEntry(
                     ReportLevel.Warning,
                     ReportReason.PairDistanceRejected,
@@ -475,8 +614,11 @@ internal static class RetainingWallPlannerCore
                 continue;
             }
 
-            PreparedCurve a = baseA.Clone();
-            PreparedCurve b = baseB.Clone();
+            if (repairA && baseA.RepairPoints != null)
+                report.Add(CreateRailCleanupReport(baseA.SourceIndex, baseA.Points, baseA.RepairPoints));
+            if (repairB && baseB.RepairPoints != null)
+                report.Add(CreateRailCleanupReport(baseB.SourceIndex, baseB.Points, baseB.RepairPoints));
+
             if (a.IsClosed)
             {
                 AlignClosedPair(a, b, geometryTolerance);
@@ -501,6 +643,7 @@ internal static class RetainingWallPlannerCore
                 (pair.A.SourceIndex, pair.A.FragmentIndex),
                 (pair.B.SourceIndex, pair.B.FragmentIndex)
             }));
+        var reportedInvalidMappings = new HashSet<(int A, int B)>();
         foreach (PreparedCurve curve in curves)
         {
             if (curve.Length < 2.0 * geometryTolerance ||
@@ -525,6 +668,28 @@ internal static class RetainingWallPlannerCore
                 continue;
             }
 
+            if (invalidMappingFor.TryGetValue(curve.WorkIndex, out CandidateStats invalidMapping))
+            {
+                PreparedCurve other = byWorkIndex[invalidMapping.Index];
+                var mappingKey = (Math.Min(curve.WorkIndex, other.WorkIndex), Math.Max(curve.WorkIndex, other.WorkIndex));
+                if (!reportedInvalidMappings.Add(mappingKey))
+                    continue;
+
+                StationMappingCheck mapping = invalidMapping.StationMapping;
+                string message = mapping.Failure == StationMappingFailure.EndsDoNotMatch
+                    ? $"Curves {FormatCurveRef(curve)} and {FormatCurveRef(other)} do not overlap from end to end near the marker. Trim, extend, or split the rails so both start and finish together."
+                    : $"Curve {FormatCurveRef(curve)} doubles back relative to curve {FormatCurveRef(other)} near the marker. Split or redraw the rail so both curves run once in the same direction.";
+                report.Add(new ReportEntry(
+                    ReportLevel.Warning,
+                    ReportReason.InvalidStationMapping,
+                    message,
+                    curve.SourceIndex,
+                    other.SourceIndex,
+                    location: mapping.Location,
+                    focusSegments: new[] { new Line(mapping.Location, mapping.PartnerLocation) }));
+                continue;
+            }
+
             int mismatch = FindMismatchedClosureCandidate(curve, curves, maxWallWidth, geometryTolerance);
             if (mismatch >= 0)
             {
@@ -537,7 +702,13 @@ internal static class RetainingWallPlannerCore
             }
             else
             {
-                report.Add(new ReportEntry(ReportLevel.Warning, ReportReason.NoPair, $"Curve {curve.SourceIndex}: no mutual pair found.", curveA: curve.SourceIndex));
+                Point3d location = PointAt(curve.Points, curve.CumLen, curve.Length, curve.IsClosed, curve.Length * 0.5);
+                report.Add(new ReportEntry(
+                    ReportLevel.Warning,
+                    ReportReason.NoPair,
+                    $"Curve {curve.SourceIndex} has no matching wall rail. Include its partner curve, move it within Max Wall Width, or remove this curve from Wall Curves if it is not part of a wall.",
+                    curveA: curve.SourceIndex,
+                    location: location));
             }
         }
 
@@ -672,6 +843,40 @@ internal static class RetainingWallPlannerCore
 
     private static CandidateStats ScoreCandidate(PreparedCurve a, PreparedCurve b, double tolerance)
     {
+        CandidateStats original = ScoreCandidateGeometry(a, b, tolerance);
+        if (original.HasOrderedFullCoverage || a.IsClosed || b.IsClosed)
+            return original;
+
+        CandidateStats best = original;
+        foreach ((bool repairA, bool repairB) in new[]
+                 {
+                     (true, false),
+                     (false, true),
+                     (true, true)
+                 })
+        {
+            if ((repairA && a.RepairPoints == null) || (repairB && b.RepairPoints == null))
+                continue;
+
+            PreparedCurve candidateA = a.Clone(repairA);
+            PreparedCurve candidateB = b.Clone(repairB);
+            CandidateStats candidate = ScoreCandidateGeometry(candidateA, candidateB, tolerance, repairA, repairB);
+            if (!candidate.HasOrderedFullCoverage)
+                continue;
+            if (!best.HasOrderedFullCoverage || candidate.Cost < best.Cost)
+                best = candidate;
+        }
+
+        return best;
+    }
+
+    private static CandidateStats ScoreCandidateGeometry(
+        PreparedCurve a,
+        PreparedCurve b,
+        double tolerance,
+        bool usesSourceRepair = false,
+        bool usesTargetRepair = false)
+    {
         int n = Math.Clamp((int)Math.Round(a.Length / Math.Max(tolerance, 1e-9)), 8, 64);
         Point3d[] sample = SampleByCount(a, n);
         var distances = new double[n];
@@ -682,7 +887,118 @@ internal static class RetainingWallPlannerCore
         double iqr = Iqr(distances);
         double max = distances.Max();
         double cost = mean + (0.5 * iqr) + (0.25 * max);
-        return new CandidateStats(b.WorkIndex, mean, iqr, max, cost);
+        return new CandidateStats(
+            b.WorkIndex,
+            mean,
+            iqr,
+            max,
+            cost,
+            CheckOrderedFullCoverage(a, b),
+            usesSourceRepair,
+            usesTargetRepair);
+    }
+
+    private static StationMappingCheck CheckOrderedFullCoverage(PreparedCurve a, PreparedCurve b)
+    {
+        if (a.IsClosed || b.IsClosed)
+            return new StationMappingCheck(true, StationMappingFailure.None, Point3d.Unset, Point3d.Unset);
+
+        const int sampleCount = 17;
+        const double stationSlack = 0.04;
+        const double endCoverage = 0.15;
+        var mapped = new double[sampleCount];
+        var sourcePoints = new Point3d[sampleCount];
+        var partnerPoints = new Point3d[sampleCount];
+        for (int i = 0; i < sampleCount; i++)
+        {
+            double fraction = (double)i / (sampleCount - 1);
+            Point3d point = PointAt(a.Points, a.CumLen, a.Length, false, a.Length * fraction);
+            sourcePoints[i] = point;
+            mapped[i] = ClosestFractionOnPolyline2D(point, b, out partnerPoints[i]);
+        }
+
+        bool forward;
+        if (Math.Abs(mapped[^1] - mapped[0]) > stationSlack)
+        {
+            forward = mapped[^1] > mapped[0];
+        }
+        else
+        {
+            int firstDirectionalStep = Enumerable.Range(1, mapped.Length - 1)
+                .FirstOrDefault(i => Math.Abs(mapped[i] - mapped[i - 1]) > stationSlack);
+            forward = firstDirectionalStep == 0 || mapped[firstDirectionalStep] > mapped[firstDirectionalStep - 1];
+        }
+
+        for (int i = 1; i < mapped.Length; i++)
+        {
+            bool reverses = forward
+                ? mapped[i] + stationSlack < mapped[i - 1]
+                : mapped[i] - stationSlack > mapped[i - 1];
+            if (reverses)
+            {
+                return new StationMappingCheck(
+                    false,
+                    StationMappingFailure.ReversesDirection,
+                    sourcePoints[i],
+                    partnerPoints[i]);
+            }
+        }
+
+        bool coversStart = forward ? mapped[0] <= endCoverage : mapped[0] >= 1.0 - endCoverage;
+        bool coversEnd = forward ? mapped[^1] >= 1.0 - endCoverage : mapped[^1] <= endCoverage;
+        if (!coversStart || !coversEnd)
+        {
+            int failingIndex;
+            if (!coversStart && !coversEnd)
+            {
+                double startError = forward ? mapped[0] : 1.0 - mapped[0];
+                double endError = forward ? 1.0 - mapped[^1] : mapped[^1];
+                failingIndex = startError >= endError ? 0 : sampleCount - 1;
+            }
+            else
+            {
+                failingIndex = coversStart ? sampleCount - 1 : 0;
+            }
+
+            return new StationMappingCheck(
+                false,
+                StationMappingFailure.EndsDoNotMatch,
+                sourcePoints[failingIndex],
+                partnerPoints[failingIndex]);
+        }
+
+        return new StationMappingCheck(true, StationMappingFailure.None, Point3d.Unset, Point3d.Unset);
+    }
+
+    private static double ClosestFractionOnPolyline2D(Point3d point, PreparedCurve curve, out Point3d closestPoint)
+    {
+        double bestDistanceSquared = double.MaxValue;
+        double bestAlong = 0.0;
+        closestPoint = curve.Points[0];
+        for (int i = 1; i < curve.Points.Length; i++)
+        {
+            Point3d a = curve.Points[i - 1];
+            Point3d b = curve.Points[i];
+            double dx = b.X - a.X;
+            double dy = b.Y - a.Y;
+            double lengthSquared = (dx * dx) + (dy * dy);
+            double t = lengthSquared <= 1e-18
+                ? 0.0
+                : Math.Clamp((((point.X - a.X) * dx) + ((point.Y - a.Y) * dy)) / lengthSquared, 0.0, 1.0);
+            double px = a.X + (dx * t);
+            double py = a.Y + (dy * t);
+            double ex = point.X - px;
+            double ey = point.Y - py;
+            double distanceSquared = (ex * ex) + (ey * ey);
+            if (distanceSquared >= bestDistanceSquared)
+                continue;
+
+            bestDistanceSquared = distanceSquared;
+            bestAlong = curve.CumLen[i - 1] + ((curve.CumLen[i] - curve.CumLen[i - 1]) * t);
+            closestPoint = new Point3d(px, py, a.Z + ((b.Z - a.Z) * t));
+        }
+
+        return curve.Length <= 1e-12 ? 0.0 : Math.Clamp(bestAlong / curve.Length, 0.0, 1.0);
     }
 
     /// <summary>
@@ -716,29 +1032,42 @@ internal static class RetainingWallPlannerCore
             if (pair.Failed)
                 continue;
 
-            Point3d[] centerline = BuildCenterline(pair);
+            CenterlineSample[] centerline = BuildCenterline(pair);
             for (int j = i + 1; j < pairs.Count; j++)
             {
                 Pair other = pairs[j];
                 if (other.Failed)
                     continue;
 
-                Point3d[] otherCenterline = BuildCenterline(other);
-                if (CenterlinesCross(centerline, pair.IsClosed, otherCenterline, other.IsClosed, out double angleDeg))
+                CenterlineSample[] otherCenterline = BuildCenterline(other);
+                if (CenterlinesCross(centerline, pair.IsClosed, otherCenterline, other.IsClosed, tolerance, out WallCrossing crossing))
                 {
+                    ReportLevel level = crossing.VerticalRangesOverlap ? ReportLevel.Warning : ReportLevel.Info;
+                    string message = crossing.VerticalRangesOverlap
+                        ? $"Wall pairs ({pair.A.SourceIndex}, {pair.B.SourceIndex}) and ({other.A.SourceIndex}, {other.B.SourceIndex}) overlap in plan and elevation near the marker at {crossing.AngleDegrees:0.#} degrees; both walls remain enabled. Review whether a junction is intended."
+                        : $"Wall pairs ({pair.A.SourceIndex}, {pair.B.SourceIndex}) and ({other.A.SourceIndex}, {other.B.SourceIndex}) cross in plan near the marker at {crossing.AngleDegrees:0.#} degrees but are vertically separated; both walls remain enabled.";
                     report.Add(new ReportEntry(
-                        ReportLevel.Warning,
+                        level,
                         ReportReason.CrossingWalls,
-                        $"Crossing wall centerlines detected between pairs ({pair.A.SourceIndex}, {pair.B.SourceIndex}) and ({other.A.SourceIndex}, {other.B.SourceIndex}) at {angleDeg:0.#} degrees; both pairs remain enabled.",
+                        message,
                         pair.A.SourceIndex,
-                        pair.B.SourceIndex));
+                        pair.B.SourceIndex,
+                        location: crossing.Location,
+                        focusSegments: new[] { crossing.FirstSegment, crossing.SecondSegment },
+                        relatedCurves: new[]
+                        {
+                            pair.A.SourceIndex,
+                            pair.B.SourceIndex,
+                            other.A.SourceIndex,
+                            other.B.SourceIndex
+                        }));
                     break;
                 }
             }
         }
     }
 
-    private static Point3d[] BuildCenterline(Pair pair)
+    private static CenterlineSample[] BuildCenterline(Pair pair)
     {
         var fractions = new SortedSet<double>(FractionComparer.Instance);
         if (!pair.IsClosed)
@@ -757,7 +1086,10 @@ internal static class RetainingWallPlannerCore
             {
                 Point3d a = PointAt(pair.A.Points, pair.A.CumLen, pair.A.Length, pair.A.IsClosed, pair.A.Length * fraction);
                 Point3d b = PointAt(pair.B.Points, pair.B.CumLen, pair.B.Length, pair.B.IsClosed, pair.B.Length * fraction);
-                return new Point3d((a.X + b.X) * 0.5, (a.Y + b.Y) * 0.5, (a.Z + b.Z) * 0.5);
+                return new CenterlineSample(
+                    new Point3d((a.X + b.X) * 0.5, (a.Y + b.Y) * 0.5, (a.Z + b.Z) * 0.5),
+                    Math.Min(a.Z, b.Z),
+                    Math.Max(a.Z, b.Z));
             })
             .ToArray();
     }
@@ -776,21 +1108,34 @@ internal static class RetainingWallPlannerCore
         }
     }
 
-    private static bool CenterlinesCross(Point3d[] a, bool aClosed, Point3d[] b, bool bClosed, out double angleDeg)
+    private static bool CenterlinesCross(
+        CenterlineSample[] a,
+        bool aClosed,
+        CenterlineSample[] b,
+        bool bClosed,
+        double tolerance,
+        out WallCrossing crossing)
     {
-        angleDeg = 0.0;
+        crossing = default;
         int aSegments = aClosed ? a.Length : a.Length - 1;
         int bSegments = bClosed ? b.Length : b.Length - 1;
         for (int i = 0; i < aSegments; i++)
         {
             int iNext = (i + 1) % a.Length;
-            Line la = new(a[i], a[iNext]);
+            Line la = new(a[i].Point, a[iNext].Point);
             for (int j = 0; j < bSegments; j++)
             {
                 int jNext = (j + 1) % b.Length;
-                Line lb = new(b[j], b[jNext]);
+                Line lb = new(b[j].Point, b[jNext].Point);
                 if (!TrySegmentIntersection(la, lb, out double t, out double u, out double candidateAngle))
                     continue;
+
+                const double segmentEpsilon = 1e-8;
+                if (t < -segmentEpsilon || t > 1.0 + segmentEpsilon ||
+                    u < -segmentEpsilon || u > 1.0 + segmentEpsilon)
+                {
+                    continue;
+                }
 
                 if (candidateAngle <= 10.0)
                     continue;
@@ -800,7 +1145,13 @@ internal static class RetainingWallPlannerCore
                 if (aEndpoint && bEndpoint)
                     continue;
 
-                angleDeg = candidateAngle;
+                Point3d pointA = la.PointAt(Math.Clamp(t, 0.0, 1.0));
+                double minA = Lerp(a[i].MinZ, a[iNext].MinZ, t);
+                double maxA = Lerp(a[i].MaxZ, a[iNext].MaxZ, t);
+                double minB = Lerp(b[j].MinZ, b[jNext].MinZ, u);
+                double maxB = Lerp(b[j].MaxZ, b[jNext].MaxZ, u);
+                bool overlapsVertically = Math.Max(minA, minB) <= Math.Min(maxA, maxB) + tolerance;
+                crossing = new WallCrossing(pointA, la, lb, candidateAngle, overlapsVertically);
                 return true;
             }
         }
@@ -817,6 +1168,30 @@ internal static class RetainingWallPlannerCore
         // exactly when resolution is unnecessary. Spurious near-misses that are not real corners are
         // still rejected by the miter-budget and width checks in TryResolveRailCorner.
         double cornerSearchRadius = Math.Max(maxWallWidth, tolerance);
+        var endpointCandidateCounts = new Dictionary<(int PairIndex, bool Start), int>();
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            if (pairs[i].Failed || pairs[i].IsClosed)
+                continue;
+
+            foreach (bool start in new[] { true, false })
+            {
+                int count = 0;
+                for (int j = 0; j < pairs.Count; j++)
+                {
+                    if (i == j || pairs[j].Failed || pairs[j].IsClosed)
+                        continue;
+                    foreach (bool otherStart in new[] { true, false })
+                    {
+                        if (Distance2D(pairs[i].EndMid(start), pairs[j].EndMid(otherStart)) <= cornerSearchRadius)
+                            count++;
+                    }
+                }
+
+                endpointCandidateCounts[(i, start)] = count;
+            }
+        }
+
         for (int i = 0; i < pairs.Count; i++)
         {
             Pair pair = pairs[i];
@@ -832,8 +1207,12 @@ internal static class RetainingWallPlannerCore
                 bool resolvedThisPair = false;
                 foreach (bool pairStart in new[] { true, false })
                 {
+                    if (endpointCandidateCounts.GetValueOrDefault((i, pairStart)) != 1)
+                        continue;
                     foreach (bool otherStart in new[] { true, false })
                     {
+                        if (endpointCandidateCounts.GetValueOrDefault((j, otherStart)) != 1)
+                            continue;
                         if (Distance2D(pair.EndMid(pairStart), other.EndMid(otherStart)) > cornerSearchRadius)
                             continue;
 
@@ -889,23 +1268,41 @@ internal static class RetainingWallPlannerCore
         if (resolvedWidth < MinAllowedWidth(tolerance))
             return false;
 
-        Point3d resolved0 = new(corner0.X, corner0.Y, (pairA.Point.Z + match0.Point.Z) * 0.5);
-        Point3d resolved1 = new(corner1.X, corner1.Y, (pairB.Point.Z + match1.Point.Z) * 0.5);
+        ResolveCornerElevations(pairA.Point.Z, match0.Point.Z, tolerance, out double pairZ0, out double otherZ0);
+        ResolveCornerElevations(pairB.Point.Z, match1.Point.Z, tolerance, out double pairZ1, out double otherZ1);
+        Point3d pairResolved0 = new(corner0.X, corner0.Y, pairZ0);
+        Point3d pairResolved1 = new(corner1.X, corner1.Y, pairZ1);
+        Point3d otherResolved0 = new(corner0.X, corner0.Y, otherZ0);
+        Point3d otherResolved1 = new(corner1.X, corner1.Y, otherZ1);
 
-        pair.A.SetEnd(pairStart, resolved0);
-        pair.B.SetEnd(pairStart, resolved1);
+        pair.A.SetEnd(pairStart, pairResolved0);
+        pair.B.SetEnd(pairStart, pairResolved1);
         if (directMatch)
         {
-            other.A.SetEnd(otherStart, resolved0);
-            other.B.SetEnd(otherStart, resolved1);
+            other.A.SetEnd(otherStart, otherResolved0);
+            other.B.SetEnd(otherStart, otherResolved1);
         }
         else
         {
-            other.B.SetEnd(otherStart, resolved0);
-            other.A.SetEnd(otherStart, resolved1);
+            other.B.SetEnd(otherStart, otherResolved0);
+            other.A.SetEnd(otherStart, otherResolved1);
         }
 
         return true;
+    }
+
+    private static void ResolveCornerElevations(double first, double second, double tolerance, out double resolvedFirst, out double resolvedSecond)
+    {
+        if (Math.Abs(first - second) <= tolerance)
+        {
+            resolvedFirst = resolvedSecond = (first + second) * 0.5;
+            return;
+        }
+
+        // XY miters are allowed to meet, but authored rail elevations remain authoritative unless
+        // they were already coincident within model tolerance.
+        resolvedFirst = first;
+        resolvedSecond = second;
     }
 
     private static Point2d BoundedIntersection(CurveEnd a, CurveEnd b, double budget)
@@ -1151,11 +1548,157 @@ internal static class RetainingWallPlannerCore
         return points.ToArray();
     }
 
+    private static Point3d[]? CreateRepairCandidate(Point3d[] points, double tolerance)
+    {
+        if (points.Length <= 2 || tolerance <= 0.0)
+            return null;
+
+        Point3d[] simplified = SimplifyOpenPolyline(points, tolerance, preserveZExtrema: true);
+        if (simplified.Length >= points.Length)
+            return null;
+
+        // RDP deviation alone cannot see a collinear reversal: 0 -> 10 -> 9 -> 20 lies exactly on
+        // the replacement chord. Bound the removed detour length as well so a cleanup candidate can
+        // erase only a genuinely tiny spur, never a long retrace whose points happen to be collinear.
+        double removedDetour = Math.Max(0.0, OpenPolylineLength3D(points) - OpenPolylineLength3D(simplified));
+        return removedDetour <= (2.0 * tolerance) + 1e-9 ? simplified : null;
+    }
+
+    private static double OpenPolylineLength3D(Point3d[] points)
+    {
+        double length = 0.0;
+        for (int i = 1; i < points.Length; i++)
+            length += points[i - 1].DistanceTo(points[i]);
+        return length;
+    }
+
+    private static ReportEntry CreateRailCleanupReport(
+        int sourceIndex,
+        Point3d[] original,
+        Point3d[] repaired,
+        Point3d? preferredLocation = null)
+    {
+        double maxDeviationSquared = 0.0;
+        Point3d location = preferredLocation is Point3d preferred && preferred.IsValid
+            ? preferred
+            : original[original.Length / 2];
+        foreach (Point3d point in original)
+        {
+            double distanceSquared = DistancePointPolylineSquared3D(point, repaired);
+            if (distanceSquared <= maxDeviationSquared)
+                continue;
+
+            maxDeviationSquared = distanceSquared;
+            if (!preferredLocation.HasValue)
+                location = point;
+        }
+
+        int removed = original.Length - repaired.Length;
+        double removedDetour = Math.Max(0.0, OpenPolylineLength3D(original) - OpenPolylineLength3D(repaired));
+        return new ReportEntry(
+            ReportLevel.Info,
+            ReportReason.RailDetailSimplified,
+            $"Curve {sourceIndex}: simplified {removed} tiny rail point{(removed == 1 ? string.Empty : "s")} that prevented a clean wall path; maximum offset {Math.Sqrt(maxDeviationSquared):G4}, removed detour {removedDetour:G4}.",
+            curveA: sourceIndex,
+            location: location);
+    }
+
+    private static double DistancePointPolylineSquared3D(Point3d point, Point3d[] polyline)
+    {
+        double best = double.MaxValue;
+        for (int i = 1; i < polyline.Length; i++)
+            best = Math.Min(best, DistancePointSegmentSquared3D(point, polyline[i - 1], polyline[i]));
+        return best;
+    }
+
+    private static Point3d[] SimplifyOpenPolyline(Point3d[] points, double tolerance, bool preserveZExtrema = false)
+    {
+        if (points.Length <= 2)
+            return points;
+
+        double toleranceSquared = tolerance * tolerance;
+        var keep = new bool[points.Length];
+        keep[0] = true;
+        keep[^1] = true;
+        var mandatory = new SortedSet<int> { 0, points.Length - 1 };
+        if (preserveZExtrema)
+        {
+            int minZ = 0;
+            int maxZ = 0;
+            for (int i = 1; i < points.Length; i++)
+            {
+                if (points[i].Z < points[minZ].Z)
+                    minZ = i;
+                if (points[i].Z > points[maxZ].Z)
+                    maxZ = i;
+            }
+            mandatory.Add(minZ);
+            mandatory.Add(maxZ);
+        }
+
+        var ranges = new Stack<(int Start, int End)>();
+        int[] mandatoryIndices = mandatory.ToArray();
+        foreach (int index in mandatoryIndices)
+            keep[index] = true;
+        for (int i = 1; i < mandatoryIndices.Length; i++)
+            ranges.Push((mandatoryIndices[i - 1], mandatoryIndices[i]));
+        while (ranges.Count > 0)
+        {
+            (int start, int end) = ranges.Pop();
+            int furthest = -1;
+            double maxDistanceSquared = toleranceSquared;
+            for (int i = start + 1; i < end; i++)
+            {
+                double distanceSquared = DistancePointSegmentSquared3D(points[i], points[start], points[end]);
+                if (distanceSquared <= maxDistanceSquared)
+                    continue;
+
+                maxDistanceSquared = distanceSquared;
+                furthest = i;
+            }
+
+            if (furthest < 0)
+                continue;
+
+            keep[furthest] = true;
+            ranges.Push((start, furthest));
+            ranges.Push((furthest, end));
+        }
+
+        var simplified = new List<Point3d>();
+        for (int i = 0; i < points.Length; i++)
+        {
+            if (keep[i])
+                simplified.Add(points[i]);
+        }
+        return simplified.ToArray();
+    }
+
+    private static double DistancePointSegmentSquared3D(Point3d point, Point3d a, Point3d b)
+    {
+        Vector3d segment = b - a;
+        double lengthSquared = segment.SquareLength;
+        double t = lengthSquared <= 1e-18
+            ? 0.0
+            : Math.Clamp(((point - a) * segment) / lengthSquared, 0.0, 1.0);
+        Point3d closest = a + (segment * t);
+        return point.DistanceToSquared(closest);
+    }
+
     private static bool IsNearlyClosed(Point3d[] polyline, double tolerance) =>
         polyline.Length >= 3 && polyline[0].DistanceTo(polyline[^1]) <= DuplicateTolerance(tolerance);
 
-    private static bool HasSelfIntersection(Point3d[] points, bool isClosed, double tolerance)
+    private static bool HasSelfIntersection(
+        Point3d[] points,
+        bool isClosed,
+        double tolerance,
+        out Point3d intersection,
+        out Line firstSegment,
+        out Line secondSegment)
     {
+        intersection = Point3d.Unset;
+        firstSegment = Line.Unset;
+        secondSegment = Line.Unset;
         int segmentCount = isClosed ? points.Length : points.Length - 1;
         if (segmentCount < 3)
             return false;
@@ -1211,8 +1754,12 @@ internal static class RetainingWallPlannerCore
                         if (adjacent)
                             continue;
 
-                        if (TrySegmentsIntersect2D(points[i], points[iNext], points[j], points[jNext], tolerance))
+                        if (TrySegmentsIntersect2D(points[i], points[iNext], points[j], points[jNext], tolerance, out intersection))
+                        {
+                            firstSegment = new Line(points[i], points[iNext]);
+                            secondSegment = new Line(points[j], points[jNext]);
                             return true;
+                        }
                     }
                 }
             }
@@ -1235,6 +1782,8 @@ internal static class RetainingWallPlannerCore
         return false;
     }
 
+    private static double Lerp(double a, double b, double t) => a + ((b - a) * Math.Clamp(t, 0.0, 1.0));
+
     private static void GetSegmentCellRange(
         Point3d a,
         Point3d b,
@@ -1256,15 +1805,27 @@ internal static class RetainingWallPlannerCore
 
     private static long CellKey(int x, int y) => ((long)x << 32) ^ (uint)y;
 
-    private static bool TrySegmentsIntersect2D(Point3d a0, Point3d a1, Point3d b0, Point3d b1, double tolerance)
+    private static bool TrySegmentsIntersect2D(
+        Point3d a0,
+        Point3d a1,
+        Point3d b0,
+        Point3d b1,
+        double tolerance,
+        out Point3d intersection)
     {
+        intersection = Point3d.Unset;
         Point2d r = new(a1.X - a0.X, a1.Y - a0.Y);
         Point2d s = new(b1.X - b0.X, b1.Y - b0.Y);
         if (!Solve2x2(r.X, -s.X, r.Y, -s.Y, b0.X - a0.X, b0.Y - a0.Y, out double t, out double u))
             return false;
 
         double eps = Math.Max(tolerance * 1e-6, 1e-9);
-        return t > eps && t < 1.0 - eps && u > eps && u < 1.0 - eps;
+        if (t <= eps || t >= 1.0 - eps || u <= eps || u >= 1.0 - eps)
+            return false;
+
+        Point3d onA = a0 + ((a1 - a0) * t);
+        intersection = onA;
+        return true;
     }
 
     private static Point3d[] SampleByCount(PreparedCurve curve, int count)
