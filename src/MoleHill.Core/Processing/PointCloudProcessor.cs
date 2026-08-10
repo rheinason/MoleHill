@@ -264,7 +264,10 @@ public static class PointCloudProcessor
                             {
                                 double dz = z - zList[existingIdx];
                                 if (dz * dz >= zTolSq)
+                                {
+                                    existingIdx = nextInCell[existingIdx];
                                     continue; // different elevation → keep both
+                                }
                             }
 
                             duplicates++;

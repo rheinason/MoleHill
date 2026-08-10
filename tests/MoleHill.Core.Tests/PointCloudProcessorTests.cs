@@ -101,4 +101,31 @@ public class PointCloudProcessorTests
         Assert.Equal(new[] { 0.0, 0.0, 1.5, 0.0 }, merged.XyCoords);
         Assert.Equal(new[] { 10.0, 20.0 }, merged.ZValues);
     }
+
+    [Fact]
+    public void Merge_CoincidentBreaklineVerticesAtDifferentElevations_PreservesBoth()
+    {
+        var breaklineData = new BreaklineDiscretizer.BreaklineData(
+            new[]
+            {
+                0.0, 0.0, 10.0,
+                0.0, 0.0, 12.0,
+                0.0, 0.0, 12.0
+            },
+            vertexCount: 3,
+            new[] { 0, 1, 1, 2 },
+            segmentCount: 2);
+
+        var merged = PointCloudProcessor.Merge(
+            Array.Empty<double>(),
+            spotCount: 0,
+            breaklineData,
+            tolerance: 0.01);
+
+        Assert.Equal(2, merged.VertexCount);
+        Assert.Equal(1, merged.DuplicatesRemoved);
+        Assert.Equal(new[] { 10.0, 12.0 }, merged.ZValues);
+        Assert.Equal(new[] { 0, 1 }, merged.Segments);
+        Assert.Equal(1, merged.SegmentCount);
+    }
 }
