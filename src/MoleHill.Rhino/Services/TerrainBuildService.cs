@@ -194,6 +194,7 @@ internal sealed partial class TerrainBuildService
         int diagnosticsStart = build.Diagnostics.Count;
         int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         int auxiliaryStart = build.AuxiliaryObjects.Count;
+        int runtimeOverlayStart = build.RuntimeOverlays.Count;
         RhinoMesh? result = action();
         ThrowIfCancellationRequested(shouldCancel);
 
@@ -212,7 +213,8 @@ internal sealed partial class TerrainBuildService
             timer,
             out outputFingerprint,
             shouldCancel,
-            structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
+            structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart),
+            runtimeOverlays: build.RuntimeOverlays.Skip(runtimeOverlayStart));
     }
 
     private static void ExecuteCachedZonesStage(
@@ -240,6 +242,7 @@ internal sealed partial class TerrainBuildService
         int diagnosticsStart = build.Diagnostics.Count;
         int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         int zoneStart = build.ZoneObjects.Count;
+        int zoneOverlayStart = build.RuntimeOverlays.Count;
         action();
         ThrowIfCancellationRequested(shouldCancel);
         timer.Stop();
@@ -252,7 +255,8 @@ internal sealed partial class TerrainBuildService
             OutputFingerprint = stageFingerprint,
             ZoneObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.ZoneObjects.Skip(zoneStart)),
             Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
-            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
+            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList(),
+            RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays.Skip(zoneOverlayStart))
         };
 
         build.RecordTiming(stageName, timer.Elapsed, detailFactory());
@@ -283,6 +287,7 @@ internal sealed partial class TerrainBuildService
         int diagnosticsStart = build.Diagnostics.Count;
         int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         int markerStart = build.MarkerObjects.Count;
+        int markerOverlayStart = build.RuntimeOverlays.Count;
         action();
         ThrowIfCancellationRequested(shouldCancel);
         timer.Stop();
@@ -295,7 +300,8 @@ internal sealed partial class TerrainBuildService
             OutputFingerprint = stageFingerprint,
             MarkerObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.MarkerObjects.Skip(markerStart)),
             Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
-            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
+            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList(),
+            RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays.Skip(markerOverlayStart))
         };
 
         build.RecordTiming(stageName, timer.Elapsed, detailFactory());
@@ -326,6 +332,7 @@ internal sealed partial class TerrainBuildService
         int diagnosticsStart = build.Diagnostics.Count;
         int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         int objectStart = build.ObjectPlacements.Count;
+        int objectOverlayStart = build.RuntimeOverlays.Count;
         action();
         ThrowIfCancellationRequested(shouldCancel);
         timer.Stop();
@@ -338,7 +345,8 @@ internal sealed partial class TerrainBuildService
             OutputFingerprint = stageFingerprint,
             ObjectPlacements = TerrainRuntimeCacheCloner.CloneObjectPlacementGroups(build.ObjectPlacements.Skip(objectStart)),
             Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
-            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
+            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList(),
+            RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays.Skip(objectOverlayStart))
         };
 
         build.RecordTiming(stageName, timer.Elapsed, detailFactory());
@@ -369,6 +377,7 @@ internal sealed partial class TerrainBuildService
         int diagnosticsStart = build.Diagnostics.Count;
         int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         int scatterStart = build.ScatterObjects.Count;
+        int scatterOverlayStart = build.RuntimeOverlays.Count;
         action();
         ThrowIfCancellationRequested(shouldCancel);
         timer.Stop();
@@ -381,7 +390,8 @@ internal sealed partial class TerrainBuildService
             OutputFingerprint = stageFingerprint,
             ScatterObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.ScatterObjects.Skip(scatterStart)),
             Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
-            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
+            StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList(),
+            RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays.Skip(scatterOverlayStart))
         };
 
         build.RecordTiming(stageName, timer.Elapsed, detailFactory());

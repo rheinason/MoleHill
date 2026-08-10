@@ -57,4 +57,18 @@ public class GeneratedRhinoObjectTests
         Assert.Equal("12.30 m", first.RichText);
         Assert.Equal("13.40 m", second.RichText);
     }
+
+    [RhinoNativeFact]
+    public void GetPreviewBrepMeshes_RepeatedRead_ReusesStableRenderMeshes()
+    {
+        using Brep brep = new Box(new BoundingBox(Point3d.Origin, new Point3d(10, 1, 3))).ToBrep();
+        var generated = new GeneratedRhinoObject { Name = "Wall" };
+
+        IReadOnlyList<Mesh> first = generated.GetPreviewBrepMeshes(brep);
+        IReadOnlyList<Mesh> second = generated.GetPreviewBrepMeshes(brep);
+
+        Assert.NotEmpty(first);
+        Assert.Same(first, second);
+        Assert.All(first, mesh => Assert.True(mesh.IsValid));
+    }
 }

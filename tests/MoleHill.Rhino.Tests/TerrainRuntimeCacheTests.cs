@@ -174,6 +174,52 @@ public class TerrainRuntimeCacheTests
     }
 
     [Fact]
+    public void CloneStageCacheEntry_DeepClonesRuntimeOverlayGeometry()
+    {
+        var owner = new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, Guid.NewGuid());
+        var entry = new StageCacheEntry
+        {
+            RuntimeOverlays = new List<RuntimeOverlayItem>
+            {
+                new()
+                {
+                    StableId = "wall:1",
+                    Owner = owner,
+                    Severity = RuntimeOverlaySeverity.Warning,
+                    Code = "retaining_wall.test",
+                    Message = "test",
+                    Primitives = new List<RuntimeOverlayPrimitive>
+                    {
+                        RuntimeOverlayPrimitive.Polyline(new[] { Point3d.Origin, new Point3d(1, 2, 3) })
+                    }
+                }
+            }
+        };
+
+        StageCacheEntry clone = TerrainRuntimeCacheCloner.CloneStageCacheEntry(entry);
+
+        RuntimeOverlayItem clonedItem = Assert.Single(clone.RuntimeOverlays);
+        Assert.NotSame(entry.RuntimeOverlays[0], clonedItem);
+        Assert.NotSame(entry.RuntimeOverlays[0].Primitives[0], clonedItem.Primitives[0]);
+        Assert.NotSame(entry.RuntimeOverlays[0].Primitives[0].Points, clonedItem.Primitives[0].Points);
+        Assert.Equal(new Point3d(1, 2, 3), clonedItem.Primitives[0].Points[1]);
+    }
+
+    [Fact]
+    public void WorkerAndBuildCacheMerge_PreserveUiOwnedDiagnosticVisibility()
+    {
+        var owner = new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, Guid.NewGuid());
+        var cache = new TerrainRuntimeCache();
+        cache.VisibleDiagnosticOwners.Add(owner);
+
+        TerrainRuntimeCache worker = cache.CreateWorkerCopy();
+        Assert.Empty(worker.VisibleDiagnosticOwners);
+
+        cache.ReplaceBuildCachesFrom(worker);
+        Assert.Contains(owner, cache.VisibleDiagnosticOwners);
+    }
+
+    [Fact]
     public void CloneGradingTopologyEntry_PreservesStructuredDiagnostics()
     {
         GradingTopologyCacheEntry entry = CreateEntry(

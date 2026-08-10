@@ -1081,6 +1081,7 @@ internal sealed partial class TerrainBuildService
         double cellSize = crossHalf * 3.0;
         double invCell = 1.0 / cellSize;
         var used = new HashSet<long>();
+        var guidePrimitives = new List<RuntimeOverlayPrimitive>();
 
         int pinnedCount = 0;
         for (int i = 0; i < vertexCount; i++)
@@ -1099,13 +1100,24 @@ internal sealed partial class TerrainBuildService
             var along = new Vector3d(Math.Cos(theta), Math.Sin(theta), 0.0) * crossHalf;
             var across = new Vector3d(-Math.Sin(theta), Math.Cos(theta), 0.0) * crossHalf;
             int argb = FieldColor(theta, field.Pinned[i]).ToArgb();
-            build.FieldOverlayLines.Add(new FieldOverlayLine(new Line(point - along, point + along), argb));
-            build.FieldOverlayLines.Add(new FieldOverlayLine(new Line(point - across, point + across), argb));
+            guidePrimitives.Add(RuntimeOverlayPrimitive.Polyline(new[] { point - along, point + along }, colorArgb: argb));
+            guidePrimitives.Add(RuntimeOverlayPrimitive.Polyline(new[] { point - across, point + across }, colorArgb: argb));
         }
+
+        build.RuntimeOverlays.Add(new RuntimeOverlayItem
+        {
+            StableId = $"retopo-field:{modifier.Id:N}",
+            Owner = new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, modifier.Id),
+            Channel = RuntimeOverlayChannel.Guide,
+            Code = "retopo.field",
+            Message = "Retopo Stage 1 cross-field guide.",
+            ShortLabel = "Field",
+            Primitives = guidePrimitives
+        });
 
         build.Diagnostics.Add(
             $"Retopo Stage 1 field preview: {vertexCount:N0} vertices, {pinnedCount:N0} feature-pinned, " +
-            $"{build.FieldOverlayLines.Count:N0} overlay segments." +
+            $"{guidePrimitives.Count:N0} overlay segments." +
             (string.IsNullOrWhiteSpace(field.Warning) ? "" : $" {field.Warning}"));
     }
 

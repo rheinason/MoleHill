@@ -7,9 +7,6 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed record TerrainBuildTiming(string Stage, TimeSpan Elapsed, string? Detail, bool IsCacheHit);
 
-/// <summary>A short preview-only line segment drawn by the Retopo cross-field field preview (not baked).</summary>
-internal readonly record struct FieldOverlayLine(Line Line, int Argb);
-
 internal sealed class TerrainObjectPlacement
 {
     public Guid ObjectId { get; init; }
@@ -56,8 +53,8 @@ internal sealed class TerrainBuildResult
 
     public List<SurfaceRemesher.ConstraintPolyline> PersistentElevationConstraints { get; } = new();
 
-    /// <summary>Retopo Stage-1 cross-field preview overlay (short flow-direction segments; preview only, never baked).</summary>
-    public List<FieldOverlayLine> FieldOverlayLines { get; } = new();
+    /// <summary>Runtime-only guide and diagnostic geometry. It is displayed by the conduit and is never baked.</summary>
+    public List<RuntimeOverlayItem> RuntimeOverlays { get; } = new();
 
     public void RecordTiming(
         string stage,

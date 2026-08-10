@@ -10,6 +10,9 @@ namespace MoleHill.Rhino.Services;
 internal sealed class TerrainDisplayConduit : DisplayConduit
 {
     private const int ScatterShapePointBudget = 32;
+    private const int OverlaySegmentBudget = 50_000;
+    private const int OverlayFaceBudget = 50_000;
+    private const int OverlayAnnotationBudget = 500;
     private static readonly object DisplayMaterialCacheGate = new();
     private static readonly Dictionary<(int Argb, double Transparency), DisplayMaterial> DisplayMaterialCache = new();
     private static readonly object MarkerBlockGeometryCacheGate = new();
@@ -48,11 +51,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         if (terrain.ShowTerrainMesh && displayState.PreviewTerrainMesh != null)
             DrawGeneratedMesh(e, doc, terrain, displayState.PreviewTerrainMesh, TerrainDefinition.ResolveTerrainLayerPath(terrain.TerrainLayerPath), null, terrain.TerrainColorArgb);
 
-        if (displayState.FieldLines.Count > 0)
-        {
-            foreach (FieldOverlayLine field in displayState.FieldLines)
-                e.Display.DrawLine(field.Line, Color.FromArgb(field.Argb), 2);
-        }
+        DrawRuntimeOverlays(e, displayState);
 
         if (terrain.ShowZoneMeshes)
         {
@@ -71,6 +70,108 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
         if (displayState.ScatterObjects.Count > 0)
             DrawScatterObjects(e, doc, terrain, displayState);
+    }
+
+    private static void DrawRuntimeOverlays(DrawEventArgs e, TerrainDisplayState displayState)
+    {
+        int segments = 0;
+        int faces = 0;
+        int annotations = 0;
+        IEnumerable<RuntimeOverlayItem> orderedItems = displayState.RuntimeOverlays
+            .Select((item, index) => (item, index))
+            .Where(pair => pair.item.Channel == RuntimeOverlayChannel.Guide ||
+                           displayState.VisibleDiagnosticOwners.Contains(pair.item.Owner))
+            .OrderByDescending(pair => pair.item.Channel == RuntimeOverlayChannel.Diagnostic)
+            .ThenByDescending(pair => pair.item.Severity)
+            .ThenBy(pair => pair.index)
+            .Select(pair => pair.item);
+
+        foreach (RuntimeOverlayItem item in orderedItems)
+        {
+            foreach (RuntimeOverlayPrimitive primitive in item.Primitives)
+            {
+                if (primitive.SegmentCost > 0 && segments + primitive.SegmentCost > OverlaySegmentBudget)
+                    continue;
+                if (primitive.FaceCost > 0 && faces + primitive.FaceCost > OverlayFaceBudget)
+                    continue;
+                if (primitive.AnnotationCost > 0 && annotations + primitive.AnnotationCost > OverlayAnnotationBudget)
+                    continue;
+
+                Color color = RuntimeOverlayPalette.Resolve(item, primitive);
+                switch (primitive.Kind)
+                {
+                    case RuntimeOverlayPrimitiveKind.Marker when primitive.Point.IsValid:
+                        e.Display.DrawPoint(primitive.Point, PointStyle.RoundSimple, primitive.Size, color);
+                        break;
+                    case RuntimeOverlayPrimitiveKind.Dot when primitive.Point.IsValid:
+                        DrawOverlayAnnotation(e, () => e.Display.DrawDot(
+                            primitive.Point,
+                            string.IsNullOrWhiteSpace(primitive.Text) ? item.ShortLabel : primitive.Text,
+                            Color.White,
+                            color));
+                        break;
+                    case RuntimeOverlayPrimitiveKind.Text when primitive.Point.IsValid && !string.IsNullOrWhiteSpace(primitive.Text):
+                        DrawOverlayAnnotation(e, () => e.Display.Draw2dText(primitive.Text, color, primitive.Point, true, primitive.Size));
+                        break;
+                    case RuntimeOverlayPrimitiveKind.Polyline:
+                        DrawOverlayPolyline(e, primitive, color);
+                        break;
+                    case RuntimeOverlayPrimitiveKind.Mesh when primitive.RegionMesh != null:
+                        if (primitive.ShadeMesh)
+                            e.Display.DrawMeshShaded(primitive.RegionMesh, GetOverlayMaterial(color, primitive.MeshTransparency));
+                        if (primitive.DrawMeshWires)
+                            e.Display.DrawMeshWires(primitive.RegionMesh, color);
+                        break;
+                }
+
+                segments += primitive.SegmentCost;
+                faces += primitive.FaceCost;
+                annotations += primitive.AnnotationCost;
+            }
+        }
+    }
+
+    private static void DrawOverlayAnnotation(DrawEventArgs e, Action draw)
+    {
+        e.Display.PushDepthTesting(false);
+        e.Display.PushDepthWriting(false);
+        try
+        {
+            draw();
+        }
+        finally
+        {
+            e.Display.PopDepthWriting();
+            e.Display.PopDepthTesting();
+        }
+    }
+
+    private static void DrawOverlayPolyline(DrawEventArgs e, RuntimeOverlayPrimitive primitive, Color color)
+    {
+        Point3d[] points = primitive.Points;
+        for (int i = 1; i < points.Length; i++)
+        {
+            if (points[i - 1].IsValid && points[i].IsValid)
+                e.Display.DrawLine(points[i - 1], points[i], color, primitive.Thickness);
+        }
+
+        if (primitive.IsClosed && points.Length > 2 && points[^1].IsValid && points[0].IsValid)
+            e.Display.DrawLine(points[^1], points[0], color, primitive.Thickness);
+    }
+
+    private static DisplayMaterial GetOverlayMaterial(Color color, double transparency)
+    {
+        Color opaque = GetOpaqueColor(color);
+        var key = (opaque.ToArgb(), transparency);
+        lock (DisplayMaterialCacheGate)
+        {
+            if (DisplayMaterialCache.TryGetValue(key, out DisplayMaterial? material))
+                return material;
+
+            material = new DisplayMaterial(opaque) { Transparency = transparency };
+            DisplayMaterialCache[key] = material;
+            return material;
+        }
     }
 
     private static void DrawScatterObjects(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState displayState)
@@ -440,8 +541,26 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
         if (generated.Geometry is Brep brep)
         {
-            var material = CreateDisplayMaterial(doc, terrain, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
-            e.Display.DrawBrepShaded(brep, material);
+            MeshingParameters meshingParameters = doc.GetMeshingParameters(doc.MeshingParameterStyle);
+            IReadOnlyList<Mesh> previewMeshes = generated.GetPreviewBrepMeshes(brep, meshingParameters);
+            if (previewMeshes.Count == 0)
+            {
+                var material = CreateDisplayMaterial(doc, terrain, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+                e.Display.DrawBrepShaded(brep, material);
+                return;
+            }
+
+            foreach (Mesh previewMesh in previewMeshes)
+            {
+                DrawGeneratedMesh(
+                    e,
+                    doc,
+                    terrain,
+                    previewMesh,
+                    generated.LayerPath,
+                    generated.SourceLayerPath,
+                    generated.ColorArgb);
+            }
             return;
         }
 

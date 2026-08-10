@@ -75,7 +75,10 @@ public sealed partial class MoleHillPanel
         Control titleBlock = CreateCardTitleBlock(
             collapsed,
             definition.Name,
-            GetTerrainObjectCollapsedSummary(definition),
+            AppendRuntimeDiagnosticSummary(
+                GetTerrainObjectCollapsedSummary(definition),
+                terrain,
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id)),
             nameBox,
             GetTerrainObjectSubtitle(definition));
 
@@ -122,7 +125,14 @@ public sealed partial class MoleHillPanel
     {
         var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
         if (TryBuildSchemaObjectBody(layout, terrain, definition))
+        {
+            Control? schemaDiagnosticsRow = CreateRuntimeDiagnosticsRow(
+                terrain,
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id));
+            if (schemaDiagnosticsRow != null)
+                layout.AddRow(schemaDiagnosticsRow);
             return layout;
+        }
 
         layout.AddRow(CreateSourceEditor("Sources", definition.Sources,
             apply => MutateObjectDefinition(terrain.TerrainId, definition.Id, item => apply(item.Sources)),
@@ -191,6 +201,11 @@ public sealed partial class MoleHillPanel
             "Bindings",
             $"{CountReferences(definition.Sources)} source refs",
             "Explicit picks plus watched layers drive the objects in this definition. Objects keep their original Rhino layers."));
+        Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
+            terrain,
+            new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Object, definition.Id));
+        if (diagnosticsRow != null)
+            layout.AddRow(diagnosticsRow);
         return layout;
     }
 

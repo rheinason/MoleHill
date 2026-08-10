@@ -99,6 +99,7 @@ internal sealed partial class TerrainBuildService
             int diagnosticsStart = build.Diagnostics.Count;
             int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
             int auxiliaryStart = build.AuxiliaryObjects.Count;
+            int runtimeOverlayStart = build.RuntimeOverlays.Count;
 
             TerrainAnalysisSummary? summary = analysis switch
             {
@@ -230,7 +231,8 @@ internal sealed partial class TerrainBuildService
                     : TerrainRuntimeCacheCloner.CloneAnalyses(new[] { summary }),
                 AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.AuxiliaryObjects.Skip(auxiliaryStart)),
                 Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
-                StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList()
+                StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList(),
+                RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays.Skip(runtimeOverlayStart))
             };
             build.RecordTiming(
                 $"Analysis {analysis.Label}",

@@ -61,7 +61,10 @@ public sealed partial class MoleHillPanel
         Control titleBlock = CreateCardTitleBlock(
             collapsed,
             analysis.Label,
-            GetAnalysisCollapsedSummary(terrain, analysis),
+            AppendRuntimeDiagnosticSummary(
+                GetAnalysisCollapsedSummary(terrain, analysis),
+                terrain,
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, analysis.Id)),
             nameBox,
             GetAnalysisSubtitle(analysis, isActive));
 
@@ -144,6 +147,11 @@ public sealed partial class MoleHillPanel
         AppendBespokeAnalysisRowsBefore(layout, terrain, analysis);
         TryBuildSchemaAnalysisBody(layout, terrain, analysis);
         AppendBespokeAnalysisRowsAfter(layout, terrain, analysis, summary);
+        Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
+            terrain,
+            new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Analysis, analysis.Id));
+        if (diagnosticsRow != null)
+            layout.AddRow(diagnosticsRow);
 
         return layout;
     }

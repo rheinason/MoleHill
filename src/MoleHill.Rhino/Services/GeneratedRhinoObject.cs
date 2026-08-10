@@ -6,6 +6,8 @@ namespace MoleHill.Rhino.Services;
 internal sealed class GeneratedRhinoObject
 {
     private readonly Dictionary<(int SourceIdentity, string DisplayText), TextEntity> _previewTextCache = new();
+    private Brep? _previewBrepSource;
+    private Mesh[]? _previewBrepMeshes;
     private bool _previewDisplayTextInitialized;
     private string? _previewDisplayText;
 
@@ -38,6 +40,24 @@ internal sealed class GeneratedRhinoObject
     /// <summary>When set, this is a scatter instance owned by the given scatter definition; the display
     /// conduit uses the definition's preview mode/cap to decide how to draw it. Bake ignores this.</summary>
     public Guid? ScatterDefinitionId { get; init; }
+
+    /// <summary>
+    /// Builds the transient Brep render mesh once and reuses it for every conduit frame. Drawing a
+    /// naked Brep directly asks the display pipeline to tessellate it opportunistically; on long,
+    /// thin wall faces that can produce a different corner from the document object's render mesh.
+    /// </summary>
+    internal IReadOnlyList<Mesh> GetPreviewBrepMeshes(Brep source, MeshingParameters? meshingParameters = null)
+    {
+        if (ReferenceEquals(_previewBrepSource, source) && _previewBrepMeshes != null)
+            return _previewBrepMeshes;
+
+        _previewBrepSource = source;
+        MeshingParameters parameters = meshingParameters ?? MeshingParameters.QualityRenderMesh;
+        _previewBrepMeshes = (Mesh.CreateFromBrep(source, parameters) ?? Array.Empty<Mesh>())
+            .Where(mesh => mesh.IsValid && mesh.Faces.Count > 0)
+            .ToArray();
+        return _previewBrepMeshes;
+    }
 
     internal TextEntity? GetPreviewTextEntity(TextEntity source, string displayText)
     {

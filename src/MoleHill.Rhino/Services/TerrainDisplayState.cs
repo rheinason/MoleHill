@@ -31,8 +31,9 @@ internal sealed class TerrainDisplayState
 
     public Dictionary<Guid, ScatterObjectRange> ScatterObjectRanges { get; } = new();
 
-    /// <summary>Retopo Stage-1 cross-field flow segments, drawn by the conduit (preview only).</summary>
-    public List<FieldOverlayLine> FieldLines { get; } = new();
+    public List<RuntimeOverlayItem> RuntimeOverlays { get; } = new();
+
+    public HashSet<RuntimeOverlayOwner> VisibleDiagnosticOwners { get; } = new();
 
     private BoundingBox? _previewBounds;
 
@@ -73,6 +74,18 @@ internal sealed class TerrainDisplayState
             origin.Transform(scatter.InstanceTransform);
             if (origin.IsValid)
                 bounds.Union(origin);
+        }
+
+        foreach (RuntimeOverlayItem overlay in RuntimeOverlays)
+        {
+            bool isVisible = overlay.Channel == RuntimeOverlayChannel.Guide ||
+                             VisibleDiagnosticOwners.Contains(overlay.Owner);
+            if (!isVisible)
+                continue;
+
+            BoundingBox overlayBounds = overlay.GetBounds();
+            if (overlayBounds.IsValid)
+                bounds.Union(overlayBounds);
         }
 
         if (bounds.IsValid)
@@ -141,7 +154,8 @@ internal sealed class TerrainDisplayState
         clone.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(AuxiliaryObjects));
         clone.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(MarkerObjects));
         clone.ScatterObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(ScatterObjects));
-        clone.FieldLines.AddRange(FieldLines);
+        clone.RuntimeOverlays.AddRange(TerrainRuntimeCacheCloner.CloneRuntimeOverlays(RuntimeOverlays));
+        clone.VisibleDiagnosticOwners.UnionWith(VisibleDiagnosticOwners);
         clone.RebuildScatterObjectRanges();
         return clone;
     }

@@ -5,7 +5,8 @@ fields by composing them, not by copying boilerplate.
 
 - `MoleHillPanel.cs` + `MoleHillPanel.*.cs` partials - the panel, split by concern:
   `.Actions.cs` (terrain-level create/copy/delete/convert/bake/rebuild/reset actions),
-  `.Cards.cs` (collapsible "stack card" framework), `.Editors.cs` (form-control vocabulary -
+  `.Cards.cs` (collapsible "stack card" framework), `.RuntimeDiagnostics.cs` (generic per-card issue
+  counts and redraw-only **Show Issues** binding), `.Editors.cs` (form-control vocabulary -
   `CreateSourceEditor`/`CreateNumericEditor`/`CreateDropDownEditor`/...), `.Schema.cs` (schema to
   card-row builder for registry-driven modifier cards), `.Status.cs` (build status, copy log, copy case,
   and structured diagnostic formatting), and per-tab card builders `.Modifiers.cs`, `.Zones.cs`,

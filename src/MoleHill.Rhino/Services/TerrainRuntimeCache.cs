@@ -19,6 +19,12 @@ internal sealed class TerrainRuntimeCache
 
     public TerrainDisplayState? DisplayState { get; set; }
 
+    /// <summary>
+    /// Session-only UI preference. Worker copies and cache merges intentionally leave this set on
+    /// the UI-owned cache so a background build cannot reset what the user chose to inspect.
+    /// </summary>
+    public HashSet<RuntimeOverlayOwner> VisibleDiagnosticOwners { get; } = new();
+
     public TerrainCoreCaseRecorder? CoreCaseRecorder { get; init; }
 
     public TimeSpan? LastPreviewDuration { get; set; }
@@ -379,6 +385,8 @@ internal sealed class StageCacheEntry
 
     public List<GradingDiagnostic> StructuredDiagnostics { get; init; } = new();
 
+    public List<RuntimeOverlayItem> RuntimeOverlays { get; init; } = new();
+
     public int? StairSurfaceCount { get; set; }
 
     public string? StairTreadDepthSummary { get; set; }
@@ -614,6 +622,7 @@ internal static class TerrainRuntimeCacheCloner
             PersistentElevationConstraints = entry.PersistentElevationConstraints,
             Diagnostics = entry.Diagnostics,
             StructuredDiagnostics = entry.StructuredDiagnostics,
+            RuntimeOverlays = CloneRuntimeOverlays(entry.RuntimeOverlays),
             StairSurfaceCount = entry.StairSurfaceCount,
             StairTreadDepthSummary = entry.StairTreadDepthSummary,
             StairStepCountSummary = entry.StairStepCountSummary
@@ -627,6 +636,11 @@ internal static class TerrainRuntimeCacheCloner
             Fingerprint = entry.Fingerprint,
             Prepared = ClonePreparedSmoothingData(entry.Prepared)
         };
+    }
+
+    public static List<RuntimeOverlayItem> CloneRuntimeOverlays(IEnumerable<RuntimeOverlayItem> items)
+    {
+        return items.Select(item => item.Clone()).ToList();
     }
 
     private static MeshSmoother.PreparedSmoothingData ClonePreparedSmoothingData(MeshSmoother.PreparedSmoothingData prepared)

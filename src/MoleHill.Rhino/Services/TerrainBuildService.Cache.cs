@@ -28,6 +28,7 @@ internal sealed partial class TerrainBuildService
         build.Diagnostics.AddRange(cachedEntry.Diagnostics.Where(static line => !IsCachedTimingDiagnostic(line)));
         build.StructuredDiagnostics.AddRange(cachedEntry.StructuredDiagnostics.Where(
             static diagnostic => !diagnostic.Code.StartsWith("timing.", StringComparison.OrdinalIgnoreCase)));
+        build.RuntimeOverlays.AddRange(TerrainRuntimeCacheCloner.CloneRuntimeOverlays(cachedEntry.RuntimeOverlays));
     }
 
     internal static bool IsCachedTimingDiagnostic(string? line)
@@ -56,7 +57,8 @@ internal sealed partial class TerrainBuildService
         out ulong outputFingerprint,
         Func<bool>? shouldCancel = null,
         IEnumerable<GradingDiagnostic>? structuredDiagnostics = null,
-        TerrainBuildProgressReporter? reportProgress = null)
+        TerrainBuildProgressReporter? reportProgress = null,
+        IEnumerable<RuntimeOverlayItem>? runtimeOverlays = null)
     {
         timer.Stop();
         ThrowIfCancellationRequested(shouldCancel);
@@ -84,7 +86,8 @@ internal sealed partial class TerrainBuildService
             PersistentHardConstraints = TerrainRuntimeCacheCloner.CloneConstraints(persistentHardConstraints),
             PersistentElevationConstraints = TerrainRuntimeCacheCloner.CloneConstraints(build.PersistentElevationConstraints),
             Diagnostics = diagnostics.ToList(),
-            StructuredDiagnostics = structuredDiagnostics?.ToList() ?? new List<GradingDiagnostic>()
+            StructuredDiagnostics = structuredDiagnostics?.ToList() ?? new List<GradingDiagnostic>(),
+            RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(runtimeOverlays ?? Array.Empty<RuntimeOverlayItem>())
         };
 
         build.RecordTiming(stageName, timer.Elapsed, detail);
@@ -123,6 +126,7 @@ internal sealed partial class TerrainBuildService
             PersistentElevationConstraints = source.PersistentElevationConstraints,
             Diagnostics = source.Diagnostics,
             StructuredDiagnostics = source.StructuredDiagnostics,
+            RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(source.RuntimeOverlays),
             StairSurfaceCount = source.StairSurfaceCount,
             StairTreadDepthSummary = source.StairTreadDepthSummary,
             StairStepCountSummary = source.StairStepCountSummary

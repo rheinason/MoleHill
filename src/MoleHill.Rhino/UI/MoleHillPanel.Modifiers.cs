@@ -57,7 +57,10 @@ public sealed partial class MoleHillPanel
         Control titleBlock = CreateCardTitleBlock(
             collapsed,
             modifier.Label,
-            GetCollapsedSummary(modifier),
+            AppendRuntimeDiagnosticSummary(
+                GetCollapsedSummary(modifier),
+                terrain,
+                new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, modifier.Id)),
             nameBox,
             GetModifierSubtitle(modifier, isPinnedBaseTriangulate));
 
@@ -119,6 +122,12 @@ public sealed partial class MoleHillPanel
 
         if (TryBuildSchemaModifierBody(layout, terrain, modifier))
             AppendBespokeModifierRows(layout, terrain, modifier);
+
+        Control? diagnosticsRow = CreateRuntimeDiagnosticsRow(
+            terrain,
+            new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, modifier.Id));
+        if (diagnosticsRow != null)
+            layout.AddRow(diagnosticsRow);
 
         return layout;
     }

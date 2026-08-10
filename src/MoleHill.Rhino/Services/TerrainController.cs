@@ -844,6 +844,67 @@ internal sealed partial class TerrainController
         doc.Views.Redraw();
     }
 
+    public RuntimeDiagnosticSummary GetRuntimeDiagnosticSummary(
+        RhinoDoc doc,
+        Guid terrainId,
+        RuntimeOverlayOwner owner)
+    {
+        TerrainDisplayState? displayState = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId).DisplayState;
+        if (displayState == null)
+            return default;
+
+        int errors = 0;
+        int warnings = 0;
+        int information = 0;
+        foreach (RuntimeOverlayItem item in displayState.RuntimeOverlays)
+        {
+            if (item.Channel != RuntimeOverlayChannel.Diagnostic || item.Owner != owner)
+                continue;
+
+            switch (item.Severity)
+            {
+                case RuntimeOverlaySeverity.Error:
+                    errors++;
+                    break;
+                case RuntimeOverlaySeverity.Warning:
+                    warnings++;
+                    break;
+                default:
+                    information++;
+                    break;
+            }
+        }
+
+        return new RuntimeDiagnosticSummary(errors, warnings, information);
+    }
+
+    public bool IsRuntimeDiagnosticsVisible(RhinoDoc doc, Guid terrainId, RuntimeOverlayOwner owner)
+    {
+        return GetRuntimeCache(doc.RuntimeSerialNumber, terrainId).VisibleDiagnosticOwners.Contains(owner);
+    }
+
+    public void SetRuntimeDiagnosticsVisible(
+        RhinoDoc doc,
+        Guid terrainId,
+        RuntimeOverlayOwner owner,
+        bool isVisible)
+    {
+        TerrainRuntimeCache runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId);
+        if (isVisible)
+            runtimeCache.VisibleDiagnosticOwners.Add(owner);
+        else
+            runtimeCache.VisibleDiagnosticOwners.Remove(owner);
+
+        if (runtimeCache.DisplayState != null)
+        {
+            runtimeCache.DisplayState.VisibleDiagnosticOwners.Clear();
+            runtimeCache.DisplayState.VisibleDiagnosticOwners.UnionWith(runtimeCache.VisibleDiagnosticOwners);
+            runtimeCache.DisplayState.InvalidatePreviewBounds();
+        }
+
+        doc.Views.Redraw();
+    }
+
     public IReadOnlyList<Guid> GetSelectedPointObjectIds(RhinoDoc doc)
     {
         return GetSelectedObjectIds(doc, ObjectType.Point | ObjectType.PointSet);

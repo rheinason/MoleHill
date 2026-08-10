@@ -32,7 +32,8 @@ internal sealed partial class TerrainController
             TerrainMesh = build.PrimaryMesh,
             BaseTerrainMesh = build.BaseMesh
         };
-        displayState.FieldLines.AddRange(build.FieldOverlayLines);
+        displayState.RuntimeOverlays.AddRange(TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays));
+        displayState.VisibleDiagnosticOwners.UnionWith(runtimeCache.VisibleDiagnosticOwners);
         if (build.Mode == TerrainBuildMode.Final)
             displayState.AnalysisResults.AddRange(build.AnalysisResults);
         if (build.Mode == TerrainBuildMode.Final)
