@@ -93,7 +93,7 @@ internal sealed class TerrainDisplayState
             // Scatter instances (and markers/text) extend beyond their origin point; pad the box so
             // their full footprint stays inside the invalidated/redrawn region.
             double diagonal = bounds.Diagonal.Length;
-            double margin = Math.Max(diagonal * 0.05, 1.0);
+            double margin = Math.Max(diagonal * 0.05, double.Epsilon);
             bounds.Inflate(margin);
         }
 

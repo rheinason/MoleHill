@@ -3,6 +3,7 @@ using FileFilter = Eto.Forms.FileFilter;
 using OpenFileDialog = Eto.Forms.OpenFileDialog;
 using SaveFileDialog = Eto.Forms.SaveFileDialog;
 using MoleHill.Rhino.UI;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.Commands;
 using Rhino.DocObjects;
@@ -18,6 +19,7 @@ internal static class DocumentCommandService
 {
     public static Result RunOrientToOrigin(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
         var getBasePoint = new GetPoint();
         getBasePoint.SetCommandPrompt("Select project XY base point (elevation will be preserved)");
         if (getBasePoint.Get() != GetResult.Point)
@@ -48,6 +50,7 @@ internal static class DocumentCommandService
 
     public static Result RunApplySavedGeoref(RhinoDoc doc, bool toProjectCoordinates)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
         if (!ProjectBaseCPlaneService.TryGetTransform(toProjectCoordinates, doc, out Transform transform))
         {
             RhinoApp.WriteLine("MoleHill: no project georef CPlane found.");
@@ -93,6 +96,7 @@ internal static class DocumentCommandService
 
     public static Result RunImportWithGeoref(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
         if (!ProjectBaseCPlaneService.TryGetTransform(toProjectCoordinates: true, doc, out Transform transform))
         {
             RhinoApp.WriteLine("MoleHill: no project georef CPlane found.");
@@ -181,6 +185,7 @@ internal static class DocumentCommandService
 
     public static Result RunExportWithGeoref(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
         if (!ProjectBaseCPlaneService.TryGetTransform(toProjectCoordinates: false, doc, out Transform transform))
         {
             RhinoApp.WriteLine("MoleHill: no project georef CPlane found.");
@@ -238,6 +243,9 @@ internal static class DocumentCommandService
 
     public static Result RunImportGeoTiff(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext documentUnits))
+            return Result.Failure;
+
         var imageDialog = new Eto.Forms.OpenFileDialog { Title = "Select GeoTIFF file", MultiSelect = false };
         imageDialog.Filters.Add(new FileFilter("GeoTIFF", ".tif", ".tiff"));
         if (imageDialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok ||
@@ -248,7 +256,8 @@ internal static class DocumentCommandService
         using var image = System.Drawing.Image.FromFile(geotiffPath);
         RasterGeoreference georeference;
         string sourceDescription;
-        if (!GeoTiffMetadataReader.TryRead(image, out georeference, out sourceDescription))
+        GeoTiffLinearUnit? sourceUnits;
+        if (!GeoTiffMetadataReader.TryRead(image, out georeference, out sourceDescription, out sourceUnits))
         {
             string? worldFilePath = FindWorldFile(geotiffPath);
             if (worldFilePath == null)
@@ -273,7 +282,13 @@ internal static class DocumentCommandService
             }
 
             sourceDescription = $"world file '{Path.GetFileName(worldFilePath)}'";
+            sourceUnits = null;
         }
+
+        if (!TryResolveRasterUnits(sourceUnits, documentUnits, out double sourceMetersPerUnit, out string unitDescription))
+            return Result.Cancel;
+
+        georeference = georeference.ScaleCoordinates(sourceMetersPerUnit / documentUnits.MetersPerModelUnit);
 
         Plane plane = Plane.WorldXY;
         Guid pictureId = doc.Objects.AddPictureFrame(
@@ -310,9 +325,84 @@ internal static class DocumentCommandService
         RhinoApp.WriteLine(
             $"MoleHill: imported GeoTIFF using {sourceDescription} " +
             (placedInProjectCoordinates ? "in local project coordinates." : "in real-world coordinates.") +
-            " Coordinate values were used directly; no CRS reprojection was applied.");
+            $" Source coordinates were interpreted as {unitDescription} and converted to {documentUnits.Abbreviation}." +
+            " No CRS reprojection was applied.");
         doc.Views.Redraw();
         return Result.Success;
+    }
+
+    private static bool TryResolveRasterUnits(
+        GeoTiffLinearUnit? embeddedUnits,
+        ModelUnitContext documentUnits,
+        out double metersPerUnit,
+        out string description)
+    {
+        if (embeddedUnits is { } detected)
+        {
+            metersPerUnit = detected.MetersPerUnit;
+            description = detected.Name;
+            return true;
+        }
+
+        var getOption = new GetOption();
+        getOption.SetCommandPrompt(
+            $"Raster coordinate units are not embedded. Press Enter for document units ({documentUnits.Abbreviation}) or choose source units");
+        getOption.AcceptNothing(true);
+        int documentOption = getOption.AddOption("DocumentUnits");
+        int metresOption = getOption.AddOption("Meters");
+        int feetOption = getOption.AddOption("Feet");
+        int surveyFeetOption = getOption.AddOption("USSurveyFeet");
+        int millimetresOption = getOption.AddOption("Millimeters");
+
+        GetResult result = getOption.Get();
+        if (result == GetResult.Nothing)
+        {
+            metersPerUnit = documentUnits.MetersPerModelUnit;
+            description = $"document units ({documentUnits.Abbreviation})";
+            return true;
+        }
+
+        if (result != GetResult.Option)
+        {
+            metersPerUnit = 0.0;
+            description = string.Empty;
+            return false;
+        }
+
+        int selected = getOption.OptionIndex();
+        if (selected == metresOption)
+        {
+            metersPerUnit = 1.0;
+            description = "metres";
+        }
+        else if (selected == feetOption)
+        {
+            metersPerUnit = 0.3048;
+            description = "international feet";
+        }
+        else if (selected == surveyFeetOption)
+        {
+            metersPerUnit = 1200.0 / 3937.0;
+            description = "US survey feet";
+        }
+        else if (selected == millimetresOption)
+        {
+            metersPerUnit = 0.001;
+            description = "millimetres";
+        }
+        else if (selected == documentOption)
+        {
+            metersPerUnit = documentUnits.MetersPerModelUnit;
+            description = $"document units ({documentUnits.Abbreviation})";
+        }
+        else
+        {
+            metersPerUnit = 0.0;
+            description = string.Empty;
+            return false;
+        }
+
+        return true;
     }
 
     private static string? FindWorldFile(string geotiffPath)

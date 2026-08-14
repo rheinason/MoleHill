@@ -34,7 +34,7 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
         {
             GhPort.Mesh("Mesh", "M", "Terrain mesh (triangles only)."),
             GhPort.Curve("Wall Curves", "C", "Unordered open or closed 3D curves defining retaining walls.", optional: false),
-            GhPort.Number("Max Wall Width", "W", "Maximum expected spacing between paired wall rails.", @default: 1.0),
+            GhPort.Number("Max Wall Width", "W", "Maximum expected spacing between paired wall rails. Defaults to 1 m in document units."),
         },
         Outputs = new[]
         {
@@ -62,7 +62,7 @@ public sealed class RetainingWallComponent : RegistryTerrainComponent
             return;
         }
 
-        double maxWallWidth = ctx.GetNumber(2, 1.0);
+        double maxWallWidth = ctx.GetNumber(2, ctx.FromMeters(1.0));
         if (maxWallWidth <= 0.0)
         {
             ctx.Error("Max wall width must be > 0.");

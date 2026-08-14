@@ -8,6 +8,7 @@ using MoleHill.Core.Scattering;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.UI;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
@@ -250,7 +251,7 @@ public sealed partial class MoleHillPanel
                 if (summary != null)
                     layout.AddRow(CreateReadOnlyValueRow(
                         "Area",
-                        ModelUnits.FormatArea(summary.SurfaceArea, RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters),
+                        FormatArea(summary.SurfaceArea),
                         "Terrain surface area from the last build."));
                 {
                     // Actual low/high Z driven by either the configured range or auto-fit from last build
@@ -537,6 +538,14 @@ public sealed partial class MoleHillPanel
 
     }
 
+    private static string FormatArea(double value)
+    {
+        ModelUnitContext unitContext = ModelUnitContext.FromDocument(RhinoDoc.ActiveDoc);
+        if (!unitContext.IsSupported)
+            unitContext = ModelUnitContext.FromUnitSystem(UnitSystem.Meters);
+        return unitContext.FormatArea(value);
+    }
+
     private void AddTerrainSectionCommonRows(
         DynamicLayout layout,
         TerrainDefinition terrain,
@@ -561,10 +570,10 @@ public sealed partial class MoleHillPanel
         layout.AddRow(CreateNumericEditor(
             "Text Height",
             analysis.TextHeight,
-            value => MutateSection(item => item.TextHeight = Math.Max(0.01, value)),
+            value => MutateSection(item => item.TextHeight = Math.Max(double.Epsilon, value)),
             decimalPlaces: 3,
             help: "Height of station and elevation labels printed on the section.",
-            minValue: 0.01));
+            minValue: 0.0));
         layout.AddRow(CreateLayerAssignmentEditor(
             "Output Layer",
             analysis.OutputLayerPath,

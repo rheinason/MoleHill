@@ -22,15 +22,15 @@ public static partial class PadGrader
         if (slopeRatio <= 1e-12 ||
             Math.Abs(branchSign) <= 1e-12 ||
             !double.IsFinite(fallbackReach) ||
-            fallbackReach <= 1e-9)
+            fallbackReach <= ScaleAwareTolerance.LengthFloor(fallbackReach))
         {
             return Math.Max(0.0, fallbackReach);
         }
 
         double searchDistance = maxDistance > 0.0
             ? maxDistance
-            : Math.Max(Math.Max(fallbackReach * 4.0, 1.0), TerrainFaceGrid.BoundsDiagonal);
-        if (searchDistance <= 1e-9)
+            : Math.Max(fallbackReach * 4.0, TerrainFaceGrid.BoundsDiagonal);
+        if (searchDistance <= ScaleAwareTolerance.LengthFloor(searchDistance))
             return Math.Max(0.0, fallbackReach);
 
         if (TryFindPadDaylightReachByTriangleIntervals(
@@ -83,7 +83,7 @@ public static partial class PadGrader
     {
         daylightReach = 0.0;
         bestApproachReach = 0.0;
-        if (maxReach <= 1e-9)
+        if (maxReach <= ScaleAwareTolerance.LengthFloor(maxReach))
             return false;
 
         return TerrainFaceGrid.TryFindRayDaylightReach(
@@ -114,11 +114,11 @@ public static partial class PadGrader
     {
         daylightReach = 0.0;
         bestApproachReach = 0.0;
-        if (maxReach <= 1e-9)
+        if (maxReach <= ScaleAwareTolerance.LengthFloor(maxReach))
             return false;
 
-        const double diffTolerance = 1e-4;
-        double step = Math.Clamp(maxReach / 48.0, 0.1, 5.0);
+        double diffTolerance = ScaleAwareTolerance.ResolveLength(maxReach * 1e-6, maxReach);
+        double step = maxReach / 48.0;
         int sampleCount = Math.Max(1, (int)Math.Ceiling(maxReach / step));
         double startDiff = EvaluatePadSectionDifference(TerrainFaceGrid, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, 0.0);
         double bestAbsDiff = Math.Abs(startDiff);
@@ -206,7 +206,9 @@ public static partial class PadGrader
         double lowReach,
         double highReach)
     {
-        const double diffTolerance = 1e-5;
+        double reachScale = Math.Max(Math.Abs(lowReach), Math.Abs(highReach));
+        double diffTolerance = ScaleAwareTolerance.ResolveLength(reachScale * 1e-7, reachScale);
+        double reachTolerance = ScaleAwareTolerance.ResolveLength(reachScale * 1e-6, reachScale);
         double low = lowReach;
         double high = highReach;
 
@@ -214,7 +216,7 @@ public static partial class PadGrader
         {
             double mid = (low + high) * 0.5;
             double diff = EvaluatePadSectionDifference(TerrainFaceGrid, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, mid);
-            if (Math.Abs(diff) <= diffTolerance || (high - low) <= 1e-4)
+            if (Math.Abs(diff) <= diffTolerance || (high - low) <= reachTolerance)
                 return mid;
 
             if (branchSign > 0.0)

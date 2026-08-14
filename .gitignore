@@ -38,3 +38,6 @@ artifacts/
 skills/
 skills-lock.json
 scratch_*.obj
+
+# Local Rhino documents and texture payloads used for manual testing
+/RhinoTest/

@@ -594,7 +594,7 @@ internal sealed partial class TerrainBuildService
         double terrainDiagonal = Math.Sqrt(
             ((terrainBounds.MaxX - terrainBounds.MinX) * (terrainBounds.MaxX - terrainBounds.MinX)) +
             ((terrainBounds.MaxY - terrainBounds.MinY) * (terrainBounds.MaxY - terrainBounds.MinY)));
-        double basePadding = Math.Max(terrainDetailSize * 2.0, 1e-6);
+        double basePadding = Math.Max(terrainDetailSize * 2.0, Math.Max(terrainDiagonal * 1e-12, double.Epsilon));
 
         var bounds = new Bounds2D[pads.Count];
         for (int i = 0; i < pads.Count; i++)

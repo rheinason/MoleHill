@@ -38,6 +38,12 @@ picker. The full six-value affine is applied, including rotation/shear and the w
 offset. If a project base exists, real-world raster placement is mapped through `G^-1` before the picture
 frame is added.
 
-This is deliberately lightweight and does **not** perform CRS reprojection. Raster coordinates, Rhino
-model units, and the saved project-base coordinates must already use the same projected coordinate system
-and units. Use GIS software to reproject the raster first when they differ.
+Projected-coordinate linear-unit GeoKeys are read when present (including metres, international feet,
+US survey feet, Clarke's feet, fathoms, and nautical miles) and coordinates are converted into current
+Rhino model units. Geographic coordinate systems are not inferred as linear because their raster XY
+values are normally angular. A world file carries no unit metadata; if no supported projected GeoTIFF
+unit key exists, the command asks for source units and defaults to the document's units.
+
+This is deliberately lightweight and does **not** perform CRS reprojection. Raster and saved project-base
+coordinates must already use the same projected coordinate system. Use GIS software to reproject the
+raster first when they differ.

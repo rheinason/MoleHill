@@ -24,18 +24,19 @@ public static partial class PadGrader
             double dx = points[next * stride] - points[i * stride];
             double dy = points[next * stride + 1] - points[i * stride + 1];
             double length = Math.Sqrt(dx * dx + dy * dy);
-            if (length > 1e-9)
+            if (length > ScaleAwareTolerance.LengthFloor(length))
                 current = Math.Min(current, length);
         }
 
         return current;
     }
 
-    private static double ComputePadConstraintSegmentLength(double shoulderDistance)
+    private static double ComputePadConstraintSegmentLength(double shoulderDistance, double modelTolerance)
     {
-        if (shoulderDistance <= 1e-9)
-            return 1.0;
+        if (!(shoulderDistance > 0.0) || !double.IsFinite(shoulderDistance))
+            return 0.0;
 
-        return Math.Clamp(shoulderDistance * 0.2, 0.5, 1.0);
+        double tolerance = ScaleAwareTolerance.ResolveLength(modelTolerance, shoulderDistance);
+        return Math.Clamp(shoulderDistance * 0.2, tolerance * 500.0, tolerance * 1000.0);
     }
 }

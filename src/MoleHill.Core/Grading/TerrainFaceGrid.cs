@@ -1,3 +1,5 @@
+using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Grading;
 
 // Uniform-grid terrain face lookup for point interpolation and finite daylight-ray traversal.
@@ -75,7 +77,8 @@ internal class TerrainFaceGrid
         // (huge outer faces + tiny graded-corridor faces put hundreds of faces per corridor cell).
         // Callers doing many point queries at a known working scale pass that scale as the hint.
         int gridRes = Math.Max(1, (int)Math.Sqrt(faceCount / 4.0));
-        double cellSize = cellSizeHint > 0 ? Math.Max(cellSizeHint, 1e-6) : Math.Max(span / gridRes, 1e-6);
+        double requestedCellSize = cellSizeHint > 0 ? cellSizeHint : span / gridRes;
+        double cellSize = ScaleAwareTolerance.ResolveLength(requestedCellSize, span);
         _invCell = 1.0 / cellSize;
 
         _grid = new Dictionary<long, List<int>>(faceCount);

@@ -4,6 +4,7 @@ using System.Drawing;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Processing;
 using MoleHill.Grasshopper.Utilities;
+using MoleHill.Shared;
 
 namespace MoleHill.Grasshopper.Components;
 
@@ -61,6 +62,15 @@ public class TinFromPointsAndBreaklines : GH_Component
 
     protected override void SolveInstance(IGH_DataAccess DA)
     {
+        ModelUnitContext unitContext = ModelUnitContext.FromDocument(Rhino.RhinoDoc.ActiveDoc);
+        if (!unitContext.IsSupported)
+        {
+            AddRuntimeMessage(
+                GH_RuntimeMessageLevel.Error,
+                "MoleHill requires model units. Set Rhino document units to a real length unit, then recompute.");
+            return;
+        }
+
         var points = new List<Point3d>();
         DA.GetDataList(0, points);
 
@@ -84,7 +94,7 @@ public class TinFromPointsAndBreaklines : GH_Component
         DA.GetData(6, ref maxBoundarySlope);
 
         if (tolerance <= 0)
-            tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
+            tolerance = unitContext.AbsoluteTolerance;
 
         BoundaryTrianglePeelSettings peelSettings = maxBoundaryEdgeLength < 0
             ? BoundaryTrianglePeelSettings.Disabled

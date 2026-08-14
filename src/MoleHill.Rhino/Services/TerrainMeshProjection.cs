@@ -26,7 +26,7 @@ internal static class TerrainMeshProjection
         if (!TryProjectPointAlongWorldZ(mesh, point, tolerance, out projectedPoint))
             return false;
 
-        double meshPointTolerance = Math.Max(tolerance * 4.0, 1e-6);
+        double meshPointTolerance = Math.Max(Math.Abs(tolerance) * 4.0, double.Epsilon);
         meshPoint = mesh.ClosestMeshPoint(projectedPoint, meshPointTolerance);
         return true;
     }
@@ -46,7 +46,7 @@ internal static class TerrainMeshProjection
             return false;
 
         double height = Math.Max(bounds.Max.Z - bounds.Min.Z, tolerance);
-        double padding = Math.Max(Math.Max(tolerance, height) * 2.0, 1e-6);
+        double padding = Math.Max(Math.Max(Math.Abs(tolerance), height) * 2.0, double.Epsilon);
         var line = new Line(
             new Point3d(point.X, point.Y, bounds.Min.Z - padding),
             new Point3d(point.X, point.Y, bounds.Max.Z + padding));

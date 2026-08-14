@@ -1,5 +1,4 @@
 using Grasshopper.Kernel;
-using Rhino;
 using Rhino.Geometry;
 using MoleHill.Core.Grading;
 using MoleHill.Grasshopper.Registry;
@@ -118,7 +117,7 @@ public sealed class GradePadComponent : RegistryTerrainComponent
             double dist = GhSolveContext.ListValue(maxDists, padIdx, 0.0);
             int cornerSegs = GhSolveContext.ListValue(cornerSegmentsList, padIdx, 0);
             double fillSlope = GhSolveContext.ListValue(fillSlopeAngles, padIdx, 0.0);
-            double stitchApronDistance = ConvertMetersToModelUnits(0.5, ctx.ModelUnitSystem);
+            double stitchApronDistance = ctx.FromMeters(0.5);
             if (!TryCreatePadBoundary(pl, plCount, slope, dist, cornerSegs, stitchApronDistance, fillSlope, out var pad, out string? warning))
             {
                 ctx.Warn(warning ?? "Boundary curve did not define a stable pad plane. Skipping.");
@@ -227,21 +226,6 @@ public sealed class GradePadComponent : RegistryTerrainComponent
             stitchApronDistance,
             fillSlopeAngle);
         return true;
-    }
-
-    private static double ConvertMetersToModelUnits(double meters, UnitSystem unitSystem)
-    {
-        return unitSystem switch
-        {
-            UnitSystem.Millimeters => meters * 1000.0,
-            UnitSystem.Centimeters => meters * 100.0,
-            UnitSystem.Meters => meters,
-            UnitSystem.Kilometers => meters * 0.001,
-            UnitSystem.Inches => meters / 0.0254,
-            UnitSystem.Feet => meters / 0.3048,
-            UnitSystem.Yards => meters / 0.9144,
-            _ => meters
-        };
     }
 
     private static bool TryGetPlaneCoefficients(

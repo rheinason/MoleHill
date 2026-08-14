@@ -1,3 +1,4 @@
+using MoleHill.Shared;
 using Rhino;
 
 namespace MoleHill.Rhino.Services;
@@ -8,6 +9,7 @@ internal static class TerrainTolerancePolicy
     private const double LegacyToleranceMigrationThresholdMeters = 0.01;
     private const double MinGradePathToleranceMeters = 1e-6;
     private const double MaxGradePathToleranceMeters = 2e-3;
+    private const double MinNumericalToleranceMeters = 1e-9;
 
     public readonly record struct Profile(
         double DetailSize,
@@ -36,6 +38,9 @@ internal static class TerrainTolerancePolicy
         return ModelUnits.FromMeters(DefaultDetailSizeMeters, unitSystem);
     }
 
+    public static double DefaultDetailSize(ModelUnitContext unitContext) =>
+        unitContext.FromMeters(DefaultDetailSizeMeters);
+
     public static double LegacyToleranceMigrationThreshold(UnitSystem unitSystem)
     {
         return ModelUnits.FromMeters(LegacyToleranceMigrationThresholdMeters, unitSystem);
@@ -46,12 +51,30 @@ internal static class TerrainTolerancePolicy
         return value <= 0.0 || value <= LegacyToleranceMigrationThreshold(unitSystem);
     }
 
+    public static bool ShouldPromoteLegacyDetailSize(double value, ModelUnitContext unitContext) =>
+        value <= 0.0 || value <= unitContext.FromMeters(LegacyToleranceMigrationThresholdMeters);
+
     public static Profile Create(double detailSize, double documentTolerance, UnitSystem unitSystem)
     {
+        ModelUnitContext context = ModelUnitContext.FromUnitSystem(unitSystem, documentTolerance);
+        if (!context.IsSupported)
+            context = ModelUnitContext.FromUnitSystem(UnitSystem.Meters, documentTolerance);
+        return Create(detailSize, documentTolerance, context);
+    }
+
+    public static Profile Create(
+        double detailSize,
+        double documentTolerance,
+        ModelUnitContext unitContext)
+    {
+        if (!unitContext.IsSupported)
+            throw new InvalidOperationException(ModelUnitGuard.RequiredMessage);
+
         double resolvedDetailSize = detailSize > 0.0
             ? detailSize
-            : DefaultDetailSize(unitSystem);
-        double resolvedDocumentTolerance = Math.Max(documentTolerance, 1e-9);
+            : DefaultDetailSize(unitContext);
+        double numericalFloor = unitContext.FromMeters(MinNumericalToleranceMeters);
+        double resolvedDocumentTolerance = Math.Max(documentTolerance, numericalFloor);
 
         return new Profile(
             resolvedDetailSize,
@@ -74,8 +97,8 @@ internal static class TerrainTolerancePolicy
                 resolvedDetailSize * 0.10),
             GradePathTolerance: Math.Clamp(
                 resolvedDetailSize * 0.01,
-                ModelUnits.FromMeters(MinGradePathToleranceMeters, unitSystem),
-                ModelUnits.FromMeters(MaxGradePathToleranceMeters, unitSystem)),
+                unitContext.FromMeters(MinGradePathToleranceMeters),
+                unitContext.FromMeters(MaxGradePathToleranceMeters)),
             GradePadTolerance: ClampWithFloor(
                 resolvedDetailSize * 0.02,
                 resolvedDocumentTolerance,
@@ -84,7 +107,7 @@ internal static class TerrainTolerancePolicy
 
     private static double ClampWithFloor(double value, double floor, double ceiling)
     {
-        double resolvedFloor = Math.Max(floor, 1e-9);
+        double resolvedFloor = Math.Max(floor, double.Epsilon);
         double resolvedCeiling = Math.Max(ceiling, resolvedFloor);
         return Math.Clamp(value, resolvedFloor, resolvedCeiling);
     }

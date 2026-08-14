@@ -196,7 +196,7 @@ public static partial class PadGrader
         {
             PadBoundary pad = pads[padIndex];
             double shoulderDistance = ComputePadTransitionDistance(vertices, vertexCount, pad);
-            double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance);
+            double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance, dedupTol);
             var padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, dedupTol);
             constraints.Add(new SurfaceRemesher.ConstraintPolyline(
                 CreateConstraintPoints(padLoop.XyVertices, padLoop.VertexCount),

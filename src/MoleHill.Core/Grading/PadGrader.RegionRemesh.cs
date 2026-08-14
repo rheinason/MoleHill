@@ -80,7 +80,7 @@ public static partial class PadGrader
 
         // 2. Grow each region outward so the patch boundary sits beyond the daylight, in ground that
         // still reads at terrain elevation (a clean, terrain-Z seam).
-        double margin = Math.Max(terrainDetailSize * 2.0, 1.0);
+        double margin = Math.Max(terrainDetailSize * 2.0, tolerance * 1000.0);
         var offsetLoops = new List<double[]>(regionLoops.Count);
         foreach (double[] loop in regionLoops)
         {

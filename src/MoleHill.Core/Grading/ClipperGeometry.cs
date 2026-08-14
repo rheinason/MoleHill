@@ -1,12 +1,12 @@
 using Clipper2Lib;
+using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
 internal static class ClipperGeometry
 {
-    private const int Precision = 4;
-
-    internal static double SimplifyTolerance(double tolerance) => Math.Max(tolerance, 1e-3);
+    internal static double SimplifyTolerance(double tolerance) =>
+        ScaleAwareTolerance.ResolveLength(tolerance, tolerance);
 
     internal static bool TryUnionClosedLoops(
         IReadOnlyList<double[]> loops,
@@ -25,7 +25,7 @@ internal static class ClipperGeometry
         if (subject.Count == 0)
             return false;
 
-        PathsD solution = Clipper.Union(subject, FillRule.NonZero);
+        PathsD solution = Clipper.Union(subject, new PathsD(), FillRule.NonZero, PrecisionFor(tolerance));
         resultLoops = ToClosedLoops(solution, tolerance);
         return resultLoops.Count > 0;
     }
@@ -50,7 +50,7 @@ internal static class ClipperGeometry
         if (subject.Count == 0 || clip.Count == 0)
             return false;
 
-        PathsD solution = Clipper.Intersect(subject, clip, FillRule.NonZero);
+        PathsD solution = Clipper.Intersect(subject, clip, FillRule.NonZero, PrecisionFor(tolerance));
         resultLoops = ToClosedLoops(solution, tolerance);
         return resultLoops.Count > 0;
     }
@@ -70,7 +70,14 @@ internal static class ClipperGeometry
         if (subject.Count == 0)
             return false;
 
-        PathsD inflated = Clipper.InflatePaths(subject, delta, JoinType.Round, EndType.Polygon);
+        PathsD inflated = Clipper.InflatePaths(
+            subject,
+            delta,
+            JoinType.Round,
+            EndType.Polygon,
+            miterLimit: 2.0,
+            precision: PrecisionFor(tolerance),
+            arcTolerance: 0.0);
         List<double[]> loops = ToClosedLoops(inflated, tolerance);
         return TryPickLargestLoop(loops, out offsetLoop);
     }
@@ -158,6 +165,14 @@ internal static class ClipperGeometry
         }
 
         return signedArea * 0.5;
+    }
+
+    private static int PrecisionFor(double tolerance)
+    {
+        double resolved = Math.Max(Math.Abs(tolerance), double.Epsilon);
+        // Clipper's historical PathsD default was two decimal places. A 0.001 model tolerance therefore
+        // quantized at 0.01; preserve that ratio while moving the decimal precision with scaled models.
+        return Math.Clamp((int)Math.Ceiling(-Math.Log10(resolved)) - 1, -8, 8);
     }
 
     private static PathsD BuildClosedPaths(IReadOnlyList<double[]> loops)

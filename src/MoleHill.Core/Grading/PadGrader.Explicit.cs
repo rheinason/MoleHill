@@ -469,7 +469,9 @@ public static partial class PadGrader
         // Density: scale spacing with the batter reach so the strip is ~3 rows of roughly square
         // triangles, independent of reach. (The previous Min(_, terrainDetailSize) collapsed spacing
         // to the terrain detail size ~0.25, producing ~30 redundant radial rows on a planar batter.)
-        double segmentLength = Math.Max(maxReach / 3.0, Math.Max(terrainDetailSize, 1.0));
+        double segmentLength = Math.Max(
+            maxReach / 3.0,
+            Math.Max(terrainDetailSize, tolerance * 1000.0));
 
         ConstraintLoop padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, tolerance);
         if (padLoop.VertexCount < 3)

@@ -1,4 +1,5 @@
 using MoleHill.Core.Grading;
+using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Scattering;
 
@@ -423,7 +424,7 @@ public static class ScatterSampler
 
                     double extent = itemExtent(index);
                     if (!(extent > 0.0) || !double.IsFinite(extent))
-                        extent = Math.Max(gap, 1e-3);
+                        extent = Math.Max(gap, ScaleAwareTolerance.LengthFloor(gap));
                     double half = extent * 0.5;
 
                     s = first ? half : s + prevHalf + gap + half;

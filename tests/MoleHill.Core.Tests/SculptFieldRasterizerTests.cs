@@ -137,4 +137,30 @@ public class SculptFieldRasterizerTests
             Assert.Equal(vertices[i * 3 + 2], replayed, 3);
         }
     }
+
+    [Fact]
+    public void Rasterize_WithConstraint_PreservesProtectedFieldAndStoresRawFeatherValue()
+    {
+        var (vertices, vertexCount, faces, faceCount) = BuildGridMesh(9, 2.0);
+        var baseZ = new double[vertexCount];
+        var field = new SculptDisplacementField(CellSize);
+        field.SetSample(4, 4, 7f); // (1, 1), inside the protected polygon
+
+        var mask = new SculptConstraintMask(featherDistance: 1.0);
+        mask.AddPolygon(new[] { 0.75, 0.75, 1.25, 0.75, 1.25, 1.25, 0.75, 1.25 }, 4);
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            double x = vertices[i * 3];
+            double y = vertices[i * 3 + 1];
+            vertices[i * 3 + 2] = 2.0 * mask.EvaluateInfluence(x, y);
+        }
+
+        SculptFieldRasterizer.Rasterize(
+            vertices, vertexCount, faces, faceCount, baseZ, field,
+            0.0, 2.0, 0.0, 2.0, mask);
+
+        Assert.Equal(7f, field.GetSample(4, 4));
+        Assert.Equal(2.0, field.GetSample(6, 4), 5); // x=1.5, halfway through the feather
+    }
 }

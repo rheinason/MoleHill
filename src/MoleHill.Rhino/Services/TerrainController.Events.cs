@@ -237,6 +237,38 @@ internal sealed partial class TerrainController
         StartBackgroundBuild(doc, state, terrain, key.mode, rebuildState.RequestedVersion);
     }
 
+    private void OnUnitsChangedWithScaling(object? sender, UnitsChangedWithScalingEventArgs e)
+    {
+        RhinoDoc? doc = e.Document;
+        if (doc == null || _suppressDocEvents > 0 ||
+            !double.IsFinite(e.Scale) || e.Scale <= 0.0 || Math.Abs(e.Scale - 1.0) <= 1e-15)
+        {
+            return;
+        }
+
+        DocumentState state = GetState(doc);
+        if (state.LoadFailed || state.Terrains.Count == 0)
+            return;
+
+        TerrainUnitScaler.Scale(state.Terrains, e.Scale);
+        ClearRuntimeCaches(doc.RuntimeSerialNumber);
+        ClearRebuildStates(doc.RuntimeSerialNumber);
+        Save(doc, state, raiseStateChanged: false);
+
+        foreach (TerrainDefinition terrain in state.Terrains.Where(item => item.LiveUpdateEnabled))
+            ScheduleRebuild(doc, terrain.TerrainId, notify: false);
+
+        RhinoApp.WriteLine(
+            $"[MoleHill] Scaled {state.Terrains.Count:N0} terrain definition(s) by {e.Scale:G12} with the document units.");
+        RaiseStateChanged();
+    }
+
+    private void OnDocumentPropertiesChanged(object? sender, DocumentEventArgs e)
+    {
+        if (_suppressDocEvents == 0)
+            RaiseStateChanged();
+    }
+
     private void ProcessBuildProgressUpdates()
     {
         bool changed = false;

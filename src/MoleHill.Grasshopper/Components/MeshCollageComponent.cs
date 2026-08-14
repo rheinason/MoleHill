@@ -5,6 +5,7 @@ using Rhino.Geometry;
 using TriangleNet.Geometry;
 using TriangleNet.Meshing;
 using MoleHill.Core.Grading;
+using MoleHill.Shared;
 using System.Drawing;
 
 namespace MoleHill.Grasshopper.Components;
@@ -64,6 +65,15 @@ public class MeshCollageComponent : GH_Component
 
     protected override void SolveInstance(IGH_DataAccess DA)
     {
+        ModelUnitContext unitContext = ModelUnitContext.FromDocument(Rhino.RhinoDoc.ActiveDoc);
+        if (!unitContext.IsSupported)
+        {
+            AddRuntimeMessage(
+                GH_RuntimeMessageLevel.Error,
+                "MoleHill requires model units. Set Rhino document units to a real length unit, then recompute.");
+            return;
+        }
+
         var areaCurves = new List<Curve>();
         if (!DA.GetDataList(0, areaCurves) || areaCurves.Count == 0) return;
 
@@ -87,7 +97,7 @@ public class MeshCollageComponent : GH_Component
     /// </summary>
     private void Solve2D(IGH_DataAccess DA, List<Curve> areaCurves, List<Color> userColors)
     {
-        double tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
+        double tolerance = ModelUnitContext.FromDocument(Rhino.RhinoDoc.ActiveDoc).AbsoluteTolerance;
 
         var areaMeshes = new List<Mesh>();
         var heights = new List<double>();
@@ -182,7 +192,7 @@ public class MeshCollageComponent : GH_Component
     private void Solve3D(IGH_DataAccess DA, List<Curve> areaCurves, List<Color> userColors,
                          Mesh terrainMesh, Color baseColor)
     {
-        double tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
+        double tolerance = ModelUnitContext.FromDocument(Rhino.RhinoDoc.ActiveDoc).AbsoluteTolerance;
 
         int vertexCount = terrainMesh.Vertices.Count;
         int faceCount = terrainMesh.Faces.Count;

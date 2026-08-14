@@ -125,6 +125,20 @@ internal readonly record struct RasterGeoreference(
         return transform;
     }
 
+    public RasterGeoreference ScaleCoordinates(double scale)
+    {
+        if (!double.IsFinite(scale) || scale <= 0.0)
+            throw new ArgumentOutOfRangeException(nameof(scale));
+
+        return new RasterGeoreference(
+            XPixel * scale,
+            XLine * scale,
+            YPixel * scale,
+            YLine * scale,
+            XUpperLeft * scale,
+            YUpperLeft * scale);
+    }
+
     internal (double X, double Y) MapRasterPoint(double pixel, double line)
     {
         return (

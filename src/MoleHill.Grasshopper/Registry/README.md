@@ -12,9 +12,10 @@ the mesh/curve conversion plumbing the hand-written components each used to copy
 - `GhSolveContext.cs` — per-solve `IGH_DataAccess` wrapper: typed getters/setters
   (`TryGetMesh`/`GetCurves`/`GetNumber(s)`/`GetInt(s)`/`GetGeometry`/`SetData`/`SetDataList`), messages
   (`Warn`/`Error`/`Remark`), and shared geometry plumbing (`ToFlatVertices`, `TryToFlatFaces`,
-  `BuildMesh`, repeat-last `ListValue`).
+  `BuildMesh`, repeat-last `ListValue`). It also exposes the shared `ModelUnitContext`, model tolerance,
+  and metre-to-document conversion used by physical defaults.
 - `RegistryTerrainComponent.cs` — the generic base. `RegisterInputParams`/`RegisterOutputParams` walk the
-  spec's ports; `SolveInstance` calls `spec.Solve`.
+  spec's ports; `SolveInstance` rejects `None`/`Unset` document units before calling `spec.Solve`.
 
 ## Adding / migrating a component
 A component is a thin subclass: a `static readonly GhComponentSpec` built in `BuildSpec()`, the
@@ -28,4 +29,5 @@ assigned after `base(...)` is still null at registration time.
 ## Escape hatch
 Components that don't fit (per-instance state, or exotic Colour/Hatch I/O) stay hand-written
 `GH_Component`s — currently `TinFromPointsAndBreaklines` (instance caching) and `MeshCollageComponent`
-(Colour + `GH_Hatch`, dual-mode). That's expected; don't force them through the spec.
+(Colour + `GH_Hatch`, dual-mode). Both use the same explicit unit guard and document tolerance. That's
+expected; don't force them through the spec.

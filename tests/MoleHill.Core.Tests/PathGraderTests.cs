@@ -7,6 +7,57 @@ namespace MoleHill.Core.Tests;
 public class PathGraderTests
 {
     [Fact]
+    public void Grade_UniformlyScaledPath_PreservesPhysicalResult()
+    {
+        double? normalizedCut = null;
+        double? normalizedFill = null;
+        foreach (double scale in new[] { 1.0, 0.001, 1000.0 })
+        {
+            double[] vertices =
+            {
+                0.0, 0.0, 0.0,
+                10.0 * scale, 0.0, 0.0,
+                10.0 * scale, 10.0 * scale, 0.0,
+                0.0, 10.0 * scale, 0.0
+            };
+            int[] faces = { 0, 1, 2, 0, 2, 3 };
+            var path = new PathGrader.PathDefinition(
+                new[] { 2.0 * scale, 5.0 * scale, 8.0 * scale, 5.0 * scale },
+                new[] { 1.0 * scale, 1.0 * scale },
+                2,
+                width: 2.0 * scale,
+                slopeAngleDeg: 33.0,
+                maxDistance: 1.5 * scale);
+
+            GradingResult? result = PathGrader.Grade(
+                vertices, 4, faces, 2, new[] { path },
+                out string? errorMessage,
+                modelTolerance: 0.001 * scale);
+
+            Assert.NotNull(result);
+            Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
+            Assert.True(MeshTopologyValidator.AnalyzeBoundaryGraph(result!.Faces, result.FaceCount).HasSingleClosedBoundaryLoop);
+            Assert.Equal(2, result.OutputPolylines.Count);
+
+            double scaleCubed = scale * scale * scale;
+            double cut = result.CutVolume / scaleCubed;
+            double fill = result.FillVolume / scaleCubed;
+            if (normalizedCut.HasValue)
+            {
+                Assert.True(Math.Abs(normalizedCut.Value - cut) <= Math.Max(1e-6, Math.Abs(normalizedCut.Value) * 5e-4),
+                    $"scale={scale}, cut={cut}, expected={normalizedCut.Value}, faces={result.FaceCount}, diagnostics={string.Join(" | ", result.Diagnostics)}");
+                Assert.True(Math.Abs(normalizedFill!.Value - fill) <= Math.Max(1e-6, Math.Abs(normalizedFill.Value) * 5e-4),
+                    $"scale={scale}, fill={fill}, expected={normalizedFill.Value}, faces={result.FaceCount}, diagnostics={string.Join(" | ", result.Diagnostics)}");
+            }
+            else
+            {
+                normalizedCut = cut;
+                normalizedFill = fill;
+            }
+        }
+    }
+
+    [Fact]
     public void Grade_InvalidTerrainFace_ReturnsFailure()
     {
         var path = new PathGrader.PathDefinition(

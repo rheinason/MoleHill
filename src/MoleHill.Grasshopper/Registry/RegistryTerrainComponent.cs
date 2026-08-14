@@ -70,6 +70,10 @@ public abstract class RegistryTerrainComponent : GH_Component
 
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-        Spec.Solve(new GhSolveContext(this, DA));
+        var context = new GhSolveContext(this, DA);
+        if (!context.RequireModelUnits())
+            return;
+
+        Spec.Solve(context);
     }
 }

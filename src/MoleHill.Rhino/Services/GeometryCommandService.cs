@@ -1,4 +1,5 @@
 using System.Drawing;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.Commands;
 using Rhino.DocObjects;
@@ -18,6 +19,7 @@ internal static class GeometryCommandService
 
     public static Result RunTwoPointInterpolation(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
         var getLowPoint = new GetPoint();
         getLowPoint.SetCommandPrompt("Low point");
         if (getLowPoint.Get() != GetResult.Point)
@@ -62,6 +64,7 @@ internal static class GeometryCommandService
 
     public static Result RunGradientInterpolation(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
         var getBasePoint = new GetPoint();
         getBasePoint.SetCommandPrompt("Base point");
         if (getBasePoint.Get() != GetResult.Point)
@@ -112,6 +115,7 @@ internal static class GeometryCommandService
 
     public static Result RunSlopeCurve(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
         var getObject = new GetObject();
         getObject.SetCommandPrompt("Select curve to slope");
         getObject.GeometryFilter = ObjectType.Curve;
@@ -198,6 +202,7 @@ internal static class GeometryCommandService
 
     public static Result RunSlopeCheckAndMark(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext)) return Result.Failure;
         var getCurve = new GetObject();
         getCurve.SetCommandPrompt("Select a curve");
         getCurve.GeometryFilter = ObjectType.Curve;
@@ -210,7 +215,8 @@ internal static class GeometryCommandService
         if (curve == null)
             return Result.Failure;
 
-        double vectorScale = CommandOptionCache.GetValue("MoleHill.SlopeCheck.VectorScale", 1.0);
+        const string vectorScaleKey = "MoleHill.SlopeCheck.VectorScale";
+        double vectorScale = CommandOptionCache.GetLength(vectorScaleKey, unitContext, 1.0);
         bool addLabels = CommandOptionCache.GetValue("MoleHill.SlopeCheck.AddLabels", false);
         bool addLines = CommandOptionCache.GetValue("MoleHill.SlopeCheck.AddLines", false);
 
@@ -246,7 +252,7 @@ internal static class GeometryCommandService
                 vectorScale = pointResult == GetResult.Number ? getPoint.Number() : scaleOption.CurrentValue;
                 addLabels = labelsOption.CurrentValue;
                 addLines = linesOption.CurrentValue;
-                CommandOptionCache.SetValue("MoleHill.SlopeCheck.VectorScale", vectorScale);
+                CommandOptionCache.SetLength(vectorScaleKey, unitContext, vectorScale);
                 CommandOptionCache.SetValue("MoleHill.SlopeCheck.AddLabels", addLabels);
                 CommandOptionCache.SetValue("MoleHill.SlopeCheck.AddLines", addLines);
                 continue;
@@ -261,7 +267,7 @@ internal static class GeometryCommandService
             vectorScale = scaleOption.CurrentValue;
             addLabels = labelsOption.CurrentValue;
             addLines = linesOption.CurrentValue;
-            CommandOptionCache.SetValue("MoleHill.SlopeCheck.VectorScale", vectorScale);
+            CommandOptionCache.SetLength(vectorScaleKey, unitContext, vectorScale);
             CommandOptionCache.SetValue("MoleHill.SlopeCheck.AddLabels", addLabels);
             CommandOptionCache.SetValue("MoleHill.SlopeCheck.AddLines", addLines);
 
@@ -285,6 +291,7 @@ internal static class GeometryCommandService
 
     public static Result RunLiftCurvesWithLine(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext)) return Result.Failure;
         var getCurves = new GetObject();
         getCurves.SetCommandPrompt("Select curves to process");
         getCurves.GeometryFilter = ObjectType.Curve;
@@ -298,9 +305,8 @@ internal static class GeometryCommandService
         if (lineResult != Result.Success)
             return lineResult;
 
-        double liftFactor = CommandOptionCache.GetValue(
-            "MoleHill.LiftCurvesWithLine.LiftFactor",
-            GeometryCommandAlgorithms.CalculateDefaultLiftFactor(doc.ModelUnitSystem));
+        const string liftFactorKey = "MoleHill.LiftCurvesWithLine.LiftFactor";
+        double liftFactor = CommandOptionCache.GetLength(liftFactorKey, unitContext, 2.0);
         bool addOrderDots = CommandOptionCache.GetValue("MoleHill.LiftCurvesWithLine.AddOrderDots", true);
 
         while (true)
@@ -319,7 +325,7 @@ internal static class GeometryCommandService
             {
                 liftFactor = factorOption.CurrentValue;
                 addOrderDots = dotOption.CurrentValue;
-                CommandOptionCache.SetValue("MoleHill.LiftCurvesWithLine.LiftFactor", liftFactor);
+                CommandOptionCache.SetLength(liftFactorKey, unitContext, liftFactor);
                 CommandOptionCache.SetValue("MoleHill.LiftCurvesWithLine.AddOrderDots", addOrderDots);
                 continue;
             }
@@ -332,7 +338,7 @@ internal static class GeometryCommandService
             break;
         }
 
-        CommandOptionCache.SetValue("MoleHill.LiftCurvesWithLine.LiftFactor", liftFactor);
+        CommandOptionCache.SetLength(liftFactorKey, unitContext, liftFactor);
         CommandOptionCache.SetValue("MoleHill.LiftCurvesWithLine.AddOrderDots", addOrderDots);
 
         var lineCurve = new LineCurve(line);
@@ -391,6 +397,7 @@ internal static class GeometryCommandService
 
     public static Result RunOffset3dPolyline(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext)) return Result.Failure;
         var getCurve = new GetObject();
         getCurve.SetCommandPrompt("Select a polyline to offset");
         getCurve.GeometryFilter = ObjectType.Curve;
@@ -409,7 +416,8 @@ internal static class GeometryCommandService
             return Result.Failure;
         }
 
-        double offsetDistance = CommandOptionCache.GetValue("MoleHill.Offset3dPolyline.Distance", 1.0);
+        const string offsetDistanceKey = "MoleHill.Offset3dPolyline.Distance";
+        double offsetDistance = CommandOptionCache.GetLength(offsetDistanceKey, unitContext, 1.0);
         Result numberResult = RhinoGet.GetNumber("Offset distance", false, ref offsetDistance);
         if (numberResult != Result.Success)
             return numberResult;
@@ -421,7 +429,7 @@ internal static class GeometryCommandService
             return Result.Failure;
         }
 
-        CommandOptionCache.SetValue("MoleHill.Offset3dPolyline.Distance", offsetDistance);
+        CommandOptionCache.SetLength(offsetDistanceKey, unitContext, offsetDistance);
 
         while (true)
         {
@@ -450,14 +458,14 @@ internal static class GeometryCommandService
                     return Result.Failure;
                 }
 
-                CommandOptionCache.SetValue("MoleHill.Offset3dPolyline.Distance", offsetDistance);
+                CommandOptionCache.SetLength(offsetDistanceKey, unitContext, offsetDistance);
                 continue;
             }
 
             if (pointResult == GetResult.Option)
             {
                 offsetDistance = Math.Abs(distanceOption.CurrentValue);
-                CommandOptionCache.SetValue("MoleHill.Offset3dPolyline.Distance", offsetDistance);
+                CommandOptionCache.SetLength(offsetDistanceKey, unitContext, offsetDistance);
                 continue;
             }
 
@@ -465,7 +473,7 @@ internal static class GeometryCommandService
                 return getPoint.CommandResult();
 
             offsetDistance = Math.Abs(distanceOption.CurrentValue);
-            CommandOptionCache.SetValue("MoleHill.Offset3dPolyline.Distance", offsetDistance);
+            CommandOptionCache.SetLength(offsetDistanceKey, unitContext, offsetDistance);
 
             if (!TryBuildOffsetPreview(sourceCurve, projectedCurve, getPoint.Point(), offsetDistance, doc.ModelAbsoluteTolerance, out Polyline resultPolyline, out _))
             {
@@ -483,6 +491,7 @@ internal static class GeometryCommandService
 
     public static Result RunReplaceCurveSection(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
         var getBaseCurve = new GetObject();
         getBaseCurve.SetCommandPrompt("Select base curve");
         getBaseCurve.GeometryFilter = ObjectType.Curve;
@@ -546,6 +555,7 @@ internal static class GeometryCommandService
 
     public static Result RunSoftEditCurves(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext)) return Result.Failure;
         var getCurves = new GetObject();
         getCurves.SetCommandPrompt("Select curves to soft edit");
         getCurves.GeometryFilter = ObjectType.Curve;
@@ -555,7 +565,7 @@ internal static class GeometryCommandService
         if (getCurves.CommandResult() != Result.Success)
             return getCurves.CommandResult();
 
-        double tolerance = GeometryCommandAlgorithms.GetSoftEditTolerance(doc.ModelUnitSystem);
+        double tolerance = unitContext.FromMeters(0.5);
         var curveData = new List<(Guid ObjectId, Curve SourceCurve, List<Point3d> EditPoints)>();
         for (int i = 0; i < getCurves.ObjectCount; i++)
         {
@@ -674,6 +684,7 @@ internal static class GeometryCommandService
 
     public static Result RunTrimBoundary(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
         var getBoundaries = new GetObject();
         getBoundaries.SetCommandPrompt("Select closed boundary curves for trimming");
         getBoundaries.GeometryFilter = ObjectType.Curve;

@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.Geometry;
 
@@ -11,6 +12,12 @@ internal sealed class TerrainBuildSnapshot
     public required double ModelAbsoluteTolerance { get; init; }
 
     public required UnitSystem ModelUnitSystem { get; init; }
+
+    public ModelUnitContext UnitContext { get; init; }
+
+    public ModelUnitContext ResolvedUnitContext => UnitContext.IsSupported
+        ? UnitContext
+        : ModelUnitContext.FromUnitSystem(ModelUnitSystem, ModelAbsoluteTolerance);
 
     public Dictionary<SourceReferenceSet, List<ResolvedSourceObject>> SourceObjects { get; } =
         new(ReferenceEqualityComparer<SourceReferenceSet>.Instance);

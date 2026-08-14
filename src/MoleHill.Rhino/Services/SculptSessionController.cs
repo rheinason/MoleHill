@@ -44,6 +44,7 @@ internal sealed class SculptSessionController
     private Guid _terrainId;
     private Guid _modifierId;
     private SculptBrushEngine _engine = null!;
+    private SculptConstraintMask _constraintMask = null!;
     private RhinoMesh _workingMesh = null!;
     private SculptNormalPatcher _normalPatcher = null!;
     private SculptAnalysisColorizer? _analysisColorizer;
@@ -57,12 +58,17 @@ internal sealed class SculptSessionController
     private double _adjustOriginal;
     private Point3d _lastCursor = Point3d.Unset;
     private bool _doneRequested;
+    private double _minimumRadius = double.Epsilon;
 
     /// <summary>Blocks in the get loop until the session ends — invoke via AsyncInvoke from UI code.</summary>
     public void BeginSession(RhinoDoc doc, Guid terrainId, Guid modifierId)
     {
         if (IsActive)
             return;
+        if (!ModelUnitGuard.TryGet(doc, out MoleHill.Shared.ModelUnitContext unitContext))
+            return;
+
+        _minimumRadius = Math.Max(doc.ModelAbsoluteTolerance, unitContext.FromMeters(1e-9));
 
         _controller = TerrainController.Instance;
         _doc = doc;
@@ -151,7 +157,15 @@ internal sealed class SculptSessionController
         _analysisColorizer?.ColorAll(_workingMesh);
 
         var field = SculptFieldCodec.Decode(sculpt);
-        _engine = new SculptBrushEngine((double[])vertices.Clone(), vertexCount, faces, faceCount, field);
+        TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
+        var snapshotSculpt = snapshot.Terrain.Modifiers
+            .OfType<SculptModifierDefinition>()
+            .FirstOrDefault(item => item.Id == sculpt.Id);
+        _constraintMask = snapshotSculpt == null
+            ? new SculptConstraintMask(sculpt.EffectiveConstraintFeather)
+            : SculptConstraintMaskBuilder.Build(snapshot, snapshot.Terrain, snapshotSculpt);
+        _engine = new SculptBrushEngine(
+            (double[])vertices.Clone(), vertexCount, faces, faceCount, field, _constraintMask);
         return true;
     }
 
@@ -189,7 +203,7 @@ internal sealed class SculptSessionController
     {
         var toolbar = new SculptToolbarForm(doc, radiusReference: Radius);
         toolbar.BrushChanged += brush => { ActiveBrush = brush; SyncToolbar(); };
-        toolbar.RadiusChanged += radius => { Radius = Math.Max(radius, 1e-6); SyncToolbar(); };
+        toolbar.RadiusChanged += radius => { Radius = Math.Max(radius, _minimumRadius); SyncToolbar(); };
         toolbar.StrengthChanged += strength => { Strength = Math.Clamp(strength, 0.0, 1.0); SyncToolbar(); };
         toolbar.FalloffChanged += falloff => { Falloff = falloff; SyncToolbar(); };
         toolbar.DoneRequested += RequestDone;
@@ -367,13 +381,13 @@ internal sealed class SculptSessionController
         _yWasDown = y;
     }
 
-    private double StrengthSpan => Math.Max(Radius * 2.0, 1e-6);
+    private double StrengthSpan => Math.Max(Radius * 2.0, _minimumRadius);
 
     private void UpdateAdjustFromCursor(Point3d cursor)
     {
         double distance = new Point3d(cursor.X, cursor.Y, 0).DistanceTo(new Point3d(_adjustAnchor.X, _adjustAnchor.Y, 0));
         if (_adjustMode == AdjustMode.Radius)
-            Radius = Math.Max(distance, 1e-6);
+            Radius = Math.Max(distance, _minimumRadius);
         else
             Strength = Math.Clamp(distance / StrengthSpan, 0.0, 1.0);
 
@@ -439,7 +453,8 @@ internal sealed class SculptSessionController
         SculptFieldRasterizer.Rasterize(
             _engine.Vertices, _engine.VertexCount, _engine.Faces, _engine.FaceCount,
             _engine.BaseZ, _engine.Field,
-            record.DirtyMinX, record.DirtyMaxX, record.DirtyMinY, record.DirtyMaxY);
+            record.DirtyMinX, record.DirtyMaxX, record.DirtyMinY, record.DirtyMaxY,
+            _constraintMask);
         _engine.Field.PruneZeroTiles();
         CaptureTileChanges(record, before: false);
         _undoStack.Push(record);
@@ -643,7 +658,7 @@ internal sealed class SculptSessionController
             if (!_strokeActive || !e.LeftButtonDown)
                 return;
 
-            double spacing = Math.Max(_session.Radius * DabSpacingFactor, 1e-9);
+            double spacing = Math.Max(_session.Radius * DabSpacingFactor, _session._minimumRadius);
             var from2 = new Point3d(_lastDab.X, _lastDab.Y, 0);
             var to2 = new Point3d(hit.X, hit.Y, 0);
             double travel = from2.DistanceTo(to2);

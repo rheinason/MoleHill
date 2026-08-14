@@ -20,10 +20,10 @@ public static partial class PathGrader
     {
         daylightReach = 0.0;
         bestApproachReach = 0.0;
-        if (maxReach <= 1e-9 || Math.Abs(branchSign) <= 1e-12)
+        if (maxReach <= ScaleAwareTolerance.LengthFloor(maxReach) || Math.Abs(branchSign) <= 1e-12)
             return false;
 
-        const double diffTolerance = 1e-4;
+        double diffTolerance = ScaleAwareTolerance.ResolveLength(maxReach * 1e-6, maxReach);
         double step = ComputePathDaylightSampleStep(maxReach, width);
         int sampleCount = Math.Max(1, (int)Math.Ceiling(maxReach / step));
         double startDiff = EvaluatePathSectionDifference(interpolateOriginalZ, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, 0.0);
@@ -102,8 +102,9 @@ public static partial class PathGrader
 
     private static double ComputePathDaylightSampleStep(double maxReach, double width)
     {
-        double maxStep = Math.Max(width * 0.5, 1.0);
-        return Math.Clamp(maxReach / 48.0, 0.1, maxStep);
+        double minStep = ScaleAwareTolerance.ResolveLength(maxReach / 512.0, maxReach);
+        double maxStep = width > 0.0 ? width * 0.5 : maxReach / 8.0;
+        return Math.Clamp(maxReach / 48.0, minStep, Math.Max(maxStep, minStep));
     }
 
     private static double RefinePathDaylightReach(
@@ -118,7 +119,9 @@ public static partial class PathGrader
         double lowReach,
         double highReach)
     {
-        const double diffTolerance = 1e-5;
+        double reachScale = Math.Max(Math.Abs(lowReach), Math.Abs(highReach));
+        double diffTolerance = ScaleAwareTolerance.ResolveLength(reachScale * 1e-7, reachScale);
+        double reachTolerance = ScaleAwareTolerance.ResolveLength(reachScale * 1e-6, reachScale);
         double low = lowReach;
         double high = highReach;
 
@@ -126,7 +129,7 @@ public static partial class PathGrader
         {
             double mid = (low + high) * 0.5;
             double diff = EvaluatePathSectionDifference(interpolateOriginalZ, edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, mid);
-            if (Math.Abs(diff) <= diffTolerance || (high - low) <= 1e-4)
+            if (Math.Abs(diff) <= diffTolerance || (high - low) <= reachTolerance)
                 return mid;
 
             if (branchSign > 0.0)

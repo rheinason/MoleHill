@@ -995,12 +995,14 @@ internal sealed partial class TerrainBuildService
     {
         int vertexCount = vertices.Length / 3;
         if (vertexCount == 0)
-            return 1.0;
+            return double.Epsilon;
 
         double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        double coordinateScale = 0.0;
         for (int i = 0; i < vertexCount; i++)
         {
             double x = vertices[i * 3], y = vertices[i * 3 + 1];
+            coordinateScale = Math.Max(coordinateScale, Math.Max(Math.Abs(x), Math.Abs(y)));
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
@@ -1009,7 +1011,7 @@ internal sealed partial class TerrainBuildService
 
         double diagonal = Math.Sqrt(((maxX - minX) * (maxX - minX)) + ((maxY - minY) * (maxY - minY)));
         double spacing = diagonal / Math.Max(1.0, Math.Sqrt(vertexCount));
-        return spacing > 1e-9 ? spacing : 1.0;
+        return Math.Max(spacing, Math.Max(coordinateScale * 1e-12, double.Epsilon));
     }
 
     /// <summary>
@@ -1074,8 +1076,8 @@ internal sealed partial class TerrainBuildService
         double diagonal = Math.Sqrt(((maxX - minX) * (maxX - minX)) + ((maxY - minY) * (maxY - minY)));
         double spacing = diagonal / Math.Max(1.0, Math.Sqrt(vertexCount));
         double crossHalf = 0.5 * (modifier.TargetEdgeLength > 0 ? modifier.TargetEdgeLength : spacing);
-        if (crossHalf <= 1e-9)
-            crossHalf = Math.Max(spacing, 1e-6) * 0.5;
+        if (!(crossHalf > 0.0) || !double.IsFinite(crossHalf))
+            crossHalf = Math.Max(spacing, toleranceProfile.RemeshConstraintTolerance) * 0.5;
 
         // Decimate onto a grid ~3 crosses apart so the comb reads instead of matting into a solid patch.
         double cellSize = crossHalf * 3.0;

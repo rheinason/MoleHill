@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Rhino;
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 
 namespace MoleHill.Rhino.Services;
 
@@ -24,7 +25,10 @@ internal sealed class TerrainDocumentStore
         string? json = LoadJson(doc);
         try
         {
-            return TerrainSerializer.Deserialize(json, doc.ModelUnitSystem);
+            ModelUnitContext unitContext = ModelUnitContext.FromDocument(doc);
+            if (!unitContext.IsSupported)
+                unitContext = ModelUnitContext.FromUnitSystem(UnitSystem.Meters);
+            return TerrainSerializer.Deserialize(json, unitContext);
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
         {

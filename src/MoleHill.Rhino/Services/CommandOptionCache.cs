@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using MoleHill.Shared;
 
 namespace MoleHill.Rhino.Services;
 
@@ -18,5 +19,16 @@ internal static class CommandOptionCache
     public static void SetValue<T>(string key, T value)
     {
         Values[key] = value;
+    }
+
+    public static double GetLength(string key, ModelUnitContext unitContext, double defaultMeters)
+    {
+        double meters = GetValue(key + ".Meters", defaultMeters);
+        return unitContext.FromMeters(meters);
+    }
+
+    public static void SetLength(string key, ModelUnitContext unitContext, double modelLength)
+    {
+        SetValue(key + ".Meters", unitContext.ToMeters(modelLength));
     }
 }

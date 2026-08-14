@@ -1,5 +1,7 @@
 using System.Reflection;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
+using MoleHill.Shared;
 using Rhino;
 
 namespace MoleHill.Rhino.Registry;
@@ -39,4 +41,15 @@ internal static class TerrainTypeRegistry
 
     public static ModifierDefinition? CreateModifier(string kind, UnitSystem unitSystem) =>
         ForModifierKind(kind)?.Create(unitSystem);
+
+    public static ModifierDefinition? CreateModifier(string kind, ModelUnitContext unitContext)
+    {
+        if (!unitContext.IsSupported)
+            return null;
+
+        ModifierDefinition? definition = ForModifierKind(kind)?.Create(UnitSystem.Meters);
+        if (definition != null)
+            TerrainUnitScaler.Scale(definition, unitContext.FromMeters(1.0));
+        return definition;
+    }
 }

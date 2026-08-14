@@ -46,6 +46,8 @@ staying unresolved.
 `.Daylighting`, `.Spatial`, `.Support`, `.Types`, ...). `PathGrader.*.cs` is the corridor analogue.
 
 ## Shared building blocks
+- `ScaleAwareTolerance` (Engine) and the daylight solvers use relative convergence and fixed sample-count
+  policies. Pad/path grading therefore follows the same branch decisions after uniform unit scaling.
 - `GradingGeometry2D.cs` - **the** 2D primitives (point-in-polygon, distance-to-polygon,
   interior point, segment intersection, Z interpolation). `PadGrader.Spatial.cs` are thin public compat
   wrappers over it.

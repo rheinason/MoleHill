@@ -20,6 +20,8 @@ fields by composing them, not by copying boilerplate.
   local responsive primitives for the dock panel. `UiMetrics` measures the active Eto font, and rows
   restack by their own width, so resizing the panel does not rebuild the whole content tree or drop
   editor focus. `UiTiming.cs` centralizes editor debounce intervals.
+- `RefreshUi` treats missing model units as a document state: the status card explains how to set units,
+  and creation/build controls stay disabled while non-destructive inspection remains available.
 - `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter,
   with Eto-drawn isometric thumbnails.
 - `LayerTemplateEditorDialog.cs` - graphical layer-template editor: a `TreeGridView` of the layer

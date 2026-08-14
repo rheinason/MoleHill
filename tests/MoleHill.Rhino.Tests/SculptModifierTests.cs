@@ -25,6 +25,9 @@ public class SculptModifierTests
 
         var terrain = new TerrainDefinition();
         var sculpt = new SculptModifierDefinition { CellSize = CellSize, DetailSize = 1.0 };
+        Guid constraintId = Guid.NewGuid();
+        sculpt.Constraints.ObjectIds.Add(constraintId);
+        sculpt.ConstraintFeather = 1.25;
         sculpt.Tiles = SculptFieldCodec.Encode(field);
         terrain.Modifiers.Add(sculpt);
 
@@ -37,6 +40,8 @@ public class SculptModifierTests
         Assert.Equal(1.25f, decoded.GetSample(-10, 3));
         Assert.Equal(-0.5f, decoded.GetSample(70, -70));
         Assert.Equal(field.Tiles.Count, decoded.Tiles.Count);
+        Assert.Contains(constraintId, restoredSculpt.Constraints.ObjectIds);
+        Assert.Equal(1.25, restoredSculpt.ConstraintFeather, 9);
     }
 
     [Fact]
@@ -66,6 +71,89 @@ public class SculptModifierTests
         Assert.NotNull(result.PrimaryMesh);
         foreach (var vertex in result.PrimaryMesh!.Vertices)
             Assert.Equal(2.0, vertex.Z, 3);
+    }
+
+    [RhinoNativeFact]
+    public void Build_ClosedConstraint_PreservesIncomingTerrainInside()
+    {
+        var sculpt = PlateauSculpt(2.0f);
+        sculpt.ConstraintFeather = 0.5;
+        var fixture = CreateFixture(sculpt, slopePerX: 0.0);
+        Guid constraintId = Guid.NewGuid();
+        sculpt.Constraints.ObjectIds.Add(constraintId);
+        var boundary = new PolylineCurve(new[]
+        {
+            new Point3d(-1.0, -1.0, 0.0),
+            new Point3d(1.0, -1.0, 0.0),
+            new Point3d(1.0, 1.0, 0.0),
+            new Point3d(-1.0, 1.0, 0.0),
+            new Point3d(-1.0, -1.0, 0.0),
+        });
+        BoundingBox bbox = boundary.GetBoundingBox(true);
+        fixture.Snapshot.SourceObjects[sculpt.Constraints] = new List<ResolvedSourceObject>
+        {
+            new()
+            {
+                ObjectId = constraintId,
+                Geometry = boundary,
+                LocalBoundingBox = bbox,
+                WorldBoundingBox = bbox,
+                GeometryDataCrc = boundary.DataCRC(0),
+            },
+        };
+        fixture.Snapshot.SourceFingerprints[sculpt.Constraints] = boundary.DataCRC(0);
+
+        TerrainBuildResult result = new TerrainBuildService().Build(
+            fixture.Snapshot, new TerrainRuntimeCache(), TerrainBuildMode.Final);
+
+        Assert.NotNull(result.PrimaryMesh);
+        Point3f center = result.PrimaryMesh!.Vertices
+            .OrderBy(vertex => Math.Abs(vertex.X) + Math.Abs(vertex.Y))
+            .First();
+        Point3f outside = result.PrimaryMesh.Vertices
+            .OrderByDescending(vertex => Math.Abs(vertex.X) + Math.Abs(vertex.Y))
+            .First();
+        Assert.Equal(0.0, center.Z, 3);
+        Assert.Equal(2.0, outside.Z, 3);
+    }
+
+    [RhinoNativeFact]
+    public void ConstraintMask_SelectedPriorGradePath_UsesConfiguredDesignWidth()
+    {
+        Guid pathId = Guid.NewGuid();
+        var gradePath = new GradePathModifierDefinition { Width = 4.0 };
+        gradePath.Paths.ObjectIds.Add(pathId);
+        var sculpt = new SculptModifierDefinition { ConstraintFeather = 1.0 };
+        sculpt.Constraints.ObjectIds.Add(pathId);
+        var terrain = new TerrainDefinition
+        {
+            GlobalTolerance = 0.01,
+            Modifiers = new List<ModifierDefinition> { gradePath, sculpt },
+        };
+        var snapshot = new TerrainBuildSnapshot
+        {
+            Terrain = terrain,
+            ModelAbsoluteTolerance = 0.001,
+            ModelUnitSystem = UnitSystem.Meters,
+        };
+        var path = new LineCurve(new Point3d(-5.0, 0.0, 0.0), new Point3d(5.0, 0.0, 0.0));
+        BoundingBox bbox = path.GetBoundingBox(true);
+        var resolved = new ResolvedSourceObject
+        {
+            ObjectId = pathId,
+            Geometry = path,
+            LocalBoundingBox = bbox,
+            WorldBoundingBox = bbox,
+            GeometryDataCrc = path.DataCRC(0),
+        };
+        snapshot.SourceObjects[gradePath.Paths] = new List<ResolvedSourceObject> { resolved };
+        snapshot.SourceObjects[sculpt.Constraints] = new List<ResolvedSourceObject> { resolved };
+
+        SculptConstraintMask mask = SculptConstraintMaskBuilder.Build(snapshot, terrain, sculpt);
+
+        Assert.Equal(0.0, mask.EvaluateInfluence(0.0, 1.0), 12);
+        Assert.Equal(0.5, mask.EvaluateInfluence(0.0, 2.5), 12);
+        Assert.Equal(1.0, mask.EvaluateInfluence(0.0, 3.0), 12);
     }
 
     [RhinoNativeFact]

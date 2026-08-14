@@ -10,6 +10,15 @@ namespace MoleHill.Rhino.Model;
 /// </summary>
 public sealed class SculptModifierDefinition : ModifierDefinition
 {
+    /// <summary>Curves whose design footprints remain fixed while sculpting. Closed curves protect
+    /// their interiors; open curves protect the breakline itself. When a selected curve drives an
+    /// earlier Grade Path modifier, its configured road width is protected instead.</summary>
+    public SourceReferenceSet Constraints { get; set; } = new();
+
+    /// <summary>Distance outside a protected footprint over which sculpt influence ramps back to
+    /// full strength. 0 uses <see cref="DetailSize"/>.</summary>
+    public double ConstraintFeather { get; set; }
+
     /// <summary>When true, the build stage refines terrain triangles under the sculpted region to
     /// <see cref="DetailSize"/> before displacing, so brushes always have vertex resolution.</summary>
     public bool DynTopo { get; set; } = false;
@@ -39,9 +48,13 @@ public sealed class SculptModifierDefinition : ModifierDefinition
     /// must never be reinterpreted at a different spacing (see <see cref="CellSize"/>).</summary>
     public double EffectiveCellSize => CellSize > 0 ? CellSize : DetailSize * 0.5;
 
+    public double EffectiveConstraintFeather => ConstraintFeather > 0.0
+        ? ConstraintFeather
+        : Math.Max(0.0, DetailSize);
+
     public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {
-        yield break;
+        yield return Constraints;
     }
 }
 

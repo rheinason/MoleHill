@@ -26,10 +26,13 @@ internal static class RetainingWallPlannerCaseTestExporter
             TerrainTolerancePolicy.Profile toleranceProfile = TerrainTolerancePolicy.Create(
                 snapshot.Terrain.GlobalTolerance,
                 snapshot.ModelAbsoluteTolerance,
-                snapshot.ModelUnitSystem);
+                snapshot.ResolvedUnitContext);
             double wallTolerance = toleranceProfile.RetainingWallTolerance(modifier.MaxWallWidth);
             double maxWallWidth = Math.Max(wallTolerance, modifier.MaxWallWidth);
-            if (!TryConvertCurves(curves, Math.Max(wallTolerance, 1e-9), out List<Point3d[]> polylines))
+            if (!TryConvertCurves(
+                    curves,
+                    Math.Max(wallTolerance, snapshot.ResolvedUnitContext.FromMeters(1e-9)),
+                    out List<Point3d[]> polylines))
                 continue;
 
             string label = string.IsNullOrWhiteSpace(modifier.Label) ? "RetainingWall" : modifier.Label;

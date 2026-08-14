@@ -58,7 +58,7 @@ internal sealed partial class TerrainBuildService
         if (outputVertexCount != inputVertexCount || outputFaceCount != inputFaceCount)
             return true;
 
-        double tolSq = Math.Max(tolerance, 1e-9);
+        double tolSq = Math.Max(Math.Abs(tolerance), double.Epsilon);
         tolSq *= tolSq;
         for (int i = 0; i < inputVertexCount; i++)
         {
@@ -83,7 +83,7 @@ internal sealed partial class TerrainBuildService
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
         double tolerance)
     {
-        double matchTolerance = Math.Max(tolerance, 1e-6);
+        double matchTolerance = Math.Max(Math.Abs(tolerance), double.Epsilon);
         double matchToleranceSquared = matchTolerance * matchTolerance;
         int vertexCount = vertices.Length / 3;
         for (int vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++)
@@ -764,14 +764,15 @@ internal sealed partial class TerrainBuildService
     {
         var originalTopology = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
         double medianEdgeLength = ComputeMedianUndirectedEdgeLength(vertices, faces, faceCount);
-        double effectiveCleanupTolerance = Math.Max(
-            1e-6,
-            Math.Min(
-                Math.Max(tolerance, 1e-6),
-                medianEdgeLength > 0 ? medianEdgeLength * 0.01 : 0.01));
-        double minEdgeLength = Math.Max(effectiveCleanupTolerance * 2.0, 1e-5);
+        double geometryFloor = Math.Max(medianEdgeLength * 1e-12, double.Epsilon);
+        double effectiveCleanupTolerance = Math.Min(
+            Math.Max(Math.Abs(tolerance), geometryFloor),
+            Math.Max(medianEdgeLength * 0.01, geometryFloor));
+        double minEdgeLength = Math.Max(effectiveCleanupTolerance * 2.0, geometryFloor);
         double minEdgeLengthSquared = minEdgeLength * minEdgeLength;
-        double minProjectedArea = Math.Max(effectiveCleanupTolerance * effectiveCleanupTolerance * 2.0, 1e-10);
+        double minProjectedArea = Math.Max(
+            effectiveCleanupTolerance * effectiveCleanupTolerance * 2.0,
+            geometryFloor * geometryFloor);
         Dictionary<long, int> originalEdgeCounts = BuildFaceEdgeCounts(faces, faceCount);
 
         var candidates = new List<(int FaceIndex, double Area, double SmallestEdgeSquared, double MinProjectedAltitude)>();
@@ -812,7 +813,7 @@ internal sealed partial class TerrainBuildService
             double longestProjectedEdgeSquared = Math.Max(projectedL0Squared, Math.Max(projectedL1Squared, projectedL2Squared));
             double shortestProjectedEdgeSquared = Math.Min(projectedL0Squared, Math.Min(projectedL1Squared, projectedL2Squared));
             double longestProjectedEdge = Math.Sqrt(longestProjectedEdgeSquared);
-            double minProjectedAltitude = longestProjectedEdge > 1e-12
+            double minProjectedAltitude = longestProjectedEdge > geometryFloor
                 ? (2.0 * area) / longestProjectedEdge
                 : 0.0;
             double projectedDuplicateTolerance = effectiveCleanupTolerance * 0.5;

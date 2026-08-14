@@ -185,7 +185,7 @@ internal static class RetainingWallBrepBuilder
     // to zero height at that end (front-bottom coincides with front-top, etc.).
     private static void AddCap(List<Brep> faces, Point3d a, Point3d b, Point3d c, Point3d d, double tolerance)
     {
-        double pointTol = Math.Max(tolerance * 1e-3, 1e-9);
+        double pointTol = Math.Max(tolerance * 1e-3, Math.Max(Math.Abs(tolerance) * 1e-12, double.Epsilon));
         var pts = new List<Point3d>(4);
         foreach (Point3d p in new[] { a, b, c, d })
         {

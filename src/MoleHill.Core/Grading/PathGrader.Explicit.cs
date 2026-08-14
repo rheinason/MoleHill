@@ -385,7 +385,8 @@ public static partial class PathGrader
         if ((Math.Cos(midAngle) * outwardX) + (Math.Sin(midAngle) * outwardY) < 0.0)
             sweep += sweep > 0.0 ? -2.0 * Math.PI : 2.0 * Math.PI;
 
-        int steps = Math.Max(1, (int)Math.Ceiling(Math.Abs(sweep) * radius / Math.Max(spacing, 1e-6)));
+        double spacingFloor = ScaleAwareTolerance.LengthFloor(Math.Max(radius, spacing));
+        int steps = Math.Max(1, (int)Math.Ceiling(Math.Abs(sweep) * radius / Math.Max(spacing, spacingFloor)));
         for (int s = 1; s < steps; s++)
         {
             double theta = angleA + (sweep * s / steps);
@@ -471,7 +472,7 @@ public static partial class PathGrader
         // misses near pairs that straddle a cell boundary (banker's rounding splits p +/- epsilon across
         // cells) and falsely merges far pairs sharing a cell (cell diagonal = tol*sqrt(2)), corrupting
         // the boundary loop the fill relies on. Mirrors PadGrader.BuildHoleFill.
-        double weldTol = Math.Max(tolerance, 1e-6);
+        double weldTol = ScaleAwareTolerance.ResolveLength(tolerance, terrain.BoundsDiagonal);
         double weldTolSq = weldTol * weldTol;
         double inverseCell = 1.0 / (2.0 * weldTol);
         var xyList = new List<double>();
@@ -596,7 +597,9 @@ public static partial class PathGrader
             // input point (boundary, road edge, or another seed) creates near-degenerate micro-faces
             // whose blended Z reads as jagged spikes; occupancy of a coarse grid approximates that
             // min-distance cheaply.
-            double seedSpacing = Math.Max(1.0, corridor.Spacing * 0.25);
+            double seedSpacing = Math.Max(
+                corridor.Spacing * 0.25,
+                Math.Max(tolerance * 1000.0, ScaleAwareTolerance.LengthFloor(terrain.BoundsDiagonal)));
             double invSeedCell = 1.0 / seedSpacing;
             var seedCells = new HashSet<(long, long)>();
             for (int i = 0; i < xyList.Count / 2; i++)

@@ -37,6 +37,7 @@ public sealed class SculptBrushEngine
     private int _faceCount;
     private double[] _baseZ;
     private readonly SculptDisplacementField _field;
+    private readonly SculptConstraintMask? _constraintMask;
 
     private SpatialHashGrid2D _vertexGrid;
     private readonly SpatialHashGrid2D.QueryScratch _scratch = new();
@@ -59,17 +60,28 @@ public sealed class SculptBrushEngine
     private double[] _grabWeights = Array.Empty<double>();
     private double[] _grabZ0 = Array.Empty<double>();
 
-    public SculptBrushEngine(double[] vertices, int vertexCount, int[] faces, int faceCount, SculptDisplacementField field)
+    public SculptBrushEngine(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        SculptDisplacementField field,
+        SculptConstraintMask? constraintMask = null)
     {
         _vertices = vertices;
         _vertexCount = vertexCount;
         _faces = faces;
         _faceCount = faceCount;
         _field = field;
+        _constraintMask = constraintMask;
 
         _baseZ = new double[vertexCount];
         for (int i = 0; i < vertexCount; i++)
-            _baseZ[i] = vertices[i * 3 + 2] - field.Sample(vertices[i * 3], vertices[i * 3 + 1]);
+        {
+            double x = vertices[i * 3];
+            double y = vertices[i * 3 + 1];
+            _baseZ[i] = vertices[i * 3 + 2] - (field.Sample(x, y) * ConstraintInfluence(x, y));
+        }
 
         _touchStamps = new int[vertexCount];
         _vertexGrid = BuildVertexGrid(vertices, vertexCount);
@@ -81,6 +93,7 @@ public sealed class SculptBrushEngine
     public int FaceCount => _faceCount;
     public double[] BaseZ => _baseZ;
     public SculptDisplacementField Field => _field;
+    public SculptConstraintMask? ConstraintMask => _constraintMask;
     public bool StrokeActive => _activeStroke != null;
 
     /// <summary>Bumped whenever DynTopo refinement swaps the working arrays — callers rebuild any
@@ -142,7 +155,8 @@ public sealed class SculptBrushEngine
             if (d >= 1.0)
                 continue;
 
-            double w = p.Strength * SculptFalloffs.Evaluate(p.Falloff, d);
+            double w = p.Strength * SculptFalloffs.Evaluate(p.Falloff, d) *
+                       ConstraintInfluence(_vertices[i * 3], _vertices[i * 3 + 1]);
             if (w <= 0.0)
                 continue;
 
@@ -366,7 +380,8 @@ public sealed class SculptBrushEngine
             if (d >= 1.0)
                 continue;
 
-            double w = SculptFalloffs.Evaluate(p.Falloff, d);
+            double w = SculptFalloffs.Evaluate(p.Falloff, d) *
+                       ConstraintInfluence(_vertices[i * 3], _vertices[i * 3 + 1]);
             weightSum += w;
             zSum += w * _vertices[i * 3 + 2];
         }
@@ -389,7 +404,8 @@ public sealed class SculptBrushEngine
             if (d >= 1.0)
                 continue;
 
-            double w = p.Strength * SculptFalloffs.Evaluate(p.Falloff, d);
+            double w = p.Strength * SculptFalloffs.Evaluate(p.Falloff, d) *
+                       ConstraintInfluence(_vertices[i * 3], _vertices[i * 3 + 1]);
             if (w <= 0.0)
                 continue;
 
@@ -419,6 +435,9 @@ public sealed class SculptBrushEngine
             _affected.Add(i);
         }
     }
+
+    private double ConstraintInfluence(double x, double y) =>
+        _constraintMask?.EvaluateInfluence(x, y) ?? 1.0;
 
     private static SpatialHashGrid2D BuildVertexGrid(double[] vertices, int vertexCount)
     {

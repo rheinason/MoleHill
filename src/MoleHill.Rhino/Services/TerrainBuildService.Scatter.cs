@@ -84,7 +84,9 @@ internal sealed partial class TerrainBuildService
                     ? index =>
                     {
                         string name = SelectBlockName(index, InstanceKeyFromIndex(index));
-                        return extentByName.TryGetValue(name, out double e) && e > 0.0 ? e : 1.0;
+                        return extentByName.TryGetValue(name, out double e) && e > 0.0
+                            ? e
+                            : Math.Max(snapshot.ModelAbsoluteTolerance, snapshot.ResolvedUnitContext.FromMeters(1e-9));
                     }
                     : null;
 
@@ -374,8 +376,9 @@ internal sealed partial class TerrainBuildService
         Polyline pl;
         if (!curve.TryGetPolyline(out pl) || !pl.IsValid || pl.Count < 2)
         {
-            double chord = Math.Max(tolerance * 10.0, 1e-3);
-            int segments = Math.Clamp((int)Math.Ceiling(curve.GetLength() / chord), 8, 1024);
+            double length = curve.GetLength();
+            double chord = Math.Max(tolerance * 10.0, Math.Max(length * 1e-12, double.Epsilon));
+            int segments = Math.Clamp((int)Math.Ceiling(length / chord), 8, 1024);
             double[]? parameters = curve.DivideByCount(segments, includeEnds: true);
             if (parameters == null || parameters.Length < 2)
                 return false;
@@ -406,8 +409,9 @@ internal sealed partial class TerrainBuildService
         Polyline polyline;
         if (!curve.TryGetPolyline(out polyline) || !polyline.IsValid || polyline.Count < 4)
         {
-            double chord = Math.Max(tolerance * 10.0, 1e-3);
-            int segments = Math.Clamp((int)Math.Ceiling(curve.GetLength() / chord), 24, 512);
+            double length = curve.GetLength();
+            double chord = Math.Max(tolerance * 10.0, Math.Max(length * 1e-12, double.Epsilon));
+            int segments = Math.Clamp((int)Math.Ceiling(length / chord), 24, 512);
             double[]? parameters = curve.DivideByCount(segments, includeEnds: true);
             if (parameters == null || parameters.Length < 4)
                 return false;
@@ -417,7 +421,7 @@ internal sealed partial class TerrainBuildService
 
         int count = polyline.Count;
         // Drop a duplicated closing vertex so the loop is non-repeating.
-        if (count >= 2 && polyline[0].DistanceTo(polyline[count - 1]) <= Math.Max(tolerance, 1e-9))
+        if (count >= 2 && polyline[0].DistanceTo(polyline[count - 1]) <= Math.Max(Math.Abs(tolerance), double.Epsilon))
             count--;
 
         if (count < 3)

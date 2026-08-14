@@ -29,7 +29,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   and Document utilities; terrain creation, editing, and bake/convert workflows stay in the dock panel.
 - Project-local ↔ real-world coordinates use the named `MoleHill_ProjectBase` plane as a reversible rigid
   transform; object replacement ids are reconciled across terrain source/output tracking. GeoTIFF import
-  reads embedded model tags without GDAL, falls back to a full-affine world file, and applies the saved
+  reads embedded model and linear-unit tags without GDAL, asks for source units when metadata is absent,
+  falls back to a full-affine world file, converts coordinates into document units, and applies the saved
   real-world → project transform. See `docs/project-base-georeference.md`.
 
 ## Two hosts, one core
@@ -40,6 +41,24 @@ Rhino panel:  TerrainDefinition (modifier stack, saved in .3dm)
                 → TerrainBuildService.Build (staged pipeline) → TerrainBuildResult
                 → TerrainDisplayConduit (live preview)  +  BakeTerrain (real doc objects)
 ```
+
+## Model-unit contract
+
+`MoleHill.Shared/ModelUnitContext` is the single model-unit boundary for both hosts. It supports every
+Rhino length unit plus valid custom units, provides length/area/volume/inverse-area conversion and
+formatting, and intentionally avoids Rhino's native unit-conversion call. Documents with `None`/`Unset`
+units remain readable, but terrain creation, editing, builds, dimensional commands, and Grasshopper
+solves are blocked until real model units are set.
+
+Physical defaults are authored in metres and converted by the Rhino registries or GH solve context.
+When Rhino changes units with geometry scaling, `TerrainController` applies the exact event scale to all
+persisted dimensional state: tolerances; modifier, analysis, section, annotation, and scatter lengths;
+areas, volumes, inverse-area density; object-placement translations; cached summaries; and sculpt cell
+sizes/displacement payloads. Ratios, angles, percentages, counts, axes, random/block scale, and paper-
+space plot weights remain unchanged. Runtime caches are discarded and live terrains rebuild.
+
+Core remains unitless: `ScaleAwareTolerance` and scale-relative daylight convergence derive numerical
+floors from caller tolerance and geometry extent, so uniformly scaled inputs take the same topology path.
 
 ## Flat-array data format (Core)
 
@@ -111,11 +130,18 @@ The **Sculpt** modifier is Blender-style 2.5D brush sculpting (Draw/Subtract/Smo
 Clay/Noise; F = radius, Shift+F = strength, Ctrl = invert, Shift = temp smooth, Ctrl+Z = stroke undo).
 **The durable data is a sparse world-XY displacement field** (64×64-sample deflated tiles on the
 modifier definition, `Core/Sculpting/SculptDisplacementField`), applied at build time as
-`z += field.Sample(x, y)` — never vertex indices — so the modifier is fully stackable: upstream edits
+`z += field.Sample(x, y) * constraintMask(x, y)` — never vertex indices — so the modifier is fully stackable: upstream edits
 re-flow and the sculpt re-applies on top; multiple sculpts compose. Smooth/Flatten therefore bake a
 static delta (Displace-style), by design. **DynTopo is currently disabled and hidden** because the
 subdivision path can be unstable on real graded terrain; sculpt replay is displacement-only against
 the incoming mesh.
+
+Sculpt's persistent **Constraints** source set is resolved to a Core `SculptConstraintMask`: ordinary
+closed curves protect their interiors, open curves protect the breakline, and a selected curve used
+by an enabled earlier Grade Path expands to that modifier's configured design width. The feature is
+fully pinned inside and feathers back to full sculpt influence outside. Live dabs, BaseZ recovery,
+stroke rasterization, and build replay share the same mask. Raw field samples remain stored beneath
+protected areas, so adding/removing a constraint is non-destructive and feathering is applied once.
 
 The interactive session (`Services/SculptSessionController`) runs a long-lived `GetPoint` loop
 (mouse-up = stroke end; inside a get, Rhino's own Ctrl+Z accelerator is blocked, so stroke-undo is
@@ -124,8 +150,8 @@ safe) painting dabs on a working copy of the sculpt stage's cached output
 into the field (`SculptFieldRasterizer`), commits via `MutateTerrain` (deferred save), and the normal
 debounced rebuild reruns downstream stages while a **display lock** (`TerrainController.Sculpt.cs`)
 keeps the working mesh on screen. A floating Eto mini-toolbar (`UI/SculptToolbarForm`) hosts
-brush/radius/strength/falloff/Done; the modifier card stays limited to Sculpt/Clear and the
-stored-field summary. Session exit = one document undo record.
+brush/radius/strength/falloff/Done; persistent constraint sources and feather distance stay on the
+modifier card alongside Sculpt/Clear and the stored-field summary. Session exit = one document undo record.
 
 Expanded **Smooth** and **Sculpt** cards inspect their incoming cached mesh when no enabled Remesh
 precedes them. A sampled Core regularity check warns when the mesh is very sparse or contains a

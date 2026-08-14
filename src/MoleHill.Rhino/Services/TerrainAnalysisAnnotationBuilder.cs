@@ -30,7 +30,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 continue;
 
             sourceCount++;
-            var divisions = GetCurveDivisionSamples(curve, Math.Max(analysis.Interval, 0.01));
+            var divisions = GetCurveDivisionSamples(curve, Math.Max(analysis.Interval, MinimumLength(snapshot)));
             if (divisions.Count < 2)
                 continue;
 
@@ -106,7 +106,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 continue;
 
             sourceCount++;
-            var divisions = GetCurveDivisionSamples(curve, Math.Max(analysis.Interval, 0.01));
+            var divisions = GetCurveDivisionSamples(curve, Math.Max(analysis.Interval, MinimumLength(snapshot)));
             if (divisions.Count == 0)
                 continue;
 
@@ -322,7 +322,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         double tolerance = snapshot.ModelAbsoluteTolerance;
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         string? layerPath = analysis.OutputLayerPath ?? fallbackLayerPath;
-        double textHeight = Math.Max(analysis.TextHeight, 1e-3);
+        double textHeight = Math.Max(analysis.TextHeight, MinimumLength(snapshot));
         int sourceCount = 0;
         int outputCount = 0;
         var stats = new ValueStats();
@@ -413,7 +413,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     private static string FormatGradeCallout(double rise, double planDistance, double percent, GradeBetweenPointsAnalysisDefinition analysis)
     {
         string core;
-        if (Math.Abs(rise) <= 1e-9)
+        if (Math.Abs(rise) <= Math.Max(Math.Abs(planDistance) * 1e-12, double.Epsilon))
         {
             core = "level";
         }
@@ -728,7 +728,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         if (showStationTicks && stationTickInterval > 0.0 && slice.TotalStationLength > 0.0)
         {
             var stations = BuildStationList(slice.TotalStationLength, stationTickInterval);
-            double tickHalf = Math.Max(textHeight, 0.1);
+            double tickHalf = Math.Max(textHeight, double.Epsilon);
             var ticks = SectionLayoutHelper.BuildStationTicks(cellPlane, stations, tickHalf, horizontalScale, verticalScale, baseElevation, slice.MinimumElevation);
             foreach (var line in ticks)
             {
@@ -739,9 +739,9 @@ internal static class TerrainAnalysisAnnotationBuilder
 
         if (showStationLabels)
         {
-            double labelInterval = stationLabelInterval > 0.0 ? stationLabelInterval : Math.Max(slice.TotalStationLength * 0.25, 1.0);
+            double labelInterval = stationLabelInterval > 0.0 ? stationLabelInterval : slice.TotalStationLength * 0.25;
             var stations = BuildStationList(slice.TotalStationLength, labelInterval);
-            double labelOffset = Math.Max(textHeight, 0.1) * 1.5;
+            double labelOffset = Math.Max(textHeight, double.Epsilon) * 1.5;
             foreach (double station in stations)
             {
                 var label = SectionLayoutHelper.BuildLabel(
@@ -752,7 +752,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                     verticalScale,
                     baseElevation,
                     station.ToString("F1"),
-                    Math.Max(textHeight, 0.05));
+                    Math.Max(textHeight, double.Epsilon));
                 build.AuxiliaryObjects.Add(BuildTextObject(analysis, label, fallbackLayerPath, $"{sectionLabel} {station:F1}", SectionLayerKind.Labels));
                 emitted++;
             }
@@ -813,7 +813,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         var bounds = mesh.GetBoundingBox(true);
         if (bounds.IsValid)
         {
-            double offset = Math.Max((bounds.Max.Y - bounds.Min.Y) * 0.25, 1.0);
+            double offset = Math.Max((bounds.Max.Y - bounds.Min.Y) * 0.25, double.Epsilon);
             var origin = new Point3d(bounds.Min.X, bounds.Min.Y - offset, bounds.Min.Z);
             return new Plane(origin, Vector3d.XAxis, Vector3d.YAxis);
         }
@@ -869,7 +869,8 @@ internal static class TerrainAnalysisAnnotationBuilder
         for (double s = 0.0; s <= totalLength + (interval * 0.5); s += interval)
             stations.Add(Math.Min(s, totalLength));
 
-        if (stations.Count == 0 || Math.Abs(stations[stations.Count - 1] - totalLength) > 1e-6)
+        if (stations.Count == 0 ||
+            Math.Abs(stations[stations.Count - 1] - totalLength) > Math.Max(Math.Abs(totalLength) * 1e-12, double.Epsilon))
             stations.Add(totalLength);
 
         return stations;
@@ -1082,6 +1083,9 @@ internal static class TerrainAnalysisAnnotationBuilder
             _ => "%"
         };
     }
+
+    private static double MinimumLength(TerrainBuildSnapshot snapshot) =>
+        Math.Max(snapshot.ModelAbsoluteTolerance, snapshot.ResolvedUnitContext.FromMeters(1e-9));
 
     private static string FormatValue(double value, string format)
     {

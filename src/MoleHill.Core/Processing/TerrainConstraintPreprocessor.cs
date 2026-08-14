@@ -320,7 +320,7 @@ public static class TerrainConstraintPreprocessor
     private static double ComputeClampedMedian(List<double> lengths, double tolerance)
     {
         if (lengths.Count == 0)
-            return Math.Max(tolerance * 32.0, 1.0);
+            return Math.Max(tolerance * 32.0, double.Epsilon);
 
         lengths.Sort();
         int middle = lengths.Count / 2;

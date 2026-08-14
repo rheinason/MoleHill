@@ -7,6 +7,62 @@ namespace MoleHill.Core.Tests;
 public class PadGraderTests
 {
     [Fact]
+    public void Grade_UniformlyScaledPad_PreservesPhysicalResult()
+    {
+        double? normalizedCut = null;
+        double? normalizedFill = null;
+        foreach (double scale in new[] { 0.001, 1.0, 1000.0 })
+        {
+            double[] vertices =
+            {
+                0.0, 0.0, 0.0,
+                100.0 * scale, 0.0, 0.0,
+                100.0 * scale, 100.0 * scale, 0.0,
+                0.0, 100.0 * scale, 0.0
+            };
+            int[] faces = { 0, 1, 2, 0, 2, 3 };
+            var pad = new PadGrader.PadBoundary(
+                new[]
+                {
+                    40.0 * scale, 40.0 * scale,
+                    60.0 * scale, 40.0 * scale,
+                    60.0 * scale, 60.0 * scale,
+                    40.0 * scale, 60.0 * scale
+                },
+                4,
+                targetZ: 1.0 * scale,
+                slopeAngleDeg: 45.0,
+                maxDistance: 15.0 * scale);
+
+            GradingResult? result = PadGrader.Grade(
+                vertices, 4, faces, 2, new[] { pad }, null,
+                out string? errorMessage, out _,
+                modelTolerance: 0.001 * scale,
+                terrainDetailSize: 0.25 * scale);
+
+            Assert.NotNull(result);
+            Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
+            Assert.True(MeshTopologyValidator.AnalyzeBoundaryGraph(result!.Faces, result.FaceCount).HasSingleClosedBoundaryLoop);
+            Assert.Single(result.OutputPolylines);
+            Assert.True(result.OutputPolylines[0].IsClosed);
+
+            double scaleCubed = scale * scale * scale;
+            double cut = result.CutVolume / scaleCubed;
+            double fill = result.FillVolume / scaleCubed;
+            if (normalizedCut.HasValue)
+            {
+                Assert.Equal(normalizedCut.Value, cut, 5);
+                Assert.Equal(normalizedFill!.Value, fill, 5);
+            }
+            else
+            {
+                normalizedCut = cut;
+                normalizedFill = fill;
+            }
+        }
+    }
+
+    [Fact]
     public void Grade_InvalidTerrainVertexArray_ReturnsFailure()
     {
         var pad = new PadGrader.PadBoundary(

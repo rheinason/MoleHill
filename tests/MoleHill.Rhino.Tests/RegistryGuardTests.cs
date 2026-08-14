@@ -112,6 +112,9 @@ public class RegistryGuardTests
 
         Assert.False(new SculptModifierDefinition().DynTopo);
         Assert.False(sculpt.DynTopo);
+        Assert.Equal(ModelUnits.FromMeters(1.0, UnitSystem.Meters), sculpt.ConstraintFeather, 9);
+        Assert.Contains(descriptor.Parameters, p => p.Key == "Constraints");
+        Assert.Contains(descriptor.Parameters, p => p.Key == "ConstraintFeather");
         Assert.DoesNotContain(descriptor.Parameters, p => p.Key is "DynTopo" or "DetailSize");
     }
 

@@ -42,6 +42,7 @@
     <Compile Include="..\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
     <Compile Include="..\MoleHill.Shared\RetainingWallPlannerCore.cs" Link="Shared\RetainingWallPlannerCore.cs" />
     <Compile Include="..\MoleHill.Shared\RetainingWallBrepBuilder.cs" Link="Shared\RetainingWallBrepBuilder.cs" />
+    <Compile Include="..\MoleHill.Shared\ModelUnitContext.cs" Link="Shared\ModelUnitContext.cs" />
   </ItemGroup>
 
   <ItemGroup>

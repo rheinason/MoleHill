@@ -319,9 +319,9 @@ internal static class RetainingWallPlannerCore
         double? curveParsingTolerance = null,
         double? curveCleanupTolerance = null)
     {
-        double resolvedMaxWallWidth = Math.Max(maxWallWidth, 1e-9);
+        double resolvedMaxWallWidth = PositiveLength(maxWallWidth, maxWallWidth);
         double geometryTolerance = ResolveGeometryTolerance(resolvedMaxWallWidth, curveParsingTolerance);
-        double chordTol = Math.Max(geometryTolerance, 1e-9);
+        double chordTol = PositiveLength(geometryTolerance, resolvedMaxWallWidth);
         double angleTol = 5.0 * Math.PI / 180.0;
 
         var report = new List<ReportEntry>();
@@ -374,7 +374,7 @@ internal static class RetainingWallPlannerCore
     {
         var report = seedReport ?? new List<ReportEntry>();
         var totalTimer = Stopwatch.StartNew();
-        double resolvedMaxWallWidth = Math.Max(maxWallWidth, 1e-9);
+        double resolvedMaxWallWidth = PositiveLength(maxWallWidth, maxWallWidth);
         double geometryTolerance = ResolveGeometryTolerance(resolvedMaxWallWidth, curveParsingTolerance);
         double cleanupTolerance = Math.Max(curveCleanupTolerance ?? geometryTolerance, geometryTolerance);
 
@@ -431,7 +431,7 @@ internal static class RetainingWallPlannerCore
     }
 
     private static double ResolveGeometryTolerance(double resolvedMaxWallWidth, double? curveParsingTolerance) =>
-        Math.Max(curveParsingTolerance ?? Math.Min(resolvedMaxWallWidth * 0.01, 0.001), 1e-9);
+        PositiveLength(curveParsingTolerance ?? resolvedMaxWallWidth * 0.001, resolvedMaxWallWidth);
 
     private static List<PreparedCurve> PrepareCurves(
         IReadOnlyList<RailPolyline?> rails,
@@ -1019,10 +1019,13 @@ internal static class RetainingWallPlannerCore
     private static string FormatCurveRef(PreparedCurve curve) =>
         curve.FragmentIndex == 0 ? curve.SourceIndex.ToString() : $"{curve.SourceIndex}.{curve.FragmentIndex}";
 
-    private static bool PassesDistanceChecks(CandidateStats candidate, double tolerance) =>
-        candidate.Mean <= tolerance &&
-        candidate.Iqr <= tolerance &&
-        candidate.Max <= MaxPairDistanceFactor * tolerance;
+    private static bool PassesDistanceChecks(CandidateStats candidate, double tolerance)
+    {
+        double comparisonSlack = PositiveLength(tolerance * 1e-9, tolerance);
+        return candidate.Mean <= tolerance + comparisonSlack &&
+               candidate.Iqr <= tolerance + comparisonSlack &&
+               candidate.Max <= (MaxPairDistanceFactor * tolerance) + comparisonSlack;
+    }
 
     private static void DetectCrossings(List<Pair> pairs, double tolerance, List<ReportEntry> report)
     {
@@ -1405,7 +1408,7 @@ internal static class RetainingWallPlannerCore
 
     private static Dictionary<int, CurveBounds> BuildCurveBounds(IEnumerable<PreparedCurve> curves, double maxWallWidth)
     {
-        double padding = Math.Max(maxWallWidth * 1.5, 1e-6);
+        double padding = PositiveLength(maxWallWidth * 1.5, maxWallWidth);
         return curves.ToDictionary(curve => curve.WorkIndex, curve => ComputeCurveBounds(curve.Points, padding));
     }
 
@@ -1415,7 +1418,7 @@ internal static class RetainingWallPlannerCore
         double maxWallWidth,
         double geometryTolerance)
     {
-        double maxCandidateGap = Math.Max(maxWallWidth * 3.0, 1e-6);
+        double maxCandidateGap = PositiveLength(maxWallWidth * 3.0, maxWallWidth);
         var candidates = new Dictionary<int, List<PreparedCurve>>(curves.Count);
         foreach (PreparedCurve curve in curves)
         {
@@ -1482,7 +1485,7 @@ internal static class RetainingWallPlannerCore
         return min < double.MaxValue ? min : tolerance;
     }
 
-    private static double MinAllowedHeight(double tolerance) => Math.Max(tolerance * 0.01, 1e-6);
+    private static double MinAllowedHeight(double tolerance) => PositiveLength(tolerance * 0.01, tolerance);
 
     private static bool TrySegmentIntersection(Line a, Line b, out double t, out double u, out double angleDeg)
     {
@@ -2082,9 +2085,17 @@ internal static class RetainingWallPlannerCore
         return result;
     }
 
-    private static double DuplicateTolerance(double tolerance) => Math.Max(tolerance * 1e-3, 1e-8);
+    private static double DuplicateTolerance(double tolerance) => PositiveLength(tolerance * 1e-3, tolerance);
 
-    private static double MinAllowedWidth(double tolerance) => Math.Max(tolerance * 0.1, 1e-6);
+    private static double MinAllowedWidth(double tolerance) => PositiveLength(tolerance * 0.1, tolerance);
+
+    private static double PositiveLength(double value, double characteristicLength)
+    {
+        double scale = double.IsFinite(characteristicLength) ? Math.Abs(characteristicLength) : 0.0;
+        double floor = Math.Max(scale * 1e-12, double.Epsilon);
+        double resolved = double.IsFinite(value) ? Math.Abs(value) : 0.0;
+        return Math.Max(resolved, floor);
+    }
 
     private static double NormalizeFraction(double fraction)
     {

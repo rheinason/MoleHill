@@ -1619,11 +1619,11 @@ public static class SurfaceRemesher
         if (originalVertexCount == 0)
             return;
 
-        double reuseTolerance = Math.Max(modelTolerance, 1e-9);
         double maxTerrainSpan = GetMaxTerrainSpan(originalVertices);
+        double reuseTolerance = ScaleAwareTolerance.ResolveLength(modelTolerance, maxTerrainSpan);
         double spacing = targetLength > 0
             ? Math.Max(targetLength, reuseTolerance * 8.0)
-            : Math.Max(Math.Max(reuseTolerance * 64.0, maxTerrainSpan / 128.0), 1.0);
+            : Math.Max(reuseTolerance * 64.0, maxTerrainSpan / 128.0);
         double minSpacing = Math.Max(spacing * 0.6, reuseTolerance * 4.0);
         double minSpacingSq = minSpacing * minSpacing;
         double invCell = 1.0 / spacing;

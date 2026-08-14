@@ -44,6 +44,7 @@
     <Compile Include="..\..\src\MoleHill.Shared\InSituStairReferenceBuilder.cs" Link="Shared\InSituStairReferenceBuilder.cs" />
     <Compile Include="..\..\src\MoleHill.Shared\RetainingWallBrepBuilder.cs" Link="Shared\RetainingWallBrepBuilder.cs" />
     <Compile Include="..\..\src\MoleHill.Shared\RetainingWallPlannerCore.cs" Link="Shared\RetainingWallPlannerCore.cs" />
+    <Compile Include="..\..\src\MoleHill.Shared\ModelUnitContext.cs" Link="Shared\ModelUnitContext.cs" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\MoleHillInfo.cs" Link="Grasshopper\MoleHillInfo.cs" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\Components\*.cs" LinkBase="Grasshopper\Components" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\Utilities\*.cs" LinkBase="Grasshopper\Utilities" />

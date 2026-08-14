@@ -55,8 +55,16 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 - Smooth Breaklines can select curves already used by earlier Grade Path modifiers; the Smooth stage
   expands those selected centerlines into local road center/left/right breaklines without persisting
   them as global hard constraints.
+- `SculptConstraintMaskBuilder.cs` resolves Sculpt constraint sources into the Core mask. Ordinary
+  closed/open curves become protected areas/breaklines; selected sources belonging to enabled earlier
+  Grade Paths expand to the path's configured design width.
 
 ## State, preview, bake
+- `ModelUnitGuard.cs`, shared `ModelUnitContext.cs`, and `TerrainUnitScaler.cs` define the host unit
+  contract. Unitless documents remain readable but dimensional actions/builds are blocked. Rhino's
+  scale-with-units event rescales every persisted physical value (including sculpt payloads and inverse-
+  area scatter density), clears caches, saves, and schedules live rebuilds; dimensionless settings do not
+  change. `TerrainBuildSnapshot` carries the resolved context to every stage.
 - `TerrainController.cs` + `TerrainController.*.cs` partials - owns document state (JSON in the .3dm)
   and the terrain command surface; split by concern: `.Build` (scheduling + background-build lifecycle),
   `.Output` (output sync + bake + attributes + owned-object lifecycle), `.Events` (Rhino doc events,
@@ -86,7 +94,8 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   output layers directly; it does not depend on highlighted source layers.
 - `SculptSessionController.cs` - the interactive sculpt session: GetPoint loop (drag = stroke,
   Enter/Esc = done), brush dabs onto a working mesh via `Core/Sculpting/SculptBrushEngine`, incremental
-  normal patching, per-stroke field commit + stroke undo stack, and F/Shift+F adjust modes. DynTopo is
+  normal patching, shared constraint masking, per-stroke field commit + stroke undo stack, and
+  F/Shift+F adjust modes. DynTopo is
   disabled and hidden for now. `TerrainController.Sculpt.cs` holds the display lock (working mesh keeps
   `PreviewTerrainMesh` authority across background build applies; builds defer while a stroke is being painted).
 - `SculptAnalysisColorizer.cs` - live slope/elevation coloring of the sculpt working mesh: per-dab
@@ -100,8 +109,10 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 - `ProjectBaseCPlaneService.cs` - reversible project-local/real-world transform storage and ModelSpace
   orientation; PageSpace layout content is left unchanged. Reorientation post-composes the new local inverse;
   the modern named plane is preferred and legacy `Georef` is migration-only.
-- `RasterGeoreference.cs` / `GeoTiffMetadataReader.cs` - dependency-free affine raster placement from
-  embedded GeoTIFF model tags or full six-value world files. CRS reprojection is intentionally out of scope.
+- `RasterGeoreference.cs` / `GeoTiffMetadataReader.cs` / `GeoTiffLinearUnitReader.cs` - dependency-free
+  affine raster placement from embedded GeoTIFF model tags or full six-value world files. Projected EPSG
+  linear-unit keys are converted into document units; unlabelled rasters prompt for source units with
+  document units as the default. CRS reprojection is intentionally out of scope.
 - `CommandScriptRunner.cs` - replacement-aware batch transforms with locked-layer preflight and inverse
   rollback if an unexpected object transformation fails.
 - `TerrainCoreCaseRecorder.cs` / `TerrainCoreCaseTestExporter.cs` / `TerrainCaseBundleExporter.cs` -

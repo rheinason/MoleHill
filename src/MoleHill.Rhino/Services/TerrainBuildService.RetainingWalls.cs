@@ -421,7 +421,7 @@ internal sealed partial class TerrainBuildService
             return false;
         }
 
-        if (rails.MinWidth < Math.Max(tolerance * 0.1, 1e-6))
+        if (rails.MinWidth < Math.Max(tolerance * 0.1, double.Epsilon))
         {
             message = "strip width collapses too tightly.";
             return false;
@@ -451,7 +451,7 @@ internal sealed partial class TerrainBuildService
         if (railPoints.Length < minimum)
             return new SurfaceRemesher.ConstraintPolyline(Array.Empty<double>(), 0, isClosed, PreserveInputElevation: true);
 
-        double tolSq = Math.Max(tolerance, 1e-6);
+        double tolSq = Math.Max(Math.Abs(tolerance), double.Epsilon);
         tolSq *= tolSq;
         var points = new List<Point3d>(railPoints.Length);
         for (int i = 0; i < railPoints.Length; i++)
@@ -509,7 +509,7 @@ internal sealed partial class TerrainBuildService
             mesh.Vertices.Count,
             faces,
             mesh.Faces.Count,
-            Math.Max(tolerance, 1e-6));
+            Math.Max(Math.Abs(tolerance), double.Epsilon));
 
         foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
         {
@@ -529,7 +529,7 @@ internal sealed partial class TerrainBuildService
         if (constraint.PointCount < 2)
             return constraint;
 
-        double tolSq = Math.Max(tolerance, 1e-6);
+        double tolSq = Math.Max(Math.Abs(tolerance), double.Epsilon);
         tolSq *= tolSq;
         var points = new List<double>(constraint.PointCount * 3);
         for (int i = 0; i < constraint.PointCount; i++)

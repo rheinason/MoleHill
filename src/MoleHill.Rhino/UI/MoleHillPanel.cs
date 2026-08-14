@@ -8,6 +8,7 @@ using MoleHill.Core.Scattering;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.UI;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
@@ -52,6 +53,7 @@ public sealed partial class MoleHillPanel : Panel
     private readonly Button _visibilityButton = new() { Width = 42 };
     private readonly Button _lockButton = new() { Width = 42 };
     private Button _dupButton = new();
+    private Button _newButton = new();
     private Button _deleteButton = new();
     private Button _rebuildButton = new();
     private Button _resetBuildButton = new();
@@ -302,7 +304,7 @@ public sealed partial class MoleHillPanel : Panel
 
     private Control BuildContent()
     {
-        var newButton = MakeIconButton(PanelButtonIcon.Add, OnNewTerrain, "Create a new terrain");
+        _newButton = MakeIconButton(PanelButtonIcon.Add, OnNewTerrain, "Create a new terrain");
         _dupButton = MakeIconButton(PanelButtonIcon.Duplicate, OnDuplicateTerrain, "Duplicate selected terrain");
         _deleteButton = MakeIconButton(PanelButtonIcon.Delete, OnDeleteTerrain, "Delete selected terrain");
         _rebuildButton = MakeToolbarButton("Rebuild", OnRebuildTerrain, "Force rebuild terrain now");
@@ -337,7 +339,7 @@ public sealed partial class MoleHillPanel : Panel
         var identityRow = new AdaptivePrimaryActionRow(
             terrainIdentity,
             6,
-            newButton,
+            _newButton,
             _dupButton,
             _deleteButton);
         var identityGroup = new Panel
@@ -1220,6 +1222,7 @@ public sealed partial class MoleHillPanel : Panel
         {
             if (doc == null)
             {
+                _newButton.Enabled = false;
                 _terrainSelector.Text = string.Empty;
                 _liveUpdate.Checked = false;
                 SetStatusText("No active Rhino document.");
@@ -1256,6 +1259,8 @@ public sealed partial class MoleHillPanel : Panel
             }
 
             var terrains = _controller.GetTerrains(doc).ToList();
+            bool hasModelUnits = MoleHill.Shared.ModelUnitContext.FromDocument(doc).IsSupported;
+            _newButton.Enabled = hasModelUnits;
             _resetTerrainDataButton.Visible = _controller.IsTerrainDataUnreadable(doc);
             if (_resetTerrainDataButton.Visible)
                 SetStatusText("Terrain data in this document could not be read and is being preserved untouched. " +
@@ -1306,9 +1311,16 @@ public sealed partial class MoleHillPanel : Panel
             _showSlowBuildWarningCheck.Checked = selectedTerrain?.ShowSlowBuildWarning ?? true;
             _replacePreviousBakesCheck.Checked = selectedTerrain?.ReplacePreviouslyBaked ?? false;
             _toleranceStepper.Value = selectedTerrain?.GlobalTolerance ?? 0;
-            SetStatusText(
-                selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.",
-                selectedTerrain?.LastStructuredDiagnostics);
+            if (hasModelUnits)
+            {
+                SetStatusText(
+                    selectedTerrain?.LastBuildMessage ?? "Create a terrain to start.",
+                    selectedTerrain?.LastStructuredDiagnostics);
+            }
+            else
+            {
+                SetStatusText(ModelUnitGuard.RequiredMessage);
+            }
             bool terrainVisible = selectedTerrain?.IsVisible != false;
             SetButtonIcon(_visibilityButton, terrainVisible ? PanelButtonIcon.Eye : PanelButtonIcon.EyeOff, muted: !terrainVisible);
             _visibilityButton.ToolTip = terrainVisible
@@ -1320,7 +1332,7 @@ public sealed partial class MoleHillPanel : Panel
                 ? "MoleHill live outputs locked. Click to unlock; source and baked objects are unaffected."
                 : "MoleHill live outputs unlocked. Click to lock; source and baked objects are unaffected.";
             bool hasTerrain = selectedTerrain != null;
-            SetActionButtonsEnabled(hasTerrain);
+            SetActionButtonsEnabled(hasTerrain && hasModelUnits);
             bool hasTrackedBakes = selectedTerrain != null && selectedTerrain.BakedObjectIds.Count > 0;
             _untrackSelectedBakesButton.Enabled = hasTerrain && hasTrackedBakes;
             _untrackAllBakesButton.Enabled = hasTerrain && hasTrackedBakes;
@@ -2149,8 +2161,10 @@ public sealed partial class MoleHillPanel : Panel
     private static string FormatVolume(double value)
     {
         string prefix = value < 0 ? "-" : string.Empty;
-        var unitSystem = RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters;
-        return $"{prefix}{ModelUnits.FormatVolume(Math.Abs(value), unitSystem)}";
+        ModelUnitContext unitContext = ModelUnitContext.FromDocument(RhinoDoc.ActiveDoc);
+        if (!unitContext.IsSupported)
+            unitContext = ModelUnitContext.FromUnitSystem(UnitSystem.Meters);
+        return $"{prefix}{unitContext.FormatVolume(Math.Abs(value))}";
     }
 
     private static void UpdateZonesTabButton(Label? button, TerrainDefinition? terrain)
@@ -2228,15 +2242,20 @@ public sealed partial class MoleHillPanel : Panel
 
     private void AddAnalysis(string kind)
     {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
         MutateSelectedTerrain(terrain =>
         {
-            AnalysisDefinition? analysis = AnalysisTypeRegistry.Create(kind);
+            AnalysisDefinition? analysis = AnalysisTypeRegistry.Create(
+                kind,
+                MoleHill.Shared.ModelUnitContext.FromDocument(doc));
             if (analysis != null)
                 terrain.Analyses.Insert(0, analysis);
         }, scheduleRebuild: false);
 
-        var doc = RhinoDoc.ActiveDoc;
-        var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+        var terrain = _controller.GetSelectedTerrain(doc);
         if (terrain != null)
         {
             RefreshUi();

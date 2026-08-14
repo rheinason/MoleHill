@@ -4,11 +4,12 @@ namespace MoleHill.Core.Sculpting;
 
 /// <summary>
 /// Commits a stroke's per-vertex sculpt result into the displacement field: for every field sample
-/// inside the stroke's dirty bounds (padded by one cell), the per-vertex delta surface
-/// (vertex Z - BaseZ, piecewise linear over the working mesh) is interpolated at the sample's world
-/// position and written into the field. Samples outside the mesh are left untouched. Because the
-/// working Z already contains any pre-existing displacement (BaseZ excludes it), overwriting samples
-/// merges old and new sculpting automatically.
+/// inside the stroke's dirty bounds (padded by one cell), the per-vertex raw delta surface
+/// ((vertex Z - BaseZ) / constraint influence, piecewise linear over the working mesh) is interpolated
+/// at the sample's world position and written into the field. Fully protected samples and samples
+/// outside the mesh are left untouched. Because the working Z already contains any pre-existing
+/// displacement (BaseZ excludes its masked contribution), overwriting samples merges old and new
+/// sculpting automatically without applying the feather twice.
 /// </summary>
 public static class SculptFieldRasterizer
 {
@@ -22,19 +23,26 @@ public static class SculptFieldRasterizer
         double dirtyMinX,
         double dirtyMaxX,
         double dirtyMinY,
-        double dirtyMaxY)
+        double dirtyMaxY,
+        SculptConstraintMask? constraintMask = null)
     {
         if (vertexCount == 0 || faceCount == 0 || dirtyMinX > dirtyMaxX || dirtyMinY > dirtyMaxY)
             return;
 
-        // Delta surface: same XY, Z = displacement. A face grid over it gives grid-accelerated
-        // barycentric interpolation of the delta at arbitrary sample positions.
+        // Raw-delta surface: same XY, Z = unmasked displacement. The working mesh contains masked
+        // displacement, so divide at vertices where influence is nonzero. At pinned vertices, carry
+        // the existing raw field value through; protected field samples themselves are never written.
         var deltaVertices = new double[vertexCount * 3];
         for (int i = 0; i < vertexCount; i++)
         {
-            deltaVertices[i * 3] = vertices[i * 3];
-            deltaVertices[i * 3 + 1] = vertices[i * 3 + 1];
-            deltaVertices[i * 3 + 2] = vertices[i * 3 + 2] - baseZ[i];
+            double x = vertices[i * 3];
+            double y = vertices[i * 3 + 1];
+            double influence = constraintMask?.EvaluateInfluence(x, y) ?? 1.0;
+            deltaVertices[i * 3] = x;
+            deltaVertices[i * 3 + 1] = y;
+            deltaVertices[i * 3 + 2] = influence <= 1e-9
+                ? field.Sample(x, y)
+                : (vertices[i * 3 + 2] - baseZ[i]) / influence;
         }
 
         var deltaGrid = new TerrainFaceGrid(deltaVertices, vertexCount, faces, faceCount);
@@ -51,7 +59,13 @@ public static class SculptFieldRasterizer
         {
             for (int gi = giMin; gi <= giMax; gi++)
             {
-                if (deltaGrid.TryInterpolateZ(gi * cell, gj * cell, out double delta))
+                double x = gi * cell;
+                double y = gj * cell;
+                double influence = constraintMask?.EvaluateInfluence(x, y) ?? 1.0;
+                if (influence <= 1e-9)
+                    continue; // preserve any displacement that existed before this region was protected
+
+                if (deltaGrid.TryInterpolateZ(x, y, out double delta))
                 {
                     field.SetSample(gi, gj, (float)delta);
                     written.Add((gi, gj));

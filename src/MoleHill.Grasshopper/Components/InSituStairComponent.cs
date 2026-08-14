@@ -35,7 +35,7 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
         {
             GhPort.Mesh("Mesh", "M", "Existing terrain mesh."),
             GhPort.Geometry("Reference Surface", "R", "Mesh, Brep, extrusion, or surface describing the stair run."),
-            GhPort.Number("Riser Height", "H", "Vertical rise per step.", optional: false, @default: 0.15),
+            GhPort.Number("Riser Height", "H", "Vertical rise per step. Defaults to 0.15 m in document units."),
             GhPort.Number("Slope Angle", "S", "Daylight slope angle in degrees.", @default: 33.0),
             GhPort.Number("Max Distance", "D", "Maximum grading reach away from the stair. 0 = unlimited.", @default: 0.0),
         },
@@ -62,7 +62,7 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
         if (referenceGeometry.Count == 0)
             return;
 
-        double riserHeight = ctx.GetNumber(2, 0.15);
+        double riserHeight = ctx.GetNumber(2, ctx.FromMeters(0.15));
         double slopeAngle = ctx.GetNumber(3, 33.0);
         double maxDistance = ctx.GetNumber(4, 0.0);
 

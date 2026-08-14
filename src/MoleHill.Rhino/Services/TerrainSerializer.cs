@@ -1,12 +1,13 @@
 using System.Text.Json;
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using Rhino;
 
 namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 23;
+    private const int DocumentSchemaVersion = 24;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -35,6 +36,17 @@ internal static class TerrainSerializer
 
     public static List<TerrainDefinition> Deserialize(string? json, UnitSystem unitSystem = UnitSystem.Meters)
     {
+        ModelUnitContext unitContext = ModelUnitContext.FromUnitSystem(unitSystem);
+        if (!unitContext.IsSupported)
+            unitContext = ModelUnitContext.FromUnitSystem(UnitSystem.Meters);
+        return Deserialize(json, unitContext);
+    }
+
+    public static List<TerrainDefinition> Deserialize(string? json, ModelUnitContext unitContext)
+    {
+        if (!unitContext.IsSupported)
+            throw new InvalidOperationException(ModelUnitGuard.RequiredMessage);
+
         if (string.IsNullOrWhiteSpace(json))
             return new List<TerrainDefinition>();
 
@@ -60,18 +72,29 @@ internal static class TerrainSerializer
             terrain.BakedObjectIds ??= new List<Guid>();
             terrain.BakedObjectIds.RemoveAll(id => id == Guid.Empty);
             terrain.LastAnalysisResults ??= new List<TerrainAnalysisSummary>();
+            NormalizeSculptModifiers(terrain);
             NormalizeObjects(terrain);
             PromoteLegacyTolerance(terrain);
-            PromoteLegacyDetailSize(terrain, sourceSchemaVersion, unitSystem);
+            PromoteLegacyDetailSize(terrain, sourceSchemaVersion, unitContext);
             PromoteDisplaySettings(terrain);
             MigrateZones(terrain);
-            MigrateAnalyses(terrain);
+            MigrateAnalyses(terrain, unitContext);
             MigrateRemeshModifiers(terrain, sourceSchemaVersion);
             terrain.EnsureBaseModifier();
             terrain.SchemaVersion = TerrainDefinition.CurrentSchemaVersion;
         }
 
         return envelope.Terrains;
+    }
+
+    private static void NormalizeSculptModifiers(TerrainDefinition terrain)
+    {
+        foreach (var sculpt in terrain.Modifiers.OfType<SculptModifierDefinition>())
+        {
+            sculpt.Constraints ??= new SourceReferenceSet();
+            sculpt.Tiles ??= new List<SculptTile>();
+            sculpt.ConstraintFeather = Math.Max(0.0, sculpt.ConstraintFeather);
+        }
     }
 
     private sealed class TerrainDocumentEnvelope
@@ -158,15 +181,18 @@ internal static class TerrainSerializer
         triangulate.Tolerance = 0;
     }
 
-    private static void PromoteLegacyDetailSize(TerrainDefinition terrain, int sourceSchemaVersion, UnitSystem unitSystem)
+    private static void PromoteLegacyDetailSize(
+        TerrainDefinition terrain,
+        int sourceSchemaVersion,
+        ModelUnitContext unitContext)
     {
         if (sourceSchemaVersion >= TerrainDefinition.CurrentSchemaVersion)
             return;
 
-        if (!TerrainTolerancePolicy.ShouldPromoteLegacyDetailSize(terrain.GlobalTolerance, unitSystem))
+        if (!TerrainTolerancePolicy.ShouldPromoteLegacyDetailSize(terrain.GlobalTolerance, unitContext))
             return;
 
-        terrain.GlobalTolerance = TerrainTolerancePolicy.DefaultDetailSize(unitSystem);
+        terrain.GlobalTolerance = TerrainTolerancePolicy.DefaultDetailSize(unitContext);
     }
 
     private static void NormalizeObjects(TerrainDefinition terrain)
@@ -227,7 +253,7 @@ internal static class TerrainSerializer
         terrain.SlopeColorHighPercent = Math.Max(0.0, terrain.SlopeColorHighPercent);
     }
 
-    private static void MigrateAnalyses(TerrainDefinition terrain)
+    private static void MigrateAnalyses(TerrainDefinition terrain, ModelUnitContext unitContext)
     {
         if (terrain.Analyses.Count > 0)
         {
@@ -237,9 +263,11 @@ internal static class TerrainSerializer
                 switch (analysis)
                 {
                     case ContourAnalysisDefinition contour:
-                        contour.Interval = Math.Max(contour.Interval, 0.01);
+                        contour.Interval = contour.Interval > 0.0 ? contour.Interval : unitContext.FromMeters(1.0);
                         contour.LabelEveryNth = Math.Max(1, contour.LabelEveryNth);
-                        contour.LabelTextHeight = contour.LabelTextHeight > 0.0 ? contour.LabelTextHeight : 1.0;
+                        contour.LabelTextHeight = contour.LabelTextHeight > 0.0
+                            ? contour.LabelTextHeight
+                            : unitContext.FromMeters(1.0);
                         contour.LabelInterval = Math.Max(0.0, contour.LabelInterval);
                         if (string.IsNullOrWhiteSpace(contour.LabelFormat))
                             contour.LabelFormat = "F2";
@@ -250,13 +278,17 @@ internal static class TerrainSerializer
                         break;
                     case CurveSlopeLabelAnalysisDefinition curveSlope:
                         NormalizeBlockAttributeAnalysis(curveSlope);
-                        curveSlope.Interval = Math.Max(curveSlope.Interval, 0.01);
+                        curveSlope.Interval = curveSlope.Interval > 0.0
+                            ? curveSlope.Interval
+                            : unitContext.FromMeters(10.0);
                         if (string.IsNullOrWhiteSpace(curveSlope.ValueFormat))
                             curveSlope.ValueFormat = "F1";
                         break;
                     case CurveElevationLabelAnalysisDefinition curveElevation:
                         NormalizeBlockAttributeAnalysis(curveElevation);
-                        curveElevation.Interval = Math.Max(curveElevation.Interval, 0.01);
+                        curveElevation.Interval = curveElevation.Interval > 0.0
+                            ? curveElevation.Interval
+                            : unitContext.FromMeters(10.0);
                         if (string.IsNullOrWhiteSpace(curveElevation.ValueFormat))
                             curveElevation.ValueFormat = "F2";
                         break;
@@ -267,13 +299,17 @@ internal static class TerrainSerializer
                         break;
                     case SlopeArrowAnalysisDefinition slopeArrows:
                         NormalizeBlockAttributeAnalysis(slopeArrows);
-                        slopeArrows.GridSpacing = Math.Max(0.01, slopeArrows.GridSpacing);
+                        slopeArrows.GridSpacing = slopeArrows.GridSpacing > 0.0
+                            ? slopeArrows.GridSpacing
+                            : unitContext.FromMeters(5.0);
                         if (string.IsNullOrWhiteSpace(slopeArrows.ValueFormat))
                             slopeArrows.ValueFormat = "F1";
                         break;
                     case GradeBetweenPointsAnalysisDefinition gradeCallout:
                         NormalizeBlockAttributeAnalysis(gradeCallout);
-                        gradeCallout.TextHeight = gradeCallout.TextHeight > 0.0 ? gradeCallout.TextHeight : 1.0;
+                        gradeCallout.TextHeight = gradeCallout.TextHeight > 0.0
+                            ? gradeCallout.TextHeight
+                            : unitContext.FromMeters(1.0);
                         if (string.IsNullOrWhiteSpace(gradeCallout.ValueFormat))
                             gradeCallout.ValueFormat = "F1";
                         break;
@@ -283,7 +319,7 @@ internal static class TerrainSerializer
                             projectedElevation.ValueFormat = "F2";
                         break;
                     case TerrainSectionAnalysisDefinitionBase section:
-                        NormalizeTerrainSectionAnalysis(section);
+                        NormalizeTerrainSectionAnalysis(section, unitContext);
                         break;
                 }
             }
@@ -320,22 +356,30 @@ internal static class TerrainSerializer
         analysis.ValueFormat ??= string.Empty;
     }
 
-    private static void NormalizeTerrainSectionAnalysis(TerrainSectionAnalysisDefinitionBase analysis)
+    private static void NormalizeTerrainSectionAnalysis(
+        TerrainSectionAnalysisDefinitionBase analysis,
+        ModelUnitContext unitContext)
     {
         analysis.Sources ??= new SourceReferenceSet();
         if (analysis.TextHeight <= 0.0)
-            analysis.TextHeight = 1.0;
+            analysis.TextHeight = unitContext.FromMeters(1.0);
         switch (analysis)
         {
             case CrossSectionStationAnalysisDefinition crossSection:
-                crossSection.StationInterval = Math.Max(crossSection.StationInterval, 0.01);
-                crossSection.CrossSectionWidth = Math.Max(crossSection.CrossSectionWidth, 0.01);
+                crossSection.StationInterval = crossSection.StationInterval > 0.0
+                    ? crossSection.StationInterval
+                    : unitContext.FromMeters(10.0);
+                crossSection.CrossSectionWidth = crossSection.CrossSectionWidth > 0.0
+                    ? crossSection.CrossSectionWidth
+                    : unitContext.FromMeters(10.0);
                 crossSection.GridColumns = Math.Max(crossSection.GridColumns, 1);
                 if (crossSection.VerticalExaggeration <= 0.0)
                     crossSection.VerticalExaggeration = 1.0;
                 break;
             case LongitudinalSectionAnalysisDefinition longitudinal:
-                longitudinal.SampleInterval = Math.Max(longitudinal.SampleInterval, 0.01);
+                longitudinal.SampleInterval = longitudinal.SampleInterval > 0.0
+                    ? longitudinal.SampleInterval
+                    : unitContext.FromMeters(1.0);
                 if (longitudinal.VerticalExaggeration <= 0.0)
                     longitudinal.VerticalExaggeration = 1.0;
                 break;

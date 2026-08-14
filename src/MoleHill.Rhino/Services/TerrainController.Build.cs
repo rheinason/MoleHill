@@ -25,6 +25,9 @@ internal sealed partial class TerrainController
 {
     private void ScheduleRebuild(RhinoDoc doc, Guid terrainId, bool notify = true)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _, report: false))
+            return;
+
         long requestedVersion = RequestRebuild(doc.RuntimeSerialNumber, terrainId, isImmediate: false);
         QueuePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Final, requestedVersion, FinalDebounceMs);
         var terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);

@@ -257,9 +257,9 @@ internal sealed class ContourAnalysisDescriptor : AnalysisTypeDescriptor
         AnalysisParameterDescriptor.Number(
             "Interval", "Interval",
             a => ((ContourAnalysisDefinition)a).Interval,
-            (a, v) => ((ContourAnalysisDefinition)a).Interval = Math.Max(0.01, v),
+            (a, v) => ((ContourAnalysisDefinition)a).Interval = Math.Max(double.Epsilon, v),
             "Vertical spacing between generated contour levels.",
-            min: 0.01, incrementalCommit: true),
+            min: 0.0, incrementalCommit: true),
         AnalysisParameterDescriptor.Number(
             "StartZ", "Start Z",
             a => ((ContourAnalysisDefinition)a).StartZ,
@@ -301,9 +301,9 @@ internal sealed class ContourAnalysisDescriptor : AnalysisTypeDescriptor
         AnalysisParameterDescriptor.Number(
             "LabelTextHeight", "Label Height",
             a => ((ContourAnalysisDefinition)a).LabelTextHeight,
-            (a, v) => ((ContourAnalysisDefinition)a).LabelTextHeight = Math.Max(0.001, v),
+            (a, v) => ((ContourAnalysisDefinition)a).LabelTextHeight = Math.Max(double.Epsilon, v),
             "Text height of contour labels in model units.",
-            min: 0.001, incrementalCommit: true),
+            min: 0.0, incrementalCommit: true),
         AnalysisParameterDescriptor.Choice(
             "LabelFormat", "Label Decimals", null,
             a => ((ContourAnalysisDefinition)a).LabelFormat,
@@ -338,9 +338,9 @@ internal sealed class CurveElevationLabelAnalysisDescriptor : AnalysisTypeDescri
         AnalysisParameterDescriptor.Number(
             "Interval", "Interval",
             a => ((CurveElevationLabelAnalysisDefinition)a).Interval,
-            (a, v) => ((CurveElevationLabelAnalysisDefinition)a).Interval = Math.Max(0.01, v),
+            (a, v) => ((CurveElevationLabelAnalysisDefinition)a).Interval = Math.Max(double.Epsilon, v),
             "Distance along each source curve between elevation sample stations.",
-            min: 0.01),
+            min: 0.0),
     }.Concat(AnalysisParameterCatalog.BlockAttributeTail<CurveElevationLabelAnalysisDefinition>(
         "Number of decimal places shown in curve elevation labels.")).ToArray();
 }
@@ -369,9 +369,9 @@ internal sealed class CurveSlopeLabelAnalysisDescriptor : AnalysisTypeDescriptor
         AnalysisParameterDescriptor.Number(
             "Interval", "Interval",
             a => ((CurveSlopeLabelAnalysisDefinition)a).Interval,
-            (a, v) => ((CurveSlopeLabelAnalysisDefinition)a).Interval = Math.Max(0.01, v),
+            (a, v) => ((CurveSlopeLabelAnalysisDefinition)a).Interval = Math.Max(double.Epsilon, v),
             "Distance along each source curve between sampled slope spans.",
-            min: 0.01),
+            min: 0.0),
         AnalysisParameterCatalog.SlopeUnitChoice(
             "Show terrain-projected curve slope labels as percent, promille, ratio, or degrees."),
         AnalysisParameterDescriptor.Bool(
@@ -464,9 +464,9 @@ internal sealed class SlopeArrowAnalysisDescriptor : AnalysisTypeDescriptor
         AnalysisParameterDescriptor.Number(
             "GridSpacing", "Grid Spacing",
             a => ((SlopeArrowAnalysisDefinition)a).GridSpacing,
-            (a, v) => ((SlopeArrowAnalysisDefinition)a).GridSpacing = Math.Max(0.01, v),
+            (a, v) => ((SlopeArrowAnalysisDefinition)a).GridSpacing = Math.Max(double.Epsilon, v),
             "Spacing of the sampling grid across the terrain. Smaller spacing = more arrows.",
-            min: 0.01),
+            min: 0.0),
         AnalysisParameterCatalog.SlopeUnitChoice(
             "Show flow-arrow slope labels as percent, promille, ratio, or degrees."),
         AnalysisParameterDescriptor.Bool(
@@ -520,9 +520,9 @@ internal sealed class GradeBetweenPointsAnalysisDescriptor : AnalysisTypeDescrip
         AnalysisParameterDescriptor.Number(
             "TextHeight", "Text Height",
             a => ((GradeBetweenPointsAnalysisDefinition)a).TextHeight,
-            (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).TextHeight = Math.Max(0.001, v),
+            (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).TextHeight = Math.Max(double.Epsilon, v),
             "Text height of the callout label, and the size of the downhill arrow.",
-            min: 0.001),
+            min: 0.0),
         AnalysisParameterDescriptor.Layer(
             "OutputLayerPath", "Output Layer",
             a => ((GradeBetweenPointsAnalysisDefinition)a).OutputLayerPath,
@@ -603,15 +603,15 @@ internal sealed class CrossSectionStationAnalysisDescriptor : AnalysisTypeDescri
         AnalysisParameterDescriptor.Number(
             "StationInterval", "Station Interval",
             a => ((CrossSectionStationAnalysisDefinition)a).StationInterval,
-            (a, v) => ((CrossSectionStationAnalysisDefinition)a).StationInterval = Math.Max(0.01, v),
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).StationInterval = Math.Max(double.Epsilon, v),
             "Distance between cross-section stations along the alignment.",
-            min: 0.01),
+            min: 0.0),
         AnalysisParameterDescriptor.Number(
             "CrossSectionWidth", "Cross-Section Width",
             a => ((CrossSectionStationAnalysisDefinition)a).CrossSectionWidth,
-            (a, v) => ((CrossSectionStationAnalysisDefinition)a).CrossSectionWidth = Math.Max(0.01, v),
+            (a, v) => ((CrossSectionStationAnalysisDefinition)a).CrossSectionWidth = Math.Max(double.Epsilon, v),
             "Total perpendicular width of each cross-section cut, centered on the alignment.",
-            min: 0.01),
+            min: 0.0),
         AnalysisParameterDescriptor.Number(
             "VerticalExaggeration", "Vertical Exaggeration",
             a => ((CrossSectionStationAnalysisDefinition)a).VerticalExaggeration,
@@ -679,9 +679,9 @@ internal sealed class LongitudinalSectionAnalysisDescriptor : AnalysisTypeDescri
         AnalysisParameterDescriptor.Number(
             "SampleInterval", "Sample Interval",
             a => ((LongitudinalSectionAnalysisDefinition)a).SampleInterval,
-            (a, v) => ((LongitudinalSectionAnalysisDefinition)a).SampleInterval = Math.Max(0.01, v),
+            (a, v) => ((LongitudinalSectionAnalysisDefinition)a).SampleInterval = Math.Max(double.Epsilon, v),
             "Distance between elevation samples along the curve.",
-            min: 0.01),
+            min: 0.0),
         AnalysisParameterDescriptor.Number(
             "VerticalExaggeration", "Vertical Exaggeration",
             a => ((LongitudinalSectionAnalysisDefinition)a).VerticalExaggeration,

@@ -55,9 +55,10 @@ public sealed class MeshHeightProjector
         double span = Math.Max(spanX, spanY);
         BoundsDiagonal = Math.Sqrt((spanX * spanX) + (spanY * spanY));
         int gridResolution = Math.Max(1, (int)Math.Sqrt(faceCount / 4.0));
-        double cellSize = cellSizeHint > 0.0
-            ? Math.Max(cellSizeHint, 1e-6)
-            : Math.Max(span / gridResolution, 1e-6);
+        double requestedCellSize = cellSizeHint > 0.0
+            ? cellSizeHint
+            : span / gridResolution;
+        double cellSize = Engine.ScaleAwareTolerance.ResolveLength(requestedCellSize, span);
         _invCell = 1.0 / cellSize;
 
         for (int face = 0; face < faceCount; face++)
@@ -75,8 +76,8 @@ public sealed class MeshHeightProjector
         z = 0.0;
         status = ProjectionStatus.OutsideMesh;
 
-        double insideTolerance = Math.Max(tolerance, 1e-8);
-        double distinctZTolerance = Math.Max(tolerance * 4.0, 1e-8);
+        double insideTolerance = Engine.ScaleAwareTolerance.ResolveLength(tolerance, BoundsDiagonal);
+        double distinctZTolerance = Engine.ScaleAwareTolerance.ResolveLength(tolerance * 4.0, BoundsDiagonal);
         bool found = false;
         bool requiresFallback = false;
         long cellX = (long)Math.Floor(x * _invCell);
@@ -103,7 +104,8 @@ public sealed class MeshHeightProjector
                 if (!TryGetBarycentric(x, y, triangle, out double w0, out double w1, out double w2))
                     continue;
 
-                if (w0 < -insideTolerance || w1 < -insideTolerance || w2 < -insideTolerance)
+                double barycentricTolerance = BarycentricTolerance(triangle, insideTolerance);
+                if (w0 < -barycentricTolerance || w1 < -barycentricTolerance || w2 < -barycentricTolerance)
                     continue;
 
                 double faceZ = (w0 * triangle.Z0) + (w1 * triangle.Z1) + (w2 * triangle.Z2);
@@ -205,7 +207,9 @@ public sealed class MeshHeightProjector
         double denom =
             ((triangle.Y1 - triangle.Y2) * (triangle.X0 - triangle.X2)) +
             ((triangle.X2 - triangle.X1) * (triangle.Y0 - triangle.Y2));
-        if (Math.Abs(denom) < 1e-16)
+        double xyEdgeScale = MaxXyEdgeLength(triangle);
+        double denominatorFloor = Math.Max(xyEdgeScale * xyEdgeScale * 1e-12, double.Epsilon);
+        if (Math.Abs(denom) <= denominatorFloor)
         {
             w0 = w1 = w2 = 0.0;
             return false;
@@ -230,10 +234,46 @@ public sealed class MeshHeightProjector
         double ny = (e1z * e2x) - (e1x * e2z);
         double nz = (e1x * e2y) - (e1y * e2x);
         double normalLength = Math.Sqrt((nx * nx) + (ny * ny) + (nz * nz));
-        if (normalLength <= 1e-16)
+        double edge1Length = Math.Sqrt((e1x * e1x) + (e1y * e1y) + (e1z * e1z));
+        double edge2Length = Math.Sqrt((e2x * e2x) + (e2y * e2y) + (e2z * e2z));
+        double edge3X = triangle.X2 - triangle.X1;
+        double edge3Y = triangle.Y2 - triangle.Y1;
+        double edge3Z = triangle.Z2 - triangle.Z1;
+        double edge3Length = Math.Sqrt((edge3X * edge3X) + (edge3Y * edge3Y) + (edge3Z * edge3Z));
+        double edgeScale = Math.Max(edge1Length, Math.Max(edge2Length, edge3Length));
+        double normalFloor = Math.Max(edgeScale * edgeScale * 1e-12, double.Epsilon);
+        if (!double.IsFinite(normalLength) || normalLength <= normalFloor)
             return true;
 
         return Math.Abs(nz) / normalLength < NearVerticalNormalZRatio;
+    }
+
+    private static double BarycentricTolerance(Triangle triangle, double lengthTolerance)
+    {
+        double maxEdgeLength = MaxXyEdgeLength(triangle);
+        if (!(maxEdgeLength > 0.0) || !double.IsFinite(maxEdgeLength))
+            return 1e-12;
+
+        double doubleArea = Math.Abs(
+            ((triangle.Y1 - triangle.Y2) * (triangle.X0 - triangle.X2)) +
+            ((triangle.X2 - triangle.X1) * (triangle.Y0 - triangle.Y2)));
+        double minimumAltitude = doubleArea / maxEdgeLength;
+        double altitudeFloor = Engine.ScaleAwareTolerance.LengthFloor(maxEdgeLength);
+        return Math.Clamp(lengthTolerance / Math.Max(minimumAltitude, altitudeFloor), 1e-12, 1e-2);
+    }
+
+    private static double MaxXyEdgeLength(Triangle triangle)
+    {
+        double edge01 = Math.Sqrt(
+            ((triangle.X1 - triangle.X0) * (triangle.X1 - triangle.X0)) +
+            ((triangle.Y1 - triangle.Y0) * (triangle.Y1 - triangle.Y0)));
+        double edge12 = Math.Sqrt(
+            ((triangle.X2 - triangle.X1) * (triangle.X2 - triangle.X1)) +
+            ((triangle.Y2 - triangle.Y1) * (triangle.Y2 - triangle.Y1)));
+        double edge20 = Math.Sqrt(
+            ((triangle.X0 - triangle.X2) * (triangle.X0 - triangle.X2)) +
+            ((triangle.Y0 - triangle.Y2) * (triangle.Y0 - triangle.Y2)));
+        return Math.Max(edge01, Math.Max(edge12, edge20));
     }
 
     private static bool IsPointNearFaceFootprint(double x, double y, Triangle triangle, double tolerance)

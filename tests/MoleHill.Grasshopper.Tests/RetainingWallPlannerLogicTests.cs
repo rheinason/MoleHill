@@ -48,6 +48,29 @@ public class RetainingWallPlannerLogicTests
         Assert.Equal(3.0, wall.Rails.TopPoints[0].Z, 6);
     }
 
+    [Theory]
+    [InlineData(0.001)]
+    [InlineData(1.0)]
+    [InlineData(1000.0)]
+    public void Plan_StraightWall_UniformScale_PreservesTopologyAndRelativeMeasurements(double scale)
+    {
+        var plan = PlanWithCleanup(
+            1.0 * scale,
+            0.001 * scale,
+            0.001 * scale,
+            Open(new Point3d(0, 0, 0), new Point3d(10 * scale, 0, 0)),
+            Open(new Point3d(0, 1 * scale, 3 * scale), new Point3d(10 * scale, 1 * scale, 3 * scale)));
+
+        Assert.True(
+            plan.Walls.Count == 1,
+            string.Join(Environment.NewLine, plan.Report.Select(entry => entry.ToString())));
+        var wall = plan.Walls[0];
+        Assert.Equal(2, wall.Rails.ToePoints.Length);
+        Assert.Equal(2, wall.Rails.TopPoints.Length);
+        Assert.Equal(scale, wall.Rails.MinWidth, precision: 8);
+        Assert.Equal(3 * scale, wall.Rails.TopPoints[0].Z, precision: 8);
+    }
+
     [Fact]
     public void Plan_ShortAuthoredSegment_PreservesStation()
     {

@@ -408,7 +408,7 @@ internal sealed partial class TerrainBuildService
         return TerrainTolerancePolicy.Create(
             terrain.GlobalTolerance,
             snapshot.ModelAbsoluteTolerance,
-            snapshot.ModelUnitSystem);
+            snapshot.ResolvedUnitContext);
     }
 
     private static void AddToleranceDiagnostics(TerrainBuildResult build, TerrainTolerancePolicy.Profile profile)

@@ -198,7 +198,7 @@ internal static class BatterStripBuilder
         double zTolerance = GradingTolerances.VertexAdjustmentZTolerance(tolerance);
         double searchDistance = maxDistance > 0.0
             ? maxDistance
-            : Math.Max(terrain.BoundsDiagonal, 1.0);
+            : terrain.BoundsDiagonal;
 
         var barrierScratch = new SpatialHashGrid2D.QueryScratch(Math.Max(barriers.Segments.Length, 1));
         var barrierCandidates = new List<int>(8);

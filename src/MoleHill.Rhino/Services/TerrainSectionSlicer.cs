@@ -68,7 +68,7 @@ internal static class TerrainSectionSlicer
             double dx = b.X - a.X;
             double dy = b.Y - a.Y;
             double segmentLength = Math.Sqrt((dx * dx) + (dy * dy));
-            if (segmentLength <= Math.Max(tolerance, 1e-9))
+            if (segmentLength <= Math.Max(Math.Abs(tolerance), double.Epsilon))
             {
                 perSegmentIntersections.Add(null);
                 continue;
@@ -93,7 +93,7 @@ internal static class TerrainSectionSlicer
         if (cutPolylineVertices.Count < 2)
             return TerrainSectionResult.Empty;
 
-        double clampTol = Math.Max(tolerance, 1e-9);
+        double clampTol = Math.Max(Math.Abs(tolerance), double.Epsilon);
         var rawSegments = new List<TerrainSectionSegment>();
         double cumulativeLength = 0.0;
         double minZ = double.PositiveInfinity;
@@ -153,20 +153,20 @@ internal static class TerrainSectionSlicer
         ArgumentNullException.ThrowIfNull(mesh);
         ArgumentNullException.ThrowIfNull(curve);
 
-        double clampTol = Math.Max(tolerance, 1e-9);
+        double clampTol = Math.Max(Math.Abs(tolerance), double.Epsilon);
         double spacing = Math.Max(sampleSpacing, clampTol * 10.0);
 
         BoundingBox bounds = mesh.GetBoundingBox(true);
         if (!bounds.IsValid)
             return TerrainSectionResult.Empty;
 
-        double zSpan = Math.Max(bounds.Max.Z - bounds.Min.Z, 1.0);
+        double zSpan = Math.Max(bounds.Max.Z - bounds.Min.Z, clampTol);
         double rayStartZ = bounds.Max.Z + zSpan;
 
         var parameters = new List<double> { curve.Domain.T0 };
         if (curve.DivideByLength(spacing, true) is { Length: > 0 } divisions)
             parameters.AddRange(divisions);
-        if (Math.Abs(parameters[parameters.Count - 1] - curve.Domain.T1) > clampTol)
+        if (Math.Abs(parameters[parameters.Count - 1] - curve.Domain.T1) > double.Epsilon)
             parameters.Add(curve.Domain.T1);
 
         var resultSegments = new List<TerrainSectionSegment>();

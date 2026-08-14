@@ -95,7 +95,7 @@ public static partial class PadGrader
         ConstraintLoop resampledShoulder = BuildClosedConstraintLoop(
             shoulderXy,
             shoulderXy.Length / 2,
-            ComputePadConstraintSegmentLength(maxDistance),
+            ComputePadConstraintSegmentLength(maxDistance, tolerance),
             tolerance);
         shoulderXy = resampledShoulder.XyVertices;
 

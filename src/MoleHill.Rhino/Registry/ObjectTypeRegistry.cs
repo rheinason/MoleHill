@@ -1,4 +1,6 @@
 using System.Reflection;
+using MoleHill.Rhino.Services;
+using MoleHill.Shared;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -29,4 +31,15 @@ internal static class ObjectTypeRegistry
     public static ObjectTypeDescriptor? ForKind(string kind) => ByKind.GetValueOrDefault(kind);
 
     public static Model.TerrainObjectDefinition? Create(string kind) => ForKind(kind)?.Create();
+
+    public static Model.TerrainObjectDefinition? Create(string kind, ModelUnitContext unitContext)
+    {
+        if (!unitContext.IsSupported)
+            return null;
+
+        Model.TerrainObjectDefinition? definition = ForKind(kind)?.Create();
+        if (definition != null)
+            TerrainUnitScaler.Scale(definition, unitContext.FromMeters(1.0));
+        return definition;
+    }
 }

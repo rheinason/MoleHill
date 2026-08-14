@@ -553,10 +553,10 @@ public static partial class PathGrader
             return path.MaxDistance;
 
         double estimatedReach = ComputePathShoulderDistance(path, interpolateOriginalZ);
-        if (!double.IsFinite(estimatedReach) || estimatedReach <= 1e-6)
-            return Math.Max(path.Width * 4.0, 1.0);
+        if (!double.IsFinite(estimatedReach) || estimatedReach <= MoleHill.Core.Engine.ScaleAwareTolerance.LengthFloor(path.Width))
+            return path.Width * 4.0;
 
-        return Math.Max(estimatedReach, Math.Max(path.Width * 4.0, 1.0));
+        return Math.Max(estimatedReach, path.Width * 4.0);
     }
 
     private static void SolvePathSectionEndpoint(
@@ -737,9 +737,9 @@ public static partial class PathGrader
         double[] candidateDistances =
         {
             0.0,
-            Math.Min(maxReach, Math.Max(maxReach / 32.0, 0.1)),
-            Math.Min(maxReach, Math.Max(maxReach * 0.25, 0.2)),
-            Math.Min(maxReach, Math.Max(maxReach * 0.5, 0.4)),
+            maxReach / 32.0,
+            maxReach * 0.25,
+            maxReach * 0.5,
             maxReach
         };
 

@@ -25,6 +25,7 @@ internal sealed partial class TerrainBuildService
         SculptDisplacementField field = SculptFieldCodec.Decode(modifier);
         if (field.IsEmpty)
             return mesh;
+        SculptConstraintMask constraintMask = SculptConstraintMaskBuilder.Build(snapshot, terrain, modifier);
 
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
         {
@@ -49,7 +50,9 @@ internal sealed partial class TerrainBuildService
         int displaced = 0;
         for (int i = 0; i < vertexCount; i++)
         {
-            double dz = field.Sample(vertices[i * 3], vertices[i * 3 + 1]);
+            double x = vertices[i * 3];
+            double y = vertices[i * 3 + 1];
+            double dz = field.Sample(x, y) * constraintMask.EvaluateInfluence(x, y);
             if (dz == 0.0)
                 continue;
 

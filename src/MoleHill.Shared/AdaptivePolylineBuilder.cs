@@ -63,20 +63,24 @@ internal static class AdaptivePolylineBuilder
 
     private static double GetInitialChordTolerance(double modelTolerance, double qualityLength)
     {
-        double normalizedModelTolerance = Math.Max(modelTolerance, 1e-9);
+        double scale = qualityLength > 0.0 ? qualityLength : Math.Abs(modelTolerance);
+        double floor = Math.Max(scale * 1e-12, double.Epsilon);
+        double normalizedModelTolerance = Math.Max(Math.Abs(modelTolerance), floor);
         if (qualityLength <= 0)
             return normalizedModelTolerance;
 
-        return Math.Max(Math.Min(normalizedModelTolerance, qualityLength * 0.25), 1e-9);
+        return Math.Max(Math.Min(normalizedModelTolerance, qualityLength * 0.25), floor);
     }
 
     private static double GetSimplificationTolerance(double modelTolerance, double qualityLength)
     {
-        double normalizedModelTolerance = Math.Max(modelTolerance, 1e-9);
+        double scale = qualityLength > 0.0 ? qualityLength : Math.Abs(modelTolerance);
+        double floor = Math.Max(scale * 1e-12, double.Epsilon);
+        double normalizedModelTolerance = Math.Max(Math.Abs(modelTolerance), floor);
         if (qualityLength <= 0)
             return normalizedModelTolerance;
 
-        return Math.Max(Math.Min(normalizedModelTolerance, qualityLength * 0.1), 1e-9);
+        return Math.Max(Math.Min(normalizedModelTolerance, qualityLength * 0.1), floor);
     }
 
     private static void SimplifyPolylineInPlace(Polyline polyline, double xyTolerance, bool collapseCollinearVertices)

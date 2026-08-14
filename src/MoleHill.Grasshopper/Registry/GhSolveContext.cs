@@ -1,4 +1,5 @@
 using Grasshopper.Kernel;
+using MoleHill.Shared;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
@@ -21,9 +22,22 @@ public sealed class GhSolveContext
         _access = access;
     }
 
-    public double Tolerance => Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
+    public ModelUnitContext UnitContext => ModelUnitContext.FromDocument(Rhino.RhinoDoc.ActiveDoc);
 
-    public Rhino.UnitSystem ModelUnitSystem => Rhino.RhinoDoc.ActiveDoc?.ModelUnitSystem ?? Rhino.UnitSystem.Meters;
+    public double Tolerance => UnitContext.AbsoluteTolerance;
+
+    public Rhino.UnitSystem ModelUnitSystem => UnitContext.UnitSystem;
+
+    public double FromMeters(double meters) => UnitContext.FromMeters(meters);
+
+    public bool RequireModelUnits()
+    {
+        if (UnitContext.IsSupported)
+            return true;
+
+        Error("MoleHill requires model units. Set Rhino document units to a real length unit, then recompute.");
+        return false;
+    }
 
     // ── inputs ────────────────────────────────────────────────────────────
     public bool TryGetMesh(int index, out RhinoMesh mesh)

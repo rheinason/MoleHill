@@ -13,6 +13,9 @@ Incremental-edit dictionaries are retained only through 250,000 vertices; larger
 caching without their memory cost.
 
 Key files:
+- `ScaleAwareTolerance.cs` - numerical length floors derived from geometry scale/caller tolerance,
+  never an assumed metre/mm model. Spatial grids and projection use it so uniform unit scaling does not
+  change lookup topology.
 - `TinEngine.cs` — the caching triangulation engine; `TinResult.cs` its output (flat XYZ + faces + edges).
 - `XxHash64Builder.cs` — deterministic 64-bit streaming fingerprints for `InputSnapshot` and staged
   Rhino cache keys.

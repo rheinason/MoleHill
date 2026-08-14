@@ -198,7 +198,7 @@ public static partial class PadGrader
         foreach (double distance in initialDistances)
             shoulderDistance = Math.Max(shoulderDistance, distance);
 
-        double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance);
+        double segmentLength = ComputePadConstraintSegmentLength(shoulderDistance, tolerance);
         ConstraintLoop padLoop = BuildClosedConstraintLoop(pad.XyVertices, pad.VertexCount, segmentLength, tolerance);
         double[] shoulderDistances = ComputePadBoundaryDistances(
             padLoop.XyVertices,

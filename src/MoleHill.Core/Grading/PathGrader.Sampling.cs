@@ -4,8 +4,10 @@ public static partial class PathGrader
 {
     private static double ComputeConstraintSegmentLength(PathDefinition path, double shoulderDistance)
     {
-        double baseSpacing = shoulderDistance > 1e-6 ? shoulderDistance * 0.5 : path.Width;
-        double minSpacing = Math.Max(path.Width * 0.5, 1.0);
+        double pathScale = Math.Max(Math.Abs(path.Width), Math.Abs(shoulderDistance));
+        double floor = MoleHill.Core.Engine.ScaleAwareTolerance.LengthFloor(pathScale);
+        double baseSpacing = shoulderDistance > floor ? shoulderDistance * 0.5 : path.Width;
+        double minSpacing = Math.Max(path.Width * 0.5, floor);
         double maxSpacing = Math.Max(minSpacing, path.Width * 2.0);
         return Math.Clamp(baseSpacing, minSpacing, maxSpacing);
     }

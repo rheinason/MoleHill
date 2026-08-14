@@ -10,6 +10,9 @@ public sealed class MoleHillConvertToRhinoCommand : Command
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _))
+            return Result.Failure;
+
         var controller = TerrainController.Instance;
         var terrain = controller.GetSelectedTerrain(doc);
         if (terrain == null)

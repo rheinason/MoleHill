@@ -147,6 +147,8 @@ internal sealed partial class TerrainController
         RhinoDoc.SelectObjects += OnSelectObjects;
         RhinoDoc.ModifyObjectAttributes += OnModifyObjectAttributes;
         RhinoDoc.LayerTableEvent += OnLayerTableEvent;
+        RhinoDoc.UnitsChangedWithScaling += OnUnitsChangedWithScaling;
+        RhinoDoc.DocumentPropertiesChanged += OnDocumentPropertiesChanged;
         RhinoDoc.CloseDocument += OnCloseDocument;
         RhinoApp.Idle += OnIdle;
         _displayConduit.Enabled = true;
@@ -166,6 +168,8 @@ internal sealed partial class TerrainController
         RhinoDoc.SelectObjects -= OnSelectObjects;
         RhinoDoc.ModifyObjectAttributes -= OnModifyObjectAttributes;
         RhinoDoc.LayerTableEvent -= OnLayerTableEvent;
+        RhinoDoc.UnitsChangedWithScaling -= OnUnitsChangedWithScaling;
+        RhinoDoc.DocumentPropertiesChanged -= OnDocumentPropertiesChanged;
         RhinoDoc.CloseDocument -= OnCloseDocument;
         RhinoApp.Idle -= OnIdle;
         _displayConduit.Enabled = false;
@@ -282,13 +286,16 @@ internal sealed partial class TerrainController
         }
     }
 
-    public TerrainDefinition CreateTerrain(RhinoDoc doc, bool seedFromSelection)
+    public TerrainDefinition? CreateTerrain(RhinoDoc doc, bool seedFromSelection)
     {
+        if (!ModelUnitGuard.TryGet(doc, out var unitContext))
+            return null;
+
         var state = GetState(doc);
         var terrain = new TerrainDefinition
         {
             Name = NextTerrainName(state.Terrains),
-            GlobalTolerance = TerrainTolerancePolicy.DefaultDetailSize(doc.ModelUnitSystem),
+            GlobalTolerance = TerrainTolerancePolicy.DefaultDetailSize(unitContext),
             TerrainLayerPath = TerrainDefinition.DefaultTerrainLayerPath,
             AuxiliaryLayerPath = TerrainDefinition.DefaultAuxiliaryLayerPath,
             AnnotationLayerPath = TerrainDefinition.DefaultAnnotationLayerPath
@@ -335,6 +342,9 @@ internal sealed partial class TerrainController
 
     public void ConvertToRhino(RhinoDoc doc, Guid terrainId)
     {
+        if (!ModelUnitGuard.TryGet(doc, out MoleHill.Shared.ModelUnitContext unitContext))
+            return;
+
         var state = GetState(doc);
         var terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
         if (terrain == null)
@@ -361,7 +371,9 @@ internal sealed partial class TerrainController
     {
         MutateTerrain(doc, terrainId, terrain =>
         {
-            var modifier = CreateModifier(modifierKind, doc.ModelUnitSystem);
+            var modifier = Registry.TerrainTypeRegistry.CreateModifier(
+                modifierKind,
+                MoleHill.Shared.ModelUnitContext.FromDocument(doc));
             if (modifier != null)
                 terrain.Modifiers.Add(modifier);
         });
@@ -460,7 +472,9 @@ internal sealed partial class TerrainController
     {
         MutateTerrain(doc, terrainId, terrain =>
         {
-            TerrainObjectDefinition definition = Registry.ObjectTypeRegistry.Create(objectKind)
+            TerrainObjectDefinition definition = Registry.ObjectTypeRegistry.Create(
+                    objectKind,
+                    MoleHill.Shared.ModelUnitContext.FromDocument(doc))
                 ?? throw new InvalidOperationException($"Unknown object definition kind '{objectKind}'.");
 
             terrain.Objects.Insert(0, definition);
@@ -524,6 +538,9 @@ internal sealed partial class TerrainController
         bool deferDocumentSave = false,
         bool suppressImmediateUiRefresh = false)
     {
+        if (!ModelUnitGuard.TryGet(doc, out MoleHill.Shared.ModelUnitContext unitContext))
+            return;
+
         var state = GetState(doc);
         var terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
         if (terrain == null)
@@ -552,6 +569,9 @@ internal sealed partial class TerrainController
     /// </summary>
     public bool SetModifierBoundaryRectangle(RhinoDoc doc, Guid terrainId, Guid modifierId)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _))
+            return false;
+
         var rc = global::Rhino.Input.RhinoGet.GetRectangle(out global::Rhino.Geometry.Point3d[] corners);
         if (rc != global::Rhino.Commands.Result.Success || corners == null || corners.Length < 4)
             return false;
@@ -586,6 +606,9 @@ internal sealed partial class TerrainController
 
     public void RebuildTerrain(RhinoDoc doc, Guid terrainId)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _))
+            return;
+
         var state = GetState(doc);
         var terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
         if (terrain == null)
@@ -637,8 +660,11 @@ internal sealed partial class TerrainController
         doc.Views.Redraw();
     }
 
-    public TerrainDefinition DuplicateTerrain(RhinoDoc doc, Guid terrainId)
+    public TerrainDefinition? DuplicateTerrain(RhinoDoc doc, Guid terrainId)
     {
+        if (!ModelUnitGuard.TryGet(doc, out _))
+            return null;
+
         var state = GetState(doc);
         var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
         if (terrain == null)
@@ -683,6 +709,9 @@ internal sealed partial class TerrainController
 
     public void BakeTerrain(RhinoDoc doc, Guid terrainId)
     {
+        if (!ModelUnitGuard.TryGet(doc, out MoleHill.Shared.ModelUnitContext unitContext))
+            return;
+
         var state = GetState(doc);
         var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
         if (terrain == null)
@@ -1198,7 +1227,9 @@ internal sealed partial class TerrainController
 
     private void RestoreUndoState(RhinoDoc doc, UndoState snapshot)
     {
-        var restoredTerrains = TerrainSerializer.Deserialize(snapshot.Json, doc.ModelUnitSystem);
+        var restoredTerrains = TerrainSerializer.Deserialize(
+            snapshot.Json,
+            MoleHill.Shared.ModelUnitContext.FromDocument(doc));
         var restoredState = new DocumentState
         {
             Terrains = restoredTerrains,
@@ -1214,6 +1245,9 @@ internal sealed partial class TerrainController
 
     public void RebuildContourAnalysis(RhinoDoc doc, Guid terrainId, Guid analysisId)
     {
+        if (!ModelUnitGuard.TryGet(doc, out MoleHill.Shared.ModelUnitContext unitContext))
+            return;
+
         var state = GetState(doc);
         var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
         if (terrain == null)
@@ -1336,9 +1370,6 @@ internal sealed partial class TerrainController
 
         doc.Views.Redraw();
     }
-
-    private static ModifierDefinition? CreateModifier(string modifierKind, UnitSystem unitSystem) =>
-        Registry.TerrainTypeRegistry.CreateModifier(modifierKind, unitSystem);
 
     private static bool IsPinnedBaseTriangulate(TerrainDefinition terrain, ModifierDefinition modifier)
     {

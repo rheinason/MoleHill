@@ -24,10 +24,12 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
 ## Core
 - `TerrainTypeRegistry.cs` — static registry; its static ctor reflects over this assembly, instantiates
   every concrete `ModifierTypeDescriptor`, and indexes them by CLR type and by `Kind`. Lookups:
-  `Modifiers`, `ForModifierType(Type)`, `ForModifierKind(string)`, `CreateModifier(kind, unitSystem)`.
+  `Modifiers`, `ForModifierType(Type)`, `ForModifierKind(string)`, and unit-aware
+  `CreateModifier(kind, ModelUnitContext)` (the `UnitSystem` overload remains for compatibility/tests).
 - `ModifierTypeDescriptor.cs` — the abstract per-type contract. Declares: `Kind` (the JSON discriminator —
   **must stay stable** so saved `.3dm` files load), `DefinitionType`, `DisplayName`/`IconName`/`Subtitle`/
-  `SortOrder`/`CanCreateFromMenu` (menu + card chrome), `Create(unitSystem)` (unit-aware defaults),
+  `SortOrder`/`CanCreateFromMenu` (menu + card chrome), `Create(unitSystem)` (metre-authored defaults
+  are converted through the registry's `ModelUnitContext` overload),
   `RunBuildStage(context)` (the build step), and `Parameters` (the card schema).
 
 ## What a descriptor drives

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
@@ -10,12 +11,16 @@ internal static class TerrainBuildSnapshotBuilder
 {
     public static TerrainBuildSnapshot Create(RhinoDoc doc, TerrainDefinition terrain)
     {
+        if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext))
+            throw new InvalidOperationException(ModelUnitGuard.RequiredMessage);
+
         TerrainDefinition terrainClone = CloneTerrain(terrain);
         var snapshot = new TerrainBuildSnapshot
         {
             Terrain = terrainClone,
             ModelAbsoluteTolerance = doc.ModelAbsoluteTolerance,
-            ModelUnitSystem = doc.ModelUnitSystem
+            ModelUnitSystem = doc.ModelUnitSystem,
+            UnitContext = unitContext
         };
 
         foreach (var sourceSet in terrainClone.EnumerateSourceSets().Distinct(ReferenceEqualityComparer<SourceReferenceSet>.Instance))

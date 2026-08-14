@@ -12,7 +12,9 @@ public sealed class MoleHillCreateTerrainCommand : Command
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {
-        TerrainController.Instance.CreateTerrain(doc, seedFromSelection: true);
+        if (TerrainController.Instance.CreateTerrain(doc, seedFromSelection: true) == null)
+            return Result.Failure;
+
         Panels.OpenPanel(typeof(MoleHillPanel));
         return Result.Success;
     }

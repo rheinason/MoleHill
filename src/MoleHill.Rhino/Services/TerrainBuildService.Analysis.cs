@@ -397,12 +397,13 @@ internal sealed partial class TerrainBuildService
 
         if (RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
         {
-            var levels = BuildContourLevels(elevMinZ, elevMaxZ, analysis.StartZ, Math.Max(analysis.Interval, 0.01));
+            double effectiveTolerance = Math.Max(Math.Abs(tolerance), double.Epsilon);
+            var levels = BuildContourLevels(elevMinZ, elevMaxZ, analysis.StartZ, Math.Max(analysis.Interval, effectiveTolerance));
 
             // Single pass over the faces (marching triangles) instead of one mesh-plane intersection
             // per level. Each triangle only contributes to the levels inside its own Z-span.
             var contourLevels = ContourGenerator.Generate(
-                vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, levels, Math.Max(tolerance, 1e-6));
+                vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, levels, effectiveTolerance);
 
             int everyNth = Math.Max(1, analysis.LabelEveryNth);
             bool wantLabels = analysis.ShowLabels && analysis.IsEnabled;
@@ -450,7 +451,7 @@ internal sealed partial class TerrainBuildService
                 if (levelPolylines != null && ((contourLevelCount - 1) % everyNth == 0))
                 {
                     foreach (var rhinoPolyline in levelPolylines)
-                        EmitContourLabels(objects, rhinoPolyline, contourLevel.Z, analysis, outputLayerPath);
+                        EmitContourLabels(objects, rhinoPolyline, contourLevel.Z, analysis, outputLayerPath, effectiveTolerance);
                 }
             }
         }
@@ -479,22 +480,23 @@ internal sealed partial class TerrainBuildService
         Polyline polyline,
         double levelZ,
         ContourAnalysisDefinition analysis,
-        string? layerPath)
+        string? layerPath,
+        double tolerance)
     {
         if (polyline.Count < 2)
             return;
 
         var curve = new PolylineCurve(polyline);
         double length = curve.GetLength();
-        if (length <= 1e-9)
+        if (length <= tolerance)
             return;
 
-        double textHeight = Math.Max(analysis.LabelTextHeight, 1e-3);
+        double textHeight = Math.Max(analysis.LabelTextHeight, tolerance);
         string text = FormatContourLabel(levelZ, analysis.LabelFormat);
 
         // Repeat along the contour when an interval is set; otherwise a single label at the midpoint.
         var stations = new List<double>();
-        if (analysis.LabelInterval > 1e-9)
+        if (analysis.LabelInterval > tolerance)
         {
             for (double s = analysis.LabelInterval * 0.5; s < length; s += analysis.LabelInterval)
                 stations.Add(s);
@@ -640,7 +642,7 @@ internal sealed partial class TerrainBuildService
     private static List<double> BuildContourLevels(double minZ, double maxZ, double startZ, double interval)
     {
         var levels = new List<double>();
-        if (interval <= 1e-9 || maxZ < minZ)
+        if (!(interval > 0.0) || !double.IsFinite(interval) || maxZ < minZ)
             return levels;
 
         long firstIndex = (long)Math.Ceiling(((minZ - startZ) / interval) - 1e-9);

@@ -15,10 +15,12 @@ internal static class GeoTiffMetadataReader
     public static bool TryRead(
         Image image,
         out RasterGeoreference georeference,
-        out string sourceDescription)
+        out string sourceDescription,
+        out GeoTiffLinearUnit? linearUnit)
     {
         georeference = default;
         sourceDescription = string.Empty;
+        linearUnit = TryReadLinearUnit(image, out GeoTiffLinearUnit detectedUnit) ? detectedUnit : null;
         bool pixelIsPoint = TryReadRasterPixelIsPoint(image);
 
         if (TryReadDoubles(image, ModelTransformationTag, out double[] matrix) &&
@@ -37,6 +39,13 @@ internal static class GeoTiffMetadataReader
         }
 
         return false;
+    }
+
+    private static bool TryReadLinearUnit(Image image, out GeoTiffLinearUnit linearUnit)
+    {
+        linearUnit = default;
+        return TryReadUnsignedShorts(image, GeoKeyDirectoryTag, out ushort[] directory) &&
+               GeoTiffLinearUnitReader.TryRead(directory, out linearUnit);
     }
 
     private static bool TryReadRasterPixelIsPoint(Image image)
