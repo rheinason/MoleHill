@@ -42,7 +42,7 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
             "EdgeLength", "Edge Length",
             m => ((RemeshModifierDefinition)m).EdgeLength,
             (m, v) => ((RemeshModifierDefinition)m).EdgeLength = v,
-            "Target edge length: the remesh regularizes the whole terrain toward even triangles of this size while keeping every vertex exactly on the surface. Smaller = denser, larger = coarser. Leave at 0 to keep the mesh's own density (auto-derived from its median edge length). Preview builds run at twice this length."),
+            "Target edge length: the remesh regularizes the whole terrain toward even triangles of this size while keeping every vertex exactly on the surface. Smaller = denser, larger = coarser. Leave at 0 to preserve the mesh's approximate face density across its plan area. Preview builds run at twice this length."),
         ParameterDescriptor.Number(
             "CreaseAngle", "Crease Angle",
             m => ((RemeshModifierDefinition)m).CreaseAngle,

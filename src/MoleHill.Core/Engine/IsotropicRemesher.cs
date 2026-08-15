@@ -72,7 +72,11 @@ public static class IsotropicRemesher
         public string Timing { get; init; } = string.Empty;
     }
 
-    private const double SplitFactor = 4.0 / 3.0;
+    // Keep the split/collapse bands disjoint: splitting an edge at this threshold creates two
+    // half-edges no shorter than the collapse threshold. The former 4/3 threshold produced edges at
+    // 2/3 L that the next collapse pass immediately removed, causing severe operator churn on meshes
+    // with mixed local density.
+    private const double SplitFactor = 8.0 / 5.0;
     private const double CollapseFactor = 4.0 / 5.0;
     private const double RelaxLambda = 0.5;
     private const double FlipAngleImproveEps = 1e-3;
@@ -133,17 +137,16 @@ public static class IsotropicRemesher
         int iterations = Math.Max(1, options.Iterations);
         for (int iteration = 0; iteration < iterations; iteration++)
         {
-            // Collapse before split: terrain grading leaves dense anisotropic fans whose long edges
-            // would otherwise split-cascade into enormous face counts before collapsing could catch
-            // up. Eating the short edges first coarsens the fans at their base, so the split phase
-            // only refines what is genuinely coarse.
+            // Split before collapse so refinement and the coarsening it enables settle within the same
+            // outer round. The disjoint 1.6 L / 0.8 L thresholds keep a split from immediately creating
+            // short half-edges, avoiding the split/collapse oscillation this order used to trigger.
             long ts = System.Diagnostics.Stopwatch.GetTimestamp();
-            int collapses = CollapseShortEdges(state, target, projection);
-            msCollapse += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
-
-            ts = System.Diagnostics.Stopwatch.GetTimestamp();
             int splits = SplitLongEdges(state, target * SplitFactor, projection);
             msSplit += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
+
+            ts = System.Diagnostics.Stopwatch.GetTimestamp();
+            int collapses = CollapseShortEdges(state, target, projection);
+            msCollapse += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
 
             ts = System.Diagnostics.Stopwatch.GetTimestamp();
             int flips = FlipForQuality(state);
@@ -163,6 +166,48 @@ public static class IsotropicRemesher
 
         string timing = $"graph {msGraph:0} ms, split {msSplit:0} ms, collapse {msCollapse:0} ms, flip {msFlip:0} ms, relax {msRelax:0} ms";
         return state.ToResult(vertices, faces, inputTopology, totalSplits, totalCollapses, totalFlips, totalRelaxed, timing);
+    }
+
+    /// <summary>
+    /// Estimates the equilateral edge length that represents the input mesh's current plan-area per
+    /// face. Unlike a median edge, this keeps the requested global density stable when a terrain mixes
+    /// densely sampled features with large, sparse outer faces.
+    /// </summary>
+    public static double EstimateFaceCountPreservingTarget(double[] vertices, int[] faces)
+    {
+        int vertexCount = vertices.Length / 3;
+        int faceCount = faces.Length / 3;
+        if (vertexCount == 0 || faceCount == 0)
+            return 0.0;
+
+        double planArea = 0.0;
+        int validFaceCount = 0;
+        for (int face = 0; face < faceCount; face++)
+        {
+            int a = faces[face * 3];
+            int b = faces[face * 3 + 1];
+            int c = faces[face * 3 + 2];
+            if ((uint)a >= (uint)vertexCount || (uint)b >= (uint)vertexCount || (uint)c >= (uint)vertexCount)
+                continue;
+
+            double ax = vertices[a * 3];
+            double ay = vertices[a * 3 + 1];
+            double bx = vertices[b * 3];
+            double by = vertices[b * 3 + 1];
+            double cx = vertices[c * 3];
+            double cy = vertices[c * 3 + 1];
+            double twiceArea = Math.Abs(((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax)));
+            if (!double.IsFinite(twiceArea) || twiceArea <= 0.0)
+                continue;
+
+            planArea += twiceArea * 0.5;
+            validFaceCount++;
+        }
+
+        if (!double.IsFinite(planArea) || planArea <= 0.0 || validFaceCount == 0)
+            return 0.0;
+
+        return Math.Sqrt((4.0 * planArea) / (Math.Sqrt(3.0) * validFaceCount));
     }
 
     /// <summary>

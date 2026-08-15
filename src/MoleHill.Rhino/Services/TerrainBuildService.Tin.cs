@@ -708,8 +708,11 @@ internal sealed partial class TerrainBuildService
             return mesh.DuplicateMesh();
         }
 
-        // EdgeLength 0 = regularize at the mesh's own density (median input edge length).
-        double target = edgeLength > 0 ? edgeLength : MedianEdgeLength(vertices, faces);
+        // EdgeLength 0 = preserve the mesh's approximate global plan density. A median edge badly
+        // over-refines terrains that mix dense feature sampling with large sparse outer faces.
+        double target = edgeLength > 0
+            ? edgeLength
+            : IsotropicRemesher.EstimateFaceCountPreservingTarget(vertices, faces);
         if (mode == TerrainBuildMode.Preview && modifier.EdgeLength <= 0)
             target *= 2.0;
         if (target <= 0)
@@ -728,7 +731,7 @@ internal sealed partial class TerrainBuildService
                 CreaseAngleDeg = modifier.CreaseAngle,
                 Tolerance = toleranceProfile.RemeshConstraintTolerance,
                 WallFaceMinSlopeDeg = RemeshWallFaceMinSlopeDeg,
-                Iterations = mode == TerrainBuildMode.Preview ? 3 : 5
+                Iterations = mode == TerrainBuildMode.Preview || modifier.EdgeLength <= 0 ? 3 : 5
             });
 
         if (!result.Success)
@@ -831,32 +834,6 @@ internal sealed partial class TerrainBuildService
             $"({result.Faces.Length / 3:N0} faces).");
 
         return BuildMeshFromArrays(result.Vertices, result.Faces);
-    }
-
-    /// <summary>Median 3-D edge length over the mesh's unique edges (the "keep this density" target).</summary>
-    private static double MedianEdgeLength(double[] vertices, int[] faces)
-    {
-        var seen = new HashSet<long>();
-        var lengths = new List<double>(faces.Length);
-        for (int t = 0; t < faces.Length / 3; t++)
-        {
-            for (int corner = 0; corner < 3; corner++)
-            {
-                int a = faces[t * 3 + corner];
-                int b = faces[t * 3 + ((corner + 1) % 3)];
-                if (!seen.Add(IndexedMeshTools.GetEdgeKey(a, b)))
-                    continue;
-                double dx = vertices[a * 3] - vertices[b * 3];
-                double dy = vertices[a * 3 + 1] - vertices[b * 3 + 1];
-                double dz = vertices[a * 3 + 2] - vertices[b * 3 + 2];
-                lengths.Add(Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz)));
-            }
-        }
-
-        if (lengths.Count == 0)
-            return 0.0;
-        lengths.Sort();
-        return lengths[lengths.Count / 2];
     }
 
     /// <summary>

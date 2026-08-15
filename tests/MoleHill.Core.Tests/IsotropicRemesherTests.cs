@@ -15,6 +15,60 @@ public class IsotropicRemesherTests
     private static readonly IReadOnlyList<SurfaceRemesher.ConstraintPolyline> NoConstraints =
         Array.Empty<SurfaceRemesher.ConstraintPolyline>();
 
+    [Fact]
+    public void EstimateFaceCountPreservingTarget_UnitSquare_ReturnsEquivalentTriangleEdgeLength()
+    {
+        double[] vertices =
+        {
+            0, 0, 0,
+            1, 0, 4,
+            1, 1, 8,
+            0, 1, 2
+        };
+        int[] faces = { 0, 1, 2, 0, 2, 3 };
+
+        double target = IsotropicRemesher.EstimateFaceCountPreservingTarget(vertices, faces);
+
+        Assert.Equal(Math.Sqrt(2.0 / Math.Sqrt(3.0)), target, 12);
+    }
+
+    [Fact]
+    public void EstimateFaceCountPreservingTarget_DegenerateFaces_ReturnsZero()
+    {
+        double[] vertices = { 0, 0, 0, 1, 0, 0, 2, 0, 0 };
+        int[] faces = { 0, 1, 2 };
+
+        Assert.Equal(0.0, IsotropicRemesher.EstimateFaceCountPreservingTarget(vertices, faces));
+    }
+
+    [Fact]
+    public void Remesh_AutoDensityTarget_MixedSampling_PreservesApproximateFaceCount()
+    {
+        double[] xs = Steps(0, 200, 10);
+        double[] ys = Steps(0, 80, 10)
+            .Concat(Steps(82, 118, 2))
+            .Concat(Steps(120, 200, 10))
+            .ToArray();
+        (double[] vertices, int[] faces) = BuildGrid(xs, ys, (x, y) => Math.Sin(x * 0.03) + (y * 0.01));
+        int inputFaceCount = faces.Length / 3;
+        double target = IsotropicRemesher.EstimateFaceCountPreservingTarget(vertices, faces);
+
+        IsotropicRemesher.Result result = IsotropicRemesher.Remesh(
+            vertices,
+            faces,
+            NoConstraints,
+            new IsotropicRemesher.Options
+            {
+                TargetEdgeLength = target,
+                CreaseAngleDeg = 30,
+                Tolerance = 0.001,
+                Iterations = 3
+            });
+
+        Assert.True(result.Success, result.Warning);
+        Assert.InRange(result.Faces.Length / 3, inputFaceCount * 3 / 4, inputFaceCount * 5 / 4);
+    }
+
     // === Helpers ======================================================================================
 
     /// <summary>Regular grid triangulation over explicit row/column coordinates; each cell → 2 triangles.</summary>

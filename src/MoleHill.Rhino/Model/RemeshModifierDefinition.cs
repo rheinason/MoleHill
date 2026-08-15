@@ -12,8 +12,8 @@ public sealed class RemeshModifierDefinition : ModifierDefinition
     public string Mode { get; set; } = "isotropic";
 
     /// <summary>
-    /// Target edge length for the remesh. 0 = auto-derive from the input mesh's median edge
-    /// length (the remesh then regularizes at the mesh's own scale instead of changing density).
+    /// Target edge length for the remesh. 0 = preserve the input mesh's approximate plan face
+    /// density (the remesh then regularizes at the mesh's own scale instead of changing density).
     /// </summary>
     public double EdgeLength { get; set; }
 
