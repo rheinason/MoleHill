@@ -53,6 +53,116 @@ public class GeometryCommandAlgorithmsTests
     }
 
     [Fact]
+    public void CalculateSoftEditPoints_LinearFalloff_DoesNotApplySineEasing()
+    {
+        var points = new[] { new Point3d(2.5, 0, 0) };
+
+        List<Point3d> adjusted = GeometryCommandAlgorithms.CalculateSoftEditPoints(
+            points,
+            Point3d.Origin,
+            10.0,
+            new Vector3d(0, 0, 10),
+            SoftEditFalloff.Linear);
+
+        Assert.Equal(7.5, adjusted[0].Z, 6);
+    }
+
+    [Fact]
+    public void CalculatePlanDistance_IgnoresElevationDifference()
+    {
+        double distance = GeometryCommandAlgorithms.CalculatePlanDistance(
+            new Point3d(1, 2, -100),
+            new Point3d(4, 6, 500));
+
+        Assert.Equal(5.0, distance, 6);
+    }
+
+    [Fact]
+    public void BoundingBoxIntersectsPlanRadius_UsesNearestPlanDistance()
+    {
+        var bounds = new BoundingBox(
+            new Point3d(0, 0, 100),
+            new Point3d(10, 10, 200));
+
+        Assert.True(GeometryCommandAlgorithms.BoundingBoxIntersectsPlanRadius(
+            bounds,
+            new Point3d(15, 5, -999),
+            6.0));
+        Assert.False(GeometryCommandAlgorithms.BoundingBoxIntersectsPlanRadius(
+            bounds,
+            new Point3d(20, 5, 150),
+            6.0));
+    }
+
+    [RhinoNativeFact]
+    public void TryCreateSoftEditedCurve_NurbsInput_RemainsNonPolylineAndLeavesSourceUntouched()
+    {
+        NurbsCurve source = NurbsCurve.Create(
+            periodic: false,
+            degree: 3,
+            new[]
+            {
+                new Point3d(-10, 0, 0),
+                new Point3d(-3, 0, 0),
+                new Point3d(3, 0, 0),
+                new Point3d(10, 0, 0)
+            });
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateSoftEditedCurve(
+            source,
+            Point3d.Origin,
+            10.0,
+            new Vector3d(0, 0, 10),
+            SoftEditFalloff.Smooth,
+            fixEnds: false,
+            tolerance: 0.001,
+            quickPreview: false,
+            out Curve? result,
+            out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        Assert.IsNotType<PolylineCurve>(result);
+        Assert.True(result!.GetBoundingBox(accurate: true).Max.Z > 5.0);
+        Assert.Equal(0.0, source.GetBoundingBox(accurate: true).Max.Z, 6);
+        result.Dispose();
+    }
+
+    [RhinoNativeFact]
+    public void TryCreateSoftEditedCurve_FixEnds_PreservesOpenCurveEndpoints()
+    {
+        NurbsCurve source = NurbsCurve.Create(
+            periodic: false,
+            degree: 3,
+            new[]
+            {
+                new Point3d(-10, 0, 0),
+                new Point3d(-3, 0, 0),
+                new Point3d(3, 0, 0),
+                new Point3d(10, 0, 0)
+            });
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateSoftEditedCurve(
+            source,
+            source.PointAtStart,
+            15.0,
+            new Vector3d(0, 0, 10),
+            SoftEditFalloff.Smooth,
+            fixEnds: true,
+            tolerance: 0.001,
+            quickPreview: false,
+            out Curve? result,
+            out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        Assert.True(result!.PointAtStart.EpsilonEquals(source.PointAtStart, 1e-9));
+        Assert.True(result.PointAtEnd.EpsilonEquals(source.PointAtEnd, 1e-9));
+        Assert.True(result.GetBoundingBox(accurate: true).Max.Z > 0.0);
+        result.Dispose();
+    }
+
+    [Fact]
     public void CalculateSlopePercentMagnitude_UsesHorizontalRun()
     {
         double percent = GeometryCommandAlgorithms.CalculateSlopePercentMagnitude(new Vector3d(4, 3, 5));

@@ -20,6 +20,10 @@ The Rhino plugin provides the panel-driven workflow for creating, editing, analy
 | `MoleHillPanel` | Open the MoleHill panel |
 | `MoleHillCreateTerrain` | Create a terrain from the current selection and open the panel |
 | `MoleHillConvertToRhino` | Convert the selected managed terrain into standard Rhino objects |
+| `mhValidateTerrainInputs` | Clean selected terrain points and curves, including duplicate joined segments |
+| `mhSplitAtIntersections` | Split selected curves at their pairwise intersections |
+| `mhDrapeCurve` | Sample selected curves onto a selected mesh or surface along World Z |
+| `mhCreateWall` | Draw a wall rail and generate its parallel, vertically offset companion rail |
 
 ## Grasshopper Components
 

@@ -137,18 +137,42 @@ internal static class GeometryCommandService
 
         while (true)
         {
-            var getOption = new GetOption();
+            var getOption = new GetPoint();
             getOption.SetCommandPrompt(
                 usePercentage
                     ? "Adjust slope options or press Enter to accept"
                     : "Curve already has slope; press Enter to use endpoints");
             getOption.AcceptNothing(true);
+            getOption.AcceptPoint(false);
             var replaceOption = new OptionToggle(replaceInput, "Copy", "Replace");
             var percentageOption = new OptionDouble(percentage, -100000.0, 100000.0);
             if (usePercentage)
                 getOption.AddOptionDouble("Percent", ref percentageOption);
 
             getOption.AddOptionToggle("ReplaceInput", ref replaceOption);
+            getOption.DynamicDraw += (_, e) =>
+            {
+                Curve? previewCurve;
+                double previewSlopeRatio;
+                string? previewError;
+                bool previewSucceeded = usePercentage
+                    ? GeometryCommandAlgorithms.TryCreateSlopeCurve(
+                        sourceCurve,
+                        percentageOption.CurrentValue / 100.0,
+                        out previewCurve,
+                        out previewError)
+                    : GeometryCommandAlgorithms.TryCreateSlopeCurveFromEndPoints(
+                        sourceCurve,
+                        out previewCurve,
+                        out previewSlopeRatio,
+                        out previewError);
+
+                if (!previewSucceeded || previewCurve == null)
+                    return;
+
+                e.Display.DrawCurve(previewCurve, TrackingColor, 2);
+                previewCurve.Dispose();
+            };
 
             GetResult optionResult = getOption.Get();
             if (optionResult == GetResult.Option)
@@ -565,18 +589,21 @@ internal static class GeometryCommandService
         if (getCurves.CommandResult() != Result.Success)
             return getCurves.CommandResult();
 
-        double tolerance = unitContext.FromMeters(0.5);
-        var curveData = new List<(Guid ObjectId, Curve SourceCurve, List<Point3d> EditPoints)>();
+        double tolerance = doc.ModelAbsoluteTolerance;
+        var curveData = new List<(Guid ObjectId, Curve SourceCurve, ObjectAttributes Attributes, BoundingBox Bounds)>();
         for (int i = 0; i < getCurves.ObjectCount; i++)
         {
             ObjRef? objRef = getCurves.Object(i);
             Curve? curve = objRef?.Curve();
-            if (objRef == null || curve == null)
+            RhinoObject? rhinoObject = objRef?.Object();
+            if (objRef == null || curve == null || rhinoObject == null)
                 continue;
 
-            Curve sourceCurve = curve.DuplicateCurve();
-            if (GeometryCommandAlgorithms.TryGetCurveEditPoints(sourceCurve, tolerance, out List<Point3d> points))
-                curveData.Add((objRef.ObjectId, sourceCurve, points));
+            curveData.Add((
+                objRef.ObjectId,
+                curve,
+                rhinoObject.Attributes.Duplicate(),
+                curve.GetBoundingBox(accurate: true)));
         }
 
         if (curveData.Count == 0)
@@ -592,94 +619,211 @@ internal static class GeometryCommandService
 
         Point3d basePoint = getBasePoint.Point();
 
+        const string radiusKey = "MoleHill.SoftEditCurves.Radius";
+        double falloffRadius = CommandOptionCache.GetLength(radiusKey, unitContext, 10.0);
         var getRadius = new GetPoint();
-        getRadius.SetCommandPrompt("Select radius for falloff");
+        getRadius.SetCommandPrompt($"Select radius for falloff or press Enter <{falloffRadius:G6}>");
+        getRadius.AcceptNothing(true);
+        getRadius.AcceptNumber(true, false);
         getRadius.DynamicDraw += (_, e) =>
         {
-            double radius = basePoint.DistanceTo(e.CurrentPoint);
+            double radius = GeometryCommandAlgorithms.CalculatePlanDistance(basePoint, e.CurrentPoint);
             if (radius > RhinoMath.ZeroTolerance)
                 e.Display.DrawCircle(new Circle(basePoint, radius), TrackingColor);
         };
 
-        if (getRadius.Get() != GetResult.Point)
+        GetResult radiusResult = getRadius.Get();
+        if (radiusResult == GetResult.Point)
+            falloffRadius = GeometryCommandAlgorithms.CalculatePlanDistance(basePoint, getRadius.Point());
+        else if (radiusResult == GetResult.Number)
+            falloffRadius = Math.Abs(getRadius.Number());
+        else if (radiusResult != GetResult.Nothing)
             return getRadius.CommandResult();
 
-        double falloffRadius = basePoint.DistanceTo(getRadius.Point());
         if (falloffRadius <= RhinoMath.ZeroTolerance)
         {
             RhinoApp.WriteLine("Radius must be greater than zero.");
             return Result.Failure;
         }
 
-        var getVector = new GetPoint();
-        getVector.SetCommandPrompt("Select offset direction and magnitude");
-        getVector.SetBasePoint(basePoint, true);
-        getVector.DynamicDraw += (_, e) =>
+        CommandOptionCache.SetLength(radiusKey, unitContext, falloffRadius);
+
+        curveData.RemoveAll(item => !GeometryCommandAlgorithms.BoundingBoxIntersectsPlanRadius(
+            item.Bounds,
+            basePoint,
+            falloffRadius));
+        if (curveData.Count == 0)
         {
-            Vector3d vector = e.CurrentPoint - basePoint;
-            e.Display.DrawLine(basePoint, e.CurrentPoint, TrackingColor, 2);
-            for (int i = 0; i < curveData.Count; i++)
+            RhinoApp.WriteLine("The falloff radius does not reach any selected curves.");
+            return Result.Nothing;
+        }
+
+        bool useSmoothFalloff = CommandOptionCache.GetValue("MoleHill.SoftEditCurves.SmoothFalloff", true);
+        bool replaceInput = CommandOptionCache.GetValue("MoleHill.SoftEditCurves.ReplaceInput", true);
+        bool fixEnds = CommandOptionCache.GetValue("MoleHill.SoftEditCurves.FixEnds", true);
+        bool constrainToCPlane = CommandOptionCache.GetValue("MoleHill.SoftEditCurves.ConstrainToCPlane", true);
+        Plane movementPlane = doc.Views.ActiveView?.MainViewport.ConstructionPlane() ?? Plane.WorldXY;
+        movementPlane.Origin = basePoint;
+        Point3d offsetPoint;
+        while (true)
+        {
+            var getVector = new GetPoint();
+            getVector.SetCommandPrompt("Select offset direction and magnitude");
+            getVector.SetBasePoint(basePoint, true);
+            if (constrainToCPlane)
+                getVector.Constrain(movementPlane, allowElevator: false);
+
+            var falloffOption = new OptionToggle(useSmoothFalloff, "Linear", "Smooth");
+            var replaceOption = new OptionToggle(replaceInput, "Copy", "Replace");
+            var fixEndsOption = new OptionToggle(fixEnds, "No", "Yes");
+            var movementOption = new OptionToggle(constrainToCPlane, "Free", "CPlane");
+            getVector.AddOptionToggle("Falloff", ref falloffOption);
+            getVector.AddOptionToggle("Output", ref replaceOption);
+            getVector.AddOptionToggle("FixEnds", ref fixEndsOption);
+            getVector.AddOptionToggle("Movement", ref movementOption);
+            getVector.DynamicDraw += (_, e) =>
             {
-                List<Point3d> previewPoints = GeometryCommandAlgorithms.CalculateSoftEditPoints(
-                    curveData[i].EditPoints,
-                    basePoint,
-                    falloffRadius,
-                    vector);
-                if (previewPoints.Count > 1)
+                Vector3d vector = e.CurrentPoint - basePoint;
+                SoftEditFalloff falloff = falloffOption.CurrentValue
+                    ? SoftEditFalloff.Smooth
+                    : SoftEditFalloff.Linear;
+
+                e.Display.DrawCircle(new Circle(basePoint, falloffRadius), TrackingColor);
+                e.Display.DrawLine(basePoint, e.CurrentPoint, TrackingColor, 2);
+                for (int i = 0; i < curveData.Count; i++)
                 {
-                    string? previewError;
                     if (GeometryCommandAlgorithms.TryCreateSoftEditedCurve(
                             curveData[i].SourceCurve,
-                            previewPoints,
+                            basePoint,
+                            falloffRadius,
+                            vector,
+                            falloff,
+                            fixEndsOption.CurrentValue,
                             tolerance,
+                            quickPreview: true,
                             out Curve? previewCurve,
-                            out previewError)
+                            out string? _)
                         && previewCurve != null)
                     {
-                        e.Display.DrawCurve(previewCurve, Color.Red, 2);
+                        e.Display.DrawCurve(previewCurve, FeedbackColor, 2);
                         previewCurve.Dispose();
                     }
-                    else
-                    {
-                        e.Display.DrawPolyline(previewPoints, Color.Red, 2);
-                    }
                 }
-            }
-        };
+            };
 
-        if (getVector.Get() != GetResult.Point)
-            return getVector.CommandResult();
+            GetResult vectorResult = getVector.Get();
+            useSmoothFalloff = falloffOption.CurrentValue;
+            replaceInput = replaceOption.CurrentValue;
+            fixEnds = fixEndsOption.CurrentValue;
+            constrainToCPlane = movementOption.CurrentValue;
+            CommandOptionCache.SetValue("MoleHill.SoftEditCurves.SmoothFalloff", useSmoothFalloff);
+            CommandOptionCache.SetValue("MoleHill.SoftEditCurves.ReplaceInput", replaceInput);
+            CommandOptionCache.SetValue("MoleHill.SoftEditCurves.FixEnds", fixEnds);
+            CommandOptionCache.SetValue("MoleHill.SoftEditCurves.ConstrainToCPlane", constrainToCPlane);
 
-        Vector3d offsetVector = getVector.Point() - basePoint;
+            if (vectorResult == GetResult.Option)
+                continue;
+
+            if (vectorResult != GetResult.Point)
+                return getVector.CommandResult();
+
+            offsetPoint = getVector.Point();
+            break;
+        }
+
+        Vector3d offsetVector = offsetPoint - basePoint;
+        if (offsetVector.IsTiny())
+        {
+            RhinoApp.WriteLine("Offset must be greater than zero.");
+            return Result.Nothing;
+        }
+
+        SoftEditFalloff selectedFalloff = useSmoothFalloff
+            ? SoftEditFalloff.Smooth
+            : SoftEditFalloff.Linear;
+        var editedCurves = new List<(Guid ObjectId, ObjectAttributes Attributes, Curve Curve)>(curveData.Count);
         for (int i = 0; i < curveData.Count; i++)
         {
             var item = curveData[i];
-            List<Point3d> adjustedPoints = GeometryCommandAlgorithms.CalculateSoftEditPoints(
-                item.EditPoints,
-                basePoint,
-                falloffRadius,
-                offsetVector);
-            if (adjustedPoints.Count <= 1)
-                continue;
-
             if (!GeometryCommandAlgorithms.TryCreateSoftEditedCurve(
                     item.SourceCurve,
-                    adjustedPoints,
+                    basePoint,
+                    falloffRadius,
+                    offsetVector,
+                    selectedFalloff,
+                    fixEnds,
                     tolerance,
+                    quickPreview: false,
                     out Curve? resultCurve,
                     out string? error)
                 || resultCurve == null)
             {
-                RhinoApp.WriteLine(error ?? "Failed to rebuild the edited curve.");
+                foreach (var edited in editedCurves)
+                    edited.Curve.Dispose();
+
+                RhinoApp.WriteLine(error ?? "Failed to soft-edit the curve.");
                 return Result.Failure;
             }
 
-            if (!doc.Objects.Replace(item.ObjectId, resultCurve))
-                return Result.Failure;
+            editedCurves.Add((item.ObjectId, item.Attributes, resultCurve));
         }
 
-        doc.Views.Redraw();
-        return Result.Success;
+        var originalCurves = curveData.ToDictionary(
+            item => item.ObjectId,
+            item => item.SourceCurve.DuplicateCurve());
+        var replacedIds = new List<Guid>();
+        var addedIds = new List<Guid>();
+        uint undoRecord = doc.BeginUndoRecord("Soft Edit Curves");
+        try
+        {
+            for (int i = 0; i < editedCurves.Count; i++)
+            {
+                var edited = editedCurves[i];
+                bool succeeded;
+                if (replaceInput)
+                {
+                    succeeded = doc.Objects.Replace(edited.ObjectId, edited.Curve);
+                    if (succeeded)
+                        replacedIds.Add(edited.ObjectId);
+                }
+                else
+                {
+                    Guid addedId = doc.Objects.AddCurve(edited.Curve, edited.Attributes);
+                    succeeded = addedId != Guid.Empty;
+                    if (succeeded)
+                        addedIds.Add(addedId);
+                }
+
+                edited.Curve.Dispose();
+                if (succeeded)
+                    continue;
+
+                for (int remaining = i + 1; remaining < editedCurves.Count; remaining++)
+                    editedCurves[remaining].Curve.Dispose();
+
+                foreach (Guid addedId in addedIds)
+                {
+                    RhinoObject? addedObject = doc.Objects.FindId(addedId);
+                    if (addedObject != null)
+                        doc.Objects.Delete(addedObject, quiet: true, ignoreModes: true);
+                }
+
+                foreach (Guid replacedId in replacedIds)
+                    doc.Objects.Replace(replacedId, originalCurves[replacedId]);
+
+                RhinoApp.WriteLine("Could not commit all soft-edited curves; the original document state was restored.");
+                return Result.Failure;
+            }
+
+            doc.Views.Redraw();
+            return Result.Success;
+        }
+        finally
+        {
+            foreach (Curve original in originalCurves.Values)
+                original.Dispose();
+            doc.EndUndoRecord(undoRecord);
+        }
     }
 
     public static Result RunTrimBoundary(RhinoDoc doc)
@@ -1037,19 +1181,18 @@ internal static class GeometryCommandService
             }
         }
 
-        parameters.Sort();
-        var unique = new List<double>(parameters.Count);
-        for (int i = 0; i < parameters.Count; i++)
-        {
-            if (unique.Count == 0 || Math.Abs(parameters[i] - unique[^1]) > tolerance)
-                unique.Add(parameters[i]);
-        }
-
-        return unique.ToArray();
+        return TerrainInputCommandAlgorithms.NormalizeSplitParameters(
+            projectedCurve,
+            parameters,
+            tolerance);
 
         void AddParameter(double parameter)
         {
-            if (parameter <= domain.T0 + tolerance || parameter >= domain.T1 - tolerance)
+            Point3d point = projectedCurve.PointAt(parameter);
+            if (parameter <= domain.T0 ||
+                parameter >= domain.T1 ||
+                point.DistanceTo(projectedCurve.PointAtStart) <= tolerance ||
+                point.DistanceTo(projectedCurve.PointAtEnd) <= tolerance)
                 return;
 
             parameters.Add(parameter);

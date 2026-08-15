@@ -3,6 +3,12 @@ using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
 
+internal enum SoftEditFalloff
+{
+    Linear,
+    Smooth
+}
+
 internal static class GeometryCommandAlgorithms
 {
     public static Point3d FlattenToWorldXY(Point3d point)
@@ -189,95 +195,74 @@ internal static class GeometryCommandAlgorithms
         return polyline.Count >= 2;
     }
 
-    public static bool TryGetCurveEditPoints(Curve curve, double tolerance, out List<Point3d> points)
-    {
-        points = new List<Point3d>();
-
-        if (curve is PolylineCurve polylineCurve)
-        {
-            for (int i = 0; i < polylineCurve.PointCount; i++)
-                points.Add(polylineCurve.Point(i));
-            return points.Count > 1;
-        }
-
-        NurbsCurve? nurbsCurve = curve.ToNurbsCurve();
-        if (nurbsCurve == null)
-            return false;
-
-        if (nurbsCurve.Degree == 1)
-        {
-            for (int i = 0; i < nurbsCurve.Points.Count; i++)
-                points.Add(nurbsCurve.Points[i].Location);
-            return points.Count > 1;
-        }
-
-        for (int i = 0; i < nurbsCurve.Points.Count; i++)
-            points.Add(nurbsCurve.Points[i].Location);
-
-        return points.Count > 1;
-    }
-
     public static bool TryCreateSoftEditedCurve(
         Curve sourceCurve,
-        IReadOnlyList<Point3d> adjustedPoints,
+        Point3d basePoint,
+        double radius,
+        Vector3d vector,
+        SoftEditFalloff falloff,
+        bool fixEnds,
         double tolerance,
+        bool quickPreview,
         out Curve? resultCurve,
         out string? error)
     {
         resultCurve = null;
 
-        if (adjustedPoints.Count <= 1)
+        if (radius <= RhinoMath.ZeroTolerance)
         {
-            error = "Soft edit requires at least two editable points.";
+            error = "Soft edit radius must be greater than zero.";
             return false;
         }
 
-        if (sourceCurve is PolylineCurve)
+        double effectiveTolerance = Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance);
+        bool lockOpenEnds = fixEnds && !sourceCurve.IsClosed;
+        Point3d fixedStart = sourceCurve.PointAtStart;
+        Point3d fixedEnd = sourceCurve.PointAtEnd;
+        Curve candidate = sourceCurve.DuplicateCurve();
+        var morph = new RadialSoftEditMorph(
+            basePoint,
+            radius,
+            vector,
+            falloff,
+            lockOpenEnds,
+            fixedStart,
+            fixedEnd,
+            effectiveTolerance)
         {
-            var polyline = new Polyline(adjustedPoints);
-            if (sourceCurve.IsClosed && !polyline.IsClosed)
-                polyline.Add(polyline[0]);
+            Tolerance = effectiveTolerance,
+            QuickPreview = quickPreview,
+            PreserveStructure = false
+        };
 
-            resultCurve = new PolylineCurve(polyline);
-            error = null;
-            return true;
-        }
-
-        NurbsCurve? nurbsCurve = sourceCurve.ToNurbsCurve();
-        if (nurbsCurve == null)
+        if (!SpaceMorph.IsMorphable(candidate) || !morph.Morph(candidate))
         {
-            error = "Failed to convert the curve to a NURBS representation.";
+            candidate.Dispose();
+            error = "Rhino could not soft-morph the curve.";
             return false;
         }
 
-        if (nurbsCurve.Points.Count != adjustedPoints.Count)
+        bool startIsFixed = !lockOpenEnds ||
+                            candidate.PointAtStart == fixedStart ||
+                            candidate.SetStartPoint(fixedStart);
+        bool endIsFixed = !lockOpenEnds ||
+                          candidate.PointAtEnd == fixedEnd ||
+                          candidate.SetEndPoint(fixedEnd);
+        if (!startIsFixed || !endIsFixed)
         {
-            error = "Editable point count did not match the curve representation.";
+            candidate.Dispose();
+            error = "Rhino could not preserve the curve endpoints.";
             return false;
         }
 
-        if (nurbsCurve.Degree == 1)
+        if (!candidate.IsValid)
         {
-            var polyline = new Polyline(adjustedPoints);
-            if (sourceCurve.IsClosed && !polyline.IsClosed)
-                polyline.Add(polyline[0]);
-
-            resultCurve = new PolylineCurve(polyline);
-            error = null;
-            return true;
+            candidate.Dispose();
+            error = "Soft edit produced an invalid curve.";
+            return false;
         }
 
-        for (int i = 0; i < adjustedPoints.Count; i++)
-        {
-            ControlPoint controlPoint = nurbsCurve.Points[i];
-            if (!nurbsCurve.Points.SetPoint(i, adjustedPoints[i], controlPoint.Weight))
-            {
-                error = "Failed to update the curve control points.";
-                return false;
-            }
-        }
-
-        resultCurve = nurbsCurve;
+        resultCurve = candidate;
         error = null;
         return true;
     }
@@ -286,7 +271,8 @@ internal static class GeometryCommandAlgorithms
         IReadOnlyList<Point3d> points,
         Point3d basePoint,
         double radius,
-        Vector3d vector)
+        Vector3d vector,
+        SoftEditFalloff falloff = SoftEditFalloff.Smooth)
     {
         var adjusted = new List<Point3d>(points.Count);
         if (radius <= RhinoMath.ZeroTolerance)
@@ -298,10 +284,7 @@ internal static class GeometryCommandAlgorithms
         for (int i = 0; i < points.Count; i++)
         {
             Point3d point = points[i];
-            double factor = Math.Max(0.0, 1.0 - (Distance2d(basePoint, point) / radius));
-            if (factor > 0.0)
-                factor = EaseInOutSine(factor);
-
+            double factor = CalculateSoftEditFactor(point, basePoint, radius, falloff);
             adjusted.Add(point + (vector * factor));
         }
 
@@ -313,9 +296,30 @@ internal static class GeometryCommandAlgorithms
         return -(Math.Cos(Math.PI * t) - 1.0) / 2.0;
     }
 
-    public static double GetSoftEditTolerance(UnitSystem unitSystem)
+    public static double CalculatePlanDistance(Point3d a, Point3d b)
     {
-        return ModelUnits.FromMeters(0.5, unitSystem);
+        double dx = b.X - a.X;
+        double dy = b.Y - a.Y;
+        return Math.Sqrt((dx * dx) + (dy * dy));
+    }
+
+    public static bool BoundingBoxIntersectsPlanRadius(BoundingBox bounds, Point3d center, double radius)
+    {
+        if (!bounds.IsValid || radius <= RhinoMath.ZeroTolerance)
+            return false;
+
+        double dx = center.X < bounds.Min.X
+            ? bounds.Min.X - center.X
+            : center.X > bounds.Max.X
+                ? center.X - bounds.Max.X
+                : 0.0;
+        double dy = center.Y < bounds.Min.Y
+            ? bounds.Min.Y - center.Y
+            : center.Y > bounds.Max.Y
+                ? center.Y - bounds.Max.Y
+                : 0.0;
+
+        return (dx * dx) + (dy * dy) < radius * radius;
     }
 
     public static bool IsPointInsideNestedBoundaries(Point3d point, IReadOnlyList<Curve> boundaries, double tolerance)
@@ -374,11 +378,72 @@ internal static class GeometryCommandAlgorithms
         return Curve.ProjectToPlane(curve.ToNurbsCurve(), plane);
     }
 
-    private static double Distance2d(Point3d a, Point3d b)
+    private static double CalculateSoftEditFactor(
+        Point3d point,
+        Point3d basePoint,
+        double radius,
+        SoftEditFalloff falloff)
     {
-        double dx = b.X - a.X;
-        double dy = b.Y - a.Y;
-        return Math.Sqrt((dx * dx) + (dy * dy));
+        if (radius <= RhinoMath.ZeroTolerance)
+            return 0.0;
+
+        double factor = Math.Max(0.0, 1.0 - (CalculatePlanDistance(basePoint, point) / radius));
+        return factor > 0.0 && falloff == SoftEditFalloff.Smooth
+            ? EaseInOutSine(factor)
+            : factor;
+    }
+
+    private sealed class RadialSoftEditMorph : SpaceMorph
+    {
+        private readonly Point3d _basePoint;
+        private readonly double _radius;
+        private readonly Vector3d _vector;
+        private readonly SoftEditFalloff _falloff;
+        private readonly bool _fixEnds;
+        private readonly Point3d _fixedStart;
+        private readonly Point3d _fixedEnd;
+        private readonly double _fixedEndToleranceSquared;
+
+        public RadialSoftEditMorph(
+            Point3d basePoint,
+            double radius,
+            Vector3d vector,
+            SoftEditFalloff falloff,
+            bool fixEnds,
+            Point3d fixedStart,
+            Point3d fixedEnd,
+            double tolerance)
+        {
+            _basePoint = basePoint;
+            _radius = radius;
+            _vector = vector;
+            _falloff = falloff;
+            _fixEnds = fixEnds;
+            _fixedStart = fixedStart;
+            _fixedEnd = fixedEnd;
+            _fixedEndToleranceSquared = tolerance * tolerance;
+        }
+
+        public override Point3d MorphPoint(Point3d point)
+        {
+            if (_fixEnds &&
+                (DistanceSquared(point, _fixedStart) <= _fixedEndToleranceSquared ||
+                 DistanceSquared(point, _fixedEnd) <= _fixedEndToleranceSquared))
+            {
+                return point;
+            }
+
+            double factor = CalculateSoftEditFactor(point, _basePoint, _radius, _falloff);
+            return point + (_vector * factor);
+        }
+
+        private static double DistanceSquared(Point3d a, Point3d b)
+        {
+            double dx = a.X - b.X;
+            double dy = a.Y - b.Y;
+            double dz = a.Z - b.Z;
+            return (dx * dx) + (dy * dy) + (dz * dz);
+        }
     }
 
     private static bool TryExtractPolyline(Curve curve, double tolerance, out Polyline polyline)

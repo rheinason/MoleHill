@@ -8,8 +8,8 @@ fields by composing them, not by copying boilerplate.
   `.Cards.cs` (collapsible "stack card" framework), `.RuntimeDiagnostics.cs` (generic per-card issue
   counts and redraw-only **Show Issues** binding), `.Editors.cs` (form-control vocabulary -
   `CreateSourceEditor`/`CreateNumericEditor`/`CreateDropDownEditor`/...), `.Schema.cs` (schema to
-  card-row builder for registry-driven modifier cards), `.Status.cs` (build status, copy log, copy case,
-  and structured diagnostic formatting), and per-tab card builders `.Modifiers.cs`, `.Zones.cs`,
+  card-row builder for registry-driven modifier cards), `.Status.cs` (the detailed live/final build log,
+  copy log, copy case, and structured diagnostic formatting), and per-tab card builders `.Modifiers.cs`, `.Zones.cs`,
   `.Markers.cs`, `.Analysis.cs`, `.Objects.cs`, `.LayerPickers.cs`. The main file holds the toolbar,
   layout refresh, and shared helpers. Its editable terrain selector combines active-terrain selection
   and rename in one field. Bake is grouped with the visibility/lock output actions; Bake Layers creates
@@ -28,6 +28,11 @@ fields by composing them, not by copying boilerplate.
   hierarchy with display/print color swatches and plot-weight, a properties panel for the selected
   layer, multi-template management, and JSON import/export. `SlowBuildWarningDialog.cs` is the other
   dialog.
+- `TerrainInputValidationDialog.cs` - short-lived, document-parented Eto dialog for selecting the
+  cleanup operations and shared tolerance used by `mhValidateTerrainInputs`. Overkill removes both
+  duplicate selected objects and later retraced segments inside a joined polycurve, retaining one
+  unbroken traversal. The dialog
+  previews operation counts and leaves document mutation to `TerrainInputCommandService`.
 - `SculptToolbarForm.cs` - the floating sculpt mini-toolbar: borderless, non-activating, Topmost,
   pinned over the active viewport corner while a sculpt session runs (brush buttons, radius/strength
   sliders, falloff, Done). Only edits session prefs; returns focus to Rhino after every interaction so
