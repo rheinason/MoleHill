@@ -20,6 +20,10 @@ internal static class DocumentCommandService
     public static Result RunOrientToOrigin(RhinoDoc doc)
     {
         if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
+        Result resolution = ResolveProjectBase(doc, out _);
+        if (resolution != Result.Success)
+            return resolution;
+
         var getBasePoint = new GetPoint();
         getBasePoint.SetCommandPrompt("Select project XY base point (elevation will be preserved)");
         if (getBasePoint.Get() != GetResult.Point)
@@ -29,7 +33,9 @@ internal static class DocumentCommandService
         Point3d? xAxisPoint = null;
 
         var getXAxisPoint = new GetPoint();
-        getXAxisPoint.SetCommandPrompt("Select X-axis reference point or press Enter to skip");
+        getXAxisPoint.SetCommandPrompt("Select project X-axis reference point in XY or press Enter to keep World X");
+        getXAxisPoint.SetBasePoint(basePoint, showDistanceInStatusBar: true);
+        getXAxisPoint.DrawLineFromPoint(basePoint, showDistanceInStatusBar: true);
         getXAxisPoint.AcceptNothing(true);
         switch (getXAxisPoint.Get())
         {
@@ -51,11 +57,9 @@ internal static class DocumentCommandService
     public static Result RunApplySavedGeoref(RhinoDoc doc, bool toProjectCoordinates)
     {
         if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
-        if (!ProjectBaseCPlaneService.TryGetTransform(toProjectCoordinates, doc, out Transform transform))
-        {
-            RhinoApp.WriteLine("MoleHill: no project georef CPlane found.");
-            return Result.Nothing;
-        }
+        Result resolution = ResolveProjectBaseTransform(doc, toProjectCoordinates, out Transform transform);
+        if (resolution != Result.Success)
+            return resolution;
 
         var getObject = new GetObject();
         getObject.SetCommandPrompt(toProjectCoordinates
@@ -89,7 +93,8 @@ internal static class DocumentCommandService
             return Result.Nothing;
         }
 
-        RhinoApp.WriteLine("MoleHill: cleared the saved project base. Document geometry was not moved.");
+        RhinoApp.WriteLine(
+            "MoleHill: cleared the saved project base. Document geometry and legacy CPlanes were not moved or deleted.");
         doc.Views.Redraw();
         return Result.Success;
     }
@@ -97,11 +102,9 @@ internal static class DocumentCommandService
     public static Result RunImportWithGeoref(RhinoDoc doc)
     {
         if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
-        if (!ProjectBaseCPlaneService.TryGetTransform(toProjectCoordinates: true, doc, out Transform transform))
-        {
-            RhinoApp.WriteLine("MoleHill: no project georef CPlane found.");
-            return Result.Nothing;
-        }
+        Result resolution = ResolveProjectBaseTransform(doc, toProjectCoordinates: true, out Transform transform);
+        if (resolution != Result.Success)
+            return resolution;
 
         var getOption = new GetOption();
         getOption.SetCommandPrompt("Import geometry with georef");
@@ -116,12 +119,12 @@ internal static class DocumentCommandService
         if (!usePaste && !useFile)
             return Result.Cancel;
 
-        var beforeIds = new HashSet<Guid>(EnumerateActiveObjectIds(doc));
+        GeoreferenceObjectState[] beforeObjects = EnumerateActiveObjects(doc).ToArray();
         var selectedBefore = new HashSet<Guid>(doc.Objects.GetSelectedObjects(false, false).Select(obj => obj.Id));
         bool ran;
         if (usePaste)
         {
-            ran = RhinoApp.RunScript("Paste", false);
+            ran = RhinoApp.RunScript(doc.RuntimeSerialNumber, "_Paste", false);
         }
         else
         {
@@ -137,26 +140,32 @@ internal static class DocumentCommandService
                 return Result.Cancel;
 
             string escapedPath = dialog.FileName.Replace("\"", "\"\"");
-            ran = RhinoApp.RunScript($"_-Import \"{escapedPath}\" _Enter", false);
+            ran = RhinoApp.RunScript(doc.RuntimeSerialNumber, $"_-Import \"{escapedPath}\" _Enter", false);
         }
 
         if (!ran)
-            return Result.Failure;
-
-        Guid[] importedIds = doc.Objects
-            .GetSelectedObjects(false, false)
-            .Select(obj => obj.Id)
-            .Where(id => id != Guid.Empty && !selectedBefore.Contains(id))
-            .ToArray();
-
-        if (importedIds.Length == 0)
         {
-            importedIds = EnumerateActiveObjectIds(doc)
-                .Where(id => !beforeIds.Contains(id))
+            int removedCount = DeleteObjectsAddedSince(doc, beforeObjects);
+            RestoreSelection(doc, selectedBefore);
+            if (removedCount > 0)
+                RhinoApp.WriteLine($"MoleHill: import did not complete; removed {removedCount} newly added object(s).");
+            return Result.Failure;
+        }
+
+        GeoreferenceObjectState[] afterObjects = EnumerateActiveObjects(doc).ToArray();
+        Guid[] allImportedIds = GeoreferenceImportPlanner.FindNewObjectIds(beforeObjects, afterObjects);
+        Guid[] importedIds = GeoreferenceImportPlanner.FindNewModelObjectIds(beforeObjects, afterObjects);
+
+        if (allImportedIds.Length == 0)
+        {
+            importedIds = doc.Objects
+                .GetSelectedObjects(false, false)
+                .Where(obj => obj.Attributes.Space == ActiveSpace.ModelSpace && !selectedBefore.Contains(obj.Id))
+                .Select(obj => obj.Id)
                 .ToArray();
         }
 
-        if (importedIds.Length == 0)
+        if (importedIds.Length == 0 && allImportedIds.Length == 0)
         {
             var getImportedObjects = new GetObject();
             getImportedObjects.SetCommandPrompt("Select imported objects to remap");
@@ -168,29 +177,44 @@ internal static class DocumentCommandService
                 return getImportedObjects.CommandResult();
 
             importedIds = Enumerable.Range(0, getImportedObjects.ObjectCount)
-                .Select(i => getImportedObjects.Object(i)?.ObjectId ?? Guid.Empty)
+                .Select(i => getImportedObjects.Object(i)?.Object())
+                .Where(obj => obj?.Attributes.Space == ActiveSpace.ModelSpace)
+                .Select(obj => obj?.Id ?? Guid.Empty)
                 .Where(id => id != Guid.Empty)
                 .ToArray();
         }
 
         if (importedIds.Length == 0)
+        {
+            if (allImportedIds.Length > 0)
+                RhinoApp.WriteLine("MoleHill: imported objects contained no ModelSpace geometry to remap.");
             return Result.Success;
+        }
 
         bool transformed = CommandScriptRunner.RunTransformScript(doc, importedIds, transform, out string? error);
-        if (!transformed && !string.IsNullOrWhiteSpace(error))
-            RhinoApp.WriteLine(error);
+        if (!transformed)
+        {
+            int removedCount = DeleteObjectsAddedSince(doc, beforeObjects);
+            RestoreSelection(doc, selectedBefore);
+            RhinoApp.WriteLine(error ?? "MoleHill: imported geometry could not be remapped.");
+            RhinoApp.WriteLine(
+                removedCount > 0
+                    ? $"MoleHill: removed {removedCount} object(s) added by the failed import."
+                    : "MoleHill: no newly added objects remained after the failed import.");
+            doc.Views.Redraw();
+            return Result.Failure;
+        }
 
-        return transformed ? Result.Success : Result.Failure;
+        doc.Views.Redraw();
+        return Result.Success;
     }
 
     public static Result RunExportWithGeoref(RhinoDoc doc)
     {
         if (!ModelUnitGuard.TryGet(doc, out _)) return Result.Failure;
-        if (!ProjectBaseCPlaneService.TryGetTransform(toProjectCoordinates: false, doc, out Transform transform))
-        {
-            RhinoApp.WriteLine("MoleHill: no project georef CPlane found.");
-            return Result.Nothing;
-        }
+        Result resolution = ResolveProjectBaseTransform(doc, toProjectCoordinates: false, out Transform transform);
+        if (resolution != Result.Success)
+            return resolution;
 
         var getObject = new GetObject();
         getObject.SetCommandPrompt("Select geometry to export with georef");
@@ -204,7 +228,7 @@ internal static class DocumentCommandService
         var dialog = new Eto.Forms.SaveFileDialog
         {
             Title = "Export Georeferenced Rhino File",
-            FileName = $"{doc.Name ?? "Export"}.3dm"
+            FileName = GetDefaultGeoreferenceExportFileName(doc.Name)
         };
         dialog.Filters.Add(new FileFilter("Rhino 3D", ".3dm"));
         if (dialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok ||
@@ -223,14 +247,18 @@ internal static class DocumentCommandService
             foreach (Guid id in selectedIds)
                 doc.Objects.Select(id, true, true);
 
-            var options = new FileWriteOptions
+            using var options = new FileWriteOptions
             {
+                UpdateDocumentPath = false,
                 SuppressDialogBoxes = true,
+                SuppressAllInput = true,
                 WriteSelectedObjectsOnly = true,
                 Xform = transform
             };
 
             bool wrote = doc.WriteFile(dialog.FileName, options);
+            if (!wrote)
+                RhinoApp.WriteLine($"MoleHill: could not export georeferenced geometry to '{dialog.FileName}'.");
             return wrote ? Result.Success : Result.Failure;
         }
         finally
@@ -290,6 +318,28 @@ internal static class DocumentCommandService
 
         georeference = georeference.ScaleCoordinates(sourceMetersPerUnit / documentUnits.MetersPerModelUnit);
 
+        Result projectBaseResolution = ResolveProjectBase(doc, out bool hasProjectBase);
+        if (projectBaseResolution != Result.Success)
+            return projectBaseResolution;
+
+        Transform placement = georeference.CreatePictureFrameToWorldTransform(image.Height);
+        bool placedInProjectCoordinates = false;
+        if (hasProjectBase)
+        {
+            if (!ProjectBaseCPlaneService.TryGetTransform(
+                    toProjectCoordinates: true,
+                    doc,
+                    out Transform worldToProject,
+                    out string? transformError))
+            {
+                RhinoApp.WriteLine(transformError ?? "MoleHill: the saved project-base transform is invalid.");
+                return Result.Failure;
+            }
+
+            placement = worldToProject * placement;
+            placedInProjectCoordinates = true;
+        }
+
         Plane plane = Plane.WorldXY;
         Guid pictureId = doc.Objects.AddPictureFrame(
             plane,
@@ -302,14 +352,6 @@ internal static class DocumentCommandService
         if (pictureId == Guid.Empty)
             return Result.Failure;
 
-        Transform placement = georeference.CreatePictureFrameToWorldTransform(image.Height);
-        bool placedInProjectCoordinates = ProjectBaseCPlaneService.TryGetTransform(
-            toProjectCoordinates: true,
-            doc,
-            out Transform worldToProject);
-        if (placedInProjectCoordinates)
-            placement = worldToProject * placement;
-
         if (!CommandScriptRunner.RunTransformScript(
                 doc,
                 new[] { pictureId },
@@ -317,7 +359,12 @@ internal static class DocumentCommandService
                 out string? placementError,
                 out Guid[] placedIds))
         {
-            doc.Objects.Delete(placedIds, quiet: true);
+            foreach (Guid placedId in placedIds)
+            {
+                RhinoObject? placedObject = doc.Objects.FindId(placedId);
+                if (placedObject != null)
+                    doc.Objects.Delete(placedObject, quiet: true, ignoreModes: true);
+            }
             RhinoApp.WriteLine(placementError ?? "MoleHill: could not place the GeoTIFF picture frame.");
             return Result.Failure;
         }
@@ -423,7 +470,124 @@ internal static class DocumentCommandService
         return null;
     }
 
-    private static IEnumerable<Guid> EnumerateActiveObjectIds(RhinoDoc doc)
+    internal static string GetDefaultGeoreferenceExportFileName(string? documentName)
+    {
+        string? baseName = Path.GetFileNameWithoutExtension(documentName);
+        return $"{(string.IsNullOrWhiteSpace(baseName) ? "Export" : baseName)}.3dm";
+    }
+
+    private static Result ResolveProjectBaseTransform(
+        RhinoDoc doc,
+        bool toProjectCoordinates,
+        out Transform transform)
+    {
+        transform = Transform.Identity;
+        Result resolution = ResolveProjectBase(doc, out bool hasProjectBase);
+        if (resolution != Result.Success)
+            return resolution;
+        if (!hasProjectBase)
+        {
+            RhinoApp.WriteLine("MoleHill: no project georef CPlane found.");
+            return Result.Nothing;
+        }
+
+        if (ProjectBaseCPlaneService.TryGetTransform(
+                toProjectCoordinates,
+                doc,
+                out transform,
+                out string? error))
+        {
+            return Result.Success;
+        }
+
+        RhinoApp.WriteLine(error ?? "MoleHill: the saved project-base transform is invalid.");
+        return Result.Failure;
+    }
+
+    private static Result ResolveProjectBase(RhinoDoc doc, out bool hasProjectBase)
+    {
+        hasProjectBase = false;
+        if (ProjectBaseCPlaneService.HasProjectBasePlane(doc))
+        {
+            if (ProjectBaseCPlaneService.TryGetProjectBasePlane(doc, out _, out string? error))
+            {
+                hasProjectBase = true;
+                return Result.Success;
+            }
+
+            RhinoApp.WriteLine(error ?? "MoleHill: the saved project base is invalid.");
+            return Result.Failure;
+        }
+
+        if (!ProjectBaseCPlaneService.TryGetLegacyCandidate(doc, out LegacyProjectBaseCandidate legacy))
+            return Result.Success;
+
+        string convention = legacy.Convention == LegacyProjectBaseConvention.WorldToLocal
+            ? "Python real-world-to-local"
+            : "legacy C# local-to-real-world";
+        var getOption = new GetOption();
+        getOption.SetCommandPrompt(
+            $"Found legacy named CPlane '{legacy.Name}' ({convention}). Press Enter to migrate it");
+        getOption.AcceptNothing(true);
+        int migrateOption = getOption.AddOption("Migrate");
+        int ignoreOption = getOption.AddOption("IgnoreOnce");
+        int disableOption = getOption.AddOption("DisableLegacy");
+        GetResult result = getOption.Get();
+        bool migrate = result == GetResult.Nothing ||
+                       result == GetResult.Option && getOption.OptionIndex() == migrateOption;
+        if (!migrate)
+        {
+            if (result == GetResult.Option && getOption.OptionIndex() == ignoreOption)
+                return Result.Success;
+            if (result == GetResult.Option && getOption.OptionIndex() == disableOption)
+            {
+                ProjectBaseCPlaneService.SuppressLegacyFallback(doc);
+                RhinoApp.WriteLine(
+                    $"MoleHill: legacy fallback was disabled; named CPlane '{legacy.Name}' was left unchanged.");
+                return Result.Success;
+            }
+            return getOption.CommandResult();
+        }
+
+        if (!ProjectBaseCPlaneService.TryMigrateLegacyProjectBase(doc, legacy, out string message))
+        {
+            RhinoApp.WriteLine($"MoleHill: {message}");
+            return Result.Failure;
+        }
+
+        RhinoApp.WriteLine($"MoleHill: {message}");
+        hasProjectBase = true;
+        return Result.Success;
+    }
+
+    private static int DeleteObjectsAddedSince(
+        RhinoDoc doc,
+        IReadOnlyCollection<GeoreferenceObjectState> beforeObjects)
+    {
+        GeoreferenceObjectState[] currentObjects = EnumerateActiveObjects(doc).ToArray();
+        Guid[] newIds = GeoreferenceImportPlanner.FindNewObjectIds(beforeObjects, currentObjects);
+        int deleted = 0;
+        foreach (Guid id in newIds)
+        {
+            RhinoObject? obj = doc.Objects.FindId(id);
+            if (obj != null && doc.Objects.Delete(obj, quiet: true, ignoreModes: true))
+                deleted++;
+        }
+
+        return deleted;
+    }
+
+    private static void RestoreSelection(RhinoDoc doc, IReadOnlyCollection<Guid> selectedIds)
+    {
+        doc.Objects.UnselectAll();
+        foreach (Guid id in selectedIds)
+        {
+            if (doc.Objects.FindId(id) != null)
+                doc.Objects.Select(id, true, true);
+        }
+    }
+
+    private static IEnumerable<GeoreferenceObjectState> EnumerateActiveObjects(RhinoDoc doc)
     {
         return doc.Objects
             .GetObjectList(new ObjectEnumeratorSettings
@@ -435,7 +599,7 @@ internal static class DocumentCommandService
                 NormalObjects = true,
                 ReferenceObjects = false
             })
-            .Select(obj => obj.Id)
-            .Where(id => id != Guid.Empty);
+            .Where(obj => obj.Id != Guid.Empty)
+            .Select(obj => new GeoreferenceObjectState(obj.Id, obj.Attributes.Space));
     }
 }

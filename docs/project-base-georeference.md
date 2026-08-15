@@ -1,8 +1,10 @@
 # Project base and real-world coordinates
 
 MoleHill keeps modelling geometry near Rhino's XY origin while retaining a reversible mapping to the
-project's real-world Cartesian coordinates. The mapping is stored as the named construction plane
-`MoleHill_ProjectBase`; the older `Georef` name is read as a migration fallback.
+project's real-world Cartesian coordinates. The authoritative mapping is stored as the named construction
+plane `MoleHill_ProjectBase`. Every read validates that the plane is finite, horizontal, orthonormal,
+right-handed, and has no vertical offset; a manually tilted or elevated plane is rejected rather than
+silently changing elevations.
 
 ## Coordinate contract
 
@@ -25,6 +27,40 @@ vertical-datum offset.
 Rhino replaces transformed objects with new object ids. `TerrainController` completes each replacement
 mapping on the subsequent Add/Undelete event and updates terrain sources, placement state, managed output
 ids, and baked-object ids together.
+
+The X-axis pick uses the project base as its Rhino getter base point and draws a dynamic guide line. Its
+XY separation must exceed the document's model tolerance, preventing a nearly coincident pick from
+creating an unstable rotation.
+
+## Legacy Python and C# migration
+
+The former Python `OrientToOrigin.py` workflow normally stored a named CPlane called `FOTM`. That plane
+represented the opposite convention: **real-world to local** (`G^-1`). Older C# builds could instead
+store `Georef` using the current **local to real-world** (`G`) convention.
+
+When no modern plane exists, commands detect either legacy name and ask before migrating it. The prompt
+can also ignore the candidate once or disable legacy fallback for the document:
+
+- `FOTM` is inverted from its Python real-world-to-local convention.
+- `Georef` is retained in its legacy C# local-to-real-world convention.
+
+Migration validates the result, writes `MoleHill_ProjectBase`, and leaves the legacy named CPlane
+unchanged. This avoids deleting an unrelated user CPlane that happens to use a legacy name. Clearing the
+project base suppresses legacy fallback in document user text without deleting `FOTM` or `Georef`; a new
+orientation or successful migration re-enables the modern mapping.
+
+## Import and export behavior
+
+`mhImportWithGeoref` is a Rhino script-runner command, so its nested `Paste` and `Import` operations finish
+before remapping begins. It snapshots the active object table, then applies `G^-1` to every newly added
+ModelSpace object, including hidden and individually locked objects; PageSpace layout geometry is left
+unchanged. Selection is only a fallback when an importer produces no detectable new ids. If import or
+the coordinate transform fails, every newly added object is removed with locked/hidden modes ignored and
+the prior selection is restored. Objects on locked layers still fail the transform with an explicit
+unlock-and-retry message rather than overriding the user's layer protection.
+
+`mhExportWithGeoref` applies `G` through Rhino's file-write transform. It never moves source geometry,
+never changes the active CPlane or document path, suppresses file-format input, and restores selection.
 
 ## GeoTIFF import
 

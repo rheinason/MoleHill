@@ -4,6 +4,7 @@ using Rhino.Commands;
 
 namespace MoleHill.Rhino.Commands;
 
+[CommandStyle(Style.ScriptRunner)]
 public sealed class MoleHillImportWithGeorefCommand : Command
 {
     public override string EnglishName => "mhImportWithGeoref";
