@@ -22,7 +22,7 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
         ParameterDescriptor.Sources(
             "ReferenceSurface", "Reference",
             m => ((InSituStairModifierDefinition)m).ReferenceSurface,
-            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion),
+            RhinoObjectType.Mesh | RhinoObjectType.Surface | RhinoObjectType.Brep | RhinoObjectType.Extrusion),
         ParameterDescriptor.Number(
             "RiserHeight", "Riser Height",
             m => ((InSituStairModifierDefinition)m).RiserHeight,

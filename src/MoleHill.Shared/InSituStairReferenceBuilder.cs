@@ -147,7 +147,10 @@ internal static class InSituStairReferenceBuilder
             return false;
         }
 
-        Mesh? merged = MergeMeshes(sourceMeshes);
+        List<Mesh> sourceMeshList = sourceMeshes
+            .Where(mesh => mesh != null && mesh.Faces.Count > 0)
+            .ToList();
+        using Mesh? merged = MergeMeshes(sourceMeshList);
         if (merged == null || merged.Faces.Count == 0)
         {
             errorMessage = "No valid reference surface meshes were found.";
@@ -156,42 +159,67 @@ internal static class InSituStairReferenceBuilder
 
         double interpretationTolerance = ComputeInterpretationTolerance(merged, riserHeight);
 
-        if (!TryExtractWalkableSkins(merged, out var topSkins, out errorMessage))
-            return false;
-
-        var references = new List<InSituStairReference>(topSkins.Count);
-        var warnings = new List<string>();
-        for (int skinIndex = 0; skinIndex < topSkins.Count; skinIndex++)
+        var topSkins = new List<Mesh>();
+        string? lastSurfaceError = null;
+        foreach (Mesh sourceMesh in sourceMeshList)
         {
-            if (!TryBuildSingle(
-                    topSkins[skinIndex],
-                    riserHeight,
-                    slopeAngleDeg,
-                    maxDistance,
-                    interpretationTolerance,
-                    out var reference,
-                    out string? warning,
-                    out string? surfaceError))
+            if (TryExtractWalkableSkins(sourceMesh, out var sourceSkins, out string? sourceError))
             {
-                warnings.Add($"Surface {skinIndex + 1}: {surfaceError ?? "could not be interpreted as a stair."}");
-                continue;
+                topSkins.AddRange(sourceSkins);
+            }
+            else if (!string.IsNullOrWhiteSpace(sourceError))
+            {
+                lastSurfaceError = sourceError;
+            }
+        }
+
+        if (topSkins.Count == 0)
+        {
+            errorMessage = lastSurfaceError ?? "No upward-facing walkable surface was found.";
+            return false;
+        }
+
+        try
+        {
+            var references = new List<InSituStairReference>(topSkins.Count);
+            var warnings = new List<string>();
+            for (int skinIndex = 0; skinIndex < topSkins.Count; skinIndex++)
+            {
+                if (!TryBuildSingle(
+                        topSkins[skinIndex],
+                        riserHeight,
+                        slopeAngleDeg,
+                        maxDistance,
+                        interpretationTolerance,
+                        out var reference,
+                        out string? warning,
+                        out string? surfaceError))
+                {
+                    warnings.Add($"Surface {skinIndex + 1}: {surfaceError ?? "could not be interpreted as a stair."}");
+                    continue;
+                }
+
+                references.Add(reference!);
+                if (!string.IsNullOrWhiteSpace(warning))
+                    warnings.Add($"Surface {skinIndex + 1}: {warning}");
             }
 
-            references.Add(reference!);
-            if (!string.IsNullOrWhiteSpace(warning))
-                warnings.Add($"Surface {skinIndex + 1}: {warning}");
-        }
+            if (references.Count == 0)
+            {
+                errorMessage = warnings.Count > 0
+                    ? string.Join(Environment.NewLine, warnings)
+                    : "No usable stair surfaces were found.";
+                return false;
+            }
 
-        if (references.Count == 0)
+            buildResult = new InSituStairBuildResult(references, warnings);
+            return true;
+        }
+        finally
         {
-            errorMessage = warnings.Count > 0
-                ? string.Join(Environment.NewLine, warnings)
-                : "No usable stair surfaces were found.";
-            return false;
+            foreach (Mesh topSkin in topSkins)
+                topSkin.Dispose();
         }
-
-        buildResult = new InSituStairBuildResult(references, warnings);
-        return true;
     }
 
     private static double ComputeInterpretationTolerance(Mesh mesh, double riserHeight)
@@ -313,12 +341,14 @@ internal static class InSituStairReferenceBuilder
             if (!TryBuildSection(localBoundary, anchor, runDir, widthDir, plane, s0, topZ, tolerance, out Section startSection) ||
                 !TryBuildSection(localBoundary, anchor, runDir, widthDir, plane, s1, topZ, tolerance, out Section endSection))
             {
+                DisposeBreps(stairBreps);
                 errorMessage = "The reference surface footprint could not be sliced into stair geometry.";
                 return false;
             }
 
             if (!TryBuildStepBrep(startSection, endSection, tolerance, out Brep? stairStep, out Point3d stepLabelPoint))
             {
+                DisposeBreps(stairBreps);
                 errorMessage = "A stair step could not be converted into a Brep.";
                 return false;
             }
@@ -330,6 +360,7 @@ internal static class InSituStairReferenceBuilder
 
         if (stairBreps.Count == 0)
         {
+            DisposeBreps(stairBreps);
             errorMessage = "No usable stair steps could be generated.";
             return false;
         }
@@ -478,12 +509,17 @@ internal static class InSituStairReferenceBuilder
             if (mesh == null || mesh.Faces.Count == 0)
                 continue;
 
-            var copy = mesh.DuplicateMesh();
-            copy.Faces.ConvertQuadsToTriangles();
             if (merged == null)
-                merged = copy;
+            {
+                merged = mesh.DuplicateMesh();
+                merged.Faces.ConvertQuadsToTriangles();
+            }
             else
+            {
+                using Mesh copy = mesh.DuplicateMesh();
+                copy.Faces.ConvertQuadsToTriangles();
                 merged.Append(copy);
+            }
         }
 
         if (merged == null)
@@ -505,32 +541,51 @@ internal static class InSituStairReferenceBuilder
         topSkins = new List<Mesh>();
         errorMessage = null;
 
-        mesh.FaceNormals.ComputeFaceNormals();
+        using Mesh workingMesh = mesh.DuplicateMesh();
+        workingMesh.Faces.ConvertQuadsToTriangles();
+        workingMesh.FaceNormals.ComputeFaceNormals();
 
-        // If the surface was supplied with downward-facing normals, flip it so the
-        // upward-face filter below finds walkable geometry regardless of input orientation.
-        double normalZSum = 0.0;
-        for (int fi = 0; fi < mesh.Faces.Count; fi++)
-            normalZSum += mesh.FaceNormals[fi].Z;
-        if (normalZSum < 0)
+        // Reference surfaces are commonly open meshes, and their winding is not meaningful to
+        // this modifier. Reorient each walkable face in the working mesh independently so a
+        // reversed surface, or a set of surfaces with mixed winding, produces the same result.
+        // Closed Breps retain the existing upward-face selection so their underside is not
+        // mistaken for a second walkable skin.
+        bool normalizeFaceWinding = !workingMesh.IsClosed;
+        if (!normalizeFaceWinding)
         {
-            mesh.Flip(true, true, true);
-            mesh.FaceNormals.ComputeFaceNormals();
+            // A closed Brep can still arrive with every face reversed. Preserve the old fallback
+            // for that uncommon case while keeping the source geometry untouched.
+            double normalZSum = 0.0;
+            for (int fi = 0; fi < workingMesh.Faces.Count; fi++)
+                normalZSum += workingMesh.FaceNormals[fi].Z;
+            if (normalZSum < 0)
+            {
+                workingMesh.Flip(true, true, true);
+                workingMesh.FaceNormals.ComputeFaceNormals();
+            }
         }
 
-        var upwardMesh = new Mesh();
+        using var upwardMesh = new Mesh();
         var vertexMap = new Dictionary<int, int>();
-        for (int faceIndex = 0; faceIndex < mesh.Faces.Count; faceIndex++)
+        for (int faceIndex = 0; faceIndex < workingMesh.Faces.Count; faceIndex++)
         {
-            var normal = mesh.FaceNormals[faceIndex];
-            if (normal.Z <= 0.2)
+            var normal = workingMesh.FaceNormals[faceIndex];
+            if (normalizeFaceWinding)
+            {
+                if (Math.Abs(normal.Z) <= 0.2)
+                    continue;
+            }
+            else if (normal.Z <= 0.2)
                 continue;
 
-            var face = mesh.Faces[faceIndex];
-            int a = CopyVertex(mesh, upwardMesh, vertexMap, face.A);
-            int b = CopyVertex(mesh, upwardMesh, vertexMap, face.B);
-            int c = CopyVertex(mesh, upwardMesh, vertexMap, face.C);
-            upwardMesh.Faces.AddFace(a, b, c);
+            var face = workingMesh.Faces[faceIndex];
+            int a = CopyVertex(workingMesh, upwardMesh, vertexMap, face.A);
+            int b = CopyVertex(workingMesh, upwardMesh, vertexMap, face.B);
+            int c = CopyVertex(workingMesh, upwardMesh, vertexMap, face.C);
+            if (normalizeFaceWinding && normal.Z < 0)
+                upwardMesh.Faces.AddFace(a, c, b);
+            else
+                upwardMesh.Faces.AddFace(a, b, c);
         }
 
         upwardMesh.Vertices.CombineIdentical(true, true);
@@ -554,8 +609,13 @@ internal static class InSituStairReferenceBuilder
 
         topSkins = pieces
             .Where(piece => piece != null && piece.Faces.Count > 0)
-            .OrderByDescending(piece => AreaMassProperties.Compute(piece)?.Area ?? 0.0)
+            .OrderByDescending(ComputeArea)
             .ToList();
+        foreach (Mesh piece in pieces)
+        {
+            if (!topSkins.Contains(piece))
+                piece.Dispose();
+        }
         if (topSkins.Count == 0)
         {
             errorMessage = "No upward-facing walkable surface was found.";
@@ -583,7 +643,7 @@ internal static class InSituStairReferenceBuilder
 
         var selectedLoop = nakedEdges
             .Where(polyline => polyline.Count >= 4)
-            .OrderByDescending(polyline => Math.Abs(AreaMassProperties.Compute(new PolylineCurve(polyline))?.Area ?? 0.0))
+            .OrderByDescending(ComputePolylineArea)
             .FirstOrDefault();
 
         if (selectedLoop == null || selectedLoop.Count < 4)
@@ -603,6 +663,25 @@ internal static class InSituStairReferenceBuilder
         }
 
         return true;
+    }
+
+    private static double ComputeArea(Mesh mesh)
+    {
+        using AreaMassProperties? properties = AreaMassProperties.Compute(mesh);
+        return properties?.Area ?? 0.0;
+    }
+
+    private static double ComputePolylineArea(Polyline polyline)
+    {
+        using var curve = new PolylineCurve(polyline);
+        using AreaMassProperties? properties = AreaMassProperties.Compute(curve);
+        return Math.Abs(properties?.Area ?? 0.0);
+    }
+
+    private static void DisposeBreps(IEnumerable<Brep> breps)
+    {
+        foreach (Brep brep in breps)
+            brep.Dispose();
     }
 
     private static int CopyVertex(Mesh source, Mesh target, Dictionary<int, int> vertexMap, int sourceIndex)
