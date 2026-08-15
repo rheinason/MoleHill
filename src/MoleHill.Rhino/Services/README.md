@@ -15,7 +15,8 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 - Cache-hit timings carry a structured cache-hit flag. Cached cold timing reports are filtered on
   restore, and normalized cached meshes are duplicated without a redundant normalization pass.
 - Long-running builds emit live phase, elapsed-time, and managed-memory updates through the controller's
-  idle loop, so the panel and command history identify a stalled phase before the build completes.
+  idle loop into the panel Status card. Rhino command history receives only concise started/finished,
+  cancelled, or failed lines; detailed progress, diagnostics, and timings remain in Status.
 - Triangulate flattens each source curve once and reuses the packed stations for constraints and TIN
   input. Its Contour Mode is `Auto` / `Constrained` / `Vertices only`; Auto treats contour sets at or
   above 250,000 source vertices as unconstrained samples while breaklines and the boundary stay exact.
@@ -36,6 +37,10 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 - Retaining Wall inserts accepted toe/top rails directly into the incoming mesh first, splitting only
   crossed faces and preserving untouched topology. A full constrained rebuild is reserved for cases
   where local topology insertion cannot produce an accepted mesh.
+- Isotropic Remesh with Edge Length 0 derives its target from plan area per input face instead of the
+  median edge. This preserves approximate global face density on terrains mixing dense feature sampling
+  with sparse outer faces; disjoint split/collapse thresholds and split-before-collapse settle auto mode
+  in three rounds without the former operator churn.
 - Retaining-wall warnings carry local failure points/focus segments from the shared planner. The
   viewport shows action-oriented labels such as `Ends do not match`, `Rail doubles back`, and
   `Missing matching rail`; the whole input rail is retained only as subdued context.
@@ -104,11 +109,22 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 - `SculptFieldCodec.cs` - persisted `SculptTile` list (base64) ⇄ runtime `SculptDisplacementField`.
 
 ## Other
-- `GeometryCommandService.cs`, `BlockCommandService.cs`, `LayerTemplateStore.cs`,
-  `RhinoSourceResolver.cs`, `RhinoGeometryConversions.cs` - command/geometry helpers.
+- `GeometryCommandService.cs`, `TerrainInputCommandService.cs`, `TerrainInputCommandAlgorithms.cs`,
+  `BlockCommandService.cs`, `LayerTemplateStore.cs`, `RhinoSourceResolver.cs`,
+  `RhinoGeometryConversions.cs` - command/geometry helpers. Terrain input commands are intentionally
+  document-scoped and selected-only: validation edits selected points/curves, intersection splitting
+  edits selected curves, draping samples a selected mesh/surface, and wall creation generates two
+  ordinary open polylines. Validation replaces surviving objects in place so their ids and attributes
+  remain intact; near-endpoint joins are restricted to curves on the same layer and retain the first
+  curve's id/settings while deleting only the consumed curve objects.
 - `ProjectBaseCPlaneService.cs` - reversible project-local/real-world transform storage and ModelSpace
-  orientation; PageSpace layout content is left unchanged. Reorientation post-composes the new local inverse;
-  the modern named plane is preferred and legacy `Georef` is migration-only.
+  orientation; PageSpace layout content is left unchanged. Reorientation post-composes the new local inverse.
+  The modern plane is validated as a horizontal XY-only frame; confirmed Python `FOTM` migrations invert
+  their old world-to-local convention, while confirmed legacy C# `Georef` planes retain local-to-world.
+  Legacy planes are never deleted by save/clear.
+- `GeoreferenceImportPlanner.cs` - complete before/after object-table differencing so Paste/File import
+  remaps all newly added ModelSpace objects rather than only Rhino's selected subset; failed remaps remove
+  every newly added object and restore the prior selection.
 - `RasterGeoreference.cs` / `GeoTiffMetadataReader.cs` / `GeoTiffLinearUnitReader.cs` - dependency-free
   affine raster placement from embedded GeoTIFF model tags or full six-value world files. Projected EPSG
   linear-unit keys are converted into document units; unlabelled rasters prompt for source units with

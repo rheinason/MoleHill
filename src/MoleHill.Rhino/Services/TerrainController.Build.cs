@@ -170,12 +170,11 @@ internal sealed partial class TerrainController
         {
         }
         terrain.LastBuildMessage = $"{(mode == TerrainBuildMode.Preview ? "Preview" : "Build")} #{buildVersion:N0}: snapshot starting...";
-        RhinoApp.WriteLine($"[MoleHill] {terrain.Name}: {terrain.LastBuildMessage}");
+        WriteBuildStarted(terrain, mode, buildVersion);
         RaiseStateChanged();
         var snapshotTimer = Stopwatch.StartNew();
         TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
         snapshotTimer.Stop();
-        RhinoApp.WriteLine($"[MoleHill] {terrain.Name}: snapshot complete in {snapshotTimer.Elapsed.TotalSeconds:0.###} s; managed {GC.GetTotalMemory(false) / (1024.0 * 1024.0):0.0} MB.");
 
         var workerCacheTimer = Stopwatch.StartNew();
         TerrainRuntimeCache workerCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).CreateWorkerCopy();
@@ -232,6 +231,7 @@ internal sealed partial class TerrainController
         terrain.LastBuildMessage = mode == TerrainBuildMode.Preview
             ? $"Previewing terrain #{buildVersion:N0}..."
             : $"Building terrain #{buildVersion:N0}...";
+        WriteBuildStarted(terrain, mode, buildVersion);
         RaiseStateChanged();
 
         try
@@ -259,6 +259,7 @@ internal sealed partial class TerrainController
                     ? $"{mode} #{buildVersion:N0} cancelled; newer request queued."
                     : $"{mode} #{buildVersion:N0} cancelled.";
                 terrain.LastStructuredDiagnostics.Clear();
+                WriteBuildCancelled(terrain, mode, buildVersion);
                 RaiseStateChanged();
                 return false;
             }
@@ -268,10 +269,9 @@ internal sealed partial class TerrainController
                 if (mode == TerrainBuildMode.Final)
                     terrain.LastBuildUtc = DateTimeOffset.UtcNow;
 
-                terrain.LastBuildMessage = $"{mode} failed: {result.Error?.Message ?? "Unknown build error."}";
+                terrain.LastBuildMessage = FormatBuildFailureStatus(mode, buildVersion, result.Error);
                 terrain.LastStructuredDiagnostics.Clear();
-                if (result.Error != null)
-                    RhinoApp.WriteLine($"[MoleHill] Rebuild failed for '{terrain.Name}': {result.Error}");
+                WriteBuildFailed(terrain, mode, buildVersion);
                 if (mode == TerrainBuildMode.Final)
                     Save(doc, state);
                 return false;
@@ -371,6 +371,7 @@ internal sealed partial class TerrainController
         {
             terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} discarded after reset.";
             terrain.LastStructuredDiagnostics.Clear();
+            WriteBuildCancelled(terrain, result.Mode, result.Version);
             RaiseStateChanged();
             return;
         }
@@ -379,6 +380,7 @@ internal sealed partial class TerrainController
         {
             terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled; newer request queued.";
             terrain.LastStructuredDiagnostics.Clear();
+            WriteBuildCancelled(terrain, result.Mode, result.Version);
             RaiseStateChanged();
             return;
         }
@@ -390,6 +392,7 @@ internal sealed partial class TerrainController
 
             terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled.";
             terrain.LastStructuredDiagnostics.Clear();
+            WriteBuildCancelled(terrain, result.Mode, result.Version);
             RaiseStateChanged();
             return;
         }
@@ -399,10 +402,9 @@ internal sealed partial class TerrainController
             if (result.Mode == TerrainBuildMode.Final)
                 terrain.LastBuildUtc = DateTimeOffset.UtcNow;
 
-            terrain.LastBuildMessage = $"{result.Mode} failed: {result.Error?.Message ?? "Unknown build error."}";
+            terrain.LastBuildMessage = FormatBuildFailureStatus(result.Mode, result.Version, result.Error);
             terrain.LastStructuredDiagnostics.Clear();
-            if (result.Error != null)
-                RhinoApp.WriteLine($"[MoleHill] Rebuild failed for '{terrain.Name}': {result.Error}");
+            WriteBuildFailed(terrain, result.Mode, result.Version);
             if (result.Mode == TerrainBuildMode.Final)
                 Save(doc, state);
             return;
@@ -453,6 +455,8 @@ internal sealed partial class TerrainController
         TerrainDisplayState displayState = runtimeCache.DisplayState
             ?? throw new InvalidOperationException("Terrain display state was not produced by the build.");
         build.RecordTiming("Display refresh", displayTimer.Elapsed, DescribeDisplayState(displayState), StageTimingDiagnosticThresholdMs);
+        TimeSpan commandElapsed = result.SnapshotElapsed + result.WorkerCacheCloneElapsed + buildElapsed +
+                                  cacheMergeTimer.Elapsed + displayTimer.Elapsed;
 
         if (result.Mode == TerrainBuildMode.Final)
         {
@@ -490,6 +494,7 @@ internal sealed partial class TerrainController
                 displayState,
                 build.Timings,
                 "Rebuild total");
+            commandElapsed += saveTimer.Elapsed + redrawTimer.Elapsed;
         }
         else
         {
@@ -519,8 +524,10 @@ internal sealed partial class TerrainController
             doc.Views.Redraw();
             redrawTimer.Stop();
             build.RecordTiming("Viewport redraw", redrawTimer.Elapsed, null, MinorTimingDiagnosticThresholdMs);
+            commandElapsed += redrawTimer.Elapsed;
         }
 
+        WriteBuildFinished(terrain, result.Mode, result.Version, commandElapsed);
         RaiseStateChanged();
     }
 
@@ -579,5 +586,34 @@ internal sealed partial class TerrainController
             targetModifier.ComputedStepCountSummary = sourceModifier.ComputedStepCountSummary;
         }
     }
+
+    private static string FormatBuildFailureStatus(TerrainBuildMode mode, long version, Exception? error)
+    {
+        string header = $"{BuildCommandLabel(mode)} #{version:N0} failed.";
+        return error == null
+            ? $"{header}{System.Environment.NewLine}Unknown build error."
+            : $"{header}{System.Environment.NewLine}{error}";
+    }
+
+    private static void WriteBuildStarted(TerrainDefinition terrain, TerrainBuildMode mode, long version) =>
+        RhinoApp.WriteLine($"[MoleHill] {terrain.Name}: {BuildCommandLabel(mode)} #{version:N0} started.");
+
+    private static void WriteBuildFinished(
+        TerrainDefinition terrain,
+        TerrainBuildMode mode,
+        long version,
+        TimeSpan elapsed) =>
+        RhinoApp.WriteLine(
+            $"[MoleHill] {terrain.Name}: {BuildCommandLabel(mode)} #{version:N0} finished in {elapsed.TotalSeconds:0.##} s.");
+
+    private static void WriteBuildCancelled(TerrainDefinition terrain, TerrainBuildMode mode, long version) =>
+        RhinoApp.WriteLine($"[MoleHill] {terrain.Name}: {BuildCommandLabel(mode)} #{version:N0} cancelled.");
+
+    private static void WriteBuildFailed(TerrainDefinition terrain, TerrainBuildMode mode, long version) =>
+        RhinoApp.WriteLine(
+            $"[MoleHill] {terrain.Name}: {BuildCommandLabel(mode)} #{version:N0} failed. See MoleHill Status for details.");
+
+    private static string BuildCommandLabel(TerrainBuildMode mode) =>
+        mode == TerrainBuildMode.Preview ? "Preview" : "Build";
 
 }

@@ -27,8 +27,19 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   `UI/PanelButtonIcons.cs`, a theme-aware vector icon set rendered to Eto images.
 - Rhino command names use the compact `mh...` prefix. The installed toolbar exposes Geometry, Blocks,
   and Document utilities; terrain creation, editing, and bake/convert workflows stay in the dock panel.
-- Project-local ↔ real-world coordinates use the named `MoleHill_ProjectBase` plane as a reversible rigid
-  transform; object replacement ids are reconciled across terrain source/output tracking. GeoTIFF import
+- Terrain input preparation commands are selected-geometry workflows in the Rhino host: `mhValidateTerrainInputs`
+  cleans selected points/curves through a parented Eto dialog, `mhSplitAtIntersections` splits only selected
+  curves, `mhDrapeCurve` samples curves onto a selected mesh/surface along World Z, and `mhCreateWall`
+  interactively draws a rail plus a parallel plan/elevation-offset rail. These commands create ordinary
+  Rhino geometry for later assignment as points, breaklines, contours, or boundaries; they do not mutate
+  managed terrain definitions. Validation replaces surviving objects in place to preserve ids and complete
+  Rhino attributes; joining is layer-scoped, with one original object surviving each many-to-one join.
+- Project-local ↔ real-world coordinates use the validated horizontal `MoleHill_ProjectBase` plane as a
+  reversible local-to-real-world rigid transform; object replacement ids are reconciled across terrain
+  source/output tracking. Legacy Python `FOTM` planes (the inverse convention) and legacy C# `Georef`
+  planes migrate only after confirmation and are retained unchanged. Georeferenced Paste/File import
+  diffs the complete object table, transforms all new ModelSpace objects, and removes them on failure.
+  GeoTIFF import
   reads embedded model and linear-unit tags without GDAL, asks for source units when metadata is absent,
   falls back to a full-affine world file, converts coordinates into document units, and applies the saved
   real-world → project transform. See `docs/project-base-georeference.md`.
@@ -100,8 +111,10 @@ walls, breaklines, grade-path road edges — plus the modifier's own Constraints
   constraint stack) are pinned — vertices slide 1-D along them, corners stay fixed, no edge flips
   across, no collapse merges across features. Steep retaining-wall faces (≥ 70°) and faces touching
   non-manifold edges (imperfect upstream welds) are frozen and pass through verbatim; the acceptance
-  gate only requires the output to be no worse than the input's topology. Best overall quality, but can
-  be slow on very large terrains and may occasionally cross a wall on a shallow wall angle.
+  gate only requires the output to be no worse than the input's topology. Split/collapse thresholds have
+  a non-overlapping hysteresis band and each round splits before it collapses, preventing newly split
+  edges from being immediately undone. Best overall quality, but can be slow on very large terrains and
+  may occasionally cross a wall on a shallow wall angle.
 - **Full Rebuild** (`Engine/SurfaceRemesher` via the shared `RebuildMeshWithConstraints` helper, also
   used by Retaining Wall's local-insertion fallback and the GH Remesh component) — classic constrained-Delaunay
   re-triangulation from scratch; every constraint including wall rails becomes a hard edge, so it
@@ -110,7 +123,8 @@ walls, breaklines, grade-path road edges — plus the modifier's own Constraints
   only splits/flips triangles in place, never re-triangulates from scratch. Fastest and safest on huge
   terrains/delicate wall topology since it can't introduce new topology at all, but coarsest quality.
 
-Params: Algorithm, Edge Length (0 = keep the mesh's own median density), and Crease Angle.
+Params: Algorithm, Edge Length (0 = preserve approximate face density from plan area / face count), and
+Crease Angle. Auto-density remeshes use three settle rounds; explicit targets use five in final builds.
 
 The **Retopo** modifier (finishing, meant to run last) is field-guided **quad** retopology
 (`Core/Retopo/`): `CrossFieldSolver` (a 2-D 4-RoSy cross-field pinned to feature tangents — boundary ∪
@@ -245,7 +259,9 @@ zones, markers, objects, and scatter retain stage-level entries.
   summaries, and diagnostics because no Path restore consumes their full vertex/face arrays.
 - Cold TIN conversion marks normalized Rhino meshes, allowing stage-cache storage to skip the otherwise
   redundant second normalization while still normalizing meshes produced by other paths when needed.
-- Background builds enqueue live phase/elapsed/memory telemetry for the controller's UI-thread idle loop.
+- Background builds enqueue live phase/elapsed/memory telemetry for the controller's UI-thread idle loop
+  and detailed panel Status log. Rhino command history receives only one start and one terminal line per
+  build, keeping phase diagnostics and timings out of the modeling command stream.
   `mhBenchmarkLargeTin` supplies a deterministic 247k-point diagnostic that separates shared TIN time
   from Rhino conversion, normalization, fingerprinting, and cache duplication, with managed-allocation,
   process-private, and working-set snapshots around every phase.

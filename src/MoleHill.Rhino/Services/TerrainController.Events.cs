@@ -285,7 +285,6 @@ internal sealed partial class TerrainController
                 }
 
                 latest = update;
-                RhinoApp.WriteLine($"[MoleHill] {update.Mode} #{update.Version:N0}: {update.Progress.Format()}");
             }
 
             if (latest == null)
