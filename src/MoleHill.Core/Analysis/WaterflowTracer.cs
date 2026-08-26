@@ -1,0 +1,394 @@
+namespace MoleHill.Core.Analysis;
+
+/// <summary>Traces a single deterministic downhill water path through a 2.5D triangle mesh.</summary>
+public static class WaterflowTracer
+{
+    public sealed class Options
+    {
+        /// <summary>Maximum plan length. Zero or less continues until the mesh edge or a sink.</summary>
+        public double MaxLength { get; init; }
+
+        /// <summary>Safety cap for triangle transitions.</summary>
+        public int MaxSteps { get; init; } = 10_000;
+
+        /// <summary>Minimum downhill slope ratio treated as a local flat/sink.</summary>
+        public double MinimumSlopeRatio { get; init; } = 1e-9;
+
+        /// <summary>Numerical tolerance used for point-in-triangle and edge crossing tests.</summary>
+        public double Tolerance { get; init; } = 1e-10;
+    }
+
+    public sealed class Result
+    {
+        public IReadOnlyList<Path> Paths { get; init; } = Array.Empty<Path>();
+
+        public int RejectedStartCount { get; init; }
+    }
+
+    public sealed class Path
+    {
+        /// <summary>Terrain-conforming XYZ path points, including the projected start point.</summary>
+        public required double[] PointsXyz { get; init; }
+
+        public int PointCount => PointsXyz.Length / 3;
+
+        public double PlanLength { get; init; }
+
+        public bool ReachedBoundary { get; init; }
+
+        public bool TerminatedAtSink { get; init; }
+    }
+
+    /// <summary>
+    /// Trace downhill from each XY start point. A path follows the constant gradient of each
+    /// triangle, then continues through the adjacent triangle. At a local flat/sink it stops; at
+    /// a naked mesh edge it reaches the boundary. Start-point Z values are ignored.
+    /// </summary>
+    public static Result Trace(
+        IReadOnlyList<double> vertices,
+        int vertexCount,
+        IReadOnlyList<int> faces,
+        int faceCount,
+        IReadOnlyList<double> startXy,
+        int startPointCount,
+        Options? options = null)
+    {
+        if (vertices == null)
+            throw new ArgumentNullException(nameof(vertices));
+        if (faces == null)
+            throw new ArgumentNullException(nameof(faces));
+        if (startXy == null)
+            throw new ArgumentNullException(nameof(startXy));
+        if (vertexCount < 0 || vertexCount * 3 > vertices.Count)
+            throw new ArgumentOutOfRangeException(nameof(vertexCount));
+        if (faceCount < 0 || faceCount * 3 > faces.Count)
+            throw new ArgumentOutOfRangeException(nameof(faceCount));
+        if (startPointCount < 0 || startPointCount * 2 > startXy.Count)
+            throw new ArgumentOutOfRangeException(nameof(startPointCount));
+
+        Options settings = options ?? new Options();
+        int maxSteps = Math.Max(1, settings.MaxSteps);
+        double tolerance = Math.Max(Math.Abs(settings.Tolerance), 1e-12);
+        int[] neighbors = BuildNeighbors(faces, faceCount, vertexCount);
+        var paths = new List<Path>(startPointCount);
+        int rejected = 0;
+
+        for (int startIndex = 0; startIndex < startPointCount; startIndex++)
+        {
+            double x = startXy[startIndex * 2];
+            double y = startXy[startIndex * 2 + 1];
+            int faceIndex = FindContainingFace(vertices, vertexCount, faces, faceCount, x, y, tolerance);
+            if (faceIndex < 0)
+            {
+                rejected++;
+                continue;
+            }
+
+            Path path = TracePath(
+                vertices,
+                faces,
+                neighbors,
+                x,
+                y,
+                faceIndex,
+                settings,
+                maxSteps,
+                tolerance);
+            paths.Add(path);
+        }
+
+        return new Result { Paths = paths, RejectedStartCount = rejected };
+    }
+
+    private static Path TracePath(
+        IReadOnlyList<double> vertices,
+        IReadOnlyList<int> faces,
+        IReadOnlyList<int> neighbors,
+        double x,
+        double y,
+        int faceIndex,
+        Options settings,
+        int maxSteps,
+        double tolerance)
+    {
+        var points = new List<double>(Math.Min(maxSteps + 1, 256)) { x, y, 0.0 };
+        double planLength = 0.0;
+        bool reachedBoundary = false;
+        bool terminatedAtSink = false;
+        double currentX = x;
+        double currentY = y;
+        var visitedFaces = new HashSet<int> { faceIndex };
+        double maxLength = settings.MaxLength > 0.0 && double.IsFinite(settings.MaxLength)
+            ? settings.MaxLength
+            : double.PositiveInfinity;
+
+        for (int step = 0; step < maxSteps; step++)
+        {
+            bool hasPlane = TryGetPlane(vertices, faces, faceIndex, out Plane plane, out double slopeRatio);
+            if (hasPlane && points.Count == 3)
+                points[2] = plane.Evaluate(currentX, currentY);
+
+            if (!hasPlane || slopeRatio <= Math.Max(0.0, settings.MinimumSlopeRatio))
+            {
+                terminatedAtSink = true;
+                break;
+            }
+
+            double dx = plane.GradientX == 0.0 && plane.GradientY == 0.0
+                ? 0.0
+                : -plane.GradientX;
+            double dy = -plane.GradientY;
+            double directionLength = Math.Sqrt((dx * dx) + (dy * dy));
+            if (directionLength <= tolerance)
+            {
+                terminatedAtSink = true;
+                break;
+            }
+
+            if (!TryFindExit(
+                    vertices,
+                    faces,
+                    faceIndex,
+                    currentX,
+                    currentY,
+                    dx,
+                    dy,
+                    tolerance,
+                    out double distance,
+                    out int exitEdge,
+                    out double exitX,
+                    out double exitY))
+            {
+                terminatedAtSink = true;
+                break;
+            }
+
+            double remaining = maxLength - planLength;
+            if (remaining <= tolerance)
+                break;
+
+            bool limitedByLength = distance > remaining;
+            double segmentLength = limitedByLength ? remaining : distance;
+            double segmentX = currentX + (dx / directionLength * segmentLength);
+            double segmentY = currentY + (dy / directionLength * segmentLength);
+            points.Add(segmentX);
+            points.Add(segmentY);
+            points.Add(plane.Evaluate(segmentX, segmentY));
+            planLength += segmentLength;
+
+            if (limitedByLength)
+                break;
+
+            int nextFace = neighbors[(faceIndex * 3) + exitEdge];
+            if (nextFace < 0)
+            {
+                reachedBoundary = true;
+                break;
+            }
+
+            // A downhill ray should not revisit a face on a scalar terrain. Revisit means the
+            // discrete face gradients have formed a local cycle, so stop rather than oscillate.
+            if (!visitedFaces.Add(nextFace))
+            {
+                terminatedAtSink = true;
+                break;
+            }
+
+            faceIndex = nextFace;
+
+            double nudge = Math.Max(tolerance * 8.0, 1e-12);
+            currentX = exitX + (dx / directionLength * nudge);
+            currentY = exitY + (dy / directionLength * nudge);
+        }
+
+        return new Path
+        {
+            PointsXyz = points.ToArray(),
+            PlanLength = planLength,
+            ReachedBoundary = reachedBoundary,
+            TerminatedAtSink = terminatedAtSink
+        };
+    }
+
+    private static int[] BuildNeighbors(IReadOnlyList<int> faces, int faceCount, int vertexCount)
+    {
+        var neighbors = Enumerable.Repeat(-1, faceCount * 3).ToArray();
+        var edges = new Dictionary<EdgeKey, (int Face, int Edge)>();
+
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            for (int edge = 0; edge < 3; edge++)
+            {
+                int a = faces[(faceIndex * 3) + edge];
+                int b = faces[(faceIndex * 3) + ((edge + 1) % 3)];
+                if ((uint)a >= (uint)vertexCount || (uint)b >= (uint)vertexCount || a == b)
+                    continue;
+
+                var key = new EdgeKey(a, b);
+                if (!edges.TryGetValue(key, out var previous))
+                {
+                    edges.Add(key, (faceIndex, edge));
+                    continue;
+                }
+
+                // Non-manifold edges are treated as boundaries rather than choosing an arbitrary
+                // third face. The first two faces still form a deterministic pair.
+                if (neighbors[(previous.Face * 3) + previous.Edge] < 0)
+                {
+                    neighbors[(previous.Face * 3) + previous.Edge] = faceIndex;
+                    neighbors[(faceIndex * 3) + edge] = previous.Face;
+                }
+            }
+        }
+
+        return neighbors;
+    }
+
+    private static int FindContainingFace(
+        IReadOnlyList<double> vertices,
+        int vertexCount,
+        IReadOnlyList<int> faces,
+        int faceCount,
+        double x,
+        double y,
+        double tolerance)
+    {
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[(faceIndex * 3) + 1];
+            int c = faces[(faceIndex * 3) + 2];
+            if ((uint)a >= (uint)vertexCount || (uint)b >= (uint)vertexCount || (uint)c >= (uint)vertexCount)
+                continue;
+
+            double ax = vertices[a * 3];
+            double ay = vertices[(a * 3) + 1];
+            double bx = vertices[b * 3];
+            double by = vertices[(b * 3) + 1];
+            double cx = vertices[c * 3];
+            double cy = vertices[(c * 3) + 1];
+            double area = Cross(bx - ax, by - ay, cx - ax, cy - ay);
+            if (Math.Abs(area) <= tolerance)
+                continue;
+
+            double ab = Cross(bx - ax, by - ay, x - ax, y - ay);
+            double bc = Cross(cx - bx, cy - by, x - bx, y - by);
+            double ca = Cross(ax - cx, ay - cy, x - cx, y - cy);
+            if ((ab >= -tolerance && bc >= -tolerance && ca >= -tolerance) ||
+                (ab <= tolerance && bc <= tolerance && ca <= tolerance))
+                return faceIndex;
+        }
+
+        return -1;
+    }
+
+    private static bool TryGetPlane(
+        IReadOnlyList<double> vertices,
+        IReadOnlyList<int> faces,
+        int faceIndex,
+        out Plane plane,
+        out double slopeRatio)
+    {
+        int a = faces[faceIndex * 3];
+        int b = faces[(faceIndex * 3) + 1];
+        int c = faces[(faceIndex * 3) + 2];
+        double ax = vertices[a * 3];
+        double ay = vertices[(a * 3) + 1];
+        double az = vertices[(a * 3) + 2];
+        double ux = vertices[b * 3] - ax;
+        double uy = vertices[(b * 3) + 1] - ay;
+        double uz = vertices[(b * 3) + 2] - az;
+        double vx = vertices[c * 3] - ax;
+        double vy = vertices[(c * 3) + 1] - ay;
+        double vz = vertices[(c * 3) + 2] - az;
+        double nx = (uy * vz) - (uz * vy);
+        double ny = (uz * vx) - (ux * vz);
+        double nz = (ux * vy) - (uy * vx);
+        if (Math.Abs(nz) <= 1e-14)
+        {
+            plane = default;
+            slopeRatio = 0.0;
+            return false;
+        }
+
+        double gradientX = -nx / nz;
+        double gradientY = -ny / nz;
+        plane = new Plane(ax, ay, az, gradientX, gradientY);
+        slopeRatio = Math.Sqrt((gradientX * gradientX) + (gradientY * gradientY));
+        return double.IsFinite(slopeRatio);
+    }
+
+    private static bool TryFindExit(
+        IReadOnlyList<double> vertices,
+        IReadOnlyList<int> faces,
+        int faceIndex,
+        double x,
+        double y,
+        double dx,
+        double dy,
+        double tolerance,
+        out double distance,
+        out int exitEdge,
+        out double exitX,
+        out double exitY)
+    {
+        distance = double.PositiveInfinity;
+        exitEdge = -1;
+        exitX = x;
+        exitY = y;
+        double bestT = double.PositiveInfinity;
+
+        for (int edge = 0; edge < 3; edge++)
+        {
+            int a = faces[(faceIndex * 3) + edge];
+            int b = faces[(faceIndex * 3) + ((edge + 1) % 3)];
+            double ax = vertices[a * 3];
+            double ay = vertices[(a * 3) + 1];
+            double bx = vertices[b * 3];
+            double by = vertices[(b * 3) + 1];
+            double edgeX = bx - ax;
+            double edgeY = by - ay;
+            double denominator = Cross(dx, dy, edgeX, edgeY);
+            if (Math.Abs(denominator) <= tolerance)
+                continue;
+
+            double toEdgeX = ax - x;
+            double toEdgeY = ay - y;
+            double t = Cross(toEdgeX, toEdgeY, edgeX, edgeY) / denominator;
+            double u = Cross(toEdgeX, toEdgeY, dx, dy) / denominator;
+            if (t <= tolerance || u < -tolerance || u > 1.0 + tolerance || t >= bestT)
+                continue;
+
+            bestT = t;
+            exitEdge = edge;
+            exitX = x + (dx * t);
+            exitY = y + (dy * t);
+        }
+
+        if (exitEdge < 0)
+            return false;
+
+        distance = bestT * Math.Sqrt((dx * dx) + (dy * dy));
+        return double.IsFinite(distance);
+    }
+
+    private static double Cross(double ax, double ay, double bx, double by) => (ax * by) - (ay * bx);
+
+    private readonly record struct EdgeKey
+    {
+        public EdgeKey(int a, int b)
+        {
+            A = Math.Min(a, b);
+            B = Math.Max(a, b);
+        }
+
+        public int A { get; }
+
+        public int B { get; }
+    }
+
+    private readonly record struct Plane(double OriginX, double OriginY, double OriginZ, double GradientX, double GradientY)
+    {
+        public double Evaluate(double x, double y) => OriginZ + (GradientX * (x - OriginX)) + (GradientY * (y - OriginY));
+    }
+}
