@@ -169,6 +169,13 @@ public sealed partial class MoleHillPanel
         {
             case SlopeAnalysisDefinition slope:
                 layout.AddRow(CreateSlopeUnitEditor(terrain.TerrainId, slope));
+                layout.AddRow(CreateAnalysisColorSettings(terrain, slope));
+                break;
+            case ElevationAnalysisDefinition elevation:
+                layout.AddRow(CreateAnalysisColorSettings(terrain, elevation));
+                break;
+            case CutFillAnalysisDefinition cutFill:
+                layout.AddRow(CreateAnalysisColorSettings(terrain, cutFill));
                 break;
 
             case TerrainSectionAnalysisDefinition terrainSection:
@@ -243,7 +250,12 @@ public sealed partial class MoleHillPanel
                     layout.AddRow(CreateSlopeLegendView(
                         SlopePreviewPaletteCatalog.Resolve(slope.PalettePreset),
                         displayLowLabel: sLow,
-                        displayHighLabel: sHigh));
+                        displayHighLabel: sHigh,
+                        mode: slope.ColorMode,
+                        interval: summary == null || slope.ColorInterval <= 0.0
+                            ? 0.1
+                            : ConvertSlopeValue(slope.ColorInterval, slope.Unit, SlopeAnalyzer.SlopeUnit.Percent) /
+                              Math.Max(1e-12, summary.SlopeDisplayHighPercent - summary.SlopeDisplayLowPercent)));
                 }
                 break;
 
@@ -256,14 +268,14 @@ public sealed partial class MoleHillPanel
                 {
                     // Actual low/high Z driven by either the configured range or auto-fit from last build
                     var a = summary;
-                    double eLow  = (a != null && elevation.RangeLow == 0 && elevation.RangeHigh <= elevation.RangeLow)
-                        ? a.ElevationMinZ : (elevation.RangeLow != 0 ? elevation.RangeLow : a?.ElevationMinZ ?? 0);
-                    double eHigh = (a != null && elevation.RangeHigh <= elevation.RangeLow)
-                        ? a.ElevationMaxZ : (elevation.RangeHigh > elevation.RangeLow ? elevation.RangeHigh : a?.ElevationMaxZ ?? 0);
+                    double eLow  = a != null && elevation.AutoColorRange ? a.ElevationMinZ : elevation.RangeLow;
+                    double eHigh = a != null && elevation.AutoColorRange ? a.ElevationMaxZ : elevation.RangeHigh;
                     layout.AddRow(CreateSlopeLegendView(
                         SlopePreviewPaletteCatalog.Resolve(elevation.PalettePreset),
                         displayLowLabel:  a != null ? $"{eLow:F1}" : "Low Z",
-                        displayHighLabel: a != null ? $"{eHigh:F1}" : "High Z"));
+                        displayHighLabel: a != null ? $"{eHigh:F1}" : "High Z",
+                        mode: elevation.ColorMode,
+                        interval: AnalysisColorMapper.ResolveInterval(eLow, eHigh, elevation.ColorInterval) / Math.Max(1e-12, eHigh - eLow)));
                 }
                 break;
 
@@ -276,13 +288,37 @@ public sealed partial class MoleHillPanel
                 }
                 {
                     var a = summary;
-                    double absMax = a?.CutFillDisplayAbsMax ?? 0.0;
+                    double absMax = a?.CutFillDisplayAbsMax ?? Math.Max(Math.Abs(cutFill.RangeLow), Math.Abs(cutFill.RangeHigh));
                     string cfLow  = a != null ? $"{-absMax:F2}" : "Cut";
                     string cfHigh = a != null ? $"+{absMax:F2}" : "Fill";
                     layout.AddRow(CreateSlopeLegendView(
                         SlopePreviewPaletteCatalog.Resolve(cutFill.PalettePreset),
                         displayLowLabel: cfLow,
-                        displayHighLabel: cfHigh));
+                        displayHighLabel: cfHigh,
+                        mode: cutFill.ColorMode,
+                        interval: AnalysisColorMapper.ResolveInterval(-absMax, absMax, cutFill.ColorInterval) / Math.Max(1e-12, absMax * 2.0)));
+                }
+                break;
+
+            case WaterflowAnalysisDefinition waterflow:
+                if (summary != null)
+                {
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Points / Paths",
+                        $"{summary.SampleSourceCount} point(s) -> {summary.GeneratedOutputCount} path(s)",
+                        "Waterflow paths traced from the point sources across the final terrain."));
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Ends",
+                        $"{summary.WaterflowBoundaryCount} boundary | {summary.WaterflowSinkCount} sink | {summary.WaterflowRejectedCount} outside",
+                        "How the point paths ended during the last terrain build."));
+                }
+                else
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to generate waterflow paths.",
+                        minHeight: 42));
                 }
                 break;
 

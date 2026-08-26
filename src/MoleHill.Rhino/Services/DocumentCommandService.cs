@@ -12,6 +12,9 @@ using Rhino.Geometry;
 using Rhino.Input;
 using Rhino.Input.Custom;
 using Rhino.UI;
+using MoleHill.Core.Interop;
+using MoleHill.Rhino.Model;
+using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
@@ -269,7 +272,67 @@ internal static class DocumentCommandService
         }
     }
 
-    public static Result RunImportGeoTiff(RhinoDoc doc)
+    public static Result RunImportLandXml(RhinoDoc doc)
+    {
+        var dialog = new OpenFileDialog { Title = "Import LandXML Surface" };
+        dialog.Filters.Add(new FileFilter("LandXML", ".xml", ".landxml"));
+        if (dialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok || string.IsNullOrWhiteSpace(dialog.FileName))
+            return Result.Cancel;
+        return LandXmlSurfaceService.ImportAsTerrain(doc, dialog.FileName, out _);
+    }
+
+    public static Result RunExportLandXml(RhinoDoc doc)
+    {
+        TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
+        if (terrain == null)
+            return Result.Nothing;
+        RhinoMesh? mesh = TerrainController.Instance.DuplicateFinalTerrainMesh(doc, terrain.TerrainId);
+        if (mesh == null)
+        {
+            RhinoApp.WriteLine("MoleHill: export requires a completed final terrain build.");
+            return Result.Nothing;
+        }
+
+        var surface = new TinSurfaceData { Name = terrain.Name };
+        Transform exportTransform = Transform.Identity;
+        if (ProjectBaseCPlaneService.TryGetTransform(false, doc, out Transform georef, out _))
+            exportTransform = georef;
+        for (int i = 0; i < mesh.Vertices.Count; i++)
+        {
+            Point3d point = mesh.Vertices[i];
+            point.Transform(exportTransform);
+            surface.Points.Add(new TinSurfacePoint(i + 1, point.X, point.Y, point.Z));
+        }
+        for (int i = 0; i < mesh.Faces.Count; i++)
+        {
+            MeshFace face = mesh.Faces[i];
+            if (face.IsTriangle)
+                surface.Triangles.Add(new TinSurfaceTriangle(face.A + 1, face.B + 1, face.C + 1));
+            else
+            {
+                surface.Triangles.Add(new TinSurfaceTriangle(face.A + 1, face.B + 1, face.C + 1));
+                surface.Triangles.Add(new TinSurfaceTriangle(face.A + 1, face.C + 1, face.D + 1));
+            }
+        }
+
+        var dialog = new SaveFileDialog { Title = "Export LandXML Surface", FileName = $"{terrain.Name}.xml" };
+        dialog.Filters.Add(new FileFilter("LandXML", ".xml"));
+        if (dialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok || string.IsNullOrWhiteSpace(dialog.FileName))
+            return Result.Cancel;
+        if (!LandXmlSurfaceService.TryExport(surface, dialog.FileName, out string? error))
+        {
+            RhinoApp.WriteLine($"MoleHill: could not export LandXML: {error}");
+            return Result.Failure;
+        }
+        RhinoApp.WriteLine($"MoleHill: exported LandXML surface '{terrain.Name}'.");
+        return Result.Success;
+    }
+
+    public static Result RunImportGeoTiff(RhinoDoc doc) => RunImportGeoTiff(doc, createTerrain: false);
+
+    public static Result RunImportGeoTiffTerrain(RhinoDoc doc) => RunImportGeoTiff(doc, createTerrain: true);
+
+    private static Result RunImportGeoTiff(RhinoDoc doc, bool createTerrain)
     {
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext documentUnits))
             return Result.Failure;
@@ -374,8 +437,52 @@ internal static class DocumentCommandService
             (placedInProjectCoordinates ? "in local project coordinates." : "in real-world coordinates.") +
             $" Source coordinates were interpreted as {unitDescription} and converted to {documentUnits.Abbreviation}." +
             " No CRS reprojection was applied.");
+        if (createTerrain)
+        {
+            List<Guid> pointIds = SampleRasterAsTerrainPoints(doc, image, georeference, hasProjectBase,
+                sourceMetersPerUnit / documentUnits.MetersPerModelUnit);
+            if (pointIds.Count < 3 || TerrainController.Instance.CreateTerrainFromPointIds(doc, pointIds, Path.GetFileNameWithoutExtension(geotiffPath)) == null)
+            {
+                RhinoApp.WriteLine("MoleHill: the raster did not produce enough valid elevation samples for a terrain.");
+                return Result.Failure;
+            }
+            RhinoApp.WriteLine($"MoleHill: created a managed DEM terrain from {pointIds.Count:N0} raster samples.");
+        }
         doc.Views.Redraw();
         return Result.Success;
+    }
+
+    private static List<Guid> SampleRasterAsTerrainPoints(
+        RhinoDoc doc,
+        System.Drawing.Image image,
+        RasterGeoreference georeference,
+        bool hasProjectBase,
+        double elevationScale)
+    {
+        using var bitmap = new System.Drawing.Bitmap(image);
+        int stride = Math.Max(1, (int)Math.Ceiling(Math.Sqrt((bitmap.Width * (double)bitmap.Height) / 20_000.0)));
+        Transform toProject = Transform.Identity;
+        if (hasProjectBase && !ProjectBaseCPlaneService.TryGetTransform(true, doc, out toProject, out _))
+            return new List<Guid>();
+
+        var ids = new List<Guid>();
+        for (int y = 0; y < bitmap.Height; y += stride)
+        {
+            for (int x = 0; x < bitmap.Width; x += stride)
+            {
+                System.Drawing.Color color = bitmap.GetPixel(x, y);
+                double elevation = color.R * elevationScale;
+                if (!double.IsFinite(elevation))
+                    continue;
+                var mapped = georeference.MapRasterPoint(x + 0.5, y + 0.5);
+                var point = new Point3d(mapped.X, mapped.Y, elevation);
+                point.Transform(toProject);
+                Guid id = doc.Objects.AddPoint(point);
+                if (id != Guid.Empty)
+                    ids.Add(id);
+            }
+        }
+        return ids;
     }
 
     private static bool TryResolveRasterUnits(

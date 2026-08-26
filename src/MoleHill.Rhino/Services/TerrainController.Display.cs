@@ -33,12 +33,16 @@ internal sealed partial class TerrainController
             BaseTerrainMesh = build.BaseMesh
         };
         displayState.RuntimeOverlays.AddRange(TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays));
+        displayState.HardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(build.PersistentHardConstraints));
+        displayState.ElevationConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(build.PersistentElevationConstraints));
         displayState.VisibleDiagnosticOwners.UnionWith(runtimeCache.VisibleDiagnosticOwners);
         if (build.Mode == TerrainBuildMode.Final)
             displayState.AnalysisResults.AddRange(build.AnalysisResults);
         if (build.Mode == TerrainBuildMode.Final)
         {
             displayState.ZoneObjects.AddRange(build.ZoneObjects);
+            displayState.TerrainRegions.AddRange(build.TerrainRegions.Select(region => region.Duplicate()));
+            displayState.ZoneAnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneZoneAnalyses(build.ZoneAnalysisResults));
             displayState.AuxiliaryObjects.AddRange(build.AuxiliaryObjects);
             displayState.MarkerObjects.AddRange(build.MarkerObjects);
             displayState.ScatterObjects.AddRange(build.ScatterObjects);

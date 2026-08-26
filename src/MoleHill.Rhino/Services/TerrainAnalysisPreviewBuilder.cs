@@ -54,16 +54,23 @@ internal static class TerrainAnalysisPreviewBuilder
             return null;
 
         var palette = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset);
+        double low = analysis.AutoColorRange ? 0.0 : Math.Max(0.0, analysis.RangeLow);
+        double high = analysis.AutoColorRange ? 0.0 : Math.Max(0.0, analysis.RangeHigh);
         var slope = SlopeAnalyzer.Analyze(
             vertices,
             mesh.Vertices.Count,
             faces,
             mesh.Faces.Count,
             analysis.Unit,
-            Math.Max(0.0, analysis.RangeLow),
-            Math.Max(0.0, analysis.RangeHigh),
+            low,
+            high,
             palette.Stops);
-        return BuildFaceColorMesh(vertices, faces, mesh.Faces.Count, slope.FaceColors, alpha);
+        if (analysis.ColorMode == AnalysisColorMapper.Mode.Gradient)
+            return BuildFaceColorMesh(vertices, faces, mesh.Faces.Count, slope.FaceColors, alpha);
+
+        double interval = AnalysisColorMapper.ResolveInterval(slope.ColorLow, slope.ColorHigh, analysis.ColorInterval);
+        byte[] colors = BuildMappedColors(slope.Slopes, slope.ColorLow, slope.ColorHigh, analysis.ColorMode, interval, palette.Stops);
+        return BuildFaceColorMesh(vertices, faces, mesh.Faces.Count, colors, alpha);
     }
 
     internal static bool SupportsTerrainPreview(AnalysisDefinition analysis)
@@ -80,6 +87,7 @@ internal static class TerrainAnalysisPreviewBuilder
             or PointSlopeLabelAnalysisDefinition
             or SlopeArrowAnalysisDefinition
             or GradeBetweenPointsAnalysisDefinition
+            or WaterflowAnalysisDefinition
             or TerrainSectionAnalysisDefinitionBase;
     }
 
@@ -156,15 +164,22 @@ internal static class TerrainAnalysisPreviewBuilder
         if (max == double.MinValue)
             max = 0.0;
 
-        double low = analysis.RangeLow;
-        double high = analysis.RangeHigh > low ? analysis.RangeHigh : max;
+        double low = analysis.AutoColorRange ? min : analysis.RangeLow;
+        double high = analysis.AutoColorRange ? max : analysis.RangeHigh;
+        if (high <= low)
+        {
+            low = min;
+            high = max;
+        }
         if (high <= low)
         {
             low = min;
             high = max > min ? max : min + 1.0;
         }
 
-        byte[] colors = BuildFaceColors(values, low, high, SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset).Stops);
+        var palette = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset).Stops;
+        double interval = AnalysisColorMapper.ResolveInterval(low, high, analysis.ColorInterval);
+        byte[] colors = BuildMappedColors(values, low, high, analysis.ColorMode, interval, palette);
         return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
     }
 
@@ -221,16 +236,17 @@ internal static class TerrainAnalysisPreviewBuilder
             maxAbs = Math.Max(maxAbs, Math.Abs(delta));
         }
 
-        double low = analysis.RangeLow;
-        double high = analysis.RangeHigh;
+        double effective = maxAbs > 0.0 ? maxAbs : 1.0;
+        double low = analysis.AutoColorRange ? -effective : Math.Min(analysis.RangeLow, -Math.Abs(analysis.RangeHigh));
+        double high = analysis.AutoColorRange ? effective : Math.Max(analysis.RangeHigh, Math.Abs(analysis.RangeLow));
         if (high <= low)
         {
-            double effective = maxAbs > 0.0 ? maxAbs : 1.0;
             low = -effective;
             high = effective;
         }
 
         var palette = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset).Stops;
+        double interval = AnalysisColorMapper.ResolveInterval(low, high, analysis.ColorInterval);
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             if (colors[faceIndex * 3] == 130 &&
@@ -238,7 +254,7 @@ internal static class TerrainAnalysisPreviewBuilder
                 colors[faceIndex * 3 + 2] == 130)
                 continue;
 
-            SamplePaletteColor(values[faceIndex], low, high, palette, out byte r, out byte g, out byte b);
+            SampleAnalysisColor(values[faceIndex], low, high, analysis.ColorMode, interval, palette, out byte r, out byte g, out byte b);
             WriteColor(colors, faceIndex, r, g, b);
         }
 
@@ -365,6 +381,40 @@ internal static class TerrainAnalysisPreviewBuilder
         }
 
         return colors;
+    }
+
+    private static byte[] BuildMappedColors(
+        double[] values,
+        double low,
+        double high,
+        AnalysisColorMapper.Mode mode,
+        double interval,
+        IReadOnlyList<SlopeAnalyzer.ColorStop> palette)
+    {
+        var colors = new byte[values.Length * 3];
+        for (int index = 0; index < values.Length; index++)
+        {
+            SampleAnalysisColor(values[index], low, high, mode, interval, palette, out byte r, out byte g, out byte b);
+            WriteColor(colors, index, r, g, b);
+        }
+        return colors;
+    }
+
+    private static void SampleAnalysisColor(
+        double value,
+        double low,
+        double high,
+        AnalysisColorMapper.Mode mode,
+        double interval,
+        IReadOnlyList<SlopeAnalyzer.ColorStop> palette,
+        out byte r,
+        out byte g,
+        out byte b)
+    {
+        var color = AnalysisColorMapper.Sample(value, low, high, mode, interval, palette);
+        r = color.R;
+        g = color.G;
+        b = color.B;
     }
 
     internal static void SamplePaletteColor(

@@ -54,6 +54,7 @@ public sealed partial class MoleHillPanel : Panel
     private readonly Button _lockButton = new() { Width = 42 };
     private Button _dupButton = new();
     private Button _newButton = new();
+    private Button _demButton = new();
     private Button _deleteButton = new();
     private Button _rebuildButton = new();
     private Button _resetBuildButton = new();
@@ -100,6 +101,7 @@ public sealed partial class MoleHillPanel : Panel
         HorizontalContentAlignment = HorizontalAlignment.Stretch
     };
     private readonly HashSet<Guid> _collapsedAnalyses = new();
+    private readonly HashSet<Guid> _expandedAnalysisColorSettings = new();
     private readonly Dictionary<Guid, Panel>    _modifierCardMap      = new();
     private readonly Dictionary<Guid, Panel>    _modifierSepMap       = new();
     private readonly Dictionary<Guid, Panel>    _modifierStripMap     = new();
@@ -305,6 +307,7 @@ public sealed partial class MoleHillPanel : Panel
     private Control BuildContent()
     {
         _newButton = MakeIconButton(PanelButtonIcon.Add, OnNewTerrain, "Create a new terrain");
+        _demButton = MakeToolbarButton("DEM", OnImportDem, "Import a GeoTIFF image and create a managed DEM terrain from its raster values");
         _dupButton = MakeIconButton(PanelButtonIcon.Duplicate, OnDuplicateTerrain, "Duplicate selected terrain");
         _deleteButton = MakeIconButton(PanelButtonIcon.Delete, OnDeleteTerrain, "Delete selected terrain");
         _rebuildButton = MakeToolbarButton("Rebuild", OnRebuildTerrain, "Force rebuild terrain now");
@@ -340,6 +343,7 @@ public sealed partial class MoleHillPanel : Panel
             terrainIdentity,
             6,
             _newButton,
+            _demButton,
             _dupButton,
             _deleteButton);
         var identityGroup = new Panel
@@ -1223,6 +1227,7 @@ public sealed partial class MoleHillPanel : Panel
             if (doc == null)
             {
                 _newButton.Enabled = false;
+                _demButton.Enabled = false;
                 _terrainSelector.Text = string.Empty;
                 _liveUpdate.Checked = false;
                 SetStatusText("No active Rhino document.");
@@ -1261,6 +1266,7 @@ public sealed partial class MoleHillPanel : Panel
             var terrains = _controller.GetTerrains(doc).ToList();
             bool hasModelUnits = MoleHill.Shared.ModelUnitContext.FromDocument(doc).IsSupported;
             _newButton.Enabled = hasModelUnits;
+            _demButton.Enabled = hasModelUnits;
             _resetTerrainDataButton.Visible = _controller.IsTerrainDataUnreadable(doc);
             if (_resetTerrainDataButton.Visible)
                 SetStatusText("Terrain data in this document could not be read and is being preserved untouched. " +
@@ -1741,7 +1747,9 @@ public sealed partial class MoleHillPanel : Panel
         double displayLow = 0.0,
         double displayHigh = 0.0,
         string? displayLowLabel = null,
-        string? displayHighLabel = null)
+        string? displayHighLabel = null,
+        AnalysisColorMapper.Mode mode = AnalysisColorMapper.Mode.Gradient,
+        double interval = 0.0)
     {
         const int barHeight = 22;
         const int tickHeight = 4;
@@ -1767,7 +1775,8 @@ public sealed partial class MoleHillPanel : Panel
             for (int i = 0; i < steps; i++)
             {
                 double t  = i / (double)(steps - 1);
-                var c     = SamplePaletteColor(palette.Stops, t);
+                var mapped = AnalysisColorMapper.Sample(t, 0.0, 1.0, mode, interval, palette.Stops);
+                var c = Color.FromArgb(mapped.R, mapped.G, mapped.B);
                 float x0  = (float)i / steps * w;
                 float x1  = (float)(i + 1) / steps * w;
                 g.FillRectangle(c, x0, 0f, Math.Max(1f, x1 - x0), barHeight);
@@ -1783,9 +1792,12 @@ public sealed partial class MoleHillPanel : Panel
             }
         };
 
+        string modeLabel = mode == AnalysisColorMapper.Mode.Stepped
+            ? $"{palette.Label} • stepped"
+            : palette.Label;
         var paletteLabel = new Label
         {
-            Text = palette.Label,
+            Text = modeLabel,
             TextColor = UiTheme.MutedText,
             TextAlignment = TextAlignment.Center,
             Wrap = WrapMode.Word
@@ -2435,6 +2447,9 @@ public sealed partial class MoleHillPanel : Panel
             CutFillAnalysisDefinition cutFill => summary != null
                 ? $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}"
                 : $"{CountReferences(cutFill.Reference)} refs | {CountReferences(cutFill.Boundary)} bounds",
+            WaterflowAnalysisDefinition waterflow => summary != null
+                ? $"{summary.GeneratedOutputCount} paths | {summary.WaterflowBoundaryCount} boundary"
+                : $"{CountReferences(waterflow.Sources)} refs | downhill paths",
             ContourAnalysisDefinition contour => summary != null
                 ? $"{summary.ContourCurveCount} curves | {contour.Interval:G4} @ {contour.StartZ:G4}"
                 : $"{contour.Interval:G4} every | start {contour.StartZ:G4}",
@@ -2503,6 +2518,7 @@ public sealed partial class MoleHillPanel : Panel
 
                 double rangeLow = ConvertSlopeValue(slope.RangeLow, slope.Unit, nextUnit);
                 double rangeHigh = ConvertSlopeValue(slope.RangeHigh, slope.Unit, nextUnit);
+                double interval = ConvertSlopeValue(slope.ColorInterval, slope.Unit, nextUnit);
                 MutateAndRefreshAnalysis(terrainId, slope.Id, item =>
                 {
                     if (item is not SlopeAnalysisDefinition target)
@@ -2511,9 +2527,113 @@ public sealed partial class MoleHillPanel : Panel
                     target.Unit = nextUnit;
                     target.RangeLow = rangeLow;
                     target.RangeHigh = rangeHigh;
+                    target.ColorInterval = interval;
                 });
             },
             "Show slope values as percent, promille, rise/run ratio, or degrees.");
+    }
+
+    private Control CreateAnalysisColorSettings(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        if (analysis is not (SlopeAnalysisDefinition or ElevationAnalysisDefinition or CutFillAnalysisDefinition))
+            return new Panel();
+
+        if (!_expandedAnalysisColorSettings.Contains(analysis.Id))
+            _expandedAnalysisColorSettings.Add(analysis.Id);
+
+        bool expanded = _expandedAnalysisColorSettings.Contains(analysis.Id);
+        var content = new DynamicLayout { DefaultSpacing = new Size(6, 4), Padding = new Padding(6, 4) };
+        var modeOptions = new[] { ("gradient", "Smooth gradient"), ("stepped", "Stepped bands") };
+        content.AddRow(CreateDropDownEditor(
+            "Color mode",
+            modeOptions,
+            analysis.ColorMode == AnalysisColorMapper.Mode.Stepped ? "stepped" : "gradient",
+            value => MutateAndRefreshAnalysis(terrain.TerrainId, analysis.Id, item =>
+                item.ColorMode = value == "stepped" ? AnalysisColorMapper.Mode.Stepped : AnalysisColorMapper.Mode.Gradient),
+            "Smoothly interpolate the palette or classify the analysis into clear interval bands."));
+
+        var paletteOptions = SlopePreviewPaletteCatalog.All.Select(item => (item.Key, item.Label)).ToList();
+        content.AddRow(CreateDropDownEditor(
+            "Palette",
+            paletteOptions,
+            analysis.PalettePreset,
+            value => MutateAndRefreshAnalysis(terrain.TerrainId, analysis.Id, item => item.PalettePreset = value),
+            "Color ramp used by the analysis preview and legend."));
+
+        content.AddRow(CreateNumericEditor(
+            analysis is SlopeAnalysisDefinition ? "Band size" : "Interval",
+            analysis.ColorInterval,
+            value => MutateAndRefreshAnalysis(terrain.TerrainId, analysis.Id, item => item.ColorInterval = Math.Max(0.0, value)),
+            decimalPlaces: 3,
+            help: "Width of each stepped band. Set to 0 to choose a readable automatic interval.",
+            minValue: 0.0));
+        var autoRange = new CheckBox { Checked = analysis.AutoColorRange };
+        const string autoRangeHelp = "Use the actual analysis minimum and maximum. Turn off to enter explicit bounds.";
+        ApplyHelp(autoRange, autoRangeHelp);
+        autoRange.CheckedChanged += (_, _) => MutateAndRefreshAnalysis(
+            terrain.TerrainId,
+            analysis.Id,
+            item => item.AutoColorRange = autoRange.Checked == true);
+        content.AddRow(new PropertyRow(CreateHelpLabel("Auto-fit range", autoRangeHelp, 0), autoRange));
+
+        string unit = analysis switch
+        {
+            SlopeAnalysisDefinition slope => GetSlopeUnitSuffixLabel(slope.Unit),
+            _ => "model units"
+        };
+        content.AddRow(CreateNumericEditor(
+            $"Low ({unit})",
+            analysis.RangeLow,
+            value => MutateAndRefreshAnalysis(terrain.TerrainId, analysis.Id, item => item.RangeLow = value),
+            decimalPlaces: 3,
+            help: "Values at or below this bound use the first palette band.",
+            minValue: analysis is CutFillAnalysisDefinition ? null : 0.0));
+        content.AddRow(CreateNumericEditor(
+            $"High ({unit})",
+            analysis.RangeHigh,
+            value => MutateAndRefreshAnalysis(terrain.TerrainId, analysis.Id, item =>
+            {
+                if (item is CutFillAnalysisDefinition cutFill)
+                {
+                    double magnitude = Math.Abs(value);
+                    cutFill.RangeLow = -magnitude;
+                    cutFill.RangeHigh = magnitude;
+                }
+                else
+                    item.RangeHigh = value;
+            }),
+            decimalPlaces: 3,
+            help: analysis is CutFillAnalysisDefinition
+                ? "Maximum absolute cut/fill delta. The low bound is kept symmetric around zero."
+                : "Values at or above this bound use the last palette band.",
+            minValue: analysis is CutFillAnalysisDefinition ? 0.0 : null));
+
+        Button chevron = null!;
+        chevron = MakeIconButton(
+            expanded ? PanelButtonIcon.ChevronDown : PanelButtonIcon.ChevronRight,
+            (_, _) =>
+            {
+                bool next = !_expandedAnalysisColorSettings.Contains(analysis.Id);
+                if (next)
+                    _expandedAnalysisColorSettings.Add(analysis.Id);
+                else
+                    _expandedAnalysisColorSettings.Remove(analysis.Id);
+                SetButtonIcon(chevron, next ? PanelButtonIcon.ChevronDown : PanelButtonIcon.ChevronRight);
+                content.Visible = next;
+            },
+            "Expand or collapse coloring and interval settings.");
+        var title = new Label { Text = "Coloring & intervals", VerticalAlignment = VerticalAlignment.Center };
+        var header = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            Items = { chevron, new StackLayoutItem(title, expand: true) }
+        };
+        var outer = new DynamicLayout { DefaultSpacing = new Size(0, 3) };
+        outer.AddRow(header);
+        outer.AddRow(content);
+        content.Visible = expanded;
+        return new GroupBox { Text = "", Content = outer };
     }
 
     private static string GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit unit) => AnalysisFormatting.GetSlopeUnitKey(unit);

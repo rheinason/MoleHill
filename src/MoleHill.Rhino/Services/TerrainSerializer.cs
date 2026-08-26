@@ -7,7 +7,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 24;
+    private const int DocumentSchemaVersion = 25;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -260,6 +260,12 @@ internal static class TerrainSerializer
             foreach (var analysis in terrain.Analyses)
             {
                 analysis.PalettePreset = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset).Key;
+                analysis.ColorInterval = Math.Max(0.0, analysis.ColorInterval);
+                if (!Enum.IsDefined(analysis.ColorMode))
+                    analysis.ColorMode = MoleHill.Core.Analysis.AnalysisColorMapper.Mode.Gradient;
+                // Pre-v25 analyses had no auto-range flag. Preserve their explicit ranges.
+                if (terrain.SchemaVersion < 25 && (analysis.RangeLow != 0.0 || analysis.RangeHigh != 0.0))
+                    analysis.AutoColorRange = false;
                 switch (analysis)
                 {
                     case ContourAnalysisDefinition contour:
@@ -304,6 +310,10 @@ internal static class TerrainSerializer
                             : unitContext.FromMeters(5.0);
                         if (string.IsNullOrWhiteSpace(slopeArrows.ValueFormat))
                             slopeArrows.ValueFormat = "F1";
+                        break;
+                    case WaterflowAnalysisDefinition waterflow:
+                        waterflow.Sources ??= new SourceReferenceSet();
+                        waterflow.MaxLength = Math.Max(0.0, waterflow.MaxLength);
                         break;
                     case GradeBetweenPointsAnalysisDefinition gradeCallout:
                         NormalizeBlockAttributeAnalysis(gradeCallout);

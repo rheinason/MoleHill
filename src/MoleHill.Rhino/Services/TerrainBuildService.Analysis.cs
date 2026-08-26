@@ -14,7 +14,7 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
-// Analysis stage: slope, earthwork/cut-fill, and contour summaries plus their preview/earthwork helpers.
+// Analysis stage: slope, earthwork/cut-fill, contour, and waterflow summaries plus their preview helpers.
 internal sealed partial class TerrainBuildService
 {
     private static List<TerrainAnalysisSummary> BuildAnalyses(
@@ -129,6 +129,15 @@ internal sealed partial class TerrainBuildService
                     ElevationMinZ = elevMinZ,
                     ElevationMaxZ = elevMaxZ
                 },
+                WaterflowAnalysisDefinition waterflow => BuildWaterflowSummary(
+                    snapshot,
+                    currentMesh,
+                    currentVertices,
+                    currentFaces,
+                    waterflow,
+                    build,
+                    shouldCancel,
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
                 CurveSlopeLabelAnalysisDefinition curveSlope => TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(
                     snapshot,
                     currentMesh,

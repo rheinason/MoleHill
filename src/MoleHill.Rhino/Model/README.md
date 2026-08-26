@@ -22,7 +22,8 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   Sculpt persists both its raw displacement tiles and a constraint source set; selected closed curves
   protect their interiors, while earlier Grade Path sources resolve to their configured road width.
 - **Analyses** — `AnalysisDefinition` → `Slope`, `Elevation`, `Contour`, `CutFill`, `Earthwork`,
-  section/label analyses, etc.
+  `WaterflowAnalysisDefinition`, section/label analyses, etc. Waterflow stores point sources and
+  traces generated downhill curves on the final terrain.
 - **Objects** — `TerrainObjectDefinition` → `LowestPointObjectDefinition`,
   `SurfaceOrientedObjectDefinition`, `ScatterObjectDefinition` (+ `ScatterBlockEntry`,
   `ScatterPreviewMode`; reuses Core's `ScatterPattern`/`ScatterDensityMode`).

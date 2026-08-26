@@ -42,6 +42,12 @@ public sealed class TerrainAnalysisSummary
 
     public int SampleSourceCount { get; set; }
 
+    public int WaterflowBoundaryCount { get; set; }
+
+    public int WaterflowSinkCount { get; set; }
+
+    public int WaterflowRejectedCount { get; set; }
+
     public double SampleMinValue { get; set; }
 
     public double SampleMaxValue { get; set; }

@@ -22,6 +22,8 @@ fields by composing them, not by copying boilerplate.
   editor focus. `UiTiming.cs` centralizes editor debounce intervals.
 - `RefreshUi` treats missing model units as a document state: the status card explains how to set units,
   and creation/build controls stay disabled while non-destructive inspection remains available.
+- Expanded zone cards show last-final-build quantities for the resolved zone output: plan/surface area,
+  elevation, slope, mesh counts, and Earthworks cut/fill when a reference is configured.
 - `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter,
   with Eto-drawn isometric thumbnails.
 - `LayerTemplateEditorDialog.cs` - graphical layer-template editor: a `TreeGridView` of the layer

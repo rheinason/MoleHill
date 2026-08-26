@@ -137,31 +137,7 @@ internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 1;
     public override AnalysisDefinition Create() => new SlopeAnalysisDefinition();
 
-    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
-    {
-        AnalysisParameterDescriptor.Choice(
-            "PalettePreset", "Palette", AnalysisParameterCatalog.PaletteOptions,
-            a => a.PalettePreset,
-            (a, v) => a.PalettePreset = v ?? SlopePreviewPaletteCatalog.DefaultKey,
-            "Color ramp used for the slope analysis preview.",
-            refreshOnly: true),
-        AnalysisParameterDescriptor.Number(
-            "RangeLow", "Low",
-            a => a.RangeLow,
-            (a, v) => a.RangeLow = v,
-            "Values at or below this slope use the low end of the selected palette.",
-            decimalPlaces: 2,
-            refreshOnly: true,
-            labelFor: a => $"Low {AnalysisFormatting.GetSlopeUnitSuffixLabel(((SlopeAnalysisDefinition)a).Unit)}"),
-        AnalysisParameterDescriptor.Number(
-            "RangeHigh", "High",
-            a => a.RangeHigh,
-            (a, v) => a.RangeHigh = v,
-            "Values at or above this slope use the high end of the selected palette. Leave at 0 to auto-fit.",
-            decimalPlaces: 2,
-            refreshOnly: true,
-            labelFor: a => $"High {AnalysisFormatting.GetSlopeUnitSuffixLabel(((SlopeAnalysisDefinition)a).Unit)}"),
-    };
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = Array.Empty<AnalysisParameterDescriptor>();
 }
 
 internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
@@ -179,29 +155,7 @@ internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 2;
     public override AnalysisDefinition Create() => new ElevationAnalysisDefinition();
 
-    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
-    {
-        AnalysisParameterDescriptor.Choice(
-            "PalettePreset", "Palette", AnalysisParameterCatalog.PaletteOptions,
-            a => a.PalettePreset,
-            (a, v) => a.PalettePreset = v ?? SlopePreviewPaletteCatalog.DefaultKey,
-            "Color ramp used for the elevation analysis preview.",
-            refreshOnly: true),
-        AnalysisParameterDescriptor.Number(
-            "RangeLow", "Low Z",
-            a => a.RangeLow,
-            (a, v) => a.RangeLow = v,
-            "Values at or below this elevation use the low end of the selected palette. Set to 0 to auto-fit.",
-            decimalPlaces: 2,
-            refreshOnly: true),
-        AnalysisParameterDescriptor.Number(
-            "RangeHigh", "High Z",
-            a => a.RangeHigh,
-            (a, v) => a.RangeHigh = v,
-            "Values at or above this elevation use the high end of the selected palette. Set to 0 to auto-fit.",
-            decimalPlaces: 2,
-            refreshOnly: true),
-    };
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = Array.Empty<AnalysisParameterDescriptor>();
 }
 
 internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
@@ -229,12 +183,6 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
             "Boundary", "Boundary",
             a => ((CutFillAnalysisDefinition)a).Boundary,
             RhinoObjectType.Curve),
-        AnalysisParameterDescriptor.Choice(
-            "PalettePreset", "Palette", AnalysisParameterCatalog.PaletteOptions,
-            a => a.PalettePreset,
-            (a, v) => a.PalettePreset = v ?? SlopePreviewPaletteCatalog.DefaultKey,
-            "Color ramp used for cut/fill analysis. Auto-fits symmetrically to the largest delta.",
-            refreshOnly: true),
     };
 }
 
@@ -311,6 +259,47 @@ internal sealed class ContourAnalysisDescriptor : AnalysisTypeDescriptor
             "Number of decimal places shown in contour elevation labels.",
             incrementalCommit: true,
             optionsFor: a => AnalysisFormatting.GetValueFormatOptions(((ContourAnalysisDefinition)a).LabelFormat)),
+    };
+}
+
+internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
+{
+    public override string Kind => "waterflow";
+    public override Type DefinitionType => typeof(WaterflowAnalysisDefinition);
+    public override string TypeLabel => "Waterflow from Points";
+    public override string MenuLabel => "Waterflow from Points";
+    public override string IconLabel => "WF";
+    public override int AccentArgb => unchecked((int)0xFF1565C0);
+    public override bool IsAnnotation => false;
+    public override string Subtitle => "Downhill paths from point sources";
+    public override int SortOrder => 4;
+    public override AnalysisDefinition Create() => new WaterflowAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.Sources(
+            "Sources", "Points",
+            a => ((WaterflowAnalysisDefinition)a).Sources,
+            RhinoObjectType.Point,
+            "Point objects or layers used as waterflow starts."),
+        AnalysisParameterDescriptor.Number(
+            "MaxLength", "Max Length",
+            a => ((WaterflowAnalysisDefinition)a).MaxLength,
+            (a, v) => ((WaterflowAnalysisDefinition)a).MaxLength = Math.Max(0.0, v),
+            "Maximum plan length of each path. Set to 0 to continue to the terrain edge or a local sink.",
+            min: 0.0),
+        AnalysisParameterDescriptor.Layer(
+            "OutputLayerPath", "Output Layer",
+            a => ((WaterflowAnalysisDefinition)a).OutputLayerPath,
+            (a, v) => ((WaterflowAnalysisDefinition)a).OutputLayerPath = v,
+            "Layer used for generated waterflow curves. Leave empty to use the terrain annotation layer."),
+        AnalysisParameterDescriptor.Color(
+            "ColorArgb", "Color",
+            a => ((WaterflowAnalysisDefinition)a).ColorArgb,
+            (a, v) => ((WaterflowAnalysisDefinition)a).ColorArgb = v,
+            "Explicit display and bake color for waterflow curves. Clear to use the output layer color.",
+            fallbackColor: (terrain, a) => AnalysisFormatting.ResolveLayerColorArgb(((WaterflowAnalysisDefinition)a).OutputLayerPath ?? terrain.AnnotationLayerPath),
+            defaultText: (terrain, a) => AnalysisFormatting.GetAnalysisOutputColorText(terrain, ((WaterflowAnalysisDefinition)a).OutputLayerPath)),
     };
 }
 

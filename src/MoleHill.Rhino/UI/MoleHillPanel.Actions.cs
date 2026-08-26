@@ -1,6 +1,7 @@
 using Eto.Forms;
 using Rhino;
 using Rhino.UI;
+using MoleHill.Rhino.Services;
 
 namespace MoleHill.Rhino.UI;
 
@@ -12,6 +13,13 @@ public sealed partial class MoleHillPanel
         var doc = RhinoDoc.ActiveDoc;
         if (doc != null)
             _controller.CreateTerrain(doc, seedFromSelection: true);
+    }
+
+    private void OnImportDem(object? sender, EventArgs e)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc != null)
+            DocumentCommandService.RunImportGeoTiffTerrain(doc);
     }
 
     private void OnDuplicateTerrain(object? sender, EventArgs e)

@@ -23,6 +23,8 @@ internal sealed class SculptAnalysisColorizer
     private readonly SlopeAnalyzer.ColorStop[] _stops;
     private readonly double _low;
     private readonly double _high;
+    private readonly AnalysisColorMapper.Mode _colorMode;
+    private readonly double _interval;
     private readonly byte _alpha;
 
     private SculptAnalysisColorizer(
@@ -31,6 +33,8 @@ internal sealed class SculptAnalysisColorizer
         SlopeAnalyzer.ColorStop[] stops,
         double low,
         double high,
+        AnalysisColorMapper.Mode colorMode,
+        double interval,
         byte alpha)
     {
         _mode = mode;
@@ -38,6 +42,8 @@ internal sealed class SculptAnalysisColorizer
         _stops = stops;
         _low = low;
         _high = high;
+        _colorMode = colorMode;
+        _interval = interval;
         _alpha = alpha;
     }
 
@@ -62,26 +68,28 @@ internal sealed class SculptAnalysisColorizer
             case SlopeAnalysisDefinition slope:
             {
                 var stops = SlopePreviewPaletteCatalog.Resolve(slope.PalettePreset).Stops;
-                double low = Math.Max(0.0, slope.RangeLow);
-                double high = slope.RangeHigh > low
+                double low = slope.AutoColorRange ? 0.0 : Math.Max(0.0, slope.RangeLow);
+                double high = !slope.AutoColorRange && slope.RangeHigh > low
                     ? slope.RangeHigh
                     : MaxFiniteFaceSlope(vertices, faces, faceCount, slope.Unit);
-                return new SculptAnalysisColorizer(Mode.Slope, slope.Unit, stops, low, high, alpha);
+                double interval = AnalysisColorMapper.ResolveInterval(low, high, slope.ColorInterval);
+                return new SculptAnalysisColorizer(Mode.Slope, slope.Unit, stops, low, high, slope.ColorMode, interval, alpha);
             }
 
             case ElevationAnalysisDefinition elevation:
             {
                 var stops = SlopePreviewPaletteCatalog.Resolve(elevation.PalettePreset).Stops;
                 FaceAverageZRange(vertices, faces, faceCount, out double min, out double max);
-                double low = elevation.RangeLow;
-                double high = elevation.RangeHigh > low ? elevation.RangeHigh : max;
+                double low = elevation.AutoColorRange ? min : elevation.RangeLow;
+                double high = elevation.AutoColorRange ? max : elevation.RangeHigh;
                 if (high <= low)
                 {
                     low = min;
                     high = max > min ? max : min + 1.0;
                 }
 
-                return new SculptAnalysisColorizer(Mode.Elevation, default, stops, low, high, alpha);
+                double interval = AnalysisColorMapper.ResolveInterval(low, high, elevation.ColorInterval);
+                return new SculptAnalysisColorizer(Mode.Elevation, default, stops, low, high, elevation.ColorMode, interval, alpha);
             }
 
             default:
@@ -123,19 +131,10 @@ internal sealed class SculptAnalysisColorizer
             value = mesh.Vertices[vertexIndex].Z;
         }
 
-        byte r, g, b;
-        if (_mode == Mode.Slope && (double.IsInfinity(value) || double.IsNaN(value)))
-        {
-            // Match SlopeAnalyzer.SlopeToColor: vertical faces read as maximally steep, not flat.
-            var last = _stops[^1];
-            r = last.R;
-            g = last.G;
-            b = last.B;
-        }
-        else
-        {
-            TerrainAnalysisPreviewBuilder.SamplePaletteColor(value, _low, _high, _stops, out r, out g, out b);
-        }
+        var mapped = AnalysisColorMapper.Sample(value, _low, _high, _colorMode, _interval, _stops);
+        byte r = mapped.R;
+        byte g = mapped.G;
+        byte b = mapped.B;
 
         return System.Drawing.Color.FromArgb(_alpha, r, g, b);
     }

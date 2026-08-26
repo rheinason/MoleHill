@@ -124,7 +124,7 @@ internal sealed partial class TerrainBuildService
                 runtimeCache,
                 zonesStageKey,
                 ComputeZonesFingerprint(snapshot, terrain, analysisMesh, build.PersistentHardConstraints, currentMeshFingerprint),
-                () => BuildTerrainZones(snapshot, analysisMesh, terrain, build),
+                () => BuildTerrainZones(snapshot, analysisMesh, terrain, build, shouldCancel),
                 () => $"{build.ZoneObjects.Count:N0} zone outputs",
                 shouldCancel);
 
@@ -234,6 +234,8 @@ internal sealed partial class TerrainBuildService
         {
             RestoreCachedDiagnostics(build, cachedEntry);
             build.ZoneObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(cachedEntry.ZoneObjects));
+            build.TerrainRegions.AddRange(cachedEntry.TerrainRegions.Select(region => region.Duplicate()));
+            build.ZoneAnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneZoneAnalyses(cachedEntry.ZoneAnalysisOutput));
             timer.Stop();
             build.RecordTiming(stageName, timer.Elapsed, AppendCacheHitDetail(detailFactory()));
             return;
@@ -242,6 +244,8 @@ internal sealed partial class TerrainBuildService
         int diagnosticsStart = build.Diagnostics.Count;
         int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         int zoneStart = build.ZoneObjects.Count;
+        int terrainRegionStart = build.TerrainRegions.Count;
+        int zoneAnalysisStart = build.ZoneAnalysisResults.Count;
         int zoneOverlayStart = build.RuntimeOverlays.Count;
         action();
         ThrowIfCancellationRequested(shouldCancel);
@@ -254,6 +258,8 @@ internal sealed partial class TerrainBuildService
             ResolvedInputFingerprint = stageFingerprint,
             OutputFingerprint = stageFingerprint,
             ZoneObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.ZoneObjects.Skip(zoneStart)),
+            TerrainRegions = build.TerrainRegions.Skip(terrainRegionStart).Select(region => region.Duplicate()).ToList(),
+            ZoneAnalysisOutput = TerrainRuntimeCacheCloner.CloneZoneAnalyses(build.ZoneAnalysisResults.Skip(zoneAnalysisStart)),
             Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
             StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList(),
             RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays.Skip(zoneOverlayStart))

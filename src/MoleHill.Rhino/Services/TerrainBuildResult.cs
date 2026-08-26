@@ -33,6 +33,10 @@ internal sealed class TerrainBuildResult
 
     public List<GeneratedRhinoObject> ZoneObjects { get; } = new();
 
+    public List<TerrainRegionState> TerrainRegions { get; } = new();
+
+    public List<ZoneAnalysisSummary> ZoneAnalysisResults { get; } = new();
+
     public List<GeneratedRhinoObject> AuxiliaryObjects { get; } = new();
 
     public List<GeneratedRhinoObject> MarkerObjects { get; } = new();

@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Model;
+using MoleHill.Core.Engine;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
@@ -23,6 +24,10 @@ internal sealed class TerrainDisplayState
 
     public List<GeneratedRhinoObject> ZoneObjects { get; } = new();
 
+    public List<TerrainRegionState> TerrainRegions { get; } = new();
+
+    public List<ZoneAnalysisSummary> ZoneAnalysisResults { get; } = new();
+
     public List<GeneratedRhinoObject> AuxiliaryObjects { get; } = new();
 
     public List<GeneratedRhinoObject> MarkerObjects { get; } = new();
@@ -32,6 +37,10 @@ internal sealed class TerrainDisplayState
     public Dictionary<Guid, ScatterObjectRange> ScatterObjectRanges { get; } = new();
 
     public List<RuntimeOverlayItem> RuntimeOverlays { get; } = new();
+
+    public List<SurfaceRemesher.ConstraintPolyline> HardConstraints { get; } = new();
+
+    public List<SurfaceRemesher.ConstraintPolyline> ElevationConstraints { get; } = new();
 
     public HashSet<RuntimeOverlayOwner> VisibleDiagnosticOwners { get; } = new();
 
@@ -151,10 +160,14 @@ internal sealed class TerrainDisplayState
         };
         clone.AnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneAnalyses(AnalysisResults));
         clone.ZoneObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(ZoneObjects));
+        clone.TerrainRegions.AddRange(TerrainRegions.Select(region => region.Duplicate()));
+        clone.ZoneAnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneZoneAnalyses(ZoneAnalysisResults));
         clone.AuxiliaryObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(AuxiliaryObjects));
         clone.MarkerObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(MarkerObjects));
         clone.ScatterObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(ScatterObjects));
         clone.RuntimeOverlays.AddRange(TerrainRuntimeCacheCloner.CloneRuntimeOverlays(RuntimeOverlays));
+        clone.HardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(HardConstraints));
+        clone.ElevationConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(ElevationConstraints));
         clone.VisibleDiagnosticOwners.UnionWith(VisibleDiagnosticOwners);
         clone.RebuildScatterObjectRanges();
         return clone;

@@ -369,6 +369,10 @@ internal sealed class StageCacheEntry
 
     public List<GeneratedRhinoObject> ZoneObjects { get; init; } = new();
 
+    public List<TerrainRegionState> TerrainRegions { get; init; } = new();
+
+    public List<ZoneAnalysisSummary> ZoneAnalysisOutput { get; init; } = new();
+
     public List<GeneratedRhinoObject> AuxiliaryObjects { get; init; } = new();
 
     public List<GeneratedRhinoObject> MarkerObjects { get; init; } = new();
@@ -614,6 +618,8 @@ internal static class TerrainRuntimeCacheCloner
             MeshOutput = entry.MeshOutput,
             AnalysisOutput = entry.AnalysisOutput,
             ZoneObjects = entry.ZoneObjects,
+            TerrainRegions = entry.TerrainRegions.Select(region => region.Duplicate()).ToList(),
+            ZoneAnalysisOutput = CloneZoneAnalyses(entry.ZoneAnalysisOutput),
             AuxiliaryObjects = entry.AuxiliaryObjects,
             MarkerObjects = entry.MarkerObjects,
             ScatterObjects = entry.ScatterObjects,
@@ -636,6 +642,33 @@ internal static class TerrainRuntimeCacheCloner
             Fingerprint = entry.Fingerprint,
             Prepared = ClonePreparedSmoothingData(entry.Prepared)
         };
+    }
+
+    public static ZoneAnalysisSummary CloneZoneAnalysis(ZoneAnalysisSummary source)
+    {
+        return new ZoneAnalysisSummary
+        {
+            ZoneId = source.ZoneId,
+            PlanArea = source.PlanArea,
+            SurfaceArea = source.SurfaceArea,
+            ElevationMinZ = source.ElevationMinZ,
+            ElevationAverageZ = source.ElevationAverageZ,
+            ElevationMaxZ = source.ElevationMaxZ,
+            SlopeMinPercent = source.SlopeMinPercent,
+            SlopeAveragePercent = source.SlopeAveragePercent,
+            SlopeMaxPercent = source.SlopeMaxPercent,
+            TriangleCount = source.TriangleCount,
+            OutputCount = source.OutputCount,
+            HasEarthwork = source.HasEarthwork,
+            EarthworkIsEstimated = source.EarthworkIsEstimated,
+            CutVolume = source.CutVolume,
+            FillVolume = source.FillVolume
+        };
+    }
+
+    public static List<ZoneAnalysisSummary> CloneZoneAnalyses(IEnumerable<ZoneAnalysisSummary> analyses)
+    {
+        return analyses.Select(CloneZoneAnalysis).ToList();
     }
 
     public static List<RuntimeOverlayItem> CloneRuntimeOverlays(IEnumerable<RuntimeOverlayItem> items)

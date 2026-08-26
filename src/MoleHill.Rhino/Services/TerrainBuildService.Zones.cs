@@ -17,7 +17,12 @@ namespace MoleHill.Rhino.Services;
 // Zone (collage) stage: building zone meshes and resolving/ordering zone boundary curves and breps.
 internal sealed partial class TerrainBuildService
 {
-    private static void BuildTerrainZones(TerrainBuildSnapshot snapshot, RhinoMesh mesh, TerrainDefinition terrain, TerrainBuildResult build)
+    private static void BuildTerrainZones(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh mesh,
+        TerrainDefinition terrain,
+        TerrainBuildResult build,
+        Func<bool>? shouldCancel)
     {
         if (terrain.Zones.Count == 0)
             return;
@@ -55,6 +60,18 @@ internal sealed partial class TerrainBuildService
         }
 
         entries.Sort(CompareZoneEntries);
+        foreach (IGrouping<Guid, ZoneBoundaryEntry> group in entries
+                     .GroupBy(entry => entry.Zone.ZoneId)
+                     .OrderBy(group => group.Min(entry => entry.ZoneOrder)))
+        {
+            ZoneBoundaryEntry first = group.First();
+            build.TerrainRegions.Add(new TerrainRegionState
+            {
+                RegionId = first.Zone.ZoneId,
+                Name = first.Zone.Name,
+                Boundaries = group.Select(CreateRegionBoundaryCurve).ToList()
+            });
+        }
         var boundaries = entries.Select(entry => entry.Boundary).ToArray();
 
         var splitTimer = Stopwatch.StartNew();
@@ -78,6 +95,7 @@ internal sealed partial class TerrainBuildService
             build.Diagnostics.Add(splitWarning);
 
         var zoneOutputCounts = new Dictionary<Guid, int>();
+        var zoneMeshes = new Dictionary<Guid, List<RhinoMesh>>();
         var outputTimer = Stopwatch.StartNew();
         for (int i = 0; i < entries.Count; i++)
         {
@@ -100,6 +118,51 @@ internal sealed partial class TerrainBuildService
                 SourceLayerPath = entries[i].InputLayerPath,
                 MaterialName = null
             });
+            if (!zoneMeshes.TryGetValue(zone.ZoneId, out List<RhinoMesh>? meshes))
+            {
+                meshes = new List<RhinoMesh>();
+                zoneMeshes[zone.ZoneId] = meshes;
+            }
+            meshes.Add(subMesh);
+        }
+
+        EarthworkAnalysisDefinition? earthwork = terrain.Analyses
+            .OfType<EarthworkAnalysisDefinition>()
+            .FirstOrDefault(item => item.IsEnabled && item.Reference.HasReferences);
+        foreach (CollageZoneDefinition zone in terrain.Zones.Where(item => item.IsEnabled))
+        {
+            zoneMeshes.TryGetValue(zone.ZoneId, out List<RhinoMesh>? meshes);
+            ZoneAnalysisSummary summary = ZoneAnalysisCalculator.Summarize(
+                zone.ZoneId,
+                meshes ?? new List<RhinoMesh>());
+
+            if (earthwork != null && meshes is { Count: > 0 })
+            {
+                var comparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>();
+                foreach (RhinoMesh zoneMesh in meshes)
+                {
+                    if (!RhinoGeometryConversions.TryExtractMeshData(zoneMesh, out double[] zoneVertices, out int[] zoneFaces, out _))
+                        continue;
+
+                    ReferenceComparisonStats stats = ComputeReferenceComparisonStats(
+                        snapshot,
+                        build.BaseMesh ?? mesh,
+                        zoneMesh,
+                        zoneVertices,
+                        zoneFaces,
+                        earthwork.Reference,
+                        new SourceReferenceSet(),
+                        build,
+                        comparisonCache,
+                        shouldCancel);
+                    summary.HasEarthwork = true;
+                    summary.EarthworkIsEstimated |= stats.IsEstimated;
+                    summary.CutVolume += stats.CutVolume;
+                    summary.FillVolume += stats.FillVolume;
+                }
+            }
+
+            build.ZoneAnalysisResults.Add(summary);
         }
         outputTimer.Stop();
         totalTimer.Stop();
@@ -272,6 +335,22 @@ internal sealed partial class TerrainBuildService
     {
         var bbox = curve.GetBoundingBox(true);
         return (bbox.Min.Z + bbox.Max.Z) * 0.5;
+    }
+
+    private static Curve CreateRegionBoundaryCurve(ZoneBoundaryEntry entry)
+    {
+        int count = entry.Boundary.VertexCount;
+        var points = new Point3d[count + 1];
+        for (int index = 0; index < count; index++)
+        {
+            points[index] = new Point3d(
+                entry.Boundary.XyVertices[index * 2],
+                entry.Boundary.XyVertices[index * 2 + 1],
+                entry.PriorityZ);
+        }
+
+        points[^1] = points[0];
+        return new PolylineCurve(points);
     }
 
 }

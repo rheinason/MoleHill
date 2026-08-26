@@ -62,7 +62,7 @@ public sealed class TerrainUnitScalerTests
             ElevationGridInterval = 5,
             VerticalExaggeration = 2
         };
-        var cutFill = new CutFillAnalysisDefinition { RangeLow = -2, RangeHigh = 3 };
+        var cutFill = new CutFillAnalysisDefinition { RangeLow = -2, RangeHigh = 3, ColorInterval = 0.5 };
         var terrain = new TerrainDefinition
         {
             GlobalTolerance = 0.25,
@@ -123,6 +123,7 @@ public sealed class TerrainUnitScalerTests
         Assert.Equal(2, section.VerticalExaggeration);
         Assert.Equal(-20, cutFill.RangeLow);
         Assert.Equal(30, cutFill.RangeHigh);
+        Assert.Equal(5, cutFill.ColorInterval);
 
         TerrainAnalysisSummary summary = terrain.LastAnalysisResults[0];
         Assert.Equal(200, summary.SurfaceArea);

@@ -129,6 +129,7 @@ internal static class TerrainUnitScaler
         {
             analysis.RangeLow *= lengthScale;
             analysis.RangeHigh *= lengthScale;
+            analysis.ColorInterval *= lengthScale;
         }
 
         switch (analysis)
@@ -147,6 +148,9 @@ internal static class TerrainUnitScaler
                 break;
             case SlopeArrowAnalysisDefinition slopeArrow:
                 slopeArrow.GridSpacing *= lengthScale;
+                break;
+            case WaterflowAnalysisDefinition waterflow:
+                waterflow.MaxLength *= lengthScale;
                 break;
             case GradeBetweenPointsAnalysisDefinition grade:
                 grade.TextHeight *= lengthScale;

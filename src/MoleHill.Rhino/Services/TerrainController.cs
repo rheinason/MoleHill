@@ -252,6 +252,12 @@ internal sealed partial class TerrainController
         return selectedId == null ? null : state.Terrains.FirstOrDefault(terrain => terrain.TerrainId == selectedId.Value);
     }
 
+    public IReadOnlyList<ZoneAnalysisSummary> GetZoneAnalysisResults(RhinoDoc doc, Guid terrainId)
+    {
+        return GetRuntimeCache(doc.RuntimeSerialNumber, terrainId).DisplayState?.ZoneAnalysisResults
+            ?? new List<ZoneAnalysisSummary>();
+    }
+
     public bool TryExportTerrainCaseBundle(
         RhinoDoc doc,
         Guid terrainId,
@@ -317,6 +323,26 @@ internal sealed partial class TerrainController
         else
             RaiseStateChanged();
 
+        return terrain;
+    }
+
+    public TerrainDefinition? CreateTerrainFromPointIds(RhinoDoc doc, IEnumerable<Guid> pointIds, string? name = null)
+    {
+        TerrainDefinition? terrain = CreateTerrain(doc, seedFromSelection: false);
+        if (terrain == null)
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(name))
+            terrain.Name = name.Trim();
+        if (terrain.Modifiers[0] is TriangulateModifierDefinition triangulate)
+            triangulate.Points.ReplaceObjects(pointIds);
+
+        DocumentState state = GetState(doc);
+        Save(doc, state);
+        if (terrain.LiveUpdateEnabled)
+            ScheduleRebuild(doc, terrain.TerrainId);
+        else
+            RaiseStateChanged();
         return terrain;
     }
 

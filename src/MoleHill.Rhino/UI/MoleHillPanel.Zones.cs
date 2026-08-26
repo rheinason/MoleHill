@@ -8,6 +8,7 @@ using MoleHill.Core.Scattering;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.UI;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
@@ -305,6 +306,8 @@ public sealed partial class MoleHillPanel
         useInputElevationCheck.CheckedChanged += (_, _) =>
             MutateZone(terrain.TerrainId, zone.ZoneId, item => item.UseInputElevationForPriority = useInputElevationCheck.Checked == true);
 
+        AddZoneSummaryRows(layout, terrain, zone);
+
         layout.AddRow(CreateSourceEditor(
             "Zone Area",
             zone.Boundaries,
@@ -314,6 +317,79 @@ public sealed partial class MoleHillPanel
             "Assign the curves and layers that define this zone's area."));
         layout.AddSeparateRow(useInputElevationCheck, null);
         return layout;
+    }
+
+    private void AddZoneSummaryRows(DynamicLayout layout, TerrainDefinition terrain, CollageZoneDefinition zone)
+    {
+        layout.AddSeparateRow(new Label
+        {
+            Text = "LAST BUILD",
+            TextColor = UiTheme.MutedText,
+            Font = new Font(SystemFont.Bold)
+        }, null);
+
+        var doc = RhinoDoc.ActiveDoc;
+        ZoneAnalysisSummary? summary = doc == null
+            ? null
+            : _controller.GetZoneAnalysisResults(doc, terrain.TerrainId)
+                .FirstOrDefault(item => item.ZoneId == zone.ZoneId);
+        if (summary == null)
+        {
+            layout.AddRow(CreateSelectableSummaryEditor(
+                "Summary",
+                "Rebuild required",
+                "Zone quantities are populated after the last completed final build.",
+                minHeight: 42));
+            return;
+        }
+
+        if (summary.OutputCount == 0)
+        {
+            layout.AddRow(CreateReadOnlyValueRow(
+                "Summary",
+                "No resolved output",
+                "The zone has no mesh output in the last completed build."));
+            return;
+        }
+
+        layout.AddRow(CreateReadOnlyValueRow("Plan area", FormatZoneArea(summary.PlanArea), "Projected XY area of the resolved zone output."));
+        layout.AddRow(CreateReadOnlyValueRow("Surface area", FormatZoneArea(summary.SurfaceArea), "3D surface area of the resolved zone output."));
+        layout.AddRow(CreateReadOnlyValueRow(
+            "Elevation",
+            $"{FormatZoneLength(summary.ElevationMinZ)} / {FormatZoneLength(summary.ElevationAverageZ)} / {FormatZoneLength(summary.ElevationMaxZ)}",
+            "Minimum / area-weighted average / maximum elevation."));
+        layout.AddRow(CreateReadOnlyValueRow(
+            "Slope",
+            $"{summary.SlopeMinPercent:F1}% / {summary.SlopeAveragePercent:F1}% / {summary.SlopeMaxPercent:F1}%",
+            "Minimum / area-weighted average / maximum slope."));
+        layout.AddRow(CreateReadOnlyValueRow(
+            "Mesh output",
+            $"{summary.OutputCount:N0} object(s) · {summary.TriangleCount:N0} triangle(s)",
+            "Resolved zone mesh output from the last completed build."));
+
+        string earthworkText = summary.HasEarthwork
+            ? $"Cut {FormatVolume(summary.CutVolume)} / Fill {FormatVolume(summary.FillVolume)} / Net {FormatVolume(summary.NetVolume)}{(summary.EarthworkIsEstimated ? " (estimated)" : "") }"
+            : "Unavailable — enable Earthworks analysis";
+        layout.AddRow(CreateSelectableSummaryEditor(
+            "Earthworks",
+            earthworkText,
+            "Cut/fill is measured against the enabled Earthworks reference and uses the resolved zone output."));
+    }
+
+    private static string FormatZoneArea(double value)
+    {
+        ModelUnitContext unitContext = ModelUnitContext.FromDocument(RhinoDoc.ActiveDoc);
+        if (!unitContext.IsSupported)
+            unitContext = ModelUnitContext.FromUnitSystem(UnitSystem.Meters);
+        return unitContext.FormatArea(value);
+    }
+
+    private static string FormatZoneLength(double value)
+    {
+        ModelUnitContext unitContext = ModelUnitContext.FromDocument(RhinoDoc.ActiveDoc);
+        if (!unitContext.IsSupported)
+            unitContext = ModelUnitContext.FromUnitSystem(UnitSystem.Meters);
+        return unitContext.FormatLength(value);
     }
 
     /// <summary>The zone's resolved display color: the override when set, else the first source layer's

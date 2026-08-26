@@ -57,6 +57,9 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   PageSpace objects on the same layer are excluded. Instance-definition, reference,
   grip, light, and phantom objects remain excluded.
 - `TerrainBuildResult.cs` - outputs (meshes, generated-object lists, diagnostics, runtime overlays, timings).
+- Zone stages also emit runtime-only `ZoneAnalysisSummary` values for resolved plan/surface area,
+  elevation, slope, mesh counts, and reference-based cut/fill; these are carried through the display
+  state and zone-stage cache but are not persisted as zone settings.
 - Smooth Breaklines can select curves already used by earlier Grade Path modifiers; the Smooth stage
   expands those selected centerlines into local road center/left/right breaklines without persisting
   them as global hard constraints.
@@ -94,7 +97,9 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   cache explicit meshes built with the document's render settings so conduit tessellation stays stable
   across frames and closely matches the baked object.
 - Contour curves and labels use their configured output layer, with blank values resolved to the selected
-  terrain's Annotation layer before preview/sync/bake.
+  terrain's Annotation layer before preview/sync/bake. Waterflow from Points follows the final mesh's
+  per-face downhill gradients and emits one previewable/bakeable terrain-conforming curve per valid
+  point source.
 - The layer command surface creates the selected terrain's configured Terrain, Auxiliary, and Annotation
   output layers directly; it does not depend on highlighted source layers.
 - `SculptSessionController.cs` - the interactive sculpt session: GetPoint loop (drag = stroke,
@@ -129,6 +134,8 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   affine raster placement from embedded GeoTIFF model tags or full six-value world files. Projected EPSG
   linear-unit keys are converted into document units; unlabelled rasters prompt for source units with
   document units as the default. CRS reprojection is intentionally out of scope.
+- `LandXmlSurfaceService.cs` - imports LandXML TIN point surfaces into managed terrain sources and
+  exports completed Rhino meshes through the Core LandXML codec.
 - `CommandScriptRunner.cs` - replacement-aware batch transforms with locked-layer preflight and inverse
   rollback if an unexpected object transformation fails.
 - `TerrainCoreCaseRecorder.cs` / `TerrainCoreCaseTestExporter.cs` / `TerrainCaseBundleExporter.cs` -
