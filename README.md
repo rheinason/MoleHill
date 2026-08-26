@@ -27,6 +27,20 @@ The Rhino plugin provides the panel-driven workflow for creating, editing, analy
 
 ## Grasshopper Components
 
+### Terrain exchange
+| Component | Description |
+|-----------|-------------|
+| **MoleHill Terrain Snapshot** | Read the latest completed final terrain, breaklines, and zones from the MoleHill Rhino panel |
+| **Construct Terrain** | Package an ordinary mesh, breaklines, and a zone tree as open MoleHill Terrain data |
+| **Deconstruct Terrain** | Expose MoleHill Terrain as ordinary Grasshopper mesh, curves, zone branches, and metadata |
+| **Partition Terrain** | Insert zone boundaries once and output separate terrain meshes with exact shared seam vertices |
+
+`MoleHill Terrain` is deliberately not a closed editing system. Deconstruct it, edit or join the
+ordinary Rhino geometry with standard Grasshopper tools, then construct it again. Zone branches are
+region data only; `Partition Terrain` is the explicit operation that turns them into separate terrain
+pieces. Terrain Snapshot requires the MoleHill Rhino plugin from the combined package and rejects
+preview/deferred builds so downstream geometry never silently changes from approximate to final.
+
 ### Surface
 | Component | Description |
 |-----------|-------------|
@@ -46,6 +60,7 @@ The Rhino plugin provides the panel-driven workflow for creating, editing, analy
 | Component | Description |
 |-----------|-------------|
 | **Slope Analysis** | Apply per-face slope coloring with a configurable legend range |
+| **Waterflow from Points** | Trace terrain-conforming downhill paths from point sources to boundaries or local sinks |
 | **Mesh Areas** | Split a mesh by closed boundary curves |
 | **Mesh Collage** | Combine meshes in 2D planning mode or as 3D colored terrain |
 

@@ -14,7 +14,7 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
 - **`src/TriangleNet/`** — vendored Triangle.NET CDT engine. Do not refactor; treat as a library.
 - **`src/MoleHill.Core/`** — all reusable terrain logic, **no Rhino/GH dependency**, unit-tested.
   Sub-namespaces: `Engine/` (triangulation), `Processing/` (input prep), `Grading/` (pad/path),
-  `Analysis/` (contours, slope), `Scattering/` (object scatter sampling), `Sculpting/` (brush engine +
+  `Analysis/` (contours, slope, waterflow), `Scattering/` (object scatter sampling), `Sculpting/` (brush engine +
   displacement field).
 - **`src/MoleHill.Grasshopper/`** — GH components; thin wrappers over Core. Merged into `MoleHill.gha`.
 - **`src/MoleHill.Rhino/`** — the Rhino plugin: dockable panel UI (`UI/`, Eto.Forms), commands
@@ -44,6 +44,12 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   falls back to a full-affine world file, converts coordinates into document units, and applies the saved
   real-world → project transform. See `docs/project-base-georeference.md`.
 
+LandXML support is provided by `mhImportLandXml` and `mhExportLandXml` for TIN point/triangle
+surfaces. Import creates managed terrain point sources; export writes the selected terrain's latest
+completed final mesh and applies the saved project-base transform when present. The panel `DEM` action
+places the GeoTIFF image and samples a capped regular grid of raster elevations into a new managed
+terrain. Multiple images can be imported independently; CRS reprojection remains out of scope.
+
 ## Two hosts, one core
 
 ```
@@ -52,6 +58,33 @@ Rhino panel:  TerrainDefinition (modifier stack, saved in .3dm)
                 → TerrainBuildService.Build (staged pipeline) → TerrainBuildResult
                 → TerrainDisplayConduit (live preview)  +  BakeTerrain (real doc objects)
 ```
+
+## Rhino ↔ Grasshopper terrain exchange
+
+The host boundary uses an open `MoleHill Terrain` Grasshopper goo rather than treating the Rhino panel
+mesh as a Revit-ready object. `MoleHill Terrain Snapshot` reflects across the optional host assemblies
+(avoiding a Grasshopper → Rhino-plugin project reference) and reads only the latest completed **final**
+display state. `TerrainGrasshopperBridge` raises a small invalidation event when controller state changes,
+so an open Grasshopper definition schedules a fresh solve. The display state retains final hard and
+elevation constraints plus the already-resolved named collage-zone boundaries alongside the mesh;
+snapshot DTOs cheaply duplicate that build-consistent geometry. Preview or deferred states are rejected
+rather than exported as apparently final terrain.
+
+`Construct Terrain` and `Deconstruct Terrain` make the wrapper reversible: mesh, breaklines, zone tree,
+name, stable key, revision, and diagnostics are all ordinary Grasshopper data at the boundary. Zones are
+region metadata and never implicitly mean a separate terrain or Revit subdivision. `Partition Terrain`
+is the explicit conversion from regions to pieces. It flattens each zone branch to Core
+`MeshAreaSplitter.SplitPreservingTopology`, inserts every boundary in one operation, then derives all
+piece meshes and the optional remainder from that single split result. Consequently adjoining outputs
+reuse exactly the same seam coordinates while untouched source triangles retain their topology. Users
+remain free to deconstruct, split/join/merge with standard Grasshopper tools, and reconstruct before any
+future Revit-specific preparation.
+
+The Rhino panel retains runtime-only `ZoneAnalysisSummary` values from the last completed final build.
+These summaries are calculated from resolved zone output after overlap and priority rules, so plan area,
+surface area, elevation, slope, and mesh counts do not double-count overlapping zones. Cut/fill is shown
+only when an enabled Earthworks analysis has an explicit reference and uses the same estimated/exact
+convention as the global Earthworks summary. Zone summaries are display/cache state, not persisted settings.
 
 ## Model-unit contract
 
@@ -268,6 +301,14 @@ zones, markers, objects, and scatter retain stage-level entries.
 - **Contours** use a single-pass marching-triangles `ContourGenerator` (not one mesh-plane per level).
   Their configured output layer falls back to the terrain Annotation layer when unset or whitespace, so
   baked contours never leak onto Rhino's current layer.
+- **Waterflow from Points** resolves point sources against the final terrain mesh and uses Core's
+  `WaterflowTracer` to follow each triangle's exact downhill gradient through shared edges. Paths end
+  at a naked mesh boundary, a local flat/sink, or the configured maximum plan length; generated curves
+  are transient previews and bakeable auxiliary outputs.
+- **Analysis coloring** is shared by slope, elevation, cut/fill, and sculpt preview through
+  `AnalysisColorMapper`. Each preview supports a smooth gradient or fixed-width stepped bands,
+  with auto-fit or explicit bounds. Cut/fill bands stay symmetric around zero; interval lengths
+  scale with model units while slope intervals follow the selected slope unit.
 - **Slope summaries** use `SlopeAnalyzer.Summarize` so final-build panel numbers do not allocate
   preview color arrays. Both summary accumulation and preview color generation parallelize above the
   large-face threshold. Slope preview coloring still uses `SlopeAnalyzer.Analyze`.
