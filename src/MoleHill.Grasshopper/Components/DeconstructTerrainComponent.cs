@@ -1,0 +1,78 @@
+// Exposes MoleHill Terrain data as ordinary Grasshopper mesh, curves, trees, and metadata.
+using Grasshopper.Kernel;
+using Grasshopper.Kernel.Data;
+using Grasshopper.Kernel.Types;
+using MoleHill.Grasshopper.Types;
+using MoleHill.Grasshopper.Utilities;
+
+namespace MoleHill.Grasshopper.Components;
+
+public sealed class DeconstructTerrainComponent : GH_Component
+{
+    public DeconstructTerrainComponent()
+        : base(
+            "Deconstruct Terrain",
+            "DeTerrain",
+            "Expose a MoleHill Terrain as ordinary Grasshopper mesh, curve, tree, and text data.",
+            "MoleHill",
+            "Terrain")
+    {
+    }
+
+    public override Guid ComponentGuid => new("0A1C05E0-8497-447A-A04A-C00C07BA055D");
+
+    protected override System.Drawing.Bitmap? Icon => null;
+
+    protected override void RegisterInputParams(GH_InputParamManager pManager)
+    {
+        pManager.AddGenericParameter("Terrain", "T", "MoleHill Terrain, or an ordinary mesh.", GH_ParamAccess.item);
+    }
+
+    protected override void RegisterOutputParams(GH_OutputParamManager pManager)
+    {
+        pManager.AddMeshParameter("Mesh", "M", "Final terrain mesh.", GH_ParamAccess.item);
+        pManager.AddCurveParameter("Breaklines", "B", "Hard terrain constraints or creases.", GH_ParamAccess.list);
+        pManager.AddCurveParameter("Zones", "Z", "Zone outlines; one zone per tree branch.", GH_ParamAccess.tree);
+        pManager.AddTextParameter("Zone Names", "ZN", "Zone names in branch order.", GH_ParamAccess.list);
+        pManager.AddTextParameter("Name", "N", "Terrain display name.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Key", "K", "Stable source key when available.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Revision", "R", "Applied MoleHill build revision.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Diagnostics", "D", "Source and processing diagnostics.", GH_ParamAccess.list);
+    }
+
+    protected override void SolveInstance(IGH_DataAccess DA)
+    {
+        object? source = null;
+        if (!DA.GetData(0, ref source) || !TerrainDataAccess.TryGetTerrain(source, out MoleHillTerrainData terrain))
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Input is not a MoleHill Terrain or mesh.");
+            return;
+        }
+
+        var zoneTree = new GH_Structure<GH_Curve>();
+        var zoneNames = new List<string>();
+        for (int index = 0; index < terrain.Regions.Count; index++)
+        {
+            MoleHillTerrainRegion region = terrain.Regions[index];
+            var path = new GH_Path(index);
+            zoneTree.EnsurePath(path);
+            foreach (var boundary in region.Boundaries)
+                zoneTree.Append(new GH_Curve(boundary.DuplicateCurve()), path);
+            zoneNames.Add(region.Name);
+        }
+
+        DA.SetData(0, terrain.Mesh.DuplicateMesh());
+        DA.SetDataList(1, terrain.Breaklines.Select(curve => curve.DuplicateCurve()));
+        DA.SetDataTree(2, zoneTree);
+        DA.SetDataList(3, zoneNames);
+        DA.SetData(4, terrain.Name);
+        DA.SetData(5, terrain.Key);
+        DA.SetData(6, ToGrasshopperInteger(terrain.Revision));
+        DA.SetDataList(7, terrain.Diagnostics);
+    }
+
+    private static int ToGrasshopperInteger(long value)
+    {
+        return value > int.MaxValue ? int.MaxValue : value < int.MinValue ? int.MinValue : (int)value;
+    }
+}

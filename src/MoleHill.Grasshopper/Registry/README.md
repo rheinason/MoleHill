@@ -27,7 +27,8 @@ constructor runs `PostConstructor → RegisterInputParams` before the derived co
 assigned after `base(...)` is still null at registration time.
 
 ## Escape hatch
-Components that don't fit (per-instance state, or exotic Colour/Hatch I/O) stay hand-written
-`GH_Component`s — currently `TinFromPointsAndBreaklines` (instance caching) and `MeshCollageComponent`
-(Colour + `GH_Hatch`, dual-mode). Both use the same explicit unit guard and document tolerance. That's
-expected; don't force them through the spec.
+Components that don't fit (per-instance state, exotic Colour/Hatch I/O, custom goo, or tree-shaped
+ports) stay hand-written `GH_Component`s. This includes `TinFromPointsAndBreaklines` (instance caching),
+`MeshCollageComponent` (Colour + `GH_Hatch`, dual-mode), and the terrain exchange components (custom
+`MoleHillTerrainGoo` plus zone trees and live Rhino-host invalidation). That's expected; don't force
+them through the spec.
