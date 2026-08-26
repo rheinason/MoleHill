@@ -4,9 +4,33 @@ using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// The published result of one terrain build: meshes, generated objects and overlays that the display
+/// conduit draws and the render mesh provider publishes. Immutable after a build and swapped atomically.
+/// </summary>
 internal sealed class TerrainDisplayState
 {
+    private static long _renderVersionCounter;
+
     public bool IsPreview { get; set; }
+
+    /// <summary>
+    /// Change stamp handed to the RDK custom render mesh cache (see <see cref="TerrainRenderMeshProvider"/>).
+    /// A display state is immutable after a build and swapped atomically, so a fresh sequence number per
+    /// state is a strictly correct "did the renderable content change" signal — and far cheaper than
+    /// hashing megavertex meshes. The sculpt session is the one exception: it mutates
+    /// <see cref="PreviewTerrainMesh"/> in place, so it re-stamps via <see cref="InvalidatePreviewBounds"/>.
+    /// </summary>
+    public uint RenderHash { get; private set; } = NextRenderVersion();
+
+    private static uint NextRenderVersion() =>
+        unchecked((uint)Interlocked.Increment(ref _renderVersionCounter));
+
+    /// <summary>
+    /// Advances the RDK cache stamp after a display-only setting, material, or mutable preview mesh
+    /// changes without replacing this display-state object.
+    /// </summary>
+    public void InvalidateRenderContent() => RenderHash = NextRenderVersion();
 
     public bool HasDeferredOutputs { get; set; }
 
@@ -45,6 +69,7 @@ internal sealed class TerrainDisplayState
     public HashSet<RuntimeOverlayOwner> VisibleDiagnosticOwners { get; } = new();
 
     private BoundingBox? _previewBounds;
+    private BoundingBox? _previousPreviewBounds;
 
     /// <summary>
     /// Drops the cached preview bounds. Only the sculpt session needs this: it mutates
@@ -52,7 +77,44 @@ internal sealed class TerrainDisplayState
     /// to the swap-only convention), and stale bounds would clip viewport invalidation once strokes
     /// exceed the original bounding box.
     /// </summary>
-    public void InvalidatePreviewBounds() => _previewBounds = null;
+    public void InvalidatePreviewBounds()
+    {
+        _previewBounds = null;
+        // The mesh changed under a state object that is otherwise immutable, so the RDK's cached
+        // render primitives for this terrain are now stale too.
+        InvalidateRenderContent();
+    }
+
+    /// <summary>True when the current visibility settings leave at least one mesh-capable render item.</summary>
+    internal bool HasRenderableContent(TerrainDefinition terrain)
+    {
+        if (terrain.ShowTerrainMesh && IsRenderableMesh(PreviewTerrainMesh ?? TerrainMesh))
+            return true;
+
+        if (terrain.ShowZoneMeshes && ZoneObjects.Any(IsPotentiallyRenderable))
+            return true;
+
+        if (AuxiliaryObjects.Any(item =>
+                TerrainAnalysisPreviewBuilder.ShouldDisplayGeneratedOutput(terrain, item) &&
+                IsPotentiallyRenderable(item)))
+            return true;
+
+        return MarkerObjects.Any(IsPotentiallyRenderable) ||
+               ScatterObjects.Any(IsPotentiallyRenderable);
+    }
+
+    private static bool IsRenderableMesh(Mesh? mesh) => mesh is { Faces.Count: > 0 };
+
+    private static bool IsPotentiallyRenderable(GeneratedRhinoObject generated)
+    {
+        return generated.Geometry switch
+        {
+            Mesh mesh => IsRenderableMesh(mesh),
+            Brep => true,
+            Extrusion => true,
+            _ => !string.IsNullOrWhiteSpace(generated.InstanceDefinitionName)
+        };
+    }
 
     /// <summary>
     /// Union of the extents this state draws through the display conduit (terrain mesh, generated
@@ -61,29 +123,46 @@ internal sealed class TerrainDisplayState
     /// and redraws the scatter region on incremental operations; without it, partial redraws can leave
     /// ghost pixels of the previous frame (looks like duplicate instances, though bake is unaffected).
     /// </summary>
-    public BoundingBox GetPreviewBounds()
+    public void IncludePreviousPreviewBounds(BoundingBox bounds)
+    {
+        if (!bounds.IsValid)
+            return;
+
+        if (_previousPreviewBounds.HasValue)
+        {
+            BoundingBox combined = _previousPreviewBounds.Value;
+            combined.Union(bounds);
+            _previousPreviewBounds = combined;
+        }
+        else
+        {
+            _previousPreviewBounds = bounds;
+        }
+
+        _previewBounds = null;
+    }
+
+    public BoundingBox GetPreviewBounds(global::Rhino.RhinoDoc? doc = null)
     {
         if (_previewBounds.HasValue)
             return _previewBounds.Value;
 
         var bounds = BoundingBox.Empty;
+        var definitionBoundsCache = new Dictionary<string, BoundingBox?>(StringComparer.Ordinal);
+        if (_previousPreviewBounds.HasValue)
+            bounds.Union(_previousPreviewBounds.Value);
         UnionMesh(ref bounds, PreviewTerrainMesh);
         UnionMesh(ref bounds, TerrainMesh);
 
         foreach (var generated in ZoneObjects)
-            UnionGeometry(ref bounds, generated.Geometry);
+            UnionGeneratedObject(ref bounds, generated, doc, definitionBoundsCache);
         foreach (var generated in AuxiliaryObjects)
-            UnionGeometry(ref bounds, generated.Geometry);
+            UnionGeneratedObject(ref bounds, generated, doc, definitionBoundsCache);
         foreach (var generated in MarkerObjects)
-            UnionGeometry(ref bounds, generated.Geometry);
+            UnionGeneratedObject(ref bounds, generated, doc, definitionBoundsCache);
 
         foreach (var scatter in ScatterObjects)
-        {
-            Point3d origin = Point3d.Origin;
-            origin.Transform(scatter.InstanceTransform);
-            if (origin.IsValid)
-                bounds.Union(origin);
-        }
+            UnionGeneratedObject(ref bounds, scatter, doc, definitionBoundsCache);
 
         foreach (RuntimeOverlayItem overlay in RuntimeOverlays)
         {
@@ -102,7 +181,7 @@ internal sealed class TerrainDisplayState
             // Scatter instances (and markers/text) extend beyond their origin point; pad the box so
             // their full footprint stays inside the invalidated/redrawn region.
             double diagonal = bounds.Diagonal.Length;
-            double margin = Math.Max(diagonal * 0.05, double.Epsilon);
+            double margin = Math.Max(diagonal * 0.05, 1.0);
             bounds.Inflate(margin);
         }
 
@@ -120,14 +199,63 @@ internal sealed class TerrainDisplayState
             bounds.Union(meshBounds);
     }
 
-    private static void UnionGeometry(ref BoundingBox bounds, GeometryBase? geometry)
+    private static void UnionGeneratedObject(
+        ref BoundingBox bounds,
+        GeneratedRhinoObject generated,
+        global::Rhino.RhinoDoc? doc,
+        IDictionary<string, BoundingBox?> definitionBoundsCache)
     {
-        if (geometry == null)
+        if (generated.Geometry != null)
+            UnionTransformedBounds(ref bounds, generated.Geometry.GetBoundingBox(true), generated.InstanceTransform);
+
+        if (doc == null || string.IsNullOrWhiteSpace(generated.InstanceDefinitionName))
             return;
 
-        BoundingBox geometryBounds = geometry.GetBoundingBox(true);
-        if (geometryBounds.IsValid)
-            bounds.Union(geometryBounds);
+        string definitionName = generated.InstanceDefinitionName!;
+        if (!definitionBoundsCache.TryGetValue(definitionName, out BoundingBox? definitionBounds))
+        {
+            var definition = doc.InstanceDefinitions.Find(definitionName);
+            if (definition == null)
+            {
+                definitionBoundsCache[definitionName] = null;
+                return;
+            }
+
+            BoundingBox calculatedBounds = BoundingBox.Empty;
+            foreach (var instanceObject in definition.GetObjects())
+            {
+                GeometryBase? geometry = instanceObject?.Geometry;
+                if (geometry == null)
+                    continue;
+
+                BoundingBox geometryBounds = geometry.GetBoundingBox(true);
+                if (geometryBounds.IsValid)
+                    calculatedBounds.Union(geometryBounds);
+            }
+
+            definitionBounds = calculatedBounds.IsValid ? calculatedBounds : null;
+            definitionBoundsCache[definitionName] = definitionBounds;
+        }
+
+        if (definitionBounds.HasValue)
+            UnionTransformedBounds(ref bounds, definitionBounds.Value, generated.InstanceTransform);
+    }
+
+    private static void UnionTransformedBounds(
+        ref BoundingBox bounds,
+        BoundingBox sourceBounds,
+        Transform transform)
+    {
+        if (!sourceBounds.IsValid)
+            return;
+
+        foreach (Point3d corner in sourceBounds.GetCorners())
+        {
+            Point3d transformed = corner;
+            transformed.Transform(transform);
+            if (transformed.IsValid)
+                bounds.Union(transformed);
+        }
     }
 
     public void RebuildScatterObjectRanges()
@@ -158,6 +286,8 @@ internal sealed class TerrainDisplayState
             ActiveAnalysisId = ActiveAnalysisId,
             ActiveAnalysisLabel = ActiveAnalysisLabel
         };
+        if (_previousPreviewBounds.HasValue)
+            clone._previousPreviewBounds = _previousPreviewBounds.Value;
         clone.AnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneAnalyses(AnalysisResults));
         clone.ZoneObjects.AddRange(TerrainRuntimeCacheCloner.CloneGeneratedObjects(ZoneObjects));
         clone.TerrainRegions.AddRange(TerrainRegions.Select(region => region.Duplicate()));

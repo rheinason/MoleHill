@@ -7,7 +7,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 25;
+    private const int DocumentSchemaVersion = 26;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -72,13 +72,15 @@ internal static class TerrainSerializer
             terrain.BakedObjectIds ??= new List<Guid>();
             terrain.BakedObjectIds.RemoveAll(id => id == Guid.Empty);
             terrain.LastAnalysisResults ??= new List<TerrainAnalysisSummary>();
+            foreach (var input in terrain.Modifiers.OfType<GeometryInputModifierDefinition>())
+                input.TinMesh ??= new SourceReferenceSet();
             NormalizeSculptModifiers(terrain);
             NormalizeObjects(terrain);
             PromoteLegacyTolerance(terrain);
             PromoteLegacyDetailSize(terrain, sourceSchemaVersion, unitContext);
             PromoteDisplaySettings(terrain);
             MigrateZones(terrain);
-            MigrateAnalyses(terrain, unitContext);
+            MigrateAnalyses(terrain, sourceSchemaVersion, unitContext);
             MigrateRemeshModifiers(terrain, sourceSchemaVersion);
             terrain.EnsureBaseModifier();
             terrain.SchemaVersion = TerrainDefinition.CurrentSchemaVersion;
@@ -253,7 +255,10 @@ internal static class TerrainSerializer
         terrain.SlopeColorHighPercent = Math.Max(0.0, terrain.SlopeColorHighPercent);
     }
 
-    private static void MigrateAnalyses(TerrainDefinition terrain, ModelUnitContext unitContext)
+    private static void MigrateAnalyses(
+        TerrainDefinition terrain,
+        int sourceSchemaVersion,
+        ModelUnitContext unitContext)
     {
         if (terrain.Analyses.Count > 0)
         {
@@ -264,7 +269,7 @@ internal static class TerrainSerializer
                 if (!Enum.IsDefined(analysis.ColorMode))
                     analysis.ColorMode = MoleHill.Core.Analysis.AnalysisColorMapper.Mode.Gradient;
                 // Pre-v25 analyses had no auto-range flag. Preserve their explicit ranges.
-                if (terrain.SchemaVersion < 25 && (analysis.RangeLow != 0.0 || analysis.RangeHigh != 0.0))
+                if (sourceSchemaVersion < 25 && (analysis.RangeLow != 0.0 || analysis.RangeHigh != 0.0))
                     analysis.AutoColorRange = false;
                 switch (analysis)
                 {
@@ -329,7 +334,7 @@ internal static class TerrainSerializer
                             projectedElevation.ValueFormat = "F2";
                         break;
                     case TerrainSectionAnalysisDefinitionBase section:
-                        NormalizeTerrainSectionAnalysis(section, unitContext);
+                        NormalizeTerrainSectionAnalysis(section, terrain.TerrainId, unitContext);
                         break;
                 }
             }
@@ -368,8 +373,24 @@ internal static class TerrainSerializer
 
     private static void NormalizeTerrainSectionAnalysis(
         TerrainSectionAnalysisDefinitionBase analysis,
+        Guid ownerTerrainId,
         ModelUnitContext unitContext)
     {
+        analysis.ComparisonTerrainIds ??= new List<Guid>();
+        analysis.ComparisonTerrainIds = analysis.ComparisonTerrainIds
+            .Where(id => id != Guid.Empty && id != ownerTerrainId)
+            .Distinct()
+            .ToList();
+        if (analysis.CutFillReferenceTerrainId == Guid.Empty ||
+            (analysis.CutFillReferenceTerrainId.HasValue &&
+             !analysis.ComparisonTerrainIds.Contains(analysis.CutFillReferenceTerrainId.Value)))
+            analysis.CutFillReferenceTerrainId = null;
+        analysis.CutFillOpacityPercent = Math.Clamp(analysis.CutFillOpacityPercent, 0, 100);
+        if (analysis.CutColorArgb == 0)
+            analysis.CutColorArgb = TerrainSectionAnalysisDefinitionBase.DefaultCutColorArgb;
+        if (analysis.FillColorArgb == 0)
+            analysis.FillColorArgb = TerrainSectionAnalysisDefinitionBase.DefaultFillColorArgb;
+
         analysis.Sources ??= new SourceReferenceSet();
         if (analysis.TextHeight <= 0.0)
             analysis.TextHeight = unitContext.FromMeters(1.0);

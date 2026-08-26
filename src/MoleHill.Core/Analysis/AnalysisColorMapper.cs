@@ -25,7 +25,9 @@ public static class AnalysisColorMapper
 
         if (double.IsNaN(value))
             return palette[0];
-        if (double.IsInfinity(value))
+        if (double.IsNegativeInfinity(value))
+            return palette[0];
+        if (double.IsPositiveInfinity(value))
             return palette[^1];
 
         double classified = value;

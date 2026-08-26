@@ -45,10 +45,15 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   real-world → project transform. See `docs/project-base-georeference.md`.
 
 LandXML support is provided by `mhImportLandXml` and `mhExportLandXml` for TIN point/triangle
-surfaces. Import creates managed terrain point sources; export writes the selected terrain's latest
-completed final mesh and applies the saved project-base transform when present. The panel `DEM` action
-places the GeoTIFF image and samples a capped regular grid of raster elevations into a new managed
-terrain. Multiple images can be imported independently; CRS reprojection remains out of scope.
+surfaces. The streaming importer validates point ids and face references, imports every surface,
+converts its declared linear unit into document units, swaps LandXML Northing/Easting into Rhino Y/X,
+and retains source face topology through a hidden exact-TIN mesh input. Export converts the completed
+final mesh to metres, writes complete metric unit metadata, and applies the saved project-base transform
+when present. The panel `DEM` action places the GeoTIFF image and reads a capped regular grid directly
+from its numeric single-band samples; integer and floating-point bands, GDAL scale/offset, and NoData are
+handled while RGB/multi-band imagery is rejected. Both import workflows are one undoable transaction and
+remove all created state if terrain creation fails. Multiple images can be imported independently; CRS
+reprojection remains out of scope.
 
 ## Two hosts, one core
 
@@ -56,7 +61,9 @@ terrain. Multiple images can be imported independently; CRS reprojection remains
 Grasshopper:  GH inputs → Core (TinEngine / PadGrader / …) → RhinoConverter → GH outputs
 Rhino panel:  TerrainDefinition (modifier stack, saved in .3dm)
                 → TerrainBuildService.Build (staged pipeline) → TerrainBuildResult
-                → TerrainDisplayConduit (live preview)  +  BakeTerrain (real doc objects)
+                → TerrainDisplayConduit      (live viewport preview)
+                + TerrainRenderMeshProvider  (render engines, no doc objects)
+                + BakeTerrain                (real doc objects)
 ```
 
 ## Rhino ↔ Grasshopper terrain exchange
@@ -71,14 +78,34 @@ snapshot DTOs cheaply duplicate that build-consistent geometry. Preview or defer
 rather than exported as apparently final terrain.
 
 `Construct Terrain` and `Deconstruct Terrain` make the wrapper reversible: mesh, breaklines, zone tree,
-name, stable key, revision, and diagnostics are all ordinary Grasshopper data at the boundary. Zones are
+zone keys, name, stable key, lossless revision, diagnostics, document units, and optional Project Base
+metadata are all ordinary Grasshopper data at the boundary. Both custom goo types use versioned persistence.
+Zones are
 region metadata and never implicitly mean a separate terrain or Revit subdivision. `Partition Terrain`
 is the explicit conversion from regions to pieces. It flattens each zone branch to Core
 `MeshAreaSplitter.SplitPreservingTopology`, inserts every boundary in one operation, then derives all
 piece meshes and the optional remainder from that single split result. Consequently adjoining outputs
-reuse exactly the same seam coordinates while untouched source triangles retain their topology. Users
-remain free to deconstruct, split/join/merge with standard Grasshopper tools, and reconstruct before any
-future Revit-specific preparation.
+reuse exactly the same seam coordinates while untouched source triangles retain their topology. Multiple
+outlines in one zone use odd/even containment, allowing disjoint parts and nested holes, and each output
+carries only source breakline segments projected onto its mesh. Users remain free to deconstruct,
+split/join/merge with standard Grasshopper tools, and reconstruct.
+
+`Prepare Toposolid` is the Revit-neutral compiled preparation boundary. One terrain item becomes one set of
+horizontal outer/hole profiles, a bounded list of elevation points, stable identity, a deterministic
+geometry fingerprint, source units, subdivision profile metadata, and point/error diagnostics. It rejects
+stacked-XY or near-vertical surfaces and invalid/intersecting/disjoint profile domains before any Revit
+transaction. Boundary and breakline-critical samples are mandatory; Core `ToposolidPointReducer` adds
+spatial extrema and iteratively inserts the largest measured reconstruction errors until the requested
+tolerance or point cap is reached. Coordinates are deliberately unchanged so project/shared-coordinate
+transforms remain visible and user-controlled in Grasshopper; the downstream adapter converts the declared
+document units to Revit internal feet exactly once.
+
+The default downstream shape is `Partition Terrain -> ordinary GH edits/transforms -> Prepare Toposolid`,
+with one independent Toposolid per branch. Optional Python 3 adapters under `examples/RhinoInside.Revit/`
+perform only create/update/inspect/subdivision transactions and stable-key/fingerprint synchronization.
+They are not shipped inside `MoleHill.gha`, so neither MoleHill host has a Revit or Rhino.Inside.Revit
+assembly dependency. Subdivisions remain a separate opt-in operation because they follow their host rather
+than behaving as independently editable terrain surfaces.
 
 The Rhino panel retains runtime-only `ZoneAnalysisSummary` values from the last completed final build.
 These summaries are calculated from resolved zone output after overlap and priority rules, so plan area,
@@ -316,15 +343,51 @@ zones, markers, objects, and scatter retain stage-level entries.
   fingerprint. The 2.5D case projects reference Z through Core `MeshHeightProjector`; overlapping or
   near-vertical XY regions fall back to the legacy Rhino world-Z mesh-line projection and report a
   diagnostic.
+- **Section Cut, Cross-Sections, and Section Along Curve** can overlay the owning proposed terrain with
+  any number of other MoleHill terrains. One selected comparison is the existing/reference profile;
+  piecewise-linear profile comparison inserts exact crossings, respects coverage gaps, and emits
+  translucent cut/fill meshes beneath terrain-coloured profile curves. Background snapshots duplicate
+  only completed final meshes, fingerprint their geometry/name/colour, and rebuild live dependents when
+  a referenced terrain changes without allowing cyclic references to loop indefinitely.
 
-## Rhino: preview vs bake (generated objects)
+## Rhino: preview vs render vs bake (generated objects)
 
 Generative outputs (markers, scatter, analysis annotations) are `GeneratedRhinoObject`s (geometry or
-block-instance). They are:
+block-instance). They reach three consumers:
 - **previewed** transiently by `TerrainDisplayConduit` (drawn from `TerrainDisplayState`, no doc
-  objects), and
+  objects),
+- **rendered** by `TerrainRenderMeshProvider` (also from `TerrainDisplayState`, also no doc objects —
+  see below), and
 - **materialised** as real doc objects only by `TerrainController.BakeTerrain` (or the managed
-  `SyncOutputs`). Scatter is conduit-preview + bake only (it can produce thousands of instances).
+  `SyncOutputs`). Scatter is conduit-preview + render + bake only (it can produce thousands of
+  instances).
+
+### Rendering without baking
+
+Conduit geometry is viewport-only and invisible to render engines, so historically rendering a terrain
+meant baking it. `TerrainRenderMeshProvider` closes that gap using the RDK custom render mesh system:
+it derives from `Rhino.Render.CustomRenderMeshes.RenderMeshProvider` and advertises each
+`TerrainDefinition.TerrainId` through `NonObjectIds` — GUIDs that are deliberately *not* `RhinoObject`s
+in the document. It is registered once from `MoleHillRhinoPlugin.OnLoad` via
+`RenderMeshProvider.RegisterProviders(assembly, plugin)`, and must stay `public` with a public
+parameterless constructor for that discovery to find it.
+
+Colour/transparency fallback is shared with the conduit through `TerrainDisplayColors`. The render path
+first retains explicit, layer, and block-member Rhino render materials; when none exists, or when a
+transparency override requires simulation, it creates a transient `RenderMaterial` without adding
+materials to the document.
+
+Cache coherence uses `TerrainDisplayState.RenderHash`, a sequence number stamped on each new display
+state and advanced for display-only, layer-material, and mutable sculpt-preview changes. The controller
+then notifies the RDK from the same build/display/sculpt lifecycle points. The notification statics still
+live on the deprecated `Rhino.Render.CustomRenderMeshProvider` class, as they were never carried over to
+the Rhino 8 API.
+
+**Per-renderer support is opt-in.** A render engine only sees this geometry if it walks the provider's
+non-object id list. Verified working against Rhino's own `ChangeQueue` pipeline (which Raytraced/Cycles
+consumes); V-Ray has historically honoured it; there is no evidence Enscape does — the same limitation
+that makes Grasshopper `CustomPreview` geometry invisible in Enscape. For engines that ignore the RDK
+subsystem, Bake remains the only route.
 
 Brep previews use the document's render-meshing parameters and cache the resulting mesh on each
 `GeneratedRhinoObject` instead of asking the display pipeline to tessellate the Brep again on every

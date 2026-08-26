@@ -510,8 +510,7 @@ internal sealed class SculptSessionController
 
     private void RefreshSculptDisplay()
     {
-        var displayState = _controller.GetSculptRuntimeCache(_doc, _terrainId).DisplayState;
-        displayState?.InvalidatePreviewBounds();
+        _controller.NotifySculptPreviewChanged(_doc, _terrainId);
         _doc.Views.Redraw();
     }
 

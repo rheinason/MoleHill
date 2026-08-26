@@ -28,6 +28,11 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
     public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
     {
         ParameterDescriptor.Sources(
+            "TinMesh", "Exact TIN Mesh",
+            m => ((TriangulateModifierDefinition)m).TinMesh,
+            RhinoObjectType.Mesh,
+            "Optional exact triangle mesh source. When set, its topology is preserved and the point/curve inputs are ignored."),
+        ParameterDescriptor.Sources(
             "Points", "Points",
             m => ((TriangulateModifierDefinition)m).Points,
             RhinoObjectType.Point | RhinoObjectType.PointSet),

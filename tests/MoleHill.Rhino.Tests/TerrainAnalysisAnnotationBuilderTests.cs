@@ -248,6 +248,62 @@ public class TerrainAnalysisAnnotationBuilderTests
         Assert.Equal(expected, TerrainBuildService.ResolveContourOutputLayerPath(configuredLayer, fallbackLayer));
     }
 
+    [RhinoNativeFact]
+    public void BuildTerrainSectionSummary_MultipleTerrains_EmitsCutRegion()
+    {
+        var analysis = new TerrainSectionAnalysisDefinition { IsEnabled = true };
+        var cut = new LineCurve(new Point3d(0, 5, 0), new Point3d(10, 5, 0));
+        TerrainBuildSnapshot snapshot = CreateSectionSnapshot(analysis, cut, CreateFlatMesh(2.0));
+        var build = new TerrainBuildResult();
+
+        TerrainAnalysisSummary summary = TerrainAnalysisAnnotationBuilder.BuildTerrainSectionSummary(
+            snapshot, CreateFlatMesh(0.0), analysis, build, shouldCancel: null);
+
+        Assert.Equal(2, summary.SectionTerrainCount);
+        Assert.True(summary.SectionCutRegionCount > 0);
+        Assert.Equal(0, summary.SectionFillRegionCount);
+        Assert.Contains(build.AuxiliaryObjects, output => output.Geometry is Mesh && output.Name.Contains("cut"));
+    }
+
+    [RhinoNativeFact]
+    public void BuildCrossSectionStationSummary_MultipleTerrains_EmitsCutRegion()
+    {
+        var analysis = new CrossSectionStationAnalysisDefinition
+        {
+            IsEnabled = true,
+            StationInterval = 5.0,
+            CrossSectionWidth = 8.0
+        };
+        var alignment = new LineCurve(new Point3d(1, 5, 0), new Point3d(9, 5, 0));
+        TerrainBuildSnapshot snapshot = CreateSectionSnapshot(analysis, alignment, CreateFlatMesh(2.0));
+        var build = new TerrainBuildResult();
+
+        TerrainAnalysisSummary summary = TerrainAnalysisAnnotationBuilder.BuildCrossSectionStationSummary(
+            snapshot, CreateFlatMesh(0.0), analysis, build, shouldCancel: null);
+
+        Assert.Equal(2, summary.SectionTerrainCount);
+        Assert.True(summary.SectionCutRegionCount > 0);
+    }
+
+    [RhinoNativeFact]
+    public void BuildLongitudinalSectionSummary_MultipleTerrains_EmitsCutRegion()
+    {
+        var analysis = new LongitudinalSectionAnalysisDefinition
+        {
+            IsEnabled = true,
+            SampleInterval = 1.0
+        };
+        var alignment = new LineCurve(new Point3d(1, 5, 0), new Point3d(9, 5, 0));
+        TerrainBuildSnapshot snapshot = CreateSectionSnapshot(analysis, alignment, CreateFlatMesh(2.0));
+        var build = new TerrainBuildResult();
+
+        TerrainAnalysisSummary summary = TerrainAnalysisAnnotationBuilder.BuildLongitudinalSectionSummary(
+            snapshot, CreateFlatMesh(0.0), analysis, build, shouldCancel: null);
+
+        Assert.Equal(2, summary.SectionTerrainCount);
+        Assert.True(summary.SectionCutRegionCount > 0);
+    }
+
     private static TerrainBuildSnapshot CreateSnapshot(BlockAttributeAnalysisDefinition analysis, GeometryBase geometry)
     {
         var terrain = new TerrainDefinition
@@ -278,6 +334,51 @@ public class TerrainAnalysisAnnotationBuilderTests
         return snapshot;
     }
 
+    private static TerrainBuildSnapshot CreateSectionSnapshot(
+        TerrainSectionAnalysisDefinitionBase analysis,
+        GeometryBase sourceGeometry,
+        Mesh referenceMesh)
+    {
+        Guid referenceId = Guid.NewGuid();
+        var terrain = new TerrainDefinition
+        {
+            Name = "Proposed",
+            GlobalTolerance = 0.001,
+            Analyses = new List<AnalysisDefinition> { analysis }
+        };
+        analysis.ComparisonTerrainIds.Add(referenceId);
+        analysis.CutFillReferenceTerrainId = referenceId;
+        analysis.HasInsertionPlane = true;
+        var snapshot = new TerrainBuildSnapshot
+        {
+            Terrain = terrain,
+            ModelAbsoluteTolerance = 0.001,
+            ModelUnitSystem = UnitSystem.Meters
+        };
+        Guid sourceId = Guid.NewGuid();
+        analysis.Sources.ObjectIds.Add(sourceId);
+        BoundingBox bounds = sourceGeometry.GetBoundingBox(true);
+        snapshot.SourceObjects[analysis.Sources] = new List<ResolvedSourceObject>
+        {
+            new()
+            {
+                ObjectId = sourceId,
+                Geometry = sourceGeometry,
+                LocalBoundingBox = bounds,
+                WorldBoundingBox = bounds
+            }
+        };
+        snapshot.SectionTerrains[referenceId] = new TerrainSectionReferenceSnapshot
+        {
+            TerrainId = referenceId,
+            Name = "Existing",
+            ColorArgb = unchecked((int)0xFF808080),
+            Mesh = referenceMesh,
+            MeshFingerprint = 1
+        };
+        return snapshot;
+    }
+
     private static void AssertBlockOrigin(GeneratedRhinoObject output, double x, double y, double z)
     {
         Assert.Equal(x, output.InstanceTransform.M03, precision: 6);
@@ -293,6 +394,19 @@ public class TerrainAnalysisAnnotationBuilderTests
         mesh.Vertices.Add(0.0, 10.0, 0.0);
         mesh.Vertices.Add(10.0, 10.0, 100.0);
         mesh.Faces.AddFace(0, 1, 3, 2);
+        mesh.Normals.ComputeNormals();
+        mesh.Compact();
+        return mesh;
+    }
+
+    private static Mesh CreateFlatMesh(double elevation)
+    {
+        var mesh = new Mesh();
+        mesh.Vertices.Add(0.0, 0.0, elevation);
+        mesh.Vertices.Add(10.0, 0.0, elevation);
+        mesh.Vertices.Add(10.0, 10.0, elevation);
+        mesh.Vertices.Add(0.0, 10.0, elevation);
+        mesh.Faces.AddFace(0, 1, 2, 3);
         mesh.Normals.ComputeNormals();
         mesh.Compact();
         return mesh;

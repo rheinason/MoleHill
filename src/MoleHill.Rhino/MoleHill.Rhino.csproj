@@ -22,6 +22,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.660" />
     <PackageReference Include="RhinoCommon" Version="8.9.24194.18121" ExcludeAssets="runtime" />
   </ItemGroup>
 

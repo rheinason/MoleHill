@@ -48,11 +48,35 @@ public sealed class ZoneAnalysisCalculatorTests
         Assert.Equal(3.0, summary.ElevationMaxZ, 8);
     }
 
+    [RhinoNativeFact]
+    public void Summarize_MultipleSlopes_IsAreaWeightedAndOrderIndependent()
+    {
+        using var flat = MakeSlopedTriangle(0, 0, 0, 0);
+        using var sloped = MakeSlopedTriangle(3, 0, 0, 1);
+
+        var forward = ZoneAnalysisCalculator.Summarize(Guid.NewGuid(), new[] { flat, sloped });
+        var reverse = ZoneAnalysisCalculator.Summarize(Guid.NewGuid(), new[] { sloped, flat });
+
+        Assert.Equal(50.0, forward.SlopeAveragePercent, 8);
+        Assert.Equal(forward.SlopeAveragePercent, reverse.SlopeAveragePercent, 8);
+    }
+
     private static Mesh MakeTriangle(double x, double y, double z)
     {
         var mesh = new Mesh();
         mesh.Vertices.Add(x, y, z);
         mesh.Vertices.Add(x + 1, y, z);
+        mesh.Vertices.Add(x, y + 1, z);
+        mesh.Faces.AddFace(0, 1, 2);
+        mesh.Normals.ComputeNormals();
+        return mesh;
+    }
+
+    private static Mesh MakeSlopedTriangle(double x, double y, double z, double risePerX)
+    {
+        var mesh = new Mesh();
+        mesh.Vertices.Add(x, y, z);
+        mesh.Vertices.Add(x + 1, y, z + risePerX);
         mesh.Vertices.Add(x, y + 1, z);
         mesh.Faces.AddFace(0, 1, 2);
         mesh.Normals.ComputeNormals();

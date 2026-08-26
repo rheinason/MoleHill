@@ -44,7 +44,8 @@ internal sealed partial class TerrainBuildService
             new WaterflowTracer.Options
             {
                 MaxLength = Math.Max(0.0, analysis.MaxLength),
-                Tolerance = Math.Max(snapshot.ModelAbsoluteTolerance * 1e-3, 1e-10)
+                Tolerance = Math.Max(snapshot.ModelAbsoluteTolerance * 1e-3, 1e-10),
+                CancellationRequested = shouldCancel
             });
 
         int boundaryCount = 0;

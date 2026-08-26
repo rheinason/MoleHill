@@ -11,7 +11,8 @@ Terrain analysis math. Pure, unit-tested.
   allocating preview colors; `Analyze` keeps the per-face slope + palette mapping path for colored
   previews. Both paths parallelize above 20,000 faces.
 - `AnalysisColorMapper.cs` — shared smooth-gradient and stepped-band classification used by Rhino
-  elevation, slope, cut/fill, and sculpt previews.
+  elevation, slope, cut/fill, and sculpt previews. Signed infinities clamp to their corresponding low or
+  high palette stop.
 - `MeshHeightProjector.cs` — fast 2.5D XY-to-Z lookup for reference comparison analysis. It returns a
   fallback-required status for overlapping or near-vertical XY regions so Rhino-side callers can keep
   exact legacy projection behavior there. Faces are registered in every touched grid cell, so queries
@@ -19,4 +20,5 @@ Terrain analysis math. Pure, unit-tested.
 - `MeshRegularityAnalyzer.cs` — sampled density and minimum-angle checks used to identify coarse or
   skinny triangulations before vertex-based Smooth/Sculpt operations.
 - `WaterflowTracer.cs` — deterministic downhill path tracing from XY starts through adjacent 2.5D
-  triangles, stopping at terrain boundaries or local flat/sink faces.
+  triangles, stopping at terrain boundaries or local flat/sink faces. A per-call XY face index avoids
+  repeated full-mesh start scans, and cancellation is checked during lookup and path transitions.

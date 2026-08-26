@@ -39,4 +39,14 @@ public sealed class AnalysisColorMapperTests
 
         Assert.Equal(negative.R, (byte)(255 - positive.R));
     }
+
+    [Fact]
+    public void InfiniteValues_MapToMatchingRangeEnd()
+    {
+        var negative = AnalysisColorMapper.Sample(double.NegativeInfinity, 0, 10, AnalysisColorMapper.Mode.Gradient, 0, Palette);
+        var positive = AnalysisColorMapper.Sample(double.PositiveInfinity, 0, 10, AnalysisColorMapper.Mode.Gradient, 0, Palette);
+
+        Assert.Equal(0, negative.R);
+        Assert.Equal(255, positive.R);
+    }
 }

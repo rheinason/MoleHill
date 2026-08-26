@@ -102,6 +102,7 @@ public sealed partial class MoleHillPanel : Panel
     };
     private readonly HashSet<Guid> _collapsedAnalyses = new();
     private readonly HashSet<Guid> _expandedAnalysisColorSettings = new();
+    private readonly HashSet<Guid> _initializedAnalysisColorSettings = new();
     private readonly Dictionary<Guid, Panel>    _modifierCardMap      = new();
     private readonly Dictionary<Guid, Panel>    _modifierSepMap       = new();
     private readonly Dictionary<Guid, Panel>    _modifierStripMap     = new();
@@ -2538,7 +2539,7 @@ public sealed partial class MoleHillPanel : Panel
         if (analysis is not (SlopeAnalysisDefinition or ElevationAnalysisDefinition or CutFillAnalysisDefinition))
             return new Panel();
 
-        if (!_expandedAnalysisColorSettings.Contains(analysis.Id))
+        if (_initializedAnalysisColorSettings.Add(analysis.Id))
             _expandedAnalysisColorSettings.Add(analysis.Id);
 
         bool expanded = _expandedAnalysisColorSettings.Contains(analysis.Id);

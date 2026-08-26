@@ -6,7 +6,9 @@ internal enum SectionLayerKind
     Cuts,
     Grid,
     Ticks,
-    Labels
+    Labels,
+    CutFillCut,
+    CutFillFill
 }
 
 internal static class SectionOutputLayers
@@ -27,6 +29,8 @@ internal static class SectionOutputLayers
             SectionLayerKind.Grid => $"{root}::Grid",
             SectionLayerKind.Ticks => $"{root}::Ticks",
             SectionLayerKind.Labels => $"{root}::Labels",
+            SectionLayerKind.CutFillCut => $"{root}::CutFill::Cut",
+            SectionLayerKind.CutFillFill => $"{root}::CutFill::Fill",
             _ => root
         };
     }
@@ -38,6 +42,8 @@ internal static class SectionOutputLayers
         SectionLayerKind.Grid => 0.13,
         SectionLayerKind.Ticks => 0.18,
         SectionLayerKind.Labels => null,
+        SectionLayerKind.CutFillCut => null,
+        SectionLayerKind.CutFillFill => null,
         _ => null
     };
 }

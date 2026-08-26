@@ -278,11 +278,13 @@ internal static class DocumentCommandService
         dialog.Filters.Add(new FileFilter("LandXML", ".xml", ".landxml"));
         if (dialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok || string.IsNullOrWhiteSpace(dialog.FileName))
             return Result.Cancel;
-        return LandXmlSurfaceService.ImportAsTerrain(doc, dialog.FileName, out _);
+        return LandXmlSurfaceService.ImportAsTerrains(doc, dialog.FileName, out _);
     }
 
     public static Result RunExportLandXml(RhinoDoc doc)
     {
+        if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext documentUnits))
+            return Result.Failure;
         TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
         if (terrain == null)
             return Result.Nothing;
@@ -293,7 +295,7 @@ internal static class DocumentCommandService
             return Result.Nothing;
         }
 
-        var surface = new TinSurfaceData { Name = terrain.Name };
+        var surface = new TinSurfaceData { Name = terrain.Name, LinearUnit = LandXmlLinearUnit.Meter };
         Transform exportTransform = Transform.Identity;
         if (ProjectBaseCPlaneService.TryGetTransform(false, doc, out Transform georef, out _))
             exportTransform = georef;
@@ -301,7 +303,11 @@ internal static class DocumentCommandService
         {
             Point3d point = mesh.Vertices[i];
             point.Transform(exportTransform);
-            surface.Points.Add(new TinSurfacePoint(i + 1, point.X, point.Y, point.Z));
+            surface.Points.Add(new TinSurfacePoint(
+                i + 1,
+                point.X * documentUnits.MetersPerModelUnit,
+                point.Y * documentUnits.MetersPerModelUnit,
+                point.Z * documentUnits.MetersPerModelUnit));
         }
         for (int i = 0; i < mesh.Faces.Count; i++)
         {
@@ -344,11 +350,34 @@ internal static class DocumentCommandService
             return Result.Cancel;
 
         string geotiffPath = imageDialog.FileName;
-        using var image = System.Drawing.Image.FromFile(geotiffPath);
+        GeoTiffElevationSamples? elevationSamples = null;
+        int imageWidth;
+        int imageHeight;
+        if (createTerrain)
+        {
+            if (!GeoTiffElevationReader.TryReadSamples(
+                    geotiffPath,
+                    20_000,
+                    out elevationSamples,
+                    out string? elevationError) ||
+                elevationSamples == null)
+            {
+                RhinoApp.WriteLine($"MoleHill: {elevationError ?? "Could not read numeric DEM elevations."}");
+                return Result.Failure;
+            }
+            imageWidth = elevationSamples.Width;
+            imageHeight = elevationSamples.Height;
+        }
+        else
+        {
+            using var displayImage = System.Drawing.Image.FromFile(geotiffPath);
+            imageWidth = displayImage.Width;
+            imageHeight = displayImage.Height;
+        }
         RasterGeoreference georeference;
         string sourceDescription;
         GeoTiffLinearUnit? sourceUnits;
-        if (!GeoTiffMetadataReader.TryRead(image, out georeference, out sourceDescription, out sourceUnits))
+        if (!GeoTiffMetadataReader.TryRead(geotiffPath, out georeference, out sourceDescription, out sourceUnits))
         {
             string? worldFilePath = FindWorldFile(geotiffPath);
             if (worldFilePath == null)
@@ -385,7 +414,7 @@ internal static class DocumentCommandService
         if (projectBaseResolution != Result.Success)
             return projectBaseResolution;
 
-        Transform placement = georeference.CreatePictureFrameToWorldTransform(image.Height);
+        Transform placement = georeference.CreatePictureFrameToWorldTransform(imageHeight);
         bool placedInProjectCoordinates = false;
         if (hasProjectBase)
         {
@@ -403,86 +432,123 @@ internal static class DocumentCommandService
             placedInProjectCoordinates = true;
         }
 
-        Plane plane = Plane.WorldXY;
-        Guid pictureId = doc.Objects.AddPictureFrame(
-            plane,
-            geotiffPath,
-            false,
-            image.Width,
-            image.Height,
-            false,
-            false);
-        if (pictureId == Guid.Empty)
-            return Result.Failure;
-
-        if (!CommandScriptRunner.RunTransformScript(
-                doc,
-                new[] { pictureId },
-                placement,
-                out string? placementError,
-                out Guid[] placedIds))
+        uint undoRecord = doc.BeginUndoRecord(createTerrain ? "Import GeoTIFF DEM terrain" : "Import GeoTIFF");
+        var createdObjectIds = new List<Guid>();
+        TerrainDefinition? createdTerrain = null;
+        bool success = false;
+        try
         {
-            foreach (Guid placedId in placedIds)
-            {
-                RhinoObject? placedObject = doc.Objects.FindId(placedId);
-                if (placedObject != null)
-                    doc.Objects.Delete(placedObject, quiet: true, ignoreModes: true);
-            }
-            RhinoApp.WriteLine(placementError ?? "MoleHill: could not place the GeoTIFF picture frame.");
-            return Result.Failure;
-        }
+            Plane plane = Plane.WorldXY;
+            Guid pictureId = doc.Objects.AddPictureFrame(
+                plane,
+                geotiffPath,
+                false,
+                imageWidth,
+                imageHeight,
+                false,
+                false);
+            if (pictureId == Guid.Empty)
+                return Result.Failure;
+            createdObjectIds.Add(pictureId);
 
-        RhinoApp.WriteLine(
-            $"MoleHill: imported GeoTIFF using {sourceDescription} " +
-            (placedInProjectCoordinates ? "in local project coordinates." : "in real-world coordinates.") +
-            $" Source coordinates were interpreted as {unitDescription} and converted to {documentUnits.Abbreviation}." +
-            " No CRS reprojection was applied.");
-        if (createTerrain)
-        {
-            List<Guid> pointIds = SampleRasterAsTerrainPoints(doc, image, georeference, hasProjectBase,
-                sourceMetersPerUnit / documentUnits.MetersPerModelUnit);
-            if (pointIds.Count < 3 || TerrainController.Instance.CreateTerrainFromPointIds(doc, pointIds, Path.GetFileNameWithoutExtension(geotiffPath)) == null)
+            if (!CommandScriptRunner.RunTransformScript(
+                    doc,
+                    new[] { pictureId },
+                    placement,
+                    out string? placementError,
+                    out Guid[] placedIds))
             {
-                RhinoApp.WriteLine("MoleHill: the raster did not produce enough valid elevation samples for a terrain.");
+                RhinoApp.WriteLine(placementError ?? "MoleHill: could not place the GeoTIFF picture frame.");
                 return Result.Failure;
             }
-            RhinoApp.WriteLine($"MoleHill: created a managed DEM terrain from {pointIds.Count:N0} raster samples.");
+            createdObjectIds.AddRange(placedIds);
+
+            RhinoApp.WriteLine(
+                $"MoleHill: imported GeoTIFF using {sourceDescription} " +
+                (placedInProjectCoordinates ? "in local project coordinates." : "in real-world coordinates.") +
+                $" Source coordinates were interpreted as {unitDescription} and converted to {documentUnits.Abbreviation}." +
+                " No CRS reprojection was applied.");
+            if (createTerrain)
+            {
+                if (elevationSamples == null || !SampleRasterAsTerrainPoints(
+                        doc,
+                        elevationSamples,
+                        georeference,
+                        hasProjectBase,
+                        sourceMetersPerUnit / documentUnits.MetersPerModelUnit,
+                        createdObjectIds,
+                        out List<Guid> pointIds))
+                {
+                    RhinoApp.WriteLine("MoleHill: the DEM did not produce enough valid elevation samples for a terrain.");
+                    return Result.Failure;
+                }
+
+                createdTerrain = TerrainController.Instance.CreateTerrainFromPointIds(
+                    doc,
+                    pointIds,
+                    Path.GetFileNameWithoutExtension(geotiffPath));
+                if (createdTerrain == null)
+                {
+                    RhinoApp.WriteLine("MoleHill: the DEM terrain could not be created.");
+                    return Result.Failure;
+                }
+                RhinoApp.WriteLine($"MoleHill: created a managed DEM terrain from {pointIds.Count:N0} numeric raster samples.");
+            }
+
+            success = true;
+            return Result.Success;
         }
-        doc.Views.Redraw();
-        return Result.Success;
+        finally
+        {
+            if (!success)
+            {
+                if (createdTerrain != null)
+                    TerrainController.Instance.DeleteTerrain(doc, createdTerrain.TerrainId);
+                DeleteCreatedObjects(doc, createdObjectIds);
+            }
+            doc.EndUndoRecord(undoRecord);
+            doc.Views.Redraw();
+        }
     }
 
-    private static List<Guid> SampleRasterAsTerrainPoints(
+    private static bool SampleRasterAsTerrainPoints(
         RhinoDoc doc,
-        System.Drawing.Image image,
+        GeoTiffElevationSamples samples,
         RasterGeoreference georeference,
         bool hasProjectBase,
-        double elevationScale)
+        double elevationScale,
+        ICollection<Guid> createdObjectIds,
+        out List<Guid> ids)
     {
-        using var bitmap = new System.Drawing.Bitmap(image);
-        int stride = Math.Max(1, (int)Math.Ceiling(Math.Sqrt((bitmap.Width * (double)bitmap.Height) / 20_000.0)));
+        ids = new List<Guid>(samples.Samples.Count);
         Transform toProject = Transform.Identity;
         if (hasProjectBase && !ProjectBaseCPlaneService.TryGetTransform(true, doc, out toProject, out _))
-            return new List<Guid>();
+            return false;
 
-        var ids = new List<Guid>();
-        for (int y = 0; y < bitmap.Height; y += stride)
+        foreach (GeoTiffElevationSample sample in samples.Samples)
         {
-            for (int x = 0; x < bitmap.Width; x += stride)
-            {
-                System.Drawing.Color color = bitmap.GetPixel(x, y);
-                double elevation = color.R * elevationScale;
-                if (!double.IsFinite(elevation))
-                    continue;
-                var mapped = georeference.MapRasterPoint(x + 0.5, y + 0.5);
-                var point = new Point3d(mapped.X, mapped.Y, elevation);
-                point.Transform(toProject);
-                Guid id = doc.Objects.AddPoint(point);
-                if (id != Guid.Empty)
-                    ids.Add(id);
-            }
+            double elevation = sample.Elevation * elevationScale;
+            var mapped = georeference.MapRasterPoint(sample.PixelX + 0.5, sample.PixelY + 0.5);
+            var point = new Point3d(mapped.X, mapped.Y, elevation);
+            point.Transform(toProject);
+            Guid id = doc.Objects.AddPoint(point);
+            if (id == Guid.Empty)
+                return false;
+            ids.Add(id);
+            createdObjectIds.Add(id);
+            doc.Objects.Hide(id, ignoreLayerMode: true);
         }
-        return ids;
+        return ids.Count >= 3;
+    }
+
+    private static void DeleteCreatedObjects(RhinoDoc doc, IEnumerable<Guid> objectIds)
+    {
+        foreach (Guid id in objectIds.Distinct())
+        {
+            RhinoObject? obj = doc.Objects.FindId(id);
+            if (obj != null)
+                doc.Objects.Delete(obj, quiet: true, ignoreModes: true);
+        }
     }
 
     private static bool TryResolveRasterUnits(

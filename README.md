@@ -34,12 +34,17 @@ The Rhino plugin provides the panel-driven workflow for creating, editing, analy
 | **Construct Terrain** | Package an ordinary mesh, breaklines, and a zone tree as open MoleHill Terrain data |
 | **Deconstruct Terrain** | Expose MoleHill Terrain as ordinary Grasshopper mesh, curves, zone branches, and metadata |
 | **Partition Terrain** | Insert zone boundaries once and output separate terrain meshes with exact shared seam vertices |
+| **Prepare Toposolid** | Validate profiles and emit a point-budgeted, error-measured, fingerprinted Revit-neutral terrain package |
 
 `MoleHill Terrain` is deliberately not a closed editing system. Deconstruct it, edit or join the
 ordinary Rhino geometry with standard Grasshopper tools, then construct it again. Zone branches are
 region data only; `Partition Terrain` is the explicit operation that turns them into separate terrain
 pieces. Terrain Snapshot requires the MoleHill Rhino plugin from the combined package and rejects
 preview/deferred builds so downstream geometry never silently changes from approximate to final.
+`Prepare Toposolid` leaves coordinates in the incoming Rhino model space, retains explicit unit metadata,
+and performs adaptive point reduction in compiled Core code. Optional Rhino.Inside.Revit Python 3
+create/update, inspect, and subdivision adapters live under `examples/RhinoInside.Revit/`; Revit assemblies
+are not dependencies of the MoleHill package.
 
 ### Surface
 | Component | Description |
@@ -61,6 +66,7 @@ preview/deferred builds so downstream geometry never silently changes from appro
 |-----------|-------------|
 | **Slope Analysis** | Apply per-face slope coloring with a configurable legend range |
 | **Waterflow from Points** | Trace terrain-conforming downhill paths from point sources to boundaries or local sinks |
+| **Terrain Sections** | Overlay multiple terrain profiles and shade proposed-versus-reference cut/fill regions |
 | **Mesh Areas** | Split a mesh by closed boundary curves |
 | **Mesh Collage** | Combine meshes in 2D planning mode or as 3D colored terrain |
 
@@ -121,6 +127,8 @@ This repository is mixed-license.
 
 - MoleHill-authored code outside `src/TriangleNet/` is licensed under `GPL-3.0-only`.
 - `src/TriangleNet/` is excluded and retains its upstream notices and original terms.
+- `BitMiracle.LibTiff.NET`, shipped with the Rhino plugin for numeric DEM decoding, retains its
+  BSD-style terms and upstream notices.
 - The MoleHill code is intended to be reciprocal: if you distribute modified versions, you need to provide the corresponding source under GPL terms.
 
 See `LICENSE` and the files under `LICENSES/` for the details that apply to each part of the repository.

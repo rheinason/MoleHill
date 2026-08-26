@@ -28,7 +28,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             if (!view.Terrain.IsVisible)
                 continue;
 
-            BoundingBox bounds = view.DisplayState.GetPreviewBounds();
+            BoundingBox bounds = view.DisplayState.GetPreviewBounds(e.RhinoDoc);
             if (bounds.IsValid)
                 e.IncludeBoundingBox(bounds);
         }
@@ -161,7 +161,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
     private static DisplayMaterial GetOverlayMaterial(Color color, double transparency)
     {
-        Color opaque = GetOpaqueColor(color);
+        Color opaque = TerrainDisplayColors.GetOpaqueColor(color);
         var key = (opaque.ToArgb(), transparency);
         lock (DisplayMaterialCacheGate)
         {
@@ -274,7 +274,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             if (_colors.TryGetValue(key, out var color))
                 return color;
 
-            color = TerrainDisplayConduit.ResolveColor(_doc, layerPath, sourceLayerPath, colorArgb);
+            color = TerrainDisplayColors.Resolve(_doc, layerPath, sourceLayerPath, colorArgb);
             _colors[key] = color;
             return color;
         }
@@ -566,21 +566,21 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
         if (generated.Geometry is TextDot textDot)
         {
-            var color = ResolveColor(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+            var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
             e.Display.DrawDot(textDot.Point, textDot.Text, color, Color.White);
             return;
         }
 
         if (generated.Geometry is TextEntity textEntity)
         {
-            var color = ResolveColor(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+            var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
             e.Display.DrawText(textEntity, color);
             return;
         }
 
         if (generated.Geometry is Curve curve)
         {
-            var color = ResolveColor(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+            var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
             e.Display.DrawCurve(curve, color, 2);
             return;
         }
@@ -627,8 +627,8 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
     private static DisplayMaterial CreateDisplayMaterial(global::Rhino.RhinoDoc doc, TerrainDefinition terrain, string? layerPath, string? sourceLayerPath, int? colorArgb)
     {
-        var color = GetOpaqueColor(ResolveColor(doc, layerPath, sourceLayerPath, colorArgb));
-        double transparency = ResolveTransparency(terrain, colorArgb);
+        var color = TerrainDisplayColors.GetOpaqueColor(TerrainDisplayColors.Resolve(doc, layerPath, sourceLayerPath, colorArgb));
+        double transparency = TerrainDisplayColors.ResolveTransparency(terrain, colorArgb);
         var key = (color.ToArgb(), transparency);
         lock (DisplayMaterialCacheGate)
         {
@@ -644,52 +644,9 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         }
     }
 
-    private static Color ResolveColor(global::Rhino.RhinoDoc doc, string? layerPath, string? sourceLayerPath, int? colorArgb)
-    {
-        if (colorArgb.HasValue)
-            return Color.FromArgb(colorArgb.Value);
-
-        if (TryResolveLayerColor(doc, sourceLayerPath, out var sourceColor))
-            return sourceColor;
-
-        if (TryResolveLayerColor(doc, layerPath, out var layerColor))
-            return layerColor;
-
-        return Color.FromArgb(180, 180, 180);
-    }
-
-    private static bool TryResolveLayerColor(global::Rhino.RhinoDoc doc, string? layerPath, out Color color)
-    {
-        if (!string.IsNullOrWhiteSpace(layerPath))
-        {
-            int layerIndex = doc.Layers.FindByFullPath(layerPath, -1);
-            if (layerIndex >= 0 && layerIndex < doc.Layers.Count)
-            {
-                color = doc.Layers[layerIndex].Color;
-                return true;
-            }
-        }
-
-        color = default;
-        return false;
-    }
-
-    private static double ResolveTransparency(TerrainDefinition terrain, int? colorArgb)
-    {
-        if (colorArgb.HasValue)
-            return 1.0 - (Color.FromArgb(colorArgb.Value).A / 255.0);
-
-        return Math.Clamp(terrain.OutputTransparencyPercent, 0, 100) / 100.0;
-    }
-
-    private static Color GetOpaqueColor(Color color)
-    {
-        return Color.FromArgb(color.R, color.G, color.B);
-    }
-
     private static Color ResolveWireColor(global::Rhino.RhinoDoc doc, string? layerPath, string? sourceLayerPath, int? colorArgb)
     {
-        var baseColor = GetOpaqueColor(ResolveColor(doc, layerPath, sourceLayerPath, colorArgb));
+        var baseColor = TerrainDisplayColors.GetOpaqueColor(TerrainDisplayColors.Resolve(doc, layerPath, sourceLayerPath, colorArgb));
         return Color.FromArgb(
             Math.Max(0, (int)Math.Round(baseColor.R * 0.45)),
             Math.Max(0, (int)Math.Round(baseColor.G * 0.45)),
@@ -698,7 +655,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
     private static void DrawMarkerTemplate(DrawEventArgs e, global::Rhino.RhinoDoc doc, GeneratedRhinoObject generated)
     {
-        var color = ResolveColor(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+        var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
 
         if (TryDrawBlockDefinitionGeometry(e, doc, generated, color))
             return;

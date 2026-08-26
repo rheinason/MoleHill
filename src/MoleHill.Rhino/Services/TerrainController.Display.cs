@@ -25,6 +25,7 @@ internal sealed partial class TerrainController
 {
     private void UpdateDisplayState(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache, TerrainBuildResult build)
     {
+        BoundingBox previousPreviewBounds = runtimeCache.DisplayState?.GetPreviewBounds(doc) ?? BoundingBox.Empty;
         var displayState = new TerrainDisplayState
         {
             IsPreview = build.Mode == TerrainBuildMode.Preview,
@@ -48,8 +49,40 @@ internal sealed partial class TerrainController
             displayState.ScatterObjects.AddRange(build.ScatterObjects);
             displayState.RebuildScatterObjectRanges();
         }
+        displayState.IncludePreviousPreviewBounds(previousPreviewBounds);
         runtimeCache.DisplayState = displayState;
         UpdateRuntimePreview(doc, terrain, runtimeCache);
+        NotifyRenderMeshesChanged(doc);
+    }
+
+    /// <summary>
+    /// Tells the RDK that <see cref="TerrainRenderMeshProvider"/>'s cached primitives are stale, so an
+    /// active render (Raytraced, V-Ray, …) picks up the new terrain instead of showing the previous
+    /// build until it is restarted.
+    ///
+    /// The notification statics still live on the deprecated <c>CustomRenderMeshProvider</c> class —
+    /// they were not carried over to <c>Rhino.Render.CustomRenderMeshes.RenderMeshProvider</c> in
+    /// Rhino 8, and there is no replacement, so calling the obsolete API here is deliberate.
+    /// </summary>
+    private void InvalidateTerrainRenderMeshes(RhinoDoc doc, Guid terrainId)
+    {
+        GetRuntimeCache(doc.RuntimeSerialNumber, terrainId).DisplayState?.InvalidateRenderContent();
+        NotifyRenderMeshesChanged(doc);
+    }
+
+    private void InvalidateDocumentRenderMeshes(RhinoDoc doc)
+    {
+        foreach (TerrainPreviewView view in GetPreviewViews(doc))
+            view.DisplayState.InvalidateRenderContent();
+
+        NotifyRenderMeshesChanged(doc);
+    }
+
+    internal static void NotifyRenderMeshesChanged(RhinoDoc doc)
+    {
+#pragma warning disable CS0612 // Type or member is obsolete
+        global::Rhino.Render.CustomRenderMeshProvider.AllObjectsChanged(doc);
+#pragma warning restore CS0612
     }
 
     private void UpdateRuntimePreview(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache)

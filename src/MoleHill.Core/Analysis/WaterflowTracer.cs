@@ -1,3 +1,5 @@
+using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Analysis;
 
 /// <summary>Traces a single deterministic downhill water path through a 2.5D triangle mesh.</summary>
@@ -16,6 +18,9 @@ public static class WaterflowTracer
 
         /// <summary>Numerical tolerance used for point-in-triangle and edge crossing tests.</summary>
         public double Tolerance { get; init; } = 1e-10;
+
+        /// <summary>Optional cooperative cancellation check used during lookup and tracing.</summary>
+        public Func<bool>? CancellationRequested { get; init; }
     }
 
     public sealed class Result
@@ -69,15 +74,17 @@ public static class WaterflowTracer
         Options settings = options ?? new Options();
         int maxSteps = Math.Max(1, settings.MaxSteps);
         double tolerance = Math.Max(Math.Abs(settings.Tolerance), 1e-12);
-        int[] neighbors = BuildNeighbors(faces, faceCount, vertexCount);
+        int[] neighbors = BuildNeighbors(faces, faceCount, vertexCount, settings);
+        FaceSpatialIndex faceIndexLookup = FaceSpatialIndex.Build(vertices, vertexCount, faces, faceCount, settings);
         var paths = new List<Path>(startPointCount);
         int rejected = 0;
 
         for (int startIndex = 0; startIndex < startPointCount; startIndex++)
         {
+            ThrowIfCancellationRequested(settings);
             double x = startXy[startIndex * 2];
             double y = startXy[startIndex * 2 + 1];
-            int faceIndex = FindContainingFace(vertices, vertexCount, faces, faceCount, x, y, tolerance);
+            int faceIndex = FindContainingFace(vertices, vertexCount, faces, faceIndexLookup, x, y, tolerance, settings);
             if (faceIndex < 0)
             {
                 rejected++;
@@ -124,6 +131,7 @@ public static class WaterflowTracer
 
         for (int step = 0; step < maxSteps; step++)
         {
+            ThrowIfCancellationRequested(settings);
             bool hasPlane = TryGetPlane(vertices, faces, faceIndex, out Plane plane, out double slopeRatio);
             if (hasPlane && points.Count == 3)
                 points[2] = plane.Evaluate(currentX, currentY);
@@ -210,13 +218,19 @@ public static class WaterflowTracer
         };
     }
 
-    private static int[] BuildNeighbors(IReadOnlyList<int> faces, int faceCount, int vertexCount)
+    private static int[] BuildNeighbors(
+        IReadOnlyList<int> faces,
+        int faceCount,
+        int vertexCount,
+        Options settings)
     {
         var neighbors = Enumerable.Repeat(-1, faceCount * 3).ToArray();
         var edges = new Dictionary<EdgeKey, (int Face, int Edge)>();
 
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
+            if ((faceIndex & 4095) == 0)
+                ThrowIfCancellationRequested(settings);
             for (int edge = 0; edge < 3; edge++)
             {
                 int a = faces[(faceIndex * 3) + edge];
@@ -248,13 +262,19 @@ public static class WaterflowTracer
         IReadOnlyList<double> vertices,
         int vertexCount,
         IReadOnlyList<int> faces,
-        int faceCount,
+        FaceSpatialIndex faceIndexLookup,
         double x,
         double y,
-        double tolerance)
+        double tolerance,
+        Options settings)
     {
-        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        var candidates = new List<int>(16);
+        faceIndexLookup.Gather(x, y, tolerance, candidates);
+        for (int candidateIndex = 0; candidateIndex < candidates.Count; candidateIndex++)
         {
+            if ((candidateIndex & 255) == 0)
+                ThrowIfCancellationRequested(settings);
+            int faceIndex = candidates[candidateIndex];
             int a = faces[faceIndex * 3];
             int b = faces[(faceIndex * 3) + 1];
             int c = faces[(faceIndex * 3) + 2];
@@ -280,6 +300,12 @@ public static class WaterflowTracer
         }
 
         return -1;
+    }
+
+    private static void ThrowIfCancellationRequested(Options settings)
+    {
+        if (settings.CancellationRequested?.Invoke() == true)
+            throw new OperationCanceledException();
     }
 
     private static bool TryGetPlane(
@@ -390,5 +416,61 @@ public static class WaterflowTracer
     private readonly record struct Plane(double OriginX, double OriginY, double OriginZ, double GradientX, double GradientY)
     {
         public double Evaluate(double x, double y) => OriginZ + (GradientX * (x - OriginX)) + (GradientY * (y - OriginY));
+    }
+
+    private sealed class FaceSpatialIndex
+    {
+        private readonly SpatialHashGrid2D _grid;
+        private readonly int[] _faceIndexes;
+        private readonly SpatialHashGrid2D.QueryScratch _scratch;
+        private readonly List<int> _localCandidates = new(16);
+
+        private FaceSpatialIndex(SpatialHashGrid2D grid, int[] faceIndexes)
+        {
+            _grid = grid;
+            _faceIndexes = faceIndexes;
+            _scratch = new SpatialHashGrid2D.QueryScratch(faceIndexes.Length);
+        }
+
+        public static FaceSpatialIndex Build(
+            IReadOnlyList<double> vertices,
+            int vertexCount,
+            IReadOnlyList<int> faces,
+            int faceCount,
+            Options settings)
+        {
+            var bounds = new List<Bounds2D>(faceCount);
+            var indexes = new List<int>(faceCount);
+            for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+            {
+                if ((faceIndex & 4095) == 0)
+                    ThrowIfCancellationRequested(settings);
+                int a = faces[faceIndex * 3];
+                int b = faces[(faceIndex * 3) + 1];
+                int c = faces[(faceIndex * 3) + 2];
+                if ((uint)a >= (uint)vertexCount || (uint)b >= (uint)vertexCount || (uint)c >= (uint)vertexCount)
+                    continue;
+
+                double ax = vertices[a * 3], ay = vertices[(a * 3) + 1];
+                double bx = vertices[b * 3], by = vertices[(b * 3) + 1];
+                double cx = vertices[c * 3], cy = vertices[(c * 3) + 1];
+                bounds.Add(new Bounds2D(
+                    Math.Min(ax, Math.Min(bx, cx)),
+                    Math.Max(ax, Math.Max(bx, cx)),
+                    Math.Min(ay, Math.Min(by, cy)),
+                    Math.Max(ay, Math.Max(by, cy))));
+                indexes.Add(faceIndex);
+            }
+
+            return new FaceSpatialIndex(SpatialHashGrid2D.Build(bounds.ToArray()), indexes.ToArray());
+        }
+
+        public void Gather(double x, double y, double tolerance, List<int> result)
+        {
+            result.Clear();
+            _grid.GatherCandidates(Bounds2D.FromPoint(x, y, tolerance), _localCandidates, _scratch);
+            foreach (int localIndex in _localCandidates)
+                result.Add(_faceIndexes[localIndex]);
+        }
     }
 }

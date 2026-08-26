@@ -21,7 +21,7 @@ public sealed class PartitionTerrainComponent : GH_Component
 
         public List<Curve> Curves { get; } = new();
 
-        public HashSet<int> AreaIndexes { get; } = new();
+        public List<MeshAreaSplitter.AreaBoundary> Boundaries { get; } = new();
     }
 
     public PartitionTerrainComponent()
@@ -107,17 +107,30 @@ public sealed class PartitionTerrainComponent : GH_Component
         var boundaries = new List<MeshAreaSplitter.AreaBoundary>();
         foreach (RegionInput region in regions)
         {
+            var regionBoundaries = new List<MeshAreaSplitter.AreaBoundary>(region.Curves.Count);
+            string? invalidReason = null;
             foreach (Curve curve in region.Curves)
             {
-                if (!TerrainPartitionGeometry.TryCreateBoundary(curve, tolerance, out var boundary, out _))
+                if (!TerrainPartitionGeometry.TryCreateBoundary(curve, tolerance, out var boundary, out Curve displayCurve))
                 {
-                    report.Add($"{region.Name}: skipped an open or invalid boundary.");
-                    continue;
+                    invalidReason = "open or invalid boundary";
+                    break;
                 }
 
-                region.AreaIndexes.Add(boundaries.Count);
-                boundaries.Add(boundary);
+                displayCurve.Dispose();
+                regionBoundaries.Add(boundary);
             }
+
+            if (invalidReason != null)
+            {
+                string message = $"{region.Name}: skipped the entire region because one boundary is invalid ({invalidReason}).";
+                report.Add(message);
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, message);
+                continue;
+            }
+
+            region.Boundaries.AddRange(regionBoundaries);
+            boundaries.AddRange(regionBoundaries);
         }
 
         if (boundaries.Count == 0)
@@ -143,6 +156,10 @@ public sealed class PartitionTerrainComponent : GH_Component
         if (!string.IsNullOrWhiteSpace(splitWarning))
             report.Add(splitWarning);
 
+        int[] faceOwners = TerrainPartitionGeometry.ClassifyFaceOwners(
+            result,
+            regions.Select(region => (IReadOnlyList<MeshAreaSplitter.AreaBoundary>)region.Boundaries).ToArray());
+
         var terrainTree = new GH_Structure<MoleHillTerrainGoo>();
         var meshTree = new GH_Structure<GH_Mesh>();
         int outputCount = 0;
@@ -150,10 +167,11 @@ public sealed class PartitionTerrainComponent : GH_Component
         {
             terrainTree.EnsurePath(region.Path);
             meshTree.EnsurePath(region.Path);
-            if (region.AreaIndexes.Count == 0)
+            if (region.Boundaries.Count == 0)
                 continue;
 
-            Mesh pieceMesh = TerrainPartitionGeometry.BuildSubMesh(result, region.AreaIndexes);
+            int regionIndex = regions.IndexOf(region);
+            Mesh pieceMesh = TerrainPartitionGeometry.BuildOwnedMesh(result, faceOwners, regionIndex);
             if (pieceMesh.Faces.Count == 0)
             {
                 report.Add($"{region.Name}: boundary does not cover any terrain faces.");
@@ -161,13 +179,23 @@ public sealed class PartitionTerrainComponent : GH_Component
             }
 
             string pieceKey = CreateChildKey(terrain.Key, region.Key, region.Name);
+            IReadOnlyList<Curve> pieceBreaklines = TerrainPartitionGeometry.ClipBreaklinesToMesh(
+                terrain.Breaklines,
+                pieceMesh,
+                tolerance);
             var piece = new MoleHillTerrainData(
                 pieceMesh,
-                terrain.Breaklines,
+                pieceBreaklines,
                 name: region.Name,
                 key: pieceKey,
                 revision: terrain.Revision,
-                diagnostics: terrain.Diagnostics);
+                diagnostics: terrain.Diagnostics,
+                unitSystem: terrain.UnitSystem,
+                metersPerModelUnit: terrain.MetersPerModelUnit,
+                localToWorld: terrain.LocalToWorld,
+                hasProjectBaseTransform: terrain.HasProjectBaseTransform);
+            foreach (Curve curve in pieceBreaklines)
+                curve.Dispose();
             terrainTree.Append(new MoleHillTerrainGoo(piece), region.Path);
             meshTree.Append(new GH_Mesh(pieceMesh.DuplicateMesh()), region.Path);
             outputCount++;
@@ -176,16 +204,26 @@ public sealed class PartitionTerrainComponent : GH_Component
         MoleHillTerrainGoo? remainderGoo = null;
         if (includeRemainder)
         {
-            Mesh remainderMesh = TerrainPartitionGeometry.BuildRemainderMesh(result);
+            Mesh remainderMesh = TerrainPartitionGeometry.BuildOwnedMesh(result, faceOwners, -1);
             if (remainderMesh.Faces.Count > 0)
             {
+                IReadOnlyList<Curve> remainderBreaklines = TerrainPartitionGeometry.ClipBreaklinesToMesh(
+                    terrain.Breaklines,
+                    remainderMesh,
+                    tolerance);
                 var remainder = new MoleHillTerrainData(
                     remainderMesh,
-                    terrain.Breaklines,
+                    remainderBreaklines,
                     name: $"{terrain.Name} Remainder",
                     key: CreateChildKey(terrain.Key, "remainder", "Remainder"),
                     revision: terrain.Revision,
-                    diagnostics: terrain.Diagnostics);
+                    diagnostics: terrain.Diagnostics,
+                    unitSystem: terrain.UnitSystem,
+                    metersPerModelUnit: terrain.MetersPerModelUnit,
+                    localToWorld: terrain.LocalToWorld,
+                    hasProjectBaseTransform: terrain.HasProjectBaseTransform);
+                foreach (Curve curve in remainderBreaklines)
+                    curve.Dispose();
                 remainderGoo = new MoleHillTerrainGoo(remainder);
             }
         }
@@ -223,7 +261,7 @@ public sealed class PartitionTerrainComponent : GH_Component
                 region.Curves.AddRange(tree.get_Branch(path)
                     .OfType<GH_Curve>()
                     .Where(item => item.Value != null)
-                    .Select(item => item.Value.DuplicateCurve()));
+                    .Select(item => item.Value));
                 result.Add(region);
             }
 
@@ -239,7 +277,7 @@ public sealed class PartitionTerrainComponent : GH_Component
                 Name = source.Name,
                 Key = source.Key
             };
-            region.Curves.AddRange(source.Boundaries.Select(curve => curve.DuplicateCurve()));
+            region.Curves.AddRange(source.Boundaries);
             result.Add(region);
         }
 

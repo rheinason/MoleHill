@@ -5,10 +5,15 @@ using System.Reflection;
 using Rhino;
 using Rhino.FileIO;
 using Rhino.PlugIns;
+using Rhino.Render.CustomRenderMeshes;
 using Rhino.UI;
 
 namespace MoleHill.Rhino;
 
+/// <summary>
+/// Plug-in entry point: registers the MoleHill panel, toolbar and render mesh provider on load, and
+/// persists per-document terrain state (JSON) through WriteDocument/ReadDocument.
+/// </summary>
 public sealed class MoleHillRhinoPlugin : PlugIn
 {
     private readonly TerrainDocumentStore _documentStore = new();
@@ -29,6 +34,12 @@ public sealed class MoleHillRhinoPlugin : PlugIn
     protected override LoadReturnCode OnLoad(ref string errorMessage)
     {
         TerrainController.Instance.Initialize();
+
+        // Lets render engines that honour the RDK custom render mesh system draw terrain previews
+        // without baking. Discovers every public RenderMeshProvider in this assembly — currently
+        // TerrainRenderMeshProvider. See that class for the per-renderer support caveats.
+        RenderMeshProvider.RegisterProviders(Assembly.GetExecutingAssembly(), this);
+
         Panels.RegisterPanel(this, typeof(MoleHillPanel), "MoleHill", GetPanelIcon());
         ToolbarInstaller.EnsureInstalled();
         return LoadReturnCode.Success;

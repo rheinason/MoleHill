@@ -32,6 +32,28 @@ internal sealed class TerrainBuildSnapshot
     /// the main thread (the background build has no doc access). Used by edge-to-edge spacing to size each
     /// block. Keyed by instance-definition name.</summary>
     public Dictionary<string, BoundingBox> BlockDefinitionBounds { get; } = new(StringComparer.Ordinal);
+
+    public Dictionary<Guid, TerrainSectionReferenceSnapshot> SectionTerrains { get; } = new();
+
+    public void DisposeSectionTerrainMeshes()
+    {
+        foreach (TerrainSectionReferenceSnapshot reference in SectionTerrains.Values)
+            reference.Mesh.Dispose();
+        SectionTerrains.Clear();
+    }
+}
+
+internal sealed class TerrainSectionReferenceSnapshot
+{
+    public required Guid TerrainId { get; init; }
+
+    public required string Name { get; init; }
+
+    public required int ColorArgb { get; init; }
+
+    public required Mesh Mesh { get; init; }
+
+    public required ulong MeshFingerprint { get; init; }
 }
 
 internal sealed class SourceResolutionDiagnostics

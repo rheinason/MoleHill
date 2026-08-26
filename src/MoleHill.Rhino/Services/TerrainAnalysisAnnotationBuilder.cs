@@ -8,6 +8,15 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainAnalysisAnnotationBuilder
 {
+    private sealed record SectionTerrainProfile(
+        Guid TerrainId,
+        string TerrainName,
+        int ColorArgb,
+        TerrainSectionResult Slice,
+        bool IsOwner);
+
+    private readonly record struct SectionEmissionStats(int OutputCount, int CutRegions, int FillRegions);
+
     public static TerrainAnalysisSummary BuildCurveSlopeSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
@@ -439,10 +448,12 @@ internal static class TerrainAnalysisAnnotationBuilder
         double tolerance = snapshot.ModelAbsoluteTolerance;
         int sourceCount = 0;
         int outputCount = 0;
+        AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
 
-        var slices = new List<TerrainSectionResult>();
+        var sectionProfiles = new List<List<SectionTerrainProfile>>();
         double maxStation = 0.0;
         double maxRange = 0.0;
+        int availableTerrainCount = 1;
 
         foreach (var entry in objects)
         {
@@ -455,14 +466,17 @@ internal static class TerrainAnalysisAnnotationBuilder
             if (cutVertices.Count < 2)
                 continue;
 
-            var slice = TerrainSectionSlicer.SliceAlongPolyline(mesh, cutVertices, tolerance);
-            if (slice.IsEmpty)
+            List<SectionTerrainProfile> profiles = SliceTerrainsAlongPolyline(
+                snapshot, mesh, analysis, cutVertices, tolerance);
+            if (profiles.Count == 0 || profiles[0].Slice.IsEmpty)
                 continue;
 
-            slices.Add(slice);
-            if (slice.TotalStationLength > maxStation)
-                maxStation = slice.TotalStationLength;
-            double range = slice.MaximumElevation - slice.MinimumElevation;
+            sectionProfiles.Add(profiles);
+            availableTerrainCount = Math.Max(availableTerrainCount, profiles.Count);
+            double minimum = profiles.Min(profile => profile.Slice.MinimumElevation);
+            double maximum = profiles.Max(profile => profile.Slice.MaximumElevation);
+            maxStation = Math.Max(maxStation, profiles.Max(profile => profile.Slice.TotalStationLength));
+            double range = maximum - minimum;
             if (range > maxRange)
                 maxRange = range;
         }
@@ -470,20 +484,23 @@ internal static class TerrainAnalysisAnnotationBuilder
         double cellWidth = maxStation + Math.Max(maxStation * 0.15, analysis.TextHeight * 8.0);
         double cellHeight = Math.Max(maxRange * 1.4, analysis.TextHeight * 6.0);
 
-        for (int i = 0; i < slices.Count; i++)
+        int cutRegions = 0;
+        int fillRegions = 0;
+        for (int i = 0; i < sectionProfiles.Count; i++)
         {
             ThrowIfCancellationRequested(shouldCancel);
-            var slice = slices[i];
-            Plane cellPlane = OffsetCellPlane(insertionPlane, i, columns: Math.Max(slices.Count, 1), cellWidth, cellHeight);
+            List<SectionTerrainProfile> profiles = sectionProfiles[i];
+            Plane cellPlane = OffsetCellPlane(insertionPlane, i, columns: Math.Max(sectionProfiles.Count, 1), cellWidth, cellHeight);
 
-            outputCount += EmitProfileObjects(
+            SectionEmissionStats emitted = EmitCombinedProfileObjects(
                 analysis,
                 build,
-                slice,
+                profiles,
                 cellPlane,
                 horizontalScale: 1.0,
                 verticalScale: 1.0,
-                baseElevation: slice.MinimumElevation,
+                baseElevation: profiles.Min(profile => profile.Slice.MinimumElevation),
+                comparisonTolerance: tolerance,
                 showBaseline: true,
                 showElevationGrid: analysis.ShowElevationGrid,
                 elevationGridInterval: analysis.ElevationGridInterval,
@@ -494,13 +511,19 @@ internal static class TerrainAnalysisAnnotationBuilder
                 textHeight: analysis.TextHeight,
                 fallbackLayerPath: fallbackLayerPath,
                 sectionLabel: $"{analysis.Label} {i + 1}");
+            outputCount += emitted.OutputCount;
+            cutRegions += emitted.CutRegions;
+            fillRegions += emitted.FillRegions;
         }
 
         return new TerrainAnalysisSummary
         {
             AnalysisId = analysis.Id,
             SampleSourceCount = sourceCount,
-            GeneratedOutputCount = outputCount
+            GeneratedOutputCount = outputCount,
+            SectionTerrainCount = availableTerrainCount,
+            SectionCutRegionCount = cutRegions,
+            SectionFillRegionCount = fillRegions
         };
     }
 
@@ -521,7 +544,11 @@ internal static class TerrainAnalysisAnnotationBuilder
         double verticalScale = analysis.VerticalExaggeration > 0.0 ? analysis.VerticalExaggeration : 1.0;
         int sourceCount = 0;
         int outputCount = 0;
+        AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
         int globalIndex = 0;
+        int availableTerrainCount = 1;
+        int cutRegions = 0;
+        int fillRegions = 0;
 
         foreach (var entry in objects)
         {
@@ -534,7 +561,7 @@ internal static class TerrainAnalysisAnnotationBuilder
             if (stations.Count == 0)
                 continue;
 
-            var slices = new List<(double Station, TerrainSectionResult Slice)>(stations.Count);
+            var slices = new List<(double Station, List<SectionTerrainProfile> Profiles)>(stations.Count);
             double maxStation = 0.0;
             double maxRange = 0.0;
 
@@ -553,14 +580,16 @@ internal static class TerrainAnalysisAnnotationBuilder
                 b.Z = 0.0;
 
                 var cut = new[] { a, b };
-                var slice = TerrainSectionSlicer.SliceAlongPolyline(mesh, cut, tolerance);
-                if (slice.IsEmpty)
+                List<SectionTerrainProfile> profiles = SliceTerrainsAlongPolyline(
+                    snapshot, mesh, analysis, cut, tolerance);
+                if (profiles.Count == 0 || profiles[0].Slice.IsEmpty)
                     continue;
 
-                slices.Add((alignment.GetLength(new Interval(alignment.Domain.T0, station.Parameter)), slice));
-                if (slice.TotalStationLength > maxStation)
-                    maxStation = slice.TotalStationLength;
-                double range = slice.MaximumElevation - slice.MinimumElevation;
+                slices.Add((alignment.GetLength(new Interval(alignment.Domain.T0, station.Parameter)), profiles));
+                availableTerrainCount = Math.Max(availableTerrainCount, profiles.Count);
+                maxStation = Math.Max(maxStation, profiles.Max(profile => profile.Slice.TotalStationLength));
+                double range = profiles.Max(profile => profile.Slice.MaximumElevation) -
+                               profiles.Min(profile => profile.Slice.MinimumElevation);
                 if (range > maxRange)
                     maxRange = range;
             }
@@ -571,30 +600,40 @@ internal static class TerrainAnalysisAnnotationBuilder
             for (int i = 0; i < slices.Count; i++)
             {
                 ThrowIfCancellationRequested(shouldCancel);
-                var (alignmentStation, slice) = slices[i];
+                var (alignmentStation, profiles) = slices[i];
                 Plane cellPlane = OffsetCellPlane(insertionPlane, globalIndex, gridColumns, cellWidth, cellHeight);
                 globalIndex++;
 
                 if (analysis.ShowCutLinesOnTerrain)
                 {
-                    foreach (var segment in slice.Segments)
+                    foreach (SectionTerrainProfile profile in profiles)
                     {
-                        var poly = new Polyline(segment.Vertices.Count);
-                        for (int v = 0; v < segment.Vertices.Count; v++)
-                            poly.Add(segment.Vertices[v].World);
-                        build.AuxiliaryObjects.Add(BuildPolylineObject(analysis, poly, fallbackLayerPath, $"{analysis.Label} cut {globalIndex}", SectionLayerKind.Cuts));
-                        outputCount++;
+                        foreach (TerrainSectionSegment segment in profile.Slice.Segments)
+                        {
+                            var poly = new Polyline(segment.Vertices.Count);
+                            for (int v = 0; v < segment.Vertices.Count; v++)
+                                poly.Add(segment.Vertices[v].World);
+                            build.AuxiliaryObjects.Add(BuildPolylineObject(
+                                analysis,
+                                poly,
+                                fallbackLayerPath,
+                                $"{analysis.Label} {profile.TerrainName} cut {globalIndex}",
+                                SectionLayerKind.Cuts,
+                                profile.ColorArgb));
+                            outputCount++;
+                        }
                     }
                 }
 
-                outputCount += EmitProfileObjects(
+                SectionEmissionStats emitted = EmitCombinedProfileObjects(
                     analysis,
                     build,
-                    slice,
+                    profiles,
                     cellPlane,
                     horizontalScale: 1.0,
                     verticalScale: verticalScale,
-                    baseElevation: slice.MinimumElevation,
+                    baseElevation: profiles.Min(profile => profile.Slice.MinimumElevation),
+                    comparisonTolerance: tolerance,
                     showBaseline: true,
                     showElevationGrid: analysis.ShowElevationGrid,
                     elevationGridInterval: analysis.ElevationGridInterval,
@@ -605,6 +644,9 @@ internal static class TerrainAnalysisAnnotationBuilder
                     textHeight: analysis.TextHeight,
                     fallbackLayerPath: fallbackLayerPath,
                     sectionLabel: $"Sta {alignmentStation:F2}");
+                outputCount += emitted.OutputCount;
+                cutRegions += emitted.CutRegions;
+                fillRegions += emitted.FillRegions;
             }
         }
 
@@ -612,7 +654,10 @@ internal static class TerrainAnalysisAnnotationBuilder
         {
             AnalysisId = analysis.Id,
             SampleSourceCount = sourceCount,
-            GeneratedOutputCount = outputCount
+            GeneratedOutputCount = outputCount,
+            SectionTerrainCount = availableTerrainCount,
+            SectionCutRegionCount = cutRegions,
+            SectionFillRegionCount = fillRegions
         };
     }
 
@@ -632,6 +677,10 @@ internal static class TerrainAnalysisAnnotationBuilder
         int sourceCount = 0;
         int outputCount = 0;
         int sectionIndex = 0;
+        int availableTerrainCount = 1;
+        int cutRegions = 0;
+        int fillRegions = 0;
+        AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
 
         foreach (var entry in objects)
         {
@@ -640,21 +689,24 @@ internal static class TerrainAnalysisAnnotationBuilder
                 continue;
 
             sourceCount++;
-            var slice = TerrainSectionSlicer.SampleAlongCurve(mesh, curve, sampleInterval, tolerance);
-            if (slice.IsEmpty)
+            List<SectionTerrainProfile> profiles = SampleTerrainsAlongCurve(
+                snapshot, mesh, analysis, curve, sampleInterval, tolerance);
+            if (profiles.Count == 0 || profiles[0].Slice.IsEmpty)
                 continue;
 
             sectionIndex++;
             Plane cellPlane = OffsetCellPlane(insertionPlane, sectionIndex - 1, columns: 1, cellWidth: 0.0, cellHeight: 0.0);
 
-            outputCount += EmitProfileObjects(
+            availableTerrainCount = Math.Max(availableTerrainCount, profiles.Count);
+            SectionEmissionStats emitted = EmitCombinedProfileObjects(
                 analysis,
                 build,
-                slice,
+                profiles,
                 cellPlane,
                 horizontalScale: 1.0,
                 verticalScale: verticalScale,
-                baseElevation: slice.MinimumElevation,
+                baseElevation: profiles.Min(profile => profile.Slice.MinimumElevation),
+                comparisonTolerance: tolerance,
                 showBaseline: analysis.ShowBaseline,
                 showElevationGrid: analysis.ShowElevationGrid,
                 elevationGridInterval: analysis.ElevationGridInterval,
@@ -665,24 +717,31 @@ internal static class TerrainAnalysisAnnotationBuilder
                 textHeight: analysis.TextHeight,
                 fallbackLayerPath: fallbackLayerPath,
                 sectionLabel: $"{analysis.Label} {sectionIndex}");
+            outputCount += emitted.OutputCount;
+            cutRegions += emitted.CutRegions;
+            fillRegions += emitted.FillRegions;
         }
 
         return new TerrainAnalysisSummary
         {
             AnalysisId = analysis.Id,
             SampleSourceCount = sourceCount,
-            GeneratedOutputCount = outputCount
+            GeneratedOutputCount = outputCount,
+            SectionTerrainCount = availableTerrainCount,
+            SectionCutRegionCount = cutRegions,
+            SectionFillRegionCount = fillRegions
         };
     }
 
-    private static int EmitProfileObjects(
+    private static SectionEmissionStats EmitCombinedProfileObjects(
         TerrainSectionAnalysisDefinitionBase analysis,
         TerrainBuildResult build,
-        TerrainSectionResult slice,
+        IReadOnlyList<SectionTerrainProfile> profiles,
         Plane cellPlane,
         double horizontalScale,
         double verticalScale,
         double baseElevation,
+        double comparisonTolerance,
         bool showBaseline,
         bool showElevationGrid,
         double elevationGridInterval,
@@ -695,29 +754,84 @@ internal static class TerrainAnalysisAnnotationBuilder
         string sectionLabel)
     {
         if (!analysis.IsEnabled)
-            return 0;
+            return default;
 
         int emitted = 0;
+        int cutRegions = 0;
+        int fillRegions = 0;
+        TerrainSectionResult ownerSlice = profiles[0].Slice;
+        double totalStation = profiles.Max(profile => profile.Slice.TotalStationLength);
+        double minimumElevation = profiles.Min(profile => profile.Slice.MinimumElevation);
+        double maximumElevation = profiles.Max(profile => profile.Slice.MaximumElevation);
 
-        var profilePolylines = SectionLayoutHelper.LayoutFlatAll(slice, cellPlane, horizontalScale, verticalScale, baseElevation);
-        foreach (var poly in profilePolylines)
+        if (analysis.ShowCutFillRegions && analysis.CutFillReferenceTerrainId.HasValue)
         {
-            if (poly.Count < 2)
-                continue;
-            build.AuxiliaryObjects.Add(BuildPolylineObject(analysis, poly, fallbackLayerPath, sectionLabel, SectionLayerKind.Profile));
-            emitted++;
+            SectionTerrainProfile? reference = profiles.FirstOrDefault(
+                profile => profile.TerrainId == analysis.CutFillReferenceTerrainId.Value);
+            if (reference != null)
+            {
+                IReadOnlyList<SectionComparisonRegion> regions = SectionProfileComparison.Compare(
+                    ownerSlice,
+                    reference.Slice,
+                    Math.Max(comparisonTolerance, totalStation * 1e-10));
+                foreach (SectionComparisonRegion region in regions)
+                {
+                    RhinoMesh? regionMesh = BuildComparisonRegionMesh(
+                        region, cellPlane, horizontalScale, verticalScale, baseElevation);
+                    if (regionMesh == null)
+                        continue;
+                    bool isCut = region.IsCut;
+                    build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+                    {
+                        Geometry = regionMesh,
+                        Name = $"{sectionLabel} {(isCut ? "cut" : "fill")}",
+                        AnalysisId = analysis.Id,
+                        ColorArgb = ApplyOpacity(
+                            isCut ? analysis.CutColorArgb : analysis.FillColorArgb,
+                            analysis.CutFillOpacityPercent),
+                        LayerPath = SectionOutputLayers.ResolveLayerPath(
+                            analysis.OutputLayerPath,
+                            fallbackLayerPath,
+                            isCut ? SectionLayerKind.CutFillCut : SectionLayerKind.CutFillFill)
+                    });
+                    emitted++;
+                    if (isCut)
+                        cutRegions++;
+                    else
+                        fillRegions++;
+                }
+            }
         }
 
-        if (showBaseline && slice.TotalStationLength > 0.0)
+        foreach (SectionTerrainProfile profile in profiles)
         {
-            var baseline = SectionLayoutHelper.BuildBaselineAxis(cellPlane, slice.TotalStationLength, horizontalScale, verticalScale, slice.MinimumElevation, baseElevation);
+            var profilePolylines = SectionLayoutHelper.LayoutFlatAll(
+                profile.Slice, cellPlane, horizontalScale, verticalScale, baseElevation);
+            foreach (Polyline poly in profilePolylines)
+            {
+                if (poly.Count < 2)
+                    continue;
+                build.AuxiliaryObjects.Add(BuildPolylineObject(
+                    analysis,
+                    poly,
+                    fallbackLayerPath,
+                    $"{sectionLabel} {profile.TerrainName}",
+                    SectionLayerKind.Profile,
+                    profile.ColorArgb));
+                emitted++;
+            }
+        }
+
+        if (showBaseline && totalStation > 0.0)
+        {
+            var baseline = SectionLayoutHelper.BuildBaselineAxis(cellPlane, totalStation, horizontalScale, verticalScale, minimumElevation, baseElevation);
             build.AuxiliaryObjects.Add(BuildLineObject(analysis, baseline, fallbackLayerPath, $"{sectionLabel} baseline", SectionLayerKind.Grid));
             emitted++;
         }
 
-        if (showElevationGrid && elevationGridInterval > 0.0 && slice.TotalStationLength > 0.0)
+        if (showElevationGrid && elevationGridInterval > 0.0 && totalStation > 0.0)
         {
-            var grid = SectionLayoutHelper.BuildElevationGridLines(cellPlane, slice.TotalStationLength, slice.MinimumElevation, slice.MaximumElevation, baseElevation, elevationGridInterval, horizontalScale, verticalScale);
+            var grid = SectionLayoutHelper.BuildElevationGridLines(cellPlane, totalStation, minimumElevation, maximumElevation, baseElevation, elevationGridInterval, horizontalScale, verticalScale);
             foreach (var line in grid)
             {
                 build.AuxiliaryObjects.Add(BuildLineObject(analysis, line, fallbackLayerPath, $"{sectionLabel} grid", SectionLayerKind.Grid));
@@ -725,11 +839,11 @@ internal static class TerrainAnalysisAnnotationBuilder
             }
         }
 
-        if (showStationTicks && stationTickInterval > 0.0 && slice.TotalStationLength > 0.0)
+        if (showStationTicks && stationTickInterval > 0.0 && totalStation > 0.0)
         {
-            var stations = BuildStationList(slice.TotalStationLength, stationTickInterval);
+            var stations = BuildStationList(totalStation, stationTickInterval);
             double tickHalf = Math.Max(textHeight, double.Epsilon);
-            var ticks = SectionLayoutHelper.BuildStationTicks(cellPlane, stations, tickHalf, horizontalScale, verticalScale, baseElevation, slice.MinimumElevation);
+            var ticks = SectionLayoutHelper.BuildStationTicks(cellPlane, stations, tickHalf, horizontalScale, verticalScale, baseElevation, minimumElevation);
             foreach (var line in ticks)
             {
                 build.AuxiliaryObjects.Add(BuildLineObject(analysis, line, fallbackLayerPath, $"{sectionLabel} tick", SectionLayerKind.Ticks));
@@ -739,15 +853,15 @@ internal static class TerrainAnalysisAnnotationBuilder
 
         if (showStationLabels)
         {
-            double labelInterval = stationLabelInterval > 0.0 ? stationLabelInterval : slice.TotalStationLength * 0.25;
-            var stations = BuildStationList(slice.TotalStationLength, labelInterval);
+            double labelInterval = stationLabelInterval > 0.0 ? stationLabelInterval : totalStation * 0.25;
+            var stations = BuildStationList(totalStation, labelInterval);
             double labelOffset = Math.Max(textHeight, double.Epsilon) * 1.5;
             foreach (double station in stations)
             {
                 var label = SectionLayoutHelper.BuildLabel(
                     cellPlane,
                     station,
-                    slice.MinimumElevation - labelOffset,
+                    minimumElevation - labelOffset,
                     horizontalScale,
                     verticalScale,
                     baseElevation,
@@ -758,17 +872,173 @@ internal static class TerrainAnalysisAnnotationBuilder
             }
         }
 
-        return emitted;
+        return new SectionEmissionStats(emitted, cutRegions, fillRegions);
     }
 
-    private static GeneratedRhinoObject BuildPolylineObject(TerrainSectionAnalysisDefinitionBase analysis, Polyline polyline, string? fallbackLayerPath, string name, SectionLayerKind kind)
+    private static List<SectionTerrainProfile> SliceTerrainsAlongPolyline(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh ownerMesh,
+        TerrainSectionAnalysisDefinitionBase analysis,
+        IReadOnlyList<Point3d> cutVertices,
+        double tolerance)
+    {
+        var profiles = new List<SectionTerrainProfile>();
+        TerrainSectionResult ownerSlice = TerrainSectionSlicer.SliceAlongPolyline(ownerMesh, cutVertices, tolerance);
+        if (!ownerSlice.IsEmpty)
+        {
+            profiles.Add(new SectionTerrainProfile(
+                snapshot.Terrain.TerrainId,
+                snapshot.Terrain.Name,
+                analysis.ColorArgb ?? snapshot.Terrain.TerrainColorArgb,
+                ownerSlice,
+                IsOwner: true));
+        }
+
+        foreach (Guid terrainId in analysis.ComparisonTerrainIds)
+        {
+            if (!snapshot.SectionTerrains.TryGetValue(terrainId, out TerrainSectionReferenceSnapshot? terrain))
+                continue;
+            TerrainSectionResult slice = TerrainSectionSlicer.SliceAlongPolyline(terrain.Mesh, cutVertices, tolerance);
+            if (slice.IsEmpty)
+                continue;
+            profiles.Add(new SectionTerrainProfile(
+                terrain.TerrainId,
+                terrain.Name,
+                terrain.ColorArgb,
+                slice,
+                IsOwner: false));
+        }
+
+        return profiles;
+    }
+
+    private static List<SectionTerrainProfile> SampleTerrainsAlongCurve(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh ownerMesh,
+        TerrainSectionAnalysisDefinitionBase analysis,
+        Curve curve,
+        double sampleInterval,
+        double tolerance)
+    {
+        var profiles = new List<SectionTerrainProfile>();
+        TerrainSectionResult ownerSlice = TerrainSectionSlicer.SampleAlongCurve(
+            ownerMesh, curve, sampleInterval, tolerance);
+        if (!ownerSlice.IsEmpty)
+        {
+            profiles.Add(new SectionTerrainProfile(
+                snapshot.Terrain.TerrainId,
+                snapshot.Terrain.Name,
+                analysis.ColorArgb ?? snapshot.Terrain.TerrainColorArgb,
+                ownerSlice,
+                IsOwner: true));
+        }
+
+        foreach (Guid terrainId in analysis.ComparisonTerrainIds)
+        {
+            if (!snapshot.SectionTerrains.TryGetValue(terrainId, out TerrainSectionReferenceSnapshot? terrain))
+                continue;
+            TerrainSectionResult slice = TerrainSectionSlicer.SampleAlongCurve(
+                terrain.Mesh, curve, sampleInterval, tolerance);
+            if (slice.IsEmpty)
+                continue;
+            profiles.Add(new SectionTerrainProfile(
+                terrain.TerrainId,
+                terrain.Name,
+                terrain.ColorArgb,
+                slice,
+                IsOwner: false));
+        }
+
+        return profiles;
+    }
+
+    private static void AddMissingSectionTerrainDiagnostics(
+        TerrainBuildSnapshot snapshot,
+        TerrainSectionAnalysisDefinitionBase analysis,
+        TerrainBuildResult build)
+    {
+        foreach (Guid terrainId in analysis.ComparisonTerrainIds.Distinct())
+        {
+            if (snapshot.SectionTerrains.ContainsKey(terrainId))
+                continue;
+            build.Diagnostics.Add(
+                $"{analysis.Label}: comparison terrain {terrainId} has no completed final mesh; its profile was skipped.");
+        }
+    }
+
+    private static RhinoMesh? BuildComparisonRegionMesh(
+        SectionComparisonRegion region,
+        Plane cellPlane,
+        double horizontalScale,
+        double verticalScale,
+        double baseElevation)
+    {
+        if (region.Vertices.Count < 2)
+            return null;
+
+        var mesh = new RhinoMesh();
+        foreach (SectionComparisonVertex vertex in region.Vertices)
+        {
+            mesh.Vertices.Add(SectionLayoutHelper.ProjectToInsertionPlane(
+                cellPlane,
+                vertex.Station,
+                vertex.ProposedElevation,
+                horizontalScale,
+                verticalScale,
+                baseElevation));
+            mesh.Vertices.Add(SectionLayoutHelper.ProjectToInsertionPlane(
+                cellPlane,
+                vertex.Station,
+                vertex.ReferenceElevation,
+                horizontalScale,
+                verticalScale,
+                baseElevation));
+        }
+
+        for (int i = 1; i < region.Vertices.Count; i++)
+        {
+            int previous = (i - 1) * 2;
+            int current = i * 2;
+            bool previousConverges = mesh.Vertices.Point3dAt(previous).DistanceToSquared(
+                mesh.Vertices.Point3dAt(previous + 1)) <= 1e-20;
+            bool currentConverges = mesh.Vertices.Point3dAt(current).DistanceToSquared(
+                mesh.Vertices.Point3dAt(current + 1)) <= 1e-20;
+            if (previousConverges && currentConverges)
+                continue;
+            if (previousConverges)
+                mesh.Faces.AddFace(previous, current, current + 1);
+            else if (currentConverges)
+                mesh.Faces.AddFace(previous, current, previous + 1);
+            else
+                mesh.Faces.AddFace(previous, current, current + 1, previous + 1);
+        }
+
+        mesh.Normals.ComputeNormals();
+        mesh.Compact();
+        return mesh.IsValid && mesh.Faces.Count > 0 ? mesh : null;
+    }
+
+    private static int ApplyOpacity(int argb, int opacityPercent)
+    {
+        var color = System.Drawing.Color.FromArgb(argb);
+        int alpha = (int)Math.Round(255.0 * Math.Clamp(opacityPercent, 0, 100) / 100.0);
+        return System.Drawing.Color.FromArgb(alpha, color.R, color.G, color.B).ToArgb();
+    }
+
+    private static GeneratedRhinoObject BuildPolylineObject(
+        TerrainSectionAnalysisDefinitionBase analysis,
+        Polyline polyline,
+        string? fallbackLayerPath,
+        string name,
+        SectionLayerKind kind,
+        int? colorArgbOverride = null)
     {
         return new GeneratedRhinoObject
         {
             Geometry = new PolylineCurve(polyline),
             Name = name,
             AnalysisId = analysis.Id,
-            ColorArgb = analysis.ColorArgb,
+            ColorArgb = colorArgbOverride ?? analysis.ColorArgb,
             LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind),
             PlotWeight = SectionOutputLayers.GetPlotWeight(kind)
         };

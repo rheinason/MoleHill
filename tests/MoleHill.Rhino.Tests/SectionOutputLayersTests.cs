@@ -13,6 +13,8 @@ public class SectionOutputLayersTests
         Assert.Equal("Sections::Grid", SectionOutputLayers.ResolveLayerPath("Sections", "Fallback", SectionLayerKind.Grid));
         Assert.Equal("Sections::Ticks", SectionOutputLayers.ResolveLayerPath("Sections", "Fallback", SectionLayerKind.Ticks));
         Assert.Equal("Sections::Labels", SectionOutputLayers.ResolveLayerPath("Sections", "Fallback", SectionLayerKind.Labels));
+        Assert.Equal("Sections::CutFill::Cut", SectionOutputLayers.ResolveLayerPath("Sections", "Fallback", SectionLayerKind.CutFillCut));
+        Assert.Equal("Sections::CutFill::Fill", SectionOutputLayers.ResolveLayerPath("Sections", "Fallback", SectionLayerKind.CutFillFill));
     }
 
     [Fact]

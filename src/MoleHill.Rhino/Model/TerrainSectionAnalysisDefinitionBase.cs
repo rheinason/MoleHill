@@ -2,7 +2,23 @@ namespace MoleHill.Rhino.Model;
 
 public abstract class TerrainSectionAnalysisDefinitionBase : AnalysisDefinition
 {
+    public const int DefaultCutColorArgb = unchecked((int)0xFFEB462D);
+
+    public const int DefaultFillColorArgb = unchecked((int)0xFF4C849E);
+
     public SourceReferenceSet Sources { get; set; } = new();
+
+    public List<Guid> ComparisonTerrainIds { get; set; } = new();
+
+    public Guid? CutFillReferenceTerrainId { get; set; }
+
+    public bool ShowCutFillRegions { get; set; } = true;
+
+    public int CutColorArgb { get; set; } = DefaultCutColorArgb;
+
+    public int FillColorArgb { get; set; } = DefaultFillColorArgb;
+
+    public int CutFillOpacityPercent { get; set; } = 40;
 
     public string? OutputLayerPath { get; set; }
 

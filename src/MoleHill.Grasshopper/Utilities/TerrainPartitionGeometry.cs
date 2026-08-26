@@ -126,6 +126,104 @@ internal static class TerrainPartitionGeometry
         return BuildSubMesh(result, faceIndexes);
     }
 
+    public static int[] ClassifyFaceOwners(
+        MeshAreaSplitter.SplitResult result,
+        IReadOnlyList<IReadOnlyList<MeshAreaSplitter.AreaBoundary>> regions)
+    {
+        var owners = new int[result.FaceCount];
+        Array.Fill(owners, -1);
+        for (int faceIndex = 0; faceIndex < result.FaceCount; faceIndex++)
+        {
+            int a = result.Faces[faceIndex * 3];
+            int b = result.Faces[faceIndex * 3 + 1];
+            int c = result.Faces[faceIndex * 3 + 2];
+            double x = (result.Vertices[a * 3] + result.Vertices[b * 3] + result.Vertices[c * 3]) / 3.0;
+            double y = (result.Vertices[a * 3 + 1] + result.Vertices[b * 3 + 1] + result.Vertices[c * 3 + 1]) / 3.0;
+
+            for (int regionIndex = 0; regionIndex < regions.Count; regionIndex++)
+            {
+                int containmentCount = 0;
+                foreach (MeshAreaSplitter.AreaBoundary boundary in regions[regionIndex])
+                {
+                    if (PointInPolygon(x, y, boundary.XyVertices, boundary.VertexCount))
+                        containmentCount++;
+                }
+
+                // Odd/even containment allows a branch to describe outer loops and holes.
+                // Later branches retain the existing overlap priority.
+                if ((containmentCount & 1) == 1)
+                    owners[faceIndex] = regionIndex;
+            }
+        }
+
+        return owners;
+    }
+
+    public static Mesh BuildOwnedMesh(
+        MeshAreaSplitter.SplitResult result,
+        IReadOnlyList<int> faceOwners,
+        int ownerIndex)
+    {
+        if (faceOwners.Count != result.FaceCount)
+            throw new ArgumentException("Face owner count must match the split result.", nameof(faceOwners));
+
+        var faceIndexes = new List<int>();
+        for (int faceIndex = 0; faceIndex < result.FaceCount; faceIndex++)
+        {
+            if (faceOwners[faceIndex] == ownerIndex)
+                faceIndexes.Add(faceIndex);
+        }
+
+        return BuildSubMesh(result, faceIndexes);
+    }
+
+    public static IReadOnlyList<Curve> ClipBreaklinesToMesh(
+        IEnumerable<Curve> breaklines,
+        Mesh mesh,
+        double tolerance)
+    {
+        if (mesh.Faces.Count == 0)
+            return Array.Empty<Curve>();
+
+        BoundingBox bounds = mesh.GetBoundingBox(true);
+        double lift = Math.Max(bounds.Diagonal.Length, tolerance * 10.0) + tolerance;
+        var clipped = new List<Curve>();
+        foreach (Curve source in breaklines)
+        {
+            Curve raised = source.DuplicateCurve();
+            raised.Translate(0.0, 0.0, bounds.Max.Z + lift - raised.GetBoundingBox(true).Min.Z);
+            Curve[] projected = Curve.ProjectToMesh(raised, mesh, -Vector3d.ZAxis, tolerance);
+            raised.Dispose();
+            foreach (Curve curve in projected)
+            {
+                if (curve.GetLength() > tolerance)
+                    clipped.Add(curve);
+                else
+                    curve.Dispose();
+            }
+        }
+
+        return clipped;
+    }
+
+    private static bool PointInPolygon(double x, double y, double[] polygon, int vertexCount)
+    {
+        bool inside = false;
+        for (int i = 0, j = vertexCount - 1; i < vertexCount; j = i++)
+        {
+            double xi = polygon[i * 2];
+            double yi = polygon[i * 2 + 1];
+            double xj = polygon[j * 2];
+            double yj = polygon[j * 2 + 1];
+            bool crosses = (yi > y) != (yj > y) &&
+                x < ((xj - xi) * (y - yi) / (yj - yi)) + xi;
+            if (crosses)
+                inside = !inside;
+        }
+
+        return inside;
+    }
+
     private static Mesh BuildSubMesh(MeshAreaSplitter.SplitResult result, IReadOnlyList<int> faceIndexes)
     {
         var usedVertices = new SortedSet<int>();

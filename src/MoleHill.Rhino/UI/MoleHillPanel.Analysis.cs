@@ -516,9 +516,9 @@ public sealed partial class MoleHillPanel
                 if (summary != null)
                 {
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Cuts / Output",
-                        $"{summary.SampleSourceCount} cut(s) -> {summary.GeneratedOutputCount} object(s)",
-                        "Cut curves processed and section objects emitted by the last build."));
+                        "Cuts / Terrains / C-F",
+                        $"{summary.SampleSourceCount} / {summary.SectionTerrainCount} / {summary.SectionCutRegionCount}-{summary.SectionFillRegionCount}",
+                        $"Cut curves, available terrain profiles, and cut-fill regions from the last build ({summary.GeneratedOutputCount} objects)."));
                 }
                 else
                 {
@@ -536,9 +536,9 @@ public sealed partial class MoleHillPanel
                 if (summary != null)
                 {
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Alignments / Output",
-                        $"{summary.SampleSourceCount} alignment(s) -> {summary.GeneratedOutputCount} object(s)",
-                        "Alignment curves processed and cross-section objects emitted by the last build."));
+                        "Alignments / Terrains / C-F",
+                        $"{summary.SampleSourceCount} / {summary.SectionTerrainCount} / {summary.SectionCutRegionCount}-{summary.SectionFillRegionCount}",
+                        $"Alignments, available terrain profiles, and cut-fill regions from the last build ({summary.GeneratedOutputCount} objects)."));
                 }
                 else
                 {
@@ -556,9 +556,9 @@ public sealed partial class MoleHillPanel
                 if (summary != null)
                 {
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Curves / Output",
-                        $"{summary.SampleSourceCount} curve(s) -> {summary.GeneratedOutputCount} object(s)",
-                        "Curves processed and longitudinal section objects emitted by the last build."));
+                        "Curves / Terrains / C-F",
+                        $"{summary.SampleSourceCount} / {summary.SectionTerrainCount} / {summary.SectionCutRegionCount}-{summary.SectionFillRegionCount}",
+                        $"Curves, available terrain profiles, and cut-fill regions from the last build ({summary.GeneratedOutputCount} objects)."));
                 }
                 else
                 {
@@ -602,6 +602,34 @@ public sealed partial class MoleHillPanel
             RhinoObjectType.Curve,
             doc => _controller.GetSelectedLayerPaths(doc),
             sourceHelp));
+        layout.AddRow(CreateTerrainSectionTerrainEditor(terrain, analysis));
+        layout.AddRow(CreateCheckEditor(
+            "Cut / Fill",
+            analysis.ShowCutFillRegions,
+            value => MutateSection(item => item.ShowCutFillRegions = value),
+            "Shade cut and fill between the proposed terrain and the selected reference terrain."));
+        layout.AddRow(CreateOptionalColorEditor(
+            "Cut Color",
+            analysis.CutColorArgb,
+            value => MutateSection(item => item.CutColorArgb = value ?? TerrainSectionAnalysisDefinitionBase.DefaultCutColorArgb),
+            "Color used where proposed terrain is below the reference terrain.",
+            TerrainSectionAnalysisDefinitionBase.DefaultCutColorArgb,
+            "Default cut red"));
+        layout.AddRow(CreateOptionalColorEditor(
+            "Fill Color",
+            analysis.FillColorArgb,
+            value => MutateSection(item => item.FillColorArgb = value ?? TerrainSectionAnalysisDefinitionBase.DefaultFillColorArgb),
+            "Color used where proposed terrain is above the reference terrain.",
+            TerrainSectionAnalysisDefinitionBase.DefaultFillColorArgb,
+            "Default fill blue"));
+        layout.AddRow(CreateNumericEditor(
+            "Fill Opacity %",
+            analysis.CutFillOpacityPercent,
+            value => MutateSection(item => item.CutFillOpacityPercent = Math.Clamp((int)Math.Round(value), 0, 100)),
+            decimalPlaces: 0,
+            help: "Opacity of generated cut and fill regions.",
+            minValue: 0.0,
+            maxValue: 100.0));
         layout.AddRow(CreateInsertionOriginEditor(terrain, analysis));
         layout.AddRow(CreateNumericEditor(
             "Text Height",
@@ -616,12 +644,151 @@ public sealed partial class MoleHillPanel
             path => MutateSection(item => item.OutputLayerPath = path),
             "Layer used for generated section geometry. Leave empty to use the terrain annotation layer."));
         layout.AddRow(CreateOptionalColorEditor(
-            "Color",
+            "Proposed Color",
             analysis.ColorArgb,
             value => MutateSection(item => item.ColorArgb = value),
-            "Display and bake color for generated section geometry. Clear to use the output layer color.",
+            "Color for the proposed profile, grid, ticks, and labels. Clear to use the terrain or output-layer color.",
             ResolveLayerColorArgb(analysis.OutputLayerPath ?? terrain.AnnotationLayerPath),
             GetAnalysisOutputColorText(terrain, analysis.OutputLayerPath)));
+    }
+
+    private Control CreateTerrainSectionTerrainEditor(
+        TerrainDefinition owner,
+        TerrainSectionAnalysisDefinitionBase analysis)
+    {
+        RhinoDoc? doc = RhinoDoc.ActiveDoc;
+        IReadOnlyList<TerrainDefinition> terrains = doc == null
+            ? Array.Empty<TerrainDefinition>()
+            : _controller.GetTerrains(doc);
+        var selectedIds = analysis.ComparisonTerrainIds.ToHashSet();
+        var list = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 4,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+
+        list.Items.Add(CreateTerrainSectionChoiceRow(owner.TerrainId, owner, isOwner: true, isSelected: true, isAvailable: true, analysis));
+        foreach (TerrainDefinition terrain in terrains.Where(item => item.TerrainId != owner.TerrainId))
+            list.Items.Add(CreateTerrainSectionChoiceRow(
+                owner.TerrainId,
+                terrain,
+                isOwner: false,
+                isSelected: selectedIds.Contains(terrain.TerrainId),
+                isAvailable: doc != null && _controller.HasCompletedFinalTerrainMesh(doc, terrain.TerrainId),
+                analysis));
+
+        foreach (Guid missingId in analysis.ComparisonTerrainIds.Where(id => terrains.All(t => t.TerrainId != id)))
+        {
+            list.Items.Add(new Label
+            {
+                Text = $"Unavailable terrain ({missingId})",
+                TextColor = UiTheme.WarningText,
+                Wrap = WrapMode.Word
+            });
+        }
+
+        var referenceOptions = new List<(Guid? Id, string Label)> { (null, "None") };
+        referenceOptions.AddRange(terrains
+            .Where(item => item.TerrainId != owner.TerrainId && selectedIds.Contains(item.TerrainId))
+            .Select(item => ((Guid?)item.TerrainId, item.Name)));
+        var referenceDropDown = new DropDown { Width = UiMetrics.DropDown, Enabled = referenceOptions.Count > 1 };
+        foreach (var option in referenceOptions)
+            referenceDropDown.Items.Add(new ListItem { Text = option.Label });
+        int selectedReferenceIndex = referenceOptions.FindIndex(
+            option => option.Id == analysis.CutFillReferenceTerrainId);
+        referenceDropDown.SelectedIndex = Math.Max(0, selectedReferenceIndex);
+        ApplyHelp(referenceDropDown, "Terrain treated as existing ground for cut/fill shading.");
+        referenceDropDown.SelectedIndexChanged += (_, _) =>
+        {
+            if (_isRefreshing)
+                return;
+            int index = referenceDropDown.SelectedIndex;
+            if (index < 0 || index >= referenceOptions.Count)
+                return;
+            MutateAnalysis(owner.TerrainId, analysis.Id, item =>
+            {
+                if (item is TerrainSectionAnalysisDefinitionBase section)
+                    section.CutFillReferenceTerrainId = referenceOptions[index].Id;
+            }, scheduleRebuild: true);
+            RefreshUi();
+        };
+
+        list.Items.Add(new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items =
+            {
+                new Label { Text = "Reference", TextColor = UiTheme.MutedText },
+                referenceDropDown
+            }
+        });
+
+        const string help = "Terrains drawn in this section. The owning terrain is always proposed; select other terrains for comparison.";
+        return new PropertyRow(CreateHelpLabel("Terrains", help, 0), list, expandWidget: true);
+    }
+
+    private Control CreateTerrainSectionChoiceRow(
+        Guid ownerTerrainId,
+        TerrainDefinition terrain,
+        bool isOwner,
+        bool isSelected,
+        bool isAvailable,
+        TerrainSectionAnalysisDefinitionBase analysis)
+    {
+        var check = new CheckBox
+        {
+            Text = isOwner
+                ? $"{terrain.Name} (Proposed)"
+                : isAvailable ? terrain.Name : $"{terrain.Name} (awaiting final build)",
+            Checked = isSelected,
+            Enabled = !isOwner,
+            TextColor = isAvailable || isOwner ? UiTheme.PrimaryText : UiTheme.WarningText
+        };
+        var swatch = new Panel
+        {
+            Size = new Size(12, 12),
+            BackgroundColor = ToEtoColor(System.Drawing.Color.FromArgb(
+                isOwner && analysis.ColorArgb.HasValue ? analysis.ColorArgb.Value : terrain.TerrainColorArgb))
+        };
+
+        if (!isOwner)
+        {
+            check.CheckedChanged += (_, _) =>
+            {
+                if (_isRefreshing)
+                    return;
+                bool selected = check.Checked == true;
+                MutateAnalysis(
+                    ownerTerrainId,
+                    analysis.Id,
+                    item =>
+                    {
+                        if (item is not TerrainSectionAnalysisDefinitionBase section)
+                            return;
+                        if (selected && !section.ComparisonTerrainIds.Contains(terrain.TerrainId))
+                            section.ComparisonTerrainIds.Add(terrain.TerrainId);
+                        else if (!selected)
+                        {
+                            section.ComparisonTerrainIds.RemoveAll(id => id == terrain.TerrainId);
+                            if (section.CutFillReferenceTerrainId == terrain.TerrainId)
+                                section.CutFillReferenceTerrainId = null;
+                        }
+                    },
+                    scheduleRebuild: true);
+                RefreshUi();
+            };
+        }
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items = { swatch, check }
+        };
     }
 
     private Control CreateInsertionOriginEditor(

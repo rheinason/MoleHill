@@ -9,6 +9,26 @@ namespace MoleHill.Rhino.Tests;
 public class TerrainRuntimeCacheTests
 {
     [Fact]
+    public void CloneAnalyses_WaterflowSummary_PreservesEndStateCounters()
+    {
+        var source = new MoleHill.Rhino.Model.TerrainAnalysisSummary
+        {
+            AnalysisId = Guid.NewGuid(),
+            GeneratedOutputCount = 4,
+            WaterflowBoundaryCount = 2,
+            WaterflowSinkCount = 1,
+            WaterflowRejectedCount = 3
+        };
+
+        var clone = Assert.Single(TerrainRuntimeCacheCloner.CloneAnalyses([source]));
+
+        Assert.Equal(source.GeneratedOutputCount, clone.GeneratedOutputCount);
+        Assert.Equal(source.WaterflowBoundaryCount, clone.WaterflowBoundaryCount);
+        Assert.Equal(source.WaterflowSinkCount, clone.WaterflowSinkCount);
+        Assert.Equal(source.WaterflowRejectedCount, clone.WaterflowRejectedCount);
+    }
+
+    [Fact]
     public void FindIntersectingGradingStageKeys_ReturnsOnlyLaterOverlappingStages()
     {
         var cache = new TerrainRuntimeCache();

@@ -27,7 +27,7 @@ internal sealed partial class TerrainController
         _sculptStrokeInProgress = false;
         RemovePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Preview);
         RemovePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Final);
-        ReassertSculptPreviewMesh(doc.RuntimeSerialNumber, terrainId);
+        ReassertSculptPreviewMesh(doc, terrainId);
     }
 
     /// <summary>While true, pending builds for the sculpted terrain stay queued (dispatched only
@@ -41,7 +41,7 @@ internal sealed partial class TerrainController
             return;
 
         _sculptSessionPreviewMesh = workingMesh;
-        ReassertSculptPreviewMesh(doc.RuntimeSerialNumber, terrainId);
+        ReassertSculptPreviewMesh(doc, terrainId);
     }
 
     internal void EndSculptDisplayLock(RhinoDoc doc, Guid terrainId)
@@ -63,6 +63,7 @@ internal sealed partial class TerrainController
 
         displayState.PreviewTerrainMesh = displayState.TerrainMesh;
         displayState.InvalidatePreviewBounds();
+        NotifyRenderMeshesChanged(doc);
     }
 
     private bool ShouldDeferBuildForSculpt(Guid terrainId)
@@ -70,17 +71,28 @@ internal sealed partial class TerrainController
         return _sculptStrokeInProgress && _sculptSessionTerrainId == terrainId;
     }
 
-    private void ReassertSculptPreviewMesh(uint docSerial, Guid terrainId)
+    private void ReassertSculptPreviewMesh(RhinoDoc doc, Guid terrainId)
     {
         if (_sculptSessionTerrainId != terrainId || _sculptSessionPreviewMesh == null)
             return;
 
-        var displayState = GetRuntimeCache(docSerial, terrainId).DisplayState;
+        var displayState = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId).DisplayState;
         if (displayState == null)
             return;
 
         displayState.PreviewTerrainMesh = _sculptSessionPreviewMesh;
         displayState.InvalidatePreviewBounds();
+        NotifyRenderMeshesChanged(doc);
+    }
+
+    internal void NotifySculptPreviewChanged(RhinoDoc doc, Guid terrainId)
+    {
+        TerrainDisplayState? displayState = GetRuntimeCache(doc.RuntimeSerialNumber, terrainId).DisplayState;
+        if (displayState == null)
+            return;
+
+        displayState.InvalidatePreviewBounds();
+        NotifyRenderMeshesChanged(doc);
     }
 
     internal TerrainDefinition? FindTerrain(RhinoDoc doc, Guid terrainId)

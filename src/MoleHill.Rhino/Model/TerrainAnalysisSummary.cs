@@ -42,6 +42,12 @@ public sealed class TerrainAnalysisSummary
 
     public int SampleSourceCount { get; set; }
 
+    public int SectionTerrainCount { get; set; }
+
+    public int SectionCutRegionCount { get; set; }
+
+    public int SectionFillRegionCount { get; set; }
+
     public int WaterflowBoundaryCount { get; set; }
 
     public int WaterflowSinkCount { get; set; }

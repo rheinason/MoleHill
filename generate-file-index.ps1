@@ -6,7 +6,9 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projects = @('src/MoleHill.Core', 'src/MoleHill.Rhino', 'src/MoleHill.Grasshopper', 'src/MoleHill.Shared')
 
 function Get-Summary([string]$path) {
-    foreach ($line in Get-Content -LiteralPath $path -TotalCount 40) {
+    # -Encoding UTF8 is required: Windows PowerShell 5.1 otherwise decodes these UTF-8 sources as
+    # ANSI, turning arrows and em-dashes in doc comments into mojibake in the generated index.
+    foreach ($line in Get-Content -LiteralPath $path -TotalCount 40 -Encoding UTF8) {
         $t = $line.Trim()
         if ($t -like '/// <summary>*') {
             $s = $t.Replace('/// <summary>', '').Replace('</summary>', '').Trim()

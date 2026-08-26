@@ -30,6 +30,19 @@ internal sealed partial class TerrainBuildService
         foreach (var sourceSet in analysis.EnumerateSourceSets())
             builder.Add(ComputeSourceSetFingerprint(snapshot, sourceSet));
 
+        if (analysis is TerrainSectionAnalysisDefinitionBase section)
+        {
+            foreach (Guid terrainId in section.ComparisonTerrainIds)
+            {
+                builder.Add(terrainId);
+                if (!snapshot.SectionTerrains.TryGetValue(terrainId, out TerrainSectionReferenceSnapshot? reference))
+                    continue;
+                builder.Add(reference.MeshFingerprint);
+                builder.Add(reference.Name);
+                builder.Add(reference.ColorArgb);
+            }
+        }
+
         if (TerrainAnalysisPreviewBuilder.ProducesGeneratedOutput(analysis))
             builder.Add(TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath));
 

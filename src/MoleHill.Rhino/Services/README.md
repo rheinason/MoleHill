@@ -82,7 +82,20 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   hand-maintained `[JsonDerivedType]` list); wired into `TerrainSerializer.SharedOptions`.
 - `TerrainDisplayConduit.cs` / `TerrainDisplayState.cs` - transient viewport preview of generated
   objects and runtime overlays (no doc objects until bake). Overlay drawing has per-terrain budgets and
-  severity ordering.
+  severity ordering. `TerrainDisplayState.RenderHash` is the change stamp the render mesh provider
+  hands the RDK cache.
+- `TerrainRenderMeshProvider.cs` - publishes terrain preview geometry (terrain mesh, zone/auxiliary
+  meshes, renderable marker blocks, scatter instances) to render engines via the RDK custom render mesh system, without creating
+  document objects. Advertises each `TerrainDefinition.TerrainId` as a non-object id. Must stay
+  `public` with a public parameterless constructor so `RenderMeshProvider.RegisterProviders` (called
+  from `MoleHillRhinoPlugin.OnLoad`) discovers it. **Support is opt-in per renderer:** verified against
+  Rhino's `ChangeQueue` pipeline (Raytraced/Cycles); V-Ray historically yes; Enscape has no known
+  support, so Bake remains the fallback there. Rhino render materials are retained from explicit
+  assignments, layers, and block members where available. Ignores scatter `PreviewCap`/`PreviewMode`
+  (viewport budgets, not render budgets) and skips text/dots/curves, which have no render mesh.
+- `TerrainDisplayColors.cs` - shared colour/transparency resolution for generated output. Used by both
+  the conduit (`DisplayMaterial`) and the render mesh provider (`RenderMaterial`) so a render matches
+  the viewport preview.
 - `RuntimeOverlay.cs` - explicit non-bakeable marker/dot/text/polyline/mesh contracts for reusable
   Diagnostic and Guide channels. Owners are terrain/modifier/analysis/object/tool ids; palette, cloning,
   stable issue metadata, and bounds live here.
@@ -100,6 +113,10 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   terrain's Annotation layer before preview/sync/bake. Waterflow from Points follows the final mesh's
   per-face downhill gradients and emits one previewable/bakeable terrain-conforming curve per valid
   point source.
+- Section Cut, Cross-Sections, and Section Along Curve snapshot selected terrains' completed final
+  meshes and lay their profiles into the same section cell. `SectionProfileComparison` splits proposed
+  versus reference profiles at crossings and gaps; generated cut/fill meshes preview and bake under
+  `CutFill::Cut` and `CutFill::Fill` sublayers while dependent terrains rebuild on reference changes.
 - The layer command surface creates the selected terrain's configured Terrain, Auxiliary, and Annotation
   output layers directly; it does not depend on highlighted source layers.
 - `SculptSessionController.cs` - the interactive sculpt session: GetPoint loop (drag = stroke,
@@ -134,8 +151,13 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   affine raster placement from embedded GeoTIFF model tags or full six-value world files. Projected EPSG
   linear-unit keys are converted into document units; unlabelled rasters prompt for source units with
   document units as the default. CRS reprojection is intentionally out of scope.
-- `LandXmlSurfaceService.cs` - imports LandXML TIN point surfaces into managed terrain sources and
-  exports completed Rhino meshes through the Core LandXML codec.
+- `ClassicTiffTagReader.cs` / `GeoTiffMetadataReader.cs` / `GeoTiffElevationReader.cs` - direct classic-
+  TIFF placement/GDAL tag parsing plus numeric single-band decoding through LibTiff.Net. The DEM path
+  does not depend on GDI image conversion; it preserves integer/floating-point samples, applies
+  scale/offset, skips NoData, and rejects RGB imagery.
+- `LandXmlSurfaceService.cs` - transactionally imports every LandXML TIN surface, converts units and
+  project-base coordinates, and preserves face topology with exact managed mesh sources; export converts
+  completed Rhino meshes to metre-based LandXML through the Core codec.
 - `CommandScriptRunner.cs` - replacement-aware batch transforms with locked-layer preflight and inverse
   rollback if an unexpected object transformation fails.
 - `TerrainCoreCaseRecorder.cs` / `TerrainCoreCaseTestExporter.cs` / `TerrainCaseBundleExporter.cs` -

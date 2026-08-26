@@ -1,4 +1,5 @@
 using MoleHill.Core.Analysis;
+using System.Diagnostics;
 using Xunit;
 
 namespace MoleHill.Core.Tests;
@@ -71,5 +72,72 @@ public sealed class WaterflowTracerTests
         WaterflowTracer.Path path = Assert.Single(result.Paths);
         Assert.Equal(1, result.RejectedStartCount);
         Assert.Equal(1, path.PointCount);
+    }
+
+    [Fact]
+    public void Trace_CancellationRequested_StopsBeforeStartLookup()
+    {
+        double[] vertices = { 0, 0, 0, 10, 0, 0, 0, 10, 0 };
+        int[] faces = { 0, 1, 2 };
+
+        Assert.Throws<OperationCanceledException>(() => WaterflowTracer.Trace(
+            vertices, 3, faces, 1,
+            new[] { 1.0, 1.0 }, 1,
+            new WaterflowTracer.Options { CancellationRequested = () => true }));
+    }
+
+    [Fact]
+    public void Trace_ManyStartsOnLargeGrid_CompletesWithIndexedLookup()
+    {
+        const int cells = 100;
+        int vertexWidth = cells + 1;
+        var vertices = new double[vertexWidth * vertexWidth * 3];
+        for (int y = 0; y < vertexWidth; y++)
+        {
+            for (int x = 0; x < vertexWidth; x++)
+            {
+                int offset = ((y * vertexWidth) + x) * 3;
+                vertices[offset] = x;
+                vertices[offset + 1] = y;
+                vertices[offset + 2] = 0.0;
+            }
+        }
+
+        var faces = new int[cells * cells * 6];
+        int faceOffset = 0;
+        for (int y = 0; y < cells; y++)
+        {
+            for (int x = 0; x < cells; x++)
+            {
+                int a = (y * vertexWidth) + x;
+                int b = a + 1;
+                int d = a + vertexWidth;
+                int c = d + 1;
+                faces[faceOffset++] = a; faces[faceOffset++] = b; faces[faceOffset++] = c;
+                faces[faceOffset++] = a; faces[faceOffset++] = c; faces[faceOffset++] = d;
+            }
+        }
+
+        const int startCount = 500;
+        var starts = new double[startCount * 2];
+        for (int index = 0; index < startCount; index++)
+        {
+            starts[index * 2] = (index % cells) + 0.25;
+            starts[index * 2 + 1] = ((index * 37) % cells) + 0.25;
+        }
+
+        var timer = Stopwatch.StartNew();
+        WaterflowTracer.Result result = WaterflowTracer.Trace(
+            vertices,
+            vertexWidth * vertexWidth,
+            faces,
+            cells * cells * 2,
+            starts,
+            startCount);
+        timer.Stop();
+
+        Assert.Equal(startCount, result.Paths.Count);
+        Assert.Equal(0, result.RejectedStartCount);
+        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(10), $"Indexed trace took {timer.Elapsed}.");
     }
 }

@@ -1,6 +1,3 @@
-using System.Drawing;
-using System.Drawing.Imaging;
-
 namespace MoleHill.Rhino.Services;
 
 internal static class GeoTiffMetadataReader
@@ -13,26 +10,32 @@ internal static class GeoTiffMetadataReader
     private const ushort RasterPixelIsPoint = 2;
 
     public static bool TryRead(
-        Image image,
+        string path,
         out RasterGeoreference georeference,
         out string sourceDescription,
         out GeoTiffLinearUnit? linearUnit)
     {
         georeference = default;
         sourceDescription = string.Empty;
-        linearUnit = TryReadLinearUnit(image, out GeoTiffLinearUnit detectedUnit) ? detectedUnit : null;
-        bool pixelIsPoint = TryReadRasterPixelIsPoint(image);
+        linearUnit = null;
+        if (!File.Exists(path))
+            return false;
 
-        if (TryReadDoubles(image, ModelTransformationTag, out double[] matrix) &&
-            RasterGeoreference.TryCreateFromModelTransformation(matrix, pixelIsPoint, out georeference))
+        ushort[] directory = ClassicTiffTagReader.ReadUnsignedShorts(path, GeoKeyDirectoryTag);
+        if (GeoTiffLinearUnitReader.TryRead(directory, out GeoTiffLinearUnit detectedUnit))
+            linearUnit = detectedUnit;
+        bool pixelIsPoint = IsRasterPixelPoint(directory);
+
+        double[] matrix = ClassicTiffTagReader.ReadDoubles(path, ModelTransformationTag);
+        if (RasterGeoreference.TryCreateFromModelTransformation(matrix, pixelIsPoint, out georeference))
         {
             sourceDescription = "embedded GeoTIFF ModelTransformation tag";
             return true;
         }
 
-        if (TryReadDoubles(image, ModelPixelScaleTag, out double[] scale) &&
-            TryReadDoubles(image, ModelTiepointTag, out double[] tiepoints) &&
-            RasterGeoreference.TryCreateFromPixelScaleAndTiepoint(scale, tiepoints, pixelIsPoint, out georeference))
+        double[] scale = ClassicTiffTagReader.ReadDoubles(path, ModelPixelScaleTag);
+        double[] tiepoints = ClassicTiffTagReader.ReadDoubles(path, ModelTiepointTag);
+        if (RasterGeoreference.TryCreateFromPixelScaleAndTiepoint(scale, tiepoints, pixelIsPoint, out georeference))
         {
             sourceDescription = "embedded GeoTIFF ModelPixelScale/ModelTiepoint tags";
             return true;
@@ -41,23 +44,16 @@ internal static class GeoTiffMetadataReader
         return false;
     }
 
-    private static bool TryReadLinearUnit(Image image, out GeoTiffLinearUnit linearUnit)
+    private static bool IsRasterPixelPoint(IReadOnlyList<ushort> directory)
     {
-        linearUnit = default;
-        return TryReadUnsignedShorts(image, GeoKeyDirectoryTag, out ushort[] directory) &&
-               GeoTiffLinearUnitReader.TryRead(directory, out linearUnit);
-    }
-
-    private static bool TryReadRasterPixelIsPoint(Image image)
-    {
-        if (!TryReadUnsignedShorts(image, GeoKeyDirectoryTag, out ushort[] directory) || directory.Length < 4)
+        if (directory.Count < 4)
             return false;
 
         int keyCount = directory[3];
         for (int index = 0; index < keyCount; index++)
         {
             int offset = 4 + (index * 4);
-            if (offset + 3 >= directory.Length)
+            if (offset + 3 >= directory.Count)
                 break;
 
             ushort keyId = directory[offset];
@@ -71,48 +67,4 @@ internal static class GeoTiffMetadataReader
         return false;
     }
 
-    private static bool TryReadDoubles(Image image, int tagId, out double[] values)
-    {
-        values = Array.Empty<double>();
-        if (!TryGetPropertyItem(image, tagId, out PropertyItem? property))
-            return false;
-        if (property == null || property.Type != 12 || property.Value == null || property.Value.Length % sizeof(double) != 0)
-            return false;
-
-        values = new double[property.Value.Length / sizeof(double)];
-        for (int index = 0; index < values.Length; index++)
-            values[index] = BitConverter.ToDouble(property.Value, index * sizeof(double));
-        return values.All(double.IsFinite);
-    }
-
-    private static bool TryReadUnsignedShorts(Image image, int tagId, out ushort[] values)
-    {
-        values = Array.Empty<ushort>();
-        if (!TryGetPropertyItem(image, tagId, out PropertyItem? property))
-            return false;
-        if (property == null || property.Type != 3 || property.Value == null || property.Value.Length % sizeof(ushort) != 0)
-            return false;
-
-        values = new ushort[property.Value.Length / sizeof(ushort)];
-        for (int index = 0; index < values.Length; index++)
-            values[index] = BitConverter.ToUInt16(property.Value, index * sizeof(ushort));
-        return true;
-    }
-
-    private static bool TryGetPropertyItem(Image image, int tagId, out PropertyItem? property)
-    {
-        property = null;
-        try
-        {
-            property = image.PropertyItems.FirstOrDefault(item => item.Id == tagId);
-            return property != null;
-        }
-        catch (Exception ex) when (
-            ex is ArgumentException or
-            NotSupportedException or
-            System.Runtime.InteropServices.ExternalException)
-        {
-            return false;
-        }
-    }
 }

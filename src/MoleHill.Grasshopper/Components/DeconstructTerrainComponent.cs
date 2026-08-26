@@ -38,6 +38,12 @@ public sealed class DeconstructTerrainComponent : GH_Component
         pManager.AddTextParameter("Key", "K", "Stable source key when available.", GH_ParamAccess.item);
         pManager.AddIntegerParameter("Revision", "R", "Applied MoleHill build revision.", GH_ParamAccess.item);
         pManager.AddTextParameter("Diagnostics", "D", "Source and processing diagnostics.", GH_ParamAccess.list);
+        pManager.AddTextParameter("Zone Keys", "ZK", "Stable zone keys in branch order.", GH_ParamAccess.list);
+        pManager.AddTextParameter("Revision 64", "R64", "Lossless 64-bit source revision.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Unit System", "U", "Source Rhino model unit system.", GH_ParamAccess.item);
+        pManager.AddNumberParameter("Meters Per Unit", "MPU", "Metres represented by one source model unit.", GH_ParamAccess.item);
+        pManager.AddTransformParameter("Local To World", "X", "MoleHill project-local to real-world transform.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Has Project Base", "PB", "Whether Local To World represents a saved MoleHill Project Base.", GH_ParamAccess.item);
     }
 
     protected override void SolveInstance(IGH_DataAccess DA)
@@ -51,6 +57,7 @@ public sealed class DeconstructTerrainComponent : GH_Component
 
         var zoneTree = new GH_Structure<GH_Curve>();
         var zoneNames = new List<string>();
+        var zoneKeys = new List<string>();
         for (int index = 0; index < terrain.Regions.Count; index++)
         {
             MoleHillTerrainRegion region = terrain.Regions[index];
@@ -59,6 +66,7 @@ public sealed class DeconstructTerrainComponent : GH_Component
             foreach (var boundary in region.Boundaries)
                 zoneTree.Append(new GH_Curve(boundary.DuplicateCurve()), path);
             zoneNames.Add(region.Name);
+            zoneKeys.Add(region.Key);
         }
 
         DA.SetData(0, terrain.Mesh.DuplicateMesh());
@@ -69,6 +77,12 @@ public sealed class DeconstructTerrainComponent : GH_Component
         DA.SetData(5, terrain.Key);
         DA.SetData(6, ToGrasshopperInteger(terrain.Revision));
         DA.SetDataList(7, terrain.Diagnostics);
+        DA.SetDataList(8, zoneKeys);
+        DA.SetData(9, terrain.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        DA.SetData(10, terrain.UnitSystem);
+        DA.SetData(11, terrain.MetersPerModelUnit);
+        DA.SetData(12, terrain.LocalToWorld);
+        DA.SetData(13, terrain.HasProjectBaseTransform);
     }
 
     private static int ToGrasshopperInteger(long value)

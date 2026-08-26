@@ -31,6 +31,8 @@ internal sealed class TerrainRuntimeCache
 
     public TimeSpan? LastFinalDuration { get; set; }
 
+    public ulong LastFinalMeshFingerprint { get; set; }
+
     public TerrainRuntimeCache CreateWorkerCopy()
     {
         var copy = new TerrainRuntimeCache
@@ -108,6 +110,7 @@ internal sealed class TerrainRuntimeCache
         DisplayState = null;
         LastPreviewDuration = null;
         LastFinalDuration = null;
+        LastFinalMeshFingerprint = 0;
         TinEngine.InvalidateCache();
         return meshOutputs;
     }
@@ -501,6 +504,12 @@ internal static class TerrainRuntimeCacheCloner
             ContourLastLevel = analysis.ContourLastLevel,
             GeneratedOutputCount = analysis.GeneratedOutputCount,
             SampleSourceCount = analysis.SampleSourceCount,
+            SectionTerrainCount = analysis.SectionTerrainCount,
+            SectionCutRegionCount = analysis.SectionCutRegionCount,
+            SectionFillRegionCount = analysis.SectionFillRegionCount,
+            WaterflowBoundaryCount = analysis.WaterflowBoundaryCount,
+            WaterflowSinkCount = analysis.WaterflowSinkCount,
+            WaterflowRejectedCount = analysis.WaterflowRejectedCount,
             SampleMinValue = analysis.SampleMinValue,
             SampleMaxValue = analysis.SampleMaxValue,
             SampleAverageValue = analysis.SampleAverageValue
@@ -563,6 +572,7 @@ internal static class TerrainRuntimeCacheCloner
                 ? null
                 : new Dictionary<string, string>(generated.InstanceUserStrings, StringComparer.Ordinal),
             InstanceTransform = generated.InstanceTransform,
+            PlotWeight = generated.PlotWeight,
             ScatterDefinitionId = generated.ScatterDefinitionId
         };
     }

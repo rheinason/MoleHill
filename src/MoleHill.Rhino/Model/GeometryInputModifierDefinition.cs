@@ -4,6 +4,12 @@ namespace MoleHill.Rhino.Model;
 
 public abstract class GeometryInputModifierDefinition : ModifierDefinition
 {
+    /// <summary>
+    /// Optional exact source TIN. When present, Triangulate preserves this mesh topology instead of
+    /// rebuilding from point/curve inputs.
+    /// </summary>
+    public SourceReferenceSet TinMesh { get; set; } = new();
+
     public SourceReferenceSet Points { get; set; } = new();
 
     public SourceReferenceSet Breaklines { get; set; } = new();
@@ -37,6 +43,7 @@ public abstract class GeometryInputModifierDefinition : ModifierDefinition
 
     public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {
+        yield return TinMesh;
         yield return Points;
         yield return Breaklines;
         yield return Contours;

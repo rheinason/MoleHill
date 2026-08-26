@@ -9,7 +9,10 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainBuildSnapshotBuilder
 {
-    public static TerrainBuildSnapshot Create(RhinoDoc doc, TerrainDefinition terrain)
+    public static TerrainBuildSnapshot Create(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        IEnumerable<TerrainSectionReferenceSnapshot>? sectionTerrains = null)
     {
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext))
             throw new InvalidOperationException(ModelUnitGuard.RequiredMessage);
@@ -37,6 +40,12 @@ internal static class TerrainBuildSnapshotBuilder
         }
 
         PopulateBlockDefinitionBounds(doc, terrainClone, snapshot);
+
+        if (sectionTerrains != null)
+        {
+            foreach (TerrainSectionReferenceSnapshot reference in sectionTerrains)
+                snapshot.SectionTerrains[reference.TerrainId] = reference;
+        }
 
         return snapshot;
     }

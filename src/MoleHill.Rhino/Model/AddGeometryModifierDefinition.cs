@@ -24,6 +24,7 @@ public sealed class AddGeometryModifierDefinition : GeometryInputModifierDefinit
             MaxBoundaryEdgeLength = source.MaxBoundaryEdgeLength,
             MaxBoundaryAngleDegrees = source.MaxBoundaryAngleDegrees,
             MaxBoundarySlopeDegrees = source.MaxBoundarySlopeDegrees,
+            TinMesh = CloneSourceSet(source.TinMesh),
             Points = CloneSourceSet(source.Points),
             Breaklines = CloneSourceSet(source.Breaklines),
             Contours = CloneSourceSet(source.Contours),

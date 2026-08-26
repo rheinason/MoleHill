@@ -14,7 +14,7 @@ public class GeometryInputModifierDefinitionTests
             .Select(static parameter => parameter.Key)
             .ToArray();
 
-        Assert.Equal(new[] { "Points", "Breaklines", "Contours", "Boundary", "ContourMode" }, keys);
+        Assert.Equal(new[] { "TinMesh", "Points", "Breaklines", "Contours", "Boundary", "ContourMode" }, keys);
     }
 
     [Fact]

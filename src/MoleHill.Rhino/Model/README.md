@@ -13,8 +13,9 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
 - **Modifiers** — polymorphism is registry-driven (`Services/TerrainJsonTypeResolver` reads each
   descriptor's `Kind`), **not** `[JsonDerivedType]` attributes. `ModifierDefinition` →
   `GeometryInputModifierDefinition`
-  (`TriangulateModifierDefinition`, `AddGeometryModifierDefinition`; carry `Points/Breaklines/Contours/
-  Boundary`), `GradePadModifierDefinition`, `GradePathModifierDefinition`, `RemeshModifierDefinition`,
+  (`TriangulateModifierDefinition`, `AddGeometryModifierDefinition`; carry `TinMesh/Points/Breaklines/
+  Contours/Boundary`; `TinMesh` preserves imported face topology and takes precedence over other sources),
+  `GradePadModifierDefinition`, `GradePathModifierDefinition`, `RemeshModifierDefinition`,
   `SmoothModifierDefinition`, `MeshAreasModifierDefinition`, `MeshCollageModifierDefinition`,
   `RetainingWallModifierDefinition`, `InSituStairModifierDefinition`, `SculptModifierDefinition`.
   `TriangulateModifierDefinition.ContourMode` persists the Auto / Constrained / Vertices-only choice;
@@ -23,7 +24,9 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   protect their interiors, while earlier Grade Path sources resolve to their configured road width.
 - **Analyses** — `AnalysisDefinition` → `Slope`, `Elevation`, `Contour`, `CutFill`, `Earthwork`,
   `WaterflowAnalysisDefinition`, section/label analyses, etc. Waterflow stores point sources and
-  traces generated downhill curves on the final terrain.
+  traces generated downhill curves on the final terrain. All section analyses persist optional
+  comparison terrain ids, one cut/fill reference id, and shared cut/fill display styling; the owning
+  terrain remains the implicit proposed profile.
 - **Objects** — `TerrainObjectDefinition` → `LowestPointObjectDefinition`,
   `SurfaceOrientedObjectDefinition`, `ScatterObjectDefinition` (+ `ScatterBlockEntry`,
   `ScatterPreviewMode`; reuses Core's `ScatterPattern`/`ScatterDensityMode`).

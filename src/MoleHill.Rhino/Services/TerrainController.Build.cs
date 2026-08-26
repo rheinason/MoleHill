@@ -39,6 +39,15 @@ internal sealed partial class TerrainController
             RaiseStateChanged();
     }
 
+    private bool HasPendingFinalBuild(uint docSerial, Guid terrainId)
+    {
+        if (_pendingRebuilds.ContainsKey((docSerial, terrainId, TerrainBuildMode.Final)))
+            return true;
+
+        return _rebuildStates.TryGetValue((docSerial, terrainId), out TerrainRebuildState? rebuildState) &&
+               (rebuildState.IsBuilding || rebuildState.RequestedVersion > rebuildState.AppliedVersion);
+    }
+
     private void QueuePendingBuild(uint docSerial, Guid terrainId, TerrainBuildMode mode, long version, int delayMs)
     {
         _pendingRebuilds[(docSerial, terrainId, mode)] = new PendingBuildRequest(DateTime.UtcNow.AddMilliseconds(delayMs), version);
@@ -173,7 +182,10 @@ internal sealed partial class TerrainController
         WriteBuildStarted(terrain, mode, buildVersion);
         RaiseStateChanged();
         var snapshotTimer = Stopwatch.StartNew();
-        TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
+        TerrainBuildSnapshot snapshot = CreateBuildSnapshot(
+            doc,
+            terrain,
+            includeSectionTerrains: mode == TerrainBuildMode.Final);
         snapshotTimer.Stop();
 
         var workerCacheTimer = Stopwatch.StartNew();
@@ -237,7 +249,10 @@ internal sealed partial class TerrainController
         try
         {
             var snapshotTimer = Stopwatch.StartNew();
-            TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
+            TerrainBuildSnapshot snapshot = CreateBuildSnapshot(
+                doc,
+                terrain,
+                includeSectionTerrains: mode == TerrainBuildMode.Final);
             snapshotTimer.Stop();
 
             var workerCacheTimer = Stopwatch.StartNew();
@@ -354,6 +369,10 @@ internal sealed partial class TerrainController
                 WasCanceled: false,
                 Error: ex);
         }
+        finally
+        {
+            snapshot.DisposeSectionTerrainMeshes();
+        }
     }
 
     private void CompleteBackgroundBuild(
@@ -439,6 +458,9 @@ internal sealed partial class TerrainController
             terrain.LastBuildUtc = DateTimeOffset.UtcNow;
             terrain.LastAnalysisResults = TerrainRuntimeCacheCloner.CloneAnalyses(build.AnalysisResults);
             ClearLegacyOutputState(doc, terrain);
+            // Remove managed live outputs left behind by older preview/output paths or a failed
+            // replacement. Current preview geometry is conduit-only and must never accumulate in doc.
+            PurgeOrphanedOwnedObjects(doc, terrain);
             runtimeCache.LastFinalDuration = buildElapsed;
             rebuildState.AppliedVersion = result.Version;
         }
@@ -450,7 +472,14 @@ internal sealed partial class TerrainController
 
         var displayTimer = Stopwatch.StartNew();
         UpdateDisplayState(doc, terrain, runtimeCache, build);
-        ReassertSculptPreviewMesh(doc.RuntimeSerialNumber, terrain.TerrainId);
+        ReassertSculptPreviewMesh(doc, terrain.TerrainId);
+        bool sectionReferenceMeshChanged = false;
+        if (result.Mode == TerrainBuildMode.Final)
+        {
+            ulong finalMeshFingerprint = TerrainBuildService.ComputeMeshFingerprintForDiagnostics(build.PrimaryMesh);
+            sectionReferenceMeshChanged = finalMeshFingerprint != runtimeCache.LastFinalMeshFingerprint;
+            runtimeCache.LastFinalMeshFingerprint = finalMeshFingerprint;
+        }
         displayTimer.Stop();
         TerrainDisplayState displayState = runtimeCache.DisplayState
             ?? throw new InvalidOperationException("Terrain display state was not produced by the build.");
@@ -495,6 +524,8 @@ internal sealed partial class TerrainController
                 build.Timings,
                 "Rebuild total");
             commandElapsed += saveTimer.Elapsed + redrawTimer.Elapsed;
+            if (sectionReferenceMeshChanged)
+                ScheduleSectionDependents(doc, state, terrain.TerrainId);
         }
         else
         {

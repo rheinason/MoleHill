@@ -138,6 +138,10 @@ internal sealed partial class TerrainController
         if (_suppressDocEvents > 0)
             return;
 
+        // Render materials and layer-derived colours are resolved when the provider is queried, so a
+        // layer edit must invalidate render primitives even when it does not affect terrain inputs.
+        InvalidateDocumentRenderMeshes(e.Document);
+
         ScheduleTerrainsForLayerChanges(
             e.Document,
             e.OldState?.FullPath,

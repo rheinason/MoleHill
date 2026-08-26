@@ -45,6 +45,12 @@ public sealed class MoleHillTerrainSnapshotComponent : GH_Component
         pManager.AddTextParameter("Name", "N", "MoleHill terrain name.", GH_ParamAccess.item);
         pManager.AddIntegerParameter("Revision", "R", "Applied final MoleHill build revision.", GH_ParamAccess.item);
         pManager.AddTextParameter("Diagnostics", "D", "Snapshot and build diagnostics.", GH_ParamAccess.list);
+        pManager.AddTextParameter("Key", "K", "Stable MoleHill terrain key.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Revision 64", "R64", "Lossless 64-bit applied final revision.", GH_ParamAccess.item);
+        pManager.AddTextParameter("Unit System", "U", "Source Rhino model unit system.", GH_ParamAccess.item);
+        pManager.AddNumberParameter("Meters Per Unit", "MPU", "Metres represented by one source model unit.", GH_ParamAccess.item);
+        pManager.AddTransformParameter("Local To World", "X", "MoleHill project-local to real-world transform.", GH_ParamAccess.item);
+        pManager.AddBooleanParameter("Has Project Base", "PB", "Whether Local To World represents a saved MoleHill Project Base.", GH_ParamAccess.item);
     }
 
     public override void AddedToDocument(GH_Document document)
@@ -82,7 +88,10 @@ public sealed class MoleHillTerrainSnapshotComponent : GH_Component
 
         MethodInfo? method = bridgeType.GetMethod(
             "GetSnapshot",
-            BindingFlags.Public | BindingFlags.Static);
+            BindingFlags.Public | BindingFlags.Static,
+            binder: null,
+            types: new[] { typeof(RhinoDoc), typeof(string), typeof(string).MakeByRefType() },
+            modifiers: null);
         if (method == null)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "The loaded MoleHill Rhino plugin does not expose terrain snapshots.");
@@ -95,11 +104,16 @@ public sealed class MoleHillTerrainSnapshotComponent : GH_Component
         {
             snapshot = method.Invoke(null, arguments);
         }
-        catch (TargetInvocationException exception)
+        catch (Exception exception) when (exception is TargetInvocationException or
+                                           ArgumentException or
+                                           MethodAccessException or
+                                           TargetParameterCountException)
         {
             AddRuntimeMessage(
                 GH_RuntimeMessageLevel.Error,
-                exception.InnerException?.Message ?? exception.Message);
+                exception is TargetInvocationException invocation
+                    ? invocation.InnerException?.Message ?? invocation.Message
+                    : exception.Message);
             return;
         }
 
@@ -111,32 +125,61 @@ public sealed class MoleHillTerrainSnapshotComponent : GH_Component
             return;
         }
 
-        Type snapshotType = snapshot.GetType();
-        if (snapshotType.GetProperty("Mesh")?.GetValue(snapshot) is not Mesh mesh)
+        try
         {
-            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "MoleHill snapshot did not contain a terrain mesh.");
-            return;
+            Type snapshotType = snapshot.GetType();
+            if (snapshotType.GetProperty("Mesh")?.GetValue(snapshot) is not Mesh mesh)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "MoleHill snapshot did not contain a terrain mesh.");
+                return;
+            }
+
+            string name = snapshotType.GetProperty("Name")?.GetValue(snapshot) as string ?? "Terrain";
+            string key = snapshotType.GetProperty("Key")?.GetValue(snapshot) as string ?? string.Empty;
+            long revision = Convert.ToInt64(snapshotType.GetProperty("Revision")?.GetValue(snapshot) ?? 0L);
+            IReadOnlyList<Curve> breaklines = ReadCurves(snapshotType.GetProperty("Breaklines")?.GetValue(snapshot));
+            IReadOnlyList<MoleHillTerrainRegion> regions = ReadRegions(snapshotType.GetProperty("Regions")?.GetValue(snapshot));
+            IReadOnlyList<string> diagnostics = ReadStrings(snapshotType.GetProperty("Diagnostics")?.GetValue(snapshot));
+            string unitSystem = snapshotType.GetProperty("UnitSystem")?.GetValue(snapshot) as string ?? "Unspecified";
+            double metersPerModelUnit = Convert.ToDouble(snapshotType.GetProperty("MetersPerModelUnit")?.GetValue(snapshot) ?? 1.0);
+            Transform localToWorld = snapshotType.GetProperty("LocalToWorld")?.GetValue(snapshot) is Transform transform
+                ? transform
+                : Transform.Identity;
+            bool hasProjectBaseTransform = Convert.ToBoolean(
+                snapshotType.GetProperty("HasProjectBaseTransform")?.GetValue(snapshot) ?? false);
+
+            var terrain = new MoleHillTerrainData(
+                mesh,
+                breaklines,
+                regions,
+                name,
+                key,
+                revision,
+                diagnostics,
+                unitSystem,
+                metersPerModelUnit,
+                localToWorld,
+                hasProjectBaseTransform);
+            DA.SetData(0, new MoleHillTerrainGoo(terrain));
+            DA.SetData(1, name);
+            DA.SetData(2, ToGrasshopperInteger(revision));
+            DA.SetDataList(3, diagnostics);
+            DA.SetData(4, key);
+            DA.SetData(5, revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            DA.SetData(6, unitSystem);
+            DA.SetData(7, metersPerModelUnit);
+            DA.SetData(8, localToWorld);
+            DA.SetData(9, hasProjectBaseTransform);
         }
-
-        string name = snapshotType.GetProperty("Name")?.GetValue(snapshot) as string ?? "Terrain";
-        string key = snapshotType.GetProperty("Key")?.GetValue(snapshot) as string ?? string.Empty;
-        long revision = Convert.ToInt64(snapshotType.GetProperty("Revision")?.GetValue(snapshot) ?? 0L);
-        IReadOnlyList<Curve> breaklines = ReadCurves(snapshotType.GetProperty("Breaklines")?.GetValue(snapshot));
-        IReadOnlyList<MoleHillTerrainRegion> regions = ReadRegions(snapshotType.GetProperty("Regions")?.GetValue(snapshot));
-        IReadOnlyList<string> diagnostics = ReadStrings(snapshotType.GetProperty("Diagnostics")?.GetValue(snapshot));
-
-        var terrain = new MoleHillTerrainData(
-            mesh,
-            breaklines,
-            regions,
-            name,
-            key,
-            revision,
-            diagnostics);
-        DA.SetData(0, new MoleHillTerrainGoo(terrain));
-        DA.SetData(1, name);
-        DA.SetData(2, ToGrasshopperInteger(revision));
-        DA.SetDataList(3, diagnostics);
+        catch (Exception exception) when (exception is InvalidCastException or FormatException or OverflowException or TargetException)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error, $"Could not read the MoleHill terrain snapshot: {exception.Message}");
+        }
+        finally
+        {
+            if (snapshot is IDisposable disposable)
+                disposable.Dispose();
+        }
     }
 
     private void TrySubscribeToSnapshotChanges()
@@ -187,7 +230,6 @@ public sealed class MoleHillTerrainSnapshotComponent : GH_Component
 
         return enumerable.Cast<object>()
             .OfType<Curve>()
-            .Select(curve => curve.DuplicateCurve())
             .ToArray();
     }
 

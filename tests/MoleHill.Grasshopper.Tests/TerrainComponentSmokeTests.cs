@@ -15,15 +15,21 @@ public class TerrainComponentSmokeTests
         var construct = new ConstructTerrainComponent();
         var deconstruct = new DeconstructTerrainComponent();
         var partition = new PartitionTerrainComponent();
+        var prepareToposolid = new PrepareToposolidComponent();
 
         Assert.Equal("Terrain", snapshot.Params.Output[0].Name);
         Assert.Equal("Zones", construct.Params.Input[2].Name);
         Assert.Equal(global::Grasshopper.Kernel.GH_ParamAccess.tree, construct.Params.Input[2].Access);
+        Assert.Equal("Zone Keys", construct.Params.Input[6].Name);
+        Assert.Equal("Revision 64", construct.Params.Input[7].Name);
         Assert.Equal("Zones", deconstruct.Params.Output[2].Name);
         Assert.Equal(global::Grasshopper.Kernel.GH_ParamAccess.tree, deconstruct.Params.Output[2].Access);
+        Assert.Equal("Zone Keys", deconstruct.Params.Output[8].Name);
+        Assert.Equal("Revision 64", deconstruct.Params.Output[9].Name);
         Assert.Equal("Zones", partition.Params.Input[1].Name);
         Assert.Equal(global::Grasshopper.Kernel.GH_ParamAccess.tree, partition.Params.Output[0].Access);
         Assert.Equal("Remainder", partition.Params.Output[2].Name);
+        Assert.Equal("Geometry Fingerprint", prepareToposolid.Params.Output[8].Name);
     }
 
     [RhinoNativeFact]

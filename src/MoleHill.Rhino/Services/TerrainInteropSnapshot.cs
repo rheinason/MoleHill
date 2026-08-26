@@ -3,7 +3,7 @@ using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
 
-public sealed class TerrainInteropSnapshot
+public sealed class TerrainInteropSnapshot : IDisposable
 {
     public required Mesh Mesh { get; init; }
 
@@ -18,4 +18,21 @@ public sealed class TerrainInteropSnapshot
     public IReadOnlyList<TerrainInteropRegion> Regions { get; init; } = Array.Empty<TerrainInteropRegion>();
 
     public IReadOnlyList<string> Diagnostics { get; init; } = Array.Empty<string>();
+
+    public string UnitSystem { get; init; } = "Unspecified";
+
+    public double MetersPerModelUnit { get; init; } = 1.0;
+
+    public Transform LocalToWorld { get; init; } = Transform.Identity;
+
+    public bool HasProjectBaseTransform { get; init; }
+
+    public void Dispose()
+    {
+        Mesh.Dispose();
+        foreach (Curve breakline in Breaklines)
+            breakline.Dispose();
+        foreach (TerrainInteropRegion region in Regions)
+            region.Dispose();
+    }
 }

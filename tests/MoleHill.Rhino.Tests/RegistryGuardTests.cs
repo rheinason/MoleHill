@@ -182,6 +182,37 @@ public class RegistryGuardTests
     }
 
     [Fact]
+    public void LegacyZoneMigration_DoesNotSkipExplicitAnalysisRangeMigration()
+    {
+        const string legacyJson = """
+        {
+          "schemaVersion": 24,
+          "terrains": [
+            {
+              "terrainId": "33333333-3333-3333-3333-333333333333",
+              "name": "Legacy analysis range",
+              "schemaVersion": 24,
+              "modifiers": [
+                { "$type": "triangulate" },
+                { "$type": "mesh-collage", "zones": [] }
+              ],
+              "analyses": [
+                { "$type": "slope", "rangeLow": 5.0, "rangeHigh": 25.0 }
+              ]
+            }
+          ]
+        }
+        """;
+
+        TerrainDefinition terrain = TerrainSerializer.Deserialize(legacyJson).Single();
+        var slope = Assert.IsType<SlopeAnalysisDefinition>(Assert.Single(terrain.Analyses));
+
+        Assert.False(slope.AutoColorRange);
+        Assert.Equal(5.0, slope.RangeLow);
+        Assert.Equal(25.0, slope.RangeHigh);
+    }
+
+    [Fact]
     public void LegacyRemeshDocument_MaxAreaOnly_MigratesToEquivalentEdgeLength()
     {
         const string legacyJson = """

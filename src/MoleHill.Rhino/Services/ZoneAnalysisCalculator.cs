@@ -11,6 +11,7 @@ internal static class ZoneAnalysisCalculator
         var result = new ZoneAnalysisSummary { ZoneId = zoneId };
         double elevationWeightedSum = 0.0;
         double elevationWeight = 0.0;
+        double slopeWeightedSum = 0.0;
 
         foreach (Mesh mesh in meshes)
         {
@@ -38,7 +39,6 @@ internal static class ZoneAnalysisCalculator
             double minZ = double.MaxValue;
             double maxZ = double.MinValue;
             double planArea = 0.0;
-            double slopeWeighted = 0.0;
             for (int face = 0; face < faces.Length / 3; face++)
             {
                 int a = faces[face * 3];
@@ -52,13 +52,12 @@ internal static class ZoneAnalysisCalculator
                 planArea += area;
                 elevationWeightedSum += averageZ * area;
                 elevationWeight += area;
-                slopeWeighted += SlopeAnalyzerFaceSlope(vertices, a, b, c) * area;
+                slopeWeightedSum += SlopeAnalyzerFaceSlope(vertices, a, b, c) * area;
                 minZ = Math.Min(minZ, Math.Min(az, Math.Min(bz, cz)));
                 maxZ = Math.Max(maxZ, Math.Max(az, Math.Max(bz, cz)));
             }
 
             result.PlanArea += planArea;
-            result.SlopeAveragePercent = elevationWeight > 0 ? slopeWeighted / elevationWeight : 0.0;
             if (minZ != double.MaxValue)
             {
                 result.ElevationMinZ = result.OutputCount == 1 ? minZ : Math.Min(result.ElevationMinZ, minZ);
@@ -67,6 +66,7 @@ internal static class ZoneAnalysisCalculator
         }
 
         result.ElevationAverageZ = elevationWeight > 0 ? elevationWeightedSum / elevationWeight : 0.0;
+        result.SlopeAveragePercent = elevationWeight > 0 ? slopeWeightedSum / elevationWeight : 0.0;
         return result;
     }
 

@@ -46,6 +46,58 @@ internal sealed partial class TerrainBuildService
         int diagnosticsStart = build.Diagnostics.Count;
         int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         ThrowIfCancellationRequested(shouldCancel);
+        var exactTinMeshes = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, modifier.TinMesh)
+            .Select(source => source.Geometry)
+            .OfType<RhinoMesh>()
+            .ToList();
+        if (modifier.TinMesh.HasReferences)
+        {
+            if (exactTinMeshes.Count != 1)
+            {
+                build.Diagnostics.Add(exactTinMeshes.Count == 0
+                    ? "Triangulate exact TIN source did not resolve to a mesh."
+                    : "Triangulate exact TIN source must resolve to exactly one mesh.");
+                return StoreMeshStageCache(
+                    build, runtimeCache, stageKey, stageName, preResolutionFingerprint,
+                    ComputeSourceSetFingerprint(snapshot, modifier.TinMesh), null,
+                    build.PersistentHardConstraints, Array.Empty<GeneratedRhinoObject>(),
+                    build.Diagnostics.Skip(diagnosticsStart), DescribeModifierMeshResult(modifier.Label, null),
+                    timer, out outputFingerprint, shouldCancel,
+                    build.StructuredDiagnostics.Skip(structuredDiagnosticsStart), progress);
+            }
+
+            RhinoMesh exactTin = exactTinMeshes[0].DuplicateMesh();
+            if (exactTin.Faces.QuadCount > 0)
+                exactTin.Faces.ConvertQuadsToTriangles();
+            if (!RhinoGeometryConversions.TryExtractMeshData(exactTin, out _, out _, out string? exactTinError))
+            {
+                exactTin.Dispose();
+                build.Diagnostics.Add(exactTinError ?? "The exact TIN mesh is invalid.");
+                return StoreMeshStageCache(
+                    build, runtimeCache, stageKey, stageName, preResolutionFingerprint,
+                    ComputeSourceSetFingerprint(snapshot, modifier.TinMesh), null,
+                    build.PersistentHardConstraints, Array.Empty<GeneratedRhinoObject>(),
+                    build.Diagnostics.Skip(diagnosticsStart), DescribeModifierMeshResult(modifier.Label, null),
+                    timer, out outputFingerprint, shouldCancel,
+                    build.StructuredDiagnostics.Skip(structuredDiagnosticsStart), progress);
+            }
+
+            if (modifier.Points.HasReferences || modifier.Breaklines.HasReferences ||
+                modifier.Contours.HasReferences || modifier.Boundary.HasReferences)
+            {
+                build.Diagnostics.Add("Triangulate is using the exact TIN mesh; point, breakline, contour, and boundary sources are ignored.");
+            }
+
+            progress.Complete("Source resolution", $"exact TIN mesh: {exactTin.Vertices.Count:N0} vertices, {exactTin.Faces.Count:N0} faces");
+            return StoreMeshStageCache(
+                build, runtimeCache, stageKey, stageName, preResolutionFingerprint,
+                ComputeSourceSetFingerprint(snapshot, modifier.TinMesh), exactTin,
+                build.PersistentHardConstraints, Array.Empty<GeneratedRhinoObject>(),
+                build.Diagnostics.Skip(diagnosticsStart), DescribeModifierMeshResult(modifier.Label, exactTin),
+                timer, out outputFingerprint, shouldCancel,
+                build.StructuredDiagnostics.Skip(structuredDiagnosticsStart), progress);
+        }
+
         var points = TerrainBuildSnapshotResolver.ResolvePoints(snapshot, modifier.Points);
         var breaklineCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Breaklines);
         var contourCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Contours);
