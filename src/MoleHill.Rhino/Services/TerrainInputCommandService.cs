@@ -1,5 +1,6 @@
 // Rhino document workflows for terrain-input validation, draping, splitting, and wall rails.
 using DrawingColor = System.Drawing.Color;
+using MoleHill.Rhino.Model;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.Commands;
@@ -284,19 +285,66 @@ internal static class TerrainInputCommandService
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext))
             return Result.Failure;
 
-        var getSource = new GetObject();
-        getSource.SetCommandPrompt("Select one mesh or surface to drape onto");
-        getSource.GeometryFilter = ObjectType.Mesh | ObjectType.Surface | ObjectType.Brep | ObjectType.Extrusion;
-        getSource.EnablePreSelect(true, true);
-        if (getSource.Get() != GetResult.Object)
-            return getSource.CommandResult();
+        int sourceMode = CommandOptionCache.GetValue("MoleHill.DrapeCurve.Source", 0);
+        while (true)
+        {
+            var sourceOption = new GetPoint();
+            sourceOption.SetCommandPrompt("Choose drape source");
+            sourceOption.AcceptNothing(true);
+            int sourceListIndex = sourceOption.AddOptionList(
+                "Source",
+                new[] { "RhinoObject", "ActiveMoleHillTerrain" },
+                Math.Clamp(sourceMode, 0, 1));
+            GetResult sourceOptionResult = sourceOption.Get();
+            if (sourceOptionResult == GetResult.Option)
+            {
+                if (sourceOption.OptionIndex() == sourceListIndex)
+                    sourceMode = sourceOption.Option().CurrentListOptionIndex;
+                continue;
+            }
 
-        ObjRef sourceReference = getSource.Object(0);
-        RhinoObject? sourceObject = sourceReference.Object();
-        if (sourceObject == null)
-            return Result.Failure;
+            if (sourceOptionResult != GetResult.Nothing)
+                return sourceOption.CommandResult();
 
-        List<Mesh> meshes = CreateProjectionMeshes(sourceObject.Geometry);
+            break;
+        }
+
+        CommandOptionCache.SetValue("MoleHill.DrapeCurve.Source", sourceMode);
+        List<Mesh> meshes;
+        if (sourceMode == 1)
+        {
+            TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
+            if (terrain == null)
+            {
+                RhinoApp.WriteLine("Select an active MoleHill terrain before draping.");
+                return Result.Nothing;
+            }
+
+            Mesh? finalMesh = TerrainController.Instance.DuplicateFinalTerrainMesh(doc, terrain.TerrainId);
+            if (finalMesh == null)
+            {
+                RhinoApp.WriteLine($"Active terrain '{terrain.Name}' has no current final build. Rebuild it before draping.");
+                return Result.Nothing;
+            }
+
+            meshes = new List<Mesh> { finalMesh };
+        }
+        else
+        {
+            var getSource = new GetObject();
+            getSource.SetCommandPrompt("Select one mesh or surface to drape onto");
+            getSource.GeometryFilter = ObjectType.Mesh | ObjectType.Surface | ObjectType.Brep | ObjectType.Extrusion;
+            getSource.EnablePreSelect(true, true);
+            if (getSource.Get() != GetResult.Object)
+                return getSource.CommandResult();
+
+            ObjRef sourceReference = getSource.Object(0);
+            RhinoObject? sourceObject = sourceReference.Object();
+            if (sourceObject == null)
+                return Result.Failure;
+
+            meshes = CreateProjectionMeshes(sourceObject.Geometry);
+        }
         if (meshes.Count == 0)
         {
             RhinoApp.WriteLine("The selected object could not be converted into a usable mesh.");

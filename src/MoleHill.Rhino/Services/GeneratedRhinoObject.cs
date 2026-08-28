@@ -21,6 +21,15 @@ internal sealed class GeneratedRhinoObject
 
     public int? ColorArgb { get; init; }
 
+    /// <summary>
+    /// Whether this output's colour and plot weight come from its layer or from the object itself.
+    /// Drawing output (section lines, grid, ticks, labels, hatches, contours) is <see
+    /// cref="GeneratedAppearanceSource.Layer"/> so a drawing's appearance is governed by the layer table
+    /// the office controls. Output whose colour carries meaning — zone colours, analysis colour ramps —
+    /// stays <see cref="GeneratedAppearanceSource.Object"/>.
+    /// </summary>
+    public GeneratedAppearanceSource AppearanceSource { get; init; } = GeneratedAppearanceSource.Object;
+
     public string? LayerPath { get; init; }
 
     public string? SourceLayerPath { get; init; }
@@ -100,4 +109,15 @@ internal sealed class GeneratedRhinoObject
             ? value
             : string.Empty;
     }
+}
+
+/// <summary>Where a generated object's colour and plot weight come from. See
+/// <see cref="GeneratedRhinoObject.AppearanceSource"/>.</summary>
+internal enum GeneratedAppearanceSource
+{
+    /// <summary>Colour/plot weight are set on the object (the colour carries information).</summary>
+    Object,
+
+    /// <summary>Colour/plot weight stay ByLayer so the layer table governs the printed result.</summary>
+    Layer
 }

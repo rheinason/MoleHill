@@ -62,7 +62,12 @@ internal sealed partial class TerrainBuildService
                         InstanceDefinitionName = GetMarkerBlockName(marker),
                         MarkerBlockTemplate = GetMarkerBlockTemplate(marker),
                         InstanceTransform = Transform.Translation(worldPoint - Point3d.Origin)
-                            * Transform.Scale(Point3d.Origin, Math.Max(marker.BlockScale, 0.01)),
+                            * Transform.Scale(
+                                Point3d.Origin,
+                                TerrainAnalysisAnnotationBuilder.ResolveBlockScale(
+                                    snapshot,
+                                    marker.FollowsAnnotationStyle,
+                                    marker.BlockScale)),
                         ColorArgb = marker.ColorArgb
                     });
                 }

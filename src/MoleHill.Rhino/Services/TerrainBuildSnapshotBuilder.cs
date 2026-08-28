@@ -9,6 +9,22 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainBuildSnapshotBuilder
 {
+    /// <summary>Every hatch pattern name the terrain's analyses reference, so the document-thread capture
+    /// can resolve them all in one pass.</summary>
+    private static IEnumerable<string?> EnumerateHatchPatternNames(TerrainDefinition terrain)
+    {
+        foreach (AnalysisDefinition analysis in terrain.Analyses)
+        {
+            if (analysis is not TerrainSectionAnalysisDefinitionBase section)
+                continue;
+
+            yield return HatchPatternService.ResolvePatternName(
+                section.CutHatchPatternName, HatchPatternService.DefaultCutPatternName);
+            yield return HatchPatternService.ResolvePatternName(
+                section.FillHatchPatternName, HatchPatternService.DefaultFillPatternName);
+        }
+    }
+
     public static TerrainBuildSnapshot Create(
         RhinoDoc doc,
         TerrainDefinition terrain,
@@ -23,7 +39,9 @@ internal static class TerrainBuildSnapshotBuilder
             Terrain = terrainClone,
             ModelAbsoluteTolerance = doc.ModelAbsoluteTolerance,
             ModelUnitSystem = doc.ModelUnitSystem,
-            UnitContext = unitContext
+            UnitContext = unitContext,
+            AnnotationStyle = AnnotationStyleService.Capture(doc, terrainClone.AnnotationStyleName),
+            HatchPatterns = HatchPatternService.Capture(doc, EnumerateHatchPatternNames(terrainClone))
         };
 
         foreach (var sourceSet in terrainClone.EnumerateSourceSets().Distinct(ReferenceEqualityComparer<SourceReferenceSet>.Instance))

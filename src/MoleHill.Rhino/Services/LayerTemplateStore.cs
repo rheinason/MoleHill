@@ -101,7 +101,19 @@ internal sealed class LayerTemplateStore
                     CreateEntry("MoleHill::Features::Paths", unchecked((int)0xFFFFBF00), unchecked((int)0xFFFFBF00), 0.25),
                     CreateEntry(TerrainDefinition.DefaultTerrainLayerPath, TerrainDefinition.DefaultTerrainColorArgb, TerrainDefinition.DefaultTerrainColorArgb, 0.18),
                     CreateEntry(TerrainDefinition.DefaultAuxiliaryLayerPath, unchecked((int)0xFFAAAAAA), unchecked((int)0xFFAAAAAA), 0.13),
-                    CreateEntry(TerrainDefinition.DefaultAnnotationLayerPath, unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.13)
+                    CreateEntry(TerrainDefinition.DefaultAnnotationLayerPath, unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.13),
+                    // Drawing sublayers. Print width and print colour live here rather than on each
+                    // generated object, so the office standard is edited in Rhino's Layers panel and
+                    // per-detail overrides work. Weights match GeneratedLayerDefaults.
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Contours::Major", unchecked((int)0xFF6E4B1F), unchecked((int)0xFF000000), 0.35),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Contours::Minor", unchecked((int)0xFFA98A5C), unchecked((int)0xFF000000), 0.13),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.50),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Cuts", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.50),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Grid", unchecked((int)0xFFB4B4B4), unchecked((int)0xFF808080), 0.13),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Ticks", unchecked((int)0xFF808080), unchecked((int)0xFF000000), 0.18),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Labels", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.13),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::CutFill::Cut", TerrainSectionAnalysisDefinitionBase.DefaultCutColorArgb, unchecked((int)0xFFEB462D), 0.13),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::CutFill::Fill", TerrainSectionAnalysisDefinitionBase.DefaultFillColorArgb, unchecked((int)0xFF4C849E), 0.13)
                 }
             }
         };

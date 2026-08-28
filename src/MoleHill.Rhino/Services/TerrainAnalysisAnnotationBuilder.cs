@@ -76,6 +76,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 {
                     double distance = cumulativeDistance + (segmentLength * 0.5);
                     build.AuxiliaryObjects.Add(CreateAnnotationObject(
+                        snapshot,
                         analysis,
                         outputCount,
                         labelPoint,
@@ -134,6 +135,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                     if (analysis.IsEnabled)
                     {
                         build.AuxiliaryObjects.Add(CreateAnnotationObject(
+                            snapshot,
                             analysis,
                             outputCount,
                             worldPoint,
@@ -186,6 +188,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                     continue;
 
                 build.AuxiliaryObjects.Add(CreateAnnotationObject(
+                    snapshot,
                     analysis,
                     outputCount,
                     worldPoint,
@@ -239,6 +242,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 continue;
 
             build.AuxiliaryObjects.Add(CreateAnnotationObject(
+                snapshot,
                 analysis,
                 outputCount,
                 worldPoint,
@@ -303,6 +307,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 if (analysis.IsEnabled)
                 {
                     build.AuxiliaryObjects.Add(CreateAnnotationObject(
+                        snapshot,
                         analysis,
                         outputCount,
                         worldPoint,
@@ -331,7 +336,11 @@ internal static class TerrainAnalysisAnnotationBuilder
         double tolerance = snapshot.ModelAbsoluteTolerance;
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         string? layerPath = analysis.OutputLayerPath ?? fallbackLayerPath;
-        double textHeight = Math.Max(analysis.TextHeight, MinimumLength(snapshot));
+        double textHeight = Math.Max(
+            analysis.FollowsAnnotationStyle
+                ? snapshot.AnnotationStyle.TextHeight
+                : analysis.TextHeight,
+            MinimumLength(snapshot));
         int sourceCount = 0;
         int outputCount = 0;
         var stats = new ValueStats();
@@ -481,8 +490,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                 maxRange = range;
         }
 
-        double cellWidth = maxStation + Math.Max(maxStation * 0.15, analysis.TextHeight * 8.0);
-        double cellHeight = Math.Max(maxRange * 1.4, analysis.TextHeight * 6.0);
+        double cellWidth = maxStation + Math.Max(maxStation * 0.15, ResolveTextHeight(snapshot, analysis) * 8.0);
+        double cellHeight = Math.Max(maxRange * 1.4, ResolveTextHeight(snapshot, analysis) * 6.0);
 
         int cutRegions = 0;
         int fillRegions = 0;
@@ -508,9 +517,10 @@ internal static class TerrainAnalysisAnnotationBuilder
                 stationTickInterval: analysis.StationTickInterval,
                 showStationLabels: analysis.ShowStationLabels,
                 stationLabelInterval: analysis.StationTickInterval,
-                textHeight: analysis.TextHeight,
+                textHeight: ResolveTextHeight(snapshot, analysis),
                 fallbackLayerPath: fallbackLayerPath,
-                sectionLabel: $"{analysis.Label} {i + 1}");
+                sectionLabel: $"{analysis.Label} {i + 1}",
+                hatchPatterns: snapshot.HatchPatterns);
             outputCount += emitted.OutputCount;
             cutRegions += emitted.CutRegions;
             fillRegions += emitted.FillRegions;
@@ -641,9 +651,10 @@ internal static class TerrainAnalysisAnnotationBuilder
                     stationTickInterval: 0.0,
                     showStationLabels: analysis.LabelStations,
                     stationLabelInterval: 0.0,
-                    textHeight: analysis.TextHeight,
+                    textHeight: ResolveTextHeight(snapshot, analysis),
                     fallbackLayerPath: fallbackLayerPath,
-                    sectionLabel: $"Sta {alignmentStation:F2}");
+                    sectionLabel: $"Sta {alignmentStation:F2}",
+                    hatchPatterns: snapshot.HatchPatterns);
                 outputCount += emitted.OutputCount;
                 cutRegions += emitted.CutRegions;
                 fillRegions += emitted.FillRegions;
@@ -714,9 +725,10 @@ internal static class TerrainAnalysisAnnotationBuilder
                 stationTickInterval: analysis.StationLabelInterval,
                 showStationLabels: analysis.ShowStationLabels,
                 stationLabelInterval: analysis.StationLabelInterval,
-                textHeight: analysis.TextHeight,
+                textHeight: ResolveTextHeight(snapshot, analysis),
                 fallbackLayerPath: fallbackLayerPath,
-                sectionLabel: $"{analysis.Label} {sectionIndex}");
+                sectionLabel: $"{analysis.Label} {sectionIndex}",
+                hatchPatterns: snapshot.HatchPatterns);
             outputCount += emitted.OutputCount;
             cutRegions += emitted.CutRegions;
             fillRegions += emitted.FillRegions;
@@ -751,7 +763,8 @@ internal static class TerrainAnalysisAnnotationBuilder
         double stationLabelInterval,
         double textHeight,
         string? fallbackLayerPath,
-        string sectionLabel)
+        string sectionLabel,
+        HatchPatternSnapshot hatchPatterns)
     {
         if (!analysis.IsEnabled)
             return default;
@@ -776,25 +789,46 @@ internal static class TerrainAnalysisAnnotationBuilder
                     Math.Max(comparisonTolerance, totalStation * 1e-10));
                 foreach (SectionComparisonRegion region in regions)
                 {
-                    RhinoMesh? regionMesh = BuildComparisonRegionMesh(
-                        region, cellPlane, horizontalScale, verticalScale, baseElevation);
-                    if (regionMesh == null)
-                        continue;
                     bool isCut = region.IsCut;
-                    build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+                    // A hatch, not a transparent mesh: a shaded mesh is a rendering artefact that does not
+                    // print and ignores the document hatch scale. Cut and fill are told apart by their own
+                    // sublayers, so the fill's appearance is layer-driven.
+                    IReadOnlyList<Hatch> regionHatches = BuildComparisonRegionHatch(
+                        region,
+                        cellPlane,
+                        horizontalScale,
+                        verticalScale,
+                        baseElevation,
+                        hatchPatterns.ResolveIndex(
+                            isCut ? analysis.CutHatchPatternName : analysis.FillHatchPatternName,
+                            isCut ? HatchPatternService.DefaultCutPatternName : HatchPatternService.DefaultFillPatternName),
+                        hatchPatterns.ResolveScale(
+                            isCut ? analysis.CutHatchPatternName : analysis.FillHatchPatternName,
+                            isCut ? HatchPatternService.DefaultCutPatternName : HatchPatternService.DefaultFillPatternName,
+                            analysis.HatchScale,
+                            textHeight),
+                        analysis.HatchRotationDegrees,
+                        comparisonTolerance);
+                    if (regionHatches.Count == 0)
+                        continue;
+                    string? regionLayerPath = SectionOutputLayers.ResolveLayerPath(
+                        analysis.OutputLayerPath,
+                        fallbackLayerPath,
+                        isCut ? SectionLayerKind.CutFillCut : SectionLayerKind.CutFillFill);
+                    foreach (Hatch regionHatch in regionHatches)
                     {
-                        Geometry = regionMesh,
-                        Name = $"{sectionLabel} {(isCut ? "cut" : "fill")}",
-                        AnalysisId = analysis.Id,
-                        ColorArgb = ApplyOpacity(
-                            isCut ? analysis.CutColorArgb : analysis.FillColorArgb,
-                            analysis.CutFillOpacityPercent),
-                        LayerPath = SectionOutputLayers.ResolveLayerPath(
-                            analysis.OutputLayerPath,
-                            fallbackLayerPath,
-                            isCut ? SectionLayerKind.CutFillCut : SectionLayerKind.CutFillFill)
-                    });
-                    emitted++;
+                        build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+                        {
+                            Geometry = regionHatch,
+                            Name = $"{sectionLabel} {(isCut ? "cut" : "fill")}",
+                            AnalysisId = analysis.Id,
+                            AppearanceSource = GeneratedAppearanceSource.Layer,
+                            LayerPath = regionLayerPath
+                        });
+                        emitted++;
+                    }
+
+                    // Region counts stay per comparison region: one region may need several hatches.
                     if (isCut)
                         cutRegions++;
                     else
@@ -966,64 +1000,71 @@ internal static class TerrainAnalysisAnnotationBuilder
         }
     }
 
-    private static RhinoMesh? BuildComparisonRegionMesh(
+    /// <summary>
+    /// Builds the closed boundary of a cut/fill region and returns it as a hatch. The region is a ribbon
+    /// between the proposed and reference profiles, so its outline is the proposed elevations forward then
+    /// the reference elevations back. Regions are already split at profile crossings by
+    /// <see cref="SectionProfileComparison"/>, so the loop does not self-intersect.
+    /// </summary>
+    private static IReadOnlyList<Hatch> BuildComparisonRegionHatch(
         SectionComparisonRegion region,
         Plane cellPlane,
         double horizontalScale,
         double verticalScale,
-        double baseElevation)
+        double baseElevation,
+        int hatchPatternIndex,
+        double hatchScale,
+        double hatchRotationDegrees,
+        double tolerance)
     {
         if (region.Vertices.Count < 2)
-            return null;
+            return Array.Empty<Hatch>();
 
-        var mesh = new RhinoMesh();
-        foreach (SectionComparisonVertex vertex in region.Vertices)
+        var loop = new List<Point3d>(region.Vertices.Count * 2 + 1);
+        for (int i = 0; i < region.Vertices.Count; i++)
         {
-            mesh.Vertices.Add(SectionLayoutHelper.ProjectToInsertionPlane(
-                cellPlane,
-                vertex.Station,
-                vertex.ProposedElevation,
-                horizontalScale,
-                verticalScale,
-                baseElevation));
-            mesh.Vertices.Add(SectionLayoutHelper.ProjectToInsertionPlane(
-                cellPlane,
-                vertex.Station,
-                vertex.ReferenceElevation,
-                horizontalScale,
-                verticalScale,
-                baseElevation));
+            SectionComparisonVertex vertex = region.Vertices[i];
+            AppendDistinct(loop, SectionLayoutHelper.ProjectToInsertionPlane(
+                cellPlane, vertex.Station, vertex.ProposedElevation, horizontalScale, verticalScale, baseElevation), tolerance);
         }
 
-        for (int i = 1; i < region.Vertices.Count; i++)
+        for (int i = region.Vertices.Count - 1; i >= 0; i--)
         {
-            int previous = (i - 1) * 2;
-            int current = i * 2;
-            bool previousConverges = mesh.Vertices.Point3dAt(previous).DistanceToSquared(
-                mesh.Vertices.Point3dAt(previous + 1)) <= 1e-20;
-            bool currentConverges = mesh.Vertices.Point3dAt(current).DistanceToSquared(
-                mesh.Vertices.Point3dAt(current + 1)) <= 1e-20;
-            if (previousConverges && currentConverges)
-                continue;
-            if (previousConverges)
-                mesh.Faces.AddFace(previous, current, current + 1);
-            else if (currentConverges)
-                mesh.Faces.AddFace(previous, current, previous + 1);
-            else
-                mesh.Faces.AddFace(previous, current, current + 1, previous + 1);
+            SectionComparisonVertex vertex = region.Vertices[i];
+            AppendDistinct(loop, SectionLayoutHelper.ProjectToInsertionPlane(
+                cellPlane, vertex.Station, vertex.ReferenceElevation, horizontalScale, verticalScale, baseElevation), tolerance);
         }
 
-        mesh.Normals.ComputeNormals();
-        mesh.Compact();
-        return mesh.IsValid && mesh.Faces.Count > 0 ? mesh : null;
+        // A hatch boundary needs three distinct corners; anything less encloses no area.
+        if (loop.Count < 3)
+            return Array.Empty<Hatch>();
+
+        loop.Add(loop[0]);
+        var boundary = new PolylineCurve(loop);
+        Hatch[]? hatches = Hatch.Create(
+            boundary,
+            Math.Max(hatchPatternIndex, 0),
+            RhinoMath.ToRadians(hatchRotationDegrees),
+            hatchScale > 0.0 ? hatchScale : 1.0,
+            Math.Max(tolerance, RhinoMath.ZeroTolerance));
+
+        // Hatch.Create can split one boundary into several hatches; keeping only the first would silently
+        // drop part of the filled region.
+        return hatches is { Length: > 0 }
+            ? hatches.Where(hatch => hatch != null).ToList()
+            : (IReadOnlyList<Hatch>)Array.Empty<Hatch>();
     }
 
-    private static int ApplyOpacity(int argb, int opacityPercent)
+    private static void AppendDistinct(List<Point3d> points, Point3d candidate, double tolerance)
     {
-        var color = System.Drawing.Color.FromArgb(argb);
-        int alpha = (int)Math.Round(255.0 * Math.Clamp(opacityPercent, 0, 100) / 100.0);
-        return System.Drawing.Color.FromArgb(alpha, color.R, color.G, color.B).ToArgb();
+        double thresholdSquared = Math.Max(tolerance, RhinoMath.ZeroTolerance);
+        thresholdSquared *= thresholdSquared;
+        if (points.Count > 0 && points[^1].DistanceToSquared(candidate) <= thresholdSquared)
+            return;
+
+        points.Add(candidate);
     }
+
 
     private static GeneratedRhinoObject BuildPolylineObject(
         TerrainSectionAnalysisDefinitionBase analysis,
@@ -1039,8 +1080,7 @@ internal static class TerrainAnalysisAnnotationBuilder
             Name = name,
             AnalysisId = analysis.Id,
             ColorArgb = colorArgbOverride ?? analysis.ColorArgb,
-            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind),
-            PlotWeight = SectionOutputLayers.GetPlotWeight(kind)
+            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind)
         };
     }
 
@@ -1052,8 +1092,7 @@ internal static class TerrainAnalysisAnnotationBuilder
             Name = name,
             AnalysisId = analysis.Id,
             ColorArgb = analysis.ColorArgb,
-            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind),
-            PlotWeight = SectionOutputLayers.GetPlotWeight(kind)
+            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind)
         };
     }
 
@@ -1147,6 +1186,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     }
 
     private static GeneratedRhinoObject CreateAnnotationObject(
+        TerrainBuildSnapshot snapshot,
         BlockAttributeAnalysisDefinition analysis,
         int index,
         Point3d worldPoint,
@@ -1187,7 +1227,10 @@ internal static class TerrainAnalysisAnnotationBuilder
                 : blockDefinitionName,
             MarkerBlockTemplate = template,
             InstanceUserStrings = userStrings,
-            InstanceTransform = CreateInstanceTransform(worldPoint, Math.Max(analysis.BlockScale, 0.01), direction)
+            InstanceTransform = CreateInstanceTransform(
+                worldPoint,
+                ResolveBlockScale(snapshot, analysis.FollowsAnnotationStyle, analysis.BlockScale),
+                direction)
         };
     }
 
@@ -1278,6 +1321,34 @@ internal static class TerrainAnalysisAnnotationBuilder
             (a.X + b.X) * 0.5,
             (a.Y + b.Y) * 0.5,
             (a.Z + b.Z) * 0.5);
+    }
+
+    /// <summary>
+    /// Text size for generated section annotation. Following the annotation style means size is governed by
+    /// the Rhino dimension style the user edits, not by a value stored in the definition; migrated
+    /// documents keep their stored absolute height.
+    /// </summary>
+    private static double ResolveTextHeight(
+        TerrainBuildSnapshot snapshot,
+        TerrainSectionAnalysisDefinitionBase analysis)
+    {
+        return analysis.FollowsAnnotationStyle
+            ? snapshot.AnnotationStyle.TextHeight
+            : analysis.TextHeight;
+    }
+
+    /// <summary>
+    /// Symbol size for a marker block. When the owner follows the annotation style, the stored scale is a
+    /// multiplier on the size derived from the style's effective text height, so symbols stay in step with
+    /// label text whenever the style is edited in Rhino. Otherwise the stored value is an absolute scale
+    /// (the pre-schema-27 behaviour, preserved for migrated documents).
+    /// </summary>
+    internal static double ResolveBlockScale(TerrainBuildSnapshot snapshot, bool followsStyle, double storedScale)
+    {
+        double scale = followsStyle
+            ? snapshot.AnnotationStyle.GetBlockScale(storedScale)
+            : storedScale;
+        return Math.Max(scale, 0.01);
     }
 
     private static Transform CreateInstanceTransform(Point3d worldPoint, double scale, Vector3d? direction)

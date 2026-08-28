@@ -20,6 +20,22 @@ public abstract class TerrainSectionAnalysisDefinitionBase : AnalysisDefinition
 
     public int CutFillOpacityPercent { get; set; } = 40;
 
+    /// <summary>Hatch pattern for cut regions. Emitted as a real Rhino hatch so the fill prints; the
+    /// pattern itself is edited in Rhino's hatch pattern table.</summary>
+    public string? CutHatchPatternName { get; set; }
+
+    /// <summary>Hatch pattern for fill regions.</summary>
+    public string? FillHatchPatternName { get; set; }
+
+    /// <summary>Pattern scale for the generated hatch. 0 (the default) derives a scale from the annotation
+    /// text height, so the fill reads as a texture at whatever scale the drawing is set up for. A pattern's
+    /// native spacing is arbitrary — Rhino's Hatch1 is 0.125 model units — so a fixed scale of 1 prints as
+    /// solid black on a real section. Set a positive value to override.</summary>
+    public double HatchScale { get; set; }
+
+    /// <summary>Pattern rotation, in degrees, passed to the generated hatch.</summary>
+    public double HatchRotationDegrees { get; set; }
+
     public string? OutputLayerPath { get; set; }
 
     public int? ColorArgb { get; set; }

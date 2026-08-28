@@ -221,7 +221,8 @@ internal sealed partial class TerrainBuildService
                     elevMinZ,
                     elevMaxZ,
                     snapshot.ModelAbsoluteTolerance,
-                    build),
+                    build,
+                    snapshot.AnnotationStyle),
                 _ => null
             };
 
@@ -370,10 +371,12 @@ internal sealed partial class TerrainBuildService
         double elevMinZ,
         double elevMaxZ,
         double tolerance,
-        TerrainBuildResult build)
+        TerrainBuildResult build,
+        AnnotationStyleSnapshot? annotationStyle)
     {
         var (objects, summary) = BuildContourCore(currentMesh, analysis, elevMinZ, elevMaxZ, tolerance,
-            TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath));
+            TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath),
+            annotationStyle);
         build.AuxiliaryObjects.AddRange(objects);
         return summary;
     }
@@ -396,7 +399,8 @@ internal sealed partial class TerrainBuildService
         double elevMinZ,
         double elevMaxZ,
         double tolerance,
-        string? fallbackLayerPath = null)
+        string? fallbackLayerPath = null,
+        AnnotationStyleSnapshot? annotationStyle = null)
     {
         var objects = new List<GeneratedRhinoObject>();
         int contourCurveCount = 0;
@@ -420,6 +424,8 @@ internal sealed partial class TerrainBuildService
 
             foreach (var contourLevel in contourLevels)
             {
+                bool isMajor = IsMajorContourLevel(contourLevel.Z, analysis, effectiveTolerance);
+                string? levelLayerPath = ResolveContourLevelLayerPath(outputLayerPath, analysis, isMajor);
                 int levelCurveIndex = 0;
                 bool levelHasCurves = false;
                 List<Polyline>? levelPolylines = wantLabels ? new List<Polyline>() : null;
@@ -443,7 +449,10 @@ internal sealed partial class TerrainBuildService
                             : $"{analysis.Label} {contourLevel.Z:G4} ({levelCurveIndex})",
                         AnalysisId = analysis.Id,
                         ColorArgb = analysis.ColorArgb,
-                        LayerPath = outputLayerPath
+                        AppearanceSource = analysis.ColorArgb.HasValue
+                            ? GeneratedAppearanceSource.Object
+                            : GeneratedAppearanceSource.Layer,
+                        LayerPath = levelLayerPath
                     });
                     levelPolylines?.Add(rhinoPolyline);
                 }
@@ -460,7 +469,7 @@ internal sealed partial class TerrainBuildService
                 if (levelPolylines != null && ((contourLevelCount - 1) % everyNth == 0))
                 {
                     foreach (var rhinoPolyline in levelPolylines)
-                        EmitContourLabels(objects, rhinoPolyline, contourLevel.Z, analysis, outputLayerPath, effectiveTolerance);
+                        EmitContourLabels(objects, rhinoPolyline, contourLevel.Z, analysis, levelLayerPath, effectiveTolerance, annotationStyle);
                 }
             }
         }
@@ -484,13 +493,53 @@ internal sealed partial class TerrainBuildService
         return string.IsNullOrWhiteSpace(fallbackLayerPath) ? null : fallbackLayerPath;
     }
 
+    /// <summary>
+    /// A level is a major (index) contour when its step from <see cref="ContourAnalysisDefinition.StartZ"/>
+    /// is a multiple of <see cref="ContourAnalysisDefinition.MajorEveryNth"/>. Deliberately keyed on
+    /// elevation rather than on the ordinal of levels that happened to produce curves, so a level that is
+    /// empty on one build does not shift the whole major/minor pattern on the next.
+    /// </summary>
+    internal static bool IsMajorContourLevel(double levelZ, ContourAnalysisDefinition analysis, double tolerance)
+    {
+        int everyNth = Math.Max(1, analysis.MajorEveryNth);
+        if (everyNth == 1)
+            return true;
+
+        double interval = Math.Max(analysis.Interval, Math.Max(Math.Abs(tolerance), double.Epsilon));
+        double steps = (levelZ - analysis.StartZ) / interval;
+        long rounded = (long)Math.Round(steps);
+
+        // Guard against a level that is not on the interval grid at all (a caller-supplied level, or
+        // accumulated floating-point drift beyond half an interval).
+        if (Math.Abs(steps - rounded) > 1e-6)
+            return false;
+
+        return ((rounded % everyNth) + everyNth) % everyNth == 0;
+    }
+
+    /// <summary>
+    /// Major and minor contours are separated by layer, not by per-object colour or width, so the drawing
+    /// hierarchy is controlled from Rhino's Layers panel and honours per-detail overrides.
+    /// </summary>
+    internal static string? ResolveContourLevelLayerPath(
+        string? outputLayerPath,
+        ContourAnalysisDefinition analysis,
+        bool isMajor)
+    {
+        if (!analysis.SeparateMajorMinorLayers || string.IsNullOrWhiteSpace(outputLayerPath))
+            return outputLayerPath;
+
+        return $"{outputLayerPath}::Contours::{(isMajor ? "Major" : "Minor")}";
+    }
+
     private static void EmitContourLabels(
         List<GeneratedRhinoObject> objects,
         Polyline polyline,
         double levelZ,
         ContourAnalysisDefinition analysis,
         string? layerPath,
-        double tolerance)
+        double tolerance,
+        AnnotationStyleSnapshot? annotationStyle)
     {
         if (polyline.Count < 2)
             return;
@@ -500,7 +549,11 @@ internal sealed partial class TerrainBuildService
         if (length <= tolerance)
             return;
 
-        double textHeight = Math.Max(analysis.LabelTextHeight, tolerance);
+        double textHeight = Math.Max(
+            analysis.FollowsAnnotationStyle && annotationStyle != null
+                ? annotationStyle.TextHeight
+                : analysis.LabelTextHeight,
+            tolerance);
         string text = FormatContourLabel(levelZ, analysis.LabelFormat);
 
         // Repeat along the contour when an interval is set; otherwise a single label at the midpoint.

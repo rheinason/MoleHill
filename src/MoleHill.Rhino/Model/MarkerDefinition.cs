@@ -22,6 +22,11 @@ public abstract class MarkerDefinition
 
     public double BlockScale { get; set; } = 1.0;
 
+    /// <summary>When true (the default) <see cref="BlockScale"/> is a multiplier on the size derived from
+    /// the terrain's annotation style, so symbols track label text. False keeps it as an absolute scale.
+    /// Documents saved before schema 27 are migrated to false.</summary>
+    public bool FollowsAnnotationStyle { get; set; } = true;
+
     public bool ShowValueLabel { get; set; } = true;
 
     public abstract IEnumerable<SourceReferenceSet> EnumerateSourceSets();

@@ -214,6 +214,18 @@ internal sealed class ContourAnalysisDescriptor : AnalysisTypeDescriptor
             (a, v) => ((ContourAnalysisDefinition)a).StartZ = v,
             "Base elevation offset from which contour levels are stepped.",
             min: null, incrementalCommit: true),
+        AnalysisParameterDescriptor.Number(
+            "MajorEveryNth", "Major Every Nth",
+            a => ((ContourAnalysisDefinition)a).MajorEveryNth,
+            (a, v) => ((ContourAnalysisDefinition)a).MajorEveryNth = Math.Max(1, (int)Math.Round(v)),
+            "Every Nth level is a major (index) contour. 5 is the usual survey convention; 1 makes every contour major.",
+            min: 1, decimalPlaces: 0, incrementalCommit: true),
+        AnalysisParameterDescriptor.Bool(
+            "SeparateMajorMinorLayers", "Split Major / Minor",
+            a => ((ContourAnalysisDefinition)a).SeparateMajorMinorLayers,
+            (a, v) => ((ContourAnalysisDefinition)a).SeparateMajorMinorLayers = v,
+            "Send major and minor contours to separate Contours::Major and Contours::Minor sublayers so print width and linetype are controlled per layer in Rhino.",
+            incrementalCommit: true),
         AnalysisParameterDescriptor.Layer(
             "OutputLayerPath", "Output Layer",
             a => ((ContourAnalysisDefinition)a).OutputLayerPath,
@@ -250,7 +262,7 @@ internal sealed class ContourAnalysisDescriptor : AnalysisTypeDescriptor
             "LabelTextHeight", "Label Height",
             a => ((ContourAnalysisDefinition)a).LabelTextHeight,
             (a, v) => ((ContourAnalysisDefinition)a).LabelTextHeight = Math.Max(double.Epsilon, v),
-            "Text height of contour labels in model units.",
+            "Text height of contour labels in model units. Used only when this analysis does not follow the terrain annotation style.",
             min: 0.0, incrementalCommit: true),
         AnalysisParameterDescriptor.Choice(
             "LabelFormat", "Label Decimals", null,

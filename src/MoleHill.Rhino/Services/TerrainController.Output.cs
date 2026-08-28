@@ -135,21 +135,41 @@ internal sealed partial class TerrainController
             Mesh mesh => doc.Objects.AddMesh(mesh, attributes),
             Brep brep => doc.Objects.AddBrep(brep, attributes),
             Curve curve => doc.Objects.AddCurve(curve, attributes),
+            Hatch hatch => doc.Objects.AddHatch(hatch, attributes),
             TextDot textDot => doc.Objects.AddTextDot(textDot, attributes),
-            TextEntity textEntity => AddTextEntity(doc, textEntity, attributes),
+            TextEntity textEntity => AddTextEntity(doc, textEntity, attributes, terrain),
             _ => Guid.Empty
         };
     }
 
-    private static Guid AddTextEntity(RhinoDoc doc, TextEntity textEntity, ObjectAttributes attributes)
+    /// <summary>
+    /// Binds generated text to the terrain's annotation style so size, font, and mask come from a style the
+    /// user edits in Rhino rather than from values baked into the geometry. Falls back to the document's
+    /// current style only when no style was captured. The entity is duplicated before stamping because
+    /// generated geometry is shared with the display conduit.
+    /// </summary>
+    private static Guid AddTextEntity(
+        RhinoDoc doc,
+        TextEntity textEntity,
+        ObjectAttributes attributes,
+        TerrainDefinition terrain)
     {
-        if (textEntity.DimensionStyleId == Guid.Empty)
+        if (textEntity.Duplicate() is not TextEntity toBake)
+            toBake = textEntity;
+
+        int styleIndex = AnnotationStyleService.EnsureStyle(doc, terrain.AnnotationStyleName);
+        if (styleIndex >= 0 && styleIndex < doc.DimStyles.Count)
+        {
+            toBake.DimensionStyleId = doc.DimStyles[styleIndex].Id;
+        }
+        else if (toBake.DimensionStyleId == Guid.Empty)
         {
             int currentStyleIndex = doc.DimStyles.CurrentIndex;
             if (currentStyleIndex >= 0 && currentStyleIndex < doc.DimStyles.Count)
-                textEntity.DimensionStyleId = doc.DimStyles[currentStyleIndex].Id;
+                toBake.DimensionStyleId = doc.DimStyles[currentStyleIndex].Id;
         }
-        return doc.Objects.AddText(textEntity, attributes);
+
+        return doc.Objects.AddText(toBake, attributes);
     }
 
     private static int EnsureBlockDefinition(RhinoDoc doc, string definitionName, MarkerBlockTemplate template)
@@ -232,7 +252,10 @@ internal sealed partial class TerrainController
             attributes.DeleteUserString(OutputAnalysisIdKey);
         }
 
-        if (generated.ColorArgb.HasValue)
+        // Layer-sourced output stays ByLayer so print colour and print width come from the layer table
+        // rather than being frozen onto each generated object.
+        bool useLayerAppearance = generated.AppearanceSource == GeneratedAppearanceSource.Layer;
+        if (generated.ColorArgb.HasValue && !useLayerAppearance)
         {
             attributes.ColorSource = ObjectColorSource.ColorFromObject;
             attributes.ObjectColor = GetOpaqueColor(System.Drawing.Color.FromArgb(generated.ColorArgb.Value));
@@ -243,7 +266,7 @@ internal sealed partial class TerrainController
         if (!string.IsNullOrWhiteSpace(generated.LayerPath))
             attributes.LayerIndex = EnsureLayer(doc, generated.LayerPath!, generated.SourceLayerPath);
 
-        if (generated.PlotWeight.HasValue)
+        if (generated.PlotWeight.HasValue && !useLayerAppearance)
         {
             attributes.PlotWeightSource = ObjectPlotWeightSource.PlotWeightFromObject;
             attributes.PlotWeight = generated.PlotWeight.Value;
@@ -493,8 +516,9 @@ internal sealed partial class TerrainController
             Mesh mesh => doc.Objects.AddMesh(mesh, attributes),
             Brep brep => doc.Objects.AddBrep(PrepareBrepForBake(doc, brep), attributes),
             Curve curve => doc.Objects.AddCurve(curve, attributes),
+            Hatch hatch => doc.Objects.AddHatch(hatch, attributes),
             TextDot textDot => doc.Objects.AddTextDot(textDot, attributes),
-            TextEntity textEntity => AddTextEntity(doc, textEntity, attributes),
+            TextEntity textEntity => AddTextEntity(doc, textEntity, attributes, terrain),
             _ => Guid.Empty
         };
     }
@@ -565,6 +589,12 @@ internal sealed partial class TerrainController
                 layer.Color = sourceLayer.Color;
                 layer.PlotColor = sourceLayer.PlotColor;
             }
+
+            // Seed the print width once, at creation. After that the layer owns it and the user's edits in
+            // Rhino's Layers panel persist across rebuilds.
+            double? defaultPlotWeight = GeneratedLayerDefaults.GetPlotWeight(currentPath);
+            if (defaultPlotWeight.HasValue)
+                layer.PlotWeight = defaultPlotWeight.Value;
 
             parentIndex = doc.Layers.Add(layer);
         }

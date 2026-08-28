@@ -5,7 +5,7 @@ namespace MoleHill.Rhino.Model;
 
 public sealed class TerrainDefinition
 {
-    public const int CurrentSchemaVersion = 26;
+    public const int CurrentSchemaVersion = 27;
     public const int DefaultTerrainColorArgb = unchecked((int)0xFFC7D2C2);
     public const string DefaultTerrainLayerPath = "MoleHill::Terrain";
     public const string DefaultAuxiliaryLayerPath = "MoleHill::Auxiliary";
@@ -46,6 +46,11 @@ public sealed class TerrainDefinition
     public string? AuxiliaryLayerPath { get; set; }
 
     public string? AnnotationLayerPath { get; set; }
+
+    /// <summary>Name of the Rhino dimension style that generated annotation binds to. Blank resolves to
+    /// <see cref="MoleHill.Rhino.Services.AnnotationStyleService.DefaultStyleName"/>. Sizes, fonts, and
+    /// masks are edited in Rhino's own Annotation Styles editor, not in MoleHill.</summary>
+    public string? AnnotationStyleName { get; set; }
 
     public string SlopePalettePreset { get; set; } = MoleHill.Rhino.Services.SlopePreviewPaletteCatalog.DefaultKey;
 

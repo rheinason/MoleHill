@@ -14,6 +14,12 @@ public abstract class AnalysisDefinition
 
     public int SchemaVersion { get; set; } = 2;
 
+    /// <summary>When true (the default) annotation size comes from the terrain's Rhino dimension style
+    /// rather than this definition's stored absolute height, so drawing standards live in Rhino's
+    /// Annotation Styles editor. Documents saved before schema 27 are migrated to false so their existing
+    /// explicit heights are preserved exactly.</summary>
+    public bool FollowsAnnotationStyle { get; set; } = true;
+
     public string PalettePreset { get; set; } = MoleHill.Rhino.Services.SlopePreviewPaletteCatalog.DefaultKey;
 
     public double RangeLow { get; set; }

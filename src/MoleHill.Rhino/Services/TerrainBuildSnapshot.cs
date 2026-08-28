@@ -15,6 +15,15 @@ internal sealed class TerrainBuildSnapshot
 
     public ModelUnitContext UnitContext { get; init; }
 
+    /// <summary>The terrain's annotation style, captured on the document thread. Generated text binds to
+    /// its id; marker block instances derive their scale from its effective text height.</summary>
+    public AnnotationStyleSnapshot AnnotationStyle { get; init; } =
+        new() { StyleName = AnnotationStyleService.DefaultStyleName };
+
+    /// <summary>Hatch pattern indices referenced by this terrain's analyses, resolved on the document
+    /// thread. Pattern indices are document-scoped, so the background build cannot look them up.</summary>
+    public HatchPatternSnapshot HatchPatterns { get; init; } = new();
+
     public ModelUnitContext ResolvedUnitContext => UnitContext.IsSupported
         ? UnitContext
         : ModelUnitContext.FromUnitSystem(ModelUnitSystem, ModelAbsoluteTolerance);

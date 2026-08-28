@@ -8,6 +8,16 @@ public sealed class ContourAnalysisDefinition : AnalysisDefinition
 
     public string? OutputLayerPath { get; set; }
 
+    /// <summary>Every Nth contour level is a major (index) contour. 5 is the common survey convention:
+    /// a major line every 5 intervals. 1 makes every contour major.</summary>
+    public int MajorEveryNth { get; set; } = 5;
+
+    /// <summary>When true, major and minor contours go to separate <c>::Contours::Major</c> and
+    /// <c>::Contours::Minor</c> sublayers so per-layer print width and linetype express the hierarchy —
+    /// the single most important convention in a terrain drawing. Documents saved before schema 27 keep
+    /// their flat single-layer routing.</summary>
+    public bool SeparateMajorMinorLayers { get; set; } = true;
+
     public int? ColorArgb { get; set; }
 
     /// <summary>When true, elevation text is placed along generated contour curves.</summary>

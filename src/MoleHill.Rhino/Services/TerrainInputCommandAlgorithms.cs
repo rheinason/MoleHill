@@ -312,11 +312,12 @@ internal static class TerrainInputCommandAlgorithms
         }
 
         var sourceCurve = new PolylineCurve(sourceRail);
-        if (!GeometryCommandAlgorithms.TryGetLiftedOffsetPolyline(
+        if (!GeometryCommandAlgorithms.TryGetOffsetFeaturePolyline(
                 sourceCurve,
                 signedPlanOffset,
+                heightOffset,
                 Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance),
-                out Polyline offset,
+                out generatedRail,
                 out error))
         {
             sourceCurve.Dispose();
@@ -324,11 +325,6 @@ internal static class TerrainInputCommandAlgorithms
         }
 
         sourceCurve.Dispose();
-        var elevated = new List<Point3d>(offset.Count);
-        foreach (Point3d point in offset)
-            elevated.Add(new Point3d(point.X, point.Y, point.Z + heightOffset));
-
-        generatedRail = new Polyline(elevated);
         if (!generatedRail.IsValid)
         {
             error = "The generated wall rail is invalid.";

@@ -34,16 +34,4 @@ internal static class SectionOutputLayers
             _ => root
         };
     }
-
-    public static double? GetPlotWeight(SectionLayerKind kind) => kind switch
-    {
-        SectionLayerKind.Profile => 0.50,
-        SectionLayerKind.Cuts => 0.50,
-        SectionLayerKind.Grid => 0.13,
-        SectionLayerKind.Ticks => 0.18,
-        SectionLayerKind.Labels => null,
-        SectionLayerKind.CutFillCut => null,
-        SectionLayerKind.CutFillFill => null,
-        _ => null
-    };
 }

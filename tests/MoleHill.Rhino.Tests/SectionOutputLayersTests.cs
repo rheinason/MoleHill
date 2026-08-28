@@ -26,17 +26,29 @@ public class SectionOutputLayersTests
     }
 
     [Fact]
-    public void GetPlotWeight_ReturnsExpectedLineWeights()
+    public void GetPlotWeight_SeedsGeneratedSublayersWithDraftingWidths()
     {
-        Assert.Equal(0.50, SectionOutputLayers.GetPlotWeight(SectionLayerKind.Profile));
-        Assert.Equal(0.50, SectionOutputLayers.GetPlotWeight(SectionLayerKind.Cuts));
-        Assert.Equal(0.13, SectionOutputLayers.GetPlotWeight(SectionLayerKind.Grid));
-        Assert.Equal(0.18, SectionOutputLayers.GetPlotWeight(SectionLayerKind.Ticks));
+        // Print widths now live on the layer, seeded once at creation, so the user's Layers-panel edits
+        // (including per-detail overrides) survive rebuilds.
+        Assert.Equal(0.13, GeneratedLayerDefaults.GetPlotWeight("Sections::Grid"));
+        Assert.Equal(0.18, GeneratedLayerDefaults.GetPlotWeight("Sections::Ticks"));
+        Assert.Equal(0.50, GeneratedLayerDefaults.GetPlotWeight("Sections::Cuts"));
+        Assert.Equal(0.35, GeneratedLayerDefaults.GetPlotWeight("MoleHill::Annotation::Contours::Major"));
+        Assert.Equal(0.13, GeneratedLayerDefaults.GetPlotWeight("MoleHill::Annotation::Contours::Minor"));
     }
 
     [Fact]
-    public void GetPlotWeight_LeavesLabelsOnLayerDefault()
+    public void GetPlotWeight_LeavesLabelsAndFillsOnLayerDefault()
     {
-        Assert.Null(SectionOutputLayers.GetPlotWeight(SectionLayerKind.Labels));
+        Assert.Null(GeneratedLayerDefaults.GetPlotWeight("Sections::Labels"));
+        Assert.Null(GeneratedLayerDefaults.GetPlotWeight("Sections::CutFill::Cut"));
+        Assert.Null(GeneratedLayerDefaults.GetPlotWeight("Sections::CutFill::Fill"));
+    }
+
+    [Fact]
+    public void GetPlotWeight_UserChosenRootLayer_IsNeverRestyled()
+    {
+        Assert.Null(GeneratedLayerDefaults.GetPlotWeight("Sections"));
+        Assert.Null(GeneratedLayerDefaults.GetPlotWeight("Some::Office::Standard"));
     }
 }

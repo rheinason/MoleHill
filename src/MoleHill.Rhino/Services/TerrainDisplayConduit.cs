@@ -564,6 +564,13 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             return;
         }
 
+        if (generated.Geometry is Hatch hatch)
+        {
+            var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+            e.Display.DrawHatch(hatch, color, color);
+            return;
+        }
+
         if (generated.Geometry is TextDot textDot)
         {
             var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);

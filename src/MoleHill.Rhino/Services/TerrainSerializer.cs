@@ -7,7 +7,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 26;
+    private const int DocumentSchemaVersion = 27;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -62,6 +62,13 @@ internal static class TerrainSerializer
 
             terrain.Modifiers ??= new List<ModifierDefinition>();
             terrain.Markers ??= new List<MarkerDefinition>();
+
+            // Pre-v27 marker symbols used BlockScale as an absolute scale. Keep those documents unchanged.
+            if (sourceSchemaVersion < 27)
+            {
+                foreach (MarkerDefinition marker in terrain.Markers)
+                    marker.FollowsAnnotationStyle = false;
+            }
             terrain.Objects ??= new List<TerrainObjectDefinition>();
             terrain.Zones ??= new List<CollageZoneDefinition>();
             terrain.Analyses ??= new List<AnalysisDefinition>();
@@ -271,6 +278,10 @@ internal static class TerrainSerializer
                 // Pre-v25 analyses had no auto-range flag. Preserve their explicit ranges.
                 if (sourceSchemaVersion < 25 && (analysis.RangeLow != 0.0 || analysis.RangeHigh != 0.0))
                     analysis.AutoColorRange = false;
+                // Pre-v27 annotation sized itself from stored absolute heights. Keep those documents
+                // looking identical; only new analyses follow the terrain's dimension style.
+                if (sourceSchemaVersion < 27)
+                    analysis.FollowsAnnotationStyle = false;
                 switch (analysis)
                 {
                     case ContourAnalysisDefinition contour:
@@ -280,6 +291,11 @@ internal static class TerrainSerializer
                             ? contour.LabelTextHeight
                             : unitContext.FromMeters(1.0);
                         contour.LabelInterval = Math.Max(0.0, contour.LabelInterval);
+                        contour.MajorEveryNth = Math.Max(1, contour.MajorEveryNth);
+                        // Pre-v27 contours were emitted on one flat layer; re-routing them would move
+                        // geometry out from under existing layer settings.
+                        if (sourceSchemaVersion < 27)
+                            contour.SeparateMajorMinorLayers = false;
                         if (string.IsNullOrWhiteSpace(contour.LabelFormat))
                             contour.LabelFormat = "F2";
                         break;
