@@ -23,6 +23,8 @@ The Rhino plugin provides the panel-driven workflow for creating, editing, analy
 | `mhValidateTerrainInputs` | Clean selected terrain points and curves, including duplicate joined segments |
 | `mhSplitAtIntersections` | Split selected curves at their pairwise intersections |
 | `mhDrapeCurve` | Sample selected curves onto a selected mesh or surface along World Z |
+| `mhInspectCurve` | Open a live, transient curve geometry and grade review panel |
+| `mhSlopeCurveSection` | Set or interpolate grade over a selected curve section, including blending to active terrain |
 | `mhCreateWall` | Draw a wall rail and generate its parallel, vertically offset companion rail |
 
 ## Grasshopper Components

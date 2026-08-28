@@ -67,6 +67,26 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   closed/open curves become protected areas/breaklines; selected sources belonging to enabled earlier
   Grade Paths expand to the path's configured design width.
 
+## 2D drawing output
+
+Rhino owns styling and sheets. These services exist only to make generated output something Rhino's
+layer table, dimension styles, and layouts can act on. See `docs/architecture.md`.
+
+- `AnnotationStyleService.cs` - the boundary to Rhino's dimension-style table. Resolves the terrain's
+  named style on the document thread into an `AnnotationStyleSnapshot` on the build snapshot (the
+  background build has no document access), creating it if absent so preview and bake match from the first
+  build. Generated text binds to the style instead of carrying a hardcoded height; marker block instances
+  scale from the style's effective text height (`TextHeight * DimensionScale`).
+- `HatchPatternService.cs` - the same boundary for hatch patterns, whose indices are document-scoped.
+  Creates Rhino's built-in patterns on demand, reuses a user-authored pattern of the same name untouched,
+  and degrades an unresolvable pattern to Solid so a fill never silently disappears.
+- `GeneratedLayerDefaults.cs` - default print widths (mm of printed line, unaffected by model units) for
+  MoleHill's generated sublayers. Applied once when the layer is created, then owned by the layer, so
+  Layers-panel edits and per-detail overrides survive rebuilds. A user's chosen root output layer is never
+  restyled.
+- `GeneratedRhinoObject.AppearanceSource` decides whether colour/plot weight are stamped on the object or
+  left ByLayer. Drawing output is `Layer`; output whose colour is data stays `Object`.
+
 ## State, preview, bake
 - `ModelUnitGuard.cs`, shared `ModelUnitContext.cs`, and `TerrainUnitScaler.cs` define the host unit
   contract. Unitless documents remain readable but dimensional actions/builds are blocked. Rhino's
@@ -139,6 +159,10 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   ordinary open polylines. Validation replaces surviving objects in place so their ids and attributes
   remain intact; near-endpoint joins are restricted to curves on the same layer and retain the first
   curve's id/settings while deleting only the consumed curve objects.
+  `GeometryCommandAlgorithms.TryGetOffsetFeaturePolyline` is the single plan-offset + vertical-delta
+  primitive, shared by `mhOffsetFeature` and `mhCreateWall`'s parallel rail;
+  `TryResolveVerticalDelta` turns the command's `Vertical` mode (elevation / percent / degrees /
+  1:n ratio) into that delta over the offset distance.
 - `ProjectBaseCPlaneService.cs` - reversible project-local/real-world transform storage and ModelSpace
   orientation; PageSpace layout content is left unchanged. Reorientation post-composes the new local inverse.
   The modern plane is validated as a horizontal XY-only frame; confirmed Python `FOTM` migrations invert

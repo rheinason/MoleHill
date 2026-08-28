@@ -27,6 +27,18 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   `UI/PanelButtonIcons.cs`, a theme-aware vector icon set rendered to Eto images.
 - Rhino command names use the compact `mh...` prefix. The installed toolbar exposes Geometry, Blocks,
   and Document utilities; terrain creation, editing, and bake/convert workflows stay in the dock panel.
+- Curve review remains an ordinary-Rhino-geometry workflow: `mhInspectCurve` opens a compact,
+  document-parented live report with grade/compliance diagnostics, while `mhSlopeCurveSection` edits
+  only the selected elevation interval using an explicit grade, current-endpoint interpolation, or a
+  blend to the selected terrain's completed final mesh. No custom curve object is persisted.
+- `mhOffsetFeature` is the Civil3D-style feature line offset: it offsets a selected 3D polyline in
+  plan (interactive side pick, mitred corners), re-lifts every offset vertex to the source elevation so
+  the source's longitudinal grade is preserved, then applies one constant vertical delta. The delta comes
+  from a `Vertical` mode - `Elevation` (`DeltaZ`), `Percent` (`Grade`), `Degrees` (`Angle`), or `Ratio`
+  (`Run`, entered as the run of 1:n) - resolved over the offset distance, matching Civil3D, so the result
+  stays parallel rather than dipping further at mitred corners. `Layer` places the result on the current
+  or the source object's layer. The math lives in `GeometryCommandAlgorithms.TryResolveVerticalDelta` /
+  `TryGetOffsetFeaturePolyline`, the latter also backing `mhCreateWall`'s parallel rail.
 - Terrain input preparation commands are selected-geometry workflows in the Rhino host: `mhValidateTerrainInputs`
   cleans selected points/curves through a parented Eto dialog, `mhSplitAtIntersections` splits only selected
   curves, `mhDrapeCurve` samples curves onto a selected mesh/surface along World Z, and `mhCreateWall`
@@ -349,6 +361,42 @@ zones, markers, objects, and scatter retain stage-level entries.
   translucent cut/fill meshes beneath terrain-coloured profile curves. Background snapshots duplicate
   only completed final meshes, fingerprint their geometry/name/colour, and rebuild live dependents when
   a referenced terrain changes without allowing cyclic references to loop indefinitely.
+
+## Rhino: 2D drawing output (sheet readiness)
+
+Rhino owns styling and sheets; MoleHill's job is to emit output Rhino's existing machinery can act on.
+There is no MoleHill styling system, no graphic presets, and no page/sheet generator — layouts, details,
+per-detail layer overrides (`Layer.SetPerViewportColor/PlotColor/PlotWeight`), annotation scaling, and
+printing are all Rhino's. See `docs/2d-drawing-output-exploration.md` for the survey behind this.
+
+- **Annotation styles.** `AnnotationStyleService` is the single boundary to Rhino's dimension-style table.
+  `TerrainDefinition.AnnotationStyleName` (blank = `"MoleHill Annotation"`) names the style all generated
+  text binds to; sizes, fonts, and masks are edited in Rhino's Annotation Styles editor. `Capture` resolves
+  the style on the document thread into an `AnnotationStyleSnapshot` carried on `TerrainBuildSnapshot`,
+  because the background build has no document access (same pattern as `BlockDefinitionBounds`); it also
+  creates the style up front so preview and bake are sized identically from the first build.
+- **Marker symbols stay block instances**, scaled from the style's effective text height
+  (`TextHeight * DimensionScale`). Blocks are authored with internal text at height 1.0, so instance scale
+  *is* the model text height and no per-scale duplicate definitions are needed. `BlockScale` becomes a
+  relative multiplier. Blocks were kept over leader/`UserBlock`-arrowhead annotation because the user
+  authors the whole marker (symbol, value text, arrangement) and can supply their own via
+  `BlockDefinitionName`; a leader's text cannot resolve block attributes.
+- **Filled regions are `Hatch` objects, not transparent meshes.** `HatchPatternService` mirrors the
+  annotation-style boundary: pattern indices are document-scoped, so they are resolved on the document
+  thread into a `HatchPatternSnapshot`. Unknown patterns degrade to Solid rather than vanishing. Hatch is
+  handled by the conduit (`DisplayPipeline.DrawHatch`) and by bake (`ObjectTable.AddHatch`).
+- **Appearance is layer-driven.** `GeneratedRhinoObject.AppearanceSource` selects whether colour and plot
+  weight are stamped on the object or left ByLayer. Drawing output uses `Layer`; output whose colour
+  carries meaning (zone colours, analysis colour ramps) stays `Object`. Print widths are seeded once onto
+  newly created sublayers from `GeneratedLayerDefaults` and then belong to the layer, so a user's Layers-panel
+  edits and per-detail overrides survive rebuilds — replacing the former per-object plot-weight stamping.
+- **Contours split major/minor by layer.** `ContourAnalysisDefinition.MajorEveryNth` (default 5) and
+  `SeparateMajorMinorLayers` route levels to `::Contours::Major` / `::Contours::Minor`. Majorness is keyed
+  on elevation, not on the ordinal of levels that happened to produce curves, so an empty level cannot
+  shift the pattern between builds.
+
+Schema 27 migrates pre-existing documents to the previous behaviour (`FollowsAnnotationStyle = false`,
+`SeparateMajorMinorLayers = false`) so existing drawings keep their exact sizes and layer routing.
 
 ## Rhino: preview vs render vs bake (generated objects)
 

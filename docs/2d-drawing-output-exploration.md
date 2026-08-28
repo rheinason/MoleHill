@@ -107,3 +107,130 @@ does it well.
 6. Legends and tables.
 
 Steps 1–4 are the printable-output fix and carry no API risk.
+
+## 7. Marker scaling — tested findings (Rhino 8, live document)
+
+Tested empirically rather than from documentation. Results:
+
+- **`ArrowType.UserBlock` works.** A `DimensionStyle` with `LeaderArrowType = UserBlock` and
+  `LeaderArrowBlockId` set to an instance-definition id round-trips through the dim style table and draws
+  the block as the leader arrowhead at `LeaderArrowLength`. A spot-elevation marker can therefore be built
+  entirely from native Rhino annotation, with the symbol artwork still authored as an ordinary block.
+- **Leader text cannot read block attributes.** `%<UserText("block","VALUE",…)>%` on a leader renders as
+  `####` (unresolved field) — a leader has no parent block instance to resolve against. Self-scope
+  `%<UserText("VALUE")>%` reading a user string on the leader object itself also renders `####`.
+  Block-attribute text *inside a block definition* resolves correctly, which is what MoleHill does today.
+- **Duplicate block definitions per scale are unnecessary.** Block instances carry their own transform
+  (`TerrainAnalysisAnnotationBuilder.cs:1190`, `TerrainBuildService.Objects.cs:65`), and the marker blocks
+  are authored with internal text at `TextHeight = 1.0` (`GeneratedBlockCatalog.CreateDisplayText`), so
+  instance scale *is* the desired model text height.
+- **Not verified:** whether a UserBlock arrowhead rescales per detail under
+  `LayoutSpaceAnnotationScalingEnabled`. Detail viewports rendered empty in the test instance (an
+  environment artefact of the spawned Rhino, not a behaviour finding). The mechanism strongly implies it
+  does — arrowhead size is `LeaderArrowLength` x effective `DimensionScale`, which is exactly what
+  annotation scaling adjusts — but it should be confirmed in a normal Rhino session before being relied on.
+
+### Consequence
+
+The two coherent options are sharper than first framed:
+
+| | Block instances (today, improved) | Leaders with UserBlock arrowheads |
+|---|---|---|
+| Symbol artwork | block definition | block definition (as arrowhead) |
+| Value | block attribute, `UserText("block",…)` | **literal text written at build time** |
+| Per-detail auto-scale | no | yes (pending confirmation) |
+| User can override one label | yes (edit the attribute) | no (Detach) |
+| Attribute extraction / scheduling | yes | no |
+
+Because MoleHill regenerates all output every build, literal text is not a correctness loss — the value is
+always rewritten. The real losses are attribute extraction and per-instance manual override.
+
+### How the symbol artwork scales (mechanism, tested)
+
+The arrowhead block is **normalized and drawn at `LeaderArrowLength`**, not at its authored size.
+Verified: two identical leaders differing only in `LeaderArrowLength` (2.5 vs 10) drew the same symbol
+block at 2.5x and 10x, with text height unchanged.
+
+`LeaderArrowLength` is a dimension-style length, and every dimension-style length — `TextHeight`,
+`LeaderArrowLength`, `LeaderLandingLength`, `TextGap` — is multiplied by the style's effective
+`DimensionScale`. Verified: setting `DimensionScale = 3` on one style tripled **both its text and its
+symbol block together**, while an untouched control style was unaffected.
+
+So text and symbol scale in lockstep off a single number. That number is what layout annotation scaling
+drives from the detail's page-to-model ratio. Consequences for authoring:
+
+- Author symbol blocks at **unit size** (Rhino normalizes them anyway) and control size through
+  `LeaderArrowLength`, expressed as a multiple of `TextHeight`.
+- **Unverified link:** that `LayoutSpaceAnnotationScalingEnabled` actually sets the effective
+  `DimensionScale` per detail. Detail viewports would not render in the spawned test instance, and the
+  model-space analogue (`ModelSpaceTextScale = 3` with `ModelSpaceAnnotationScalingEnabled = true`) had
+  **no effect** — implying a per-style "scale source" flag that selects document-vs-style scale.
+  `DimensionStyle.Field.DimscaleSource` exists in the field enum but no corresponding property is exposed
+  on `DimensionStyle`. Worth resolving in a normal Rhino session before this route is committed to.
+- **The arrowhead rotates to follow the leader direction.** Correct and desirable for slope arrows. For a
+  spot-elevation crosshair it means the symbol tilts with the leader, so either author that symbol
+  rotationally symmetric (plain circle or dot) or keep elevation markers as block instances.
+
+### Decision and implementation (defect 1)
+
+**Markers stay block instances, sized from the annotation style.** Leaders were rejected because the
+user's block would only be the arrowhead symbol — with block instances the user authors the *whole* marker
+(symbol, value text, prefix/suffix, their arrangement), and `BlockDefinitionName` already lets them supply
+their own. Custom Rhino objects were rejected because they only render correctly while MoleHill is loaded.
+
+Implemented:
+
+- `TerrainDefinition.AnnotationStyleName` — the Rhino dimension style generated annotation binds to.
+  Blank resolves to `"MoleHill Annotation"`, created on demand. Sizes/fonts/masks are edited in Rhino's own
+  Annotation Styles editor; MoleHill has no styling UI of its own.
+- `Services/AnnotationStyleService.cs` — the single boundary. `Capture` resolves the style on the document
+  thread into an `AnnotationStyleSnapshot` carried on `TerrainBuildSnapshot` (the background build has no
+  document access, same pattern as `BlockDefinitionBounds`). It ensures the style exists up front so the
+  viewport preview and the baked objects are sized identically from the first build.
+- Generated text no longer carries a hardcoded height: section labels, contour labels, and grade callouts
+  resolve through the captured style. Baked `TextEntity` output is stamped with the style id, so it tracks
+  later edits to the style.
+- Marker block instance scale is derived from the style's effective text height; the stored `BlockScale`
+  becomes a relative multiplier (1.0 = symbol text matches label text). No duplicate block definitions.
+- `FollowsAnnotationStyle` on `AnalysisDefinition` and `MarkerDefinition`, default true. Schema bumped to
+  27; documents saved earlier are migrated to false so existing drawings keep their exact sizes.
+
+Not yet done: a panel row to pick a *different* style. The default path needs no UI — every terrain uses
+"MoleHill Annotation" and the user edits that style in Rhino.
+
+## 8. In-Rhino verification (Rhino 8, live document)
+
+The implementation was exercised against a real document by loading the built `.rhp` as an assembly and
+invoking the services directly. Findings:
+
+**Confirmed working**
+- `AnnotationStyleService.EnsureStyle` creates `"MoleHill Annotation"` once and is idempotent on repeat
+  calls. `Capture` returns the style id and an effective height of `TextHeight * DimensionScale`.
+- **Stamping `DimensionStyleId` overrides the authored `TextHeight` entirely.** Text authored at 7.0 with
+  the style attached drew at the style's height, and editing the style afterwards moved every baked object
+  with it. This is the behaviour the whole annotation-style change depends on.
+- Hatch patterns are created on demand; **a fresh Rhino document contains none at all**, so the
+  ensure-on-demand step was load-bearing rather than defensive. An unknown name resolves to Solid.
+- Layer print widths seed correctly (`Major` 0.35, `Minor` 0.13) and the user's chosen root layer is left
+  at Rhino's default, untouched.
+- Contour majorness over z = 0..10 produced `M....M....M`, and the routed sublayer paths match the seeded
+  widths.
+
+**Two defects found and fixed**
+1. **`HatchScale = 1.0` printed as solid black.** Rhino's Hatch1 spaces lines 0.125 model units apart, so
+   on a 60 m section scale 1 draws ~8 lines per metre — an unreadable smear. A pattern's native spacing is
+   arbitrary, so no fixed default can be right. `HatchPatternSnapshot` now captures each pattern's own line
+   offset and `ResolveScale` derives a scale targeting a spacing of 0.8 x annotation text height
+   (2 mm on paper at 1:100 for 0.25 m text). `HatchScale = 0` means derive; a positive value is honoured.
+   Different patterns converge on the same drawn spacing.
+2. **Only the first hatch of a region was kept.** `Hatch.Create` can return several hatches for one
+   boundary; the code took `hatches[0]`, silently dropping the rest. It now emits all of them, with
+   `emitted` counting objects while cut/fill counts stay per comparison region.
+
+**Not verified**
+- Whether `LayoutSpaceAnnotationScalingEnabled` drives `DimensionScale` per detail. Detail viewports would
+  not render in the spawned test instance, and print-width differences are sub-pixel at viewport zoom, so
+  layer weights were verified numerically instead. Both are Rhino's own pipeline rather than MoleHill code.
+
+**Gotcha:** loading the `.rhp` for probing locks it, causing the documented MSB3021/MSB3027 copy failure on
+the next build. Copy it to a temp path before `Assembly.LoadFrom`.
