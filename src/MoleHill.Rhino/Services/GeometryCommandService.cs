@@ -1,4 +1,5 @@
 using System.Drawing;
+using MoleHill.Rhino.Model;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.Commands;
@@ -224,6 +225,136 @@ internal static class GeometryCommandService
         return Result.Success;
     }
 
+    public static Result RunSlopeCurveSection(RhinoDoc doc)
+    {
+        if (!ModelUnitGuard.TryGet(doc, out _))
+            return Result.Failure;
+
+        var getObject = new GetObject();
+        getObject.SetCommandPrompt("Select curve section to edit");
+        getObject.GeometryFilter = ObjectType.Curve;
+        if (getObject.Get() != GetResult.Object)
+            return getObject.CommandResult();
+
+        ObjRef reference = getObject.Object(0);
+        Curve? source = reference.Curve();
+        if (source == null)
+            return Result.Failure;
+
+        var firstPick = new GetPoint();
+        firstPick.SetCommandPrompt("Pick first point on curve");
+        firstPick.Constrain(source, false);
+        if (firstPick.Get() != GetResult.Point)
+            return firstPick.CommandResult();
+
+        var secondPick = new GetPoint();
+        secondPick.SetCommandPrompt("Pick second point on curve");
+        secondPick.Constrain(source, false);
+        if (secondPick.Get() != GetResult.Point)
+            return secondPick.CommandResult();
+
+        if (!source.ClosestPoint(firstPick.Point(), out double firstParameter) ||
+            !source.ClosestPoint(secondPick.Point(), out double secondParameter))
+            return Result.Failure;
+
+        int modeIndex = CommandOptionCache.GetValue("MoleHill.SlopeCurveSection.Mode", 0);
+        double gradePercent = CommandOptionCache.GetValue("MoleHill.SlopeCurveSection.Percent", 0.0);
+        double blendPercent = CommandOptionCache.GetValue("MoleHill.SlopeCurveSection.Blend", 100.0);
+        bool replaceInput = CommandOptionCache.GetValue("MoleHill.SlopeCurveSection.ReplaceInput", true);
+
+        while (true)
+        {
+            var options = new GetPoint();
+            options.SetCommandPrompt("Choose section edit mode or press Enter to accept");
+            options.AcceptNothing(true);
+            var gradeOption = new OptionDouble(gradePercent, -100000.0, 100000.0);
+            var blendOption = new OptionDouble(blendPercent, 0.0, 100.0);
+            var replaceOption = new OptionToggle(replaceInput, "Copy", "Replace");
+            int modeOptionIndex = options.AddOptionList(
+                "Mode",
+                new[] { "GradePercent", "BetweenCurrentElevations", "BlendToTerrain" },
+                Math.Clamp(modeIndex, 0, 2));
+            options.AddOptionDouble("Grade", ref gradeOption);
+            options.AddOptionDouble("Blend", ref blendOption);
+            options.AddOptionToggle("Output", ref replaceOption);
+
+            GetResult optionResult = options.Get();
+            gradePercent = gradeOption.CurrentValue;
+            blendPercent = blendOption.CurrentValue;
+            replaceInput = replaceOption.CurrentValue;
+            if (optionResult == GetResult.Option)
+            {
+                if (options.OptionIndex() == modeOptionIndex)
+                    modeIndex = options.Option().CurrentListOptionIndex;
+                continue;
+            }
+
+            if (optionResult != GetResult.Nothing)
+                return options.CommandResult();
+
+            break;
+        }
+
+        CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.Mode", modeIndex);
+        CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.Percent", gradePercent);
+        CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.Blend", blendPercent);
+        CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.ReplaceInput", replaceInput);
+
+        Mesh? activeTerrain = null;
+        if (modeIndex == 2)
+        {
+            TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
+            if (terrain == null)
+            {
+                RhinoApp.WriteLine("Select an active MoleHill terrain before blending to terrain.");
+                return Result.Nothing;
+            }
+
+            activeTerrain = TerrainController.Instance.DuplicateFinalTerrainMesh(doc, terrain.TerrainId);
+            if (activeTerrain == null)
+            {
+                RhinoApp.WriteLine($"Active terrain '{terrain.Name}' has no current final build. Rebuild it before blending.");
+                return Result.Nothing;
+            }
+        }
+
+        try
+        {
+            if (!GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+                    source, firstParameter, secondParameter, (CurveSectionEditMode)modeIndex,
+                    gradePercent, blendPercent, activeTerrain, doc.ModelAbsoluteTolerance,
+                    out Curve? resultCurve, out string? error) || resultCurve == null)
+            {
+                RhinoApp.WriteLine(error ?? "Failed to edit the curve section.");
+                return Result.Failure;
+            }
+
+            uint undoRecord = doc.BeginUndoRecord("Slope Curve Section");
+            try
+            {
+                bool committed = replaceInput
+                    ? doc.Objects.Replace(reference.ObjectId, resultCurve)
+                    : doc.Objects.AddCurve(resultCurve) != Guid.Empty;
+                if (!committed)
+                {
+                    resultCurve.Dispose();
+                    return Result.Failure;
+                }
+            }
+            finally
+            {
+                doc.EndUndoRecord(undoRecord);
+            }
+
+            doc.Views.Redraw();
+            return Result.Success;
+        }
+        finally
+        {
+            activeTerrain?.Dispose();
+        }
+    }
+
     public static Result RunSlopeCheckAndMark(RhinoDoc doc)
     {
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext)) return Result.Failure;
@@ -419,17 +550,26 @@ internal static class GeometryCommandService
         return Result.Success;
     }
 
-    public static Result RunOffset3dPolyline(RhinoDoc doc)
+    private static readonly OffsetVerticalMode[] OffsetVerticalModes =
+    {
+        OffsetVerticalMode.Elevation,
+        OffsetVerticalMode.Percent,
+        OffsetVerticalMode.Degrees,
+        OffsetVerticalMode.Ratio
+    };
+
+    public static Result RunOffsetFeature(RhinoDoc doc)
     {
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext)) return Result.Failure;
         var getCurve = new GetObject();
-        getCurve.SetCommandPrompt("Select a polyline to offset");
+        getCurve.SetCommandPrompt("Select a feature line to offset");
         getCurve.GeometryFilter = ObjectType.Curve;
         getCurve.EnablePreSelect(true, true);
         if (getCurve.Get() != GetResult.Object)
             return getCurve.CommandResult();
 
-        Curve? sourceCurve = getCurve.Object(0).Curve();
+        ObjRef sourceRef = getCurve.Object(0);
+        Curve? sourceCurve = sourceRef.Curve();
         if (sourceCurve == null)
             return Result.Failure;
 
@@ -440,7 +580,8 @@ internal static class GeometryCommandService
             return Result.Failure;
         }
 
-        const string offsetDistanceKey = "MoleHill.Offset3dPolyline.Distance";
+        const string offsetDistanceKey = "MoleHill.OffsetFeature.Distance";
+        const string offsetElevationKey = "MoleHill.OffsetFeature.Elevation";
         double offsetDistance = CommandOptionCache.GetLength(offsetDistanceKey, unitContext, 1.0);
         Result numberResult = RhinoGet.GetNumber("Offset distance", false, ref offsetDistance);
         if (numberResult != Result.Success)
@@ -455,21 +596,69 @@ internal static class GeometryCommandService
 
         CommandOptionCache.SetLength(offsetDistanceKey, unitContext, offsetDistance);
 
+        int verticalModeIndex = CommandOptionCache.GetValue("MoleHill.OffsetFeature.VerticalMode", 0);
+        verticalModeIndex = Math.Clamp(verticalModeIndex, 0, OffsetVerticalModes.Length - 1);
+        double elevationValue = CommandOptionCache.GetLength(offsetElevationKey, unitContext, 0.0);
+        double percentValue = CommandOptionCache.GetValue("MoleHill.OffsetFeature.Percent", 0.0);
+        double degreesValue = CommandOptionCache.GetValue("MoleHill.OffsetFeature.Degrees", 0.0);
+        double ratioValue = CommandOptionCache.GetValue("MoleHill.OffsetFeature.Ratio", 10.0);
+        bool useSourceLayer = CommandOptionCache.GetValue("MoleHill.OffsetFeature.UseSourceLayer", false);
+
         while (true)
         {
+            OffsetVerticalMode verticalMode = OffsetVerticalModes[verticalModeIndex];
             var getPoint = new GetPoint();
             getPoint.SetCommandPrompt("Pick offset side or type distance");
             getPoint.AcceptNumber(true, false);
             var distanceOption = new OptionDouble(offsetDistance, RhinoMath.ZeroTolerance, 1000000000.0);
             getPoint.AddOptionDouble("Distance", ref distanceOption);
+
+            int verticalListIndex = getPoint.AddOptionList(
+                "Vertical",
+                new[] { "Elevation", "Percent", "Degrees", "Ratio" },
+                verticalModeIndex);
+
+            // The GetPoint is rebuilt every iteration, so the numeric option can be labelled for
+            // whichever vertical mode is active.
+            var verticalOption = new OptionDouble(GetVerticalOptionValue(
+                verticalMode,
+                elevationValue,
+                percentValue,
+                degreesValue,
+                ratioValue));
+            getPoint.AddOptionDouble(GetVerticalOptionName(verticalMode), ref verticalOption);
+
+            var layerOption = new OptionToggle(useSourceLayer, "Current", "Source");
+            getPoint.AddOptionToggle("Layer", ref layerOption);
+
             getPoint.DynamicDraw += (_, e) =>
             {
-                if (!TryBuildOffsetPreview(sourceCurve, projectedCurve, e.CurrentPoint, distanceOption.CurrentValue, doc.ModelAbsoluteTolerance, out Polyline previewPolyline, out double signedDistance))
+                if (!GeometryCommandAlgorithms.TryResolveVerticalDelta(
+                        verticalMode,
+                        verticalOption.CurrentValue,
+                        distanceOption.CurrentValue,
+                        out double previewVerticalDelta,
+                        out string? previewVerticalError))
+                    return;
+
+                if (!TryBuildOffsetPreview(
+                        sourceCurve,
+                        projectedCurve,
+                        e.CurrentPoint,
+                        distanceOption.CurrentValue,
+                        previewVerticalDelta,
+                        doc.ModelAbsoluteTolerance,
+                        out Polyline previewPolyline,
+                        out double signedDistance))
                     return;
 
                 e.Display.DrawPolyline(previewPolyline, TrackingColor, 2);
                 string side = signedDistance <= 0.0 ? "Left" : "Right";
-                e.Display.DrawDot(e.CurrentPoint, $"{distanceOption.CurrentValue:F3} {side}", TrackingColor, FeedbackColor);
+                e.Display.DrawDot(
+                    e.CurrentPoint,
+                    $"{distanceOption.CurrentValue:F3} {side}  dZ {previewVerticalDelta:F3}",
+                    TrackingColor,
+                    FeedbackColor);
             };
 
             GetResult pointResult = getPoint.Get();
@@ -488,29 +677,114 @@ internal static class GeometryCommandService
 
             if (pointResult == GetResult.Option)
             {
-                offsetDistance = Math.Abs(distanceOption.CurrentValue);
-                CommandOptionCache.SetLength(offsetDistanceKey, unitContext, offsetDistance);
+                CommitOptions();
+                if (getPoint.OptionIndex() == verticalListIndex)
+                    verticalModeIndex = getPoint.Option().CurrentListOptionIndex;
+
+                CommandOptionCache.SetValue("MoleHill.OffsetFeature.VerticalMode", verticalModeIndex);
                 continue;
             }
 
             if (pointResult != GetResult.Point)
                 return getPoint.CommandResult();
 
-            offsetDistance = Math.Abs(distanceOption.CurrentValue);
-            CommandOptionCache.SetLength(offsetDistanceKey, unitContext, offsetDistance);
+            CommitOptions();
 
-            if (!TryBuildOffsetPreview(sourceCurve, projectedCurve, getPoint.Point(), offsetDistance, doc.ModelAbsoluteTolerance, out Polyline resultPolyline, out _))
+            if (!GeometryCommandAlgorithms.TryResolveVerticalDelta(
+                    verticalMode,
+                    verticalOption.CurrentValue,
+                    offsetDistance,
+                    out double verticalDelta,
+                    out string? verticalError))
             {
-                RhinoApp.WriteLine("Failed to offset the selected polyline.");
+                RhinoApp.WriteLine(verticalError ?? "Failed to resolve the vertical offset.");
                 return Result.Failure;
             }
 
-            if (doc.Objects.AddPolyline(resultPolyline) == Guid.Empty)
+            if (!TryBuildOffsetPreview(
+                    sourceCurve,
+                    projectedCurve,
+                    getPoint.Point(),
+                    offsetDistance,
+                    verticalDelta,
+                    doc.ModelAbsoluteTolerance,
+                    out Polyline resultPolyline,
+                    out _))
+            {
+                RhinoApp.WriteLine("Failed to offset the selected feature line.");
+                return Result.Failure;
+            }
+
+            Guid addedId = useSourceLayer && sourceRef.Object() is RhinoObject sourceObject
+                ? doc.Objects.AddPolyline(resultPolyline, sourceObject.Attributes.Duplicate())
+                : doc.Objects.AddPolyline(resultPolyline);
+
+            if (addedId == Guid.Empty)
                 return Result.Failure;
 
             doc.Views.Redraw();
             return Result.Success;
+
+            void CommitOptions()
+            {
+                offsetDistance = Math.Abs(distanceOption.CurrentValue);
+                CommandOptionCache.SetLength(offsetDistanceKey, unitContext, offsetDistance);
+
+                useSourceLayer = layerOption.CurrentValue;
+                CommandOptionCache.SetValue("MoleHill.OffsetFeature.UseSourceLayer", useSourceLayer);
+
+                switch (verticalMode)
+                {
+                    case OffsetVerticalMode.Elevation:
+                        elevationValue = verticalOption.CurrentValue;
+                        CommandOptionCache.SetLength(offsetElevationKey, unitContext, elevationValue);
+                        break;
+                    case OffsetVerticalMode.Percent:
+                        percentValue = verticalOption.CurrentValue;
+                        CommandOptionCache.SetValue("MoleHill.OffsetFeature.Percent", percentValue);
+                        break;
+                    case OffsetVerticalMode.Degrees:
+                        degreesValue = verticalOption.CurrentValue;
+                        CommandOptionCache.SetValue("MoleHill.OffsetFeature.Degrees", degreesValue);
+                        break;
+                    case OffsetVerticalMode.Ratio:
+                        ratioValue = verticalOption.CurrentValue;
+                        CommandOptionCache.SetValue("MoleHill.OffsetFeature.Ratio", ratioValue);
+                        break;
+                }
+            }
         }
+    }
+
+    /// <summary>
+    /// Label for the numeric option paired with the active vertical mode. These deliberately differ
+    /// from the "Vertical" list values so neither is ambiguous when typed at the command line.
+    /// </summary>
+    private static string GetVerticalOptionName(OffsetVerticalMode mode)
+    {
+        return mode switch
+        {
+            OffsetVerticalMode.Percent => "Grade",
+            OffsetVerticalMode.Degrees => "Angle",
+            OffsetVerticalMode.Ratio => "Run",
+            _ => "DeltaZ"
+        };
+    }
+
+    private static double GetVerticalOptionValue(
+        OffsetVerticalMode mode,
+        double elevationValue,
+        double percentValue,
+        double degreesValue,
+        double ratioValue)
+    {
+        return mode switch
+        {
+            OffsetVerticalMode.Percent => percentValue,
+            OffsetVerticalMode.Degrees => degreesValue,
+            OffsetVerticalMode.Ratio => ratioValue,
+            _ => elevationValue
+        };
     }
 
     public static Result RunReplaceCurveSection(RhinoDoc doc)
@@ -1130,6 +1404,7 @@ internal static class GeometryCommandService
         Curve projectedCurve,
         Point3d referencePoint,
         double offsetDistance,
+        double verticalDelta,
         double tolerance,
         out Polyline polyline,
         out double signedDistance)
@@ -1141,9 +1416,10 @@ internal static class GeometryCommandService
             return false;
 
         string? offsetError;
-        return GeometryCommandAlgorithms.TryGetLiftedOffsetPolyline(
+        return GeometryCommandAlgorithms.TryGetOffsetFeaturePolyline(
             sourceCurve,
             signedDistance,
+            verticalDelta,
             tolerance,
             out polyline,
             out offsetError);

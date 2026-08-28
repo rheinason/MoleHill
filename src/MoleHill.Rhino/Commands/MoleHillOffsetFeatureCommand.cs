@@ -4,12 +4,12 @@ using Rhino.Commands;
 
 namespace MoleHill.Rhino.Commands;
 
-public sealed class MoleHillOffset3dPolylineCommand : Command
+public sealed class MoleHillOffsetFeatureCommand : Command
 {
-    public override string EnglishName => "mhOffset3dPolyline";
+    public override string EnglishName => "mhOffsetFeature";
 
     protected override Result RunCommand(RhinoDoc doc, RunMode mode)
     {
-        return GeometryCommandService.RunOffset3dPolyline(doc);
+        return GeometryCommandService.RunOffsetFeature(doc);
     }
 }

@@ -141,12 +141,12 @@
     </macro_item>
     <macro_item guid="d4d0d5b9-d0a9-4d16-8d02-197bce584ffe" bitmap_id="9a0090c8-9c64-4d2a-884b-f771da06b691">
       <text>
-        <locale_1033>mhOffset3dPolyline</locale_1033>
+        <locale_1033>mhOffsetFeature</locale_1033>
       </text>
       <tooltip>
-        <locale_1033>Offset 3D Polyline</locale_1033>
+        <locale_1033>Offset Feature</locale_1033>
       </tooltip>
-      <script>mhOffset3dPolyline</script>
+      <script>mhOffsetFeature</script>
     </macro_item>
     <macro_item guid="54b0756a-0bd3-4189-8cc2-ea9c4a33d48d" bitmap_id="ad51912c-5d02-44b9-b796-dc14109818f2">
       <text>

@@ -1,3 +1,4 @@
+using MoleHill.Core.Analysis;
 using Rhino;
 using Rhino.Geometry;
 
@@ -9,8 +10,222 @@ internal enum SoftEditFalloff
     Smooth
 }
 
+internal enum CurveSectionEditMode
+{
+    GradePercent,
+    BetweenCurrentElevations,
+    BlendToTerrain
+}
+
+/// <summary>
+/// How the vertical component of an offset feature line is specified.
+/// Every mode resolves to a single delta Z applied along the whole offset line.
+/// </summary>
+internal enum OffsetVerticalMode
+{
+    /// <summary>Delta Z entered directly; the horizontal offset is irrelevant.</summary>
+    Elevation,
+
+    /// <summary>Grade in percent (rise/run * 100) applied over the horizontal offset.</summary>
+    Percent,
+
+    /// <summary>Batter angle in degrees applied over the horizontal offset.</summary>
+    Degrees,
+
+    /// <summary>Ratio entered as the run of 1:n (run:rise) applied over the horizontal offset.</summary>
+    Ratio
+}
+
 internal static class GeometryCommandAlgorithms
 {
+    public static bool TryCreateCurveSectionEdit(
+        Curve sourceCurve,
+        double firstParameter,
+        double secondParameter,
+        CurveSectionEditMode mode,
+        double gradePercent,
+        double terrainBlend,
+        Mesh? terrain,
+        double tolerance,
+        out Curve? resultCurve,
+        out string? error)
+    {
+        resultCurve = null;
+        error = null;
+
+        if (sourceCurve == null || !sourceCurve.IsValid)
+        {
+            error = "The selected curve is invalid.";
+            return false;
+        }
+
+        Interval domain = sourceCurve.Domain;
+        firstParameter = Math.Clamp(firstParameter, domain.T0, domain.T1);
+        secondParameter = Math.Clamp(secondParameter, domain.T0, domain.T1);
+        if (secondParameter < firstParameter)
+            (firstParameter, secondParameter) = (secondParameter, firstParameter);
+
+        double selectedPlanLength = CalculatePlanLength(sourceCurve, firstParameter, secondParameter);
+        if (!double.IsFinite(selectedPlanLength) || selectedPlanLength <= Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance))
+        {
+            error = "The selected curve section is too short.";
+            return false;
+        }
+
+        if (mode == CurveSectionEditMode.BlendToTerrain && terrain == null)
+        {
+            error = "Blend to terrain requires a completed active MoleHill terrain.";
+            return false;
+        }
+
+        Curve? section = sourceCurve.Trim(firstParameter, secondParameter);
+        if (section == null || !section.IsValid)
+        {
+            section?.Dispose();
+            error = "Failed to isolate the selected curve section.";
+            return false;
+        }
+
+        terrainBlend = Math.Clamp(terrainBlend, 0.0, 100.0) / 100.0;
+        NurbsCurve edited = section.ToNurbsCurve();
+        section.Dispose();
+        double[] greville = edited.GrevilleParameters();
+        if (greville.Length == 0)
+        {
+            error = "The curve does not expose editable control points.";
+            edited.Dispose();
+            return false;
+        }
+
+        var points = new List<Point3d>(greville.Length);
+        double firstZ = sourceCurve.PointAt(firstParameter).Z;
+        double secondZ = sourceCurve.PointAt(secondParameter).Z;
+        foreach (double parameter in greville)
+        {
+            Point3d point = edited.PointAt(parameter);
+            if (parameter < firstParameter || parameter > secondParameter)
+            {
+                points.Add(point);
+                continue;
+            }
+
+            double station = CalculatePlanLength(edited, edited.Domain.T0, parameter);
+            double z = point.Z;
+            switch (mode)
+            {
+                case CurveSectionEditMode.GradePercent:
+                    z = firstZ + station * gradePercent * 0.01;
+                    break;
+
+                case CurveSectionEditMode.BetweenCurrentElevations:
+                    z = selectedPlanLength <= RhinoMath.ZeroTolerance
+                        ? firstZ
+                        : firstZ + ((secondZ - firstZ) * station / selectedPlanLength);
+                    break;
+
+                case CurveSectionEditMode.BlendToTerrain:
+                    if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(
+                            terrain!,
+                            new Point3d(point.X, point.Y, 0.0),
+                            tolerance,
+                            out Point3d terrainPoint))
+                    {
+                        error = "The curve section extends outside the active terrain.";
+                        edited.Dispose();
+                        return false;
+                    }
+
+                    z += (terrainPoint.Z - z) * terrainBlend;
+                    break;
+            }
+
+            points.Add(new Point3d(point.X, point.Y, z));
+        }
+
+        if (!edited.SetGrevillePoints(points))
+        {
+            error = "Failed to rebuild the curve section.";
+            edited.Dispose();
+            return false;
+        }
+
+        var pieces = new List<Curve>();
+        Curve? leading = firstParameter > domain.T0
+            ? sourceCurve.Trim(domain.T0, firstParameter)
+            : null;
+        Curve? trailing = secondParameter < domain.T1
+            ? sourceCurve.Trim(secondParameter, domain.T1)
+            : null;
+
+        if (leading != null)
+        {
+            pieces.Add(leading);
+            AddSectionBoundaryTransition(pieces, leading.PointAtEnd, edited.PointAtStart, tolerance);
+        }
+
+        pieces.Add(edited);
+        if (trailing != null)
+        {
+            AddSectionBoundaryTransition(pieces, edited.PointAtEnd, trailing.PointAtStart, tolerance);
+            pieces.Add(trailing);
+        }
+
+        if (pieces.Count == 1)
+        {
+            resultCurve = edited;
+            return true;
+        }
+
+        Curve[] joined = Curve.JoinCurves(
+            pieces,
+            Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance),
+            preserveDirection: true);
+        foreach (Curve piece in pieces)
+            piece.Dispose();
+
+        if (joined.Length != 1 || !joined[0].IsValid)
+        {
+            foreach (Curve curve in joined)
+                curve.Dispose();
+            error = "Failed to reassemble the edited curve section.";
+            return false;
+        }
+
+        resultCurve = joined[0];
+        return true;
+    }
+
+    private static void AddSectionBoundaryTransition(
+        ICollection<Curve> pieces,
+        Point3d from,
+        Point3d to,
+        double tolerance)
+    {
+        if (from.DistanceTo(to) <= Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance))
+            return;
+
+        pieces.Add(new LineCurve(from, to));
+    }
+
+    public static double CalculatePlanLength(Curve curve, double firstParameter, double secondParameter)
+    {
+        if (secondParameter < firstParameter)
+            (firstParameter, secondParameter) = (secondParameter, firstParameter);
+
+        const int segmentCount = 32;
+        Point3d previous = curve.PointAt(firstParameter);
+        double length = 0.0;
+        for (int i = 1; i <= segmentCount; i++)
+        {
+            double parameter = firstParameter + ((secondParameter - firstParameter) * i / segmentCount);
+            Point3d current = curve.PointAt(parameter);
+            length += CalculatePlanDistance(previous, current);
+            previous = current;
+        }
+
+        return length;
+    }
+
     public static Point3d FlattenToWorldXY(Point3d point)
     {
         return new Point3d(point.X, point.Y, 0.0);
@@ -123,14 +338,82 @@ internal static class GeometryCommandAlgorithms
         return Math.Abs(tangent.Z / horizontalLength) * 100.0;
     }
 
+    /// <summary>
+    /// Maximum batter angle accepted for <see cref="OffsetVerticalMode.Degrees"/>; matches the
+    /// clamp used by the grading slopes in <c>MoleHill.Core.Grading.GradingSlope</c>.
+    /// </summary>
+    private const double MaxBatterAngleDegrees = 89.9;
+
+    /// <summary>
+    /// Resolves the vertical drop/rise of an offset feature line. The sign of
+    /// <paramref name="value"/> is the sign of the result, so a falling batter is entered as a
+    /// negative percent, angle or ratio.
+    /// </summary>
+    public static bool TryResolveVerticalDelta(
+        OffsetVerticalMode mode,
+        double value,
+        double horizontalDistance,
+        out double verticalDelta,
+        out string? error)
+    {
+        verticalDelta = 0.0;
+        error = null;
+
+        // Civil3D drives the vertical from the offset distance, so the offset line stays parallel
+        // to the source instead of dipping further at mitred corners.
+        double run = Math.Abs(horizontalDistance);
+
+        switch (mode)
+        {
+            case OffsetVerticalMode.Elevation:
+                verticalDelta = value;
+                return true;
+
+            case OffsetVerticalMode.Percent:
+                verticalDelta = SlopeAnalyzer.ConvertUnitToRatio(value, SlopeAnalyzer.SlopeUnit.Percent) * run;
+                return true;
+
+            case OffsetVerticalMode.Degrees:
+                if (Math.Abs(value) >= MaxBatterAngleDegrees)
+                {
+                    error = $"Batter angle must be less than {MaxBatterAngleDegrees} degrees.";
+                    return false;
+                }
+
+                verticalDelta = SlopeAnalyzer.ConvertUnitToRatio(value, SlopeAnalyzer.SlopeUnit.Degrees) * run;
+                return true;
+
+            case OffsetVerticalMode.Ratio:
+                if (Math.Abs(value) <= RhinoMath.ZeroTolerance)
+                {
+                    error = "Ratio run must be non-zero.";
+                    return false;
+                }
+
+                // value is the run of 1:n, so rise/run = 1/n and the sign carries through.
+                verticalDelta = run / value;
+                return true;
+
+            default:
+                error = "Unknown vertical offset mode.";
+                return false;
+        }
+    }
+
     public static double CalculateDefaultLiftFactor(UnitSystem unitSystem)
     {
         return ModelUnits.FromMeters(2.0, unitSystem);
     }
 
-    public static bool TryGetLiftedOffsetPolyline(
+    /// <summary>
+    /// Offsets a 3D polyline in plan, re-lifts every offset vertex to the source elevation at its
+    /// closest point (so the source's own longitudinal grade is preserved), then applies a constant
+    /// <paramref name="verticalDelta"/>. The sign of <paramref name="offsetDistance"/> selects the side.
+    /// </summary>
+    public static bool TryGetOffsetFeaturePolyline(
         Curve sourceCurve,
         double offsetDistance,
+        double verticalDelta,
         double tolerance,
         out Polyline polyline,
         out string? error)
@@ -178,7 +461,7 @@ internal static class GeometryCommandAlgorithms
                 continue;
 
             Point3d sourcePoint = sourceCurve.PointAt(parameter);
-            liftedPoints.Add(new Point3d(point.X, point.Y, sourcePoint.Z));
+            liftedPoints.Add(new Point3d(point.X, point.Y, sourcePoint.Z + verticalDelta));
         }
 
         if (liftedPoints.Count < 2)

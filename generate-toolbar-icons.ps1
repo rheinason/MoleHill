@@ -147,7 +147,7 @@ $designs = @{
         }
         $b.Dispose()
     }
-    'mhOffset3dPolyline' = {
+    'mhOffsetFeature' = {
         param($g, $s)
         $p1 = Pen $green ([Math]::Max(1.0, $s * 0.06))
         $g.DrawLines($p1, @((PtF ($s * 0.14) ($s * 0.42)), (PtF ($s * 0.40) ($s * 0.20)), (PtF ($s * 0.66) ($s * 0.42)), (PtF ($s * 0.86) ($s * 0.26))))
