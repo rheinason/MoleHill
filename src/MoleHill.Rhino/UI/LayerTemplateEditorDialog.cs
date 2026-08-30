@@ -86,6 +86,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     }
 
     private readonly LayerTemplateStore _store;
+    private readonly RhinoDoc _doc;
     private readonly List<LayerTemplateDefinition> _templates;
     private int _activeIndex;
     private bool _suppressTemplateChange;
@@ -106,10 +107,12 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     private readonly Panel _printSwatch = new() { Width = 20, Height = 20 };
     private readonly Label _printHex = new();
     private readonly NumericStepper _weightStepper = new() { DecimalPlaces = 2, MinValue = 0.0, Increment = 0.05 };
+    private readonly DropDown _annotationStylePicker = new() { Width = UiMetrics.Chs(28) };
     private readonly List<Control> _selectionDependent = new();
 
-    private LayerTemplateEditorDialog(LayerTemplateStore store)
+    private LayerTemplateEditorDialog(RhinoDoc doc, LayerTemplateStore store)
     {
+        _doc = doc;
         _store = store;
         _templates = store.LoadTemplates().Select(template => template.Copy()).ToList();
         if (_templates.Count == 0)
@@ -124,12 +127,13 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         Content = BuildLayout();
 
         RebuildTemplatePicker();
+        LoadAnnotationStyles();
         LoadTemplate(0);
     }
 
     public static bool ShowDialog(RhinoDoc doc, LayerTemplateStore store)
     {
-        var dialog = new LayerTemplateEditorDialog(store);
+        var dialog = new LayerTemplateEditorDialog(doc, store);
         return dialog.ShowModal(RhinoEtoApp.MainWindowForDocument(doc));
     }
 
@@ -292,6 +296,18 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         _rolePicker.Click += (_, _) => ShowRolePicker();
         _selectionDependent.Add(_rolePicker);
 
+        _annotationStylePicker.SelectedIndexChanged += (_, _) =>
+        {
+            if (_loadingProperties || SelectedNode is not { } node || !IsAnnotationNode(node))
+                return;
+
+            string? selected = _annotationStylePicker.SelectedIndex >= 0
+                ? _annotationStylePicker.Items[_annotationStylePicker.SelectedIndex].Text
+                : null;
+            node.AnnotationStyleName = string.IsNullOrWhiteSpace(selected) ? null : selected;
+        };
+        _selectionDependent.Add(_annotationStylePicker);
+
         var grid = new DynamicLayout { Spacing = new Size(8, 6), Padding = new Padding(0, 4) };
         grid.AddRow(new Label { Text = "Selected:", TextColor = UiTheme.MutedText }, _pathLabel, null);
         grid.AddRow(
@@ -309,6 +325,10 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         grid.AddRow(
             new Label { Text = "Receives:", VerticalAlignment = VerticalAlignment.Center },
             new StackLayout { Orientation = Orientation.Horizontal, Items = { _rolePicker } },
+            null);
+        grid.AddRow(
+            new Label { Text = "Annotation style:", VerticalAlignment = VerticalAlignment.Center },
+            new StackLayout { Orientation = Orientation.Horizontal, Items = { _annotationStylePicker } },
             null);
         grid.AddRow(new Panel(), _roleHint, null);
 
@@ -827,6 +847,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             _printHex.Text = string.Empty;
             _weightStepper.Value = 0;
             _rolePicker.Text = "Nothing";
+            _annotationStylePicker.Visible = false;
             _roleHint.Text = string.Empty;
         }
         else
@@ -842,9 +863,41 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
                 ? "Nothing…"
                 : string.Join(", ", node.Roles.Select(id => LayerRoleRegistry.ForId(id)?.DisplayName ?? id)) + "…";
             _roleHint.Text = DescribeRoles(node.Roles);
+            _annotationStylePicker.Visible = IsAnnotationNode(node);
+            SelectAnnotationStyle(node.AnnotationStyleName);
         }
         _loadingProperties = false;
     }
+
+    private void SelectAnnotationStyle(string? styleName)
+    {
+        string desired = AnnotationStyleService.ResolveStyleName(styleName);
+        int index = Enumerable.Range(0, _annotationStylePicker.Items.Count)
+            .FirstOrDefault(i => string.Equals(
+                _annotationStylePicker.Items[i].Text,
+                desired,
+                StringComparison.OrdinalIgnoreCase), -1);
+        _annotationStylePicker.SelectedIndex = index >= 0 ? index : 0;
+    }
+
+    private void LoadAnnotationStyles()
+    {
+        _annotationStylePicker.Items.Clear();
+        foreach (string name in Enumerable.Range(0, _doc.DimStyles.Count)
+                     .Select(index => _doc.DimStyles[index].Name)
+                     .Where(name => !string.IsNullOrWhiteSpace(name))
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+        {
+            _annotationStylePicker.Items.Add(name);
+        }
+
+        if (_annotationStylePicker.Items.Count == 0)
+            _annotationStylePicker.Items.Add(AnnotationStyleService.DefaultStyleName);
+    }
+
+    private static bool IsAnnotationNode(LayerNode node) =>
+        node.Roles.Contains("annotation", StringComparer.OrdinalIgnoreCase);
 
     private void PickColor(bool isPrint)
     {

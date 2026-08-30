@@ -686,13 +686,6 @@ public sealed partial class MoleHillPanel
             decimalPlaces: 1,
             help: "Pattern rotation in degrees."));
         layout.AddRow(CreateInsertionOriginEditor(terrain, analysis));
-        layout.AddRow(CreateNumericEditor(
-            "Text Height",
-            analysis.TextHeight,
-            value => MutateSection(item => item.TextHeight = Math.Max(double.Epsilon, value)),
-            decimalPlaces: 3,
-            help: "Height of station and elevation labels printed on the section.",
-            minValue: 0.0));
     }
 
     private Control CreateTerrainSectionTerrainEditor(

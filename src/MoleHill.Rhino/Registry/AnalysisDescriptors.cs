@@ -287,12 +287,6 @@ internal sealed class ContourAnalysisDescriptor : AnalysisTypeDescriptor
             (a, v) => ((ContourAnalysisDefinition)a).LabelEveryNth = Math.Max(1, (int)Math.Round(v)),
             "Label only every Nth contour level (index contours). 1 labels every level.",
             min: 1, decimalPlaces: 0, incrementalCommit: true),
-        AnalysisParameterDescriptor.Number(
-            "LabelTextHeight", "Label Height",
-            a => ((ContourAnalysisDefinition)a).LabelTextHeight,
-            (a, v) => ((ContourAnalysisDefinition)a).LabelTextHeight = Math.Max(double.Epsilon, v),
-            "Text height of contour labels in model units. Used only when this analysis does not follow the terrain annotation style.",
-            min: 0.0, incrementalCommit: true),
         AnalysisParameterDescriptor.Choice(
             "LabelFormat", "Label Decimals", null,
             a => ((ContourAnalysisDefinition)a).LabelFormat,
@@ -552,12 +546,6 @@ internal sealed class GradeBetweenPointsAnalysisDescriptor : AnalysisTypeDescrip
             (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).AttributeSuffix = v ?? string.Empty,
             "Text appended to the grade callout.",
             trim: false),
-        AnalysisParameterDescriptor.Number(
-            "TextHeight", "Text Height",
-            a => ((GradeBetweenPointsAnalysisDefinition)a).TextHeight,
-            (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).TextHeight = Math.Max(double.Epsilon, v),
-            "Text height of the callout label, and the size of the downhill arrow.",
-            min: 0.0),
         AnalysisParameterDescriptor.Color(
             "ColorArgb", "Color",
             a => ((GradeBetweenPointsAnalysisDefinition)a).ColorArgb,
