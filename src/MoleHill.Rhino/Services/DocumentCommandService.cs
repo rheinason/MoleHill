@@ -338,10 +338,26 @@ internal static class DocumentCommandService
 
     public static Result RunImportGeoTiffTerrain(RhinoDoc doc) => RunImportGeoTiff(doc, createTerrain: true);
 
-    private static Result RunImportGeoTiff(RhinoDoc doc, bool createTerrain)
+    public static Result RunImportGeoTiffSurface(RhinoDoc doc, Guid terrainId, Guid modifierId) =>
+        RunImportGeoTiff(doc, createTerrain: false, terrainId, modifierId);
+
+    private static Result RunImportGeoTiff(
+        RhinoDoc doc,
+        bool createTerrain,
+        Guid terrainId = default,
+        Guid modifierId = default)
     {
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext documentUnits))
             return Result.Failure;
+
+        bool assignDemSurface = terrainId != Guid.Empty && modifierId != Guid.Empty;
+        if (assignDemSurface)
+        {
+            TerrainDefinition? terrain = TerrainController.Instance.GetTerrains(doc)
+                .FirstOrDefault(item => item.TerrainId == terrainId);
+            if (terrain?.Modifiers.FirstOrDefault(item => item.Id == modifierId) is not TriangulateModifierDefinition)
+                return Result.Failure;
+        }
 
         var imageDialog = new Eto.Forms.OpenFileDialog { Title = "Select GeoTIFF file", MultiSelect = false };
         imageDialog.Filters.Add(new FileFilter("GeoTIFF", ".tif", ".tiff"));
@@ -353,7 +369,7 @@ internal static class DocumentCommandService
         GeoTiffElevationSamples? elevationSamples = null;
         int imageWidth;
         int imageHeight;
-        if (createTerrain)
+        if (createTerrain || assignDemSurface)
         {
             if (!GeoTiffElevationReader.TryReadSamples(
                     geotiffPath,
@@ -432,7 +448,12 @@ internal static class DocumentCommandService
             placedInProjectCoordinates = true;
         }
 
-        uint undoRecord = doc.BeginUndoRecord(createTerrain ? "Import GeoTIFF DEM terrain" : "Import GeoTIFF");
+        string undoName = createTerrain
+            ? "Import GeoTIFF DEM terrain"
+            : assignDemSurface
+                ? "Import GeoTIFF DEM surface"
+                : "Import GeoTIFF";
+        uint undoRecord = doc.BeginUndoRecord(undoName);
         var createdObjectIds = new List<Guid>();
         TerrainDefinition? createdTerrain = null;
         bool success = false;
@@ -493,6 +514,36 @@ internal static class DocumentCommandService
                     return Result.Failure;
                 }
                 RhinoApp.WriteLine($"MoleHill: created a managed DEM terrain from {pointIds.Count:N0} numeric raster samples.");
+            }
+            else if (assignDemSurface)
+            {
+                List<Guid> surfaceIds = placedIds
+                    .Where(id => id != Guid.Empty && doc.Objects.FindId(id) != null)
+                    .Distinct()
+                    .ToList();
+                if (surfaceIds.Count == 0 && doc.Objects.FindId(pictureId) != null)
+                    surfaceIds.Add(pictureId);
+                if (surfaceIds.Count == 0)
+                    return Result.Failure;
+
+                bool assigned = false;
+                TerrainController.Instance.MutateTerrain(doc, terrainId, terrain =>
+                {
+                    if (terrain.Modifiers.FirstOrDefault(item => item.Id == modifierId) is not TriangulateModifierDefinition triangulate)
+                        return;
+
+                    triangulate.DemSurface.ObjectIds = surfaceIds;
+                    triangulate.DemSurface.LayerPaths.Clear();
+                    triangulate.DemElevationScale = sourceMetersPerUnit / documentUnits.MetersPerModelUnit;
+                    triangulate.DemSourceFileName = Path.GetFileName(geotiffPath);
+                    assigned = true;
+                });
+                if (!assigned)
+                {
+                    RhinoApp.WriteLine("MoleHill: the Triangulate card is no longer available.");
+                    return Result.Failure;
+                }
+                RhinoApp.WriteLine("MoleHill: assigned the textured GeoTIFF surface to the Triangulate card. Move the surface to adjust project placement.");
             }
 
             success = true;

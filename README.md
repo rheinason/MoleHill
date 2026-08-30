@@ -23,7 +23,7 @@ The Rhino plugin provides the panel-driven workflow for creating, editing, analy
 | `mhValidateTerrainInputs` | Clean selected terrain points and curves, including duplicate joined segments |
 | `mhSplitAtIntersections` | Split selected curves at their pairwise intersections |
 | `mhDrapeCurve` | Sample selected curves onto a selected mesh or surface along World Z |
-| `mhInspectCurve` | Open a live, transient curve geometry and grade review panel |
+| `mhInspectCurve` | Open a live curve review panel plus viewport overlay: grades, kink elevations, crests/sags, cut/fill vs terrain, and limit violations. `Label` drops elevation / grade / station / cut-fill text dots along the curve |
 | `mhSlopeCurveSection` | Set or interpolate grade over a selected curve section, including blending to active terrain |
 | `mhCreateWall` | Draw a wall rail and generate its parallel, vertically offset companion rail |
 
@@ -59,7 +59,7 @@ are not dependencies of the MoleHill package.
 | Component | Description |
 |-----------|-------------|
 | **Grade Pad** | Flatten terrain at pad elevations with slope transitions and cut/fill reporting |
-| **Grade Path** | Grade roads and paths with width, cross-slope, and slope transitions |
+| **Grade Path** | Grade roads and paths from centerline elevations, with constant fallback width or automatically matched variable-width edge curves |
 | **Retaining Wall** | Pair open wall rails, generate wall solids, and grade terrain between toe and top rails |
 | **In Situ Stair** | Generate stair geometry and terrain transitions from stair references |
 

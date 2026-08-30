@@ -33,6 +33,11 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
             RhinoObjectType.Mesh,
             "Optional exact triangle mesh source. When set, its topology is preserved and the point/curve inputs are ignored."),
         ParameterDescriptor.Sources(
+            "DemSurface", "DEM Surface",
+            m => ((TriangulateModifierDefinition)m).DemSurface,
+            RhinoObjectType.Surface | RhinoObjectType.Brep,
+            "Planar surface carrying a numeric GeoTIFF bitmap texture. Move the surface to control the DEM's project placement."),
+        ParameterDescriptor.Sources(
             "Points", "Points",
             m => ((TriangulateModifierDefinition)m).Points,
             RhinoObjectType.Point | RhinoObjectType.PointSet),

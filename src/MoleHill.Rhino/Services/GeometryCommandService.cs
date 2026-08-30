@@ -355,95 +355,6 @@ internal static class GeometryCommandService
         }
     }
 
-    public static Result RunSlopeCheckAndMark(RhinoDoc doc)
-    {
-        if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext)) return Result.Failure;
-        var getCurve = new GetObject();
-        getCurve.SetCommandPrompt("Select a curve");
-        getCurve.GeometryFilter = ObjectType.Curve;
-        getCurve.SubObjectSelect = true;
-        getCurve.EnablePreSelect(true, true);
-        if (getCurve.Get() != GetResult.Object)
-            return getCurve.CommandResult();
-
-        Curve? curve = getCurve.Object(0).Curve();
-        if (curve == null)
-            return Result.Failure;
-
-        const string vectorScaleKey = "MoleHill.SlopeCheck.VectorScale";
-        double vectorScale = CommandOptionCache.GetLength(vectorScaleKey, unitContext, 1.0);
-        bool addLabels = CommandOptionCache.GetValue("MoleHill.SlopeCheck.AddLabels", false);
-        bool addLines = CommandOptionCache.GetValue("MoleHill.SlopeCheck.AddLines", false);
-
-        while (true)
-        {
-            var getPoint = new GetPoint();
-            getPoint.SetCommandPrompt("Pick location on curve or press Enter to finish");
-            getPoint.AcceptNothing(true);
-            getPoint.AcceptNumber(true, false);
-            getPoint.Constrain(curve, false);
-
-            var scaleOption = new OptionDouble(vectorScale);
-            var labelsOption = new OptionToggle(addLabels, "No", "Yes");
-            var linesOption = new OptionToggle(addLines, "No", "Yes");
-            getPoint.AddOptionDouble("LineScale", ref scaleOption);
-            getPoint.AddOptionToggle("AddLabels", ref labelsOption);
-            getPoint.AddOptionToggle("TangentLines", ref linesOption);
-
-            getPoint.DynamicDraw += (_, e) =>
-            {
-                if (!TryGetCurveSlopePreview(curve, e.CurrentPoint, scaleOption.CurrentValue, out Point3d lineEnd, out double slopePercent))
-                    return;
-
-                e.Display.DrawPoint(e.CurrentPoint);
-                e.Display.DrawLine(e.CurrentPoint, lineEnd, FeedbackColor, 2);
-                Point3d labelPoint = (e.CurrentPoint + lineEnd) * 0.5;
-                e.Display.DrawDot(labelPoint, $"{slopePercent:F1}%", TrackingColor, FeedbackColor);
-            };
-
-            GetResult pointResult = getPoint.Get();
-            if (pointResult == GetResult.Option || pointResult == GetResult.Number)
-            {
-                vectorScale = pointResult == GetResult.Number ? getPoint.Number() : scaleOption.CurrentValue;
-                addLabels = labelsOption.CurrentValue;
-                addLines = linesOption.CurrentValue;
-                CommandOptionCache.SetLength(vectorScaleKey, unitContext, vectorScale);
-                CommandOptionCache.SetValue("MoleHill.SlopeCheck.AddLabels", addLabels);
-                CommandOptionCache.SetValue("MoleHill.SlopeCheck.AddLines", addLines);
-                continue;
-            }
-
-            if (pointResult == GetResult.Nothing)
-                return Result.Success;
-
-            if (pointResult != GetResult.Point)
-                return getPoint.CommandResult();
-
-            vectorScale = scaleOption.CurrentValue;
-            addLabels = labelsOption.CurrentValue;
-            addLines = linesOption.CurrentValue;
-            CommandOptionCache.SetLength(vectorScaleKey, unitContext, vectorScale);
-            CommandOptionCache.SetValue("MoleHill.SlopeCheck.AddLabels", addLabels);
-            CommandOptionCache.SetValue("MoleHill.SlopeCheck.AddLines", addLines);
-
-            Point3d point = getPoint.Point();
-            if (!TryGetCurveSlopePreview(curve, point, vectorScale, out Point3d lineEnd, out double slopePercent))
-                continue;
-
-            RhinoApp.WriteLine($"Curve slope = {slopePercent:F1}% at the pick location.");
-            if (addLabels)
-            {
-                var dot = new TextDot($"{slopePercent:F1}%", point);
-                doc.Objects.AddTextDot(dot);
-            }
-
-            if (addLines)
-                doc.Objects.AddLine(point, lineEnd);
-
-            doc.Views.Redraw();
-        }
-    }
-
     public static Result RunLiftCurvesWithLine(RhinoDoc doc)
     {
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext)) return Result.Failure;
@@ -1234,29 +1145,6 @@ internal static class GeometryCommandService
 
         doc.Views.Redraw();
         return Result.Success;
-    }
-
-    private static bool TryGetCurveSlopePreview(
-        Curve curve,
-        Point3d point,
-        double scale,
-        out Point3d lineEnd,
-        out double slopePercent)
-    {
-        lineEnd = point;
-        slopePercent = 0.0;
-
-        if (!curve.ClosestPoint(point, out double parameter))
-            return false;
-
-        Vector3d tangent = curve.TangentAt(parameter);
-        slopePercent = GeometryCommandAlgorithms.CalculateSlopePercentMagnitude(tangent);
-        if (!tangent.Unitize())
-            return false;
-
-        Vector3d previewVector = tangent * scale;
-        lineEnd = point + previewVector;
-        return true;
     }
 
     private static Curve[] TryJoinReplacementCurveSection(

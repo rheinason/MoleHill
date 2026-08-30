@@ -19,6 +19,25 @@ public sealed class TriangulateModifierDefinition : GeometryInputModifierDefinit
     /// </summary>
     public string ContourMode { get; set; } = AutoContourMode;
 
+    /// <summary>
+    /// Planar Rhino surface carrying a numeric single-band GeoTIFF as its bitmap texture. Raster XY is
+    /// mapped through the live surface, so moving the surface controls project/geographic placement.
+    /// </summary>
+    public SourceReferenceSet DemSurface { get; set; } = new();
+
+    /// <summary>Raster elevation-unit to document-unit scale captured by the GeoTIFF import action.
+    /// Zero asks snapshot capture to infer embedded units, falling back to document units.</summary>
+    public double DemElevationScale { get; set; }
+
+    public string? DemSourceFileName { get; set; }
+
+    public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()
+    {
+        foreach (SourceReferenceSet sourceSet in base.EnumerateSourceSets())
+            yield return sourceSet;
+        yield return DemSurface;
+    }
+
     public bool ShouldConstrainContours(int contourVertexCount)
     {
         if (string.Equals(ContourMode, VerticesOnlyContourMode, StringComparison.OrdinalIgnoreCase))
