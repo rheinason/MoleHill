@@ -314,12 +314,15 @@ $designs = @{
     }
     # Note: 'SetPathwidth' (lowercase w) resolves to the 'SetPathWidth' design — hashtable lookup is
     # case-insensitive, so no separate entry is needed (and would collide as a duplicate key).
-    'mhSlopeCheckAndMark' = {
+    # A grade wedge under a lens: the inspector reads a curve's profile rather than marking one point.
+    'mhInspectCurve' = {
         param($g, $s)
-        $pts = @((PtF ($s * 0.14) ($s * 0.82)), (PtF ($s * 0.80) ($s * 0.82)), (PtF ($s * 0.14) ($s * 0.26)))
+        $pts = @((PtF ($s * 0.10) ($s * 0.84)), (PtF ($s * 0.78) ($s * 0.84)), (PtF ($s * 0.10) ($s * 0.30)))
         $b = Brush $green; $g.FillPolygon($b, $pts); $b.Dispose()
         $op = Pen (Argb 25 90 35) ([Math]::Max(0.9, $s * 0.05)); $g.DrawPolygon($op, $pts); $op.Dispose()
-        $bw = Brush (Argb 245 176 26); $g.FillEllipse($bw, ($s * 0.30), ($s * 0.40), ($s * 0.18), ($s * 0.18)); $bw.Dispose()
+        $lp = Pen (Argb 245 176 26) ([Math]::Max(1.2, $s * 0.08))
+        $g.DrawEllipse($lp, ($s * 0.44), ($s * 0.16), ($s * 0.34), ($s * 0.34))
+        $g.DrawLine($lp, ($s * 0.50), ($s * 0.56), ($s * 0.32), ($s * 0.78)); $lp.Dispose()
     }
 }
 

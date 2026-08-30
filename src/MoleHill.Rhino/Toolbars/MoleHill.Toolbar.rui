@@ -168,12 +168,12 @@
     </macro_item>
     <macro_item guid="62d5e781-f096-4c08-849b-f724b9e193b8" bitmap_id="94088d95-cb72-4353-ac02-bc5028bbc504">
       <text>
-        <locale_1033>mhSlopeCheckAndMark</locale_1033>
+        <locale_1033>mhInspectCurve</locale_1033>
       </text>
       <tooltip>
-        <locale_1033>Slope Check and Mark</locale_1033>
+        <locale_1033>Inspect Curve</locale_1033>
       </tooltip>
-      <script>mhSlopeCheckAndMark</script>
+      <script>mhInspectCurve</script>
     </macro_item>
     <macro_item guid="fac125dd-d249-454a-b279-ff83b67eb997" ImportedFromFileGuid="c7da84fc-2991-4824-832a-4f2509bd0ede" ImportedFromItemGuid="c34a4892-472f-4405-9478-72b8f59e8fe6" bitmap_id="1ae591bd-3575-4540-81c4-ccb9b90c06b1">
       <text>
