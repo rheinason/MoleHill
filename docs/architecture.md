@@ -423,12 +423,12 @@ zones, markers, objects, and scatter retain stage-level entries.
   ramp stops undraggable outright, because the card being dragged was destroyed on the first mouse-move.
   Gestures therefore commit through the `*Live` mutators (defer the save, suppress the refresh, still
   recolour) while the pointer is down, and commit normally once on release.
-- **Cut and fill are seeded different colours at layer creation.** `GeneratedLayerDefaults` carries a
-  colour alongside the print width for the sublayers whose colour carries meaning, and
-  `TerrainController.EnsureLayerPath` applies it once when it creates the layer. Before this, a section's
-  cut and fill hatches landed on two freshly created layers that were both Rhino-default black, so the
-  drawing could not be read until someone found "Bake Layers". The layer still owns the colour after
-  creation, so edits in Rhino's Layers panel persist.
+- **Cut and fill are seeded different colours at layer creation.** Their roles carry a colour alongside
+  the print width, and `LayerCreationService` applies it once when it creates the layer. Before this, a
+  section's cut and fill hatches landed on two freshly created layers that were both Rhino-default black,
+  so the drawing could not be read until someone found "Bake Layers". The layer still owns the colour
+  after creation, so edits in Rhino's Layers panel persist. `LayerRoleRegistryTests` pins that the two are
+  never seeded alike.
 - **Stepped bands are real bands.** `AnalysisColorMapper.ResolveBands` divides a range into flat-coloured
   intervals — each band's colour is the palette sampled at its centre — and the face colouring, the sculpt
   colorizer and the panel legend all consume that one list, so the swatches and the mesh cannot disagree.
@@ -481,10 +481,10 @@ zones, markers, objects, and scatter retain stage-level entries.
 
 ## Rhino: 2D drawing output (sheet readiness)
 
-Rhino owns styling and sheets; MoleHill's job is to emit output Rhino's existing machinery can act on.
-There is no MoleHill styling system, no graphic presets, and no page/sheet generator — layouts, details,
-per-detail layer overrides (`Layer.SetPerViewportColor/PlotColor/PlotWeight`), annotation scaling, and
-printing are all Rhino's. See `docs/2d-drawing-output-exploration.md` for the survey behind this.
+Rhino owns styling and sheets. MoleHill declares where its output goes and how each destination starts
+out — see **Output layer roles** below — and then gets out of the way: layouts, details, per-detail layer
+overrides (`Layer.SetPerViewportColor/PlotColor/PlotWeight`), annotation scaling, and printing are all
+Rhino's, and a layer belongs to the user once it exists. There is no page/sheet generator. See `docs/2d-drawing-output-exploration.md` for the survey behind this.
 
 - **Annotation styles.** `AnnotationStyleService` is the single boundary to Rhino's dimension-style table.
   `TerrainDefinition.AnnotationStyleName` (blank = `"MoleHill Annotation"`) names the style all generated
@@ -503,17 +503,57 @@ printing are all Rhino's. See `docs/2d-drawing-output-exploration.md` for the su
   thread into a `HatchPatternSnapshot`. Unknown patterns degrade to Solid rather than vanishing. Hatch is
   handled by the conduit (`DisplayPipeline.DrawHatch`) and by bake (`ObjectTable.AddHatch`).
 - **Appearance is layer-driven.** `GeneratedRhinoObject.AppearanceSource` selects whether colour and plot
-  weight are stamped on the object or left ByLayer. Drawing output uses `Layer`; output whose colour
-  carries meaning (zone colours, analysis colour ramps) stays `Object`. Print widths are seeded once onto
-  newly created sublayers from `GeneratedLayerDefaults` and then belong to the layer, so a user's Layers-panel
-  edits and per-detail overrides survive rebuilds — replacing the former per-object plot-weight stamping.
+  weight are stamped on the object or left ByLayer, and its value comes from the role descriptor rather
+  than being set at each producer. Drawing output is ByLayer; output whose colour carries meaning (zone
+  colours, analysis colour ramps) stays ByObject. See **Output layer roles** below.
 - **Contours split major/minor by layer.** `ContourAnalysisDefinition.MajorEveryNth` (default 5) and
-  `SeparateMajorMinorLayers` route levels to `::Contours::Major` / `::Contours::Minor`. Majorness is keyed
-  on elevation, not on the ordinal of levels that happened to produce curves, so an empty level cannot
-  shift the pattern between builds.
+  `SeparateMajorMinorLayers` choose between the `ContoursMajor` / `ContoursMinor` roles and the plain
+  `Contours` role. Majorness is keyed on elevation, not on the ordinal of levels that happened to produce
+  curves, so an empty level cannot shift the pattern between builds.
 
 Schema 27 migrates pre-existing documents to the previous behaviour (`FollowsAnnotationStyle = false`,
 `SeparateMajorMinorLayers = false`) so existing drawings keep their exact sizes and layer routing.
+
+## Rhino: output layer roles
+
+Where each kind of generated output lands, and what it looks like, is one question with one answer: a
+**role**. `Model/LayerRole` is the closed set of destinations; `Registry/LayerRoleRegistry` declares each
+one's stable id, parent, default path and appearance; the active layer template binds roles to real
+layers. Nothing in the pipeline hardcodes or plumbs a layer path.
+
+- **Roles form a chain, and both path and appearance inherit up it, field by field.** An unbound
+  `ContoursMajor` resolves through `Contours` to `Annotation`, so rebinding one root moves its whole
+  drawing family — which is what lets the schema 30 migration carry a customised document across with a
+  single binding. A template can override one print width without restating everything beside it.
+- **Every generated object names a role.** `GeneratedRhinoObject.Role` is a `required` member, so the
+  compiler asks each of the 22 producers where its output belongs, and `LayerRoleTable.Path` is non-null
+  by construction. Before this, markers, marker labels, scatter instances and grading auxiliary output set
+  no layer at all and baked onto Rhino's *current layer*.
+- **The build resolves layers before it starts.** `TerrainBuildSnapshot.LayerRoles` carries the resolved
+  table, captured on the document thread like `AnnotationStyleSnapshot` and `HatchPatternSnapshot`,
+  because the background build has no document access. The build cache keys on its fingerprint, so
+  editing the template invalidates cached output.
+- **Preview and bake read one appearance record**, so baking changes nothing. `TerrainDisplayColors`
+  falls back to the template when the output layer is not in the document yet; without that, an un-baked
+  drawing previewed in a placeholder grey and changed colour the first time it was baked. Preview
+  thickness is derived from print width, so there is one number per role rather than one for the screen
+  and another for the page. The deliberate exceptions are `TerrainDefinition.PreviewLineWeight` (labelled
+  display-only) and linetypes, which the display pipeline cannot draw.
+- **Appearance is seeded once.** `Services/LayerCreationService` is the only place layers are created, and
+  it styles the leaf only, leaving existing layers alone — so Layers-panel edits and per-detail overrides
+  survive rebuilds. `mhApplyLayerTemplate` is create-only; re-stamping is the separate, confirming
+  `mhResetLayerStyles`.
+- **The document carries its own copy of the template.** Templates are otherwise per-user
+  (`%APPDATA%\MoleHill\layer-templates.json`), which is right for an office standard and wrong for a
+  drawing: a .3dm opened elsewhere would resolve against whatever the opener had installed. The embedded
+  copy wins; divergence from the local one is reported and never merged automatically.
+  `TerrainDefinition.LayerTemplateName` lets a terrain pick a different template, so two terrains can be
+  drawn on separate layers.
+
+Schema 30 carries a pre-role document across by synthesizing a template of its own from whatever it had
+customised (`Services/LayerRoutingMigration`), rather than retargeting anything. A document that used the
+defaults gets none. Bindings are per role and the old data was per card, so two cards of the same kind on
+different layers cannot both keep theirs: the first wins and the rest are reported.
 
 ## Rhino: preview vs render vs bake (generated objects)
 

@@ -80,12 +80,21 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
 - `HatchPatternService.cs` - the same boundary for hatch patterns, whose indices are document-scoped.
   Creates Rhino's built-in patterns on demand, reuses a user-authored pattern of the same name untouched,
   and degrades an unresolvable pattern to Solid so a fill never silently disappears.
-- `GeneratedLayerDefaults.cs` - default print widths (mm of printed line, unaffected by model units) for
-  MoleHill's generated sublayers. Applied once when the layer is created, then owned by the layer, so
-  Layers-panel edits and per-detail overrides survive rebuilds. A user's chosen root output layer is never
-  restyled.
+- `LayerRoleResolver.cs` - `LayerAppearance` and `LayerRoleTable`: one layer template flattened to
+  role -> (path, appearance). Built on the document thread and carried on `TerrainBuildSnapshot`, since
+  the background build has no document access. `Path` is non-null for every role by construction.
+- `LayerRoleService.cs` - resolves and caches the table a terrain uses, seeds a document with its own
+  embedded copy of the template, and reports (never merges) divergence from the machine-local one.
+- `LayerCreationService.cs` - the only place layers are created. Seeds appearance at creation and leaves
+  existing layers alone, so Layers-panel edits and per-detail overrides survive rebuilds. Styles the leaf
+  only; an intermediate layer is seeded from its own entry, not a descendant's.
+- `LayerTemplateDocumentStore.cs` - the document's copy of the templates it uses, so a .3dm renders the
+  same wherever it is opened.
+- `LayerRoutingMigration.cs` - carries a pre-schema-30 document's customised output layers into a
+  template of its own rather than retargeting anything.
 - `GeneratedRhinoObject.AppearanceSource` decides whether colour/plot weight are stamped on the object or
-  left ByLayer. Drawing output is `Layer`; output whose colour is data stays `Object`.
+  left ByLayer, and comes from the role descriptor rather than being set per producer. Drawing output is
+  `Layer`; output whose colour is data stays `Object`.
 
 ## State, preview, bake
 - `ModelUnitGuard.cs`, shared `ModelUnitContext.cs`, and `TerrainUnitScaler.cs` define the host unit
@@ -156,9 +165,17 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   colored live).
 - `SculptFieldCodec.cs` - persisted `SculptTile` list (base64) ⇄ runtime `SculptDisplacementField`.
 
+## Layer templates
+- `LayerTemplateStore.cs` - the machine-local templates (`%APPDATA%\MoleHill\layer-templates.json`), the
+  office standard new documents are seeded from. Generates the shipped template from `LayerRoleRegistry`
+  rather than restating it, and upgrades a pre-role file by recovering its bindings from the layer paths
+  it already has.
+- `LayerTemplateCommandService.cs` - `mhApplyLayerTemplate` (create-only) and `mhResetLayerStyles`, which
+  re-stamps appearance onto existing layers and asks first, since that discards the user's edits.
+
 ## Other
 - `GeometryCommandService.cs`, `TerrainInputCommandService.cs`, `TerrainInputCommandAlgorithms.cs`,
-  `BlockCommandService.cs`, `LayerTemplateStore.cs`, `RhinoSourceResolver.cs`,
+  `BlockCommandService.cs`, `RhinoSourceResolver.cs`,
   `RhinoGeometryConversions.cs` - command/geometry helpers. Terrain input commands are intentionally
   document-scoped and selected-only: validation edits selected points/curves, intersection splitting
   edits selected curves, draping samples a selected mesh/surface, and wall creation generates two
@@ -182,8 +199,8 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   interleave along the curve instead of stacking on each other.
 - `CurveReviewLabeller.cs` - the inspector's `Label` button. Picks points constrained to the inspected
   curve and drops text dots reading any combination of elevation, grade, station and cut/fill, taken from
-  the analysis already on screen. Dots go to `<annotation layer>::Labels` via
-  `TerrainController.EnsureLayerPath`, so they inherit the layer's print width, and the whole run is one
+  the analysis already on screen. Dots go to the `Labels` role's layer via
+  `LayerRoleService.EnsureRoleLayer`, so they inherit its print width, and the whole run is one
   undo record. Replaces the removed `mhSlopeCheckAndMark` command. The terrain mesh is peeked (`TerrainController.PeekFinalTerrainMesh`,
   read-only, no copy) and the analysis is rebuilt only when the object serial, terrain mesh, or a limit
   changes, so the 4 Hz refresh timer stays cheap.

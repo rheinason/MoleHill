@@ -12,8 +12,9 @@ fields by composing them, not by copying boilerplate.
   copy log, copy case, and structured diagnostic formatting), and per-tab card builders `.Modifiers.cs`, `.Zones.cs`,
   `.Markers.cs`, `.Analysis.cs`, `.Objects.cs`, `.LayerPickers.cs`. The main file holds the toolbar,
   layout refresh, and shared helpers. Its editable terrain selector combines active-terrain selection
-  and rename in one field. Bake is grouped with the visibility/lock output actions; Bake Layers creates
-  the terrain's configured output layers. Expanded Smooth/Sculpt cards show a sampled mesh-quality
+  and rename in one field. Bake is grouped with the visibility/lock output actions. One
+  "Output Layers" row names the layer template the terrain routes through, opens the editor, and creates
+  its layers; there are no per-terrain or per-card layer pickers. Expanded Smooth/Sculpt cards show a sampled mesh-quality
   warning when an uneven incoming TIN has no earlier Remesh modifier. Triangulate keeps its source rows
   together, then shows Work area, Contour Mode, and a titled Peel Border settings group.
 - `ColorRampControl.cs`, `ColorRampBar.cs`, `ScrubField.cs`, and `MoleHillPanel.ColorRamp.cs` - the
@@ -76,8 +77,9 @@ low-priority actions into overflow while remaining pinned to the available clien
 - `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter,
   with Eto-drawn isometric thumbnails.
 - `LayerTemplateEditorDialog.cs` - graphical layer-template editor: a `TreeGridView` of the layer
-  hierarchy with display/print color swatches and plot-weight, a properties panel for the selected
-  layer, multi-template management, and JSON import/export. `SlowBuildWarningDialog.cs` is the other
+  hierarchy with display/print color swatches, plot-weight and a read-only Receives column, a properties
+  panel for the selected layer including which output role it receives, multi-template management, and
+  JSON import/export. The role binding lives on the node, so it survives renaming or re-parenting a layer. `SlowBuildWarningDialog.cs` is the other
   dialog.
 - `TerrainInputValidationDialog.cs` - short-lived, document-parented Eto dialog for selecting the
   cleanup operations and shared tolerance used by `mhValidateTerrainInputs`. Overkill removes both

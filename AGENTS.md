@@ -57,10 +57,12 @@ Use C# with 4-space indentation, file-scoped namespaces, and one type per file. 
 
 - **Edge-key hashing**: a `Dictionary`/`HashSet` keyed by a packed edge key (`(min << 32) | max`) MUST be constructed with `IndexedMeshTools.EdgeKeyComparer.Instance`. The default `long` hash is `lo ^ hi`, which for adjacent mesh indices collapses nearly every edge into a handful of buckets and turns an O(n) pass into a quadratic scan — it cost 7 s of a 10 s remesh on a 180k-face terrain. The same applies to per-vertex adjacency: prefer the flat CSR `MeshVertexAdjacency` over a dictionary of `List`/`HashSet` in any loop that rebuilds it per round.
 
+- **Output layer routing goes through `LayerRole`**: never hardcode or plumb a layer path for generated output, and never append a suffix to build one. `GeneratedRhinoObject.Role` is `required` and `LayerRoleTable.Path` is never null, so every producer names a destination and every destination resolves — that is what stops output baking onto Rhino's current layer. Appearance (colour, print width, linetype, annotation style, hatch) comes from the same role, so preview and bake cannot drift apart. See `docs/architecture.md` → "Output layer roles".
+
 Keep nullable annotations intentional: `MoleHill.*` projects have nullable enabled, while `TriangleNet` does not. Keep reusable computation in `MoleHill.Core`, Grasshopper-specific component and conversion code in `MoleHill.Grasshopper`, and Rhino command/panel/document workflows in `MoleHill.Rhino`.
 
 ## Testing Guidelines
-Use xUnit test projects under `tests/`. Name files `<ClassName>Tests.cs` and test methods `MethodName_Scenario_ExpectedResult`. Prioritize geometry edge cases (collinearity, duplicate points, breakline intersections, tolerance boundaries), grading and slope regressions, and smoke tests for Grasshopper component behavior.
+Use xUnit test projects under `tests/` (`MoleHill.Core.Tests`, `MoleHill.Grasshopper.Tests`, `MoleHill.Rhino.Tests`). Name files `<ClassName>Tests.cs` and test methods `MethodName_Scenario_ExpectedResult`. The Rhino tests link `Model/`, `Registry/` and most of `Services/` as source; tests needing Rhino's native runtime use `[RhinoNativeFact]` and skip where it is unavailable, so a green run there does not mean they executed. Prioritize geometry edge cases (collinearity, duplicate points, breakline intersections, tolerance boundaries), grading and slope regressions, and smoke tests for Grasshopper component behavior.
 
 ## Commit & Pull Request Guidelines
 Use short, imperative commit subjects consistent with recent history (examples: `Add Rhino plugin and retaining wall workflows`, `Preserve remesh edges and planar smoothing`). Keep commits focused and logically grouped.

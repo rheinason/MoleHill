@@ -30,10 +30,11 @@ table above.
 2. **Cut/fill section regions are transparent meshes** (`TerrainAnalysisAnnotationBuilder.cs:776`), coloured
    by `ApplyOpacity`. A shaded mesh is a rendering artefact, not a drawing element — it does not print
    sensibly and ignores `ModelSpaceHatchScale`.
-3. **Plot weights are hardcoded in code.** `SectionOutputLayers.GetPlotWeight` returns 0.50 / 0.13 / 0.18
-   from a `switch`, while `LayerTemplateStore` already carries `PlotWeight` + `PrintColorArgb` per layer for
-   the layers it knows about. The section sub-layers (`::Grid`, `::Ticks`, `::Labels`, `::CutFill::*`) are
-   invented at runtime and never reach the template.
+3. ~~**Plot weights are hardcoded in code.**~~ *(Done.)* `SectionOutputLayers.GetPlotWeight` returned
+   0.50 / 0.13 / 0.18 from a `switch` while `LayerTemplateStore` carried its own `PlotWeight` +
+   `PrintColorArgb` per layer, and the section sub-layers were invented at runtime and never reached the
+   template. Both tables are gone: `Registry/LayerRoleRegistry` is the single declaration and the shipped
+   template is generated from it. See "Output layer roles" in `architecture.md`.
 4. **Contours are one undifferentiated layer.** No major/minor split, so per-layer print width cannot express
    the single most important convention in a terrain drawing. No contour labels.
 
@@ -65,9 +66,9 @@ Make every generated object a well-behaved Rhino document object:
   correctly, honours `ModelSpaceHatchScale`, and can share a hatch pattern with Rhino 8 `SectionStyle` so a
   clipped 3D view and a MoleHill section read the same.
 - **Split contours onto major/minor sub-layers** so existing per-layer print width and linetype do the work.
-- **Move plot weights out of code into the layer template.** Extend `LayerTemplateStore` to cover the
-  section sub-layers that `SectionOutputLayers` currently invents, and reduce `GetPlotWeight` to a fallback
-  for layers the template doesn't define.
+- ~~**Move plot weights out of code into the layer template.**~~ *(Done — went further.)* Rather than two
+  tables with one deferring to the other, output now names a **role** and the template binds roles to
+  layers, so routing and appearance have one home. See "Output layer roles" in `architecture.md`.
 - **Ship a MoleHill document template (.3dm)** carrying the layer tree, dimension styles, hatch patterns and
   linetypes. Assets, not code — and directly editable by the user with Rhino's own tools.
 

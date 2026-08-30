@@ -6,10 +6,16 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
 
 - `TerrainDefinition.cs` — the root: name, flags, `GlobalTolerance`, and the ordered lists of
   `Modifiers`, `Analyses`, `Objects`, `Markers`, plus baked-output bookkeeping. `PreviewLineWeight`
-  multiplies every previewed line width for this terrain; it is a display preference only, and never
-  reaches baked geometry, whose print weight belongs to its layer.
+  multiplies every previewed line width for this terrain; it is a display preference only, never reaches
+  baked geometry, and is the one place preview and bake deliberately differ. `LayerTemplateName` picks the
+  layer template this terrain routes through, so two terrains can be drawn on separate layers. The
+  `Legacy*LayerPath` and `LegacyAnnotationStyleName` fields exist only for the schema 30 migration.
 - `SourceReferenceSet.cs` — the universal input selector (object ids + layer paths); used by every
-  definition that reads doc geometry.
+  definition that reads doc geometry. These say what to *read* and are unrelated to output routing, which
+  is `LayerRole`.
+- `LayerRole.cs` — the closed set of output destinations. `LayerTemplateDefinition` / `LayerTemplateEntry`
+  bind roles to real layers and carry their appearance; `EmbeddedLayerTemplateState` is the document's own
+  copy of the templates it uses.
 
 ## Definition hierarchies (JSON-polymorphic base → subtypes)
 - **Modifiers** — polymorphism is registry-driven (`Services/TerrainJsonTypeResolver` reads each
@@ -42,7 +48,7 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   preferred over the older reference terrain id), and hatch pattern/scale/rotation for the generated
   cut and fill fills; the owning terrain remains the implicit proposed profile. `CutColorArgb`,
   `FillColorArgb` and `CutFillOpacityPercent` are retained for document round-tripping only — cut/fill
-  appearance is layer-driven.
+  appearance comes from the `SectionsCutFillCut` / `SectionsCutFillFill` roles.
 - **Objects** — `TerrainObjectDefinition` → `LowestPointObjectDefinition`,
   `SurfaceOrientedObjectDefinition`, `ScatterObjectDefinition` (+ `ScatterBlockEntry`,
   `ScatterPreviewMode`; reuses Core's `ScatterPattern`/`ScatterDensityMode`).

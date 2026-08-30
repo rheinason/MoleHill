@@ -44,7 +44,7 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
 
 ## Parameter schema
 - `ParameterDescriptor.cs` — one declarative input against `ModifierDefinition`: `Kind` (Sources/Number/
-  OptionalNumber/Slider/Bool/Layer/ReadOnly/Choice/Color/Text), `Label`/`Help`, numeric bounds, and typed
+  OptionalNumber/Slider/Bool/ReadOnly/Choice/Color/Text), `Label`/`Help`, numeric bounds, and typed
   get/set accessor delegates against the concrete definition (cast inside, mirroring the old hand-written
   mutations). Use the static factories (`Number`, `Slider`, `Sources`, …) to keep schemas terse.
   A `VisibleWhen` gate (`Func<ModifierDefinition,bool>?`) hides a row when it returns false, so parameters
@@ -72,6 +72,10 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
   fills with plausible controls and placeholder numbers while nothing says which one is holding it up.
   The panel puts the message on a warning surface at the top of the card, above the controls, and it
   names the control to reach for. Phrase it as the thing to do, not as a failure.
+- `LayerRoleRegistry.cs` (+ `LayerRoleDescriptor`, `LayerAppearanceDefaults`, `LayerRoleFacets`) — the
+  single declaration of every output destination: stable id, parent, default path, appearance, and whether
+  its colour is data or drafting. The shipped layer template is generated from it. See
+  `docs/architecture.md` → "Output layer roles".
 - `AnalysisFormatting.cs` — pure slope-unit/value-format/layer-color formatting helpers shared by the
   schema descriptors and the panel's hand-written rows. Lives here (not in `MoleHill.Rhino.UI`) so
   `MoleHill.Rhino.Tests`, which links `Registry/*.cs` directly without a UI reference, can still compile
