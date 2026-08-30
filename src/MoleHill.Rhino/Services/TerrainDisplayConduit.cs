@@ -566,8 +566,23 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
         if (generated.Geometry is Hatch hatch)
         {
-            var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
-            e.Display.DrawHatch(hatch, color, color);
+            LayerAppearance hatchAppearance = LayerRoleService.GetTable(doc).Appearance(generated.Role);
+            var color = TerrainDisplayColors.Resolve(
+                doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb, hatchAppearance);
+
+            // A solid fill is what DrawHatch already does well, and is the default for cut and fill.
+            // Anything patterned is drawn from its own pattern lines, so the preview shows the
+            // hatch the bake will produce rather than a flat tint of it.
+            IReadOnlyList<Curve> patternCurves = generated.GetPreviewHatchCurves(hatch);
+            if (patternCurves.Count == 0)
+            {
+                e.Display.DrawHatch(hatch, color, color);
+                return;
+            }
+
+            int hatchWidth = hatchAppearance.ScalePreviewWidth(terrain.PreviewLineWeight);
+            foreach (Curve patternCurve in patternCurves)
+                e.Display.DrawCurve(patternCurve, color, hatchWidth);
             return;
         }
 

@@ -9,6 +9,8 @@ internal sealed class GeneratedRhinoObject
     private readonly Dictionary<(int SourceIdentity, string DisplayText), TextEntity> _previewTextCache = new();
     private Brep? _previewBrepSource;
     private Mesh[]? _previewBrepMeshes;
+    private Hatch? _previewHatchSource;
+    private Curve[]? _previewHatchCurves;
     private bool _previewDisplayTextInitialized;
     private string? _previewDisplayText;
 
@@ -85,6 +87,47 @@ internal sealed class GeneratedRhinoObject
             .Where(mesh => mesh.IsValid && mesh.Faces.Count > 0)
             .ToArray();
         return _previewBrepMeshes;
+    }
+
+    /// <summary>
+    /// The pattern lines of a hatch, for drawing it in the viewport the way it will bake.
+    ///
+    /// The display pipeline can only fill a hatch with a flat colour — there is no call that renders
+    /// its pattern, and DrawObject needs a real document object, which a preview by definition does
+    /// not have. Exploding gives the pattern geometry directly, and needs no document access, so it
+    /// can happen off the document thread like the rest of the preview geometry.
+    ///
+    /// Returns empty for a solid fill, which is the common case and is drawn faster as a fill, and
+    /// for a pattern that explodes into more curves than is worth drawing per frame — a hatch scaled
+    /// far too fine can produce tens of thousands of segments, and a flat tint is a better outcome
+    /// than a stalled viewport.
+    /// </summary>
+    internal IReadOnlyList<Curve> GetPreviewHatchCurves(Hatch source)
+    {
+        const int MaxPreviewCurves = 5000;
+
+        if (ReferenceEquals(_previewHatchSource, source) && _previewHatchCurves != null)
+            return _previewHatchCurves;
+
+        _previewHatchSource = source;
+        _previewHatchCurves = Array.Empty<Curve>();
+
+        try
+        {
+            GeometryBase[]? exploded = source.Explode();
+            if (exploded != null)
+            {
+                var curves = exploded.OfType<Curve>().ToArray();
+                if (curves.Length > 0 && curves.Length <= MaxPreviewCurves)
+                    _previewHatchCurves = curves;
+            }
+        }
+        catch (Exception)
+        {
+            // A pattern Rhino cannot explode previews as a flat fill rather than not at all.
+        }
+
+        return _previewHatchCurves;
     }
 
     internal TextEntity? GetPreviewTextEntity(TextEntity source, string displayText)

@@ -12,6 +12,19 @@ internal static class TerrainBuildSnapshotBuilder
 {
     /// <summary>Every hatch pattern name the terrain's analyses reference, so the document-thread capture
     /// can resolve them all in one pass.</summary>
+    /// <summary>
+    /// Resolves the role table and, once per document, creates the layers it declares.
+    ///
+    /// Layer creation has to happen here because this is the document thread — the build itself has
+    /// no document access. Creating them up front is also what lets preview read real layer colours
+    /// instead of the template's, so nothing shifts appearance the first time it is baked.
+    /// </summary>
+    private static LayerRoleTable EnsureRoleLayers(RhinoDoc doc)
+    {
+        LayerRoleService.EnsureTemplateLayers(doc);
+        return LayerRoleService.GetTable(doc);
+    }
+
     private static IEnumerable<string?> EnumerateHatchPatternNames(TerrainDefinition terrain)
     {
         foreach (AnalysisDefinition analysis in terrain.Analyses)
@@ -42,7 +55,7 @@ internal static class TerrainBuildSnapshotBuilder
             ModelUnitSystem = doc.ModelUnitSystem,
             UnitContext = unitContext,
             AnnotationStyle = AnnotationStyleService.Capture(doc, terrainClone.AnnotationStyleName),
-            LayerRoles = LayerRoleService.GetTable(doc),
+            LayerRoles = EnsureRoleLayers(doc),
             HatchPatterns = HatchPatternService.Capture(doc, EnumerateHatchPatternNames(terrainClone))
         };
 

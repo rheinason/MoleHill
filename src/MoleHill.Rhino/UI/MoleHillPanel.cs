@@ -578,8 +578,10 @@ public sealed partial class MoleHillPanel : Panel
             expandWidget: true);
         var previewLineWeightRow = new PropertyRow(
             CreateHelpLabel(
-                "Line Weight",
-                "Thickness of previewed lines for this terrain. Does not affect baked geometry.",
+                "Preview Line Weight",
+                "On-screen only: multiplies the thickness of previewed lines so a busy plan stays "
+                    + "readable on a dense display. Everything else previews exactly as it bakes, so "
+                    + "any value other than 1.0x makes the preview deliberately heavier than the print.",
                 0),
             new StackLayout
             {

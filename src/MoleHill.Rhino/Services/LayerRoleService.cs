@@ -15,6 +15,7 @@ internal static class LayerRoleService
 {
     private static readonly object Gate = new();
     private static readonly Dictionary<uint, LayerRoleTable> Cache = new();
+    private static readonly HashSet<uint> LayersEnsured = new();
 
     /// <summary>
     /// Where templates come from. The plugin points this at its <see cref="LayerTemplateStore"/> on
@@ -50,9 +51,15 @@ internal static class LayerRoleService
         lock (Gate)
         {
             if (doc == null)
+            {
                 Cache.Clear();
+                LayersEnsured.Clear();
+            }
             else
+            {
                 Cache.Remove(doc.RuntimeSerialNumber);
+                LayersEnsured.Remove(doc.RuntimeSerialNumber);
+            }
         }
     }
 
@@ -64,6 +71,14 @@ internal static class LayerRoleService
     /// </summary>
     public static void EnsureTemplateLayers(RhinoDoc doc)
     {
+        lock (Gate)
+        {
+            // Once per document per session. The work is idempotent, but a build should not walk the
+            // whole layer table every time it runs.
+            if (!LayersEnsured.Add(doc.RuntimeSerialNumber))
+                return;
+        }
+
         LayerCreationService.ApplyTemplate(doc, GetTable(doc));
     }
 

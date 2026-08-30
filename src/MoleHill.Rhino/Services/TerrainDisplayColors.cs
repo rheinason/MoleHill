@@ -14,13 +14,17 @@ namespace MoleHill.Rhino.Services;
 internal static class TerrainDisplayColors
 {
     /// <summary>
-    /// Explicit object colour wins, then the source layer, then the output layer as it exists in the
-    /// document, and finally the appearance the layer template declares for this output.
+    /// Explicit object colour wins, then the output layer as it exists in the document, then the
+    /// layer the geometry was read from, and finally the appearance the layer template declares.
     ///
-    /// That last step is what makes a preview match its bake. Output layers are only created when
+    /// The last step is what makes a preview match its bake. Output layers are only created when
     /// something is baked, so before this an un-baked terrain drew every drawing line in a
-    /// placeholder grey and then changed colour the moment it was baked. A layer that does exist
-    /// still wins over the template, because the user owns it once it is in the document.
+    /// placeholder grey and then changed colour the moment it was baked.
+    ///
+    /// The output layer is consulted before the source layer for the same reason the template comes
+    /// last: once a layer is in the document it belongs to the user. A zone's layer is seeded from
+    /// its source layer when created, so the two agree to begin with; afterwards, restyling either
+    /// one does the same thing to the preview as it does to the bake.
     /// </summary>
     public static Color Resolve(
         global::Rhino.RhinoDoc doc,
@@ -32,11 +36,11 @@ internal static class TerrainDisplayColors
         if (colorArgb.HasValue)
             return Color.FromArgb(colorArgb.Value);
 
-        if (TryResolveLayerColor(doc, sourceLayerPath, out Color sourceColor))
-            return sourceColor;
-
         if (TryResolveLayerColor(doc, layerPath, out Color layerColor))
             return layerColor;
+
+        if (TryResolveLayerColor(doc, sourceLayerPath, out Color sourceColor))
+            return sourceColor;
 
         return Color.FromArgb(appearance?.ColorArgb ?? unchecked((int)0xFF000000));
     }

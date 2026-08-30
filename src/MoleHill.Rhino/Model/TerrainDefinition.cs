@@ -44,9 +44,12 @@ public sealed class TerrainDefinition
 
     /// <summary>
     /// Multiplier on the viewport thickness of every line this terrain previews — contours, waterflow,
-    /// sections, annotation, markers. 1.0 is the drawing-derived default from
-    /// <see cref="Services.GeneratedLayerDefaults"/>; raise it to read a busy plan on a dense screen.
-    /// Purely a display preference: it never reaches baked geometry, whose weight belongs to the layer.
+    /// sections, annotation, markers. 1.0 is the thickness the line's role resolves to; raise it to
+    /// read a busy plan on a dense screen.
+    ///
+    /// Purely a display preference: it never reaches baked geometry, whose weight belongs to the
+    /// layer. It is also the one place preview and bake deliberately differ, now that everything else
+    /// resolves through one appearance record — which is why the panel labels it as on-screen only.
     /// </summary>
     public double PreviewLineWeight { get; set; } = 1.0;
 
