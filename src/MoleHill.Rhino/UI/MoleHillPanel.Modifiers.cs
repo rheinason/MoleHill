@@ -184,13 +184,8 @@ public sealed partial class MoleHillPanel
             case SculptModifierDefinition:
                 layout.AddRow(CreateSculptSessionRow(terrain.TerrainId, modifier.Id));
                 break;
-            case GradePathModifierDefinition gradePath:
-            {
-                Control? advanced = CreateGradePathAdvancedGroup(terrain, gradePath);
-                if (advanced != null)
-                    layout.AddRow(advanced);
+            case GradePathModifierDefinition:
                 break;
-            }
         }
     }
 
@@ -230,7 +225,7 @@ public sealed partial class MoleHillPanel
         };
         // Constant-width first, then the opt-in toggle, then the rows it unlocks — so the card reads
         // "a path has a Width; variable width is something you switch on", not "fill in these curves".
-        foreach (string key in new[] { "Paths", "Width", "UseVariableWidth", "WidthEdges" })
+        foreach (string key in new[] { "Paths", "Width", "UseVariableWidth", "WidthEdges", "MaxEdgeDistance" })
         {
             Control? row = BuildBespokePositionedModifierRow(terrain, modifier, key);
             if (row != null)
@@ -240,50 +235,6 @@ public sealed partial class MoleHillPanel
         // the frame was drawing a border around "the inputs" and naming them after their data type. The
         // rows already say Centerlines / Width / Variable Width.
         return content;
-    }
-
-    /// <summary>Variable-width matching tuning. Returns null when the modifier is a plain
-    /// constant-width path, so the card carries no trace of the optional feature.</summary>
-    private Control? CreateGradePathAdvancedGroup(TerrainDefinition terrain, GradePathModifierDefinition modifier)
-    {
-        Control? row = BuildBespokePositionedModifierRow(terrain, modifier, "MaxEdgeDistance");
-        if (row == null)
-            return null;
-
-        bool expanded = _expandedGradePathAdvancedSettings.Contains(modifier.Id);
-        var content = new DynamicLayout
-        {
-            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
-            Padding = new Padding(UiMetrics.CardHorizontalPadding, UiMetrics.SpaceMedium),
-            Visible = expanded
-        };
-        content.AddRow(row);
-
-        var header = new SectionHeader(
-            "Variable Width Matching",
-            null,
-            expanded,
-            next =>
-            {
-                if (next)
-                    _expandedGradePathAdvancedSettings.Add(modifier.Id);
-                else
-                    _expandedGradePathAdvancedSettings.Remove(modifier.Id);
-                content.Visible = next;
-            });
-
-        var outer = new StackLayout
-        {
-            Orientation = Orientation.Vertical,
-            Spacing = 0,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(header, HorizontalAlignment.Stretch),
-                new StackLayoutItem(content, HorizontalAlignment.Stretch)
-            }
-        };
-        return outer;
     }
 
     private Control CreateSculptSessionRow(Guid terrainId, Guid modifierId)

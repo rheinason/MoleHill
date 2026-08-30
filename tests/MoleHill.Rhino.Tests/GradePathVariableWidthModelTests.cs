@@ -44,6 +44,11 @@ public sealed class GradePathVariableWidthModelTests
         Assert.Contains(descriptor.Parameters, parameter => parameter.Key == "UseVariableWidth");
         Assert.Contains(descriptor.Parameters, parameter => parameter.Key == "WidthEdges");
         Assert.Contains(descriptor.Parameters, parameter => parameter.Key == "MaxEdgeDistance");
+        Assert.Equal(
+            new[] { "WidthEdges", "MaxEdgeDistance" },
+            descriptor.Parameters.SkipWhile(parameter => parameter.Key != "WidthEdges")
+                .Take(2)
+                .Select(parameter => parameter.Key));
     }
 
     [Fact]

@@ -41,6 +41,12 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
             "Roughly parallel plan curves. Each curve is matched uniquely to a centerline side; its Z is ignored and remapped from the centerline.",
             visibleWhen: static m => ((GradePathModifierDefinition)m).UseVariableWidth),
         ParameterDescriptor.Number(
+            "MaxEdgeDistance", "Edge Match Distance",
+            m => ((GradePathModifierDefinition)m).MaxEdgeDistance,
+            (m, v) => ((GradePathModifierDefinition)m).MaxEdgeDistance = v,
+            "Maximum plan distance for matching a width edge to a centerline. A larger value helps match edges on wide sites; set to 0 to use the automatic four-times-Width fallback.",
+            visibleWhen: static m => ((GradePathModifierDefinition)m).UseVariableWidth),
+        ParameterDescriptor.Number(
             "SlopeAngle", "Fill Slope",
             m => ((GradePathModifierDefinition)m).SlopeAngle,
             (m, v) => ((GradePathModifierDefinition)m).SlopeAngle = v,
@@ -56,11 +62,5 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
             m => ((GradePathModifierDefinition)m).MaxDistance,
             (m, v) => ((GradePathModifierDefinition)m).MaxDistance = v,
             "Maximum grading reach away from the path. 0 means unlimited; lower values constrain the shoulder length."),
-        ParameterDescriptor.Number(
-            "MaxEdgeDistance", "Max Edge Distance",
-            m => ((GradePathModifierDefinition)m).MaxEdgeDistance,
-            (m, v) => ((GradePathModifierDefinition)m).MaxEdgeDistance = v,
-            "Maximum centerline-to-edge matching distance. 0 automatically uses four times Width.",
-            visibleWhen: static m => ((GradePathModifierDefinition)m).UseVariableWidth),
     };
 }
