@@ -33,6 +33,10 @@ public sealed class MoleHillRhinoPlugin : PlugIn
 
     protected override LoadReturnCode OnLoad(ref string errorMessage)
     {
+        // Where output layer routing and appearance come from. Set before anything can build, since
+        // every generated object resolves its layer through this.
+        LayerRoleService.TemplateProvider = () => _layerTemplateStore.LoadTemplates();
+
         TerrainController.Instance.Initialize();
 
         // Lets render engines that honour the RDK custom render mesh system draw terrain previews

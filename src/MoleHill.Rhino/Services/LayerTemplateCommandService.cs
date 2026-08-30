@@ -2,7 +2,6 @@ using MoleHill.Rhino.Model;
 using MoleHill.Rhino.UI;
 using Rhino;
 using Rhino.Commands;
-using Rhino.DocObjects;
 using Rhino.Input.Custom;
 
 namespace MoleHill.Rhino.Services;
@@ -11,35 +10,59 @@ internal static class LayerTemplateCommandService
 {
     public static Result RunApplyLayerTemplate(RhinoDoc doc)
     {
-        var store = MoleHillRhinoPlugin.Instance.LayerTemplateStore;
-        var templates = store.LoadTemplates().ToList();
-        if (templates.Count == 0)
+        if (!TryChooseTemplate(doc, "Choose layer template", out LayerTemplateDefinition? template, out Result result))
+            return result;
+
+        // Create-only. Applying a template must never restyle layers that already exist: the user's
+        // Layers-panel edits and per-detail print overrides are theirs, and this command used to
+        // discard them silently on every run. Re-stamping is mhResetLayerStyles, which asks first.
+        var counts = LayerCreationService.ApplyTemplate(doc, LayerRoleTable.Build(template!));
+
+        doc.Views.Redraw();
+        RhinoApp.WriteLine(
+            $"Applied layer template '{template!.Name}' ({counts.Created} created, {counts.Existing} already present).");
+        return Result.Success;
+    }
+
+    /// <summary>
+    /// Re-stamps colour, print colour and print width onto layers that already exist, discarding
+    /// whatever the user changed in Rhino's Layers panel. Deliberately its own command, and
+    /// deliberately noisy about what it is going to do, because the everyday rule is the opposite:
+    /// the template seeds a layer once, and after that the layer wins.
+    /// </summary>
+    public static Result RunResetLayerStyles(RhinoDoc doc)
+    {
+        if (!TryChooseTemplate(
+                doc,
+                "Choose layer template to reset styles from",
+                out LayerTemplateDefinition? template,
+                out Result result))
         {
-            RhinoApp.WriteLine("No layer templates are available.");
+            return result;
+        }
+
+        var table = LayerRoleTable.Build(template!);
+        int affected = table.AllLayers.Count(layer => doc.Layers.FindByFullPath(layer.Path, -1) >= 0);
+        if (affected == 0)
+        {
+            RhinoApp.WriteLine($"No layers from '{template!.Name}' exist in this document yet — nothing to reset.");
             return Result.Nothing;
         }
 
-        LayerTemplateDefinition template = templates[0];
-        if (templates.Count > 1)
-        {
-            var getOption = new GetOption();
-            getOption.SetCommandPrompt("Choose layer template");
-            var optionMap = new Dictionary<int, LayerTemplateDefinition>();
-            foreach (var item in templates)
-                optionMap[getOption.AddOption(item.Name.Replace(" ", string.Empty))] = item;
+        var confirm = new GetOption();
+        confirm.SetCommandPrompt(
+            $"Reset {affected} layer style(s) from '{template!.Name}'? This discards colour and print width edits made in the Layers panel");
+        int noIndex = confirm.AddOption("No");
+        confirm.AddOption("Yes");
+        if (confirm.Get() != global::Rhino.Input.GetResult.Option)
+            return confirm.CommandResult();
 
-            if (getOption.Get() != global::Rhino.Input.GetResult.Option)
-                return getOption.CommandResult();
+        if (confirm.OptionIndex() == noIndex)
+            return Result.Cancel;
 
-            if (!optionMap.TryGetValue(getOption.OptionIndex(), out template!))
-                return Result.Cancel;
-        }
-
-        foreach (var entry in template.Entries)
-            EnsureLayer(doc, entry);
-
+        var counts = LayerCreationService.ApplyTemplate(doc, table, restyleExisting: true);
         doc.Views.Redraw();
-        RhinoApp.WriteLine($"Applied layer template '{template.Name}'.");
+        RhinoApp.WriteLine($"Reset {counts.Existing} layer style(s) from '{template.Name}' ({counts.Created} created).");
         return Result.Success;
     }
 
@@ -49,40 +72,46 @@ internal static class LayerTemplateCommandService
         return saved ? Result.Success : Result.Cancel;
     }
 
-    private static void EnsureLayer(RhinoDoc doc, LayerTemplateEntry entry)
+    private static bool TryChooseTemplate(
+        RhinoDoc doc,
+        string prompt,
+        out LayerTemplateDefinition? template,
+        out Result result)
     {
-        string[] segments = entry.Path
-            .Split(new[] { "::" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        int parentIndex = -1;
-        string currentPath = string.Empty;
-        for (int i = 0; i < segments.Length; i++)
+        template = null;
+        result = Result.Nothing;
+
+        var templates = MoleHillRhinoPlugin.Instance.LayerTemplateStore.LoadTemplates().ToList();
+        if (templates.Count == 0)
         {
-            currentPath = string.IsNullOrEmpty(currentPath) ? segments[i] : $"{currentPath}::{segments[i]}";
-            int layerIndex = doc.Layers.FindByFullPath(currentPath, -1);
-            if (layerIndex < 0)
-            {
-                var layer = new Layer
-                {
-                    Name = segments[i],
-                    Color = System.Drawing.Color.FromArgb(entry.ColorArgb),
-                    PlotColor = System.Drawing.Color.FromArgb(entry.PrintColorArgb),
-                    PlotWeight = entry.PlotWeight
-                };
-                if (parentIndex >= 0)
-                    layer.ParentLayerId = doc.Layers[parentIndex].Id;
-
-                layerIndex = doc.Layers.Add(layer);
-            }
-            else
-            {
-                Layer updated = doc.Layers[layerIndex];
-                updated.Color = System.Drawing.Color.FromArgb(entry.ColorArgb);
-                updated.PlotColor = System.Drawing.Color.FromArgb(entry.PrintColorArgb);
-                updated.PlotWeight = entry.PlotWeight;
-                doc.Layers.Modify(updated, layerIndex, quiet: true);
-            }
-
-            parentIndex = layerIndex;
+            RhinoApp.WriteLine("No layer templates are available.");
+            return false;
         }
+
+        if (templates.Count == 1)
+        {
+            template = templates[0];
+            return true;
+        }
+
+        var getOption = new GetOption();
+        getOption.SetCommandPrompt(prompt);
+        var optionMap = new Dictionary<int, LayerTemplateDefinition>();
+        foreach (var item in templates)
+            optionMap[getOption.AddOption(item.Name.Replace(" ", string.Empty))] = item;
+
+        if (getOption.Get() != global::Rhino.Input.GetResult.Option)
+        {
+            result = getOption.CommandResult();
+            return false;
+        }
+
+        if (!optionMap.TryGetValue(getOption.OptionIndex(), out template))
+        {
+            result = Result.Cancel;
+            return false;
+        }
+
+        return true;
     }
 }

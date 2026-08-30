@@ -1,12 +1,24 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 
 namespace MoleHill.Rhino.Services;
 
 internal sealed class LayerTemplateStore
 {
     private const string TemplatesFileName = "layer-templates.json";
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
+    /// <summary>Current template schema. 0 is a pre-role file — see <see cref="UpgradeTemplate"/>.</summary>
+    private const int CurrentTemplateVersion = 1;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        // Inherited appearance is the common case, and writing a null for every field a template
+        // does not set would triple the size of the file and bury the values that matter.
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
     public IReadOnlyList<LayerTemplateDefinition> LoadTemplates()
     {
@@ -42,6 +54,10 @@ internal sealed class LayerTemplateStore
         var normalized = NormalizeTemplates(templates.ToList());
         string json = JsonSerializer.Serialize(normalized, JsonOptions);
         File.WriteAllText(path, json);
+
+        // Routing and appearance both come from the template, so every open document is now
+        // resolving against a stale table.
+        LayerRoleService.Invalidate();
     }
 
     public string GetStorePath()
@@ -53,7 +69,7 @@ internal sealed class LayerTemplateStore
     /// <summary>Returns a fresh copy of the built-in factory templates without touching the saved file.</summary>
     public IReadOnlyList<LayerTemplateDefinition> GetDefaultTemplates() => CreateDefaultTemplates();
 
-    private static List<LayerTemplateDefinition> NormalizeTemplates(List<LayerTemplateDefinition> templates)
+    internal static List<LayerTemplateDefinition> NormalizeTemplates(List<LayerTemplateDefinition> templates)
     {
         foreach (var template in templates)
         {
@@ -67,6 +83,9 @@ internal sealed class LayerTemplateStore
                     return entry;
                 })
                 .ToList();
+
+            UpgradeTemplate(template);
+            DropDuplicateRoleBindings(template);
         }
 
         return templates
@@ -76,49 +95,140 @@ internal sealed class LayerTemplateStore
             .ToList();
     }
 
+    /// <summary>
+    /// Brings a pre-role template up to the current schema, in place.
+    ///
+    /// A version 0 file predates role bindings, and its entries are keyed only by layer path. Since
+    /// those paths are exactly the ones the plugin used to hardcode, the roles can be recovered by
+    /// matching each path against the role's default — so a user's existing template, and any copy
+    /// or export of it, acquires its bindings on first load with nothing for them to do.
+    ///
+    /// A print width of zero also changes meaning: it used to be the unset default that the old
+    /// serializer wrote for every entry, and now means a deliberate hairline, so it is cleared back
+    /// to "inherit".
+    /// </summary>
+    private static void UpgradeTemplate(LayerTemplateDefinition template)
+    {
+        if (template.Version >= CurrentTemplateVersion)
+            return;
+
+        // Several roles can default to one layer — retaining walls and grading output both sit on
+        // the auxiliary layer until someone splits them out. The layer belongs to the role that
+        // names it, so recovering a binding from a path must pick that one and not a role that is
+        // merely sharing it.
+        var rolesByDefaultPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var descriptor in LayerRoleRegistry.All)
+        {
+            if (descriptor.Parent.HasValue && descriptor.RelativeSuffix.Length == 0)
+                continue;
+
+            rolesByDefaultPath[LayerRoleRegistry.DefaultPath(descriptor.Role)] = descriptor.Id;
+        }
+
+        var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in template.Entries)
+        {
+            if (entry.PlotWeight is 0.0)
+                entry.PlotWeight = null;
+
+            if (!string.IsNullOrWhiteSpace(entry.Role))
+            {
+                claimed.Add(entry.Role!);
+                continue;
+            }
+
+            if (rolesByDefaultPath.TryGetValue(entry.Path, out string? roleId) && claimed.Add(roleId))
+                entry.Role = roleId;
+        }
+
+        template.Version = CurrentTemplateVersion;
+    }
+
+    /// <summary>
+    /// Keeps the first binding when a role appears twice. The editor blocks this on save, but an
+    /// imported or hand-edited file can still carry it, and a template that silently routes one kind
+    /// of output to two layers is worse than one that picks.
+    /// </summary>
+    private static void DropDuplicateRoleBindings(LayerTemplateDefinition template)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in template.Entries)
+        {
+            if (!string.IsNullOrWhiteSpace(entry.Role) && !seen.Add(entry.Role!))
+                entry.Role = null;
+        }
+    }
+
+    /// <summary>
+    /// The shipped template: every role at its registry default, plus the plain layers a user draws
+    /// their own inputs and feature curves on, which nothing routes to.
+    ///
+    /// Generated from <see cref="LayerRoleRegistry"/> rather than hand-written. The two used to be
+    /// separate lists of the same layer paths and print widths, kept in agreement by hand and by
+    /// tests whose only job was to catch them drifting — and they had in fact drifted.
+    /// </summary>
     private static List<LayerTemplateDefinition> CreateDefaultTemplates()
     {
-        // Mirrors the layers MoleHill actually uses: inputs the user draws or imports (spots,
-        // contours, breaklines, boundary), grading feature curves (walls, pads, paths), plus the
-        // output layers the plugin bakes to (Terrain / Auxiliary / Annotation). Output paths and the
-        // terrain color reuse TerrainDefinition so the template stays aligned with the plugin's defaults.
+        var entries = new List<LayerTemplateEntry>
+        {
+            CreateEntry("MoleHill", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.25),
+            CreateEntry("MoleHill::Inputs", unchecked((int)0xFF808080), unchecked((int)0xFF808080), 0.25),
+            CreateEntry("MoleHill::Inputs::Spots", unchecked((int)0xFF008900), unchecked((int)0xFF008900), 0.18),
+            CreateEntry("MoleHill::Inputs::Contours", unchecked((int)0xFF8C8C8C), unchecked((int)0xFF8C8C8C), 0.13),
+            CreateEntry("MoleHill::Inputs::Breaklines", unchecked((int)0xFFFFC000), unchecked((int)0xFFFFC000), 0.25),
+            CreateEntry("MoleHill::Inputs::Boundary", unchecked((int)0xFF1E64FF), unchecked((int)0xFF1E64FF), 0.35),
+            CreateEntry("MoleHill::Features", unchecked((int)0xFF7D26CD), unchecked((int)0xFF7D26CD), 0.25),
+            CreateEntry("MoleHill::Features::Walls", unchecked((int)0xFFC00000), unchecked((int)0xFFC00000), 0.25),
+            CreateEntry("MoleHill::Features::Pads", unchecked((int)0xFF00B0F0), unchecked((int)0xFF00B0F0), 0.25),
+            CreateEntry("MoleHill::Features::Paths", unchecked((int)0xFFFFBF00), unchecked((int)0xFFFFBF00), 0.25)
+        };
+
+        entries.AddRange(CreateRoleEntries());
+
         return new List<LayerTemplateDefinition>
         {
             new()
             {
+                Version = CurrentTemplateVersion,
                 Name = "MoleHill Terrain",
-                Entries = new List<LayerTemplateEntry>
-                {
-                    CreateEntry("MoleHill", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.25),
-                    CreateEntry("MoleHill::Inputs", unchecked((int)0xFF808080), unchecked((int)0xFF808080), 0.25),
-                    CreateEntry("MoleHill::Inputs::Spots", unchecked((int)0xFF008900), unchecked((int)0xFF008900), 0.18),
-                    CreateEntry("MoleHill::Inputs::Contours", unchecked((int)0xFF8C8C8C), unchecked((int)0xFF8C8C8C), 0.13),
-                    CreateEntry("MoleHill::Inputs::Breaklines", unchecked((int)0xFFFFC000), unchecked((int)0xFFFFC000), 0.25),
-                    CreateEntry("MoleHill::Inputs::Boundary", unchecked((int)0xFF1E64FF), unchecked((int)0xFF1E64FF), 0.35),
-                    CreateEntry("MoleHill::Features", unchecked((int)0xFF7D26CD), unchecked((int)0xFF7D26CD), 0.25),
-                    CreateEntry("MoleHill::Features::Walls", unchecked((int)0xFFC00000), unchecked((int)0xFFC00000), 0.25),
-                    CreateEntry("MoleHill::Features::Pads", unchecked((int)0xFF00B0F0), unchecked((int)0xFF00B0F0), 0.25),
-                    CreateEntry("MoleHill::Features::Paths", unchecked((int)0xFFFFBF00), unchecked((int)0xFFFFBF00), 0.25),
-                    CreateEntry(TerrainDefinition.DefaultTerrainLayerPath, TerrainDefinition.DefaultTerrainColorArgb, TerrainDefinition.DefaultTerrainColorArgb, 0.18),
-                    CreateEntry(TerrainDefinition.DefaultAuxiliaryLayerPath, unchecked((int)0xFFAAAAAA), unchecked((int)0xFFAAAAAA), 0.13),
-                    CreateEntry(TerrainDefinition.DefaultAnnotationLayerPath, unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.13),
-                    // Drawing sublayers. Print width and print colour live here rather than on each
-                    // generated object, so the office standard is edited in Rhino's Layers panel and
-                    // per-detail overrides work. Weights match GeneratedLayerDefaults.
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Contours::Major", unchecked((int)0xFF6E4B1F), unchecked((int)0xFF000000), 0.35),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Contours::Minor", unchecked((int)0xFFA98A5C), unchecked((int)0xFF000000), 0.13),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Waterflow", unchecked((int)0xFF1565C0), unchecked((int)0xFF1565C0), 0.30),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.70),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Cuts", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.50),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Grid", unchecked((int)0xFFB4B4B4), unchecked((int)0xFF808080), 0.13),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Ticks", unchecked((int)0xFF808080), unchecked((int)0xFF000000), 0.18),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Labels", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.13),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Existing", unchecked((int)0xFF8C8C8C), unchecked((int)0xFF8C8C8C), 0.18),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::CutFill::Cut", TerrainSectionAnalysisDefinitionBase.DefaultCutColorArgb, unchecked((int)0xFFEB462D), 0.13),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::CutFill::Fill", TerrainSectionAnalysisDefinitionBase.DefaultFillColorArgb, unchecked((int)0xFF4C849E), 0.13)
-                }
+                Entries = entries
             }
         };
+    }
+
+    private static IEnumerable<LayerTemplateEntry> CreateRoleEntries()
+    {
+        var table = LayerRoleTable.Default;
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var descriptor in LayerRoleRegistry.All)
+        {
+            string path = table.Path(descriptor.Role);
+
+            // Roles that deliberately share a layer with their parent contribute no second entry;
+            // a template cannot bind two roles to one layer.
+            if (!seenPaths.Add(path))
+                continue;
+
+            var appearance = table.Appearance(descriptor.Role);
+            yield return new LayerTemplateEntry
+            {
+                Path = path,
+                Role = descriptor.Id,
+                ColorArgb = appearance.ColorArgb,
+                PrintColorArgb = appearance.PrintColorArgb,
+                PlotWeight = appearance.PlotWeight,
+                LinetypeName = appearance.LinetypeName,
+                AnnotationStyleName = appearance.AnnotationStyleName,
+                HatchPatternName = appearance.HatchPatternName,
+                // Only carried when it is not what the print width would derive, so the file shows
+                // the handful of deliberate exceptions rather than restating every default.
+                PreviewWidthPx =
+                    appearance.PreviewWidthPx == LayerRoleRegistry.DerivePreviewWidthPx(appearance.PlotWeight)
+                        ? null
+                        : appearance.PreviewWidthPx
+            };
+        }
     }
 
     private static LayerTemplateEntry CreateEntry(string path, int colorArgb, int printColorArgb, double plotWeight)

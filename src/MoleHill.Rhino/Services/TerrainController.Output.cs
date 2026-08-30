@@ -574,59 +574,14 @@ internal sealed partial class TerrainController
     }
 
     /// <summary>
-    /// Creates a <c>::</c>-delimited layer path, seeding each newly created layer's print width from
-    /// <see cref="GeneratedLayerDefaults"/>. Shared so anything that writes MoleHill output into the
-    /// document — the build pipeline, and interactive commands like the curve inspector's labelling —
-    /// lands on layers styled the same way. Existing layers are returned untouched.
+    /// Creates a <c>::</c>-delimited layer path. Delegates to <see cref="LayerCreationService"/> so
+    /// the build pipeline, applying a layer template, and interactive commands like the curve
+    /// inspector's labelling all create layers by the same rule: seed appearance once at creation,
+    /// then leave the layer alone.
     /// </summary>
     internal static int EnsureLayerPath(RhinoDoc doc, string fullPath, global::Rhino.DocObjects.Layer? sourceLayer = null)
     {
-        int parentIndex = -1;
-        string currentPath = string.Empty;
-
-        foreach (var segment in fullPath.Split(new[] { "::" }, StringSplitOptions.None))
-        {
-            currentPath = string.IsNullOrEmpty(currentPath) ? segment : $"{currentPath}::{segment}";
-            int index = doc.Layers.FindByFullPath(currentPath, -1);
-            if (index >= 0)
-            {
-                parentIndex = index;
-                continue;
-            }
-
-            var layer = new Layer { Name = segment };
-            if (parentIndex >= 0)
-                layer.ParentLayerId = doc.Layers[parentIndex].Id;
-
-            if (sourceLayer != null && string.Equals(currentPath, fullPath, StringComparison.OrdinalIgnoreCase))
-            {
-                layer.Color = sourceLayer.Color;
-                layer.PlotColor = sourceLayer.PlotColor;
-            }
-
-            // Seed the print width once, at creation. After that the layer owns it and the user's edits in
-            // Rhino's Layers panel persist across rebuilds.
-            double? defaultPlotWeight = GeneratedLayerDefaults.GetPlotWeight(currentPath);
-            if (defaultPlotWeight.HasValue)
-                layer.PlotWeight = defaultPlotWeight.Value;
-
-            // Same rule for colour, and only where it means something: cut and fill are unreadable if
-            // they are created the same colour, and requiring "Bake Layers" first to tell them apart is
-            // setup the drawing should not need. An explicit source layer still wins.
-            if (sourceLayer == null || !string.Equals(currentPath, fullPath, StringComparison.OrdinalIgnoreCase))
-            {
-                int? defaultColor = GeneratedLayerDefaults.GetColorArgb(currentPath);
-                if (defaultColor.HasValue)
-                {
-                    layer.Color = System.Drawing.Color.FromArgb(defaultColor.Value);
-                    layer.PlotColor = layer.Color;
-                }
-            }
-
-            parentIndex = doc.Layers.Add(layer);
-        }
-
-        return parentIndex >= 0 ? parentIndex : doc.Layers.CurrentLayerIndex;
+        return LayerCreationService.EnsureLayerPath(doc, fullPath, LayerRoleService.GetTable(doc), sourceLayer);
     }
 
     private static global::Rhino.DocObjects.Layer? TryGetSourceLayer(RhinoDoc doc, string? sourceLayerPath)

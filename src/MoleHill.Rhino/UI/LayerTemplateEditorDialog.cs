@@ -443,9 +443,9 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
                 if (i == segments.Length - 1)
                 {
-                    node.ColorArgb = entry.ColorArgb;
-                    node.PrintColorArgb = entry.PrintColorArgb;
-                    node.PlotWeight = entry.PlotWeight;
+                    node.ColorArgb = entry.ColorArgb ?? node.ColorArgb;
+                    node.PrintColorArgb = entry.PrintColorArgb ?? node.PrintColorArgb;
+                    node.PlotWeight = entry.PlotWeight ?? node.PlotWeight;
                 }
 
                 parent = node;
