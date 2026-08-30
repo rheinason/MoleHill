@@ -19,10 +19,10 @@ internal static class TerrainBuildSnapshotBuilder
     /// no document access. Creating them up front is also what lets preview read real layer colours
     /// instead of the template's, so nothing shifts appearance the first time it is baked.
     /// </summary>
-    private static LayerRoleTable EnsureRoleLayers(RhinoDoc doc)
+    private static LayerRoleTable EnsureRoleLayers(RhinoDoc doc, TerrainDefinition terrain)
     {
-        LayerRoleService.EnsureTemplateLayers(doc);
-        return LayerRoleService.GetTable(doc);
+        LayerRoleService.EnsureTemplateLayers(doc, terrain);
+        return LayerRoleService.GetTable(doc, terrain);
     }
 
     private static IEnumerable<string?> EnumerateHatchPatternNames(TerrainDefinition terrain)
@@ -55,7 +55,7 @@ internal static class TerrainBuildSnapshotBuilder
             ModelUnitSystem = doc.ModelUnitSystem,
             UnitContext = unitContext,
             AnnotationStyle = AnnotationStyleService.Capture(doc, terrainClone.AnnotationStyleName),
-            LayerRoles = EnsureRoleLayers(doc),
+            LayerRoles = EnsureRoleLayers(doc, terrainClone),
             HatchPatterns = HatchPatternService.Capture(doc, EnumerateHatchPatternNames(terrainClone))
         };
 

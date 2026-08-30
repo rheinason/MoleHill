@@ -36,6 +36,7 @@ public sealed class MoleHillRhinoPlugin : PlugIn
         // Where output layer routing and appearance come from. Set before anything can build, since
         // every generated object resolves its layer through this.
         LayerRoleService.TemplateProvider = () => _layerTemplateStore.LoadTemplates();
+        LayerRoleService.TemplateWriter = templates => _layerTemplateStore.SaveTemplates(templates);
 
         TerrainController.Instance.Initialize();
 

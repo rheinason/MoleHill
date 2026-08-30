@@ -64,6 +64,17 @@ public sealed class TerrainDefinition
     /// masks are edited in Rhino's own Annotation Styles editor, not in MoleHill.</summary>
     public string? AnnotationStyleName { get; set; }
 
+    /// <summary>
+    /// Layer template this terrain routes and styles its output through. Blank uses the document's
+    /// active template, which is what almost every terrain wants.
+    ///
+    /// It exists so two terrains in one document can be drawn on separate layers — an existing
+    /// surface against a proposed one — which is what the per-terrain output layer paths used to
+    /// provide. Routing still lives entirely in templates: this chooses between them, it does not
+    /// override any individual layer.
+    /// </summary>
+    public string? LayerTemplateName { get; set; }
+
     public string SlopePalettePreset { get; set; } = ColorRampPresets.DefaultKey;
 
     public double SlopeColorLowPercent { get; set; }
