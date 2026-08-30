@@ -20,15 +20,26 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
 - **`src/MoleHill.Rhino/`** — the Rhino plugin: dockable panel UI (`UI/`, Eto.Forms), commands
   (`Commands/`), the terrain definition model (`Model/`), and the build/persistence services
   (`Services/`). **All Rhino API use lives here; all reusable math lives in Core.**
-  The dock panel uses local Eto responsive primitives (`PropertyRow`, adaptive button groups, and
-  `UiMetrics`) instead of rebuilding the full panel on width changes. Modifier, analysis, and object
+  The dock panel uses a native-first Eto design system (`UiMetrics`, `UiControls`, `PropertyRow`,
+  adaptive columns/button groups, and semantic card/form layouts) instead of rebuilding the full panel
+  on width changes. Its compact mode targets a 240-logical-pixel panel: simple properties retain a
+  label/control split, secondary card metadata yields first, tab labels become icons, and infrequent
+  toolbar commands move into overflow rather than forcing horizontal or excessive vertical scrolling.
+  Modifier, analysis, and object
   settings are descriptor-driven; only specialized summaries and the scatter block-mix editor remain
   bespoke. Compact action buttons use
   `UI/PanelButtonIcons.cs`, a theme-aware vector icon set rendered to Eto images.
 - Rhino command names use the compact `mh...` prefix. The installed toolbar exposes Geometry, Blocks,
   and Document utilities; terrain creation, editing, and bake/convert workflows stay in the dock panel.
 - Curve review remains an ordinary-Rhino-geometry workflow: `mhInspectCurve` opens a compact,
-  document-parented live report with grade/compliance diagnostics, while `mhSlopeCurveSection` edits
+  document-parented live report with grade/compliance diagnostics *and* a viewport overlay conduit -
+  grade-colored ribbon, elevations at kinks, per-stretch grade and length, crest/sag/break/off-terrain
+  markers, terrain drape with cut/fill ties, and red stretches wherever the optional max-grade or
+  min-plan-radius limit is violated. A `Label` button runs a pick loop along the inspected curve and drops
+  text dots reading elevation, grade, station or cut/fill on the terrain's annotation label sublayer, in a
+  single undo record - this replaces the removed `mhSlopeCheckAndMark`, which recomputed slope from scratch
+  and dropped bare dots on the current layer. Overlay `Weight` and label density are panel controls, since
+  a hairline ribbon cannot show its own colour coding - while `mhSlopeCurveSection` edits
   only the selected elevation interval using an explicit grade, current-endpoint interpolation, or a
   blend to the selected terrain's completed final mesh. No custom curve object is persisted.
 - `mhOffsetFeature` is the Civil3D-style feature line offset: it offsets a selected 3D polyline in
@@ -61,11 +72,13 @@ surfaces. The streaming importer validates point ids and face references, import
 converts its declared linear unit into document units, swaps LandXML Northing/Easting into Rhino Y/X,
 and retains source face topology through a hidden exact-TIN mesh input. Export converts the completed
 final mesh to metres, writes complete metric unit metadata, and applies the saved project-base transform
-when present. The panel `DEM` action places the GeoTIFF image and reads a capped regular grid directly
-from its numeric single-band samples; integer and floating-point bands, GDAL scale/offset, and NoData are
-handled while RGB/multi-band imagery is rejected. Both import workflows are one undoable transaction and
-remove all created state if terrain creation fails. Multiple images can be imported independently; CRS
-reprojection remains out of scope.
+when present. The pinned **Triangulate** card accepts a planar Rhino surface carrying a GeoTIFF bitmap
+texture as a DEM source. Its import action places a georeferenced picture-frame surface and assigns it to
+the card; users can then move that ordinary Rhino surface to control geographic-versus-project placement.
+Snapshot capture reads a capped regular grid from the numeric single-band texture and maps pixel centres
+through the surface before triangulation. Integer and floating-point bands, GDAL scale/offset, and NoData
+are handled while RGB/multi-band imagery is rejected. Import is one undoable transaction and removes the
+new surface if assignment fails. CRS reprojection remains out of scope.
 
 ## Two hosts, one core
 
@@ -224,7 +237,7 @@ the incoming mesh.
 
 Sculpt's persistent **Constraints** source set is resolved to a Core `SculptConstraintMask`: ordinary
 closed curves protect their interiors, open curves protect the breakline, and a selected curve used
-by an enabled earlier Grade Path expands to that modifier's configured design width. The feature is
+by an enabled earlier Grade Path expands to that modifier's resolved constant or variable-width footprint. The feature is
 fully pinned inside and feathers back to full sculpt influence outside. Live dabs, BaseZ recovery,
 stroke rasterization, and build replay share the same mask. Raw field samples remain stored beneath
 protected areas, so adding/removing a constraint is non-destructive and feathering is applied once.
@@ -245,6 +258,17 @@ meaningful proportion of triangles below an 8-degree minimum angle, recommending
 modifier before vertex-based editing.
 
 ## Core: grading (the watertight invariant)
+
+Grade Path is a constant-width corridor unless its `UseVariableWidth` toggle is switched on. Only then
+does it resolve ordinary plan edge curves through `VariablePathWidthResolver`. Each edge
+is assigned uniquely to one centerline side using distance, ordered-station, closure, side, and ambiguity
+checks. Valid partial runs blend into the constant fallback width; closed paths use seam-aligned closed
+loops. The resulting aligned center/left/right rows carry centerline-authored Z, and the explicit,
+split-keep, and topology-rebuild tiers share those rails for constraints, the flat path top, and daylight
+starts. Rhino publishes located viewport diagnostics for matched, partial, ambiguous, and unmatched
+edges without creating document objects. Authored transverse reach never coarsens longitudinal station
+spacing, so variable-width paths retain the same ruled batter density and explicit-corridor quality as
+their constant-width counterparts. With no edges, the historical symmetric-offset branch is unchanged.
 
 **Grading output is ALWAYS a watertight 2.5D mesh — never holes/spikes.** `PadGrader.Grade` dispatches
 a tier cascade, taking the first that produces a watertight, manifold result:
@@ -345,18 +369,111 @@ zones, markers, objects, and scatter retain stage-level entries.
   at a naked mesh boundary, a local flat/sink, or the configured maximum plan length; generated curves
   are transient previews and bakeable auxiliary outputs.
 - **Analysis coloring** is shared by slope, elevation, cut/fill, and sculpt preview through
-  `AnalysisColorMapper`. Each preview supports a smooth gradient or fixed-width stepped bands,
-  with auto-fit or explicit bounds. Cut/fill bands stay symmetric around zero; interval lengths
-  scale with model units while slope intervals follow the selected slope unit.
-- **Slope summaries** use `SlopeAnalyzer.Summarize` so final-build panel numbers do not allocate
-  preview color arrays. Both summary accumulation and preview color generation parallelize above the
-  large-face threshold. Slope preview coloring still uses `SlopeAnalyzer.Analyze`.
+  `AnalysisColorMapper`. Each preview supports a smooth gradient or stepped bands, with auto-fit or
+  explicit bounds. Interval lengths scale with model units while slope intervals follow the selected
+  slope unit.
+- **`AnalysisRange` owns what "auto-fit" means**, and is the only place that decides it. Auto is an
+  area-weighted 2nd-98th percentile of the distribution, snapped outward to a 1/2/5/10 number; values
+  past the fitted range still draw, clamped to the end colours. Fitting to the raw maximum instead — the
+  old behaviour, reimplemented four times and disagreeing between them — let one near-vertical retaining
+  wall face stretch a slope ramp into the hundreds of percent and paint every real gradient the same
+  green. A `RangeShape` anchors the fit: `FromZero` for slope, `SymmetricAboutZero` for cut/fill (so no
+  change sits mid-palette), `MinMax` for elevation. The shape is applied before the outward snap.
+- **Unequal bands need Constant, not Stepped.** `Mode.Stepped` divides a range into *equal* intervals;
+  `Mode.Constant` holds each stop's colour to the next stop, making the stops themselves the thresholds.
+  A slope legend reading "anything under 1:3 is fine, then three narrow bands of increasingly not fine"
+  is a set of thresholds, and dragging a stop is how you set one. Everything that colours resolves
+  through `AnalysisColorMapper.SampleResolved`/`ResolveBandsFor`, so the mesh, the sculpt colorizer and
+  the card cannot honour different modes.
+- **Comparative analyses default to the terrain's own initial triangulation.** Cut/fill, earthworks, and
+  section cut/fill shading all compare the ground as first triangulated — captured as `BaseMesh` right
+  after the Triangulate stage, before any modifier runs — against the finished modifier stack. That is
+  what "how much cut and fill did my grading do" means, and it is the overwhelmingly common question;
+  requiring a second terrain to ask it made the feature unreachable for the case it exists to serve. An
+  explicit reference still wins, for comparing against surveyed ground that is not this terrain's own
+  starting point. A missing reference is therefore never an error — the card states which basis is in use
+  (`AnalysisTypeDescriptor.DescribeBasis`) rather than demanding a surface it does not need.
+- **A section cut plane is nudged off mesh vertices.** `Intersection.MeshPlane` drops whole spans when the
+  plane passes exactly through vertices, returning the profile as disjoint runs where the mesh is
+  continuous. Grading makes that the normal case, not a freak one: batter re-triangulation lands vertices
+  on round coordinates and section lines are drawn on round coordinates too, so a profile would stop at a
+  pad's edge and resume past it — reading as a hole in the terrain. `TerrainSectionSlicer` shifts the plane
+  perpendicular to the section direction by less than half the model tolerance, sized to clear every
+  coincident vertex without reaching the next. Stations are measured along the direction, so the drawing
+  is unchanged.
+- **Vertical exaggeration lives on the section base.** Landform sections carry a metre or two of relief
+  across a hundred of length, so at true scale the subject collapses to a hairline. `VerticalExaggeration`
+  was previously declared on two of the three section types and the plain Section Cut passed a hard-coded
+  1.0 — the section people reach for first was the one that could not be exaggerated. It is now one
+  property on `TerrainSectionAnalysisDefinitionBase` and one shared schema row.
+- **Section drawing conventions.** The sectioned terrain — the finished stack — is the subject: the
+  heaviest line on the drawing, black, layer-driven rather than tinted with the terrain's preview colour
+  (a screen colour that prints as an arbitrary pastel). Existing ground is context, drawn light grey from
+  the same slice the cut/fill comparison used, so the original profile is visible even where nothing was
+  cut or filled instead of being implied by the edge of a hatch. Cut and fill are solid tints told apart
+  by layer colour, not by hatch pattern: line hatches alias into a grey wash at drawing zoom and show one
+  or two strokes in a shallow wedge, while a solid tint carries its colour at any size.
+- **An analysis that cannot run says which input it is waiting on.** `AnalysisTypeDescriptor.DescribeBlocker`
+  declares the missing prerequisite and the panel shows it above the card's controls. Cut/fill with no
+  reference is the case that prompted it: it fell back to the terrain's own base mesh, coloured every face
+  zero, and looked broken rather than unconfigured.
+- **Editing a display setting must not save the document.** A terrain mutation saves immediately, the
+  save raises StateChanged, and StateChanged rebuilds the panel. Per drag-delta that is a full JSON
+  serialize plus a full panel rebuild — which made the line-weight and opacity sliders crawl, and made
+  ramp stops undraggable outright, because the card being dragged was destroyed on the first mouse-move.
+  Gestures therefore commit through the `*Live` mutators (defer the save, suppress the refresh, still
+  recolour) while the pointer is down, and commit normally once on release.
+- **Cut and fill are seeded different colours at layer creation.** `GeneratedLayerDefaults` carries a
+  colour alongside the print width for the sublayers whose colour carries meaning, and
+  `TerrainController.EnsureLayerPath` applies it once when it creates the layer. Before this, a section's
+  cut and fill hatches landed on two freshly created layers that were both Rhino-default black, so the
+  drawing could not be read until someone found "Bake Layers". The layer still owns the colour after
+  creation, so edits in Rhino's Layers panel persist.
+- **Stepped bands are real bands.** `AnalysisColorMapper.ResolveBands` divides a range into flat-coloured
+  intervals — each band's colour is the palette sampled at its centre — and the face colouring, the sculpt
+  colorizer and the panel legend all consume that one list, so the swatches and the mesh cannot disagree.
+  Bands tile the range exactly, the last one absorbing whatever an interval that does not divide the span
+  leaves over.
+- **The legend describes the mesh on screen, not the last build.** Colour settings recolour without
+  scheduling a rebuild, so `TerrainController.UpdateRuntimePreview` stamps the resolved range onto the
+  analysis summary (`TerrainAnalysisSummary.DisplayRangeLow/High`) as the preview mesh is coloured, along
+  with the value distribution (`DistributionBins`) that the card draws behind its ramp. The legend draws
+  ticks at round values inside that range, each labelled, rather than an unlabelled ramp with only its
+  two ends named.
+- **The legend *is* the editor.** Slope, Elevation and Cut/Fill declare one
+  `AnalysisParameterDescriptor.ColorRamp()` row, which the panel renders as `UI/ColorRampControl` — the
+  histogram, the ramp, its tick labels, and the mapping controls in one card. Collapsed it reads as the
+  old read-only legend; clicking the ramp grows drag handles on the same bar and reveals a stop table, so
+  a ramp is never edited against a second copy of itself. This replaced three separate pieces (a
+  "Coloring & intervals" group, a read-only legend, and a "Mapped" summary row between them) whose
+  controls sat visually apart from the ramp they governed.
+- **An edited ramp is an override, not a new preset.** `AnalysisDefinition.PalettePreset` still names a
+  built-in from `ColorRampPresets`; `PaletteStops` holds per-stop edits and, when empty, means "use the
+  preset verbatim" — which is what every pre-ramp-editor document says, so those keep drawing unchanged.
+  `AnalysisDefinition.ResolveRamp()` is the single resolver, and the preview builder, the sculpt
+  colorizer and the card all go through it. User-saved ramps are per-user, not per-document
+  (`Services/ColorRampPresetStore`, beside the layer templates): a ramp tuned for one site is usually the
+  one you want on the next, and one saved inside a .3dm would be invisible everywhere else.
+- **Slope summaries** use `SlopeAnalyzer.Summarize`, which honours the analysis's auto-fit flag exactly as
+  the preview does. With explicit bounds it stays the allocation-free summary it was; auto-fit collects a
+  transient slope and area array to fit the distribution. Both summary accumulation and preview colour
+  generation parallelize above the large-face threshold. Slope preview colouring uses
+  `SlopeAnalyzer.Analyze`, which resolves bands once and shares them across every face.
 - **Cut/fill and earthwork reference comparisons** share one centroid-delta pass per reference/boundary
   fingerprint. The 2.5D case projects reference Z through Core `MeshHeightProjector`; overlapping or
   near-vertical XY regions fall back to the legacy Rhino world-Z mesh-line projection and report a
   diagnostic.
 - **Section Cut, Cross-Sections, and Section Along Curve** can overlay the owning proposed terrain with
-  any number of other MoleHill terrains. One selected comparison is the existing/reference profile;
+  any number of other MoleHill terrains. The existing-ground profile for cut/fill shading comes from
+  `CutFillReference` — any Rhino mesh, surface or extrusion, sliced along the same cut line via
+  `SectionCutGeometry` so both profiles share one station parametrization — falling back to a selected
+  comparison terrain. Requiring a whole second terrain made cut/fill unreachable for anyone modelling one
+  surface against a survey, and produced nothing without saying so; an unresolvable reference now reports
+  a diagnostic and the card shows a warning. `SectionProfileComparison` normalizes each profile edge to
+  low-station-first — the slicer walks mesh adjacency and can return a run in descending station order,
+  which the comparison used to discard edge by edge, so a wholly descending profile yielded no regions and
+  cut/fill came back silently empty on perfectly valid section lines. Generated section geometry hangs off
+  a `::Sections` branch so it lands on the layers the office template styles.
   piecewise-linear profile comparison inserts exact crossings, respects coverage gaps, and emits
   translucent cut/fill meshes beneath terrain-coloured profile curves. Background snapshots duplicate
   only completed final meshes, fingerprint their geometry/name/colour, and rebuild live dependents when
