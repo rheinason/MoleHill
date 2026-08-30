@@ -14,8 +14,7 @@ internal sealed partial class TerrainBuildService
         int[] faces,
         WaterflowAnalysisDefinition analysis,
         TerrainBuildResult build,
-        Func<bool>? shouldCancel,
-        string? fallbackLayerPath)
+        Func<bool>? shouldCancel)
     {
         var sourcePoints = TerrainBuildSnapshotResolver.ResolvePoints(snapshot, analysis.Sources);
         if (sourcePoints.Count == 0)
@@ -51,11 +50,9 @@ internal sealed partial class TerrainBuildService
         int boundaryCount = 0;
         int sinkCount = 0;
         int outputCount = 0;
-        // Flow paths get their own sublayer so GeneratedLayerDefaults can seed a print width and a preview
-        // thickness for them, the way section and contour output already does. An explicitly chosen output
-        // layer is respected as-is — that is the user naming a destination, not a default.
-        string? layerPath = analysis.OutputLayerPath
-            ?? (string.IsNullOrWhiteSpace(fallbackLayerPath) ? null : $"{fallbackLayerPath}::Waterflow");
+        // Flow paths have their own role, so they get their own sublayer with a print width and a
+        // preview thickness, the way section and contour output does.
+        string layerPath = snapshot.LayerRoles.Path(LayerRole.Waterflow);
         foreach (WaterflowTracer.Path path in traced.Paths)
         {
             ThrowIfCancellationRequested(shouldCancel);
@@ -78,6 +75,7 @@ internal sealed partial class TerrainBuildService
 
             build.AuxiliaryObjects.Add(new GeneratedRhinoObject
             {
+                Role = LayerRole.Waterflow,
                 Geometry = new PolylineCurve(polyline),
                 Name = $"{analysis.Label} {outputCount}",
                 AnalysisId = analysis.Id,

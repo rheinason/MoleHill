@@ -42,9 +42,10 @@ internal sealed partial class TerrainController
         {
             Guid id = AddGeneratedObject(doc, terrain, new GeneratedRhinoObject
             {
+                Role = LayerRole.Terrain,
                 Geometry = build.PrimaryMesh,
                 Name = terrain.Name,
-                LayerPath = TerrainDefinition.ResolveTerrainLayerPath(terrain.TerrainLayerPath)
+                LayerPath = LayerRoleService.GetTable(doc).Path(LayerRole.Terrain)
             }, blockAttributeRefreshIds);
 
             if (id != Guid.Empty)
@@ -65,12 +66,13 @@ internal sealed partial class TerrainController
 
             Guid id = AddGeneratedObject(doc, terrain, new GeneratedRhinoObject
             {
+                Role = auxiliary.Role,
                 Geometry = auxiliary.Geometry,
                 Name = auxiliary.Name,
                 Kind = auxiliary.Kind,
                 AnalysisId = auxiliary.AnalysisId,
                 ColorArgb = auxiliary.ColorArgb,
-                LayerPath = auxiliary.LayerPath ?? terrain.AuxiliaryLayerPath,
+                LayerPath = auxiliary.LayerPath,
                 SourceLayerPath = auxiliary.SourceLayerPath,
                 MaterialName = auxiliary.MaterialName,
                 InstanceDefinitionName = auxiliary.InstanceDefinitionName,
@@ -263,8 +265,13 @@ internal sealed partial class TerrainController
                 ApplyBakedColorTransparency(doc, generated.ColorArgb.Value, attributes);
         }
 
-        if (!string.IsNullOrWhiteSpace(generated.LayerPath))
-            attributes.LayerIndex = EnsureLayer(doc, generated.LayerPath!, generated.SourceLayerPath);
+        // Unconditional: a generated object must never inherit Rhino's current layer. Every producer
+        // names a role, and every role resolves to a path, so a blank one here means something
+        // constructed an object without going through the role table.
+        string layerPath = !string.IsNullOrWhiteSpace(generated.LayerPath)
+            ? generated.LayerPath!
+            : LayerRoleService.GetTable(doc).Path(generated.Role);
+        attributes.LayerIndex = EnsureLayer(doc, layerPath, generated.SourceLayerPath);
 
         if (generated.PlotWeight.HasValue && !useLayerAppearance)
         {

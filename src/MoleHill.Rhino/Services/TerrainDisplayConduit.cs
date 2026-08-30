@@ -587,12 +587,12 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
         if (generated.Geometry is Curve curve)
         {
-            var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
-            // Thickness follows the same sublayer table that seeds print width, so the viewport shows the
-            // drawing's hierarchy rather than a flat 2 px for grid lines, profiles and flow paths alike.
-            int width = GeneratedLayerDefaults.ResolvePreviewWidth(
-                generated.LayerPath ?? generated.SourceLayerPath,
-                terrain.PreviewLineWeight);
+            // Colour and thickness both come from the object's role, which is the same record the
+            // bake stamps — so the viewport shows the drawing's hierarchy, and baking changes nothing.
+            LayerAppearance appearance = LayerRoleService.GetTable(doc).Appearance(generated.Role);
+            var color = TerrainDisplayColors.Resolve(
+                doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb, appearance);
+            int width = appearance.ScalePreviewWidth(terrain.PreviewLineWeight);
             e.Display.DrawCurve(curve, color, width);
             return;
         }
@@ -671,9 +671,10 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         GeneratedRhinoObject generated,
         double previewLineWeight)
     {
-        var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
-        int width = GeneratedLayerDefaults.ResolvePreviewWidth(
-            generated.LayerPath ?? generated.SourceLayerPath, previewLineWeight);
+        LayerAppearance appearance = LayerRoleService.GetTable(doc).Appearance(generated.Role);
+        var color = TerrainDisplayColors.Resolve(
+            doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb, appearance);
+        int width = appearance.ScalePreviewWidth(previewLineWeight);
 
         if (TryDrawBlockDefinitionGeometry(e, doc, generated, color, width))
             return;

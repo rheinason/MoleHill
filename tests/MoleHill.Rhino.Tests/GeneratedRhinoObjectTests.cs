@@ -1,3 +1,4 @@
+using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino.Geometry;
 using Xunit;
@@ -11,6 +12,7 @@ public class GeneratedRhinoObjectTests
     {
         var generated = new GeneratedRhinoObject
         {
+            Role = LayerRole.Auxiliary,
             Name = "Marker",
             InstanceUserStrings = new Dictionary<string, string>
             {
@@ -30,7 +32,7 @@ public class GeneratedRhinoObjectTests
     public void GetPreviewTextEntity_SameSourceAndText_ReusesCachedDuplicate()
     {
         using var source = new TextEntity { RichText = "source" };
-        var generated = new GeneratedRhinoObject { Name = "Marker" };
+        var generated = new GeneratedRhinoObject { Role = LayerRole.Auxiliary, Name = "Marker" };
 
         TextEntity? first = generated.GetPreviewTextEntity(source, "12.30 m");
         TextEntity? second = generated.GetPreviewTextEntity(source, "12.30 m");
@@ -46,7 +48,7 @@ public class GeneratedRhinoObjectTests
     public void GetPreviewTextEntity_DifferentDisplayText_CachesSeparateDuplicates()
     {
         using var source = new TextEntity { RichText = "source" };
-        var generated = new GeneratedRhinoObject { Name = "Marker" };
+        var generated = new GeneratedRhinoObject { Role = LayerRole.Auxiliary, Name = "Marker" };
 
         TextEntity? first = generated.GetPreviewTextEntity(source, "12.30 m");
         TextEntity? second = generated.GetPreviewTextEntity(source, "13.40 m");
@@ -62,7 +64,7 @@ public class GeneratedRhinoObjectTests
     public void GetPreviewBrepMeshes_RepeatedRead_ReusesStableRenderMeshes()
     {
         using Brep brep = new Box(new BoundingBox(Point3d.Origin, new Point3d(10, 1, 3))).ToBrep();
-        var generated = new GeneratedRhinoObject { Name = "Wall" };
+        var generated = new GeneratedRhinoObject { Role = LayerRole.Auxiliary, Name = "Wall" };
 
         IReadOnlyList<Mesh> first = generated.GetPreviewBrepMeshes(brep);
         IReadOnlyList<Mesh> second = generated.GetPreviewBrepMeshes(brep);

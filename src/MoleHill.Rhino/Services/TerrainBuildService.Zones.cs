@@ -111,10 +111,11 @@ internal sealed partial class TerrainBuildService
             string outputName = currentCount == 1 ? zone.Name : $"{zone.Name} {currentCount}";
             build.ZoneObjects.Add(new GeneratedRhinoObject
             {
+                Role = LayerRole.Zones,
                 Geometry = subMesh,
                 Name = outputName,
                 ColorArgb = zone.UseColorOverride ? zone.ColorArgb : null,
-                LayerPath = GetBakedLayerPath(entries[i].InputLayerPath),
+                LayerPath = snapshot.LayerRoles.Path(LayerRole.Zones, entries[i].InputLayerPath),
                 SourceLayerPath = entries[i].InputLayerPath,
                 MaterialName = null
             });

@@ -58,7 +58,9 @@ internal sealed partial class TerrainBuildService
                 {
                     build.MarkerObjects.Add(new GeneratedRhinoObject
                     {
+                        Role = LayerRole.Markers,
                         Name = marker.Name,
+                        LayerPath = snapshot.LayerRoles.Path(LayerRole.Markers),
                         InstanceDefinitionName = GetMarkerBlockName(marker),
                         MarkerBlockTemplate = GetMarkerBlockTemplate(marker),
                         InstanceTransform = Transform.Translation(worldPoint - Point3d.Origin)
@@ -77,8 +79,10 @@ internal sealed partial class TerrainBuildService
 
                 build.MarkerObjects.Add(new GeneratedRhinoObject
                 {
+                    Role = LayerRole.MarkerLabels,
                     Geometry = new TextDot(text, worldPoint),
                     Name = marker.Name,
+                    LayerPath = snapshot.LayerRoles.Path(LayerRole.MarkerLabels),
                     ColorArgb = marker.ColorArgb
                 });
             }

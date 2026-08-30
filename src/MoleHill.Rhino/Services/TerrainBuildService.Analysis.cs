@@ -136,57 +136,56 @@ internal sealed partial class TerrainBuildService
                     currentFaces,
                     waterflow,
                     build,
-                    shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                    shouldCancel),
                 CurveSlopeLabelAnalysisDefinition curveSlope => TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(
                     snapshot,
                     currentMesh,
                     curveSlope,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                    snapshot.LayerRoles),
                 CurveElevationLabelAnalysisDefinition curveElevation => TerrainAnalysisAnnotationBuilder.BuildCurveElevationSummary(
                     snapshot,
                     currentMesh,
                     curveElevation,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                    snapshot.LayerRoles),
                 ProjectedElevationLabelAnalysisDefinition projectedElevation => TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(
                     snapshot,
                     currentMesh,
                     projectedElevation,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                    snapshot.LayerRoles),
                 PointSlopeLabelAnalysisDefinition pointSlope => TerrainAnalysisAnnotationBuilder.BuildPointSlopeSummary(
                     snapshot,
                     currentMesh,
                     pointSlope,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                    snapshot.LayerRoles),
                 SlopeArrowAnalysisDefinition slopeArrows => TerrainAnalysisAnnotationBuilder.BuildSlopeArrowSummary(
                     snapshot,
                     currentMesh,
                     slopeArrows,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                    snapshot.LayerRoles),
                 GradeBetweenPointsAnalysisDefinition gradeCallout => TerrainAnalysisAnnotationBuilder.BuildGradeCalloutSummary(
                     snapshot,
                     currentMesh,
                     gradeCallout,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                    snapshot.LayerRoles),
                 TerrainSectionAnalysisDefinition terrainSection => TerrainAnalysisAnnotationBuilder.BuildTerrainSectionSummary(
                     snapshot,
                     currentMesh,
                     terrainSection,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath),
+                    snapshot.LayerRoles,
                     fallbackBaseMesh),
                 CrossSectionStationAnalysisDefinition crossSection => TerrainAnalysisAnnotationBuilder.BuildCrossSectionStationSummary(
                     snapshot,
@@ -194,7 +193,7 @@ internal sealed partial class TerrainBuildService
                     crossSection,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath),
+                    snapshot.LayerRoles,
                     fallbackBaseMesh),
                 LongitudinalSectionAnalysisDefinition longitudinal => TerrainAnalysisAnnotationBuilder.BuildLongitudinalSectionSummary(
                     snapshot,
@@ -202,7 +201,7 @@ internal sealed partial class TerrainBuildService
                     longitudinal,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath),
+                    snapshot.LayerRoles,
                     fallbackBaseMesh),
                 CutFillAnalysisDefinition cutFill => BuildCutFillSummary(
                     snapshot,
@@ -225,7 +224,8 @@ internal sealed partial class TerrainBuildService
                     elevMaxZ,
                     snapshot.ModelAbsoluteTolerance,
                     build,
-                    snapshot.AnnotationStyle),
+                    snapshot.AnnotationStyle,
+                    snapshot.LayerRoles),
                 _ => null
             };
 
@@ -378,10 +378,11 @@ internal sealed partial class TerrainBuildService
         double elevMaxZ,
         double tolerance,
         TerrainBuildResult build,
-        AnnotationStyleSnapshot? annotationStyle)
+        AnnotationStyleSnapshot? annotationStyle,
+        LayerRoleTable layerRoles)
     {
         var (objects, summary) = BuildContourCore(currentMesh, analysis, elevMinZ, elevMaxZ, tolerance,
-            TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath),
+            layerRoles,
             annotationStyle);
         build.AuxiliaryObjects.AddRange(objects);
         return summary;
@@ -405,7 +406,7 @@ internal sealed partial class TerrainBuildService
         double elevMinZ,
         double elevMaxZ,
         double tolerance,
-        string? fallbackLayerPath = null,
+        LayerRoleTable? layerRoles = null,
         AnnotationStyleSnapshot? annotationStyle = null)
     {
         var objects = new List<GeneratedRhinoObject>();
@@ -426,12 +427,13 @@ internal sealed partial class TerrainBuildService
 
             int everyNth = Math.Max(1, analysis.LabelEveryNth);
             bool wantLabels = analysis.ShowLabels && analysis.IsEnabled;
-            string? outputLayerPath = ResolveContourOutputLayerPath(analysis.OutputLayerPath, fallbackLayerPath);
+            LayerRoleTable roles = layerRoles ?? LayerRoleTable.Default;
 
             foreach (var contourLevel in contourLevels)
             {
                 bool isMajor = IsMajorContourLevel(contourLevel.Z, analysis, effectiveTolerance);
-                string? levelLayerPath = ResolveContourLevelLayerPath(outputLayerPath, analysis, isMajor);
+                LayerRole levelRole = ResolveContourLevelRole(analysis, isMajor);
+                string levelLayerPath = roles.Path(levelRole);
                 int levelCurveIndex = 0;
                 bool levelHasCurves = false;
                 List<Polyline>? levelPolylines = wantLabels ? new List<Polyline>() : null;
@@ -458,6 +460,7 @@ internal sealed partial class TerrainBuildService
                         AppearanceSource = analysis.ColorArgb.HasValue
                             ? GeneratedAppearanceSource.Object
                             : GeneratedAppearanceSource.Layer,
+                        Role = levelRole,
                         LayerPath = levelLayerPath
                     });
                     levelPolylines?.Add(rhinoPolyline);
@@ -475,7 +478,7 @@ internal sealed partial class TerrainBuildService
                 if (levelPolylines != null && ((contourLevelCount - 1) % everyNth == 0))
                 {
                     foreach (var rhinoPolyline in levelPolylines)
-                        EmitContourLabels(objects, rhinoPolyline, contourLevel.Z, analysis, levelLayerPath, effectiveTolerance, annotationStyle);
+                        EmitContourLabels(objects, rhinoPolyline, contourLevel.Z, analysis, roles.Path(LayerRole.Labels), effectiveTolerance, annotationStyle);
                 }
             }
         }
@@ -489,14 +492,6 @@ internal sealed partial class TerrainBuildService
             ContourLastLevel = contourLevelCount > 0 ? lastLevel : 0.0
         };
         return (objects, summary);
-    }
-
-    internal static string? ResolveContourOutputLayerPath(string? outputLayerPath, string? fallbackLayerPath)
-    {
-        if (!string.IsNullOrWhiteSpace(outputLayerPath))
-            return outputLayerPath;
-
-        return string.IsNullOrWhiteSpace(fallbackLayerPath) ? null : fallbackLayerPath;
     }
 
     /// <summary>
@@ -527,15 +522,12 @@ internal sealed partial class TerrainBuildService
     /// Major and minor contours are separated by layer, not by per-object colour or width, so the drawing
     /// hierarchy is controlled from Rhino's Layers panel and honours per-detail overrides.
     /// </summary>
-    internal static string? ResolveContourLevelLayerPath(
-        string? outputLayerPath,
-        ContourAnalysisDefinition analysis,
-        bool isMajor)
+    internal static LayerRole ResolveContourLevelRole(ContourAnalysisDefinition analysis, bool isMajor)
     {
-        if (!analysis.SeparateMajorMinorLayers || string.IsNullOrWhiteSpace(outputLayerPath))
-            return outputLayerPath;
+        if (!analysis.SeparateMajorMinorLayers)
+            return LayerRole.Contours;
 
-        return $"{outputLayerPath}::Contours::{(isMajor ? "Major" : "Minor")}";
+        return isMajor ? LayerRole.ContoursMajor : LayerRole.ContoursMinor;
     }
 
     private static void EmitContourLabels(
@@ -594,6 +586,7 @@ internal sealed partial class TerrainBuildService
 
             objects.Add(new GeneratedRhinoObject
             {
+                Role = LayerRole.Labels,
                 Geometry = label,
                 Name = $"{analysis.Label} {levelZ:G4} label",
                 AnalysisId = analysis.Id,

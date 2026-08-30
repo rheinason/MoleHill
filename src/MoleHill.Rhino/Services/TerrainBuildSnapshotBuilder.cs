@@ -42,6 +42,7 @@ internal static class TerrainBuildSnapshotBuilder
             ModelUnitSystem = doc.ModelUnitSystem,
             UnitContext = unitContext,
             AnnotationStyle = AnnotationStyleService.Capture(doc, terrainClone.AnnotationStyleName),
+            LayerRoles = LayerRoleService.GetTable(doc),
             HatchPatterns = HatchPatternService.Capture(doc, EnumerateHatchPatternNames(terrainClone))
         };
 

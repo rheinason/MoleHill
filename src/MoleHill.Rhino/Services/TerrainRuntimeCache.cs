@@ -560,6 +560,7 @@ internal static class TerrainRuntimeCacheCloner
     {
         return new GeneratedRhinoObject
         {
+            Role = generated.Role,
             Geometry = generated.Geometry?.Duplicate(),
             Name = generated.Name,
             Kind = generated.Kind,

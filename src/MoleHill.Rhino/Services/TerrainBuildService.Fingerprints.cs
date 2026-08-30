@@ -43,8 +43,10 @@ internal sealed partial class TerrainBuildService
             }
         }
 
+        // Routing and appearance both come from the layer template, so an edit to it has to
+        // invalidate cached output the same way an edit to the analysis does.
         if (TerrainAnalysisPreviewBuilder.ProducesGeneratedOutput(analysis))
-            builder.Add(TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath));
+            builder.Add(snapshot.LayerRoles.Fingerprint);
 
         return builder.ToUInt64();
     }

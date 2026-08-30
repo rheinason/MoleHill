@@ -94,10 +94,11 @@ internal sealed partial class TerrainBuildService
                 {
                     build.AuxiliaryObjects.Add(new GeneratedRhinoObject
                     {
+                        Role = LayerRole.Walls,
                         Geometry = wall.Brep,
                         Name = $"Wall {wall.CurveA}-{wall.CurveB}",
                         Kind = GeneratedObjectKind.RetainingWall,
-                        LayerPath = TerrainDefinition.ResolveAuxiliaryLayerPath(modifier.OutputLayerPath ?? terrain.AuxiliaryLayerPath)
+                        LayerPath = snapshot.LayerRoles.Path(LayerRole.Walls)
                     });
                     wallBrepOutputCount++;
                 }

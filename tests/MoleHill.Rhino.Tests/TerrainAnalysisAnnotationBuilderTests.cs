@@ -235,19 +235,6 @@ public class TerrainAnalysisAnnotationBuilderTests
         Assert.DoesNotContain(plain, output => output.Geometry is TextEntity);
     }
 
-    [Theory]
-    [InlineData(null, "MoleHill::Annotation", "MoleHill::Annotation")]
-    [InlineData("", "MoleHill::Annotation", "MoleHill::Annotation")]
-    [InlineData("   ", "MoleHill::Annotation", "MoleHill::Annotation")]
-    [InlineData("Site::Contours", "MoleHill::Annotation", "Site::Contours")]
-    public void ResolveContourOutputLayerPath_UsesConfiguredLayerOrAnnotationFallback(
-        string? configuredLayer,
-        string fallbackLayer,
-        string expected)
-    {
-        Assert.Equal(expected, TerrainBuildService.ResolveContourOutputLayerPath(configuredLayer, fallbackLayer));
-    }
-
     [RhinoNativeFact]
     public void BuildTerrainSectionSummary_MultipleTerrains_EmitsCutRegion()
     {

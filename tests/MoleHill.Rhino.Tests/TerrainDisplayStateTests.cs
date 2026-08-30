@@ -39,6 +39,7 @@ public class TerrainDisplayStateTests
         var state = new TerrainDisplayState();
         state.MarkerObjects.Add(new GeneratedRhinoObject
         {
+            Role = LayerRole.Auxiliary,
             Name = "Marker",
             InstanceDefinitionName = "CustomMarker"
         });
@@ -57,6 +58,7 @@ public class TerrainDisplayStateTests
         var state = new TerrainDisplayState();
         state.ZoneObjects.Add(new GeneratedRhinoObject
         {
+            Role = LayerRole.Auxiliary,
             Name = "Zone",
             InstanceDefinitionName = "ZoneBlock"
         });
@@ -76,6 +78,7 @@ public class TerrainDisplayStateTests
         var state = new TerrainDisplayState();
         state.AuxiliaryObjects.Add(new GeneratedRhinoObject
         {
+            Role = LayerRole.Auxiliary,
             Name = "Analysis",
             AnalysisId = Guid.NewGuid(),
             InstanceDefinitionName = "AnalysisBlock"

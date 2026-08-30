@@ -1292,9 +1292,10 @@ internal sealed partial class TerrainBuildService
             {
                 build.AuxiliaryObjects.Add(new GeneratedRhinoObject
                 {
+                    Role = LayerRole.GradingAuxiliary,
                     Geometry = stairBrep,
                     Name = "Stair",
-                    LayerPath = terrain.AuxiliaryLayerPath,
+                    LayerPath = snapshot.LayerRoles.Path(LayerRole.GradingAuxiliary),
                     ColorArgb = warnTreadDepth ? InSituStairTreadDepthWarningColorArgb : null
                 });
             }
@@ -1303,9 +1304,10 @@ internal sealed partial class TerrainBuildService
             {
                 build.AuxiliaryObjects.Add(new GeneratedRhinoObject
                 {
+                    Role = LayerRole.Labels,
                     Geometry = new TextDot($"Tread {stairReference.TreadDepth:G4}", stairReference.TreadDepthLabelPoint),
                     Name = "Stair Tread Depth",
-                    LayerPath = terrain.AuxiliaryLayerPath
+                    LayerPath = snapshot.LayerRoles.Path(LayerRole.Labels)
                 });
             }
         }

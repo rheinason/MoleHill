@@ -24,6 +24,13 @@ internal sealed class TerrainBuildSnapshot
     /// thread. Pattern indices are document-scoped, so the background build cannot look them up.</summary>
     public HatchPatternSnapshot HatchPatterns { get; init; } = new();
 
+    /// <summary>
+    /// Where each kind of output lands and how it looks, resolved from the active layer template on
+    /// the document thread. Every layer decision in the build reads this — the build has no document
+    /// access, so it cannot consult the layer table itself.
+    /// </summary>
+    public LayerRoleTable LayerRoles { get; init; } = LayerRoleTable.Default;
+
     public ModelUnitContext ResolvedUnitContext => UnitContext.IsSupported
         ? UnitContext
         : ModelUnitContext.FromUnitSystem(ModelUnitSystem, ModelAbsoluteTolerance);

@@ -1,4 +1,5 @@
 using System;
+using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Xunit;
 
@@ -11,6 +12,7 @@ public class TerrainOutputSyncPolicyTests
     {
         var generated = new GeneratedRhinoObject
         {
+            Role = LayerRole.Auxiliary,
             Name = "Wall",
             Kind = GeneratedObjectKind.RetainingWall
         };
@@ -23,6 +25,7 @@ public class TerrainOutputSyncPolicyTests
     {
         var generated = new GeneratedRhinoObject
         {
+            Role = LayerRole.Auxiliary,
             Name = "Analysis Label",
             AnalysisId = Guid.NewGuid()
         };

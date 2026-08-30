@@ -13,10 +13,21 @@ namespace MoleHill.Rhino.Services;
 /// </summary>
 internal static class TerrainDisplayColors
 {
-    private static readonly Color FallbackColor = Color.FromArgb(180, 180, 180);
-
-    /// <summary>Explicit object colour wins, then the source layer, then the output layer.</summary>
-    public static Color Resolve(global::Rhino.RhinoDoc doc, string? layerPath, string? sourceLayerPath, int? colorArgb)
+    /// <summary>
+    /// Explicit object colour wins, then the source layer, then the output layer as it exists in the
+    /// document, and finally the appearance the layer template declares for this output.
+    ///
+    /// That last step is what makes a preview match its bake. Output layers are only created when
+    /// something is baked, so before this an un-baked terrain drew every drawing line in a
+    /// placeholder grey and then changed colour the moment it was baked. A layer that does exist
+    /// still wins over the template, because the user owns it once it is in the document.
+    /// </summary>
+    public static Color Resolve(
+        global::Rhino.RhinoDoc doc,
+        string? layerPath,
+        string? sourceLayerPath,
+        int? colorArgb,
+        LayerAppearance? appearance = null)
     {
         if (colorArgb.HasValue)
             return Color.FromArgb(colorArgb.Value);
@@ -27,7 +38,7 @@ internal static class TerrainDisplayColors
         if (TryResolveLayerColor(doc, layerPath, out Color layerColor))
             return layerColor;
 
-        return FallbackColor;
+        return Color.FromArgb(appearance?.ColorArgb ?? unchecked((int)0xFF000000));
     }
 
     /// <summary>

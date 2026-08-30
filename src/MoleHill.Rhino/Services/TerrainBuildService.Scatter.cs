@@ -192,7 +192,9 @@ internal sealed partial class TerrainBuildService
 
                 build.ScatterObjects.Add(new GeneratedRhinoObject
                 {
+                    Role = LayerRole.Scatter,
                     Name = definition.Name,
+                    LayerPath = snapshot.LayerRoles.Path(LayerRole.Scatter),
                     InstanceDefinitionName = blockName,
                     InstanceTransform = instanceTransform,
                     ScatterDefinitionId = definition.Id

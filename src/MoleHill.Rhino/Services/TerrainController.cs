@@ -858,9 +858,10 @@ internal sealed partial class TerrainController
             {
                 Guid id = AddBakedObject(doc, terrain, new GeneratedRhinoObject
                 {
+                    Role = LayerRole.Terrain,
                     Geometry = terrainMesh.DuplicateMesh(),
                     Name = terrain.Name,
-                    LayerPath = TerrainDefinition.ResolveTerrainLayerPath(terrain.TerrainLayerPath),
+                    LayerPath = LayerRoleService.GetTable(doc).Path(LayerRole.Terrain),
                     ColorArgb = terrain.TerrainColorArgb
                 }, blockAttributeRefreshIds);
                 if (id != Guid.Empty)
@@ -1436,6 +1437,7 @@ internal sealed partial class TerrainController
 
                 runtimeCache.DisplayState.AuxiliaryObjects[index] = new GeneratedRhinoObject
                 {
+                    Role = generated.Role,
                     Geometry = generated.Geometry,
                     Name = generated.Name,
                     Kind = generated.Kind,

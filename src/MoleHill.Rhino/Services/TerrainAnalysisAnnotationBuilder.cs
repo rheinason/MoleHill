@@ -23,7 +23,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         CurveSlopeLabelAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null)
+        LayerRoleTable? layerRoles = null)
     {
         mesh.FaceNormals.ComputeFaceNormals();
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
@@ -85,7 +85,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                         distance,
                         analysis.BlockDefinitionName,
                         MarkerBlockTemplate.AnnotationSlope,
-                        fallbackLayerPath,
+                        layerRoles,
                         direction));
                 }
 
@@ -102,7 +102,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         CurveElevationLabelAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null)
+        LayerRoleTable? layerRoles = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         int sourceCount = 0;
@@ -144,7 +144,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                             cumulativeDistance,
                             analysis.BlockDefinitionName,
                             MarkerBlockTemplate.AnnotationElevation,
-                            fallbackLayerPath));
+                            layerRoles));
                     }
                 }
 
@@ -162,7 +162,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         ProjectedElevationLabelAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null)
+        LayerRoleTable? layerRoles = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         int sourceCount = 0;
@@ -197,7 +197,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                     null,
                     analysis.BlockDefinitionName,
                     MarkerBlockTemplate.AnnotationElevation,
-                    fallbackLayerPath));
+                    layerRoles));
             }
         }
 
@@ -210,7 +210,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         PointSlopeLabelAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null)
+        LayerRoleTable? layerRoles = null)
     {
         mesh.FaceNormals.ComputeFaceNormals();
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
@@ -251,7 +251,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 null,
                 analysis.BlockDefinitionName,
                 MarkerBlockTemplate.AnnotationSlope,
-                fallbackLayerPath,
+                layerRoles,
                 direction));
         }
 
@@ -264,7 +264,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         SlopeArrowAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null)
+        LayerRoleTable? layerRoles = null)
     {
         mesh.FaceNormals.ComputeFaceNormals();
         double tolerance = snapshot.ModelAbsoluteTolerance;
@@ -316,7 +316,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                         null,
                         analysis.BlockDefinitionName,
                         MarkerBlockTemplate.AnnotationSlope,
-                        fallbackLayerPath,
+                        layerRoles,
                         direction));
                 }
             }
@@ -331,11 +331,11 @@ internal static class TerrainAnalysisAnnotationBuilder
         GradeBetweenPointsAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null)
+        LayerRoleTable? layerRoles = null)
     {
         double tolerance = snapshot.ModelAbsoluteTolerance;
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
-        string? layerPath = analysis.OutputLayerPath ?? fallbackLayerPath;
+        string layerPath = Roles(layerRoles).Path(LayerRole.Labels);
         double textHeight = Math.Max(
             analysis.FollowsAnnotationStyle
                 ? snapshot.AnnotationStyle.TextHeight
@@ -405,6 +405,7 @@ internal static class TerrainAnalysisAnnotationBuilder
             };
             build.AuxiliaryObjects.Add(new GeneratedRhinoObject
             {
+                Role = LayerRole.Labels,
                 Geometry = label,
                 Name = $"{analysis.Label} {outputCount} label",
                 AnalysisId = analysis.Id,
@@ -420,6 +421,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     {
         return new GeneratedRhinoObject
         {
+            Role = LayerRole.Labels,
             Geometry = geometry,
             Name = name,
             AnalysisId = analysis.Id,
@@ -450,7 +452,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         TerrainSectionAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null,
+        LayerRoleTable? layerRoles = null,
         RhinoMesh? baseMesh = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
@@ -523,7 +525,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 showStationLabels: analysis.ShowStationLabels,
                 stationLabelInterval: analysis.StationTickInterval,
                 textHeight: ResolveTextHeight(snapshot, analysis),
-                fallbackLayerPath: fallbackLayerPath,
+                layerRoles: layerRoles,
                 sectionLabel: $"{analysis.Label} {i + 1}",
                 hatchPatterns: snapshot.HatchPatterns,
                     baseMesh: baseMesh);
@@ -549,7 +551,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         CrossSectionStationAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null,
+        LayerRoleTable? layerRoles = null,
         RhinoMesh? baseMesh = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
@@ -636,9 +638,9 @@ internal static class TerrainAnalysisAnnotationBuilder
                             build.AuxiliaryObjects.Add(BuildPolylineObject(
                                 analysis,
                                 poly,
-                                fallbackLayerPath,
+                                layerRoles,
                                 $"{analysis.Label} {profile.TerrainName} cut {globalIndex}",
-                                SectionLayerKind.Cuts,
+                                LayerRole.SectionsCuts,
                                 profile.ColorArgb));
                             outputCount++;
                         }
@@ -664,7 +666,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                     showStationLabels: analysis.LabelStations,
                     stationLabelInterval: 0.0,
                     textHeight: ResolveTextHeight(snapshot, analysis),
-                    fallbackLayerPath: fallbackLayerPath,
+                    layerRoles: layerRoles,
                     sectionLabel: $"Sta {alignmentStation:F2}",
                     hatchPatterns: snapshot.HatchPatterns,
                     baseMesh: baseMesh);
@@ -691,7 +693,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         LongitudinalSectionAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null,
+        LayerRoleTable? layerRoles = null,
         RhinoMesh? baseMesh = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
@@ -742,7 +744,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 showStationLabels: analysis.ShowStationLabels,
                 stationLabelInterval: analysis.StationLabelInterval,
                 textHeight: ResolveTextHeight(snapshot, analysis),
-                fallbackLayerPath: fallbackLayerPath,
+                layerRoles: layerRoles,
                 sectionLabel: $"{analysis.Label} {sectionIndex}",
                 hatchPatterns: snapshot.HatchPatterns,
                     baseMesh: baseMesh);
@@ -781,7 +783,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         bool showStationLabels,
         double stationLabelInterval,
         double textHeight,
-        string? fallbackLayerPath,
+        LayerRoleTable? layerRoles,
         string sectionLabel,
         HatchPatternSnapshot hatchPatterns,
         RhinoMesh? baseMesh)
@@ -833,14 +835,13 @@ internal static class TerrainAnalysisAnnotationBuilder
                         comparisonTolerance);
                     if (regionHatches.Count == 0)
                         continue;
-                    string? regionLayerPath = SectionOutputLayers.ResolveLayerPath(
-                        analysis.OutputLayerPath,
-                        fallbackLayerPath,
-                        isCut ? SectionLayerKind.CutFillCut : SectionLayerKind.CutFillFill);
+                    LayerRole regionRole = isCut ? LayerRole.SectionsCutFillCut : LayerRole.SectionsCutFillFill;
+                    string regionLayerPath = Roles(layerRoles).Path(regionRole);
                     foreach (Hatch regionHatch in regionHatches)
                     {
                         build.AuxiliaryObjects.Add(new GeneratedRhinoObject
                         {
+                            Role = regionRole,
                             Geometry = regionHatch,
                             Name = $"{sectionLabel} {(isCut ? "cut" : "fill")}",
                             AnalysisId = analysis.Id,
@@ -874,9 +875,9 @@ internal static class TerrainAnalysisAnnotationBuilder
                 build.AuxiliaryObjects.Add(BuildPolylineObject(
                     analysis,
                     existing,
-                    fallbackLayerPath,
+                    layerRoles,
                     $"{sectionLabel} existing ground",
-                    SectionLayerKind.ExistingProfile,
+                    LayerRole.SectionsExisting,
                     colorArgbOverride: null));
                 emitted++;
             }
@@ -902,9 +903,9 @@ internal static class TerrainAnalysisAnnotationBuilder
                 build.AuxiliaryObjects.Add(BuildPolylineObject(
                     analysis,
                     poly,
-                    fallbackLayerPath,
+                    layerRoles,
                     $"{sectionLabel} {profile.TerrainName}",
-                    SectionLayerKind.Profile,
+                    LayerRole.Sections,
                     isOwnerProfile ? null : profile.ColorArgb));
                 emitted++;
             }
@@ -913,7 +914,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         if (showBaseline && totalStation > 0.0)
         {
             var baseline = SectionLayoutHelper.BuildBaselineAxis(cellPlane, totalStation, horizontalScale, verticalScale, minimumElevation, baseElevation);
-            build.AuxiliaryObjects.Add(BuildLineObject(analysis, baseline, fallbackLayerPath, $"{sectionLabel} baseline", SectionLayerKind.Grid));
+            build.AuxiliaryObjects.Add(BuildLineObject(analysis, baseline, layerRoles, $"{sectionLabel} baseline", LayerRole.SectionsGrid));
             emitted++;
         }
 
@@ -922,7 +923,7 @@ internal static class TerrainAnalysisAnnotationBuilder
             var grid = SectionLayoutHelper.BuildElevationGridLines(cellPlane, totalStation, minimumElevation, maximumElevation, baseElevation, elevationGridInterval, horizontalScale, verticalScale);
             foreach (var line in grid)
             {
-                build.AuxiliaryObjects.Add(BuildLineObject(analysis, line, fallbackLayerPath, $"{sectionLabel} grid", SectionLayerKind.Grid));
+                build.AuxiliaryObjects.Add(BuildLineObject(analysis, line, layerRoles, $"{sectionLabel} grid", LayerRole.SectionsGrid));
                 emitted++;
             }
         }
@@ -934,7 +935,7 @@ internal static class TerrainAnalysisAnnotationBuilder
             var ticks = SectionLayoutHelper.BuildStationTicks(cellPlane, stations, tickHalf, horizontalScale, verticalScale, baseElevation, minimumElevation);
             foreach (var line in ticks)
             {
-                build.AuxiliaryObjects.Add(BuildLineObject(analysis, line, fallbackLayerPath, $"{sectionLabel} tick", SectionLayerKind.Ticks));
+                build.AuxiliaryObjects.Add(BuildLineObject(analysis, line, layerRoles, $"{sectionLabel} tick", LayerRole.SectionsTicks));
                 emitted++;
             }
         }
@@ -955,7 +956,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                     baseElevation,
                     station.ToString("F1"),
                     Math.Max(textHeight, double.Epsilon));
-                build.AuxiliaryObjects.Add(BuildTextObject(analysis, label, fallbackLayerPath, $"{sectionLabel} {station:F1}", SectionLayerKind.Labels));
+                build.AuxiliaryObjects.Add(BuildTextObject(analysis, label, layerRoles, $"{sectionLabel} {station:F1}", LayerRole.SectionsLabels));
                 emitted++;
             }
         }
@@ -1243,56 +1244,63 @@ internal static class TerrainAnalysisAnnotationBuilder
         public const int Proposed = 1;
     }
 
-    private static int ResolveDisplayOrder(SectionLayerKind kind) => kind switch
+    private static int ResolveDisplayOrder(LayerRole role) => role switch
     {
-        SectionLayerKind.CutFillCut or SectionLayerKind.CutFillFill => SectionDisplayOrder.Fill,
-        SectionLayerKind.Grid or SectionLayerKind.Ticks => SectionDisplayOrder.Grid,
-        SectionLayerKind.ExistingProfile => SectionDisplayOrder.Existing,
-        SectionLayerKind.Profile => SectionDisplayOrder.Proposed,
+        LayerRole.SectionsCutFillCut or LayerRole.SectionsCutFillFill => SectionDisplayOrder.Fill,
+        LayerRole.SectionsGrid or LayerRole.SectionsTicks => SectionDisplayOrder.Grid,
+        LayerRole.SectionsExisting => SectionDisplayOrder.Existing,
+        LayerRole.Sections => SectionDisplayOrder.Proposed,
         _ => 0
     };
+
+    /// <summary>The table to route by. Falls back to the built-in roles so a caller that has not
+    /// been handed one still produces output on a real layer rather than none.</summary>
+    private static LayerRoleTable Roles(LayerRoleTable? layerRoles) => layerRoles ?? LayerRoleTable.Default;
 
     private static GeneratedRhinoObject BuildPolylineObject(
         TerrainSectionAnalysisDefinitionBase analysis,
         Polyline polyline,
-        string? fallbackLayerPath,
+        LayerRoleTable? layerRoles,
         string name,
-        SectionLayerKind kind,
+        LayerRole role,
         int? colorArgbOverride = null)
     {
         return new GeneratedRhinoObject
         {
+            Role = role,
             Geometry = new PolylineCurve(polyline),
             Name = name,
             AnalysisId = analysis.Id,
             ColorArgb = colorArgbOverride ?? analysis.ColorArgb,
-            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind),
-            DisplayOrder = ResolveDisplayOrder(kind)
+            LayerPath = Roles(layerRoles).Path(role),
+            DisplayOrder = ResolveDisplayOrder(role)
         };
     }
 
-    private static GeneratedRhinoObject BuildLineObject(TerrainSectionAnalysisDefinitionBase analysis, Line line, string? fallbackLayerPath, string name, SectionLayerKind kind)
+    private static GeneratedRhinoObject BuildLineObject(TerrainSectionAnalysisDefinitionBase analysis, Line line, LayerRoleTable? layerRoles, string name, LayerRole role)
     {
         return new GeneratedRhinoObject
         {
+            Role = role,
             Geometry = new LineCurve(line),
             Name = name,
             AnalysisId = analysis.Id,
             ColorArgb = analysis.ColorArgb,
-            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind),
-            DisplayOrder = ResolveDisplayOrder(kind)
+            LayerPath = Roles(layerRoles).Path(role),
+            DisplayOrder = ResolveDisplayOrder(role)
         };
     }
 
-    private static GeneratedRhinoObject BuildTextObject(TerrainSectionAnalysisDefinitionBase analysis, TextEntity text, string? fallbackLayerPath, string name, SectionLayerKind kind)
+    private static GeneratedRhinoObject BuildTextObject(TerrainSectionAnalysisDefinitionBase analysis, TextEntity text, LayerRoleTable? layerRoles, string name, LayerRole role)
     {
         return new GeneratedRhinoObject
         {
+            Role = role,
             Geometry = text,
             Name = name,
             AnalysisId = analysis.Id,
             ColorArgb = analysis.ColorArgb,
-            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind)
+            LayerPath = Roles(layerRoles).Path(role)
         };
     }
 
@@ -1383,7 +1391,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         double? distance,
         string? blockDefinitionName,
         MarkerBlockTemplate template,
-        string? fallbackLayerPath = null,
+        LayerRoleTable? layerRoles = null,
         Vector3d? direction = null)
     {
         string formattedValue = FormatValue(rawValue, analysis.ValueFormat);
@@ -1406,10 +1414,11 @@ internal static class TerrainAnalysisAnnotationBuilder
 
         return new GeneratedRhinoObject
         {
+            Role = LayerRole.Markers,
             Name = $"{analysis.Label} {index}",
             AnalysisId = analysis.Id,
             ColorArgb = analysis.ColorArgb,
-            LayerPath = analysis.OutputLayerPath ?? fallbackLayerPath,
+            LayerPath = Roles(layerRoles).Path(LayerRole.Markers),
             InstanceDefinitionName = string.IsNullOrWhiteSpace(blockDefinitionName)
                 ? GeneratedBlockCatalog.GetDefaultDefinitionName(template)
                 : blockDefinitionName,

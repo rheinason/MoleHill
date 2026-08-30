@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using MoleHill.Rhino.Model;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
@@ -10,6 +11,14 @@ internal sealed class GeneratedRhinoObject
     private Mesh[]? _previewBrepMeshes;
     private bool _previewDisplayTextInitialized;
     private string? _previewDisplayText;
+
+    /// <summary>
+    /// Where this output belongs. Required and non-nullable on purpose: it makes the compiler ask
+    /// every producer the question, which is how markers, marker labels, scatter instances and
+    /// grading auxiliary output stopped silently baking onto whatever layer the user happened to be
+    /// working on. The layer path and the appearance are both resolved from it.
+    /// </summary>
+    public required LayerRole Role { get; init; }
 
     public GeometryBase? Geometry { get; init; }
 

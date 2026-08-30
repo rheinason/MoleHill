@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
 using Xunit;
 
@@ -113,27 +114,21 @@ public class DrawingOutputTests
 
     // --- layer-driven print widths -------------------------------------------------------------
 
+    /// <summary>
+    /// A cut/fill hatch and a section cut line are different destinations with different weights.
+    /// This used to depend on longest-suffix matching picking "::CutFill::Cut" over "::Cuts"; roles
+    /// name their destination outright, so the two can no longer shadow each other.
+    /// </summary>
     [Fact]
-    public void GeneratedLayerDefaults_LongerSuffixWins()
+    public void CutFillHatches_AndSectionCutLines_AreSeparateDestinations()
     {
-        // "::CutFill::Cut" must not be shadowed by the shorter "::Cuts" match.
-        Assert.Equal(0.13, GeneratedLayerDefaults.GetPlotWeight("Sections::CutFill::Cut"));
-        Assert.Equal(0.50, GeneratedLayerDefaults.GetPlotWeight("Sections::Cuts"));
-        Assert.Equal(1, GeneratedLayerDefaults.GetPreviewWidth("Sections::CutFill::Cut"));
-        Assert.Equal(4, GeneratedLayerDefaults.GetPreviewWidth("Sections::Cuts"));
-    }
+        var table = LayerRoleTable.Default;
 
-    [Fact]
-    public void GeneratedLayerDefaults_IsCaseInsensitive()
-    {
-        Assert.Equal(0.13, GeneratedLayerDefaults.GetPlotWeight("sections::grid"));
-    }
-
-    [Fact]
-    public void GeneratedLayerDefaults_NullOrBlank_ReturnsNull()
-    {
-        Assert.Null(GeneratedLayerDefaults.GetPlotWeight(null));
-        Assert.Null(GeneratedLayerDefaults.GetPlotWeight("   "));
+        Assert.NotEqual(table.Path(LayerRole.SectionsCutFillCut), table.Path(LayerRole.SectionsCuts));
+        Assert.Equal(0.13, table.Appearance(LayerRole.SectionsCutFillCut).PlotWeight);
+        Assert.Equal(0.50, table.Appearance(LayerRole.SectionsCuts).PlotWeight);
+        Assert.Equal(1, table.Appearance(LayerRole.SectionsCutFillCut).PreviewWidthPx);
+        Assert.Equal(4, table.Appearance(LayerRole.SectionsCuts).PreviewWidthPx);
     }
 
     // --- major / minor contours ----------------------------------------------------------------
@@ -188,46 +183,41 @@ public class DrawingOutputTests
     }
 
     [Fact]
-    public void ResolveContourLevelLayerPath_SplitEnabled_UsesMajorMinorSublayers()
+    public void ContourLevelRole_SplitEnabled_SeparatesMajorFromMinor()
     {
         var analysis = new ContourAnalysisDefinition { SeparateMajorMinorLayers = true };
 
-        Assert.Equal(
-            "MoleHill::Annotation::Contours::Major",
-            TerrainBuildService.ResolveContourLevelLayerPath("MoleHill::Annotation", analysis, isMajor: true));
-        Assert.Equal(
-            "MoleHill::Annotation::Contours::Minor",
-            TerrainBuildService.ResolveContourLevelLayerPath("MoleHill::Annotation", analysis, isMajor: false));
+        Assert.Equal(LayerRole.ContoursMajor, TerrainBuildService.ResolveContourLevelRole(analysis, isMajor: true));
+        Assert.Equal(LayerRole.ContoursMinor, TerrainBuildService.ResolveContourLevelRole(analysis, isMajor: false));
+
+        var table = LayerRoleTable.Default;
+        Assert.Equal("MoleHill::Annotation::Contours::Major", table.Path(LayerRole.ContoursMajor));
+        Assert.Equal("MoleHill::Annotation::Contours::Minor", table.Path(LayerRole.ContoursMinor));
     }
 
     [Fact]
-    public void ResolveContourLevelLayerPath_SplitDisabled_KeepsFlatRouting()
+    public void ContourLevelRole_SplitDisabled_KeepsEveryLevelOnOneLayer()
     {
         var analysis = new ContourAnalysisDefinition { SeparateMajorMinorLayers = false };
 
-        Assert.Equal(
-            "MoleHill::Annotation",
-            TerrainBuildService.ResolveContourLevelLayerPath("MoleHill::Annotation", analysis, isMajor: true));
+        Assert.Equal(LayerRole.Contours, TerrainBuildService.ResolveContourLevelRole(analysis, isMajor: true));
+        Assert.Equal(LayerRole.Contours, TerrainBuildService.ResolveContourLevelRole(analysis, isMajor: false));
     }
 
+    /// <summary>
+    /// A major contour has to read heavier than a minor one. This used to be a hand-sync check
+    /// between the routed path and a separate print-width table; now both come from the role.
+    /// </summary>
     [Fact]
-    public void ResolveContourLevelLayerPath_NoOutputLayer_StaysNull()
+    public void ContourRoles_MajorPrintsHeavierThanMinor()
     {
-        var analysis = new ContourAnalysisDefinition { SeparateMajorMinorLayers = true };
+        var table = LayerRoleTable.Default;
 
-        Assert.Null(TerrainBuildService.ResolveContourLevelLayerPath(null, analysis, isMajor: true));
-    }
-
-    [Fact]
-    public void ContourSublayerPaths_MatchTheSeededPrintWidths()
-    {
-        // The routed paths and the print-width defaults must agree, or major/minor lines print identically.
-        var analysis = new ContourAnalysisDefinition { SeparateMajorMinorLayers = true };
-        string major = TerrainBuildService.ResolveContourLevelLayerPath("MoleHill::Annotation", analysis, true)!;
-        string minor = TerrainBuildService.ResolveContourLevelLayerPath("MoleHill::Annotation", analysis, false)!;
-
-        Assert.Equal(0.35, GeneratedLayerDefaults.GetPlotWeight(major));
-        Assert.Equal(0.13, GeneratedLayerDefaults.GetPlotWeight(minor));
+        Assert.Equal(0.35, table.Appearance(LayerRole.ContoursMajor).PlotWeight);
+        Assert.Equal(0.13, table.Appearance(LayerRole.ContoursMinor).PlotWeight);
+        Assert.True(
+            table.Appearance(LayerRole.ContoursMajor).PreviewWidthPx >
+            table.Appearance(LayerRole.ContoursMinor).PreviewWidthPx);
     }
 
     [Fact]
