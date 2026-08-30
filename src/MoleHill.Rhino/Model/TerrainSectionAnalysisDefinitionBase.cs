@@ -26,10 +26,10 @@ public abstract class TerrainSectionAnalysisDefinitionBase : AnalysisDefinition
 
     public bool ShowCutFillRegions { get; set; } = true;
 
-    // Cut and fill regions are emitted as hatches whose appearance is layer-driven (see
-    // SectionOutputLayers and the office layer template), so these three no longer affect output. They are
-    // kept so existing documents round-trip unchanged, and so the layer template can seed its cut/fill
-    // layers from the same two colours; their panel rows were removed because editing them did nothing.
+    // Cut and fill regions are emitted as hatches whose appearance comes from the SectionsCutFillCut and
+    // SectionsCutFillFill roles, so these three no longer affect output. They are kept so existing
+    // documents round-trip unchanged, and because LayerRoleRegistry seeds those two roles from the same
+    // constants; their panel rows were removed because editing them did nothing.
     public int CutColorArgb { get; set; } = DefaultCutColorArgb;
 
     public int FillColorArgb { get; set; } = DefaultFillColorArgb;
