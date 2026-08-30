@@ -38,6 +38,24 @@ public class GeometryInputModifierDefinitionTests
     }
 
     [Fact]
+    public void EnsureBaseModifier_DoesNotMoveUserPlacedAddGeometry()
+    {
+        var triangulate = new TriangulateModifierDefinition();
+        var remesh = new RemeshModifierDefinition();
+        var addGeometry = new AddGeometryModifierDefinition();
+        var terrain = new TerrainDefinition
+        {
+            Modifiers = new List<ModifierDefinition> { triangulate, remesh, addGeometry }
+        };
+
+        terrain.EnsureBaseModifier();
+
+        Assert.Same(triangulate, terrain.Modifiers[0]);
+        Assert.Same(remesh, terrain.Modifiers[1]);
+        Assert.Same(addGeometry, terrain.Modifiers[2]);
+    }
+
+    [Fact]
     public void DemSurface_SerializesAsTriangulateBaseInput()
     {
         Guid surfaceId = Guid.NewGuid();

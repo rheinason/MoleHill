@@ -206,48 +206,5 @@ public sealed class TerrainDefinition
             }
         }
 
-        EnsureGeometryInputStagesFollowBase();
-    }
-
-    private void EnsureGeometryInputStagesFollowBase()
-    {
-        if (Modifiers.Count <= 2)
-            return;
-
-        var ordered = new List<ModifierDefinition>(Modifiers.Count)
-        {
-            Modifiers[0]
-        };
-
-        for (int index = 1; index < Modifiers.Count; index++)
-        {
-            if (Modifiers[index] is GeometryInputModifierDefinition)
-                ordered.Add(Modifiers[index]);
-        }
-
-        for (int index = 1; index < Modifiers.Count; index++)
-        {
-            if (Modifiers[index] is not GeometryInputModifierDefinition)
-                ordered.Add(Modifiers[index]);
-        }
-
-        bool changed = ordered.Count != Modifiers.Count;
-        if (!changed)
-        {
-            for (int index = 0; index < Modifiers.Count; index++)
-            {
-                if (ReferenceEquals(Modifiers[index], ordered[index]))
-                    continue;
-
-                changed = true;
-                break;
-            }
-        }
-
-        if (!changed)
-            return;
-
-        Modifiers.Clear();
-        Modifiers.AddRange(ordered);
     }
 }
