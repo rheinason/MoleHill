@@ -207,7 +207,6 @@ public sealed class TerrainDefinition
         }
 
         EnsureGeometryInputStagesFollowBase();
-        EnsureRetopoStagesAreTerminal();
     }
 
     private void EnsureGeometryInputStagesFollowBase()
@@ -243,45 +242,6 @@ public sealed class TerrainDefinition
                 changed = true;
                 break;
             }
-        }
-
-        if (!changed)
-            return;
-
-        Modifiers.Clear();
-        Modifiers.AddRange(ordered);
-    }
-
-    /// <summary>Retopo preserves polygon faces, while downstream mesh stages currently operate on triangle
-    /// arrays. Keep the finishing stage last so a later modifier cannot silently turn its quads back into
-    /// triangles.</summary>
-    private void EnsureRetopoStagesAreTerminal()
-    {
-        if (Modifiers.Count < 2)
-            return;
-
-        var ordered = new List<ModifierDefinition>(Modifiers.Count);
-        var retopo = new List<ModifierDefinition>();
-        foreach (ModifierDefinition modifier in Modifiers)
-        {
-            if (modifier is RetopoModifierDefinition)
-                retopo.Add(modifier);
-            else
-                ordered.Add(modifier);
-        }
-
-        if (retopo.Count == 0)
-            return;
-
-        ordered.AddRange(retopo);
-        bool changed = false;
-        for (int index = 0; index < Modifiers.Count; index++)
-        {
-            if (ReferenceEquals(Modifiers[index], ordered[index]))
-                continue;
-
-            changed = true;
-            break;
         }
 
         if (!changed)
