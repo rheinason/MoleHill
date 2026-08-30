@@ -654,15 +654,6 @@ internal static class TerrainRuntimeCacheCloner
         };
     }
 
-    public static SmoothStageCacheEntry CloneSmoothStageCacheEntry(SmoothStageCacheEntry entry)
-    {
-        return new SmoothStageCacheEntry
-        {
-            Fingerprint = entry.Fingerprint,
-            Prepared = ClonePreparedSmoothingData(entry.Prepared)
-        };
-    }
-
     public static ZoneAnalysisSummary CloneZoneAnalysis(ZoneAnalysisSummary source)
     {
         return new ZoneAnalysisSummary
@@ -695,16 +686,4 @@ internal static class TerrainRuntimeCacheCloner
         return items.Select(item => item.Clone()).ToList();
     }
 
-    private static MeshSmoother.PreparedSmoothingData ClonePreparedSmoothingData(MeshSmoother.PreparedSmoothingData prepared)
-    {
-        return new MeshSmoother.PreparedSmoothingData
-        {
-            VertexCount = prepared.VertexCount,
-            NeighborOffsets = (int[])prepared.NeighborOffsets.Clone(),
-            NeighborIndices = (int[])prepared.NeighborIndices.Clone(),
-            IsMeshBoundary = (bool[])prepared.IsMeshBoundary.Clone(),
-            InsideBoundaries = (bool[])prepared.InsideBoundaries.Clone(),
-            IsOnBreakline = (bool[])prepared.IsOnBreakline.Clone()
-        };
-    }
 }

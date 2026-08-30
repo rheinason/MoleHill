@@ -1267,7 +1267,9 @@ internal sealed partial class TerrainBuildService
         if (runtimeCache.SmoothEntries.TryGetValue(preparedStageKey, out var cachedPrepared) &&
             cachedPrepared.Fingerprint == preparedFingerprint)
         {
-            prepared = TerrainRuntimeCacheCloner.CloneSmoothStageCacheEntry(cachedPrepared).Prepared;
+            // Prepared smoothing data is immutable after construction. Share it between the UI cache
+            // and worker builds instead of copying the full adjacency/mask arrays on every scrub.
+            prepared = cachedPrepared.Prepared;
         }
         else
         {

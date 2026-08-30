@@ -240,6 +240,30 @@ public class TerrainRuntimeCacheTests
     }
 
     [Fact]
+    public void CreateWorkerCopy_SharesImmutableSmoothPreparedData()
+    {
+        var prepared = new MeshSmoother.PreparedSmoothingData
+        {
+            VertexCount = 1,
+            NeighborOffsets = new[] { 0, 0 },
+            NeighborIndices = Array.Empty<int>(),
+            IsMeshBoundary = new[] { true },
+            InsideBoundaries = new[] { false },
+            IsOnBreakline = new[] { false }
+        };
+        var cache = new TerrainRuntimeCache();
+        cache.SmoothEntries["smooth"] = new SmoothStageCacheEntry
+        {
+            Fingerprint = 1,
+            Prepared = prepared
+        };
+
+        TerrainRuntimeCache worker = cache.CreateWorkerCopy();
+
+        Assert.Same(prepared, worker.SmoothEntries["smooth"].Prepared);
+    }
+
+    [Fact]
     public void CloneGradingTopologyEntry_PreservesStructuredDiagnostics()
     {
         GradingTopologyCacheEntry entry = CreateEntry(
