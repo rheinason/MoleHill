@@ -596,7 +596,7 @@ internal sealed class TerrainSectionAnalysisDescriptor : AnalysisTypeDescriptor
             "ElevationGridInterval", "Elevation Grid Interval",
             a => ((TerrainSectionAnalysisDefinition)a).ElevationGridInterval,
             (a, v) => ((TerrainSectionAnalysisDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
-            "Vertical spacing of horizontal grid lines drawn on the section. 0 disables the grid.",
+            "Vertical spacing of horizontal grid lines drawn on the section. 0 = auto.",
             min: 0.0),
         AnalysisParameterDescriptor.Bool(
             "ShowStationTicks", "Show Station Ticks",
@@ -709,7 +709,7 @@ internal sealed class CrossSectionStationAnalysisDescriptor : AnalysisTypeDescri
             "ElevationGridInterval", "Elevation Grid Interval",
             a => ((CrossSectionStationAnalysisDefinition)a).ElevationGridInterval,
             (a, v) => ((CrossSectionStationAnalysisDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
-            "Vertical spacing of grid lines on the unrolled cross-sections. 0 disables.",
+            "Vertical spacing of grid lines on the unrolled cross-sections. 0 = auto.",
             min: 0.0),
     };
 
@@ -778,7 +778,7 @@ internal sealed class LongitudinalSectionAnalysisDescriptor : AnalysisTypeDescri
             "ElevationGridInterval", "Elevation Grid Interval",
             a => ((LongitudinalSectionAnalysisDefinition)a).ElevationGridInterval,
             (a, v) => ((LongitudinalSectionAnalysisDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
-            "Vertical spacing of horizontal grid lines. 0 disables.",
+            "Vertical spacing of horizontal grid lines. 0 = auto.",
             min: 0.0),
         AnalysisParameterDescriptor.Bool(
             "ShowStationLabels", "Show Station Labels",

@@ -798,6 +798,10 @@ internal static class TerrainAnalysisAnnotationBuilder
         double totalStation = profiles.Max(profile => profile.Slice.TotalStationLength);
         double minimumElevation = profiles.Min(profile => profile.Slice.MinimumElevation);
         double maximumElevation = profiles.Max(profile => profile.Slice.MaximumElevation);
+        double effectiveElevationGridInterval = SectionLayoutHelper.ResolveElevationGridSpacing(
+            minimumElevation,
+            maximumElevation,
+            elevationGridInterval);
 
         TerrainSectionResult? referenceSliceForProfile = null;
         if (analysis.ShowCutFillRegions)
@@ -926,9 +930,9 @@ internal static class TerrainAnalysisAnnotationBuilder
             emitted++;
         }
 
-        if (showElevationGrid && elevationGridInterval > 0.0 && totalStation > 0.0)
+        if (showElevationGrid && effectiveElevationGridInterval > 0.0 && totalStation > 0.0)
         {
-            var grid = SectionLayoutHelper.BuildElevationGridLines(cellPlane, totalStation, minimumElevation, maximumElevation, baseElevation, elevationGridInterval, horizontalScale, verticalScale);
+            var grid = SectionLayoutHelper.BuildElevationGridLines(cellPlane, totalStation, minimumElevation, maximumElevation, baseElevation, effectiveElevationGridInterval, horizontalScale, verticalScale);
             foreach (var line in grid)
             {
                 build.AuxiliaryObjects.Add(BuildLineObject(analysis, line, layerRoles, $"{sectionLabel} grid", LayerRole.SectionsGrid));

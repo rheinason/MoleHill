@@ -138,6 +138,19 @@ public class SectionLayoutHelperTests
         Assert.Empty(lines);
     }
 
+    [Theory]
+    [InlineData(0.0, 4.0, 0.0, 1.0)]
+    [InlineData(100.0, 112.0, 0.0, 5.0)]
+    [InlineData(0.0, 4.0, 0.25, 0.25)]
+    public void ResolveElevationGridSpacing_AutoUsesReadableStep(
+        double minimum,
+        double maximum,
+        double requested,
+        double expected)
+    {
+        Assert.Equal(expected, SectionLayoutHelper.ResolveElevationGridSpacing(minimum, maximum, requested));
+    }
+
     [Fact]
     public void BuildStationTicks_ReturnsTickPerStation()
     {

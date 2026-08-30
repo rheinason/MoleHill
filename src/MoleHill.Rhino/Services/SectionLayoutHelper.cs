@@ -118,6 +118,27 @@ internal static class SectionLayoutHelper
         return lines;
     }
 
+    public static double ResolveElevationGridSpacing(
+        double minimumElevation,
+        double maximumElevation,
+        double requestedSpacing)
+    {
+        if (requestedSpacing > 0.0)
+            return requestedSpacing;
+
+        double range = maximumElevation - minimumElevation;
+        if (range <= 0.0 || !double.IsFinite(range))
+            return 0.0;
+
+        // Aim for about five grid intervals, then round to a familiar 1/2/5 step so labels remain
+        // readable instead of producing a dense forest of arbitrary decimal lines.
+        double raw = range / 5.0;
+        double magnitude = Math.Pow(10.0, Math.Floor(Math.Log10(raw)));
+        double normalized = raw / magnitude;
+        double step = normalized <= 1.0 ? 1.0 : normalized <= 2.0 ? 2.0 : normalized <= 5.0 ? 5.0 : 10.0;
+        return step * magnitude;
+    }
+
     public static IReadOnlyList<Line> BuildStationTicks(
         Plane insertionPlane,
         IReadOnlyList<double> stations,
