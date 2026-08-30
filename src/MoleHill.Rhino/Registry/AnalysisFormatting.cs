@@ -126,15 +126,15 @@ internal static class AnalysisFormatting
         return layer.Color.ToArgb();
     }
 
-    public static string GetAnalysisOutputColorText(TerrainDefinition terrain, string? outputLayerPath)
-    {
-        if (string.IsNullOrWhiteSpace(outputLayerPath))
-        {
-            return string.IsNullOrWhiteSpace(terrain.AnnotationLayerPath)
-                ? $"By Layer ({TerrainDefinition.DefaultAnnotationLayerPath})"
-                : $"By Layer ({GetLeafLayerName(terrain.AnnotationLayerPath!)})";
-        }
+    /// <summary>The layer a role's output lands on for this terrain, named as the user sees it.</summary>
+    public static string GetRoleLayerPath(TerrainDefinition terrain, LayerRole role) =>
+        Services.LayerRoleService.GetTable(RhinoDoc.ActiveDoc, terrain).Path(role);
 
-        return $"By Layer ({GetLeafLayerName(outputLayerPath)})";
-    }
+    /// <summary>
+    /// What an unset colour resolves to, for the "clear to use the layer colour" hint on a colour
+    /// row. Names the layer the role actually routes to rather than a per-card override, since there
+    /// is no longer one.
+    /// </summary>
+    public static string GetRoleColorText(TerrainDefinition terrain, LayerRole role) =>
+        $"By Layer ({GetLeafLayerName(GetRoleLayerPath(terrain, role))})";
 }

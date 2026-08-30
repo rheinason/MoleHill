@@ -159,7 +159,10 @@ internal sealed partial class TerrainController
         if (textEntity.Duplicate() is not TextEntity toBake)
             toBake = textEntity;
 
-        int styleIndex = AnnotationStyleService.EnsureStyle(doc, terrain.AnnotationStyleName);
+        int styleIndex = AnnotationStyleService.EnsureStyle(
+            doc,
+            LayerRoleService.GetTable(doc, terrain).Appearance(LayerRole.Annotation).AnnotationStyleName
+                ?? terrain.LegacyAnnotationStyleName);
         if (styleIndex >= 0 && styleIndex < doc.DimStyles.Count)
         {
             toBake.DimensionStyleId = doc.DimStyles[styleIndex].Id;

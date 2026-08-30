@@ -12,7 +12,6 @@ internal enum ParameterKind
     OptionalNumber,
     Slider,
     Bool,
-    Layer,
     ReadOnly,
     Choice,
     Color,
@@ -204,22 +203,6 @@ internal sealed class ParameterDescriptor
             Label = label,
             GetBool = get,
             SetBool = set,
-            Help = help,
-        };
-
-    public static ParameterDescriptor Layer(
-        string key,
-        string label,
-        Func<ModifierDefinition, string?> get,
-        Action<ModifierDefinition, string?> set,
-        string? help = null) =>
-        new()
-        {
-            Kind = ParameterKind.Layer,
-            Key = key,
-            Label = label,
-            GetText = get,
-            SetText = set,
             Help = help,
         };
 

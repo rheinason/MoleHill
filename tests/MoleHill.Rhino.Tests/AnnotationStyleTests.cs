@@ -97,15 +97,41 @@ public class AnnotationStyleTests
         Assert.True(new ElevationMarkerDefinition().FollowsAnnotationStyle);
     }
 
+    /// <summary>
+    /// The annotation style moved onto the layer template, where it is per role. The old per-terrain
+    /// value still round-trips so the schema 30 migration can carry a chosen style across rather
+    /// than dropping it on load.
+    /// </summary>
     [Fact]
-    public void Roundtrip_PreservesAnnotationStyleName()
+    public void Roundtrip_PreservesTheLegacyAnnotationStyleForMigration()
     {
-        var terrain = new TerrainDefinition { Name = "T", AnnotationStyleName = "Site Plan" };
+        var terrain = new TerrainDefinition { Name = "T", LegacyAnnotationStyleName = "Site Plan" };
 
         string json = TerrainSerializer.Serialize(new[] { terrain });
         TerrainDefinition restored = TerrainSerializer.Deserialize(json).Single();
 
-        Assert.Equal("Site Plan", restored.AnnotationStyleName);
+        Assert.Equal("Site Plan", restored.LegacyAnnotationStyleName);
         Assert.True(restored.Analyses.All(a => a.FollowsAnnotationStyle));
+    }
+
+    /// <summary>The style a role's text binds to now comes from the template.</summary>
+    [Fact]
+    public void TheTemplate_CarriesTheAnnotationStyle()
+    {
+        var template = new LayerTemplateDefinition
+        {
+            Version = 1,
+            Name = "Office",
+            Entries = new List<LayerTemplateEntry>
+            {
+                new() { Role = "annotation", Path = "Drawing", AnnotationStyleName = "Site Plan" }
+            }
+        };
+
+        var table = LayerRoleTable.Build(template);
+
+        Assert.Equal("Site Plan", table.Appearance(LayerRole.Annotation).AnnotationStyleName);
+        // Section labels inherit it unless the template gives them one of their own.
+        Assert.Equal("Site Plan", table.Appearance(LayerRole.SectionsLabels).AnnotationStyleName);
     }
 }

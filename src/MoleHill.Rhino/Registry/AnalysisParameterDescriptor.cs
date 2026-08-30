@@ -148,24 +148,6 @@ internal sealed class AnalysisParameterDescriptor
             IncrementalCommit = incrementalCommit,
         };
 
-    public static AnalysisParameterDescriptor Layer(
-        string key,
-        string label,
-        Func<AnalysisDefinition, string?> get,
-        Action<AnalysisDefinition, string?> set,
-        string? help = null,
-        bool incrementalCommit = false) =>
-        new()
-        {
-            Kind = ParameterKind.Layer,
-            Key = key,
-            Label = label,
-            GetText = get,
-            SetText = set,
-            Help = help,
-            IncrementalCommit = incrementalCommit,
-        };
-
     public static AnalysisParameterDescriptor Choice(
         string key,
         string label,

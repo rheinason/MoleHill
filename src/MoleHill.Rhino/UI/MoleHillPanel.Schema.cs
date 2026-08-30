@@ -117,13 +117,6 @@ public sealed partial class MoleHillPanel
                     value => MutateModifier(terrainId, modifierId, item => parameter.SetBool!(item, value)),
                     parameter.Help ?? string.Empty);
 
-            case ParameterKind.Layer:
-                return CreateLayerAssignmentEditor(
-                    parameter.Label,
-                    parameter.GetText!(modifier),
-                    path => MutateModifier(terrainId, modifierId, item => parameter.SetText!(item, path)),
-                    parameter.Help ?? string.Empty);
-
             case ParameterKind.ReadOnly:
                 return CreateReadOnlyValueRow(
                     parameter.Label,
@@ -215,13 +208,6 @@ public sealed partial class MoleHillPanel
                     label,
                     parameter.GetBool!(analysis),
                     value => CommitAnalysisMutation(parameter, terrainId, analysisId, item => parameter.SetBool!(item, value)),
-                    parameter.Help ?? string.Empty);
-
-            case ParameterKind.Layer:
-                return CreateLayerAssignmentEditor(
-                    label,
-                    parameter.GetText!(analysis),
-                    path => CommitAnalysisMutation(parameter, terrainId, analysisId, item => parameter.SetText!(item, path)),
                     parameter.Help ?? string.Empty);
 
             case ParameterKind.Choice:

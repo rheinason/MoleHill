@@ -699,6 +699,4 @@ public sealed partial class MoleHillPanel
         return new PropertyRow(CreateHelpLabel(label, help, 0), textBox, expandWidget: true);
     }
 
-    private static string GetAnalysisOutputColorText(TerrainDefinition terrain, string? outputLayerPath) =>
-        AnalysisFormatting.GetAnalysisOutputColorText(terrain, outputLayerPath);
 }

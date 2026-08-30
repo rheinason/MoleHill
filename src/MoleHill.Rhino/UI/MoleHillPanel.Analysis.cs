@@ -693,18 +693,6 @@ public sealed partial class MoleHillPanel
             decimalPlaces: 3,
             help: "Height of station and elevation labels printed on the section.",
             minValue: 0.0));
-        layout.AddRow(CreateLayerAssignmentEditor(
-            "Output Layer",
-            analysis.OutputLayerPath,
-            path => MutateSection(item => item.OutputLayerPath = path),
-            "Layer used for generated section geometry. Leave empty to use the terrain annotation layer."));
-        layout.AddRow(CreateOptionalColorEditor(
-            "Proposed Color",
-            analysis.ColorArgb,
-            value => MutateSection(item => item.ColorArgb = value),
-            "Color for the proposed profile, grid, ticks, and labels. Clear to use the terrain or output-layer color.",
-            ResolveLayerColorArgb(analysis.OutputLayerPath ?? terrain.AnnotationLayerPath),
-            GetAnalysisOutputColorText(terrain, analysis.OutputLayerPath)));
     }
 
     private Control CreateTerrainSectionTerrainEditor(

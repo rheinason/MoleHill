@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 namespace MoleHill.Rhino.Model;
 
 public sealed class ContourAnalysisDefinition : AnalysisDefinition
@@ -6,7 +7,13 @@ public sealed class ContourAnalysisDefinition : AnalysisDefinition
 
     public double StartZ { get; set; }
 
-    public string? OutputLayerPath { get; set; }
+    /// <summary>
+    /// Pre-schema-30 output layer, kept only so <c>MigrateLayerRouting</c> can carry a customised
+    /// path into the document's own layer template. Routing comes from the card's role now.
+    /// </summary>
+    [JsonPropertyName("outputLayerPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyOutputLayerPath { get; set; }
 
     /// <summary>Every Nth contour level is a major (index) contour. 5 is the common survey convention:
     /// a major line every 5 intervals. 1 makes every contour major.</summary>

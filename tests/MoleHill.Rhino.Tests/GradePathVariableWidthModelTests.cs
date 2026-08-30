@@ -84,10 +84,16 @@ public sealed class GradePathVariableWidthModelTests
             WidthEdges = new SourceReferenceSet { ObjectIds = [edge] }
         };
         var terrain = new TerrainDefinition { Modifiers = [new TriangulateModifierDefinition(), legacy] };
+        // Written against the current schema, then dated back to 28 — the last version before the
+        // variable-width flag existed, which is the migration under test. The current version is
+        // read rather than named, so this keeps working when the schema moves again; it previously
+        // hardcoded both sides and would have silently stopped migrating anything.
+        const int PreVariableWidthSchema = 28;
+        int current = TerrainDefinition.CurrentSchemaVersion;
         string json = TerrainSerializer.Serialize([terrain])
-            .Replace("\"schemaVersion\":29", "\"schemaVersion\":28")
-            .Replace("\"schemaVersion\": 29", "\"schemaVersion\": 28");
-        Assert.DoesNotContain("\"schemaVersion\":29", json);
+            .Replace($"\"schemaVersion\":{current}", $"\"schemaVersion\":{PreVariableWidthSchema}")
+            .Replace($"\"schemaVersion\": {current}", $"\"schemaVersion\": {PreVariableWidthSchema}");
+        Assert.Contains($"\"schemaVersion\":{PreVariableWidthSchema}", json.Replace(" ", string.Empty));
 
         TerrainDefinition restored = Assert.Single(TerrainSerializer.Deserialize(json));
         GradePathModifierDefinition path = Assert.Single(

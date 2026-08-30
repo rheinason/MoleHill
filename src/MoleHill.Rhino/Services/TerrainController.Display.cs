@@ -403,6 +403,16 @@ internal sealed partial class TerrainController
             .Concat(terrain.AuxiliaryObjectIds)
             .Concat(terrain.MarkerObjectIds);
 
+    /// <summary>
+    /// Notices that a generated object has been dragged to another layer, and says why it will not
+    /// stay there.
+    ///
+    /// This used to write the new layer back onto the terrain, which worked while each terrain owned
+    /// its own output layer paths. Routing now lives in the layer template, which is shared by every
+    /// terrain using it and, once pushed, by every future document — so silently rewriting it from a
+    /// drag would be far more than the user asked for. The object goes back where the template says
+    /// on the next rebuild, and the message points at the two ways to move it for real.
+    /// </summary>
     private bool TrySyncOwnedObjectLayer(RhinoDoc doc, Guid objectId, int newLayerIndex)
     {
         string? newLayerPath = GetLayerPath(doc, newLayerIndex);
@@ -412,29 +422,14 @@ internal sealed partial class TerrainController
         var state = GetState(doc);
         foreach (var terrain in state.Terrains)
         {
-            if (terrain.OutputObjectIds.Contains(objectId))
-            {
-                if (string.Equals(terrain.TerrainLayerPath, newLayerPath, StringComparison.OrdinalIgnoreCase))
-                    return true;
+            if (!AllOwnedIds(terrain).Contains(objectId))
+                continue;
 
-                terrain.TerrainLayerPath = newLayerPath;
-                Save(doc, state);
-                ApplyDisplayState(doc, terrain);
-                doc.Views.Redraw();
-                return true;
-            }
-
-            if (terrain.AuxiliaryObjectIds.Contains(objectId))
-            {
-                if (string.Equals(terrain.AuxiliaryLayerPath, newLayerPath, StringComparison.OrdinalIgnoreCase))
-                    return true;
-
-                terrain.AuxiliaryLayerPath = newLayerPath;
-                Save(doc, state);
-                ApplyDisplayState(doc, terrain);
-                doc.Views.Redraw();
-                return true;
-            }
+            RhinoApp.WriteLine(
+                $"MoleHill: '{terrain.Name}' output is placed by its layer template, so this move will "
+                    + "not survive a rebuild. Rebind the role in the template editor, or untrack the "
+                    + "object first to keep it where you put it.");
+            return true;
         }
 
         return false;

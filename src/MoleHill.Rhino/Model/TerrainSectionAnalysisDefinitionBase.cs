@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 namespace MoleHill.Rhino.Model;
 
 public abstract class TerrainSectionAnalysisDefinitionBase : AnalysisDefinition
@@ -51,7 +52,13 @@ public abstract class TerrainSectionAnalysisDefinitionBase : AnalysisDefinition
     /// <summary>Pattern rotation, in degrees, passed to the generated hatch.</summary>
     public double HatchRotationDegrees { get; set; }
 
-    public string? OutputLayerPath { get; set; }
+    /// <summary>
+    /// Pre-schema-30 output layer, kept only so <c>MigrateLayerRouting</c> can carry a customised
+    /// path into the document's own layer template. Routing comes from the card's role now.
+    /// </summary>
+    [JsonPropertyName("outputLayerPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyOutputLayerPath { get; set; }
 
     public int? ColorArgb { get; set; }
 

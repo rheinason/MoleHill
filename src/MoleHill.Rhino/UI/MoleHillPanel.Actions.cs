@@ -1,6 +1,7 @@
 using Eto.Forms;
 using Rhino;
 using Rhino.UI;
+using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 
 namespace MoleHill.Rhino.UI;
@@ -55,16 +56,65 @@ public sealed partial class MoleHillPanel
         _controller.BakeTerrain(doc, terrain.TerrainId);
     }
 
-    private void BakeOutputLayers()
+    /// <summary>
+    /// Creates the template's layers in the document. Create-only: a layer that already exists keeps
+    /// whatever the user set in Rhino's Layers panel, since re-stamping is mhResetLayerStyles.
+    /// </summary>
+    private void OnApplyLayerTemplate()
     {
         var doc = RhinoDoc.ActiveDoc;
         var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
-        if (doc == null || terrain == null)
+        if (doc == null)
             return;
 
-        var result = _controller.EnsureTerrainOutputLayers(doc, terrain.TerrainId);
+        var table = LayerRoleService.GetTable(doc, terrain);
+        var counts = LayerCreationService.ApplyTemplate(doc, table);
+        doc.Views.Redraw();
         RhinoApp.WriteLine(
-            $"MoleHill: output layers updated ({result.CreatedCount} created, {result.RefreshedCount} already present, {result.SkippedCount} skipped).");
+            $"MoleHill: output layers for '{table.TemplateName}' ({counts.Created} created, {counts.Existing} already present).");
+        RefreshUi();
+    }
+
+    private void OnEditLayerTemplate()
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        if (LayerTemplateEditorDialog.ShowDialog(doc, MoleHillRhinoPlugin.Instance.LayerTemplateStore))
+        {
+            // Routing and appearance both changed, so every terrain in the document is now drawing
+            // against a stale table.
+            LayerRoleService.Invalidate(doc);
+            var terrain = _controller.GetSelectedTerrain(doc);
+            if (terrain != null)
+                _controller.RebuildTerrain(doc, terrain.TerrainId);
+        }
+
+        RefreshUi();
+    }
+
+    /// <summary>
+    /// Names the template the selected terrain routes through, and says when the document's own copy
+    /// has been edited apart from the machine-local one of the same name — the two are never merged
+    /// on their own, so the user needs to be able to see that it happened.
+    /// </summary>
+    private void RefreshLayerTemplateLabel(RhinoDoc? doc, TerrainDefinition? terrain)
+    {
+        if (doc == null)
+        {
+            _layerTemplateLabel.Text = "-";
+            return;
+        }
+
+        string name = LayerRoleService.GetTable(doc, terrain).TemplateName;
+        bool diverged = LayerRoleService.DivergesFromLocal(doc, terrain?.LayerTemplateName);
+        _layerTemplateLabel.Text = diverged ? $"{name} (modified)" : name;
+        ApplyHelp(
+            _layerTemplateLabel,
+            diverged
+                ? $"This document's copy of '{name}' differs from the one saved on this machine."
+                : name);
     }
 
     private void OnUntrackSelectedBakes(object? sender, EventArgs e)

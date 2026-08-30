@@ -31,7 +31,6 @@ internal enum CurveLabelContent
 internal static class CurveReviewLabeller
 {
     /// <summary>Sublayer that placed labels are written to, under the terrain's annotation layer.</summary>
-    private const string LabelLayerSuffix = "::Labels";
 
     /// <summary>
     /// Runs the pick loop until the user presses Enter or Escape. Returns how many labels were placed.
@@ -145,14 +144,13 @@ internal static class CurveReviewLabeller
     }
 
     /// <summary>
-    /// The annotation label sublayer of the selected terrain, created if needed. Falls back to MoleHill's
-    /// default annotation layer when no terrain is selected, so labelling works on a bare curve too.
+    /// The label layer of the selected terrain, created if needed. With no terrain selected this
+    /// resolves through the document's template, so labelling works on a bare curve too.
     /// </summary>
     private static int EnsureLabelLayer(RhinoDoc doc)
     {
         TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
-        string root = TerrainDefinition.ResolveAnnotationLayerPath(terrain?.AnnotationLayerPath);
-        return TerrainController.EnsureLayerPath(doc, root + LabelLayerSuffix);
+        return LayerRoleService.EnsureRoleLayer(doc, LayerRole.Labels, terrain: terrain);
     }
 
     /// <summary>Nearest sampled station to a picked point. Null when the analysis has no samples.</summary>

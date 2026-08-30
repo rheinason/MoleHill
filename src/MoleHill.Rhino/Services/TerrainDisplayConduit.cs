@@ -49,7 +49,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             return;
 
         if (terrain.ShowTerrainMesh && displayState.PreviewTerrainMesh != null)
-            DrawGeneratedMesh(e, doc, terrain, displayState.PreviewTerrainMesh, TerrainDefinition.ResolveTerrainLayerPath(terrain.TerrainLayerPath), null, terrain.TerrainColorArgb);
+            DrawGeneratedMesh(e, doc, terrain, displayState.PreviewTerrainMesh, LayerRoleService.GetTable(doc, terrain).Path(LayerRole.Terrain), null, terrain.TerrainColorArgb);
 
         DrawRuntimeOverlays(e, displayState);
 

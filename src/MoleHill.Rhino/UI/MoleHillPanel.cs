@@ -26,9 +26,7 @@ public sealed partial class MoleHillPanel : Panel
     private readonly ComboBox _terrainSelector = new() { AutoComplete = true };
     private readonly CheckBox _liveUpdate = new() { Text = "Live" };
     private readonly TextArea _statusTextArea = new() { ReadOnly = true, Wrap = true, Height = 180 };
-    private readonly Label _terrainLayerLabel    = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
-    private readonly Label _auxLayerLabel        = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
-    private readonly Label _annotationLayerLabel = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
+    private readonly Label _layerTemplateLabel = new() { VerticalAlignment = VerticalAlignment.Center, Wrap = WrapMode.Word };
     private readonly Panel _terrainColorSwatch = new() { Width = 18, Height = 18 };
     private readonly Label _terrainColorLabel = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Label _statusHintLabel   = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -47,11 +45,9 @@ public sealed partial class MoleHillPanel : Panel
     private readonly Button _untrackAllBakesButton = new() { Text = "Untrack All" };
     private bool _settingsExpanded = true;
     private bool _statusExpanded = false;
-    private bool _layerSettingsExpanded = false;
     private bool _isUpdatingOpacityControls;
     private Panel? _settingsContent;
     private Panel? _statusContent;
-    private Panel? _layerSettingsContent;
     private readonly Button _visibilityButton = new();
     private readonly Button _lockButton = new();
     private Button _dupButton = new();
@@ -474,81 +470,30 @@ public sealed partial class MoleHillPanel : Panel
             });
         settingsHeader.SizeChanged += (_, _) => settingsDescription.Visible = settingsHeader.Width <= 0 || settingsHeader.Width >= UiMetrics.HeaderStatusBreak;
 
-        // Fixed width on the Current/Default/Clear trio (Pick is already fixed via MakeLayerPickerButton) so
-        // the three layer-assignment rows share one button column regardless of "Default" vs "Clear" length.
-        int layerActionButtonWidth = UiMetrics.Chs(9);
-        var terrainLayerUseCurrentButton = MakeInlineButton("Current", OnAssignTerrainLayer, "Assign the current Rhino layer.");
-        terrainLayerUseCurrentButton.Width = layerActionButtonWidth;
-        var terrainLayerBrowseButton = MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.TerrainLayerPath = path, scheduleRebuild: false), "Browse and pick the terrain layer");
-        var terrainLayerDefaultButton = MakeInlineButton("Default", (_, _) =>
-        {
-            MutateSelectedTerrain(t => t.TerrainLayerPath = null, scheduleRebuild: false);
-            RefreshUi();
-        }, "Use the default MoleHill terrain layer.");
-        terrainLayerDefaultButton.Width = layerActionButtonWidth;
-        var terrainLayerControls = CreateResponsivePrimaryActionRow(
-            _terrainLayerLabel,
+        // Output routing and appearance both live in the layer template now, so the panel names the
+        // template and opens the editor rather than carrying a layer picker per destination.
+        var layerTemplateEditButton = MakeInlineButton(
+            "Edit…",
+            (_, _) => OnEditLayerTemplate(),
+            "Edit the layer template: which layer each kind of output goes to, and how it looks.");
+        var layerTemplateApplyButton = MakeInlineButton(
+            "Apply",
+            (_, _) => OnApplyLayerTemplate(),
+            "Create this template's layers in the document. Existing layers are left as they are.");
+        var layerTemplateControls = CreateResponsivePrimaryActionRow(
+            _layerTemplateLabel,
             UiMetrics.SpaceSmall,
-            terrainLayerUseCurrentButton,
-            terrainLayerBrowseButton,
-            terrainLayerDefaultButton);
-        var bakeLayerStylesButton = MakeInlineButton("Bake Layers", (_, _) => BakeOutputLayers(),
-            "Create or refresh this terrain's configured Terrain, Auxiliary, and Annotation output layers.");
-        var bakeLayerStylesControls = CreateResponsivePrimaryActionRow(
-            new Label
-            {
-                Text = "Terrain, Auxiliary, Annotation",
-                TextColor = UiTheme.MutedText,
-                VerticalAlignment = VerticalAlignment.Center
-            },
-            UiMetrics.SpaceSmall,
-            bakeLayerStylesButton);
-        var bakeLayerStylesRow = new PropertyRow(
-            CreateHelpLabel("Bake Layers", "Create or refresh this terrain's configured output layers.", 0),
-            bakeLayerStylesControls,
+            layerTemplateEditButton,
+            layerTemplateApplyButton);
+        var layerTemplateRow = new PropertyRow(
+            CreateHelpLabel(
+                "Output Layers",
+                "The layer template this terrain routes and styles its output through. The document "
+                    + "keeps its own copy, so it looks the same wherever it is opened.",
+                0),
+            layerTemplateControls,
             expandWidget: true);
-        var terrainLayerRow = new PropertyRow(
-            CreateHelpLabel("Terrain Layer", "Output layer for the main terrain mesh.", 0),
-            terrainLayerControls,
-            expandWidget: true);
-        var auxLayerUseCurrentButton = MakeInlineButton("Current", OnAssignAuxLayer, "Assign the current Rhino layer for retaining walls and other auxiliary outputs.");
-        auxLayerUseCurrentButton.Width = layerActionButtonWidth;
-        var auxLayerBrowseButton = MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AuxiliaryLayerPath = path, scheduleRebuild: true), "Browse and pick the walls / auxiliary layer");
-        var auxLayerClearButton = MakeInlineButton("Clear", (_, _) =>
-        {
-            MutateSelectedTerrain(t => t.AuxiliaryLayerPath = null, scheduleRebuild: true);
-            RefreshUi();
-        }, "Clear the walls / auxiliary layer assignment.");
-        auxLayerClearButton.Width = layerActionButtonWidth;
-        var auxLayerControls = CreateResponsivePrimaryActionRow(
-            _auxLayerLabel,
-            UiMetrics.SpaceSmall,
-            auxLayerUseCurrentButton,
-            auxLayerBrowseButton,
-            auxLayerClearButton);
-        var auxLayerRow = new PropertyRow(
-            CreateHelpLabel("Walls / Aux", "Output layer for retaining walls, stair solids, and other auxiliary geometry.", 0),
-            auxLayerControls,
-            expandWidget: true);
-        var annotationLayerUseCurrentButton = MakeInlineButton("Current", OnAssignAnnotationLayer, "Assign the current Rhino layer for annotation outputs.");
-        annotationLayerUseCurrentButton.Width = layerActionButtonWidth;
-        var annotationLayerBrowseButton = MakeLayerPickerButton(path => MutateSelectedTerrain(t => t.AnnotationLayerPath = path, scheduleRebuild: false), "Browse and pick the annotation layer");
-        var annotationLayerClearButton = MakeInlineButton("Clear", (_, _) =>
-        {
-            MutateSelectedTerrain(t => t.AnnotationLayerPath = null, scheduleRebuild: false);
-            RefreshUi();
-        }, "Clear the annotation layer assignment.");
-        annotationLayerClearButton.Width = layerActionButtonWidth;
-        var annotationLayerControls = CreateResponsivePrimaryActionRow(
-            _annotationLayerLabel,
-            UiMetrics.SpaceSmall,
-            annotationLayerUseCurrentButton,
-            annotationLayerBrowseButton,
-            annotationLayerClearButton);
-        var annotationLayerRow = new PropertyRow(
-            CreateHelpLabel("Annotation", "Default output layer for contours, elevation labels, and slope labels.", 0),
-            annotationLayerControls,
-            expandWidget: true);
+
         var toleranceRow = new PropertyRow(
             CreateHelpLabel("Detail Size", "Smallest terrain detail to preserve automatically. Smaller values keep more detail; larger values simplify and merge nearby geometry more aggressively.", 0),
             _toleranceStepper);
@@ -600,41 +545,6 @@ public sealed partial class MoleHillPanel : Panel
             CreateHelpLabel("Tracking", "Replace previous bake sets automatically, or untrack baked objects you want to keep.", 0),
             bakeTrackingControls,
             expandWidget: true);
-        // ── Nested "Layer Settings" sub-section (collapsible, collapsed by default) ─────
-        var layerSettingsHeader = new SectionHeader(
-            "Layer Settings",
-            UiControls.Label("Terrain, walls, and annotation output layers", UiLabelRole.Meta),
-            _layerSettingsExpanded,
-            expanded =>
-            {
-                _layerSettingsExpanded = expanded;
-                _layerSettingsContent!.Visible = expanded;
-            });
-
-        var layerSettingsInner = new StackLayout
-        {
-            Orientation = Orientation.Vertical, Spacing = UiMetrics.SpaceSmall, Padding = new Padding(UiMetrics.SpaceXLarge, UiMetrics.SpaceSmall, 0, 0),
-            Items =
-            {
-                new StackLayoutItem(terrainLayerRow, HorizontalAlignment.Stretch),
-                new StackLayoutItem(bakeLayerStylesRow, HorizontalAlignment.Stretch),
-                new StackLayoutItem(auxLayerRow, HorizontalAlignment.Stretch),
-                new StackLayoutItem(annotationLayerRow, HorizontalAlignment.Stretch)
-            }
-        };
-        _layerSettingsContent = new Panel { Content = layerSettingsInner, Visible = _layerSettingsExpanded };
-
-        var layerSettingsSection = new StackLayout
-        {
-            Orientation = Orientation.Vertical,
-            Spacing = 0,
-            Items =
-            {
-                new StackLayoutItem(layerSettingsHeader, HorizontalAlignment.Stretch),
-                new StackLayoutItem(_layerSettingsContent, HorizontalAlignment.Stretch)
-            }
-        };
-
         var settingsInner = new StackLayout
         {
             Orientation = Orientation.Vertical, Spacing = UiMetrics.SpaceSmall, Padding = new Padding(UiMetrics.CardHorizontalPadding, UiMetrics.SpaceLarge),
@@ -645,7 +555,7 @@ public sealed partial class MoleHillPanel : Panel
                 new StackLayoutItem(previewLineWeightRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(toleranceRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(bakeTrackingRow, HorizontalAlignment.Stretch),
-                new StackLayoutItem(layerSettingsSection, HorizontalAlignment.Stretch)
+                new StackLayoutItem(layerTemplateRow, HorizontalAlignment.Stretch)
             }
         };
 
@@ -1124,36 +1034,6 @@ public sealed partial class MoleHillPanel : Panel
         RefreshUi();
     }
 
-    private void OnAssignTerrainLayer(object? sender, EventArgs e)
-    {
-        var doc = RhinoDoc.ActiveDoc;
-        if (doc == null)
-            return;
-
-        MutateSelectedTerrain(terrain => terrain.TerrainLayerPath = doc.Layers.CurrentLayer?.FullPath, scheduleRebuild: false);
-        RefreshUi();
-    }
-
-    private void OnAssignAuxLayer(object? sender, EventArgs e)
-    {
-        var doc = RhinoDoc.ActiveDoc;
-        if (doc == null)
-            return;
-
-        MutateSelectedTerrain(terrain => terrain.AuxiliaryLayerPath = doc.Layers.CurrentLayer?.FullPath, scheduleRebuild: true);
-        RefreshUi();
-    }
-
-    private void OnAssignAnnotationLayer(object? sender, EventArgs e)
-    {
-        var doc = RhinoDoc.ActiveDoc;
-        if (doc == null)
-            return;
-
-        MutateSelectedTerrain(terrain => terrain.AnnotationLayerPath = doc.Layers.CurrentLayer?.FullPath, scheduleRebuild: false);
-        RefreshUi();
-    }
-
     private void ApplyTerrainOpacity(int opacityPercent)
     {
         MutateSelectedTerrainLive(
@@ -1222,8 +1102,7 @@ public sealed partial class MoleHillPanel : Panel
                 _terrainSelector.Text = string.Empty;
                 _liveUpdate.Checked = false;
                 SetStatusText("No active Rhino document.");
-                _terrainLayerLabel.Text = "-";
-                _auxLayerLabel.Text = "-";
+                _layerTemplateLabel.Text = "-";
                 _terrainColorSwatch.BackgroundColor = Color.FromArgb(80, 80, 80);
                 _terrainColorLabel.Text = "-";
                 _statusHintLabel.Text = string.Empty;
@@ -1287,18 +1166,7 @@ public sealed partial class MoleHillPanel : Panel
             _terrainSelector.Text = selectedTerrain?.Name ?? string.Empty;
             _isUpdatingTerrainSelector = false;
             _liveUpdate.Checked = selectedTerrain?.LiveUpdateEnabled ?? false;
-            _terrainLayerLabel.Text = string.IsNullOrWhiteSpace(selectedTerrain?.TerrainLayerPath) ||
-                string.Equals(selectedTerrain.TerrainLayerPath, TerrainDefinition.DefaultTerrainLayerPath, StringComparison.OrdinalIgnoreCase)
-                ? TerrainDefinition.DefaultTerrainLayerPath
-                : GetLeafLayerName(selectedTerrain.TerrainLayerPath);
-            _auxLayerLabel.Text = string.IsNullOrWhiteSpace(selectedTerrain?.AuxiliaryLayerPath) ||
-                string.Equals(selectedTerrain.AuxiliaryLayerPath, TerrainDefinition.DefaultAuxiliaryLayerPath, StringComparison.OrdinalIgnoreCase)
-                ? TerrainDefinition.DefaultAuxiliaryLayerPath
-                : GetLeafLayerName(selectedTerrain.AuxiliaryLayerPath);
-            _annotationLayerLabel.Text = string.IsNullOrWhiteSpace(selectedTerrain?.AnnotationLayerPath) ||
-                string.Equals(selectedTerrain.AnnotationLayerPath, TerrainDefinition.DefaultAnnotationLayerPath, StringComparison.OrdinalIgnoreCase)
-                ? TerrainDefinition.DefaultAnnotationLayerPath
-                : GetLeafLayerName(selectedTerrain.AnnotationLayerPath);
+            RefreshLayerTemplateLabel(doc, selectedTerrain);
             int terrainColorArgb = selectedTerrain?.TerrainColorArgb ?? TerrainDefinition.DefaultTerrainColorArgb;
             var terrainColor = ToEtoColor(System.Drawing.Color.FromArgb(terrainColorArgb));
             _terrainColorSwatch.BackgroundColor = terrainColor;
@@ -1750,42 +1618,6 @@ public sealed partial class MoleHillPanel : Panel
             return text;
 
         return text[..(maxChars - 3)] + "...";
-    }
-
-    private Control CreateLayerAssignmentEditor(string label, string? layerPath, Action<string?> onCommit, string help)
-    {
-        string layerText = string.IsNullOrWhiteSpace(layerPath) ? "(default)" : layerPath;
-        var assignedLabel = new Label
-        {
-            Text = EllipsizeText(layerText, 28),
-            VerticalAlignment = VerticalAlignment.Center,
-            Wrap = WrapMode.None
-        };
-        ApplyHelp(assignedLabel, $"{help}\n{layerText}");
-        var useCurrentButton = MakeInlineButton("Current", (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            onCommit(doc?.Layers.CurrentLayer?.FullPath);
-        }, "Assign Rhino's current layer.");
-
-        var browseButton = MakeLayerPickerButton(path => onCommit(path), "Browse and pick a layer");
-
-        var clearButton = MakeInlineButton("Clear", (_, _) => onCommit(null), "Clear the explicit layer assignment and fall back to the default.");
-        var buttonRow = CreateResponsiveControlGroup(3, useCurrentButton, browseButton, clearButton);
-        var editor = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 3,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Padding = new Padding(0, 1),
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(assignedLabel, expand: true),
-                buttonRow
-            }
-        };
-        return new PropertyRow(CreateHelpLabel(label, help, 0), editor, expandWidget: true);
     }
 
     private Control CreateOptionalColorEditor(

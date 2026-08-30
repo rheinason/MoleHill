@@ -23,11 +23,6 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
             "WallCurves", "Wall Curves",
             m => ((RetainingWallModifierDefinition)m).WallCurves,
             RhinoObjectType.Curve),
-        ParameterDescriptor.Layer(
-            "OutputLayerPath", "Wall Layer",
-            m => ((RetainingWallModifierDefinition)m).OutputLayerPath,
-            (m, v) => ((RetainingWallModifierDefinition)m).OutputLayerPath = v,
-            "Layer used for retaining-wall Breps. Leave empty to use the terrain auxiliary layer."),
         ParameterDescriptor.Number(
             "MaxWallWidth", "Max Wall Width",
             m => ((RetainingWallModifierDefinition)m).MaxWallWidth,

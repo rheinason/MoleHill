@@ -93,18 +93,14 @@ internal static class AnalysisParameterCatalog
             (a, v) => ((TAnalysis)a).BlockScale = v,
             "Scale factor for inserted annotation blocks.",
             min: 0.01);
-        yield return AnalysisParameterDescriptor.Layer(
-            "OutputLayerPath", "Output Layer",
-            a => ((TAnalysis)a).OutputLayerPath,
-            (a, v) => ((TAnalysis)a).OutputLayerPath = v,
-            "Layer used for generated annotation instances. Leave empty to use the terrain auxiliary layer.");
         yield return AnalysisParameterDescriptor.Color(
             "ColorArgb", "Color",
             a => ((TAnalysis)a).ColorArgb,
             (a, v) => ((TAnalysis)a).ColorArgb = v,
-            "Explicit display and bake color for generated annotation blocks. Clear to use the output layer color.",
-            fallbackColor: (terrain, a) => AnalysisFormatting.ResolveLayerColorArgb(((TAnalysis)a).OutputLayerPath ?? terrain.AnnotationLayerPath),
-            defaultText: (terrain, a) => AnalysisFormatting.GetAnalysisOutputColorText(terrain, ((TAnalysis)a).OutputLayerPath));
+            "Explicit display and bake color for generated annotation blocks. Clear to take the colour from the layer its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Markers)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Markers));
     }
 }
 
@@ -264,19 +260,14 @@ internal sealed class ContourAnalysisDescriptor : AnalysisTypeDescriptor
             (a, v) => ((ContourAnalysisDefinition)a).SeparateMajorMinorLayers = v,
             "Send major and minor contours to separate Contours::Major and Contours::Minor sublayers so print width and linetype are controlled per layer in Rhino.",
             incrementalCommit: true),
-        AnalysisParameterDescriptor.Layer(
-            "OutputLayerPath", "Output Layer",
-            a => ((ContourAnalysisDefinition)a).OutputLayerPath,
-            (a, v) => ((ContourAnalysisDefinition)a).OutputLayerPath = v,
-            "Layer used for generated contour curves. Leave empty to use the terrain annotation layer.",
-            incrementalCommit: true),
         AnalysisParameterDescriptor.Color(
             "ColorArgb", "Color",
             a => ((ContourAnalysisDefinition)a).ColorArgb,
             (a, v) => ((ContourAnalysisDefinition)a).ColorArgb = v,
-            "Explicit display and bake color for generated contour curves. Clear to use the output layer color.",
-            fallbackColor: (terrain, a) => AnalysisFormatting.ResolveLayerColorArgb(((ContourAnalysisDefinition)a).OutputLayerPath ?? terrain.AnnotationLayerPath),
-            defaultText: (terrain, a) => AnalysisFormatting.GetAnalysisOutputColorText(terrain, ((ContourAnalysisDefinition)a).OutputLayerPath),
+            "Explicit display and bake color for generated contour curves. Clear to take the colour from the layer its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Contours)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Contours),
             incrementalCommit: true),
         AnalysisParameterDescriptor.Bool(
             "ShowLabels", "Label Contours",
@@ -338,18 +329,14 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
             (a, v) => ((WaterflowAnalysisDefinition)a).MaxLength = Math.Max(0.0, v),
             "Maximum plan length of each path. Set to 0 to continue to the terrain edge or a local sink.",
             min: 0.0),
-        AnalysisParameterDescriptor.Layer(
-            "OutputLayerPath", "Output Layer",
-            a => ((WaterflowAnalysisDefinition)a).OutputLayerPath,
-            (a, v) => ((WaterflowAnalysisDefinition)a).OutputLayerPath = v,
-            "Layer used for generated waterflow curves. Leave empty to use the terrain annotation layer."),
         AnalysisParameterDescriptor.Color(
             "ColorArgb", "Color",
             a => ((WaterflowAnalysisDefinition)a).ColorArgb,
             (a, v) => ((WaterflowAnalysisDefinition)a).ColorArgb = v,
-            "Explicit display and bake color for waterflow curves. Clear to use the output layer color.",
-            fallbackColor: (terrain, a) => AnalysisFormatting.ResolveLayerColorArgb(((WaterflowAnalysisDefinition)a).OutputLayerPath ?? terrain.AnnotationLayerPath),
-            defaultText: (terrain, a) => AnalysisFormatting.GetAnalysisOutputColorText(terrain, ((WaterflowAnalysisDefinition)a).OutputLayerPath)),
+            "Explicit display and bake color for waterflow curves. Clear to take the colour from the layer its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Waterflow)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Waterflow)),
     };
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
@@ -571,18 +558,14 @@ internal sealed class GradeBetweenPointsAnalysisDescriptor : AnalysisTypeDescrip
             (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).TextHeight = Math.Max(double.Epsilon, v),
             "Text height of the callout label, and the size of the downhill arrow.",
             min: 0.0),
-        AnalysisParameterDescriptor.Layer(
-            "OutputLayerPath", "Output Layer",
-            a => ((GradeBetweenPointsAnalysisDefinition)a).OutputLayerPath,
-            (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).OutputLayerPath = v,
-            "Layer used for the callout line, arrow, and text. Leave empty to use the terrain annotation layer."),
         AnalysisParameterDescriptor.Color(
             "ColorArgb", "Color",
             a => ((GradeBetweenPointsAnalysisDefinition)a).ColorArgb,
             (a, v) => ((GradeBetweenPointsAnalysisDefinition)a).ColorArgb = v,
-            "Explicit display and bake color for the callout. Clear to use the output layer color.",
-            fallbackColor: (terrain, a) => AnalysisFormatting.ResolveLayerColorArgb(((GradeBetweenPointsAnalysisDefinition)a).OutputLayerPath ?? terrain.AnnotationLayerPath),
-            defaultText: (terrain, a) => AnalysisFormatting.GetAnalysisOutputColorText(terrain, ((GradeBetweenPointsAnalysisDefinition)a).OutputLayerPath)),
+            "Explicit display and bake color for the callout. Clear to take the colour from the layer its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Labels)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Labels)),
     };
 }
 

@@ -148,7 +148,7 @@ public sealed class TerrainRenderMeshProvider : RenderMeshProvider
                     materialCache,
                     doc,
                     terrain,
-                    TerrainDefinition.ResolveTerrainLayerPath(terrain.TerrainLayerPath),
+                    LayerRoleService.GetTable(doc, terrain).Path(LayerRole.Terrain),
                     sourceLayerPath: null,
                     terrain.TerrainColorArgb,
                     materialName: null));

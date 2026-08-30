@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Model;
 
 public sealed class TerrainDefinition
 {
-    public const int CurrentSchemaVersion = 29;
+    public const int CurrentSchemaVersion = 30;
     public const int DefaultTerrainColorArgb = unchecked((int)0xFFC7D2C2);
     public const string DefaultTerrainLayerPath = "MoleHill::Terrain";
     public const string DefaultAuxiliaryLayerPath = "MoleHill::Auxiliary";
@@ -53,16 +53,32 @@ public sealed class TerrainDefinition
     /// </summary>
     public double PreviewLineWeight { get; set; } = 1.0;
 
-    public string? TerrainLayerPath { get; set; }
+    /// <summary>
+    /// Pre-schema-30 output layers, kept only so <c>LayerRoutingMigration</c> can carry a customised
+    /// path into the document's own layer template, and so a document saved by this build does not
+    /// silently lose one. Nothing reads them at build time — routing comes from the template.
+    /// </summary>
+    [JsonPropertyName("terrainLayerPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyTerrainLayerPath { get; set; }
 
-    public string? AuxiliaryLayerPath { get; set; }
+    [JsonPropertyName("auxiliaryLayerPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyAuxiliaryLayerPath { get; set; }
 
-    public string? AnnotationLayerPath { get; set; }
+    [JsonPropertyName("annotationLayerPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyAnnotationLayerPath { get; set; }
 
-    /// <summary>Name of the Rhino dimension style that generated annotation binds to. Blank resolves to
-    /// <see cref="MoleHill.Rhino.Services.AnnotationStyleService.DefaultStyleName"/>. Sizes, fonts, and
-    /// masks are edited in Rhino's own Annotation Styles editor, not in MoleHill.</summary>
-    public string? AnnotationStyleName { get; set; }
+    /// <summary>
+    /// Pre-schema-30 annotation style, kept only so <c>LayerRoutingMigration</c> can carry a chosen
+    /// style into the document's own layer template, where it now lives per role — so section labels
+    /// can differ from contour labels, which one style per terrain could not express. It never had a
+    /// panel row of its own.
+    /// </summary>
+    [JsonPropertyName("annotationStyleName")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyAnnotationStyleName { get; set; }
 
     /// <summary>
     /// Layer template this terrain routes and styles its output through. Blank uses the document's
@@ -125,21 +141,6 @@ public sealed class TerrainDefinition
     public TerrainAnalysisSummary? LegacyLastAnalysis { get; set; }
 
     public List<TerrainAnalysisSummary> LastAnalysisResults { get; set; } = new();
-
-    public static string ResolveTerrainLayerPath(string? layerPath)
-    {
-        return string.IsNullOrWhiteSpace(layerPath) ? DefaultTerrainLayerPath : layerPath;
-    }
-
-    public static string ResolveAuxiliaryLayerPath(string? layerPath)
-    {
-        return string.IsNullOrWhiteSpace(layerPath) ? DefaultAuxiliaryLayerPath : layerPath;
-    }
-
-    public static string ResolveAnnotationLayerPath(string? layerPath)
-    {
-        return string.IsNullOrWhiteSpace(layerPath) ? DefaultAnnotationLayerPath : layerPath;
-    }
 
     public IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {

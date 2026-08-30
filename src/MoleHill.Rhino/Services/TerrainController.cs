@@ -82,9 +82,7 @@ internal sealed partial class TerrainController
     private readonly record struct TerrainRenderAppearance(
         int TerrainColorArgb,
         int OutputTransparencyPercent,
-        string? TerrainLayerPath,
-        string? AuxiliaryLayerPath,
-        string? AnnotationLayerPath,
+        string? LayerTemplateName,
         bool ShowTerrainMesh,
         bool ShowZoneMeshes,
         bool ShowAnalysisOutputs)
@@ -92,9 +90,7 @@ internal sealed partial class TerrainController
         public static TerrainRenderAppearance Capture(TerrainDefinition terrain) => new(
             terrain.TerrainColorArgb,
             terrain.OutputTransparencyPercent,
-            terrain.TerrainLayerPath,
-            terrain.AuxiliaryLayerPath,
-            terrain.AnnotationLayerPath,
+            terrain.LayerTemplateName,
             terrain.ShowTerrainMesh,
             terrain.ShowZoneMeshes,
             terrain.ShowAnalysisOutputs);
@@ -334,10 +330,7 @@ internal sealed partial class TerrainController
         var terrain = new TerrainDefinition
         {
             Name = NextTerrainName(state.Terrains),
-            GlobalTolerance = TerrainTolerancePolicy.DefaultDetailSize(unitContext),
-            TerrainLayerPath = TerrainDefinition.DefaultTerrainLayerPath,
-            AuxiliaryLayerPath = TerrainDefinition.DefaultAuxiliaryLayerPath,
-            AnnotationLayerPath = TerrainDefinition.DefaultAnnotationLayerPath
+            GlobalTolerance = TerrainTolerancePolicy.DefaultDetailSize(unitContext)
         };
         terrain.EnsureBaseModifier();
 
@@ -1163,51 +1156,6 @@ internal sealed partial class TerrainController
             .Select(path => path!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-    }
-
-    public BakedLayerEnsureResult EnsureTerrainOutputLayers(RhinoDoc doc, Guid terrainId)
-    {
-        var terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
-        if (terrain == null)
-            return default;
-
-        int created = 0;
-        int refreshed = 0;
-        int skipped = 0;
-
-        var outputLayerPaths = new[]
-        {
-            TerrainDefinition.ResolveTerrainLayerPath(terrain.TerrainLayerPath),
-            TerrainDefinition.ResolveAuxiliaryLayerPath(terrain.AuxiliaryLayerPath),
-            TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)
-        };
-
-        foreach (string outputLayerPath in outputLayerPaths.Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            if (string.IsNullOrWhiteSpace(outputLayerPath))
-            {
-                skipped++;
-                continue;
-            }
-
-            bool existed = doc.Layers.FindByFullPath(outputLayerPath, -1) >= 0;
-            int layerIndex = EnsureLayer(doc, outputLayerPath);
-            if (layerIndex < 0)
-            {
-                skipped++;
-                continue;
-            }
-
-            if (existed)
-                refreshed++;
-            else
-                created++;
-        }
-
-        if (created > 0 || refreshed > 0)
-            doc.Views.Redraw();
-
-        return new BakedLayerEnsureResult(created, refreshed, skipped);
     }
 
     public string? GetModifierMeshQualityWarning(RhinoDoc doc, Guid terrainId, Guid modifierId)

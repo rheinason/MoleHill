@@ -54,7 +54,10 @@ internal static class TerrainBuildSnapshotBuilder
             ModelAbsoluteTolerance = doc.ModelAbsoluteTolerance,
             ModelUnitSystem = doc.ModelUnitSystem,
             UnitContext = unitContext,
-            AnnotationStyle = AnnotationStyleService.Capture(doc, terrainClone.AnnotationStyleName),
+            AnnotationStyle = AnnotationStyleService.Capture(
+                doc,
+                LayerRoleService.GetTable(doc, terrainClone).Appearance(LayerRole.Annotation).AnnotationStyleName
+                    ?? terrainClone.LegacyAnnotationStyleName),
             LayerRoles = EnsureRoleLayers(doc, terrainClone),
             HatchPatterns = HatchPatternService.Capture(doc, EnumerateHatchPatternNames(terrainClone))
         };
