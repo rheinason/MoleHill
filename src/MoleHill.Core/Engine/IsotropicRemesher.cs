@@ -443,7 +443,7 @@ public static class IsotropicRemesher
             var frozenEdges = CollectFrozenEdges(state);
 
             var marked = new List<long>();
-            var markedSet = new HashSet<long>();
+            var markedSet = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
             for (int t = 0; t < faceCount; t++)
             {
                 if (state.FaceFrozen[t])
@@ -537,7 +537,7 @@ public static class IsotropicRemesher
 
     private static HashSet<long> CollectFrozenEdges(MeshState state)
     {
-        var frozen = new HashSet<long>();
+        var frozen = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
         int faceCount = state.FaceCount;
         for (int t = 0; t < faceCount; t++)
         {
@@ -572,9 +572,10 @@ public static class IsotropicRemesher
     {
         const int maxRounds = 8;
         int total = 0;
+        MeshVertexAdjacency? adjacency = null;
         for (int round = 0; round < maxRounds; round++)
         {
-            int collapses = CollapseShortEdgesRound(state, target, projection);
+            int collapses = CollapseShortEdgesRound(state, target, projection, ref adjacency);
             total += collapses;
             if (collapses == 0)
                 break;
@@ -583,35 +584,31 @@ public static class IsotropicRemesher
         return total;
     }
 
-    private static int CollapseShortEdgesRound(MeshState state, double target, TerrainFaceGrid projection)
+    private static int CollapseShortEdgesRound(
+        MeshState state,
+        double target,
+        TerrainFaceGrid projection,
+        ref MeshVertexAdjacency? adjacency)
     {
         double collapseSquared = target * CollapseFactor * target * CollapseFactor;
         double maxResultSquared = target * SplitFactor * target * SplitFactor;
         int faceCount = state.FaceCount;
 
-        // vertex → incident live faces, vertex → neighbor set
-        var vertexFaces = new Dictionary<int, List<int>>();
-        var neighbors = new Dictionary<int, HashSet<int>>();
+        // vertex → incident live faces, vertex → neighbor set (flat CSR, reused across rounds)
+        adjacency = MeshVertexAdjacency.Build(state.Tris, faceCount, state.VertexCount, adjacency);
+
+        // Each undirected edge is visited once, from its lower-indexed endpoint only — that replaces
+        // the per-round HashSet<long> of already-seen edge keys.
         var candidates = new List<(double lengthSquared, long key)>();
-        var seen = new HashSet<long>();
-        for (int t = 0; t < faceCount; t++)
+        for (int u = 0; u < adjacency.VertexCount; u++)
         {
-            if (!state.IsLive(t))
-                continue;
-            for (int corner = 0; corner < 3; corner++)
+            foreach (int v in adjacency.NeighborsOf(u))
             {
-                int u = state.Tris[t * 3 + corner];
-                int v = state.Tris[t * 3 + ((corner + 1) % 3)];
-                AddVertexFace(vertexFaces, u, t);
-                AddNeighborSet(neighbors, u, v);
-                AddNeighborSet(neighbors, v, u);
-                long key = EdgeKey(u, v);
-                if (seen.Add(key))
-                {
-                    double lengthSquared = DistanceSquared(state.Verts, u, v);
-                    if (lengthSquared < collapseSquared)
-                        candidates.Add((lengthSquared, key));
-                }
+                if (v < u)
+                    continue;
+                double lengthSquared = DistanceSquared(state.Verts, u, v);
+                if (lengthSquared < collapseSquared)
+                    candidates.Add((lengthSquared, EdgeKey(u, v)));
             }
         }
 
@@ -627,14 +624,14 @@ public static class IsotropicRemesher
             int b = (int)(key & 0xFFFFFFFFL);
             if (dirty.Contains(a) || dirty.Contains(b))
                 continue;
-            if (TryCollapse(state, projection, vertexFaces, neighbors, a, b, maxResultSquared, out int survivor, out int removed))
+            if (TryCollapse(state, projection, adjacency, a, b, maxResultSquared, out int survivor, out int removed))
             {
                 collapses++;
                 dirty.Add(survivor);
                 dirty.Add(removed);
-                foreach (int n in neighbors[removed])
+                foreach (int n in adjacency.NeighborsOf(removed))
                     dirty.Add(n);
-                foreach (int n in neighbors[survivor])
+                foreach (int n in adjacency.NeighborsOf(survivor))
                     dirty.Add(n);
             }
         }
@@ -648,8 +645,7 @@ public static class IsotropicRemesher
     private static bool TryCollapse(
         MeshState state,
         TerrainFaceGrid projection,
-        Dictionary<int, List<int>> vertexFaces,
-        Dictionary<int, HashSet<int>> neighbors,
+        MeshVertexAdjacency adjacency,
         int a,
         int b,
         double maxResultSquared,
@@ -730,7 +726,7 @@ public static class IsotropicRemesher
 
         // Link condition: shared neighbors must be exactly the faces on the edge (2 interior, 1 boundary).
         int facesOnEdge = 0;
-        List<int> facesOfRemoved = vertexFaces.TryGetValue(removed, out List<int>? rf) ? rf : new List<int>();
+        MeshVertexAdjacency.FaceEnumerable facesOfRemoved = adjacency.FacesOf(removed);
         foreach (int t in facesOfRemoved)
         {
             if (!state.IsLive(t))
@@ -743,9 +739,9 @@ public static class IsotropicRemesher
             return false;
 
         int sharedNeighbors = 0;
-        foreach (int n in neighbors[a])
+        foreach (int n in adjacency.NeighborsOf(a))
         {
-            if (n != a && n != b && neighbors[b].Contains(n))
+            if (n != a && n != b && adjacency.NeighborsContain(b, n))
                 sharedNeighbors++;
         }
 
@@ -762,8 +758,7 @@ public static class IsotropicRemesher
                 return false;
         }
 
-        List<int> facesOfSurvivor = vertexFaces.TryGetValue(survivor, out List<int>? sf) ? sf : new List<int>();
-        foreach (int t in facesOfSurvivor)
+        foreach (int t in adjacency.FacesOf(survivor))
         {
             if (!state.IsLive(t) || FaceContains(state.Tris, t, removed))
                 continue;
@@ -771,7 +766,7 @@ public static class IsotropicRemesher
                 return false;
         }
 
-        foreach (int n in neighbors[removed])
+        foreach (int n in adjacency.NeighborsOf(removed))
         {
             if (n == survivor || n == removed)
                 continue;
@@ -810,12 +805,12 @@ public static class IsotropicRemesher
                     state.Tris[t * 3 + corner] = survivor;
             }
 
-            AddVertexFace(vertexFaces, survivor, t);
+            adjacency.AddFace(survivor, t);
         }
 
         // Re-key feature edges that touched the removed vertex.
         state.FeatureEdges.Remove(edgeKey);
-        foreach (int n in neighbors[removed])
+        foreach (int n in adjacency.NeighborsOf(removed))
         {
             if (n == survivor)
                 continue;
@@ -1004,27 +999,13 @@ public static class IsotropicRemesher
     {
         int faceCount = state.FaceCount;
         int vertexCount = state.VertexCount;
-        var vertexFaces = new Dictionary<int, List<int>>();
-        var neighbors = new Dictionary<int, HashSet<int>>();
-        for (int t = 0; t < faceCount; t++)
-        {
-            if (!state.IsLive(t))
-                continue;
-            for (int corner = 0; corner < 3; corner++)
-            {
-                int u = state.Tris[t * 3 + corner];
-                int v = state.Tris[t * 3 + ((corner + 1) % 3)];
-                AddVertexFace(vertexFaces, u, t);
-                AddNeighborSet(neighbors, u, v);
-                AddNeighborSet(neighbors, v, u);
-            }
-        }
+        MeshVertexAdjacency adjacency = MeshVertexAdjacency.Build(state.Tris, faceCount, vertexCount);
 
         double areaEps = Math.Max(1e-12, target * target * 1e-9);
         int moved = 0;
         for (int v = 0; v < vertexCount; v++)
         {
-            if (!neighbors.ContainsKey(v))
+            if (!adjacency.HasNeighbors(v))
                 continue; // orphaned by a collapse
 
             byte kind = state.Kind[v];
@@ -1033,10 +1014,10 @@ public static class IsotropicRemesher
 
             if (kind == FeaturePolylineGraph.KindFree)
             {
-                if (RelaxFreeVertex(state, projection, vertexFaces, neighbors, v, areaEps))
+                if (RelaxFreeVertex(state, projection, adjacency, v, areaEps))
                     moved++;
             }
-            else if (RelaxFeatureVertex(state, vertexFaces, neighbors, v, areaEps))
+            else if (RelaxFeatureVertex(state, adjacency, v, areaEps))
             {
                 moved++;
             }
@@ -1048,12 +1029,11 @@ public static class IsotropicRemesher
     private static bool RelaxFreeVertex(
         MeshState state,
         TerrainFaceGrid projection,
-        Dictionary<int, List<int>> vertexFaces,
-        Dictionary<int, HashSet<int>> neighbors,
+        MeshVertexAdjacency adjacency,
         int v,
         double areaEps)
     {
-        HashSet<int> ring = neighbors[v];
+        ReadOnlySpan<int> ring = adjacency.NeighborsOf(v);
         double cx = 0, cy = 0;
         foreach (int n in ring)
         {
@@ -1061,8 +1041,8 @@ public static class IsotropicRemesher
             cy += state.Verts[n * 3 + 1];
         }
 
-        cx /= ring.Count;
-        cy /= ring.Count;
+        cx /= ring.Length;
+        cy /= ring.Length;
 
         double px = state.Verts[v * 3];
         double py = state.Verts[v * 3 + 1];
@@ -1096,7 +1076,7 @@ public static class IsotropicRemesher
         {
             double newX = px + dx;
             double newY = py + dy;
-            if (AllIncidentFacesValid(state, vertexFaces[v], v, newX, newY, areaEps) &&
+            if (AllIncidentFacesValid(state, adjacency.FacesOf(v), v, newX, newY, areaEps) &&
                 projection.TryInterpolateZ(newX, newY, out double newZ))
             {
                 state.Verts[v * 3] = newX;
@@ -1114,8 +1094,7 @@ public static class IsotropicRemesher
 
     private static bool RelaxFeatureVertex(
         MeshState state,
-        Dictionary<int, List<int>> vertexFaces,
-        Dictionary<int, HashSet<int>> neighbors,
+        MeshVertexAdjacency adjacency,
         int v,
         double areaEps)
     {
@@ -1125,7 +1104,7 @@ public static class IsotropicRemesher
 
         // Chain neighbors = mesh neighbors joined to v by a feature edge of the same chain.
         int n0 = -1, n1 = -1;
-        foreach (int n in neighbors[v])
+        foreach (int n in adjacency.NeighborsOf(v))
         {
             if (state.FeatureEdges.TryGetValue(EdgeKey(v, n), out int edgeChain) && edgeChain == chain)
             {
@@ -1158,7 +1137,7 @@ public static class IsotropicRemesher
             return false;
 
         state.Graph.Evaluate(chain, tNew, out double newX, out double newY, out double newZ);
-        if (!AllIncidentFacesValid(state, vertexFaces[v], v, newX, newY, areaEps))
+        if (!AllIncidentFacesValid(state, adjacency.FacesOf(v), v, newX, newY, areaEps))
             return false;
 
         state.Verts[v * 3] = newX;
@@ -1168,7 +1147,13 @@ public static class IsotropicRemesher
         return true;
     }
 
-    private static bool AllIncidentFacesValid(MeshState state, List<int> faces, int movedVertex, double newX, double newY, double areaEps)
+    private static bool AllIncidentFacesValid(
+        MeshState state,
+        MeshVertexAdjacency.FaceEnumerable faces,
+        int movedVertex,
+        double newX,
+        double newY,
+        double areaEps)
     {
         foreach (int t in faces)
         {
@@ -1257,26 +1242,4 @@ public static class IsotropicRemesher
     private static bool FaceContains(List<int> tris, int face, int vertex) =>
         tris[face * 3] == vertex || tris[face * 3 + 1] == vertex || tris[face * 3 + 2] == vertex;
 
-    private static void AddVertexFace(Dictionary<int, List<int>> vertexFaces, int v, int face)
-    {
-        if (!vertexFaces.TryGetValue(v, out List<int>? list))
-        {
-            list = new List<int>(6);
-            vertexFaces.Add(v, list);
-        }
-
-        if (!list.Contains(face))
-            list.Add(face);
-    }
-
-    private static void AddNeighborSet(Dictionary<int, HashSet<int>> neighbors, int v, int n)
-    {
-        if (!neighbors.TryGetValue(v, out HashSet<int>? set))
-        {
-            set = new HashSet<int>();
-            neighbors.Add(v, set);
-        }
-
-        set.Add(n);
-    }
 }

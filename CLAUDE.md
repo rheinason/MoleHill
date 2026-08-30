@@ -108,6 +108,7 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
 - **Naming**: `PascalCase` types/methods/properties, `camelCase` locals/parameters, `_camelCase` private fields
 - **RhinoMesh alias**: use `using RhinoMesh = Rhino.Geometry.Mesh;` when `Mesh` is ambiguous with TriangleNet types
 - **Normals**: always call `ComputeNormals()` then `UnifyNormals()` on all output Rhino meshes
+- **Edge-key hashing**: a `Dictionary`/`HashSet` keyed by a packed edge key (`(min << 32) | max`) MUST be constructed with `IndexedMeshTools.EdgeKeyComparer.Instance`. The default `long` hash is `lo ^ hi`, which for adjacent mesh indices collapses nearly every edge into a handful of buckets and turns an O(n) pass into a quadratic scan — it cost 7 s of a 10 s remesh on a 180k-face terrain. The same applies to per-vertex adjacency: prefer the flat CSR `MeshVertexAdjacency` over a dictionary of `List`/`HashSet` in any loop that rebuilds it per round.
 - **Z-aware dedup**: breakline-to-breakline vertex merge requires XY AND Z proximity — preserves parallel retaining walls at different elevations
 - **PadGrader helpers**: `FindNearVertex`, `InterpolateZ`, `PointInPolygon`, `DistToPolygon` are `public`; inner classes `SpatialHash` and `FaceGrid` are `internal` (accessible within the assembly)
 - **Daylight line**: detected as zero-crossing of `newZ - origZ` across edges

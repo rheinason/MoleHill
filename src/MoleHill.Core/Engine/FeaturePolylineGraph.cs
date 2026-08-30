@@ -1,4 +1,4 @@
-using static MoleHill.Core.Engine.MeshFlipGeometry;
+﻿using static MoleHill.Core.Engine.MeshFlipGeometry;
 
 namespace MoleHill.Core.Engine;
 
@@ -79,9 +79,9 @@ internal sealed class FeaturePolylineGraph
         Array.Fill(graph.VertexChain, -1);
 
         // --- Collect the raw feature edge set --------------------------------------------------------
-        var featureEdges = new HashSet<long>();
+        var featureEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
         var boundarySegments = new List<(int a, int b)>();
-        MeshConstraintTools.AddBoundarySegments(boundarySegments, new HashSet<long>(), faces, faceCount);
+        MeshConstraintTools.AddBoundarySegments(boundarySegments, new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance), faces, faceCount);
         foreach ((int a, int b) in boundarySegments)
             featureEdges.Add(EdgeKey(a, b));
 
@@ -98,7 +98,7 @@ internal sealed class FeaturePolylineGraph
         }
 
         var pinnedNonManifold = new List<long>();
-        var nonManifoldEdges = new HashSet<long>();
+        var nonManifoldEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
         foreach ((long key, int count) in edgeIncidence)
         {
             if (count > 2)
@@ -129,7 +129,7 @@ internal sealed class FeaturePolylineGraph
         if (creaseAngleDeg > 0)
         {
             double cosThreshold = Math.Cos(Math.Clamp(creaseAngleDeg, 1.0, 179.0) * Math.PI / 180.0);
-            var creaseEdges = new HashSet<long>();
+            var creaseEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
             foreach ((int a, int b) in SurfaceRemesher.DetectCreaseEdges(vertices, faces, faceCount, cosThreshold))
             {
                 long key = EdgeKey(a, b);
@@ -141,9 +141,9 @@ internal sealed class FeaturePolylineGraph
             // crease chains. Badly triangulated fan regions also fold past the crease angle, but as a
             // dense web of short zigzag fragments; pinning those freezes the very topology the remesh
             // exists to clean up. Keep only crease chains longer than the threshold.
-            if (minCreaseChainLength > 0)
+                if (minCreaseChainLength > 0)
                 FilterShortCreaseChains(vertices, creaseEdges, minCreaseChainLength);
-
+    
             foreach (long key in creaseEdges)
                 featureEdges.Add(key);
         }
@@ -188,7 +188,7 @@ internal sealed class FeaturePolylineGraph
         }
 
         // --- Walk chains: corner → corner, then leftover pure loops -----------------------------------
-        var visited = new HashSet<long>();
+        var visited = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
         var cornerList = new List<int>(isCorner);
         cornerList.Sort();
         foreach (int corner in cornerList)
@@ -457,7 +457,7 @@ internal sealed class FeaturePolylineGraph
                 breaks.Add(entry.Key);
         }
 
-        var visited = new HashSet<long>();
+        var visited = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
         var toDrop = new List<long>();
         var chain = new List<long>();
 
@@ -605,7 +605,7 @@ internal sealed class FeaturePolylineGraph
         if (!hasWork)
             return;
 
-        var meshEdges = new HashSet<long>(faceCount * 3);
+        var meshEdges = new HashSet<long>(faceCount * 3, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int t = 0; t < faceCount; t++)
         {
             int a = faces[t * 3], b = faces[t * 3 + 1], c = faces[t * 3 + 2];

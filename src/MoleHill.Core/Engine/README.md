@@ -39,9 +39,9 @@ Key files:
   (vertices slide 1-D along them, corners fixed, no flips or cross-feature collapses); steep
   retaining-wall faces and faces touching non-manifold edges are frozen outright (walls can't be
   buried; upstream weld defects are quarantined, and the acceptance gate only requires the output to be
-  no worse than the input). Best overall quality; can be slow on very large terrains and may
-  occasionally cross a wall on a shallow wall angle. With `Options.FieldTheta` the relaxation is
-  field-aligned — the base of the Retopo quad pipeline.
+  no worse than the input). Best overall quality; may occasionally cross a wall on a shallow wall
+  angle. With `Options.FieldTheta` the relaxation is field-aligned — the base of the Retopo quad
+  pipeline.
 - `FeaturePolylineGraph.cs` — feature topology for the isotropic remesh: chains boundary ∪ creases ∪
   constraint edges into polylines with arc-length parameters and classifies vertices
   Free/Feature/Corner/Frozen. Short crease-only chains (fold noise in badly triangulated fans) are not
@@ -52,6 +52,10 @@ Key files:
   topology since it never re-triangulates, but coarsest quality). Splits coarse triangles at edge
   midpoints; features pinned; no vertex ever moves. `Result.MidpointParents` reports each added vertex's
   parent edge so sculpt can reconstruct BaseZ.
+- `MeshVertexAdjacency.cs` — vertex → incident faces and vertex → neighbor vertices as flat CSR arrays,
+  rebuilt (with buffer reuse) once per collapse round and relax sweep of the isotropic remesh. It
+  replaced a `Dictionary<int, List<int>>` + `Dictionary<int, HashSet<int>>` pair whose per-vertex
+  allocations dominated the operator loop on large terrains.
 - `MeshFlipGeometry.cs` — shared edge-flip / triangle-adjacency primitives (convexity, oriented-face write,
   min-angle, normal agreement, adjacency incidence) used by the remeshers and refiner.
 - `MeshTopologyValidator.cs` — low-allocation sorted-edge boundary analysis (non-manifold edges, open

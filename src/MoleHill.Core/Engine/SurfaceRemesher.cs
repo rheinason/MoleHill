@@ -937,7 +937,10 @@ public static class SurfaceRemesher
     /// </summary>
     internal static List<(int a, int b)> DetectCreaseEdges(double[] vertices, int[] faces, int faceCount, double cosThreshold)
     {
-        var edgeFaces = new Dictionary<long, (int f0, int f1, int count)>(faceCount * 2);
+        // Edge keys are (min << 32) | max, so the default long hash (lo ^ hi) collapses adjacent
+        // mesh indices into a handful of buckets and degrades this to a quadratic scan. Every
+        // edge-keyed table must use EdgeKeyComparer.
+        var edgeFaces = new Dictionary<long, (int f0, int f1, int count)>(faceCount * 2, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int f = 0; f < faceCount; f++)
         {
             int v0 = faces[f * 3], v1 = faces[f * 3 + 1], v2 = faces[f * 3 + 2];

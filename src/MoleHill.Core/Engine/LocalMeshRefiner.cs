@@ -1,4 +1,4 @@
-using static MoleHill.Core.Engine.MeshFlipGeometry;
+﻿using static MoleHill.Core.Engine.MeshFlipGeometry;
 
 namespace MoleHill.Core.Engine;
 
@@ -104,9 +104,9 @@ public static class LocalMeshRefiner
         }
 
         // Feature edges are pinned for the whole pass: never flipped, split children stay on the feature.
-        var featureEdges = new HashSet<long>();
+        var featureEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
         var boundarySegments = new List<(int a, int b)>();
-        MeshConstraintTools.AddBoundarySegments(boundarySegments, new HashSet<long>(), faces, faceCount);
+        MeshConstraintTools.AddBoundarySegments(boundarySegments, new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance), faces, faceCount);
         foreach ((int a, int b) in boundarySegments)
             featureEdges.Add(EdgeKey(a, b));
 
@@ -230,7 +230,7 @@ public static class LocalMeshRefiner
 
             // Mark the longest edge of every coarse triangle. Only longest edges are split, so each split is
             // a well-shaped bisection; a neighbour that shares that edge is closed conformingly by template.
-            var marked = new HashSet<long>();
+            var marked = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
             for (int t = 0; t < faceCount; t++)
             {
                 int v0 = tris[t * 3], v1 = tris[t * 3 + 1], v2 = tris[t * 3 + 2];
@@ -250,7 +250,7 @@ public static class LocalMeshRefiner
             // One midpoint per marked edge, shared by both incident triangles. Midpoint = exact edge
             // midpoint ⇒ exactly on the current surface (the edge is a straight chord of the mesh). A split
             // feature edge hands its flag to both child edges so creases stay pinned through later rounds.
-            var midpoints = new Dictionary<long, int>(marked.Count);
+            var midpoints = new Dictionary<long, int>(marked.Count, IndexedMeshTools.EdgeKeyComparer.Instance);
             foreach (long edgeKey in marked)
             {
                 int a = (int)(edgeKey >> 32);
@@ -391,7 +391,7 @@ public static class LocalMeshRefiner
         int totalFlips = 0;
         for (int sweep = 0; sweep < MaxFlipSweeps; sweep++)
         {
-            var adjacency = new Dictionary<long, (int t0, int o0, int t1, int o1, int count)>(faceCount * 2);
+            var adjacency = new Dictionary<long, (int t0, int o0, int t1, int o1, int count)>(faceCount * 2, IndexedMeshTools.EdgeKeyComparer.Instance);
             for (int t = 0; t < faceCount; t++)
             {
                 int a = faces[t * 3], b = faces[t * 3 + 1], c = faces[t * 3 + 2];
@@ -490,7 +490,7 @@ public static class LocalMeshRefiner
             return;
 
         // Existing undirected mesh edges (so a matched vertex pair is only pinned when it is a real edge).
-        var meshEdges = new HashSet<long>(faceCount * 3);
+        var meshEdges = new HashSet<long>(faceCount * 3, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int t = 0; t < faceCount; t++)
         {
             int a = faces[t * 3], b = faces[t * 3 + 1], c = faces[t * 3 + 2];
