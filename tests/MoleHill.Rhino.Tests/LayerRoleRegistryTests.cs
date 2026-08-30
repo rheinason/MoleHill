@@ -30,8 +30,7 @@ public class LayerRoleRegistryTests
             "terrain", "auxiliary", "annotation", "zones", "scatter",
             "walls", "grading-aux",
             "contours", "contours-major", "contours-minor",
-            "waterflow", "labels", "ticks", "grid", "cuts",
-            "cutfill", "cutfill-cut", "cutfill-fill",
+            "waterflow", "labels",
             "markers", "marker-labels",
             "sections", "sections-existing", "sections-cuts", "sections-grid", "sections-ticks",
             "sections-labels", "sections-cutfill", "sections-cutfill-cut", "sections-cutfill-fill"
@@ -101,9 +100,6 @@ public class LayerRoleRegistryTests
     {
         var table = LayerRoleTable.Default;
 
-        Assert.NotEqual(
-            table.Appearance(LayerRole.CutFillCut).ColorArgb,
-            table.Appearance(LayerRole.CutFillFill).ColorArgb);
         Assert.NotEqual(
             table.Appearance(LayerRole.SectionsCutFillCut).ColorArgb,
             table.Appearance(LayerRole.SectionsCutFillFill).ColorArgb);

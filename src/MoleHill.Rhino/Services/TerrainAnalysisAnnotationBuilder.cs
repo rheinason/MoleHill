@@ -814,29 +814,37 @@ internal static class TerrainAnalysisAnnotationBuilder
                 foreach (SectionComparisonRegion region in regions)
                 {
                     bool isCut = region.IsCut;
+                    LayerRole regionRole = isCut ? LayerRole.SectionsCutFillCut : LayerRole.SectionsCutFillFill;
+                    LayerAppearance regionAppearance = Roles(layerRoles).Appearance(regionRole);
+                    string regionLayerPath = Roles(layerRoles).Path(regionRole);
+
+                    // Pattern, scale and rotation come from the role, so every section in a document
+                    // fills the same way and the office controls it from one place. The analysis's own
+                    // fields are only a fallback for a document whose template predates them.
+                    string? patternName = regionAppearance.HatchPatternName
+                        ?? (isCut ? analysis.CutHatchPatternName : analysis.FillHatchPatternName);
+                    string defaultPatternName = isCut
+                        ? HatchPatternService.DefaultCutPatternName
+                        : HatchPatternService.DefaultFillPatternName;
+
                     // A hatch, not a transparent mesh: a shaded mesh is a rendering artefact that does not
-                    // print and ignores the document hatch scale. Cut and fill are told apart by their own
-                    // sublayers, so the fill's appearance is layer-driven.
+                    // print and ignores the document hatch scale.
                     IReadOnlyList<Hatch> regionHatches = BuildComparisonRegionHatch(
                         region,
                         cellPlane,
                         horizontalScale,
                         verticalScale,
                         baseElevation,
-                        hatchPatterns.ResolveIndex(
-                            isCut ? analysis.CutHatchPatternName : analysis.FillHatchPatternName,
-                            isCut ? HatchPatternService.DefaultCutPatternName : HatchPatternService.DefaultFillPatternName),
+                        hatchPatterns.ResolveIndex(patternName, defaultPatternName),
                         hatchPatterns.ResolveScale(
-                            isCut ? analysis.CutHatchPatternName : analysis.FillHatchPatternName,
-                            isCut ? HatchPatternService.DefaultCutPatternName : HatchPatternService.DefaultFillPatternName,
-                            analysis.HatchScale,
+                            patternName,
+                            defaultPatternName,
+                            regionAppearance.HatchScale,
                             textHeight),
-                        analysis.HatchRotationDegrees,
+                        regionAppearance.HatchRotationDegrees,
                         comparisonTolerance);
                     if (regionHatches.Count == 0)
                         continue;
-                    LayerRole regionRole = isCut ? LayerRole.SectionsCutFillCut : LayerRole.SectionsCutFillFill;
-                    string regionLayerPath = Roles(layerRoles).Path(regionRole);
                     foreach (Hatch regionHatch in regionHatches)
                     {
                         build.AuxiliaryObjects.Add(new GeneratedRhinoObject

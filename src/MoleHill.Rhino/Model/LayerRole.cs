@@ -33,12 +33,6 @@ public enum LayerRole
     ContoursMinor,
     Waterflow,
     Labels,
-    Ticks,
-    Grid,
-    Cuts,
-    CutFill,
-    CutFillCut,
-    CutFillFill,
 
     /// <summary>Marker block instances.</summary>
     Markers,

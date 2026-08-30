@@ -25,8 +25,17 @@ internal static class TerrainBuildSnapshotBuilder
         return LayerRoleService.GetTable(doc, terrain);
     }
 
-    private static IEnumerable<string?> EnumerateHatchPatternNames(TerrainDefinition terrain)
+    private static IEnumerable<string?> EnumerateHatchPatternNames(TerrainDefinition terrain, LayerRoleTable roles)
     {
+        // Pattern indices are document-scoped, so every pattern the build might ask for has to be
+        // resolved here. The template's are the ones that matter now; the per-analysis names remain
+        // for documents whose template predates them.
+        foreach (var role in new[] { LayerRole.SectionsCutFillCut, LayerRole.SectionsCutFillFill })
+        {
+            yield return HatchPatternService.ResolvePatternName(
+                roles.Appearance(role).HatchPatternName, HatchPatternService.DefaultCutPatternName);
+        }
+
         foreach (AnalysisDefinition analysis in terrain.Analyses)
         {
             if (analysis is not TerrainSectionAnalysisDefinitionBase section)
@@ -48,6 +57,11 @@ internal static class TerrainBuildSnapshotBuilder
             throw new InvalidOperationException(ModelUnitGuard.RequiredMessage);
 
         TerrainDefinition terrainClone = CloneTerrain(terrain);
+
+        // Resolved first: the annotation style and the hatch patterns both come from it, and every
+        // layer decision in the build reads it.
+        LayerRoleTable layerRoles = EnsureRoleLayers(doc, terrainClone);
+
         var snapshot = new TerrainBuildSnapshot
         {
             Terrain = terrainClone,
@@ -56,10 +70,10 @@ internal static class TerrainBuildSnapshotBuilder
             UnitContext = unitContext,
             AnnotationStyle = AnnotationStyleService.Capture(
                 doc,
-                LayerRoleService.GetTable(doc, terrainClone).Appearance(LayerRole.Annotation).AnnotationStyleName
+                layerRoles.Appearance(LayerRole.Annotation).AnnotationStyleName
                     ?? terrainClone.LegacyAnnotationStyleName),
-            LayerRoles = EnsureRoleLayers(doc, terrainClone),
-            HatchPatterns = HatchPatternService.Capture(doc, EnumerateHatchPatternNames(terrainClone))
+            LayerRoles = layerRoles,
+            HatchPatterns = HatchPatternService.Capture(doc, EnumerateHatchPatternNames(terrainClone, layerRoles))
         };
 
         foreach (var sourceSet in terrainClone.EnumerateSourceSets().Distinct(ReferenceEqualityComparer<SourceReferenceSet>.Instance))

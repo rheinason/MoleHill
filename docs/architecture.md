@@ -487,8 +487,9 @@ overrides (`Layer.SetPerViewportColor/PlotColor/PlotWeight`), annotation scaling
 Rhino's, and a layer belongs to the user once it exists. There is no page/sheet generator. See `docs/2d-drawing-output-exploration.md` for the survey behind this.
 
 - **Annotation styles.** `AnnotationStyleService` is the single boundary to Rhino's dimension-style table.
-  `TerrainDefinition.AnnotationStyleName` (blank = `"MoleHill Annotation"`) names the style all generated
-  text binds to; sizes, fonts, and masks are edited in Rhino's Annotation Styles editor. `Capture` resolves
+  The style generated text binds to comes from its role's `AnnotationStyleName` (blank =
+  `"MoleHill Annotation"`), so section labels can use a different style from contour labels; sizes, fonts,
+  and masks are edited in Rhino's Annotation Styles editor. `Capture` resolves
   the style on the document thread into an `AnnotationStyleSnapshot` carried on `TerrainBuildSnapshot`,
   because the background build has no document access (same pattern as `BlockDefinitionBounds`); it also
   creates the style up front so preview and bake are sized identically from the first build.
@@ -521,6 +522,13 @@ Where each kind of generated output lands, and what it looks like, is one questi
 one's stable id, parent, default path and appearance; the active layer template binds roles to real
 layers. Nothing in the pipeline hardcodes or plumbs a layer path.
 
+- **The layer tree is the grouping the Layers pane works with.** Everything hangs off one `MoleHill`
+  root; drawing output is grouped under `Annotation` by what it is, and a section drawing is a single
+  branch (`Annotation::Sections`, with `Existing`, `Cuts`, `Grid`, `Ticks`, `Labels` and `CutFill::Cut` /
+  `::Fill` beneath it) so a whole drawing can be hidden, locked or restyled at once. Model output
+  (`Terrain`, `Auxiliary`, `Zones`, `Scatter`) is deliberately *not* under `Annotation`, so turning a
+  drawing off does not turn the terrain off. Every role layer is one output actually lands on, or a parent
+  of one — `ShippedDefaultsTests` pins that, because a permanently empty layer is just clutter.
 - **Roles form a chain, and both path and appearance inherit up it, field by field.** An unbound
   `ContoursMajor` resolves through `Contours` to `Annotation`, so rebinding one root moves its whole
   drawing family — which is what lets the schema 30 migration carry a customised document across with a

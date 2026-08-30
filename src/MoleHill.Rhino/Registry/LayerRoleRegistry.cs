@@ -105,34 +105,6 @@ internal static class LayerRoleRegistry
             new LayerAppearanceDefaults(PreviewWidthPx: 1, SuppressInheritedPlotWeight: true),
             LayerRoleFacets.Text),
 
-        new(LayerRole.Ticks, "ticks", "Ticks", LayerRole.Annotation, "::Ticks",
-            null,
-            new LayerAppearanceDefaults(PlotWeight: 0.18, PreviewWidthPx: 1), LayerRoleFacets.Line),
-
-        new(LayerRole.Grid, "grid", "Grid", LayerRole.Annotation, "::Grid",
-            null,
-            new LayerAppearanceDefaults(PlotWeight: 0.13), LayerRoleFacets.Line),
-
-        new(LayerRole.Cuts, "cuts", "Cut Lines", LayerRole.Annotation, "::Cuts",
-            null,
-            new LayerAppearanceDefaults(PlotWeight: 0.50), LayerRoleFacets.Line),
-
-        new(LayerRole.CutFill, "cutfill", "Cut / Fill", LayerRole.Annotation, "::CutFill",
-            null,
-            new LayerAppearanceDefaults(HatchPatternName: "Solid"), LayerRoleFacets.Fill),
-
-        // A fill is a region, not a line: it prints hairline so the pattern reads without its
-        // boundary competing with the profiles crossing it.
-        new(LayerRole.CutFillCut, "cutfill-cut", "Cut", LayerRole.CutFill, "::Cut",
-            null,
-            new LayerAppearanceDefaults(ColorArgb: CutColorArgb, PrintColorArgb: CutColorArgb, PlotWeight: 0.13),
-            LayerRoleFacets.Fill),
-
-        new(LayerRole.CutFillFill, "cutfill-fill", "Fill", LayerRole.CutFill, "::Fill",
-            null,
-            new LayerAppearanceDefaults(ColorArgb: FillColorArgb, PrintColorArgb: FillColorArgb, PlotWeight: 0.13),
-            LayerRoleFacets.Fill),
-
         // ── Markers ──────────────────────────────────────────────────────────
         // Before roles existed these had no layer at all, and baked onto whatever layer the user
         // happened to be working on.
@@ -185,10 +157,13 @@ internal static class LayerRoleRegistry
                 SuppressInheritedPlotWeight: true),
             LayerRoleFacets.Text),
 
+        // A grouping layer. It carries the fills' own hairline weight rather than inheriting the
+        // profile's 0.70, so anything a user drops on it by hand does not print as a heavy line.
         new(LayerRole.SectionsCutFill, "sections-cutfill", "Sections — Cut / Fill",
             LayerRole.Sections, "::CutFill",
             null,
-            new LayerAppearanceDefaults(HatchPatternName: "Solid"), LayerRoleFacets.Fill),
+            new LayerAppearanceDefaults(PlotWeight: 0.13, HatchPatternName: "Solid"),
+            LayerRoleFacets.Fill),
 
         new(LayerRole.SectionsCutFillCut, "sections-cutfill-cut", "Sections — Cut",
             LayerRole.SectionsCutFill, "::Cut",

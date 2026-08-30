@@ -63,7 +63,7 @@ internal static class LayerCreationService
             if (parentIndex >= 0)
                 layer.ParentLayerId = doc.Layers[parentIndex].Id;
 
-            ApplyAppearance(layer, table.TryGetLayerAppearance(currentPath), isLeaf ? sourceLayer : null);
+            ApplyAppearance(doc, layer, table.TryGetLayerAppearance(currentPath), isLeaf ? sourceLayer : null);
             parentIndex = doc.Layers.Add(layer);
         }
 
@@ -99,7 +99,11 @@ internal static class LayerCreationService
         return (created, existing);
     }
 
-    private static void ApplyAppearance(Layer layer, LayerAppearance? appearance, Layer? sourceLayer)
+    private static void ApplyAppearance(
+        RhinoDoc doc,
+        Layer layer,
+        LayerAppearance? appearance,
+        Layer? sourceLayer)
     {
         if (appearance != null)
         {
@@ -109,6 +113,16 @@ internal static class LayerCreationService
             // A null print width leaves Rhino's own default, which is what text layers want.
             if (appearance.PlotWeight.HasValue)
                 layer.PlotWeight = appearance.PlotWeight.Value;
+
+            // Only a linetype the document already has. Inventing one from a name would put a
+            // definition in the user's document that they never asked for, and a template naming a
+            // linetype this document has never heard of is better left continuous than guessed at.
+            if (!string.IsNullOrWhiteSpace(appearance.LinetypeName))
+            {
+                int linetypeIndex = doc.Linetypes.Find(appearance.LinetypeName);
+                if (linetypeIndex >= 0)
+                    layer.LinetypeIndex = linetypeIndex;
+            }
         }
 
         // An explicit source layer wins: it is carrying information (which zone this is) that the
@@ -133,7 +147,7 @@ internal static class LayerCreationService
         if (existing == null)
             return;
 
-        ApplyAppearance(existing, appearance, sourceLayer);
+        ApplyAppearance(doc, existing, appearance, sourceLayer);
         doc.Layers.Modify(existing, layerIndex, quiet: true);
     }
 }
