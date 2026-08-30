@@ -14,8 +14,9 @@ public class SlopeAnalyzerTests
             new[] { 0, 1, 2 },
             faceCount: 1,
             SlopeAnalyzer.SlopeUnit.Percent,
-            colorLow: 0.0,
-            colorHigh: 100.0,
+            autoRange: false,
+            requestedLow: 0.0,
+            requestedHigh: 100.0,
             palette: new[]
             {
                 new SlopeAnalyzer.ColorStop(0.0, 0, 0, 0),
@@ -30,7 +31,7 @@ public class SlopeAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_AutoHigh_UsesComputedMaximumSlope()
+    public void Analyze_AutoRange_FitsTheSlopeDistributionFromZero()
     {
         var result = SlopeAnalyzer.Analyze(
             CreateHalfSlopeVertices(),
@@ -40,7 +41,10 @@ public class SlopeAnalyzerTests
             SlopeAnalyzer.SlopeUnit.Percent);
 
         Assert.InRange(result.Max, 49.999, 50.001);
+        // Auto-fit starts a slope ramp at flat ground and rounds the top to a readable number.
+        Assert.Equal(0.0, result.ColorLow);
         Assert.InRange(result.ColorHigh, 49.999, 50.001);
+        Assert.True(result.Range.IsAuto);
     }
 
     [Fact]
@@ -79,8 +83,9 @@ public class SlopeAnalyzerTests
             new[] { 0, 1, 2 },
             faceCount: 1,
             SlopeAnalyzer.SlopeUnit.Percent,
-            colorLow: 0.0,
-            colorHigh: 100.0,
+            autoRange: false,
+            requestedLow: 0.0,
+            requestedHigh: 100.0,
             palette: new[]
             {
                 new SlopeAnalyzer.ColorStop(0.0, 10, 20, 30),

@@ -7,6 +7,10 @@ public static class SlopeAnalyzer
 {
     private const int ParallelSlopeThreshold = 20_000;
 
+    /// <summary>Slope is measured from the face normal, so the shape a fitted range takes is always
+    /// "starts at flat ground".</summary>
+    private const RangeShape SlopeRangeShape = RangeShape.FromZero;
+
     public readonly struct ColorStop
     {
         public ColorStop(double position, byte r, byte g, byte b)
@@ -64,11 +68,14 @@ public static class SlopeAnalyzer
         /// <summary>Number of faces.</summary>
         public int FaceCount { get; }
 
+        /// <summary>The range actually mapped across the palette.</summary>
+        public AnalysisRange Range { get; }
+
         /// <summary>Low end of the display range actually used for color mapping.</summary>
-        public double ColorLow { get; }
+        public double ColorLow => Range.Low;
 
         /// <summary>High end of the display range actually used for color mapping.</summary>
-        public double ColorHigh { get; }
+        public double ColorHigh => Range.High;
 
         public SlopeResult(
             double[] slopes,
@@ -77,8 +84,7 @@ public static class SlopeAnalyzer
             double average,
             byte[] faceColors,
             int faceCount,
-            double colorLow,
-            double colorHigh)
+            AnalysisRange range)
         {
             Slopes = slopes;
             Min = min;
@@ -86,13 +92,12 @@ public static class SlopeAnalyzer
             Average = average;
             FaceColors = faceColors;
             FaceCount = faceCount;
-            ColorLow = colorLow;
-            ColorHigh = colorHigh;
+            Range = range;
         }
     }
 
     /// <summary>
-    /// Summary-only slope analysis on a triangle mesh. Does not allocate per-face slopes or colors.
+    /// Summary-only slope analysis on a triangle mesh. Does not allocate per-face colors.
     /// </summary>
     public sealed class SlopeSummary
     {
@@ -104,38 +109,49 @@ public static class SlopeAnalyzer
 
         public int FaceCount { get; }
 
-        public double ColorLow { get; }
+        /// <summary>The range actually mapped across the palette.</summary>
+        public AnalysisRange Range { get; }
 
-        public double ColorHigh { get; }
+        public double ColorLow => Range.Low;
 
-        public SlopeSummary(double min, double max, double average, int faceCount, double colorLow, double colorHigh)
+        public double ColorHigh => Range.High;
+
+        public SlopeSummary(double min, double max, double average, int faceCount, AnalysisRange range)
         {
             Min = min;
             Max = max;
             Average = average;
             FaceCount = faceCount;
-            ColorLow = colorLow;
-            ColorHigh = colorHigh;
+            Range = range;
         }
     }
 
     /// <summary>
     /// Compute min, max, and area-weighted average slope without allocating per-face colors.
     /// </summary>
+    /// <param name="autoRange">Fit the display range to the slope distribution rather than to
+    /// <paramref name="requestedLow"/>/<paramref name="requestedHigh"/>. See <see cref="AnalysisRange"/>.</param>
     public static SlopeSummary Summarize(
         double[] vertices,
         int vertexCount,
         int[] faces,
         int faceCount,
         SlopeUnit unit,
-        double colorLow = 0,
-        double colorHigh = 0)
+        bool autoRange = true,
+        double requestedLow = 0,
+        double requestedHigh = 0)
     {
-        SlopeAccumulator accumulator = faceCount >= ParallelSlopeThreshold
-            ? AccumulateSlopesParallel(vertices, faces, faceCount, unit, null)
-            : AccumulateSlopes(vertices, faces, faceCount, unit, null);
+        // Fitting the range needs the distribution, so the slopes and plan areas are collected for the
+        // auto path only. With explicit bounds this stays the allocation-free summary it was.
+        double[]? slopes = autoRange ? new double[faceCount] : null;
+        double[]? planAreas = autoRange ? new double[faceCount] : null;
 
-        return CreateSummary(accumulator, faceCount, colorLow, colorHigh);
+        SlopeAccumulator accumulator = faceCount >= ParallelSlopeThreshold
+            ? AccumulateSlopesParallel(vertices, faces, faceCount, unit, slopes, planAreas)
+            : AccumulateSlopes(vertices, faces, faceCount, unit, slopes, planAreas);
+
+        AnalysisRange range = ResolveRange(slopes, planAreas, autoRange, requestedLow, requestedHigh);
+        return CreateSummary(accumulator, faceCount, range);
     }
 
     /// <summary>
@@ -146,47 +162,55 @@ public static class SlopeAnalyzer
     /// <param name="faces">Triangle indices: [i0,i1,i2, ...]</param>
     /// <param name="faceCount">Number of triangles.</param>
     /// <param name="unit">Slope unit (ratio, percent, degrees).</param>
-    /// <param name="colorLow">Low end of color range (in the chosen unit). Values at or below use the first palette stop.</param>
-    /// <param name="colorHigh">High end of color range (in the chosen unit). Values at or above use the last palette stop. 0 = auto.</param>
+    /// <param name="autoRange">Fit the display range to the slope distribution rather than to the
+    /// requested bounds.</param>
+    /// <param name="requestedLow">Low end of the color range in the chosen unit, when not auto-fitting.</param>
+    /// <param name="requestedHigh">High end of the color range in the chosen unit, when not auto-fitting.</param>
     /// <param name="palette">Optional normalized color stops. Null falls back to the default green-yellow-red ramp.</param>
+    /// <param name="mode">Smooth gradient or stepped bands.</param>
+    /// <param name="interval">Band width in the chosen unit for stepped mode; 0 picks a readable step.</param>
     public static SlopeResult Analyze(
         double[] vertices,
         int vertexCount,
         int[] faces,
         int faceCount,
         SlopeUnit unit,
-        double colorLow = 0,
-        double colorHigh = 0,
-        IReadOnlyList<ColorStop>? palette = null)
+        bool autoRange = true,
+        double requestedLow = 0,
+        double requestedHigh = 0,
+        IReadOnlyList<ColorStop>? palette = null,
+        AnalysisColorMapper.Mode mode = AnalysisColorMapper.Mode.Gradient,
+        double interval = 0.0)
     {
         var slopes = new double[faceCount];
+        var planAreas = new double[faceCount];
         SlopeAccumulator accumulator = faceCount >= ParallelSlopeThreshold
-            ? AccumulateSlopesParallel(vertices, faces, faceCount, unit, slopes)
-            : AccumulateSlopes(vertices, faces, faceCount, unit, slopes);
-        SlopeSummary summary = CreateSummary(accumulator, faceCount, colorLow, colorHigh);
+            ? AccumulateSlopesParallel(vertices, faces, faceCount, unit, slopes, planAreas)
+            : AccumulateSlopes(vertices, faces, faceCount, unit, slopes, planAreas);
+
+        AnalysisRange range = ResolveRange(slopes, planAreas, autoRange, requestedLow, requestedHigh);
+        SlopeSummary summary = CreateSummary(accumulator, faceCount, range);
 
         var colors = new byte[faceCount * 3];
         var effectivePalette = ResolvePalette(palette);
+
+        // Bands are resolved once and shared by every face, and are the same list the legend draws.
+        IReadOnlyList<AnalysisColorMapper.Band>? bands =
+            AnalysisColorMapper.ResolveBandsFor(range, mode, interval, effectivePalette);
+
+        void ColorFace(int f)
+        {
+            ColorStop color = AnalysisColorMapper.SampleResolved(slopes[f], range, mode, bands, effectivePalette);
+            colors[f * 3] = color.R;
+            colors[f * 3 + 1] = color.G;
+            colors[f * 3 + 2] = color.B;
+        }
+
         if (faceCount >= ParallelSlopeThreshold)
-        {
-            Parallel.For(0, faceCount, f =>
-            {
-                SlopeToColor(slopes[f], summary.ColorLow, summary.ColorHigh, effectivePalette, out byte r, out byte g, out byte b);
-                colors[f * 3] = r;
-                colors[f * 3 + 1] = g;
-                colors[f * 3 + 2] = b;
-            });
-        }
+            Parallel.For(0, faceCount, ColorFace);
         else
-        {
             for (int f = 0; f < faceCount; f++)
-            {
-                SlopeToColor(slopes[f], summary.ColorLow, summary.ColorHigh, effectivePalette, out byte r, out byte g, out byte b);
-                colors[f * 3] = r;
-                colors[f * 3 + 1] = g;
-                colors[f * 3 + 2] = b;
-            }
-        }
+                ColorFace(f);
 
         return new SlopeResult(
             slopes,
@@ -195,8 +219,27 @@ public static class SlopeAnalyzer
             summary.Average,
             colors,
             faceCount,
-            summary.ColorLow,
-            summary.ColorHigh);
+            range);
+    }
+
+    /// <summary>The display range for a set of slopes. <paramref name="planAreas"/> weights the auto fit.</summary>
+    private static AnalysisRange ResolveRange(
+        double[]? slopes,
+        double[]? planAreas,
+        bool autoRange,
+        double requestedLow,
+        double requestedHigh)
+    {
+        if (!autoRange || slopes == null)
+            return AnalysisRange.FromRequested(requestedLow, requestedHigh, SlopeRangeShape);
+
+        return AnalysisRange.Resolve(
+            slopes,
+            planAreas ?? ReadOnlySpan<double>.Empty,
+            auto: true,
+            requestedLow,
+            requestedHigh,
+            SlopeRangeShape);
     }
 
     private static SlopeAccumulator AccumulateSlopes(
@@ -204,14 +247,17 @@ public static class SlopeAnalyzer
         int[] faces,
         int faceCount,
         SlopeUnit unit,
-        double[]? slopes)
+        double[]? slopes,
+        double[]? planAreas)
     {
         var accumulator = SlopeAccumulator.Create();
         for (int f = 0; f < faceCount; f++)
         {
-            double slope = ComputeFaceSlope(vertices, faces, f, unit, out double area);
+            double slope = ComputeFaceSlope(vertices, faces, f, unit, out double area, out double planArea);
             if (slopes != null)
                 slopes[f] = slope;
+            if (planAreas != null)
+                planAreas[f] = planArea;
             accumulator.Add(slope, area);
         }
 
@@ -223,7 +269,8 @@ public static class SlopeAnalyzer
         int[] faces,
         int faceCount,
         SlopeUnit unit,
-        double[]? slopes)
+        double[]? slopes,
+        double[]? planAreas)
     {
         var accumulator = SlopeAccumulator.Create();
         object gate = new();
@@ -231,9 +278,11 @@ public static class SlopeAnalyzer
             () => SlopeAccumulator.Create(),
             (f, _, local) =>
             {
-                double slope = ComputeFaceSlope(vertices, faces, f, unit, out double area);
+                double slope = ComputeFaceSlope(vertices, faces, f, unit, out double area, out double planArea);
                 if (slopes != null)
                     slopes[f] = slope;
+                if (planAreas != null)
+                    planAreas[f] = planArea;
                 local.Add(slope, area);
                 return local;
             },
@@ -248,20 +297,27 @@ public static class SlopeAnalyzer
         return accumulator;
     }
 
-    private static SlopeSummary CreateSummary(SlopeAccumulator accumulator, int faceCount, double colorLow, double colorHigh)
+    private static SlopeSummary CreateSummary(SlopeAccumulator accumulator, int faceCount, AnalysisRange range)
     {
         double min = accumulator.HasFinite ? accumulator.Min : 0.0;
         double max = accumulator.HasFinite ? accumulator.Max : 0.0;
         double average = accumulator.TotalArea > 0 ? accumulator.WeightedSum / accumulator.TotalArea : 0.0;
-        double lo = colorLow;
-        double hi = colorHigh > lo ? colorHigh : max;
-        if (hi <= lo)
-            hi = lo + 1;
 
-        return new SlopeSummary(min, max, average, faceCount, lo, hi);
+        return new SlopeSummary(min, max, average, faceCount, range.EnsureNonDegenerate());
     }
 
-    private static double ComputeFaceSlope(double[] vertices, int[] faces, int faceIndex, SlopeUnit unit, out double area)
+    /// <param name="area">True 3D surface area of the face.</param>
+    /// <param name="planArea">The face's area projected onto XY. This, not the 3D area, is what weights a
+    /// fitted colour range: a slope map is read in plan, and a near-vertical retaining wall covers a lot of
+    /// surface but almost no ground. Weighting by 3D area does the opposite of what is wanted — it gives the
+    /// wall <em>more</em> influence than the terrain it retains.</param>
+    private static double ComputeFaceSlope(
+        double[] vertices,
+        int[] faces,
+        int faceIndex,
+        SlopeUnit unit,
+        out double area,
+        out double planArea)
     {
         int i0 = faces[faceIndex * 3];
         int i1 = faces[faceIndex * 3 + 1];
@@ -292,6 +348,7 @@ public static class SlopeAnalyzer
         area = normalLen * 0.5;
 
         double absNz = Math.Abs(nz);
+        planArea = absNz * 0.5;
         double slopeRatio = absNz < 1e-12
             ? double.PositiveInfinity
             : Math.Sqrt(nx * nx + ny * ny) / absNz;
@@ -377,76 +434,16 @@ public static class SlopeAnalyzer
         };
     }
 
-    /// <summary>
-    /// Map slope value to the supplied gradient within the given range.
-    /// </summary>
-    private static void SlopeToColor(
-        double slope,
-        double lo,
-        double hi,
-        IReadOnlyList<ColorStop> palette,
-        out byte r,
-        out byte g,
-        out byte b)
+    /// <summary>Map a slope value onto the palette gradient within the given range.</summary>
+    private static ColorStop SampleGradient(double slope, AnalysisRange range, IReadOnlyList<ColorStop> palette)
     {
         if (palette.Count == 0)
-        {
-            r = 0;
-            g = 200;
-            b = 0;
-            return;
-        }
+            return new ColorStop(0.0, 0, 200, 0);
 
-        if (double.IsInfinity(slope) || double.IsNaN(slope) || slope >= hi)
-        {
-            var last = palette[^1];
-            r = last.R;
-            g = last.G;
-            b = last.B;
-            return;
-        }
+        if (double.IsNaN(slope) || double.IsPositiveInfinity(slope))
+            return palette[^1];
 
-        if (slope <= lo)
-        {
-            var first = palette[0];
-            r = first.R;
-            g = first.G;
-            b = first.B;
-            return;
-        }
-
-        double t = (slope - lo) / (hi - lo);
-        ColorStop previous = palette[0];
-
-        for (int i = 1; i < palette.Count; i++)
-        {
-            ColorStop current = palette[i];
-            if (t > current.Position)
-            {
-                previous = current;
-                continue;
-            }
-
-            double segment = current.Position - previous.Position;
-            if (segment <= 1e-9)
-            {
-                r = current.R;
-                g = current.G;
-                b = current.B;
-                return;
-            }
-
-            double localT = (t - previous.Position) / segment;
-            r = InterpolateChannel(previous.R, current.R, localT);
-            g = InterpolateChannel(previous.G, current.G, localT);
-            b = InterpolateChannel(previous.B, current.B, localT);
-            return;
-        }
-
-        var fallback = palette[^1];
-        r = fallback.R;
-        g = fallback.G;
-        b = fallback.B;
+        return AnalysisColorMapper.SamplePalette(range.Normalize(slope), palette);
     }
 
     private static IReadOnlyList<ColorStop> ResolvePalette(IReadOnlyList<ColorStop>? palette)
@@ -461,11 +458,5 @@ public static class SlopeAnalyzer
             .OrderBy(stop => stop.Position)
             .Select(stop => new ColorStop(stop.Position, stop.R, stop.G, stop.B))
             .ToArray();
-    }
-
-    private static byte InterpolateChannel(byte a, byte b, double t)
-    {
-        double clamped = Math.Clamp(t, 0.0, 1.0);
-        return (byte)Math.Round(a + ((b - a) * clamped));
     }
 }
