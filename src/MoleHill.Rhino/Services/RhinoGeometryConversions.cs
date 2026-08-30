@@ -151,6 +151,9 @@ internal static class RhinoGeometryConversions
         mesh.UnifyNormals();
         mesh.Compact();
         CacheMeshData(mesh, BuildMeshData(mesh));
+        // Retopo deliberately produces quad faces. Mark this mesh as finalized so the generic stage
+        // cache normalization does not flatten those faces back into triangles.
+        MarkNormalized(mesh);
         return mesh;
     }
 

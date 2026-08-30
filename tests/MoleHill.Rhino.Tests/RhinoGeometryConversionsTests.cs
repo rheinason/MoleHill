@@ -60,4 +60,23 @@ public class RhinoGeometryConversionsTests
 
         Assert.True(RhinoGeometryConversions.IsNormalizedMesh(duplicate));
     }
+
+    [RhinoNativeFact]
+    public void BuildQuadDominantMesh_PreservesQuadFaces()
+    {
+        using Mesh mesh = RhinoGeometryConversions.BuildQuadDominantMesh(
+            new[]
+            {
+                0.0, 0.0, 0.0,
+                1.0, 0.0, 0.0,
+                1.0, 1.0, 0.0,
+                0.0, 1.0, 0.0
+            },
+            new[] { 0, 1, 2, 3 },
+            Array.Empty<int>());
+
+        Assert.Single(mesh.Faces);
+        Assert.True(mesh.Faces[0].IsQuad);
+        Assert.True(RhinoGeometryConversions.IsNormalizedMesh(mesh));
+    }
 }

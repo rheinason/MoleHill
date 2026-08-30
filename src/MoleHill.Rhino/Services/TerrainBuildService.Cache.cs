@@ -18,8 +18,9 @@ internal sealed partial class TerrainBuildService
         build.PersistentElevationConstraints.Clear();
         build.PersistentElevationConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(cachedEntry.PersistentElevationConstraints));
         outputFingerprint = cachedEntry.OutputFingerprint;
-        // StoreMeshStageCache normalizes before caching. DuplicateMesh preserves that topology, so
-        // normalizing again on every hot-cache restore is redundant O(vertices + faces) work.
+        // StoreMeshStageCache normalizes before caching (while preserving already-finalized Retopo
+        // quads). DuplicateMesh preserves that topology, so normalizing again on every hot-cache
+        // restore is redundant O(vertices + faces) work.
         return TerrainRuntimeCacheCloner.CloneMesh(cachedEntry.MeshOutput);
     }
 
