@@ -342,14 +342,14 @@ internal static class TerrainAnalysisPreviewBuilder
         return histogram.ResolveAuto(shape);
     }
 
-    private static MeshHeightProjector? CreateReferenceProjector(RhinoMesh referenceMesh)
+    internal static MeshHeightProjector? CreateReferenceProjector(RhinoMesh referenceMesh)
     {
         return RhinoGeometryConversions.TryExtractMeshData(referenceMesh, out var vertices, out var faces, out _)
             ? new MeshHeightProjector(vertices, vertices.Length / 3, faces, faces.Length / 3)
             : null;
     }
 
-    private static bool TryProjectReferencePoint(
+    internal static bool TryProjectReferencePoint(
         RhinoMesh referenceMesh,
         MeshHeightProjector? projector,
         Point3d point,
@@ -371,7 +371,7 @@ internal static class TerrainAnalysisPreviewBuilder
         return false;
     }
 
-    private static RhinoMesh? ResolveReferenceMesh(RhinoDoc doc, SourceReferenceSet referenceSet)
+    internal static RhinoMesh? ResolveReferenceMesh(RhinoDoc doc, SourceReferenceSet referenceSet)
     {
         var meshes = RhinoSourceResolver.ResolveMeshes(doc, referenceSet);
         if (meshes.Count == 0)
@@ -386,7 +386,7 @@ internal static class TerrainAnalysisPreviewBuilder
         return combined;
     }
 
-    private static bool IsInsideBoundaries(Point3d point, IReadOnlyList<Curve> boundaries)
+    internal static bool IsInsideBoundaries(Point3d point, IReadOnlyList<Curve> boundaries)
     {
         if (boundaries.Count == 0)
             return true;

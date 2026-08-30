@@ -160,9 +160,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   F/Shift+F adjust modes. DynTopo is
   disabled and hidden for now. `TerrainController.Sculpt.cs` holds the display lock (working mesh keeps
   `PreviewTerrainMesh` authority across background build applies; builds defer while a stroke is being painted).
-- `SculptAnalysisColorizer.cs` - live slope/elevation coloring of the sculpt working mesh: per-dab
-  vertex recolor from the freshly patched normals / Z, range pinned at session start (cut/fill not
-  colored live).
+- `SculptAnalysisColorizer.cs` - live slope/elevation/cut-fill coloring of the sculpt working mesh: per-dab
+  vertex recolor from the freshly patched normals / Z / reference projection, with the range pinned at
+  session start.
 - `SculptFieldCodec.cs` - persisted `SculptTile` list (base64) ⇄ runtime `SculptDisplacementField`.
 
 ## Layer templates

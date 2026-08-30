@@ -153,7 +153,14 @@ internal sealed class SculptSessionController
         // built 1:1 from the extracted arrays (never normalized — that can reorder vertices).
         _workingMesh = BuildIndexParityMesh(vertices, vertexCount, faces, faceCount);
         _normalPatcher = new SculptNormalPatcher(vertexCount, faces, faceCount);
-        _analysisColorizer = SculptAnalysisColorizer.TryCreate(terrain, vertices, faces, faceCount);
+        RhinoMesh? baseTerrainMesh = _controller.GetSculptRuntimeCache(doc, terrain.TerrainId).DisplayState?.BaseTerrainMesh;
+        _analysisColorizer = SculptAnalysisColorizer.TryCreate(
+            doc,
+            terrain,
+            baseTerrainMesh,
+            vertices,
+            faces,
+            faceCount);
         _analysisColorizer?.ColorAll(_workingMesh);
 
         var field = SculptFieldCodec.Decode(sculpt);
