@@ -80,7 +80,9 @@ low-priority actions into overflow while remaining pinned to the available clien
   hierarchy with display/print color swatches, plot-weight and a read-only Receives column, a properties
   panel for the selected layer including which output role it receives, multi-template management, and
   JSON import/export. The role binding lives on the node, so it survives renaming or re-parenting a layer.
-  Receives lists every role that *lands* on a layer, not the one bound to it — a role with no layer of
+  Receives is a checklist, not a single choice, so several kinds of output can share one layer; ticking
+  a role that is on another layer moves it, since one role landing on two layers would duplicate its
+  output. Receives lists every role that *lands* on a layer, not the one bound to it — a role with no layer of
   its own resolves into an ancestor's, so binding alone would have shown nothing where retaining walls
   actually go. Roles whose layer the template does not list are offered as "Add N missing role layer(s)",
   which adds a row at the path each already resolves to, so nothing moves. `SlowBuildWarningDialog.cs` is the other

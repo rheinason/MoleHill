@@ -14,7 +14,7 @@ public class LayerRoleTableTests
         new() { Version = 1, Name = "Test", Entries = entries.ToList() };
 
     private static LayerTemplateEntry Bind(LayerRole role, string path) =>
-        new() { Role = LayerRoleRegistry.For(role).Id, Path = path };
+        new() { Roles = { LayerRoleRegistry.For(role).Id }, Path = path };
 
     [Fact]
     public void UnboundRole_InheritsItsPathThroughTheParentChain()
@@ -119,11 +119,59 @@ public class LayerRoleTableTests
         Assert.Equal(appearance.PreviewWidthPx, appearance.ScalePreviewWidth(double.NaN));
     }
 
+    /// <summary>
+    /// Several kinds of output can share one layer — an office that wants all the section furniture
+    /// on a single layer rather than the sublayer-per-kind the defaults ship with.
+    /// </summary>
+    [Fact]
+    public void OneLayer_CanReceiveSeveralRoles()
+    {
+        var entry = new LayerTemplateEntry
+        {
+            Path = "Drawing::Section",
+            Roles =
+            {
+                LayerRoleRegistry.For(LayerRole.Sections).Id,
+                LayerRoleRegistry.For(LayerRole.SectionsGrid).Id,
+                LayerRoleRegistry.For(LayerRole.SectionsTicks).Id,
+                LayerRoleRegistry.For(LayerRole.SectionsLabels).Id
+            }
+        };
+
+        var table = LayerRoleTable.Build(Template(entry));
+
+        foreach (var role in new[]
+                 {
+                     LayerRole.Sections, LayerRole.SectionsGrid,
+                     LayerRole.SectionsTicks, LayerRole.SectionsLabels
+                 })
+        {
+            Assert.Equal("Drawing::Section", table.Path(role));
+        }
+
+        // Section roles left off the list still get their own layers, under the shared one.
+        Assert.Equal("Drawing::Section::Existing", table.Path(LayerRole.SectionsExisting));
+    }
+
+    /// <summary>
+    /// The reverse is not allowed: one role on two layers would duplicate its output, so the first
+    /// binding wins rather than the last one silently taking over.
+    /// </summary>
+    [Fact]
+    public void ARoleClaimedByTwoLayers_LandsOnTheFirst()
+    {
+        var table = LayerRoleTable.Build(Template(
+            new LayerTemplateEntry { Path = "First", Roles = { "contours" } },
+            new LayerTemplateEntry { Path = "Second", Roles = { "contours" } }));
+
+        Assert.Equal("First", table.Path(LayerRole.Contours));
+    }
+
     [Fact]
     public void UnknownRoleId_KeepsTheLayerButBindsNothing()
     {
         var table = LayerRoleTable.Build(Template(
-            new LayerTemplateEntry { Role = "role-from-a-newer-build", Path = "Future::Layer" }));
+            new LayerTemplateEntry { Roles = { "role-from-a-newer-build" }, Path = "Future::Layer" }));
 
         Assert.Equal(TerrainDefinition.DefaultTerrainLayerPath, table.Path(LayerRole.Terrain));
         Assert.Contains(table.AllLayers, layer =>

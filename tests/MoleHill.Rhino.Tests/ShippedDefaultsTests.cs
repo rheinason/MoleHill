@@ -35,7 +35,7 @@ public class ShippedDefaultsTests
                  })
         {
             Assert.Contains(shipped.Entries, entry =>
-                string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase) && entry.Role == null);
+                string.Equals(entry.Path, path, StringComparison.OrdinalIgnoreCase) && entry.Roles.Count == 0);
         }
     }
 
@@ -75,7 +75,7 @@ public class ShippedDefaultsTests
                 Version = 1,
                 Entries = new List<LayerTemplateEntry>
                 {
-                    new() { Path = "Future", Role = "a-role-from-a-newer-build" }
+                    new() { Path = "Future", Roles = { "a-role-from-a-newer-build" } }
                 }
             })
         };

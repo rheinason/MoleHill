@@ -10,7 +10,7 @@ internal sealed class LayerTemplateStore
     private const string TemplatesFileName = "layer-templates.json";
 
     /// <summary>Current template schema. 0 is a pre-role file — see <see cref="UpgradeTemplate"/>.</summary>
-    private const int CurrentTemplateVersion = 1;
+    private const int CurrentTemplateVersion = 2;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -128,35 +128,38 @@ internal sealed class LayerTemplateStore
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in template.Entries)
         {
-            if (entry.PlotWeight is 0.0)
+            if (template.Version < 1 && entry.PlotWeight is 0.0)
                 entry.PlotWeight = null;
 
-            if (!string.IsNullOrWhiteSpace(entry.Role))
+            // A layer used to carry at most one role; fold that into the list it has now.
+            if (!string.IsNullOrWhiteSpace(entry.LegacyRole) && !entry.Roles.Contains(entry.LegacyRole!))
+                entry.Roles.Insert(0, entry.LegacyRole!);
+            entry.LegacyRole = null;
+
+            if (entry.Roles.Count > 0)
             {
-                claimed.Add(entry.Role!);
+                foreach (string existing in entry.Roles)
+                    claimed.Add(existing);
                 continue;
             }
 
             if (rolesByDefaultPath.TryGetValue(entry.Path, out string? roleId) && claimed.Add(roleId))
-                entry.Role = roleId;
+                entry.Roles.Add(roleId);
         }
 
         template.Version = CurrentTemplateVersion;
     }
 
     /// <summary>
-    /// Keeps the first binding when a role appears twice. The editor blocks this on save, but an
-    /// imported or hand-edited file can still carry it, and a template that silently routes one kind
-    /// of output to two layers is worse than one that picks.
+    /// Keeps the first binding when a role appears on more than one layer. Several roles may share a
+    /// layer, but one role landing on two layers would duplicate its output, so an imported or
+    /// hand-edited file that does it is resolved rather than honoured.
     /// </summary>
     private static void DropDuplicateRoleBindings(LayerTemplateDefinition template)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in template.Entries)
-        {
-            if (!string.IsNullOrWhiteSpace(entry.Role) && !seen.Add(entry.Role!))
-                entry.Role = null;
-        }
+            entry.Roles.RemoveAll(roleId => string.IsNullOrWhiteSpace(roleId) || !seen.Add(roleId));
     }
 
     /// <summary>
@@ -214,7 +217,7 @@ internal sealed class LayerTemplateStore
             yield return new LayerTemplateEntry
             {
                 Path = path,
-                Role = descriptor.Id,
+                Roles = { descriptor.Id },
                 ColorArgb = appearance.ColorArgb,
                 PrintColorArgb = appearance.PrintColorArgb,
                 PlotWeight = appearance.PlotWeight,

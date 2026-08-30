@@ -60,11 +60,11 @@ public class GeneratedObjectRoutingTests
             Name = "Office",
             Entries = new List<LayerTemplateEntry>
             {
-                new() { Role = "annotation", Path = "Drawing::Site" },
-                new() { Role = "terrain", Path = "Model::Proposed" },
-                new() { Role = "auxiliary", Path = "Model::Structures" },
-                new() { Role = "zones", Path = "Model::Areas" },
-                new() { Role = "scatter", Path = "Model::Planting" }
+                new() { Roles = { "annotation" }, Path = "Drawing::Site" },
+                new() { Roles = { "terrain" }, Path = "Model::Proposed" },
+                new() { Roles = { "auxiliary" }, Path = "Model::Structures" },
+                new() { Roles = { "zones" }, Path = "Model::Areas" },
+                new() { Roles = { "scatter" }, Path = "Model::Planting" }
             }
         };
 
@@ -125,7 +125,7 @@ public class GeneratedObjectRoutingTests
         {
             Version = 1,
             Name = "Office",
-            Entries = new List<LayerTemplateEntry> { new() { Role = "annotation", Path = "Drawing::Site" } }
+            Entries = new List<LayerTemplateEntry> { new() { Roles = { "annotation" }, Path = "Drawing::Site" } }
         });
 
         Assert.NotEqual(baseline, retargeted.Fingerprint);

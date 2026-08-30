@@ -27,7 +27,7 @@ public class EmbeddedLayerTemplateTests : IDisposable
         Name = "Office",
         Entries = new List<LayerTemplateEntry>
         {
-            new() { Role = "annotation", Path = annotationPath }
+            new() { Roles = { "annotation" }, Path = annotationPath }
         }
     };
 
@@ -142,7 +142,7 @@ public class EmbeddedLayerTemplateTests : IDisposable
             {
                 Version = 1,
                 Name = "Existing",
-                Entries = new List<LayerTemplateEntry> { new() { Role = "annotation", Path = "Drawing::Existing" } }
+                Entries = new List<LayerTemplateEntry> { new() { Roles = { "annotation" }, Path = "Drawing::Existing" } }
             }
         };
         LayerRoleService.Invalidate();

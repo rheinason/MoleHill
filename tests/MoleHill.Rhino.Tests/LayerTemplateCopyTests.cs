@@ -31,8 +31,26 @@ public class LayerTemplateCopyTests
         Assert.NotSame(entry, copy);
         foreach (PropertyInfo property in properties)
         {
+            object? original = property.GetValue(entry);
+            object? copied = property.GetValue(copy);
+
+            if (original is System.Collections.IEnumerable originalItems and not string)
+            {
+                Assert.True(
+                    copied is System.Collections.IEnumerable,
+                    $"LayerTemplateEntry.Copy() does not carry '{property.Name}'.");
+
+                Assert.Equal(
+                    originalItems.Cast<object>().ToList(),
+                    ((System.Collections.IEnumerable)copied!).Cast<object>().ToList());
+
+                // A shared list would let editing the copy reach back into the stored template.
+                Assert.NotSame(original, copied);
+                continue;
+            }
+
             Assert.True(
-                Equals(property.GetValue(entry), property.GetValue(copy)),
+                Equals(original, copied),
                 $"LayerTemplateEntry.Copy() does not carry '{property.Name}'.");
         }
     }
@@ -41,7 +59,7 @@ public class LayerTemplateCopyTests
     public void DefinitionCopy_CarriesEveryPropertyAndDeepCopiesEntries()
     {
         var template = new LayerTemplateDefinition { Version = 7, Name = "Office" };
-        template.Entries.Add(new LayerTemplateEntry { Path = "Drawing::Site", Role = "annotation" });
+        template.Entries.Add(new LayerTemplateEntry { Path = "Drawing::Site", Roles = { "annotation" } });
 
         LayerTemplateDefinition copy = template.Copy();
 
@@ -49,11 +67,11 @@ public class LayerTemplateCopyTests
         Assert.Equal("Office", copy.Name);
         Assert.NotSame(template.Entries, copy.Entries);
         Assert.NotSame(template.Entries[0], copy.Entries[0]);
-        Assert.Equal("annotation", copy.Entries[0].Role);
+        Assert.Equal(new[] { "annotation" }, copy.Entries[0].Roles);
 
         // Editing the copy is what the dialog does; it must not reach back into the stored template.
-        copy.Entries[0].Role = null;
-        Assert.Equal("annotation", template.Entries[0].Role);
+        copy.Entries[0].Roles.Clear();
+        Assert.Equal(new[] { "annotation" }, template.Entries[0].Roles);
     }
 
     /// <summary>
@@ -67,8 +85,8 @@ public class LayerTemplateCopyTests
         LayerTemplateDefinition copy = shipped.Copy();
 
         Assert.Equal(
-            shipped.Entries.Count(entry => entry.Role != null),
-            copy.Entries.Count(entry => entry.Role != null));
+            shipped.Entries.Count(entry => entry.Roles.Count > 0),
+            copy.Entries.Count(entry => entry.Roles.Count > 0));
 
         // The strongest form: the copy routes and styles identically.
         Assert.Equal(LayerRoleTable.Build(shipped).Fingerprint, LayerRoleTable.Build(copy).Fingerprint);
@@ -92,6 +110,8 @@ public class LayerTemplateCopyTests
             return 42.5;
         if (type == typeof(bool))
             return true;
+        if (type == typeof(List<string>))
+            return new List<string> { property.Name + "-role" };
 
         throw new NotSupportedException(
             $"LayerTemplateCopyTests has no sample value for {property.Name} ({property.PropertyType.Name}). "

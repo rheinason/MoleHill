@@ -29,14 +29,14 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         public double PlotWeight { get; set; }
 
         /// <summary>
-        /// The output this layer receives, as a <c>LayerRoleRegistry</c> id, or null for a plain
-        /// layer the template creates but nothing routes to.
+        /// The output this layer receives, as <c>LayerRoleRegistry</c> ids. Empty for a plain layer
+        /// the template creates but nothing routes to.
         ///
         /// Carried on the node rather than recomputed from the path so a binding survives renaming
         /// or re-parenting the layer — which is the whole point of binding by role instead of by
         /// path in the first place.
         /// </summary>
-        public string? Role { get; set; }
+        public List<string> Roles { get; set; } = new();
 
         public string? LinetypeName { get; set; }
         public string? AnnotationStyleName { get; set; }
@@ -96,13 +96,11 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     private TreeGridItemCollection _rootItems = new();
 
     private readonly Label _pathLabel = new() { TextColor = UiTheme.MutedText };
-    private readonly DropDown _rolePicker = new();
+    private readonly Button _rolePicker = new() { Text = "Nothing", Width = UiMetrics.Chs(40) };
     private readonly Button _addMissingButton = new() { Text = "All roles listed" };
     private List<string> _missingRoleLayers = new();
     private readonly Label _roleHint = new() { TextColor = UiTheme.MutedText, Wrap = WrapMode.Word };
 
-    /// <summary>Role ids in picker order, offset by one for the leading "(nothing)" row.</summary>
-    private readonly List<string> _roleIds = new();
     private readonly Panel _displaySwatch = new() { Width = 20, Height = 20 };
     private readonly Label _displayHex = new();
     private readonly Panel _printSwatch = new() { Width = 20, Height = 20 };
@@ -265,12 +263,6 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
     private Control BuildPropertiesPanel()
     {
-        _rolePicker.Items.Add("(nothing — a layer for your own geometry)");
-        foreach (var descriptor in LayerRoleRegistry.All)
-        {
-            _roleIds.Add(descriptor.Id);
-            _rolePicker.Items.Add(descriptor.DisplayName);
-        }
 
         _displaySwatch.MouseDown += (_, _) => PickColor(isPrint: false);
         _printSwatch.MouseDown += (_, _) => PickColor(isPrint: true);
@@ -297,28 +289,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         _selectionDependent.Add(pickPrint);
         _selectionDependent.Add(_weightStepper);
 
-        _rolePicker.SelectedIndexChanged += (_, _) =>
-        {
-            if (_loadingProperties || SelectedNode is not { } node)
-                return;
-
-            string? role = _rolePicker.SelectedIndex <= 0 ? null : _roleIds[_rolePicker.SelectedIndex - 1];
-
-            // A role can only land on one layer, so claiming it takes it off whichever layer had it.
-            // Silently routing one kind of output to two places would be worse than moving it.
-            if (role != null)
-            {
-                foreach (LayerNode other in AllNodes())
-                {
-                    if (!ReferenceEquals(other, node) && other.Role == role)
-                        other.Role = null;
-                }
-            }
-
-            node.Role = role;
-            RefreshRoleMap();
-            RefreshProperties();
-        };
+        _rolePicker.Click += (_, _) => ShowRolePicker();
         _selectionDependent.Add(_rolePicker);
 
         var grid = new DynamicLayout { Spacing = new Size(8, 6), Padding = new Padding(0, 4) };
@@ -337,7 +308,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             null);
         grid.AddRow(
             new Label { Text = "Receives:", VerticalAlignment = VerticalAlignment.Center },
-            _rolePicker,
+            new StackLayout { Orientation = Orientation.Horizontal, Items = { _rolePicker } },
             null);
         grid.AddRow(new Panel(), _roleHint, null);
 
@@ -589,7 +560,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
                     node.ColorArgb = entry.ColorArgb ?? node.ColorArgb;
                     node.PrintColorArgb = entry.PrintColorArgb ?? node.PrintColorArgb;
                     node.PlotWeight = entry.PlotWeight ?? node.PlotWeight;
-                    node.Role = entry.Role;
+                    node.Roles = new List<string>(entry.Roles);
                     node.LinetypeName = entry.LinetypeName;
                     node.AnnotationStyleName = entry.AnnotationStyleName;
                     node.HatchPatternName = entry.HatchPatternName;
@@ -618,7 +589,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             entries.Add(new LayerTemplateEntry
             {
                 Path = path,
-                Role = node.Role,
+                Roles = new List<string>(node.Roles),
                 ColorArgb = node.ColorArgb,
                 PrintColorArgb = node.PrintColorArgb,
                 PlotWeight = node.PlotWeight,
@@ -687,20 +658,144 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     // ── Properties panel ────────────────────────────────────────────────────────
 
     /// <summary>
-    /// What an unbound role falls back to, so it is clear that leaving a layer unbound is a normal
-    /// thing to do rather than an omission — most template layers exist for the user's own geometry.
+    /// Which kinds of output this layer receives, chosen from a checklist rather than a dropdown so
+    /// several can share one layer — an office that wants all the section furniture on a single
+    /// layer rather than the sublayer-per-kind the defaults ship with.
+    ///
+    /// A role already on another layer is shown with where it currently is, and checking it here
+    /// moves it: one role landing on two layers would duplicate its output.
     /// </summary>
-    private static string DescribeRole(string? roleId)
+    private void ShowRolePicker()
     {
-        var descriptor = LayerRoleRegistry.ForId(roleId);
-        if (descriptor == null)
+        if (SelectedNode is not { } node)
+            return;
+
+        var owners = new Dictionary<string, LayerNode>(StringComparer.OrdinalIgnoreCase);
+        foreach (LayerNode other in AllNodes())
+        {
+            foreach (string roleId in other.Roles)
+                owners[roleId] = other;
+        }
+
+        var rows = LayerRoleRegistry.All
+            .Select(descriptor => new RoleRow
+            {
+                Id = descriptor.Id,
+                Checked = node.Roles.Contains(descriptor.Id, StringComparer.OrdinalIgnoreCase),
+                Name = descriptor.DisplayName,
+                Elsewhere = owners.TryGetValue(descriptor.Id, out LayerNode? owner) && !ReferenceEquals(owner, node)
+                    ? NodePath(owner)
+                    : string.Empty
+            })
+            .ToList();
+
+        var grid = new GridView { DataStore = rows, ShowHeader = true, Height = 320 };
+        grid.Columns.Add(new GridColumn
+        {
+            HeaderText = string.Empty,
+            Editable = true,
+            DataCell = new CheckBoxCell { Binding = Binding.Delegate<RoleRow, bool?>(r => r.Checked, (r, v) => r.Checked = v ?? false) }
+        });
+        grid.Columns.Add(new GridColumn
+        {
+            HeaderText = "Output",
+            Expand = true,
+            DataCell = new TextBoxCell { Binding = Binding.Delegate<RoleRow, string>(r => r.Name) }
+        });
+        grid.Columns.Add(new GridColumn
+        {
+            HeaderText = "Currently on",
+            DataCell = new TextBoxCell { Binding = Binding.Delegate<RoleRow, string>(r => r.Elsewhere) }
+        });
+
+        var dialog = new Dialog<bool>
+        {
+            Title = "Output for " + NodePath(node),
+            Padding = 12,
+            Resizable = true,
+            MinimumSize = new Size(520, 420)
+        };
+        dialog.UseRhinoStyle();
+
+        var ok = new Button { Text = "OK" };
+        ok.Click += (_, _) => dialog.Close(true);
+        var cancel = new Button { Text = "Cancel" };
+        cancel.Click += (_, _) => dialog.Close(false);
+        dialog.DefaultButton = ok;
+        dialog.AbortButton = cancel;
+
+        dialog.Content = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 8,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new Label
+                {
+                    Text = "Tick everything that should be drawn on this layer. Anything left unticked "
+                        + "goes to its own layer, or to the nearest parent layer that receives it.",
+                    Wrap = WrapMode.Word
+                },
+                new StackLayoutItem(grid, expand: true),
+                new StackLayout
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 6,
+                    HorizontalContentAlignment = HorizontalAlignment.Right,
+                    Items = { null, ok, cancel }
+                }
+            }
+        };
+
+        if (!dialog.ShowModal(this))
+            return;
+
+        node.Roles = rows.Where(r => r.Checked).Select(r => r.Id).ToList();
+
+        // Checking a role here takes it off whichever layer had it.
+        foreach (RoleRow row in rows.Where(r => r.Checked && r.Elsewhere.Length > 0))
+        {
+            if (owners.TryGetValue(row.Id, out LayerNode? owner) && !ReferenceEquals(owner, node))
+                owner.Roles.RemoveAll(id => string.Equals(id, row.Id, StringComparison.OrdinalIgnoreCase));
+        }
+
+        RefreshRoleMap();
+        RefreshProperties();
+    }
+
+    private sealed class RoleRow
+    {
+        public string Id { get; set; } = string.Empty;
+        public bool Checked { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Elsewhere { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// What the layer receives, and for an inherited role where it would otherwise have gone — so
+    /// leaving a layer unticked reads as a normal choice rather than an omission.
+    /// </summary>
+    private static string DescribeRoles(IReadOnlyList<string> roleIds)
+    {
+        if (roleIds.Count == 0)
             return "Nothing is routed here. MoleHill will create the layer and leave it to you.";
 
-        if (descriptor.Parent == null)
-            return $"{descriptor.DisplayName} output lands on this layer.";
+        var named = roleIds
+            .Select(LayerRoleRegistry.ForId)
+            .Where(descriptor => descriptor != null)
+            .ToList();
 
-        return $"{descriptor.DisplayName} output lands here. Unbound, it would inherit "
-            + $"{LayerRoleRegistry.DefaultPath(descriptor.Role)}.";
+        if (named.Count == 0)
+            return "This layer is bound to output from a newer version of MoleHill.";
+
+        if (named.Count == 1 && named[0]!.Parent != null)
+        {
+            return $"{named[0]!.DisplayName} lands here. Unticked, it would go to "
+                + $"{LayerRoleRegistry.DefaultPath(named[0]!.Role)}.";
+        }
+
+        return string.Join(", ", named.Select(d => d!.DisplayName)) + " land on this layer.";
     }
 
     private IEnumerable<LayerNode> AllNodes()
@@ -731,7 +826,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             _displayHex.Text = string.Empty;
             _printHex.Text = string.Empty;
             _weightStepper.Value = 0;
-            _rolePicker.SelectedIndex = 0;
+            _rolePicker.Text = "Nothing";
             _roleHint.Text = string.Empty;
         }
         else
@@ -743,9 +838,10 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             _printHex.Text = Hex(node.PrintColorArgb);
             _weightStepper.Value = node.PlotWeight;
 
-            int roleIndex = node.Role == null ? -1 : _roleIds.IndexOf(node.Role);
-            _rolePicker.SelectedIndex = roleIndex < 0 ? 0 : roleIndex + 1;
-            _roleHint.Text = DescribeRole(node.Role);
+            _rolePicker.Text = node.Roles.Count == 0
+                ? "Nothing…"
+                : string.Join(", ", node.Roles.Select(id => LayerRoleRegistry.ForId(id)?.DisplayName ?? id)) + "…";
+            _roleHint.Text = DescribeRoles(node.Roles);
         }
         _loadingProperties = false;
     }

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace MoleHill.Rhino.Model;
 
 /// <summary>
@@ -18,14 +20,26 @@ public sealed class LayerTemplateEntry
     public string Path { get; set; } = string.Empty;
 
     /// <summary>
-    /// The <c>LayerRoleRegistry</c> id whose output lands here, or null for a plain layer the
-    /// template creates but nothing routes to — the layers a user draws their own inputs on
+    /// The <c>LayerRoleRegistry</c> ids whose output lands here, empty for a plain layer the template
+    /// creates but nothing routes to — the layers a user draws their own inputs on
     /// (<c>Inputs::Spots</c>, <c>Features::Walls</c>).
     ///
-    /// Stored as the string id rather than the enum so that a template written by a newer build
-    /// keeps its unknown roles as plain layers instead of failing to load.
+    /// A list because an office may reasonably want several kinds of output on one layer — all the
+    /// section furniture together, say — rather than the sublayer-per-kind the defaults ship with.
+    /// The reverse is not allowed: one role cannot land on two layers, or output would be duplicated.
+    ///
+    /// Stored as string ids rather than the enum so that a template written by a newer build keeps
+    /// its unknown roles instead of failing to load.
     /// </summary>
-    public string? Role { get; set; }
+    public List<string> Roles { get; set; } = new();
+
+    /// <summary>
+    /// The single role this entry carried before a layer could receive more than one. Read on load
+    /// and folded into <see cref="Roles"/>; never written.
+    /// </summary>
+    [JsonPropertyName("role")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyRole { get; set; }
 
     // ── Rhino Layer properties (seeded at creation, then owned by the user) ──
 
@@ -67,7 +81,8 @@ public sealed class LayerTemplateEntry
     public LayerTemplateEntry Copy() => new()
     {
         Path = Path,
-        Role = Role,
+        Roles = new List<string>(Roles),
+        LegacyRole = LegacyRole,
         ColorArgb = ColorArgb,
         PrintColorArgb = PrintColorArgb,
         PlotWeight = PlotWeight,

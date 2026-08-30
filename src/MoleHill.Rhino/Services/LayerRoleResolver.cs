@@ -143,11 +143,14 @@ internal sealed class LayerRoleTable
         {
             foreach (var entry in template.Entries)
             {
-                var descriptor = LayerRoleRegistry.ForId(entry.Role);
-                // First binding wins: a template with a role bound twice is rejected by the editor,
-                // but a hand-edited or imported file can still carry one.
-                if (descriptor != null && !entriesByRole.ContainsKey(descriptor.Role))
-                    entriesByRole[descriptor.Role] = entry;
+                foreach (string roleId in entry.Roles)
+                {
+                    var descriptor = LayerRoleRegistry.ForId(roleId);
+                    // First binding wins. One role on two layers would duplicate its output, so a
+                    // hand-edited or imported file that does it is resolved rather than honoured.
+                    if (descriptor != null && !entriesByRole.ContainsKey(descriptor.Role))
+                        entriesByRole[descriptor.Role] = entry;
+                }
             }
         }
 
@@ -251,8 +254,11 @@ internal sealed class LayerRoleTable
         {
             foreach (var entry in template.Entries)
             {
-                if (string.IsNullOrWhiteSpace(entry.Path) || LayerRoleRegistry.ForId(entry.Role) != null)
+                if (string.IsNullOrWhiteSpace(entry.Path) ||
+                    entry.Roles.Any(roleId => LayerRoleRegistry.ForId(roleId) != null))
+                {
                     continue;
+                }
 
                 string path = entry.Path.Trim();
                 if (byPath.ContainsKey(path))

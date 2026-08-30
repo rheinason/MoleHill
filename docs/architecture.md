@@ -529,6 +529,11 @@ layers. Nothing in the pipeline hardcodes or plumbs a layer path.
   (`Terrain`, `Auxiliary`, `Zones`, `Scatter`) is deliberately *not* under `Annotation`, so turning a
   drawing off does not turn the terrain off. Every role layer is one output actually lands on, or a parent
   of one — `ShippedDefaultsTests` pins that, because a permanently empty layer is just clutter.
+- **A layer can receive several roles; a role lands on exactly one layer.** `LayerTemplateEntry.Roles`
+  is a list, so an office can put all the section furniture on a single layer rather than the
+  sublayer-per-kind the defaults ship with. The reverse would duplicate output, so a role claimed by two
+  layers resolves to the first. Template schema 2 folds the older singular `role` property into the list
+  on load.
 - **Roles form a chain, and both path and appearance inherit up it, field by field.** An unbound
   `ContoursMajor` resolves through `Contours` to `Annotation`, so rebinding one root moves its whole
   drawing family — which is what lets the schema 30 migration carry a customised document across with a

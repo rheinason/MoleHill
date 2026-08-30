@@ -68,14 +68,14 @@ internal static class LayerRoutingMigration
             .Select(pair => new LayerTemplateEntry
             {
                 Path = pair.Value,
-                Role = LayerRoleRegistry.For(pair.Key).Id
+                Roles = { LayerRoleRegistry.For(pair.Key).Id }
             })
             .ToList();
 
         if (annotationStyle != null)
         {
             LayerTemplateEntry annotation = entries.FirstOrDefault(entry =>
-                entry.Role == LayerRoleRegistry.For(LayerRole.Annotation).Id)
+                entry.Roles.Contains(LayerRoleRegistry.For(LayerRole.Annotation).Id))
                 ?? Add(entries, LayerRole.Annotation, LayerRoleRegistry.DefaultPath(LayerRole.Annotation));
 
             annotation.AnnotationStyleName = annotationStyle;
@@ -114,7 +114,7 @@ internal static class LayerRoutingMigration
 
     private static LayerTemplateEntry Add(List<LayerTemplateEntry> entries, LayerRole role, string path)
     {
-        var entry = new LayerTemplateEntry { Path = path, Role = LayerRoleRegistry.For(role).Id };
+        var entry = new LayerTemplateEntry { Path = path, Roles = { LayerRoleRegistry.For(role).Id } };
         entries.Add(entry);
         return entry;
     }

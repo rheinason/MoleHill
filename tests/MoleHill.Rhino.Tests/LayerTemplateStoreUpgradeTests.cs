@@ -34,14 +34,56 @@ public class LayerTemplateStoreUpgradeTests
 
         var upgraded = Normalize(legacy).Single();
 
-        Assert.Equal(1, upgraded.Version);
-        Assert.Equal("terrain", Find(upgraded, TerrainDefinition.DefaultTerrainLayerPath).Role);
+        Assert.Equal(2, upgraded.Version);
+        Assert.Equal(new[] { "terrain" }, Find(upgraded, TerrainDefinition.DefaultTerrainLayerPath).Roles);
         Assert.Equal(
-            "contours-major",
-            Find(upgraded, TerrainDefinition.DefaultAnnotationLayerPath + "::Contours::Major").Role);
+            new[] { "contours-major" },
+            Find(upgraded, TerrainDefinition.DefaultAnnotationLayerPath + "::Contours::Major").Roles);
 
         // A layer the user draws on is not an output destination and must stay unbound.
-        Assert.Null(Find(upgraded, "MoleHill::Inputs::Spots").Role);
+        Assert.Empty(Find(upgraded, "MoleHill::Inputs::Spots").Roles);
+    }
+
+    /// <summary>
+    /// A layer used to carry at most one role, written as a singular "role" property. Those files
+    /// have to keep loading, with the single value folded into the list a layer has now.
+    /// </summary>
+    [Fact]
+    public void ASingleRoleFromAnOlderFile_BecomesAOneItemList()
+    {
+        var older = new LayerTemplateDefinition
+        {
+            Version = 1,
+            Name = "Older",
+            Entries = new List<LayerTemplateEntry>
+            {
+                new() { Path = "Drawing::Site", LegacyRole = "annotation" }
+            }
+        };
+
+        var entry = Normalize(older).Single().Entries.Single();
+
+        Assert.Equal(new[] { "annotation" }, entry.Roles);
+        // The singular form is read once and never written back, so there is one place it lives.
+        Assert.Null(entry.LegacyRole);
+    }
+
+    [Fact]
+    public void SeveralRolesOnOneLayer_SurviveNormalization()
+    {
+        var template = new LayerTemplateDefinition
+        {
+            Version = 2,
+            Name = "Shared",
+            Entries = new List<LayerTemplateEntry>
+            {
+                new() { Path = "Drawing::Section", Roles = { "sections", "sections-grid", "sections-ticks" } }
+            }
+        };
+
+        Assert.Equal(
+            new[] { "sections", "sections-grid", "sections-ticks" },
+            Normalize(template).Single().Entries.Single().Roles);
     }
 
     /// <summary>
@@ -65,7 +107,7 @@ public class LayerTemplateStoreUpgradeTests
     {
         var current = new LayerTemplateDefinition
         {
-            Version = 1,
+            Version = 2,
             Name = "Current",
             // A deliberate hairline on a layer that happens to sit at a role's default path.
             Entries = new List<LayerTemplateEntry>
@@ -76,7 +118,7 @@ public class LayerTemplateStoreUpgradeTests
 
         var entry = Normalize(current).Single().Entries.Single();
         Assert.Equal(0.0, entry.PlotWeight);
-        Assert.Null(entry.Role);
+        Assert.Empty(entry.Roles);
     }
 
     [Fact]
@@ -84,18 +126,18 @@ public class LayerTemplateStoreUpgradeTests
     {
         var template = new LayerTemplateDefinition
         {
-            Version = 1,
+            Version = 2,
             Name = "Conflicted",
             Entries = new List<LayerTemplateEntry>
             {
-                new() { Path = "First", Role = "contours-major" },
-                new() { Path = "Second", Role = "contours-major" }
+                new() { Path = "First", Roles = { "contours-major" } },
+                new() { Path = "Second", Roles = { "contours-major" } }
             }
         };
 
         var entries = Normalize(template).Single().Entries;
-        Assert.Equal("contours-major", entries[0].Role);
-        Assert.Null(entries[1].Role);
+        Assert.Equal(new[] { "contours-major" }, entries[0].Roles);
+        Assert.Empty(entries[1].Roles);
         // The layer itself survives; only its claim on the role is dropped.
         Assert.Equal("Second", entries[1].Path);
     }
@@ -106,8 +148,8 @@ public class LayerTemplateStoreUpgradeTests
         var shipped = new LayerTemplateStore().GetDefaultTemplates().Single();
 
         var boundRoles = shipped.Entries
-            .Where(entry => entry.Role != null)
-            .Select(entry => entry.Role!)
+            .Where(entry => entry.Roles.Count > 0)
+            .SelectMany(entry => entry.Roles)
             .ToList();
 
         Assert.Equal(boundRoles.Count, boundRoles.Distinct(StringComparer.OrdinalIgnoreCase).Count());

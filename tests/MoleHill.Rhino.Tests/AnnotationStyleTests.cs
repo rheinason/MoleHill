@@ -124,7 +124,7 @@ public class AnnotationStyleTests
             Name = "Office",
             Entries = new List<LayerTemplateEntry>
             {
-                new() { Role = "annotation", Path = "Drawing", AnnotationStyleName = "Site Plan" }
+                new() { Roles = { "annotation" }, Path = "Drawing", AnnotationStyleName = "Site Plan" }
             }
         };
 
