@@ -102,6 +102,19 @@ internal sealed partial class TerrainBuildService
                     });
                     wallBrepOutputCount++;
                 }
+
+                AddRetainingWallRailOutput(
+                    build,
+                    snapshot,
+                    wall.Rails.ToePoints,
+                    wall.Rails.IsClosed,
+                    $"Wall {wall.CurveA}-{wall.CurveB} toe");
+                AddRetainingWallRailOutput(
+                    build,
+                    snapshot,
+                    wall.Rails.TopPoints,
+                    wall.Rails.IsClosed,
+                    $"Wall {wall.CurveA}-{wall.CurveB} top");
             }
             wallOutputTimer.Stop();
 
@@ -429,6 +442,36 @@ internal sealed partial class TerrainBuildService
         }
 
         return true;
+    }
+
+    private static void AddRetainingWallRailOutput(
+        TerrainBuildResult build,
+        TerrainBuildSnapshot snapshot,
+        Point3d[] points,
+        bool isClosed,
+        string name)
+    {
+        int minimum = isClosed ? 3 : 2;
+        if (points.Length < minimum)
+            return;
+
+        Point3d[] displayPoints = points;
+        if (isClosed && points[0] != points[^1])
+        {
+            displayPoints = new Point3d[points.Length + 1];
+            Array.Copy(points, displayPoints, points.Length);
+            displayPoints[^1] = points[0];
+        }
+
+        build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+        {
+            Role = LayerRole.Walls,
+            Geometry = new PolylineCurve(displayPoints),
+            Name = name,
+            Kind = GeneratedObjectKind.RetainingWall,
+            AppearanceSource = GeneratedAppearanceSource.Layer,
+            LayerPath = snapshot.LayerRoles.Path(LayerRole.Walls)
+        });
     }
 
     private static SurfaceRemesher.ConstraintPolyline[] BuildWallConstraintCurves(RetainingWallPlannerCore.WallRails rails, double tolerance)

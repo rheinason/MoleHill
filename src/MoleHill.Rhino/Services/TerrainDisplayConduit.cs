@@ -535,7 +535,15 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
     {
         if (generated.Geometry is Mesh mesh)
         {
-            DrawGeneratedMesh(e, doc, terrain, mesh, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+            DrawGeneratedMesh(
+                e,
+                doc,
+                terrain,
+                mesh,
+                generated.LayerPath,
+                generated.SourceLayerPath,
+                generated.ColorArgb,
+                drawWires: generated.Kind != GeneratedObjectKind.RetainingWall);
             return;
         }
 
@@ -559,7 +567,8 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
                     previewMesh,
                     generated.LayerPath,
                     generated.SourceLayerPath,
-                    generated.ColorArgb);
+                    generated.ColorArgb,
+                    drawWires: false);
             }
             return;
         }
@@ -636,19 +645,27 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         }
     }
 
-    private static void DrawGeneratedMesh(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, Mesh mesh, string? layerPath, string? sourceLayerPath, int? colorArgb)
+    private static void DrawGeneratedMesh(
+        DrawEventArgs e,
+        global::Rhino.RhinoDoc doc,
+        TerrainDefinition terrain,
+        Mesh mesh,
+        string? layerPath,
+        string? sourceLayerPath,
+        int? colorArgb,
+        bool drawWires = true)
     {
         if (mesh.VertexColors.Count == mesh.Vertices.Count && mesh.VertexColors.Count > 0)
         {
             e.Display.DrawMeshFalseColors(mesh);
-            if (terrain.ShowMeshWires)
+            if (terrain.ShowMeshWires && drawWires)
                 e.Display.DrawMeshWires(mesh, ResolveWireColor(doc, layerPath, sourceLayerPath, colorArgb));
             return;
         }
 
         var material = CreateDisplayMaterial(doc, terrain, layerPath, sourceLayerPath, colorArgb);
         e.Display.DrawMeshShaded(mesh, material);
-        if (terrain.ShowMeshWires)
+        if (terrain.ShowMeshWires && drawWires)
             e.Display.DrawMeshWires(mesh, ResolveWireColor(doc, layerPath, sourceLayerPath, colorArgb));
     }
 
