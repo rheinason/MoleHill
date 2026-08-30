@@ -12,4 +12,12 @@ public sealed class LayerTemplateDefinition
     public string Name { get; set; } = "Template";
 
     public List<LayerTemplateEntry> Entries { get; set; } = new();
+
+    /// <summary>A deep copy, entries included.</summary>
+    public LayerTemplateDefinition Copy() => new()
+    {
+        Version = Version,
+        Name = Name,
+        Entries = Entries.Select(entry => entry.Copy()).ToList()
+    };
 }

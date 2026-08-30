@@ -79,7 +79,11 @@ low-priority actions into overflow while remaining pinned to the available clien
 - `LayerTemplateEditorDialog.cs` - graphical layer-template editor: a `TreeGridView` of the layer
   hierarchy with display/print color swatches, plot-weight and a read-only Receives column, a properties
   panel for the selected layer including which output role it receives, multi-template management, and
-  JSON import/export. The role binding lives on the node, so it survives renaming or re-parenting a layer. `SlowBuildWarningDialog.cs` is the other
+  JSON import/export. The role binding lives on the node, so it survives renaming or re-parenting a layer.
+  Receives lists every role that *lands* on a layer, not the one bound to it — a role with no layer of
+  its own resolves into an ancestor's, so binding alone would have shown nothing where retaining walls
+  actually go. Roles whose layer the template does not list are offered as "Add N missing role layer(s)",
+  which adds a row at the path each already resolves to, so nothing moves. `SlowBuildWarningDialog.cs` is the other
   dialog.
 - `TerrainInputValidationDialog.cs` - short-lived, document-parented Eto dialog for selecting the
   cleanup operations and shared tolerance used by `mhValidateTerrainInputs`. Overkill removes both

@@ -46,7 +46,8 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         public int? PreviewWidthPx { get; set; }
 
         /// <summary>What the Role column shows: the role's display name, or nothing.</summary>
-        public string RoleText => LayerRoleRegistry.ForId(Role)?.DisplayName ?? string.Empty;
+        /// <summary>Set from the resolved role table on every refresh — see RefreshRoleMap.</summary>
+        public string RoleText { get; set; } = string.Empty;
 
         private Bitmap? _swatch;
         private int? _swatchArgb;
@@ -96,6 +97,8 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
     private readonly Label _pathLabel = new() { TextColor = UiTheme.MutedText };
     private readonly DropDown _rolePicker = new();
+    private readonly Button _addMissingButton = new() { Text = "All roles listed" };
+    private List<string> _missingRoleLayers = new();
     private readonly Label _roleHint = new() { TextColor = UiTheme.MutedText, Wrap = WrapMode.Word };
 
     /// <summary>Role ids in picker order, offset by one for the leading "(nothing)" row.</summary>
@@ -110,7 +113,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     private LayerTemplateEditorDialog(LayerTemplateStore store)
     {
         _store = store;
-        _templates = store.LoadTemplates().Select(Clone).ToList();
+        _templates = store.LoadTemplates().Select(template => template.Copy()).ToList();
         if (_templates.Count == 0)
             _templates.Add(new LayerTemplateDefinition { Name = "Template", Entries = { new LayerTemplateEntry { Path = "Layer" } } });
 
@@ -228,7 +231,12 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         });
 
         _tree.SelectedItemChanged += (_, _) => RefreshProperties();
-        _tree.CellEdited += (_, _) => RefreshProperties();
+        _tree.CellEdited += (_, _) =>
+        {
+            // Renaming a layer re-paths its whole subtree, so what lands where can change.
+            RefreshRoleMap();
+            RefreshProperties();
+        };
 
         return _tree;
     }
@@ -245,11 +253,13 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         _selectionDependent.Add(addSibling);
         _selectionDependent.Add(delete);
 
+        _addMissingButton.Click += (_, _) => OnAddMissingRoleLayers();
+
         return new StackLayout
         {
             Orientation = Orientation.Horizontal,
             Spacing = 6,
-            Items = { addChild, addSibling, delete }
+            Items = { addChild, addSibling, delete, new Panel { Width = 16 }, _addMissingButton }
         };
     }
 
@@ -306,7 +316,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             }
 
             node.Role = role;
-            _tree.ReloadData();
+            RefreshRoleMap();
             RefreshProperties();
         };
         _selectionDependent.Add(_rolePicker);
@@ -395,6 +405,66 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         _suppressTemplateChange = false;
     }
 
+    /// <summary>
+    /// Fills the Receives column with every role that actually lands on each layer, which is not the
+    /// same as the role bound to it: a role with no layer of its own resolves into an ancestor's, so
+    /// before this the layer receiving retaining walls showed nothing at all.
+    ///
+    /// Roles whose layer is not in the template at all are reported separately, since there is no row
+    /// to put them on.
+    /// </summary>
+    private void RefreshRoleMap()
+    {
+        var byPath = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var table = LayerRoleTable.Build(new LayerTemplateDefinition { Version = 1, Entries = FlattenRoot() });
+
+        foreach (var descriptor in LayerRoleRegistry.All)
+        {
+            string path = table.Path(descriptor.Role);
+            if (!byPath.TryGetValue(path, out var names))
+                byPath[path] = names = new List<string>();
+            names.Add(descriptor.DisplayName);
+        }
+
+        var missing = new List<string>(byPath.Keys);
+        foreach (LayerNode node in AllNodes())
+        {
+            string path = NodePath(node);
+            node.RoleText = byPath.TryGetValue(path, out var names) ? string.Join(", ", names) : string.Empty;
+            missing.Remove(path);
+        }
+
+        _missingRoleLayers = missing;
+        _addMissingButton.Enabled = missing.Count > 0;
+        _addMissingButton.ToolTip = missing.Count == 0
+            ? "Every role has a layer in this template."
+            : "These roles land on layers this template does not list, so MoleHill creates them on "
+                + "demand and you cannot style them here:" + Environment.NewLine + "  "
+                + string.Join(Environment.NewLine + "  ", missing);
+        _addMissingButton.Text = missing.Count == 0
+            ? "All roles listed"
+            : $"Add {missing.Count} missing role layer(s)";
+
+        _tree.ReloadData();
+    }
+
+    /// <summary>
+    /// Adds a row for each role whose layer the template does not list, at the path it already
+    /// resolves to — so nothing moves, it just becomes visible and stylable.
+    /// </summary>
+    private void OnAddMissingRoleLayers()
+    {
+        if (_missingRoleLayers.Count == 0)
+            return;
+
+        var entries = FlattenRoot();
+        foreach (string path in _missingRoleLayers)
+            entries.Add(new LayerTemplateEntry { Path = path });
+
+        _templates[_activeIndex].Entries = entries;
+        LoadTemplate(_activeIndex);
+    }
+
     private void LoadTemplate(int index)
     {
         _activeIndex = Math.Clamp(index, 0, _templates.Count - 1);
@@ -404,6 +474,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
         _rootItems = BuildTree(_templates[_activeIndex]);
         _tree.DataStore = _rootItems;
+        RefreshRoleMap();
         SelectFirst();
         RefreshProperties();
     }
@@ -804,7 +875,7 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             return;
 
         _templates.Clear();
-        _templates.AddRange(_store.GetDefaultTemplates().Select(Clone));
+        _templates.AddRange(_store.GetDefaultTemplates().Select(template => template.Copy()));
         _activeIndex = 0;
         RebuildTemplatePicker();
         LoadTemplate(0);
@@ -858,18 +929,6 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         string? result = dialog.ShowModal(this);
         return string.IsNullOrWhiteSpace(result) ? null : result.Trim();
     }
-
-    private static LayerTemplateDefinition Clone(LayerTemplateDefinition source) => new()
-    {
-        Name = source.Name,
-        Entries = source.Entries.Select(e => new LayerTemplateEntry
-        {
-            Path = e.Path,
-            ColorArgb = e.ColorArgb,
-            PrintColorArgb = e.PrintColorArgb,
-            PlotWeight = e.PlotWeight
-        }).ToList()
-    };
 
     private static Color ToEto(int argb)
     {

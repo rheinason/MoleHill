@@ -73,7 +73,7 @@ public class GeneratedObjectRoutingTests
             Assert.False(string.IsNullOrWhiteSpace(table.Path(role)));
 
         Assert.Equal("Drawing::Site::Sections::CutFill::Cut", table.Path(LayerRole.SectionsCutFillCut));
-        Assert.Equal("Model::Structures", table.Path(LayerRole.Walls));
+        Assert.Equal("Model::Structures::Walls", table.Path(LayerRole.Walls));
     }
 
     /// <summary>

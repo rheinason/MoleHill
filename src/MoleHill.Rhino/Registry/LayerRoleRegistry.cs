@@ -63,11 +63,15 @@ internal static class LayerRoleRegistry
             ColorFromObject: true),
 
         // ── Auxiliary family ─────────────────────────────────────────────────
-        new(LayerRole.Walls, "walls", "Retaining Walls", LayerRole.Auxiliary, "",
+        // Walls and grading output each get their own sublayer rather than sharing the bare
+        // Auxiliary layer, so either can be hidden, locked or restyled without the other. They used
+        // to land directly on Auxiliary, which left no way to tell wall Breps from stair geometry in
+        // the Layers pane.
+        new(LayerRole.Walls, "walls", "Retaining Walls", LayerRole.Auxiliary, "::Walls",
             null,
             new LayerAppearanceDefaults(), LayerRoleFacets.Mesh),
 
-        new(LayerRole.GradingAuxiliary, "grading-aux", "Grading Auxiliary", LayerRole.Auxiliary, "",
+        new(LayerRole.GradingAuxiliary, "grading-aux", "Grading Auxiliary", LayerRole.Auxiliary, "::Grading",
             null,
             new LayerAppearanceDefaults(), LayerRoleFacets.Line | LayerRoleFacets.Mesh),
 

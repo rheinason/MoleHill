@@ -57,4 +57,25 @@ public sealed class LayerTemplateEntry
     /// layer already looks.
     /// </summary>
     public int? PreviewWidthPx { get; set; }
+
+    /// <summary>
+    /// A deep copy. Lives here rather than at the call site so that adding a field has one obvious
+    /// place to carry it — the editor used to clone entries by hand and silently dropped the role
+    /// binding, which made every layer look unbound and would have erased the bindings on save.
+    /// <c>LayerTemplateCopyTests</c> fails if a property is ever added without being copied.
+    /// </summary>
+    public LayerTemplateEntry Copy() => new()
+    {
+        Path = Path,
+        Role = Role,
+        ColorArgb = ColorArgb,
+        PrintColorArgb = PrintColorArgb,
+        PlotWeight = PlotWeight,
+        LinetypeName = LinetypeName,
+        AnnotationStyleName = AnnotationStyleName,
+        HatchPatternName = HatchPatternName,
+        HatchScale = HatchScale,
+        HatchRotationDegrees = HatchRotationDegrees,
+        PreviewWidthPx = PreviewWidthPx
+    };
 }
