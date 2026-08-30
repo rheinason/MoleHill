@@ -20,7 +20,7 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
     public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
     {
         ParameterDescriptor.Sources(
-            "Paths", "Paths",
+            "Paths", "Centerlines",
             m => ((GradePathModifierDefinition)m).Paths,
             RhinoObjectType.Curve,
             "Path curves accept Rhino object picks and layers. Curve Z defines the finished road elevation profile."),
@@ -29,6 +29,17 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
             m => ((GradePathModifierDefinition)m).Width,
             (m, v) => ((GradePathModifierDefinition)m).Width = v,
             "Finished path width. This is the flat or controlled-width core before side grading starts."),
+        ParameterDescriptor.Bool(
+            "UseVariableWidth", "Variable Width",
+            m => ((GradePathModifierDefinition)m).UseVariableWidth,
+            (m, v) => ((GradePathModifierDefinition)m).UseVariableWidth = v,
+            "Off: the corridor keeps the constant Width above. On: nearby plan curves take over each side, and Width becomes the fallback where no edge is matched."),
+        ParameterDescriptor.Sources(
+            "WidthEdges", "Width Edges",
+            m => ((GradePathModifierDefinition)m).WidthEdges,
+            RhinoObjectType.Curve,
+            "Roughly parallel plan curves. Each curve is matched uniquely to a centerline side; its Z is ignored and remapped from the centerline.",
+            visibleWhen: static m => ((GradePathModifierDefinition)m).UseVariableWidth),
         ParameterDescriptor.Number(
             "SlopeAngle", "Fill Slope",
             m => ((GradePathModifierDefinition)m).SlopeAngle,
@@ -45,5 +56,11 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
             m => ((GradePathModifierDefinition)m).MaxDistance,
             (m, v) => ((GradePathModifierDefinition)m).MaxDistance = v,
             "Maximum grading reach away from the path. 0 means unlimited; lower values constrain the shoulder length."),
+        ParameterDescriptor.Number(
+            "MaxEdgeDistance", "Max Edge Distance",
+            m => ((GradePathModifierDefinition)m).MaxEdgeDistance,
+            (m, v) => ((GradePathModifierDefinition)m).MaxEdgeDistance = v,
+            "Maximum centerline-to-edge matching distance. 0 automatically uses four times Width.",
+            visibleWhen: static m => ((GradePathModifierDefinition)m).UseVariableWidth),
     };
 }

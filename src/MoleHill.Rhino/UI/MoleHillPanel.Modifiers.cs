@@ -49,7 +49,7 @@ public sealed partial class MoleHillPanel
 
         var iconImage = PanelIcons.Load(GetModifierIconName(kind));
         Control iconControl = iconImage != null
-            ? new ImageView { Image = iconImage, Size = new Size(16, 16) }
+            ? new ImageView { Image = iconImage, Size = new Size(UiMetrics.IconSize, UiMetrics.IconSize) }
             : new Label { Text = typeLabel[..1], VerticalAlignment = VerticalAlignment.Center };
         var accent = ModifierTypeColor(kind);
         var iconPlate = CreateIconPlate(accent, iconControl);
@@ -114,11 +114,14 @@ public sealed partial class MoleHillPanel
 
     private Control CreateModifierBody(TerrainDefinition terrain, ModifierDefinition modifier)
     {
-        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
+        var layout = UiLayouts.CardBody();
 
         var meshQualityWarning = CreateModifierMeshQualityWarning(terrain, modifier);
         if (meshQualityWarning != null)
             layout.AddRow(meshQualityWarning);
+
+        if (modifier is GradePathModifierDefinition gradePath)
+            layout.AddRow(CreateGradePathGeometryGroup(terrain, gradePath));
 
         if (TryBuildSchemaModifierBody(layout, terrain, modifier))
             AppendBespokeModifierRows(layout, terrain, modifier);
@@ -168,6 +171,7 @@ public sealed partial class MoleHillPanel
         switch (modifier)
         {
             case TriangulateModifierDefinition triangulate:
+                layout.AddRow(CreateDemSurfaceRow(terrain, triangulate));
                 layout.AddRow(CreateWorkAreaRow(terrain.TerrainId, modifier.Id));
                 Control? contourModeRow = BuildBespokePositionedModifierRow(terrain, modifier, "ContourMode");
                 if (contourModeRow != null)
@@ -180,7 +184,106 @@ public sealed partial class MoleHillPanel
             case SculptModifierDefinition:
                 layout.AddRow(CreateSculptSessionRow(terrain.TerrainId, modifier.Id));
                 break;
+            case GradePathModifierDefinition gradePath:
+            {
+                Control? advanced = CreateGradePathAdvancedGroup(terrain, gradePath);
+                if (advanced != null)
+                    layout.AddRow(advanced);
+                break;
+            }
         }
+    }
+
+    private Control CreateDemSurfaceRow(TerrainDefinition terrain, TriangulateModifierDefinition modifier)
+    {
+        Control? sourceEditor = BuildBespokePositionedModifierRow(terrain, modifier, "DemSurface");
+        string buttonText = modifier.DemSurface.HasReferences ? "Replace GeoTIFF..." : "Import GeoTIFF...";
+        var importButton = MakeInlineButton(
+            buttonText,
+            (_, _) =>
+            {
+                var doc = RhinoDoc.ActiveDoc;
+                if (doc == null)
+                    return;
+
+                if (DocumentCommandService.RunImportGeoTiffSurface(doc, terrain.TerrainId, modifier.Id) == global::Rhino.Commands.Result.Success)
+                    RebuildModifierLayout(_controller.GetSelectedTerrain(doc));
+            },
+            "Create a georeferenced Rhino surface textured with a numeric single-band GeoTIFF and assign it as the DEM source.");
+
+        var layout = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceSmall) };
+        if (sourceEditor != null)
+            layout.AddRow(sourceEditor);
+        layout.AddRow(new PropertyRow(
+            CreateHelpLabel("GeoTIFF", "Import a textured surface, then move that surface to align geographic and project coordinates.", 0),
+            importButton,
+            expandWidget: true));
+        return layout;
+    }
+
+    private Control CreateGradePathGeometryGroup(TerrainDefinition terrain, GradePathModifierDefinition modifier)
+    {
+        var content = new DynamicLayout
+        {
+            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
+            Padding = new Padding(0)
+        };
+        // Constant-width first, then the opt-in toggle, then the rows it unlocks — so the card reads
+        // "a path has a Width; variable width is something you switch on", not "fill in these curves".
+        foreach (string key in new[] { "Paths", "Width", "UseVariableWidth", "WidthEdges" })
+        {
+            Control? row = BuildBespokePositionedModifierRow(terrain, modifier, key);
+            if (row != null)
+                content.AddRow(row);
+        }
+        // No box and no "Geometry" caption: these four rows are the first thing on a Grade Path card, so
+        // the frame was drawing a border around "the inputs" and naming them after their data type. The
+        // rows already say Centerlines / Width / Variable Width.
+        return content;
+    }
+
+    /// <summary>Variable-width matching tuning. Returns null when the modifier is a plain
+    /// constant-width path, so the card carries no trace of the optional feature.</summary>
+    private Control? CreateGradePathAdvancedGroup(TerrainDefinition terrain, GradePathModifierDefinition modifier)
+    {
+        Control? row = BuildBespokePositionedModifierRow(terrain, modifier, "MaxEdgeDistance");
+        if (row == null)
+            return null;
+
+        bool expanded = _expandedGradePathAdvancedSettings.Contains(modifier.Id);
+        var content = new DynamicLayout
+        {
+            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
+            Padding = new Padding(UiMetrics.CardHorizontalPadding, UiMetrics.SpaceMedium),
+            Visible = expanded
+        };
+        content.AddRow(row);
+
+        var header = new SectionHeader(
+            "Variable Width Matching",
+            null,
+            expanded,
+            next =>
+            {
+                if (next)
+                    _expandedGradePathAdvancedSettings.Add(modifier.Id);
+                else
+                    _expandedGradePathAdvancedSettings.Remove(modifier.Id);
+                content.Visible = next;
+            });
+
+        var outer = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 0,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(header, HorizontalAlignment.Stretch),
+                new StackLayoutItem(content, HorizontalAlignment.Stretch)
+            }
+        };
+        return outer;
     }
 
     private Control CreateSculptSessionRow(Guid terrainId, Guid modifierId)
@@ -255,18 +358,16 @@ public sealed partial class MoleHillPanel
                 _controller.ClearModifierBoundary(doc, terrainId, modifierId);
         }, "Clear the work area and rebuild the full terrain.");
 
-        return new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Items =
-            {
-                new Label { Text = "Work area", VerticalAlignment = VerticalAlignment.Center },
-                rectangleButton,
-                clearButton
-            }
-        };
+        // A PropertyRow like every other row on the card. As a bare StackLayout its label sat outside the
+        // label column and its buttons outside the widget column, so the one row that looked hand-placed
+        // was the one that was.
+        return new PropertyRow(
+            CreateHelpLabel(
+                "Work Area",
+                "Limit terrain computation to a rectangle, to work fast on part of a large terrain.",
+                0),
+            new AdaptiveColumns(UiMetrics.SpaceSmall, UiMetrics.Chs(8), rectangleButton, clearButton),
+            expandWidget: true);
     }
 
     private Control CreateBoundaryPeelSettingsGroup(
@@ -317,10 +418,16 @@ public sealed partial class MoleHillPanel
             minValue: 0,
             maxValue: 90));
 
-        return new GroupBox
+        return new StackLayout
         {
-            Text = "Peel Border",
-            Content = settings
+            Orientation = Orientation.Vertical,
+            Spacing = 0,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(CreateSectionRule("Peel Border"), HorizontalAlignment.Stretch),
+                new StackLayoutItem(settings, HorizontalAlignment.Stretch)
+            }
         };
     }
 

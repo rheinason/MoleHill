@@ -4,6 +4,15 @@ public sealed class GradePathModifierDefinition : ModifierDefinition
 {
     public SourceReferenceSet Paths { get; set; } = new();
 
+    /// <summary>Opt-in switch for variable width. When false the modifier is a plain constant-width
+    /// corridor and <see cref="WidthEdges"/> / <see cref="MaxEdgeDistance"/> are ignored entirely.</summary>
+    public bool UseVariableWidth { get; set; }
+
+    /// <summary>Optional plan-only curves that control either side of nearby centerlines. Their Z
+    /// coordinates are ignored; centerline elevations author the finished path. Only read when
+    /// <see cref="UseVariableWidth"/> is true.</summary>
+    public SourceReferenceSet WidthEdges { get; set; } = new();
+
     public double Width { get; set; } = 2.0;
 
     /// <summary>Main (fill) batter slope in degrees, used where terrain sits below the road. The cut
@@ -15,6 +24,9 @@ public sealed class GradePathModifierDefinition : ModifierDefinition
 
     public double MaxDistance { get; set; }
 
+    /// <summary>Maximum plan distance used to match width edges. Zero uses four times Width.</summary>
+    public double MaxEdgeDistance { get; set; }
+
     public GradePathModifierDefinition()
     {
         Label = "Grade Path";
@@ -23,5 +35,8 @@ public sealed class GradePathModifierDefinition : ModifierDefinition
     public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {
         yield return Paths;
+        // Always enumerated, even with UseVariableWidth off, so stale-object cleanup and layer
+        // rename tracking keep the parked references honest. The build stage does the gating.
+        yield return WidthEdges;
     }
 }

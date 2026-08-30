@@ -37,16 +37,18 @@ public static partial class PathGrader
         if (closest.Distance > preparedPath.MaxInfluence + 1e-6)
             return false;
 
-        if (closest.Distance <= preparedPath.HalfWidth + 1e-6)
+        double edgeDistance = GetLocalEdgeDistance(preparedPath.SamplePath, closest, preparedPath.HalfWidth, out double edgeX, out double edgeY);
+        if (closest.Distance <= edgeDistance + 1e-6)
         {
             insideRoad = true;
             candidateZ = closest.PathZ;
-            weight = ComputeRoadBlendWeight(preparedPath.HalfWidth, closest.Distance);
+            weight = ComputeRoadBlendWeight(edgeDistance, closest.Distance);
             return true;
         }
 
-        double distFromEdge = closest.Distance - preparedPath.HalfWidth;
-        if (IsBlockedByBarrier(preparedBarriers, preparedPath.HalfWidth, closest, px, py, barrierScratch, barrierCandidates))
+        double distFromEdge = closest.Distance - edgeDistance;
+        if (preparedBarriers.Segments.Length > 0 &&
+            GradingBarriers.IsCrossedByBarrier(preparedBarriers, edgeX, edgeY, px, py, barrierScratch, barrierCandidates))
             return false;
 
         double dzActual = originalZ - closest.PathZ;
@@ -88,6 +90,31 @@ public static partial class PathGrader
 
         weight = ComputeShoulderBlendWeight(distFromEdge, neededDist);
         return weight > 1e-12;
+    }
+
+    private static double GetLocalEdgeDistance(
+        ConstraintPath path,
+        ClosestPathLocation closest,
+        double fallbackHalfWidth,
+        out double edgeX,
+        out double edgeY)
+    {
+        double[]? edge = closest.SideSign >= 0.0 ? path.LeftEdgeXy : path.RightEdgeXy;
+        if (edge is null || closest.SegmentIndex < 0 || closest.SegmentIndex >= path.VertexCount - 1)
+        {
+            double side = closest.SideSign >= 0.0 ? 1.0 : -1.0;
+            edgeX = closest.ProjectedX + (-closest.DirectionY * fallbackHalfWidth * side);
+            edgeY = closest.ProjectedY + (closest.DirectionX * fallbackHalfWidth * side);
+            return fallbackHalfWidth;
+        }
+
+        int a = closest.SegmentIndex * 2;
+        int b = (closest.SegmentIndex + 1) * 2;
+        edgeX = edge[a] + ((edge[b] - edge[a]) * closest.SegmentT);
+        edgeY = edge[a + 1] + ((edge[b + 1] - edge[a + 1]) * closest.SegmentT);
+        double dx = edgeX - closest.ProjectedX;
+        double dy = edgeY - closest.ProjectedY;
+        return Math.Sqrt((dx * dx) + (dy * dy));
     }
 
     private static double ComputeRoadBlendWeight(double halfWidth, double closestDist)

@@ -4,11 +4,15 @@ public static partial class PathGrader
 {
     private static double ComputeConstraintSegmentLength(PathDefinition path, double shoulderDistance)
     {
-        double pathScale = Math.Max(Math.Abs(path.Width), Math.Abs(shoulderDistance));
+        // Width controls longitudinal sampling density. A variable rail may sit far from the
+        // centerline, but that transverse reach must never make station spacing coarser: doing so
+        // removes the ruled batter rows and can collapse a rounded end into nested collinear caps.
+        double designWidth = Math.Abs(path.Width);
+        double pathScale = Math.Max(Math.Abs(designWidth), Math.Abs(shoulderDistance));
         double floor = MoleHill.Core.Engine.ScaleAwareTolerance.LengthFloor(pathScale);
-        double baseSpacing = shoulderDistance > floor ? shoulderDistance * 0.5 : path.Width;
-        double minSpacing = Math.Max(path.Width * 0.5, floor);
-        double maxSpacing = Math.Max(minSpacing, path.Width * 2.0);
+        double baseSpacing = shoulderDistance > floor ? shoulderDistance * 0.5 : designWidth;
+        double minSpacing = Math.Max(Math.Min(path.Width, designWidth) * 0.5, floor);
+        double maxSpacing = Math.Max(minSpacing, designWidth * 2.0);
         return Math.Clamp(baseSpacing, minSpacing, maxSpacing);
     }
 
@@ -22,11 +26,20 @@ public static partial class PathGrader
             double[] xyOut = (double[])path.XyVertices.Clone();
             int n = path.VertexCount;
             ComputeSmoothedTangents(xyOut, n, out double[] tx, out double[] ty);
-            return new ConstraintPath(xyOut, (double[])path.ZValues.Clone(), n, tx, ty);
+            return new ConstraintPath(
+                xyOut,
+                (double[])path.ZValues.Clone(),
+                n,
+                tx,
+                ty,
+                path.LeftEdgeXy is null ? null : (double[])path.LeftEdgeXy.Clone(),
+                path.RightEdgeXy is null ? null : (double[])path.RightEdgeXy.Clone());
         }
 
         var xy = new List<double>(path.VertexCount * 4);
         var z = new List<double>(path.VertexCount * 2);
+        List<double>? left = path.HasVariableWidth ? new List<double>(path.VertexCount * 4) : null;
+        List<double>? right = path.HasVariableWidth ? new List<double>(path.VertexCount * 4) : null;
         for (int segmentIndex = 0; segmentIndex < path.VertexCount - 1; segmentIndex++)
         {
             double ax = path.XyVertices[segmentIndex * 2];
@@ -42,10 +55,17 @@ public static partial class PathGrader
             for (int step = 0; step < divisions; step++)
             {
                 double t = (double)step / divisions;
+                int previousCount = z.Count;
                 AddConstraintSample(xy, z, ax + (bx - ax) * t, ay + (by - ay) * t, az + ((bz - az) * t), dedupTol);
+                if (z.Count != previousCount)
+                {
+                    AddAlignedEdgeSample(path.LeftEdgeXy, segmentIndex, t, left);
+                    AddAlignedEdgeSample(path.RightEdgeXy, segmentIndex, t, right);
+                }
             }
         }
 
+        int beforeLast = z.Count;
         AddConstraintSample(
             xy,
             z,
@@ -53,11 +73,52 @@ public static partial class PathGrader
             path.XyVertices[(path.VertexCount - 1) * 2 + 1],
             path.ZValues[path.VertexCount - 1],
             dedupTol);
+        if (z.Count != beforeLast)
+        {
+            AddAlignedEdgeSample(path.LeftEdgeXy, path.VertexCount - 2, 1.0, left);
+            AddAlignedEdgeSample(path.RightEdgeXy, path.VertexCount - 2, 1.0, right);
+        }
 
         double[] xyArr = xy.ToArray();
         int count = xy.Count / 2;
         ComputeSmoothedTangents(xyArr, count, out double[] tangentX, out double[] tangentY);
-        return new ConstraintPath(xyArr, z.ToArray(), count, tangentX, tangentY);
+        return new ConstraintPath(xyArr, z.ToArray(), count, tangentX, tangentY, left?.ToArray(), right?.ToArray());
+    }
+
+    private static void AddAlignedEdgeSample(
+        double[]? edge,
+        int segmentIndex,
+        double t,
+        List<double>? destination)
+    {
+        if (edge is null || destination is null)
+            return;
+
+        int a = segmentIndex * 2;
+        int b = (segmentIndex + 1) * 2;
+        destination.Add(edge[a] + ((edge[b] - edge[a]) * t));
+        destination.Add(edge[a + 1] + ((edge[b + 1] - edge[a + 1]) * t));
+    }
+
+    private static void GetPathEdgePoint(
+        PathDefinition path,
+        int index,
+        bool left,
+        out double x,
+        out double y)
+    {
+        double[]? edge = left ? path.LeftEdgeXy : path.RightEdgeXy;
+        if (edge is not null)
+        {
+            x = edge[index * 2];
+            y = edge[(index * 2) + 1];
+            return;
+        }
+
+        ComputeDirection(path.XyVertices, path.VertexCount, index, out double dx, out double dy);
+        double offset = path.Width * 0.5 * (left ? 1.0 : -1.0);
+        x = path.XyVertices[index * 2] + (-dy * offset);
+        y = path.XyVertices[(index * 2) + 1] + (dx * offset);
     }
 
     private static ConstraintPath ResampleConstraintPath(ConstraintPath path, double maxSegmentLength, double dedupTol)

@@ -39,6 +39,8 @@ public sealed class GradePathComponent : RegistryTerrainComponent
             GhPort.Number("Slope Angle", "S", "Cut slope angle in degrees per path (terrain above the road). Shorter lists repeat last value.", access: GH_ParamAccess.list),
             GhPort.Number("Max Distance", "D", "Max horizontal transition distance per path. 0 = auto. Shorter lists repeat last value.", access: GH_ParamAccess.list),
             GhPort.Number("Fill Slope", "Sf", "Fill slope angle in degrees per path (terrain below the road). 0 = same as cut slope. Shorter lists repeat last value.", access: GH_ParamAccess.list),
+            GhPort.Curve("Width Edges", "E", "Optional plan curves matched uniquely to centerline sides. Edge Z is ignored.", access: GH_ParamAccess.list),
+            GhPort.Number("Max Edge Distance", "Ed", "Maximum edge matching distance. 0 = four times fallback Width.", optional: true),
         },
         Outputs = new[]
         {
@@ -130,7 +132,15 @@ public sealed class GradePathComponent : RegistryTerrainComponent
                 continue;
             }
 
-            pathDefs.Add(new PathGrader.PathDefinition(pathXy, pathZ, pl.Count, w, slope, dist, fillSlope));
+            pathDefs.Add(new PathGrader.PathDefinition(
+                pathXy,
+                pathZ,
+                pl.Count,
+                w,
+                slope,
+                dist,
+                fillSlope,
+                isClosed: crv.IsClosed));
             pathIdx++;
         }
 
@@ -140,10 +150,50 @@ public sealed class GradePathComponent : RegistryTerrainComponent
             return;
         }
 
+        var edgeDefs = new List<VariablePathWidthResolver.EdgeDefinition>();
+        var edgeCurves = ctx.GetCurves(6);
+        for (int edgeIndex = 0; edgeIndex < edgeCurves.Count; edgeIndex++)
+        {
+            Curve? edgeCurve = edgeCurves[edgeIndex];
+            if (edgeCurve == null)
+                continue;
+            if (!TryToPlanPolyline(edgeCurve, tolerance, out Polyline edgePolyline))
+            {
+                ctx.Warn($"Could not tessellate width edge {edgeIndex}. Skipping.");
+                continue;
+            }
+
+            var edgeXy = new double[edgePolyline.Count * 2];
+            for (int i = 0; i < edgePolyline.Count; i++)
+            {
+                edgeXy[i * 2] = edgePolyline[i].X;
+                edgeXy[(i * 2) + 1] = edgePolyline[i].Y;
+            }
+            edgeDefs.Add(new VariablePathWidthResolver.EdgeDefinition(edgeXy, edgePolyline.Count, edgeCurve.IsClosed, edgeIndex));
+        }
+
+        double maxEdgeDistance = ctx.GetNumbers(7).FirstOrDefault();
+        VariablePathWidthResolver.Result widthResult = VariablePathWidthResolver.Resolve(
+            pathDefs,
+            edgeDefs,
+            new VariablePathWidthResolver.Options
+            {
+                MaxEdgeDistance = maxEdgeDistance,
+                Tolerance = tolerance
+            });
+        foreach (VariablePathWidthResolver.Diagnostic diagnostic in widthResult.Diagnostics)
+        {
+            // A clean match is confirmation, not a problem — only unmatched/ambiguous/partial edges warn.
+            if (diagnostic.Code == "grade_path.variable_edge.matched")
+                ctx.Remark(diagnostic.Message);
+            else
+                ctx.Warn(diagnostic.Message);
+        }
+
         var result = PathGrader.Grade(
             vertices, vertexCount,
             faces, faceCount,
-            pathDefs.ToArray(),
+            widthResult.Paths,
             out string? errorMessage);
 
         if (result == null)
@@ -159,5 +209,13 @@ public sealed class GradePathComponent : RegistryTerrainComponent
         ctx.SetData(1, result.CutVolume);
         ctx.SetData(2, result.FillVolume);
         ctx.SetData(3, result.NetVolume);
+    }
+
+    private static bool TryToPlanPolyline(Curve curve, double tolerance, out Polyline polyline)
+    {
+        if (curve.TryGetPolyline(out polyline) && polyline.Count >= 2)
+            return true;
+        PolylineCurve? polylineCurve = curve.ToPolyline(tolerance, Math.PI / 36.0, 0.0, 0.0);
+        return polylineCurve != null && polylineCurve.TryGetPolyline(out polyline) && polyline.Count >= 2;
     }
 }

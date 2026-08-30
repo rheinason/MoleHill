@@ -48,7 +48,7 @@ public static partial class PathGrader
         for (int pathIndex = 0; pathIndex < paths.Length; pathIndex++)
         {
             PathDefinition path = paths[pathIndex];
-            double halfWidth = path.Width * 0.5;
+            double halfWidth = path.MaximumHalfWidth();
             double slopeRatio = Math.Tan(path.SlopeAngleDeg * Math.PI / 180.0);
             double fillSlopeRatio = Math.Tan(path.FillSlopeAngleDeg * Math.PI / 180.0);
             double shoulderDistance = ComputePathShoulderDistance(outXy, origZ, vertCount, path, preparedBarriers, setupScratch, setupCandidates);

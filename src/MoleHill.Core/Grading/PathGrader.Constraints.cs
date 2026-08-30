@@ -216,7 +216,7 @@ public static partial class PathGrader
         for (int pathIndex = 0; pathIndex < paths.Length; pathIndex++)
         {
             PathDefinition path = paths[pathIndex];
-            double halfWidth = path.Width * 0.5;
+            double halfWidth = path.MaximumHalfWidth();
             BuildPathSections(
                 path,
                 ComputePathSectionSearchDistance(path, faceGrid.InterpolateZ),

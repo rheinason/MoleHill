@@ -14,6 +14,15 @@ If all three tiers defer, `PadGrader.Grade` fails cleanly with a structured diag
 emitting a non-watertight result.
 
 ## Tier cascade (Path - `PathGrader.Grade`, takes the first result)
+Optional plan edges are resolved by `VariablePathWidthResolver` before this cascade — only when the
+caller opts in (the Rhino modifier's `UseVariableWidth`; in Grasshopper, by wiring Width Edges). It uniquely
+matches edges to centerline sides using closure, distance, ordered station, side, and ambiguity checks;
+valid partial runs blend into the constant fallback width. Edge Z is ignored. The resolver emits aligned
+center/left/right rows carrying centerline-authored elevation, and every tier below consumes those same
+rails for the path top, constraints, and daylight starts. Longitudinal station spacing remains controlled
+by the configured Width rather than the widest transverse rail reach, preserving explicit ruled-batter
+density when variable edges flare outward.
+
 1. **explicit corridor** - `PathGrader.Explicit.cs` (ruled road surface + side batters welded into
    terrain via carve/fill; exact slopes, crispest). Hole fills are seeded with batter rows AND
    per-station rows against the actual conformed boundary (density-guarded) so barrier-clipped or

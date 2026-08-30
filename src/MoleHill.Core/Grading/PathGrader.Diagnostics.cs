@@ -89,15 +89,15 @@ public static partial class PathGrader
         double maxY = double.MinValue;
         for (int i = 0; i < path.VertexCount; i++)
         {
-            double x = path.XyVertices[i * 2];
-            double y = path.XyVertices[i * 2 + 1];
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
+            Include(path.XyVertices[i * 2], path.XyVertices[i * 2 + 1]);
+            if (path.HasVariableWidth)
+            {
+                Include(path.LeftEdgeXy![i * 2], path.LeftEdgeXy[(i * 2) + 1]);
+                Include(path.RightEdgeXy![i * 2], path.RightEdgeXy[(i * 2) + 1]);
+            }
         }
 
-        double halfWidth = path.Width * 0.5;
+        double halfWidth = path.MaximumHalfWidth();
         double shoulderAllowance = path.MaxDistance > 0.0
             ? path.MaxDistance
             : Math.Max(path.Width * 2.0, halfWidth);
@@ -109,6 +109,14 @@ public static partial class PathGrader
             maxX + expansion, maxY + expansion,
             minX - expansion, maxY + expansion
         };
+
+        void Include(double x, double y)
+        {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
     }
 
     private static GradingPatch BuildPathPatchSummary(double[] ownedRegionLoopXy, double[] stitchLoopXy, PathDefinition path, int pathIndex)

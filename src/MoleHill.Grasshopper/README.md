@@ -32,6 +32,13 @@ The default Revit flow is `Partition Terrain -> standard GH editing/transforms -
 one independent Toposolid per branch. Optional Rhino.Inside.Revit Python adapters are kept outside the GHA
 under `examples/RhinoInside.Revit/`; subdivisions are a separate opt-in host-following workflow.
 
+The `Grade Path` component appends optional **Width Edges** and **Max Edge Distance** inputs after its
+legacy ports. Leaving Width Edges empty is the constant-width path (there is no separate toggle port —
+the empty input is the off state; the Rhino panel modifier uses an explicit `UseVariableWidth` checkbox
+instead). When edges are wired they are matched globally and uniquely to centerline sides in plan, their
+Z is ignored, and uncovered portions blend back to the constant Width input. A clean match reports as a
+Remark; only unmatched, ambiguous, or partial edges raise Warnings.
+
 ## Tests
 
 `tests/MoleHill.Grasshopper.Tests` links the component, type, utility, and registry sources directly.

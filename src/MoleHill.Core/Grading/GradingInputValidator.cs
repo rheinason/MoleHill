@@ -280,6 +280,34 @@ internal static class GradingInputValidator
                 return false;
             }
 
+            bool hasLeft = path.LeftEdgeXy is { Length: > 0 };
+            bool hasRight = path.RightEdgeXy is { Length: > 0 };
+            if (hasLeft != hasRight)
+            {
+                errorMessage = "Variable-width paths must define both aligned edge rails.";
+                return false;
+            }
+
+            if (hasLeft)
+            {
+                int requiredEdgeValues = checked(path.VertexCount * 2);
+                if (!ValidateFiniteValues(
+                        path.LeftEdgeXy!,
+                        requiredEdgeValues,
+                        "Variable-width left edge is shorter than VertexCount requires.",
+                        "Variable-width left edge must contain only finite values.",
+                        out errorMessage) ||
+                    !ValidateFiniteValues(
+                        path.RightEdgeXy!,
+                        requiredEdgeValues,
+                        "Variable-width right edge is shorter than VertexCount requires.",
+                        "Variable-width right edge must contain only finite values.",
+                        out errorMessage))
+                {
+                    return false;
+                }
+            }
+
             if (!double.IsFinite(path.SlopeAngleDeg) ||
                 !double.IsFinite(path.MaxDistance) ||
                 path.MaxDistance < 0.0)

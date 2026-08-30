@@ -34,7 +34,7 @@ public static partial class PathGrader
 
         foreach (PathDefinition path in paths)
         {
-            double halfWidth = path.Width * 0.5;
+            double halfWidth = path.MaximumHalfWidth();
             int n = path.VertexCount;
             for (int i = 0; i < n - 1; i++)
             {
@@ -45,13 +45,14 @@ public static partial class PathGrader
                 double cy0 = path.XyVertices[(i * 2) + 1];
                 double cx1 = path.XyVertices[(i + 1) * 2];
                 double cy1 = path.XyVertices[((i + 1) * 2) + 1];
-                ComputeDirection(path.XyVertices, n, i, out double dx, out double dy);
-                double px = -dy * halfWidth;
-                double py = dx * halfWidth;
+                GetPathEdgePoint(path, i, left: true, out double lx0, out double ly0);
+                GetPathEdgePoint(path, i + 1, left: true, out double lx1, out double ly1);
+                GetPathEdgePoint(path, i, left: false, out double rx0, out double ry0);
+                GetPathEdgePoint(path, i + 1, left: false, out double rx1, out double ry1);
 
                 if (GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, cx0, cy0, cx1, cy1, startTol, endTol, scratch, candidates) ||
-                    GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, cx0 + px, cy0 + py, cx1 + px, cy1 + py, startTol, endTol, scratch, candidates) ||
-                    GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, cx0 - px, cy0 - py, cx1 - px, cy1 - py, startTol, endTol, scratch, candidates))
+                    GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, lx0, ly0, lx1, ly1, startTol, endTol, scratch, candidates) ||
+                    GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, rx0, ry0, rx1, ry1, startTol, endTol, scratch, candidates))
                 {
                     return true;
                 }
@@ -257,11 +258,11 @@ public static partial class PathGrader
                 double nx = -center.TangentY[i];
                 double ny = center.TangentX[i];
 
-                leftXyz[i * 3] = cx + (nx * halfWidth);
-                leftXyz[i * 3 + 1] = cy + (ny * halfWidth);
+                leftXyz[i * 3] = center.LeftEdgeXy?[i * 2] ?? cx + (nx * halfWidth);
+                leftXyz[i * 3 + 1] = center.LeftEdgeXy?[(i * 2) + 1] ?? cy + (ny * halfWidth);
                 leftXyz[i * 3 + 2] = cz;
-                rightXyz[i * 3] = cx - (nx * halfWidth);
-                rightXyz[i * 3 + 1] = cy - (ny * halfWidth);
+                rightXyz[i * 3] = center.RightEdgeXy?[i * 2] ?? cx - (nx * halfWidth);
+                rightXyz[i * 3 + 1] = center.RightEdgeXy?[(i * 2) + 1] ?? cy - (ny * halfWidth);
                 rightXyz[i * 3 + 2] = cz;
             }
 
@@ -275,8 +276,9 @@ public static partial class PathGrader
             {
                 stationXy[i * 2] = leftXyz[i * 3];
                 stationXy[i * 2 + 1] = leftXyz[i * 3 + 1];
-                normals[i * 2] = -center.TangentY[i];
-                normals[i * 2 + 1] = center.TangentX[i];
+                double ldx = leftXyz[i * 3] - center.XyVertices[i * 2];
+                double ldy = leftXyz[(i * 3) + 1] - center.XyVertices[(i * 2) + 1];
+                NormalizeOrFallback(ldx, ldy, -center.TangentY[i], center.TangentX[i], out normals[i * 2], out normals[(i * 2) + 1]);
                 footZ[i] = center.ZValues[i];
             }
 
@@ -286,8 +288,9 @@ public static partial class PathGrader
                 int dst = n + i;
                 stationXy[dst * 2] = rightXyz[src * 3];
                 stationXy[dst * 2 + 1] = rightXyz[src * 3 + 1];
-                normals[dst * 2] = center.TangentY[src];
-                normals[dst * 2 + 1] = -center.TangentX[src];
+                double rdx = rightXyz[src * 3] - center.XyVertices[src * 2];
+                double rdy = rightXyz[(src * 3) + 1] - center.XyVertices[(src * 2) + 1];
+                NormalizeOrFallback(rdx, rdy, center.TangentY[src], -center.TangentX[src], out normals[dst * 2], out normals[(dst * 2) + 1]);
                 footZ[dst] = center.ZValues[src];
             }
 
@@ -356,6 +359,26 @@ public static partial class PathGrader
         }
 
         return corridors;
+    }
+
+    private static void NormalizeOrFallback(
+        double x,
+        double y,
+        double fallbackX,
+        double fallbackY,
+        out double normalizedX,
+        out double normalizedY)
+    {
+        double length = Math.Sqrt((x * x) + (y * y));
+        if (length <= 1e-12)
+        {
+            normalizedX = fallbackX;
+            normalizedY = fallbackY;
+            return;
+        }
+
+        normalizedX = x / length;
+        normalizedY = y / length;
     }
 
     /// <summary>

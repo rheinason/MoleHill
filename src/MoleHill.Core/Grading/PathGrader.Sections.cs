@@ -65,7 +65,7 @@ public static partial class PathGrader
 
             SpatialHashGrid2D? segmentGrid = BuildPathSegmentGrid(samplePath);
             preparedPaths[pathIndex] = new PreparedPathSections(
-                path.Width * 0.5,
+                path.MaximumHalfWidth(),
                 maxInfluence,
                 samplePath,
                 segmentGrid,
@@ -182,7 +182,8 @@ public static partial class PathGrader
         rightStatuses = new PathSectionResolutionStatus[n];
         repairedLeftSections = 0;
         repairedRightSections = 0;
-        double halfWidth = path.Width * 0.5;
+        double fallbackHalfWidth = path.Width * 0.5;
+        double maximumHalfWidth = fallbackHalfWidth;
         double slopeRatio = Math.Tan(path.SlopeAngleDeg * Math.PI / 180.0);
         double fillSlopeRatio = Math.Tan(path.FillSlopeAngleDeg * Math.PI / 180.0);
         bool allowCapFallback = path.MaxDistance > 1e-9;
@@ -196,10 +197,14 @@ public static partial class PathGrader
             double normalX = -tangentY;
             double normalY = tangentX;
 
-            double leftEdgeX = cx + (normalX * halfWidth);
-            double leftEdgeY = cy + (normalY * halfWidth);
-            double rightEdgeX = cx - (normalX * halfWidth);
-            double rightEdgeY = cy - (normalY * halfWidth);
+            double leftEdgeX = samplePath.LeftEdgeXy?[i * 2] ?? cx + (normalX * fallbackHalfWidth);
+            double leftEdgeY = samplePath.LeftEdgeXy?[(i * 2) + 1] ?? cy + (normalY * fallbackHalfWidth);
+            double rightEdgeX = samplePath.RightEdgeXy?[i * 2] ?? cx - (normalX * fallbackHalfWidth);
+            double rightEdgeY = samplePath.RightEdgeXy?[(i * 2) + 1] ?? cy - (normalY * fallbackHalfWidth);
+            double leftDistance = Math.Sqrt(((leftEdgeX - cx) * (leftEdgeX - cx)) + ((leftEdgeY - cy) * (leftEdgeY - cy)));
+            double rightDistance = Math.Sqrt(((rightEdgeX - cx) * (rightEdgeX - cx)) + ((rightEdgeY - cy) * (rightEdgeY - cy)));
+            maximumHalfWidth = Math.Max(maximumHalfWidth, Math.Max(leftDistance, rightDistance));
+            double localWidth = Math.Max(leftDistance + rightDistance, boundaryTolerance);
             leftEdgeXy[i * 2] = leftEdgeX;
             leftEdgeXy[i * 2 + 1] = leftEdgeY;
             rightEdgeXy[i * 2] = rightEdgeX;
@@ -217,12 +222,12 @@ public static partial class PathGrader
                 leftEdgeX,
                 leftEdgeY,
                 samplePath.ZValues[i],
-                normalX,
-                normalY,
+                leftDistance > boundaryTolerance ? (leftEdgeX - cx) / leftDistance : normalX,
+                leftDistance > boundaryTolerance ? (leftEdgeY - cy) / leftDistance : normalY,
                 slopeRatio,
                 fillSlopeRatio,
                 maxSearchDistance,
-                path.Width,
+                localWidth,
                 boundaryTolerance,
                 allowCapFallback,
                 out PathSectionResolutionStatus leftStatus,
@@ -246,12 +251,12 @@ public static partial class PathGrader
                 rightEdgeX,
                 rightEdgeY,
                 samplePath.ZValues[i],
-                -normalX,
-                -normalY,
+                rightDistance > boundaryTolerance ? (rightEdgeX - cx) / rightDistance : -normalX,
+                rightDistance > boundaryTolerance ? (rightEdgeY - cy) / rightDistance : -normalY,
                 slopeRatio,
                 fillSlopeRatio,
                 maxSearchDistance,
-                path.Width,
+                localWidth,
                 boundaryTolerance,
                 allowCapFallback,
                 out PathSectionResolutionStatus rightStatus,
@@ -270,7 +275,7 @@ public static partial class PathGrader
         repairedLeftSections = RepairShortUnresolvedPathSectionRuns(leftEdgeXy, leftShoulderXy, leftShoulderZ, samplePath.ZValues, leftStatuses, n);
         repairedRightSections = RepairShortUnresolvedPathSectionRuns(rightEdgeXy, rightShoulderXy, rightShoulderZ, samplePath.ZValues, rightStatuses, n);
         double maxReach = ComputePathMaxShoulderReach(leftEdgeXy, rightEdgeXy, leftShoulderXy, rightShoulderXy, n);
-        maxInfluence = halfWidth + maxReach;
+        maxInfluence = maximumHalfWidth + maxReach;
     }
 
     private static bool TryComputePathSectionInfluence(
@@ -307,17 +312,6 @@ public static partial class PathGrader
         if (closest.Distance > preparedPath.MaxInfluence + 1e-6)
             return false;
 
-            if (closest.Distance <= preparedPath.HalfWidth + 1e-6)
-            {
-                insideRoad = true;
-                candidateZ = closest.PathZ;
-                weight = ComputeRoadBlendWeight(preparedPath.HalfWidth, closest.Distance);
-            return true;
-        }
-
-        if (IsBlockedByBarrier(preparedBarriers, preparedPath.HalfWidth, closest, px, py, barrierScratch, barrierCandidates))
-            return false;
-
         if (!TryInterpolatePathSection(
                 preparedPath,
                 closest,
@@ -329,6 +323,30 @@ public static partial class PathGrader
                 out PathSectionResolutionStatus sectionStatus))
             return false;
 
+        double edgeDistance = Math.Sqrt(
+            ((edgeX - closest.ProjectedX) * (edgeX - closest.ProjectedX)) +
+            ((edgeY - closest.ProjectedY) * (edgeY - closest.ProjectedY)));
+        if (closest.Distance <= edgeDistance + 1e-6)
+        {
+            insideRoad = true;
+            candidateZ = closest.PathZ;
+            weight = ComputeRoadBlendWeight(edgeDistance, closest.Distance);
+            return true;
+        }
+
+        if (preparedBarriers.Segments.Length > 0 &&
+            GradingBarriers.IsCrossedByBarrier(
+                preparedBarriers,
+                edgeX,
+                edgeY,
+                px,
+                py,
+                barrierScratch,
+                barrierCandidates))
+        {
+            return false;
+        }
+
         if (sectionStatus == PathSectionResolutionStatus.Unresolved ||
             sectionStatus == PathSectionResolutionStatus.Blocked)
         {
@@ -336,7 +354,7 @@ public static partial class PathGrader
         }
 
         double sectionReach = Math.Sqrt(((shoulderX - edgeX) * (shoulderX - edgeX)) + ((shoulderY - edgeY) * (shoulderY - edgeY)));
-        double distFromEdge = closest.Distance - preparedPath.HalfWidth;
+        double distFromEdge = closest.Distance - edgeDistance;
         if (sectionReach <= 1e-9 || distFromEdge > sectionReach + 1e-9)
             return false;
 
@@ -844,7 +862,7 @@ public static partial class PathGrader
         if (slopeRatio <= 1e-12)
             return 100.0;
 
-        double halfWidth = path.Width * 0.5;
+        double halfWidth = path.MaximumHalfWidth();
         double mnX = double.MaxValue, mxX = double.MinValue;
         double mnY = double.MaxValue, mxY = double.MinValue;
         for (int i = 0; i < path.VertexCount; i++)

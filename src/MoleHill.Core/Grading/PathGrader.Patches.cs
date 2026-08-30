@@ -28,7 +28,7 @@ public static partial class PathGrader
             double endpointTouchTolerance = GradingTolerances.ModelToleranceOrDefault(modelTolerance);
             foreach (var path in paths)
             {
-                double halfWidth = path.Width * 0.5;
+                double halfWidth = path.MaximumHalfWidth();
                 int vertexCountOnPath = path.VertexCount;
                 for (int i = 0; i < vertexCountOnPath - 1; i++)
                 {
@@ -39,13 +39,14 @@ public static partial class PathGrader
                     double cy0 = path.XyVertices[(i * 2) + 1];
                     double cx1 = path.XyVertices[(i + 1) * 2];
                     double cy1 = path.XyVertices[((i + 1) * 2) + 1];
-                    ComputeDirection(path.XyVertices, vertexCountOnPath, i, out double dx, out double dy);
-                    double roadPx = -dy * halfWidth;
-                    double roadPy = dx * halfWidth;
+                    GetPathEdgePoint(path, i, left: true, out double lx0, out double ly0);
+                    GetPathEdgePoint(path, i + 1, left: true, out double lx1, out double ly1);
+                    GetPathEdgePoint(path, i, left: false, out double rx0, out double ry0);
+                    GetPathEdgePoint(path, i + 1, left: false, out double rx1, out double ry1);
 
                     if (GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, cx0, cy0, cx1, cy1, startTouchTolerance, endTouchTolerance, barrierScratch, barrierCandidates) ||
-                        GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, cx0 + roadPx, cy0 + roadPy, cx1 + roadPx, cy1 + roadPy, startTouchTolerance, endTouchTolerance, barrierScratch, barrierCandidates) ||
-                        GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, cx0 - roadPx, cy0 - roadPy, cx1 - roadPx, cy1 - roadPy, startTouchTolerance, endTouchTolerance, barrierScratch, barrierCandidates))
+                        GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, lx0, ly0, lx1, ly1, startTouchTolerance, endTouchTolerance, barrierScratch, barrierCandidates) ||
+                        GradingBarriers.IsInteriorCrossedByBarrier(roadBarriers, rx0, ry0, rx1, ry1, startTouchTolerance, endTouchTolerance, barrierScratch, barrierCandidates))
                     {
                         errorMessage = "Road edge crosses a hard constraint. Redesign the path or convert the conflicting constraint to a contour.";
                         fatalError = true;

@@ -39,7 +39,9 @@ public static partial class PathGrader
         double[] ZValues,
         int VertexCount,
         double[] TangentX,
-        double[] TangentY);
+        double[] TangentY,
+        double[]? LeftEdgeXy = null,
+        double[]? RightEdgeXy = null);
     private readonly record struct ClosestPathLocation(
         int SegmentIndex,
         double SegmentT,
@@ -116,9 +118,24 @@ public static partial class PathGrader
 
         public double MaxDistance { get; }
 
+        /// <summary>Optional plan rails aligned one-to-one with <see cref="XyVertices"/>. Their
+        /// elevations are deliberately absent: the centerline <see cref="ZValues"/> author the
+        /// finished path elevation across the whole section.</summary>
+        public double[]? LeftEdgeXy { get; }
+
+        public double[]? RightEdgeXy { get; }
+
+        public bool IsClosed { get; }
+
+        public bool HasVariableWidth =>
+            LeftEdgeXy is { Length: > 0 } && RightEdgeXy is { Length: > 0 };
+
         public PathDefinition(double[] xyVertices, double[] zValues, int vertexCount,
                               double width, double slopeAngleDeg = 33.0, double maxDistance = 0.0,
-                              double fillSlopeAngleDeg = 0.0)
+                              double fillSlopeAngleDeg = 0.0,
+                              double[]? leftEdgeXy = null,
+                              double[]? rightEdgeXy = null,
+                              bool isClosed = false)
         {
             XyVertices = xyVertices;
             ZValues = zValues;
@@ -129,6 +146,30 @@ public static partial class PathGrader
                 ? Math.Max(0.1, Math.Min(89.9, fillSlopeAngleDeg))
                 : SlopeAngleDeg;
             MaxDistance = maxDistance;
+            LeftEdgeXy = leftEdgeXy;
+            RightEdgeXy = rightEdgeXy;
+            IsClosed = isClosed;
+        }
+
+        internal double MaximumHalfWidth()
+        {
+            double maximum = Width * 0.5;
+            if (!HasVariableWidth)
+                return maximum;
+
+            for (int i = 0; i < VertexCount; i++)
+            {
+                double cx = XyVertices[i * 2];
+                double cy = XyVertices[(i * 2) + 1];
+                double ldx = LeftEdgeXy![i * 2] - cx;
+                double ldy = LeftEdgeXy[(i * 2) + 1] - cy;
+                double rdx = RightEdgeXy![i * 2] - cx;
+                double rdy = RightEdgeXy[(i * 2) + 1] - cy;
+                maximum = Math.Max(maximum, Math.Sqrt((ldx * ldx) + (ldy * ldy)));
+                maximum = Math.Max(maximum, Math.Sqrt((rdx * rdx) + (rdy * rdy)));
+            }
+
+            return maximum;
         }
 
         /// <summary>

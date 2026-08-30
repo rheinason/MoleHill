@@ -1,4 +1,5 @@
 using MoleHill.Core.Sculpting;
+using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
 using Rhino.Geometry;
 
@@ -41,18 +42,32 @@ internal static class SculptConstraintMaskBuilder
                 continue;
             }
 
-            foreach (ResolvedSourceObject source in TerrainBuildSnapshotResolver.ResolveObjects(snapshot, gradePath.Paths))
+            (ResolvedGradePathDefinition[] resolvedPaths, _) = TerrainBuildService.ResolveGradePathDefinitions(
+                snapshot,
+                gradePath,
+                curveTolerance,
+                curveTolerance);
+            foreach (ResolvedGradePathDefinition resolvedPath in resolvedPaths)
             {
-                if (source.ObjectId == Guid.Empty ||
-                    !selectedIds.Contains(source.ObjectId) ||
-                    source.Geometry is not Curve curve ||
-                    !TryGetXyPolyline(curve, curveTolerance, gradePath.Width, out double[] xy, out int count))
-                {
+                if (resolvedPath.SourceObjectId == Guid.Empty ||
+                    !selectedIds.Contains(resolvedPath.SourceObjectId))
                     continue;
-                }
 
-                mask.AddPolyline(xy, count, gradePath.Width * 0.5, curve.IsClosed);
-                semanticPathIds.Add(source.ObjectId);
+                PathGrader.PathDefinition definition = resolvedPath.Definition;
+                if (definition.HasVariableWidth)
+                {
+                    double[] footprint = BuildFootprint(definition);
+                    mask.AddPolygon(footprint, footprint.Length / 2);
+                }
+                else
+                {
+                    mask.AddPolyline(
+                        definition.XyVertices,
+                        definition.VertexCount,
+                        gradePath.Width * 0.5,
+                        definition.IsClosed);
+                }
+                semanticPathIds.Add(resolvedPath.SourceObjectId);
             }
         }
 
@@ -70,6 +85,22 @@ internal static class SculptConstraintMaskBuilder
         }
 
         return mask;
+    }
+
+    private static double[] BuildFootprint(PathGrader.PathDefinition path)
+    {
+        int count = path.VertexCount;
+        var footprint = new double[count * 4];
+        for (int i = 0; i < count; i++)
+        {
+            footprint[i * 2] = path.LeftEdgeXy![i * 2];
+            footprint[(i * 2) + 1] = path.LeftEdgeXy[(i * 2) + 1];
+            int source = count - 1 - i;
+            int destination = count + i;
+            footprint[destination * 2] = path.RightEdgeXy![source * 2];
+            footprint[(destination * 2) + 1] = path.RightEdgeXy[(source * 2) + 1];
+        }
+        return footprint;
     }
 
     private static bool TryGetXyPolyline(
