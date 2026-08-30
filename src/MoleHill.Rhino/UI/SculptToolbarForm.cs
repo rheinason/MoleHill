@@ -54,6 +54,7 @@ internal sealed class SculptToolbarForm : Form
         };
         AddBrushButton(brushRow, SculptBrushKind.Draw, "Draw", "Raise terrain (Ctrl lowers). Shortcut: hold Shift for temporary Smooth.");
         AddBrushButton(brushRow, SculptBrushKind.Subtract, "Sub", "Lower terrain (Ctrl raises).");
+        AddBrushButton(brushRow, SculptBrushKind.Erase, "Erase", "Remove sculpt displacement and restore the incoming terrain locally.");
         AddBrushButton(brushRow, SculptBrushKind.Smooth, "Smooth", "Relax terrain toward its neighbors.");
         AddBrushButton(brushRow, SculptBrushKind.Flatten, "Flat", "Move terrain toward the height under the brush at stroke start.");
         AddBrushButton(brushRow, SculptBrushKind.Grab, "Grab", "Drag the terrain under the brush up or down rigidly.");

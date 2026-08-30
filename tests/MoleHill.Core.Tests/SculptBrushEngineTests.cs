@@ -102,6 +102,25 @@ public class SculptBrushEngineTests
     }
 
     [Fact]
+    public void ApplyDab_Erase_RestoresPreSculptSurfaceLocally()
+    {
+        var field = new SculptDisplacementField(0.25);
+        field.SetSample(20, 20, 2.0f);
+        var (vertices, vertexCount, faces, faceCount) = BuildGridMesh();
+        int center = 5 * GridN + 5;
+        vertices[center * 3 + 2] = 2.0;
+        var engine = new SculptBrushEngine(vertices, vertexCount, faces, faceCount, field);
+        var p = Dab(SculptBrushKind.Erase, radius: 1.5, falloff: SculptFalloff.Constant);
+
+        engine.BeginStroke(p);
+        engine.ApplyDab(p);
+
+        Assert.Equal(0.0, engine.Vertices[center * 3 + 2], 12);
+        int outside = 0;
+        Assert.Equal(0.0, engine.Vertices[outside * 3 + 2], 12);
+    }
+
+    [Fact]
     public void ApplyDab_Weights_DecreaseWithDistance()
     {
         var engine = CreateEngine();

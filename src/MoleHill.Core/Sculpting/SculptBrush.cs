@@ -1,12 +1,14 @@
 namespace MoleHill.Core.Sculpting;
 
-/// <summary>The available sculpt brushes. Draw/Subtract push Z along +Z/-Z; Smooth relaxes toward the
-/// neighbor average; Flatten pulls toward the plane sampled at stroke start; Grab rigidly translates the
-/// captured region in Z; Clay fills toward an offset plane; Noise adds deterministic height variation.</summary>
+/// <summary>The available sculpt brushes. Draw/Subtract push Z along +Z/-Z; Erase blends back to the
+/// pre-sculpt surface; Smooth relaxes toward the neighbor average; Flatten pulls toward the plane sampled
+/// at stroke start; Grab rigidly translates the captured region in Z; Clay fills toward an offset plane;
+/// Noise adds deterministic height variation.</summary>
 public enum SculptBrushKind
 {
     Draw,
     Subtract,
+    Erase,
     Smooth,
     Flatten,
     Grab,

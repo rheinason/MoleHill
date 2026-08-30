@@ -170,6 +170,9 @@ public sealed class SculptBrushEngine
                 case SculptBrushKind.Subtract:
                     newZ = z - sign * w * p.Radius * DrawStepScale;
                     break;
+                case SculptBrushKind.Erase:
+                    newZ = z + w * (_baseZ[i] - z);
+                    break;
                 case SculptBrushKind.Smooth:
                     if (TryNeighborAverageZ(i, out double avg))
                         newZ = z + Math.Min(1.0, w * SmoothStepScale) * (avg - z);

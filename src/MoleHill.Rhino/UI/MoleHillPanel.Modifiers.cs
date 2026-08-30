@@ -116,6 +116,9 @@ public sealed partial class MoleHillPanel
     {
         var layout = UiLayouts.CardBody();
 
+        if (modifier is SculptModifierDefinition sculptModifier)
+            layout.AddRow(CreateSculptSessionRow(terrain.TerrainId, sculptModifier.Id));
+
         var meshQualityWarning = CreateModifierMeshQualityWarning(terrain, modifier);
         if (meshQualityWarning != null)
             layout.AddRow(meshQualityWarning);
@@ -182,7 +185,6 @@ public sealed partial class MoleHillPanel
                 layout.AddRow(CreateBoundaryPeelSettingsGroup(terrain, addGeometry));
                 break;
             case SculptModifierDefinition:
-                layout.AddRow(CreateSculptSessionRow(terrain.TerrainId, modifier.Id));
                 break;
             case GradePathModifierDefinition:
                 break;
@@ -239,7 +241,7 @@ public sealed partial class MoleHillPanel
 
     private Control CreateSculptSessionRow(Guid terrainId, Guid modifierId)
     {
-        var sculptButton = MakeInlineButton("Sculpt", (_, _) =>
+        var sculptButton = MakeToolbarButton("Sculpt", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
@@ -252,7 +254,9 @@ public sealed partial class MoleHillPanel
 
                 SculptSessionController.Instance.BeginSession(doc, terrainId, modifierId);
             });
-        }, "Start sculpting in the viewport. Drag to sculpt, Ctrl inverts, Shift smooths; Enter or Esc ends the session.");
+        }, "Start sculpting in the viewport. Drag to sculpt, Ctrl inverts, Shift smooths; choose Erase to remove sculpting locally; Enter or Esc ends the session.");
+        sculptButton.MinimumSize = new Size(UiMetrics.Chs(12), UiMetrics.ControlHeight);
+        sculptButton.BackgroundColor = UiTheme.ListSelectionBackground;
 
         var clearButton = MakeInlineButton("Clear", (_, _) =>
         {
@@ -278,7 +282,7 @@ public sealed partial class MoleHillPanel
             VerticalContentAlignment = VerticalAlignment.Center,
             Items =
             {
-                new Label { Text = "Sculpting", VerticalAlignment = VerticalAlignment.Center },
+                UiControls.Label("Sculpting", UiLabelRole.Section),
                 sculptButton,
                 clearButton
             }
