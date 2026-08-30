@@ -123,7 +123,7 @@ public sealed partial class MoleHillPanel
 
     private Control CreateObjectBody(TerrainDefinition terrain, TerrainObjectDefinition definition)
     {
-        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
+        var layout = UiLayouts.CardBody();
         if (TryBuildSchemaObjectBody(layout, terrain, definition))
         {
             Control? schemaDiagnosticsRow = CreateRuntimeDiagnosticsRow(
@@ -220,7 +220,7 @@ public sealed partial class MoleHillPanel
             }, deferDocumentSave: true, suppressImmediateUiRefresh: true);
         }
 
-        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 4) };
+        var layout = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceSmall) };
         layout.AddRow(CreateScatterBlockMixHeader(
             scatter.Blocks.Count,
             (_, _) => AddScatterBlocksFromSelector(terrain, scatter.Id)));

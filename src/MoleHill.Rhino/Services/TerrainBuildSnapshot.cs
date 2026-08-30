@@ -37,6 +37,13 @@ internal sealed class TerrainBuildSnapshot
     public Dictionary<SourceReferenceSet, SourceResolutionDiagnostics> SourceDiagnostics { get; } =
         new(ReferenceEqualityComparer<SourceReferenceSet>.Instance);
 
+    /// <summary>GeoTIFF samples mapped through each Triangulate card's live textured surface.</summary>
+    public Dictionary<Guid, List<Point3d>> DemPoints { get; } = new();
+
+    public Dictionary<Guid, ulong> DemFingerprints { get; } = new();
+
+    public Dictionary<Guid, string> DemDiagnostics { get; } = new();
+
     /// <summary>Local bounding box of each named block definition referenced by a scatter mix, captured on
     /// the main thread (the background build has no doc access). Used by edge-to-edge spacing to size each
     /// block. Keyed by instance-definition name.</summary>

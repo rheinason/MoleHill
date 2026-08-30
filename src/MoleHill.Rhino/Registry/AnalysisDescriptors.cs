@@ -15,9 +15,6 @@ namespace MoleHill.Rhino.Registry;
 
 internal static class AnalysisParameterCatalog
 {
-    public static readonly IReadOnlyList<(string Key, string Label)> PaletteOptions =
-        SlopePreviewPaletteCatalog.All.Select(item => (item.Key, item.Label)).ToList();
-
     public static readonly IReadOnlyList<(string Key, string Label)> SlopeUnitOptions = new[]
     {
         (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
@@ -25,6 +22,22 @@ internal static class AnalysisParameterCatalog
         (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Ratio), "Ratio"),
         (AnalysisFormatting.GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Degrees), "Degrees"),
     };
+
+    /// <summary>
+    /// The vertical scale row, shared by every section type. Landform sections are read for a metre or two
+    /// of relief across a hundred of length, so at true scale the interesting part collapses to a hairline;
+    /// exaggerating the vertical is how the drawing is made readable, and it belongs on all three section
+    /// types rather than two of them.
+    /// </summary>
+    public static AnalysisParameterDescriptor VerticalExaggeration() =>
+        AnalysisParameterDescriptor.Number(
+            "VerticalExaggeration", "Vertical Exaggeration",
+            a => ((TerrainSectionAnalysisDefinitionBase)a).VerticalExaggeration,
+            (a, v) => ((TerrainSectionAnalysisDefinitionBase)a).VerticalExaggeration = Math.Max(0.1, v),
+            "Vertical scale relative to horizontal. 1 draws the section true to shape; 5 or 10 stretches " +
+            "elevations so gentle ground reads. Affects the drawing only, never the terrain.",
+            min: 0.1,
+            decimalPlaces: 2);
 
     public static AnalysisParameterDescriptor SlopeUnitChoice(string help) =>
         AnalysisParameterDescriptor.Choice(
@@ -137,7 +150,11 @@ internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 1;
     public override AnalysisDefinition Create() => new SlopeAnalysisDefinition();
 
-    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = Array.Empty<AnalysisParameterDescriptor>();
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.ColorRamp(
+            "Colours the terrain preview by slope. Drag the ramp's stops, the band interval, or the mapped range."),
+    };
 }
 
 internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
@@ -155,7 +172,11 @@ internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 2;
     public override AnalysisDefinition Create() => new ElevationAnalysisDefinition();
 
-    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = Array.Empty<AnalysisParameterDescriptor>();
+    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    {
+        AnalysisParameterDescriptor.ColorRamp(
+            "Colours the terrain preview by elevation. Drag the ramp's stops, the band interval, or the mapped range."),
+    };
 }
 
 internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
@@ -183,7 +204,24 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
             "Boundary", "Boundary",
             a => ((CutFillAnalysisDefinition)a).Boundary,
             RhinoObjectType.Curve),
+        AnalysisParameterDescriptor.ColorRamp(
+            "Colours the terrain preview by cut and fill depth. The range stays symmetric about zero, so unchanged ground sits mid-ramp."),
     };
+
+    public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        // No reference is the normal case, not a missing input: cut/fill compares this terrain's initial
+        // triangulation against the finished modifier stack, which is what "how much did my grading move"
+        // means. It only has nothing to say when nothing has moved the ground.
+        var cutFill = (CutFillAnalysisDefinition)analysis;
+        return cutFill.Reference.HasReferences || AnalysisPrerequisites.HasElevationChangingModifier(terrain)
+            ? null
+            : AnalysisPrerequisites.NothingToCompareMessage;
+    }
+
+    public override string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis) =>
+        AnalysisPrerequisites.DescribeBasis(((CutFillAnalysisDefinition)analysis).Reference.HasReferences);
+
 }
 
 internal sealed class ContourAnalysisDescriptor : AnalysisTypeDescriptor
@@ -313,6 +351,15 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
             fallbackColor: (terrain, a) => AnalysisFormatting.ResolveLayerColorArgb(((WaterflowAnalysisDefinition)a).OutputLayerPath ?? terrain.AnnotationLayerPath),
             defaultText: (terrain, a) => AnalysisFormatting.GetAnalysisOutputColorText(terrain, ((WaterflowAnalysisDefinition)a).OutputLayerPath)),
     };
+
+    public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var waterflow = (WaterflowAnalysisDefinition)analysis;
+        return waterflow.Sources.HasReferences
+            ? null
+            : "Needs start points to trace from — set “Points” below.";
+    }
+
 }
 
 internal sealed class CurveElevationLabelAnalysisDescriptor : AnalysisTypeDescriptor
@@ -549,12 +596,13 @@ internal sealed class TerrainSectionAnalysisDescriptor : AnalysisTypeDescriptor
     public override string? IconName => "AnTerrainSection";
     public override int AccentArgb => unchecked((int)0xFF7B1FA2);
     public override bool IsAnnotation => true;
-    public override string Subtitle => "True-scale profile at the cut line";
+    public override string Subtitle => "Profile at the cut line";
     public override int SortOrder => 7;
     public override AnalysisDefinition Create() => new TerrainSectionAnalysisDefinition();
 
     public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
     {
+        AnalysisParameterCatalog.VerticalExaggeration(),
         AnalysisParameterDescriptor.Number(
             "StationTickInterval", "Station Tick Interval",
             a => ((TerrainSectionAnalysisDefinition)a).StationTickInterval,
@@ -583,6 +631,33 @@ internal sealed class TerrainSectionAnalysisDescriptor : AnalysisTypeDescriptor
             (a, v) => ((TerrainSectionAnalysisDefinition)a).ShowStationLabels = v,
             "Print station distance text below each tick."),
     };
+
+    public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var section = (TerrainSectionAnalysisDefinitionBase)analysis;
+        if (!section.Sources.HasReferences)
+            return "Needs a curve to cut along — set “Sources” below.";
+
+        // With no explicit reference a section shades against the terrain's initial triangulation, so the
+        // only real gap is a terrain nothing has graded yet.
+        if (section.ShowCutFillRegions
+            && !section.HasCutFillReference
+            && !AnalysisPrerequisites.HasElevationChangingModifier(terrain))
+        {
+            return AnalysisPrerequisites.NothingToCompareMessage;
+        }
+
+        return null;
+    }
+
+    public override string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var section = (TerrainSectionAnalysisDefinitionBase)analysis;
+        return section.ShowCutFillRegions
+            ? AnalysisPrerequisites.DescribeBasis(section.HasCutFillReference)
+            : null;
+    }
+
 }
 
 internal sealed class CrossSectionStationAnalysisDescriptor : AnalysisTypeDescriptor
@@ -613,12 +688,7 @@ internal sealed class CrossSectionStationAnalysisDescriptor : AnalysisTypeDescri
             (a, v) => ((CrossSectionStationAnalysisDefinition)a).CrossSectionWidth = Math.Max(double.Epsilon, v),
             "Total perpendicular width of each cross-section cut, centered on the alignment.",
             min: 0.0),
-        AnalysisParameterDescriptor.Number(
-            "VerticalExaggeration", "Vertical Exaggeration",
-            a => ((CrossSectionStationAnalysisDefinition)a).VerticalExaggeration,
-            (a, v) => ((CrossSectionStationAnalysisDefinition)a).VerticalExaggeration = Math.Max(0.1, v),
-            "Vertical scale factor applied to the unrolled cross-section profiles. 1.0 = true scale.",
-            min: 0.1),
+        AnalysisParameterCatalog.VerticalExaggeration(),
         AnalysisParameterDescriptor.Number(
             "GridColumns", "Grid Columns",
             a => ((CrossSectionStationAnalysisDefinition)a).GridColumns,
@@ -659,6 +729,33 @@ internal sealed class CrossSectionStationAnalysisDescriptor : AnalysisTypeDescri
             "Vertical spacing of grid lines on the unrolled cross-sections. 0 disables.",
             min: 0.0),
     };
+
+    public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var section = (TerrainSectionAnalysisDefinitionBase)analysis;
+        if (!section.Sources.HasReferences)
+            return "Needs an alignment curve to sample — set “Sources” below.";
+
+        // With no explicit reference a section shades against the terrain's initial triangulation, so the
+        // only real gap is a terrain nothing has graded yet.
+        if (section.ShowCutFillRegions
+            && !section.HasCutFillReference
+            && !AnalysisPrerequisites.HasElevationChangingModifier(terrain))
+        {
+            return AnalysisPrerequisites.NothingToCompareMessage;
+        }
+
+        return null;
+    }
+
+    public override string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var section = (TerrainSectionAnalysisDefinitionBase)analysis;
+        return section.ShowCutFillRegions
+            ? AnalysisPrerequisites.DescribeBasis(section.HasCutFillReference)
+            : null;
+    }
+
 }
 
 internal sealed class LongitudinalSectionAnalysisDescriptor : AnalysisTypeDescriptor
@@ -683,12 +780,7 @@ internal sealed class LongitudinalSectionAnalysisDescriptor : AnalysisTypeDescri
             (a, v) => ((LongitudinalSectionAnalysisDefinition)a).SampleInterval = Math.Max(double.Epsilon, v),
             "Distance between elevation samples along the curve.",
             min: 0.0),
-        AnalysisParameterDescriptor.Number(
-            "VerticalExaggeration", "Vertical Exaggeration",
-            a => ((LongitudinalSectionAnalysisDefinition)a).VerticalExaggeration,
-            (a, v) => ((LongitudinalSectionAnalysisDefinition)a).VerticalExaggeration = Math.Max(0.1, v),
-            "Vertical scale factor applied to the unrolled profile. 1.0 = true scale.",
-            min: 0.1),
+        AnalysisParameterCatalog.VerticalExaggeration(),
         AnalysisParameterDescriptor.Bool(
             "ShowBaseline", "Show Baseline",
             a => ((LongitudinalSectionAnalysisDefinition)a).ShowBaseline,
@@ -717,4 +809,31 @@ internal sealed class LongitudinalSectionAnalysisDescriptor : AnalysisTypeDescri
             "Spacing between station labels. 0 = auto (~quarter of total length).",
             min: 0.0),
     };
+
+    public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var section = (TerrainSectionAnalysisDefinitionBase)analysis;
+        if (!section.Sources.HasReferences)
+            return "Needs a curve to sample along — set “Sources” below.";
+
+        // With no explicit reference a section shades against the terrain's initial triangulation, so the
+        // only real gap is a terrain nothing has graded yet.
+        if (section.ShowCutFillRegions
+            && !section.HasCutFillReference
+            && !AnalysisPrerequisites.HasElevationChangingModifier(terrain))
+        {
+            return AnalysisPrerequisites.NothingToCompareMessage;
+        }
+
+        return null;
+    }
+
+    public override string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var section = (TerrainSectionAnalysisDefinitionBase)analysis;
+        return section.ShowCutFillRegions
+            ? AnalysisPrerequisites.DescribeBasis(section.HasCutFillReference)
+            : null;
+    }
+
 }

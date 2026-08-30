@@ -491,6 +491,8 @@ internal static class TerrainRuntimeCacheCloner
             SlopeAveragePercent = analysis.SlopeAveragePercent,
             SlopeDisplayLowPercent = analysis.SlopeDisplayLowPercent,
             SlopeDisplayHighPercent = analysis.SlopeDisplayHighPercent,
+            DisplayRangeLow = analysis.DisplayRangeLow,
+            DisplayRangeHigh = analysis.DisplayRangeHigh,
             ElevationMinZ = analysis.ElevationMinZ,
             ElevationMaxZ = analysis.ElevationMaxZ,
             CutFillDisplayAbsMax = analysis.CutFillDisplayAbsMax,
@@ -573,6 +575,12 @@ internal static class TerrainRuntimeCacheCloner
                 : new Dictionary<string, string>(generated.InstanceUserStrings, StringComparer.Ordinal),
             InstanceTransform = generated.InstanceTransform,
             PlotWeight = generated.PlotWeight,
+            // Every property the bake reads has to survive the clone, or the cached copy bakes differently
+            // from the one the build produced. AppearanceSource and DisplayOrder were both being dropped
+            // here, so layer-driven output silently reverted to object appearance and section stacking
+            // order was lost between build and bake.
+            AppearanceSource = generated.AppearanceSource,
+            DisplayOrder = generated.DisplayOrder,
             ScatterDefinitionId = generated.ScatterDefinitionId
         };
     }

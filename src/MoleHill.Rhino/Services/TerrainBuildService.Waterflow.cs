@@ -51,7 +51,11 @@ internal sealed partial class TerrainBuildService
         int boundaryCount = 0;
         int sinkCount = 0;
         int outputCount = 0;
-        string? layerPath = analysis.OutputLayerPath ?? fallbackLayerPath;
+        // Flow paths get their own sublayer so GeneratedLayerDefaults can seed a print width and a preview
+        // thickness for them, the way section and contour output already does. An explicitly chosen output
+        // layer is respected as-is — that is the user naming a destination, not a default.
+        string? layerPath = analysis.OutputLayerPath
+            ?? (string.IsNullOrWhiteSpace(fallbackLayerPath) ? null : $"{fallbackLayerPath}::Waterflow");
         foreach (WaterflowTracer.Path path in traced.Paths)
         {
             ThrowIfCancellationRequested(shouldCancel);

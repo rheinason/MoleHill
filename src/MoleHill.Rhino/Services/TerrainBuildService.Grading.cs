@@ -781,6 +781,9 @@ internal sealed partial class TerrainBuildService
         double curveTolerance = toleranceProfile.CurveChordTolerance;
         double gradePathTolerance = toleranceProfile.GradePathTolerance;
         ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, modifier, curveTolerance, gradePathTolerance);
+        foreach (VariablePathWidthResolver.Diagnostic diagnostic in resolvedInputs.WidthDiagnostics)
+            build.Diagnostics.Add(diagnostic.Message);
+        AddGradePathWidthDiagnosticOverlays(mesh, modifier, resolvedInputs.WidthDiagnostics, gradePathTolerance, build);
         if (resolvedInputs.Paths.Length == 0)
         {
             build.Diagnostics.Add("Grade Path has no valid paths.");
@@ -984,6 +987,49 @@ internal sealed partial class TerrainBuildService
         return constraints;
     }
 
+    private static void AddGradePathWidthDiagnosticOverlays(
+        RhinoMesh mesh,
+        GradePathModifierDefinition modifier,
+        IReadOnlyList<VariablePathWidthResolver.Diagnostic> diagnostics,
+        double tolerance,
+        TerrainBuildResult build)
+    {
+        BoundingBox bounds = mesh.GetBoundingBox(true);
+        for (int i = 0; i < diagnostics.Count; i++)
+        {
+            VariablePathWidthResolver.Diagnostic diagnostic = diagnostics[i];
+            if (diagnostic.X is not double x || diagnostic.Y is not double y || !double.IsFinite(x) || !double.IsFinite(y))
+                continue;
+
+            var query = new Point3d(x, y, bounds.IsValid ? bounds.Center.Z : 0.0);
+            Point3d anchor = TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, query, tolerance, out Point3d projected)
+                ? projected
+                : query;
+            bool warning = diagnostic.Code is not "grade_path.variable_edge.matched";
+            string shortLabel = diagnostic.Code switch
+            {
+                "grade_path.variable_edge.matched" => "Width edge matched",
+                "grade_path.variable_edge.partial" => "Partial width edge",
+                "grade_path.variable_edge.ambiguous_path" or "grade_path.variable_edge.ambiguous_side" => "Ambiguous width edge",
+                _ => "Unmatched width edge"
+            };
+            build.RuntimeOverlays.Add(new RuntimeOverlayItem
+            {
+                StableId = $"grade-path-width:{modifier.Id:N}:{diagnostic.Code}:{diagnostic.EdgeSourceIndex?.ToString() ?? "x"}:{i}",
+                Owner = new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, modifier.Id),
+                Severity = warning ? RuntimeOverlaySeverity.Warning : RuntimeOverlaySeverity.Information,
+                Code = diagnostic.Code,
+                Message = diagnostic.Message,
+                ShortLabel = shortLabel,
+                Primitives = new List<RuntimeOverlayPrimitive>
+                {
+                    RuntimeOverlayPrimitive.Marker(anchor, size: 7),
+                    RuntimeOverlayPrimitive.Dot(anchor, shortLabel)
+                }
+            });
+        }
+    }
+
     private static ResolvedGradePathInputs ResolveGradePathInputs(
         TerrainBuildSnapshot snapshot,
         double[] vertices,
@@ -994,10 +1040,40 @@ internal sealed partial class TerrainBuildService
         double curveTolerance,
         double gradePathTolerance)
     {
-        var paths = new List<PathGrader.PathDefinition>();
-        double requestedEdgeLength = TerrainBuildHeuristics.GetGradePathCurveSamplingLength(modifier.Width);
-        foreach (var curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Paths))
+        (ResolvedGradePathDefinition[] resolvedDefinitions, IReadOnlyList<VariablePathWidthResolver.Diagnostic> widthDiagnostics) =
+            ResolveGradePathDefinitions(snapshot, modifier, curveTolerance, gradePathTolerance);
+        PathGrader.PathDefinition[] pathArray = resolvedDefinitions.Select(static item => item.Definition).ToArray();
+        var constraintSet = pathArray.Length == 0
+            ? new PathGrader.ConstraintSet
+            {
+                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+                SuggestedEdgeLength = 0.0
+            }
+            : PathGrader.CreateConstraints(vertices, vertexCount, faces, faceCount, pathArray, gradePathTolerance);
+
+        return new ResolvedGradePathInputs
         {
+            Paths = pathArray,
+            Constraints = constraintSet.Constraints,
+            SuggestedEdgeLength = constraintSet.SuggestedEdgeLength,
+            WidthDiagnostics = widthDiagnostics
+        };
+    }
+
+    internal static (ResolvedGradePathDefinition[] Paths, IReadOnlyList<VariablePathWidthResolver.Diagnostic> Diagnostics)
+        ResolveGradePathDefinitions(
+            TerrainBuildSnapshot snapshot,
+            GradePathModifierDefinition modifier,
+            double curveTolerance,
+            double gradePathTolerance)
+    {
+        var paths = new List<PathGrader.PathDefinition>();
+        var sourceIds = new List<Guid>();
+        double requestedEdgeLength = TerrainBuildHeuristics.GetGradePathCurveSamplingLength(modifier.Width);
+        foreach (ResolvedSourceObject source in TerrainBuildSnapshotResolver.ResolveObjects(snapshot, modifier.Paths))
+        {
+            if (source.Geometry is not Curve curve)
+                continue;
             if (!RhinoSourceResolver.TryGetPolyline(
                     curve,
                     curveTolerance,
@@ -1019,24 +1095,64 @@ internal sealed partial class TerrainBuildService
             }
 
             double pathCutSlope = modifier.CutSlopeAngle > 0.0 ? modifier.CutSlopeAngle : modifier.SlopeAngle;
-            paths.Add(new PathGrader.PathDefinition(pathXy, pathZ, polyline.Count, modifier.Width, pathCutSlope, modifier.MaxDistance, modifier.SlopeAngle));
+            paths.Add(new PathGrader.PathDefinition(
+                pathXy,
+                pathZ,
+                polyline.Count,
+                modifier.Width,
+                pathCutSlope,
+                modifier.MaxDistance,
+                modifier.SlopeAngle,
+                isClosed: curve.IsClosed));
+            sourceIds.Add(source.ObjectId);
         }
 
-        var pathArray = paths.ToArray();
-        var constraintSet = pathArray.Length == 0
-            ? new PathGrader.ConstraintSet
-            {
-                Constraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
-                SuggestedEdgeLength = 0.0
-            }
-            : PathGrader.CreateConstraints(vertices, vertexCount, faces, faceCount, pathArray, gradePathTolerance);
-
-        return new ResolvedGradePathInputs
+        // Variable width is opt-in: with the toggle off the parked WidthEdges references stay on the
+        // definition but never reach the resolver, so the corridor is a plain constant-Width path.
+        if (!modifier.UseVariableWidth)
         {
-            Paths = pathArray,
-            Constraints = constraintSet.Constraints,
-            SuggestedEdgeLength = constraintSet.SuggestedEdgeLength
-        };
+            var constantWidth = new ResolvedGradePathDefinition[paths.Count];
+            for (int i = 0; i < constantWidth.Length; i++)
+                constantWidth[i] = new ResolvedGradePathDefinition(sourceIds[i], paths[i]);
+            return (constantWidth, Array.Empty<VariablePathWidthResolver.Diagnostic>());
+        }
+
+        var widthEdges = new List<VariablePathWidthResolver.EdgeDefinition>();
+        int edgeSourceIndex = 0;
+        foreach (Curve curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.WidthEdges))
+        {
+            if (RhinoSourceResolver.TryGetPolyline(
+                    curve,
+                    curveTolerance,
+                    requireClosed: false,
+                    requestedEdgeLength,
+                    maxArea: 0.0,
+                    out Polyline polyline) &&
+                polyline.Count >= 2)
+            {
+                var xy = new double[polyline.Count * 2];
+                for (int i = 0; i < polyline.Count; i++)
+                {
+                    xy[i * 2] = polyline[i].X;
+                    xy[(i * 2) + 1] = polyline[i].Y;
+                }
+                widthEdges.Add(new VariablePathWidthResolver.EdgeDefinition(xy, polyline.Count, curve.IsClosed, edgeSourceIndex));
+            }
+            edgeSourceIndex++;
+        }
+
+        VariablePathWidthResolver.Result widthResult = VariablePathWidthResolver.Resolve(
+            paths,
+            widthEdges,
+            new VariablePathWidthResolver.Options
+            {
+                MaxEdgeDistance = modifier.MaxEdgeDistance,
+                Tolerance = gradePathTolerance
+            });
+        var resolved = new ResolvedGradePathDefinition[widthResult.Paths.Length];
+        for (int i = 0; i < resolved.Length; i++)
+            resolved[i] = new ResolvedGradePathDefinition(sourceIds[i], widthResult.Paths[i]);
+        return (resolved, widthResult.Diagnostics);
     }
 
     private static RhinoMesh ApplyInSituStair(

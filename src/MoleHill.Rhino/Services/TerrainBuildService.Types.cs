@@ -6,6 +6,8 @@ using MoleHill.Rhino.Model;
 
 namespace MoleHill.Rhino.Services;
 
+internal sealed record ResolvedGradePathDefinition(Guid SourceObjectId, PathGrader.PathDefinition Definition);
+
 internal sealed partial class TerrainBuildService
 {
     private sealed class ZoneBoundaryEntry
@@ -72,6 +74,9 @@ internal sealed partial class TerrainBuildService
         public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
 
         public required double SuggestedEdgeLength { get; init; }
+
+        public IReadOnlyList<VariablePathWidthResolver.Diagnostic> WidthDiagnostics { get; init; } =
+            Array.Empty<VariablePathWidthResolver.Diagnostic>();
     }
 
     private readonly record struct ConstraintSignature(

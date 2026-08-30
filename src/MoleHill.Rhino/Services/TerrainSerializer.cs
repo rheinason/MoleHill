@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Shared;
 using Rhino;
@@ -7,7 +8,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 27;
+    private const int DocumentSchemaVersion = 29;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -81,6 +82,18 @@ internal static class TerrainSerializer
             terrain.LastAnalysisResults ??= new List<TerrainAnalysisSummary>();
             foreach (var input in terrain.Modifiers.OfType<GeometryInputModifierDefinition>())
                 input.TinMesh ??= new SourceReferenceSet();
+            foreach (var gradePath in terrain.Modifiers.OfType<GradePathModifierDefinition>())
+            {
+                gradePath.WidthEdges ??= new SourceReferenceSet();
+                // Pre-v29 documents had no UseVariableWidth toggle and expressed "variable width" purely
+                // by having width edges assigned; keep those paths variable instead of flattening them.
+                // Only pre-v29, so a v29 user who switches the toggle off keeps their edges parked.
+                if (sourceSchemaVersion < 29 &&
+                    (gradePath.WidthEdges.ObjectIds.Count > 0 || gradePath.WidthEdges.LayerPaths.Count > 0))
+                {
+                    gradePath.UseVariableWidth = true;
+                }
+            }
             NormalizeSculptModifiers(terrain);
             NormalizeObjects(terrain);
             PromoteLegacyTolerance(terrain);
@@ -257,9 +270,45 @@ internal static class TerrainSerializer
                 defaultColor.G,
                 defaultColor.B).ToArgb();
         }
-        terrain.SlopePalettePreset = SlopePreviewPaletteCatalog.Resolve(terrain.SlopePalettePreset).Key;
+        terrain.SlopePalettePreset = ColorRampPresets.Resolve(terrain.SlopePalettePreset).Key;
         terrain.SlopeColorLowPercent = Math.Max(0.0, terrain.SlopeColorLowPercent);
         terrain.SlopeColorHighPercent = Math.Max(0.0, terrain.SlopeColorHighPercent);
+        // Documents written before the preview weight existed deserialize it as 0, which would draw
+        // nothing; clamp to a usable band around the 1.0 default.
+        terrain.PreviewLineWeight = terrain.PreviewLineWeight > 0.0
+            ? Math.Clamp(terrain.PreviewLineWeight, 0.25, 6.0)
+            : 1.0;
+    }
+
+    /// <summary>
+    /// Makes a deserialized ramp override usable or drops it. A malformed stop list must never leave an
+    /// analysis unable to draw, and a list too short to be a ramp is indistinguishable from "no override" —
+    /// so it becomes exactly that, and the preset takes over.
+    /// </summary>
+    private static void NormalizePaletteStops(AnalysisDefinition analysis)
+    {
+        var stops = analysis.PaletteStops;
+        if (stops.Count == 0)
+            return;
+
+        stops.RemoveAll(stop => stop == null || !double.IsFinite(stop.Position));
+        if (stops.Count < ColorRamp.MinimumStops)
+        {
+            stops.Clear();
+            return;
+        }
+
+        foreach (var stop in stops)
+        {
+            stop.Position = Math.Clamp(stop.Position, 0.0, 1.0);
+            // Alpha is not part of a ramp — the analysis mesh gets its transparency from the terrain — and
+            // a stop deserialized with alpha 0 would otherwise round-trip into an invisible colour.
+            stop.ColorArgb = unchecked((int)0xFF000000) | (stop.ColorArgb & 0x00FFFFFF);
+        }
+
+        stops.Sort((a, b) => a.Position.CompareTo(b.Position));
+        if (stops.Count > ColorRamp.MaximumStops)
+            stops.RemoveRange(ColorRamp.MaximumStops, stops.Count - ColorRamp.MaximumStops);
     }
 
     private static void MigrateAnalyses(
@@ -271,7 +320,8 @@ internal static class TerrainSerializer
         {
             foreach (var analysis in terrain.Analyses)
             {
-                analysis.PalettePreset = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset).Key;
+                analysis.PalettePreset = ColorRampPresets.Resolve(analysis.PalettePreset).Key;
+                NormalizePaletteStops(analysis);
                 analysis.ColorInterval = Math.Max(0.0, analysis.ColorInterval);
                 if (!Enum.IsDefined(analysis.ColorMode))
                     analysis.ColorMode = MoleHill.Core.Analysis.AnalysisColorMapper.Mode.Gradient;
@@ -367,7 +417,7 @@ internal static class TerrainSerializer
             terrain.Analyses.Add(new SlopeAnalysisDefinition
             {
                 IsEnabled = true,
-                PalettePreset = SlopePreviewPaletteCatalog.Resolve(terrain.SlopePalettePreset).Key,
+                PalettePreset = ColorRampPresets.Resolve(terrain.SlopePalettePreset).Key,
                 RangeLow = terrain.SlopeColorLowPercent,
                 RangeHigh = terrain.SlopeColorHighPercent
             });
@@ -410,6 +460,11 @@ internal static class TerrainSerializer
         analysis.Sources ??= new SourceReferenceSet();
         if (analysis.TextHeight <= 0.0)
             analysis.TextHeight = unitContext.FromMeters(1.0);
+        // Every section type shares the exaggeration, so normalize it once, before the per-type cases —
+        // not as a switch arm of its own, which would shadow them for any section that needed both.
+        if (analysis.VerticalExaggeration <= 0.0)
+            analysis.VerticalExaggeration = 1.0;
+
         switch (analysis)
         {
             case CrossSectionStationAnalysisDefinition crossSection:
@@ -420,15 +475,11 @@ internal static class TerrainSerializer
                     ? crossSection.CrossSectionWidth
                     : unitContext.FromMeters(10.0);
                 crossSection.GridColumns = Math.Max(crossSection.GridColumns, 1);
-                if (crossSection.VerticalExaggeration <= 0.0)
-                    crossSection.VerticalExaggeration = 1.0;
                 break;
             case LongitudinalSectionAnalysisDefinition longitudinal:
                 longitudinal.SampleInterval = longitudinal.SampleInterval > 0.0
                     ? longitudinal.SampleInterval
                     : unitContext.FromMeters(1.0);
-                if (longitudinal.VerticalExaggeration <= 0.0)
-                    longitudinal.VerticalExaggeration = 1.0;
                 break;
         }
     }

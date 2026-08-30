@@ -134,9 +134,15 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   per-face downhill gradients and emits one previewable/bakeable terrain-conforming curve per valid
   point source.
 - Section Cut, Cross-Sections, and Section Along Curve snapshot selected terrains' completed final
-  meshes and lay their profiles into the same section cell. `SectionProfileComparison` splits proposed
-  versus reference profiles at crossings and gaps; generated cut/fill meshes preview and bake under
-  `CutFill::Cut` and `CutFill::Fill` sublayers while dependent terrains rebuild on reference changes.
+  meshes and lay their profiles into the same section cell. Existing ground for cut/fill comes from the
+  analysis's `CutFillReference` source set — any Rhino mesh or surface, cut by the same
+  `SectionCutGeometry` that cut the terrain so both profiles share one station parametrization — or,
+  failing that, from a selected comparison terrain. `SectionProfileComparison` splits proposed versus
+  reference profiles at crossings and gaps, normalizing every edge to low-station-first because the
+  slicer can return a run in descending station order. Generated cut/fill hatches preview and bake under
+  `Sections::CutFill::Cut` and `Sections::CutFill::Fill` sublayers — paths that match the office layer
+  template, so the fills inherit its colours and print widths — while dependent terrains rebuild on
+  reference changes.
 - The layer command surface creates the selected terrain's configured Terrain, Auxiliary, and Annotation
   output layers directly; it does not depend on highlighted source layers.
 - `SculptSessionController.cs` - the interactive sculpt session: GetPoint loop (drag = stroke,
@@ -163,6 +169,24 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   primitive, shared by `mhOffsetFeature` and `mhCreateWall`'s parallel rail;
   `TryResolveVerticalDelta` turns the command's `Vertical` mode (elevation / percent / degrees /
   1:n ratio) into that delta over the offset distance.
+- `CurveReviewService.cs` / `CurveReviewAnalysis.cs` / `CurveReviewConduit.cs` - the `mhInspectCurve`
+  live inspector. The analyzer samples the curve into stations (base sample grid plus every G1 kink) and
+  derives the interval grade profile, kink/knot stretches with a grade and plan length each, plan radius
+  per station, crest/sag/vertical-break/off-terrain events, and - against the selected terrain's final
+  mesh - per-station cut/fill with extremes. Optional max-grade and min-plan-radius limits produce merged
+  violation runs. The conduit draws that model over the curve: grade-colored ribbon, elevation and grade
+  dots, event markers, terrain drape with cut/fill ties, and thick red violation stretches; the panel
+  toggles the four overlay groups and sets the overlay's `Weight` and label density. Base widths live on
+  the conduit and are scaled by `Weight`: the grade ribbon is a ribbon, not a hairline, because its whole
+  job is to show colour. Elevation dots are offset half a stride from grade dots so the two readings
+  interleave along the curve instead of stacking on each other.
+- `CurveReviewLabeller.cs` - the inspector's `Label` button. Picks points constrained to the inspected
+  curve and drops text dots reading any combination of elevation, grade, station and cut/fill, taken from
+  the analysis already on screen. Dots go to `<annotation layer>::Labels` via
+  `TerrainController.EnsureLayerPath`, so they inherit the layer's print width, and the whole run is one
+  undo record. Replaces the removed `mhSlopeCheckAndMark` command. The terrain mesh is peeked (`TerrainController.PeekFinalTerrainMesh`,
+  read-only, no copy) and the analysis is rebuilt only when the object serial, terrain mesh, or a limit
+  changes, so the 4 Hz refresh timer stays cheap.
 - `ProjectBaseCPlaneService.cs` - reversible project-local/real-world transform storage and ModelSpace
   orientation; PageSpace layout content is left unchanged. Reorientation post-composes the new local inverse.
   The modern plane is validated as a horizontal XY-only frame; confirmed Python `FOTM` migrations invert
@@ -178,7 +202,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
 - `ClassicTiffTagReader.cs` / `GeoTiffMetadataReader.cs` / `GeoTiffElevationReader.cs` - direct classic-
   TIFF placement/GDAL tag parsing plus numeric single-band decoding through LibTiff.Net. The DEM path
   does not depend on GDI image conversion; it preserves integer/floating-point samples, applies
-  scale/offset, skips NoData, and rejects RGB imagery.
+  scale/offset, skips NoData, and rejects RGB imagery. The Triangulate card references a planar Rhino
+  surface carrying that GeoTIFF as its bitmap texture; snapshot capture maps pixel centres through the
+  surface, so ordinary Rhino transforms control project placement without persistent sampled points.
 - `LandXmlSurfaceService.cs` - transactionally imports every LandXML TIN surface, converts units and
   project-base coordinates, and preserves face topology with exact managed mesh sources; export converts
   completed Rhino meshes to metre-based LandXML through the Core codec.

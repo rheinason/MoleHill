@@ -116,9 +116,11 @@ public class DrawingOutputTests
     [Fact]
     public void GeneratedLayerDefaults_LongerSuffixWins()
     {
-        // "::CutFill::Cut" must not be shadowed by a shorter suffix match.
-        Assert.Null(GeneratedLayerDefaults.GetPlotWeight("Sections::CutFill::Cut"));
+        // "::CutFill::Cut" must not be shadowed by the shorter "::Cuts" match.
+        Assert.Equal(0.13, GeneratedLayerDefaults.GetPlotWeight("Sections::CutFill::Cut"));
         Assert.Equal(0.50, GeneratedLayerDefaults.GetPlotWeight("Sections::Cuts"));
+        Assert.Equal(1, GeneratedLayerDefaults.GetPreviewWidth("Sections::CutFill::Cut"));
+        Assert.Equal(4, GeneratedLayerDefaults.GetPreviewWidth("Sections::Cuts"));
     }
 
     [Fact]

@@ -11,10 +11,20 @@ internal static class TerrainAnalysisPreviewBuilder
 {
     private const int ParallelColorThreshold = 20_000;
 
+    /// <summary>Bars in the card's histogram strip. Enough to show a distribution's shape at the width of
+    /// a docked panel, and few enough that each bar is still more than a hairline.</summary>
+    internal const int HistogramBars = 44;
+
+    /// <summary>Faces with no comparable reference (outside the boundary, or over a hole in the reference
+    /// mesh) are drawn in this neutral grey.</summary>
+    private static readonly SlopeAnalyzer.ColorStop UnmappedColor = new(0.0, 130, 130, 130);
+
     public static void UpdatePreviewMesh(RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState state)
     {
         state.ActiveAnalysisId = null;
         state.ActiveAnalysisLabel = null;
+        state.ActiveAnalysisRange = null;
+        state.ActiveAnalysisDistribution = null;
 
         if (state.TerrainMesh == null)
         {
@@ -35,42 +45,65 @@ internal static class TerrainAnalysisPreviewBuilder
             return;
         }
 
+        byte alpha = GetAlpha(terrain.TerrainColorArgb);
+        AnalysisRange? resolvedRange = null;
+        double[]? distribution = null;
         RhinoMesh? previewMesh = activeAnalysis switch
         {
-            SlopeAnalysisDefinition slope => BuildSlopePreviewMesh(state.TerrainMesh, slope, GetAlpha(terrain.TerrainColorArgb)),
-            ElevationAnalysisDefinition elevation => BuildElevationPreviewMesh(state.TerrainMesh, elevation, GetAlpha(terrain.TerrainColorArgb)),
-            CutFillAnalysisDefinition cutFill => BuildCutFillPreviewMesh(doc, terrain, state, cutFill, GetAlpha(terrain.TerrainColorArgb)),
+            SlopeAnalysisDefinition slope => BuildSlopePreviewMesh(state.TerrainMesh, slope, alpha, out resolvedRange, out distribution),
+            ElevationAnalysisDefinition elevation => BuildElevationPreviewMesh(state.TerrainMesh, elevation, alpha, out resolvedRange, out distribution),
+            CutFillAnalysisDefinition cutFill => BuildCutFillPreviewMesh(doc, terrain, state, cutFill, alpha, out resolvedRange, out distribution),
             _ => state.TerrainMesh
         };
 
         state.PreviewTerrainMesh = previewMesh ?? state.TerrainMesh;
         state.ActiveAnalysisId = activeAnalysis.Id;
         state.ActiveAnalysisLabel = activeAnalysis.Label;
+
+        // The legend reads this back, so it always describes the mesh currently on screen — colour edits
+        // recolour without a rebuild, and the last build's summary would otherwise be stale.
+        state.ActiveAnalysisRange = resolvedRange;
+        state.ActiveAnalysisDistribution = distribution;
     }
 
-    private static RhinoMesh? BuildSlopePreviewMesh(RhinoMesh mesh, SlopeAnalysisDefinition analysis, byte alpha)
+    /// <summary>The range an analysis maps across its palette, resolved the same way the preview mesh
+    /// resolves it. Used by the panel to label the legend without forcing a rebuild.</summary>
+    public static RangeShape GetRangeShape(AnalysisDefinition analysis) => analysis switch
     {
+        SlopeAnalysisDefinition => RangeShape.FromZero,
+        CutFillAnalysisDefinition => RangeShape.SymmetricAboutZero,
+        _ => RangeShape.MinMax
+    };
+
+    private static RhinoMesh? BuildSlopePreviewMesh(
+        RhinoMesh mesh,
+        SlopeAnalysisDefinition analysis,
+        byte alpha,
+        out AnalysisRange? range,
+        out double[]? distribution)
+    {
+        range = null;
+        distribution = null;
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
             return null;
 
-        var palette = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset);
-        double low = analysis.AutoColorRange ? 0.0 : Math.Max(0.0, analysis.RangeLow);
-        double high = analysis.AutoColorRange ? 0.0 : Math.Max(0.0, analysis.RangeHigh);
+        var palette = analysis.ResolveRamp();
         var slope = SlopeAnalyzer.Analyze(
             vertices,
             mesh.Vertices.Count,
             faces,
             mesh.Faces.Count,
             analysis.Unit,
-            low,
-            high,
-            palette.Stops);
-        if (analysis.ColorMode == AnalysisColorMapper.Mode.Gradient)
-            return BuildFaceColorMesh(vertices, faces, mesh.Faces.Count, slope.FaceColors, alpha);
+            analysis.AutoColorRange,
+            analysis.RangeLow,
+            analysis.RangeHigh,
+            palette.Stops,
+            analysis.ColorMode,
+            analysis.ColorInterval);
 
-        double interval = AnalysisColorMapper.ResolveInterval(slope.ColorLow, slope.ColorHigh, analysis.ColorInterval);
-        byte[] colors = BuildMappedColors(slope.Slopes, slope.ColorLow, slope.ColorHigh, analysis.ColorMode, interval, palette.Stops);
-        return BuildFaceColorMesh(vertices, faces, mesh.Faces.Count, colors, alpha);
+        range = slope.Range;
+        distribution = BuildDistribution(slope.Slopes, ReadOnlySpan<double>.Empty);
+        return BuildFaceColorMesh(vertices, faces, mesh.Faces.Count, slope.FaceColors, alpha);
     }
 
     internal static bool SupportsTerrainPreview(AnalysisDefinition analysis)
@@ -105,86 +138,74 @@ internal static class TerrainAnalysisPreviewBuilder
         return terrain.Analyses.Any(analysis => analysis.Id == generated.AnalysisId.Value && analysis.IsEnabled);
     }
 
-    private static RhinoMesh? BuildElevationPreviewMesh(RhinoMesh mesh, ElevationAnalysisDefinition analysis, byte alpha)
+    private static RhinoMesh? BuildElevationPreviewMesh(
+        RhinoMesh mesh,
+        ElevationAnalysisDefinition analysis,
+        byte alpha,
+        out AnalysisRange? range,
+        out double[]? distribution)
     {
+        range = null;
+        distribution = null;
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
             return null;
 
         int faceCount = mesh.Faces.Count;
         var values = new double[faceCount];
-        double min = double.MaxValue;
-        double max = double.MinValue;
+        var areas = new double[faceCount];
         if (faceCount >= ParallelColorThreshold)
-        {
-            object gate = new();
-            Parallel.For<(double LocalMin, double LocalMax)>(0, faceCount,
-                () => (double.MaxValue, double.MinValue),
-                (faceIndex, _, local) =>
-                {
-                    int a = faces[faceIndex * 3];
-                    int b = faces[faceIndex * 3 + 1];
-                    int c = faces[faceIndex * 3 + 2];
-                    double value =
-                        (vertices[a * 3 + 2] +
-                         vertices[b * 3 + 2] +
-                         vertices[c * 3 + 2]) / 3.0;
-                    values[faceIndex] = value;
-                    local.LocalMin = Math.Min(local.LocalMin, value);
-                    local.LocalMax = Math.Max(local.LocalMax, value);
-                    return local;
-                },
-                local =>
-                {
-                    lock (gate)
-                    {
-                        min = Math.Min(min, local.LocalMin);
-                        max = Math.Max(max, local.LocalMax);
-                    }
-                });
-        }
+            Parallel.For(0, faceCount, faceIndex => MeasureFace(vertices, faces, faceIndex, values, areas));
         else
-        {
             for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
-            {
-                int a = faces[faceIndex * 3];
-                int b = faces[faceIndex * 3 + 1];
-                int c = faces[faceIndex * 3 + 2];
-                double value =
-                    (vertices[a * 3 + 2] +
-                     vertices[b * 3 + 2] +
-                     vertices[c * 3 + 2]) / 3.0;
-                values[faceIndex] = value;
-                min = Math.Min(min, value);
-                max = Math.Max(max, value);
-            }
-        }
+                MeasureFace(vertices, faces, faceIndex, values, areas);
 
-        if (min == double.MaxValue)
-            min = 0.0;
-        if (max == double.MinValue)
-            max = 0.0;
+        AnalysisRange resolved = AnalysisRange.Resolve(
+            values, areas, analysis.AutoColorRange, analysis.RangeLow, analysis.RangeHigh, RangeShape.MinMax);
+        range = resolved;
 
-        double low = analysis.AutoColorRange ? min : analysis.RangeLow;
-        double high = analysis.AutoColorRange ? max : analysis.RangeHigh;
-        if (high <= low)
-        {
-            low = min;
-            high = max;
-        }
-        if (high <= low)
-        {
-            low = min;
-            high = max > min ? max : min + 1.0;
-        }
+        distribution = BuildDistribution(values, areas);
 
-        var palette = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset).Stops;
-        double interval = AnalysisColorMapper.ResolveInterval(low, high, analysis.ColorInterval);
-        byte[] colors = BuildMappedColors(values, low, high, analysis.ColorMode, interval, palette);
+        var palette = analysis.ResolveRamp().Stops;
+        byte[] colors = BuildMappedColors(values, resolved, analysis.ColorMode, analysis.ColorInterval, palette);
         return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
     }
 
-    private static RhinoMesh? BuildCutFillPreviewMesh(RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState state, CutFillAnalysisDefinition analysis, byte alpha)
+    /// <summary>
+    /// Face-average elevation and the face's <em>plan</em> (XY-projected) area, the two inputs a weighted
+    /// range fit needs. Plan area, not 3D area: these maps are read in plan, so a near-vertical face should
+    /// carry the weight of the ground it covers, which is almost none.
+    /// </summary>
+    private static void MeasureFace(double[] vertices, int[] faces, int faceIndex, double[] values, double[] planAreas)
     {
+        int a = faces[faceIndex * 3];
+        int b = faces[faceIndex * 3 + 1];
+        int c = faces[faceIndex * 3 + 2];
+
+        values[faceIndex] = (vertices[a * 3 + 2] + vertices[b * 3 + 2] + vertices[c * 3 + 2]) / 3.0;
+
+        double e1x = vertices[b * 3] - vertices[a * 3];
+        double e1y = vertices[b * 3 + 1] - vertices[a * 3 + 1];
+        double e1z = vertices[b * 3 + 2] - vertices[a * 3 + 2];
+        double e2x = vertices[c * 3] - vertices[a * 3];
+        double e2y = vertices[c * 3 + 1] - vertices[a * 3 + 1];
+        double e2z = vertices[c * 3 + 2] - vertices[a * 3 + 2];
+        double nx = (e1y * e2z) - (e1z * e2y);
+        double ny = (e1z * e2x) - (e1x * e2z);
+        double nz = (e1x * e2y) - (e1y * e2x);
+        planAreas[faceIndex] = Math.Abs(nz) * 0.5;
+    }
+
+    private static RhinoMesh? BuildCutFillPreviewMesh(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        TerrainDisplayState state,
+        CutFillAnalysisDefinition analysis,
+        byte alpha,
+        out AnalysisRange? range,
+        out double[]? distribution)
+    {
+        range = null;
+        distribution = null;
         RhinoMesh? terrainMesh = state.TerrainMesh;
         if (terrainMesh == null || !RhinoGeometryConversions.TryExtractMeshData(terrainMesh, out var vertices, out var faces, out _))
             return null;
@@ -197,28 +218,27 @@ internal static class TerrainAnalysisPreviewBuilder
         var boundaries = RhinoSourceResolver.ResolveCurves(doc, analysis.Boundary);
         int faceCount = terrainMesh.Faces.Count;
         var values = new double[faceCount];
-        var colors = new byte[faceCount * 3];
-        double maxAbs = 0.0;
+        var areas = new double[faceCount];
+
+        // An explicit flag rather than a sentinel colour: the old code re-detected "unmapped" by testing
+        // for RGB 130,130,130, which a palette is free to produce.
+        var mapped = new bool[faceCount];
 
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
+            MeasureFace(vertices, faces, faceIndex, values, areas);
+            double centroidZ = values[faceIndex];
             int a = faces[faceIndex * 3];
             int b = faces[faceIndex * 3 + 1];
             int c = faces[faceIndex * 3 + 2];
-
-            var pa = new Point3d(vertices[a * 3], vertices[a * 3 + 1], vertices[a * 3 + 2]);
-            var pb = new Point3d(vertices[b * 3], vertices[b * 3 + 1], vertices[b * 3 + 2]);
-            var pc = new Point3d(vertices[c * 3], vertices[c * 3 + 1], vertices[c * 3 + 2]);
             var centroid = new Point3d(
-                (pa.X + pb.X + pc.X) / 3.0,
-                (pa.Y + pb.Y + pc.Y) / 3.0,
-                (pa.Z + pb.Z + pc.Z) / 3.0);
+                (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0,
+                (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0,
+                centroidZ);
 
+            values[faceIndex] = 0.0;
             if (!IsInsideBoundaries(centroid, boundaries))
-            {
-                WriteColor(colors, faceIndex, 130, 130, 130);
                 continue;
-            }
 
             if (!TryProjectReferencePoint(
                     referenceMesh,
@@ -226,39 +246,100 @@ internal static class TerrainAnalysisPreviewBuilder
                     centroid,
                     doc.ModelAbsoluteTolerance,
                     out Point3d referencePoint))
-            {
-                WriteColor(colors, faceIndex, 130, 130, 130);
                 continue;
-            }
 
-            double delta = centroid.Z - referencePoint.Z;
-            values[faceIndex] = delta;
-            maxAbs = Math.Max(maxAbs, Math.Abs(delta));
+            values[faceIndex] = centroid.Z - referencePoint.Z;
+            mapped[faceIndex] = true;
         }
 
-        double effective = maxAbs > 0.0 ? maxAbs : 1.0;
-        double low = analysis.AutoColorRange ? -effective : Math.Min(analysis.RangeLow, -Math.Abs(analysis.RangeHigh));
-        double high = analysis.AutoColorRange ? effective : Math.Max(analysis.RangeHigh, Math.Abs(analysis.RangeLow));
-        if (high <= low)
-        {
-            low = -effective;
-            high = effective;
-        }
+        // Only comparable faces may influence the fitted range.
+        AnalysisRange resolved = ResolveMaskedRange(
+            values, areas, mapped, analysis.AutoColorRange, analysis.RangeLow, analysis.RangeHigh, RangeShape.SymmetricAboutZero);
+        range = resolved;
 
-        var palette = SlopePreviewPaletteCatalog.Resolve(analysis.PalettePreset).Stops;
-        double interval = AnalysisColorMapper.ResolveInterval(low, high, analysis.ColorInterval);
+        // Only the comparable faces belong in the histogram too — an unmapped face has no depth, and
+        // counting it as zero would put a spike at "no change" that isn't in the data.
+        distribution = BuildMaskedDistribution(values, areas, mapped);
+
+        var palette = analysis.ResolveRamp().Stops;
+        IReadOnlyList<AnalysisColorMapper.Band>? bands =
+            AnalysisColorMapper.ResolveBandsFor(resolved, analysis.ColorMode, analysis.ColorInterval, palette);
+
+        var colors = new byte[faceCount * 3];
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
-            if (colors[faceIndex * 3] == 130 &&
-                colors[faceIndex * 3 + 1] == 130 &&
-                colors[faceIndex * 3 + 2] == 130)
-                continue;
-
-            SampleAnalysisColor(values[faceIndex], low, high, analysis.ColorMode, interval, palette, out byte r, out byte g, out byte b);
-            WriteColor(colors, faceIndex, r, g, b);
+            SlopeAnalyzer.ColorStop color = !mapped[faceIndex]
+                ? UnmappedColor
+                : AnalysisColorMapper.SampleResolved(
+                    values[faceIndex], resolved, analysis.ColorMode, bands, palette);
+            WriteColor(colors, faceIndex, color.R, color.G, color.B);
         }
 
         return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
+    }
+
+    /// <summary>
+    /// Bars for the analysis card's histogram, area-weighted where areas are available so a thousand
+    /// slivers cannot out-vote the ground they sit on — the same weighting the range fit uses, so the
+    /// shape drawn behind the ramp is the shape auto-fit was reading.
+    /// </summary>
+    private static double[]? BuildDistribution(ReadOnlySpan<double> values, ReadOnlySpan<double> weights)
+    {
+        if (values.Length == 0)
+            return null;
+
+        double[] bars = AnalysisRange.Histogram.Build(values, weights).Resample(HistogramBars);
+        return bars.Length == 0 ? null : bars;
+    }
+
+    private static double[]? BuildMaskedDistribution(double[] values, double[] areas, bool[] mask)
+    {
+        var histogram = new AnalysisRange.Histogram();
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (mask[i])
+                histogram.Observe(values[i]);
+        }
+
+        histogram.FreezeBounds();
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (mask[i])
+                histogram.Add(values[i], areas[i]);
+        }
+
+        double[] bars = histogram.Resample(HistogramBars);
+        return bars.Length == 0 ? null : bars;
+    }
+
+    /// <summary>Fits a range over only the entries flagged in <paramref name="mask"/>.</summary>
+    private static AnalysisRange ResolveMaskedRange(
+        double[] values,
+        double[] areas,
+        bool[] mask,
+        bool auto,
+        double requestedLow,
+        double requestedHigh,
+        RangeShape shape)
+    {
+        if (!auto)
+            return AnalysisRange.FromRequested(requestedLow, requestedHigh, shape);
+
+        var histogram = new AnalysisRange.Histogram();
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (mask[i])
+                histogram.Observe(values[i]);
+        }
+
+        histogram.FreezeBounds();
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (mask[i])
+                histogram.Add(values[i], areas[i]);
+        }
+
+        return histogram.ResolveAuto(shape);
     }
 
     private static MeshHeightProjector? CreateReferenceProjector(RhinoMesh referenceMesh)
@@ -361,137 +442,25 @@ internal static class TerrainAnalysisPreviewBuilder
         return System.Drawing.Color.FromArgb(argb).A;
     }
 
-    private static byte[] BuildFaceColors(double[] values, double low, double high, IReadOnlyList<SlopeAnalyzer.ColorStop> palette)
-    {
-        var colors = new byte[values.Length * 3];
-        if (values.Length >= ParallelColorThreshold)
-        {
-            Parallel.For(0, values.Length, index =>
-            {
-                SamplePaletteColor(values[index], low, high, palette, out byte r, out byte g, out byte b);
-                WriteColor(colors, index, r, g, b);
-            });
-            return colors;
-        }
-
-        for (int index = 0; index < values.Length; index++)
-        {
-            SamplePaletteColor(values[index], low, high, palette, out byte r, out byte g, out byte b);
-            WriteColor(colors, index, r, g, b);
-        }
-
-        return colors;
-    }
-
     private static byte[] BuildMappedColors(
         double[] values,
-        double low,
-        double high,
+        AnalysisRange range,
         AnalysisColorMapper.Mode mode,
         double interval,
         IReadOnlyList<SlopeAnalyzer.ColorStop> palette)
     {
         var colors = new byte[values.Length * 3];
+        IReadOnlyList<AnalysisColorMapper.Band>? bands =
+            AnalysisColorMapper.ResolveBandsFor(range, mode, interval, palette);
+
         for (int index = 0; index < values.Length; index++)
         {
-            SampleAnalysisColor(values[index], low, high, mode, interval, palette, out byte r, out byte g, out byte b);
-            WriteColor(colors, index, r, g, b);
+            SlopeAnalyzer.ColorStop color =
+                AnalysisColorMapper.SampleResolved(values[index], range, mode, bands, palette);
+            WriteColor(colors, index, color.R, color.G, color.B);
         }
+
         return colors;
-    }
-
-    private static void SampleAnalysisColor(
-        double value,
-        double low,
-        double high,
-        AnalysisColorMapper.Mode mode,
-        double interval,
-        IReadOnlyList<SlopeAnalyzer.ColorStop> palette,
-        out byte r,
-        out byte g,
-        out byte b)
-    {
-        var color = AnalysisColorMapper.Sample(value, low, high, mode, interval, palette);
-        r = color.R;
-        g = color.G;
-        b = color.B;
-    }
-
-    internal static void SamplePaletteColor(
-        double value,
-        double low,
-        double high,
-        IReadOnlyList<SlopeAnalyzer.ColorStop> palette,
-        out byte r,
-        out byte g,
-        out byte b)
-    {
-        if (palette.Count == 0)
-        {
-            r = 180;
-            g = 180;
-            b = 180;
-            return;
-        }
-
-        if (high <= low)
-            high = low + 1.0;
-
-        if (double.IsNaN(value) || double.IsInfinity(value) || value <= low)
-        {
-            var first = palette[0];
-            r = first.R;
-            g = first.G;
-            b = first.B;
-            return;
-        }
-
-        if (value >= high)
-        {
-            var last = palette[^1];
-            r = last.R;
-            g = last.G;
-            b = last.B;
-            return;
-        }
-
-        double t = (value - low) / (high - low);
-        var previous = palette[0];
-        for (int index = 1; index < palette.Count; index++)
-        {
-            var current = palette[index];
-            if (t > current.Position)
-            {
-                previous = current;
-                continue;
-            }
-
-            double segment = current.Position - previous.Position;
-            if (segment <= 1e-9)
-            {
-                r = current.R;
-                g = current.G;
-                b = current.B;
-                return;
-            }
-
-            double localT = (t - previous.Position) / segment;
-            r = Interpolate(previous.R, current.R, localT);
-            g = Interpolate(previous.G, current.G, localT);
-            b = Interpolate(previous.B, current.B, localT);
-            return;
-        }
-
-        var fallback = palette[^1];
-        r = fallback.R;
-        g = fallback.G;
-        b = fallback.B;
-    }
-
-    private static byte Interpolate(byte a, byte b, double t)
-    {
-        double clamped = Math.Clamp(t, 0.0, 1.0);
-        return (byte)Math.Round(a + ((b - a) * clamped));
     }
 
     private static void WriteColor(byte[] colors, int faceIndex, byte r, byte g, byte b)

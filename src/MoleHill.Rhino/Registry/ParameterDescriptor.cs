@@ -16,6 +16,7 @@ internal enum ParameterKind
     ReadOnly,
     Choice,
     Color,
+    ColorRamp,
     Text,
 }
 
@@ -105,7 +106,8 @@ internal sealed class ParameterDescriptor
         string label,
         Func<ModifierDefinition, SourceReferenceSet> get,
         RhinoObjectType objectFilter,
-        string? help = null) =>
+        string? help = null,
+        Func<ModifierDefinition, bool>? visibleWhen = null) =>
         new()
         {
             Kind = ParameterKind.Sources,
@@ -114,6 +116,7 @@ internal sealed class ParameterDescriptor
             GetSources = get,
             ObjectFilter = objectFilter,
             Help = help,
+            VisibleWhen = visibleWhen,
         };
 
     public static ParameterDescriptor Number(

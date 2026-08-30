@@ -55,7 +55,7 @@ public sealed partial class MoleHillPanel
             _zonesStack.Items.Add(new StackLayoutItem(zoneOuter, HorizontalAlignment.Stretch));
 
             var box = CreateZoneCard(terrain, zone);
-            var zoneStrip = new Panel { Width = 5, BackgroundColor = UiTheme.ZoneStripColor };
+            var zoneStrip = new Panel { Width = UiMetrics.CardAccentWidth, BackgroundColor = UiTheme.ZoneStripColor };
             var zoneWrapper = WrapCardControl(box, zoneStrip, UiTheme.CardBackground);
             _zoneCardMap[zoneId] = zoneWrapper;
             WireZoneCardDragDrop(zoneWrapper, terrainId, zoneId);
@@ -296,7 +296,7 @@ public sealed partial class MoleHillPanel
 
     private Control CreateZoneBody(TerrainDefinition terrain, CollageZoneDefinition zone)
     {
-        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
+        var layout = UiLayouts.CardBody();
         var useInputElevationCheck = new CheckBox
         {
             Text = "Priority by elevation",

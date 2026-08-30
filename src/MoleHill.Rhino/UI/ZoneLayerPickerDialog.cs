@@ -51,6 +51,7 @@ internal sealed class ZoneLayerPickerDialog : Dialog<bool>
             ExpandContentWidth = true,
             ExpandContentHeight = false
         };
+        UiControls.DisableHorizontalScrolling(scroll);
 
         foreach (var layer in doc.Layers)
         {

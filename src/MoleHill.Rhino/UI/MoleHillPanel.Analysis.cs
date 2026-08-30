@@ -142,8 +142,18 @@ public sealed partial class MoleHillPanel
 
     private Control CreateAnalysisBody(TerrainDefinition terrain, AnalysisDefinition analysis)
     {
-        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 6), Padding = new Padding(10, 8, 10, 8) };
+        var layout = UiLayouts.CardBody();
         TerrainAnalysisSummary? summary = GetAnalysisSummary(terrain, analysis.Id);
+
+        // Above the controls, not below them: if this analysis cannot do anything yet, that is the first
+        // thing to say, and it names which control to reach for. Otherwise state what it is measuring —
+        // a good default is invisible, and a card that says nothing about it reads as unconfigured.
+        var descriptor = AnalysisTypeRegistry.ForType(analysis.GetType());
+        string? blocker = descriptor?.DescribeBlocker(terrain, analysis);
+        if (blocker != null)
+            layout.AddRow(CreateWarningRow(blocker));
+        else if (descriptor?.DescribeBasis(terrain, analysis) is { } basis)
+            layout.AddRow(CreateNoteRow(basis));
 
         AppendBespokeAnalysisRowsBefore(layout, terrain, analysis);
         TryBuildSchemaAnalysisBody(layout, terrain, analysis);
@@ -169,13 +179,6 @@ public sealed partial class MoleHillPanel
         {
             case SlopeAnalysisDefinition slope:
                 layout.AddRow(CreateSlopeUnitEditor(terrain.TerrainId, slope));
-                layout.AddRow(CreateAnalysisColorSettings(terrain, slope));
-                break;
-            case ElevationAnalysisDefinition elevation:
-                layout.AddRow(CreateAnalysisColorSettings(terrain, elevation));
-                break;
-            case CutFillAnalysisDefinition cutFill:
-                layout.AddRow(CreateAnalysisColorSettings(terrain, cutFill));
                 break;
 
             case TerrainSectionAnalysisDefinition terrainSection:
@@ -193,6 +196,80 @@ public sealed partial class MoleHillPanel
                     "Curve sampled along its length. Terrain elevation is read at each sample.");
                 break;
         }
+    }
+
+    /// <summary>An inline caution on a card: a setting is on but cannot take effect yet.</summary>
+    /// <summary>
+    /// A quiet statement of fact about how the card is set up. Muted and unadorned, so it reads as an
+    /// answer to "what is this measuring?" rather than as something demanding attention.
+    /// </summary>
+    private static Control CreateNoteRow(string message)
+    {
+        var label = UiControls.Label(message, UiLabelRole.Meta, WrapMode.Word);
+        label.VerticalAlignment = VerticalAlignment.Top;
+        return label;
+    }
+
+    /// <summary>
+    /// An inline notice on a card: a setting is on but cannot take effect, or a prerequisite is missing.
+    /// Given the warning surface so it reads as a notice rather than a stray sentence between controls.
+    /// </summary>
+    private static Control CreateWarningRow(string message)
+    {
+        return new Panel
+        {
+            BackgroundColor = UiTheme.WarningBackground,
+            Padding = new Padding(UiMetrics.SpaceMedium, UiMetrics.SpaceSmall),
+            Content = new Label
+            {
+                Text = message,
+                TextColor = UiTheme.WarningText,
+                Wrap = WrapMode.Word
+            }
+        };
+    }
+
+    /// <summary>
+    /// Hatch patterns offered on a section card: MoleHill's built-ins plus whatever the document already
+    /// defines, so an office standard pattern is selectable without leaving the panel.
+    /// </summary>
+    private static IReadOnlyList<(string Key, string Label)> GetHatchPatternOptions()
+    {
+        var names = new List<string>(HatchPatternService.BuiltInPatternNames);
+        RhinoDoc? doc = RhinoDoc.ActiveDoc;
+        if (doc != null)
+        {
+            foreach (var pattern in doc.HatchPatterns)
+            {
+                if (pattern != null && !pattern.IsDeleted &&
+                    !names.Contains(pattern.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    names.Add(pattern.Name);
+                }
+            }
+        }
+
+        return names.Select(name => (name, name)).ToList();
+    }
+
+    /// <summary>
+    /// The range the legend should describe: the one the preview mesh was actually coloured with, stamped
+    /// onto the summary when the mesh was built. Falls back to resolving the configured bounds directly,
+    /// which is correct for an explicit range and is the best guess before the first colouring.
+    /// </summary>
+    private static AnalysisRange ResolveLegendRange(
+        TerrainAnalysisSummary? summary,
+        AnalysisDefinition analysis,
+        RangeShape shape)
+    {
+        if (summary?.DisplayRangeLow is { } low && summary.DisplayRangeHigh is { } high && high > low)
+            return new AnalysisRange(low, high, analysis.AutoColorRange);
+
+        if (!analysis.AutoColorRange)
+            return AnalysisRange.FromRequested(analysis.RangeLow, analysis.RangeHigh, shape);
+
+        // No colouring yet: show the configured bounds if they are usable, otherwise a neutral placeholder.
+        return AnalysisRange.FromRequested(analysis.RangeLow, analysis.RangeHigh, shape) with { IsAuto = true };
     }
 
     /// <summary>
@@ -227,78 +304,43 @@ public sealed partial class MoleHillPanel
                 }
                 break;
 
+            // The mapped range and the ramp itself are the colour card's job now; what is left here is the
+            // statistic the card cannot know — what the terrain actually measured on the last build.
             case SlopeAnalysisDefinition slope:
+            {
                 if (summary != null)
                 {
                     layout.AddRow(CreateReadOnlyValueRow(
                         "Min / Avg / Max",
                         $"{FormatSlopeSummaryValue(summary.SlopeMinPercent, slope.Unit)} / {FormatSlopeSummaryValue(summary.SlopeAveragePercent, slope.Unit)} / {FormatSlopeSummaryValue(summary.SlopeMaxPercent, slope.Unit)}",
                         "Current terrain slope summary from the last build."));
-                    layout.AddRow(CreateReadOnlyValueRow(
-                        "Mapped",
-                        $"{FormatSlopeSummaryValue(summary.SlopeDisplayLowPercent, slope.Unit)} to {FormatSlopeSummaryValue(summary.SlopeDisplayHighPercent, slope.Unit)}",
-                        "Actual slope range currently mapped across the selected palette."));
                 }
-                // Legend shows the actual mapped range from the last build
-                {
-                    string sLow  = summary != null
-                        ? FormatSlopeValue(ConvertPercentToSlopeUnit(summary.SlopeDisplayLowPercent, slope.Unit), slope.Unit)
-                        : FormatSlopeValue(slope.RangeLow, slope.Unit);
-                    string sHigh = summary != null
-                        ? FormatSlopeValue(ConvertPercentToSlopeUnit(summary.SlopeDisplayHighPercent, slope.Unit), slope.Unit)
-                        : FormatSlopeValue(slope.RangeHigh, slope.Unit);
-                    layout.AddRow(CreateSlopeLegendView(
-                        SlopePreviewPaletteCatalog.Resolve(slope.PalettePreset),
-                        displayLowLabel: sLow,
-                        displayHighLabel: sHigh,
-                        mode: slope.ColorMode,
-                        interval: summary == null || slope.ColorInterval <= 0.0
-                            ? 0.1
-                            : ConvertSlopeValue(slope.ColorInterval, slope.Unit, SlopeAnalyzer.SlopeUnit.Percent) /
-                              Math.Max(1e-12, summary.SlopeDisplayHighPercent - summary.SlopeDisplayLowPercent)));
-                }
+
                 break;
+            }
 
             case ElevationAnalysisDefinition elevation:
+            {
                 if (summary != null)
                     layout.AddRow(CreateReadOnlyValueRow(
                         "Area",
                         FormatArea(summary.SurfaceArea),
                         "Terrain surface area from the last build."));
-                {
-                    // Actual low/high Z driven by either the configured range or auto-fit from last build
-                    var a = summary;
-                    double eLow  = a != null && elevation.AutoColorRange ? a.ElevationMinZ : elevation.RangeLow;
-                    double eHigh = a != null && elevation.AutoColorRange ? a.ElevationMaxZ : elevation.RangeHigh;
-                    layout.AddRow(CreateSlopeLegendView(
-                        SlopePreviewPaletteCatalog.Resolve(elevation.PalettePreset),
-                        displayLowLabel:  a != null ? $"{eLow:F1}" : "Low Z",
-                        displayHighLabel: a != null ? $"{eHigh:F1}" : "High Z",
-                        mode: elevation.ColorMode,
-                        interval: AnalysisColorMapper.ResolveInterval(eLow, eHigh, elevation.ColorInterval) / Math.Max(1e-12, eHigh - eLow)));
-                }
+
                 break;
+            }
 
             case CutFillAnalysisDefinition cutFill:
+            {
                 if (summary != null)
                 {
                     layout.AddRow(CreateReadOnlyValueRow("Cut / Fill / Net",
                         $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}",
                         "Current earthworks summary from the last build."));
                 }
-                {
-                    var a = summary;
-                    double absMax = a?.CutFillDisplayAbsMax ?? Math.Max(Math.Abs(cutFill.RangeLow), Math.Abs(cutFill.RangeHigh));
-                    string cfLow  = a != null ? $"{-absMax:F2}" : "Cut";
-                    string cfHigh = a != null ? $"+{absMax:F2}" : "Fill";
-                    layout.AddRow(CreateSlopeLegendView(
-                        SlopePreviewPaletteCatalog.Resolve(cutFill.PalettePreset),
-                        displayLowLabel: cfLow,
-                        displayHighLabel: cfHigh,
-                        mode: cutFill.ColorMode,
-                        interval: AnalysisColorMapper.ResolveInterval(-absMax, absMax, cutFill.ColorInterval) / Math.Max(1e-12, absMax * 2.0)));
-                }
+
                 break;
+            }
 
             case WaterflowAnalysisDefinition waterflow:
                 if (summary != null)
@@ -607,29 +649,42 @@ public sealed partial class MoleHillPanel
             "Cut / Fill",
             analysis.ShowCutFillRegions,
             value => MutateSection(item => item.ShowCutFillRegions = value),
-            "Shade cut and fill between the proposed terrain and the selected reference terrain."));
-        layout.AddRow(CreateOptionalColorEditor(
-            "Cut Color",
-            analysis.CutColorArgb,
-            value => MutateSection(item => item.CutColorArgb = value ?? TerrainSectionAnalysisDefinitionBase.DefaultCutColorArgb),
-            "Color used where proposed terrain is below the reference terrain.",
-            TerrainSectionAnalysisDefinitionBase.DefaultCutColorArgb,
-            "Default cut red"));
-        layout.AddRow(CreateOptionalColorEditor(
-            "Fill Color",
-            analysis.FillColorArgb,
-            value => MutateSection(item => item.FillColorArgb = value ?? TerrainSectionAnalysisDefinitionBase.DefaultFillColorArgb),
-            "Color used where proposed terrain is above the reference terrain.",
-            TerrainSectionAnalysisDefinitionBase.DefaultFillColorArgb,
-            "Default fill blue"));
+            "Shade cut and fill between this terrain and the reference below."));
+        layout.AddRow(CreateSourceEditor(
+            "C/F Reference",
+            analysis.CutFillReference,
+            apply => MutateSection(item => apply(item.CutFillReference)),
+            RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion,
+            doc => _controller.GetSelectedLayerPaths(doc),
+            "Existing ground for cut/fill shading: a survey mesh or surface, sliced along the same section " +
+            "line. Leave empty to compare against this terrain's own initial triangulation instead."));
+
+        layout.AddRow(CreateDropDownEditor(
+            "Cut Hatch",
+            GetHatchPatternOptions(),
+            HatchPatternService.ResolvePatternName(analysis.CutHatchPatternName, HatchPatternService.DefaultCutPatternName),
+            value => MutateSection(item => item.CutHatchPatternName = value),
+            "Hatch pattern for cut regions. By drafting convention cut reads denser than fill."));
+        layout.AddRow(CreateDropDownEditor(
+            "Fill Hatch",
+            GetHatchPatternOptions(),
+            HatchPatternService.ResolvePatternName(analysis.FillHatchPatternName, HatchPatternService.DefaultFillPatternName),
+            value => MutateSection(item => item.FillHatchPatternName = value),
+            "Hatch pattern for fill regions."));
         layout.AddRow(CreateNumericEditor(
-            "Fill Opacity %",
-            analysis.CutFillOpacityPercent,
-            value => MutateSection(item => item.CutFillOpacityPercent = Math.Clamp((int)Math.Round(value), 0, 100)),
-            decimalPlaces: 0,
-            help: "Opacity of generated cut and fill regions.",
-            minValue: 0.0,
-            maxValue: 100.0));
+            "Hatch Scale",
+            analysis.HatchScale,
+            value => MutateSection(item => item.HatchScale = Math.Max(0.0, value)),
+            decimalPlaces: 3,
+            help: "Pattern scale. 0 derives a scale from the text height so the fill reads as a texture at " +
+                  "the drawing's scale — a pattern's own spacing is arbitrary, so a fixed 1 prints solid black.",
+            minValue: 0.0));
+        layout.AddRow(CreateNumericEditor(
+            "Hatch Angle",
+            analysis.HatchRotationDegrees,
+            value => MutateSection(item => item.HatchRotationDegrees = value),
+            decimalPlaces: 1,
+            help: "Pattern rotation in degrees."));
         layout.AddRow(CreateInsertionOriginEditor(terrain, analysis));
         layout.AddRow(CreateNumericEditor(
             "Text Height",

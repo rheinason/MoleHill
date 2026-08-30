@@ -10,10 +10,25 @@ public abstract class TerrainSectionAnalysisDefinitionBase : AnalysisDefinition
 
     public List<Guid> ComparisonTerrainIds { get; set; } = new();
 
+    /// <summary>
+    /// Another MoleHill terrain to treat as existing ground. Optional: <see cref="CutFillReference"/> can
+    /// supply the reference instead, and usually does — requiring a whole second terrain meant cut/fill
+    /// shading was unreachable for anyone modelling one surface against a surveyed mesh.
+    /// </summary>
     public Guid? CutFillReferenceTerrainId { get; set; }
+
+    /// <summary>
+    /// Rhino meshes, surfaces or extrusions to treat as existing ground, sliced along the same cut line as
+    /// the terrain. Takes precedence over <see cref="CutFillReferenceTerrainId"/> when both are set.
+    /// </summary>
+    public SourceReferenceSet CutFillReference { get; set; } = new();
 
     public bool ShowCutFillRegions { get; set; } = true;
 
+    // Cut and fill regions are emitted as hatches whose appearance is layer-driven (see
+    // SectionOutputLayers and the office layer template), so these three no longer affect output. They are
+    // kept so existing documents round-trip unchanged, and so the layer template can seed its cut/fill
+    // layers from the same two colours; their panel rows were removed because editing them did nothing.
     public int CutColorArgb { get; set; } = DefaultCutColorArgb;
 
     public int FillColorArgb { get; set; } = DefaultFillColorArgb;
@@ -62,8 +77,24 @@ public abstract class TerrainSectionAnalysisDefinitionBase : AnalysisDefinition
 
     public double TextHeight { get; set; } = 1.0;
 
+    /// <summary>
+    /// Vertical scale relative to horizontal. 1 draws the section true to shape; higher values stretch
+    /// elevations so gentle ground is readable — 5x or 10x is ordinary for a landform section, where the
+    /// interesting relief is a metre or two across a hundred.
+    ///
+    /// Lives on the base because every section type needs it. It was previously declared separately on
+    /// two of the three, and the plain Section Cut simply passed 1.0, so the one section people reach for
+    /// first was the one that could not be exaggerated.
+    /// </summary>
+    public double VerticalExaggeration { get; set; } = 1.0;
+
+    /// <summary>True when cut/fill shading has something to compare against.</summary>
+    public bool HasCutFillReference =>
+        CutFillReferenceTerrainId.HasValue || CutFillReference.HasReferences;
+
     public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {
         yield return Sources;
+        yield return CutFillReference;
     }
 }

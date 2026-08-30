@@ -20,8 +20,6 @@ public sealed class CrossSectionStationAnalysisDefinition : TerrainSectionAnalys
 
     public double ElevationGridInterval { get; set; }
 
-    public double VerticalExaggeration { get; set; } = 1.0;
-
     public CrossSectionStationAnalysisDefinition()
     {
         Label = "Cross-Sections";

@@ -16,6 +16,25 @@ public sealed class TerrainAnalysisSummary
 
     public double SlopeDisplayHighPercent { get; set; }
 
+    /// <summary>
+    /// Low end of the range currently mapped across the palette, in the analysis's own display unit
+    /// (percent/degrees/ratio for slope, model length for elevation and cut/fill). Null before the first
+    /// preview colouring. Refreshed whenever the preview mesh is recoloured — including colour-setting
+    /// edits that deliberately skip a rebuild — so the legend never describes a stale range.
+    /// </summary>
+    public double? DisplayRangeLow { get; set; }
+
+    /// <summary>High end of the mapped range. See <see cref="DisplayRangeLow"/>.</summary>
+    public double? DisplayRangeHigh { get; set; }
+
+    /// <summary>
+    /// The analysed values' distribution across the mapped range, as bars scaled so the tallest is 1.0.
+    /// Drawn behind the ramp on the analysis card, which is what turns dragging Min/Max from guesswork
+    /// into aiming at the data. Null for analyses that produce no per-face field (contours, waterflow,
+    /// sections) — those cards simply draw no histogram.
+    /// </summary>
+    public double[]? DistributionBins { get; set; }
+
     public double ElevationMinZ { get; set; }
 
     public double ElevationMaxZ { get; set; }

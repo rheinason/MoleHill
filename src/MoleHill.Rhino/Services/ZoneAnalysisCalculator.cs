@@ -22,9 +22,11 @@ internal static class ZoneAnalysisCalculator
             result.TriangleCount += faces.Length / 3;
             result.SurfaceArea += AreaMassProperties.Compute(mesh)?.Area ?? 0.0;
 
+            // Only min/max/average are read here, so skip the auto-range fit and its allocations.
             var slopes = SlopeAnalyzer.Summarize(
                 vertices, mesh.Vertices.Count, faces, faces.Length / 3,
-                SlopeAnalyzer.SlopeUnit.Percent);
+                SlopeAnalyzer.SlopeUnit.Percent,
+                autoRange: false);
             if (result.TriangleCount == faces.Length / 3)
             {
                 result.SlopeMinPercent = slopes.Min;

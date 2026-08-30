@@ -71,9 +71,13 @@ public sealed class SlopeAnalysisComponent : RegistryTerrainComponent
         if (!ctx.TryToFlatFaces(mesh, out var faces))
             return;
 
+        // A High of 0 (or below Low) still means "auto from data", which now fits the trimmed slope
+        // distribution rather than the single steepest face.
         var result = SlopeAnalyzer.Analyze(vertices, vertexCount, faces, faceCount,
                                             (SlopeAnalyzer.SlopeUnit)unit,
-                                            colorLow, colorHigh);
+                                            autoRange: colorHigh <= colorLow,
+                                            requestedLow: colorLow,
+                                            requestedHigh: colorHigh);
 
         // Build colored mesh with unshared vertices (flat shading)
         var coloredMesh = new Mesh();

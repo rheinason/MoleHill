@@ -98,6 +98,7 @@ public sealed partial class MoleHillPanel
             ExpandContentWidth = true,
             ExpandContentHeight = false
         };
+        UiControls.DisableHorizontalScrolling(availableScroll);
 
         List<LayerPickerEntry> visibleEntries = new();
         int highlightedIndex = -1;

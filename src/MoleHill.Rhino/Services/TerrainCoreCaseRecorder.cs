@@ -105,7 +105,10 @@ internal sealed class TerrainCoreCaseRecorder
                 path.Width,
                 path.SlopeAngleDeg,
                 path.MaxDistance,
-                path.FillSlopeAngleDeg))
+                path.FillSlopeAngleDeg,
+                path.LeftEdgeXy is null ? null : (double[])path.LeftEdgeXy.Clone(),
+                path.RightEdgeXy is null ? null : (double[])path.RightEdgeXy.Clone(),
+                path.IsClosed))
             .ToArray();
     }
 

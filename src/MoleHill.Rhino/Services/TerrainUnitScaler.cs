@@ -70,6 +70,9 @@ internal static class TerrainUnitScaler
             geometryInput.MaxBoundaryEdgeLength *= lengthScale;
         }
 
+        if (modifier is TriangulateModifierDefinition triangulate && triangulate.DemElevationScale > 0.0)
+            triangulate.DemElevationScale *= lengthScale;
+
         switch (modifier)
         {
             case GradePadModifierDefinition gradePad:
@@ -78,6 +81,7 @@ internal static class TerrainUnitScaler
             case GradePathModifierDefinition gradePath:
                 gradePath.Width *= lengthScale;
                 gradePath.MaxDistance *= lengthScale;
+                gradePath.MaxEdgeDistance *= lengthScale;
                 break;
             case InSituStairModifierDefinition stair:
                 stair.RiserHeight *= lengthScale;
@@ -212,6 +216,12 @@ internal static class TerrainUnitScaler
             summary.SampleMinValue *= lengthScale;
             summary.SampleMaxValue *= lengthScale;
             summary.SampleAverageValue *= lengthScale;
+
+            // The mapped range is a length for these analyses; for slope it is unitless and must not scale.
+            if (summary.DisplayRangeLow.HasValue)
+                summary.DisplayRangeLow = summary.DisplayRangeLow.Value * lengthScale;
+            if (summary.DisplayRangeHigh.HasValue)
+                summary.DisplayRangeHigh = summary.DisplayRangeHigh.Value * lengthScale;
         }
     }
 

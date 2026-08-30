@@ -43,9 +43,9 @@ internal sealed class PropertyRow : Panel
         return new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.SpaceMedium,
             VerticalContentAlignment = VerticalAlignment.Center,
-            Padding = new Padding(0, 3),
+            Padding = new Padding(0, UiMetrics.PropertyRowVerticalPadding),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
@@ -60,8 +60,8 @@ internal sealed class PropertyRow : Panel
         return new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 4,
-            Padding = new Padding(0, 3),
+            Spacing = UiMetrics.SpaceSmall,
+            Padding = new Padding(0, UiMetrics.PropertyRowVerticalPadding),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {

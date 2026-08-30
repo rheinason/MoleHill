@@ -86,7 +86,7 @@ internal sealed class AdaptiveControlGroup : Panel
         var lines = new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 4,
+            Spacing = UiMetrics.SpaceSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
 
@@ -142,4 +142,68 @@ internal static class AdaptiveWidth
         _ when control.Width > 0 => control.Width,
         _ => UiMetrics.Chs(10)
     };
+}
+
+/// <summary>
+/// Equal-width compact controls share a line while useful, then become a vertical stack. This is
+/// intentionally separate from <see cref="AdaptiveControlGroup"/>, whose children keep intrinsic widths.
+/// </summary>
+internal sealed class AdaptiveColumns : Panel
+{
+    private readonly Control[] _controls;
+    private readonly int _spacing;
+    private readonly int _minimumColumnWidth;
+    private bool? _stacked;
+
+    public AdaptiveColumns(int spacing, int minimumColumnWidth, params Control[] controls)
+    {
+        _controls = controls;
+        _spacing = spacing;
+        _minimumColumnWidth = minimumColumnWidth;
+        Content = BuildHorizontal();
+        SizeChanged += (_, _) => Relayout();
+    }
+
+    private void Relayout()
+    {
+        if (Width <= 0)
+            return;
+
+        bool stacked = Width < _minimumColumnWidth * _controls.Length + _spacing * (_controls.Length - 1);
+        if (_stacked == stacked)
+            return;
+
+        _stacked = stacked;
+        SuspendLayout();
+        Content = null;
+        Content = stacked ? BuildVertical() : BuildHorizontal();
+        ResumeLayout();
+    }
+
+    private Control BuildHorizontal()
+    {
+        var row = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = _spacing,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center
+        };
+        foreach (var control in _controls)
+            row.Items.Add(new StackLayoutItem(control, expand: true));
+        return row;
+    }
+
+    private Control BuildVertical()
+    {
+        var stack = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = _spacing,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        foreach (var control in _controls)
+            stack.Items.Add(new StackLayoutItem(control, HorizontalAlignment.Stretch));
+        return stack;
+    }
 }

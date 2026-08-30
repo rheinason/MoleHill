@@ -46,6 +46,16 @@ internal sealed class GeneratedRhinoObject
 
     public double? PlotWeight { get; init; }
 
+    /// <summary>
+    /// Stacking order within a section drawing: lower draws first, so higher wins where lines coincide.
+    ///
+    /// Sections are flat, and their pieces overlap constantly — existing ground runs under the proposed
+    /// profile wherever nothing was graded, and both run over the cut/fill tint. Left to chance, whichever
+    /// happened to be drawn last won, and the subject of the drawing could end up hidden behind its own
+    /// context. Rhino honours this per object, so it survives baking as well as preview.
+    /// </summary>
+    public int DisplayOrder { get; init; }
+
     /// <summary>When set, this is a scatter instance owned by the given scatter definition; the display
     /// conduit uses the definition's preview mode/cap to decide how to draw it. Bake ignores this.</summary>
     public Guid? ScatterDefinitionId { get; init; }

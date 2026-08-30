@@ -1,11 +1,12 @@
 using System.Text.Json.Serialization;
+using MoleHill.Core.Analysis;
 using MoleHill.Core.Grading;
 
 namespace MoleHill.Rhino.Model;
 
 public sealed class TerrainDefinition
 {
-    public const int CurrentSchemaVersion = 27;
+    public const int CurrentSchemaVersion = 29;
     public const int DefaultTerrainColorArgb = unchecked((int)0xFFC7D2C2);
     public const string DefaultTerrainLayerPath = "MoleHill::Terrain";
     public const string DefaultAuxiliaryLayerPath = "MoleHill::Auxiliary";
@@ -41,6 +42,14 @@ public sealed class TerrainDefinition
 
     public bool ShowSlopePreview { get; set; }
 
+    /// <summary>
+    /// Multiplier on the viewport thickness of every line this terrain previews — contours, waterflow,
+    /// sections, annotation, markers. 1.0 is the drawing-derived default from
+    /// <see cref="Services.GeneratedLayerDefaults"/>; raise it to read a busy plan on a dense screen.
+    /// Purely a display preference: it never reaches baked geometry, whose weight belongs to the layer.
+    /// </summary>
+    public double PreviewLineWeight { get; set; } = 1.0;
+
     public string? TerrainLayerPath { get; set; }
 
     public string? AuxiliaryLayerPath { get; set; }
@@ -52,7 +61,7 @@ public sealed class TerrainDefinition
     /// masks are edited in Rhino's own Annotation Styles editor, not in MoleHill.</summary>
     public string? AnnotationStyleName { get; set; }
 
-    public string SlopePalettePreset { get; set; } = MoleHill.Rhino.Services.SlopePreviewPaletteCatalog.DefaultKey;
+    public string SlopePalettePreset { get; set; } = ColorRampPresets.DefaultKey;
 
     public double SlopeColorLowPercent { get; set; }
 

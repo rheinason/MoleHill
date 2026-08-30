@@ -61,7 +61,12 @@ internal sealed partial class TerrainController
         if (displayState == null || !ReferenceEquals(displayState.PreviewTerrainMesh, releasedMesh))
             return;
 
-        displayState.PreviewTerrainMesh = displayState.TerrainMesh;
+        // Keep showing the just-sculpted result — not the stale pre-session mesh — until the
+        // caller's imminent rebuild swaps in the canonical Final mesh. A stale swap-back here is
+        // what causes the sculpt-end "blink" (unsculpted terrain flashing before the real result
+        // reappears). Duplicate rather than keep the session's own mesh reference: the caller
+        // disposes its working mesh right after this call returns.
+        displayState.PreviewTerrainMesh = releasedMesh.DuplicateMesh();
         displayState.InvalidatePreviewBounds();
         NotifyRenderMeshesChanged(doc);
     }

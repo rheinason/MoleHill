@@ -5,7 +5,9 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
 `System.Text.Json` polymorphism + `SchemaVersion` migrations.
 
 - `TerrainDefinition.cs` — the root: name, flags, `GlobalTolerance`, and the ordered lists of
-  `Modifiers`, `Analyses`, `Objects`, `Markers`, plus baked-output bookkeeping.
+  `Modifiers`, `Analyses`, `Objects`, `Markers`, plus baked-output bookkeeping. `PreviewLineWeight`
+  multiplies every previewed line width for this terrain; it is a display preference only, and never
+  reaches baked geometry, whose print weight belongs to its layer.
 - `SourceReferenceSet.cs` — the universal input selector (object ids + layer paths); used by every
   definition that reads doc geometry.
 
@@ -20,13 +22,27 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   `RetainingWallModifierDefinition`, `InSituStairModifierDefinition`, `SculptModifierDefinition`.
   `TriangulateModifierDefinition.ContourMode` persists the Auto / Constrained / Vertices-only choice;
   Auto switches dense contour sets to point samples while breaklines and Boundary remain constrained.
+  Triangulate also stores a `DemSurface` source: a planar Rhino surface whose bitmap texture is a numeric
+  GeoTIFF. Raster samples are mapped through the live surface at snapshot time, so moving the surface
+  controls project placement without generating persistent point objects.
+  Grade Path stores centerline sources, the constant width, a `UseVariableWidth` opt-in toggle, and —
+  read only while that toggle is on — ordinary-Rhino width-edge sources plus an optional edge-matching
+  distance; width-edge elevations are ignored. Turning the toggle off parks the edge references rather
+  than clearing them, so the panel card of a plain path shows only Centerlines/Width, and re-enabling
+  restores the previous edges. `EnumerateSourceSets` still yields the parked set so stale-object cleanup
+  and layer renames keep tracking it.
   Sculpt persists both its raw displacement tiles and a constraint source set; selected closed curves
   protect their interiors, while earlier Grade Path sources resolve to their configured road width.
 - **Analyses** — `AnalysisDefinition` → `Slope`, `Elevation`, `Contour`, `CutFill`, `Earthwork`,
   `WaterflowAnalysisDefinition`, section/label analyses, etc. Waterflow stores point sources and
-  traces generated downhill curves on the final terrain. All section analyses persist optional
-  comparison terrain ids, one cut/fill reference id, and shared cut/fill display styling; the owning
-  terrain remains the implicit proposed profile.
+  traces generated downhill curves on the final terrain. Slope/Elevation/CutFill carry `AutoColorRange`
+  plus `RangeLow`/`RangeHigh`, `ColorMode` and `ColorInterval`; when auto-fit is on the stored bounds are
+  ignored and Core's `AnalysisRange` fits the distribution instead. All section analyses persist optional
+  comparison terrain ids, a `CutFillReference` source set (any mesh/surface treated as existing ground —
+  preferred over the older reference terrain id), and hatch pattern/scale/rotation for the generated
+  cut and fill fills; the owning terrain remains the implicit proposed profile. `CutColorArgb`,
+  `FillColorArgb` and `CutFillOpacityPercent` are retained for document round-tripping only — cut/fill
+  appearance is layer-driven.
 - **Objects** — `TerrainObjectDefinition` → `LowestPointObjectDefinition`,
   `SurfaceOrientedObjectDefinition`, `ScatterObjectDefinition` (+ `ScatterBlockEntry`,
   `ScatterPreviewMode`; reuses Core's `ScatterPattern`/`ScatterDensityMode`).

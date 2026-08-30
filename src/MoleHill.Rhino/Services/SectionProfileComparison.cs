@@ -77,6 +77,15 @@ internal static class SectionProfileComparison
         return MergePortions(portions, resolvedTolerance);
     }
 
+    /// <summary>
+    /// Flattens a sliced profile into station-ordered edges.
+    ///
+    /// A segment's vertices are not guaranteed to run in increasing station: the slicer walks mesh
+    /// adjacency, so a run can come back descending. Each edge is therefore normalized to
+    /// low-station-first. Assuming ascending order silently dropped every edge of a descending run — and a
+    /// fully descending profile produced no edges at all, which is why cut/fill shading could come back
+    /// empty on section lines that were otherwise perfectly valid.
+    /// </summary>
     private static List<ProfileEdge> BuildEdges(TerrainSectionResult result, double tolerance)
     {
         var edges = new List<ProfileEdge>();
@@ -86,9 +95,12 @@ internal static class SectionProfileComparison
             {
                 TerrainSectionVertex a = segment.Vertices[i - 1];
                 TerrainSectionVertex b = segment.Vertices[i];
-                if (b.Station - a.Station <= tolerance)
+                if (Math.Abs(b.Station - a.Station) <= tolerance)
                     continue;
-                edges.Add(new ProfileEdge(a.Station, b.Station, a.World.Z, b.World.Z));
+
+                edges.Add(a.Station <= b.Station
+                    ? new ProfileEdge(a.Station, b.Station, a.World.Z, b.World.Z)
+                    : new ProfileEdge(b.Station, a.Station, b.World.Z, a.World.Z));
             }
         }
 

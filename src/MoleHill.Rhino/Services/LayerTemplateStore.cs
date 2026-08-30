@@ -107,11 +107,13 @@ internal sealed class LayerTemplateStore
                     // per-detail overrides work. Weights match GeneratedLayerDefaults.
                     CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Contours::Major", unchecked((int)0xFF6E4B1F), unchecked((int)0xFF000000), 0.35),
                     CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Contours::Minor", unchecked((int)0xFFA98A5C), unchecked((int)0xFF000000), 0.13),
-                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.50),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Waterflow", unchecked((int)0xFF1565C0), unchecked((int)0xFF1565C0), 0.30),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.70),
                     CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Cuts", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.50),
                     CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Grid", unchecked((int)0xFFB4B4B4), unchecked((int)0xFF808080), 0.13),
                     CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Ticks", unchecked((int)0xFF808080), unchecked((int)0xFF000000), 0.18),
                     CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Labels", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.13),
+                    CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::Existing", unchecked((int)0xFF8C8C8C), unchecked((int)0xFF8C8C8C), 0.18),
                     CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::CutFill::Cut", TerrainSectionAnalysisDefinitionBase.DefaultCutColorArgb, unchecked((int)0xFFEB462D), 0.13),
                     CreateEntry($"{TerrainDefinition.DefaultAnnotationLayerPath}::Sections::CutFill::Fill", TerrainSectionAnalysisDefinitionBase.DefaultFillColorArgb, unchecked((int)0xFF4C849E), 0.13)
                 }

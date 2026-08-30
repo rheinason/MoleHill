@@ -450,7 +450,8 @@ internal static class TerrainAnalysisAnnotationBuilder
         TerrainSectionAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null)
+        string? fallbackLayerPath = null,
+        RhinoMesh? baseMesh = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         var insertionPlane = ResolveInsertionPlane(analysis, mesh);
@@ -460,6 +461,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
 
         var sectionProfiles = new List<List<SectionTerrainProfile>>();
+        var sectionCuts = new List<SectionCutGeometry>();
         double maxStation = 0.0;
         double maxRange = 0.0;
         int availableTerrainCount = 1;
@@ -481,6 +483,7 @@ internal static class TerrainAnalysisAnnotationBuilder
                 continue;
 
             sectionProfiles.Add(profiles);
+            sectionCuts.Add(SectionCutGeometry.AlongPolyline(cutVertices));
             availableTerrainCount = Math.Max(availableTerrainCount, profiles.Count);
             double minimum = profiles.Min(profile => profile.Slice.MinimumElevation);
             double maximum = profiles.Max(profile => profile.Slice.MaximumElevation);
@@ -502,12 +505,14 @@ internal static class TerrainAnalysisAnnotationBuilder
             Plane cellPlane = OffsetCellPlane(insertionPlane, i, columns: Math.Max(sectionProfiles.Count, 1), cellWidth, cellHeight);
 
             SectionEmissionStats emitted = EmitCombinedProfileObjects(
+                snapshot,
+                sectionCuts[i],
                 analysis,
                 build,
                 profiles,
                 cellPlane,
                 horizontalScale: 1.0,
-                verticalScale: 1.0,
+                verticalScale: ResolveVerticalExaggeration(analysis),
                 baseElevation: profiles.Min(profile => profile.Slice.MinimumElevation),
                 comparisonTolerance: tolerance,
                 showBaseline: true,
@@ -520,7 +525,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                 textHeight: ResolveTextHeight(snapshot, analysis),
                 fallbackLayerPath: fallbackLayerPath,
                 sectionLabel: $"{analysis.Label} {i + 1}",
-                hatchPatterns: snapshot.HatchPatterns);
+                hatchPatterns: snapshot.HatchPatterns,
+                    baseMesh: baseMesh);
             outputCount += emitted.OutputCount;
             cutRegions += emitted.CutRegions;
             fillRegions += emitted.FillRegions;
@@ -543,7 +549,8 @@ internal static class TerrainAnalysisAnnotationBuilder
         CrossSectionStationAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null)
+        string? fallbackLayerPath = null,
+        RhinoMesh? baseMesh = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         var insertionPlane = ResolveInsertionPlane(analysis, mesh);
@@ -551,7 +558,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         double stationInterval = Math.Max(analysis.StationInterval, tolerance * 100.0);
         double halfWidth = Math.Max(analysis.CrossSectionWidth * 0.5, tolerance * 10.0);
         int gridColumns = Math.Max(analysis.GridColumns, 1);
-        double verticalScale = analysis.VerticalExaggeration > 0.0 ? analysis.VerticalExaggeration : 1.0;
+        double verticalScale = ResolveVerticalExaggeration(analysis);
         int sourceCount = 0;
         int outputCount = 0;
         AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
@@ -571,7 +578,7 @@ internal static class TerrainAnalysisAnnotationBuilder
             if (stations.Count == 0)
                 continue;
 
-            var slices = new List<(double Station, List<SectionTerrainProfile> Profiles)>(stations.Count);
+            var slices = new List<(double Station, List<SectionTerrainProfile> Profiles, SectionCutGeometry Cut)>(stations.Count);
             double maxStation = 0.0;
             double maxRange = 0.0;
 
@@ -595,7 +602,10 @@ internal static class TerrainAnalysisAnnotationBuilder
                 if (profiles.Count == 0 || profiles[0].Slice.IsEmpty)
                     continue;
 
-                slices.Add((alignment.GetLength(new Interval(alignment.Domain.T0, station.Parameter)), profiles));
+                slices.Add((
+                    alignment.GetLength(new Interval(alignment.Domain.T0, station.Parameter)),
+                    profiles,
+                    SectionCutGeometry.AlongPolyline(cut)));
                 availableTerrainCount = Math.Max(availableTerrainCount, profiles.Count);
                 maxStation = Math.Max(maxStation, profiles.Max(profile => profile.Slice.TotalStationLength));
                 double range = profiles.Max(profile => profile.Slice.MaximumElevation) -
@@ -610,7 +620,7 @@ internal static class TerrainAnalysisAnnotationBuilder
             for (int i = 0; i < slices.Count; i++)
             {
                 ThrowIfCancellationRequested(shouldCancel);
-                var (alignmentStation, profiles) = slices[i];
+                var (alignmentStation, profiles, _) = slices[i];
                 Plane cellPlane = OffsetCellPlane(insertionPlane, globalIndex, gridColumns, cellWidth, cellHeight);
                 globalIndex++;
 
@@ -636,6 +646,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                 }
 
                 SectionEmissionStats emitted = EmitCombinedProfileObjects(
+                    snapshot,
+                    slices[i].Cut,
                     analysis,
                     build,
                     profiles,
@@ -654,7 +666,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                     textHeight: ResolveTextHeight(snapshot, analysis),
                     fallbackLayerPath: fallbackLayerPath,
                     sectionLabel: $"Sta {alignmentStation:F2}",
-                    hatchPatterns: snapshot.HatchPatterns);
+                    hatchPatterns: snapshot.HatchPatterns,
+                    baseMesh: baseMesh);
                 outputCount += emitted.OutputCount;
                 cutRegions += emitted.CutRegions;
                 fillRegions += emitted.FillRegions;
@@ -678,13 +691,14 @@ internal static class TerrainAnalysisAnnotationBuilder
         LongitudinalSectionAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
-        string? fallbackLayerPath = null)
+        string? fallbackLayerPath = null,
+        RhinoMesh? baseMesh = null)
     {
         var objects = TerrainBuildSnapshotResolver.ResolveObjects(snapshot, analysis.Sources);
         var insertionPlane = ResolveInsertionPlane(analysis, mesh);
         double tolerance = snapshot.ModelAbsoluteTolerance;
         double sampleInterval = Math.Max(analysis.SampleInterval, tolerance * 10.0);
-        double verticalScale = analysis.VerticalExaggeration > 0.0 ? analysis.VerticalExaggeration : 1.0;
+        double verticalScale = ResolveVerticalExaggeration(analysis);
         int sourceCount = 0;
         int outputCount = 0;
         int sectionIndex = 0;
@@ -710,6 +724,8 @@ internal static class TerrainAnalysisAnnotationBuilder
 
             availableTerrainCount = Math.Max(availableTerrainCount, profiles.Count);
             SectionEmissionStats emitted = EmitCombinedProfileObjects(
+                snapshot,
+                SectionCutGeometry.AlongCurve(curve, sampleInterval),
                 analysis,
                 build,
                 profiles,
@@ -728,7 +744,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                 textHeight: ResolveTextHeight(snapshot, analysis),
                 fallbackLayerPath: fallbackLayerPath,
                 sectionLabel: $"{analysis.Label} {sectionIndex}",
-                hatchPatterns: snapshot.HatchPatterns);
+                hatchPatterns: snapshot.HatchPatterns,
+                    baseMesh: baseMesh);
             outputCount += emitted.OutputCount;
             cutRegions += emitted.CutRegions;
             fillRegions += emitted.FillRegions;
@@ -746,6 +763,8 @@ internal static class TerrainAnalysisAnnotationBuilder
     }
 
     private static SectionEmissionStats EmitCombinedProfileObjects(
+        TerrainBuildSnapshot snapshot,
+        SectionCutGeometry cutGeometry,
         TerrainSectionAnalysisDefinitionBase analysis,
         TerrainBuildResult build,
         IReadOnlyList<SectionTerrainProfile> profiles,
@@ -764,7 +783,8 @@ internal static class TerrainAnalysisAnnotationBuilder
         double textHeight,
         string? fallbackLayerPath,
         string sectionLabel,
-        HatchPatternSnapshot hatchPatterns)
+        HatchPatternSnapshot hatchPatterns,
+        RhinoMesh? baseMesh)
     {
         if (!analysis.IsEnabled)
             return default;
@@ -777,15 +797,17 @@ internal static class TerrainAnalysisAnnotationBuilder
         double minimumElevation = profiles.Min(profile => profile.Slice.MinimumElevation);
         double maximumElevation = profiles.Max(profile => profile.Slice.MaximumElevation);
 
-        if (analysis.ShowCutFillRegions && analysis.CutFillReferenceTerrainId.HasValue)
+        TerrainSectionResult? referenceSliceForProfile = null;
+        if (analysis.ShowCutFillRegions)
         {
-            SectionTerrainProfile? reference = profiles.FirstOrDefault(
-                profile => profile.TerrainId == analysis.CutFillReferenceTerrainId.Value);
-            if (reference != null)
+            TerrainSectionResult? referenceSlice = ResolveCutFillReferenceSlice(
+                snapshot, cutGeometry, analysis, profiles, comparisonTolerance, build, baseMesh);
+            referenceSliceForProfile = referenceSlice;
+            if (referenceSlice != null)
             {
                 IReadOnlyList<SectionComparisonRegion> regions = SectionProfileComparison.Compare(
                     ownerSlice,
-                    reference.Slice,
+                    referenceSlice,
                     Math.Max(comparisonTolerance, totalStation * 1e-10));
                 foreach (SectionComparisonRegion region in regions)
                 {
@@ -823,7 +845,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                             Name = $"{sectionLabel} {(isCut ? "cut" : "fill")}",
                             AnalysisId = analysis.Id,
                             AppearanceSource = GeneratedAppearanceSource.Layer,
-                            LayerPath = regionLayerPath
+                            LayerPath = regionLayerPath,
+                            DisplayOrder = SectionDisplayOrder.Fill
                         });
                         emitted++;
                     }
@@ -837,21 +860,52 @@ internal static class TerrainAnalysisAnnotationBuilder
             }
         }
 
-        foreach (SectionTerrainProfile profile in profiles)
+        // Existing ground, drawn from whatever the cut/fill comparison measured against. It is context:
+        // a light line the proposed profile is read against. Without it the original ground is only ever
+        // implied by the far edge of a hatch, so it vanishes wherever nothing was cut or filled.
+        if (referenceSliceForProfile != null)
         {
-            var profilePolylines = SectionLayoutHelper.LayoutFlatAll(
-                profile.Slice, cellPlane, horizontalScale, verticalScale, baseElevation);
-            foreach (Polyline poly in profilePolylines)
+            foreach (Polyline existing in SectionLayoutHelper.LayoutFlatAll(
+                         referenceSliceForProfile, cellPlane, horizontalScale, verticalScale, baseElevation))
+            {
+                if (existing.Count < 2)
+                    continue;
+
+                build.AuxiliaryObjects.Add(BuildPolylineObject(
+                    analysis,
+                    existing,
+                    fallbackLayerPath,
+                    $"{sectionLabel} existing ground",
+                    SectionLayerKind.ExistingProfile,
+                    colorArgbOverride: null));
+                emitted++;
+            }
+        }
+
+        for (int profileIndex = 0; profileIndex < profiles.Count; profileIndex++)
+        {
+            SectionTerrainProfile profile = profiles[profileIndex];
+
+            // The sectioned terrain itself — the finished modifier stack — is the subject of the drawing,
+            // so it is the heaviest line on it and takes its appearance from the layer: black, by
+            // convention, rather than the terrain's preview tint, which is a screen colour and prints as
+            // whatever pastel it happens to be. Additional comparison terrains keep their own colours,
+            // which is the only thing telling them apart.
+            bool isOwnerProfile = profileIndex == 0;
+
+            foreach (Polyline poly in SectionLayoutHelper.LayoutFlatAll(
+                         profile.Slice, cellPlane, horizontalScale, verticalScale, baseElevation))
             {
                 if (poly.Count < 2)
                     continue;
+
                 build.AuxiliaryObjects.Add(BuildPolylineObject(
                     analysis,
                     poly,
                     fallbackLayerPath,
                     $"{sectionLabel} {profile.TerrainName}",
                     SectionLayerKind.Profile,
-                    profile.ColorArgb));
+                    isOwnerProfile ? null : profile.ColorArgb));
                 emitted++;
             }
         }
@@ -907,6 +961,113 @@ internal static class TerrainAnalysisAnnotationBuilder
         }
 
         return new SectionEmissionStats(emitted, cutRegions, fillRegions);
+    }
+
+    /// <summary>
+    /// How the terrain was cut for one section cell, so an arbitrary reference mesh can be cut the same
+    /// way. A polyline cut and a sampled-along-curve cut produce different station parametrizations, and
+    /// comparing profiles built two different ways would misreport every depth.
+    /// </summary>
+    private readonly record struct SectionCutGeometry(
+        IReadOnlyList<Point3d>? CutVertices,
+        Curve? SampledCurve,
+        double SampleInterval)
+    {
+        public static SectionCutGeometry AlongPolyline(IReadOnlyList<Point3d> cutVertices) =>
+            new(cutVertices, null, 0.0);
+
+        public static SectionCutGeometry AlongCurve(Curve curve, double sampleInterval) =>
+            new(null, curve, sampleInterval);
+
+        /// <summary>Cuts a mesh exactly as the terrain was cut. Null when the mesh misses the cut.</summary>
+        public TerrainSectionResult? Slice(RhinoMesh mesh, double tolerance)
+        {
+            TerrainSectionResult slice = SampledCurve != null
+                ? TerrainSectionSlicer.SampleAlongCurve(mesh, SampledCurve, SampleInterval, tolerance)
+                : TerrainSectionSlicer.SliceAlongPolyline(mesh, CutVertices!, tolerance);
+            return slice.IsEmpty ? null : slice;
+        }
+    }
+
+    /// <summary>
+    /// The existing-ground profile to shade cut and fill against: explicitly referenced Rhino geometry
+    /// first, then another MoleHill terrain. Returns null — with a diagnostic saying why — when cut/fill
+    /// is switched on but nothing usable is configured, which used to fail silently and read as "the hatch
+    /// does not work".
+    /// </summary>
+    private static TerrainSectionResult? ResolveCutFillReferenceSlice(
+        TerrainBuildSnapshot snapshot,
+        SectionCutGeometry cutGeometry,
+        TerrainSectionAnalysisDefinitionBase analysis,
+        IReadOnlyList<SectionTerrainProfile> profiles,
+        double tolerance,
+        TerrainBuildResult build,
+        RhinoMesh? baseMesh)
+    {
+        if (analysis.CutFillReference.HasReferences)
+        {
+            var meshes = TerrainBuildSnapshotResolver.ResolveMeshes(snapshot, analysis.CutFillReference);
+            if (meshes.Count == 0)
+            {
+                build.Diagnostics.Add(
+                    $"{analysis.Label}: cut/fill reference resolved no mesh geometry; no cut or fill was shaded.");
+                return null;
+            }
+
+            RhinoMesh combined = meshes.Count == 1 ? meshes[0] : CombineMeshes(meshes);
+            TerrainSectionResult? slice = cutGeometry.Slice(combined, tolerance);
+            if (slice == null)
+            {
+                build.Diagnostics.Add(
+                    $"{analysis.Label}: the cut/fill reference does not reach this section line; no cut or fill was shaded.");
+            }
+
+            return slice;
+        }
+
+        if (analysis.CutFillReferenceTerrainId.HasValue)
+        {
+            SectionTerrainProfile? referenceProfile = profiles.FirstOrDefault(
+                profile => profile.TerrainId == analysis.CutFillReferenceTerrainId.Value);
+            if (referenceProfile != null)
+                return referenceProfile.Slice;
+
+            build.Diagnostics.Add(
+                $"{analysis.Label}: the reference terrain has no profile on this section line; no cut or fill was shaded.");
+            return null;
+        }
+
+        // No explicit reference: compare against this terrain's own initial triangulation — the ground as
+        // it was before any modifier moved it. That is what "how much cut and fill did my grading do"
+        // means, and it is the overwhelmingly common question; requiring a second terrain to ask it made
+        // the feature unreachable for the case it exists to serve. An explicit reference still wins, for
+        // comparing against surveyed ground that is not this terrain's own starting point.
+        if (baseMesh == null)
+        {
+            build.Diagnostics.Add(
+                $"{analysis.Label}: cut/fill shading is on but this terrain has no base triangulation to " +
+                "compare against, and no reference is set.");
+            return null;
+        }
+
+        TerrainSectionResult? baseSlice = cutGeometry.Slice(baseMesh, tolerance);
+        if (baseSlice == null)
+        {
+            build.Diagnostics.Add(
+                $"{analysis.Label}: the terrain's initial triangulation does not reach this section line; " +
+                "no cut or fill was shaded.");
+        }
+
+        return baseSlice;
+    }
+
+    private static RhinoMesh CombineMeshes(IReadOnlyList<RhinoMesh> meshes)
+    {
+        var combined = new RhinoMesh();
+        foreach (RhinoMesh mesh in meshes)
+            combined.Append(mesh);
+        RhinoGeometryConversions.NormalizeMeshInPlace(combined);
+        return combined;
     }
 
     private static List<SectionTerrainProfile> SliceTerrainsAlongPolyline(
@@ -1066,6 +1227,31 @@ internal static class TerrainAnalysisAnnotationBuilder
     }
 
 
+    /// <summary>
+    /// How the pieces of a section stack. Read bottom to top: the tint, then the grid it sits on, then the
+    /// ground it was measured from, then the thing the drawing is actually about.
+    /// </summary>
+    /// <summary>Vertical scale for a section, defaulting to true shape when unset or nonsensical.</summary>
+    private static double ResolveVerticalExaggeration(TerrainSectionAnalysisDefinitionBase analysis) =>
+        analysis.VerticalExaggeration > 0.0 ? analysis.VerticalExaggeration : 1.0;
+
+    private static class SectionDisplayOrder
+    {
+        public const int Fill = -3;
+        public const int Grid = -2;
+        public const int Existing = -1;
+        public const int Proposed = 1;
+    }
+
+    private static int ResolveDisplayOrder(SectionLayerKind kind) => kind switch
+    {
+        SectionLayerKind.CutFillCut or SectionLayerKind.CutFillFill => SectionDisplayOrder.Fill,
+        SectionLayerKind.Grid or SectionLayerKind.Ticks => SectionDisplayOrder.Grid,
+        SectionLayerKind.ExistingProfile => SectionDisplayOrder.Existing,
+        SectionLayerKind.Profile => SectionDisplayOrder.Proposed,
+        _ => 0
+    };
+
     private static GeneratedRhinoObject BuildPolylineObject(
         TerrainSectionAnalysisDefinitionBase analysis,
         Polyline polyline,
@@ -1080,7 +1266,8 @@ internal static class TerrainAnalysisAnnotationBuilder
             Name = name,
             AnalysisId = analysis.Id,
             ColorArgb = colorArgbOverride ?? analysis.ColorArgb,
-            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind)
+            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind),
+            DisplayOrder = ResolveDisplayOrder(kind)
         };
     }
 
@@ -1092,7 +1279,8 @@ internal static class TerrainAnalysisAnnotationBuilder
             Name = name,
             AnalysisId = analysis.Id,
             ColorArgb = analysis.ColorArgb,
-            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind)
+            LayerPath = SectionOutputLayers.ResolveLayerPath(analysis.OutputLayerPath, fallbackLayerPath, kind),
+            DisplayOrder = ResolveDisplayOrder(kind)
         };
     }
 

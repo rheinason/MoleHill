@@ -272,6 +272,9 @@ internal sealed partial class TerrainController
             attributes.PlotWeight = generated.PlotWeight.Value;
         }
 
+        if (generated.DisplayOrder != 0)
+            attributes.DisplayOrder = generated.DisplayOrder;
+
         ApplyOutputWireAttributes(terrain, attributes);
         if (trackOwnership)
             ApplyOutputRenderAttributes(doc, terrain, attributes);
@@ -567,6 +570,17 @@ internal sealed partial class TerrainController
             return existingIndex;
         }
 
+        return EnsureLayerPath(doc, fullPath, sourceLayer);
+    }
+
+    /// <summary>
+    /// Creates a <c>::</c>-delimited layer path, seeding each newly created layer's print width from
+    /// <see cref="GeneratedLayerDefaults"/>. Shared so anything that writes MoleHill output into the
+    /// document — the build pipeline, and interactive commands like the curve inspector's labelling —
+    /// lands on layers styled the same way. Existing layers are returned untouched.
+    /// </summary>
+    internal static int EnsureLayerPath(RhinoDoc doc, string fullPath, global::Rhino.DocObjects.Layer? sourceLayer = null)
+    {
         int parentIndex = -1;
         string currentPath = string.Empty;
 
@@ -595,6 +609,19 @@ internal sealed partial class TerrainController
             double? defaultPlotWeight = GeneratedLayerDefaults.GetPlotWeight(currentPath);
             if (defaultPlotWeight.HasValue)
                 layer.PlotWeight = defaultPlotWeight.Value;
+
+            // Same rule for colour, and only where it means something: cut and fill are unreadable if
+            // they are created the same colour, and requiring "Bake Layers" first to tell them apart is
+            // setup the drawing should not need. An explicit source layer still wins.
+            if (sourceLayer == null || !string.Equals(currentPath, fullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                int? defaultColor = GeneratedLayerDefaults.GetColorArgb(currentPath);
+                if (defaultColor.HasValue)
+                {
+                    layer.Color = System.Drawing.Color.FromArgb(defaultColor.Value);
+                    layer.PlotColor = layer.Color;
+                }
+            }
 
             parentIndex = doc.Layers.Add(layer);
         }

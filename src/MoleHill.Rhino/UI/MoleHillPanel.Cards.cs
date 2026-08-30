@@ -37,18 +37,87 @@ public sealed partial class MoleHillPanel
     }
 
     /// <summary>The expand/collapse chevron shown at the left of every stack card header.</summary>
-    private static Label CreateCollapseChevron(bool collapsed) => new()
+    private static Label CreateCollapseChevron(bool collapsed)
     {
-        Text = collapsed ? "▶" : "▼",
-        VerticalAlignment = VerticalAlignment.Center,
-        Width = 12
+        var label = UiControls.Label(collapsed ? "▶" : "▼");
+        label.Width = UiMetrics.Chs(2);
+        return label;
+    }
+
+    /// <summary>
+    /// A heading for a group of rows that does not collapse: a small caption and a rule across the rest of
+    /// the width. The panel's alternative was a GroupBox, whose border boxed in content that was already
+    /// visually grouped by the card around it — and a chevron here would promise a collapse that is not
+    /// on offer.
+    /// </summary>
+    private static Control CreateSectionRule(string title) => new StackLayout
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = UiMetrics.SpaceLarge,
+        Padding = new Padding(0, UiMetrics.SpaceSmall, 0, 0),
+        VerticalContentAlignment = VerticalAlignment.Center,
+        Items =
+        {
+            UiControls.Label(title, UiLabelRole.Section),
+            new StackLayoutItem(
+                new Panel { Height = UiMetrics.SpaceHairline, BackgroundColor = UiTheme.RampDivider },
+                expand: true)
+        }
     };
+
+    /// <summary>
+    /// A collapsible section header outside the card stack — Terrain Settings, Status, and the modifier
+    /// sub-sections.
+    ///
+    /// These used a boxed icon button to collapse while every card used a bare chevron glyph, so the panel
+    /// had two visual languages for the same gesture at two different heights. This is the card's: the same
+    /// <see cref="CreateCollapseChevron"/> glyph, the same header fill and padding, and the whole strip is
+    /// the hit target rather than a 28px button.
+    /// </summary>
+    private sealed class SectionHeader : Panel
+    {
+        private readonly Label _chevron;
+
+        public SectionHeader(string title, Control? trailing, bool expanded, Action<bool> onToggle)
+        {
+            _chevron = CreateCollapseChevron(!expanded);
+
+            var layout = new StackLayout
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = UiMetrics.SpaceMedium,
+                Padding = new Padding(UiMetrics.CardHorizontalPadding, UiMetrics.CardVerticalPadding),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Items = { _chevron, UiControls.Label(title, UiLabelRole.Section) }
+            };
+
+            if (trailing != null)
+                layout.Items.Add(new StackLayoutItem(trailing, expand: true));
+
+            BackgroundColor = UiTheme.HeaderBackground;
+            Content = layout;
+            Cursor = Cursors.Pointer;
+            Expanded = expanded;
+
+            MouseDown += (_, e) =>
+            {
+                if (e.Buttons != MouseButtons.Primary)
+                    return;
+
+                Expanded = !Expanded;
+                _chevron.Text = Expanded ? "▼" : "▶";
+                onToggle(Expanded);
+            };
+        }
+
+        public bool Expanded { get; private set; }
+    }
 
     /// <summary>
     /// The two-line title block used by every stack card: when collapsed, a bold read-only name over
     /// a summary line; when expanded, the editable <paramref name="nameBox"/> over a subtitle line.
     /// </summary>
-    private static StackLayout CreateCardTitleBlock(
+    private static Control CreateCardTitleBlock(
         bool collapsed,
         string collapsedName,
         string collapsedSummary,
@@ -57,35 +126,38 @@ public sealed partial class MoleHillPanel
     {
         if (collapsed)
         {
-            return new StackLayout
-            {
-                Orientation = Orientation.Vertical,
-                Spacing = 1,
-                Items =
-                {
-                    new Label
-                    {
-                        Text = collapsedName,
-                        Font = new Font(SystemFont.Bold),
-                        VerticalAlignment = VerticalAlignment.Center,
-                        Wrap = WrapMode.None,
-                        ToolTip = collapsedName
-                    },
-                    CreateCardMetaLabel(collapsedSummary)
-                }
-            };
+            var title = UiControls.Label(collapsedName);
+            title.Font = new Font(SystemFont.Bold);
+            title.ToolTip = collapsedName;
+            return new ResponsiveCardTitle(title, CreateCardMetaLabel(collapsedSummary));
         }
 
-        return new StackLayout
+        return new ResponsiveCardTitle(nameBox, CreateCardMetaLabel(expandedSubtitle));
+    }
+
+    /// <summary>Card metadata is useful context at normal widths, but the title and actions take
+    /// priority in a narrow panel. Hiding it also prevents compact cards becoming needlessly tall.</summary>
+    private sealed class ResponsiveCardTitle : Panel
+    {
+        private readonly Control _secondary;
+
+        public ResponsiveCardTitle(Control primary, Control secondary)
         {
-            Orientation = Orientation.Vertical,
-            Spacing = 2,
-            Items =
+            _secondary = secondary;
+            Content = new StackLayout
             {
-                nameBox,
-                CreateCardMetaLabel(expandedSubtitle)
-            }
-        };
+                Orientation = Orientation.Vertical,
+                Spacing = UiMetrics.SpaceXSmall,
+                Items = { primary, secondary }
+            };
+            SizeChanged += (_, _) => UpdateDensity();
+        }
+
+        private void UpdateDensity()
+        {
+            if (Width > 0)
+                _secondary.Visible = Width >= UiMetrics.Chs(18);
+        }
     }
 
     /// <summary>
@@ -164,28 +236,19 @@ public sealed partial class MoleHillPanel
     /// <summary>A muted secondary status pill used in card headers (type label, "Enabled", etc.).</summary>
     private static Label CreateCardStatusLabel(string text, Color? textColor = null)
     {
-        return new Label
-        {
-            Text = text,
-            TextColor = textColor ?? UiTheme.MutedText,
-            VerticalAlignment = VerticalAlignment.Center,
-            Wrap = WrapMode.None,
-            Width = UiMetrics.Chs(7),
-            ToolTip = text
-        };
+        var label = UiControls.Label(text, UiLabelRole.Meta);
+        label.TextColor = textColor ?? UiTheme.MutedText;
+        label.Width = UiMetrics.Chs(7);
+        label.ToolTip = text;
+        return label;
     }
 
     /// <summary>A muted subtitle/summary label used as the second line of a card title block.</summary>
     private static Label CreateCardMetaLabel(string text)
     {
-        return new Label
-        {
-            Text = text,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextColor = UiTheme.MutedText,
-            Wrap = WrapMode.None,
-            ToolTip = text
-        };
+        var label = UiControls.Label(text, UiLabelRole.Meta);
+        label.ToolTip = text;
+        return label;
     }
 
     /// <summary>
@@ -197,7 +260,7 @@ public sealed partial class MoleHillPanel
     {
         var image = string.IsNullOrEmpty(iconName) ? null : PanelIcons.Load(iconName);
         return image != null
-            ? new ImageView { Image = image, Size = new Size(16, 16) }
+            ? new ImageView { Image = image, Size = new Size(UiMetrics.IconSize, UiMetrics.IconSize) }
             : new Label
             {
                 Text = glyphFallback,
@@ -214,7 +277,7 @@ public sealed partial class MoleHillPanel
         return new Panel
         {
             BackgroundColor = new Color(accent.R, accent.G, accent.B, 0.20f),
-            Padding = new Padding(4, 3),
+            Padding = new Padding(UiMetrics.SpaceSmall, UiMetrics.PropertyRowVerticalPadding),
             Content = content
         };
     }
@@ -224,7 +287,7 @@ public sealed partial class MoleHillPanel
     {
         return new Panel
         {
-            Padding = new Padding(4, 2),
+            Padding = new Padding(UiMetrics.SpaceSmall, UiMetrics.SpaceXSmall),
             BackgroundColor = backgroundColor,
             Content = new StackLayout
             {
@@ -251,8 +314,12 @@ public sealed partial class MoleHillPanel
         var header = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            Padding = new Padding(8, 6, 8, 6),
+            Spacing = UiMetrics.SpaceMedium,
+            Padding = new Padding(
+                UiMetrics.CardHorizontalPadding,
+                UiMetrics.CardVerticalPadding,
+                UiMetrics.CardHorizontalPadding,
+                UiMetrics.CardVerticalPadding),
             BackgroundColor = options.HeaderBackground,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,

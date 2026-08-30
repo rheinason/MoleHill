@@ -588,7 +588,12 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         if (generated.Geometry is Curve curve)
         {
             var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
-            e.Display.DrawCurve(curve, color, 2);
+            // Thickness follows the same sublayer table that seeds print width, so the viewport shows the
+            // drawing's hierarchy rather than a flat 2 px for grid lines, profiles and flow paths alike.
+            int width = GeneratedLayerDefaults.ResolvePreviewWidth(
+                generated.LayerPath ?? generated.SourceLayerPath,
+                terrain.PreviewLineWeight);
+            e.Display.DrawCurve(curve, color, width);
             return;
         }
 
@@ -603,7 +608,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
             try
             {
-                DrawMarkerTemplate(e, doc, generated);
+                DrawMarkerTemplate(e, doc, generated, terrain.PreviewLineWeight);
             }
             finally
             {
@@ -660,18 +665,29 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             Math.Max(0, (int)Math.Round(baseColor.B * 0.45)));
     }
 
-    private static void DrawMarkerTemplate(DrawEventArgs e, global::Rhino.RhinoDoc doc, GeneratedRhinoObject generated)
+    private static void DrawMarkerTemplate(
+        DrawEventArgs e,
+        global::Rhino.RhinoDoc doc,
+        GeneratedRhinoObject generated,
+        double previewLineWeight)
     {
         var color = TerrainDisplayColors.Resolve(doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb);
+        int width = GeneratedLayerDefaults.ResolvePreviewWidth(
+            generated.LayerPath ?? generated.SourceLayerPath, previewLineWeight);
 
-        if (TryDrawBlockDefinitionGeometry(e, doc, generated, color))
+        if (TryDrawBlockDefinitionGeometry(e, doc, generated, color, width))
             return;
 
         foreach (var geometry in GetMarkerBlockGeometry(generated.MarkerBlockTemplate))
-            DrawMarkerGeometry(e, generated, geometry, color, substituteDisplayText: true);
+            DrawMarkerGeometry(e, generated, geometry, color, substituteDisplayText: true, width);
     }
 
-    private static bool TryDrawBlockDefinitionGeometry(DrawEventArgs e, global::Rhino.RhinoDoc doc, GeneratedRhinoObject generated, Color color)
+    private static bool TryDrawBlockDefinitionGeometry(
+        DrawEventArgs e,
+        global::Rhino.RhinoDoc doc,
+        GeneratedRhinoObject generated,
+        Color color,
+        int width)
     {
         if (string.IsNullOrWhiteSpace(generated.InstanceDefinitionName))
             return false;
@@ -686,7 +702,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             if (instanceObject?.Geometry == null)
                 continue;
 
-            if (DrawMarkerGeometry(e, generated, instanceObject.Geometry, color, substituteDisplayText: true))
+            if (DrawMarkerGeometry(e, generated, instanceObject.Geometry, color, substituteDisplayText: true, width))
                 drewGeometry = true;
         }
 
@@ -698,7 +714,8 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         GeneratedRhinoObject generated,
         GeometryBase geometry,
         Color color,
-        bool substituteDisplayText)
+        bool substituteDisplayText,
+        int width)
     {
         switch (geometry)
         {
@@ -707,7 +724,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
                 e.Display.PushModelTransform(generated.InstanceTransform);
                 try
                 {
-                    e.Display.DrawCurve(curve, color, 2);
+                    e.Display.DrawCurve(curve, color, width);
                 }
                 finally
                 {

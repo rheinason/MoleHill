@@ -112,6 +112,24 @@ internal sealed class AnalysisParameterDescriptor
             IncrementalCommit = incrementalCommit,
         };
 
+    /// <summary>
+    /// The colour-ramp card: stops, linear/stepped mode, band interval, and the mapped range, in one
+    /// control. Needs no accessors — every field it edits lives on <see cref="AnalysisDefinition"/> itself,
+    /// so declaring this on a type is the whole of "this analysis is colour-mapped".
+    ///
+    /// Always a refresh-only commit: colour is a display concern, and re-running the analysis to change a
+    /// swatch would make dragging a stop unusable.
+    /// </summary>
+    public static AnalysisParameterDescriptor ColorRamp(string? help = null) =>
+        new()
+        {
+            Kind = ParameterKind.ColorRamp,
+            Key = "ColorRamp",
+            Label = "Colour",
+            Help = help,
+            RefreshOnly = true,
+        };
+
     public static AnalysisParameterDescriptor Bool(
         string key,
         string label,

@@ -95,12 +95,35 @@ internal sealed partial class TerrainController
             runtimeCache.DisplayState.PreviewTerrainMesh = runtimeCache.DisplayState.TerrainMesh;
             runtimeCache.DisplayState.ActiveAnalysisId = null;
             runtimeCache.DisplayState.ActiveAnalysisLabel = null;
+            runtimeCache.DisplayState.ActiveAnalysisRange = null;
+            runtimeCache.DisplayState.ActiveAnalysisDistribution = null;
             terrain.LastAnalysisResults.Clear();
             return;
         }
 
         TerrainAnalysisPreviewBuilder.UpdatePreviewMesh(doc, terrain, runtimeCache.DisplayState);
         terrain.LastAnalysisResults = TerrainRuntimeCacheCloner.CloneAnalyses(runtimeCache.DisplayState.AnalysisResults);
+        StampActiveAnalysisRange(terrain, runtimeCache.DisplayState);
+    }
+
+    /// <summary>
+    /// Copies the range the preview mesh was just coloured with onto that analysis's summary. Colour
+    /// settings recolour without scheduling a rebuild, so without this the panel legend would keep
+    /// labelling the ramp with the range from the last full build.
+    /// </summary>
+    private static void StampActiveAnalysisRange(TerrainDefinition terrain, TerrainDisplayState displayState)
+    {
+        if (!displayState.ActiveAnalysisId.HasValue || displayState.ActiveAnalysisRange is not { } range)
+            return;
+
+        TerrainAnalysisSummary? summary = terrain.LastAnalysisResults
+            .FirstOrDefault(item => item.AnalysisId == displayState.ActiveAnalysisId.Value);
+        if (summary == null)
+            return;
+
+        summary.DisplayRangeLow = range.Low;
+        summary.DisplayRangeHigh = range.High;
+        summary.DistributionBins = displayState.ActiveAnalysisDistribution;
     }
 
     private static string DescribeDisplayState(TerrainDisplayState? displayState)

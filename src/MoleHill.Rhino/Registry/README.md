@@ -61,11 +61,23 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
   rebuild — today only Contour, via `TerrainController.RebuildContourAnalysis`/`RefreshContourColor`).
   Also supports `LabelFor`/`ChoiceOptionsFor` overrides for rows whose label or option list depends on
   live definition state (e.g. slope-unit suffix on the range labels, the value-format "Custom" entry).
+  `AnalysisParameterDescriptor.ColorRamp()` declares the whole colour block — stops, linear/stepped,
+  band interval, mapped range — as one row, and needs no accessors because every field it edits lives on
+  `AnalysisDefinition` itself. Declaring it is the whole of "this analysis is colour-mapped"; it is
+  always `RefreshOnly`, since re-running an analysis to change a swatch would make dragging a stop
+  unusable. Slope, Elevation and Cut/Fill each declare one.
+- `AnalysisTypeDescriptor.DescribeBlocker(terrain, analysis)` — why this analysis cannot produce anything
+  yet, or null when it is ready. Cut/fill needs a surface to compare against, waterflow needs start
+  points, a section needs a curve; without them these types run, succeed, and emit nothing, and the card
+  fills with plausible controls and placeholder numbers while nothing says which one is holding it up.
+  The panel puts the message on a warning surface at the top of the card, above the controls, and it
+  names the control to reach for. Phrase it as the thing to do, not as a failure.
 - `AnalysisFormatting.cs` — pure slope-unit/value-format/layer-color formatting helpers shared by the
   schema descriptors and the panel's hand-written rows. Lives here (not in `MoleHill.Rhino.UI`) so
   `MoleHill.Rhino.Tests`, which links `Registry/*.cs` directly without a UI reference, can still compile
   the analysis descriptors that use them.
-- Rows the schema can't express (Triangulate work-area picker, geometry-input boundary-peel group), plus
+- Rows the schema can't express (Triangulate work-area picker and GeoTIFF-surface import/replace action,
+  geometry-input boundary-peel group), plus
   schema rows needing custom placement (Triangulate Contour Mode), are appended by
   `MoleHillPanel.AppendBespokeModifierRows` — the custom-draw escape hatch. The analysis
   equivalent is `AppendBespokeAnalysisRowsBefore`/`After` in `MoleHillPanel.Analysis.cs`.

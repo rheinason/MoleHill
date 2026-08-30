@@ -44,6 +44,21 @@ internal sealed class TerrainDisplayState
 
     public string? ActiveAnalysisLabel { get; set; }
 
+    /// <summary>
+    /// The value range the active analysis is currently mapping across its palette, as resolved when the
+    /// preview mesh was coloured. The panel legend reads this rather than the last build's
+    /// <see cref="TerrainAnalysisSummary"/>, so changing a colour setting — which recolours without
+    /// rebuilding — updates the numbers beside the ramp immediately.
+    /// </summary>
+    public MoleHill.Core.Analysis.AnalysisRange? ActiveAnalysisRange { get; set; }
+
+    /// <summary>
+    /// The distribution of the active analysis's values across that range, as normalized histogram bars.
+    /// Lives beside <see cref="ActiveAnalysisRange"/> for the same reason: a colour edit recolours without
+    /// rebuilding, and the card's histogram has to move with the range it sits behind.
+    /// </summary>
+    public double[]? ActiveAnalysisDistribution { get; set; }
+
     public List<TerrainAnalysisSummary> AnalysisResults { get; } = new();
 
     public List<GeneratedRhinoObject> ZoneObjects { get; } = new();
@@ -284,7 +299,9 @@ internal sealed class TerrainDisplayState
             BaseTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(BaseTerrainMesh),
             PreviewTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(PreviewTerrainMesh),
             ActiveAnalysisId = ActiveAnalysisId,
-            ActiveAnalysisLabel = ActiveAnalysisLabel
+            ActiveAnalysisLabel = ActiveAnalysisLabel,
+            ActiveAnalysisRange = ActiveAnalysisRange,
+            ActiveAnalysisDistribution = ActiveAnalysisDistribution?.ToArray()
         };
         if (_previousPreviewBounds.HasValue)
             clone._previousPreviewBounds = _previousPreviewBounds.Value;

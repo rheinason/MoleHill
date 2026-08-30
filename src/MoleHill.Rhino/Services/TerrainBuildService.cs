@@ -485,6 +485,8 @@ internal sealed partial class TerrainBuildService
         builder.Add(terrain.GlobalTolerance);
         AddSerializedFingerprint(ref builder, modifier, modifier.GetType());
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.TinMesh));
+        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.DemSurface));
+        builder.Add(snapshot.DemFingerprints.GetValueOrDefault(modifier.Id));
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Points));
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Breaklines));
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Contours));

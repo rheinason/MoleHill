@@ -53,8 +53,12 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 4,
-            Padding = new Padding(8, 8, 8, 4),
+            Spacing = UiMetrics.SpaceSmall,
+            Padding = new Padding(
+                UiMetrics.SectionHorizontalPadding,
+                UiMetrics.SectionTopPadding,
+                UiMetrics.SectionHorizontalPadding,
+                UiMetrics.SectionBottomPadding),
             Items =
             {
                 new Label { Text = "MARKERS", TextColor = UiTheme.MutedText },
@@ -65,7 +69,7 @@ public sealed partial class MoleHillPanel
 
     private Control CreateMarkerGroup(TerrainDefinition terrain, MarkerDefinition marker)
     {
-        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 4), Padding = new Padding(6, 4) };
+        var layout = UiLayouts.CompactForm();
         var enabledCheck = new CheckBox { Text = "Enabled", Checked = marker.IsEnabled };
         enabledCheck.CheckedChanged += (_, _) =>
             MutateMarker(terrain.TerrainId, marker.Id, item => item.IsEnabled = enabledCheck.Checked == true);

@@ -77,7 +77,7 @@ internal sealed class AdaptivePrimaryActionRow : Panel
         return new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 4,
+            Spacing = UiMetrics.SpaceSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {

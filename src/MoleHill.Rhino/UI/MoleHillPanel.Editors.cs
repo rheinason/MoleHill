@@ -73,7 +73,7 @@ public sealed partial class MoleHillPanel
         var objectsRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = liveObjectIds.Count > 0 ? 0 : 4,
+            Spacing = liveObjectIds.Count > 0 ? 0 : UiMetrics.SpaceSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items = { new StackLayoutItem(objectsPill, expand: true) }
@@ -115,7 +115,7 @@ public sealed partial class MoleHillPanel
         var layersRow = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = lc > 0 ? 0 : 4,
+            Spacing = lc > 0 ? 0 : UiMetrics.SpaceSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Center,
             Items = { new StackLayoutItem(layersPill, expand: true) }
@@ -124,30 +124,14 @@ public sealed partial class MoleHillPanel
             layersRow.Items.Add(layersClear);
 
         // ── Layout ────────────────────────────────────────────────
-        var titleLabel = new Label { Text = label, VerticalAlignment = VerticalAlignment.Center };
+        var titleLabel = UiControls.Label(label);
         ApplyHelp(titleLabel, help ?? $"{label} accepts Rhino object picks and layers.");
 
-        var pillsLayout = new StackLayout
-        {
-            Orientation = Orientation.Vertical,
-            Spacing = 4,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 4,
-                    Items = { new StackLayoutItem(objectsRow, expand: true) }
-                },
-                new StackLayout
-                {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 4,
-                    Items = { new StackLayoutItem(layersRow, expand: true) }
-                }
-            }
-        };
+        var pillsLayout = new AdaptiveColumns(
+            UiMetrics.SpaceSmall,
+            UiMetrics.Chs(9),
+            objectsRow,
+            layersRow);
 
         return new PropertyRow(titleLabel, pillsLayout, expandWidget: true);
     }
@@ -485,7 +469,7 @@ public sealed partial class MoleHillPanel
         var editor = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = UiMetrics.SpaceMedium,
             VerticalContentAlignment = VerticalAlignment.Center,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
@@ -593,13 +577,7 @@ public sealed partial class MoleHillPanel
 
     private Control CreateReadOnlyValueRow(string label, string value, string help)
     {
-        var valueLabel = new Label
-        {
-            Text = value,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextColor = UiTheme.InputText,
-            Wrap = WrapMode.Word
-        };
+        var valueLabel = UiControls.Label(value, UiLabelRole.Input, WrapMode.Word);
 
         return new PropertyRow(CreateHelpLabel(label, help, 0), valueLabel, expandWidget: true);
     }
@@ -619,7 +597,7 @@ public sealed partial class MoleHillPanel
         return new StackLayout
         {
             Orientation = Orientation.Vertical,
-            Spacing = 4,
+            Spacing = UiMetrics.SpaceSmall,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Items =
             {
@@ -645,7 +623,9 @@ public sealed partial class MoleHillPanel
         Action<string> onChanged,
         string help)
     {
-        var dropDown = new DropDown { Width = UiMetrics.DropDown };
+        // No fixed width: it made a dropdown row line up with nothing else on the card and truncated its
+        // own text ("Auto (fast fo..."). It now fills the widget column like every other editor.
+        var dropDown = new DropDown();
         foreach (var option in options)
             dropDown.Items.Add(new ListItem { Text = option.Label });
 
@@ -667,7 +647,7 @@ public sealed partial class MoleHillPanel
             onChanged(options[index].Key);
         };
 
-        return new PropertyRow(CreateHelpLabel(label, help, 0), dropDown);
+        return new PropertyRow(CreateHelpLabel(label, help, 0), dropDown, expandWidget: true);
     }
 
     private static List<(string Key, string Label)> GetValueFormatOptions(string selectedFormat) =>

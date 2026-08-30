@@ -39,8 +39,10 @@ public sealed partial class MoleHillPanel
     private static bool IsBespokePositionedModifierParameter(
         ModifierDefinition modifier,
         ParameterDescriptor parameter) =>
-        modifier is TriangulateModifierDefinition &&
-        string.Equals(parameter.Key, "ContourMode", StringComparison.Ordinal);
+        (modifier is TriangulateModifierDefinition &&
+         parameter.Key is "DemSurface" or "ContourMode") ||
+        (modifier is GradePathModifierDefinition &&
+         parameter.Key is "Paths" or "Width" or "UseVariableWidth" or "WidthEdges" or "MaxEdgeDistance");
 
     private Control? BuildBespokePositionedModifierRow(
         TerrainDefinition terrain,
@@ -50,7 +52,9 @@ public sealed partial class MoleHillPanel
         ModifierTypeDescriptor? descriptor = TerrainTypeRegistry.ForModifierType(modifier.GetType());
         ParameterDescriptor? parameter = descriptor?.Parameters.FirstOrDefault(
             item => string.Equals(item.Key, parameterKey, StringComparison.Ordinal));
-        return parameter == null ? null : BuildSchemaRow(terrain, modifier, parameter);
+        if (parameter == null || (parameter.VisibleWhen != null && !parameter.VisibleWhen(modifier)))
+            return null;
+        return BuildSchemaRow(terrain, modifier, parameter);
     }
 
     private Control BuildSchemaRow(TerrainDefinition terrain, ModifierDefinition modifier, ParameterDescriptor parameter)
@@ -143,6 +147,12 @@ public sealed partial class MoleHillPanel
                     parameter.FallbackColor?.Invoke(modifier),
                     parameter.ColorDefaultText);
 
+            case ParameterKind.ColorRamp:
+                // Modifiers change geometry, not display: nothing they own is colour-mapped, so no
+                // modifier declares this kind. The case exists so the shared enum stays exhaustively
+                // handled rather than falling into the throw below.
+                return new Panel();
+
             case ParameterKind.Text:
                 return CreateCommittedTextEditor(
                     parameter.Label,
@@ -233,6 +243,9 @@ public sealed partial class MoleHillPanel
                     parameter.Help ?? string.Empty,
                     parameter.FallbackColor?.Invoke(terrain, analysis),
                     parameter.ColorDefaultTextFor?.Invoke(terrain, analysis) ?? "(by layer)");
+
+            case ParameterKind.ColorRamp:
+                return CreateColorRampEditor(terrain, analysis);
 
             case ParameterKind.Text:
                 return CreateCommittedTextEditor(

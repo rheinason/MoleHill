@@ -82,10 +82,10 @@ internal sealed partial class TerrainBuildService
                     build.StructuredDiagnostics.Skip(structuredDiagnosticsStart), progress);
             }
 
-            if (modifier.Points.HasReferences || modifier.Breaklines.HasReferences ||
+            if (modifier.Points.HasReferences || modifier.DemSurface.HasReferences || modifier.Breaklines.HasReferences ||
                 modifier.Contours.HasReferences || modifier.Boundary.HasReferences)
             {
-                build.Diagnostics.Add("Triangulate is using the exact TIN mesh; point, breakline, contour, and boundary sources are ignored.");
+                build.Diagnostics.Add("Triangulate is using the exact TIN mesh; DEM surface, point, breakline, contour, and boundary sources are ignored.");
             }
 
             progress.Complete("Source resolution", $"exact TIN mesh: {exactTin.Vertices.Count:N0} vertices, {exactTin.Faces.Count:N0} faces");
@@ -99,6 +99,10 @@ internal sealed partial class TerrainBuildService
         }
 
         var points = TerrainBuildSnapshotResolver.ResolvePoints(snapshot, modifier.Points);
+        if (snapshot.DemPoints.TryGetValue(modifier.Id, out List<Point3d>? demPoints))
+            points.AddRange(demPoints);
+        if (snapshot.DemDiagnostics.TryGetValue(modifier.Id, out string? demDiagnostic))
+            build.Diagnostics.Add(demDiagnostic);
         var breaklineCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Breaklines);
         var contourCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Contours);
         var boundaryCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Boundary);
@@ -111,7 +115,7 @@ internal sealed partial class TerrainBuildService
 
         if (points.Count == 0 && breaklineCurves.Count == 0 && contourCurves.Count == 0)
         {
-            build.Diagnostics.Add("Triangulate has no point, contour, or breakline sources.");
+            build.Diagnostics.Add("Triangulate has no DEM surface, point, contour, or breakline sources.");
             return StoreMeshStageCache(
                 build,
                 runtimeCache,
@@ -1328,20 +1332,17 @@ internal sealed partial class TerrainBuildService
         var selectedPaths = new List<PathGrader.PathDefinition>();
         foreach (GradePathModifierDefinition gradePath in EnumeratePriorEnabledGradePathModifiers(terrain, smoothModifierIndex))
         {
-            foreach (ResolvedSourceObject sourceObject in TerrainBuildSnapshotResolver.ResolveObjects(snapshot, gradePath.Paths))
+            (ResolvedGradePathDefinition[] resolvedPaths, _) = ResolveGradePathDefinitions(
+                snapshot,
+                gradePath,
+                curveTolerance,
+                curveTolerance);
+            foreach (ResolvedGradePathDefinition resolvedPath in resolvedPaths)
             {
-                if (sourceObject.ObjectId == Guid.Empty ||
-                    !selectedSourceIds.Contains(sourceObject.ObjectId) ||
-                    sourceObject.Geometry is not Curve curve)
-                {
+                if (resolvedPath.SourceObjectId == Guid.Empty ||
+                    !selectedSourceIds.Contains(resolvedPath.SourceObjectId))
                     continue;
-                }
-
-                if (TryCreateGradePathDefinition(curve, gradePath, curveTolerance, out PathGrader.PathDefinition? pathDefinition) &&
-                    pathDefinition != null)
-                {
-                    selectedPaths.Add(pathDefinition);
-                }
+                selectedPaths.Add(resolvedPath.Definition);
             }
         }
 
@@ -1383,7 +1384,9 @@ internal sealed partial class TerrainBuildService
             builder.Add(gradePath.SlopeAngle);
             builder.Add(gradePath.CutSlopeAngle);
             builder.Add(gradePath.MaxDistance);
+            builder.Add(gradePath.MaxEdgeDistance);
             builder.Add(ComputeSourceSetFingerprint(snapshot, gradePath.Paths));
+            builder.Add(ComputeSourceSetFingerprint(snapshot, gradePath.WidthEdges));
             builder.Add(matchingIds.Length);
             foreach (Guid objectId in matchingIds)
                 builder.Add(objectId);
@@ -1487,10 +1490,10 @@ internal sealed partial class TerrainBuildService
 
             center[i * 2] = x;
             center[(i * 2) + 1] = y;
-            left[i * 2] = x + (normalX * halfWidth);
-            left[(i * 2) + 1] = y + (normalY * halfWidth);
-            right[i * 2] = x - (normalX * halfWidth);
-            right[(i * 2) + 1] = y - (normalY * halfWidth);
+            left[i * 2] = path.LeftEdgeXy?[i * 2] ?? x + (normalX * halfWidth);
+            left[(i * 2) + 1] = path.LeftEdgeXy?[(i * 2) + 1] ?? y + (normalY * halfWidth);
+            right[i * 2] = path.RightEdgeXy?[i * 2] ?? x - (normalX * halfWidth);
+            right[(i * 2) + 1] = path.RightEdgeXy?[(i * 2) + 1] ?? y - (normalY * halfWidth);
         }
 
         breaklines.Add(new MeshSmoother.BreaklinePolyline(center, vertexCount, IsClosed: false));

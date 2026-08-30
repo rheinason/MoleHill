@@ -39,6 +39,38 @@ public class SectionProfileComparisonTests
         Assert.Equal(6.0, regions[1].Vertices[0].Station, 6);
     }
 
+    /// <summary>
+    /// The slicer walks mesh adjacency, so a profile's vertices can come back in descending station order.
+    /// That used to drop every edge of the run, and a fully descending profile produced no edges at all —
+    /// so cut/fill shading came back silently empty on section lines that were perfectly valid.
+    /// </summary>
+    [Fact]
+    public void Compare_DescendingStationOrder_StillFindsRegions()
+    {
+        TerrainSectionResult ascending = CreateResult((0, 5), (10, 5));
+        TerrainSectionResult descending = CreateResult((10, 0), (0, 0));
+
+        IReadOnlyList<SectionComparisonRegion> regions = SectionProfileComparison.Compare(
+            ascending, descending, tolerance: 1e-6);
+
+        Assert.Single(regions);
+        Assert.False(regions[0].IsCut);
+    }
+
+    [Fact]
+    public void Compare_BothProfilesDescending_MatchesTheAscendingResult()
+    {
+        IReadOnlyList<SectionComparisonRegion> ascending = SectionProfileComparison.Compare(
+            CreateResult((0, 0), (10, 10)), CreateResult((0, 8), (10, 2)), tolerance: 1e-6);
+        IReadOnlyList<SectionComparisonRegion> descending = SectionProfileComparison.Compare(
+            CreateResult((10, 10), (0, 0)), CreateResult((10, 2), (0, 8)), tolerance: 1e-6);
+
+        Assert.Equal(ascending.Count, descending.Count);
+        Assert.Equal(2, descending.Count);
+        Assert.True(descending[0].IsCut);
+        Assert.False(descending[1].IsCut);
+    }
+
     [Fact]
     public void Compare_EqualProfiles_ProducesNoRegions()
     {

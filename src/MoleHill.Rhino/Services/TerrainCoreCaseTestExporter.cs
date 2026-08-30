@@ -171,7 +171,16 @@ internal static class TerrainCoreCaseTestExporter
             builder.AppendLine($"                {FormatDouble(path.Width)},");
             builder.AppendLine($"                {FormatDouble(path.SlopeAngleDeg)},");
             builder.AppendLine($"                {FormatDouble(path.MaxDistance)},");
-            builder.AppendLine($"                {FormatDouble(path.FillSlopeAngleDeg)}),");
+            builder.AppendLine($"                {FormatDouble(path.FillSlopeAngleDeg)},");
+            if (path.LeftEdgeXy is null)
+                builder.AppendLine("                null,");
+            else
+                AppendInlineDoubleArray(builder, path.LeftEdgeXy, 16, trailingComma: true);
+            if (path.RightEdgeXy is null)
+                builder.AppendLine("                null,");
+            else
+                AppendInlineDoubleArray(builder, path.RightEdgeXy, 16, trailingComma: true);
+            builder.AppendLine($"                {(path.IsClosed ? "true" : "false")}),");
         }
         builder.AppendLine("        };");
     }

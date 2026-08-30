@@ -6,8 +6,9 @@ namespace MoleHill.Rhino.Tests;
 public class SectionOutputLayersTests
 {
     [Fact]
-    public void ResolveLayerPath_UsesExplicitRootWithExpectedChildLayers()
+    public void ResolveLayerPath_RootAlreadyNamedSections_IsNotDoubled()
     {
+        // A root the user already pointed at a Sections branch is taken at their word.
         Assert.Equal("Sections", SectionOutputLayers.ResolveLayerPath("Sections", "Fallback", SectionLayerKind.Profile));
         Assert.Equal("Sections::Cuts", SectionOutputLayers.ResolveLayerPath("Sections", "Fallback", SectionLayerKind.Cuts));
         Assert.Equal("Sections::Grid", SectionOutputLayers.ResolveLayerPath("Sections", "Fallback", SectionLayerKind.Grid));
@@ -18,11 +19,24 @@ public class SectionOutputLayersTests
     }
 
     [Fact]
+    public void ResolveLayerPath_AddsSectionsBranchSoLayerTemplateStylingApplies()
+    {
+        // The office layer template styles MoleHill::Annotation::Sections::*, so output has to land there:
+        // siblings of those layers are created unstyled, which is what made section hatches invisible.
+        Assert.Equal(
+            "MoleHill::Annotation::Sections::CutFill::Cut",
+            SectionOutputLayers.ResolveLayerPath(null, "MoleHill::Annotation", SectionLayerKind.CutFillCut));
+        Assert.Equal(
+            "MoleHill::Annotation::Sections",
+            SectionOutputLayers.ResolveLayerPath(null, "MoleHill::Annotation", SectionLayerKind.Profile));
+    }
+
+    [Fact]
     public void ResolveLayerPath_FallsBackToAnnotationLayer()
     {
         string? path = SectionOutputLayers.ResolveLayerPath(null, "Annotations", SectionLayerKind.Grid);
 
-        Assert.Equal("Annotations::Grid", path);
+        Assert.Equal("Annotations::Sections::Grid", path);
     }
 
     [Fact]
@@ -38,11 +52,43 @@ public class SectionOutputLayersTests
     }
 
     [Fact]
-    public void GetPlotWeight_LeavesLabelsAndFillsOnLayerDefault()
+    public void GetPlotWeight_LeavesLabelsOnLayerDefault()
     {
         Assert.Null(GeneratedLayerDefaults.GetPlotWeight("Sections::Labels"));
-        Assert.Null(GeneratedLayerDefaults.GetPlotWeight("Sections::CutFill::Cut"));
-        Assert.Null(GeneratedLayerDefaults.GetPlotWeight("Sections::CutFill::Fill"));
+    }
+
+    [Fact]
+    public void GetPlotWeight_GivesCutFillFillsAHairlineBoundary()
+    {
+        // A fill is a region: it prints hairline so its pattern reads without the boundary competing with
+        // the profiles crossing it. Leaving it at Rhino's default printed it at the same weight as a
+        // profile line.
+        Assert.Equal(0.13, GeneratedLayerDefaults.GetPlotWeight("Sections::CutFill::Cut"));
+        Assert.Equal(0.13, GeneratedLayerDefaults.GetPlotWeight("Sections::CutFill::Fill"));
+    }
+
+    [Fact]
+    public void GetPreviewWidth_MirrorsThePrintHierarchy()
+    {
+        // The viewport shows the same weight ordering the drawing does.
+        Assert.True(
+            GeneratedLayerDefaults.GetPreviewWidth("Sections::Cuts") >
+            GeneratedLayerDefaults.GetPreviewWidth("Sections::Grid"));
+        Assert.True(
+            GeneratedLayerDefaults.GetPreviewWidth("MoleHill::Annotation::Contours::Major") >
+            GeneratedLayerDefaults.GetPreviewWidth("MoleHill::Annotation::Contours::Minor"));
+        Assert.Equal(
+            GeneratedLayerDefaults.DefaultPreviewWidth,
+            GeneratedLayerDefaults.GetPreviewWidth("Some::Office::Standard"));
+    }
+
+    [Fact]
+    public void ScalePreviewWidth_NeverVanishesAndNeverRunsAway()
+    {
+        Assert.Equal(6, GeneratedLayerDefaults.ScalePreviewWidth(3, 2.0));
+        Assert.Equal(1, GeneratedLayerDefaults.ScalePreviewWidth(1, 0.1));
+        Assert.Equal(32, GeneratedLayerDefaults.ScalePreviewWidth(4, 100.0));
+        Assert.Equal(3, GeneratedLayerDefaults.ScalePreviewWidth(3, 0.0));
     }
 
     [Fact]

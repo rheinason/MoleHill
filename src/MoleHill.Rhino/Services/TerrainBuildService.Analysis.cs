@@ -186,21 +186,24 @@ internal sealed partial class TerrainBuildService
                     terrainSection,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath),
+                    fallbackBaseMesh),
                 CrossSectionStationAnalysisDefinition crossSection => TerrainAnalysisAnnotationBuilder.BuildCrossSectionStationSummary(
                     snapshot,
                     currentMesh,
                     crossSection,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath),
+                    fallbackBaseMesh),
                 LongitudinalSectionAnalysisDefinition longitudinal => TerrainAnalysisAnnotationBuilder.BuildLongitudinalSectionSummary(
                     snapshot,
                     currentMesh,
                     longitudinal,
                     build,
                     shouldCancel,
-                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath)),
+                    TerrainDefinition.ResolveAnnotationLayerPath(terrain.AnnotationLayerPath),
+                    fallbackBaseMesh),
                 CutFillAnalysisDefinition cutFill => BuildCutFillSummary(
                     snapshot,
                     fallbackBaseMesh,
@@ -262,6 +265,8 @@ internal sealed partial class TerrainBuildService
         SlopeAnalysisDefinition analysis,
         double surfaceArea)
     {
+        // Auto-fit must be honoured here exactly as the preview mesh honours it, or the "Mapped" row and
+        // the legend describe a range the terrain was never coloured with.
         double lowPercent = ConvertSlopeUnitToPercent(analysis.RangeLow, analysis.Unit);
         double highPercent = ConvertSlopeUnitToPercent(analysis.RangeHigh, analysis.Unit);
         var slope = SlopeAnalyzer.Summarize(
@@ -270,6 +275,7 @@ internal sealed partial class TerrainBuildService
             currentFaces,
             currentMesh.Faces.Count,
             SlopeAnalyzer.SlopeUnit.Percent,
+            analysis.AutoColorRange,
             Math.Max(0.0, lowPercent),
             Math.Max(0.0, highPercent));
 
@@ -721,44 +727,6 @@ internal sealed partial class TerrainBuildService
     private static double ConvertSlopeUnitToPercent(double slopeValue, SlopeAnalyzer.SlopeUnit unit)
     {
         return SlopeAnalyzer.ConvertUnitToRatio(slopeValue, unit) * 100.0;
-    }
-
-    private static RhinoMesh BuildSlopePreviewMesh(
-        double[] vertices,
-        int[] faces,
-        int faceCount,
-        SlopeAnalyzer.SlopeResult slope)
-    {
-        var coloredMesh = new RhinoMesh();
-        coloredMesh.Vertices.Capacity = faceCount * 3;
-        coloredMesh.Faces.Capacity = faceCount;
-        coloredMesh.VertexColors.Capacity = faceCount * 3;
-
-        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
-        {
-            int i0 = faces[faceIndex * 3];
-            int i1 = faces[faceIndex * 3 + 1];
-            int i2 = faces[faceIndex * 3 + 2];
-            int vertexIndex = coloredMesh.Vertices.Count;
-
-            coloredMesh.Vertices.Add(vertices[i0 * 3], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]);
-            coloredMesh.Vertices.Add(vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]);
-            coloredMesh.Vertices.Add(vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]);
-            coloredMesh.Faces.AddFace(vertexIndex, vertexIndex + 1, vertexIndex + 2);
-
-            var color = System.Drawing.Color.FromArgb(
-                slope.FaceColors[faceIndex * 3],
-                slope.FaceColors[faceIndex * 3 + 1],
-                slope.FaceColors[faceIndex * 3 + 2]);
-            coloredMesh.VertexColors.Add(color);
-            coloredMesh.VertexColors.Add(color);
-            coloredMesh.VertexColors.Add(color);
-        }
-
-        coloredMesh.Normals.ComputeNormals();
-        coloredMesh.UnifyNormals();
-        coloredMesh.Compact();
-        return coloredMesh;
     }
 
     private static ReferenceComparisonStats EstimateReferenceComparison(

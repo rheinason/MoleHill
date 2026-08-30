@@ -17,13 +17,20 @@ namespace MoleHill.Rhino.Services;
 /// </summary>
 internal static class HatchPatternService
 {
-    /// <summary>Cut regions read as the denser pattern by drafting convention.</summary>
-    public const string DefaultCutPatternName = "Hatch2";
-
-    /// <summary>Fill regions read as the lighter pattern.</summary>
-    public const string DefaultFillPatternName = "Hatch1";
-
     public const string SolidPatternName = "Solid";
+
+    /// <summary>
+    /// Cut and fill both default to a solid tint, told apart by their layer colour rather than by pattern.
+    ///
+    /// Line hatches were the earlier default and they lose at the scale these are read at: at drawing
+    /// zoom the strokes alias into a grey wash, and at section scale a wedge a few millimetres deep shows
+    /// one or two strokes and reads as empty. A solid tint carries its colour at any size, which is what
+    /// makes cut and fill legible at a glance. Both are still overridable per analysis, and the pattern
+    /// itself is edited in Rhino's hatch pattern table.
+    /// </summary>
+    public const string DefaultCutPatternName = SolidPatternName;
+
+    public const string DefaultFillPatternName = SolidPatternName;
 
     /// <summary>
     /// The built-in patterns MoleHill will create on demand. Rhino ships these as

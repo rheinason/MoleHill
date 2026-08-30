@@ -15,13 +15,6 @@ public sealed partial class MoleHillPanel
             _controller.CreateTerrain(doc, seedFromSelection: true);
     }
 
-    private void OnImportDem(object? sender, EventArgs e)
-    {
-        var doc = RhinoDoc.ActiveDoc;
-        if (doc != null)
-            DocumentCommandService.RunImportGeoTiffTerrain(doc);
-    }
-
     private void OnDuplicateTerrain(object? sender, EventArgs e)
     {
         var doc = RhinoDoc.ActiveDoc;
@@ -148,15 +141,18 @@ public sealed partial class MoleHillPanel
         RefreshUi();
     }
 
+    // Native Button.Enabled = false makes WinForms substitute its own greyscale-plus-emboss "disabled"
+    // rendering over our custom bitmap — that's why these icons looked washed out and inconsistent next
+    // to Add (which is rarely disabled) rather than evenly muted like Eye/Lock's own state icons. Every
+    // handler behind these buttons already null-guards against "no selected terrain," so keep them
+    // clickable and communicate unavailability through our own muted icon variant instead.
     private void SetActionButtonsEnabled(bool enabled)
     {
-        _dupButton.Enabled             = enabled;
-        _deleteButton.Enabled          = enabled;
-        _rebuildButton.Enabled         = enabled;
-        _resetBuildButton.Enabled      = enabled;
-        _bakeButton.Enabled            = enabled;
-        _visibilityButton.Enabled      = enabled;
-        _lockButton.Enabled            = enabled;
-        _toleranceStepper.Enabled      = enabled;
+        SetButtonIcon(_dupButton, PanelButtonIcon.Duplicate, muted: !enabled);
+        SetButtonIcon(_deleteButton, PanelButtonIcon.Delete, muted: !enabled);
+        SetButtonIcon(_rebuildButton, PanelButtonIcon.Rebuild, muted: !enabled);
+        SetButtonIcon(_resetBuildButton, PanelButtonIcon.ResetBuild, muted: !enabled);
+        SetButtonIcon(_bakeButton, PanelButtonIcon.Bake, muted: !enabled);
+        _toleranceStepper.Enabled = enabled;
     }
 }

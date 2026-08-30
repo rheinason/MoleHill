@@ -4,6 +4,7 @@ using MoleHill.Shared;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
+using Rhino.Render;
 
 namespace MoleHill.Rhino.Services;
 
@@ -57,6 +58,8 @@ internal static class TerrainBuildSnapshotBuilder
             snapshot.SourceDiagnostics[sourceSet] = diagnostics;
         }
 
+        PopulateDemSamples(doc, terrainClone, snapshot);
+
         PopulateBlockDefinitionBounds(doc, terrainClone, snapshot);
 
         if (sectionTerrains != null)
@@ -66,6 +69,80 @@ internal static class TerrainBuildSnapshotBuilder
         }
 
         return snapshot;
+    }
+
+    private static void PopulateDemSamples(RhinoDoc doc, TerrainDefinition terrain, TerrainBuildSnapshot snapshot)
+    {
+        foreach (TriangulateModifierDefinition triangulate in terrain.Modifiers.OfType<TriangulateModifierDefinition>())
+        {
+            if (!snapshot.SourceObjects.TryGetValue(triangulate.DemSurface, out List<ResolvedSourceObject>? surfaces) ||
+                surfaces.Count == 0)
+                continue;
+
+            var points = new List<Point3d>();
+            var errors = new List<string>();
+            foreach (ResolvedSourceObject source in surfaces)
+            {
+                RhinoObject? obj = doc.Objects.FindId(source.ObjectId);
+                string? texturePath = obj == null ? null : GetBitmapTexturePath(doc, obj);
+                if (string.IsNullOrWhiteSpace(texturePath))
+                {
+                    errors.Add("A DEM surface has no bitmap texture.");
+                    continue;
+                }
+                if (!GeoTiffElevationReader.TryReadSamples(texturePath, 20_000, out GeoTiffElevationSamples? raster, out string? readError) ||
+                    raster == null)
+                {
+                    errors.Add(readError ?? $"Could not read DEM texture '{Path.GetFileName(texturePath)}'.");
+                    continue;
+                }
+
+                double elevationScale = ResolveDemElevationScale(texturePath, triangulate, snapshot.ResolvedUnitContext);
+                if (!DemSurfaceSampler.TrySample(source.Geometry, raster, elevationScale, out List<Point3d> sampled, out string? sampleError))
+                {
+                    errors.Add(sampleError ?? "Could not map the DEM texture through its surface.");
+                    continue;
+                }
+                points.AddRange(sampled);
+            }
+
+            if (points.Count > 0)
+            {
+                snapshot.DemPoints[triangulate.Id] = points;
+                var cloud = new PointCloud(points);
+                snapshot.DemFingerprints[triangulate.Id] = cloud.DataCRC(0u);
+            }
+            if (errors.Count > 0)
+                snapshot.DemDiagnostics[triangulate.Id] = string.Join(" ", errors.Distinct(StringComparer.Ordinal));
+        }
+    }
+
+    private static double ResolveDemElevationScale(
+        string texturePath,
+        TriangulateModifierDefinition triangulate,
+        ModelUnitContext documentUnits)
+    {
+        if (triangulate.DemElevationScale > 0.0 && double.IsFinite(triangulate.DemElevationScale))
+            return triangulate.DemElevationScale;
+
+        return GeoTiffMetadataReader.TryRead(texturePath, out _, out _, out GeoTiffLinearUnit? sourceUnits) && sourceUnits.HasValue
+            ? sourceUnits.Value.MetersPerUnit / documentUnits.MetersPerModelUnit
+            : 1.0;
+    }
+
+    private static string? GetBitmapTexturePath(RhinoDoc doc, RhinoObject obj)
+    {
+        RenderMaterial? renderMaterial = obj.GetRenderMaterial(frontMaterial: true);
+        Material? material = renderMaterial?.ToMaterial(RenderTexture.TextureGeneration.Allow);
+        Texture? texture = material?.GetBitmapTexture();
+        string? path = texture?.FileName;
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        if (Path.IsPathRooted(path))
+            return path;
+
+        string? documentDirectory = string.IsNullOrWhiteSpace(doc.Path) ? null : Path.GetDirectoryName(doc.Path);
+        return string.IsNullOrWhiteSpace(documentDirectory) ? path : Path.Combine(documentDirectory, path);
     }
 
     // Capture local bounds of every named block referenced by a scatter mix. The background build picks

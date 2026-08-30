@@ -76,11 +76,65 @@ internal static class TerrainSectionSlicer
 
             var direction = new Vector3d(dx / segmentLength, dy / segmentLength, 0.0);
             var origin = new Point3d(a.X, a.Y, 0.0);
-            var plane = new Plane(origin, direction, Vector3d.ZAxis);
+            var plane = OffsetPlaneOffVertices(mesh, new Plane(origin, direction, Vector3d.ZAxis), tolerance);
             perSegmentIntersections.Add(Intersection.MeshPlane(mesh, plane));
         }
 
         return SliceFromPolylineIntersections(cutPolylineVertices, perSegmentIntersections, tolerance);
+    }
+
+
+    /// <summary>
+    /// Nudges a cut plane sideways so it does not pass exactly through mesh vertices.
+    ///
+    /// <see cref="Intersection.MeshPlane"/> is unreliable when vertices lie exactly on the plane: it can
+    /// return the section as several disjoint runs with whole spans missing, even though the mesh is
+    /// continuous there. Grading makes this the normal case rather than a freak one — a pad's batter
+    /// re-triangulation drops vertices on round coordinates, and section lines are drawn on round
+    /// coordinates too, so they coincide constantly. The symptom is a proposed profile that stops at the
+    /// pad edge and resumes past it, which reads as a hole in the terrain.
+    ///
+    /// The shift is perpendicular to the section's direction, so stations along the section are unchanged
+    /// and the drawing is identical; only the sampled line moves, by less than half the model tolerance.
+    /// It is sized to clear every coincident vertex without reaching the next one along.
+    /// </summary>
+    private static Plane OffsetPlaneOffVertices(RhinoMesh mesh, Plane plane, double tolerance)
+    {
+        double limit = Math.Max(Math.Abs(tolerance), global::Rhino.RhinoMath.ZeroTolerance) * 0.5;
+
+        // "On the plane" has to be generous enough to catch vertices that are only nearly coincident:
+        // those degrade the intersection in the same way, and the mesh carries accumulated float error.
+        double onPlane = limit * 1e-2;
+
+        double nearestOff = double.PositiveInfinity;
+        bool anyOnPlane = false;
+
+        foreach (Point3d vertex in mesh.Vertices.ToPoint3dArray())
+        {
+            double distance = Math.Abs(plane.DistanceTo(vertex));
+            if (distance <= onPlane)
+            {
+                anyOnPlane = true;
+                continue;
+            }
+
+            if (distance < nearestOff)
+                nearestOff = distance;
+        }
+
+        if (!anyOnPlane)
+            return plane;
+
+        double offset = double.IsPositiveInfinity(nearestOff)
+            ? limit
+            : Math.Min(limit, nearestOff * 0.5);
+
+        if (offset <= 0.0)
+            return plane;
+
+        Plane shifted = plane;
+        shifted.Origin = plane.Origin + (plane.Normal * offset);
+        return shifted;
     }
 
     internal static TerrainSectionResult SliceFromPolylineIntersections(

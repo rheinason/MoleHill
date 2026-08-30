@@ -4,8 +4,6 @@ public sealed class LongitudinalSectionAnalysisDefinition : TerrainSectionAnalys
 {
     public double SampleInterval { get; set; } = 1.0;
 
-    public double VerticalExaggeration { get; set; } = 1.0;
-
     public bool ShowElevationGrid { get; set; } = true;
 
     public double ElevationGridInterval { get; set; }

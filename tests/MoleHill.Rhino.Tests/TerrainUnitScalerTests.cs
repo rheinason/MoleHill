@@ -68,7 +68,7 @@ public sealed class TerrainUnitScalerTests
             GlobalTolerance = 0.25,
             Modifiers =
             [
-                new GradePathModifierDefinition { Width = 2, MaxDistance = 4, SlopeAngle = 33 },
+                new GradePathModifierDefinition { Width = 2, MaxDistance = 4, MaxEdgeDistance = 12, SlopeAngle = 33 },
                 new MeshAreasModifierDefinition { MaxArea = 5, MinAngle = 20 },
                 new RemeshModifierDefinition { EdgeLength = 2, MaxArea = 3, CreaseAngle = 45 },
                 new RetainingWallModifierDefinition { MaxWallWidth = 1 },
@@ -100,6 +100,7 @@ public sealed class TerrainUnitScalerTests
         var path = Assert.IsType<GradePathModifierDefinition>(terrain.Modifiers[0]);
         Assert.Equal(20, path.Width);
         Assert.Equal(40, path.MaxDistance);
+        Assert.Equal(120, path.MaxEdgeDistance);
         Assert.Equal(33, path.SlopeAngle);
         Assert.Equal(500, Assert.IsType<MeshAreasModifierDefinition>(terrain.Modifiers[1]).MaxArea);
         Assert.Equal(300, Assert.IsType<RemeshModifierDefinition>(terrain.Modifiers[2]).MaxArea);
