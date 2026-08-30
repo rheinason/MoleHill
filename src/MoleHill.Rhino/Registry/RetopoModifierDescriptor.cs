@@ -27,7 +27,7 @@ internal sealed class RetopoModifierDescriptor : ModifierTypeDescriptor
             "Quads", "Quads",
             m => ((RetopoModifierDefinition)m).Quads,
             (m, v) => ((RetopoModifierDefinition)m).Quads = v,
-            "Replace the terrain with a quad-dominant mesh that flows along the features (field-aligned remesh + triangle pairing; uses Edge Length as the quad size). Hole-free by construction; retaining walls pass through untouched. Terminal — keep Retopo last in the stack. Off = keep the input mesh and only preview the field."),
+            "Replace the terrain with a quad-dominant mesh that flows along the features (field-aligned remesh + triangle pairing; uses Edge Length as the quad size). Hole-free by construction; retaining walls pass through untouched. Retopo can be placed anywhere in the modifier stack. Off = keep the input mesh and only preview the field."),
         ParameterDescriptor.Bool(
             "ShowField", "Show field",
             m => ((RetopoModifierDefinition)m).ShowField,

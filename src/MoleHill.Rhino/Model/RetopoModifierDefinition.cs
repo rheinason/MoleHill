@@ -1,7 +1,7 @@
 namespace MoleHill.Rhino.Model;
 
 /// <summary>
-/// Field-guided quad retopology (finishing modifier — meant to run last). Computes a cross-field
+/// Field-guided quad retopology. Computes a cross-field
 /// aligned to features (previewable via <see cref="ShowField"/>) and, when <see cref="Quads"/> is on,
 /// replaces the terrain with a quad-dominant mesh built by a field-aligned isotropic remesh plus
 /// tri-to-quad pairing — one connected hole-free mesh with retaining walls passed through untouched.
@@ -22,7 +22,7 @@ public sealed class RetopoModifierDefinition : ModifierDefinition
 
     /// <summary>
     /// Replace the terrain with the quad-dominant mesh. Off keeps the input mesh and only previews the
-    /// field. Quad output is terminal — put Retopo last in the stack.
+    /// field. Retopo can be placed anywhere in the modifier stack.
     /// </summary>
     public bool Quads { get; set; }
 
