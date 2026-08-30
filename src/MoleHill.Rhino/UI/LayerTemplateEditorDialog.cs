@@ -3,6 +3,7 @@ using System.Text.Json;
 using Eto.Drawing;
 using Eto.Forms;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
 using Rhino;
 using Rhino.UI;
@@ -26,6 +27,26 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         public int ColorArgb { get; set; } = unchecked((int)0xFF808080);
         public int PrintColorArgb { get; set; } = unchecked((int)0xFF808080);
         public double PlotWeight { get; set; }
+
+        /// <summary>
+        /// The output this layer receives, as a <c>LayerRoleRegistry</c> id, or null for a plain
+        /// layer the template creates but nothing routes to.
+        ///
+        /// Carried on the node rather than recomputed from the path so a binding survives renaming
+        /// or re-parenting the layer — which is the whole point of binding by role instead of by
+        /// path in the first place.
+        /// </summary>
+        public string? Role { get; set; }
+
+        public string? LinetypeName { get; set; }
+        public string? AnnotationStyleName { get; set; }
+        public string? HatchPatternName { get; set; }
+        public double? HatchScale { get; set; }
+        public double? HatchRotationDegrees { get; set; }
+        public int? PreviewWidthPx { get; set; }
+
+        /// <summary>What the Role column shows: the role's display name, or nothing.</summary>
+        public string RoleText => LayerRoleRegistry.ForId(Role)?.DisplayName ?? string.Empty;
 
         private Bitmap? _swatch;
         private int? _swatchArgb;
@@ -74,6 +95,11 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
     private TreeGridItemCollection _rootItems = new();
 
     private readonly Label _pathLabel = new() { TextColor = UiTheme.MutedText };
+    private readonly DropDown _rolePicker = new();
+    private readonly Label _roleHint = new() { TextColor = UiTheme.MutedText, Wrap = WrapMode.Word };
+
+    /// <summary>Role ids in picker order, offset by one for the leading "(nothing)" row.</summary>
+    private readonly List<string> _roleIds = new();
     private readonly Panel _displaySwatch = new() { Width = 20, Height = 20 };
     private readonly Label _displayHex = new();
     private readonly Panel _printSwatch = new() { Width = 20, Height = 20 };
@@ -114,8 +140,10 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
         layout.AddRow(new Label
         {
-            Text = "Edit layer templates graphically. Each layer's display color, print color and plot " +
-                   "weight are applied when you run mhApplyLayerTemplate.",
+            Text = "The layers MoleHill creates, how they look, and which output lands on each. " +
+                   "Appearance is applied when a layer is first created; after that the layer is " +
+                   "yours and your edits in Rhino's Layers panel stick. Use mhResetLayerStyles to " +
+                   "put a drifted document back.",
             Wrap = WrapMode.Word
         });
 
@@ -190,6 +218,14 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             HeaderText = "Weight",
             DataCell = new TextBoxCell { Binding = Binding.Delegate<LayerNode, string>(n => n.PlotWeight.ToString("0.##")) }
         });
+        // Read-only: the binding is chosen in the properties panel, where the list can be grouped
+        // and show which roles are already taken. This column is so it is visible at a glance which
+        // layers actually receive output and which are just here for the user's own geometry.
+        _tree.Columns.Add(new GridColumn
+        {
+            HeaderText = "Receives",
+            DataCell = new TextBoxCell { Binding = Binding.Delegate<LayerNode, string>(n => n.RoleText) }
+        });
 
         _tree.SelectedItemChanged += (_, _) => RefreshProperties();
         _tree.CellEdited += (_, _) => RefreshProperties();
@@ -219,6 +255,13 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
     private Control BuildPropertiesPanel()
     {
+        _rolePicker.Items.Add("(nothing — a layer for your own geometry)");
+        foreach (var descriptor in LayerRoleRegistry.All)
+        {
+            _roleIds.Add(descriptor.Id);
+            _rolePicker.Items.Add(descriptor.DisplayName);
+        }
+
         _displaySwatch.MouseDown += (_, _) => PickColor(isPrint: false);
         _printSwatch.MouseDown += (_, _) => PickColor(isPrint: true);
 
@@ -244,6 +287,30 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         _selectionDependent.Add(pickPrint);
         _selectionDependent.Add(_weightStepper);
 
+        _rolePicker.SelectedIndexChanged += (_, _) =>
+        {
+            if (_loadingProperties || SelectedNode is not { } node)
+                return;
+
+            string? role = _rolePicker.SelectedIndex <= 0 ? null : _roleIds[_rolePicker.SelectedIndex - 1];
+
+            // A role can only land on one layer, so claiming it takes it off whichever layer had it.
+            // Silently routing one kind of output to two places would be worse than moving it.
+            if (role != null)
+            {
+                foreach (LayerNode other in AllNodes())
+                {
+                    if (!ReferenceEquals(other, node) && other.Role == role)
+                        other.Role = null;
+                }
+            }
+
+            node.Role = role;
+            _tree.ReloadData();
+            RefreshProperties();
+        };
+        _selectionDependent.Add(_rolePicker);
+
         var grid = new DynamicLayout { Spacing = new Size(8, 6), Padding = new Padding(0, 4) };
         grid.AddRow(new Label { Text = "Selected:", TextColor = UiTheme.MutedText }, _pathLabel, null);
         grid.AddRow(
@@ -258,6 +325,11 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             new Label { Text = "Plot weight:", VerticalAlignment = VerticalAlignment.Center },
             new StackLayout { Orientation = Orientation.Horizontal, Items = { _weightStepper } },
             null);
+        grid.AddRow(
+            new Label { Text = "Receives:", VerticalAlignment = VerticalAlignment.Center },
+            _rolePicker,
+            null);
+        grid.AddRow(new Panel(), _roleHint, null);
 
         return new Panel
         {
@@ -446,6 +518,13 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
                     node.ColorArgb = entry.ColorArgb ?? node.ColorArgb;
                     node.PrintColorArgb = entry.PrintColorArgb ?? node.PrintColorArgb;
                     node.PlotWeight = entry.PlotWeight ?? node.PlotWeight;
+                    node.Role = entry.Role;
+                    node.LinetypeName = entry.LinetypeName;
+                    node.AnnotationStyleName = entry.AnnotationStyleName;
+                    node.HatchPatternName = entry.HatchPatternName;
+                    node.HatchScale = entry.HatchScale;
+                    node.HatchRotationDegrees = entry.HatchRotationDegrees;
+                    node.PreviewWidthPx = entry.PreviewWidthPx;
                 }
 
                 parent = node;
@@ -468,9 +547,16 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             entries.Add(new LayerTemplateEntry
             {
                 Path = path,
+                Role = node.Role,
                 ColorArgb = node.ColorArgb,
                 PrintColorArgb = node.PrintColorArgb,
-                PlotWeight = node.PlotWeight
+                PlotWeight = node.PlotWeight,
+                LinetypeName = node.LinetypeName,
+                AnnotationStyleName = node.AnnotationStyleName,
+                HatchPatternName = node.HatchPatternName,
+                HatchScale = node.HatchScale,
+                HatchRotationDegrees = node.HatchRotationDegrees,
+                PreviewWidthPx = node.PreviewWidthPx
             });
             foreach (var child in node.Children)
                 Visit((LayerNode)child, path);
@@ -529,6 +615,35 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
 
     // ── Properties panel ────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// What an unbound role falls back to, so it is clear that leaving a layer unbound is a normal
+    /// thing to do rather than an omission — most template layers exist for the user's own geometry.
+    /// </summary>
+    private static string DescribeRole(string? roleId)
+    {
+        var descriptor = LayerRoleRegistry.ForId(roleId);
+        if (descriptor == null)
+            return "Nothing is routed here. MoleHill will create the layer and leave it to you.";
+
+        if (descriptor.Parent == null)
+            return $"{descriptor.DisplayName} output lands on this layer.";
+
+        return $"{descriptor.DisplayName} output lands here. Unbound, it would inherit "
+            + $"{LayerRoleRegistry.DefaultPath(descriptor.Role)}.";
+    }
+
+    private IEnumerable<LayerNode> AllNodes()
+    {
+        var stack = new Stack<LayerNode>(_rootItems.Cast<LayerNode>());
+        while (stack.Count > 0)
+        {
+            LayerNode node = stack.Pop();
+            yield return node;
+            foreach (var child in node.Children)
+                stack.Push((LayerNode)child);
+        }
+    }
+
     private void RefreshProperties()
     {
         var node = SelectedNode;
@@ -545,6 +660,8 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             _displayHex.Text = string.Empty;
             _printHex.Text = string.Empty;
             _weightStepper.Value = 0;
+            _rolePicker.SelectedIndex = 0;
+            _roleHint.Text = string.Empty;
         }
         else
         {
@@ -554,6 +671,10 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             _printSwatch.BackgroundColor = ToEto(node.PrintColorArgb);
             _printHex.Text = Hex(node.PrintColorArgb);
             _weightStepper.Value = node.PlotWeight;
+
+            int roleIndex = node.Role == null ? -1 : _roleIds.IndexOf(node.Role);
+            _rolePicker.SelectedIndex = roleIndex < 0 ? 0 : roleIndex + 1;
+            _roleHint.Text = DescribeRole(node.Role);
         }
         _loadingProperties = false;
     }
