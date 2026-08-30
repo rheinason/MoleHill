@@ -26,6 +26,7 @@ internal sealed partial class TerrainController
     private void UpdateDisplayState(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache, TerrainBuildResult build)
     {
         BoundingBox previousPreviewBounds = runtimeCache.DisplayState?.GetPreviewBounds(doc) ?? BoundingBox.Empty;
+        TerrainDisplayState? previousDisplayState = runtimeCache.DisplayState;
         var displayState = new TerrainDisplayState
         {
             IsPreview = build.Mode == TerrainBuildMode.Preview,
@@ -48,6 +49,10 @@ internal sealed partial class TerrainController
             displayState.MarkerObjects.AddRange(build.MarkerObjects);
             displayState.ScatterObjects.AddRange(build.ScatterObjects);
             displayState.RebuildScatterObjectRanges();
+        }
+        else if (previousDisplayState != null)
+        {
+            displayState.PreserveDeferredOutputsFrom(previousDisplayState);
         }
         displayState.IncludePreviousPreviewBounds(previousPreviewBounds);
         runtimeCache.DisplayState = displayState;

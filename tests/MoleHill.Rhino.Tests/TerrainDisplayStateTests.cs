@@ -86,4 +86,28 @@ public class TerrainDisplayStateTests
 
         Assert.False(state.HasRenderableContent(terrain));
     }
+
+    [Fact]
+    public void PreserveDeferredOutputsFrom_KeepsCompletedAnnotationsVisibleDuringPreview()
+    {
+        var previous = new TerrainDisplayState();
+        var annotation = new GeneratedRhinoObject
+        {
+            Role = LayerRole.Sections,
+            Name = "Section profile"
+        };
+        var marker = new GeneratedRhinoObject
+        {
+            Role = LayerRole.Markers,
+            Name = "Elevation marker"
+        };
+        previous.AuxiliaryObjects.Add(annotation);
+        previous.MarkerObjects.Add(marker);
+
+        var preview = new TerrainDisplayState { IsPreview = true };
+        preview.PreserveDeferredOutputsFrom(previous);
+
+        Assert.Same(annotation, Assert.Single(preview.AuxiliaryObjects));
+        Assert.Same(marker, Assert.Single(preview.MarkerObjects));
+    }
 }

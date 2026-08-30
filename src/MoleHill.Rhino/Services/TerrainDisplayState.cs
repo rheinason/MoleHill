@@ -289,6 +289,21 @@ internal sealed class TerrainDisplayState
         }
     }
 
+    /// <summary>
+    /// Keeps the last completed annotation and auxiliary outputs visible while a fast preview build is
+    /// waiting for its deferred final pass. Preview builds intentionally do not regenerate these objects;
+    /// dropping the previous set here makes every live edit make annotations vanish for the duration of
+    /// the preview, even though the last completed drawing is still valid enough to show.
+    /// </summary>
+    internal void PreserveDeferredOutputsFrom(TerrainDisplayState previous)
+    {
+        ArgumentNullException.ThrowIfNull(previous);
+        AuxiliaryObjects.AddRange(previous.AuxiliaryObjects);
+        MarkerObjects.AddRange(previous.MarkerObjects);
+        ScatterObjects.AddRange(previous.ScatterObjects);
+        RebuildScatterObjectRanges();
+    }
+
     public TerrainDisplayState Clone()
     {
         var clone = new TerrainDisplayState
