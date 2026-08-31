@@ -334,7 +334,8 @@ internal sealed partial class TerrainBuildService
             analysis.Boundary,
             build,
             referenceComparisonCache,
-            shouldCancel);
+            shouldCancel,
+            analysis.ReferenceTerrainId);
 
         return new TerrainAnalysisSummary
         {
@@ -373,7 +374,8 @@ internal sealed partial class TerrainBuildService
             analysis.Boundary,
             build,
             referenceComparisonCache,
-            shouldCancel);
+            shouldCancel,
+            analysis.ReferenceTerrainId);
 
         return new TerrainAnalysisSummary
         {
@@ -653,16 +655,27 @@ internal sealed partial class TerrainBuildService
         SourceReferenceSet boundarySet,
         TerrainBuildResult build,
         Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats> referenceComparisonCache,
-        Func<bool>? shouldCancel)
+        Func<bool>? shouldCancel,
+        Guid? referenceTerrainId = null)
     {
+        ulong referenceTerrainFingerprint = 0;
+        TerrainSectionReferenceSnapshot? referenceTerrain = null;
+        if (referenceTerrainId.HasValue &&
+            snapshot.SectionTerrains.TryGetValue(referenceTerrainId.Value, out referenceTerrain))
+            referenceTerrainFingerprint = referenceTerrain.MeshFingerprint;
+
         var cacheKey = new ReferenceComparisonCacheKey(
             ComputeSourceSetFingerprint(snapshot, referenceSet),
             ComputeSourceSetFingerprint(snapshot, boundarySet),
-            !referenceSet.HasReferences);
+            referenceTerrainFingerprint,
+            !referenceSet.HasReferences && referenceTerrain == null);
         if (referenceComparisonCache.TryGetValue(cacheKey, out ReferenceComparisonStats cachedStats))
             return cachedStats;
 
-        RhinoMesh baseMesh = ResolveReferenceMesh(snapshot, referenceSet) ?? fallbackBaseMesh;
+        // Explicit baked-object reference wins, then a referenced terrain's own finished mesh, then the
+        // terrain's own base triangulation — the ordinary "what did my grading move" comparison.
+        RhinoMesh baseMesh = ResolveReferenceMesh(snapshot, referenceSet) ?? referenceTerrain?.Mesh ?? fallbackBaseMesh;
+        bool isEstimated = !referenceSet.HasReferences && referenceTerrain == null;
         var boundaries = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, boundarySet);
         var projection = CreateReferenceProjectionContext(baseMesh);
 
@@ -673,7 +686,7 @@ internal sealed partial class TerrainBuildService
             currentFaces.Length / 3,
             boundaries,
             snapshot.ModelAbsoluteTolerance,
-            !referenceSet.HasReferences,
+            isEstimated,
             shouldCancel);
 
         referenceComparisonCache[cacheKey] = stats;

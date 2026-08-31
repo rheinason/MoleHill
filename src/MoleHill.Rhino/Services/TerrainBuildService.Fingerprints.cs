@@ -50,6 +50,13 @@ internal sealed partial class TerrainBuildService
             }
         }
 
+        if (analysis is ReferenceComparisonAnalysisDefinition { ReferenceTerrainId: { } referenceTerrainId })
+        {
+            builder.Add(referenceTerrainId);
+            if (snapshot.SectionTerrains.TryGetValue(referenceTerrainId, out TerrainSectionReferenceSnapshot? referenceTerrain))
+                builder.Add(referenceTerrain.MeshFingerprint);
+        }
+
         // Routing and appearance both come from the layer template, so an edit to it has to
         // invalidate cached output the same way an edit to the analysis does.
         if (TerrainAnalysisPreviewBuilder.ProducesGeneratedOutput(analysis))
@@ -62,8 +69,10 @@ internal sealed partial class TerrainBuildService
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
         RhinoMesh mesh,
+        RhinoMesh baseMesh,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> persistentHardConstraints,
-        ulong currentMeshFingerprint)
+        ulong currentMeshFingerprint,
+        ulong baseMeshFingerprint)
     {
         var builder = new FingerprintBuilder();
         builder.Add("Zones");
@@ -76,9 +85,77 @@ internal sealed partial class TerrainBuildService
         {
             AddSerializedFingerprint(ref builder, zone, zone.GetType());
             builder.Add(ComputeSourceSetFingerprint(snapshot, zone.Boundaries));
+            builder.Add(ComputeZoneGradePathFingerprint(snapshot, terrain, zone));
+        }
+
+        // Zone quantities fold in the enabled Earthworks analysis (see BuildTerrainZones), so
+        // enabling it or repointing its reference has to invalidate the cached zone summaries. No
+        // reference set is the normal case too — it estimates against the base mesh, already folded in
+        // below — so this only needs the analysis to be enabled, not to have an explicit reference.
+        EarthworkAnalysisDefinition? earthwork = terrain.Analyses
+            .OfType<EarthworkAnalysisDefinition>()
+            .FirstOrDefault(item => item.IsEnabled);
+        if (earthwork != null)
+        {
+            builder.Add("ZoneEarthworks");
+            builder.Add(earthwork.Id);
+            builder.Add(ComputeSourceSetFingerprint(snapshot, earthwork.Reference));
+            builder.Add(baseMeshFingerprint != 0 ? baseMeshFingerprint : ComputeMeshFingerprint(baseMesh));
+            if (earthwork.ReferenceTerrainId is { } referenceTerrainId)
+            {
+                builder.Add(referenceTerrainId);
+                if (snapshot.SectionTerrains.TryGetValue(referenceTerrainId, out TerrainSectionReferenceSnapshot? referenceTerrain))
+                    builder.Add(referenceTerrain.MeshFingerprint);
+            }
         }
 
         return builder.ToUInt64();
+    }
+
+    /// <summary>A zone boundary curve that is also a Grade Path centerline gets its footprint from the
+    /// path (see <c>TerrainBuildService.Zones.BuildGradePathSourceLookup</c>), so the zone's cached mesh
+    /// must invalidate when the matched path's width settings change - not just when the shared curve
+    /// object itself moves.</summary>
+    private static ulong ComputeZoneGradePathFingerprint(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        CollageZoneDefinition zone)
+    {
+        HashSet<Guid> selectedSourceIds = ResolveSourceObjectIds(snapshot, zone.Boundaries);
+        if (selectedSourceIds.Count == 0)
+            return 0UL;
+
+        var builder = new FingerprintBuilder();
+        builder.Add("ZoneGradePathV1");
+        int matchedModifierCount = 0;
+        foreach ((int index, GradePathModifierDefinition gradePath) in EnumeratePriorEnabledGradePathModifiersWithIndex(terrain, terrain.Modifiers.Count))
+        {
+            var matchingIds = TerrainBuildSnapshotResolver
+                .ResolveObjects(snapshot, gradePath.Paths)
+                .Select(static sourceObject => sourceObject.ObjectId)
+                .Where(objectId => objectId != Guid.Empty && selectedSourceIds.Contains(objectId))
+                .Distinct()
+                .OrderBy(static objectId => objectId)
+                .ToArray();
+            if (matchingIds.Length == 0)
+                continue;
+
+            matchedModifierCount++;
+            builder.Add(index);
+            builder.Add(gradePath.UseVariableWidth);
+            builder.Add(gradePath.Width);
+            builder.Add(gradePath.SlopeAngle);
+            builder.Add(gradePath.CutSlopeAngle);
+            builder.Add(gradePath.MaxDistance);
+            builder.Add(gradePath.MaxEdgeDistance);
+            builder.Add(ComputeSourceSetFingerprint(snapshot, gradePath.Paths));
+            builder.Add(ComputeSourceSetFingerprint(snapshot, gradePath.WidthEdges));
+            builder.Add(matchingIds.Length);
+            foreach (Guid objectId in matchingIds)
+                builder.Add(objectId);
+        }
+
+        return matchedModifierCount == 0 ? 0UL : builder.ToUInt64();
     }
 
     private static ulong ComputeMarkersFingerprint(

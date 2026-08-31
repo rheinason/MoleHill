@@ -82,6 +82,34 @@ internal static class ClipperGeometry
         return TryPickLargestLoop(loops, out offsetLoop);
     }
 
+    /// <summary>
+    /// Inflates an open polyline (e.g. a Grade Path centerline) into a closed ribbon loop of the given
+    /// half-width, squared off at both ends. Used to derive a zone boundary that tracks a path's width
+    /// without the caller drawing/maintaining a separate polygon.
+    /// </summary>
+    internal static bool TryInflateOpenPolylineToLoop(double[] xyPolyline, int vertexCount, double delta, double tolerance, out double[] loop)
+    {
+        loop = Array.Empty<double>();
+        if (vertexCount < 2 || delta <= 0.0)
+            return false;
+
+        var path = new PathD(vertexCount);
+        for (int i = 0; i < vertexCount; i++)
+            path.Add(new PointD(xyPolyline[i * 2], xyPolyline[(i * 2) + 1]));
+
+        var subject = new PathsD { path };
+        PathsD inflated = Clipper.InflatePaths(
+            subject,
+            delta,
+            JoinType.Round,
+            EndType.Butt,
+            miterLimit: 2.0,
+            precision: PrecisionFor(tolerance),
+            arcTolerance: 0.0);
+        List<double[]> loops = ToClosedLoops(inflated, tolerance);
+        return TryPickLargestLoop(loops, out loop);
+    }
+
     internal static bool TrySimplifyClosedLoop(double[] loop, double tolerance, out double[] simplifiedLoop)
     {
         simplifiedLoop = Array.Empty<double>();

@@ -1,8 +1,9 @@
-using System.Reflection;
+﻿using System.Reflection;
 
 namespace MoleHill.Rhino.Registry;
 
-/// <summary>Auto-discovered registry of <see cref="MarkerTypeDescriptor"/>s (Markers tab).</summary>
+/// <summary>Auto-discovered registry of <see cref="MarkerTypeDescriptor"/>s. Feeds JSON type resolution
+/// and the marker build stage; the Markers tab it was written for no longer exists.</summary>
 internal static class MarkerTypeRegistry
 {
     private static readonly IReadOnlyList<MarkerTypeDescriptor> MarkerDescriptors;

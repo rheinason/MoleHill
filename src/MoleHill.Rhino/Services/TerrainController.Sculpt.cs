@@ -127,7 +127,8 @@ internal sealed partial class TerrainController
     internal uint BeginTerrainStateUndoRecord(RhinoDoc doc, string description)
     {
         uint undoRecord = doc.BeginUndoRecord(description);
-        doc.AddCustomUndoEvent(description, OnRestoreStateUndo, CaptureUndoState(GetState(doc)));
+        if (undoRecord > 0)
+            JoinActiveTerrainUndoRecord(doc, description);
         return undoRecord;
     }
 

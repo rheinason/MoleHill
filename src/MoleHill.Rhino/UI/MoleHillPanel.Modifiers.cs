@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Linq;
 using Eto.Drawing;
 using Eto.Forms;
@@ -255,7 +255,7 @@ public sealed partial class MoleHillPanel
                 SculptSessionController.Instance.BeginSession(doc, terrainId, modifierId);
             });
         }, "Start sculpting in the viewport. Drag to sculpt, Ctrl inverts, Shift smooths; choose Erase to remove sculpting locally; Enter or Esc ends the session.");
-        sculptButton.MinimumSize = new Size(UiMetrics.Chs(12), UiMetrics.ControlHeight);
+        sculptButton.MinimumSize = new Size(0, UiMetrics.ControlHeight);
         sculptButton.BackgroundColor = UiTheme.ListSelectionBackground;
 
         var clearButton = MakeInlineButton("Clear", (_, _) =>
@@ -275,18 +275,15 @@ public sealed partial class MoleHillPanel
             MutateModifier(terrainId, modifierId, item => ((SculptModifierDefinition)item).Tiles.Clear());
         }, "Delete all stored sculpt displacement for this modifier.");
 
-        return new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Items =
-            {
-                UiControls.Label("Sculpting", UiLabelRole.Section),
-                sculptButton,
-                clearButton
-            }
-        };
+        // A PropertyRow like the rest of the card, so Sculpt starts on the same column as Constraints
+        // and Feather below it instead of hanging off the end of its own caption.
+        return new PropertyRow(
+            CreateHelpLabel(
+                "Sculpting",
+                "Sculpt terrain elevation by hand in the viewport, or clear every stored stroke.",
+                0),
+            new AdaptiveColumns(UiMetrics.SpaceSmall, UiMetrics.Chs(8), sculptButton, clearButton),
+            expandWidget: true);
     }
 
     private Control CreateWorkAreaRow(Guid terrainId, Guid modifierId)

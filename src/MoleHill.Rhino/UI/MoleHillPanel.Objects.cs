@@ -211,13 +211,13 @@ public sealed partial class MoleHillPanel
 
     private Control CreateScatterBlockMixEditor(TerrainDefinition terrain, ScatterObjectDefinition scatter)
     {
-        void Mutate(Action<ScatterObjectDefinition> apply)
+        void Mutate(Action<ScatterObjectDefinition> apply, bool live = false)
         {
             MutateObjectDefinition(terrain.TerrainId, scatter.Id, item =>
             {
                 if (item is ScatterObjectDefinition target)
                     apply(target);
-            }, deferDocumentSave: true, suppressImmediateUiRefresh: true);
+            }, deferDocumentSave: live, suppressImmediateUiRefresh: live);
         }
 
         var layout = new DynamicLayout { DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceSmall) };
@@ -234,7 +234,7 @@ public sealed partial class MoleHillPanel
                 layout.AddRow(CreateScatterBlockRow(
                     entry.BlockDefinitionName!,
                     entry.Weight,
-                    value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }),
+                    value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }, live: true),
                     () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); })));
             }
             else
@@ -249,7 +249,7 @@ public sealed partial class MoleHillPanel
                 layout.AddRow(CreateLegacyScatterBlockRow(
                     sourceEditor,
                     entry.Weight,
-                    value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }),
+                    value => Mutate(s => { if (index < s.Blocks.Count) s.Blocks[index].Weight = value; }, live: true),
                     () => Mutate(s => { if (index < s.Blocks.Count) s.Blocks.RemoveAt(index); })));
             }
         }
@@ -464,9 +464,16 @@ public sealed partial class MoleHillPanel
         slider.MouseUp += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
+            {
+                Commit(pendingValue);
                 EndSliderEdit();
+            }
         };
-        slider.LostFocus += (_, _) => EndSliderEdit();
+        slider.LostFocus += (_, _) =>
+        {
+            Commit(pendingValue);
+            EndSliderEdit();
+        };
         slider.ValueChanged += (_, _) =>
         {
             if (_isRefreshing || syncing)

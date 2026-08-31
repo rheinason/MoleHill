@@ -176,7 +176,42 @@ public sealed partial class MoleHillPanel
                 layout.AddRow(CreateSlopeUnitEditor(terrain.TerrainId, slope));
                 break;
 
+            case ReferenceComparisonAnalysisDefinition referenceComparison:
+                layout.AddRow(CreateAnalysisReferenceTerrainEditor(terrain, referenceComparison));
+                break;
+
         }
+    }
+
+    /// <summary>
+    /// Lets Earthworks/Cut-Fill compare against another MoleHill terrain's finished mesh directly, without
+    /// requiring it to be baked to Rhino geometry first. Sits above the schema-generated "Reference" row,
+    /// which takes precedence when it has objects or layers assigned.
+    /// </summary>
+    private Control CreateAnalysisReferenceTerrainEditor(TerrainDefinition owner, ReferenceComparisonAnalysisDefinition analysis)
+    {
+        RhinoDoc? doc = RhinoDoc.ActiveDoc;
+        IReadOnlyList<TerrainDefinition> terrains = doc == null
+            ? Array.Empty<TerrainDefinition>()
+            : _controller.GetTerrains(doc);
+
+        var options = new List<(string Key, string Label)> { ("", "None — estimate from base triangulation") };
+        options.AddRange(terrains
+            .Where(item => item.TerrainId != owner.TerrainId)
+            .Select(item => (item.TerrainId.ToString(), item.Name)));
+
+        string selectedKey = analysis.ReferenceTerrainId?.ToString() ?? "";
+        return CreateDropDownEditor(
+            "Compare To Terrain",
+            options,
+            selectedKey,
+            value => MutateAnalysis(owner.TerrainId, analysis.Id, item =>
+            {
+                if (item is ReferenceComparisonAnalysisDefinition compare)
+                    compare.ReferenceTerrainId = string.IsNullOrEmpty(value) ? null : Guid.Parse(value);
+            }, scheduleRebuild: true),
+            "Another terrain's finished mesh to compare against, without baking it to Rhino geometry first. " +
+            "Ignored when “Reference” below has objects or layers assigned - those take precedence.");
     }
 
     /// <summary>An inline caution on a card: a setting is on but cannot take effect yet.</summary>

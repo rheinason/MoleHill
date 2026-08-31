@@ -31,17 +31,33 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   `UI/PanelButtonIcons.cs`, a theme-aware vector icon set rendered to Eto images.
 - Rhino command names use the compact `mh...` prefix. The installed toolbar exposes Geometry, Blocks,
   and Document utilities; terrain creation, editing, and bake/convert workflows stay in the dock panel.
-- Curve review remains an ordinary-Rhino-geometry workflow: `mhInspectCurve` opens a compact,
-  document-parented live report with grade/compliance diagnostics *and* a viewport overlay conduit -
-  grade-colored ribbon, elevations at kinks, per-stretch grade and length, crest/sag/break/off-terrain
-  markers, terrain drape with cut/fill ties, and red stretches wherever the optional max-grade or
-  min-plan-radius limit is violated. A `Label` button runs a pick loop along the inspected curve and drops
-  text dots reading elevation, grade, station or cut/fill on the terrain's annotation label sublayer, in a
-  single undo record - this replaces the removed `mhSlopeCheckAndMark`, which recomputed slope from scratch
-  and dropped bare dots on the current layer. Overlay `Weight` and label density are panel controls, since
-  a hairline ribbon cannot show its own colour coding - while `mhSlopeCurveSection` edits
-  only the selected elevation interval using an explicit grade, current-endpoint interpolation, or a
-  blend to the selected terrain's completed final mesh. No custom curve object is persisted.
+- **`mhInspectCurve` reports; it never edits.** The inspector is a read-only instrument: a
+  document-parented plan-station panel linked to a viewport overlay. Geometry is changed in ordinary Rhino
+  or through the terrain definition — never here. A second editing surface with its own preview curve and
+  undo stack meant two Undo meanings alive at once (hence Apply/Reset/Undo edit/Redo), and let a curve that
+  feeds a Grade Path be rewritten *behind* the definition that consumes it. Editing a vertical profile, if
+  it returns, belongs on the grading modifier, editing the definition and rebuilding through the pipeline.
+  The panel is a reading order — profile, checks, measurements, events, display — with the rule thresholds
+  behind a disclosure under Checks, because limits are set rarely and checks are read constantly. Rules
+  (max grade, min plan radius, vertical grade change, terrain coverage) keep their Off/Report/Warn modes
+  and user-persistent, unit-aware thresholds. The profile is coloured by a selected metric — grade,
+  elevation, cut/fill or plan radius — and both surfaces build that colour from one
+  `CurveReviewMetricSeries`, so the graph and the ribbon on the curve cannot disagree about what red means;
+  an over-limit stretch stays red whatever the metric, so switching to Elevation cannot hide a failure.
+  Pointer position on the plot scrubs a marker along the curve in the viewport. `Label` places elevation,
+  grade, station or cut/fill dots on the Labels role in one undo record. Plan stationing uses one exact
+  World-XY projection shared by measurement and analysis; true plan corners are reported as corners rather
+  than sampling-derived radii. No custom curve object is persisted.
+- **The whole inspector overlay draws in front of the scene, and needs two separate things to be true.**
+  An inspected curve that grades the terrain lies *in* the mesh it generated, so the inspector must beat
+  the terrain twice over. (1) `CurveReviewConduit` pushes depth testing and depth writing off for its
+  entire pass, not just for labels — otherwise the depth buffer hides it. (2) It draws in the
+  **`DrawForeground`** channel, *not* `PostDrawObjects`, because a MoleHill terrain preview is itself
+  drawn by a conduit (`TerrainDisplayConduit`) in `PostDrawObjects`. Two conduits sharing one channel
+  paint in registration order, and depth testing cannot save you from a later painter: the terrain mesh
+  simply covered the overlay. Drawing in a channel the terrain conduit does not use puts the inspector on
+  top whatever the registration order happens to be. **Any future MoleHill overlay that must sit above the
+  terrain preview needs the channel, not just the depth flags.**
 - `mhOffsetFeature` is the Civil3D-style feature line offset: it offsets a selected 3D polyline in
   plan (interactive side pick, mitred corners), re-lifts every offset vertex to the source elevation so
   the source's longitudinal grade is preserved, then applies one constant vertical delta. The delta comes
@@ -134,9 +150,10 @@ than behaving as independently editable terrain surfaces.
 
 The Rhino panel retains runtime-only `ZoneAnalysisSummary` values from the last completed final build.
 These summaries are calculated from resolved zone output after overlap and priority rules, so plan area,
-surface area, elevation, slope, and mesh counts do not double-count overlapping zones. Cut/fill is shown
-only when an enabled Earthworks analysis has an explicit reference and uses the same estimated/exact
-convention as the global Earthworks summary. Zone summaries are display/cache state, not persisted settings.
+surface area, elevation, slope, and mesh counts do not double-count overlapping zones. Cut/fill is shown whenever an Earthworks analysis is enabled, using the same estimated/exact convention as
+the global Earthworks summary: an explicit reference (baked geometry or another terrain, see below) gives an
+exact figure, and with neither set it estimates against this terrain's own base triangulation rather than
+going unavailable. Zone summaries are display/cache state, not persisted settings.
 
 ## Model-unit contract
 
@@ -437,6 +454,14 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   explicit reference still wins, for comparing against surveyed ground that is not this terrain's own
   starting point. A missing reference is therefore never an error — the card states which basis is in use
   (`DescribeBasis` on either descriptor) rather than demanding a surface it does not need.
+- **Cut/fill and earthworks can compare against another MoleHill terrain directly**, via
+  `ReferenceComparisonAnalysisDefinition.ReferenceTerrainId` — the same "pick a sibling terrain" affordance
+  section cut/fill already had (`CutFillReferenceTerrainId`), extended to the base class so both
+  `EarthworkAnalysisDefinition` and `CutFillAnalysisDefinition` get it. `Reference` (baked geometry) still
+  wins when both are set; `ReferenceTerrainId` wins over the base-triangulation fallback. Resolved from the
+  same `TerrainBuildSnapshot.SectionTerrains` cache sections use (a referenced terrain's last completed
+  final mesh, captured on the document thread), so referencing a terrain still requires it to have finished
+  a final build at least once — but never requires baking it to Rhino geometry first.
 - **A section cut plane is nudged off mesh vertices.** `Intersection.MeshPlane` drops whole spans when the
   plane passes exactly through vertices, returning the profile as disjoint runs where the mesh is
   continuous. Grading makes that the normal case, not a freak one: batter re-triangulation lands vertices
@@ -659,6 +684,15 @@ more closely with the baked document object.
 `TerrainController` owns document state (load/save JSON in the .3dm), build scheduling, display-state
 publication, source-object editing, and bake. It is the largest service and a decomposition target
 (`docs/cleanup-plan.md`).
+
+User-authored terrain changes participate in Rhino's native Undo/Redo stack through controller-owned
+serialized state snapshots. Modeless panel mutations open short custom undo records; live sliders,
+numeric fields, and colour-ramp drags retain the state from the start of the gesture and register one
+record when the gesture ends. Compound operations such as bake, delete, work-area creation, detach,
+Sculpt, and import keep Rhino object changes and terrain JSON in the same outer record. Restoring a
+snapshot cancels stale builds and deferred saves, clears runtime caches, refreshes render consumers, and
+reschedules live terrains so an old worker result cannot overwrite the restored state. Selection-only
+and runtime/build-status changes do not create terrain undo history.
 
 ### Runtime viewport overlays
 

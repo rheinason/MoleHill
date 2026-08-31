@@ -39,6 +39,7 @@ internal sealed partial class TerrainBuildService
     private readonly record struct ReferenceComparisonCacheKey(
         ulong ReferenceFingerprint,
         ulong BoundaryFingerprint,
+        ulong ReferenceTerrainFingerprint,
         bool UsesFallbackBaseMesh);
 
     private sealed class ReferenceProjectionContext

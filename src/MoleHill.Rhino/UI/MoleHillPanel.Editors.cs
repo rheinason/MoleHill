@@ -423,9 +423,16 @@ public sealed partial class MoleHillPanel
         slider.MouseUp += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
+            {
+                Commit(pendingValue);
                 EndSliderEdit();
+            }
         };
-        slider.LostFocus += (_, _) => EndSliderEdit();
+        slider.LostFocus += (_, _) =>
+        {
+            Commit(pendingValue);
+            EndSliderEdit();
+        };
         slider.ValueChanged += (_, _) =>
         {
             if (_isRefreshing || syncing)

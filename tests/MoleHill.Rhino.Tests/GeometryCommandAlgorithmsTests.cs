@@ -17,6 +17,22 @@ public class GeometryCommandAlgorithmsTests
     }
 
     [RhinoNativeFact]
+    public void CalculatePlanLength_KinkedPolyline_ReturnsExactPlanLength()
+    {
+        using var curve = new PolylineCurve(new[]
+        {
+            new Point3d(0, 0, 0),
+            new Point3d(30, 40, 10),
+            new Point3d(80, 40, -5),
+            new Point3d(100, 55, 2)
+        });
+
+        double length = GeometryCommandAlgorithms.CalculatePlanLength(curve, curve.Domain.T0, curve.Domain.T1);
+
+        Assert.Equal(125.0, length, 9);
+    }
+
+    [RhinoNativeFact]
     public void CurveSectionEdit_ZeroGrade_FlattensSelectedLine()
     {
         var curve = new LineCurve(new Point3d(0, 0, 10), new Point3d(10, 0, 20));

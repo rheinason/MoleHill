@@ -30,8 +30,6 @@ internal enum CurveLabelContent
 /// </summary>
 internal static class CurveReviewLabeller
 {
-    /// <summary>Sublayer that placed labels are written to, under the terrain's annotation layer.</summary>
-
     /// <summary>
     /// Runs the pick loop until the user presses Enter or Escape. Returns how many labels were placed.
     /// The whole session is one undo record, so a run of labels is undone as a unit rather than one dot

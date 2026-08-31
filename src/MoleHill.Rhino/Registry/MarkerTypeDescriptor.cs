@@ -1,10 +1,12 @@
-using MoleHill.Rhino.Model;
+﻿using MoleHill.Rhino.Model;
 
 namespace MoleHill.Rhino.Registry;
 
 /// <summary>
-/// Self-registering descriptor for one marker type (the Markers tab). Supplies the JSON discriminator,
-/// the factory, and the add-button text/help. Discovered by reflection in <see cref="MarkerTypeRegistry"/>.
+/// Self-registering descriptor for one marker type. Supplies the JSON discriminator, the factory, and the
+/// add-button text/help. Discovered by reflection in <see cref="MarkerTypeRegistry"/>. There is no Markers
+/// tab any more — spot elevation and slope labels are annotations — but persisted markers still build, so
+/// the registry stays the resolver's source of marker types.
 /// </summary>
 internal abstract class MarkerTypeDescriptor
 {

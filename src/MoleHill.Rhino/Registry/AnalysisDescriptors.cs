@@ -35,6 +35,21 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
             a => ((EarthworkAnalysisDefinition)a).Boundary,
             RhinoObjectType.Curve),
     };
+
+    public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var earthwork = (EarthworkAnalysisDefinition)analysis;
+        return earthwork.Reference.HasReferences || earthwork.ReferenceTerrainId.HasValue ||
+               AnalysisPrerequisites.HasElevationChangingModifier(terrain)
+            ? null
+            : AnalysisPrerequisites.NothingToCompareMessage;
+    }
+
+    public override string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var earthwork = (EarthworkAnalysisDefinition)analysis;
+        return AnalysisPrerequisites.DescribeBasis(earthwork.Reference.HasReferences || earthwork.ReferenceTerrainId.HasValue);
+    }
 }
 
 internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
@@ -113,13 +128,17 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
         // triangulation against the finished modifier stack, which is what "how much did my grading move"
         // means. It only has nothing to say when nothing has moved the ground.
         var cutFill = (CutFillAnalysisDefinition)analysis;
-        return cutFill.Reference.HasReferences || AnalysisPrerequisites.HasElevationChangingModifier(terrain)
+        return cutFill.Reference.HasReferences || cutFill.ReferenceTerrainId.HasValue ||
+               AnalysisPrerequisites.HasElevationChangingModifier(terrain)
             ? null
             : AnalysisPrerequisites.NothingToCompareMessage;
     }
 
-    public override string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis) =>
-        AnalysisPrerequisites.DescribeBasis(((CutFillAnalysisDefinition)analysis).Reference.HasReferences);
+    public override string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var cutFill = (CutFillAnalysisDefinition)analysis;
+        return AnalysisPrerequisites.DescribeBasis(cutFill.Reference.HasReferences || cutFill.ReferenceTerrainId.HasValue);
+    }
 
 }
 

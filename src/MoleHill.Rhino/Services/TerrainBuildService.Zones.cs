@@ -35,7 +35,14 @@ internal sealed partial class TerrainBuildService
         }
 
         var entries = new List<ZoneBoundaryEntry>();
-        double tolerance = GetToleranceProfile(snapshot, terrain).InputMergeTolerance;
+        TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
+        double tolerance = toleranceProfile.InputMergeTolerance;
+        Dictionary<Guid, PathGrader.PathDefinition> gradePathLookup = BuildGradePathSourceLookup(
+            snapshot,
+            terrain,
+            terrain.Modifiers.Count,
+            toleranceProfile.CurveChordTolerance,
+            toleranceProfile.GradePathTolerance);
         var resolveTimer = Stopwatch.StartNew();
         for (int zoneIndex = 0; zoneIndex < terrain.Zones.Count; zoneIndex++)
         {
@@ -43,7 +50,7 @@ internal sealed partial class TerrainBuildService
             if (!zone.IsEnabled)
                 continue;
 
-            var zoneEntries = ResolveZoneBoundaries(snapshot, zone, zoneIndex, tolerance);
+            var zoneEntries = ResolveZoneBoundaries(snapshot, zone, zoneIndex, tolerance, gradePathLookup);
             if (zone.Boundaries.HasReferences && zoneEntries.Count == 0)
             {
                 build.Diagnostics.Add($"Zone '{zone.Name}' has no valid closed curves or horizontal planar surfaces.");
@@ -127,9 +134,11 @@ internal sealed partial class TerrainBuildService
             meshes.Add(subMesh);
         }
 
+        // No reference set (nor a reference terrain) is the normal case, not a missing input: it estimates
+        // against this terrain's own base triangulation, same as the terrain-level Earthworks analysis.
         EarthworkAnalysisDefinition? earthwork = terrain.Analyses
             .OfType<EarthworkAnalysisDefinition>()
-            .FirstOrDefault(item => item.IsEnabled && item.Reference.HasReferences);
+            .FirstOrDefault(item => item.IsEnabled);
         foreach (CollageZoneDefinition zone in terrain.Zones.Where(item => item.IsEnabled))
         {
             zoneMeshes.TryGetValue(zone.ZoneId, out List<RhinoMesh>? meshes);
@@ -155,7 +164,8 @@ internal sealed partial class TerrainBuildService
                         new SourceReferenceSet(),
                         build,
                         comparisonCache,
-                        shouldCancel);
+                        shouldCancel,
+                        earthwork.ReferenceTerrainId);
                     summary.HasEarthwork = true;
                     summary.EarthworkIsEstimated |= stats.IsEstimated;
                     summary.CutVolume += stats.CutVolume;
@@ -175,7 +185,12 @@ internal sealed partial class TerrainBuildService
             StageTimingDiagnosticThresholdMs);
     }
 
-    private static List<ZoneBoundaryEntry> ResolveZoneBoundaries(TerrainBuildSnapshot snapshot, CollageZoneDefinition zone, int zoneOrder, double tolerance)
+    private static List<ZoneBoundaryEntry> ResolveZoneBoundaries(
+        TerrainBuildSnapshot snapshot,
+        CollageZoneDefinition zone,
+        int zoneOrder,
+        double tolerance,
+        Dictionary<Guid, PathGrader.PathDefinition> gradePathLookup)
     {
         var result = new List<ZoneBoundaryEntry>();
         int sourceOrder = 0;
@@ -186,18 +201,27 @@ internal sealed partial class TerrainBuildService
             switch (obj.Geometry)
             {
                 case Curve curve:
-                    if (TryCreateAreaBoundary(curve, tolerance, out var curveBoundary))
+                    MeshAreaSplitter.AreaBoundary boundary = null!;
+                    bool haveBoundary = false;
+                    if (obj.ObjectId != Guid.Empty &&
+                        gradePathLookup.TryGetValue(obj.ObjectId, out PathGrader.PathDefinition? gradePathDefinition) &&
+                        !gradePathDefinition.IsClosed)
                     {
-                        result.Add(new ZoneBoundaryEntry
-                        {
-                            Zone = zone,
-                            Boundary = curveBoundary,
-                            ZoneOrder = zoneOrder,
-                            SourceOrder = sourceOrder++,
-                            PriorityZ = GetCurvePriorityZ(curve),
-                            InputLayerPath = inputLayerPath ?? obj.LayerPath
-                        });
+                        haveBoundary = TryCreateGradePathZoneBoundary(gradePathDefinition, tolerance, out boundary);
                     }
+
+                    if (!haveBoundary && !TryCreateAreaBoundary(curve, tolerance, out boundary))
+                        break;
+
+                    result.Add(new ZoneBoundaryEntry
+                    {
+                        Zone = zone,
+                        Boundary = boundary,
+                        ZoneOrder = zoneOrder,
+                        SourceOrder = sourceOrder++,
+                        PriorityZ = GetCurvePriorityZ(curve),
+                        InputLayerPath = inputLayerPath ?? obj.LayerPath
+                    });
 
                     break;
                 case Brep brep:
@@ -237,6 +261,67 @@ internal sealed partial class TerrainBuildService
             return sourceCompare;
 
         return left.ZoneOrder.CompareTo(right.ZoneOrder);
+    }
+
+    /// <summary>Indexes every enabled Grade Path modifier's resolved centerlines by source curve id, so a
+    /// zone boundary drawn on the same curve as a path's centerline can be expanded to that path's
+    /// footprint instead of requiring its own closed polygon. Zones always run after the full modifier
+    /// stack, so every Grade Path modifier is eligible regardless of its position.</summary>
+    private static Dictionary<Guid, PathGrader.PathDefinition> BuildGradePathSourceLookup(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        int modifierBound,
+        double curveTolerance,
+        double gradePathTolerance)
+    {
+        var lookup = new Dictionary<Guid, PathGrader.PathDefinition>();
+        foreach (GradePathModifierDefinition gradePath in EnumeratePriorEnabledGradePathModifiers(terrain, modifierBound))
+        {
+            (ResolvedGradePathDefinition[] resolvedPaths, _) = ResolveGradePathDefinitions(
+                snapshot, gradePath, curveTolerance, gradePathTolerance);
+            foreach (ResolvedGradePathDefinition resolvedPath in resolvedPaths)
+            {
+                if (resolvedPath.SourceObjectId != Guid.Empty)
+                    lookup[resolvedPath.SourceObjectId] = resolvedPath.Definition;
+            }
+        }
+
+        return lookup;
+    }
+
+    /// <summary>Builds a zone boundary that tracks a Grade Path's resolved width: the variable-width
+    /// left/right rails when width edges are in play, otherwise the centerline inflated by half the
+    /// constant Width, squared off at both ends.</summary>
+    private static bool TryCreateGradePathZoneBoundary(
+        PathGrader.PathDefinition path,
+        double tolerance,
+        out MeshAreaSplitter.AreaBoundary boundary)
+    {
+        boundary = null!;
+
+        if (path.HasVariableWidth)
+        {
+            int count = path.VertexCount;
+            var footprint = new double[count * 4];
+            for (int i = 0; i < count; i++)
+            {
+                footprint[i * 2] = path.LeftEdgeXy![i * 2];
+                footprint[(i * 2) + 1] = path.LeftEdgeXy[(i * 2) + 1];
+                int source = count - 1 - i;
+                int destination = count + i;
+                footprint[destination * 2] = path.RightEdgeXy![source * 2];
+                footprint[(destination * 2) + 1] = path.RightEdgeXy[(source * 2) + 1];
+            }
+
+            boundary = new MeshAreaSplitter.AreaBoundary(footprint, footprint.Length / 2);
+            return true;
+        }
+
+        if (!ClipperGeometry.TryInflateOpenPolylineToLoop(path.XyVertices, path.VertexCount, path.Width * 0.5, tolerance, out double[] loop))
+            return false;
+
+        boundary = new MeshAreaSplitter.AreaBoundary(loop, loop.Length / 2);
+        return true;
     }
 
     private static bool TryCreateAreaBoundary(Curve curve, double tolerance, out MeshAreaSplitter.AreaBoundary boundary)

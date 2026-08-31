@@ -106,7 +106,13 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   and the terrain command surface; split by concern: `.Build` (scheduling + background-build lifecycle),
   `.Output` (output sync + bake + attributes + owned-object lifecycle), `.Events` (Rhino doc events,
   idle, source sync), `.Display` (display state, placement sync, materials). The root file keeps CRUD
-  commands, state/save/undo, sources/selection, and contour helpers.
+  commands, state/save/undo, sources/selection, and contour helpers. User-authored changes use Rhino's
+  native Undo/Redo stack: the controller stores serialized before-state snapshots, joins an existing
+  command record when one is active, and coalesces live panel gestures into one record. Undo restoration
+  cancels stale work, clears caches, persists the restored JSON, and schedules fresh live builds.
+- `TerrainUndoSnapshot.cs` - the private-state payload carried by Rhino custom undo events. Its state
+  equality ignores the action label so no-op edits do not create history entries, while the label follows
+  the snapshot through Undo and Redo.
 - `TerrainJsonTypeResolver.cs` - registry-driven `ModifierDefinition` JSON polymorphism (replaces the
   hand-maintained `[JsonDerivedType]` list); wired into `TerrainSerializer.SharedOptions`.
 - `TerrainDisplayConduit.cs` / `TerrainDisplayState.cs` - transient viewport preview of generated
@@ -186,17 +192,25 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   primitive, shared by `mhOffsetFeature` and `mhCreateWall`'s parallel rail;
   `TryResolveVerticalDelta` turns the command's `Vertical` mode (elevation / percent / degrees /
   1:n ratio) into that delta over the offset distance.
-- `CurveReviewService.cs` / `CurveReviewAnalysis.cs` / `CurveReviewConduit.cs` - the `mhInspectCurve`
-  live inspector. The analyzer samples the curve into stations (base sample grid plus every G1 kink) and
-  derives the interval grade profile, kink/knot stretches with a grade and plan length each, plan radius
-  per station, crest/sag/vertical-break/off-terrain events, and - against the selected terrain's final
-  mesh - per-station cut/fill with extremes. Optional max-grade and min-plan-radius limits produce merged
-  violation runs. The conduit draws that model over the curve: grade-colored ribbon, elevation and grade
-  dots, event markers, terrain drape with cut/fill ties, and thick red violation stretches; the panel
-  toggles the four overlay groups and sets the overlay's `Weight` and label density. Base widths live on
-  the conduit and are scaled by `Weight`: the grade ribbon is a ribbon, not a hairline, because its whole
-  job is to show colour. Elevation dots are offset half a stride from grade dots so the two readings
-  interleave along the curve instead of stacking on each other.
+- `CurveReviewService.cs` / `CurveReviewForm.cs` / `CurveReviewAnalysis.cs` / `CurveReviewConduit.cs` /
+  `CurveReviewPalette.cs` - the `mhInspectCurve` plan-station inspector. **It reports; it never edits** -
+  see `docs/architecture.md` for why the profile-editing stack was removed rather than restyled. The
+  resizable document-owned form is a reading order of titled blocks: elevation profile, checks,
+  measurements, events, display. Rule thresholds sit behind a "Rule limits" disclosure under Checks, since
+  limits are set rarely and checks are read constantly; a failing check row and any event row are click
+  targets that zoom the viewport to the occurrence. `CurveReviewRules` supplies Off/Report/Warn results;
+  the Rhino-side store persists thresholds per user and stores radius in metres.
+  `CurveReviewMetricSeries` (in `CurveReviewPalette.cs`) is the single source of colour: the panel chart
+  and the viewport ribbon both build one for the selected metric - grade, elevation, cut/fill or plan
+  radius - so they cannot drift. Plan radius is coloured by *tightness*, not raw radius, so a straight
+  (infinite) and a true corner (NaN) land at opposite ends of the ramp instead of collapsing every real
+  curve into one bucket. An over-limit stretch stays red whatever the metric is set to. The conduit draws
+  its whole pass with depth testing and writing off **and** in the `DrawForeground` channel rather than
+  `PostDrawObjects`: an inspected curve that grades the terrain lies inside the mesh it generated, and the
+  terrain preview is itself a conduit drawing in `PostDrawObjects`, which painted straight over the
+  overlay until the channel changed. One exact World-XY projection supplies all plan lengths and parameter
+  lookups; endpoint discontinuities are excluded, real plan corners remain distinct from finite radii, and
+  adjacent vertical-break samples merge into one PI event.
 - `CurveReviewLabeller.cs` - the inspector's `Label` button. Picks points constrained to the inspected
   curve and drops text dots reading any combination of elevation, grade, station and cut/fill, taken from
   the analysis already on screen. Dots go to the `Labels` role's layer via

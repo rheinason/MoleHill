@@ -212,19 +212,16 @@ internal static class GeometryCommandAlgorithms
         if (secondParameter < firstParameter)
             (firstParameter, secondParameter) = (secondParameter, firstParameter);
 
-        const int segmentCount = 32;
-        Point3d previous = curve.PointAt(firstParameter);
-        double length = 0.0;
-        for (int i = 1; i <= segmentCount; i++)
-        {
-            double parameter = firstParameter + ((secondParameter - firstParameter) * i / segmentCount);
-            Point3d current = curve.PointAt(parameter);
-            length += CalculatePlanDistance(previous, current);
-            previous = current;
-        }
-
-        return length;
+        using Curve? planCurve = CreatePlanCurve(curve);
+        return planCurve?.GetLength(new Interval(firstParameter, secondParameter)) ?? double.NaN;
     }
+
+    /// <summary>
+    /// Exact World-XY projection used for plan stationing. The projection preserves the source
+    /// domain, so callers that perform many station queries can retain it and use Rhino's native
+    /// length/parameter solver instead of repeatedly chord-sampling the 3D curve.
+    /// </summary>
+    public static Curve? CreatePlanCurve(Curve curve) => Curve.ProjectToPlane(curve, Plane.WorldXY);
 
     public static Point3d FlattenToWorldXY(Point3d point)
     {

@@ -254,6 +254,7 @@ internal sealed partial class TerrainController
         if (state.LoadFailed || state.Terrains.Count == 0)
             return;
 
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Scale MoleHill Terrain Units");
         TerrainUnitScaler.Scale(state.Terrains, e.Scale);
         ClearRuntimeCaches(doc.RuntimeSerialNumber);
         ClearRebuildStates(doc.RuntimeSerialNumber);

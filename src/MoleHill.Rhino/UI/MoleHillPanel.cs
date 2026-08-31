@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Linq;
 using Eto.Drawing;
 using Eto.Forms;
@@ -74,12 +74,6 @@ public sealed partial class MoleHillPanel : Panel
         HorizontalContentAlignment = HorizontalAlignment.Stretch
     };
     private readonly StackLayout _zonesStack = new()
-    {
-        Orientation = Orientation.Vertical,
-        Spacing = 0,
-        HorizontalContentAlignment = HorizontalAlignment.Stretch
-    };
-    private readonly StackLayout _markerStack = new()
     {
         Orientation = Orientation.Vertical,
         Spacing = 0,
@@ -219,6 +213,7 @@ public sealed partial class MoleHillPanel : Panel
         ApplyHelp(_terrainOpacityStepper, "Terrain opacity used for the preview and the baked terrain mesh.");
         ApplyHelp(_terrainOpacitySlider, "Drag to adjust terrain opacity for preview and bake.");
         ApplyHelp(_terrainColorSwatch, "Click to pick the terrain display color.");
+        _terrainOpacityStepper.GotFocus += (_, _) => BeginControllerRefreshDeferral();
         _terrainColorSwatch.MouseDown += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
@@ -235,13 +230,36 @@ public sealed partial class MoleHillPanel : Panel
         };
         _terrainOpacityStepper.LostFocus += (_, _) =>
         {
-            if (_isRefreshing)
+            if (!_isRefreshing)
+            {
+                int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
+                SetTerrainOpacityControls(opacityPercent);
+                ApplyTerrainOpacity(opacityPercent);
+            }
+            EndControllerRefreshDeferral();
+        };
+        _terrainOpacityStepper.KeyDown += (_, e) =>
+        {
+            if (e.Key != Keys.Enter || _isRefreshing)
                 return;
 
             int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
             SetTerrainOpacityControls(opacityPercent);
             ApplyTerrainOpacity(opacityPercent);
+            EndControllerRefreshDeferral();
+            e.Handled = true;
         };
+        _terrainOpacitySlider.MouseDown += (_, e) =>
+        {
+            if (e.Buttons == MouseButtons.Primary)
+                BeginControllerRefreshDeferral();
+        };
+        _terrainOpacitySlider.MouseUp += (_, e) =>
+        {
+            if (e.Buttons == MouseButtons.Primary)
+                EndControllerRefreshDeferral();
+        };
+        _terrainOpacitySlider.LostFocus += (_, _) => EndControllerRefreshDeferral();
         _terrainOpacitySlider.ValueChanged += (_, _) =>
         {
             if (_isRefreshing || _isUpdatingOpacityControls)
@@ -265,6 +283,17 @@ public sealed partial class MoleHillPanel : Panel
             _previewLineWeightValue.Text = weight.ToString("0.0", CultureInfo.CurrentCulture) + "x";
             MutateSelectedTerrainLive(terrain => terrain.PreviewLineWeight = weight);
         };
+        _previewLineWeightSlider.MouseDown += (_, e) =>
+        {
+            if (e.Buttons == MouseButtons.Primary)
+                BeginControllerRefreshDeferral();
+        };
+        _previewLineWeightSlider.MouseUp += (_, e) =>
+        {
+            if (e.Buttons == MouseButtons.Primary)
+                EndControllerRefreshDeferral();
+        };
+        _previewLineWeightSlider.LostFocus += (_, _) => EndControllerRefreshDeferral();
         ApplyHelp(_showWiresCheck, "Show or hide MoleHill terrain mesh wires in preview and generated terrain meshes.");
         _showWiresCheck.CheckedChanged += (_, _) =>
         {
@@ -998,6 +1027,8 @@ public sealed partial class MoleHillPanel : Panel
 
     private void BeginControllerRefreshDeferral()
     {
+        if (_deferredControllerRefreshDepth == 0 && RhinoDoc.ActiveDoc is { } doc)
+            _controller.BeginTerrainEditGesture(doc);
         _deferredControllerRefreshDepth++;
     }
 
@@ -1007,6 +1038,8 @@ public sealed partial class MoleHillPanel : Panel
             return;
 
         _deferredControllerRefreshDepth--;
+        if (_deferredControllerRefreshDepth == 0 && RhinoDoc.ActiveDoc is { } doc)
+            _controller.EndTerrainEditGesture(doc);
         if (_deferredControllerRefreshDepth != 0 || !_hasDeferredControllerRefresh || IsDisposed || !_isPanelLoaded)
             return;
 
@@ -1127,7 +1160,6 @@ public sealed partial class MoleHillPanel : Panel
                 _modifierStack.Items.Clear();
                 _objectsStack.Items.Clear();
                 _zonesStack.Items.Clear();
-                _markerStack.Items.Clear();
                 _analysisStack.Items.Clear();
                 _annotationStack.Items.Clear();
                 _resetTerrainDataButton.Visible = false;
@@ -1208,8 +1240,6 @@ public sealed partial class MoleHillPanel : Panel
             UpdateAnalysisTabButton(_analysisEyeButton, selectedTerrain);
 
             // Every tab's layout is now stale, but only the visible one is worth building now.
-            // RebuildMarkerLayout is deliberately not called: _markerStack is never added to any
-            // container, so it was being rebuilt on every refresh and shown to nobody.
             _lastRefreshedTerrain = selectedTerrain;
             for (int tab = 0; tab < _tabLayoutDirty.Length; tab++)
                 _tabLayoutDirty[tab] = true;

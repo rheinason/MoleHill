@@ -3,6 +3,14 @@
 The dockable terrain panel (Eto.Forms) and its dialogs. Composes reusable card/editor primitives - add
 fields by composing them, not by copying boilerplate.
 
+- `CurveProfileControl.cs` — the read-only plan-station chart in `mhInspectCurve`. It paints the curve
+  coloured by the selected metric, the terrain line, violation bands, events, a scrub cursor with its
+  readout, and the legend ramp that says what the colours mean. Colour comes from the service-side
+  `CurveReviewMetricSeries`, the same ramp the viewport conduit uses. Its one gesture is hover, which
+  raises `HoverStationChanged` so the conduit can slide its viewport marker — the chart reports and
+  scrubs, it never edits. It follows the existing Rhino-aware `UiTheme` rather than introducing a second
+  palette.
+
 - `MoleHillPanel.cs` + `MoleHillPanel.*.cs` partials - the panel, split by concern:
   `.Actions.cs` (terrain-level create/copy/delete/convert/bake/rebuild/reset actions),
   `.Cards.cs` (collapsible "stack card" framework), `.RuntimeDiagnostics.cs` (generic per-card issue
@@ -10,7 +18,7 @@ fields by composing them, not by copying boilerplate.
   `CreateSourceEditor`/`CreateNumericEditor`/`CreateDropDownEditor`/...), `.Schema.cs` (schema to
   card-row builder for registry-driven modifier, analysis and annotation cards), `.Status.cs` (the detailed live/final build log,
   copy log, copy case, and structured diagnostic formatting), and per-tab card builders `.Modifiers.cs`, `.Zones.cs`,
-  `.Markers.cs`, `.Analysis.cs`, `.Annotations.cs`, `.Objects.cs`, `.LayerPickers.cs`. The Analysis and
+  `.Analysis.cs`, `.Annotations.cs`, `.Objects.cs`, `.LayerPickers.cs`. The Analysis and
   Annotations tabs are separate top to bottom - separate stacks, toolbars, card maps, card builders and
   definition types - because analyses and annotations are separate content families
   (`docs/architecture.md` -> "Analysis vs annotation"). Only the Analysis tab has an eye button: it gates
@@ -40,6 +48,11 @@ fields by composing them, not by copying boilerplate.
   applies to the top toolbar's line-weight and opacity sliders (`MutateSelectedTerrainLive`), which were
   serializing the whole terrain to JSON and rebuilding every card on every slider tick. Expansion state
   is session-only, held in `_expandedColorRamps`, never written to the document.
+- **Panel edits use Rhino Undo/Redo.** Ordinary commits register one serialized terrain-state record in
+  `TerrainController`; sliders, live numeric fields, and ramp drags bracket their existing refresh
+  deferral as one undo gesture. Mouse-up/blur commits the pending value and flushes the deferred document
+  save before the gesture closes, so the panel never owns a second history stack and Rhino geometry plus
+  terrain state remain in one record for compound actions.
 - `MoleHillPanel.Cards.cs` also owns the two non-card grouping primitives, so the panel has one visual
   language for "a group of rows". `SectionHeader` is the collapsible one (Terrain Settings, Status,
   Variable Width Matching): the card's own chevron glyph, the card's header fill and padding, and the
@@ -111,6 +124,9 @@ Use native Eto controls for ordinary buttons, inputs, lists, and selectors. Use 
 interaction or visualization Eto cannot express cleanly, such as ramps, scrub fields, swatches, and drag
 handles. Dialogs and the floating sculpt toolbar have not yet been migrated to the panel design system.
 
-Tabs: Modifiers, Zones (Objects), Analysis, Markers. The panel talks to `Services/TerrainController`;
+Tabs: Modifiers, Objects, Zones, Analysis, Annotation. There is no Markers tab: markers are still built
+from persisted definitions (`Services/TerrainBuildService.Objects.cs`) so older documents keep rendering
+them, but spot elevation and slope labels are authored as annotations now, and the unreachable marker card
+builder was deleted. The panel talks to `Services/TerrainController`;
 it holds no terrain logic. No automated UI tests (needs the Rhino runtime) - verify UI changes by compile
 and a Rhino smoke load.

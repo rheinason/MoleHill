@@ -10,7 +10,8 @@ internal enum CurveReviewEventKind
     Sag,
     VerticalBreak,
     TerrainGap,
-    SharpRadius
+    SharpRadius,
+    PlanCorner
 }
 
 /// <summary>One station along the inspected curve, with the terrain elevation underneath it when available.</summary>
@@ -53,10 +54,14 @@ internal sealed class CurveReviewAnalysis
     /// <summary>Grade in percent for the interval between sample i and i + 1; NaN where the interval is vertical.</summary>
     public required IReadOnlyList<double> IntervalGrades { get; init; }
 
+    /// <summary>Plan radius at each sample: positive infinity where straight, NaN at a true plan corner.</summary>
+    public required IReadOnlyList<double> PlanRadii { get; init; }
+
     public required IReadOnlyList<CurveReviewSpan> Spans { get; init; }
     public required IReadOnlyList<CurveReviewEvent> Events { get; init; }
     public required IReadOnlyList<CurveReviewRun> GradeExceedances { get; init; }
     public required IReadOnlyList<CurveReviewRun> RadiusViolations { get; init; }
+    public required IReadOnlyList<CurveReviewCheckResult> Checks { get; init; }
 
     public required double PlanLength { get; init; }
     public required double Length3d { get; init; }
@@ -70,6 +75,7 @@ internal sealed class CurveReviewAnalysis
     public required int ReversalCount { get; init; }
     public required int VerticalBreakCount { get; init; }
     public required int KinkCount { get; init; }
+    public required int PlanCornerCount { get; init; }
     public required double MinimumPlanRadius { get; init; }
     public required double MinimumPlanRadiusStation { get; init; }
     public required int TerrainSamples { get; init; }
@@ -86,7 +92,8 @@ internal sealed class CurveReviewAnalysis
 
     public bool HasTerrain => TerrainSamples > 0;
     public bool GradeFails => GradeExceedances.Count > 0;
-    public bool RadiusFails => RadiusViolations.Count > 0;
+    public bool RadiusFails => PlanCornerCount > 0 || RadiusViolations.Count > 0;
+    public int WarningCount => Checks.Count(item => item.IsWarning);
 
     /// <summary>Scale used to map an absolute grade onto the review color ramp.</summary>
     public double GradeColorScale => MaximumGradeLimit is > 0.0
@@ -98,7 +105,6 @@ internal static class CurveReviewAnalyzer
 {
     private const int BaseSampleCount = 200;
     private const int MaximumSampleCount = 400;
-    private const double VerticalBreakThresholdPercent = 10.0;
     private const double GradeNoiseFloorPercent = 0.05;
 
     /// <summary>
@@ -108,8 +114,7 @@ internal static class CurveReviewAnalyzer
         RhinoDoc doc,
         Curve curve,
         Mesh? terrainMesh,
-        double? maximumGradePercent,
-        double? minimumPlanRadius,
+        CurveReviewRuleSettings rules,
         out string? error)
     {
         error = null;
@@ -121,7 +126,8 @@ internal static class CurveReviewAnalyzer
 
         double tolerance = doc.ModelAbsoluteTolerance;
         double length = curve.GetLength();
-        double planLength = GeometryCommandAlgorithms.CalculatePlanLength(curve, curve.Domain.T0, curve.Domain.T1);
+        using Curve? planCurve = GeometryCommandAlgorithms.CreatePlanCurve(curve);
+        double planLength = planCurve?.GetLength() ?? double.NaN;
         if (!double.IsFinite(length) || !double.IsFinite(planLength) || planLength <= tolerance)
         {
             error = "Curve is too short to inspect.";
@@ -129,6 +135,8 @@ internal static class CurveReviewAnalyzer
         }
 
         List<double> kinkParameters = CollectKinkParameters(curve);
+        List<double> planCornerParameters = CollectKinkParameters(planCurve!);
+        double[] planCornerStations = planCornerParameters.Select(parameter => PlanLengthAt(planCurve!, parameter)).ToArray();
         List<double> stationParameters = BuildStationParameters(curve, length, kinkParameters);
         var samples = new List<CurveReviewSample>(stationParameters.Count);
         var bounds = BoundingBox.Empty;
@@ -137,7 +145,7 @@ internal static class CurveReviewAnalyzer
         foreach (double parameter in stationParameters)
         {
             Point3d point = curve.PointAt(parameter);
-            double station = curve.GetLength(new Interval(curve.Domain.T0, parameter));
+            double station = PlanLengthAt(planCurve!, parameter);
             double terrainZ = 0.0;
             bool hasTerrain = false;
             if (terrainMesh != null)
@@ -170,7 +178,7 @@ internal static class CurveReviewAnalyzer
         double steepestStation = 0.0;
         for (int i = 0; i < intervalGrades.Length; i++)
         {
-            double planDistance = GeometryCommandAlgorithms.CalculatePlanDistance(samples[i].Point, samples[i + 1].Point);
+            double planDistance = samples[i + 1].Station - samples[i].Station;
             if (planDistance <= tolerance)
             {
                 intervalGrades[i] = double.NaN;
@@ -197,21 +205,29 @@ internal static class CurveReviewAnalyzer
         }
 
         double[] smoothedGrades = SmoothGrades(intervalGrades);
-        double[] planRadii = ComputePlanRadii(samples);
-        List<CurveReviewEvent> events = CollectEvents(samples, smoothedGrades, planRadii, minimumPlanRadius);
-        List<CurveReviewRun> gradeRuns = maximumGradePercent is > 0.0
-            ? CollectRuns(samples, i => Math.Abs(intervalGrades[i]), maximumGradePercent.Value, aboveLimit: true)
+        double[] planRadii = ComputePlanRadii(samples, planCornerStations);
+        List<CurveReviewEvent> events = CollectEvents(
+            samples,
+            intervalGrades,
+            smoothedGrades,
+            planRadii,
+            planCornerStations,
+            terrainMesh != null,
+            rules.VerticalBreakMode == CurveReviewRuleMode.Off ? null : rules.VerticalBreakThresholdPercent,
+            rules.MinimumRadiusMode == CurveReviewRuleMode.Off ? null : rules.MinimumRadius);
+        List<CurveReviewRun> gradeRuns = rules.MaximumGradeMode != CurveReviewRuleMode.Off
+            ? CollectRuns(samples, i => Math.Abs(intervalGrades[i]), rules.MaximumGradePercent, aboveLimit: true)
             : new List<CurveReviewRun>();
-        List<CurveReviewRun> radiusRuns = minimumPlanRadius is > 0.0
+        List<CurveReviewRun> radiusRuns = rules.MinimumRadiusMode != CurveReviewRuleMode.Off
             ? CollectRuns(
                 samples,
                 i => 0.5 * (SafeRadius(planRadii, i) + SafeRadius(planRadii, i + 1)),
-                minimumPlanRadius.Value,
+                rules.MinimumRadius,
                 aboveLimit: false)
             : new List<CurveReviewRun>();
 
         double minimumRadius = double.PositiveInfinity;
-        double minimumRadiusStation = 0.0;
+        double minimumRadiusStation = double.NaN;
         for (int i = 0; i < planRadii.Length; i++)
         {
             if (double.IsFinite(planRadii[i]) && planRadii[i] < minimumRadius)
@@ -226,11 +242,29 @@ internal static class CurveReviewAnalyzer
             out double maximumFill, out double maximumFillStation, out Point3d maximumFillPoint,
             out double maximumCut, out double maximumCutStation, out Point3d maximumCutPoint);
 
+        double maximumAbsoluteGrade = Math.Max(Math.Abs(minimumGrade), Math.Abs(maximumGrade));
+        double maximumVerticalChange = MaximumVerticalGradeChange(intervalGrades);
+        double terrainCoverage = terrainHits + terrainMisses == 0
+            ? double.NaN
+            : 100.0 * terrainHits / (terrainHits + terrainMisses);
+        IReadOnlyList<CurveReviewCheckResult> checks = CurveReviewRuleEvaluator.Evaluate(
+            rules,
+            maximumAbsoluteGrade,
+            gradeRuns.Count,
+            minimumRadius,
+            radiusRuns.Count,
+            maximumVerticalChange,
+            events.Count(item => item.Kind == CurveReviewEventKind.VerticalBreak),
+            terrainCoverage,
+            terrainMisses,
+            planCornerStations.Length);
+
         return new CurveReviewAnalysis
         {
             Samples = samples,
             IntervalGrades = intervalGrades,
-            Spans = BuildSpans(curve, samples, kinkParameters, tolerance),
+            PlanRadii = planRadii,
+            Spans = BuildSpans(curve, planCurve!, kinkParameters, tolerance),
             Events = events,
             GradeExceedances = gradeRuns,
             RadiusViolations = radiusRuns,
@@ -246,6 +280,7 @@ internal static class CurveReviewAnalyzer
             ReversalCount = events.Count(item => item.Kind is CurveReviewEventKind.Crest or CurveReviewEventKind.Sag),
             VerticalBreakCount = events.Count(item => item.Kind == CurveReviewEventKind.VerticalBreak),
             KinkCount = kinkParameters.Count,
+            PlanCornerCount = planCornerStations.Length,
             MinimumPlanRadius = minimumRadius,
             MinimumPlanRadiusStation = minimumRadiusStation,
             TerrainSamples = terrainHits,
@@ -257,21 +292,26 @@ internal static class CurveReviewAnalyzer
             MaximumFillPoint = maximumFillPoint,
             MaximumCutPoint = maximumCutPoint,
             Bounds = bounds,
-            MaximumGradeLimit = maximumGradePercent,
-            MinimumRadiusLimit = minimumPlanRadius
+            MaximumGradeLimit = rules.MaximumGradeMode == CurveReviewRuleMode.Warn ? rules.MaximumGradePercent : null,
+            MinimumRadiusLimit = rules.MinimumRadiusMode == CurveReviewRuleMode.Warn ? rules.MinimumRadius : null,
+            Checks = checks
         };
     }
 
-    /// <summary>G1 discontinuities: the vertical/horizontal PIs a designer actually cares about.</summary>
+    /// <summary>Interior G1 discontinuities: the vertical/horizontal PIs a designer actually cares about.</summary>
     private static List<double> CollectKinkParameters(Curve curve)
     {
         var parameters = new List<double>();
+        double domainTolerance = Math.Max(curve.Domain.Length * 1e-10, 1e-12);
         double start = curve.Domain.T0;
         while (parameters.Count < 512 &&
-               curve.GetNextDiscontinuity(Continuity.G1_locus_continuous, start, curve.Domain.T1, out double parameter))
+               curve.GetNextDiscontinuity(Continuity.G1_continuous, start, curve.Domain.T1, out double parameter))
         {
-            parameters.Add(parameter);
-            start = parameter;
+            if (parameter > curve.Domain.T0 + domainTolerance && parameter < curve.Domain.T1 - domainTolerance)
+                parameters.Add(parameter);
+            if (parameter >= curve.Domain.T1 - domainTolerance)
+                break;
+            start = Math.Min(parameter + domainTolerance, curve.Domain.T1);
         }
 
         return parameters;
@@ -309,7 +349,7 @@ internal static class CurveReviewAnalyzer
     /// </summary>
     private static List<CurveReviewSpan> BuildSpans(
         Curve curve,
-        IReadOnlyList<CurveReviewSample> samples,
+        Curve planCurve,
         IReadOnlyList<double> kinkParameters,
         double tolerance)
     {
@@ -333,7 +373,9 @@ internal static class CurveReviewAnalyzer
             if (t1 - t0 <= RhinoMath.ZeroTolerance)
                 continue;
 
-            double spanPlanLength = GeometryCommandAlgorithms.CalculatePlanLength(curve, t0, t1);
+            double startStation = PlanLengthAt(planCurve, t0);
+            double endStation = PlanLengthAt(planCurve, t1);
+            double spanPlanLength = endStation - startStation;
             if (spanPlanLength <= tolerance)
                 continue;
 
@@ -341,8 +383,8 @@ internal static class CurveReviewAnalyzer
             Point3d end = curve.PointAt(t1);
             double grade = (end.Z - start.Z) / spanPlanLength * 100.0;
             spans.Add(new CurveReviewSpan(
-                StationAt(samples, start),
-                StationAt(samples, end),
+                startStation,
+                endStation,
                 start,
                 end,
                 curve.PointAt(0.5 * (t0 + t1)),
@@ -353,22 +395,9 @@ internal static class CurveReviewAnalyzer
         return spans;
     }
 
-    private static double StationAt(IReadOnlyList<CurveReviewSample> samples, Point3d point)
-    {
-        double best = 0.0;
-        double bestDistance = double.MaxValue;
-        foreach (CurveReviewSample sample in samples)
-        {
-            double distance = sample.Point.DistanceToSquared(point);
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                best = sample.Station;
-            }
-        }
-
-        return best;
-    }
+    private static double PlanLengthAt(Curve planCurve, double parameter) => parameter <= planCurve.Domain.T0
+        ? 0.0
+        : planCurve.GetLength(new Interval(planCurve.Domain.T0, parameter));
 
     /// <summary>Three-point moving average so crest/sag detection ignores sampling noise on smooth curves.</summary>
     private static double[] SmoothGrades(IReadOnlyList<double> grades)
@@ -393,8 +422,14 @@ internal static class CurveReviewAnalyzer
         return smoothed;
     }
 
-    /// <summary>Plan radius at each sample from the circumradius of its XY neighbours.</summary>
-    private static double[] ComputePlanRadii(IReadOnlyList<CurveReviewSample> samples)
+    /// <summary>
+    /// Plan radius at each smooth sample from the circumradius of its XY neighbours. True G1 plan
+    /// corners are marked NaN: they have no radius and must not be presented as a sampling-dependent
+    /// tiny circle.
+    /// </summary>
+    private static double[] ComputePlanRadii(
+        IReadOnlyList<CurveReviewSample> samples,
+        IReadOnlyList<double> planCornerStations)
     {
         var radii = new double[samples.Count];
         for (int i = 0; i < radii.Length; i++)
@@ -418,6 +453,9 @@ internal static class CurveReviewAnalyzer
             radii[i] = a * b * c / (4.0 * area);
         }
 
+        foreach (double station in planCornerStations)
+            radii[NearestSampleIndex(samples, station)] = double.NaN;
+
         return radii;
     }
 
@@ -428,11 +466,19 @@ internal static class CurveReviewAnalyzer
 
     private static List<CurveReviewEvent> CollectEvents(
         IReadOnlyList<CurveReviewSample> samples,
+        IReadOnlyList<double> intervalGrades,
         IReadOnlyList<double> smoothedGrades,
         IReadOnlyList<double> planRadii,
+        IReadOnlyList<double> planCornerStations,
+        bool hasTerrainMesh,
+        double? verticalBreakThreshold,
         double? minimumPlanRadius)
     {
         var events = new List<CurveReviewEvent>();
+
+        if (verticalBreakThreshold is > 0.0)
+            CollectVerticalBreakEvents(samples, intervalGrades, verticalBreakThreshold.Value, events);
+
         double? previous = null;
         for (int i = 0; i < smoothedGrades.Count; i++)
         {
@@ -442,24 +488,16 @@ internal static class CurveReviewAnalyzer
 
             if (previous.HasValue)
             {
-                if (Math.Abs(grade - previous.Value) > VerticalBreakThresholdPercent)
-                {
-                    events.Add(new CurveReviewEvent(
-                        CurveReviewEventKind.VerticalBreak,
-                        samples[i].Station,
-                        samples[i].Point,
-                        $"break {previous.Value:F1}% to {grade:F1}%"));
-                }
-                else if (Math.Abs(previous.Value) > GradeNoiseFloorPercent &&
-                         Math.Abs(grade) > GradeNoiseFloorPercent &&
-                         Math.Sign(previous.Value) != Math.Sign(grade))
+                if (Math.Abs(previous.Value) > GradeNoiseFloorPercent &&
+                    Math.Abs(grade) > GradeNoiseFloorPercent &&
+                    Math.Sign(previous.Value) != Math.Sign(grade))
                 {
                     bool crest = previous.Value > 0.0;
                     events.Add(new CurveReviewEvent(
                         crest ? CurveReviewEventKind.Crest : CurveReviewEventKind.Sag,
                         samples[i].Station,
                         samples[i].Point,
-                        $"{(crest ? "crest" : "sag")} Z {samples[i].Point.Z:F2}"));
+                        FormattableString.Invariant($"{(crest ? "crest" : "sag")} Z {samples[i].Point.Z:F2}")));
                 }
             }
 
@@ -480,31 +518,111 @@ internal static class CurveReviewAnalyzer
                     CurveReviewEventKind.SharpRadius,
                     samples[i].Station,
                     samples[i].Point,
-                    $"R {radius:F1} < {minimumPlanRadius.Value:F1}"));
+                    FormattableString.Invariant($"R {radius:F1} < {minimumPlanRadius.Value:F1}")));
             }
         }
 
-        int gapStart = -1;
-        for (int i = 0; i <= samples.Count; i++)
+        foreach (double station in planCornerStations)
         {
-            bool missing = i < samples.Count && !samples[i].HasTerrain;
-            if (missing && gapStart < 0)
+            int index = NearestSampleIndex(samples, station);
+            events.Add(new CurveReviewEvent(CurveReviewEventKind.PlanCorner, station, samples[index].Point, "corner"));
+        }
+
+        if (hasTerrainMesh)
+        {
+            int gapStart = -1;
+            for (int i = 0; i <= samples.Count; i++)
             {
-                gapStart = i;
-            }
-            else if (!missing && gapStart >= 0)
-            {
-                int middle = (gapStart + i - 1) / 2;
-                events.Add(new CurveReviewEvent(
-                    CurveReviewEventKind.TerrainGap,
-                    samples[middle].Station,
-                    samples[middle].Point,
-                    "off terrain"));
-                gapStart = -1;
+                bool missing = i < samples.Count && !samples[i].HasTerrain;
+                if (missing && gapStart < 0)
+                {
+                    gapStart = i;
+                }
+                else if (!missing && gapStart >= 0)
+                {
+                    int middle = (gapStart + i - 1) / 2;
+                    events.Add(new CurveReviewEvent(
+                        CurveReviewEventKind.TerrainGap,
+                        samples[middle].Station,
+                        samples[middle].Point,
+                        "off terrain"));
+                    gapStart = -1;
+                }
             }
         }
 
         return events;
+    }
+
+    /// <summary>
+    /// Merges adjacent threshold crossings into one PI event. Raw interval grades are used so the
+    /// label reports grades that actually occur on the curve rather than moving-average artefacts.
+    /// </summary>
+    private static void CollectVerticalBreakEvents(
+        IReadOnlyList<CurveReviewSample> samples,
+        IReadOnlyList<double> grades,
+        double threshold,
+        ICollection<CurveReviewEvent> events)
+    {
+        int runStart = -1;
+        for (int transition = 1; transition <= grades.Count; transition++)
+        {
+            bool violating = transition < grades.Count &&
+                             double.IsFinite(grades[transition - 1]) &&
+                             double.IsFinite(grades[transition]) &&
+                             Math.Abs(grades[transition] - grades[transition - 1]) > threshold;
+            if (violating && runStart < 0)
+            {
+                runStart = transition;
+            }
+            else if (!violating && runStart >= 0)
+            {
+                int runEnd = transition - 1;
+                int sampleIndex = (runStart + runEnd) / 2;
+                double before = grades[runStart - 1];
+                double after = grades[runEnd];
+                events.Add(new CurveReviewEvent(
+                    CurveReviewEventKind.VerticalBreak,
+                    samples[sampleIndex].Station,
+                    samples[sampleIndex].Point,
+                    FormattableString.Invariant($"break {before:F1}% to {after:F1}%")));
+                runStart = -1;
+            }
+        }
+    }
+
+    private static int NearestSampleIndex(IReadOnlyList<CurveReviewSample> samples, double station)
+    {
+        int low = 0;
+        int high = samples.Count - 1;
+        while (low < high)
+        {
+            int middle = (low + high) / 2;
+            if (samples[middle].Station < station)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+
+        if (low > 0 && Math.Abs(samples[low - 1].Station - station) <= Math.Abs(samples[low].Station - station))
+            return low - 1;
+        return low;
+    }
+
+    private static double MaximumVerticalGradeChange(IReadOnlyList<double> grades)
+    {
+        double maximum = 0.0;
+        double? previous = null;
+        foreach (double grade in grades)
+        {
+            if (!double.IsFinite(grade))
+                continue;
+            if (previous.HasValue)
+                maximum = Math.Max(maximum, Math.Abs(grade - previous.Value));
+            previous = grade;
+        }
+
+        return maximum;
     }
 
     /// <summary>Merges consecutive violating intervals into runs so one label covers one stretch.</summary>
@@ -549,14 +667,12 @@ internal static class CurveReviewAnalyzer
         var path = new Point3d[endInterval - startInterval + 1];
         double peak = aboveLimit ? double.MinValue : double.MaxValue;
         Point3d peakPoint = samples[startInterval].Point;
-        double planLength = 0.0;
         for (int i = startInterval; i <= endInterval; i++)
         {
             path[i - startInterval] = samples[i].Point;
             if (i >= endInterval)
                 continue;
 
-            planLength += GeometryCommandAlgorithms.CalculatePlanDistance(samples[i].Point, samples[i + 1].Point);
             double value = valueAt(i);
             if (!double.IsFinite(value))
                 continue;
@@ -571,7 +687,7 @@ internal static class CurveReviewAnalyzer
         {
             StartStation = samples[startInterval].Station,
             EndStation = samples[endInterval].Station,
-            PlanLength = planLength,
+            PlanLength = samples[endInterval].Station - samples[startInterval].Station,
             PeakValue = peak,
             PeakPoint = peakPoint,
             Path = path

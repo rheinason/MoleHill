@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Navigation:** read `docs/architecture.md` first (high-level map — pipeline, grading tier cascade,
 preview vs bake), then `docs/file-index.md` (path → one-line summary for every source file; regenerate
 with `generate-file-index.ps1`) and the `README.md` in each source folder. `AGENTS.md` has the full
-build/test/convention reference.
+build/test/convention reference. For native Rhino UI work, also follow
+`docs/rhino-live-testing.md`.
 
 **Keep the docs current:** for any architectural change (new/removed/renamed source file, new component
 or service, changed pipeline/data flow, or a shifted convention), update the docs in the same change:
@@ -27,6 +28,11 @@ pwsh ./generate-icons.ps1           # Regenerate 24x24 PNG icon assets
 ```
 
 Close Rhino before rebuilding — Rhino holds a lock on the `.gha` file in `%AppData%\Grasshopper\Libraries\`.
+
+For live Rhino testing, drive a disposable `rhino-mcp` slot (`spawn_slot` → `run_csharp`/`run_command`
+→ `close_slot`) as described in `docs/rhino-live-testing.md`. Assert on document state, not on
+keystrokes: never `SendKeys` a workflow, never terminate a broad set of Rhino processes, and never
+use guessed desktop coordinates as evidence — window bounds come from `GetWindowRect` on the slot PID.
 
 After a rebuild, Windows may block the new `.rhp` (Mark of the Web). If Rhino fails to load the plugin, unblock the file: right-click the `.rhp` → Properties → check **Unblock** → OK. The `.rhp` is at `src/MoleHill.Rhino/bin/Debug/net7.0/MoleHill.Rhino.rhp`.
 
@@ -117,7 +123,7 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
 - **Panel top toolbar**: 2 rows — (1) name/picker/+/⎘/👁/🔒/Rebuild/🗑, (2) Live update + status label. Tolerance, display/transparency and layer settings are not in the toolbar; output layers are named by one "Output Layers" row in the Settings card.
 - **Output layer routing goes through `LayerRole`.** Never hardcode or plumb a layer path for generated output, and never append a suffix to build one. `GeneratedRhinoObject.Role` is `required` and `LayerRoleTable.Path` is never null, so every producer names a destination and every destination resolves — that is what stops output baking onto Rhino's current layer. Appearance (colour, print width, linetype, annotation style, hatch) comes from the same role, so preview and bake cannot drift apart. See `docs/architecture.md` → "Output layer roles".
 - **Analyses and annotations are separate content families.** An analysis *evaluates* the terrain (slope, elevation, cut/fill, earthworks, waterflow — the result is a measurement); an annotation *describes* it (contours, spot labels, callouts, sections — the result is drawing). They are peers, like modifiers/markers/objects: separate definition root, registry, descriptor, parameter descriptor, schema row builder, JSON family, and collection on `TerrainDefinition`. Never add a member to one that only the other needs. Annotations have **no** terrain-level visibility flag — an annotation is the drawing, so the per-card `IsEnabled` checkbox is the only control; `ShowAnalysisOutputs` governs analyses alone and must never gate annotation output. `ITerrainContentItem` is identity-only scaffolding, not a shared base. See `docs/architecture.md` → "Analysis vs annotation".
-- **Zone cards**: no GroupBox border — `CreateZoneGroup` returns a plain `Panel`. Same for modifier and marker cards.
+- **Zone cards**: no GroupBox border — `CreateZoneGroup` returns a plain `Panel`. Same for modifier cards.
 - **Source editor buttons**: `Sel` replaces input objects; `Layers` replaces input layers (not additive — tooltips clarify).
 - **Zone layer editor**: `Use Current` · `▾` · `Clear` — consistent with all other layer assignment patterns.
 - **Modifier name**: editable `TextBox` (collapsed state shows read-only bold label).

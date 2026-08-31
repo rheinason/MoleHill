@@ -19,7 +19,11 @@ internal static class TerrainAnalysisPreviewBuilder
     /// mesh) are drawn in this neutral grey.</summary>
     private static readonly SlopeAnalyzer.ColorStop UnmappedColor = new(0.0, 130, 130, 130);
 
-    public static void UpdatePreviewMesh(RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState state)
+    public static void UpdatePreviewMesh(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        TerrainDisplayState state,
+        Func<Guid, RhinoMesh?>? resolveReferenceTerrainMesh = null)
     {
         state.ActiveAnalysisId = null;
         state.ActiveAnalysisLabel = null;
@@ -52,7 +56,7 @@ internal static class TerrainAnalysisPreviewBuilder
         {
             SlopeAnalysisDefinition slope => BuildSlopePreviewMesh(state.TerrainMesh, slope, alpha, out resolvedRange, out distribution),
             ElevationAnalysisDefinition elevation => BuildElevationPreviewMesh(state.TerrainMesh, elevation, alpha, out resolvedRange, out distribution),
-            CutFillAnalysisDefinition cutFill => BuildCutFillPreviewMesh(doc, terrain, state, cutFill, alpha, out resolvedRange, out distribution),
+            CutFillAnalysisDefinition cutFill => BuildCutFillPreviewMesh(doc, terrain, state, cutFill, alpha, resolveReferenceTerrainMesh, out resolvedRange, out distribution),
             _ => state.TerrainMesh
         };
 
@@ -209,6 +213,7 @@ internal static class TerrainAnalysisPreviewBuilder
         TerrainDisplayState state,
         CutFillAnalysisDefinition analysis,
         byte alpha,
+        Func<Guid, RhinoMesh?>? resolveReferenceTerrainMesh,
         out AnalysisRange? range,
         out double[]? distribution)
     {
@@ -218,7 +223,10 @@ internal static class TerrainAnalysisPreviewBuilder
         if (terrainMesh == null || !RhinoGeometryConversions.TryExtractMeshData(terrainMesh, out var vertices, out var faces, out _))
             return null;
 
-        RhinoMesh? referenceMesh = ResolveReferenceMesh(doc, analysis.Reference) ?? state.BaseTerrainMesh;
+        RhinoMesh? referenceTerrainMesh = analysis.ReferenceTerrainId is { } referenceTerrainId
+            ? resolveReferenceTerrainMesh?.Invoke(referenceTerrainId)
+            : null;
+        RhinoMesh? referenceMesh = ResolveReferenceMesh(doc, analysis.Reference) ?? referenceTerrainMesh ?? state.BaseTerrainMesh;
         if (referenceMesh == null)
             return terrainMesh;
 

@@ -1,5 +1,6 @@
-// Draws the live curve inspector overlay: grade-colored ribbon, elevation and grade labels, events and terrain ties.
+// Draws the live curve inspector overlay in front of the scene: metric ribbon, labels, events and terrain ties.
 using System.Drawing;
+using System.Globalization;
 using Rhino.Display;
 using Rhino.Geometry;
 
@@ -9,11 +10,11 @@ namespace MoleHill.Rhino.Services;
 internal enum CurveReviewOverlayParts
 {
     None = 0,
-    GradeRibbon = 1,
+    Ribbon = 1,
     Labels = 2,
     Events = 4,
     Terrain = 8,
-    All = GradeRibbon | Labels | Events | Terrain
+    All = Ribbon | Labels | Events | Terrain
 }
 
 internal sealed class CurveReviewConduit : DisplayConduit
@@ -31,8 +32,6 @@ internal sealed class CurveReviewConduit : DisplayConduit
     private const int EventPointSize = 8;
 
     private const int TerrainTieCount = 24;
-    private static readonly Color GradeOkColor = Color.FromArgb(86, 196, 116);
-    private static readonly Color GradeWarnColor = Color.FromArgb(240, 196, 72);
     private static readonly Color GradeOverColor = Color.FromArgb(232, 84, 64);
     private static readonly Color LabelTextColor = Color.White;
     private static readonly Color ElevationDotColor = Color.FromArgb(52, 96, 150);
@@ -44,6 +43,33 @@ internal sealed class CurveReviewConduit : DisplayConduit
     private static readonly Color FillColor = Color.FromArgb(92, 140, 214);
 
     private CurveReviewAnalysis? _analysis;
+    private CurveReviewMetricSeries? _series;
+    private CurveReviewMetric _metric = CurveReviewMetric.Grade;
+    private string _unit = string.Empty;
+
+    public double? HoveredStation { get; set; }
+
+    /// <summary>The quantity the ribbon is coloured by. Shared with the panel plot so both read alike.</summary>
+    public CurveReviewMetric Metric
+    {
+        get => _metric;
+        set
+        {
+            _metric = value;
+            RebuildSeries();
+        }
+    }
+
+    /// <summary>Model unit abbreviation, passed through to the metric series' labels.</summary>
+    public string Unit
+    {
+        get => _unit;
+        set
+        {
+            _unit = value ?? string.Empty;
+            RebuildSeries();
+        }
+    }
 
     public CurveReviewOverlayParts Parts { get; set; } = CurveReviewOverlayParts.All;
 
@@ -58,7 +84,15 @@ internal sealed class CurveReviewConduit : DisplayConduit
     /// <summary>The analysis currently drawn, so the labelling pass reads exactly what is on screen.</summary>
     public CurveReviewAnalysis? CurrentAnalysis => _analysis;
 
-    public void SetAnalysis(CurveReviewAnalysis? analysis) => _analysis = analysis;
+    public void SetAnalysis(CurveReviewAnalysis? analysis)
+    {
+        _analysis = analysis;
+        RebuildSeries();
+    }
+
+    private void RebuildSeries() => _series = _analysis == null
+        ? null
+        : CurveReviewMetricSeries.Build(_analysis, _metric, _unit);
 
     protected override void CalculateBoundingBox(CalculateBoundingBoxEventArgs e)
     {
@@ -67,27 +101,52 @@ internal sealed class CurveReviewConduit : DisplayConduit
             e.IncludeBoundingBox(analysis.Bounds);
     }
 
-    protected override void PostDrawObjects(DrawEventArgs e)
+    /// <summary>
+    /// The overlay draws in the foreground channel, not <c>PostDrawObjects</c>, and this is load-bearing.
+    /// A MoleHill terrain preview is itself drawn by a conduit (<see cref="TerrainDisplayConduit"/>) in
+    /// <c>PostDrawObjects</c>. Two conduits sharing one channel paint in registration order, so the terrain
+    /// mesh painted straight over this overlay — and turning depth testing off cannot save you from a
+    /// later painter. Drawing in a channel the terrain conduit does not use puts the inspector on top
+    /// whatever the registration order happens to be.
+    /// </summary>
+    protected override void DrawForeground(DrawEventArgs e)
     {
         CurveReviewAnalysis? analysis = _analysis;
         if (analysis == null || analysis.Samples.Count < 2)
             return;
 
-        if (Parts.HasFlag(CurveReviewOverlayParts.Terrain))
-            DrawTerrainRelation(e, analysis);
-        if (Parts.HasFlag(CurveReviewOverlayParts.GradeRibbon))
-            DrawGradeRibbon(e, analysis);
-        if (Parts.HasFlag(CurveReviewOverlayParts.Labels))
-            DrawLabels(e, analysis);
-        if (Parts.HasFlag(CurveReviewOverlayParts.Events))
-            DrawEvents(e, analysis);
-        DrawViolations(e, analysis);
+        // The whole overlay is annotation, not geometry: an inspected curve that grades the terrain lies
+        // in the mesh it generated, so a depth-tested ribbon, drape and scrub marker are swallowed by the
+        // very surface the inspector exists to report on. Draw the entire pass in front of the scene.
+        PushAnnotationDepth(e);
+        try
+        {
+            if (Parts.HasFlag(CurveReviewOverlayParts.Terrain))
+                DrawTerrainRelation(e, analysis);
+            if (Parts.HasFlag(CurveReviewOverlayParts.Ribbon))
+                DrawRibbon(e, analysis);
+            var occupied = new List<Point3d>();
+            double collisionDistance = Math.Max(analysis.Bounds.Diagonal.Length * 0.025, 1e-3);
+            if (Parts.HasFlag(CurveReviewOverlayParts.Labels))
+                DrawLabels(e, analysis, occupied, collisionDistance);
+            if (Parts.HasFlag(CurveReviewOverlayParts.Events))
+                DrawEvents(e, analysis, occupied, collisionDistance);
+            DrawViolations(e, analysis, occupied, collisionDistance);
+            DrawScrub(e, analysis);
+        }
+        finally
+        {
+            PopAnnotationDepth(e);
+        }
     }
 
-    /// <summary>Recolors the curve interval by interval so the whole grade profile reads at a glance.</summary>
-    private void DrawGradeRibbon(DrawEventArgs e, CurveReviewAnalysis analysis)
+    /// <summary>Recolors the curve interval by interval so the whole metric profile reads at a glance.</summary>
+    private void DrawRibbon(DrawEventArgs e, CurveReviewAnalysis analysis)
     {
-        double scale = analysis.GradeColorScale;
+        CurveReviewMetricSeries? series = _series;
+        if (series == null)
+            return;
+
         double? limit = analysis.MaximumGradeLimit;
         int width = Scale(RibbonWidth);
         int violationWidth = Scale(RibbonViolationWidth);
@@ -97,11 +156,13 @@ internal sealed class CurveReviewConduit : DisplayConduit
             if (double.IsNaN(grade))
                 continue;
 
+            // An over-limit stretch stays red whatever the ribbon is coloured by: the warning outranks
+            // the metric, or switching to Elevation would quietly hide the failing run.
             bool exceeds = limit is > 0.0 && Math.Abs(grade) > limit.Value;
             e.Display.DrawLine(
                 analysis.Samples[i].Point,
                 analysis.Samples[i + 1].Point,
-                exceeds ? GradeOverColor : ResolveGradeColor(Math.Abs(grade), scale),
+                exceeds ? GradeOverColor : series.IntervalColor(i),
                 exceeds ? violationWidth : width);
         }
     }
@@ -113,107 +174,258 @@ internal sealed class CurveReviewConduit : DisplayConduit
         return (int)Math.Clamp(Math.Round(baseWidth * weight), 1, 32);
     }
 
-    private void DrawLabels(DrawEventArgs e, CurveReviewAnalysis analysis)
+    private void DrawLabels(
+        DrawEventArgs e,
+        CurveReviewAnalysis analysis,
+        List<Point3d> occupied,
+        double collisionDistance)
     {
         int step = Math.Max(1, (int)Math.Ceiling(analysis.Spans.Count / (double)Math.Max(1, MaximumSpanLabels)));
         double? limit = analysis.MaximumGradeLimit;
-        PushAnnotationDepth(e);
-        try
+        for (int i = 0; i < analysis.Spans.Count; i += step)
         {
-            for (int i = 0; i < analysis.Spans.Count; i += step)
-            {
-                CurveReviewSpan span = analysis.Spans[i];
-                bool exceeds = limit is > 0.0 && Math.Abs(span.Grade) > limit.Value;
-                e.Display.DrawDot(
-                    span.Label,
-                    $"{span.Grade:+0.00;-0.00;0.00}%  L {span.PlanLength:F1}",
-                    exceeds ? GradeOverColor : GradeDotColor,
-                    LabelTextColor);
-            }
-
-            // Elevations at span boundaries, offset half a stride from the grade labels. Sampling both on
-            // the same stride stacked an elevation dot against every grade dot; interleaving them lets the
-            // two readings alternate along the curve instead of fighting for the same patch of screen.
-            int elevationOffset = step / 2;
-            for (int i = elevationOffset; i < analysis.Spans.Count; i += step)
-                e.Display.DrawDot(analysis.Spans[i].Start, $"{analysis.Spans[i].Start.Z:F2}", ElevationDotColor, LabelTextColor);
-
-            // The two ends always carry an elevation, whatever the stride skipped.
-            if (analysis.Spans.Count > 0)
-            {
-                CurveReviewSpan first = analysis.Spans[0];
-                CurveReviewSpan last = analysis.Spans[^1];
-                e.Display.DrawDot(first.Start, $"{first.Start.Z:F2}", ElevationDotColor, LabelTextColor);
-                e.Display.DrawDot(last.End, $"{last.End.Z:F2}", ElevationDotColor, LabelTextColor);
-            }
+            CurveReviewSpan span = analysis.Spans[i];
+            bool exceeds = limit is > 0.0 && Math.Abs(span.Grade) > limit.Value;
+            Point3d labelPoint = OffsetLabelPoint(analysis, span.Label, span.End - span.Start, i % 2 == 0 ? 1.0 : -1.0);
+            if (!TryOccupy(occupied, labelPoint, collisionDistance))
+                continue;
+            e.Display.DrawLine(span.Label, labelPoint, exceeds ? GradeOverColor : GradeDotColor, Scale(1));
+            e.Display.DrawDot(
+                labelPoint,
+                Format($"{span.Grade:+0.00;-0.00;0.00}%  L {span.PlanLength:F1}"),
+                exceeds ? GradeOverColor : GradeDotColor,
+                LabelTextColor);
         }
-        finally
-        {
-            PopAnnotationDepth(e);
-        }
-    }
 
-    private void DrawEvents(DrawEventArgs e, CurveReviewAnalysis analysis)
-    {
-        PushAnnotationDepth(e);
-        try
+        // Elevations at span boundaries, offset half a stride from the grade labels. Sampling both on
+        // the same stride stacked an elevation dot against every grade dot; interleaving them lets the
+        // two readings alternate along the curve instead of fighting for the same patch of screen.
+        int elevationOffset = step / 2;
+        for (int i = elevationOffset; i < analysis.Spans.Count; i += step)
         {
-            foreach (CurveReviewEvent item in analysis.Events)
-            {
-                Color color = item.Kind switch
-                {
-                    CurveReviewEventKind.VerticalBreak => BreakDotColor,
-                    CurveReviewEventKind.TerrainGap => TerrainLineColor,
-                    CurveReviewEventKind.SharpRadius => GradeOverColor,
-                    _ => EventDotColor
-                };
-                e.Display.DrawPoint(item.Point, PointStyle.RoundControlPoint, Scale(EventPointSize), color);
-                e.Display.DrawDot(item.Point, item.Label, color, LabelTextColor);
-            }
+            CurveReviewSpan span = analysis.Spans[i];
+            Point3d labelPoint = OffsetLabelPoint(analysis, span.Start, span.End - span.Start, i % 2 == 0 ? -1.5 : 1.5);
+            if (!TryOccupy(occupied, labelPoint, collisionDistance))
+                continue;
+            e.Display.DrawLine(span.Start, labelPoint, ElevationDotColor, Scale(1));
+            e.Display.DrawDot(labelPoint, span.Start.Z.ToString("F2", CultureInfo.InvariantCulture), ElevationDotColor, LabelTextColor);
         }
-        finally
+
+        // The two ends always carry an elevation, whatever the stride skipped.
+        if (analysis.Spans.Count > 0)
         {
-            PopAnnotationDepth(e);
+            CurveReviewSpan first = analysis.Spans[0];
+            CurveReviewSpan last = analysis.Spans[^1];
+            DrawOffsetElevation(e, analysis, first.Start, first.End - first.Start, -1.5, occupied, collisionDistance);
+            DrawOffsetElevation(e, analysis, last.End, last.End - last.Start, 1.5, occupied, collisionDistance);
         }
     }
 
-    /// <summary>Violating stretches always draw, so a failing curve is obvious even with overlays trimmed back.</summary>
-    private void DrawViolations(DrawEventArgs e, CurveReviewAnalysis analysis)
+    /// <summary>Slides the viewport marker to wherever the pointer is on the panel's profile.</summary>
+    private void DrawScrub(DrawEventArgs e, CurveReviewAnalysis analysis)
     {
-        foreach (CurveReviewRun run in analysis.GradeExceedances)
-            e.Display.DrawPolyline(run.Path, GradeOverColor, Scale(GradeRunWidth));
-        foreach (CurveReviewRun run in analysis.RadiusViolations)
-            e.Display.DrawPolyline(run.Path, GradeOverColor, Scale(RadiusRunWidth));
+        if (!HoveredStation.HasValue)
+            return;
+        int index = 0;
+        double nearest = double.MaxValue;
+        for (int i = 0; i < analysis.Samples.Count; i++)
+        {
+            double distance = Math.Abs(analysis.Samples[i].Station - HoveredStation.Value);
+            if (distance < nearest)
+            {
+                nearest = distance;
+                index = i;
+            }
+        }
+        CurveReviewSample sample = analysis.Samples[index];
+        Vector3d tangent = index >= 0 && index < analysis.Samples.Count - 1
+            ? analysis.Samples[index + 1].Point - sample.Point
+            : sample.Point - analysis.Samples[Math.Max(0, index - 1)].Point;
+        Point3d labelPoint = OffsetLabelPoint(analysis, sample.Point, tangent, 1.0);
+        e.Display.DrawLine(sample.Point, labelPoint, LabelTextColor, Scale(1));
+        e.Display.DrawPoint(sample.Point, PointStyle.RoundControlPoint, Scale(10), LabelTextColor);
+        e.Display.DrawDot(
+            labelPoint,
+            Format($"Sta {sample.Station:F1}  Z {sample.Point.Z:F2}  grade {GradeAt(analysis, index):+0.00;-0.00;0.00}%"),
+            GradeDotColor,
+            LabelTextColor);
+    }
+
+    private static double GradeAt(CurveReviewAnalysis analysis, int sampleIndex)
+    {
+        int index = Math.Clamp(sampleIndex, 0, analysis.IntervalGrades.Count - 1);
+        return index >= 0 && index < analysis.IntervalGrades.Count && double.IsFinite(analysis.IntervalGrades[index])
+            ? analysis.IntervalGrades[index]
+            : 0.0;
+    }
+
+    private static Point3d OffsetLabelPoint(CurveReviewAnalysis analysis, Point3d anchor, Vector3d tangent, double side)
+    {
+        tangent.Z = 0.0;
+        if (!tangent.Unitize())
+            tangent = Vector3d.XAxis;
+        var normal = new Vector3d(-tangent.Y, tangent.X, 0.0);
+        double offset = Math.Max(analysis.Bounds.Diagonal.Length * 0.018, 1e-3);
+        return LiftAnnotation(analysis, anchor + (normal * offset * side));
+    }
+
+    /// <summary>Lift annotations slightly in world Z so labels and event markers remain readable over a
+    /// triangulated terrain mesh. Leader lines still start at the real geometry point.</summary>
+    private static Point3d LiftAnnotation(CurveReviewAnalysis analysis, Point3d point)
+    {
+        double lift = Math.Max(analysis.Bounds.Diagonal.Length * 0.004, 1e-3);
+        return point + (Vector3d.ZAxis * lift);
+    }
+
+    private void DrawEvents(
+        DrawEventArgs e,
+        CurveReviewAnalysis analysis,
+        List<Point3d> occupied,
+        double collisionDistance)
+    {
+        foreach (CurveReviewEvent item in analysis.Events)
+        {
+            Color color = item.Kind switch
+            {
+                CurveReviewEventKind.VerticalBreak => BreakDotColor,
+                CurveReviewEventKind.TerrainGap => TerrainLineColor,
+                CurveReviewEventKind.SharpRadius => GradeOverColor,
+                CurveReviewEventKind.PlanCorner => GradeOverColor,
+                _ => EventDotColor
+            };
+            e.Display.DrawPoint(LiftAnnotation(analysis, item.Point), PointStyle.RoundControlPoint, Scale(EventPointSize), color);
+            int index = NearestSampleIndex(analysis.Samples, item.Station);
+            Vector3d tangent = index < analysis.Samples.Count - 1
+                ? analysis.Samples[index + 1].Point - item.Point
+                : item.Point - analysis.Samples[Math.Max(0, index - 1)].Point;
+            if (!TryFindLabelPoint(
+                    analysis, item.Point, tangent, index % 2 == 0 ? 2.0 : -2.0,
+                    occupied, collisionDistance, out Point3d labelPoint))
+                continue;
+            e.Display.DrawLine(item.Point, labelPoint, color, Scale(1));
+            e.Display.DrawDot(labelPoint, item.Label, color, LabelTextColor);
+        }
+    }
+
+    private void DrawOffsetElevation(
+        DrawEventArgs e,
+        CurveReviewAnalysis analysis,
+        Point3d anchor,
+        Vector3d tangent,
+        double side,
+        List<Point3d> occupied,
+        double collisionDistance)
+    {
+        Point3d labelPoint = OffsetLabelPoint(analysis, anchor, tangent, side);
+        if (!TryOccupy(occupied, labelPoint, collisionDistance))
+            return;
+        e.Display.DrawLine(anchor, labelPoint, ElevationDotColor, Scale(1));
+        e.Display.DrawDot(labelPoint, anchor.Z.ToString("F2", CultureInfo.InvariantCulture), ElevationDotColor, LabelTextColor);
+    }
+
+    private static bool TryOccupy(ICollection<Point3d> occupied, Point3d point, double minimumDistance)
+    {
+        double squared = minimumDistance * minimumDistance;
+        if (occupied.Any(existing => existing.DistanceToSquared(point) < squared))
+            return false;
+        occupied.Add(point);
+        return true;
+    }
+
+    private static bool TryFindLabelPoint(
+        CurveReviewAnalysis analysis,
+        Point3d anchor,
+        Vector3d tangent,
+        double preferredSide,
+        ICollection<Point3d> occupied,
+        double minimumDistance,
+        out Point3d labelPoint)
+    {
+        double sign = preferredSide < 0.0 ? -1.0 : 1.0;
+        double magnitude = Math.Max(Math.Abs(preferredSide), 1.0);
+        double[] candidates = { sign * magnitude, -sign * magnitude, sign * (magnitude + 1.0), -sign * (magnitude + 1.0) };
+        foreach (double side in candidates)
+        {
+            labelPoint = OffsetLabelPoint(analysis, anchor, tangent, side);
+            if (TryOccupy(occupied, labelPoint, minimumDistance))
+                return true;
+        }
+
+        labelPoint = Point3d.Unset;
+        return false;
+    }
+
+    private static int NearestSampleIndex(IReadOnlyList<CurveReviewSample> samples, double station)
+    {
+        int low = 0;
+        int high = samples.Count - 1;
+        while (low < high)
+        {
+            int middle = (low + high) / 2;
+            if (samples[middle].Station < station)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+
+        return low > 0 && Math.Abs(samples[low - 1].Station - station) <= Math.Abs(samples[low].Station - station)
+            ? low - 1
+            : low;
+    }
+
+    private static Vector3d RunTangent(CurveReviewRun run) => run.Path.Length > 1
+        ? run.Path[^1] - run.Path[0]
+        : Vector3d.XAxis;
+
+    private static string Format(FormattableString value) => value.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>Active warning stretches always draw, so a failing curve is obvious even with overlays trimmed back.</summary>
+    private void DrawViolations(
+        DrawEventArgs e,
+        CurveReviewAnalysis analysis,
+        List<Point3d> occupied,
+        double collisionDistance)
+    {
+        if (analysis.MaximumGradeLimit.HasValue)
+        {
+            foreach (CurveReviewRun run in analysis.GradeExceedances)
+                e.Display.DrawPolyline(run.Path, GradeOverColor, Scale(GradeRunWidth));
+        }
+        if (analysis.MinimumRadiusLimit.HasValue)
+        {
+            foreach (CurveReviewRun run in analysis.RadiusViolations)
+                e.Display.DrawPolyline(run.Path, GradeOverColor, Scale(RadiusRunWidth));
+        }
 
         if (!Parts.HasFlag(CurveReviewOverlayParts.Labels))
             return;
 
-        PushAnnotationDepth(e);
-        try
+        double gradeLimit = analysis.MaximumGradeLimit ?? 0.0;
+        foreach (CurveReviewRun run in analysis.MaximumGradeLimit.HasValue ? analysis.GradeExceedances : Array.Empty<CurveReviewRun>())
         {
-            double gradeLimit = analysis.MaximumGradeLimit ?? 0.0;
-            foreach (CurveReviewRun run in analysis.GradeExceedances)
-            {
-                e.Display.DrawDot(
-                    run.PeakPoint,
-                    $"{run.PeakValue:F2}% > {gradeLimit:F2}%   {run.StartStation:F1}-{run.EndStation:F1} (L {run.PlanLength:F1})",
-                    GradeOverColor,
-                    LabelTextColor);
-            }
-
-            double radiusLimit = analysis.MinimumRadiusLimit ?? 0.0;
-            foreach (CurveReviewRun run in analysis.RadiusViolations)
-            {
-                e.Display.DrawDot(
-                    run.PeakPoint,
-                    $"R {run.PeakValue:F1} < {radiusLimit:F1}   {run.StartStation:F1}-{run.EndStation:F1}",
-                    GradeOverColor,
-                    LabelTextColor);
-            }
+            Vector3d tangent = RunTangent(run);
+            if (!TryFindLabelPoint(analysis, run.PeakPoint, tangent, 2.5, occupied, collisionDistance, out Point3d labelPoint))
+                continue;
+            e.Display.DrawLine(run.PeakPoint, labelPoint, GradeOverColor, Scale(1));
+            e.Display.DrawDot(
+                labelPoint,
+                Format($"{run.PeakValue:F2}% > {gradeLimit:F2}%   {run.StartStation:F1}-{run.EndStation:F1} (L {run.PlanLength:F1})"),
+                GradeOverColor,
+                LabelTextColor);
         }
-        finally
+
+        double radiusLimit = analysis.MinimumRadiusLimit ?? 0.0;
+        foreach (CurveReviewRun run in analysis.MinimumRadiusLimit.HasValue ? analysis.RadiusViolations : Array.Empty<CurveReviewRun>())
         {
-            PopAnnotationDepth(e);
+            Vector3d tangent = RunTangent(run);
+            if (!TryFindLabelPoint(analysis, run.PeakPoint, tangent, -2.5, occupied, collisionDistance, out Point3d labelPoint))
+                continue;
+            e.Display.DrawLine(run.PeakPoint, labelPoint, GradeOverColor, Scale(1));
+            e.Display.DrawDot(
+                labelPoint,
+                Format($"R {run.PeakValue:F1} < {radiusLimit:F1}   {run.StartStation:F1}-{run.EndStation:F1}"),
+                GradeOverColor,
+                LabelTextColor);
         }
     }
 
@@ -252,45 +464,24 @@ internal sealed class CurveReviewConduit : DisplayConduit
             e.Display.DrawLine(sample.TerrainPoint, sample.Point, sample.TerrainDelta > 0.0 ? FillColor : CutColor, tieWidth);
         }
 
-        PushAnnotationDepth(e);
-        try
+        if (analysis.MaximumFill > 0.0 && analysis.MaximumFillPoint.IsValid)
         {
-            if (analysis.MaximumFill > 0.0 && analysis.MaximumFillPoint.IsValid)
-            {
-                e.Display.DrawDot(
-                    analysis.MaximumFillPoint,
-                    $"fill {analysis.MaximumFill:F2} @ {analysis.MaximumFillStation:F1}",
-                    FillColor,
-                    LabelTextColor);
-            }
-
-            if (analysis.MaximumCut > 0.0 && analysis.MaximumCutPoint.IsValid)
-            {
-                e.Display.DrawDot(
-                    analysis.MaximumCutPoint,
-                    $"cut {analysis.MaximumCut:F2} @ {analysis.MaximumCutStation:F1}",
-                    CutColor,
-                    LabelTextColor);
-            }
+            e.Display.DrawDot(
+                LiftAnnotation(analysis, analysis.MaximumFillPoint),
+                Format($"fill {analysis.MaximumFill:F2} @ {analysis.MaximumFillStation:F1}"),
+                FillColor,
+                LabelTextColor);
         }
-        finally
+
+        if (analysis.MaximumCut > 0.0 && analysis.MaximumCutPoint.IsValid)
         {
-            PopAnnotationDepth(e);
+            e.Display.DrawDot(
+                LiftAnnotation(analysis, analysis.MaximumCutPoint),
+                Format($"cut {analysis.MaximumCut:F2} @ {analysis.MaximumCutStation:F1}"),
+                CutColor,
+                LabelTextColor);
         }
     }
-
-    private static Color ResolveGradeColor(double absoluteGrade, double scale)
-    {
-        double t = scale <= 0.0 ? 0.0 : Math.Clamp(absoluteGrade / scale, 0.0, 1.0);
-        return t < 0.5
-            ? Blend(GradeOkColor, GradeWarnColor, t * 2.0)
-            : Blend(GradeWarnColor, GradeOverColor, (t - 0.5) * 2.0);
-    }
-
-    private static Color Blend(Color from, Color to, double amount) => Color.FromArgb(
-        (int)Math.Round(from.R + (to.R - from.R) * amount),
-        (int)Math.Round(from.G + (to.G - from.G) * amount),
-        (int)Math.Round(from.B + (to.B - from.B) * amount));
 
     private static void PushAnnotationDepth(DrawEventArgs e)
     {

@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
@@ -106,7 +106,11 @@ internal sealed partial class TerrainController
             return;
         }
 
-        TerrainAnalysisPreviewBuilder.UpdatePreviewMesh(doc, terrain, runtimeCache.DisplayState);
+        TerrainAnalysisPreviewBuilder.UpdatePreviewMesh(
+            doc,
+            terrain,
+            runtimeCache.DisplayState,
+            referenceTerrainId => GetFinalTerrainMesh(doc, referenceTerrainId));
         terrain.LastAnalysisResults = TerrainRuntimeCacheCloner.CloneAnalyses(runtimeCache.DisplayState.AnalysisResults);
         StampActiveAnalysisRange(terrain, runtimeCache.DisplayState);
     }
@@ -442,11 +446,20 @@ internal sealed partial class TerrainController
 
     private void OnRestoreStateUndo(object? sender, global::Rhino.Commands.CustomUndoEventArgs e)
     {
-        if (e.Tag is not UndoState snapshot)
+        if (e.Tag is not TerrainUndoSnapshot snapshot)
             return;
 
-        RestoreUndoState(e.Document, snapshot);
-        e.Document.AddCustomUndoEvent("Detach MoleHill Terrain", OnRestoreStateUndo, CaptureUndoState(GetState(e.Document)));
+        TerrainUndoSnapshot inverse = CaptureUndoState(GetState(e.Document)).WithDescription(snapshot.Description);
+        try
+        {
+            RestoreUndoState(e.Document, snapshot);
+        }
+        finally
+        {
+            // Registered even if the restore fails: without it Redo is lost for the rest of the
+            // session, and the inverse snapshot is absolute, so it also repairs a partial restore.
+            e.Document.AddCustomUndoEvent(snapshot.Description, OnRestoreStateUndo, inverse);
+        }
     }
 
     private void RaiseStateChanged() => StateChanged?.Invoke(this, EventArgs.Empty);

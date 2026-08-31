@@ -123,7 +123,14 @@ internal sealed partial class TerrainBuildService
                 build,
                 runtimeCache,
                 zonesStageKey,
-                ComputeZonesFingerprint(snapshot, terrain, analysisMesh, build.PersistentHardConstraints, currentMeshFingerprint),
+                ComputeZonesFingerprint(
+                    snapshot,
+                    terrain,
+                    analysisMesh,
+                    baselineMesh,
+                    build.PersistentHardConstraints,
+                    currentMeshFingerprint,
+                    baseMeshFingerprint),
                 () => BuildTerrainZones(snapshot, analysisMesh, terrain, build, shouldCancel),
                 () => $"{build.ZoneObjects.Count:N0} zone outputs",
                 shouldCancel);

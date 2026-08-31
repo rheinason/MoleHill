@@ -43,6 +43,20 @@ relevant folder `README.md`, and update `CLAUDE.md`/`AGENTS.md` when conventions
 
 Close Rhino before rebuilding when possible; the Grasshopper build copies `MoleHill.gha` to `%AppData%\Grasshopper\Libraries\`, and Rhino can keep that file locked. Grasshopper builds a merged plugin at `src/MoleHill.Grasshopper/bin/Debug/net7.0/MoleHill.gha`, and the Rhino plugin output is `src/MoleHill.Rhino/bin/Debug/net7.0/MoleHill.Rhino.rhp`.
 
+## Rhino Live Testing
+
+Follow [`docs/rhino-live-testing.md`](docs/rhino-live-testing.md) for native UI testing. The short
+version: build with Rhino closed, `spawn_slot` a disposable Rhino through the `rhino-mcp` router, load
+the exact `.rhp` with `Rhino.PlugIns.PlugIn.LoadPlugIn` and confirm it was not blocked, build the
+scene and the selection from `run_csharp`, invoke the command with `run_command`, and assert on
+document state via `run_csharp`/`list_objects`/`get_context`. `close_slot` the exact slot when done.
+
+Screenshots are supporting evidence only: `get_viewport_image` shows the viewport, and Eto forms must
+be captured from real `GetWindowRect` bounds filtered by the slot PID. Never `SendKeys` a workflow,
+never use a COM-created hidden Rhino server or blind `/runscript`, and never terminate a broad set of
+Rhino processes. If a capture is blank or bounds are unavailable, report it as unverified and request
+manual confirmation rather than claiming either success or a bug.
+
 ## Yak Release Notes
 - Use `build-yak-package.ps1` for Yak packages instead of relying on the Grasshopper project's local Yak target. The script stages a combined package under `.artifacts/yak/MoleHill-<version>/` and includes both `MoleHill.Rhino.rhp` and `MoleHill.gha` under `net7.0/`.
 - Source the release version from `Directory.Build.props` (`MoleHillVersion`). Keep prerelease tags short, for example `0.5.0-beta` instead of `0.5.0-beta.1`, because longer version strings make the Package Manager listing wrap awkwardly inside Rhino.

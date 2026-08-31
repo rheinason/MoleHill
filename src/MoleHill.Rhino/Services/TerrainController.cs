@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Reflection;
@@ -48,6 +48,8 @@ internal sealed partial class TerrainController
     private readonly Dictionary<uint, DocumentState> _states = new();
     private readonly Dictionary<(uint docSerial, Guid terrainId, TerrainBuildMode mode), PendingBuildRequest> _pendingRebuilds = new();
     private readonly Dictionary<uint, DateTime> _pendingDocumentSaves = new();
+    private readonly Dictionary<uint, PendingTerrainEdit> _pendingTerrainEdits = new();
+    private readonly HashSet<(uint docSerial, uint undoSerial)> _terrainUndoRecords = new();
     private readonly HashSet<uint> _pendingSourceReferencePrunes = new();
     private readonly Dictionary<uint, Queue<Guid>> _pendingObjectReplacements = new();
     private readonly Dictionary<uint, HashSet<Guid>> _pendingBlockAttributeKeyRepairs = new();
@@ -212,6 +214,8 @@ internal sealed partial class TerrainController
         _states.Clear();
         _pendingRebuilds.Clear();
         _pendingDocumentSaves.Clear();
+        _pendingTerrainEdits.Clear();
+        _terrainUndoRecords.Clear();
         _pendingSourceReferencePrunes.Clear();
         _pendingBlockAttributeKeyRepairs.Clear();
         _runtimeCaches.Clear();
@@ -223,6 +227,14 @@ internal sealed partial class TerrainController
     public bool HasCompletedFinalTerrainMesh(RhinoDoc doc, Guid terrainId) =>
         _runtimeCaches.TryGetValue((doc.RuntimeSerialNumber, terrainId), out TerrainRuntimeCache? cache) &&
         cache.DisplayState is { IsPreview: false, TerrainMesh: not null };
+
+    /// <summary>Another terrain's last completed final mesh, for cards that compare against a sibling
+    /// terrain directly rather than requiring it to be baked to Rhino geometry first.</summary>
+    internal Mesh? GetFinalTerrainMesh(RhinoDoc doc, Guid terrainId) =>
+        _runtimeCaches.TryGetValue((doc.RuntimeSerialNumber, terrainId), out TerrainRuntimeCache? cache) &&
+        cache.DisplayState is { IsPreview: false, TerrainMesh: { } mesh }
+            ? mesh
+            : null;
 
     /// <summary>
     /// True when this document's stored terrain JSON could not be read. The panel should surface a
@@ -323,6 +335,12 @@ internal sealed partial class TerrainController
 
     public TerrainDefinition? CreateTerrain(RhinoDoc doc, bool seedFromSelection)
     {
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Create MoleHill Terrain");
+        return CreateTerrainCore(doc, seedFromSelection);
+    }
+
+    private TerrainDefinition? CreateTerrainCore(RhinoDoc doc, bool seedFromSelection)
+    {
         if (!ModelUnitGuard.TryGet(doc, out var unitContext))
             return null;
 
@@ -354,7 +372,8 @@ internal sealed partial class TerrainController
 
     public TerrainDefinition? CreateTerrainFromPointIds(RhinoDoc doc, IEnumerable<Guid> pointIds, string? name = null)
     {
-        TerrainDefinition? terrain = CreateTerrain(doc, seedFromSelection: false);
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Create MoleHill Terrain");
+        TerrainDefinition? terrain = CreateTerrainCore(doc, seedFromSelection: false);
         if (terrain == null)
             return null;
 
@@ -377,7 +396,8 @@ internal sealed partial class TerrainController
         if (meshId == Guid.Empty || doc.Objects.FindId(meshId)?.Geometry is not global::Rhino.Geometry.Mesh)
             return null;
 
-        TerrainDefinition? terrain = CreateTerrain(doc, seedFromSelection: false);
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Create MoleHill Terrain");
+        TerrainDefinition? terrain = CreateTerrainCore(doc, seedFromSelection: false);
         if (terrain == null)
             return null;
 
@@ -402,6 +422,7 @@ internal sealed partial class TerrainController
         if (terrain == null)
             return;
 
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Delete MoleHill Terrain");
         RestoreTerrainObjectPlacements(doc, terrain);
         DeleteOwnedObjects(doc, terrain);
         PurgeOrphanedOwnedObjects(doc, terrain);
@@ -427,8 +448,7 @@ internal sealed partial class TerrainController
         if (terrain == null)
             return;
 
-        uint undoRecord = doc.BeginUndoRecord("Detach MoleHill Terrain");
-        doc.AddCustomUndoEvent("Detach MoleHill Terrain", OnRestoreStateUndo, CaptureUndoState(state));
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Detach MoleHill Terrain");
 
         BakeTerrain(doc, terrainId);
         RestoreTerrainObjectPlacements(doc, terrain);
@@ -442,8 +462,6 @@ internal sealed partial class TerrainController
         Save(doc, state);
         NotifyRenderMeshesChanged(doc);
         doc.Views.Redraw();
-        if (undoRecord > 0)
-            doc.EndUndoRecord(undoRecord);
     }
 
     public void AddModifier(RhinoDoc doc, Guid terrainId, string modifierKind)
@@ -554,17 +572,6 @@ internal sealed partial class TerrainController
         }, scheduleRebuild: false);
     }
 
-    public void AddMarker(RhinoDoc doc, Guid terrainId, string markerKind)
-    {
-        MutateTerrain(doc, terrainId, terrain =>
-        {
-            MarkerDefinition marker = Registry.MarkerTypeRegistry.Create(markerKind)
-                ?? throw new InvalidOperationException($"Unknown marker kind '{markerKind}'.");
-
-            terrain.Markers.Add(marker);
-        });
-    }
-
     public void AddObjectDefinition(RhinoDoc doc, Guid terrainId, string objectKind)
     {
         MutateTerrain(doc, terrainId, terrain =>
@@ -609,6 +616,7 @@ internal sealed partial class TerrainController
         if (definition == null)
             return;
 
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Remove MoleHill Object Definition");
         RestorePlacementStates(doc, definition.PlacementStates);
         terrain.Objects.Remove(definition);
         terrain.EnsureBaseModifier();
@@ -619,21 +627,14 @@ internal sealed partial class TerrainController
             ScheduleRebuild(doc, terrain.TerrainId);
     }
 
-    public void RemoveMarker(RhinoDoc doc, Guid terrainId, Guid markerId)
-    {
-        MutateTerrain(doc, terrainId, terrain =>
-        {
-            terrain.Markers.RemoveAll(marker => marker.Id == markerId);
-        });
-    }
-
     public void MutateTerrain(
         RhinoDoc doc,
         Guid terrainId,
         Action<TerrainDefinition> mutator,
         bool scheduleRebuild = true,
         bool deferDocumentSave = false,
-        bool suppressImmediateUiRefresh = false)
+        bool suppressImmediateUiRefresh = false,
+        string undoDescription = "Edit MoleHill Terrain")
     {
         if (!ModelUnitGuard.TryGet(doc, out MoleHill.Shared.ModelUnitContext unitContext))
             return;
@@ -643,31 +644,50 @@ internal sealed partial class TerrainController
         if (terrain == null)
             return;
 
-        string previousName = terrain.Name;
-        int previousColorArgb = terrain.TerrainColorArgb;
-        TerrainRenderAppearance previousRenderAppearance = TerrainRenderAppearance.Capture(terrain);
-        mutator(terrain);
-        terrain.EnsureBaseModifier();
-        bool shouldScheduleRebuild = scheduleRebuild && terrain.LiveUpdateEnabled;
+        TerrainUndoTransaction? undoTransaction = null;
         if (deferDocumentSave)
-            QueuePendingDocumentSave(doc.RuntimeSerialNumber, LiveEditSaveDebounceMs);
-        else
-            Save(doc, state, raiseStateChanged: !shouldScheduleRebuild && !suppressImmediateUiRefresh);
+            EnsurePendingTerrainEdit(doc, undoDescription);
+        else if (!_pendingTerrainEdits.ContainsKey(doc.RuntimeSerialNumber))
+            undoTransaction = BeginTerrainUndoTransaction(doc, undoDescription);
 
-        if (shouldScheduleRebuild)
-            ScheduleRebuild(doc, terrain.TerrainId, notify: !suppressImmediateUiRefresh);
-        else if (deferDocumentSave)
+        try
         {
-            if (!suppressImmediateUiRefresh)
-                RaiseStateChanged();
+            string previousName = terrain.Name;
+            int previousColorArgb = terrain.TerrainColorArgb;
+            TerrainRenderAppearance previousRenderAppearance = TerrainRenderAppearance.Capture(terrain);
+            mutator(terrain);
+            terrain.EnsureBaseModifier();
+            bool shouldScheduleRebuild = scheduleRebuild && terrain.LiveUpdateEnabled;
+            if (deferDocumentSave)
+                QueuePendingDocumentSave(doc.RuntimeSerialNumber, LiveEditSaveDebounceMs);
+            else
+                Save(doc, state, raiseStateChanged: !shouldScheduleRebuild && !suppressImmediateUiRefresh);
+
+            if (shouldScheduleRebuild)
+                ScheduleRebuild(doc, terrain.TerrainId, notify: !suppressImmediateUiRefresh);
+            else if (deferDocumentSave)
+            {
+                if (!suppressImmediateUiRefresh)
+                    RaiseStateChanged();
+            }
+
+            if (previousRenderAppearance != TerrainRenderAppearance.Capture(terrain))
+                InvalidateTerrainRenderMeshes(doc, terrainId);
+
+            if (!string.Equals(previousName, terrain.Name, StringComparison.Ordinal) ||
+                previousColorArgb != terrain.TerrainColorArgb)
+                ScheduleSectionDependents(doc, state, terrain.TerrainId);
         }
-
-        if (previousRenderAppearance != TerrainRenderAppearance.Capture(terrain))
-            InvalidateTerrainRenderMeshes(doc, terrainId);
-
-        if (!string.Equals(previousName, terrain.Name, StringComparison.Ordinal) ||
-            previousColorArgb != terrain.TerrainColorArgb)
-            ScheduleSectionDependents(doc, state, terrain.TerrainId);
+        finally
+        {
+            undoTransaction?.Dispose();
+            if (!deferDocumentSave &&
+                _pendingTerrainEdits.TryGetValue(doc.RuntimeSerialNumber, out PendingTerrainEdit? pending) &&
+                pending.Depth == 0)
+            {
+                CommitPendingTerrainEdit(doc);
+            }
+        }
     }
 
     /// <summary>
@@ -683,6 +703,7 @@ internal sealed partial class TerrainController
         if (rc != global::Rhino.Commands.Result.Success || corners == null || corners.Length < 4)
             return false;
 
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Set MoleHill Work Area");
         var polyline = new global::Rhino.Geometry.Polyline(new[] { corners[0], corners[1], corners[2], corners[3], corners[0] });
         var curve = new global::Rhino.Geometry.PolylineCurve(polyline);
         Guid id = doc.Objects.AddCurve(curve);
@@ -777,6 +798,7 @@ internal sealed partial class TerrainController
         if (terrain == null)
             return null!;
 
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Duplicate MoleHill Terrain");
         var json = System.Text.Json.JsonSerializer.Serialize(terrain, TerrainSerializer.SharedOptions);
         var clone = System.Text.Json.JsonSerializer.Deserialize<TerrainDefinition>(json, TerrainSerializer.SharedOptions)!;
         clone.TerrainId = Guid.NewGuid();
@@ -826,6 +848,7 @@ internal sealed partial class TerrainController
         if (terrain == null)
             return;
 
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Bake MoleHill Terrain");
         var runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId);
         bool requiresCurrentFinalBuild = runtimeCache.DisplayState?.TerrainMesh == null ||
                                          runtimeCache.DisplayState.IsPreview ||
@@ -930,6 +953,8 @@ internal sealed partial class TerrainController
         if (terrain == null)
             return;
 
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(
+            doc, visible ? "Show MoleHill Terrain" : "Hide MoleHill Terrain");
         terrain.IsVisible = visible;
         Save(doc, state);
         // The render mesh provider gates on IsVisible, so hiding/showing changes what renders too.
@@ -944,6 +969,8 @@ internal sealed partial class TerrainController
         if (terrain == null)
             return;
 
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(
+            doc, locked ? "Lock MoleHill Terrain" : "Unlock MoleHill Terrain");
         terrain.IsLocked = locked;
         Save(doc, state);
         doc.Views.Redraw();
@@ -964,6 +991,7 @@ internal sealed partial class TerrainController
         if (selectedIds.Count == 0)
             return;
 
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Untrack MoleHill Bakes");
         int beforeCount = terrain.BakedObjectIds.Count;
         terrain.BakedObjectIds = terrain.BakedObjectIds
             .Where(id => id != Guid.Empty && doc.Objects.FindId(id) != null && !selectedIds.Contains(id))
@@ -982,6 +1010,7 @@ internal sealed partial class TerrainController
         if (terrain == null || terrain.BakedObjectIds.Count == 0)
             return;
 
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Untrack MoleHill Bakes");
         terrain.BakedObjectIds.Clear();
         Save(doc, state);
     }
@@ -1297,31 +1326,156 @@ internal sealed partial class TerrainController
         return $"{elapsed.TotalSeconds:0.##} s";
     }
 
-    private UndoState CaptureUndoState(DocumentState state)
+    private TerrainUndoSnapshot CaptureUndoState(DocumentState state)
     {
-        return new UndoState
+        return new TerrainUndoSnapshot
         {
             Json = TerrainSerializer.Serialize(state.Terrains),
             SelectedTerrainId = state.SelectedTerrainId
         };
     }
 
-    private void RestoreUndoState(RhinoDoc doc, UndoState snapshot)
+    internal void BeginTerrainEditGesture(RhinoDoc doc, string description = "Edit MoleHill Terrain")
+    {
+        if (doc.UndoRecordingIsActive)
+            return;
+
+        PendingTerrainEdit pending = EnsurePendingTerrainEdit(doc, description);
+        pending.Depth++;
+    }
+
+    internal void EndTerrainEditGesture(RhinoDoc doc)
+    {
+        if (!_pendingTerrainEdits.TryGetValue(doc.RuntimeSerialNumber, out PendingTerrainEdit? pending))
+            return;
+
+        if (pending.Depth > 0)
+            pending.Depth--;
+        if (pending.Depth == 0)
+        {
+            if (_pendingDocumentSaves.ContainsKey(doc.RuntimeSerialNumber))
+                Save(doc, GetState(doc));
+            CommitPendingTerrainEdit(doc);
+        }
+    }
+
+    private PendingTerrainEdit EnsurePendingTerrainEdit(RhinoDoc doc, string description)
+    {
+        if (_pendingTerrainEdits.TryGetValue(doc.RuntimeSerialNumber, out PendingTerrainEdit? pending))
+            return pending;
+
+        pending = new PendingTerrainEdit(
+            CaptureUndoState(GetState(doc)),
+            string.IsNullOrWhiteSpace(description) ? "Edit MoleHill Terrain" : description);
+        _pendingTerrainEdits[doc.RuntimeSerialNumber] = pending;
+        return pending;
+    }
+
+    private void CommitPendingTerrainEdit(RhinoDoc doc)
+    {
+        if (!_pendingTerrainEdits.Remove(doc.RuntimeSerialNumber, out PendingTerrainEdit? pending))
+            return;
+
+        RegisterTerrainUndoState(doc, pending.Description, pending.Before);
+    }
+
+    private TerrainUndoTransaction? BeginTerrainUndoTransaction(RhinoDoc doc, string description)
+    {
+        if (!doc.UndoRecordingEnabled)
+            return null;
+
+        if (doc.UndoRecordingIsActive)
+        {
+            JoinActiveTerrainUndoRecord(doc, description);
+            return null;
+        }
+
+        return new TerrainUndoTransaction(
+            this,
+            doc,
+            string.IsNullOrWhiteSpace(description) ? "Edit MoleHill Terrain" : description,
+            CaptureUndoState(GetState(doc)));
+    }
+
+    /// <summary>
+    /// Attaches one terrain state event to the undo record another command already opened. Pass
+    /// <paramref name="before"/> when the edit has already been applied (a coalesced panel gesture);
+    /// omit it only when calling ahead of the mutation, where the current state is the before-state.
+    /// </summary>
+    private void JoinActiveTerrainUndoRecord(RhinoDoc doc, string description, TerrainUndoSnapshot? before = null)
+    {
+        uint undoSerial = doc.CurrentUndoRecordSerialNumber;
+        if (undoSerial == 0)
+            return;
+
+        // Record serials are monotonic and only one record is open at a time, so every smaller serial
+        // for this document is closed and can never be joined again.
+        _terrainUndoRecords.RemoveWhere(item => item.docSerial == doc.RuntimeSerialNumber && item.undoSerial < undoSerial);
+        if (!_terrainUndoRecords.Add((doc.RuntimeSerialNumber, undoSerial)))
+            return;
+
+        string resolvedDescription = string.IsNullOrWhiteSpace(description) ? "Edit MoleHill Terrain" : description;
+        doc.AddCustomUndoEvent(
+            resolvedDescription,
+            OnRestoreStateUndo,
+            (before ?? CaptureUndoState(GetState(doc))).WithDescription(resolvedDescription));
+    }
+
+    private void RegisterTerrainUndoState(RhinoDoc doc, string description, TerrainUndoSnapshot before)
+    {
+        if (!doc.UndoRecordingEnabled || before.HasSameState(CaptureUndoState(GetState(doc))))
+            return;
+
+        // A nested BeginUndoRecord returns 0, so a gesture that ends while a command record is open
+        // has to join that record instead of silently dropping its history.
+        if (doc.UndoRecordingIsActive)
+        {
+            JoinActiveTerrainUndoRecord(doc, description, before);
+            return;
+        }
+
+        uint undoRecord = doc.BeginUndoRecord(description);
+        if (undoRecord == 0)
+            return;
+
+        try
+        {
+            doc.AddCustomUndoEvent(description, OnRestoreStateUndo, before.WithDescription(description));
+        }
+        finally
+        {
+            doc.EndUndoRecord(undoRecord);
+        }
+    }
+
+    private void RestoreUndoState(RhinoDoc doc, TerrainUndoSnapshot snapshot)
     {
         var restoredTerrains = TerrainSerializer.Deserialize(
             snapshot.Json,
             MoleHill.Shared.ModelUnitContext.FromDocument(doc));
+        Guid? restoredSelection = snapshot.SelectedTerrainId is Guid selectedId &&
+                                  restoredTerrains.Any(item => item.TerrainId == selectedId)
+            ? selectedId
+            : restoredTerrains.FirstOrDefault()?.TerrainId;
         var restoredState = new DocumentState
         {
             Terrains = restoredTerrains,
-            SelectedTerrainId = snapshot.SelectedTerrainId ?? restoredTerrains.FirstOrDefault()?.TerrainId
+            SelectedTerrainId = restoredSelection
         };
 
+        _pendingTerrainEdits.Remove(doc.RuntimeSerialNumber);
+        _pendingSourceReferencePrunes.Remove(doc.RuntimeSerialNumber);
+        _pendingObjectReplacements.Remove(doc.RuntimeSerialNumber);
+        RemovePendingDocumentSave(doc.RuntimeSerialNumber);
         _states[doc.RuntimeSerialNumber] = restoredState;
         ClearRebuildStates(doc.RuntimeSerialNumber);
         ClearRuntimeCaches(doc.RuntimeSerialNumber);
-        Save(doc, restoredState);
+        Save(doc, restoredState, raiseStateChanged: false);
+        foreach (TerrainDefinition terrain in restoredState.Terrains.Where(item => item.LiveUpdateEnabled))
+            ScheduleRebuild(doc, terrain.TerrainId, notify: false);
+        NotifyRenderMeshesChanged(doc);
         doc.Views.Redraw();
+        RaiseStateChanged();
     }
 
     public void RebuildContourAnalysis(RhinoDoc doc, Guid terrainId, Guid analysisId)
@@ -1514,10 +1668,16 @@ internal sealed partial class TerrainController
             return TerrainBuildSnapshotBuilder.Create(doc, terrain, references);
 
         DocumentState state = GetState(doc);
-        IEnumerable<Guid> referencedIds = terrain.Annotations
+        IEnumerable<Guid> sectionReferencedIds = terrain.Annotations
             .OfType<TerrainSectionAnnotationDefinitionBase>()
             .Where(analysis => analysis.IsEnabled)
-            .SelectMany(analysis => analysis.ComparisonTerrainIds)
+            .SelectMany(analysis => analysis.ComparisonTerrainIds);
+        IEnumerable<Guid> analysisReferencedIds = terrain.Analyses
+            .OfType<ReferenceComparisonAnalysisDefinition>()
+            .Where(analysis => analysis.IsEnabled && analysis.ReferenceTerrainId.HasValue)
+            .Select(analysis => analysis.ReferenceTerrainId!.Value);
+        IEnumerable<Guid> referencedIds = sectionReferencedIds
+            .Concat(analysisReferencedIds)
             .Where(id => id != Guid.Empty && id != terrain.TerrainId)
             .Distinct();
 
@@ -1552,7 +1712,10 @@ internal sealed partial class TerrainController
             bool referencesTerrain = dependent.Annotations
                 .OfType<TerrainSectionAnnotationDefinitionBase>()
                 .Any(analysis => analysis.IsEnabled && analysis.ComparisonTerrainIds.Contains(referencedTerrainId));
-            if (referencesTerrain)
+            bool referencesTerrainFromAnalysis = dependent.Analyses
+                .OfType<ReferenceComparisonAnalysisDefinition>()
+                .Any(analysis => analysis.IsEnabled && analysis.ReferenceTerrainId == referencedTerrainId);
+            if (referencesTerrain || referencesTerrainFromAnalysis)
                 ScheduleRebuild(doc, dependent.TerrainId, notify: false);
         }
     }
@@ -1570,6 +1733,14 @@ internal sealed partial class TerrainController
                     section.CutFillReferenceTerrainId = null;
                     changed = true;
                 }
+            }
+
+            foreach (ReferenceComparisonAnalysisDefinition analysis in terrain.Analyses.OfType<ReferenceComparisonAnalysisDefinition>())
+            {
+                if (analysis.ReferenceTerrainId != removedTerrainId)
+                    continue;
+                analysis.ReferenceTerrainId = null;
+                changed = true;
             }
 
             if (changed && terrain.LiveUpdateEnabled)
@@ -1607,6 +1778,8 @@ internal sealed partial class TerrainController
     private void ClearDocumentState(uint docSerial)
     {
         _states.Remove(docSerial);
+        _pendingTerrainEdits.Remove(docSerial);
+        _terrainUndoRecords.RemoveWhere(item => item.docSerial == docSerial);
         _pendingSourceReferencePrunes.Remove(docSerial);
         _pendingObjectReplacements.Remove(docSerial);
         ClearRuntimeCaches(docSerial);
@@ -1761,10 +1934,65 @@ internal sealed partial class TerrainController
         public bool LoadFailed { get; set; }
     }
 
-    private sealed class UndoState
+    private sealed class PendingTerrainEdit
     {
-        public string Json { get; init; } = string.Empty;
-        public Guid? SelectedTerrainId { get; init; }
+        public PendingTerrainEdit(TerrainUndoSnapshot before, string description)
+        {
+            Before = before;
+            Description = description;
+        }
+
+        public TerrainUndoSnapshot Before { get; }
+        public string Description { get; }
+        public int Depth { get; set; }
+    }
+
+    private sealed class TerrainUndoTransaction : IDisposable
+    {
+        private readonly TerrainController _controller;
+        private readonly RhinoDoc _doc;
+        private readonly string _description;
+        private readonly TerrainUndoSnapshot _before;
+        private readonly uint _undoRecord;
+        private bool _disposed;
+
+        public TerrainUndoTransaction(TerrainController controller, RhinoDoc doc, string description, TerrainUndoSnapshot before)
+        {
+            _controller = controller;
+            _doc = doc;
+            _description = description;
+            _before = before;
+            _undoRecord = doc.BeginUndoRecord(description);
+            if (_undoRecord > 0)
+                controller._terrainUndoRecords.Add((doc.RuntimeSerialNumber, _undoRecord));
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            if (_undoRecord == 0)
+                return;
+
+            try
+            {
+                TerrainUndoSnapshot after = _controller.CaptureUndoState(_controller.GetState(_doc));
+                if (!_before.HasSameState(after))
+                {
+                    _doc.AddCustomUndoEvent(
+                        _description,
+                        _controller.OnRestoreStateUndo,
+                        _before.WithDescription(_description));
+                }
+            }
+            finally
+            {
+                _doc.EndUndoRecord(_undoRecord);
+                _controller._terrainUndoRecords.Remove((_doc.RuntimeSerialNumber, _undoRecord));
+            }
+        }
     }
 
     private sealed class EventSuppression : IDisposable

@@ -367,9 +367,18 @@ public sealed partial class MoleHillPanel
             $"{summary.OutputCount:N0} object(s) · {summary.TriangleCount:N0} triangle(s)",
             "Resolved zone mesh output from the last completed build."));
 
-        string earthworkText = summary.HasEarthwork
-            ? $"Cut {FormatVolume(summary.CutVolume)} / Fill {FormatVolume(summary.FillVolume)} / Net {FormatVolume(summary.NetVolume)}{(summary.EarthworkIsEstimated ? " (estimated)" : "") }"
-            : "Unavailable — enable Earthworks analysis";
+        string earthworkText;
+        if (summary.HasEarthwork)
+        {
+            earthworkText = $"Cut {FormatVolume(summary.CutVolume)} / Fill {FormatVolume(summary.FillVolume)} / Net {FormatVolume(summary.NetVolume)}{(summary.EarthworkIsEstimated ? " (estimated)" : "") }";
+        }
+        else
+        {
+            bool earthworkEnabled = terrain.Analyses.OfType<EarthworkAnalysisDefinition>().Any(item => item.IsEnabled);
+            earthworkText = earthworkEnabled
+                ? "Unavailable — zone has no resolved output in the last build"
+                : "Unavailable — enable Earthworks analysis";
+        }
         layout.AddRow(CreateSelectableSummaryEditor(
             "Earthworks",
             earthworkText,
