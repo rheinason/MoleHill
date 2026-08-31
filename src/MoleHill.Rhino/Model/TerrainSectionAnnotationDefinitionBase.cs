@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 namespace MoleHill.Rhino.Model;
 
-public abstract class TerrainSectionAnalysisDefinitionBase : AnalysisDefinition
+public abstract class TerrainSectionAnnotationDefinitionBase : AnnotationDefinition
 {
     public const int DefaultCutColorArgb = unchecked((int)0xFFEB462D);
 

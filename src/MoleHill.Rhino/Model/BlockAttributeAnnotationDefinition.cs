@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 namespace MoleHill.Rhino.Model;
 
-public abstract class BlockAttributeAnalysisDefinition : AnalysisDefinition
+public abstract class BlockAttributeAnnotationDefinition : AnnotationDefinition
 {
     public SourceReferenceSet Sources { get; set; } = new();
 

@@ -53,11 +53,11 @@ internal static class LayerRoutingMigration
                     Bind(bindings, conflicts, LayerRole.Walls, wall.LegacyOutputLayerPath, wall.Label);
             }
 
-            foreach (AnalysisDefinition analysis in terrain.Analyses)
+            foreach (ITerrainContentItem item in LegacyRoutedContent(terrain))
             {
-                LayerRole? role = RoleFor(analysis);
+                LayerRole? role = RoleFor(item);
                 if (role.HasValue)
-                    Bind(bindings, conflicts, role.Value, LegacyLayerOf(analysis), analysis.Label);
+                    Bind(bindings, conflicts, role.Value, LegacyLayerOf(item), item.Label);
             }
         }
 
@@ -107,8 +107,8 @@ internal static class LayerRoutingMigration
             foreach (var wall in terrain.Modifiers.OfType<RetainingWallModifierDefinition>())
                 wall.LegacyOutputLayerPath = null;
 
-            foreach (AnalysisDefinition analysis in terrain.Analyses)
-                ClearLegacyLayer(analysis);
+            foreach (ITerrainContentItem item in LegacyRoutedContent(terrain))
+                ClearLegacyLayer(item);
         }
     }
 
@@ -150,39 +150,47 @@ internal static class LayerRoutingMigration
         bindings[role] = path;
     }
 
-    private static LayerRole? RoleFor(AnalysisDefinition analysis) => analysis switch
+    /// <summary>
+    /// Content that could carry a pre-schema-30 output layer. Both families can: the split into two
+    /// collections happened later (schema 31) than the routing move, so a document being migrated here
+    /// has its annotations already separated but still holding legacy paths.
+    /// </summary>
+    private static IEnumerable<ITerrainContentItem> LegacyRoutedContent(TerrainDefinition terrain) =>
+        terrain.Analyses.Cast<ITerrainContentItem>().Concat(terrain.Annotations);
+
+    private static LayerRole? RoleFor(ITerrainContentItem analysis) => analysis switch
     {
         // Major and minor inherit from the contour layer, so one binding carries both.
-        ContourAnalysisDefinition => LayerRole.Contours,
+        ContourAnnotationDefinition => LayerRole.Contours,
         WaterflowAnalysisDefinition => LayerRole.Waterflow,
-        TerrainSectionAnalysisDefinitionBase => LayerRole.Sections,
-        BlockAttributeAnalysisDefinition => LayerRole.Markers,
+        TerrainSectionAnnotationDefinitionBase => LayerRole.Sections,
+        BlockAttributeAnnotationDefinition => LayerRole.Markers,
         _ => null
     };
 
-    private static string? LegacyLayerOf(AnalysisDefinition analysis) => analysis switch
+    private static string? LegacyLayerOf(ITerrainContentItem analysis) => analysis switch
     {
-        ContourAnalysisDefinition contour => contour.LegacyOutputLayerPath,
+        ContourAnnotationDefinition contour => contour.LegacyOutputLayerPath,
         WaterflowAnalysisDefinition waterflow => waterflow.LegacyOutputLayerPath,
-        TerrainSectionAnalysisDefinitionBase section => section.LegacyOutputLayerPath,
-        BlockAttributeAnalysisDefinition block => block.LegacyOutputLayerPath,
+        TerrainSectionAnnotationDefinitionBase section => section.LegacyOutputLayerPath,
+        BlockAttributeAnnotationDefinition block => block.LegacyOutputLayerPath,
         _ => null
     };
 
-    private static void ClearLegacyLayer(AnalysisDefinition analysis)
+    private static void ClearLegacyLayer(ITerrainContentItem analysis)
     {
         switch (analysis)
         {
-            case ContourAnalysisDefinition contour:
+            case ContourAnnotationDefinition contour:
                 contour.LegacyOutputLayerPath = null;
                 break;
             case WaterflowAnalysisDefinition waterflow:
                 waterflow.LegacyOutputLayerPath = null;
                 break;
-            case TerrainSectionAnalysisDefinitionBase section:
+            case TerrainSectionAnnotationDefinitionBase section:
                 section.LegacyOutputLayerPath = null;
                 break;
-            case BlockAttributeAnalysisDefinition block:
+            case BlockAttributeAnnotationDefinition block:
                 block.LegacyOutputLayerPath = null;
                 break;
         }

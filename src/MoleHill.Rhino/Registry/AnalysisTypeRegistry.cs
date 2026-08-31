@@ -4,7 +4,7 @@ using MoleHill.Shared;
 
 namespace MoleHill.Rhino.Registry;
 
-/// <summary>Auto-discovered registry of <see cref="AnalysisTypeDescriptor"/>s (Analysis &amp; Annotation tabs).</summary>
+/// <summary>Auto-discovered registry of <see cref="AnalysisTypeDescriptor"/>s (Analysis tab).</summary>
 internal static class AnalysisTypeRegistry
 {
     private static readonly IReadOnlyList<AnalysisTypeDescriptor> AnalysisDescriptors;

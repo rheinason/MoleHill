@@ -1,6 +1,6 @@
 namespace MoleHill.Rhino.Model;
 
-public sealed class LongitudinalSectionAnalysisDefinition : TerrainSectionAnalysisDefinitionBase
+public sealed class LongitudinalSectionAnnotationDefinition : TerrainSectionAnnotationDefinitionBase
 {
     public double SampleInterval { get; set; } = 1.0;
 
@@ -14,7 +14,7 @@ public sealed class LongitudinalSectionAnalysisDefinition : TerrainSectionAnalys
 
     public bool ShowBaseline { get; set; } = true;
 
-    public LongitudinalSectionAnalysisDefinition()
+    public LongitudinalSectionAnnotationDefinition()
     {
         Label = "Section Along Curve";
     }

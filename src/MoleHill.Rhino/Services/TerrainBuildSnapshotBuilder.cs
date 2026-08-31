@@ -36,9 +36,9 @@ internal static class TerrainBuildSnapshotBuilder
                 roles.Appearance(role).HatchPatternName, HatchPatternService.DefaultCutPatternName);
         }
 
-        foreach (AnalysisDefinition analysis in terrain.Analyses)
+        foreach (AnnotationDefinition annotation in terrain.Annotations)
         {
-            if (analysis is not TerrainSectionAnalysisDefinitionBase section)
+            if (annotation is not TerrainSectionAnnotationDefinitionBase section)
                 continue;
 
             yield return HatchPatternService.ResolvePatternName(

@@ -10,8 +10,8 @@ internal enum PanelButtonIcon
     Duplicate,
     Delete,
     Clear,
-    Eye,
-    EyeOff,
+    HideOff,
+    HideOn,
     Lock,
     Unlock,
     More,
@@ -280,12 +280,51 @@ internal static class PanelButtonIcons
                     PathOp.Curve(13.385f, 2.069f, 13.576f, 2.149f, 13.716f, 2.293f));
                 break;
 
-            case PanelButtonIcon.Eye:
-                DrawEye(g, thickPen, color, scale, slashed: false);
+            case PanelButtonIcon.HideOff:
+                // Ported from icons/Hide_Off.svg — an open eye with its iris and pupil cut into the
+                // filled silhouette. The source is 18x13, so this keeps its aspect ratio while centering
+                // it in the panel's 16x16 icon grid.
+                FillCompound(color, FillMode.Alternate,
+                    (8f, 3.271f, new[]
+                    {
+                        PathOp.Curve(4.503f, 3.270f, 2.628f, 5.404f, 1.213f, 7.642f),
+                        PathOp.Curve(1.024f, 7.843f, 1.024f, 8.153f, 1.213f, 8.354f),
+                        PathOp.Curve(2.629f, 9.868f, 4.504f, 12.723f, 8f, 12.725f),
+                        PathOp.Curve(11.496f, 12.727f, 13.371f, 9.866f, 14.787f, 8.354f),
+                        PathOp.Curve(14.976f, 7.843f, 14.976f, 8.153f, 14.787f, 7.642f),
+                        PathOp.Curve(13.371f, 5.406f, 11.394f, 3.271f, 8f, 3.271f)
+                    }),
+                    (8f, 4.323f, new[]
+                    {
+                        PathOp.Curve(10.062f, 4.323f, 11.733f, 5.969f, 11.733f, 8f),
+                        PathOp.Curve(11.733f, 10.031f, 10.062f, 11.677f, 8f, 11.677f),
+                        PathOp.Curve(5.938f, 11.677f, 4.267f, 10.031f, 4.267f, 8f),
+                        PathOp.Curve(4.267f, 5.969f, 5.938f, 4.323f, 8f, 4.323f)
+                    }),
+                    (8f, 6.424f, new[]
+                    {
+                        PathOp.Curve(8.884f, 6.424f, 9.6f, 7.293f, 9.6f, 8f),
+                        PathOp.Curve(9.6f, 8.707f, 8.884f, 9.576f, 8f, 9.576f),
+                        PathOp.Curve(7.116f, 9.576f, 6.4f, 8.707f, 6.4f, 8f),
+                        PathOp.Curve(6.4f, 7.293f, 7.116f, 6.424f, 8f, 6.424f)
+                    }));
                 break;
 
-            case PanelButtonIcon.EyeOff:
-                DrawEye(g, thickPen, color, scale, slashed: true);
+            case PanelButtonIcon.HideOn:
+                // Ported from icons/Hide_On.svg — the pupil-less eye silhouette used when the terrain
+                // is hidden. The source intentionally uses 60% opacity; retain that state cue here while
+                // still deriving the hue from the active Rhino theme.
+                FillCompound(new Color(color, 0.6f), FillMode.Winding,
+                    (1.587f, 7.491f, new[]
+                    {
+                        PathOp.Curve(1.406f, 7.495f, 1.233f, 7.984f, 1.233f, 8.378f),
+                        PathOp.Curve(2.645f, 9.889f, 4.521f, 12.745f, 8.003f, 12.745f),
+                        PathOp.Curve(11.483f, 12.745f, 13.361f, 9.888f, 14.773f, 8.378f),
+                        PathOp.Curve(14.773f, 8.378f, 14.773f, 7.984f, 13.988f, 7.666f),
+                        PathOp.Curve(12.457f, 6.028f, 10.888f, 3.637f, 8.003f, 3.637f),
+                        PathOp.Curve(5.117f, 3.637f, 3.549f, 6.028f, 1.630f, 7.666f),
+                        PathOp.Curve(1.630f, 7.666f, 1.587f, 7.491f, 1.587f, 7.491f)
+                    }));
                 break;
 
             case PanelButtonIcon.Lock:
@@ -455,26 +494,6 @@ internal static class PanelButtonIcons
         }
 
         return bitmap;
-    }
-
-    private static void DrawEye(Graphics g, Pen pen, Color color, float scale, bool slashed)
-    {
-        PointF P(float x, float y) => new(x * scale, y * scale);
-        g.DrawLines(pen, new[]
-        {
-            P(2.25f, 8),
-            P(4.8f, 5.4f),
-            P(8, 4.4f),
-            P(11.2f, 5.4f),
-            P(13.75f, 8),
-            P(11.2f, 10.6f),
-            P(8, 11.6f),
-            P(4.8f, 10.6f),
-            P(2.25f, 8)
-        });
-        g.FillEllipse(color, 6.6f * scale, 6.6f * scale, 2.8f * scale, 2.8f * scale);
-        if (slashed)
-            g.DrawLines(pen, new[] { P(12.25f, 3.75f), P(3.75f, 12.25f) });
     }
 
     private static void DrawAnalysisBars(Graphics g, Color color, float scale)

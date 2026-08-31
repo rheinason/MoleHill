@@ -1,6 +1,6 @@
 namespace MoleHill.Rhino.Model;
 
-public sealed class TerrainSectionAnalysisDefinition : TerrainSectionAnalysisDefinitionBase
+public sealed class TerrainSectionAnnotationDefinition : TerrainSectionAnnotationDefinitionBase
 {
     public double StationTickInterval { get; set; }
 
@@ -12,7 +12,7 @@ public sealed class TerrainSectionAnalysisDefinition : TerrainSectionAnalysisDef
 
     public bool ShowStationLabels { get; set; }
 
-    public TerrainSectionAnalysisDefinition()
+    public TerrainSectionAnnotationDefinition()
     {
         Label = "Section Cut";
     }

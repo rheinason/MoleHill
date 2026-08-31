@@ -86,14 +86,14 @@ public class AnnotationStyleTests
 
         TerrainDefinition terrain = TerrainSerializer.Deserialize(legacyJson).Single();
 
-        Assert.All(terrain.Analyses, analysis => Assert.False(analysis.FollowsAnnotationStyle));
+        Assert.All(terrain.Annotations, annotation => Assert.False(annotation.FollowsAnnotationStyle));
         Assert.All(terrain.Markers, marker => Assert.False(marker.FollowsAnnotationStyle));
     }
 
     [Fact]
     public void NewDefinitions_FollowTheAnnotationStyleByDefault()
     {
-        Assert.True(new ContourAnalysisDefinition().FollowsAnnotationStyle);
+        Assert.True(new ContourAnnotationDefinition().FollowsAnnotationStyle);
         Assert.True(new ElevationMarkerDefinition().FollowsAnnotationStyle);
     }
 
@@ -106,12 +106,13 @@ public class AnnotationStyleTests
     public void Roundtrip_PreservesTheLegacyAnnotationStyleForMigration()
     {
         var terrain = new TerrainDefinition { Name = "T", LegacyAnnotationStyleName = "Site Plan" };
+        terrain.Annotations.Add(new ContourAnnotationDefinition());
 
         string json = TerrainSerializer.Serialize(new[] { terrain });
         TerrainDefinition restored = TerrainSerializer.Deserialize(json).Single();
 
         Assert.Equal("Site Plan", restored.LegacyAnnotationStyleName);
-        Assert.True(restored.Analyses.All(a => a.FollowsAnnotationStyle));
+        Assert.True(restored.Annotations.All(annotation => annotation.FollowsAnnotationStyle));
     }
 
     /// <summary>The style a role's text binds to now comes from the template.</summary>

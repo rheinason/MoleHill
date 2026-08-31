@@ -3,7 +3,7 @@ using MoleHill.Rhino.Model;
 namespace MoleHill.Rhino.Registry;
 
 /// <summary>
-/// Self-registering descriptor for one analysis/annotation type (Analysis &amp; Annotation tabs).
+/// Self-registering descriptor for one analysis type (Analysis tab).
 /// Supplies the JSON discriminator, factory, add-menu grouping, and card chrome. The card body and the
 /// per-type collapsed summary stay bespoke in the panel (they're genuinely type-specific). Discovered by
 /// reflection in <see cref="AnalysisTypeRegistry"/>.
@@ -29,9 +29,6 @@ internal abstract class AnalysisTypeDescriptor
 
     /// <summary>Accent strip ARGB color for the card.</summary>
     public abstract int AccentArgb { get; }
-
-    /// <summary>True for annotation-tab types (contours, labels, sections); false for analysis-tab types.</summary>
-    public abstract bool IsAnnotation { get; }
 
     /// <summary>Card subtitle when the analysis is not the active preview.</summary>
     public abstract string Subtitle { get; }

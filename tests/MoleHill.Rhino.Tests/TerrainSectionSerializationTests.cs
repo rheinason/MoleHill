@@ -10,7 +10,7 @@ public class TerrainSectionSerializationTests
     public void SerializeDeserialize_MultiTerrainSection_PreservesComparisonSettings()
     {
         Guid referenceId = Guid.NewGuid();
-        var section = new TerrainSectionAnalysisDefinition
+        var section = new TerrainSectionAnnotationDefinition
         {
             ComparisonTerrainIds = new List<Guid> { referenceId },
             CutFillReferenceTerrainId = referenceId,
@@ -19,12 +19,12 @@ public class TerrainSectionSerializationTests
             FillColorArgb = unchecked((int)0xFF445566),
             CutFillOpacityPercent = 55
         };
-        var terrain = new TerrainDefinition { Analyses = new List<AnalysisDefinition> { section } };
+        var terrain = new TerrainDefinition { Annotations = new List<AnnotationDefinition> { section } };
         terrain.EnsureBaseModifier();
 
         string json = TerrainSerializer.Serialize(new[] { terrain });
         TerrainDefinition restoredTerrain = Assert.Single(TerrainSerializer.Deserialize(json));
-        var restored = Assert.IsType<TerrainSectionAnalysisDefinition>(Assert.Single(restoredTerrain.Analyses));
+        var restored = Assert.IsType<TerrainSectionAnnotationDefinition>(Assert.Single(restoredTerrain.Annotations));
 
         Assert.Equal(new[] { referenceId }, restored.ComparisonTerrainIds);
         Assert.Equal(referenceId, restored.CutFillReferenceTerrainId);
@@ -53,7 +53,7 @@ public class TerrainSectionSerializationTests
         """;
 
         TerrainDefinition terrain = Assert.Single(TerrainSerializer.Deserialize(json));
-        var section = Assert.IsType<TerrainSectionAnalysisDefinition>(Assert.Single(terrain.Analyses));
+        var section = Assert.IsType<TerrainSectionAnnotationDefinition>(Assert.Single(terrain.Annotations));
 
         Assert.Empty(section.ComparisonTerrainIds);
         Assert.Null(section.CutFillReferenceTerrainId);

@@ -11,7 +11,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildCurveSlopeSummary_ProjectsSamplesAlongWorldZ()
     {
-        var analysis = new CurveSlopeLabelAnalysisDefinition
+        var analysis = new CurveSlopeLabelAnnotationDefinition
         {
             IsEnabled = true,
             Interval = 100.0,
@@ -40,7 +40,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildCurveSlopeSummary_UsesHitFaceNormal_NotSmoothedVertexNormal()
     {
-        var analysis = new CurveSlopeLabelAnalysisDefinition
+        var analysis = new CurveSlopeLabelAnnotationDefinition
         {
             IsEnabled = true,
             Interval = 100.0,
@@ -69,7 +69,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildCurveElevationSummary_ProjectsSamplesAlongWorldZ()
     {
-        var analysis = new CurveElevationLabelAnalysisDefinition
+        var analysis = new CurveElevationLabelAnnotationDefinition
         {
             IsEnabled = true,
             Interval = 100.0,
@@ -99,7 +99,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildProjectedElevationSummary_ProjectsSamplesAlongWorldZ()
     {
-        var analysis = new ProjectedElevationLabelAnalysisDefinition
+        var analysis = new ProjectedElevationLabelAnnotationDefinition
         {
             IsEnabled = true,
             ValueFormat = "F2"
@@ -125,7 +125,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildPointSlopeSummary_ProjectsSamplesAlongWorldZ()
     {
-        var analysis = new PointSlopeLabelAnalysisDefinition
+        var analysis = new PointSlopeLabelAnnotationDefinition
         {
             IsEnabled = true,
             ValueFormat = "F1"
@@ -151,7 +151,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildSlopeArrowSummary_SamplesGridAndOrientsDownhill()
     {
-        var analysis = new SlopeArrowAnalysisDefinition
+        var analysis = new SlopeArrowAnnotationDefinition
         {
             IsEnabled = true,
             GridSpacing = 4.0,
@@ -181,7 +181,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildGradeCalloutSummary_ComputesChordGradeBetweenEndpoints()
     {
-        var analysis = new GradeBetweenPointsAnalysisDefinition
+        var analysis = new GradeBetweenPointsAnnotationDefinition
         {
             IsEnabled = true,
             ValueFormat = "F1",
@@ -211,7 +211,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildContourObjects_WithLabels_EmitsTextEntities()
     {
-        var withLabels = new ContourAnalysisDefinition
+        var withLabels = new ContourAnnotationDefinition
         {
             IsEnabled = true,
             Interval = 20.0,
@@ -224,7 +224,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         var (labelled, _) = TerrainBuildService.BuildContourObjects(CreateSlopedMesh(), withLabels);
         Assert.Contains(labelled, output => output.Geometry is TextEntity);
 
-        var noLabels = new ContourAnalysisDefinition
+        var noLabels = new ContourAnnotationDefinition
         {
             IsEnabled = true,
             Interval = 20.0,
@@ -238,7 +238,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildTerrainSectionSummary_MultipleTerrains_EmitsCutRegion()
     {
-        var analysis = new TerrainSectionAnalysisDefinition { IsEnabled = true };
+        var analysis = new TerrainSectionAnnotationDefinition { IsEnabled = true };
         var cut = new LineCurve(new Point3d(0, 5, 0), new Point3d(10, 5, 0));
         TerrainBuildSnapshot snapshot = CreateSectionSnapshot(analysis, cut, CreateFlatMesh(2.0));
         var build = new TerrainBuildResult();
@@ -255,7 +255,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildCrossSectionStationSummary_MultipleTerrains_EmitsCutRegion()
     {
-        var analysis = new CrossSectionStationAnalysisDefinition
+        var analysis = new CrossSectionStationAnnotationDefinition
         {
             IsEnabled = true,
             StationInterval = 5.0,
@@ -275,7 +275,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     [RhinoNativeFact]
     public void BuildLongitudinalSectionSummary_MultipleTerrains_EmitsCutRegion()
     {
-        var analysis = new LongitudinalSectionAnalysisDefinition
+        var analysis = new LongitudinalSectionAnnotationDefinition
         {
             IsEnabled = true,
             SampleInterval = 1.0
@@ -291,12 +291,12 @@ public class TerrainAnalysisAnnotationBuilderTests
         Assert.True(summary.SectionCutRegionCount > 0);
     }
 
-    private static TerrainBuildSnapshot CreateSnapshot(BlockAttributeAnalysisDefinition analysis, GeometryBase geometry)
+    private static TerrainBuildSnapshot CreateSnapshot(BlockAttributeAnnotationDefinition analysis, GeometryBase geometry)
     {
         var terrain = new TerrainDefinition
         {
             GlobalTolerance = 0.001,
-            Analyses = new List<AnalysisDefinition> { analysis }
+            Annotations = new List<AnnotationDefinition> { analysis }
         };
         var snapshot = new TerrainBuildSnapshot
         {
@@ -322,7 +322,7 @@ public class TerrainAnalysisAnnotationBuilderTests
     }
 
     private static TerrainBuildSnapshot CreateSectionSnapshot(
-        TerrainSectionAnalysisDefinitionBase analysis,
+        TerrainSectionAnnotationDefinitionBase analysis,
         GeometryBase sourceGeometry,
         Mesh referenceMesh)
     {
@@ -331,7 +331,7 @@ public class TerrainAnalysisAnnotationBuilderTests
         {
             Name = "Proposed",
             GlobalTolerance = 0.001,
-            Analyses = new List<AnalysisDefinition> { analysis }
+            Annotations = new List<AnnotationDefinition> { analysis }
         };
         analysis.ComparisonTerrainIds.Add(referenceId);
         analysis.CutFillReferenceTerrainId = referenceId;

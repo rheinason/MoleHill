@@ -49,7 +49,7 @@ public sealed class TerrainUnitScalerTests
             RandomScaleMin = 0.75,
             PlacementStates = [placement]
         };
-        var section = new CrossSectionStationAnalysisDefinition
+        var section = new CrossSectionStationAnnotationDefinition
         {
             InsertionOriginX = 1,
             InsertionOriginY = 2,
@@ -75,7 +75,8 @@ public sealed class TerrainUnitScalerTests
                 sculpt
             ],
             Objects = [scatter],
-            Analyses = [section, cutFill]
+            Analyses = [cutFill],
+            Annotations = [section]
         };
         terrain.LastAnalysisResults.Add(new TerrainAnalysisSummary
         {

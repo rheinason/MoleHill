@@ -20,7 +20,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     public static TerrainAnalysisSummary BuildCurveSlopeSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        CurveSlopeLabelAnalysisDefinition analysis,
+        CurveSlopeLabelAnnotationDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
         LayerRoleTable? layerRoles = null)
@@ -99,7 +99,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     public static TerrainAnalysisSummary BuildCurveElevationSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        CurveElevationLabelAnalysisDefinition analysis,
+        CurveElevationLabelAnnotationDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
         LayerRoleTable? layerRoles = null)
@@ -159,7 +159,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     public static TerrainAnalysisSummary BuildProjectedElevationSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        ProjectedElevationLabelAnalysisDefinition analysis,
+        ProjectedElevationLabelAnnotationDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
         LayerRoleTable? layerRoles = null)
@@ -207,7 +207,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     public static TerrainAnalysisSummary BuildPointSlopeSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        PointSlopeLabelAnalysisDefinition analysis,
+        PointSlopeLabelAnnotationDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
         LayerRoleTable? layerRoles = null)
@@ -261,7 +261,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     public static TerrainAnalysisSummary BuildSlopeArrowSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        SlopeArrowAnalysisDefinition analysis,
+        SlopeArrowAnnotationDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
         LayerRoleTable? layerRoles = null)
@@ -328,7 +328,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     public static TerrainAnalysisSummary BuildGradeCalloutSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        GradeBetweenPointsAnalysisDefinition analysis,
+        GradeBetweenPointsAnnotationDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
         LayerRoleTable? layerRoles = null)
@@ -417,7 +417,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         return CreateSummary(analysis.Id, sourceCount, outputCount, stats);
     }
 
-    private static GeneratedRhinoObject BuildGradeGeometry(GradeBetweenPointsAnalysisDefinition analysis, Curve geometry, string name, string? layerPath)
+    private static GeneratedRhinoObject BuildGradeGeometry(GradeBetweenPointsAnnotationDefinition analysis, Curve geometry, string name, string? layerPath)
     {
         return new GeneratedRhinoObject
         {
@@ -430,7 +430,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         };
     }
 
-    private static string FormatGradeCallout(double rise, double planDistance, double percent, GradeBetweenPointsAnalysisDefinition analysis)
+    private static string FormatGradeCallout(double rise, double planDistance, double percent, GradeBetweenPointsAnnotationDefinition analysis)
     {
         string core;
         if (Math.Abs(rise) <= Math.Max(Math.Abs(planDistance) * 1e-12, double.Epsilon))
@@ -449,7 +449,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     public static TerrainAnalysisSummary BuildTerrainSectionSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        TerrainSectionAnalysisDefinition analysis,
+        TerrainSectionAnnotationDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
         LayerRoleTable? layerRoles = null,
@@ -548,7 +548,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     public static TerrainAnalysisSummary BuildCrossSectionStationSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        CrossSectionStationAnalysisDefinition analysis,
+        CrossSectionStationAnnotationDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
         LayerRoleTable? layerRoles = null,
@@ -690,7 +690,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     public static TerrainAnalysisSummary BuildLongitudinalSectionSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh mesh,
-        LongitudinalSectionAnalysisDefinition analysis,
+        LongitudinalSectionAnnotationDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel,
         LayerRoleTable? layerRoles = null,
@@ -767,7 +767,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     private static SectionEmissionStats EmitCombinedProfileObjects(
         TerrainBuildSnapshot snapshot,
         SectionCutGeometry cutGeometry,
-        TerrainSectionAnalysisDefinitionBase analysis,
+        TerrainSectionAnnotationDefinitionBase analysis,
         TerrainBuildResult build,
         IReadOnlyList<SectionTerrainProfile> profiles,
         Plane cellPlane,
@@ -1011,7 +1011,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     private static TerrainSectionResult? ResolveCutFillReferenceSlice(
         TerrainBuildSnapshot snapshot,
         SectionCutGeometry cutGeometry,
-        TerrainSectionAnalysisDefinitionBase analysis,
+        TerrainSectionAnnotationDefinitionBase analysis,
         IReadOnlyList<SectionTerrainProfile> profiles,
         double tolerance,
         TerrainBuildResult build,
@@ -1086,7 +1086,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     private static List<SectionTerrainProfile> SliceTerrainsAlongPolyline(
         TerrainBuildSnapshot snapshot,
         RhinoMesh ownerMesh,
-        TerrainSectionAnalysisDefinitionBase analysis,
+        TerrainSectionAnnotationDefinitionBase analysis,
         IReadOnlyList<Point3d> cutVertices,
         double tolerance)
     {
@@ -1123,7 +1123,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     private static List<SectionTerrainProfile> SampleTerrainsAlongCurve(
         TerrainBuildSnapshot snapshot,
         RhinoMesh ownerMesh,
-        TerrainSectionAnalysisDefinitionBase analysis,
+        TerrainSectionAnnotationDefinitionBase analysis,
         Curve curve,
         double sampleInterval,
         double tolerance)
@@ -1162,7 +1162,7 @@ internal static class TerrainAnalysisAnnotationBuilder
 
     private static void AddMissingSectionTerrainDiagnostics(
         TerrainBuildSnapshot snapshot,
-        TerrainSectionAnalysisDefinitionBase analysis,
+        TerrainSectionAnnotationDefinitionBase analysis,
         TerrainBuildResult build)
     {
         foreach (Guid terrainId in analysis.ComparisonTerrainIds.Distinct())
@@ -1245,7 +1245,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     /// ground it was measured from, then the thing the drawing is actually about.
     /// </summary>
     /// <summary>Vertical scale for a section, defaulting to true shape when unset or nonsensical.</summary>
-    private static double ResolveVerticalExaggeration(TerrainSectionAnalysisDefinitionBase analysis) =>
+    private static double ResolveVerticalExaggeration(TerrainSectionAnnotationDefinitionBase analysis) =>
         analysis.VerticalExaggeration > 0.0 ? analysis.VerticalExaggeration : 1.0;
 
     private static class SectionDisplayOrder
@@ -1270,7 +1270,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     private static LayerRoleTable Roles(LayerRoleTable? layerRoles) => layerRoles ?? LayerRoleTable.Default;
 
     private static GeneratedRhinoObject BuildPolylineObject(
-        TerrainSectionAnalysisDefinitionBase analysis,
+        TerrainSectionAnnotationDefinitionBase analysis,
         Polyline polyline,
         LayerRoleTable? layerRoles,
         string name,
@@ -1289,7 +1289,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         };
     }
 
-    private static GeneratedRhinoObject BuildLineObject(TerrainSectionAnalysisDefinitionBase analysis, Line line, LayerRoleTable? layerRoles, string name, LayerRole role)
+    private static GeneratedRhinoObject BuildLineObject(TerrainSectionAnnotationDefinitionBase analysis, Line line, LayerRoleTable? layerRoles, string name, LayerRole role)
     {
         return new GeneratedRhinoObject
         {
@@ -1303,7 +1303,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         };
     }
 
-    private static GeneratedRhinoObject BuildTextObject(TerrainSectionAnalysisDefinitionBase analysis, TextEntity text, LayerRoleTable? layerRoles, string name, LayerRole role)
+    private static GeneratedRhinoObject BuildTextObject(TerrainSectionAnnotationDefinitionBase analysis, TextEntity text, LayerRoleTable? layerRoles, string name, LayerRole role)
     {
         return new GeneratedRhinoObject
         {
@@ -1316,7 +1316,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         };
     }
 
-    private static Plane ResolveInsertionPlane(TerrainSectionAnalysisDefinitionBase analysis, RhinoMesh mesh)
+    private static Plane ResolveInsertionPlane(TerrainSectionAnnotationDefinitionBase analysis, RhinoMesh mesh)
     {
         if (analysis.HasInsertionPlane)
         {
@@ -1395,7 +1395,7 @@ internal static class TerrainAnalysisAnnotationBuilder
 
     private static GeneratedRhinoObject CreateAnnotationObject(
         TerrainBuildSnapshot snapshot,
-        BlockAttributeAnalysisDefinition analysis,
+        BlockAttributeAnnotationDefinition analysis,
         int index,
         Point3d worldPoint,
         double rawValue,
@@ -1539,7 +1539,7 @@ internal static class TerrainAnalysisAnnotationBuilder
     /// </summary>
     private static double ResolveTextHeight(
         TerrainBuildSnapshot snapshot,
-        TerrainSectionAnalysisDefinitionBase analysis)
+        TerrainSectionAnnotationDefinitionBase analysis)
     {
         return analysis.FollowsAnnotationStyle
             ? snapshot.AnnotationStyle.TextHeight

@@ -30,7 +30,7 @@ internal sealed partial class TerrainBuildService
         Func<bool>? shouldCancel)
     {
         var totalTimer = Stopwatch.StartNew();
-        var results = new List<TerrainAnalysisSummary>(terrain.Analyses.Count);
+        var results = new List<TerrainAnalysisSummary>(terrain.Analyses.Count + terrain.Annotations.Count);
         ThrowIfCancellationRequested(shouldCancel);
         double[] currentVertices = Array.Empty<double>();
         int[] currentFaces = Array.Empty<int>();
@@ -56,22 +56,25 @@ internal sealed partial class TerrainBuildService
             return true;
         }
 
-        foreach (var analysis in terrain.Analyses)
+        // One stage runner, two families. The scaffolding here — enabled check, fingerprint, stage
+        // cache, timing — genuinely does not care which kind of content it is running, so it takes an
+        // ITerrainContentItem; deciding what to actually compute stays with the caller, per family.
+        void RunStage(ITerrainContentItem item, string family, string stageKind, Func<TerrainAnalysisSummary?> compute)
         {
             ThrowIfCancellationRequested(shouldCancel);
 
-            // A disabled analysis produces no output, so skip its (sometimes expensive) computation
+            // Disabled content produces no output, so skip its (sometimes expensive) computation
             // entirely instead of computing it and discarding the result — this was a per-solve cost,
             // most painfully for contours, which scanned the whole mesh per level even when disabled.
-            if (!analysis.IsEnabled)
-                continue;
+            if (!item.IsEnabled)
+                return;
 
-            string stageKey = TerrainStageKey.ForMode(TerrainBuildMode.Final, $"analysis:{analysis.Id:N}");
+            string stageKey = TerrainStageKey.ForMode(TerrainBuildMode.Final, $"{stageKind}:{item.Id:N}");
             usedStageKeys.Add(stageKey);
             ulong fingerprint = ComputeAnalysisFingerprint(
                 snapshot,
                 terrain,
-                analysis,
+                item,
                 fallbackBaseMesh,
                 currentMesh,
                 baseMeshFingerprint,
@@ -86,22 +89,51 @@ internal sealed partial class TerrainBuildService
                 results.AddRange(cachedResults);
                 analysisTimer.Stop();
                 build.RecordTiming(
-                    $"Analysis {analysis.Label}",
+                    $"{family} {item.Label}",
                     analysisTimer.Elapsed,
                     AppendCacheHitDetail($"{cachedResults.Count:N0} summaries, {cachedEntry.AuxiliaryObjects.Count:N0} outputs"),
                     isCacheHit: true);
-                continue;
+                return;
             }
 
             if (!EnsureAnalysisContext())
-                break;
+                return;
 
             int diagnosticsStart = build.Diagnostics.Count;
             int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
             int auxiliaryStart = build.AuxiliaryObjects.Count;
             int runtimeOverlayStart = build.RuntimeOverlays.Count;
+            TerrainAnalysisSummary? summary = compute();
 
-            TerrainAnalysisSummary? summary = analysis switch
+            if (summary != null)
+                results.Add(summary);
+
+            analysisTimer.Stop();
+            runtimeCache.StageEntries[stageKey] = new StageCacheEntry
+            {
+                StageName = $"{family} {item.Label}",
+                PreResolutionFingerprint = fingerprint,
+                ResolvedInputFingerprint = fingerprint,
+                OutputFingerprint = fingerprint,
+                AnalysisOutput = summary == null
+                    ? new List<TerrainAnalysisSummary>()
+                    : TerrainRuntimeCacheCloner.CloneAnalyses(new[] { summary }),
+                AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.AuxiliaryObjects.Skip(auxiliaryStart)),
+                Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
+                StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList(),
+                RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays.Skip(runtimeOverlayStart))
+            };
+            build.RecordTiming(
+                $"{family} {item.Label}",
+                analysisTimer.Elapsed,
+                $"{(summary == null ? 0 : 1):N0} summaries, {build.AuxiliaryObjects.Count - auxiliaryStart:N0} outputs");
+        }
+
+        foreach (var analysis in terrain.Analyses)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            AnalysisDefinition current = analysis;
+            RunStage(current, "Analysis", "analysis", () => current switch
             {
                 EarthworkAnalysisDefinition earthwork => BuildEarthworkSummary(
                     snapshot,
@@ -137,72 +169,6 @@ internal sealed partial class TerrainBuildService
                     waterflow,
                     build,
                     shouldCancel),
-                CurveSlopeLabelAnalysisDefinition curveSlope => TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(
-                    snapshot,
-                    currentMesh,
-                    curveSlope,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                CurveElevationLabelAnalysisDefinition curveElevation => TerrainAnalysisAnnotationBuilder.BuildCurveElevationSummary(
-                    snapshot,
-                    currentMesh,
-                    curveElevation,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                ProjectedElevationLabelAnalysisDefinition projectedElevation => TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(
-                    snapshot,
-                    currentMesh,
-                    projectedElevation,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                PointSlopeLabelAnalysisDefinition pointSlope => TerrainAnalysisAnnotationBuilder.BuildPointSlopeSummary(
-                    snapshot,
-                    currentMesh,
-                    pointSlope,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                SlopeArrowAnalysisDefinition slopeArrows => TerrainAnalysisAnnotationBuilder.BuildSlopeArrowSummary(
-                    snapshot,
-                    currentMesh,
-                    slopeArrows,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                GradeBetweenPointsAnalysisDefinition gradeCallout => TerrainAnalysisAnnotationBuilder.BuildGradeCalloutSummary(
-                    snapshot,
-                    currentMesh,
-                    gradeCallout,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles),
-                TerrainSectionAnalysisDefinition terrainSection => TerrainAnalysisAnnotationBuilder.BuildTerrainSectionSummary(
-                    snapshot,
-                    currentMesh,
-                    terrainSection,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles,
-                    fallbackBaseMesh),
-                CrossSectionStationAnalysisDefinition crossSection => TerrainAnalysisAnnotationBuilder.BuildCrossSectionStationSummary(
-                    snapshot,
-                    currentMesh,
-                    crossSection,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles,
-                    fallbackBaseMesh),
-                LongitudinalSectionAnalysisDefinition longitudinal => TerrainAnalysisAnnotationBuilder.BuildLongitudinalSectionSummary(
-                    snapshot,
-                    currentMesh,
-                    longitudinal,
-                    build,
-                    shouldCancel,
-                    snapshot.LayerRoles,
-                    fallbackBaseMesh),
                 CutFillAnalysisDefinition cutFill => BuildCutFillSummary(
                     snapshot,
                     fallbackBaseMesh,
@@ -216,7 +182,83 @@ internal sealed partial class TerrainBuildService
                     build,
                     referenceComparisonCache,
                     shouldCancel),
-                ContourAnalysisDefinition contour => BuildContourSummary(
+                _ => null
+            });
+        }
+
+        foreach (var annotation in terrain.Annotations)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            AnnotationDefinition current = annotation;
+            RunStage(current, "Annotation", "annotation", () => current switch
+            {
+                CurveSlopeLabelAnnotationDefinition curveSlope => TerrainAnalysisAnnotationBuilder.BuildCurveSlopeSummary(
+                    snapshot,
+                    currentMesh,
+                    curveSlope,
+                    build,
+                    shouldCancel,
+                    snapshot.LayerRoles),
+                CurveElevationLabelAnnotationDefinition curveElevation => TerrainAnalysisAnnotationBuilder.BuildCurveElevationSummary(
+                    snapshot,
+                    currentMesh,
+                    curveElevation,
+                    build,
+                    shouldCancel,
+                    snapshot.LayerRoles),
+                ProjectedElevationLabelAnnotationDefinition projectedElevation => TerrainAnalysisAnnotationBuilder.BuildProjectedElevationSummary(
+                    snapshot,
+                    currentMesh,
+                    projectedElevation,
+                    build,
+                    shouldCancel,
+                    snapshot.LayerRoles),
+                PointSlopeLabelAnnotationDefinition pointSlope => TerrainAnalysisAnnotationBuilder.BuildPointSlopeSummary(
+                    snapshot,
+                    currentMesh,
+                    pointSlope,
+                    build,
+                    shouldCancel,
+                    snapshot.LayerRoles),
+                SlopeArrowAnnotationDefinition slopeArrows => TerrainAnalysisAnnotationBuilder.BuildSlopeArrowSummary(
+                    snapshot,
+                    currentMesh,
+                    slopeArrows,
+                    build,
+                    shouldCancel,
+                    snapshot.LayerRoles),
+                GradeBetweenPointsAnnotationDefinition gradeCallout => TerrainAnalysisAnnotationBuilder.BuildGradeCalloutSummary(
+                    snapshot,
+                    currentMesh,
+                    gradeCallout,
+                    build,
+                    shouldCancel,
+                    snapshot.LayerRoles),
+                TerrainSectionAnnotationDefinition terrainSection => TerrainAnalysisAnnotationBuilder.BuildTerrainSectionSummary(
+                    snapshot,
+                    currentMesh,
+                    terrainSection,
+                    build,
+                    shouldCancel,
+                    snapshot.LayerRoles,
+                    fallbackBaseMesh),
+                CrossSectionStationAnnotationDefinition crossSection => TerrainAnalysisAnnotationBuilder.BuildCrossSectionStationSummary(
+                    snapshot,
+                    currentMesh,
+                    crossSection,
+                    build,
+                    shouldCancel,
+                    snapshot.LayerRoles,
+                    fallbackBaseMesh),
+                LongitudinalSectionAnnotationDefinition longitudinal => TerrainAnalysisAnnotationBuilder.BuildLongitudinalSectionSummary(
+                    snapshot,
+                    currentMesh,
+                    longitudinal,
+                    build,
+                    shouldCancel,
+                    snapshot.LayerRoles,
+                    fallbackBaseMesh),
+                ContourAnnotationDefinition contour => BuildContourSummary(
                     terrain,
                     currentMesh,
                     contour,
@@ -227,34 +269,11 @@ internal sealed partial class TerrainBuildService
                     snapshot.AnnotationStyle,
                     snapshot.LayerRoles),
                 _ => null
-            };
-
-            if (summary != null)
-                results.Add(summary);
-
-            analysisTimer.Stop();
-            runtimeCache.StageEntries[stageKey] = new StageCacheEntry
-            {
-                StageName = $"Analysis {analysis.Label}",
-                PreResolutionFingerprint = fingerprint,
-                ResolvedInputFingerprint = fingerprint,
-                OutputFingerprint = fingerprint,
-                AnalysisOutput = summary == null
-                    ? new List<TerrainAnalysisSummary>()
-                    : TerrainRuntimeCacheCloner.CloneAnalyses(new[] { summary }),
-                AuxiliaryObjects = TerrainRuntimeCacheCloner.CloneGeneratedObjects(build.AuxiliaryObjects.Skip(auxiliaryStart)),
-                Diagnostics = build.Diagnostics.Skip(diagnosticsStart).ToList(),
-                StructuredDiagnostics = build.StructuredDiagnostics.Skip(structuredDiagnosticsStart).ToList(),
-                RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays.Skip(runtimeOverlayStart))
-            };
-            build.RecordTiming(
-                $"Analysis {analysis.Label}",
-                analysisTimer.Elapsed,
-                $"{(summary == null ? 0 : 1):N0} summaries, {build.AuxiliaryObjects.Count - auxiliaryStart:N0} outputs");
+            });
         }
 
         totalTimer.Stop();
-        build.RecordTiming("Analysis", totalTimer.Elapsed, $"{results.Count:N0} enabled analyses");
+        build.RecordTiming("Analysis", totalTimer.Elapsed, $"{results.Count:N0} enabled analyses and annotations");
         return results;
     }
 
@@ -373,7 +392,7 @@ internal sealed partial class TerrainBuildService
     private static TerrainAnalysisSummary BuildContourSummary(
         TerrainDefinition terrain,
         RhinoMesh currentMesh,
-        ContourAnalysisDefinition analysis,
+        ContourAnnotationDefinition analysis,
         double elevMinZ,
         double elevMaxZ,
         double tolerance,
@@ -390,7 +409,7 @@ internal sealed partial class TerrainBuildService
 
     internal static (List<GeneratedRhinoObject> Objects, TerrainAnalysisSummary Summary) BuildContourObjects(
         RhinoMesh mesh,
-        ContourAnalysisDefinition analysis,
+        ContourAnnotationDefinition analysis,
         double tolerance = 1e-4)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out _))
@@ -402,7 +421,7 @@ internal sealed partial class TerrainBuildService
 
     private static (List<GeneratedRhinoObject> Objects, TerrainAnalysisSummary Summary) BuildContourCore(
         RhinoMesh mesh,
-        ContourAnalysisDefinition analysis,
+        ContourAnnotationDefinition analysis,
         double elevMinZ,
         double elevMaxZ,
         double tolerance,
@@ -495,12 +514,12 @@ internal sealed partial class TerrainBuildService
     }
 
     /// <summary>
-    /// A level is a major (index) contour when its step from <see cref="ContourAnalysisDefinition.StartZ"/>
-    /// is a multiple of <see cref="ContourAnalysisDefinition.MajorEveryNth"/>. Deliberately keyed on
+    /// A level is a major (index) contour when its step from <see cref="ContourAnnotationDefinition.StartZ"/>
+    /// is a multiple of <see cref="ContourAnnotationDefinition.MajorEveryNth"/>. Deliberately keyed on
     /// elevation rather than on the ordinal of levels that happened to produce curves, so a level that is
     /// empty on one build does not shift the whole major/minor pattern on the next.
     /// </summary>
-    internal static bool IsMajorContourLevel(double levelZ, ContourAnalysisDefinition analysis, double tolerance)
+    internal static bool IsMajorContourLevel(double levelZ, ContourAnnotationDefinition analysis, double tolerance)
     {
         int everyNth = Math.Max(1, analysis.MajorEveryNth);
         if (everyNth == 1)
@@ -522,7 +541,7 @@ internal sealed partial class TerrainBuildService
     /// Major and minor contours are separated by layer, not by per-object colour or width, so the drawing
     /// hierarchy is controlled from Rhino's Layers panel and honours per-detail overrides.
     /// </summary>
-    internal static LayerRole ResolveContourLevelRole(ContourAnalysisDefinition analysis, bool isMajor)
+    internal static LayerRole ResolveContourLevelRole(ContourAnnotationDefinition analysis, bool isMajor)
     {
         if (!analysis.SeparateMajorMinorLayers)
             return LayerRole.Contours;
@@ -534,7 +553,7 @@ internal sealed partial class TerrainBuildService
         List<GeneratedRhinoObject> objects,
         Polyline polyline,
         double levelZ,
-        ContourAnalysisDefinition analysis,
+        ContourAnnotationDefinition analysis,
         string? layerPath,
         double tolerance,
         AnnotationStyleSnapshot? annotationStyle)

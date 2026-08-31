@@ -111,17 +111,14 @@ internal static class TerrainAnalysisPreviewBuilder
         return analysis is SlopeAnalysisDefinition or ElevationAnalysisDefinition or CutFillAnalysisDefinition;
     }
 
-    internal static bool ProducesGeneratedOutput(AnalysisDefinition analysis)
+    /// <summary>
+    /// Whether this content emits geometry into the drawing (as opposed to only colouring the terrain
+    /// mesh or reporting a number). Every annotation does, by definition; on the analysis side only
+    /// waterflow does.
+    /// </summary>
+    internal static bool ProducesGeneratedOutput(ITerrainContentItem item)
     {
-        return analysis is ContourAnalysisDefinition
-            or CurveElevationLabelAnalysisDefinition
-            or CurveSlopeLabelAnalysisDefinition
-            or ProjectedElevationLabelAnalysisDefinition
-            or PointSlopeLabelAnalysisDefinition
-            or SlopeArrowAnalysisDefinition
-            or GradeBetweenPointsAnalysisDefinition
-            or WaterflowAnalysisDefinition
-            or TerrainSectionAnalysisDefinitionBase;
+        return item is AnnotationDefinition or WaterflowAnalysisDefinition;
     }
 
     internal static bool ShouldDisplayGeneratedOutput(TerrainDefinition terrain, GeneratedRhinoObject generated)
@@ -132,10 +129,21 @@ internal static class TerrainAnalysisPreviewBuilder
         if (!generated.AnalysisId.HasValue)
             return true;
 
-        if (!terrain.ShowAnalysisOutputs)
-            return false;
+        // Each family answers for its own output. Before schema 31 both went through
+        // ShowAnalysisOutputs, so turning off slope colours also silently hid every label and section.
+        Guid ownerId = generated.AnalysisId.Value;
 
-        return terrain.Analyses.Any(analysis => analysis.Id == generated.AnalysisId.Value && analysis.IsEnabled);
+        AnalysisDefinition? analysis = terrain.Analyses.FirstOrDefault(item => item.Id == ownerId);
+        if (analysis != null)
+            return terrain.ShowAnalysisOutputs && analysis.IsEnabled;
+
+        // Annotations carry no terrain-level visibility flag: they are the drawing, so the card's own
+        // enabled state is the whole of it.
+        AnnotationDefinition? annotation = terrain.Annotations.FirstOrDefault(item => item.Id == ownerId);
+        if (annotation != null)
+            return annotation.IsEnabled;
+
+        return false;
     }
 
     private static RhinoMesh? BuildElevationPreviewMesh(

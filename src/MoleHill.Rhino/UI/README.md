@@ -8,9 +8,14 @@ fields by composing them, not by copying boilerplate.
   `.Cards.cs` (collapsible "stack card" framework), `.RuntimeDiagnostics.cs` (generic per-card issue
   counts and redraw-only **Show Issues** binding), `.Editors.cs` (form-control vocabulary -
   `CreateSourceEditor`/`CreateNumericEditor`/`CreateDropDownEditor`/...), `.Schema.cs` (schema to
-  card-row builder for registry-driven modifier cards), `.Status.cs` (the detailed live/final build log,
+  card-row builder for registry-driven modifier, analysis and annotation cards), `.Status.cs` (the detailed live/final build log,
   copy log, copy case, and structured diagnostic formatting), and per-tab card builders `.Modifiers.cs`, `.Zones.cs`,
-  `.Markers.cs`, `.Analysis.cs`, `.Objects.cs`, `.LayerPickers.cs`. The main file holds the toolbar,
+  `.Markers.cs`, `.Analysis.cs`, `.Annotations.cs`, `.Objects.cs`, `.LayerPickers.cs`. The Analysis and
+  Annotations tabs are separate top to bottom - separate stacks, toolbars, card maps, card builders and
+  definition types - because analyses and annotations are separate content families
+  (`docs/architecture.md` -> "Analysis vs annotation"). Only the Analysis tab has an eye button: it gates
+  analysis output alone. Annotations are always drawn, so the Annotations tab has no such toggle and the
+  per-card checkbox is the only control. The main file holds the toolbar,
   layout refresh, and shared helpers. Its editable terrain selector combines active-terrain selection
   and rename in one field. Bake is grouped with the visibility/lock output actions. One
   "Output Layers" row names the layer template the terrain routes through, opens the editor, and creates

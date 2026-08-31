@@ -1,6 +1,8 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Registry;
 using MoleHill.Shared;
 using Rhino;
 
@@ -8,7 +10,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 30;
+    private const int DocumentSchemaVersion = 31;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -51,7 +53,7 @@ internal static class TerrainSerializer
         if (string.IsNullOrWhiteSpace(json))
             return new List<TerrainDefinition>();
 
-        var envelope = JsonSerializer.Deserialize<TerrainDocumentEnvelope>(json, JsonOptions);
+        var envelope = JsonSerializer.Deserialize<TerrainDocumentEnvelope>(SplitLegacyAnnotations(json), JsonOptions);
         if (envelope?.Terrains == null)
             return new List<TerrainDefinition>();
 
@@ -73,6 +75,7 @@ internal static class TerrainSerializer
             terrain.Objects ??= new List<TerrainObjectDefinition>();
             terrain.Zones ??= new List<CollageZoneDefinition>();
             terrain.Analyses ??= new List<AnalysisDefinition>();
+            terrain.Annotations ??= new List<AnnotationDefinition>();
             terrain.OutputObjectIds ??= new List<Guid>();
             terrain.ZoneObjectIds ??= new List<Guid>();
             terrain.AuxiliaryObjectIds ??= new List<Guid>();
@@ -101,6 +104,7 @@ internal static class TerrainSerializer
             PromoteDisplaySettings(terrain);
             MigrateZones(terrain);
             MigrateAnalyses(terrain, sourceSchemaVersion, unitContext);
+            MigrateAnnotations(terrain, sourceSchemaVersion, unitContext);
             MigrateRemeshModifiers(terrain, sourceSchemaVersion);
             terrain.EnsureBaseModifier();
             terrain.SchemaVersion = TerrainDefinition.CurrentSchemaVersion;
@@ -287,6 +291,7 @@ internal static class TerrainSerializer
     /// </summary>
     private static void NormalizePaletteStops(AnalysisDefinition analysis)
     {
+        analysis.PaletteStops ??= new List<AnalysisColorStopState>();
         var stops = analysis.PaletteStops;
         if (stops.Count == 0)
             return;
@@ -328,79 +333,15 @@ internal static class TerrainSerializer
                 // Pre-v25 analyses had no auto-range flag. Preserve their explicit ranges.
                 if (sourceSchemaVersion < 25 && (analysis.RangeLow != 0.0 || analysis.RangeHigh != 0.0))
                     analysis.AutoColorRange = false;
-                // Pre-v27 annotation sized itself from stored absolute heights. Keep those documents
-                // looking identical; only new analyses follow the terrain's dimension style.
-                if (sourceSchemaVersion < 27)
-                    analysis.FollowsAnnotationStyle = false;
                 switch (analysis)
                 {
-                    case ContourAnalysisDefinition contour:
-                        contour.Interval = contour.Interval > 0.0 ? contour.Interval : unitContext.FromMeters(1.0);
-                        contour.LabelEveryNth = Math.Max(1, contour.LabelEveryNth);
-                        contour.LabelTextHeight = contour.LabelTextHeight > 0.0
-                            ? contour.LabelTextHeight
-                            : unitContext.FromMeters(1.0);
-                        contour.LabelInterval = Math.Max(0.0, contour.LabelInterval);
-                        contour.MajorEveryNth = Math.Max(1, contour.MajorEveryNth);
-                        // Pre-v27 contours were emitted on one flat layer; re-routing them would move
-                        // geometry out from under existing layer settings.
-                        if (sourceSchemaVersion < 27)
-                            contour.SeparateMajorMinorLayers = false;
-                        if (string.IsNullOrWhiteSpace(contour.LabelFormat))
-                            contour.LabelFormat = "F2";
-                        break;
                     case ReferenceComparisonAnalysisDefinition comparison:
                         comparison.Reference ??= new SourceReferenceSet();
                         comparison.Boundary ??= new SourceReferenceSet();
                         break;
-                    case CurveSlopeLabelAnalysisDefinition curveSlope:
-                        NormalizeBlockAttributeAnalysis(curveSlope);
-                        curveSlope.Interval = curveSlope.Interval > 0.0
-                            ? curveSlope.Interval
-                            : unitContext.FromMeters(10.0);
-                        if (string.IsNullOrWhiteSpace(curveSlope.ValueFormat))
-                            curveSlope.ValueFormat = "F1";
-                        break;
-                    case CurveElevationLabelAnalysisDefinition curveElevation:
-                        NormalizeBlockAttributeAnalysis(curveElevation);
-                        curveElevation.Interval = curveElevation.Interval > 0.0
-                            ? curveElevation.Interval
-                            : unitContext.FromMeters(10.0);
-                        if (string.IsNullOrWhiteSpace(curveElevation.ValueFormat))
-                            curveElevation.ValueFormat = "F2";
-                        break;
-                    case PointSlopeLabelAnalysisDefinition pointSlope:
-                        NormalizeBlockAttributeAnalysis(pointSlope);
-                        if (string.IsNullOrWhiteSpace(pointSlope.ValueFormat))
-                            pointSlope.ValueFormat = "F1";
-                        break;
-                    case SlopeArrowAnalysisDefinition slopeArrows:
-                        NormalizeBlockAttributeAnalysis(slopeArrows);
-                        slopeArrows.GridSpacing = slopeArrows.GridSpacing > 0.0
-                            ? slopeArrows.GridSpacing
-                            : unitContext.FromMeters(5.0);
-                        if (string.IsNullOrWhiteSpace(slopeArrows.ValueFormat))
-                            slopeArrows.ValueFormat = "F1";
-                        break;
                     case WaterflowAnalysisDefinition waterflow:
                         waterflow.Sources ??= new SourceReferenceSet();
                         waterflow.MaxLength = Math.Max(0.0, waterflow.MaxLength);
-                        break;
-                    case GradeBetweenPointsAnalysisDefinition gradeCallout:
-                        NormalizeBlockAttributeAnalysis(gradeCallout);
-                        gradeCallout.TextHeight = gradeCallout.TextHeight > 0.0
-                            ? gradeCallout.TextHeight
-                            : unitContext.FromMeters(1.0);
-                        if (string.IsNullOrWhiteSpace(gradeCallout.ValueFormat))
-                            gradeCallout.ValueFormat = "F1";
-                        break;
-                    case ProjectedElevationLabelAnalysisDefinition projectedElevation:
-                        NormalizeBlockAttributeAnalysis(projectedElevation);
-                        if (string.IsNullOrWhiteSpace(projectedElevation.ValueFormat))
-                            projectedElevation.ValueFormat = "F2";
-                        break;
-                    case TerrainSectionAnalysisDefinitionBase section:
-                        NormalizeTerrainSectionAnalysis(section, terrain.TerrainId, unitContext);
                         break;
                 }
             }
@@ -428,17 +369,152 @@ internal static class TerrainSerializer
         PromoteLegacyAnalysisResults(terrain);
     }
 
-    private static void NormalizeBlockAttributeAnalysis(BlockAttributeAnalysisDefinition analysis)
+    /// <summary>
+    /// Per-type normalisation for the annotation family, split out of <see cref="MigrateAnalyses"/> at
+    /// schema 31. The cases are unchanged — they only ever ran against annotation types — but they now
+    /// iterate the collection those types actually live in.
+    /// </summary>
+    private static void MigrateAnnotations(
+        TerrainDefinition terrain,
+        int sourceSchemaVersion,
+        ModelUnitContext unitContext)
     {
-        analysis.Sources ??= new SourceReferenceSet();
-        analysis.BlockScale = Math.Max(0.01, analysis.BlockScale);
-        analysis.AttributePrefix ??= string.Empty;
-        analysis.AttributeSuffix ??= string.Empty;
-        analysis.ValueFormat ??= string.Empty;
+        foreach (var annotation in terrain.Annotations)
+        {
+            // Pre-v27 annotation sized itself from stored absolute heights. Keep those documents
+            // looking identical; only new annotations follow the terrain's dimension style.
+            if (sourceSchemaVersion < 27)
+                annotation.FollowsAnnotationStyle = false;
+
+            switch (annotation)
+            {
+                    case ContourAnnotationDefinition contour:
+                        contour.Interval = contour.Interval > 0.0 ? contour.Interval : unitContext.FromMeters(1.0);
+                        contour.LabelEveryNth = Math.Max(1, contour.LabelEveryNth);
+                        contour.LabelTextHeight = contour.LabelTextHeight > 0.0
+                            ? contour.LabelTextHeight
+                            : unitContext.FromMeters(1.0);
+                        contour.LabelInterval = Math.Max(0.0, contour.LabelInterval);
+                        contour.MajorEveryNth = Math.Max(1, contour.MajorEveryNth);
+                        // Pre-v27 contours were emitted on one flat layer; re-routing them would move
+                        // geometry out from under existing layer settings.
+                        if (sourceSchemaVersion < 27)
+                            contour.SeparateMajorMinorLayers = false;
+                        if (string.IsNullOrWhiteSpace(contour.LabelFormat))
+                            contour.LabelFormat = "F2";
+                        break;
+                    case CurveSlopeLabelAnnotationDefinition curveSlope:
+                        NormalizeBlockAttributeAnnotation(curveSlope);
+                        curveSlope.Interval = curveSlope.Interval > 0.0
+                            ? curveSlope.Interval
+                            : unitContext.FromMeters(10.0);
+                        if (string.IsNullOrWhiteSpace(curveSlope.ValueFormat))
+                            curveSlope.ValueFormat = "F1";
+                        break;
+                    case CurveElevationLabelAnnotationDefinition curveElevation:
+                        NormalizeBlockAttributeAnnotation(curveElevation);
+                        curveElevation.Interval = curveElevation.Interval > 0.0
+                            ? curveElevation.Interval
+                            : unitContext.FromMeters(10.0);
+                        if (string.IsNullOrWhiteSpace(curveElevation.ValueFormat))
+                            curveElevation.ValueFormat = "F2";
+                        break;
+                    case PointSlopeLabelAnnotationDefinition pointSlope:
+                        NormalizeBlockAttributeAnnotation(pointSlope);
+                        if (string.IsNullOrWhiteSpace(pointSlope.ValueFormat))
+                            pointSlope.ValueFormat = "F1";
+                        break;
+                    case SlopeArrowAnnotationDefinition slopeArrows:
+                        NormalizeBlockAttributeAnnotation(slopeArrows);
+                        slopeArrows.GridSpacing = slopeArrows.GridSpacing > 0.0
+                            ? slopeArrows.GridSpacing
+                            : unitContext.FromMeters(5.0);
+                        if (string.IsNullOrWhiteSpace(slopeArrows.ValueFormat))
+                            slopeArrows.ValueFormat = "F1";
+                        break;
+                    case GradeBetweenPointsAnnotationDefinition gradeCallout:
+                        NormalizeBlockAttributeAnnotation(gradeCallout);
+                        gradeCallout.TextHeight = gradeCallout.TextHeight > 0.0
+                            ? gradeCallout.TextHeight
+                            : unitContext.FromMeters(1.0);
+                        if (string.IsNullOrWhiteSpace(gradeCallout.ValueFormat))
+                            gradeCallout.ValueFormat = "F1";
+                        break;
+                    case ProjectedElevationLabelAnnotationDefinition projectedElevation:
+                        NormalizeBlockAttributeAnnotation(projectedElevation);
+                        if (string.IsNullOrWhiteSpace(projectedElevation.ValueFormat))
+                            projectedElevation.ValueFormat = "F2";
+                        break;
+                    case TerrainSectionAnnotationDefinitionBase section:
+                        NormalizeTerrainSectionAnnotation(section, terrain.TerrainId, unitContext);
+                        break;
+            }
+        }
     }
 
-    private static void NormalizeTerrainSectionAnalysis(
-        TerrainSectionAnalysisDefinitionBase analysis,
+    private static string SplitLegacyAnnotations(string json)
+    {
+        // Before schema 31 both families shared the "analyses" array. Annotation discriminators are no
+        // longer registered under AnalysisDefinition, so those entries have to be moved across before the
+        // envelope is bound or binding fails outright. Done on the node tree rather than with a
+        // deserialize-time shim so the typed model never has to know the two were once one list.
+        JsonNode? root;
+        try
+        {
+            root = JsonNode.Parse(json);
+        }
+        catch (JsonException)
+        {
+            return json; // Let the real deserialize below report it.
+        }
+
+        if (root is not JsonObject envelope || envelope["terrains"] is not JsonArray terrains)
+            return json;
+
+        bool changed = false;
+        foreach (JsonNode? terrainNode in terrains)
+        {
+            if (terrainNode is not JsonObject terrain || terrain["analyses"] is not JsonArray analyses)
+                continue;
+            if ((terrain["schemaVersion"]?.GetValue<int>() ?? 0) >= 31)
+                continue;
+
+            var keptAnalyses = new JsonArray();
+            var annotations = new JsonArray();
+            foreach (JsonNode? entry in analyses)
+            {
+                // Re-parse rather than re-parent: a JsonNode cannot belong to two arrays, and
+                // DeepClone is not available on this target framework.
+                JsonNode? copy = entry is null ? null : JsonNode.Parse(entry.ToJsonString());
+                string? kind = entry?["$type"]?.GetValue<string>();
+                if (kind != null && AnnotationTypeRegistry.ForKind(kind) != null)
+                    annotations.Add(copy);
+                else
+                    keptAnalyses.Add(copy);
+            }
+
+            if (annotations.Count == 0)
+                continue;
+
+            terrain["analyses"] = keptAnalyses;
+            terrain["annotations"] = annotations;
+            changed = true;
+        }
+
+        return changed ? root.ToJsonString() : json;
+    }
+
+    private static void NormalizeBlockAttributeAnnotation(BlockAttributeAnnotationDefinition annotation)
+    {
+        annotation.Sources ??= new SourceReferenceSet();
+        annotation.BlockScale = Math.Max(0.01, annotation.BlockScale);
+        annotation.AttributePrefix ??= string.Empty;
+        annotation.AttributeSuffix ??= string.Empty;
+        annotation.ValueFormat ??= string.Empty;
+    }
+
+    private static void NormalizeTerrainSectionAnnotation(
+        TerrainSectionAnnotationDefinitionBase analysis,
         Guid ownerTerrainId,
         ModelUnitContext unitContext)
     {
@@ -453,11 +529,12 @@ internal static class TerrainSerializer
             analysis.CutFillReferenceTerrainId = null;
         analysis.CutFillOpacityPercent = Math.Clamp(analysis.CutFillOpacityPercent, 0, 100);
         if (analysis.CutColorArgb == 0)
-            analysis.CutColorArgb = TerrainSectionAnalysisDefinitionBase.DefaultCutColorArgb;
+            analysis.CutColorArgb = TerrainSectionAnnotationDefinitionBase.DefaultCutColorArgb;
         if (analysis.FillColorArgb == 0)
-            analysis.FillColorArgb = TerrainSectionAnalysisDefinitionBase.DefaultFillColorArgb;
+            analysis.FillColorArgb = TerrainSectionAnnotationDefinitionBase.DefaultFillColorArgb;
 
         analysis.Sources ??= new SourceReferenceSet();
+        analysis.CutFillReference ??= new SourceReferenceSet();
         if (analysis.TextHeight <= 0.0)
             analysis.TextHeight = unitContext.FromMeters(1.0);
         // Every section type shares the exaggeration, so normalize it once, before the per-type cases —
@@ -467,7 +544,7 @@ internal static class TerrainSerializer
 
         switch (analysis)
         {
-            case CrossSectionStationAnalysisDefinition crossSection:
+            case CrossSectionStationAnnotationDefinition crossSection:
                 crossSection.StationInterval = crossSection.StationInterval > 0.0
                     ? crossSection.StationInterval
                     : unitContext.FromMeters(10.0);
@@ -476,7 +553,7 @@ internal static class TerrainSerializer
                     : unitContext.FromMeters(10.0);
                 crossSection.GridColumns = Math.Max(crossSection.GridColumns, 1);
                 break;
-            case LongitudinalSectionAnalysisDefinition longitudinal:
+            case LongitudinalSectionAnnotationDefinition longitudinal:
                 longitudinal.SampleInterval = longitudinal.SampleInterval > 0.0
                     ? longitudinal.SampleInterval
                     : unitContext.FromMeters(1.0);
@@ -531,13 +608,16 @@ internal static class TerrainSerializer
     {
         if (terrain.LastAnalysisResults.Count == 0 && terrain.LegacyLastAnalysis != null)
         {
-            foreach (var analysis in terrain.Analyses)
+            IEnumerable<ITerrainContentItem> content = terrain.Analyses
+                .Cast<ITerrainContentItem>()
+                .Concat(terrain.Annotations);
+            foreach (ITerrainContentItem item in content)
             {
                 var clone = TerrainRuntimeCacheCloner.CloneAnalysis(terrain.LegacyLastAnalysis);
                 if (clone == null)
                     continue;
 
-                clone.AnalysisId = analysis.Id;
+                clone.AnalysisId = item.Id;
                 terrain.LastAnalysisResults.Add(clone);
             }
         }

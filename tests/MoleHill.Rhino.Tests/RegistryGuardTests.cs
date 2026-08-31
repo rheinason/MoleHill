@@ -10,7 +10,7 @@ using Xunit;
 namespace MoleHill.Rhino.Tests;
 
 /// <summary>
-/// Locks in the plug-and-play invariant for the four self-registering type families. If a definition
+/// Locks in the plug-and-play invariant for the five self-registering type families. If a definition
 /// subtype is added without its descriptor, a Kind is duplicated, or the registry-driven JSON resolver
 /// stops round-tripping a type, one of these fails — the automated net the registries otherwise lack
 /// (the panel/serializer are only otherwise exercised by hand in Rhino).
@@ -64,12 +64,41 @@ public class RegistryGuardTests
     }
 
     [Fact]
+    public void EveryAnnotationSubtype_HasDescriptor()
+    {
+        var registered = AnnotationTypeRegistry.Annotations.Select(d => d.DefinitionType).ToHashSet();
+        var missing = ConcreteSubtypes(typeof(AnnotationDefinition)).Where(t => !registered.Contains(t)).ToList();
+        Assert.True(missing.Count == 0, "Annotation types without an AnnotationTypeDescriptor: " + string.Join(", ", missing.Select(t => t.Name)));
+    }
+
+    /// <summary>
+    /// The two families must stay disjoint. Nothing structurally forbids a descriptor in one registry
+    /// pointing at the other's definition type, and that is exactly the confusion the split removed.
+    /// </summary>
+    [Fact]
+    public void AnalysisAndAnnotationFamilies_AreDisjoint()
+    {
+        Assert.DoesNotContain(
+            ConcreteSubtypes(typeof(AnalysisDefinition)),
+            t => typeof(AnnotationDefinition).IsAssignableFrom(t));
+        Assert.DoesNotContain(
+            ConcreteSubtypes(typeof(AnnotationDefinition)),
+            t => typeof(AnalysisDefinition).IsAssignableFrom(t));
+
+        var analysisKinds = AnalysisTypeRegistry.Analyses.Select(d => d.Kind).ToHashSet(StringComparer.Ordinal);
+        var annotationKinds = AnnotationTypeRegistry.Annotations.Select(d => d.Kind).ToHashSet(StringComparer.Ordinal);
+        analysisKinds.IntersectWith(annotationKinds);
+        Assert.True(analysisKinds.Count == 0, "Kind(s) claimed by both families: " + string.Join(", ", analysisKinds));
+    }
+
+    [Fact]
     public void AllKinds_AreUnique_PerFamily()
     {
         AssertUniqueKinds(TerrainTypeRegistry.Modifiers.Select(d => d.Kind), "modifier");
         AssertUniqueKinds(ObjectTypeRegistry.Objects.Select(d => d.Kind), "object");
         AssertUniqueKinds(MarkerTypeRegistry.Markers.Select(d => d.Kind), "marker");
         AssertUniqueKinds(AnalysisTypeRegistry.Analyses.Select(d => d.Kind), "analysis");
+        AssertUniqueKinds(AnnotationTypeRegistry.Annotations.Select(d => d.Kind), "annotation");
     }
 
     private static void AssertUniqueKinds(IEnumerable<string> kinds, string family)
@@ -88,6 +117,8 @@ public class RegistryGuardTests
         foreach (var d in MarkerTypeRegistry.Markers)
             Assert.IsType(d.DefinitionType, d.Create());
         foreach (var d in AnalysisTypeRegistry.Analyses)
+            Assert.IsType(d.DefinitionType, d.Create());
+        foreach (var d in AnnotationTypeRegistry.Annotations)
             Assert.IsType(d.DefinitionType, d.Create());
     }
 
@@ -126,6 +157,7 @@ public class RegistryGuardTests
         terrain.Objects = ObjectTypeRegistry.Objects.Select(d => d.Create()).ToList();
         terrain.Markers = MarkerTypeRegistry.Markers.Select(d => d.Create()).ToList();
         terrain.Analyses = AnalysisTypeRegistry.Analyses.Select(d => d.Create()).ToList();
+        terrain.Annotations = AnnotationTypeRegistry.Annotations.Select(d => d.Create()).ToList();
 
         string json = TerrainSerializer.Serialize(new[] { terrain });
 
@@ -133,7 +165,8 @@ public class RegistryGuardTests
         foreach (var kind in TerrainTypeRegistry.Modifiers.Select(d => d.Kind)
                      .Concat(ObjectTypeRegistry.Objects.Select(d => d.Kind))
                      .Concat(MarkerTypeRegistry.Markers.Select(d => d.Kind))
-                     .Concat(AnalysisTypeRegistry.Analyses.Select(d => d.Kind)))
+                     .Concat(AnalysisTypeRegistry.Analyses.Select(d => d.Kind))
+                     .Concat(AnnotationTypeRegistry.Annotations.Select(d => d.Kind)))
         {
             Assert.Contains($"\"$type\": \"{kind}\"", json);
         }
@@ -144,6 +177,7 @@ public class RegistryGuardTests
         AssertAllPresent(ObjectTypeRegistry.Objects.Select(d => d.DefinitionType), restored.Objects.Select(o => o.GetType()), "object");
         AssertAllPresent(MarkerTypeRegistry.Markers.Select(d => d.DefinitionType), restored.Markers.Select(m => m.GetType()), "marker");
         AssertAllPresent(AnalysisTypeRegistry.Analyses.Select(d => d.DefinitionType), restored.Analyses.Select(a => a.GetType()), "analysis");
+        AssertAllPresent(AnnotationTypeRegistry.Annotations.Select(d => d.DefinitionType), restored.Annotations.Select(a => a.GetType()), "annotation");
     }
 
     private static void AssertAllPresent(IEnumerable<Type> expected, IEnumerable<Type> actual, string family)

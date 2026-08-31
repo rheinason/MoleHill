@@ -273,10 +273,7 @@ public sealed partial class MoleHillPanel
             if (doc == null || mutated == null)
                 return;
 
-            if (mutated is ContourAnalysisDefinition contour && parameter.Kind == ParameterKind.Color)
-                _controller.RefreshContourColor(doc, terrainId, analysisId, contour.ColorArgb);
-            else
-                _controller.RebuildContourAnalysis(doc, terrainId, analysisId);
+            _controller.RebuildContourAnalysis(doc, terrainId, analysisId);
             return;
         }
 
@@ -287,6 +284,138 @@ public sealed partial class MoleHillPanel
         }
 
         MutateAnalysis(terrainId, analysisId, apply, scheduleRebuild: true);
+    }
+
+    /// <summary>
+    /// Appends a row per declared parameter for <paramref name="annotation"/>'s type. Returns false when the
+    /// type has no schema yet, so the caller can fall back to its bespoke rows for that type.
+    /// </summary>
+    private bool TryBuildSchemaAnnotationBody(DynamicLayout layout, TerrainDefinition terrain, AnnotationDefinition annotation)
+    {
+        var descriptor = AnnotationTypeRegistry.ForType(annotation.GetType());
+        if (descriptor == null || descriptor.Parameters.Count == 0)
+            return false;
+
+        foreach (var parameter in descriptor.Parameters)
+            layout.AddRow(BuildAnnotationSchemaRow(terrain, annotation, parameter));
+
+        return true;
+    }
+
+    private Control BuildAnnotationSchemaRow(TerrainDefinition terrain, AnnotationDefinition annotation, AnnotationParameterDescriptor parameter)
+    {
+        Guid terrainId = terrain.TerrainId;
+        Guid annotationId = annotation.Id;
+        string label = parameter.LabelFor?.Invoke(annotation) ?? parameter.Label;
+
+        switch (parameter.Kind)
+        {
+            case ParameterKind.Sources:
+                return CreateSourceEditor(
+                    label,
+                    parameter.GetSources!(annotation),
+                    apply => CommitAnnotationMutation(parameter, terrainId, annotationId, item => apply(parameter.GetSources!(item))),
+                    parameter.ObjectFilter,
+                    doc => _controller.GetSelectedLayerPaths(doc),
+                    parameter.Help);
+
+            case ParameterKind.Number:
+                return CreateNumericEditor(
+                    label,
+                    parameter.GetNumber!(annotation),
+                    value => CommitAnnotationMutation(parameter, terrainId, annotationId, item => parameter.SetNumber!(item, value)),
+                    parameter.DecimalPlaces,
+                    parameter.Help,
+                    parameter.Min,
+                    parameter.Max,
+                    step: parameter.Step);
+
+            case ParameterKind.Bool:
+                return CreateCheckEditor(
+                    label,
+                    parameter.GetBool!(annotation),
+                    value => CommitAnnotationMutation(parameter, terrainId, annotationId, item => parameter.SetBool!(item, value)),
+                    parameter.Help ?? string.Empty);
+
+            case ParameterKind.Choice:
+            {
+                var options = parameter.ChoiceOptionsFor?.Invoke(annotation) ?? parameter.ChoiceOptions!;
+                return CreateDropDownEditor(
+                    label,
+                    options,
+                    parameter.GetText!(annotation) ?? string.Empty,
+                    value => CommitAnnotationMutation(parameter, terrainId, annotationId, item => parameter.SetText!(item, value)),
+                    parameter.Help ?? string.Empty);
+            }
+
+            case ParameterKind.Color:
+                return CreateOptionalColorEditor(
+                    label,
+                    parameter.GetColor!(annotation),
+                    value => CommitAnnotationMutation(parameter, terrainId, annotationId, item => parameter.SetColor!(item, value)),
+                    parameter.Help ?? string.Empty,
+                    parameter.FallbackColor?.Invoke(terrain, annotation),
+                    parameter.ColorDefaultTextFor?.Invoke(terrain, annotation) ?? "(by layer)");
+
+            case ParameterKind.ColorRamp:
+                // Annotations draw; they are never colour-mapped, so no annotation declares this kind.
+                // The case exists so the shared enum stays exhaustively handled.
+                return new Panel();
+
+            case ParameterKind.Text:
+                return CreateCommittedTextEditor(
+                    label,
+                    parameter.GetText!(annotation) ?? string.Empty,
+                    value => CommitAnnotationMutation(parameter, terrainId, annotationId, item => parameter.SetText!(item, value)),
+                    parameter.Help ?? string.Empty,
+                    parameter.TrimText);
+
+            case ParameterKind.ReadOnly:
+                return CreateReadOnlyValueRow(
+                    label,
+                    parameter.GetReadOnly!(annotation),
+                    parameter.Help ?? string.Empty);
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(parameter), parameter.Kind, "Unhandled parameter kind.");
+        }
+    }
+
+    /// <summary>
+    /// Commits an annotation-schema row's edit per its descriptor flags: <see cref="AnnotationParameterDescriptor.IncrementalCommit"/>
+    /// (contour-style — skip the full rebuild and run the type's own incremental rebuild instead),
+    /// <see cref="AnnotationParameterDescriptor.RefreshOnly"/> (cheap preview recolor, no rebuild), or the
+    /// default full analysis rebuild.
+    /// </summary>
+    private void CommitAnnotationMutation(AnnotationParameterDescriptor parameter, Guid terrainId, Guid annotationId, Action<AnnotationDefinition> apply)
+    {
+        if (parameter.IncrementalCommit)
+        {
+            AnnotationDefinition? mutated = null;
+            MutateAnnotation(terrainId, annotationId, item =>
+            {
+                apply(item);
+                mutated = item;
+            }, scheduleRebuild: false);
+
+            var doc = RhinoDoc.ActiveDoc;
+            if (doc == null || mutated == null)
+                return;
+
+            if (mutated is ContourAnnotationDefinition contour && parameter.Kind == ParameterKind.Color)
+                _controller.RefreshContourColor(doc, terrainId, annotationId, contour.ColorArgb);
+            else
+                _controller.RebuildContourAnalysis(doc, terrainId, annotationId);
+            return;
+        }
+
+        if (parameter.RefreshOnly)
+        {
+            MutateAndRefreshAnnotation(terrainId, annotationId, apply);
+            return;
+        }
+
+        MutateAnnotation(terrainId, annotationId, apply, scheduleRebuild: true);
     }
 
     private bool TryBuildSchemaObjectBody(DynamicLayout layout, TerrainDefinition terrain, TerrainObjectDefinition definition)

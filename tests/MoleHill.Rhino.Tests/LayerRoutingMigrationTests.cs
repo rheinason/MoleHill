@@ -60,7 +60,7 @@ public class LayerRoutingMigrationTests
     public void PerCardOutputLayers_BecomeTheirOwnRoleBindings()
     {
         var terrain = new TerrainDefinition();
-        terrain.Analyses.Add(new ContourAnalysisDefinition { LegacyOutputLayerPath = "Survey::Contours" });
+        terrain.Annotations.Add(new ContourAnnotationDefinition { LegacyOutputLayerPath = "Survey::Contours" });
         terrain.Analyses.Add(new WaterflowAnalysisDefinition { LegacyOutputLayerPath = "Survey::Flow" });
         terrain.Modifiers.Add(new RetainingWallModifierDefinition { LegacyOutputLayerPath = "Model::Walls" });
 
@@ -80,12 +80,12 @@ public class LayerRoutingMigrationTests
     public void TwoCardsOfTheSameKindOnDifferentLayers_KeepTheFirstAndReportTheRest()
     {
         var terrain = new TerrainDefinition();
-        terrain.Analyses.Add(new ContourAnalysisDefinition
+        terrain.Annotations.Add(new ContourAnnotationDefinition
         {
             Label = "Site contours",
             LegacyOutputLayerPath = "Survey::Contours"
         });
-        terrain.Analyses.Add(new ContourAnalysisDefinition
+        terrain.Annotations.Add(new ContourAnnotationDefinition
         {
             Label = "Detail contours",
             LegacyOutputLayerPath = "Detail::Contours"
@@ -103,8 +103,8 @@ public class LayerRoutingMigrationTests
     public void TwoCardsOnTheSameLayer_AreNotAConflict()
     {
         var terrain = new TerrainDefinition();
-        terrain.Analyses.Add(new ContourAnalysisDefinition { LegacyOutputLayerPath = "Survey::Contours" });
-        terrain.Analyses.Add(new ContourAnalysisDefinition { LegacyOutputLayerPath = "Survey::Contours" });
+        terrain.Annotations.Add(new ContourAnnotationDefinition { LegacyOutputLayerPath = "Survey::Contours" });
+        terrain.Annotations.Add(new ContourAnnotationDefinition { LegacyOutputLayerPath = "Survey::Contours" });
 
         Assert.Empty(LayerRoutingMigration.Plan(new[] { terrain }, "Site").Conflicts);
     }
@@ -131,14 +131,14 @@ public class LayerRoutingMigrationTests
             LegacyTerrainLayerPath = "Model::Proposed",
             LegacyAnnotationStyleName = "Site Plan"
         };
-        terrain.Analyses.Add(new ContourAnalysisDefinition { LegacyOutputLayerPath = "Survey::Contours" });
+        terrain.Annotations.Add(new ContourAnnotationDefinition { LegacyOutputLayerPath = "Survey::Contours" });
         terrain.Modifiers.Add(new RetainingWallModifierDefinition { LegacyOutputLayerPath = "Model::Walls" });
 
         LayerRoutingMigration.ClearLegacyValues(new[] { terrain });
 
         Assert.Null(terrain.LegacyTerrainLayerPath);
         Assert.Null(terrain.LegacyAnnotationStyleName);
-        Assert.Null(terrain.Analyses.OfType<ContourAnalysisDefinition>().Single().LegacyOutputLayerPath);
+        Assert.Null(terrain.Annotations.OfType<ContourAnnotationDefinition>().Single().LegacyOutputLayerPath);
         Assert.Null(terrain.Modifiers.OfType<RetainingWallModifierDefinition>().Single().LegacyOutputLayerPath);
     }
 
@@ -150,7 +150,7 @@ public class LayerRoutingMigrationTests
     public void LegacyValues_RoundTripThroughJson()
     {
         var terrain = new TerrainDefinition { Name = "T", LegacyTerrainLayerPath = "Model::Proposed" };
-        terrain.Analyses.Add(new ContourAnalysisDefinition { LegacyOutputLayerPath = "Survey::Contours" });
+        terrain.Annotations.Add(new ContourAnnotationDefinition { LegacyOutputLayerPath = "Survey::Contours" });
 
         TerrainDefinition restored = TerrainSerializer
             .Deserialize(TerrainSerializer.Serialize(new[] { terrain }))
@@ -159,6 +159,6 @@ public class LayerRoutingMigrationTests
         Assert.Equal("Model::Proposed", restored.LegacyTerrainLayerPath);
         Assert.Equal(
             "Survey::Contours",
-            restored.Analyses.OfType<ContourAnalysisDefinition>().Single().LegacyOutputLayerPath);
+            restored.Annotations.OfType<ContourAnnotationDefinition>().Single().LegacyOutputLayerPath);
     }
 }

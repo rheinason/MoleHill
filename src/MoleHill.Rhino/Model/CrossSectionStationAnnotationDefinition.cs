@@ -1,6 +1,6 @@
 namespace MoleHill.Rhino.Model;
 
-public sealed class CrossSectionStationAnalysisDefinition : TerrainSectionAnalysisDefinitionBase
+public sealed class CrossSectionStationAnnotationDefinition : TerrainSectionAnnotationDefinitionBase
 {
     public double StationInterval { get; set; } = 10.0;
 
@@ -20,7 +20,7 @@ public sealed class CrossSectionStationAnalysisDefinition : TerrainSectionAnalys
 
     public double ElevationGridInterval { get; set; }
 
-    public CrossSectionStationAnalysisDefinition()
+    public CrossSectionStationAnnotationDefinition()
     {
         Label = "Cross-Sections";
     }

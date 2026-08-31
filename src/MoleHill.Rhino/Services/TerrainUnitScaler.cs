@@ -21,6 +21,12 @@ internal static class TerrainUnitScaler
         ScaleAnalysis(analysis, lengthScale);
     }
 
+    public static void Scale(AnnotationDefinition annotation, double lengthScale)
+    {
+        ValidateScale(lengthScale);
+        ScaleAnnotation(annotation, lengthScale);
+    }
+
     public static void Scale(TerrainObjectDefinition terrainObject, double lengthScale)
     {
         ValidateScale(lengthScale);
@@ -47,6 +53,9 @@ internal static class TerrainUnitScaler
 
             foreach (AnalysisDefinition analysis in terrain.Analyses)
                 ScaleAnalysis(analysis, lengthScale);
+
+            foreach (AnnotationDefinition annotation in terrain.Annotations)
+                ScaleAnnotation(annotation, lengthScale);
 
             foreach (TerrainAnalysisSummary summary in terrain.LastAnalysisResults)
                 ScaleSummary(terrain, summary, lengthScale, areaScale, volumeScale);
@@ -138,28 +147,35 @@ internal static class TerrainUnitScaler
 
         switch (analysis)
         {
-            case ContourAnalysisDefinition contour:
+            case WaterflowAnalysisDefinition waterflow:
+                waterflow.MaxLength *= lengthScale;
+                break;
+        }
+    }
+
+    private static void ScaleAnnotation(AnnotationDefinition annotation, double lengthScale)
+    {
+        switch (annotation)
+        {
+            case ContourAnnotationDefinition contour:
                 contour.Interval *= lengthScale;
                 contour.StartZ *= lengthScale;
                 contour.LabelInterval *= lengthScale;
                 contour.LabelTextHeight *= lengthScale;
                 break;
-            case CurveElevationLabelAnalysisDefinition curveElevation:
+            case CurveElevationLabelAnnotationDefinition curveElevation:
                 curveElevation.Interval *= lengthScale;
                 break;
-            case CurveSlopeLabelAnalysisDefinition curveSlope:
+            case CurveSlopeLabelAnnotationDefinition curveSlope:
                 curveSlope.Interval *= lengthScale;
                 break;
-            case SlopeArrowAnalysisDefinition slopeArrow:
+            case SlopeArrowAnnotationDefinition slopeArrow:
                 slopeArrow.GridSpacing *= lengthScale;
                 break;
-            case WaterflowAnalysisDefinition waterflow:
-                waterflow.MaxLength *= lengthScale;
-                break;
-            case GradeBetweenPointsAnalysisDefinition grade:
+            case GradeBetweenPointsAnnotationDefinition grade:
                 grade.TextHeight *= lengthScale;
                 break;
-            case CrossSectionStationAnalysisDefinition crossSection:
+            case CrossSectionStationAnnotationDefinition crossSection:
                 ScaleSection(crossSection, lengthScale);
                 crossSection.StationInterval *= lengthScale;
                 crossSection.CrossSectionWidth *= lengthScale;
@@ -167,24 +183,24 @@ internal static class TerrainUnitScaler
                 crossSection.GridCellHeight *= lengthScale;
                 crossSection.ElevationGridInterval *= lengthScale;
                 break;
-            case LongitudinalSectionAnalysisDefinition longitudinal:
+            case LongitudinalSectionAnnotationDefinition longitudinal:
                 ScaleSection(longitudinal, lengthScale);
                 longitudinal.SampleInterval *= lengthScale;
                 longitudinal.ElevationGridInterval *= lengthScale;
                 longitudinal.StationLabelInterval *= lengthScale;
                 break;
-            case TerrainSectionAnalysisDefinition section:
+            case TerrainSectionAnnotationDefinition section:
                 ScaleSection(section, lengthScale);
                 section.StationTickInterval *= lengthScale;
                 section.ElevationGridInterval *= lengthScale;
                 break;
-            case TerrainSectionAnalysisDefinitionBase sectionBase:
+            case TerrainSectionAnnotationDefinitionBase sectionBase:
                 ScaleSection(sectionBase, lengthScale);
                 break;
         }
     }
 
-    private static void ScaleSection(TerrainSectionAnalysisDefinitionBase section, double lengthScale)
+    private static void ScaleSection(TerrainSectionAnnotationDefinitionBase section, double lengthScale)
     {
         section.InsertionOriginX *= lengthScale;
         section.InsertionOriginY *= lengthScale;
@@ -209,9 +225,12 @@ internal static class TerrainUnitScaler
         summary.ContourFirstLevel *= lengthScale;
         summary.ContourLastLevel *= lengthScale;
 
-        AnalysisDefinition? analysis = terrain.Analyses.FirstOrDefault(item => item.Id == summary.AnalysisId);
-        if (analysis is ElevationAnalysisDefinition or CutFillAnalysisDefinition or
-            ProjectedElevationLabelAnalysisDefinition or CurveElevationLabelAnalysisDefinition)
+        // The owning definition may be in either family: summaries are build results, and both
+        // analyses and annotations produce them.
+        object? owner = terrain.Analyses.FirstOrDefault(item => item.Id == summary.AnalysisId)
+            ?? (object?)terrain.Annotations.FirstOrDefault(item => item.Id == summary.AnalysisId);
+        if (owner is ElevationAnalysisDefinition or CutFillAnalysisDefinition or
+            ProjectedElevationLabelAnnotationDefinition or CurveElevationLabelAnnotationDefinition)
         {
             summary.SampleMinValue *= lengthScale;
             summary.SampleMaxValue *= lengthScale;

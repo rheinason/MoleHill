@@ -5,8 +5,9 @@ using Xunit;
 namespace MoleHill.Rhino.Tests;
 
 /// <summary>
-/// An analysis that cannot produce anything must say which input it is waiting on. These types otherwise
-/// run, succeed, and emit nothing, which reads as a broken map rather than an unconfigured one.
+/// An analysis or annotation that cannot produce anything must say which input it is waiting on. These
+/// types otherwise run, succeed, and emit nothing, which reads as a broken map rather than an
+/// unconfigured one. Both families answer through their own registry, so both are covered here.
 /// </summary>
 public class AnalysisBlockerTests
 {
@@ -29,6 +30,27 @@ public class AnalysisBlockerTests
     {
         var terrain = TerrainWith(analysis, modifiers);
         return AnalysisTypeRegistry.ForType(analysis.GetType())!.DescribeBasis(terrain, analysis);
+    }
+
+    private static TerrainDefinition TerrainWith(AnnotationDefinition annotation, params ModifierDefinition[] modifiers)
+    {
+        var terrain = new TerrainDefinition();
+        terrain.Annotations.Add(annotation);
+        foreach (var modifier in modifiers)
+            terrain.Modifiers.Add(modifier);
+        return terrain;
+    }
+
+    private static string? Blocker(AnnotationDefinition annotation, params ModifierDefinition[] modifiers)
+    {
+        var terrain = TerrainWith(annotation, modifiers);
+        return AnnotationTypeRegistry.ForType(annotation.GetType())!.DescribeBlocker(terrain, annotation);
+    }
+
+    private static string? Basis(AnnotationDefinition annotation, params ModifierDefinition[] modifiers)
+    {
+        var terrain = TerrainWith(annotation, modifiers);
+        return AnnotationTypeRegistry.ForType(annotation.GetType())!.DescribeBasis(terrain, annotation);
     }
 
     private static GradePadModifierDefinition Grading() => new() { IsEnabled = true };
@@ -100,7 +122,7 @@ public class AnalysisBlockerTests
     [Fact]
     public void Section_WithoutSources_NamesTheMissingInput()
     {
-        string? blocker = Blocker(new TerrainSectionAnalysisDefinition());
+        string? blocker = Blocker(new TerrainSectionAnnotationDefinition());
 
         Assert.NotNull(blocker);
         Assert.Contains("Sources", blocker);
@@ -109,7 +131,7 @@ public class AnalysisBlockerTests
     [Fact]
     public void Section_WithCutFillOnAndNoReference_ShadesAgainstTheInitialTriangulation()
     {
-        var analysis = new TerrainSectionAnalysisDefinition { ShowCutFillRegions = true };
+        var analysis = new TerrainSectionAnnotationDefinition { ShowCutFillRegions = true };
         AddSource(analysis.Sources);
 
         Assert.Null(Blocker(analysis, Grading()));
@@ -119,7 +141,7 @@ public class AnalysisBlockerTests
     [Fact]
     public void Section_WithCutFillOff_SaysNothingAboutComparison()
     {
-        var analysis = new TerrainSectionAnalysisDefinition { ShowCutFillRegions = false };
+        var analysis = new TerrainSectionAnnotationDefinition { ShowCutFillRegions = false };
         AddSource(analysis.Sources);
 
         Assert.Null(Basis(analysis, Grading()));
@@ -128,7 +150,7 @@ public class AnalysisBlockerTests
     [Fact]
     public void Section_WithCutFillOff_IsNotBlockedByAMissingReference()
     {
-        var analysis = new TerrainSectionAnalysisDefinition { ShowCutFillRegions = false };
+        var analysis = new TerrainSectionAnnotationDefinition { ShowCutFillRegions = false };
         AddSource(analysis.Sources);
 
         Assert.Null(Blocker(analysis));
@@ -139,6 +161,6 @@ public class AnalysisBlockerTests
     {
         Assert.Null(Blocker(new SlopeAnalysisDefinition()));
         Assert.Null(Blocker(new ElevationAnalysisDefinition()));
-        Assert.Null(Blocker(new ContourAnalysisDefinition()));
+        Assert.Null(Blocker(new ContourAnnotationDefinition()));
     }
 }

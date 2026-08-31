@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Model;
 
 public sealed class TerrainDefinition
 {
-    public const int CurrentSchemaVersion = 30;
+    public const int CurrentSchemaVersion = 31;
     public const int DefaultTerrainColorArgb = unchecked((int)0xFFC7D2C2);
     public const string DefaultTerrainLayerPath = "MoleHill::Terrain";
     public const string DefaultAuxiliaryLayerPath = "MoleHill::Auxiliary";
@@ -117,6 +117,17 @@ public sealed class TerrainDefinition
 
     public List<AnalysisDefinition> Analyses { get; set; } = new();
 
+    /// <summary>
+    /// Content that describes the terrain rather than evaluating it. Separate from <see cref="Analyses"/>
+    /// since schema 31; documents saved before that carried both in one list and are split on load.
+    ///
+    /// There is deliberately no terrain-level visibility flag for annotations. An annotation <em>is</em>
+    /// the drawing, so it is always drawn; the per-card <c>IsEnabled</c> checkbox is the only control.
+    /// <see cref="ShowAnalysisOutputs"/> has no say here — that gate is what hid every label and section
+    /// when someone turned off slope colours.
+    /// </summary>
+    public List<AnnotationDefinition> Annotations { get; set; } = new();
+
     public List<Guid> OutputObjectIds { get; set; } = new();
 
     public List<Guid> ZoneObjectIds { get; set; } = new();
@@ -170,6 +181,12 @@ public sealed class TerrainDefinition
         foreach (var analysis in Analyses)
         {
             foreach (var sourceSet in analysis.EnumerateSourceSets())
+                yield return sourceSet;
+        }
+
+        foreach (var annotation in Annotations)
+        {
+            foreach (var sourceSet in annotation.EnumerateSourceSets())
                 yield return sourceSet;
         }
     }

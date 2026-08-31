@@ -16,8 +16,8 @@ internal static class LayerRoleRegistry
 {
     // Colours whose meaning is fixed rather than a matter of taste. Cut and fill in particular must
     // never be seeded the same colour: a section that shades both alike cannot be read at all.
-    private const int CutColorArgb = TerrainSectionAnalysisDefinitionBase.DefaultCutColorArgb;
-    private const int FillColorArgb = TerrainSectionAnalysisDefinitionBase.DefaultFillColorArgb;
+    private const int CutColorArgb = TerrainSectionAnnotationDefinitionBase.DefaultCutColorArgb;
+    private const int FillColorArgb = TerrainSectionAnnotationDefinitionBase.DefaultFillColorArgb;
     private const int Black = unchecked((int)0xFF000000);
     private const int MidGrey = unchecked((int)0xFF8C8C8C);
     private const int LightGrey = unchecked((int)0xFFB4B4B4);

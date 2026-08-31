@@ -7,7 +7,7 @@ namespace MoleHill.Rhino.Services;
 
 /// <summary>
 /// Builds JSON polymorphism for the registry-driven definition families (modifiers, terrain objects,
-/// markers) from their type registries instead of hand-maintained <c>[JsonDerivedType]</c> lists — so
+/// markers, analyses, annotations) from their type registries instead of hand-maintained <c>[JsonDerivedType]</c> lists — so
 /// registering a descriptor is all that's needed for a type to serialize/deserialize. Discriminator
 /// strings are unchanged (they come from each descriptor's <c>Kind</c>), so saved .3dm terrains still
 /// load. Types not in a registry (analyses) keep their attribute-driven contract via the base resolver.
@@ -44,12 +44,17 @@ internal sealed class TerrainJsonTypeResolver : DefaultJsonTypeInfoResolver
             .Select(descriptor => (descriptor.DefinitionType, descriptor.Kind))
             .ToList();
 
+        var annotations = AnnotationTypeRegistry.Annotations
+            .Select(descriptor => (descriptor.DefinitionType, descriptor.Kind))
+            .ToList();
+
         return new Dictionary<Type, IReadOnlyList<(Type, string)>>
         {
             [typeof(ModifierDefinition)] = modifiers,
             [typeof(TerrainObjectDefinition)] = objects,
             [typeof(MarkerDefinition)] = markers,
             [typeof(AnalysisDefinition)] = analyses,
+            [typeof(AnnotationDefinition)] = annotations,
         };
     }
 

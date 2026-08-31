@@ -373,12 +373,12 @@ public sealed partial class MoleHillPanel : Panel
             _newButton,
             _dupButton,
             _deleteButton);
-        var identityGroup = new Panel
+        var identityGroup = new DynamicLayout
         {
             BackgroundColor = UiTheme.ToolbarBackground,
-            Padding = new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium),
-            Content = identityRow
+            Padding = new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceMedium)
         };
+        identityGroup.Add(identityRow, xscale: true, yscale: false);
 
         // Rebuild/Reset Build/Live pack left; Bake/visibility/lock stay on that same line and land flush
         // against the right edge — the same column as row 1's New/Copy/Delete controls — instead of
@@ -411,11 +411,11 @@ public sealed partial class MoleHillPanel : Panel
         // Matches identityGroup's padding so row 2's right-hand icons land in exactly the same column as
         // row 1's — without this, row 1's extra 8px inset (from identityGroup's own Padding) shifts it
         // relative to row 2's bare StackLayoutItem.
-        var actionsGroup = new Panel
+        var actionsGroup = new DynamicLayout
         {
-            Padding = new Padding(UiMetrics.SpaceLarge, 0),
-            Content = actionsRow
+            Padding = new Padding(UiMetrics.SpaceLarge, 0)
         };
+        actionsGroup.Add(actionsRow, xscale: true, yscale: false);
 
         // Shed the least-essential text first as the panel narrows: drop the "Terrain" caption, then drop
         // the "Live" caption entirely (the checkbox alone still reads fine with its tooltip). Measured off
@@ -1118,7 +1118,7 @@ public sealed partial class MoleHillPanel : Panel
                 _terrainSelector.Items.Clear();
                 _terrainSelector.SelectedIndex = -1;
                 _isUpdatingTerrainSelector = false;
-                SetButtonIcon(_visibilityButton, PanelButtonIcon.Eye, muted: true);
+                SetButtonIcon(_visibilityButton, PanelButtonIcon.HideOff, muted: true);
                 _visibilityButton.ToolTip = "Terrain visible. Click to hide.";
                 SetButtonIcon(_lockButton, PanelButtonIcon.Unlock, muted: true);
                 _lockButton.ToolTip = "Terrain unlocked. Click to lock.";
@@ -1188,7 +1188,7 @@ public sealed partial class MoleHillPanel : Panel
                 SetStatusText(ModelUnitGuard.RequiredMessage);
             }
             bool terrainVisible = selectedTerrain?.IsVisible != false;
-            SetButtonIcon(_visibilityButton, terrainVisible ? PanelButtonIcon.Eye : PanelButtonIcon.EyeOff, muted: !terrainVisible);
+            SetButtonIcon(_visibilityButton, terrainVisible ? PanelButtonIcon.HideOff : PanelButtonIcon.HideOn, muted: false);
             _visibilityButton.ToolTip = terrainVisible
                 ? "Terrain visible. Click to hide."
                 : "Terrain hidden. Click to show.";
@@ -1372,7 +1372,7 @@ public sealed partial class MoleHillPanel : Panel
 
         _analysisStack.Items.Add(new StackLayoutItem(BuildAnalysisToolbar(terrain), HorizontalAlignment.Stretch));
 
-        var visualAnalyses = terrain.Analyses.Where(a => !IsAnnotationAnalysis(a)).ToList();
+        var visualAnalyses = terrain.Analyses;
         if (visualAnalyses.Count == 0)
         {
             _analysisStack.Items.Add(new StackLayoutItem(new Panel
@@ -1406,7 +1406,7 @@ public sealed partial class MoleHillPanel : Panel
             WireAnalysisSepDragDrop(outerSep, innerSep, terrainId, analysisId);
             _analysisStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
 
-            var box = CreateAnalysisCard(terrain, analysisItem, isActive, isAnnotationCard: false);
+            var box = CreateAnalysisCard(terrain, analysisItem, isActive);
             _analysisCardMap[analysisId] = box;
             var kind = GetAnalysisKind(analysisItem);
             var typeColor = AnalysisTypeColor(kind);
@@ -1439,7 +1439,7 @@ public sealed partial class MoleHillPanel : Panel
 
         _annotationStack.Items.Add(new StackLayoutItem(BuildAnnotationToolbar(terrain), HorizontalAlignment.Stretch));
 
-        var annotationItems = terrain.Analyses.Where(IsAnnotationAnalysis).ToList();
+        var annotationItems = terrain.Annotations;
         if (annotationItems.Count == 0)
         {
             _annotationStack.Items.Add(new StackLayoutItem(new Panel
@@ -1466,10 +1466,10 @@ public sealed partial class MoleHillPanel : Panel
             WireAnnotationSepDragDrop(outerSep, innerSep, terrainId, analysisId);
             _annotationStack.Items.Add(new StackLayoutItem(outerSep, HorizontalAlignment.Stretch));
 
-            var box = CreateAnalysisCard(terrain, analysisItem, isActive: false, isAnnotationCard: true);
+            var box = CreateAnnotationCard(terrain, analysisItem);
             _annotationCardMap[analysisId] = box;
-            var kind = GetAnalysisKind(analysisItem);
-            var typeColor = AnalysisTypeColor(kind);
+            var kind = GetAnnotationKind(analysisItem);
+            var typeColor = AnnotationTypeColor(kind);
             var strip = new Panel { Width = UiMetrics.CardAccentWidth, BackgroundColor = typeColor };
             _annotationStripMap[analysisId] = strip;
             _annotationStripColors[analysisId] = typeColor;
@@ -1586,7 +1586,7 @@ public sealed partial class MoleHillPanel : Panel
     {
         var addButton = MakeToolbarButton("Add Analysis", (_, _) => { }, "Add an analysis card");
         var menu = new ContextMenu();
-        foreach (var descriptor in AnalysisTypeRegistry.Analyses.Where(item => !item.IsAnnotation).OrderBy(item => item.SortOrder))
+        foreach (var descriptor in AnalysisTypeRegistry.Analyses.OrderBy(item => item.SortOrder))
         {
             var item = new ButtonMenuItem { Text = descriptor.MenuLabel };
             var capturedKind = descriptor.Kind;
@@ -1602,11 +1602,11 @@ public sealed partial class MoleHillPanel : Panel
     {
         var addButton = MakeToolbarButton("Add Annotation", (_, _) => { }, "Add an annotation card");
         var menu = new ContextMenu();
-        foreach (var descriptor in AnalysisTypeRegistry.Analyses.Where(item => item.IsAnnotation).OrderBy(item => item.SortOrder))
+        foreach (var descriptor in AnnotationTypeRegistry.Annotations.OrderBy(item => item.SortOrder))
         {
             var item = new ButtonMenuItem { Text = descriptor.MenuLabel };
             var capturedKind = descriptor.Kind;
-            item.Click += (_, _) => AddAnalysis(capturedKind);
+            item.Click += (_, _) => AddAnnotation(capturedKind);
             menu.Items.Add(item);
         }
         addButton.Click += (_, _) => menu.Show(addButton);
@@ -2152,8 +2152,6 @@ public sealed partial class MoleHillPanel : Panel
     private static string GetAnalysisKind(AnalysisDefinition analysis) =>
         AnalysisTypeRegistry.ForType(analysis.GetType())?.Kind ?? string.Empty;
 
-    private static bool IsAnnotationAnalysis(AnalysisDefinition analysis) =>
-        AnalysisTypeRegistry.ForType(analysis.GetType())?.IsAnnotation ?? false;
 
     private static Color AnalysisTypeColor(string kind)
     {
@@ -2192,38 +2190,6 @@ public sealed partial class MoleHillPanel : Panel
             WaterflowAnalysisDefinition waterflow => summary != null
                 ? $"{summary.GeneratedOutputCount} paths | {summary.WaterflowBoundaryCount} boundary"
                 : $"{CountReferences(waterflow.Sources)} refs | downhill paths",
-            ContourAnalysisDefinition contour => summary != null
-                ? $"{summary.ContourCurveCount} curves | {contour.Interval:G4} @ {contour.StartZ:G4}"
-                : $"{contour.Interval:G4} every | start {contour.StartZ:G4}",
-            CurveElevationLabelAnalysisDefinition curveElevation => summary != null
-                ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels | {FormatAnalysisValue(summary.SampleAverageValue, curveElevation.ValueFormat)} avg"
-                    : "0 labels"
-                : $"{CountReferences(curveElevation.Sources)} refs | {curveElevation.Interval:G4} every",
-            CurveSlopeLabelAnalysisDefinition curveSlope => summary != null
-                ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels | {FormatSlopeValue(summary.SampleAverageValue, curveSlope.Unit)} avg"
-                    : "0 labels"
-                : $"{CountReferences(curveSlope.Sources)} refs | {curveSlope.Interval:G4} every",
-            ProjectedElevationLabelAnalysisDefinition projectedElevation => summary != null
-                ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels | {FormatAnalysisValue(summary.SampleMinValue, projectedElevation.ValueFormat)} to {FormatAnalysisValue(summary.SampleMaxValue, projectedElevation.ValueFormat)}"
-                    : "0 labels"
-                : $"{CountReferences(projectedElevation.Sources)} refs | projected Z",
-            PointSlopeLabelAnalysisDefinition pointSlope => summary != null
-                ? summary.GeneratedOutputCount > 0
-                    ? $"{summary.GeneratedOutputCount} labels | {FormatSlopeValue(summary.SampleAverageValue, pointSlope.Unit)} avg"
-                    : "0 labels"
-                : $"{CountReferences(pointSlope.Sources)} refs | terrain slope",
-            TerrainSectionAnalysisDefinition section => summary != null
-                ? $"{summary.GeneratedOutputCount} objects | {summary.SampleSourceCount} cuts"
-                : $"{CountReferences(section.Sources)} refs | profile",
-            CrossSectionStationAnalysisDefinition crossSection => summary != null
-                ? $"{summary.GeneratedOutputCount} objects | {crossSection.StationInterval:G4} every"
-                : $"{CountReferences(crossSection.Sources)} refs | {crossSection.StationInterval:G4} stations",
-            LongitudinalSectionAnalysisDefinition longitudinal => summary != null
-                ? $"{summary.GeneratedOutputCount} objects | V exag {longitudinal.VerticalExaggeration:G3}"
-                : $"{CountReferences(longitudinal.Sources)} refs | sample {longitudinal.SampleInterval:G4}",
             _ => string.Empty
         };
     }

@@ -368,7 +368,7 @@ internal sealed partial class TerrainController
             bool shouldHide = !terrain.IsVisible ||
                               (!terrain.ShowSlopePreview && IsSlopePreviewObject(obj)) ||
                               (!terrain.ShowAnalysisOutputs && IsSlopePreviewObject(obj)) ||
-                              !ShouldDisplayOwnedAnalysisOutput(terrain, obj?.Attributes);
+                              !ShouldDisplayOwnedContentOutput(terrain, obj?.Attributes);
             if (shouldHide)
                 doc.Objects.Hide(id, ignoreLayerMode: true);
             else if (terrain.IsLocked)
@@ -554,16 +554,26 @@ internal sealed partial class TerrainController
         return GetGeneratedObjectKind(obj?.Attributes) == GeneratedObjectKind.SlopePreview;
     }
 
-    private static bool ShouldDisplayOwnedAnalysisOutput(TerrainDefinition terrain, ObjectAttributes? attributes)
+    /// <summary>
+    /// Whether a baked output owned by an analysis or an annotation should be shown. An analysis answers
+    /// to the terrain's <c>ShowAnalysisOutputs</c> gate; an annotation has no such gate and answers only
+    /// for itself. Sharing one flag is what made hiding slope colours also hide every label and section.
+    /// </summary>
+    private static bool ShouldDisplayOwnedContentOutput(TerrainDefinition terrain, ObjectAttributes? attributes)
     {
-        Guid? analysisId = GetGeneratedAnalysisId(attributes);
-        if (!analysisId.HasValue)
+        Guid? ownerId = GetGeneratedAnalysisId(attributes);
+        if (!ownerId.HasValue)
             return true;
 
-        if (!terrain.ShowAnalysisOutputs)
-            return false;
+        AnalysisDefinition? analysis = terrain.Analyses.FirstOrDefault(item => item.Id == ownerId.Value);
+        if (analysis != null)
+            return terrain.ShowAnalysisOutputs && analysis.IsEnabled;
 
-        return terrain.Analyses.Any(analysis => analysis.Id == analysisId.Value && analysis.IsEnabled);
+        AnnotationDefinition? annotation = terrain.Annotations.FirstOrDefault(item => item.Id == ownerId.Value);
+        if (annotation != null)
+            return annotation.IsEnabled;
+
+        return false;
     }
 
     private static GeneratedObjectKind GetGeneratedObjectKind(ObjectAttributes? attributes)

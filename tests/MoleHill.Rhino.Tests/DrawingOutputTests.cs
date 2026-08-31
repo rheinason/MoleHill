@@ -101,7 +101,7 @@ public class DrawingOutputTests
     [Fact]
     public void SectionAnalysis_DefaultsToDerivedHatchScale()
     {
-        Assert.Equal(0.0, new TerrainSectionAnalysisDefinition().HatchScale);
+        Assert.Equal(0.0, new TerrainSectionAnnotationDefinition().HatchScale);
     }
 
     private static HatchPatternSnapshot Patterns(params (string Name, int Index, double Offset)[] entries)
@@ -136,7 +136,7 @@ public class DrawingOutputTests
     [Fact]
     public void IsMajorContourLevel_EveryFifthLevelFromStart_IsMajor()
     {
-        var analysis = new ContourAnalysisDefinition { Interval = 1.0, StartZ = 0.0, MajorEveryNth = 5 };
+        var analysis = new ContourAnnotationDefinition { Interval = 1.0, StartZ = 0.0, MajorEveryNth = 5 };
 
         Assert.True(TerrainBuildService.IsMajorContourLevel(0.0, analysis, 1e-6));
         Assert.False(TerrainBuildService.IsMajorContourLevel(1.0, analysis, 1e-6));
@@ -148,7 +148,7 @@ public class DrawingOutputTests
     [Fact]
     public void IsMajorContourLevel_NegativeElevations_StayOnTheSameGrid()
     {
-        var analysis = new ContourAnalysisDefinition { Interval = 1.0, StartZ = 0.0, MajorEveryNth = 5 };
+        var analysis = new ContourAnnotationDefinition { Interval = 1.0, StartZ = 0.0, MajorEveryNth = 5 };
 
         Assert.True(TerrainBuildService.IsMajorContourLevel(-5.0, analysis, 1e-6));
         Assert.False(TerrainBuildService.IsMajorContourLevel(-3.0, analysis, 1e-6));
@@ -158,7 +158,7 @@ public class DrawingOutputTests
     [Fact]
     public void IsMajorContourLevel_RespectsStartZOffset()
     {
-        var analysis = new ContourAnalysisDefinition { Interval = 0.5, StartZ = 0.25, MajorEveryNth = 4 };
+        var analysis = new ContourAnnotationDefinition { Interval = 0.5, StartZ = 0.25, MajorEveryNth = 4 };
 
         Assert.True(TerrainBuildService.IsMajorContourLevel(0.25, analysis, 1e-6));
         Assert.True(TerrainBuildService.IsMajorContourLevel(2.25, analysis, 1e-6));
@@ -168,7 +168,7 @@ public class DrawingOutputTests
     [Fact]
     public void IsMajorContourLevel_EveryNthOfOne_MakesEveryLevelMajor()
     {
-        var analysis = new ContourAnalysisDefinition { Interval = 1.0, StartZ = 0.0, MajorEveryNth = 1 };
+        var analysis = new ContourAnnotationDefinition { Interval = 1.0, StartZ = 0.0, MajorEveryNth = 1 };
 
         Assert.True(TerrainBuildService.IsMajorContourLevel(3.0, analysis, 1e-6));
         Assert.True(TerrainBuildService.IsMajorContourLevel(7.0, analysis, 1e-6));
@@ -177,7 +177,7 @@ public class DrawingOutputTests
     [Fact]
     public void IsMajorContourLevel_LevelOffTheIntervalGrid_IsNotMajor()
     {
-        var analysis = new ContourAnalysisDefinition { Interval = 1.0, StartZ = 0.0, MajorEveryNth = 5 };
+        var analysis = new ContourAnnotationDefinition { Interval = 1.0, StartZ = 0.0, MajorEveryNth = 5 };
 
         Assert.False(TerrainBuildService.IsMajorContourLevel(5.4, analysis, 1e-6));
     }
@@ -185,7 +185,7 @@ public class DrawingOutputTests
     [Fact]
     public void ContourLevelRole_SplitEnabled_SeparatesMajorFromMinor()
     {
-        var analysis = new ContourAnalysisDefinition { SeparateMajorMinorLayers = true };
+        var analysis = new ContourAnnotationDefinition { SeparateMajorMinorLayers = true };
 
         Assert.Equal(LayerRole.ContoursMajor, TerrainBuildService.ResolveContourLevelRole(analysis, isMajor: true));
         Assert.Equal(LayerRole.ContoursMinor, TerrainBuildService.ResolveContourLevelRole(analysis, isMajor: false));
@@ -198,7 +198,7 @@ public class DrawingOutputTests
     [Fact]
     public void ContourLevelRole_SplitDisabled_KeepsEveryLevelOnOneLayer()
     {
-        var analysis = new ContourAnalysisDefinition { SeparateMajorMinorLayers = false };
+        var analysis = new ContourAnnotationDefinition { SeparateMajorMinorLayers = false };
 
         Assert.Equal(LayerRole.Contours, TerrainBuildService.ResolveContourLevelRole(analysis, isMajor: true));
         Assert.Equal(LayerRole.Contours, TerrainBuildService.ResolveContourLevelRole(analysis, isMajor: false));
@@ -237,7 +237,7 @@ public class DrawingOutputTests
         """;
 
         TerrainDefinition terrain = TerrainSerializer.Deserialize(legacyJson).Single();
-        var contour = terrain.Analyses.OfType<ContourAnalysisDefinition>().Single();
+        var contour = terrain.Annotations.OfType<ContourAnnotationDefinition>().Single();
 
         Assert.False(contour.SeparateMajorMinorLayers);
     }
@@ -245,7 +245,7 @@ public class DrawingOutputTests
     [Fact]
     public void NewContourAnalysis_SplitsMajorMinorByDefault()
     {
-        var contour = new ContourAnalysisDefinition();
+        var contour = new ContourAnnotationDefinition();
 
         Assert.True(contour.SeparateMajorMinorLayers);
         Assert.Equal(5, contour.MajorEveryNth);

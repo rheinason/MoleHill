@@ -12,7 +12,7 @@ internal sealed partial class TerrainBuildService
     private static ulong ComputeAnalysisFingerprint(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,
-        AnalysisDefinition analysis,
+        ITerrainContentItem analysis,
         RhinoMesh baseMesh,
         RhinoMesh currentMesh,
         ulong baseMeshFingerprint,
@@ -27,10 +27,17 @@ internal sealed partial class TerrainBuildService
             builder.Add(baseMeshFingerprint != 0 ? baseMeshFingerprint : ComputeMeshFingerprint(baseMesh));
 
         AddSerializedFingerprint(ref builder, analysis, analysis.GetType());
-        foreach (var sourceSet in analysis.EnumerateSourceSets())
+
+        IEnumerable<SourceReferenceSet> sourceSets = analysis switch
+        {
+            AnalysisDefinition definition => definition.EnumerateSourceSets(),
+            AnnotationDefinition definition => definition.EnumerateSourceSets(),
+            _ => Array.Empty<SourceReferenceSet>()
+        };
+        foreach (var sourceSet in sourceSets)
             builder.Add(ComputeSourceSetFingerprint(snapshot, sourceSet));
 
-        if (analysis is TerrainSectionAnalysisDefinitionBase section)
+        if (analysis is TerrainSectionAnnotationDefinitionBase section)
         {
             foreach (Guid terrainId in section.ComparisonTerrainIds)
             {

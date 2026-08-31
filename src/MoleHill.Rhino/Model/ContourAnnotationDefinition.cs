@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 namespace MoleHill.Rhino.Model;
 
-public sealed class ContourAnalysisDefinition : AnalysisDefinition
+public sealed class ContourAnnotationDefinition : AnnotationDefinition
 {
     public double Interval { get; set; } = 1.0;
 
@@ -42,7 +42,7 @@ public sealed class ContourAnalysisDefinition : AnalysisDefinition
     /// <summary>Numeric format string applied to contour elevation labels.</summary>
     public string LabelFormat { get; set; } = "F2";
 
-    public ContourAnalysisDefinition()
+    public ContourAnnotationDefinition()
     {
         Label = "Contours";
     }

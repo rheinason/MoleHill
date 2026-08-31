@@ -13,11 +13,16 @@ There are four parallel families, each with a `*TypeDescriptor` base + reflectio
 - **Markers** — `MarkerTypeDescriptor`/`MarkerTypeRegistry` (factory + add-button text/help).
 - **Analyses** — `AnalysisTypeDescriptor`/`AnalysisTypeRegistry` (factory + menu grouping + card chrome +
   `Parameters` schema cards, same shape as modifiers). Per-type collapsed summary, computed
-  summaries/legends, the slope-unit-with-range-conversion editor, and the section insertion-origin picker
-  aren't schema-expressible and stay bespoke in `MoleHillPanel.Analysis.cs`
-  (`AppendBespokeAnalysisRowsBefore`/`After`).
+  summaries/legends, and the slope-unit-with-range-conversion editor aren't schema-expressible and stay
+  bespoke in `MoleHillPanel.Analysis.cs` (`AppendBespokeAnalysisRowsBefore`/`After`).
+- **Annotations** — `AnnotationTypeDescriptor`/`AnnotationTypeRegistry`, the same shape against
+  `AnnotationDefinition`. Its bespoke rows (section sources, insertion-origin picker, comparison terrains)
+  live in `MoleHillPanel.Annotations.cs` (`AppendBespokeAnnotationRowsBefore`/`After`). There is no
+  `IsAnnotation` flag any more: which family a type belongs to is settled by which descriptor base it
+  derives from, so the two cannot disagree. Analyses evaluate the terrain, annotations describe it — see
+  `docs/architecture.md` → "Analysis vs annotation".
 
-All four feed `Services/TerrainJsonTypeResolver`, which builds JSON polymorphism for every family from
+All five feed `Services/TerrainJsonTypeResolver`, which builds JSON polymorphism for every family from
 its registry — there are **no `[JsonDerivedType]` lists** on the definition bases anymore. Discriminator
 strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` files load.
 
@@ -54,6 +59,8 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
 - `ObjectParameterDescriptor.cs` — the matching object-card vocabulary against `TerrainObjectDefinition`.
   Shared rotation/scale/seed controls are declared once; Scatter adds mode-dependent density, filter,
   preview, and block-mix descriptors.
+- `AnnotationParameterDescriptor.cs` — the same shape against `AnnotationDefinition`, minus `ColorRamp`:
+  annotations draw, they are never colour-mapped.
 - `AnalysisParameterDescriptor.cs` — the same shape against `AnalysisDefinition` (separate type because the
   accessor delegates are typed differently). Adds two mutate-mode flags plain modifiers don't need:
   `RefreshOnly` (cheap preview recolor via `MutateAndRefreshAnalysis`, e.g. palette/range on Slope/

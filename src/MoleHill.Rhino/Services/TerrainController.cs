@@ -536,6 +536,24 @@ internal sealed partial class TerrainController
         }, scheduleRebuild: false);
     }
 
+    public void DuplicateAnnotation(RhinoDoc doc, Guid terrainId, Guid annotationId)
+    {
+        MutateTerrain(doc, terrainId, terrain =>
+        {
+            int index = terrain.Annotations.FindIndex(item => item.Id == annotationId);
+            if (index < 0)
+                return;
+
+            var clone = CloneAnnotation(terrain.Annotations[index]);
+            if (clone == null)
+                return;
+
+            clone.Id = Guid.NewGuid();
+            clone.Label += " Copy";
+            terrain.Annotations.Insert(index + 1, clone);
+        }, scheduleRebuild: false);
+    }
+
     public void AddMarker(RhinoDoc doc, Guid terrainId, string markerKind)
     {
         MutateTerrain(doc, terrainId, terrain =>
@@ -785,6 +803,8 @@ internal sealed partial class TerrainController
             zone.ZoneId = Guid.NewGuid();
         foreach (var analysis in clone.Analyses)
             analysis.Id = Guid.NewGuid();
+        foreach (var annotation in clone.Annotations)
+            annotation.Id = Guid.NewGuid();
 
         state.Terrains.Add(clone);
         state.SelectedTerrainId = clone.TerrainId;
@@ -1314,7 +1334,7 @@ internal sealed partial class TerrainController
         if (terrain == null)
             return;
 
-        var analysis = terrain.Analyses.OfType<ContourAnalysisDefinition>().FirstOrDefault(a => a.Id == analysisId);
+        var analysis = terrain.Annotations.OfType<ContourAnnotationDefinition>().FirstOrDefault(a => a.Id == analysisId);
         if (analysis == null)
             return;
 
@@ -1452,6 +1472,12 @@ internal sealed partial class TerrainController
         return JsonSerializer.Deserialize(json, definition.GetType()) as TerrainObjectDefinition;
     }
 
+    private static AnnotationDefinition? CloneAnnotation(AnnotationDefinition annotation)
+    {
+        string json = JsonSerializer.Serialize(annotation, annotation.GetType(), TerrainSerializer.SharedOptions);
+        return JsonSerializer.Deserialize(json, annotation.GetType()) as AnnotationDefinition;
+    }
+
     private static AnalysisDefinition? CloneAnalysis(AnalysisDefinition analysis)
     {
         string json = JsonSerializer.Serialize(analysis, analysis.GetType());
@@ -1488,8 +1514,8 @@ internal sealed partial class TerrainController
             return TerrainBuildSnapshotBuilder.Create(doc, terrain, references);
 
         DocumentState state = GetState(doc);
-        IEnumerable<Guid> referencedIds = terrain.Analyses
-            .OfType<TerrainSectionAnalysisDefinitionBase>()
+        IEnumerable<Guid> referencedIds = terrain.Annotations
+            .OfType<TerrainSectionAnnotationDefinitionBase>()
             .Where(analysis => analysis.IsEnabled)
             .SelectMany(analysis => analysis.ComparisonTerrainIds)
             .Where(id => id != Guid.Empty && id != terrain.TerrainId)
@@ -1523,8 +1549,8 @@ internal sealed partial class TerrainController
         {
             if (dependent.TerrainId == referencedTerrainId || !dependent.LiveUpdateEnabled)
                 continue;
-            bool referencesTerrain = dependent.Analyses
-                .OfType<TerrainSectionAnalysisDefinitionBase>()
+            bool referencesTerrain = dependent.Annotations
+                .OfType<TerrainSectionAnnotationDefinitionBase>()
                 .Any(analysis => analysis.IsEnabled && analysis.ComparisonTerrainIds.Contains(referencedTerrainId));
             if (referencesTerrain)
                 ScheduleRebuild(doc, dependent.TerrainId, notify: false);
@@ -1536,7 +1562,7 @@ internal sealed partial class TerrainController
         foreach (TerrainDefinition terrain in state.Terrains)
         {
             bool changed = false;
-            foreach (TerrainSectionAnalysisDefinitionBase section in terrain.Analyses.OfType<TerrainSectionAnalysisDefinitionBase>())
+            foreach (TerrainSectionAnnotationDefinitionBase section in terrain.Annotations.OfType<TerrainSectionAnnotationDefinitionBase>())
             {
                 changed |= section.ComparisonTerrainIds.RemoveAll(id => id == removedTerrainId) > 0;
                 if (section.CutFillReferenceTerrainId == removedTerrainId)

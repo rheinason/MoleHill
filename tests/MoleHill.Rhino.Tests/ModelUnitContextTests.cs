@@ -42,8 +42,8 @@ public sealed class ModelUnitContextTests
             TerrainTypeRegistry.CreateModifier("grade-path", context));
         var wall = Assert.IsType<RetainingWallModifierDefinition>(
             TerrainTypeRegistry.CreateModifier("retaining-wall", context));
-        var contour = Assert.IsType<ContourAnalysisDefinition>(
-            AnalysisTypeRegistry.Create("contour", context));
+        var contour = Assert.IsType<ContourAnnotationDefinition>(
+            AnnotationTypeRegistry.Create("contour", context));
         var scatter = Assert.IsType<ScatterObjectDefinition>(
             ObjectTypeRegistry.Create("scatter", context));
 
