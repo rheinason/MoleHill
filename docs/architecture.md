@@ -25,7 +25,7 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   on width changes. Its compact mode targets a 240-logical-pixel panel: simple properties retain a
   label/control split, secondary card metadata yields first, tab labels become icons, and infrequent
   toolbar commands move into overflow rather than forcing horizontal or excessive vertical scrolling.
-  Modifier, analysis, and object
+  Modifier, analysis, annotation, and object
   settings are descriptor-driven; only specialized summaries and the scatter block-mix editor remain
   bespoke. Compact action buttons use
   `UI/PanelButtonIcons.cs`, a theme-aware vector icon set rendered to Eto images.
@@ -148,7 +148,7 @@ solves are blocked until real model units are set.
 
 Physical defaults are authored in metres and converted by the Rhino registries or GH solve context.
 When Rhino changes units with geometry scaling, `TerrainController` applies the exact event scale to all
-persisted dimensional state: tolerances; modifier, analysis, section, annotation, and scatter lengths;
+persisted dimensional state: tolerances; modifier, analysis, annotation, section, and scatter lengths;
 areas, volumes, inverse-area density; object-placement translations; cached summaries; and sculpt cell
 sizes/displacement payloads. Ratios, angles, percentages, counts, axes, random/block scale, and paper-
 space plot weights remain unchanged. Runtime caches are discarded and live terrains rebuild.
@@ -318,9 +318,53 @@ TIN production path's faster Triangle.NET-native adjacency.
 fingerprint cache (`runtimeCache.StageEntries`); decomposed into `TerrainBuildService.*.cs` partials
 (`.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Sculpt`,
 plus `.Cache`, `.Fingerprints`, `.Types`). Order: TIN → modifiers (smooth/remesh/sculpt/grade pad/
-grade path) → analysis → zones → markers → object placements → scatter. **The generated-output stages run only in
-`TerrainBuildMode.Final` and are fingerprint-cached**. Analyses are cached independently by analysis id;
-zones, markers, objects, and scatter retain stage-level entries.
+grade path) → analyses → annotations → zones → markers → object placements → scatter. **The generated-output
+stages run only in `TerrainBuildMode.Final` and are fingerprint-cached**. Analyses and annotations are each
+cached independently by id; zones, markers, objects, and scatter retain stage-level entries. Both families
+run through one `RunStage` local function in `.Analysis.cs` — the stage scaffolding (enabled check,
+fingerprint, stage cache, timing) does not care which kind of content it runs, so it takes an
+`ITerrainContentItem`, while the switch that decides *what to compute* stays separate per family.
+
+
+### Analysis vs annotation
+
+**An analysis evaluates the terrain; an annotation describes it.** That is the whole test, and it decides
+which family a type belongs to:
+
+- **Analysis** (`Model/AnalysisDefinition`, `Registry/AnalysisTypeRegistry`) — slope, elevation, cut/fill,
+  earthworks, waterflow. The result is a measurement: a number, or a colour mapped onto the mesh. Only
+  these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`, `ResolveRamp()`).
+- **Annotation** (`Model/AnnotationDefinition`, `Registry/AnnotationTypeRegistry`) — contours, spot heights,
+  spot slopes, flow arrows, grade callouts, and the three section types. The result is drawing, and it
+  says what is already there. Only these carry `FollowsAnnotationStyle`.
+
+Waterflow is an analysis despite emitting curves: it *computes* flow paths, so its output is a finding,
+not a label. Earthworks is an analysis despite drawing nothing: a volume is a measurement.
+
+The two are **peer families, not a base and a subclass** — the same shape as `ModifierDefinition`,
+`MarkerDefinition`, and `TerrainObjectDefinition`, each with its own definition root, type registry,
+descriptor, parameter descriptor, schema row builder, and JSON discriminator family. They were one family
+until schema 31, which cost real behaviour: every section and label inherited ~80 lines of ramp machinery
+it never used and persisted into the document, and a single `ShowAnalysisOutputs` flag gated both, so
+hiding slope colours also silently hid every label and section.
+
+**Annotations have no terrain-level visibility flag at all.** An annotation *is* the drawing, so it is
+always drawn; its per-card `IsEnabled` checkbox is the only control, and the Annotations tab correspondingly
+has no eye button. `ShowAnalysisOutputs` governs analyses alone. Replacing the fused flag with two flags
+would have been the obvious move and is wrong: it just gives you a second way to lose your drawing.
+
+`Model/ITerrainContentItem` (Id, Label, IsEnabled) is the *only* thing the two share. It is deliberately
+an interface over identity, not a base class: it exists so cross-cutting scaffolding that genuinely does
+not care — the build stage runner, fingerprinting, the legacy layer-routing walk — can be written once.
+Anything that needs to know what the content *means* still matches the concrete family type, and
+`RegistryGuardTests.AnalysisAndAnnotationFamilies_AreDisjoint` pins that the two stay apart.
+
+**Discriminators were not renamed.** `contour`, `terrain-section`, `longitudinal-section` and the rest
+mean what they always did, so the move is invisible to saved documents. `TerrainSerializer.SplitLegacyAnnotations`
+rewrites a pre-31 document's single `analyses` array into the two arrays *before* the envelope binds —
+without it, annotation discriminators are no longer valid under `AnalysisDefinition` and the document
+fails to load outright. A pre-31 document with `showAnalysisOutputs: false` keeps its analyses hidden and
+starts drawing its annotations — the correct reading of a flag that only ever meant "hide the analysis".
 
 - **TIN inputs** are resolved by `TerrainBuildSnapshotResolver` from a `TerrainBuildSnapshot` (built by
   `TerrainBuildSnapshotBuilder` from the live doc). A Triangulate **Boundary** now pre-filters inputs to
@@ -392,7 +436,7 @@ zones, markers, objects, and scatter retain stage-level entries.
   requiring a second terrain to ask it made the feature unreachable for the case it exists to serve. An
   explicit reference still wins, for comparing against surveyed ground that is not this terrain's own
   starting point. A missing reference is therefore never an error — the card states which basis is in use
-  (`AnalysisTypeDescriptor.DescribeBasis`) rather than demanding a surface it does not need.
+  (`DescribeBasis` on either descriptor) rather than demanding a surface it does not need.
 - **A section cut plane is nudged off mesh vertices.** `Intersection.MeshPlane` drops whole spans when the
   plane passes exactly through vertices, returning the profile as disjoint runs where the mesh is
   continuous. Grading makes that the normal case, not a freak one: batter re-triangulation lands vertices
@@ -405,7 +449,7 @@ zones, markers, objects, and scatter retain stage-level entries.
   across a hundred of length, so at true scale the subject collapses to a hairline. `VerticalExaggeration`
   was previously declared on two of the three section types and the plain Section Cut passed a hard-coded
   1.0 — the section people reach for first was the one that could not be exaggerated. It is now one
-  property on `TerrainSectionAnalysisDefinitionBase` and one shared schema row.
+  property on `TerrainSectionAnnotationDefinitionBase` and one shared schema row.
 - **Section drawing conventions.** The sectioned terrain — the finished stack — is the subject: the
   heaviest line on the drawing, black, layer-driven rather than tinted with the terrain's preview colour
   (a screen colour that prints as an arbitrary pastel). Existing ground is context, drawn light grey from
@@ -413,7 +457,7 @@ zones, markers, objects, and scatter retain stage-level entries.
   cut or filled instead of being implied by the edge of a hatch. Cut and fill are solid tints told apart
   by layer colour, not by hatch pattern: line hatches alias into a grey wash at drawing zoom and show one
   or two strokes in a shallow wedge, while a solid tint carries its colour at any size.
-- **An analysis that cannot run says which input it is waiting on.** `AnalysisTypeDescriptor.DescribeBlocker`
+- **An analysis or annotation that cannot run says which input it is waiting on.** `AnalysisTypeDescriptor.DescribeBlocker` / `AnnotationTypeDescriptor.DescribeBlocker`
   declares the missing prerequisite and the panel shows it above the card's controls. Cut/fill with no
   reference is the case that prompted it: it fell back to the terrain's own base mesh, coloured every face
   zero, and looked broken rather than unconfigured.
@@ -507,7 +551,7 @@ Rhino's, and a layer belongs to the user once it exists. There is no page/sheet 
   weight are stamped on the object or left ByLayer, and its value comes from the role descriptor rather
   than being set at each producer. Drawing output is ByLayer; output whose colour carries meaning (zone
   colours, analysis colour ramps) stays ByObject. See **Output layer roles** below.
-- **Contours split major/minor by layer.** `ContourAnalysisDefinition.MajorEveryNth` (default 5) and
+- **Contours split major/minor by layer.** `ContourAnnotationDefinition.MajorEveryNth` (default 5) and
   `SeparateMajorMinorLayers` choose between the `ContoursMajor` / `ContoursMinor` roles and the plain
   `Contours` role. Majorness is keyed on elevation, not on the ordinal of levels that happened to produce
   curves, so an empty level cannot shift the pattern between builds.
