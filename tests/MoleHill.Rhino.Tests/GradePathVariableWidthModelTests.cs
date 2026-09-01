@@ -60,7 +60,7 @@ public sealed class GradePathVariableWidthModelTests
 
         foreach (string key in new[] { "WidthEdges", "MaxEdgeDistance" })
         {
-            ParameterDescriptor parameter = descriptor.Parameters.Single(item => item.Key == key);
+            ParameterDescriptor<ModifierDefinition> parameter = descriptor.Parameters.Single(item => item.Key == key);
             Assert.NotNull(parameter.VisibleWhen);
             Assert.False(parameter.VisibleWhen!(modifier));
 

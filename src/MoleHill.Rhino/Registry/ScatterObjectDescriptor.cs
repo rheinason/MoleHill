@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using MoleHill.Core.Scattering;
 using MoleHill.Rhino.Model;
+using ObjectParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.TerrainObjectDefinition>;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
 namespace MoleHill.Rhino.Registry;
@@ -19,9 +20,9 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
     public override int SortOrder => 2;
     public override TerrainObjectDefinition Create() => new ScatterObjectDefinition();
 
-    public override IReadOnlyList<ObjectParameterDescriptor> Parameters { get; } = BuildParameters();
+    public override IReadOnlyList<ObjectParam> Parameters { get; } = BuildParameters();
 
-    private static IReadOnlyList<ObjectParameterDescriptor> BuildParameters()
+    private static IReadOnlyList<ObjectParam> BuildParameters()
     {
         static bool IsCurve(TerrainObjectDefinition definition) =>
             definition is ScatterObjectDefinition scatter && scatter.SourceMode == ScatterSourceMode.Curve;
@@ -30,9 +31,9 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
         static bool IsDensity(TerrainObjectDefinition definition, ScatterDensityMode mode) =>
             definition is ScatterObjectDefinition scatter && scatter.DensityMode == mode;
 
-        var parameters = new List<ObjectParameterDescriptor>
+        var parameters = new List<ObjectParam>
         {
-            ObjectParameterDescriptor.Choice(
+            ObjectParam.Choice(
                 "sourceMode",
                 "Source",
                 new (string, string)[] { ("Region", "Within region"), ("Curve", "Along curve") },
@@ -48,7 +49,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 },
                 "Region: fill inside closed boundaries. Curve: distribute along open curves.",
                 rebuildAfterCommit: true),
-            ObjectParameterDescriptor.Sources(
+            ObjectParam.Sources(
                 "scatterSource",
                 "Source",
                 definition => IsCurve(definition)
@@ -56,15 +57,12 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                     : ((ScatterObjectDefinition)definition).Boundaries,
                 RhinoObjectType.Curve,
                 "Closed boundaries or open curves and/or layers for the scatter.",
-                definition => IsCurve(definition) ? "Curves" : "Boundaries"),
-            new ObjectParameterDescriptor
-            {
-                Kind = ObjectParameterKind.BlockMix,
-                Key = "blocks",
-                Label = "Block Mix",
-                Help = "Weighted block definitions to scatter.",
-            },
-            ObjectParameterDescriptor.Choice(
+                labelFor: definition => IsCurve(definition) ? "Curves" : "Boundaries"),
+            ObjectParam.BlockMix(
+                "blocks",
+                "Block Mix",
+                "Weighted block definitions to scatter."),
+            ObjectParam.Choice(
                 "pattern",
                 "Pattern",
                 new (string, string)[] { ("Random", "Random"), ("Grid", "Grid"), ("JitteredGrid", "Jittered Grid"), ("PoissonDisk", "Poisson") },
@@ -72,7 +70,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 (definition, value) => ((ScatterObjectDefinition)definition).Pattern = Enum.Parse<ScatterPattern>(value!),
                 "How instances are arranged inside the boundary.",
                 visibleWhen: IsRegion),
-            ObjectParameterDescriptor.Choice(
+            ObjectParam.Choice(
                 "densityMode",
                 "Density Mode",
                 new (string, string)[] { ("Count", "Total count"), ("PerArea", "Per area"), ("Spacing", "Min spacing"), ("EdgeToEdge", "Edge-to-edge") },
@@ -80,10 +78,10 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 (definition, value) => ((ScatterObjectDefinition)definition).DensityMode = Enum.Parse<ScatterDensityMode>(value!),
                 "Choose whether scatter is controlled by count, density, or spacing.",
                 rebuildAfterCommit: true,
-                choiceOptionsFor: definition => IsCurve(definition)
+                optionsFor: definition => IsCurve(definition)
                     ? new (string, string)[] { ("Count", "Total count"), ("Spacing", "Centre spacing"), ("EdgeToEdge", "Edge-to-edge") }
                     : new (string, string)[] { ("Count", "Total count"), ("PerArea", "Per area"), ("Spacing", "Min spacing") }),
-            ObjectParameterDescriptor.Number(
+            ObjectParam.Number(
                 "perAreaDensity",
                 "Per Area",
                 definition => ((ScatterObjectDefinition)definition).PerAreaDensity,
@@ -94,7 +92,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 liveEdit: true,
                 liveScrub: true,
                 visibleWhen: definition => IsDensity(definition, ScatterDensityMode.PerArea)),
-            ObjectParameterDescriptor.Number(
+            ObjectParam.Number(
                 "spacing",
                 "Spacing",
                 definition => ((ScatterObjectDefinition)definition).Spacing,
@@ -104,7 +102,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 liveEdit: true,
                 liveScrub: true,
                 visibleWhen: definition => IsDensity(definition, ScatterDensityMode.Spacing)),
-            ObjectParameterDescriptor.Number(
+            ObjectParam.Number(
                 "edgeGap",
                 "Edge Gap",
                 definition => ((ScatterObjectDefinition)definition).EdgeGap,
@@ -114,7 +112,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 liveEdit: true,
                 liveScrub: true,
                 visibleWhen: definition => IsDensity(definition, ScatterDensityMode.EdgeToEdge)),
-            ObjectParameterDescriptor.Slider(
+            ObjectParam.Slider(
                 "count",
                 "Count",
                 definition => ((ScatterObjectDefinition)definition).Count,
@@ -126,7 +124,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 decimalPlaces: 0,
                 liveScrub: true,
                 visibleWhen: definition => IsDensity(definition, ScatterDensityMode.Count)),
-            ObjectParameterDescriptor.Slider(
+            ObjectParam.Slider(
                 "alongJitter",
                 "Randomness",
                 definition => ((ScatterObjectDefinition)definition).AlongJitter,
@@ -139,7 +137,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 decimalPlaces: 2,
                 liveScrub: true,
                 visibleWhen: definition => IsCurve(definition) && !IsDensity(definition, ScatterDensityMode.EdgeToEdge)),
-            ObjectParameterDescriptor.Choice(
+            ObjectParam.Choice(
                 "blockOrder",
                 "Block order",
                 new (string, string)[] { ("Random", "Random (by weight)"), ("Sequence", "In sequence") },
@@ -147,7 +145,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 (definition, value) => ((ScatterObjectDefinition)definition).BlockOrder = Enum.Parse<ScatterBlockOrder>(value!),
                 "Random: choose by weight. Sequence: cycle the block list in order.",
                 visibleWhen: definition => IsCurve(definition) && definition is ScatterObjectDefinition scatter && scatter.Blocks.Count > 1),
-            ObjectParameterDescriptor.Slider(
+            ObjectParam.Slider(
                 "jitterXy",
                 "XY Jitter",
                 definition => ((ScatterObjectDefinition)definition).JitterXy,
@@ -158,27 +156,27 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 hardMin: 0.0,
                 liveScrub: true,
                 visibleWhen: IsCurve),
-            ObjectParameterDescriptor.Bool(
+            ObjectParam.Bool(
                 "alignToTangent",
                 "Align to tangent",
                 definition => ((ScatterObjectDefinition)definition).AlignToTangent,
                 (definition, value) => ((ScatterObjectDefinition)definition).AlignToTangent = value,
                 "Orient instances to follow the curve direction.",
                 rebuildAfterCommit: false),
-            ObjectParameterDescriptor.Bool(
+            ObjectParam.Bool(
                 "alignToSlope",
                 "Align to slope",
                 definition => ((ScatterObjectDefinition)definition).AlignToSlope,
                 (definition, value) => ((ScatterObjectDefinition)definition).AlignToSlope = value,
                 "Orient instances to the terrain normal."),
-            ObjectParameterDescriptor.Bool(
+            ObjectParam.Bool(
                 "slopeFilterEnabled",
                 "Slope filter",
                 definition => ((ScatterObjectDefinition)definition).SlopeFilterEnabled,
                 (definition, value) => ((ScatterObjectDefinition)definition).SlopeFilterEnabled = value,
                 "Only place instances within the slope range below.",
                 rebuildAfterCommit: true),
-            ObjectParameterDescriptor.Slider(
+            ObjectParam.Slider(
                 "slopeMinDegrees",
                 "Slope Min",
                 definition => ((ScatterObjectDefinition)definition).SlopeMinDegrees,
@@ -191,7 +189,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 decimalPlaces: 1,
                 liveScrub: true,
                 visibleWhen: definition => definition is ScatterObjectDefinition scatter && scatter.SlopeFilterEnabled),
-            ObjectParameterDescriptor.Slider(
+            ObjectParam.Slider(
                 "slopeMaxDegrees",
                 "Slope Max",
                 definition => ((ScatterObjectDefinition)definition).SlopeMaxDegrees,
@@ -204,14 +202,14 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 decimalPlaces: 1,
                 liveScrub: true,
                 visibleWhen: definition => definition is ScatterObjectDefinition scatter && scatter.SlopeFilterEnabled),
-            ObjectParameterDescriptor.Bool(
+            ObjectParam.Bool(
                 "elevationFilterEnabled",
                 "Elevation filter",
                 definition => ((ScatterObjectDefinition)definition).ElevationFilterEnabled,
                 (definition, value) => ((ScatterObjectDefinition)definition).ElevationFilterEnabled = value,
                 "Only place instances within the elevation range below.",
                 rebuildAfterCommit: true),
-            ObjectParameterDescriptor.Number(
+            ObjectParam.Number(
                 "elevationMin",
                 "Elevation Min",
                 definition => ((ScatterObjectDefinition)definition).ElevationMin,
@@ -221,7 +219,7 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
                 liveEdit: true,
                 liveScrub: true,
                 visibleWhen: definition => definition is ScatterObjectDefinition scatter && scatter.ElevationFilterEnabled),
-            ObjectParameterDescriptor.Number(
+            ObjectParam.Number(
                 "elevationMax",
                 "Elevation Max",
                 definition => ((ScatterObjectDefinition)definition).ElevationMax,
@@ -234,14 +232,14 @@ internal sealed class ScatterObjectDescriptor : ObjectTypeDescriptor
         };
 
         parameters.AddRange(ObjectParameterCatalog.CommonTransforms);
-        parameters.Add(ObjectParameterDescriptor.Choice(
+        parameters.Add(ObjectParam.Choice(
             "previewMode",
             "Preview",
             new (string, string)[] { ("Points", "Point cloud"), ("ShapePoints", "Shape points"), ("BoundingBox", "Bounding boxes"), ("Instances", "Real (capped)") },
             definition => ((ScatterObjectDefinition)definition).PreviewMode.ToString(),
             (definition, value) => ((ScatterObjectDefinition)definition).PreviewMode = Enum.Parse<ScatterPreviewMode>(value!),
             "How the scatter draws while editing. Bake always produces real block instances."));
-        parameters.Add(ObjectParameterDescriptor.Number(
+        parameters.Add(ObjectParam.Number(
             "previewCap",
             "Preview Cap",
             definition => ((ScatterObjectDefinition)definition).PreviewCap,

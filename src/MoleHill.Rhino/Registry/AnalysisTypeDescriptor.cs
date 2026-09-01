@@ -47,7 +47,7 @@ internal abstract class AnalysisTypeDescriptor
     /// stays in the panel's bespoke before/after hooks. Empty means "schema covers nothing" — the panel
     /// falls back entirely to bespoke rows for this type.
     /// </summary>
-    public virtual IReadOnlyList<AnalysisParameterDescriptor> Parameters => Array.Empty<AnalysisParameterDescriptor>();
+    public virtual IReadOnlyList<ParameterDescriptor<AnalysisDefinition>> Parameters => Array.Empty<ParameterDescriptor<AnalysisDefinition>>();
 
     /// <summary>
     /// Why this analysis cannot produce anything yet, or null when it is ready.

@@ -2,6 +2,7 @@ using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using ModifierParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.ModifierDefinition>;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -16,24 +17,24 @@ internal sealed class GradePadModifierDescriptor : ModifierTypeDescriptor
     public override ModifierDefinition Create(UnitSystem unitSystem) => new GradePadModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunGradePadStage(context);
 
-    public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
-        ParameterDescriptor.Sources(
+        ModifierParam.Sources(
             "Boundaries", "Boundaries",
             m => ((GradePadModifierDefinition)m).Boundaries,
             RhinoObjectType.Curve),
-        ParameterDescriptor.Number(
+        ModifierParam.Number(
             "SlopeAngle", "Fill Slope",
             m => ((GradePadModifierDefinition)m).SlopeAngle,
             (m, v) => ((GradePadModifierDefinition)m).SlopeAngle = v,
             "Fill slope in degrees, used where terrain sits below the pad. This is the main slope; the cut slope inherits it unless overridden. Boundary curve Z defines the finished pad plane; lower values are flatter and extend farther."),
-        ParameterDescriptor.OptionalNumber(
+        ModifierParam.OptionalNumber(
             "CutSlopeAngle", "Cut Slope",
             m => ((GradePadModifierDefinition)m).CutSlopeAngle,
             (m, v) => ((GradePadModifierDefinition)m).CutSlopeAngle = v,
             m => ((GradePadModifierDefinition)m).SlopeAngle,
             "Cut slope override in degrees, used where terrain sits above the pad. Leave blank to use the fill slope."),
-        ParameterDescriptor.Number(
+        ModifierParam.Number(
             "MaxDistance", "Max Distance",
             m => ((GradePadModifierDefinition)m).MaxDistance,
             (m, v) => ((GradePadModifierDefinition)m).MaxDistance = v,

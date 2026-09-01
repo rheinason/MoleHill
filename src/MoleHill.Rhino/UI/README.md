@@ -31,7 +31,7 @@ fields by composing them, not by copying boilerplate.
   warning when an uneven incoming TIN has no earlier Remesh modifier. Triangulate keeps its source rows
   together, then shows Work area, Contour Mode, and a titled Peel Border settings group.
 - `ColorRampControl.cs`, `ColorRampBar.cs`, `ScrubField.cs`, and `MoleHillPanel.ColorRamp.cs` - the
-  colour-ramp card, declared by `AnalysisParameterDescriptor.ColorRamp()` and rendered for Slope,
+  colour-ramp card, declared by `ParameterDescriptor<AnalysisDefinition>.ColorRamp()` and rendered for Slope,
   Elevation and Cut/Fill. It replaced three separate things: the "Coloring & intervals" group, the
   read-only legend below it, and the "Mapped" summary row between them - a legend you can edit needs no
   separate editor. Collapsed it is a legend (histogram, ramp, ticks, mapping controls); clicking the ramp

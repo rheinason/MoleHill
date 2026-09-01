@@ -2,6 +2,7 @@ using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using ModifierParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.ModifierDefinition>;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -17,21 +18,21 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunAddGeometryStage(context);
 
     // Source rows only. The boundary-peel block is appended via the panel's bespoke-rows hook.
-    public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
-        ParameterDescriptor.Sources(
+        ModifierParam.Sources(
             "Points", "Points",
             m => ((AddGeometryModifierDefinition)m).Points,
             RhinoObjectType.Point | RhinoObjectType.PointSet),
-        ParameterDescriptor.Sources(
+        ModifierParam.Sources(
             "Breaklines", "Breaklines",
             m => ((AddGeometryModifierDefinition)m).Breaklines,
             RhinoObjectType.Curve),
-        ParameterDescriptor.Sources(
+        ModifierParam.Sources(
             "Contours", "Contours",
             m => ((AddGeometryModifierDefinition)m).Contours,
             RhinoObjectType.Curve),
-        ParameterDescriptor.Sources(
+        ModifierParam.Sources(
             "Boundary", "Boundary",
             m => ((AddGeometryModifierDefinition)m).Boundary,
             RhinoObjectType.Curve),

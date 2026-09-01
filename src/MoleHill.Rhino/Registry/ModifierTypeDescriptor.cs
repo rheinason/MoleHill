@@ -7,9 +7,9 @@ namespace MoleHill.Rhino.Registry;
 /// Self-registering descriptor for one terrain modifier type — the Blender-style "register a type and
 /// it appears everywhere" unit. Discovered by reflection in <see cref="TerrainTypeRegistry"/>; adding a
 /// modifier should mean dropping one descriptor (plus its definition) rather than editing switches in
-/// the build service, controller, panel, and serializer. This is the foundation: it currently supplies
-/// the kind/CLR-type/factory; build-handler and parameter-schema members will be added as the migration
-/// proceeds (see docs/cleanup-plan / the modular-refactor plan).
+/// the build service, controller, panel, and serializer. It supplies the kind/CLR-type/factory, the build
+/// handler (<see cref="RunBuildStage"/>), the menu and card chrome, and the parameter schema — so a
+/// modifier's serialization, menu entry, build dispatch and card all follow from this one file.
 /// </summary>
 internal abstract class ModifierTypeDescriptor
 {
@@ -41,7 +41,7 @@ internal abstract class ModifierTypeDescriptor
     /// same schema is the contract for Grasshopper-component generation. Empty means "no schema yet" —
     /// the panel falls back to its hand-written card body for that type.
     /// </summary>
-    public virtual IReadOnlyList<ParameterDescriptor> Parameters => Array.Empty<ParameterDescriptor>();
+    public virtual IReadOnlyList<ParameterDescriptor<ModifierDefinition>> Parameters => Array.Empty<ParameterDescriptor<ModifierDefinition>>();
 
     /// <summary>
     /// Runs this type's build step, reading the incoming mesh from <paramref name="context"/> and writing

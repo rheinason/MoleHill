@@ -48,7 +48,7 @@ internal abstract class AnnotationTypeDescriptor
     /// the panel's bespoke before/after hooks. Empty means "schema covers nothing" — the panel falls back
     /// entirely to bespoke rows for this type.
     /// </summary>
-    public virtual IReadOnlyList<AnnotationParameterDescriptor> Parameters => Array.Empty<AnnotationParameterDescriptor>();
+    public virtual IReadOnlyList<ParameterDescriptor<AnnotationDefinition>> Parameters => Array.Empty<ParameterDescriptor<AnnotationDefinition>>();
 
     /// <summary>
     /// Why this annotation cannot produce anything yet, or null when it is ready.

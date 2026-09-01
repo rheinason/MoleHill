@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Registry;
 
 /// <summary>
 /// Pure formatting/parsing helpers shared between the panel's hand-written analysis rows and
-/// <see cref="AnalysisParameterDescriptor"/> schema rows (dynamic labels, choice options, color
+/// <see cref="ParameterDescriptor{TDefinition}"/> schema rows (dynamic labels, choice options, color
 /// fallbacks). Lives in Registry rather than the UI project so the Rhino test project — which links
 /// Registry sources directly without a UI reference — can still compile the descriptors that use them.
 /// No Eto dependency.

@@ -2,6 +2,7 @@ using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using AnnotationParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.AnnotationDefinition>;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -11,7 +12,7 @@ namespace MoleHill.Rhino.Registry;
 // types lived in the analysis family, so saved documents still load.
 //
 // Parameters cover every field the schema card builder can express; anything left out here (summaries,
-// the insertion-origin picker) stays in the panel's bespoke before/after hooks (MoleHillPanel.Analysis.cs).
+// the insertion-origin picker) stays in the panel's bespoke before/after hooks (MoleHillPanel.Annotations.cs).
 
 internal static class AnnotationParameterCatalog
 {
@@ -29,8 +30,8 @@ internal static class AnnotationParameterCatalog
     /// exaggerating the vertical is how the drawing is made readable, and it belongs on all three section
     /// types rather than two of them.
     /// </summary>
-    public static AnnotationParameterDescriptor VerticalExaggeration() =>
-        AnnotationParameterDescriptor.Number(
+    public static AnnotationParam VerticalExaggeration() =>
+        AnnotationParam.Number(
             "VerticalExaggeration", "Vertical Exaggeration",
             a => ((TerrainSectionAnnotationDefinitionBase)a).VerticalExaggeration,
             (a, v) => ((TerrainSectionAnnotationDefinitionBase)a).VerticalExaggeration = Math.Max(0.1, v),
@@ -39,8 +40,8 @@ internal static class AnnotationParameterCatalog
             min: 0.1,
             decimalPlaces: 2);
 
-    public static AnnotationParameterDescriptor SlopeUnitChoice(string help) =>
-        AnnotationParameterDescriptor.Choice(
+    public static AnnotationParam SlopeUnitChoice(string help) =>
+        AnnotationParam.Choice(
             "Unit", "Units", SlopeUnitOptions,
             a => AnalysisFormatting.GetSlopeUnitKey(GetUnit(a)),
             (a, v) => SetUnit(a, AnalysisFormatting.ParseSlopeUnit(v ?? "percent")),
@@ -66,34 +67,34 @@ internal static class AnnotationParameterCatalog
 
     /// <summary>The shared tail of every block-attribute analysis card: value format, prefix/suffix,
     /// block scale, output layer, and color. Mirrors the former AddBlockAttributeAnalysisRows helper.</summary>
-    public static IEnumerable<AnnotationParameterDescriptor> BlockAttributeTail<TAnalysis>(string formatHelp)
+    public static IEnumerable<AnnotationParam> BlockAttributeTail<TAnalysis>(string formatHelp)
         where TAnalysis : BlockAttributeAnnotationDefinition
     {
-        yield return AnnotationParameterDescriptor.Choice(
+        yield return AnnotationParam.Choice(
             "ValueFormat", "Decimals", null,
             a => ((TAnalysis)a).ValueFormat,
             (a, v) => ((TAnalysis)a).ValueFormat = v ?? "F1",
             formatHelp,
             optionsFor: a => AnalysisFormatting.GetValueFormatOptions(((TAnalysis)a).ValueFormat));
-        yield return AnnotationParameterDescriptor.Text(
+        yield return AnnotationParam.Text(
             "AttributePrefix", "Prefix",
             a => ((TAnalysis)a).AttributePrefix,
             (a, v) => ((TAnalysis)a).AttributePrefix = v ?? string.Empty,
             "Text prepended to the formatted value when filling the DISPLAY block attribute.",
             trim: false);
-        yield return AnnotationParameterDescriptor.Text(
+        yield return AnnotationParam.Text(
             "AttributeSuffix", "Suffix",
             a => ((TAnalysis)a).AttributeSuffix,
             (a, v) => ((TAnalysis)a).AttributeSuffix = v ?? string.Empty,
             "Text appended after the formatted value and unit when filling the DISPLAY block attribute.",
             trim: false);
-        yield return AnnotationParameterDescriptor.Number(
+        yield return AnnotationParam.Number(
             "BlockScale", "Block Scale",
             a => ((TAnalysis)a).BlockScale,
             (a, v) => ((TAnalysis)a).BlockScale = v,
             "Scale factor for inserted annotation blocks.",
             min: 0.01);
-        yield return AnnotationParameterDescriptor.Color(
+        yield return AnnotationParam.Color(
             "ColorArgb", "Color",
             a => ((TAnalysis)a).ColorArgb,
             (a, v) => ((TAnalysis)a).ColorArgb = v,
@@ -117,33 +118,33 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
     public override int SortOrder => 0;
     public override AnnotationDefinition Create() => new ContourAnnotationDefinition();
 
-    public override IReadOnlyList<AnnotationParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "Interval", "Interval",
             a => ((ContourAnnotationDefinition)a).Interval,
             (a, v) => ((ContourAnnotationDefinition)a).Interval = Math.Max(double.Epsilon, v),
             "Vertical spacing between generated contour levels.",
             min: 0.0, incrementalCommit: true),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "StartZ", "Start Z",
             a => ((ContourAnnotationDefinition)a).StartZ,
             (a, v) => ((ContourAnnotationDefinition)a).StartZ = v,
             "Base elevation offset from which contour levels are stepped.",
             min: null, incrementalCommit: true),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "MajorEveryNth", "Major Every Nth",
             a => ((ContourAnnotationDefinition)a).MajorEveryNth,
             (a, v) => ((ContourAnnotationDefinition)a).MajorEveryNth = Math.Max(1, (int)Math.Round(v)),
             "Every Nth level is a major (index) contour. 5 is the usual survey convention; 1 makes every contour major.",
             min: 1, decimalPlaces: 0, incrementalCommit: true),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "SeparateMajorMinorLayers", "Split Major / Minor",
             a => ((ContourAnnotationDefinition)a).SeparateMajorMinorLayers,
             (a, v) => ((ContourAnnotationDefinition)a).SeparateMajorMinorLayers = v,
             "Send major and minor contours to separate Contours::Major and Contours::Minor sublayers so print width and linetype are controlled per layer in Rhino.",
             incrementalCommit: true),
-        AnnotationParameterDescriptor.Color(
+        AnnotationParam.Color(
             "ColorArgb", "Color",
             a => ((ContourAnnotationDefinition)a).ColorArgb,
             (a, v) => ((ContourAnnotationDefinition)a).ColorArgb = v,
@@ -152,25 +153,25 @@ internal sealed class ContourAnnotationDescriptor : AnnotationTypeDescriptor
                 AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Contours)),
             defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Contours),
             incrementalCommit: true),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "ShowLabels", "Label Contours",
             a => ((ContourAnnotationDefinition)a).ShowLabels,
             (a, v) => ((ContourAnnotationDefinition)a).ShowLabels = v,
             "Place elevation text along generated contour curves.",
             incrementalCommit: true),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "LabelInterval", "Label Interval",
             a => ((ContourAnnotationDefinition)a).LabelInterval,
             (a, v) => ((ContourAnnotationDefinition)a).LabelInterval = Math.Max(0.0, v),
             "Spacing between repeated labels along each contour. 0 places one label per contour curve.",
             min: 0.0, incrementalCommit: true),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "LabelEveryNth", "Label Every Nth",
             a => ((ContourAnnotationDefinition)a).LabelEveryNth,
             (a, v) => ((ContourAnnotationDefinition)a).LabelEveryNth = Math.Max(1, (int)Math.Round(v)),
             "Label only every Nth contour level (index contours). 1 labels every level.",
             min: 1, decimalPlaces: 0, incrementalCommit: true),
-        AnnotationParameterDescriptor.Choice(
+        AnnotationParam.Choice(
             "LabelFormat", "Label Decimals", null,
             a => ((ContourAnnotationDefinition)a).LabelFormat,
             (a, v) => ((ContourAnnotationDefinition)a).LabelFormat = v ?? "F2",
@@ -193,14 +194,14 @@ internal sealed class CurveElevationLabelAnnotationDescriptor : AnnotationTypeDe
     public override int SortOrder => 1;
     public override AnnotationDefinition Create() => new CurveElevationLabelAnnotationDefinition();
 
-    public override IReadOnlyList<AnnotationParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
-        AnnotationParameterDescriptor.Sources(
+        AnnotationParam.Sources(
             "Sources", "Sources",
             a => ((CurveElevationLabelAnnotationDefinition)a).Sources,
             RhinoObjectType.Curve,
             "Curve objects or layers sampled along the terrain at regular stations for elevation labels."),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "Interval", "Interval",
             a => ((CurveElevationLabelAnnotationDefinition)a).Interval,
             (a, v) => ((CurveElevationLabelAnnotationDefinition)a).Interval = Math.Max(double.Epsilon, v),
@@ -223,14 +224,14 @@ internal sealed class CurveSlopeLabelAnnotationDescriptor : AnnotationTypeDescri
     public override int SortOrder => 2;
     public override AnnotationDefinition Create() => new CurveSlopeLabelAnnotationDefinition();
 
-    public override IReadOnlyList<AnnotationParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
-        AnnotationParameterDescriptor.Sources(
+        AnnotationParam.Sources(
             "Sources", "Sources",
             a => ((CurveSlopeLabelAnnotationDefinition)a).Sources,
             RhinoObjectType.Curve,
             "Curve objects or layers projected to the terrain before grade is sampled."),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "Interval", "Interval",
             a => ((CurveSlopeLabelAnnotationDefinition)a).Interval,
             (a, v) => ((CurveSlopeLabelAnnotationDefinition)a).Interval = Math.Max(double.Epsilon, v),
@@ -238,7 +239,7 @@ internal sealed class CurveSlopeLabelAnnotationDescriptor : AnnotationTypeDescri
             min: 0.0),
         AnnotationParameterCatalog.SlopeUnitChoice(
             "Show terrain-projected curve slope labels as percent, promille, ratio, or degrees."),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "FlipDirection", "Flip Arrow",
             a => ((CurveSlopeLabelAnnotationDefinition)a).FlipDirection,
             (a, v) => ((CurveSlopeLabelAnnotationDefinition)a).FlipDirection = v,
@@ -260,9 +261,9 @@ internal sealed class ProjectedElevationLabelAnnotationDescriptor : AnnotationTy
     public override int SortOrder => 3;
     public override AnnotationDefinition Create() => new ProjectedElevationLabelAnnotationDefinition();
 
-    public override IReadOnlyList<AnnotationParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
-        AnnotationParameterDescriptor.Sources(
+        AnnotationParam.Sources(
             "Sources", "Sources",
             a => ((ProjectedElevationLabelAnnotationDefinition)a).Sources,
             RhinoObjectType.Point | RhinoObjectType.Curve,
@@ -284,16 +285,16 @@ internal sealed class PointSlopeLabelAnnotationDescriptor : AnnotationTypeDescri
     public override int SortOrder => 4;
     public override AnnotationDefinition Create() => new PointSlopeLabelAnnotationDefinition();
 
-    public override IReadOnlyList<AnnotationParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
-        AnnotationParameterDescriptor.Sources(
+        AnnotationParam.Sources(
             "Sources", "Sources",
             a => ((PointSlopeLabelAnnotationDefinition)a).Sources,
             RhinoObjectType.Point,
             "Point objects or layers projected to the terrain before local slope is sampled."),
         AnnotationParameterCatalog.SlopeUnitChoice(
             "Show terrain slope labels as percent, promille, ratio, or degrees."),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "FlipDirection", "Flip Arrow",
             a => ((PointSlopeLabelAnnotationDefinition)a).FlipDirection,
             (a, v) => ((PointSlopeLabelAnnotationDefinition)a).FlipDirection = v,
@@ -315,14 +316,14 @@ internal sealed class SlopeArrowAnnotationDescriptor : AnnotationTypeDescriptor
     public override int SortOrder => 5;
     public override AnnotationDefinition Create() => new SlopeArrowAnnotationDefinition();
 
-    public override IReadOnlyList<AnnotationParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
-        AnnotationParameterDescriptor.Sources(
+        AnnotationParam.Sources(
             "Sources", "Sources",
             a => ((SlopeArrowAnnotationDefinition)a).Sources,
             RhinoObjectType.Curve,
             "Optional closed boundary curves limiting where flow arrows are placed. Leave empty to cover the whole terrain."),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "GridSpacing", "Grid Spacing",
             a => ((SlopeArrowAnnotationDefinition)a).GridSpacing,
             (a, v) => ((SlopeArrowAnnotationDefinition)a).GridSpacing = Math.Max(double.Epsilon, v),
@@ -330,7 +331,7 @@ internal sealed class SlopeArrowAnnotationDescriptor : AnnotationTypeDescriptor
             min: 0.0),
         AnnotationParameterCatalog.SlopeUnitChoice(
             "Show flow-arrow slope labels as percent, promille, ratio, or degrees."),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "FlipDirection", "Flip Arrow",
             a => ((SlopeArrowAnnotationDefinition)a).FlipDirection,
             (a, v) => ((SlopeArrowAnnotationDefinition)a).FlipDirection = v,
@@ -352,32 +353,32 @@ internal sealed class GradeBetweenPointsAnnotationDescriptor : AnnotationTypeDes
     public override int SortOrder => 6;
     public override AnnotationDefinition Create() => new GradeBetweenPointsAnnotationDefinition();
 
-    public override IReadOnlyList<AnnotationParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
-        AnnotationParameterDescriptor.Sources(
+        AnnotationParam.Sources(
             "Sources", "Sources",
             a => ((GradeBetweenPointsAnnotationDefinition)a).Sources,
             RhinoObjectType.Curve,
             "Lines whose two endpoints define the grade. Each line emits one callout."),
-        AnnotationParameterDescriptor.Choice(
+        AnnotationParam.Choice(
             "ValueFormat", "Decimals", null,
             a => ((GradeBetweenPointsAnnotationDefinition)a).ValueFormat,
             (a, v) => ((GradeBetweenPointsAnnotationDefinition)a).ValueFormat = v ?? "F1",
             "Number of decimal places shown on the percentage part of the callout.",
             optionsFor: a => AnalysisFormatting.GetValueFormatOptions(((GradeBetweenPointsAnnotationDefinition)a).ValueFormat)),
-        AnnotationParameterDescriptor.Text(
+        AnnotationParam.Text(
             "AttributePrefix", "Prefix",
             a => ((GradeBetweenPointsAnnotationDefinition)a).AttributePrefix,
             (a, v) => ((GradeBetweenPointsAnnotationDefinition)a).AttributePrefix = v ?? string.Empty,
             "Text prepended to the grade callout.",
             trim: false),
-        AnnotationParameterDescriptor.Text(
+        AnnotationParam.Text(
             "AttributeSuffix", "Suffix",
             a => ((GradeBetweenPointsAnnotationDefinition)a).AttributeSuffix,
             (a, v) => ((GradeBetweenPointsAnnotationDefinition)a).AttributeSuffix = v ?? string.Empty,
             "Text appended to the grade callout.",
             trim: false),
-        AnnotationParameterDescriptor.Color(
+        AnnotationParam.Color(
             "ColorArgb", "Color",
             a => ((GradeBetweenPointsAnnotationDefinition)a).ColorArgb,
             (a, v) => ((GradeBetweenPointsAnnotationDefinition)a).ColorArgb = v,
@@ -401,32 +402,32 @@ internal sealed class TerrainSectionAnnotationDescriptor : AnnotationTypeDescrip
     public override int SortOrder => 7;
     public override AnnotationDefinition Create() => new TerrainSectionAnnotationDefinition();
 
-    public override IReadOnlyList<AnnotationParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
         AnnotationParameterCatalog.VerticalExaggeration(),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "StationTickInterval", "Station Tick Interval",
             a => ((TerrainSectionAnnotationDefinition)a).StationTickInterval,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).StationTickInterval = Math.Max(0.0, v),
             "Spacing between station tick marks along the profile baseline. 0 disables ticks.",
             min: 0.0),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "ElevationGridInterval", "Elevation Grid Interval",
             a => ((TerrainSectionAnnotationDefinition)a).ElevationGridInterval,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of horizontal grid lines drawn on the section. 0 = auto.",
             min: 0.0),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "ShowStationTicks", "Show Station Ticks",
             a => ((TerrainSectionAnnotationDefinition)a).ShowStationTicks,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowStationTicks = v,
             "Draw tick marks at each station along the profile baseline."),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "ShowElevationGrid", "Show Elevation Grid",
             a => ((TerrainSectionAnnotationDefinition)a).ShowElevationGrid,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowElevationGrid = v,
             "Draw horizontal grid lines at each elevation increment."),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "ShowStationLabels", "Show Station Labels",
             a => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels,
             (a, v) => ((TerrainSectionAnnotationDefinition)a).ShowStationLabels = v,
@@ -474,55 +475,55 @@ internal sealed class CrossSectionStationAnnotationDescriptor : AnnotationTypeDe
     public override int SortOrder => 8;
     public override AnnotationDefinition Create() => new CrossSectionStationAnnotationDefinition();
 
-    public override IReadOnlyList<AnnotationParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "StationInterval", "Station Interval",
             a => ((CrossSectionStationAnnotationDefinition)a).StationInterval,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).StationInterval = Math.Max(double.Epsilon, v),
             "Distance between cross-section stations along the alignment.",
             min: 0.0),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "CrossSectionWidth", "Cross-Section Width",
             a => ((CrossSectionStationAnnotationDefinition)a).CrossSectionWidth,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).CrossSectionWidth = Math.Max(double.Epsilon, v),
             "Total perpendicular width of each cross-section cut, centered on the alignment.",
             min: 0.0),
         AnnotationParameterCatalog.VerticalExaggeration(),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "GridColumns", "Grid Columns",
             a => ((CrossSectionStationAnnotationDefinition)a).GridColumns,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).GridColumns = Math.Max(1, (int)Math.Round(v)),
             "Number of columns in the unrolled cross-section grid layout.",
             min: 1, decimalPlaces: 0),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "GridCellWidth", "Grid Cell Width",
             a => ((CrossSectionStationAnnotationDefinition)a).GridCellWidth,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).GridCellWidth = Math.Max(0.0, v),
             "Override cell width for the grid layout. 0 = auto.",
             min: 0.0),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "GridCellHeight", "Grid Cell Height",
             a => ((CrossSectionStationAnnotationDefinition)a).GridCellHeight,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).GridCellHeight = Math.Max(0.0, v),
             "Override cell height for the grid layout. 0 = auto.",
             min: 0.0),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "ShowCutLinesOnTerrain", "Cut Lines on Terrain",
             a => ((CrossSectionStationAnnotationDefinition)a).ShowCutLinesOnTerrain,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ShowCutLinesOnTerrain = v,
             "Draw the perpendicular cut polylines on the terrain at each station."),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "LabelStations", "Label Stations",
             a => ((CrossSectionStationAnnotationDefinition)a).LabelStations,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).LabelStations = v,
             "Print station distance text on each unrolled cross-section."),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "ShowElevationGrid", "Show Elevation Grid",
             a => ((CrossSectionStationAnnotationDefinition)a).ShowElevationGrid,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ShowElevationGrid = v,
             "Draw horizontal grid lines on each unrolled cross-section."),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "ElevationGridInterval", "Elevation Grid Interval",
             a => ((CrossSectionStationAnnotationDefinition)a).ElevationGridInterval,
             (a, v) => ((CrossSectionStationAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
@@ -571,37 +572,37 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
     public override int SortOrder => 9;
     public override AnnotationDefinition Create() => new LongitudinalSectionAnnotationDefinition();
 
-    public override IReadOnlyList<AnnotationParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
     {
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "SampleInterval", "Sample Interval",
             a => ((LongitudinalSectionAnnotationDefinition)a).SampleInterval,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).SampleInterval = Math.Max(double.Epsilon, v),
             "Distance between elevation samples along the curve.",
             min: 0.0),
         AnnotationParameterCatalog.VerticalExaggeration(),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "ShowBaseline", "Show Baseline",
             a => ((LongitudinalSectionAnnotationDefinition)a).ShowBaseline,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ShowBaseline = v,
             "Draw the horizontal baseline (zero elevation reference) under the profile."),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "ShowElevationGrid", "Show Elevation Grid",
             a => ((LongitudinalSectionAnnotationDefinition)a).ShowElevationGrid,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ShowElevationGrid = v,
             "Draw horizontal grid lines at each elevation increment."),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "ElevationGridInterval", "Elevation Grid Interval",
             a => ((LongitudinalSectionAnnotationDefinition)a).ElevationGridInterval,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ElevationGridInterval = Math.Max(0.0, v),
             "Vertical spacing of horizontal grid lines. 0 = auto.",
             min: 0.0),
-        AnnotationParameterDescriptor.Bool(
+        AnnotationParam.Bool(
             "ShowStationLabels", "Show Station Labels",
             a => ((LongitudinalSectionAnnotationDefinition)a).ShowStationLabels,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).ShowStationLabels = v,
             "Print station distance text along the baseline."),
-        AnnotationParameterDescriptor.Number(
+        AnnotationParam.Number(
             "StationLabelInterval", "Station Label Interval",
             a => ((LongitudinalSectionAnnotationDefinition)a).StationLabelInterval,
             (a, v) => ((LongitudinalSectionAnnotationDefinition)a).StationLabelInterval = Math.Max(0.0, v),

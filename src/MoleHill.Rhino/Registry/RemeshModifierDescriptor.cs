@@ -2,6 +2,7 @@ using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using ModifierParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.ModifierDefinition>;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -27,35 +28,35 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
         ("local", "Local Refine (preserve topology)"),
     };
 
-    public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
-        ParameterDescriptor.Sources(
+        ModifierParam.Sources(
             "Constraints", "Constraints",
             m => ((RemeshModifierDefinition)m).Constraints,
             RhinoObjectType.Curve),
-        ParameterDescriptor.Choice(
+        ModifierParam.Choice(
             "Mode", "Algorithm", ModeOptions,
             m => ((RemeshModifierDefinition)m).Mode,
             (m, v) => ((RemeshModifierDefinition)m).Mode = v ?? "isotropic",
             "Isotropic regularizes the whole terrain to even triangles (best overall quality, can be slow on very large terrains and may occasionally cross retaining walls on shallow wall angles). Full Rebuild is the classic constrained-Delaunay re-triangulation — never crosses a wall or constraint, coarser triangle shapes. Local Refine only splits/flips triangles in place, preserving existing topology exactly — fastest and safest on huge terrains, coarsest quality."),
-        ParameterDescriptor.Number(
+        ModifierParam.Number(
             "EdgeLength", "Edge Length",
             m => ((RemeshModifierDefinition)m).EdgeLength,
             (m, v) => ((RemeshModifierDefinition)m).EdgeLength = v,
             "Target edge length: the remesh regularizes the whole terrain toward even triangles of this size while keeping every vertex exactly on the surface. Smaller = denser, larger = coarser. Leave at 0 to preserve the mesh's approximate face density across its plan area. Preview builds run at twice this length."),
-        ParameterDescriptor.Number(
+        ModifierParam.Number(
             "CreaseAngle", "Crease Angle",
             m => ((RemeshModifierDefinition)m).CreaseAngle,
             (m, v) => ((RemeshModifierDefinition)m).CreaseAngle = v,
             "Preserve creases: feature edges (batter toes, slope breaks) folding at least this many degrees are pinned — vertices slide only along them and no edge flips across. Detected from the mesh each pass and never persisted as breaklines. Around 20-35 catches toe lines; leave at 0 to disable."),
-        ParameterDescriptor.Number(
+        ModifierParam.Number(
             "MinAngle", "Min Angle",
             m => ((RemeshModifierDefinition)m).MinAngle,
             (m, v) => ((RemeshModifierDefinition)m).MinAngle = v,
             "Full Rebuild only: minimum triangle angle in degrees. The constrained-Delaunay refinement splits skinny triangles until none is sharper than this. Around 20-30 gives well-shaped triangles; above ~34 the refinement may not terminate. Leave at 0 for no angle constraint.",
             max: 34.0,
             visibleWhen: IsRebuild),
-        ParameterDescriptor.Number(
+        ModifierParam.Number(
             "MaxArea", "Max Area",
             m => ((RemeshModifierDefinition)m).MaxArea,
             (m, v) => ((RemeshModifierDefinition)m).MaxArea = v,

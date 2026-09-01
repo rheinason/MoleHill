@@ -42,6 +42,11 @@ The other eight components use `RegistryTerrainComponent`; future changes should
 components with as little per-type duplication as possible, building on the `ParameterDescriptor` schema
 introduced for the Rhino panel.
 
+*Update:* that schema is now the single generic `ParameterDescriptor<TDefinition>` shared by all four
+families, rendered by one generic row builder. This moves the plan below forward rather than
+invalidating it: a GH generator written against the generic descriptor covers modifiers, analyses,
+annotations and objects at once, instead of being duplicated per family.
+
 ## The reality (why this is a feature, not a wrapper)
 
 Two facts from the current code shape everything:

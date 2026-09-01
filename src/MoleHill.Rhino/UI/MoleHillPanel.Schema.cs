@@ -7,12 +7,134 @@ using Rhino;
 
 namespace MoleHill.Rhino.UI;
 
-// Schema-driven card bodies. A modifier type declares its inputs as an ordered ParameterDescriptor list
-// (Registry side, Eto-free) and this builder turns each into the matching reusable editor primitive from
-// MoleHillPanel.Editors.cs. Adding/changing a modifier's inputs is then data, not UI plumbing — and the
-// same schema is the contract that will generate the Grasshopper component.
+// Schema-driven card bodies. A terrain type declares its inputs as an ordered
+// ParameterDescriptor<TDefinition> list (Registry side, Eto-free) and one generic builder turns each into
+// the matching reusable editor primitive from MoleHillPanel.Editors.cs. Adding or changing a type's
+// inputs is then data, not UI plumbing — and the same schema is the contract that will generate the
+// Grasshopper component.
+//
+// All four families (modifiers, analyses, annotations, objects) share BuildSchemaRow. What stays
+// per-family is the commit closure each one passes in: a family's own save/rebuild/refresh semantics live
+// there, and the descriptor's commit-hint flags are inert data that closure interprets. Kinds needing a
+// whole bespoke control (ColorRamp, BlockMix) come in through the optional bespoke hook.
 public sealed partial class MoleHillPanel
 {
+    /// <summary>
+    /// Builds one editor row for <paramref name="parameter"/> against <paramref name="definition"/>.
+    ///
+    /// <paramref name="commit"/> is the family's mutation wrapper — it receives the mutation to apply and
+    /// is responsible for honouring whichever of the descriptor's commit hints that family observes.
+    /// <paramref name="bespoke"/> renders the kinds that are not expressible as a shared primitive; when
+    /// it is null for such a kind the row is an empty panel, so a family simply never declaring that kind
+    /// costs nothing.
+    /// </summary>
+    private Control BuildSchemaRow<TDef>(
+        TerrainDefinition terrain,
+        TDef definition,
+        ParameterDescriptor<TDef> parameter,
+        Action<Action<TDef>> commit,
+        Func<ParameterDescriptor<TDef>, TDef, Control>? bespoke = null)
+        where TDef : class
+    {
+        string label = parameter.LabelFor?.Invoke(definition) ?? parameter.Label;
+
+        switch (parameter.Kind)
+        {
+            case ParameterKind.Sources:
+                return CreateSourceEditor(
+                    label,
+                    parameter.GetSources!(definition),
+                    apply => commit(item => apply(parameter.GetSources!(item))),
+                    parameter.ObjectFilter,
+                    doc => _controller.GetSelectedLayerPaths(doc),
+                    parameter.Help);
+
+            case ParameterKind.Number:
+                return CreateNumericEditor(
+                    label,
+                    parameter.GetNumber!(definition),
+                    value => commit(item => parameter.SetNumber!(item, value)),
+                    parameter.DecimalPlaces,
+                    parameter.Help,
+                    parameter.Min,
+                    parameter.Max,
+                    liveEdit: parameter.LiveEdit,
+                    step: parameter.Step);
+
+            case ParameterKind.OptionalNumber:
+                return CreateOptionalNumericEditor(
+                    label,
+                    parameter.GetNumber!(definition),
+                    parameter.InheritedValue!(definition),
+                    value => commit(item => parameter.SetNumber!(item, value)),
+                    parameter.DecimalPlaces,
+                    parameter.Help);
+
+            case ParameterKind.Slider:
+                return CreateSliderNumericEditor(
+                    label,
+                    parameter.GetNumber!(definition),
+                    value => commit(item => parameter.SetNumber!(item, value)),
+                    parameter.SoftMin,
+                    parameter.SoftMax,
+                    parameter.DecimalPlaces,
+                    parameter.Min,
+                    parameter.Max,
+                    parameter.Help);
+
+            case ParameterKind.Bool:
+                return CreateCheckEditor(
+                    label,
+                    parameter.GetBool!(definition),
+                    value => commit(item => parameter.SetBool!(item, value)),
+                    parameter.Help ?? string.Empty);
+
+            case ParameterKind.ReadOnly:
+                return CreateReadOnlyValueRow(
+                    label,
+                    parameter.GetReadOnly!(definition),
+                    parameter.Help ?? string.Empty);
+
+            case ParameterKind.Choice:
+                return CreateDropDownEditor(
+                    label,
+                    parameter.ChoiceOptionsFor?.Invoke(definition) ?? parameter.ChoiceOptions!,
+                    parameter.GetText!(definition) ?? string.Empty,
+                    value => commit(item => parameter.SetText!(item, value)),
+                    parameter.Help ?? string.Empty);
+
+            case ParameterKind.Color:
+                return CreateOptionalColorEditor(
+                    label,
+                    parameter.GetColor!(definition),
+                    value => commit(item => parameter.SetColor!(item, value)),
+                    parameter.Help ?? string.Empty,
+                    parameter.FallbackColor?.Invoke(terrain, definition),
+                    parameter.ColorDefaultTextFor?.Invoke(terrain, definition) ?? "(by layer)");
+
+            case ParameterKind.Text:
+                return CreateCommittedTextEditor(
+                    label,
+                    parameter.GetText!(definition) ?? string.Empty,
+                    value => commit(item => parameter.SetText!(item, value)),
+                    parameter.Help ?? string.Empty,
+                    parameter.TrimText);
+
+            // Whole-control kinds. Only the family that owns one passes a bespoke renderer for it:
+            // ColorRamp is analyses (they are colour-mapped; modifiers change geometry and annotations
+            // draw), BlockMix is Scatter alone. Anyone else declaring one gets an empty row rather than a
+            // throw, which keeps the shared enum exhaustively handled.
+            case ParameterKind.ColorRamp:
+            case ParameterKind.BlockMix:
+                return bespoke?.Invoke(parameter, definition) ?? new Panel();
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(parameter), parameter.Kind, "Unhandled parameter kind.");
+        }
+    }
+
+    // ---- Modifiers ----
+
     /// <summary>
     /// Appends a row per declared parameter for <paramref name="modifier"/>'s type. Returns false when the
     /// type has no schema yet, so the caller can fall back to its hand-written card body.
@@ -30,7 +152,7 @@ public sealed partial class MoleHillPanel
             if (IsBespokePositionedModifierParameter(modifier, parameter))
                 continue;
 
-            layout.AddRow(BuildSchemaRow(terrain, modifier, parameter));
+            layout.AddRow(BuildModifierSchemaRow(terrain, modifier, parameter));
         }
 
         return true;
@@ -38,7 +160,7 @@ public sealed partial class MoleHillPanel
 
     private static bool IsBespokePositionedModifierParameter(
         ModifierDefinition modifier,
-        ParameterDescriptor parameter) =>
+        ParameterDescriptor<ModifierDefinition> parameter) =>
         (modifier is TriangulateModifierDefinition &&
          parameter.Key is "DemSurface" or "ContourMode") ||
         (modifier is GradePathModifierDefinition &&
@@ -50,114 +172,38 @@ public sealed partial class MoleHillPanel
         string parameterKey)
     {
         ModifierTypeDescriptor? descriptor = TerrainTypeRegistry.ForModifierType(modifier.GetType());
-        ParameterDescriptor? parameter = descriptor?.Parameters.FirstOrDefault(
+        ParameterDescriptor<ModifierDefinition>? parameter = descriptor?.Parameters.FirstOrDefault(
             item => string.Equals(item.Key, parameterKey, StringComparison.Ordinal));
         if (parameter == null || (parameter.VisibleWhen != null && !parameter.VisibleWhen(modifier)))
             return null;
-        return BuildSchemaRow(terrain, modifier, parameter);
+        return BuildModifierSchemaRow(terrain, modifier, parameter);
     }
 
-    private Control BuildSchemaRow(TerrainDefinition terrain, ModifierDefinition modifier, ParameterDescriptor parameter)
+    /// <summary>
+    /// Modifier rows commit straight through <see cref="MutateModifier"/>. Only sliders declare
+    /// <c>LiveScrub</c>, so every other kind takes the plain save-and-rebuild path it had before.
+    /// </summary>
+    private Control BuildModifierSchemaRow(
+        TerrainDefinition terrain,
+        ModifierDefinition modifier,
+        ParameterDescriptor<ModifierDefinition> parameter)
     {
         Guid terrainId = terrain.TerrainId;
         Guid modifierId = modifier.Id;
 
-        switch (parameter.Kind)
-        {
-            case ParameterKind.Sources:
-                return CreateSourceEditor(
-                    parameter.Label,
-                    parameter.GetSources!(modifier),
-                    apply => MutateModifier(terrainId, modifierId, item => apply(parameter.GetSources!(item))),
-                    parameter.ObjectFilter,
-                    doc => _controller.GetSelectedLayerPaths(doc),
-                    parameter.Help);
-
-            case ParameterKind.Number:
-                return CreateNumericEditor(
-                    parameter.Label,
-                    parameter.GetNumber!(modifier),
-                    value => MutateModifier(terrainId, modifierId, item => parameter.SetNumber!(item, value)),
-                    parameter.DecimalPlaces,
-                    parameter.Help,
-                    parameter.Min,
-                    parameter.Max,
-                    step: parameter.Step);
-
-            case ParameterKind.OptionalNumber:
-                return CreateOptionalNumericEditor(
-                    parameter.Label,
-                    parameter.GetNumber!(modifier),
-                    parameter.InheritedValue!(modifier),
-                    value => MutateModifier(terrainId, modifierId, item => parameter.SetNumber!(item, value)),
-                    parameter.DecimalPlaces,
-                    parameter.Help);
-
-            case ParameterKind.Slider:
-                return CreateSliderNumericEditor(
-                    parameter.Label,
-                    parameter.GetNumber!(modifier),
-                    value => MutateModifier(
-                        terrainId,
-                        modifierId,
-                        item => parameter.SetNumber!(item, value),
-                        deferDocumentSave: parameter.LiveScrub,
-                        suppressImmediateUiRefresh: parameter.LiveScrub),
-                    parameter.SoftMin,
-                    parameter.SoftMax,
-                    parameter.DecimalPlaces,
-                    parameter.Min,
-                    parameter.Max,
-                    parameter.Help);
-
-            case ParameterKind.Bool:
-                return CreateCheckEditor(
-                    parameter.Label,
-                    parameter.GetBool!(modifier),
-                    value => MutateModifier(terrainId, modifierId, item => parameter.SetBool!(item, value)),
-                    parameter.Help ?? string.Empty);
-
-            case ParameterKind.ReadOnly:
-                return CreateReadOnlyValueRow(
-                    parameter.Label,
-                    parameter.GetReadOnly!(modifier),
-                    parameter.Help ?? string.Empty);
-
-            case ParameterKind.Choice:
-                return CreateDropDownEditor(
-                    parameter.Label,
-                    parameter.ChoiceOptions!,
-                    parameter.GetText!(modifier) ?? string.Empty,
-                    value => MutateModifier(terrainId, modifierId, item => parameter.SetText!(item, value)),
-                    parameter.Help ?? string.Empty);
-
-            case ParameterKind.Color:
-                return CreateOptionalColorEditor(
-                    parameter.Label,
-                    parameter.GetColor!(modifier),
-                    value => MutateModifier(terrainId, modifierId, item => parameter.SetColor!(item, value)),
-                    parameter.Help ?? string.Empty,
-                    parameter.FallbackColor?.Invoke(modifier),
-                    parameter.ColorDefaultText);
-
-            case ParameterKind.ColorRamp:
-                // Modifiers change geometry, not display: nothing they own is colour-mapped, so no
-                // modifier declares this kind. The case exists so the shared enum stays exhaustively
-                // handled rather than falling into the throw below.
-                return new Panel();
-
-            case ParameterKind.Text:
-                return CreateCommittedTextEditor(
-                    parameter.Label,
-                    parameter.GetText!(modifier) ?? string.Empty,
-                    value => MutateModifier(terrainId, modifierId, item => parameter.SetText!(item, value)),
-                    parameter.Help ?? string.Empty,
-                    parameter.TrimText);
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(parameter), parameter.Kind, "Unhandled parameter kind.");
-        }
+        return BuildSchemaRow(
+            terrain,
+            modifier,
+            parameter,
+            apply => MutateModifier(
+                terrainId,
+                modifierId,
+                apply,
+                deferDocumentSave: parameter.LiveScrub,
+                suppressImmediateUiRefresh: parameter.LiveScrub));
     }
+
+    // ---- Analyses ----
 
     /// <summary>
     /// Appends a row per declared parameter for <paramref name="analysis"/>'s type. Returns false when the
@@ -170,95 +216,44 @@ public sealed partial class MoleHillPanel
             return false;
 
         foreach (var parameter in descriptor.Parameters)
+        {
+            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(analysis))
+                continue;
+
             layout.AddRow(BuildAnalysisSchemaRow(terrain, analysis, parameter));
+        }
 
         return true;
     }
 
-    private Control BuildAnalysisSchemaRow(TerrainDefinition terrain, AnalysisDefinition analysis, AnalysisParameterDescriptor parameter)
+    private Control BuildAnalysisSchemaRow(
+        TerrainDefinition terrain,
+        AnalysisDefinition analysis,
+        ParameterDescriptor<AnalysisDefinition> parameter)
     {
         Guid terrainId = terrain.TerrainId;
         Guid analysisId = analysis.Id;
-        string label = parameter.LabelFor?.Invoke(analysis) ?? parameter.Label;
 
-        switch (parameter.Kind)
-        {
-            case ParameterKind.Sources:
-                return CreateSourceEditor(
-                    label,
-                    parameter.GetSources!(analysis),
-                    apply => CommitAnalysisMutation(parameter, terrainId, analysisId, item => apply(parameter.GetSources!(item))),
-                    parameter.ObjectFilter,
-                    doc => _controller.GetSelectedLayerPaths(doc),
-                    parameter.Help);
-
-            case ParameterKind.Number:
-                return CreateNumericEditor(
-                    label,
-                    parameter.GetNumber!(analysis),
-                    value => CommitAnalysisMutation(parameter, terrainId, analysisId, item => parameter.SetNumber!(item, value)),
-                    parameter.DecimalPlaces,
-                    parameter.Help,
-                    parameter.Min,
-                    parameter.Max,
-                    step: parameter.Step);
-
-            case ParameterKind.Bool:
-                return CreateCheckEditor(
-                    label,
-                    parameter.GetBool!(analysis),
-                    value => CommitAnalysisMutation(parameter, terrainId, analysisId, item => parameter.SetBool!(item, value)),
-                    parameter.Help ?? string.Empty);
-
-            case ParameterKind.Choice:
-            {
-                var options = parameter.ChoiceOptionsFor?.Invoke(analysis) ?? parameter.ChoiceOptions!;
-                return CreateDropDownEditor(
-                    label,
-                    options,
-                    parameter.GetText!(analysis) ?? string.Empty,
-                    value => CommitAnalysisMutation(parameter, terrainId, analysisId, item => parameter.SetText!(item, value)),
-                    parameter.Help ?? string.Empty);
-            }
-
-            case ParameterKind.Color:
-                return CreateOptionalColorEditor(
-                    label,
-                    parameter.GetColor!(analysis),
-                    value => CommitAnalysisMutation(parameter, terrainId, analysisId, item => parameter.SetColor!(item, value)),
-                    parameter.Help ?? string.Empty,
-                    parameter.FallbackColor?.Invoke(terrain, analysis),
-                    parameter.ColorDefaultTextFor?.Invoke(terrain, analysis) ?? "(by layer)");
-
-            case ParameterKind.ColorRamp:
-                return CreateColorRampEditor(terrain, analysis);
-
-            case ParameterKind.Text:
-                return CreateCommittedTextEditor(
-                    label,
-                    parameter.GetText!(analysis) ?? string.Empty,
-                    value => CommitAnalysisMutation(parameter, terrainId, analysisId, item => parameter.SetText!(item, value)),
-                    parameter.Help ?? string.Empty,
-                    parameter.TrimText);
-
-            case ParameterKind.ReadOnly:
-                return CreateReadOnlyValueRow(
-                    label,
-                    parameter.GetReadOnly!(analysis),
-                    parameter.Help ?? string.Empty);
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(parameter), parameter.Kind, "Unhandled parameter kind.");
-        }
+        return BuildSchemaRow(
+            terrain,
+            analysis,
+            parameter,
+            apply => CommitAnalysisMutation(parameter, terrainId, analysisId, apply),
+            (declared, item) => declared.Kind == ParameterKind.ColorRamp
+                ? CreateColorRampEditor(terrain, item)
+                : new Panel());
     }
 
     /// <summary>
-    /// Commits an analysis-schema row's edit per its descriptor flags: <see cref="AnalysisParameterDescriptor.IncrementalCommit"/>
+    /// Commits an analysis-schema row's edit per its descriptor flags: <c>IncrementalCommit</c>
     /// (contour-style — skip the full rebuild and run the type's own incremental rebuild instead),
-    /// <see cref="AnalysisParameterDescriptor.RefreshOnly"/> (cheap preview recolor, no rebuild), or the
-    /// default full analysis rebuild.
+    /// <c>RefreshOnly</c> (cheap preview recolor, no rebuild), or the default full analysis rebuild.
     /// </summary>
-    private void CommitAnalysisMutation(AnalysisParameterDescriptor parameter, Guid terrainId, Guid analysisId, Action<AnalysisDefinition> apply)
+    private void CommitAnalysisMutation(
+        ParameterDescriptor<AnalysisDefinition> parameter,
+        Guid terrainId,
+        Guid analysisId,
+        Action<AnalysisDefinition> apply)
     {
         if (parameter.IncrementalCommit)
         {
@@ -286,9 +281,11 @@ public sealed partial class MoleHillPanel
         MutateAnalysis(terrainId, analysisId, apply, scheduleRebuild: true);
     }
 
+    // ---- Annotations ----
+
     /// <summary>
-    /// Appends a row per declared parameter for <paramref name="annotation"/>'s type. Returns false when the
-    /// type has no schema yet, so the caller can fall back to its bespoke rows for that type.
+    /// Appends a row per declared parameter for <paramref name="annotation"/>'s type. Returns false when
+    /// the type has no schema yet, so the caller can fall back to its bespoke rows for that type.
     /// </summary>
     private bool TryBuildSchemaAnnotationBody(DynamicLayout layout, TerrainDefinition terrain, AnnotationDefinition annotation)
     {
@@ -297,97 +294,41 @@ public sealed partial class MoleHillPanel
             return false;
 
         foreach (var parameter in descriptor.Parameters)
+        {
+            if (parameter.VisibleWhen != null && !parameter.VisibleWhen(annotation))
+                continue;
+
             layout.AddRow(BuildAnnotationSchemaRow(terrain, annotation, parameter));
+        }
 
         return true;
     }
 
-    private Control BuildAnnotationSchemaRow(TerrainDefinition terrain, AnnotationDefinition annotation, AnnotationParameterDescriptor parameter)
+    private Control BuildAnnotationSchemaRow(
+        TerrainDefinition terrain,
+        AnnotationDefinition annotation,
+        ParameterDescriptor<AnnotationDefinition> parameter)
     {
         Guid terrainId = terrain.TerrainId;
         Guid annotationId = annotation.Id;
-        string label = parameter.LabelFor?.Invoke(annotation) ?? parameter.Label;
 
-        switch (parameter.Kind)
-        {
-            case ParameterKind.Sources:
-                return CreateSourceEditor(
-                    label,
-                    parameter.GetSources!(annotation),
-                    apply => CommitAnnotationMutation(parameter, terrainId, annotationId, item => apply(parameter.GetSources!(item))),
-                    parameter.ObjectFilter,
-                    doc => _controller.GetSelectedLayerPaths(doc),
-                    parameter.Help);
-
-            case ParameterKind.Number:
-                return CreateNumericEditor(
-                    label,
-                    parameter.GetNumber!(annotation),
-                    value => CommitAnnotationMutation(parameter, terrainId, annotationId, item => parameter.SetNumber!(item, value)),
-                    parameter.DecimalPlaces,
-                    parameter.Help,
-                    parameter.Min,
-                    parameter.Max,
-                    step: parameter.Step);
-
-            case ParameterKind.Bool:
-                return CreateCheckEditor(
-                    label,
-                    parameter.GetBool!(annotation),
-                    value => CommitAnnotationMutation(parameter, terrainId, annotationId, item => parameter.SetBool!(item, value)),
-                    parameter.Help ?? string.Empty);
-
-            case ParameterKind.Choice:
-            {
-                var options = parameter.ChoiceOptionsFor?.Invoke(annotation) ?? parameter.ChoiceOptions!;
-                return CreateDropDownEditor(
-                    label,
-                    options,
-                    parameter.GetText!(annotation) ?? string.Empty,
-                    value => CommitAnnotationMutation(parameter, terrainId, annotationId, item => parameter.SetText!(item, value)),
-                    parameter.Help ?? string.Empty);
-            }
-
-            case ParameterKind.Color:
-                return CreateOptionalColorEditor(
-                    label,
-                    parameter.GetColor!(annotation),
-                    value => CommitAnnotationMutation(parameter, terrainId, annotationId, item => parameter.SetColor!(item, value)),
-                    parameter.Help ?? string.Empty,
-                    parameter.FallbackColor?.Invoke(terrain, annotation),
-                    parameter.ColorDefaultTextFor?.Invoke(terrain, annotation) ?? "(by layer)");
-
-            case ParameterKind.ColorRamp:
-                // Annotations draw; they are never colour-mapped, so no annotation declares this kind.
-                // The case exists so the shared enum stays exhaustively handled.
-                return new Panel();
-
-            case ParameterKind.Text:
-                return CreateCommittedTextEditor(
-                    label,
-                    parameter.GetText!(annotation) ?? string.Empty,
-                    value => CommitAnnotationMutation(parameter, terrainId, annotationId, item => parameter.SetText!(item, value)),
-                    parameter.Help ?? string.Empty,
-                    parameter.TrimText);
-
-            case ParameterKind.ReadOnly:
-                return CreateReadOnlyValueRow(
-                    label,
-                    parameter.GetReadOnly!(annotation),
-                    parameter.Help ?? string.Empty);
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(parameter), parameter.Kind, "Unhandled parameter kind.");
-        }
+        return BuildSchemaRow(
+            terrain,
+            annotation,
+            parameter,
+            apply => CommitAnnotationMutation(parameter, terrainId, annotationId, apply));
     }
 
     /// <summary>
-    /// Commits an annotation-schema row's edit per its descriptor flags: <see cref="AnnotationParameterDescriptor.IncrementalCommit"/>
+    /// Commits an annotation-schema row's edit per its descriptor flags: <c>IncrementalCommit</c>
     /// (contour-style — skip the full rebuild and run the type's own incremental rebuild instead),
-    /// <see cref="AnnotationParameterDescriptor.RefreshOnly"/> (cheap preview recolor, no rebuild), or the
-    /// default full analysis rebuild.
+    /// <c>RefreshOnly</c> (cheap preview recolor, no rebuild), or the default full rebuild.
     /// </summary>
-    private void CommitAnnotationMutation(AnnotationParameterDescriptor parameter, Guid terrainId, Guid annotationId, Action<AnnotationDefinition> apply)
+    private void CommitAnnotationMutation(
+        ParameterDescriptor<AnnotationDefinition> parameter,
+        Guid terrainId,
+        Guid annotationId,
+        Action<AnnotationDefinition> apply)
     {
         if (parameter.IncrementalCommit)
         {
@@ -418,6 +359,8 @@ public sealed partial class MoleHillPanel
         MutateAnnotation(terrainId, annotationId, apply, scheduleRebuild: true);
     }
 
+    // ---- Terrain objects ----
+
     private bool TryBuildSchemaObjectBody(DynamicLayout layout, TerrainDefinition terrain, TerrainObjectDefinition definition)
     {
         var descriptor = ObjectTypeRegistry.ForType(definition.GetType());
@@ -438,11 +381,10 @@ public sealed partial class MoleHillPanel
     private Control BuildObjectSchemaRow(
         TerrainDefinition terrain,
         TerrainObjectDefinition definition,
-        ObjectParameterDescriptor parameter)
+        ParameterDescriptor<TerrainObjectDefinition> parameter)
     {
         Guid terrainId = terrain.TerrainId;
         Guid definitionId = definition.Id;
-        string label = parameter.LabelFor?.Invoke(definition) ?? parameter.Label;
 
         void Commit(Action<TerrainObjectDefinition> apply)
         {
@@ -461,69 +403,13 @@ public sealed partial class MoleHillPanel
             }
         }
 
-        switch (parameter.Kind)
-        {
-            case ObjectParameterKind.Sources:
-                return CreateSourceEditor(
-                    label,
-                    parameter.GetSources!(definition),
-                    apply => Commit(item => apply(parameter.GetSources!(item))),
-                    parameter.ObjectFilter,
-                    doc => _controller.GetSelectedLayerPaths(doc),
-                    parameter.Help);
-
-            case ObjectParameterKind.Number:
-                return CreateNumericEditor(
-                    label,
-                    parameter.GetNumber!(definition),
-                    value => Commit(item => parameter.SetNumber!(item, value)),
-                    decimalPlaces: parameter.DecimalPlaces,
-                    help: parameter.Help,
-                    minValue: parameter.Min,
-                    maxValue: parameter.Max,
-                    liveEdit: parameter.LiveEdit,
-                    step: parameter.Step);
-
-            case ObjectParameterKind.Slider:
-                return CreateSliderNumericEditor(
-                    label,
-                    parameter.GetNumber!(definition),
-                    value => Commit(item => parameter.SetNumber!(item, value)),
-                    parameter.SoftMin,
-                    parameter.SoftMax,
-                    parameter.DecimalPlaces,
-                    parameter.Min,
-                    parameter.Max,
-                    parameter.Help);
-
-            case ObjectParameterKind.Bool:
-                return CreateCheckEditor(
-                    label,
-                    parameter.GetBool!(definition),
-                    value => Commit(item => parameter.SetBool!(item, value)),
-                    parameter.Help ?? string.Empty);
-
-            case ObjectParameterKind.Choice:
-                return CreateDropDownEditor(
-                    label,
-                    parameter.ChoiceOptionsFor?.Invoke(definition) ?? parameter.ChoiceOptions!,
-                    parameter.GetText!(definition) ?? string.Empty,
-                    value => Commit(item => parameter.SetText!(item, value)),
-                    parameter.Help ?? string.Empty);
-
-            case ObjectParameterKind.ReadOnly:
-                return CreateReadOnlyValueRow(
-                    label,
-                    parameter.GetReadOnly!(definition),
-                    parameter.Help ?? string.Empty);
-
-            case ObjectParameterKind.BlockMix:
-                return definition is ScatterObjectDefinition scatter
-                    ? CreateScatterBlockMixEditor(terrain, scatter)
-                    : new Panel();
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(parameter), parameter.Kind, "Unhandled object parameter kind.");
-        }
+        return BuildSchemaRow(
+            terrain,
+            definition,
+            parameter,
+            Commit,
+            (_, item) => item is ScatterObjectDefinition scatter
+                ? CreateScatterBlockMixEditor(terrain, scatter)
+                : new Panel());
     }
 }

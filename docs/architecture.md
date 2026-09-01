@@ -510,7 +510,7 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   ticks at round values inside that range, each labelled, rather than an unlabelled ramp with only its
   two ends named.
 - **The legend *is* the editor.** Slope, Elevation and Cut/Fill declare one
-  `AnalysisParameterDescriptor.ColorRamp()` row, which the panel renders as `UI/ColorRampControl` — the
+  `ParameterDescriptor<AnalysisDefinition>.ColorRamp()` row, which the panel renders as `UI/ColorRampControl` — the
   histogram, the ramp, its tick labels, and the mapping controls in one card. Collapsed it reads as the
   old read-only legend; clicking the ramp grows drag handles on the same bar and reveals a stop table, so
   a ramp is never edited against a second copy of itself. This replaced three separate pieces (a

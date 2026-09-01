@@ -2,6 +2,7 @@ using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using ModifierParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.ModifierDefinition>;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -17,13 +18,13 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
         new RetainingWallModifierDefinition { MaxWallWidth = ModelUnits.FromMeters(1.0, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetainingWallStage(context);
 
-    public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
-        ParameterDescriptor.Sources(
+        ModifierParam.Sources(
             "WallCurves", "Wall Curves",
             m => ((RetainingWallModifierDefinition)m).WallCurves,
             RhinoObjectType.Curve),
-        ParameterDescriptor.Number(
+        ModifierParam.Number(
             "MaxWallWidth", "Max Wall Width",
             m => ((RetainingWallModifierDefinition)m).MaxWallWidth,
             (m, v) => ((RetainingWallModifierDefinition)m).MaxWallWidth = v,

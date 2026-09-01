@@ -2,6 +2,7 @@ using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using AnalysisParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.AnalysisDefinition>;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -24,13 +25,13 @@ internal sealed class EarthworkAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 0;
     public override AnalysisDefinition Create() => new EarthworkAnalysisDefinition();
 
-    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
-        AnalysisParameterDescriptor.Sources(
+        AnalysisParam.Sources(
             "Reference", "Compare To",
             a => ((EarthworkAnalysisDefinition)a).Reference,
             RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion),
-        AnalysisParameterDescriptor.Sources(
+        AnalysisParam.Sources(
             "Boundary", "Boundary",
             a => ((EarthworkAnalysisDefinition)a).Boundary,
             RhinoObjectType.Curve),
@@ -66,9 +67,9 @@ internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 1;
     public override AnalysisDefinition Create() => new SlopeAnalysisDefinition();
 
-    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
-        AnalysisParameterDescriptor.ColorRamp(
+        AnalysisParam.ColorRamp(
             "Colours the terrain preview by slope. Drag the ramp's stops, the band interval, or the mapped range."),
     };
 }
@@ -87,9 +88,9 @@ internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 2;
     public override AnalysisDefinition Create() => new ElevationAnalysisDefinition();
 
-    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
-        AnalysisParameterDescriptor.ColorRamp(
+        AnalysisParam.ColorRamp(
             "Colours the terrain preview by elevation. Drag the ramp's stops, the band interval, or the mapped range."),
     };
 }
@@ -108,17 +109,17 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 3;
     public override AnalysisDefinition Create() => new CutFillAnalysisDefinition();
 
-    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
-        AnalysisParameterDescriptor.Sources(
+        AnalysisParam.Sources(
             "Reference", "Compare To",
             a => ((CutFillAnalysisDefinition)a).Reference,
             RhinoObjectType.Mesh | RhinoObjectType.Brep | RhinoObjectType.Extrusion),
-        AnalysisParameterDescriptor.Sources(
+        AnalysisParam.Sources(
             "Boundary", "Boundary",
             a => ((CutFillAnalysisDefinition)a).Boundary,
             RhinoObjectType.Curve),
-        AnalysisParameterDescriptor.ColorRamp(
+        AnalysisParam.ColorRamp(
             "Colours the terrain preview by cut and fill depth. The range stays symmetric about zero, so unchanged ground sits mid-ramp."),
     };
 
@@ -154,20 +155,20 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
     public override int SortOrder => 4;
     public override AnalysisDefinition Create() => new WaterflowAnalysisDefinition();
 
-    public override IReadOnlyList<AnalysisParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
     {
-        AnalysisParameterDescriptor.Sources(
+        AnalysisParam.Sources(
             "Sources", "Points",
             a => ((WaterflowAnalysisDefinition)a).Sources,
             RhinoObjectType.Point,
             "Point objects or layers used as waterflow starts."),
-        AnalysisParameterDescriptor.Number(
+        AnalysisParam.Number(
             "MaxLength", "Max Length",
             a => ((WaterflowAnalysisDefinition)a).MaxLength,
             (a, v) => ((WaterflowAnalysisDefinition)a).MaxLength = Math.Max(0.0, v),
             "Maximum plan length of each path. Set to 0 to continue to the terrain edge or a local sink.",
             min: 0.0),
-        AnalysisParameterDescriptor.Color(
+        AnalysisParam.Color(
             "ColorArgb", "Color",
             a => ((WaterflowAnalysisDefinition)a).ColorArgb,
             (a, v) => ((WaterflowAnalysisDefinition)a).ColorArgb = v,

@@ -3,6 +3,7 @@ using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using ModifierParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.ModifierDefinition>;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -26,20 +27,20 @@ internal sealed class SculptModifierDescriptor : ModifierTypeDescriptor
 
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunSculptStage(context);
 
-    public override IReadOnlyList<ParameterDescriptor> Parameters { get; } = new[]
+    public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
-        ParameterDescriptor.Sources(
+        ModifierParam.Sources(
             "Constraints", "Constraints",
             m => ((SculptModifierDefinition)m).Constraints,
             RhinoObjectType.Curve,
             "Terrain protected from sculpting. Closed curves lock their interior; open curves lock the breakline. Selecting the source of an earlier Grade Path protects its configured road width."),
-        ParameterDescriptor.Number(
+        ModifierParam.Number(
             "ConstraintFeather", "Feather",
             m => ((SculptModifierDefinition)m).ConstraintFeather,
             (m, v) => ((SculptModifierDefinition)m).ConstraintFeather = v,
             "Distance outside each protected footprint over which sculpt influence returns smoothly. Leave at 0 to use the Sculpt detail size.",
             min: 0.0),
-        ParameterDescriptor.ReadOnly(
+        ModifierParam.ReadOnly(
             "Field", "Field",
             m =>
             {
