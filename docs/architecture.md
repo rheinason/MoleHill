@@ -98,6 +98,15 @@ new surface if assignment fails. CRS reprojection remains out of scope.
 
 ## Two hosts, one core
 
+Area/zone topology splitting stays in Core (`MeshAreaTopologySplitter`): face geometry is constructed
+on demand, boundary intersections are spatially indexed, and boundary-to-face mapping runs in parallel
+with face-owned cut data and deterministic segment order. Spatial grid queries clamp to the index extent
+so a large face containing a tiny boundary cannot scan unbounded empty cells. Shared-edge cuts conform
+neighboring triangles. Global vertex lookup retains all original vertices and insertion-order ties using
+compact cell links; output faces grow in fixed-size chunks before flattening. Memory still scales with
+the terrain's cut slots, vertex index, and output arrays. `MeshAreaSplitter` classifies output centroids
+using indexed rightward rays with the original polygon crossing predicate and overlap priority.
+
 ```
 Grasshopper:  GH inputs → Core (TinEngine / PadGrader / …) → RhinoConverter → GH outputs
 Rhino panel:  TerrainDefinition (modifier stack, saved in .3dm)
@@ -528,8 +537,9 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   transient slope and area array to fit the distribution. Both summary accumulation and preview colour
   generation parallelize above the large-face threshold. Slope preview colouring uses
   `SlopeAnalyzer.Analyze`, which resolves bands once and shares them across every face.
-- **Cut/fill and earthwork reference comparisons** share one centroid-delta pass per reference/boundary
-  fingerprint. The 2.5D case projects reference Z through Core `MeshHeightProjector`; overlapping or
+- **Cut/fill and earthwork reference comparisons** cache statistics by current mesh plus reference and
+  boundary identity. Reference projection contexts are cached separately by reference identity, so zone
+  pieces can reuse one `MeshHeightProjector` without reusing another piece's volumes. The 2.5D case projects reference Z through Core `MeshHeightProjector`; overlapping or
   near-vertical XY regions fall back to the legacy Rhino world-Z mesh-line projection and report a
   diagnostic.
 - **Section Cut, Cross-Sections, and Section Along Curve** can overlay the owning proposed terrain with

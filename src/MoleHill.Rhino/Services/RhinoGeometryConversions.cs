@@ -73,6 +73,39 @@ internal static class RhinoGeometryConversions
         return true;
     }
 
+    /// <summary>
+    /// Extracts flat arrays <b>together with the counts that describe them</b>.
+    ///
+    /// Prefer this over the array-only overload whenever a count is needed. Extraction normalizes a
+    /// COPY of the mesh - <see cref="NormalizeMeshInPlace"/> converts quads to triangles, combines
+    /// identical vertices, culls unused vertices and culls degenerate faces - so the returned arrays
+    /// routinely describe a different number of vertices and faces than the Rhino mesh that was passed
+    /// in. Pairing these arrays with <c>mesh.Vertices.Count</c>/<c>mesh.Faces.Count</c> reads past the
+    /// end of them; on a large terrain with degenerate slivers that is an IndexOutOfRangeException,
+    /// not a rounding error.
+    /// </summary>
+    public static bool TryExtractMeshData(
+        Mesh mesh,
+        out double[] vertices,
+        out int vertexCount,
+        out int[] faces,
+        out int faceCount,
+        out string? errorMessage)
+    {
+        vertices = Array.Empty<double>();
+        faces = Array.Empty<int>();
+        vertexCount = 0;
+        faceCount = 0;
+        if (!TryGetMeshData(mesh, out var data, out errorMessage))
+            return false;
+
+        vertices = data.Vertices;
+        faces = data.Faces;
+        vertexCount = data.VertexCount;
+        faceCount = data.FaceCount;
+        return true;
+    }
+
     public static bool TryExtractMeshData(Mesh mesh, out double[] vertices, out int[] faces, out string? errorMessage)
     {
         vertices = Array.Empty<double>();

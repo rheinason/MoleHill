@@ -55,6 +55,15 @@ staying unresolved.
 `.Daylighting`, `.Spatial`, `.Support`, `.Types`, ...). `PathGrader.*.cs` is the corridor analogue.
 
 ## Shared building blocks
+- `MeshAreaTopologySplitter` supplies face geometry on demand and maps indexed boundary segments in
+  parallel with face-local scratch and stable segment order. Grid queries clamp to the indexed extent,
+  including when a large terrain face encloses a tiny zone. The shared-edge registry conforms neighbors;
+  tests require every single-use edge to remain on the original terrain perimeter. Output face indices
+  grow in fixed-size chunks, and global vertex lookup uses cell head/tail links instead of per-cell lists,
+  preserving original insertion order and nearest-point ties. Mesh-sized buffers still require linear memory.
+- `MeshAreaSplitter` classifies centroids with indexed rightward-ray queries, retaining the original
+  point-in-polygon arithmetic and highest-area-index overlap priority. Its boundary proximity index is
+  also used when callers request a nonzero tolerance.
 - `ScaleAwareTolerance` (Engine) and the daylight solvers use relative convergence and fixed sample-count
   policies. Pad/path grading therefore follows the same branch decisions after uniform unit scaling.
 - `GradingGeometry2D.cs` - **the** 2D primitives (point-in-polygon, distance-to-polygon,

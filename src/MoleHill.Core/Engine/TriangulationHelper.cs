@@ -61,6 +61,19 @@ public static class TriangulationHelper
         var mesher = new GenericMesher();
         var failureDetails = new List<string>(5);
 
+        // Fewer than three vertices cannot form a triangle. Triangle.NET returns an empty mesh from
+        // every constrained tier on such input and then throws a NullReferenceException inside the
+        // plain-Delaunay fallback, so the caller sees "all attempts failed" plus an NRE instead of the
+        // actual problem. Diagnose it up front.
+        if (vertexCount < 3)
+        {
+            return new TriangulationOutcome
+            {
+                WarningMessage =
+                    $"Triangulation needs at least 3 distinct vertices; got {vertexCount}."
+            };
+        }
+
         Polygon BuildPolygon(bool includeSegs)
         {
             var polygon = new Polygon(vertexCount);

@@ -15,19 +15,22 @@ internal static class ZoneAnalysisCalculator
 
         foreach (Mesh mesh in meshes)
         {
-            if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out double[] vertices, out int[] faces, out _))
+            // Counts come from the extraction, not from the Rhino mesh: zone submeshes carry unused
+            // vertices that normalization culls, so mesh.Vertices.Count overruns the extracted array.
+            if (!RhinoGeometryConversions.TryExtractMeshData(
+                    mesh, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount, out _))
                 continue;
 
             result.OutputCount++;
-            result.TriangleCount += faces.Length / 3;
+            result.TriangleCount += faceCount;
             result.SurfaceArea += AreaMassProperties.Compute(mesh)?.Area ?? 0.0;
 
             // Only min/max/average are read here, so skip the auto-range fit and its allocations.
             var slopes = SlopeAnalyzer.Summarize(
-                vertices, mesh.Vertices.Count, faces, faces.Length / 3,
+                vertices, vertexCount, faces, faceCount,
                 SlopeAnalyzer.SlopeUnit.Percent,
                 autoRange: false);
-            if (result.TriangleCount == faces.Length / 3)
+            if (result.TriangleCount == faceCount)
             {
                 result.SlopeMinPercent = slopes.Min;
                 result.SlopeMaxPercent = slopes.Max;
@@ -41,7 +44,7 @@ internal static class ZoneAnalysisCalculator
             double minZ = double.MaxValue;
             double maxZ = double.MinValue;
             double planArea = 0.0;
-            for (int face = 0; face < faces.Length / 3; face++)
+            for (int face = 0; face < faceCount; face++)
             {
                 int a = faces[face * 3];
                 int b = faces[face * 3 + 1];

@@ -25,7 +25,7 @@ internal sealed partial class TerrainBuildService
         public string? InputLayerPath { get; init; }
     }
 
-    private readonly record struct ReferenceComparisonStats(
+    internal readonly record struct ReferenceComparisonStats(
         double CutVolume,
         double FillVolume,
         double CutFillDisplayAbsMax,
@@ -36,13 +36,20 @@ internal sealed partial class TerrainBuildService
         public double NetVolume => CutVolume - FillVolume;
     }
 
-    private readonly record struct ReferenceComparisonCacheKey(
+    internal readonly record struct ReferenceComparisonCacheKey(
+        double[] CurrentVertices,
+        int[] CurrentFaces,
         ulong ReferenceFingerprint,
         ulong BoundaryFingerprint,
         ulong ReferenceTerrainFingerprint,
         bool UsesFallbackBaseMesh);
 
-    private sealed class ReferenceProjectionContext
+    internal readonly record struct ReferenceProjectionCacheKey(
+        ulong ReferenceFingerprint,
+        ulong ReferenceTerrainFingerprint,
+        bool UsesFallbackBaseMesh);
+
+    internal sealed class ReferenceProjectionContext
     {
         public required global::Rhino.Geometry.Mesh Mesh { get; init; }
 

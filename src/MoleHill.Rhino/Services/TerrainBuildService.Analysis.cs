@@ -39,6 +39,7 @@ internal sealed partial class TerrainBuildService
         double surfaceArea = 0.0;
         bool analysisContextPrepared = false;
         var referenceComparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>();
+        var referenceProjectionCache = new Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext>();
 
         bool EnsureAnalysisContext()
         {
@@ -147,6 +148,7 @@ internal sealed partial class TerrainBuildService
                     elevMaxZ,
                     build,
                     referenceComparisonCache,
+                    referenceProjectionCache,
                     shouldCancel),
                 SlopeAnalysisDefinition slope => BuildSlopeSummary(
                     currentMesh,
@@ -181,6 +183,7 @@ internal sealed partial class TerrainBuildService
                     elevMaxZ,
                     build,
                     referenceComparisonCache,
+                    referenceProjectionCache,
                     shouldCancel),
                 _ => null
             });
@@ -322,18 +325,19 @@ internal sealed partial class TerrainBuildService
         double elevMaxZ,
         TerrainBuildResult build,
         Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats> referenceComparisonCache,
+        Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext> referenceProjectionCache,
         Func<bool>? shouldCancel)
     {
         var stats = ComputeReferenceComparisonStats(
             snapshot,
             fallbackBaseMesh,
-            currentMesh,
             currentVertices,
             currentFaces,
             analysis.Reference,
             analysis.Boundary,
             build,
             referenceComparisonCache,
+            referenceProjectionCache,
             shouldCancel,
             analysis.ReferenceTerrainId);
 
@@ -362,18 +366,19 @@ internal sealed partial class TerrainBuildService
         double elevMaxZ,
         TerrainBuildResult build,
         Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats> referenceComparisonCache,
+        Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext> referenceProjectionCache,
         Func<bool>? shouldCancel)
     {
         var stats = ComputeReferenceComparisonStats(
             snapshot,
             fallbackBaseMesh,
-            currentMesh,
             currentVertices,
             currentFaces,
             analysis.Reference,
             analysis.Boundary,
             build,
             referenceComparisonCache,
+            referenceProjectionCache,
             shouldCancel,
             analysis.ReferenceTerrainId);
 
@@ -645,16 +650,16 @@ internal sealed partial class TerrainBuildService
         return result;
     }
 
-    private static ReferenceComparisonStats ComputeReferenceComparisonStats(
+    internal static ReferenceComparisonStats ComputeReferenceComparisonStats(
         TerrainBuildSnapshot snapshot,
         RhinoMesh fallbackBaseMesh,
-        RhinoMesh currentMesh,
         double[] currentVertices,
         int[] currentFaces,
         SourceReferenceSet referenceSet,
         SourceReferenceSet boundarySet,
         TerrainBuildResult build,
         Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats> referenceComparisonCache,
+        Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext> referenceProjectionCache,
         Func<bool>? shouldCancel,
         Guid? referenceTerrainId = null)
     {
@@ -665,6 +670,8 @@ internal sealed partial class TerrainBuildService
             referenceTerrainFingerprint = referenceTerrain.MeshFingerprint;
 
         var cacheKey = new ReferenceComparisonCacheKey(
+            currentVertices,
+            currentFaces,
             ComputeSourceSetFingerprint(snapshot, referenceSet),
             ComputeSourceSetFingerprint(snapshot, boundarySet),
             referenceTerrainFingerprint,
@@ -672,12 +679,20 @@ internal sealed partial class TerrainBuildService
         if (referenceComparisonCache.TryGetValue(cacheKey, out ReferenceComparisonStats cachedStats))
             return cachedStats;
 
-        // Explicit baked-object reference wins, then a referenced terrain's own finished mesh, then the
-        // terrain's own base triangulation — the ordinary "what did my grading move" comparison.
-        RhinoMesh baseMesh = ResolveReferenceMesh(snapshot, referenceSet) ?? referenceTerrain?.Mesh ?? fallbackBaseMesh;
         bool isEstimated = !referenceSet.HasReferences && referenceTerrain == null;
         var boundaries = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, boundarySet);
-        var projection = CreateReferenceProjectionContext(baseMesh);
+        var projectionKey = new ReferenceProjectionCacheKey(
+            cacheKey.ReferenceFingerprint,
+            referenceTerrainFingerprint,
+            cacheKey.UsesFallbackBaseMesh);
+        if (!referenceProjectionCache.TryGetValue(projectionKey, out ReferenceProjectionContext? projection))
+        {
+            // Projection depends only on the reference geometry. The result statistics also depend on
+            // the current mesh and clipping boundary, and therefore use the stricter cache key above.
+            RhinoMesh baseMesh = ResolveReferenceMesh(snapshot, referenceSet) ?? referenceTerrain?.Mesh ?? fallbackBaseMesh;
+            projection = CreateReferenceProjectionContext(baseMesh);
+            referenceProjectionCache[projectionKey] = projection;
+        }
 
         ReferenceComparisonStats stats = EstimateReferenceComparison(
             projection,
@@ -764,6 +779,8 @@ internal sealed partial class TerrainBuildService
         bool isEstimated,
         Func<bool>? shouldCancel)
     {
+        int gridProjectionCountBefore = projection.GridProjectionCount;
+        int fallbackProjectionCountBefore = projection.FallbackProjectionCount;
         double cutVolume = 0.0;
         double fillVolume = 0.0;
         double cutFillAbsMax = 0.0;
@@ -811,8 +828,8 @@ internal sealed partial class TerrainBuildService
             fillVolume,
             cutFillAbsMax,
             isEstimated,
-            projection.GridProjectionCount,
-            projection.FallbackProjectionCount);
+            projection.GridProjectionCount - gridProjectionCountBefore,
+            projection.FallbackProjectionCount - fallbackProjectionCountBefore);
     }
 
     private static bool TryProjectReferencePoint(

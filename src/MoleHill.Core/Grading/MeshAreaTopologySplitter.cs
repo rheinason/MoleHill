@@ -54,7 +54,9 @@ internal static class MeshAreaTopologySplitter
     private readonly record struct SegmentPiece(Point2D Start, Point2D End);
     private readonly record struct EdgePoint(int EdgeIndex, Point2D Point);
 
-    private sealed class FaceData
+    // Constructed on demand, without retaining a heap object for every terrain face.
+    // Passed by `in` to avoid copying the geometry at helper call sites.
+    private readonly struct FaceData
     {
         public required int I0 { get; init; }
         public required int I1 { get; init; }
@@ -209,7 +211,8 @@ internal static class MeshAreaTopologySplitter
         private readonly List<double> _vertices;
         private readonly double _toleranceSquared;
         private readonly double _inverseCellSize;
-        private readonly Dictionary<long, List<int>> _cells = new();
+        private readonly Dictionary<long, (int Head, int Tail)> _cells = new();
+        private readonly List<int> _next;
 
         public GlobalPointLookup(List<double> vertices, double tolerance)
         {
@@ -219,6 +222,7 @@ internal static class MeshAreaTopologySplitter
             _inverseCellSize = 1.0 / resolvedTolerance;
 
             int vertexCount = vertices.Count / 3;
+            _next = new List<int>(vertexCount);
             for (int i = 0; i < vertexCount; i++)
                 Register(i, vertices[i * 3], vertices[i * 3 + 1]);
         }
@@ -247,10 +251,10 @@ internal static class MeshAreaTopologySplitter
             {
                 for (long dy = -1; dy <= 1; dy++)
                 {
-                    if (!_cells.TryGetValue(PackKey(cellX + dx, cellY + dy), out var list))
+                    if (!_cells.TryGetValue(PackKey(cellX + dx, cellY + dy), out var cell))
                         continue;
 
-                    foreach (int candidate in list)
+                    for (int candidate = cell.Head; candidate >= 0; candidate = _next[candidate])
                     {
                         double vx = _vertices[candidate * 3];
                         double vy = _vertices[candidate * 3 + 1];
@@ -273,16 +277,51 @@ internal static class MeshAreaTopologySplitter
         private void Register(int index, double x, double y)
         {
             long key = PackKey(ToCell(x), ToCell(y));
-            if (!_cells.TryGetValue(key, out var list))
+            // Append in original vertex order: nearest-point ties must resolve exactly as
+            // they did with per-cell lists, including duplicate XY vertices at different Z.
+            _next.Add(-1);
+            if (_cells.TryGetValue(key, out var cell))
             {
-                list = new List<int>(4);
-                _cells[key] = list;
+                _next[cell.Tail] = index;
+                _cells[key] = (cell.Head, index);
             }
-
-            list.Add(index);
+            else
+                _cells[key] = (index, index);
         }
 
         private long ToCell(double value) => (long)Math.Floor(value * _inverseCellSize);
+    }
+
+    // Output grows only as faces are emitted, without doubling a terrain-sized backing array.
+    // Chunks are flattened once into the exact-sized array required by SplitResult.
+    private sealed class FaceBuffer
+    {
+        private const int ChunkSize = 16384;
+        private readonly List<int[]> _chunks = new();
+
+        public int Count { get; private set; }
+
+        public void Add(int index)
+        {
+            int offset = Count % ChunkSize;
+            if (offset == 0)
+                _chunks.Add(new int[ChunkSize]);
+            _chunks[^1][offset] = index;
+            Count++;
+        }
+
+        public int[] ToArray()
+        {
+            var result = new int[Count];
+            int offset = 0;
+            foreach (int[] chunk in _chunks)
+            {
+                int length = Math.Min(ChunkSize, Count - offset);
+                Array.Copy(chunk, 0, result, offset, length);
+                offset += length;
+            }
+            return result;
+        }
     }
 
     private enum SegmentIntersectionKind
@@ -345,12 +384,26 @@ internal static class MeshAreaTopologySplitter
             return null;
         }
 
+        // The counts must actually describe the arrays. Rhino mesh extraction normalizes a COPY of the
+        // mesh (quads split, identical vertices combined, degenerate faces culled), so a caller that
+        // pairs the extracted arrays with the original mesh's Vertices.Count/Faces.Count overruns them.
+        // Report that as a diagnosis rather than letting it surface as an IndexOutOfRangeException on a
+        // worker thread, where the stack says nothing about which caller mismatched.
+        if ((long)faceCount * 3 > faces.Length || (long)vertexCount * 3 > vertices.Length)
+        {
+            errorMessage =
+                $"Mesh data is inconsistent: caller reported {faceCount:N0} faces and {vertexCount:N0} " +
+                $"vertices, but the arrays hold {faces.Length / 3:N0} faces and {vertices.Length / 3:N0} " +
+                "vertices. The counts must come from the same extraction as the arrays.";
+            return null;
+        }
+
         double tolerance = Math.Max(boundaryTolerance, 1e-9);
         Stopwatch? phaseTimer = performanceTimings != null ? Stopwatch.StartNew() : null;
         long phaseAllocatedBefore = performanceTimings != null
             ? GC.GetTotalAllocatedBytes(precise: true)
             : 0;
-        var faceData = BuildFaceData(vertices, faces, faceCount);
+        var faceData = new FaceSource(vertices, faces, faceCount);
         if (performanceTimings != null)
         {
             performanceTimings.FaceDataMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
@@ -417,7 +470,7 @@ internal static class MeshAreaTopologySplitter
         }
 
         var globalVertices = new List<double>(vertices);
-        var globalFaces = new List<int>(faces.Length * 2);
+        var globalFaces = new FaceBuffer();
         var pointLookup = new GlobalPointLookup(globalVertices, tolerance);
         if (performanceTimings != null)
         {
@@ -428,10 +481,13 @@ internal static class MeshAreaTopologySplitter
             phaseTimer.Restart();
         }
 
+        int degradedFaceCount = 0;
+        string? firstFaceError = null;
+
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             var cuts = faceCuts[faceIndex];
-            FaceData face = faceData[faceIndex];
+            FaceData face = faceData.Get(faceIndex);
 
             // A face must be re-triangulated when it carries its own cut data OR when a neighbour
             // subdivided one of its edges (registry hit): emitting it unchanged would leave the
@@ -460,8 +516,27 @@ internal static class MeshAreaTopologySplitter
                     performanceTimings.MultipleInternalSegmentFaceCount++;
             }
 
-            if (!TriangulateTouchedFace(face, cuts, sharedEdgePoints, pointLookup, globalFaces, tolerance, out errorMessage))
-                return null;
+            if (!TriangulateTouchedFace(face, cuts, sharedEdgePoints, pointLookup, globalFaces, tolerance, out string? faceError))
+            {
+                // One face that cannot be re-triangulated must not discard the split for the whole
+                // terrain. On a multi-million-face GIS mesh a handful of faces are degenerate or carry
+                // constraints Triangle.NET will not honour; failing hard there returned NO zones at all
+                // for the entire model. Emit this face unchanged (nothing was appended for it yet) and
+                // carry on, reporting how many were degraded.
+                globalFaces.Add(face.I0);
+                globalFaces.Add(face.I1);
+                globalFaces.Add(face.I2);
+                degradedFaceCount++;
+                firstFaceError ??= faceError;
+            }
+        }
+
+        if (degradedFaceCount > 0)
+        {
+            errorMessage =
+                $"{degradedFaceCount:N0} of {faceCount:N0} terrain faces kept their original topology " +
+                $"because they could not be re-triangulated against the zone boundaries. " +
+                $"First cause: {firstFaceError ?? "unknown"}";
         }
 
         if (performanceTimings != null)
@@ -496,7 +571,7 @@ internal static class MeshAreaTopologySplitter
     /// pair of its two global vertex ids. Two faces sharing that edge produce the same key, so cut
     /// points registered against it are visible to both.
     /// </summary>
-    private static (int, int) EdgeKey(FaceData face, int edgeIndex)
+    private static (int, int) EdgeKey(in FaceData face, int edgeIndex)
     {
         int start = edgeIndex switch { 0 => face.I0, 1 => face.I1, _ => face.I2 };
         int end = edgeIndex switch { 0 => face.I1, 1 => face.I2, _ => face.I0 };
@@ -509,20 +584,20 @@ internal static class MeshAreaTopologySplitter
     /// either adjacent face, so both faces can conform to it identically.
     /// </summary>
     private static Dictionary<(int, int), List<Point2D>> BuildSharedEdgeRegistry(
-        FaceData[] faceData,
+        FaceSource faceData,
         FaceCutData?[] faceCuts,
         double tolerance)
     {
         var registry = new Dictionary<(int, int), List<Point2D>>();
         double toleranceSquared = tolerance * tolerance;
 
-        for (int faceIndex = 0; faceIndex < faceData.Length; faceIndex++)
+        for (int faceIndex = 0; faceIndex < faceData.Count; faceIndex++)
         {
             var cuts = faceCuts[faceIndex];
             if (cuts == null || cuts.EdgePoints.Count == 0)
                 continue;
 
-            FaceData face = faceData[faceIndex];
+            FaceData face = faceData.Get(faceIndex);
             foreach (var edgePoint in cuts.EdgePoints)
             {
                 // Endpoints that coincide with a triangle vertex never subdivide the edge.
@@ -554,7 +629,7 @@ internal static class MeshAreaTopologySplitter
         return registry;
     }
 
-    private static bool HasRegistryEdgePoints(FaceData face, Dictionary<(int, int), List<Point2D>> registry)
+    private static bool HasRegistryEdgePoints(in FaceData face, Dictionary<(int, int), List<Point2D>> registry)
     {
         for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
         {
@@ -565,19 +640,35 @@ internal static class MeshAreaTopologySplitter
         return false;
     }
 
-    private static FaceData[] BuildFaceData(double[] vertices, int[] faces, int faceCount)
+    /// <summary>
+    /// Supplies <see cref="FaceData"/> on demand from the flat vertex/face arrays instead of
+    /// materializing one per terrain face up front. Only this geometry setup has constant storage;
+    /// cut slots and output buffers still scale with mesh size. Rebuilding one is a few array reads.
+    /// </summary>
+    private readonly struct FaceSource
     {
-        var result = new FaceData[faceCount];
-        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
-        {
-            int i0 = faces[faceIndex * 3];
-            int i1 = faces[faceIndex * 3 + 1];
-            int i2 = faces[faceIndex * 3 + 2];
-            var a = new Point2D(vertices[i0 * 3], vertices[i0 * 3 + 1]);
-            var b = new Point2D(vertices[i1 * 3], vertices[i1 * 3 + 1]);
-            var c = new Point2D(vertices[i2 * 3], vertices[i2 * 3 + 1]);
+        private readonly double[] _vertices;
+        private readonly int[] _faces;
 
-            result[faceIndex] = new FaceData
+        public FaceSource(double[] vertices, int[] faces, int faceCount)
+        {
+            _vertices = vertices;
+            _faces = faces;
+            Count = faceCount;
+        }
+
+        public int Count { get; }
+
+        public FaceData Get(int faceIndex)
+        {
+            int i0 = _faces[faceIndex * 3];
+            int i1 = _faces[faceIndex * 3 + 1];
+            int i2 = _faces[faceIndex * 3 + 2];
+            var a = new Point2D(_vertices[i0 * 3], _vertices[i0 * 3 + 1]);
+            var b = new Point2D(_vertices[i1 * 3], _vertices[i1 * 3 + 1]);
+            var c = new Point2D(_vertices[i2 * 3], _vertices[i2 * 3 + 1]);
+
+            return new FaceData
             {
                 I0 = i0,
                 I1 = i1,
@@ -585,9 +676,9 @@ internal static class MeshAreaTopologySplitter
                 A = a,
                 B = b,
                 C = c,
-                Az = vertices[i0 * 3 + 2],
-                Bz = vertices[i1 * 3 + 2],
-                Cz = vertices[i2 * 3 + 2],
+                Az = _vertices[i0 * 3 + 2],
+                Bz = _vertices[i1 * 3 + 2],
+                Cz = _vertices[i2 * 3 + 2],
                 Bounds = new Bounds2D(
                     Math.Min(a.X, Math.Min(b.X, c.X)),
                     Math.Max(a.X, Math.Max(b.X, c.X)),
@@ -595,8 +686,6 @@ internal static class MeshAreaTopologySplitter
                     Math.Max(a.Y, Math.Max(b.Y, c.Y)))
             };
         }
-
-        return result;
     }
 
     private static List<BoundarySegment> BuildBoundarySegments(MeshAreaSplitter.AreaBoundary[] areas, double tolerance)
@@ -633,10 +722,26 @@ internal static class MeshAreaTopologySplitter
                 Math.Max(segment.Start.Y, segment.End.Y));
         }
 
+        // Boundary-vs-boundary intersections are found through a spatial index, not an all-pairs sweep.
+        // Zone boundaries come straight from GIS/CAD polygons and routinely carry tens of thousands of
+        // vertices; the n^2 sweep this replaces did ~1.6e9 bbox tests on a 56k-vertex cadastral layer.
+        // Every other hot loop in this file is already indexed this way.
+        var pairGrid = SpatialHashGrid2D.Build(segmentBounds);
+        var pairScratch = new SpatialHashGrid2D.QueryScratch(sourceSegments.Count);
+        var pairCandidates = new List<int>(16);
+
         for (int i = 0; i < sourceSegments.Count; i++)
         {
-            for (int j = i + 1; j < sourceSegments.Count; j++)
+            pairGrid.GatherCandidates(segmentBounds[i], pairCandidates, pairScratch);
+            // Sorted so each unordered pair is still visited exactly once, in the same ascending order
+            // the all-pairs sweep used - split parameters accumulate identically.
+            pairCandidates.Sort();
+
+            foreach (int j in pairCandidates)
             {
+                if (j <= i)
+                    continue;
+
                 if (!segmentBounds[i].Intersects(segmentBounds[j]))
                     continue;
 
@@ -696,66 +801,90 @@ internal static class MeshAreaTopologySplitter
         return dedupedSegments;
     }
 
+    /// <summary>
+    /// Maps every boundary segment onto the terrain faces it cuts.
+    ///
+    /// Iteration is per FACE, not per segment, for two reasons. It parallelizes: each face owns its own
+    /// <see cref="FaceCutData"/> slot, so workers never contend and no locking is needed (the per-segment
+    /// form had many segments writing the same face). And it keeps the spatial query on the small side -
+    /// the index is built over the boundary segments (thousands) rather than the terrain faces (millions).
+    /// Candidates are sorted so each face still accumulates its cuts in ascending segment order, making
+    /// the dedup in AddUniqueEdgePoint/AddUniqueSegment order-identical to the serial version.
+    /// </summary>
     private static FaceCutData[] MapBoundarySegmentsToFaces(
-        FaceData[] faceData,
+        FaceSource faceData,
         List<BoundarySegment> boundarySegments,
         double tolerance)
     {
-        var faceBounds = new Bounds2D[faceData.Length];
-        for (int i = 0; i < faceData.Length; i++)
-            faceBounds[i] = faceData[i].Bounds;
-
-        var grid = SpatialHashGrid2D.Build(faceBounds);
-        var scratch = new SpatialHashGrid2D.QueryScratch(faceData.Length);
-        var candidates = new List<int>(16);
-        var result = new FaceCutData[faceData.Length];
-        var edgePointBuffer = new EdgePoint[8];
-        var parameterBuffer = new double[8];
-        var clippedPieceBuffer = new SegmentPiece[7];
-
-        // Cut endpoints within this distance of a terrain edge are projected onto it so they conform
-        // (see the snap rationale in the clipped-piece loop). Several times the model tolerance — large
-        // enough to absorb near-edge cut points, far below terrain detail.
-        double edgeSnapToleranceSquared = (tolerance * 8.0) * (tolerance * 8.0);
-
-        foreach (var segment in boundarySegments)
+        var segmentBounds = new Bounds2D[boundarySegments.Count];
+        for (int i = 0; i < boundarySegments.Count; i++)
         {
-            var queryBounds = new Bounds2D(
+            BoundarySegment segment = boundarySegments[i];
+            segmentBounds[i] = new Bounds2D(
                 Math.Min(segment.Start.X, segment.End.X) - tolerance,
                 Math.Max(segment.Start.X, segment.End.X) + tolerance,
                 Math.Min(segment.Start.Y, segment.End.Y) - tolerance,
                 Math.Max(segment.Start.Y, segment.End.Y) + tolerance);
+        }
 
-            grid.GatherCandidates(queryBounds, candidates, scratch);
-            foreach (int faceIndex in candidates)
+        var grid = SpatialHashGrid2D.Build(segmentBounds);
+        var result = new FaceCutData[faceData.Count];
+
+        // Cut endpoints within this distance of a terrain edge are projected onto it so they conform
+        // (see the snap rationale in the clipped-piece loop). Several times the model tolerance - large
+        // enough to absorb near-edge cut points, far below terrain detail.
+        double edgeSnapToleranceSquared = (tolerance * 8.0) * (tolerance * 8.0);
+
+        System.Threading.Tasks.Parallel.For(
+            0,
+            faceData.Count,
+            () => (
+                Scratch: new SpatialHashGrid2D.QueryScratch(boundarySegments.Count),
+                Candidates: new List<int>(16),
+                EdgePointBuffer: new EdgePoint[8],
+                ParameterBuffer: new double[8],
+                ClippedPieceBuffer: new SegmentPiece[7]),
+            (faceIndex, _, state) =>
+        {
+            FaceData face = faceData.Get(faceIndex);
+            Bounds2D faceBounds = face.Bounds;
+
+            grid.GatherCandidates(faceBounds, state.Candidates, state.Scratch);
+            if (state.Candidates.Count == 0)
+                return state;
+
+            state.Candidates.Sort();
+
+            foreach (int segmentIndex in state.Candidates)
             {
-                var face = faceData[faceIndex];
-                if (!face.Bounds.Intersects(queryBounds))
+                Bounds2D queryBounds = segmentBounds[segmentIndex];
+                if (!faceBounds.Intersects(queryBounds))
                     continue;
 
+                BoundarySegment segment = boundarySegments[segmentIndex];
                 AnalyzeSegmentAgainstFace(
                     face,
                     segment,
                     tolerance,
-                    edgePointBuffer,
+                    state.EdgePointBuffer,
                     out int edgePointCount,
-                    parameterBuffer,
-                    clippedPieceBuffer,
+                    state.ParameterBuffer,
+                    state.ClippedPieceBuffer,
                     out int clippedPieceCount);
                 if (edgePointCount == 0 && clippedPieceCount == 0)
                     continue;
 
                 FaceCutData cuts = result[faceIndex] ??= new FaceCutData();
                 for (int edgePointIndex = 0; edgePointIndex < edgePointCount; edgePointIndex++)
-                    AddUniqueEdgePoint(cuts.EdgePoints, edgePointBuffer[edgePointIndex], face, tolerance);
+                    AddUniqueEdgePoint(cuts.EdgePoints, state.EdgePointBuffer[edgePointIndex], face, tolerance);
 
                 for (int clippedPieceIndex = 0; clippedPieceIndex < clippedPieceCount; clippedPieceIndex++)
                 {
-                    SegmentPiece rawPiece = clippedPieceBuffer[clippedPieceIndex];
+                    SegmentPiece rawPiece = state.ClippedPieceBuffer[clippedPieceIndex];
                     // Conform a cut endpoint that lands NEAR (but not within the model tolerance of) a
                     // terrain edge onto that edge. Such a point is otherwise kept interior, and because
                     // each adjacent face detects it at a slightly different spot, they emit overlapping
-                    // sliver triangles along the shared edge — one non-manifold edge in the conformed
+                    // sliver triangles along the shared edge - one non-manifold edge in the conformed
                     // terrain. Projecting onto the edge makes the point register in the shared-edge
                     // registry, so BOTH faces subdivide the edge identically (no sliver). Projection onto
                     // a shared edge is position-identical from either side, so it is consistent by
@@ -777,17 +906,19 @@ internal static class MeshAreaTopologySplitter
                     AddPieceEndpointEdgePoints(cuts.EdgePoints, face, clippedPiece, tolerance);
                 }
             }
-        }
+
+            return state;
+        }, _ => { });
 
         return result;
     }
 
     private static bool TriangulateTouchedFace(
-        FaceData face,
+        in FaceData face,
         FaceCutData? cutData,
         Dictionary<(int, int), List<Point2D>> sharedEdgePoints,
         GlobalPointLookup pointLookup,
-        List<int> globalFaces,
+        FaceBuffer globalFaces,
         double tolerance,
         out string? errorMessage)
     {
@@ -807,17 +938,6 @@ internal static class MeshAreaTopologySplitter
         // snap radius is several times the model tolerance but far below terrain detail, so the carve
         // boundary moves negligibly.
         double cornerSnapTolSq = (tolerance * 8.0) * (tolerance * 8.0);
-        Point2D SnapToCorner(Point2D p)
-        {
-            double da = DistanceSquared(p, face.A);
-            double db = DistanceSquared(p, face.B);
-            double dc = DistanceSquared(p, face.C);
-            double best = Math.Min(da, Math.Min(db, dc));
-            if (best > cornerSnapTolSq)
-                return p;
-
-            return best == da ? face.A : (best == db ? face.B : face.C);
-        }
 
         var edgePointLists = new List<(double Parameter, int LocalIndex)>[3];
         for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
@@ -840,7 +960,7 @@ internal static class MeshAreaTopologySplitter
 
             foreach (Point2D rawPoint in points)
             {
-                Point2D point = SnapToCorner(rawPoint);
+                Point2D point = SnapToCorner(face, rawPoint, cornerSnapTolSq);
 
                 // A point that snapped to (or already coincides with) a corner does not subdivide the
                 // edge — the corner is already a triangle vertex.
@@ -860,8 +980,8 @@ internal static class MeshAreaTopologySplitter
         {
             foreach (var piece in cutData.InternalSegments)
             {
-                Point2D pieceStart = SnapToCorner(piece.Start);
-                Point2D pieceEnd = SnapToCorner(piece.End);
+                Point2D pieceStart = SnapToCorner(face, piece.Start, cornerSnapTolSq);
+                Point2D pieceEnd = SnapToCorner(face, piece.End, cornerSnapTolSq);
                 int start = localPoints.Add(pieceStart, face.InterpolateZ(pieceStart));
                 int end = localPoints.Add(pieceEnd, face.InterpolateZ(pieceEnd));
                 if (start == end)
@@ -901,10 +1021,27 @@ internal static class MeshAreaTopologySplitter
             }
         }
 
+        // A face whose local point set cannot form a triangle - a sliver whose corners merge inside the
+        // merge tolerance, or a set that is entirely collinear - has no meaningful subdivision to
+        // compute. Triangle.NET yields 0 triangles for every constrained tier on such input and throws
+        // inside the plain-Delaunay fallback, which used to fail the ENTIRE split (and with it every
+        // zone in the terrain) over a single degenerate face. Emit the face unchanged instead: it is
+        // degenerate to within tolerance, so any T-junction left behind is below tolerance too.
+        if (!HasTriangulableArea(localPoints, tolerance))
+        {
+            globalFaces.Add(face.I0);
+            globalFaces.Add(face.I1);
+            globalFaces.Add(face.I2);
+            return true;
+        }
+
         var outcome = TriangulationHelper.Triangulate(localPoints.Xy, localPoints.Count, segments, 0, 0, convex: true, segmentSplitting: 0);
         if (outcome.Mesh == null || MeshConstraintTools.ConstraintsWereDropped(outcome.Flags))
         {
-            errorMessage = outcome.WarningMessage ?? "Topology-preserving zone split failed.";
+            errorMessage =
+                $"face at ({face.A.X:0.###}, {face.A.Y:0.###}) with {localPoints.Count} local points and " +
+                $"{segments.Count} constraint segments - " +
+                (outcome.WarningMessage ?? "no triangles produced.");
             return false;
         }
 
@@ -947,7 +1084,7 @@ internal static class MeshAreaTopologySplitter
     }
 
     private static void AnalyzeSegmentAgainstFace(
-        FaceData face,
+        in FaceData face,
         BoundarySegment segment,
         double tolerance,
         EdgePoint[] edgePoints,
@@ -1080,7 +1217,7 @@ internal static class MeshAreaTopologySplitter
     private static void AddScratchEdgeTouchPoint(
         EdgePoint[] destination,
         ref int count,
-        FaceData face,
+        in FaceData face,
         int edgeIndex,
         Point2D point,
         double tolerance)
@@ -1118,7 +1255,7 @@ internal static class MeshAreaTopologySplitter
         destination[count++] = candidate;
     }
 
-    private static int GetPieceEdgeIndex(FaceData face, SegmentPiece piece, double tolerance)
+    private static int GetPieceEdgeIndex(in FaceData face, SegmentPiece piece, double tolerance)
     {
         int startEdge = face.GetEdgeIndex(piece.Start, tolerance);
         int endEdge = face.GetEdgeIndex(piece.End, tolerance);
@@ -1300,7 +1437,7 @@ internal static class MeshAreaTopologySplitter
             : (x1, y1, x0, y0);
     }
 
-    private static Point2D SnapPointToTriangle(FaceData face, Point2D point, double tolerance)
+    private static Point2D SnapPointToTriangle(in FaceData face, Point2D point, double tolerance)
     {
         if (DistanceSquared(point, face.A) <= tolerance * tolerance)
             return face.A;
@@ -1322,11 +1459,70 @@ internal static class MeshAreaTopologySplitter
     }
 
     /// <summary>
+    /// True when the local point set spans a real area, i.e. some three points form a triangle above
+    /// the degeneracy epsilon. Runs in O(n): the point farthest from the first one fixes the dominant
+    /// direction, so if any point lies off that line the set is not collinear.
+    /// </summary>
+    private static bool HasTriangulableArea(LocalPointBuilder points, double tolerance)
+    {
+        if (points.Count < 3)
+            return false;
+
+        Point2D origin = points.GetPoint(0);
+        int farthest = -1;
+        double farthestDistance = 0.0;
+        for (int i = 1; i < points.Count; i++)
+        {
+            double distance = DistanceSquared(origin, points.GetPoint(i));
+            if (distance > farthestDistance)
+            {
+                farthestDistance = distance;
+                farthest = i;
+            }
+        }
+
+        if (farthest < 0 || farthestDistance <= 0.0)
+            return false;
+
+        Point2D axis = points.GetPoint(farthest);
+        double areaEpsilon = tolerance * tolerance * 1e-3;
+        for (int i = 1; i < points.Count; i++)
+        {
+            if (i == farthest)
+                continue;
+
+            Point2D candidate = points.GetPoint(i);
+            double cross = Math.Abs(
+                ((axis.X - origin.X) * (candidate.Y - origin.Y)) -
+                ((axis.Y - origin.Y) * (candidate.X - origin.X)));
+            if (cross > areaEpsilon)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Snaps a cut point that lands very close to a triangle CORNER onto that corner, so both
+    /// faces sharing the corner place it at the identical global vertex instead of two hair-apart
+    /// points that would emit overlapping slivers (a non-manifold edge).</summary>
+    private static Point2D SnapToCorner(in FaceData face, Point2D p, double cornerSnapTolSq)
+    {
+        double da = DistanceSquared(p, face.A);
+        double db = DistanceSquared(p, face.B);
+        double dc = DistanceSquared(p, face.C);
+        double best = Math.Min(da, Math.Min(db, dc));
+        if (best > cornerSnapTolSq)
+            return p;
+
+        return best == da ? face.A : (best == db ? face.B : face.C);
+    }
+
+    /// <summary>
     /// Projects <paramref name="point"/> onto the nearest of the face's three edges if it lies within
     /// the (squared) snap radius; otherwise returns it unchanged. Used to conform near-edge cut points
     /// onto the terrain edge so adjacent faces subdivide it identically.
     /// </summary>
-    private static Point2D SnapPointToNearEdge(FaceData face, Point2D point, double snapToleranceSquared)
+    private static Point2D SnapPointToNearEdge(in FaceData face, Point2D point, double snapToleranceSquared)
     {
         double bestDistanceSquared = snapToleranceSquared;
         Point2D best = point;

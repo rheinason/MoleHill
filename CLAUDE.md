@@ -115,6 +115,21 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
 - **RhinoMesh alias**: use `using RhinoMesh = Rhino.Geometry.Mesh;` when `Mesh` is ambiguous with TriangleNet types
 - **Normals**: always call `ComputeNormals()` then `UnifyNormals()` on all output Rhino meshes
 - **Edge-key hashing**: a `Dictionary`/`HashSet` keyed by a packed edge key (`(min << 32) | max`) MUST be constructed with `IndexedMeshTools.EdgeKeyComparer.Instance`. The default `long` hash is `lo ^ hi`, which for adjacent mesh indices collapses nearly every edge into a handful of buckets and turns an O(n) pass into a quadratic scan — it cost 7 s of a 10 s remesh on a 180k-face terrain. The same applies to per-vertex adjacency: prefer the flat CSR `MeshVertexAdjacency` over a dictionary of `List`/`HashSet` in any loop that rebuilds it per round.
+- **Zone/area splitting:** construct face geometry on demand; do not retain an object for every
+  terrain face. Index boundary intersections and map segments with face-owned parallel scratch,
+  sorting candidates to preserve accumulation order. Clamp spatial queries to index extents.
+  Classify through indexed rays with the original polygon predicate. Preserve insertion-order
+  vertex lookup ties when compacting storage. Cut slots and output arrays still use linear memory;
+  watertightness tests must reject single-use interior edges, not only edges used more than twice.
+- **Mesh counts must come from the same extraction as the mesh arrays.** `TryExtractMeshData` /
+  `TryGetMeshData` normalize a *copy* (`ConvertQuadsToTriangles`, `CombineIdentical`, `CullUnused`,
+  `CullDegenerateFaces`), so the arrays they return routinely describe a different vertex and face
+  count than the Rhino mesh passed in. Pairing them with `mesh.Vertices.Count`/`mesh.Faces.Count`
+  reads off the end — an `IndexOutOfRangeException` raised on a worker thread whose stack names no
+  caller. Use the counts-returning `TryExtractMeshData` overload (`out vertexCount`, `out faceCount`)
+  and pass those. `MeshAreaTopologySplitter.Split` validates the pair and returns a diagnosis rather
+  than throwing, but that is a backstop, not a licence: ~10 sites in `TerrainBuildService.*` and
+  `TerrainAnalysisPreviewBuilder` still pair the old way, so don't copy one as a template.
 - **Z-aware dedup**: breakline-to-breakline vertex merge requires XY AND Z proximity — preserves parallel retaining walls at different elevations
 - **PadGrader helpers**: `FindNearVertex`, `InterpolateZ`, `PointInPolygon`, `DistToPolygon` are `public`; inner classes `SpatialHash` and `FaceGrid` are `internal` (accessible within the assembly)
 - **Daylight line**: detected as zero-crossing of `newZ - origZ` across edges

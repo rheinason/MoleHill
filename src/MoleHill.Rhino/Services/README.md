@@ -169,6 +169,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
 - `SculptAnalysisColorizer.cs` - live slope/elevation/cut-fill coloring of the sculpt working mesh: per-dab
   vertex recolor from the freshly patched normals / Z / reference projection, with the range pinned at
   session start.
+- Reference comparison caches separate current-mesh statistics from reference projection contexts.
+  Multiple zone pieces therefore share the expensive reference index while retaining independent
+  cut/fill volumes and per-call projection diagnostics.
 - `SculptFieldCodec.cs` - persisted `SculptTile` list (base64) ⇄ runtime `SculptDisplacementField`.
 
 ## Layer templates

@@ -325,7 +325,7 @@ public static class MeshAreaSplitter
                     continue;
 
                 if ((tolerance > 0 && IsNearBoundary(cx, cy, tolerance, area, state.SegmentCandidates, state.SegmentScratch)) ||
-                    GradingGeometry2D.PointInPolygon(cx, cy, area.Boundary.XyVertices, area.Boundary.VertexCount))
+                    ContainsPoint(cx, cy, area, state.SegmentCandidates, state.SegmentScratch))
                 {
                     if (areaNumber > faceAreaIndex[faceIndex])
                         faceAreaIndex[faceIndex] = areaNumber;
@@ -336,6 +336,29 @@ public static class MeshAreaSplitter
         }, _ => { });
 
         return faceAreaIndex;
+    }
+
+    private static bool ContainsPoint(
+        double x,
+        double y,
+        IndexedArea area,
+        List<int> candidates,
+        SpatialHashGrid2D.QueryScratch scratch)
+    {
+        // Query only edges intersecting the rightward ray. XOR parity is independent of
+        // candidate order. Keep the original predicate's endpoint orientation and arithmetic
+        // exactly, including its half-open treatment of vertices and horizontal edges.
+        area.SegmentIndex.GatherCandidates(new Bounds2D(x, area.MaxX, y, y), candidates, scratch);
+        bool inside = false;
+        foreach (int index in candidates)
+        {
+            BoundarySegment edge = area.Segments[index];
+            if (((edge.By > y) != (edge.Ay > y)) &&
+                (x < (edge.Ax - edge.Bx) * (y - edge.By) / (edge.Ay - edge.By) + edge.Bx))
+                inside = !inside;
+        }
+
+        return inside;
     }
 
     private static bool IsNearBoundary(

@@ -13,6 +13,8 @@ Incremental-edit dictionaries are retained only through 250,000 vertices; larger
 caching without their memory cost.
 
 Key files:
+- `SpatialHashGrid2D.cs` - read-only spatial queries with caller-owned scratch; query cell ranges are
+  clamped to the index extent so oversized overlapping queries do not traverse empty space outside it.
 - `ScaleAwareTolerance.cs` - numerical length floors derived from geometry scale/caller tolerance,
   never an assumed metre/mm model. Spatial grids and projection use it so uniform unit scaling does not
   change lookup topology.

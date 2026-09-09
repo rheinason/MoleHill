@@ -28,7 +28,8 @@ internal sealed partial class TerrainBuildService
             return;
 
         var totalTimer = Stopwatch.StartNew();
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(
+                mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for terrain zones.");
             return;
@@ -84,9 +85,12 @@ internal sealed partial class TerrainBuildService
         var splitTimer = Stopwatch.StartNew();
         var result = MeshAreaSplitter.SplitPreservingTopology(
             vertices,
-            mesh.Vertices.Count,
+            // The extracted arrays describe a NORMALIZED copy of the mesh (quads split, identical
+            // vertices combined, degenerate faces culled), so its counts are the only ones that match
+            // them - mesh.Vertices.Count/mesh.Faces.Count belong to the un-normalized original.
+            vertexCount,
             faces,
-            mesh.Faces.Count,
+            faceCount,
             boundaries,
             tolerance,
             out var splitWarning);
@@ -139,6 +143,8 @@ internal sealed partial class TerrainBuildService
         EarthworkAnalysisDefinition? earthwork = terrain.Analyses
             .OfType<EarthworkAnalysisDefinition>()
             .FirstOrDefault(item => item.IsEnabled);
+        var comparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>();
+        var projectionCache = new Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext>();
         foreach (CollageZoneDefinition zone in terrain.Zones.Where(item => item.IsEnabled))
         {
             zoneMeshes.TryGetValue(zone.ZoneId, out List<RhinoMesh>? meshes);
@@ -148,7 +154,6 @@ internal sealed partial class TerrainBuildService
 
             if (earthwork != null && meshes is { Count: > 0 })
             {
-                var comparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>();
                 foreach (RhinoMesh zoneMesh in meshes)
                 {
                     if (!RhinoGeometryConversions.TryExtractMeshData(zoneMesh, out double[] zoneVertices, out int[] zoneFaces, out _))
@@ -157,13 +162,13 @@ internal sealed partial class TerrainBuildService
                     ReferenceComparisonStats stats = ComputeReferenceComparisonStats(
                         snapshot,
                         build.BaseMesh ?? mesh,
-                        zoneMesh,
                         zoneVertices,
                         zoneFaces,
                         earthwork.Reference,
                         new SourceReferenceSet(),
                         build,
                         comparisonCache,
+                        projectionCache,
                         shouldCancel,
                         earthwork.ReferenceTerrainId);
                     summary.HasEarthwork = true;

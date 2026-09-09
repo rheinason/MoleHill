@@ -204,10 +204,12 @@ internal sealed class SpatialHashGrid2D
         if (_cells.Count == 0 || !queryBounds.Intersects(new Bounds2D(_minX, _maxX, _minY, _maxY)))
             return;
 
-        long minCellX = ToCell(queryBounds.MinX, _minX, _invCellSize);
-        long maxCellX = ToCell(queryBounds.MaxX, _minX, _invCellSize);
-        long minCellY = ToCell(queryBounds.MinY, _minY, _invCellSize);
-        long maxCellY = ToCell(queryBounds.MaxY, _minY, _invCellSize);
+        // A query can dwarf the indexed geometry (a terrain face containing a tiny zone).
+        // Cells beyond the index extent are empty, so never enumerate them.
+        long minCellX = ToCell(Math.Max(queryBounds.MinX, _minX), _minX, _invCellSize);
+        long maxCellX = ToCell(Math.Min(queryBounds.MaxX, _maxX), _minX, _invCellSize);
+        long minCellY = ToCell(Math.Max(queryBounds.MinY, _minY), _minY, _invCellSize);
+        long maxCellY = ToCell(Math.Min(queryBounds.MaxY, _maxY), _minY, _invCellSize);
 
         if (scratch != null)
             scratch.BeginQuery(ItemCount);
