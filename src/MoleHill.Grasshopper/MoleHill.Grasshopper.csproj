@@ -71,10 +71,19 @@
     </PropertyGroup>
     <Warning Text="Could not find Yak executable" Condition="$(YakExecutable) == ''" />
     <ItemGroup>
-      <YakPackagesToDelete Include="$(OutputPath)\*.yak;$(OutputPath)\**\manifest.yml" />
+      <YakPackagesToDelete Include="$(OutputPath)*.yak;$(OutputPath)manifest.yml;$(OutputPath)**\manifest.yml" />
     </ItemGroup>
     <Delete Files="@(YakPackagesToDelete)" />
-    <Exec Command="&quot;$(YakExecutable)&quot; spec --input &quot;$(OutputPath)MoleHill.gha&quot; --output &quot;$(OutputPath)&quot;" WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
-    <Exec Command="&quot;$(YakExecutable)&quot; build --platform win" WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
+    <!-- yak does NOT resolve a relative input path against its working directory: it reports
+         "Inspection failed" and silently writes a TEMPLATE manifest with placeholder fields, which
+         then fails the build step with "Invalid version number". Both paths must be absolute. -->
+    <PropertyGroup>
+      <YakGhaPath>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\$(OutputPath)MoleHill.gha'))</YakGhaPath>
+      <!-- GetDirectoryName leaves no trailing separator. A trailing backslash immediately before the
+           closing quote of a command-line argument escapes that quote, mangling the value yak sees. -->
+      <YakOutputDir>$([System.IO.Path]::GetDirectoryName('$(YakGhaPath)'))</YakOutputDir>
+    </PropertyGroup>
+    <Exec Command="&quot;$(YakExecutable)&quot; spec --input &quot;$(YakGhaPath)&quot; --output &quot;$(YakOutputDir)&quot;" WorkingDirectory="$(YakOutputDir)" Condition="$(BuildYakPackage) == 'True'" />
+    <Exec Command="&quot;$(YakExecutable)&quot; build --platform win" WorkingDirectory="$(YakOutputDir)" Condition="$(BuildYakPackage) == 'True'" />
   </Target>
 </Project>
