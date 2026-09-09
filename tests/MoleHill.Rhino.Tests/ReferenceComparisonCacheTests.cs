@@ -27,6 +27,38 @@ public sealed class ReferenceComparisonCacheTests
         Assert.NotEqual(first, differentGeometryInstance);
     }
 
+    [Fact]
+    public void ReferenceProjectionCacheKey_DependsOnlyOnTheReference()
+    {
+        // The projection cache is shared across the whole build - terrain analyses and every zone
+        // piece - so its key must not carry anything about the current geometry, and must still
+        // separate different references.
+        var first = new TerrainBuildService.ReferenceProjectionCacheKey(11, 22, false);
+        var same = new TerrainBuildService.ReferenceProjectionCacheKey(11, 22, false);
+        var differentReference = new TerrainBuildService.ReferenceProjectionCacheKey(12, 22, false);
+        var differentReferenceTerrain = new TerrainBuildService.ReferenceProjectionCacheKey(11, 23, false);
+        var estimated = new TerrainBuildService.ReferenceProjectionCacheKey(11, 22, true);
+
+        Assert.Equal(first, same);
+        Assert.NotEqual(first, differentReference);
+        Assert.NotEqual(first, differentReferenceTerrain);
+        Assert.NotEqual(first, estimated);
+    }
+
+    [Fact]
+    public void ReferenceComparisonCacheKey_SameReferenceDifferentCurrentGeometry_StaysSeparate()
+    {
+        // The statistics cache is the one that must stay per current mesh: sharing one projector must
+        // never let two zone pieces share a volume.
+        var reference = new TerrainBuildService.ReferenceProjectionCacheKey(11, 22, false);
+        var pieceA = new TerrainBuildService.ReferenceComparisonCacheKey(
+            new[] { 0.0 }, new[] { 0 }, reference.ReferenceFingerprint, 0, reference.ReferenceTerrainFingerprint, false);
+        var pieceB = new TerrainBuildService.ReferenceComparisonCacheKey(
+            new[] { 0.0 }, new[] { 0 }, reference.ReferenceFingerprint, 0, reference.ReferenceTerrainFingerprint, false);
+
+        Assert.NotEqual(pieceA, pieceB);
+    }
+
     [RhinoNativeFact]
     public void ComputeReferenceComparisonStats_DifferentCurrentMeshes_SharesProjectionButNotStatistics()
     {

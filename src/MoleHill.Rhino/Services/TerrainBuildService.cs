@@ -105,6 +105,14 @@ internal sealed partial class TerrainBuildService
             ThrowIfCancellationRequested(shouldCancel);
             RhinoMesh analysisMesh = currentMesh;
             RhinoMesh baselineMesh = baseMesh ?? analysisMesh;
+
+            // One reference projector per reference, for the whole build. A projection context depends
+            // only on the reference geometry, so terrain-level analyses and zone outputs that compare
+            // against the same reference share it instead of indexing that mesh twice. Statistics stay
+            // on their own stricter key, which includes the current geometry, so different meshes still
+            // produce independent results.
+            var referenceProjectionCache = new Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext>();
+
             build.AnalysisResults.AddRange(BuildAnalyses(
                 snapshot,
                 terrain,
@@ -115,6 +123,7 @@ internal sealed partial class TerrainBuildService
                 build,
                 runtimeCache,
                 usedStageKeys,
+                referenceProjectionCache,
                 shouldCancel));
 
             string zonesStageKey = TerrainStageKey.ForMode(mode, "zones");
@@ -131,7 +140,7 @@ internal sealed partial class TerrainBuildService
                     build.PersistentHardConstraints,
                     currentMeshFingerprint,
                     baseMeshFingerprint),
-                () => BuildTerrainZones(snapshot, analysisMesh, terrain, build, shouldCancel),
+                () => BuildTerrainZones(snapshot, analysisMesh, terrain, build, referenceProjectionCache, shouldCancel),
                 () => $"{build.ZoneObjects.Count:N0} zone outputs",
                 shouldCancel);
 

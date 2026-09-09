@@ -24,7 +24,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O04 | Resolved | Spatial-index construction and retained scratch | Face-cell memberships and worker count |
 | [x] | O05 | Resolved | Localize stroke commit and constraint evaluation | Whole mesh per stroke; protection edges |
 | [x] | O06 | Resolved | Sparse Poisson occupancy and prepared containment | Bounding-box area / spacing² |
-| [ ] | O07 | Medium-high | Reuse reference projection contexts safely | Reference faces × comparisons |
+| [x] | O07 | Resolved | Reuse reference projection contexts safely | Reference faces × comparisons |
 | [ ] | O08 | Medium-high | Work-region and grading containment queries | Points/faces × polygon edges |
 | [ ] | O09 | Medium-high | Cancellation latency in heavy Core stages | Superseded work and retained geometry |
 | [ ] | O10 | Medium | Cache/display geometry ownership and peak memory | Mesh copies × stages/workers |
@@ -242,6 +242,19 @@ regions, a narrow corridor, cancellation, and the grid pattern on a 1e9 extent.
 **Done when:** A modest cap does not require a domain-sized dense allocation and seeded regression outputs or explicitly accepted invariants remain stable.
 
 ## O07 — Reuse reference projection contexts, not current-mesh statistics
+
+**Resolved 2026-09-10:** The projection cache is now created once in the build pipeline and passed to
+both `BuildAnalyses` and `BuildTerrainZones`. Each previously made its own, so a reference used by a
+terrain-level analysis and by a zone comparison was indexed into a `MeshHeightProjector` twice per
+build. The key (C01's) contains reference identity only — reference fingerprint, reference-terrain
+fingerprint, and the fallback-base-mesh flag — so the wider scope cannot mix references. The statistics
+caches stay pass-local because their key carries the current vertex and face arrays, which is what
+keeps two zone pieces from sharing a volume.
+
+`ReferenceComparisonCacheTests` gains two always-runnable key tests: the projection key varies only
+with reference identity, and two pieces with identical reference inputs but different current geometry
+still get separate statistics entries. The native two-mesh test already asserts one projector with two
+distinct fill volumes; it remains skipped where Rhino's native runtime is unavailable.
 
 **Confirmed pattern:** [src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:680](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:680) constructs a projection context on a comparison-cache miss; [src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:703](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:703) builds a MeshHeightProjector over the reference. Zone comparison caches are recreated per zone. Thus a common reference can be re-indexed repeatedly.
 

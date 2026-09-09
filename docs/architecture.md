@@ -539,7 +539,10 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   `SlopeAnalyzer.Analyze`, which resolves bands once and shares them across every face.
 - **Cut/fill and earthwork reference comparisons** cache statistics by current mesh plus reference and
   boundary identity. Reference projection contexts are cached separately by reference identity, so zone
-  pieces can reuse one `MeshHeightProjector` without reusing another piece's volumes. The 2.5D case projects reference Z through Core `MeshHeightProjector`; overlapping or
+  pieces can reuse one `MeshHeightProjector` without reusing another piece's volumes. That projection
+  cache is created **once per build** and passed to both the terrain-level analyses and the zones
+  stage, so a reference shared by an analysis and a zone is indexed once, not twice. Statistics caches
+  stay per pass because their key carries the current geometry. The 2.5D case projects reference Z through Core `MeshHeightProjector`; overlapping or
   near-vertical XY regions fall back to the legacy Rhino world-Z mesh-line projection and report a
   diagnostic.
 - **Section Cut, Cross-Sections, and Section Along Curve** can overlay the owning proposed terrain with

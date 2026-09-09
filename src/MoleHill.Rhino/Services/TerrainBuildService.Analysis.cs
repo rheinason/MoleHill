@@ -27,6 +27,7 @@ internal sealed partial class TerrainBuildService
         TerrainBuildResult build,
         TerrainRuntimeCache runtimeCache,
         ISet<string> usedStageKeys,
+        Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext> referenceProjectionCache,
         Func<bool>? shouldCancel)
     {
         var totalTimer = Stopwatch.StartNew();
@@ -38,8 +39,9 @@ internal sealed partial class TerrainBuildService
         double elevMaxZ = 0.0;
         double surfaceArea = 0.0;
         bool analysisContextPrepared = false;
+        // Statistics are keyed on the current geometry too, so this cache is scoped to this pass; the
+        // projection cache is build-wide and supplied by the caller.
         var referenceComparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>();
-        var referenceProjectionCache = new Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext>();
 
         bool EnsureAnalysisContext()
         {

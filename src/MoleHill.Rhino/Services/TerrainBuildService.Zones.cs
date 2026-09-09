@@ -22,6 +22,7 @@ internal sealed partial class TerrainBuildService
         RhinoMesh mesh,
         TerrainDefinition terrain,
         TerrainBuildResult build,
+        Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext> projectionCache,
         Func<bool>? shouldCancel)
     {
         if (terrain.Zones.Count == 0)
@@ -153,8 +154,9 @@ internal sealed partial class TerrainBuildService
         EarthworkAnalysisDefinition? earthwork = terrain.Analyses
             .OfType<EarthworkAnalysisDefinition>()
             .FirstOrDefault(item => item.IsEnabled);
+        // Zone statistics depend on each piece's own geometry, so they get a pass-local cache; the
+        // reference projector is shared with the terrain-level analyses through the caller's cache.
         var comparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>();
-        var projectionCache = new Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext>();
         foreach (CollageZoneDefinition zone in terrain.Zones.Where(item => item.IsEnabled))
         {
             zoneMeshes.TryGetValue(zone.ZoneId, out List<RhinoMesh>? meshes);
