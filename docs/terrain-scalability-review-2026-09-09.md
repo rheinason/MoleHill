@@ -23,7 +23,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O03 | Resolved | Remesh flip adjacency and feature setup | Faces × sweeps × iterations |
 | [x] | O04 | Resolved | Spatial-index construction and retained scratch | Face-cell memberships and worker count |
 | [x] | O05 | Resolved | Localize stroke commit and constraint evaluation | Whole mesh per stroke; protection edges |
-| [ ] | O06 | High for scatter | Sparse Poisson occupancy and prepared containment | Bounding-box area / spacing² |
+| [x] | O06 | Resolved | Sparse Poisson occupancy and prepared containment | Bounding-box area / spacing² |
 | [ ] | O07 | Medium-high | Reuse reference projection contexts safely | Reference faces × comparisons |
 | [ ] | O08 | Medium-high | Work-region and grading containment queries | Points/faces × polygon edges |
 | [ ] | O09 | Medium-high | Cancellation latency in heavy Core stages | Superseded work and retained geometry |
@@ -215,6 +215,23 @@ cases.
 **Done when:** Small-stroke commit cost depends primarily on affected geometry, with rasterized field/undo regressions and native interaction validation.
 
 ## O06 — Scatter has a dense domain allocation before the sample cap helps
+
+**Resolved 2026-09-10:** `SamplePoisson`'s backing grid is now a cell-keyed `Dictionary<long, int>`
+instead of a dense `int[gridWidth * gridHeight]`. Bridson's grid holds at most one sample per cell, so
+sparse occupancy costs one dictionary entry per accepted sample and no object per entry; the dense form
+allocated on bounding-box area over spacing squared regardless of the cap, and its `int` product
+overflowed outright on a large region with a small spacing. Grid dimensions in both `SamplePoisson` and
+`SampleGrid` are now counted in doubles and clamped (Poisson to int range, so the packed cell key stays
+injective) rather than cast through an `int` that wrapped negative and silently produced nothing. The
+5x5 neighbourhood is visited in the same order and returns on the first violation, and the RNG stream
+is untouched, so seeded output is unchanged.
+
+Containment is prepared with per-loop bounding boxes computed once: a candidate outside a loop's box is
+outside that loop, so its edges are never walked. Loop semantics (inside **any** loop) are unchanged.
+
+`ScatterSamplerSparseDomainTests` covers a 200,000-unit region at 0.5 spacing with a 500 cap (dense
+occupancy there would be hundreds of terabytes), seed determinism, minimum spacing, disconnected
+regions, a narrow corridor, cancellation, and the grid pattern on a 1e9 extent.
 
 **Confirmed pattern:** [src/MoleHill.Core/Scattering/ScatterSampler.cs:208](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Scattering/ScatterSampler.cs:208) allocates an int grid with width × height derived from bounding-box dimensions and radius, independently of the requested output cap. Large extents or tiny spacing can exhaust memory; integer dimension/product limits also deserve validation. Containment at [src/MoleHill.Core/Scattering/ScatterSampler.cs:74](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Scattering/ScatterSampler.cs:74) scans polygon loops/edges for candidate samples.
 

@@ -69,10 +69,37 @@ public static class ScatterSampler
         if (area <= 0.0 || maxX <= minX || maxY <= minY)
             return result;
 
+        // Per-loop bounds, computed once. A candidate outside a loop's bounding box is outside that
+        // loop, so its edges never need scanning - which matters because every candidate sample pays
+        // this predicate, and a rejected candidate otherwise walked every edge of every loop.
+        var loopBounds = new (double MinX, double MaxX, double MinY, double MaxY)[loops.Count];
+        for (int i = 0; i < loops.Count; i++)
+        {
+            double[] loop = loops[i];
+            int count = loop.Length / 2;
+            double loopMinX = double.MaxValue, loopMaxX = double.MinValue;
+            double loopMinY = double.MaxValue, loopMaxY = double.MinValue;
+            for (int v = 0; v < count; v++)
+            {
+                double x = loop[v * 2], y = loop[(v * 2) + 1];
+                if (x < loopMinX) loopMinX = x;
+                if (x > loopMaxX) loopMaxX = x;
+                if (y < loopMinY) loopMinY = y;
+                if (y > loopMaxY) loopMaxY = y;
+            }
+
+            loopBounds[i] = (loopMinX, loopMaxX, loopMinY, loopMaxY);
+        }
+
         bool Inside(double x, double y)
         {
-            foreach (double[] loop in loops)
+            for (int i = 0; i < loops.Count; i++)
             {
+                (double loopMinX, double loopMaxX, double loopMinY, double loopMaxY) = loopBounds[i];
+                if (x < loopMinX || x > loopMaxX || y < loopMinY || y > loopMaxY)
+                    continue;
+
+                double[] loop = loops[i];
                 if (GradingGeometry2D.PointInPolygon(x, y, loop, loop.Length / 2))
                     return true;
             }
@@ -161,17 +188,23 @@ public static class ScatterSampler
         Func<bool> cancelled,
         ref SplitMix64 rng)
     {
-        int columns = (int)Math.Ceiling((maxX - minX) / cellSize);
-        int rows = (int)Math.Ceiling((maxY - minY) / cellSize);
-        if (columns <= 0 || rows <= 0)
+        // A huge extent over a tiny cell overflows an int cast, and the old code silently produced
+        // nothing when it wrapped negative. Count in doubles, then clamp: the cap stops the loop long
+        // before the clamp is reached, so a clamped dimension changes no emitted point.
+        double requestedColumns = Math.Ceiling((maxX - minX) / cellSize);
+        double requestedRows = Math.Ceiling((maxY - minY) / cellSize);
+        if (!(requestedColumns > 0.0) || !(requestedRows > 0.0))
             return;
 
-        for (int row = 0; row < rows; row++)
+        long columns = (long)Math.Min(requestedColumns, int.MaxValue);
+        long rows = (long)Math.Min(requestedRows, int.MaxValue);
+
+        for (long row = 0; row < rows; row++)
         {
             if (result.Count >= cap || cancelled())
                 return;
 
-            for (int column = 0; column < columns; column++)
+            for (long column = 0; column < columns; column++)
             {
                 if (result.Count >= cap)
                     return;
@@ -208,42 +241,50 @@ public static class ScatterSampler
         ref SplitMix64 rng)
     {
         double cell = radius / Math.Sqrt(2.0);
-        int gridWidth = (int)Math.Ceiling((maxX - minX) / cell);
-        int gridHeight = (int)Math.Ceiling((maxY - minY) / cell);
-        if (gridWidth <= 0 || gridHeight <= 0)
+
+        // The backing grid is SPARSE. Sizing it densely from the bounding box made the allocation a
+        // function of extent / radius squared, independent of the requested cap: a large region with a
+        // small spacing exhausted memory before the cap could help, and the int product overflowed
+        // outright. Occupancy is now keyed by cell, so it costs one dictionary entry per accepted
+        // sample - at most one per cell by construction, and no object per entry.
+        double requestedWidth = Math.Ceiling((maxX - minX) / cell);
+        double requestedHeight = Math.Ceiling((maxY - minY) / cell);
+        if (!(requestedWidth > 0.0) || !(requestedHeight > 0.0))
             return;
 
-        var grid = new int[gridWidth * gridHeight];
-        Array.Fill(grid, -1);
+        // Clamped to int range so the packed cell key below stays injective (a colliding key would be a
+        // correctness bug, not just a slow bucket). The cap stops sampling long before either limit.
+        long gridWidth = (long)Math.Min(requestedWidth, int.MaxValue);
+        long gridHeight = (long)Math.Min(requestedHeight, int.MaxValue);
+
+        var occupancy = new Dictionary<long, int>();
         var samples = new List<(double X, double Y)>();
         var active = new List<int>();
         double radiusSq = radius * radius;
 
-        int GridIndex(double x, double y)
-        {
-            int gx = Math.Clamp((int)((x - minX) / cell), 0, gridWidth - 1);
-            int gy = Math.Clamp((int)((y - minY) / cell), 0, gridHeight - 1);
-            return gy * gridWidth + gx;
-        }
+        long CellX(double x) => Math.Clamp((long)((x - minX) / cell), 0L, gridWidth - 1);
+
+        long CellY(double y) => Math.Clamp((long)((y - minY) / cell), 0L, gridHeight - 1);
+
+        static long CellKey(long cellX, long cellY) => (cellX << 32) | (uint)cellY;
 
         bool FarEnough(double x, double y)
         {
-            int gx = Math.Clamp((int)((x - minX) / cell), 0, gridWidth - 1);
-            int gy = Math.Clamp((int)((y - minY) / cell), 0, gridHeight - 1);
-            for (int oy = -2; oy <= 2; oy++)
+            long gx = CellX(x);
+            long gy = CellY(y);
+            for (long oy = -2; oy <= 2; oy++)
             {
-                int ny = gy + oy;
+                long ny = gy + oy;
                 if (ny < 0 || ny >= gridHeight)
                     continue;
 
-                for (int ox = -2; ox <= 2; ox++)
+                for (long ox = -2; ox <= 2; ox++)
                 {
-                    int nx = gx + ox;
+                    long nx = gx + ox;
                     if (nx < 0 || nx >= gridWidth)
                         continue;
 
-                    int sampleIndex = grid[ny * gridWidth + nx];
-                    if (sampleIndex < 0)
+                    if (!occupancy.TryGetValue(CellKey(nx, ny), out int sampleIndex))
                         continue;
 
                     double dx = samples[sampleIndex].X - x;
@@ -260,7 +301,7 @@ public static class ScatterSampler
         {
             int index = samples.Count;
             samples.Add((x, y));
-            grid[GridIndex(x, y)] = index;
+            occupancy[CellKey(CellX(x), CellY(y))] = index;
             active.Add(index);
             if (inside(x, y))
                 result.Add((x, y));
