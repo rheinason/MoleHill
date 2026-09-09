@@ -12,18 +12,40 @@ internal static class MeshConstraintTopologyInserter
     private readonly record struct SegmentPiece(Point2D Start, Point2D End);
     private readonly record struct EdgePoint(int EdgeIndex, Point2D Point);
 
-    private sealed class FaceData
+    /// <summary>
+    /// Geometry for one terrain face. Built on demand from the flat arrays - never retained per face,
+    /// so face count costs no managed objects.
+    /// </summary>
+    private readonly struct FaceData
     {
-        public required int I0 { get; init; }
-        public required int I1 { get; init; }
-        public required int I2 { get; init; }
-        public required Point2D A { get; init; }
-        public required Point2D B { get; init; }
-        public required Point2D C { get; init; }
-        public required double Az { get; init; }
-        public required double Bz { get; init; }
-        public required double Cz { get; init; }
-        public required Bounds2D Bounds { get; init; }
+        public FaceData(double[] vertices, int[] faces, int faceIndex)
+        {
+            I0 = faces[faceIndex * 3];
+            I1 = faces[(faceIndex * 3) + 1];
+            I2 = faces[(faceIndex * 3) + 2];
+            A = new Point2D(vertices[I0 * 3], vertices[(I0 * 3) + 1]);
+            B = new Point2D(vertices[I1 * 3], vertices[(I1 * 3) + 1]);
+            C = new Point2D(vertices[I2 * 3], vertices[(I2 * 3) + 1]);
+            Az = vertices[(I0 * 3) + 2];
+            Bz = vertices[(I1 * 3) + 2];
+            Cz = vertices[(I2 * 3) + 2];
+            Bounds = new Bounds2D(
+                Math.Min(A.X, Math.Min(B.X, C.X)),
+                Math.Max(A.X, Math.Max(B.X, C.X)),
+                Math.Min(A.Y, Math.Min(B.Y, C.Y)),
+                Math.Max(A.Y, Math.Max(B.Y, C.Y)));
+        }
+
+        public int I0 { get; }
+        public int I1 { get; }
+        public int I2 { get; }
+        public Point2D A { get; }
+        public Point2D B { get; }
+        public Point2D C { get; }
+        public double Az { get; }
+        public double Bz { get; }
+        public double Cz { get; }
+        public Bounds2D Bounds { get; }
 
         public Point2D GetVertex(int index) => index switch
         {
@@ -256,16 +278,18 @@ internal static class MeshConstraintTopologyInserter
         out string? errorMessage)
     {
         errorMessage = null;
-        outputVertices = (double[])vertices.Clone();
-        outputFaces = (int[])faces.Clone();
         outputVertexCount = vertexCount;
         outputFaceCount = faceCount;
 
         if (constraints.Count == 0)
+        {
+            CloneInput(vertices, faces, out outputVertices, out outputFaces);
             return true;
+        }
 
         if (vertexCount == 0 || faceCount == 0)
         {
+            CloneInput(vertices, faces, out outputVertices, out outputFaces);
             errorMessage = "Input mesh has no usable triangles.";
             return false;
         }
@@ -273,25 +297,30 @@ internal static class MeshConstraintTopologyInserter
         double resolvedTolerance = Math.Max(tolerance, 1e-9);
         List<ConstraintSegment> segments = BuildConstraintSegments(constraints, resolvedTolerance);
         if (segments.Count == 0)
+        {
+            CloneInput(vertices, faces, out outputVertices, out outputFaces);
             return true;
+        }
 
-        FaceData[] faceData = BuildFaceData(vertices, faces, faceCount);
-        FaceCutData[] faceCuts = MapConstraintSegmentsToFaces(faceData, segments, resolvedTolerance);
-        bool hasTopologyEdits = false;
+        FaceCutData[] faceCuts = MapConstraintSegmentsToFaces(vertices, faces, faceCount, segments, resolvedTolerance);
+        int touchedFaceCount = 0;
         for (int i = 0; i < faceCuts.Length; i++)
         {
             if (faceCuts[i]?.HasData == true)
-            {
-                hasTopologyEdits = true;
-                break;
-            }
+                touchedFaceCount++;
         }
 
-        if (!hasTopologyEdits)
+        if (touchedFaceCount == 0)
+        {
+            CloneInput(vertices, faces, out outputVertices, out outputFaces);
             return true;
+        }
 
         var globalVertices = new List<double>(vertices);
-        var globalFaces = new List<int>(faces.Length * 2);
+
+        // Untouched faces are copied verbatim; only the touched ones fan out. Reserving twice the whole
+        // input face array costs hundreds of megabytes on a multi-million-face terrain for a few cuts.
+        var globalFaces = new List<int>(EstimateOutputFaceCapacity(faceCount, touchedFaceCount));
         var pointLookup = new GlobalPointLookup(globalVertices, resolvedTolerance);
 
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
@@ -305,8 +334,12 @@ internal static class MeshConstraintTopologyInserter
                 continue;
             }
 
-            if (!TriangulateTouchedFace(faceData[faceIndex], cutData, pointLookup, globalFaces, resolvedTolerance, out errorMessage))
+            var face = new FaceData(vertices, faces, faceIndex);
+            if (!TriangulateTouchedFace(face, cutData, pointLookup, globalFaces, resolvedTolerance, out errorMessage))
+            {
+                CloneInput(vertices, faces, out outputVertices, out outputFaces);
                 return false;
+            }
         }
 
         outputVertices = globalVertices.ToArray();
@@ -316,38 +349,42 @@ internal static class MeshConstraintTopologyInserter
         return true;
     }
 
-    private static FaceData[] BuildFaceData(double[] vertices, int[] faces, int faceCount)
+    private static void CloneInput(double[] vertices, int[] faces, out double[] outputVertices, out int[] outputFaces)
     {
-        var result = new FaceData[faceCount];
+        outputVertices = (double[])vertices.Clone();
+        outputFaces = (int[])faces.Clone();
+    }
+
+    private static int EstimateOutputFaceCapacity(int faceCount, int touchedFaceCount)
+    {
+        // A cut face retriangulates into a handful of triangles. Overshooting only costs one growth
+        // step; the untouched majority is copied one for one.
+        long estimate = ((long)(faceCount - touchedFaceCount) * 3L) + ((long)touchedFaceCount * 18L);
+        return (int)Math.Clamp(estimate, 3L, (long)int.MaxValue / 2L);
+    }
+
+    private static Bounds2D[] BuildFaceBounds(double[] vertices, int[] faces, int faceCount)
+    {
+        var bounds = new Bounds2D[faceCount];
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             int i0 = faces[faceIndex * 3];
             int i1 = faces[(faceIndex * 3) + 1];
             int i2 = faces[(faceIndex * 3) + 2];
-            var a = new Point2D(vertices[i0 * 3], vertices[(i0 * 3) + 1]);
-            var b = new Point2D(vertices[i1 * 3], vertices[(i1 * 3) + 1]);
-            var c = new Point2D(vertices[i2 * 3], vertices[(i2 * 3) + 1]);
-
-            result[faceIndex] = new FaceData
-            {
-                I0 = i0,
-                I1 = i1,
-                I2 = i2,
-                A = a,
-                B = b,
-                C = c,
-                Az = vertices[(i0 * 3) + 2],
-                Bz = vertices[(i1 * 3) + 2],
-                Cz = vertices[(i2 * 3) + 2],
-                Bounds = new Bounds2D(
-                    Math.Min(a.X, Math.Min(b.X, c.X)),
-                    Math.Max(a.X, Math.Max(b.X, c.X)),
-                    Math.Min(a.Y, Math.Min(b.Y, c.Y)),
-                    Math.Max(a.Y, Math.Max(b.Y, c.Y)))
-            };
+            double ax = vertices[i0 * 3];
+            double ay = vertices[(i0 * 3) + 1];
+            double bx = vertices[i1 * 3];
+            double by = vertices[(i1 * 3) + 1];
+            double cx = vertices[i2 * 3];
+            double cy = vertices[(i2 * 3) + 1];
+            bounds[faceIndex] = new Bounds2D(
+                Math.Min(ax, Math.Min(bx, cx)),
+                Math.Max(ax, Math.Max(bx, cx)),
+                Math.Min(ay, Math.Min(by, cy)),
+                Math.Max(ay, Math.Max(by, cy)));
         }
 
-        return result;
+        return bounds;
     }
 
     private static List<ConstraintSegment> BuildConstraintSegments(
@@ -384,10 +421,23 @@ internal static class MeshConstraintTopologyInserter
                 Math.Max(segment.Start.Y, segment.End.Y));
         }
 
+        // Indexed pair discovery. The bounds test and the ascending j order match the former all-pairs
+        // sweep exactly, so the split parameters are identical - only the pairs that cannot touch are
+        // never visited.
+        SpatialHashGrid2D segmentGrid = SpatialHashGrid2D.Build(segmentBounds);
+        var segmentScratch = new SpatialHashGrid2D.QueryScratch(sourceSegments.Count);
+        var segmentCandidates = new List<int>(16);
+
         for (int i = 0; i < sourceSegments.Count; i++)
         {
-            for (int j = i + 1; j < sourceSegments.Count; j++)
+            segmentGrid.GatherCandidates(segmentBounds[i], segmentCandidates, segmentScratch);
+            segmentCandidates.Sort();
+
+            foreach (int j in segmentCandidates)
             {
+                if (j <= i)
+                    continue;
+
                 if (!segmentBounds[i].Intersects(segmentBounds[j]))
                     continue;
 
@@ -476,18 +526,17 @@ internal static class MeshConstraintTopologyInserter
     }
 
     private static FaceCutData[] MapConstraintSegmentsToFaces(
-        FaceData[] faceData,
+        double[] vertices,
+        int[] faces,
+        int faceCount,
         List<ConstraintSegment> constraintSegments,
         double tolerance)
     {
-        var faceBounds = new Bounds2D[faceData.Length];
-        for (int i = 0; i < faceData.Length; i++)
-            faceBounds[i] = faceData[i].Bounds;
-
+        Bounds2D[] faceBounds = BuildFaceBounds(vertices, faces, faceCount);
         SpatialHashGrid2D grid = SpatialHashGrid2D.Build(faceBounds);
-        var scratch = new SpatialHashGrid2D.QueryScratch(faceData.Length);
+        var scratch = new SpatialHashGrid2D.QueryScratch(faceCount);
         var candidates = new List<int>(16);
-        var result = new FaceCutData[faceData.Length];
+        var result = new FaceCutData[faceCount];
 
         foreach (ConstraintSegment segment in constraintSegments)
         {
@@ -500,9 +549,10 @@ internal static class MeshConstraintTopologyInserter
             grid.GatherCandidates(queryBounds, candidates, scratch);
             foreach (int faceIndex in candidates)
             {
-                FaceData face = faceData[faceIndex];
-                if (!face.Bounds.Intersects(queryBounds))
+                if (!faceBounds[faceIndex].Intersects(queryBounds))
                     continue;
+
+                var face = new FaceData(vertices, faces, faceIndex);
 
                 List<EdgePoint> edgePoints = CollectSegmentEdgeTouchPoints(face, segment, tolerance);
                 List<SegmentPiece> clippedPieces = ClipSegmentToTriangle(face, segment, tolerance);

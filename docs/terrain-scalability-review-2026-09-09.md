@@ -18,7 +18,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | Status | ID | Priority | Deep dive | Main scale driver |
 |---|---|---|---|---|
 | [x] | C01 | Resolved | Reference-comparison cache identity | Multiple meshes in one zone |
-| [ ] | O01 | High | Constraint topology insertion | Terrain faces and constraint segments |
+| [x] | O01 | Resolved | Constraint topology insertion | Terrain faces and constraint segments |
 | [ ] | O02 | High | Partition zone outputs in one pass | Faces × boundary entries |
 | [ ] | O03 | High | Remesh flip adjacency and feature setup | Faces × sweeps × iterations |
 | [ ] | O04 | High | Spatial-index construction and retained scratch | Face-cell memberships and worker count |
@@ -54,6 +54,20 @@ The native behavioral test is currently skipped when Rhino's native test runtime
 **Done when:** The two-piece regression passes, current-geometry identity is represented or cache scope is restricted appropriately, and any projection reuse in O07 cannot reuse the wrong volume result.
 
 ## O01 — Constraint topology insertion repeats the old zone splitter patterns
+
+**Resolved 2026-09-10:** `FaceData` is now a `readonly struct` built on demand from the flat arrays, so
+the per-face `FaceData[]` is gone; the mapping pass keeps only a `Bounds2D[]` for the spatial index and
+constructs face geometry for candidate faces only. The unconditional all-pairs constraint-segment sweep
+is replaced by indexed pair discovery over a `SpatialHashGrid2D` of segment bounds — candidates are
+sorted and filtered to `j > i` with the same bounds test, so the visited pair set and the resulting
+split parameters are identical to the former sweep. The input arrays are no longer cloned before the
+work decides whether any topology edit exists (`CloneInput` is called only on the paths that return the
+input unchanged, and on failure), and the output face list is now sized from the touched-face count
+instead of reserving twice the whole input face array. `MeshConstraintTopologyInserterTests` covers
+crossing, collinear overlap, duplicate, closed-loop, constraint-order, sloped-elevation, away-from-mesh,
+empty-mesh, and output-ownership cases. Not done here, deliberately: face-owned parallel mapping, and
+the `GlobalPointLookup` per-cell vertex lists (its cell size is the tolerance, so its density needs
+measurement before its tie-break order is disturbed).
 
 **Confirmed patterns:** [src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs:15](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs:15) retains a class per face; [src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs:259](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs:259) clones input arrays before doing work; line 278 builds all face data; line 389 performs an all-pairs constraint-segment intersection sweep; line 478 maps through a terrain-face index. Output uses a twice-input-sized face list and per-cell vertex lists.
 
