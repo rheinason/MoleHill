@@ -108,9 +108,19 @@ internal sealed partial class TerrainBuildService
         var zoneOutputCounts = new Dictionary<Guid, int>();
         var zoneMeshes = new Dictionary<Guid, List<RhinoMesh>>();
         var outputTimer = Stopwatch.StartNew();
+
+        // One grouping pass owns face selection for every entry. Asking each entry to find its own faces
+        // rescans the whole result per boundary, which is the dominant cost once a terrain has millions
+        // of faces and a scene has many zones.
+        FaceOwnerGroups faceGroups = FaceOwnerGroups.Build(result.FaceAreaIndex, result.FaceCount, result.AreaCount);
+        var zoneRemap = new SubMeshVertexRemap(result.VertexCount);
         for (int i = 0; i < entries.Count; i++)
         {
-            var subMesh = RhinoGeometryConversions.BuildSubMesh(result, i);
+            ReadOnlySpan<int> entryFaces = faceGroups.Faces(i);
+            if (entryFaces.Length == 0)
+                continue;
+
+            var subMesh = RhinoGeometryConversions.BuildSubMesh(result, entryFaces, zoneRemap);
             if (subMesh.Faces.Count == 0)
                 continue;
 

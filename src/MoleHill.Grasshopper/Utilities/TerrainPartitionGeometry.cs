@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 // Rhino mesh/curve conversions for Core's topology-preserving terrain partitioner.
 using MoleHill.Core.Grading;
 using Rhino.Geometry;
@@ -111,7 +112,7 @@ internal static class TerrainPartitionGeometry
                 faceIndexes.Add(faceIndex);
         }
 
-        return BuildSubMesh(result, faceIndexes);
+        return BuildSubMesh(result, CollectionsMarshal.AsSpan(faceIndexes));
     }
 
     public static Mesh BuildRemainderMesh(MeshAreaSplitter.SplitResult result)
@@ -123,7 +124,7 @@ internal static class TerrainPartitionGeometry
                 faceIndexes.Add(faceIndex);
         }
 
-        return BuildSubMesh(result, faceIndexes);
+        return BuildSubMesh(result, CollectionsMarshal.AsSpan(faceIndexes));
     }
 
     public static int[] ClassifyFaceOwners(
@@ -174,7 +175,20 @@ internal static class TerrainPartitionGeometry
                 faceIndexes.Add(faceIndex);
         }
 
-        return BuildSubMesh(result, faceIndexes);
+        return BuildSubMesh(result, CollectionsMarshal.AsSpan(faceIndexes));
+    }
+
+    /// <summary>
+    /// Builds one owner's mesh from a grouping the caller made once. Extracting every region through the
+    /// scanning overload above costs one full-result pass per region.
+    /// </summary>
+    public static Mesh BuildOwnedMesh(
+        MeshAreaSplitter.SplitResult result,
+        FaceOwnerGroups groups,
+        int ownerIndex)
+    {
+        ArgumentNullException.ThrowIfNull(groups);
+        return BuildSubMesh(result, groups.Faces(ownerIndex));
     }
 
     public static IReadOnlyList<Curve> ClipBreaklinesToMesh(
@@ -224,8 +238,10 @@ internal static class TerrainPartitionGeometry
         return inside;
     }
 
-    private static Mesh BuildSubMesh(MeshAreaSplitter.SplitResult result, IReadOnlyList<int> faceIndexes)
+    private static Mesh BuildSubMesh(MeshAreaSplitter.SplitResult result, ReadOnlySpan<int> faceIndexes)
     {
+        // Vertices are emitted in ascending source order here (not first-touch order): this partition
+        // output's vertex ordering is part of its contract.
         var usedVertices = new SortedSet<int>();
         foreach (int faceIndex in faceIndexes)
         {
@@ -237,7 +253,7 @@ internal static class TerrainPartitionGeometry
         var remap = new Dictionary<int, int>(usedVertices.Count);
         var mesh = new Mesh();
         mesh.Vertices.Capacity = usedVertices.Count;
-        mesh.Faces.Capacity = faceIndexes.Count;
+        mesh.Faces.Capacity = faceIndexes.Length;
         foreach (int vertexIndex in usedVertices)
         {
             remap[vertexIndex] = mesh.Vertices.Count;

@@ -19,7 +19,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 |---|---|---|---|---|
 | [x] | C01 | Resolved | Reference-comparison cache identity | Multiple meshes in one zone |
 | [x] | O01 | Resolved | Constraint topology insertion | Terrain faces and constraint segments |
-| [ ] | O02 | High | Partition zone outputs in one pass | Faces × boundary entries |
+| [x] | O02 | Resolved | Partition zone outputs in one pass | Faces × boundary entries |
 | [ ] | O03 | High | Remesh flip adjacency and feature setup | Faces × sweeps × iterations |
 | [ ] | O04 | High | Spatial-index construction and retained scratch | Face-cell memberships and worker count |
 | [ ] | O05 | High for sculpting | Localize stroke commit and constraint evaluation | Whole mesh per stroke; protection edges |
@@ -80,6 +80,20 @@ This is reached by [src/MoleHill.Core/Grading/PathGrader.Patches.cs:97](C:/Users
 **Done when:** Existing constraint/path/wall regressions pass, new crossing/overlap/duplicate tests pass, and doubling experiments eliminate the unconditional all-pairs sweep and per-face object population.
 
 ## O02 — Zone extraction rescans the complete result for every boundary
+
+**Resolved 2026-09-10:** Face selection is now a single grouping pass. `FaceOwnerGroups` (Core) counts
+then fills a flat CSR layout keyed by per-face owner — the split result's `FaceAreaIndex`, or the
+partition component's classified owners — so extracting B sub-meshes costs O(F + B) instead of O(B × F).
+Within each group the face indices stay ascending, which is exactly the order the per-area scan
+produced. `SubMeshVertexRemap` (Core) replaces the per-area `HashSet` + `Dictionary` pair with two
+arrays sized once by the source vertex count and separated by a stamp; vertices are claimed in
+first-touch order, the order the hash-set form produced. Converted: the Rhino zone loop
+(`TerrainBuildService.Zones` + `RhinoGeometryConversions.BuildSubMesh`), `MeshAreasComponent` (its
+per-area `CountFaces` rescan is now the group length), `MeshCollageComponent`, and
+`PartitionTerrainComponent` via a grouped `TerrainPartitionGeometry.BuildOwnedMesh` overload.
+`TerrainPartitionGeometry`'s private builder keeps its ascending-source-order vertex emission, which is
+part of that output's contract. `FaceOwnerGroupsTests` and `SubMeshVertexRemapTests` pin the grouping
+against a linear-scan oracle and the remap against a per-sub-mesh dictionary.
 
 **Confirmed pattern:** [src/MoleHill.Rhino/Services/TerrainBuildService.Zones.cs:107](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainBuildService.Zones.cs:107) calls BuildSubMesh once per entry. [src/MoleHill.Rhino/Services/RhinoGeometryConversions.cs:160](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/RhinoGeometryConversions.cs:160) scans all result faces on every call, then builds both a vertex HashSet and remap dictionary and normalizes the mesh. This creates O(B × F) face selection work even if each face has one owner.
 

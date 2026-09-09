@@ -160,6 +160,9 @@ public sealed class PartitionTerrainComponent : GH_Component
             result,
             regions.Select(region => (IReadOnlyList<MeshAreaSplitter.AreaBoundary>)region.Boundaries).ToArray());
 
+        // Group once: asking each region to find its own faces rescans the whole result per region.
+        FaceOwnerGroups ownerGroups = FaceOwnerGroups.Build(faceOwners, result.FaceCount, regions.Count);
+
         var terrainTree = new GH_Structure<MoleHillTerrainGoo>();
         var meshTree = new GH_Structure<GH_Mesh>();
         int outputCount = 0;
@@ -171,7 +174,7 @@ public sealed class PartitionTerrainComponent : GH_Component
                 continue;
 
             int regionIndex = regions.IndexOf(region);
-            Mesh pieceMesh = TerrainPartitionGeometry.BuildOwnedMesh(result, faceOwners, regionIndex);
+            Mesh pieceMesh = TerrainPartitionGeometry.BuildOwnedMesh(result, ownerGroups, regionIndex);
             if (pieceMesh.Faces.Count == 0)
             {
                 report.Add($"{region.Name}: boundary does not cover any terrain faces.");
@@ -204,7 +207,7 @@ public sealed class PartitionTerrainComponent : GH_Component
         MoleHillTerrainGoo? remainderGoo = null;
         if (includeRemainder)
         {
-            Mesh remainderMesh = TerrainPartitionGeometry.BuildOwnedMesh(result, faceOwners, -1);
+            Mesh remainderMesh = TerrainPartitionGeometry.BuildOwnedMesh(result, ownerGroups, FaceOwnerGroups.RemainderOwner);
             if (remainderMesh.Faces.Count > 0)
             {
                 IReadOnlyList<Curve> remainderBreaklines = TerrainPartitionGeometry.ClipBreaklinesToMesh(

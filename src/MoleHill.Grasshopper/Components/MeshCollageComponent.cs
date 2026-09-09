@@ -323,13 +323,15 @@ public class MeshCollageComponent : GH_Component
         var areaMeshes = new List<Mesh>();
         var faceCounts = new List<int>();
 
+        // Group once: finding each area's faces by rescanning the whole result is O(areas x faces).
+        FaceOwnerGroups groups = FaceOwnerGroups.Build(result.FaceAreaIndex, result.FaceCount, result.AreaCount);
+        var remap = new SubMeshVertexRemap(result.VertexCount);
+
         for (int a = 0; a < result.AreaCount; a++)
         {
-            areaMeshes.Add(BuildSubMesh(result, a));
-            int count = 0;
-            for (int f = 0; f < result.FaceCount; f++)
-                if (result.FaceAreaIndex[f] == a) count++;
-            faceCounts.Add(count);
+            ReadOnlySpan<int> areaFaces = groups.Faces(a);
+            areaMeshes.Add(BuildSubMesh(result, areaFaces, remap));
+            faceCounts.Add(areaFaces.Length);
         }
 
         DA.SetData(0, coloredMesh);
@@ -346,47 +348,41 @@ public class MeshCollageComponent : GH_Component
         return DefaultPalette[index % DefaultPalette.Length];
     }
 
-    private static Mesh BuildSubMesh(MeshAreaSplitter.SplitResult result, int areaIndex)
+    private static Mesh BuildSubMesh(
+        MeshAreaSplitter.SplitResult result,
+        ReadOnlySpan<int> faceIndices,
+        SubMeshVertexRemap remap)
     {
-        var faceIndices = new List<int>();
-        for (int f = 0; f < result.FaceCount; f++)
-            if (result.FaceAreaIndex[f] == areaIndex)
-                faceIndices.Add(f);
-
-        var usedVerts = new HashSet<int>();
-        foreach (int f in faceIndices)
-        {
-            usedVerts.Add(result.Faces[f * 3]);
-            usedVerts.Add(result.Faces[f * 3 + 1]);
-            usedVerts.Add(result.Faces[f * 3 + 2]);
-        }
-
-        var oldToNew = new Dictionary<int, int>();
         var mesh = new Mesh();
-        mesh.Vertices.Capacity = usedVerts.Count;
-        mesh.Faces.Capacity = faceIndices.Count;
-
-        foreach (int vi in usedVerts)
-        {
-            oldToNew[vi] = mesh.Vertices.Count;
-            mesh.Vertices.Add(
-                result.Vertices[vi * 3],
-                result.Vertices[vi * 3 + 1],
-                result.Vertices[vi * 3 + 2]);
-        }
+        mesh.Faces.Capacity = faceIndices.Length;
+        remap.Begin();
 
         foreach (int f in faceIndices)
         {
-            mesh.Faces.AddFace(
-                oldToNew[result.Faces[f * 3]],
-                oldToNew[result.Faces[f * 3 + 1]],
-                oldToNew[result.Faces[f * 3 + 2]]);
+            int a = MapVertex(result, remap, mesh, result.Faces[f * 3]);
+            int b = MapVertex(result, remap, mesh, result.Faces[f * 3 + 1]);
+            int c = MapVertex(result, remap, mesh, result.Faces[f * 3 + 2]);
+            mesh.Faces.AddFace(a, b, c);
         }
 
         mesh.Normals.ComputeNormals();
         mesh.UnifyNormals();
         mesh.Compact();
         return mesh;
+    }
+
+    private static int MapVertex(MeshAreaSplitter.SplitResult result, SubMeshVertexRemap remap, Mesh mesh, int vertexIndex)
+    {
+        if (remap.TryGet(vertexIndex, out int existing))
+            return existing;
+
+        int newIndex = mesh.Vertices.Count;
+        mesh.Vertices.Add(
+            result.Vertices[vertexIndex * 3],
+            result.Vertices[vertexIndex * 3 + 1],
+            result.Vertices[vertexIndex * 3 + 2]);
+        remap.Set(vertexIndex, newIndex);
+        return newIndex;
     }
 
     private static Hatch? CreateHatch(Curve crv)

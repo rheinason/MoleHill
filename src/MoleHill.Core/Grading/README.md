@@ -84,7 +84,16 @@ staying unresolved.
   duplicate intersection calls; opt-in diagnostics split allocation by preparation, mapping, touched-face
   triangulation, and classification.
 - `MeshConstraintTopologyInserter.cs` - local constraint insertion (terrain-preserving); intersection
-  results are value types in its allocation-sensitive inner loops.
+  results are value types in its allocation-sensitive inner loops. Face geometry is a `readonly struct`
+  built on demand for candidate faces only (never an object per terrain face), constraint-segment pairs
+  are discovered through a `SpatialHashGrid2D` rather than an all-pairs sweep, and the input arrays are
+  cloned only on the paths that return them unchanged.
+- `FaceOwnerGroups.cs` / `SubMeshVertexRemap.cs` - sub-mesh extraction support for the hosts. Group a
+  split result's faces by owner **once** (`FaceOwnerGroups`) and reuse one `SubMeshVertexRemap` across
+  the extractions: rescanning every face per area is O(areas x faces), and a fresh hash set plus
+  dictionary per area allocates two whole-vertex-set structures each time. Group face order is ascending
+  (what a linear scan produced) and the remap claims vertices in first-touch order, so extracted topology
+  and vertex ordering are unchanged.
 - `MeshBoundaryLoopBuilder.cs` - ordered single/multi-loop extraction over the shared flat
   `MeshTopologyValidator` result. Split-keep carries its conformed analysis into Z application instead
   of rebuilding the boundary graph.
