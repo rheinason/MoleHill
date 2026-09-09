@@ -15,6 +15,10 @@ caching without their memory cost.
 Key files:
 - `SpatialHashGrid2D.cs` - read-only spatial queries with caller-owned scratch; query cell ranges are
   clamped to the index extent so oversized overlapping queries do not traverse empty space outside it.
+  Cells are **flat CSR** (key -> slot, slot -> a run of item indices), built by a count pass then a fill
+  pass. The index is immutable once built, so a `List<int>` per occupied cell only bought a small object
+  plus a backing array for each of millions of cells. Both passes visit items in index order, so a
+  cell's run is ascending, exactly what the per-cell lists held.
 - `ScaleAwareTolerance.cs` - numerical length floors derived from geometry scale/caller tolerance,
   never an assumed metre/mm model. Spatial grids and projection use it so uniform unit scaling does not
   change lookup topology.

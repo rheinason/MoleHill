@@ -21,7 +21,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O01 | Resolved | Constraint topology insertion | Terrain faces and constraint segments |
 | [x] | O02 | Resolved | Partition zone outputs in one pass | Faces × boundary entries |
 | [x] | O03 | Resolved | Remesh flip adjacency and feature setup | Faces × sweeps × iterations |
-| [ ] | O04 | High | Spatial-index construction and retained scratch | Face-cell memberships and worker count |
+| [x] | O04 | Resolved | Spatial-index construction and retained scratch | Face-cell memberships and worker count |
 | [ ] | O05 | High for sculpting | Localize stroke commit and constraint evaluation | Whole mesh per stroke; protection edges |
 | [ ] | O06 | High for scatter | Sparse Poisson occupancy and prepared containment | Bounding-box area / spacing² |
 | [ ] | O07 | Medium-high | Reuse reference projection contexts safely | Reference faces × comparisons |
@@ -146,6 +146,31 @@ The important edge comparers and CSR collapse adjacency are **already present**.
 **Done when:** Profile-backed improvements survive feature, non-manifold quarantine, wall, target-length, and determinism tests. Keep each phase change separately reviewable.
 
 ## O04 — Shared spatial structures can amplify memory despite being indexed
+
+**Resolved 2026-09-10:** All three indexes now store cells as flat CSR — a `Dictionary<long, int>` from
+cell key to slot, an `int[]` of slot start offsets, and one `int[]` of memberships — built by a count
+pass then a fill pass over the same items in the same order. Each is immutable once built, so the
+former `Dictionary<long, List<int>>` was paying a `List` object plus its backing array for every
+occupied cell: millions of small objects on a large terrain. `TerrainFaceGrid` and `MeshHeightProjector`
+also reserved their dictionary by **face** count while their default cell size targets about
+`faceCount / 4` cells, a ~4x over-reservation; both now reserve by an occupied-cell estimate. Because
+both passes visit items in index order, every cell's run is ascending — exactly what the per-cell lists
+held, which point location's first-match rule depends on.
+
+The retained scratch is gone: `TerrainFaceGrid`'s thread-static ray buffer no longer carries a
+face-sized stamp array (tens of megabytes per thread-pool worker, held for the process lifetime, long
+after the build). Its candidates were already sorted back into source face order before use, so the
+same sort now removes the duplicates a face spanning several traversed cells contributes. The buffer
+retains only as much as the widest ray corridor.
+
+`SpatialIndexEquivalenceTests` checks each index against a brute-force answer on a uniform sheet, a
+coarse/fine transition, a narrow corridor, and a domain-spanning item among tiny ones, plus the ray
+candidate path against `TryFindRayDaylightReachLinearForDiagnostics`.
+
+Not done here: bounding index *membership* growth itself. A long diagonal still registers in every cell
+of its bounding box — the tests confirm it stays correct, and the per-membership cost is now 4 bytes
+rather than a list slot, but an oversized-item tier or a hierarchy still needs the measurements this
+item asks for before it is worth its complexity.
 
 **Confirmed patterns:** [src/MoleHill.Core/Grading/TerrainFaceGrid.cs:89](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/TerrainFaceGrid.cs:89) preallocates a dictionary by face count and inserts each triangle into every cell of its bounding rectangle. [src/MoleHill.Core/Analysis/MeshHeightProjector.cs:29](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Analysis/MeshHeightProjector.cs:29) also reserves by face count. [src/MoleHill.Core/Engine/SpatialHashGrid2D.cs:170](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Engine/SpatialHashGrid2D.cs:170) fills bounding-box cells.
 

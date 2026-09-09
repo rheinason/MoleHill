@@ -61,6 +61,12 @@ staying unresolved.
   tests require every single-use edge to remain on the original terrain perimeter. Output face indices
   grow in fixed-size chunks, and global vertex lookup uses cell head/tail links instead of per-cell lists,
   preserving original insertion order and nearest-point ties. Mesh-sized buffers still require linear memory.
+- `TerrainFaceGrid` stores cells as flat CSR (key -> slot, slot -> a run of face indices) built by a
+  count pass then a fill pass, both in face order: the grid is immutable once built, and a `List<int>`
+  per occupied cell cost millions of small objects on a large terrain. Its ray candidate buffer no
+  longer carries a face-sized stamp array - that buffer is thread-static, so every worker that ever ran
+  a ray query held tens of megabytes for the process lifetime. Candidates are already sorted into source
+  face order before use, so the same sort removes the duplicates a multi-cell face contributes.
 - `MeshAreaSplitter` classifies centroids with indexed rightward-ray queries, retaining the original
   point-in-polygon arithmetic and highest-area-index overlap priority. Its boundary proximity index is
   also used when callers request a nonzero tolerance.

@@ -69,7 +69,12 @@ internal sealed class SpatialHashGrid2D
         }
     }
 
-    private readonly Dictionary<long, List<int>> _cells;
+    // Flat CSR cells: key -> slot, slot -> [_cellStart[slot], _cellStart[slot + 1]) in _cellItems.
+    // The index is built once and never mutated, so a List per occupied cell only costs a small object
+    // plus a backing array for each of them - millions on a large terrain.
+    private readonly Dictionary<long, int> _cellSlots;
+    private readonly int[] _cellStart;
+    private readonly int[] _cellItems;
     private readonly double _minX;
     private readonly double _maxX;
     private readonly double _minY;
@@ -79,7 +84,9 @@ internal sealed class SpatialHashGrid2D
     public int ItemCount { get; }
 
     private SpatialHashGrid2D(
-        Dictionary<long, List<int>> cells,
+        Dictionary<long, int> cellSlots,
+        int[] cellStart,
+        int[] cellItems,
         double minX,
         double maxX,
         double minY,
@@ -87,7 +94,9 @@ internal sealed class SpatialHashGrid2D
         double invCellSize,
         int itemCount)
     {
-        _cells = cells;
+        _cellSlots = cellSlots;
+        _cellStart = cellStart;
+        _cellItems = cellItems;
         _minX = minX;
         _maxX = maxX;
         _minY = minY;
@@ -101,7 +110,9 @@ internal sealed class SpatialHashGrid2D
         if (bounds.Length == 0)
         {
             return new SpatialHashGrid2D(
-                new Dictionary<long, List<int>>(),
+                new Dictionary<long, int>(),
+                new int[1],
+                Array.Empty<int>(),
                 0,
                 0,
                 0,
@@ -142,7 +153,9 @@ internal sealed class SpatialHashGrid2D
         if (validCount == 0)
         {
             return new SpatialHashGrid2D(
-                new Dictionary<long, List<int>>(),
+                new Dictionary<long, int>(),
+                new int[1],
+                Array.Empty<int>(),
                 0,
                 0,
                 0,
@@ -156,52 +169,110 @@ internal sealed class SpatialHashGrid2D
             ? Math.Max(span / Math.Max(8.0, Math.Sqrt(validCount)), 1e-9)
             : 1.0;
         double invCellSize = 1.0 / cellSize;
-        var cells = new Dictionary<long, List<int>>(Math.Max(16, validCount));
+        var cellSlots = new Dictionary<long, int>(Math.Max(16, validCount));
 
+        // Pass 1: assign a slot to every occupied cell and count its memberships.
+        var counts = new List<int>(Math.Max(16, validCount));
         for (int i = 0; i < bounds.Length; i++)
         {
-            if (valid != null && !valid[i])
+            if (!TryGetCellRange(bounds, valid, i, minX, minY, invCellSize, out long cminX, out long cmaxX, out long cminY, out long cmaxY))
                 continue;
-
-            Bounds2D current = bounds[i];
-            if (!double.IsFinite(current.MinX) ||
-                !double.IsFinite(current.MaxX) ||
-                !double.IsFinite(current.MinY) ||
-                !double.IsFinite(current.MaxY) ||
-                current.MinX > current.MaxX ||
-                current.MinY > current.MaxY)
-            {
-                continue;
-            }
-
-            long cminX = ToCell(current.MinX, minX, invCellSize);
-            long cmaxX = ToCell(current.MaxX, minX, invCellSize);
-            long cminY = ToCell(current.MinY, minY, invCellSize);
-            long cmaxY = ToCell(current.MaxY, minY, invCellSize);
 
             for (long cx = cminX; cx <= cmaxX; cx++)
             {
                 for (long cy = cminY; cy <= cmaxY; cy++)
                 {
                     long key = PackKey(cx, cy);
-                    if (!cells.TryGetValue(key, out var list))
+                    if (!cellSlots.TryGetValue(key, out int slot))
                     {
-                        list = new List<int>(4);
-                        cells[key] = list;
+                        slot = counts.Count;
+                        cellSlots[key] = slot;
+                        counts.Add(0);
                     }
 
-                    list.Add(i);
+                    counts[slot]++;
                 }
             }
         }
 
-        return new SpatialHashGrid2D(cells, minX, maxX, minY, maxY, invCellSize, bounds.Length);
+        var cellStart = new int[counts.Count + 1];
+        int running = 0;
+        for (int slot = 0; slot < counts.Count; slot++)
+        {
+            cellStart[slot] = running;
+            running += counts[slot];
+        }
+
+        cellStart[counts.Count] = running;
+
+        // Pass 2: fill. Items are visited in index order in both passes, so each cell's run stays
+        // ascending - the order the per-cell lists had, and the order candidates are gathered in.
+        var cellItems = new int[running];
+        var cursor = new int[counts.Count];
+        Array.Copy(cellStart, cursor, counts.Count);
+        for (int i = 0; i < bounds.Length; i++)
+        {
+            if (!TryGetCellRange(bounds, valid, i, minX, minY, invCellSize, out long cminX, out long cmaxX, out long cminY, out long cmaxY))
+                continue;
+
+            for (long cx = cminX; cx <= cmaxX; cx++)
+            {
+                for (long cy = cminY; cy <= cmaxY; cy++)
+                    cellItems[cursor[cellSlots[PackKey(cx, cy)]]++] = i;
+            }
+        }
+
+        return new SpatialHashGrid2D(cellSlots, cellStart, cellItems, minX, maxX, minY, maxY, invCellSize, bounds.Length);
+    }
+
+    private static bool TryGetCellRange(
+        Bounds2D[] bounds,
+        bool[]? valid,
+        int index,
+        double minX,
+        double minY,
+        double invCellSize,
+        out long cminX,
+        out long cmaxX,
+        out long cminY,
+        out long cmaxY)
+    {
+        cminX = cmaxX = cminY = cmaxY = 0;
+        if (valid != null && !valid[index])
+            return false;
+
+        Bounds2D current = bounds[index];
+        if (!double.IsFinite(current.MinX) ||
+            !double.IsFinite(current.MaxX) ||
+            !double.IsFinite(current.MinY) ||
+            !double.IsFinite(current.MaxY) ||
+            current.MinX > current.MaxX ||
+            current.MinY > current.MaxY)
+        {
+            return false;
+        }
+
+        cminX = ToCell(current.MinX, minX, invCellSize);
+        cmaxX = ToCell(current.MaxX, minX, invCellSize);
+        cminY = ToCell(current.MinY, minY, invCellSize);
+        cmaxY = ToCell(current.MaxY, minY, invCellSize);
+        return true;
+    }
+
+    /// <summary>Items registered in cell (cellX, cellY), ascending. Empty when unoccupied.</summary>
+    private ReadOnlySpan<int> CellItems(long cellX, long cellY)
+    {
+        if (!_cellSlots.TryGetValue(PackKey(cellX, cellY), out int slot))
+            return ReadOnlySpan<int>.Empty;
+
+        int start = _cellStart[slot];
+        return _cellItems.AsSpan(start, _cellStart[slot + 1] - start);
     }
 
     public void GatherCandidates(in Bounds2D queryBounds, List<int> candidates, QueryScratch? scratch = null)
     {
         candidates.Clear();
-        if (_cells.Count == 0 || !queryBounds.Intersects(new Bounds2D(_minX, _maxX, _minY, _maxY)))
+        if (_cellSlots.Count == 0 || !queryBounds.Intersects(new Bounds2D(_minX, _maxX, _minY, _maxY)))
             return;
 
         // A query can dwarf the indexed geometry (a terrain face containing a tiny zone).
@@ -220,10 +291,7 @@ internal sealed class SpatialHashGrid2D
         {
             for (long cx = minCellX; cx <= maxCellX; cx++)
             {
-                if (!_cells.TryGetValue(PackKey(cx, cy), out var list))
-                    continue;
-
-                foreach (int itemIndex in list)
+                foreach (int itemIndex in CellItems(cx, cy))
                 {
                     if (scratch != null)
                     {

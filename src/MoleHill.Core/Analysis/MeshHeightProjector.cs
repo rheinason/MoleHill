@@ -11,7 +11,13 @@ public sealed class MeshHeightProjector
 
     private readonly double[] _vertices;
     private readonly int[] _faces;
-    private readonly Dictionary<long, List<int>> _grid;
+    // Flat CSR cells: key -> slot, slot -> [_cellStart[slot], _cellStart[slot + 1]) in _cellFaces.
+    // A List per occupied cell allocated millions of small objects on a large terrain, and reserving the
+    // dictionary by face count over-reserved it by about 4x (the default cell size targets faceCount / 4
+    // cells). Both are built once and never mutated afterwards, so a flat layout costs nothing.
+    private readonly Dictionary<long, int> _cellSlots;
+    private int[] _cellStart = Array.Empty<int>();
+    private int[] _cellFaces = Array.Empty<int>();
     private readonly double _invCell;
 
     public enum ProjectionStatus
@@ -27,10 +33,11 @@ public sealed class MeshHeightProjector
     {
         _vertices = vertices;
         _faces = faces;
-        _grid = new Dictionary<long, List<int>>(Math.Max(faceCount, 0));
+        _cellSlots = new Dictionary<long, int>(Math.Max(16, faceCount / 2));
 
         if (vertexCount <= 0 || faceCount <= 0)
         {
+            _cellStart = new int[1];
             _invCell = 1.0;
             BoundsDiagonal = 0.0;
             return;
@@ -61,8 +68,63 @@ public sealed class MeshHeightProjector
         double cellSize = Engine.ScaleAwareTolerance.ResolveLength(requestedCellSize, span);
         _invCell = 1.0 / cellSize;
 
+        BuildCells(faceCount);
+    }
+
+    /// <summary>
+    /// Two passes over the faces: assign a slot to every occupied cell and count its memberships, then
+    /// fill. Faces are visited in source order in both, so each cell's run stays ascending — the order
+    /// the per-cell lists had, which the first-match rule in <see cref="TryProjectZ"/> depends on.
+    /// </summary>
+    private void BuildCells(int faceCount)
+    {
+        var counts = new List<int>(Math.Max(16, faceCount / 2));
         for (int face = 0; face < faceCount; face++)
-            AddFaceToGrid(face);
+        {
+            if (!TryGetFaceCellRange(face, out long minCellX, out long maxCellX, out long minCellY, out long maxCellY))
+                continue;
+
+            for (long cellY = minCellY; cellY <= maxCellY; cellY++)
+            {
+                for (long cellX = minCellX; cellX <= maxCellX; cellX++)
+                {
+                    long key = HashCell(cellX, cellY);
+                    if (!_cellSlots.TryGetValue(key, out int slot))
+                    {
+                        slot = counts.Count;
+                        _cellSlots[key] = slot;
+                        counts.Add(0);
+                    }
+
+                    counts[slot]++;
+                }
+            }
+        }
+
+        _cellStart = new int[counts.Count + 1];
+        int running = 0;
+        for (int slot = 0; slot < counts.Count; slot++)
+        {
+            _cellStart[slot] = running;
+            running += counts[slot];
+        }
+
+        _cellStart[counts.Count] = running;
+
+        _cellFaces = new int[running];
+        var cursor = new int[counts.Count];
+        Array.Copy(_cellStart, cursor, counts.Count);
+        for (int face = 0; face < faceCount; face++)
+        {
+            if (!TryGetFaceCellRange(face, out long minCellX, out long maxCellX, out long minCellY, out long maxCellY))
+                continue;
+
+            for (long cellY = minCellY; cellY <= maxCellY; cellY++)
+            {
+                for (long cellX = minCellX; cellX <= maxCellX; cellX++)
+                    _cellFaces[cursor[_cellSlots[HashCell(cellX, cellY)]]++] = face;
+            }
+        }
     }
 
     public bool TryProjectZ(
@@ -86,10 +148,8 @@ public sealed class MeshHeightProjector
         // Faces are registered in every grid cell touched by their XY bounding box, so a triangle
         // containing (x,y) must already be in the owning cell. The former 3x3 scan retested the same
         // faces from neighbouring buckets up to nine times on regular meshes.
-        long key = HashCell(cellX, cellY);
-        if (_grid.TryGetValue(key, out var faceIndices))
         {
-            foreach (int face in faceIndices)
+            foreach (int face in CellFaces(cellX, cellY))
             {
                 if (!TryReadFace(face, out var triangle))
                     continue;
@@ -142,30 +202,27 @@ public sealed class MeshHeightProjector
         return true;
     }
 
-    private void AddFaceToGrid(int face)
+    private bool TryGetFaceCellRange(int face, out long minCellX, out long maxCellX, out long minCellY, out long maxCellY)
     {
+        minCellX = maxCellX = minCellY = maxCellY = 0;
         if (!TryReadFace(face, out var triangle))
-            return;
+            return false;
 
-        long minCellX = (long)Math.Floor(Math.Min(triangle.X0, Math.Min(triangle.X1, triangle.X2)) * _invCell);
-        long maxCellX = (long)Math.Floor(Math.Max(triangle.X0, Math.Max(triangle.X1, triangle.X2)) * _invCell);
-        long minCellY = (long)Math.Floor(Math.Min(triangle.Y0, Math.Min(triangle.Y1, triangle.Y2)) * _invCell);
-        long maxCellY = (long)Math.Floor(Math.Max(triangle.Y0, Math.Max(triangle.Y1, triangle.Y2)) * _invCell);
+        minCellX = (long)Math.Floor(Math.Min(triangle.X0, Math.Min(triangle.X1, triangle.X2)) * _invCell);
+        maxCellX = (long)Math.Floor(Math.Max(triangle.X0, Math.Max(triangle.X1, triangle.X2)) * _invCell);
+        minCellY = (long)Math.Floor(Math.Min(triangle.Y0, Math.Min(triangle.Y1, triangle.Y2)) * _invCell);
+        maxCellY = (long)Math.Floor(Math.Max(triangle.Y0, Math.Max(triangle.Y1, triangle.Y2)) * _invCell);
+        return true;
+    }
 
-        for (long cellY = minCellY; cellY <= maxCellY; cellY++)
-        {
-            for (long cellX = minCellX; cellX <= maxCellX; cellX++)
-            {
-                long key = HashCell(cellX, cellY);
-                if (!_grid.TryGetValue(key, out var list))
-                {
-                    list = new List<int>();
-                    _grid[key] = list;
-                }
+    /// <summary>Faces registered in cell (cellX, cellY), ascending. Empty when unoccupied.</summary>
+    private ReadOnlySpan<int> CellFaces(long cellX, long cellY)
+    {
+        if (!_cellSlots.TryGetValue(HashCell(cellX, cellY), out int slot))
+            return ReadOnlySpan<int>.Empty;
 
-                list.Add(face);
-            }
-        }
+        int start = _cellStart[slot];
+        return _cellFaces.AsSpan(start, _cellStart[slot + 1] - start);
     }
 
     private bool TryReadFace(int face, out Triangle triangle)

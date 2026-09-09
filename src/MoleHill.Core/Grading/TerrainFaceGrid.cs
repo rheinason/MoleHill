@@ -5,38 +5,39 @@ namespace MoleHill.Core.Grading;
 // Uniform-grid terrain face lookup for point interpolation and finite daylight-ray traversal.
 internal class TerrainFaceGrid
 {
+    /// <summary>
+    /// Reusable candidate buffer for one ray traversal.
+    /// </summary>
+    /// <remarks>
+    /// This used to carry a face-sized stamp array to reject a face already seen in an earlier cell.
+    /// The buffer is thread-static, so on a multi-million-face terrain every thread-pool worker that ever
+    /// ran a ray query held tens of megabytes for the life of the process — long after the build. The
+    /// candidate list is sorted before use anyway, so duplicates are removed by a unique pass over the
+    /// sorted list instead, and the buffer now retains only as much as the widest ray corridor.
+    /// </remarks>
     private sealed class RayQueryScratch
     {
         public readonly List<int> Candidates = new();
-        private int[] _marks = Array.Empty<int>();
-        private int _stamp;
 
-        public void Begin(int faceCount)
+        public void Begin() => Candidates.Clear();
+
+        public void Add(int face) => Candidates.Add(face);
+
+        /// <summary>Sorts the candidates into source face order and drops repeats in place.</summary>
+        public void SortAndDeduplicate()
         {
-            Candidates.Clear();
-            if (_marks.Length < faceCount)
-                _marks = new int[faceCount];
+            Candidates.Sort();
 
-            if (_stamp == int.MaxValue)
+            int write = 0;
+            for (int read = 0; read < Candidates.Count; read++)
             {
-                Array.Clear(_marks, 0, _marks.Length);
-                _stamp = 1;
-            }
-            else
-            {
-                _stamp++;
-                if (_stamp == 0)
-                    _stamp = 1;
-            }
-        }
+                if (write > 0 && Candidates[read] == Candidates[write - 1])
+                    continue;
 
-        public void Add(int face)
-        {
-            if (_marks[face] == _stamp)
-                return;
+                Candidates[write++] = Candidates[read];
+            }
 
-            _marks[face] = _stamp;
-            Candidates.Add(face);
+            Candidates.RemoveRange(write, Candidates.Count - write);
         }
     }
 
@@ -45,7 +46,13 @@ internal class TerrainFaceGrid
 
     private readonly double[] _verts;
     private readonly int[] _faces;
-    private readonly Dictionary<long, List<int>> _grid;
+    // Flat CSR cells: key -> slot, slot -> [_cellStart[slot], _cellStart[slot + 1]) in _cellFaces.
+    // A Dictionary<long, List<int>> reserved by face count allocated a List object plus its backing
+    // array for every occupied cell - millions of small objects on a large terrain - and over-reserved
+    // the dictionary itself by ~4x, since the default cell size targets about faceCount / 4 cells.
+    private readonly Dictionary<long, int> _cellSlots;
+    private readonly int[] _cellStart;
+    private readonly int[] _cellFaces;
     private readonly double _invCell;
     private readonly int _faceCount;
 
@@ -81,39 +88,93 @@ internal class TerrainFaceGrid
         double cellSize = ScaleAwareTolerance.ResolveLength(requestedCellSize, span);
         _invCell = 1.0 / cellSize;
 
-        _grid = new Dictionary<long, List<int>>(faceCount);
+        // Pass 1: assign a slot to every occupied cell and count its memberships.
+        _cellSlots = new Dictionary<long, int>(Math.Max(16, faceCount / 2));
+        var counts = new List<int>(Math.Max(16, faceCount / 2));
         for (int f = 0; f < faceCount; f++)
         {
-            int i0 = faces[f * 3];
-            int i1 = faces[f * 3 + 1];
-            int i2 = faces[f * 3 + 2];
-            double x0 = vertices[i0 * 3];
-            double y0 = vertices[i0 * 3 + 1];
-            double x1 = vertices[i1 * 3];
-            double y1 = vertices[i1 * 3 + 1];
-            double x2 = vertices[i2 * 3];
-            double y2 = vertices[i2 * 3 + 1];
-
-            long cMinX = (long)Math.Floor(Math.Min(x0, Math.Min(x1, x2)) * _invCell);
-            long cMaxX = (long)Math.Floor(Math.Max(x0, Math.Max(x1, x2)) * _invCell);
-            long cMinY = (long)Math.Floor(Math.Min(y0, Math.Min(y1, y2)) * _invCell);
-            long cMaxY = (long)Math.Floor(Math.Max(y0, Math.Max(y1, y2)) * _invCell);
-
+            GetFaceCellRange(vertices, faces, f, out long cMinX, out long cMaxX, out long cMinY, out long cMaxY);
             for (long cy = cMinY; cy <= cMaxY; cy++)
             {
                 for (long cx = cMinX; cx <= cMaxX; cx++)
                 {
-                    long key = (cx * 0x100000001L) ^ (cy * 0x27d4eb2dL);
-                    if (!_grid.TryGetValue(key, out var list))
+                    long key = CellKey(cx, cy);
+                    if (!_cellSlots.TryGetValue(key, out int slot))
                     {
-                        list = new List<int>();
-                        _grid[key] = list;
+                        slot = counts.Count;
+                        _cellSlots[key] = slot;
+                        counts.Add(0);
                     }
 
-                    list.Add(f);
+                    counts[slot]++;
                 }
             }
         }
+
+        _cellStart = new int[counts.Count + 1];
+        int running = 0;
+        for (int slot = 0; slot < counts.Count; slot++)
+        {
+            _cellStart[slot] = running;
+            running += counts[slot];
+        }
+
+        _cellStart[counts.Count] = running;
+
+        // Pass 2: fill. Faces are visited in source order, so each cell's run stays ascending - the
+        // order the per-cell lists had, which point location's first-match rule depends on.
+        _cellFaces = new int[running];
+        var cursor = new int[counts.Count];
+        Array.Copy(_cellStart, cursor, counts.Count);
+        for (int f = 0; f < faceCount; f++)
+        {
+            GetFaceCellRange(vertices, faces, f, out long cMinX, out long cMaxX, out long cMinY, out long cMaxY);
+            for (long cy = cMinY; cy <= cMaxY; cy++)
+            {
+                for (long cx = cMinX; cx <= cMaxX; cx++)
+                {
+                    int slot = _cellSlots[CellKey(cx, cy)];
+                    _cellFaces[cursor[slot]++] = f;
+                }
+            }
+        }
+    }
+
+    private void GetFaceCellRange(
+        double[] vertices,
+        int[] faces,
+        int face,
+        out long cMinX,
+        out long cMaxX,
+        out long cMinY,
+        out long cMaxY)
+    {
+        int i0 = faces[face * 3];
+        int i1 = faces[face * 3 + 1];
+        int i2 = faces[face * 3 + 2];
+        double x0 = vertices[i0 * 3];
+        double y0 = vertices[i0 * 3 + 1];
+        double x1 = vertices[i1 * 3];
+        double y1 = vertices[i1 * 3 + 1];
+        double x2 = vertices[i2 * 3];
+        double y2 = vertices[i2 * 3 + 1];
+
+        cMinX = (long)Math.Floor(Math.Min(x0, Math.Min(x1, x2)) * _invCell);
+        cMaxX = (long)Math.Floor(Math.Max(x0, Math.Max(x1, x2)) * _invCell);
+        cMinY = (long)Math.Floor(Math.Min(y0, Math.Min(y1, y2)) * _invCell);
+        cMaxY = (long)Math.Floor(Math.Max(y0, Math.Max(y1, y2)) * _invCell);
+    }
+
+    private static long CellKey(long cellX, long cellY) => (cellX * 0x100000001L) ^ (cellY * 0x27d4eb2dL);
+
+    /// <summary>Faces registered in the cell containing (cellX, cellY), ascending. Empty when unoccupied.</summary>
+    private ReadOnlySpan<int> CellFaces(long cellX, long cellY)
+    {
+        if (!_cellSlots.TryGetValue(CellKey(cellX, cellY), out int slot))
+            return ReadOnlySpan<int>.Empty;
+
+        int start = _cellStart[slot];
+        return _cellFaces.AsSpan(start, _cellStart[slot + 1] - start);
     }
 
     public bool TryFindRayDaylightReach(
@@ -297,7 +358,7 @@ internal class TerrainFaceGrid
         out List<int> candidates)
     {
         RayQueryScratch scratch = _rayQueryScratch ??= new RayQueryScratch();
-        scratch.Begin(_faceCount);
+        scratch.Begin();
         candidates = scratch.Candidates;
 
         double endX = edgeX + (dirX * maxReach);
@@ -349,18 +410,15 @@ internal class TerrainFaceGrid
         {
             for (long cx = minCellX; cx <= maxCellX; cx++)
             {
-                long key = (cx * 0x100000001L) ^ (cy * 0x27d4eb2dL);
-                if (!_grid.TryGetValue(key, out List<int>? faceIndices))
-                    continue;
-
-                foreach (int face in faceIndices)
+                foreach (int face in CellFaces(cx, cy))
                     scratch.Add(face);
             }
         }
 
         // The previous linear scan visited faces in source order and returned the first hit.
-        // Grid bucket order is spatial, so restore source order before evaluating candidates.
-        candidates.Sort();
+        // Grid bucket order is spatial, so restore source order before evaluating candidates. The same
+        // sort removes the repeats a face spanning several traversed cells contributes.
+        scratch.SortAndDeduplicate();
         return true;
     }
 
@@ -386,11 +444,7 @@ internal class TerrainFaceGrid
         {
             for (long dy = -1; dy <= 1; dy++)
             {
-                long key = ((cx + dx) * 0x100000001L) ^ ((cy + dy) * 0x27d4eb2dL);
-                if (!_grid.TryGetValue(key, out var faceIndices))
-                    continue;
-
-                foreach (int f in faceIndices)
+                foreach (int f in CellFaces(cx + dx, cy + dy))
                 {
                     int i0 = _faces[f * 3];
                     int i1 = _faces[f * 3 + 1];
@@ -433,11 +487,7 @@ internal class TerrainFaceGrid
         {
             for (long dy = -1; dy <= 1; dy++)
             {
-                long key = ((cx + dx) * 0x100000001L) ^ ((cy + dy) * 0x27d4eb2dL);
-                if (!_grid.TryGetValue(key, out var faceIndices))
-                    continue;
-
-                foreach (int f in faceIndices)
+                foreach (int f in CellFaces(cx + dx, cy + dy))
                 {
                     int i0 = _faces[f * 3];
                     int i1 = _faces[f * 3 + 1];

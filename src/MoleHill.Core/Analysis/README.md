@@ -44,7 +44,9 @@ Terrain analysis math. Pure, unit-tested.
 - `MeshHeightProjector.cs` — fast 2.5D XY-to-Z lookup for reference comparison analysis. It returns a
   fallback-required status for overlapping or near-vertical XY regions so Rhino-side callers can keep
   exact legacy projection behavior there. Faces are registered in every touched grid cell, so queries
-  inspect only the owning cell rather than repeating work across a 3x3 neighbourhood.
+  inspect only the owning cell rather than repeating work across a 3x3 neighbourhood. Cell storage is
+  flat CSR built by a count pass then a fill pass, both in face order, so each cell's run is ascending -
+  the order the first-match rule depends on.
 - `MeshRegularityAnalyzer.cs` — sampled density and minimum-angle checks used to identify coarse or
   skinny triangulations before vertex-based Smooth/Sculpt operations.
 - `WaterflowTracer.cs` — deterministic downhill path tracing from XY starts through adjacent 2.5D
