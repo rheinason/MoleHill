@@ -79,15 +79,10 @@ internal sealed class FeaturePolylineGraph
         Array.Fill(graph.VertexChain, -1);
 
         // --- Collect the raw feature edge set --------------------------------------------------------
-        var featureEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
-        var boundarySegments = new List<(int a, int b)>();
-        MeshConstraintTools.AddBoundarySegments(boundarySegments, new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance), faces, faceCount);
-        foreach ((int a, int b) in boundarySegments)
-            featureEdges.Add(EdgeKey(a, b));
-
-        // Non-manifold edges (imperfect upstream grading welds) are contained, not repaired: pin their
-        // endpoints so no operator can touch or spread them. The remesh acceptance gate only requires
-        // the output to be no worse than the input.
+        // One whole-mesh edge-incidence pass serves both readings of it: count == 1 is a boundary edge
+        // (a feature), count > 2 is non-manifold. Building it twice - once through AddBoundarySegments,
+        // which starts at capacity 8 and rehashes all the way up to ~1.5x the face count - was the
+        // single most expensive part of feature setup on a large terrain.
         var edgeIncidence = new Dictionary<long, int>(faceCount * 2, IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int f = 0; f < faceCount; f++)
         {
@@ -97,11 +92,22 @@ internal sealed class FeaturePolylineGraph
             CountIncidence(edgeIncidence, c, a);
         }
 
+        var featureEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
+
+        // Non-manifold edges (imperfect upstream grading welds) are contained, not repaired: pin their
+        // endpoints so no operator can touch or spread them. The remesh acceptance gate only requires
+        // the output to be no worse than the input.
         var pinnedNonManifold = new List<long>();
         var nonManifoldEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
         foreach ((long key, int count) in edgeIncidence)
         {
-            if (count > 2)
+            if (count == 1)
+            {
+                // A degenerate self-edge is not a boundary; the boundary-segment builder skipped these.
+                if ((int)(key >> 32) != (int)(key & 0xFFFFFFFFL))
+                    featureEdges.Add(key);
+            }
+            else if (count > 2)
             {
                 pinnedNonManifold.Add(key);
                 nonManifoldEdges.Add(key);

@@ -573,9 +573,15 @@ public static class IsotropicRemesher
         const int maxRounds = 8;
         int total = 0;
         MeshVertexAdjacency? adjacency = null;
+
+        // Round scratch, allocated once. A round's candidate list and its locked-vertex set are both
+        // whole-mesh sized on a dense terrain, and there are up to maxRounds of them.
+        var candidates = new List<(double lengthSquared, long key)>();
+        var locked = new CollapseRoundLocks(state.VertexCount);
+
         for (int round = 0; round < maxRounds; round++)
         {
-            int collapses = CollapseShortEdgesRound(state, target, projection, ref adjacency);
+            int collapses = CollapseShortEdgesRound(state, target, projection, ref adjacency, candidates, locked);
             total += collapses;
             if (collapses == 0)
                 break;
@@ -584,11 +590,53 @@ public static class IsotropicRemesher
         return total;
     }
 
+    /// <summary>
+    /// Per-round one-ring locks for the collapse phase. A round takes an independent set, so a vertex is
+    /// either free or locked - membership only, never enumerated. A stamped array reused across rounds
+    /// replaces a fresh <see cref="HashSet{T}"/> per round without changing which edges a round accepts.
+    /// </summary>
+    private sealed class CollapseRoundLocks
+    {
+        private int[] _stamp;
+        private int _round;
+
+        public CollapseRoundLocks(int vertexCount)
+        {
+            _stamp = new int[Math.Max(vertexCount, 1)];
+        }
+
+        public void BeginRound(int vertexCount)
+        {
+            if (_stamp.Length < vertexCount)
+            {
+                _stamp = new int[vertexCount];
+                _round = 0;
+            }
+            else if (_round == int.MaxValue)
+            {
+                Array.Clear(_stamp);
+                _round = 0;
+            }
+
+            _round++;
+        }
+
+        public bool IsLocked(int vertex) => vertex >= 0 && vertex < _stamp.Length && _stamp[vertex] == _round;
+
+        public void Lock(int vertex)
+        {
+            if (vertex >= 0 && vertex < _stamp.Length)
+                _stamp[vertex] = _round;
+        }
+    }
+
     private static int CollapseShortEdgesRound(
         MeshState state,
         double target,
         TerrainFaceGrid projection,
-        ref MeshVertexAdjacency? adjacency)
+        ref MeshVertexAdjacency? adjacency,
+        List<(double lengthSquared, long key)> candidates,
+        CollapseRoundLocks locked)
     {
         double collapseSquared = target * CollapseFactor * target * CollapseFactor;
         double maxResultSquared = target * SplitFactor * target * SplitFactor;
@@ -599,7 +647,7 @@ public static class IsotropicRemesher
 
         // Each undirected edge is visited once, from its lower-indexed endpoint only — that replaces
         // the per-round HashSet<long> of already-seen edge keys.
-        var candidates = new List<(double lengthSquared, long key)>();
+        candidates.Clear();
         for (int u = 0; u < adjacency.VertexCount; u++)
         {
             foreach (int v in adjacency.NeighborsOf(u))
@@ -616,23 +664,23 @@ public static class IsotropicRemesher
             ? x.lengthSquared.CompareTo(y.lengthSquared)
             : x.key.CompareTo(y.key));
 
-        var dirty = new HashSet<int>();
+        locked.BeginRound(state.VertexCount);
         int collapses = 0;
         foreach ((double _, long key) in candidates)
         {
             int a = (int)(key >> 32);
             int b = (int)(key & 0xFFFFFFFFL);
-            if (dirty.Contains(a) || dirty.Contains(b))
+            if (locked.IsLocked(a) || locked.IsLocked(b))
                 continue;
             if (TryCollapse(state, projection, adjacency, a, b, maxResultSquared, out int survivor, out int removed))
             {
                 collapses++;
-                dirty.Add(survivor);
-                dirty.Add(removed);
+                locked.Lock(survivor);
+                locked.Lock(removed);
                 foreach (int n in adjacency.NeighborsOf(removed))
-                    dirty.Add(n);
+                    locked.Lock(n);
                 foreach (int n in adjacency.NeighborsOf(survivor))
-                    dirty.Add(n);
+                    locked.Lock(n);
             }
         }
 
@@ -867,10 +915,27 @@ public static class IsotropicRemesher
     {
         int totalFlips = 0;
         double[] vertices = state.Verts.ToArray(); // positions don't change during the flip phase
+
+        // Flips rewrite faces but never add or remove them, so the sweep structures are sized once and
+        // cleared between sweeps. Reallocating an edge-incidence dictionary of ~1.5x the face count for
+        // each of up to MaxFlipSweeps sweeps per outer iteration is pure GC churn. Clearing a dictionary
+        // keeps its buckets and resets its entry list, so refilling it in the same face order yields the
+        // same enumeration order a fresh dictionary would - the order flips are considered in.
+        int sweepFaceCount = state.FaceCount;
+        var adjacency = new Dictionary<long, (int t0, int o0, int t1, int o1, int count)>(sweepFaceCount * 2, IndexedMeshTools.EdgeKeyComparer.Instance);
+        var touched = new bool[sweepFaceCount];
+        var createdEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
+
         for (int sweep = 0; sweep < MaxFlipSweeps; sweep++)
         {
             int faceCount = state.FaceCount;
-            var adjacency = new Dictionary<long, (int t0, int o0, int t1, int o1, int count)>(faceCount * 2, IndexedMeshTools.EdgeKeyComparer.Instance);
+            adjacency.Clear();
+            createdEdges.Clear();
+            if (touched.Length < faceCount)
+                touched = new bool[faceCount];
+            else
+                Array.Clear(touched, 0, faceCount);
+
             for (int t = 0; t < faceCount; t++)
             {
                 if (!state.IsLive(t))
@@ -881,8 +946,6 @@ public static class IsotropicRemesher
                 AddIncidence(adjacency, c, a, t, b);
             }
 
-            var touched = new bool[faceCount];
-            var createdEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
             int flips = 0;
             foreach (KeyValuePair<long, (int t0, int o0, int t1, int o1, int count)> entry in adjacency)
             {

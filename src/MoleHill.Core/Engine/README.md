@@ -43,11 +43,17 @@ Key files:
   buried; upstream weld defects are quarantined, and the acceptance gate only requires the output to be
   no worse than the input). Best overall quality; may occasionally cross a wall on a shallow wall
   angle. With `Options.FieldTheta` the relaxation is field-aligned — the base of the Retopo quad
-  pipeline.
+  pipeline. Phase scratch is allocated once per call, not per sweep or round: flips size their edge
+  incidence, touched flags and created-edge set from the face count (flips rewrite faces, never add or
+  remove them) and clear them between sweeps, and the collapse phase reuses one candidate list and a
+  stamped one-ring lock array across its rounds. Clearing preserves refill order, so the sweep considers
+  edges in the same order — remesh output is byte-identical to the per-sweep-allocation form.
 - `FeaturePolylineGraph.cs` — feature topology for the isotropic remesh: chains boundary ∪ creases ∪
   constraint edges into polylines with arc-length parameters and classifies vertices
   Free/Feature/Corner/Frozen. Short crease-only chains (fold noise in badly triangulated fans) are not
-  pinned.
+  pinned. Boundary edges (incidence 1) and non-manifold edges (incidence > 2) are read off **one**
+  whole-mesh edge-incidence pass — do not reintroduce a second one via `AddBoundarySegments`, whose
+  capacity-8 dictionary rehashes all the way up to ~1.5× the face count.
 - `LocalMeshRefiner.cs` — connectivity-preserving subdivision-only refiner: Sculpt's region-gated DynTopo
   (needs the cheap region early-out and the no-vertex-motion guarantee) and the Remesh modifier's
   **Local Refine** mode (`Mode == "local"` — fastest/safest on huge terrains and delicate wall/pad

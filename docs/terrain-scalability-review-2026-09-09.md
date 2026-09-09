@@ -20,7 +20,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | C01 | Resolved | Reference-comparison cache identity | Multiple meshes in one zone |
 | [x] | O01 | Resolved | Constraint topology insertion | Terrain faces and constraint segments |
 | [x] | O02 | Resolved | Partition zone outputs in one pass | Faces × boundary entries |
-| [ ] | O03 | High | Remesh flip adjacency and feature setup | Faces × sweeps × iterations |
+| [x] | O03 | Resolved | Remesh flip adjacency and feature setup | Faces × sweeps × iterations |
 | [ ] | O04 | High | Spatial-index construction and retained scratch | Face-cell memberships and worker count |
 | [ ] | O05 | High for sculpting | Localize stroke commit and constraint evaluation | Whole mesh per stroke; protection edges |
 | [ ] | O06 | High for scatter | Sparse Poisson occupancy and prepared containment | Bounding-box area / spacing² |
@@ -106,6 +106,34 @@ Related host paths: [src/MoleHill.Grasshopper/Components/MeshAreasComponent.cs:1
 **Done when:** Varying zone count at fixed face count no longer repeats F-sized selection scans; output topology and host behavior remain equivalent.
 
 ## O03 — Remesh still rebuilds large edge structures repeatedly
+
+**Resolved 2026-09-10:** Three rebuilds removed, all order-preserving.
+
+1. `FlipForQuality` allocated an edge-incidence dictionary sized ~1.5x the face count, a face-sized
+   `touched` array and a created-edge set for **each** of up to `MaxFlipSweeps` sweeps per outer
+   iteration. Flips rewrite faces but never add or remove them, so all three are now sized once per call
+   and cleared between sweeps. Clearing a dictionary keeps its buckets and resets its entry list, so
+   refilling in the same face order gives the same enumeration order — the order flips are considered in.
+   (The position copy the review lists at line 869 was already outside the sweep loop.)
+2. `CollapseShortEdgesRound` allocated a candidate list and a `HashSet<int>` of one-ring locks per round,
+   up to 8 rounds. Both are now call-scoped: the list is cleared, and the locks became a stamped array
+   (`CollapseRoundLocks`) — membership only, never enumerated, so no ordering is involved. The CSR
+   adjacency was already reused.
+3. `FeaturePolylineGraph.Build` built the whole-mesh edge incidence **twice** — once inside
+   `MeshConstraintTools.AddBoundarySegments`, which starts at capacity 8 and rehashes all the way up,
+   and once as `edgeIncidence`. One pass now serves both readings: incidence 1 is a boundary feature
+   edge (self-edges excluded, as the segment builder did), incidence > 2 is non-manifold.
+
+**Equivalence evidence:** remesh output was fingerprinted (SHA-256 over the full vertex and face arrays,
+plus split/collapse/flip counts) across 12 target-length x iteration-count configurations on an
+irregular sheet, before and after. All 12 are byte-identical. `IsotropicRemesherScratchReuseTests`
+covers determinism, many-collapse-round and many-flip-sweep workloads, edge manifoldness, and the
+boundary polygon; `FeaturePolylineGraphIncidenceTests` covers both readings of the shared incidence pass
+including a mesh that is non-manifold and bounded at once.
+
+Not done here: replacing the flip dictionary with a flat incidence representation. The sweep's flip
+order is its enumeration order, so that is an algorithm change needing its own validation, and the
+allocation cost it was carrying is now gone.
 
 **Confirmed patterns:** [src/MoleHill.Core/Engine/IsotropicRemesher.cs:869](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Engine/IsotropicRemesher.cs:869) copies positions and rebuilds an edge-incidence dictionary for each quality-flip sweep; the maximum is 16 sweeps per outer iteration. [src/MoleHill.Core/Engine/IsotropicRemesher.cs:596](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Engine/IsotropicRemesher.cs:596) rebuilds reusable CSR adjacency and sorts short-edge candidates per collapse round. [src/MoleHill.Core/Engine/FeaturePolylineGraph.cs:84](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Engine/FeaturePolylineGraph.cs:84) extracts boundaries, then separately counts whole-mesh edge incidence.
 
