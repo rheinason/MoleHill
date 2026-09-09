@@ -22,7 +22,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O02 | Resolved | Partition zone outputs in one pass | Faces × boundary entries |
 | [x] | O03 | Resolved | Remesh flip adjacency and feature setup | Faces × sweeps × iterations |
 | [x] | O04 | Resolved | Spatial-index construction and retained scratch | Face-cell memberships and worker count |
-| [ ] | O05 | High for sculpting | Localize stroke commit and constraint evaluation | Whole mesh per stroke; protection edges |
+| [x] | O05 | Resolved | Localize stroke commit and constraint evaluation | Whole mesh per stroke; protection edges |
 | [ ] | O06 | High for scatter | Sparse Poisson occupancy and prepared containment | Bounding-box area / spacing² |
 | [ ] | O07 | Medium-high | Reuse reference projection contexts safely | Reference faces × comparisons |
 | [ ] | O08 | Medium-high | Work-region and grading containment queries | Points/faces × polygon edges |
@@ -183,6 +183,28 @@ A long diagonal or a large triangle among tiny faces can occupy many cells. Clam
 **Done when:** Adversarial geometry has bounded practical memory, query equivalence tests pass, and the chosen structure improves total build-plus-query cost.
 
 ## O05 — A small sculpt commit performs whole-terrain work
+
+**Resolved 2026-09-10:** `SculptFieldRasterizer.Rasterize` no longer allocates a whole-mesh XYZ delta
+copy or builds a whole-mesh `TerrainFaceGrid`. It selects the faces whose XY bounds meet the sampled
+rectangle (the dirty bounds padded by one field cell, which is what the sampling loop already used),
+pulls their vertices in on first use, and grids only that. A face outside the rectangle cannot contain
+a sample in it, so no interpolation result changes; selection is one arithmetic pass over the faces
+with no per-face allocation, and the delta copy, the grid and the per-vertex constraint evaluations are
+all sized by the stroke instead of the terrain. When no face meets the rectangle the commit returns
+without writing, which is what the sampling loop did.
+
+`SculptConstraintMask` now stores each region's XY bounds. A region whose distance-to-bounds lower
+bound is positive and at or beyond the feather distance can neither pin the point nor pull the nearest
+distance below the feather threshold, so its edges are skipped; the polygon ray cast is likewise
+skipped for a point outside the bounds. Both are exact — the rejection only removes regions that cannot
+change the answer.
+
+`SculptFieldRasterizerLocalityTests` shows the same stroke writes an identical field on a 10-unit and a
+40-unit terrain, that samples outside the dirty rectangle are untouched, that an off-mesh rectangle
+writes nothing, and that the feather divide still records the unmasked displacement.
+`SculptConstraintMaskBoundsRejectionTests` checks 3,000 points against a per-region reference over 25
+scattered regions at three feather distances, plus the pinned-far-polygon and zero-feather boundary
+cases.
 
 **Confirmed pattern:** [src/MoleHill.Core/Sculpting/SculptFieldRasterizer.cs:35](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Sculpting/SculptFieldRasterizer.cs:35) allocates and fills XYZ delta data for every vertex and builds a fresh TerrainFaceGrid before sampling the dirty rectangle. [src/MoleHill.Rhino/Services/SculptSessionController.cs:460](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/SculptSessionController.cs:460) calls the rasterizer. [src/MoleHill.Core/Sculpting/SculptConstraintMask.cs:57](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Sculpting/SculptConstraintMask.cs:57) scans protection regions; evaluation includes polygon containment and segment distances.
 

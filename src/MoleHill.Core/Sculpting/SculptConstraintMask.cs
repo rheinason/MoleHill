@@ -25,7 +25,7 @@ public sealed class SculptConstraintMask
         if (vertexCount < 3 || xyVertices.Length < vertexCount * 2)
             return;
 
-        _regions.Add(new Region((double[])xyVertices.Clone(), vertexCount, true, true, 0.0));
+        _regions.Add(Region.Create((double[])xyVertices.Clone(), vertexCount, true, true, 0.0));
     }
 
     public void AddPolyline(
@@ -39,7 +39,7 @@ public sealed class SculptConstraintMask
         if (vertexCount < 2 || xyVertices.Length < vertexCount * 2)
             return;
 
-        _regions.Add(new Region(
+        _regions.Add(Region.Create(
             (double[])xyVertices.Clone(),
             vertexCount,
             false,
@@ -56,6 +56,16 @@ public sealed class SculptConstraintMask
         double nearest = double.PositiveInfinity;
         foreach (Region region in _regions)
         {
+            // Bounds rejection. The distance from the point to the region's bounding box, less its
+            // half width, is a lower bound on DistanceOutsideRegion. A region whose lower bound is
+            // both positive and at or beyond the feather distance can neither pin the point nor pull
+            // `nearest` below the feather threshold, so its edges never need visiting - and the
+            // remaining regions decide the same answer. Every sculpt vertex and field sample pays this
+            // loop, so a scene with many protected areas was scanning every edge of all of them.
+            double lowerBound = region.DistanceOutsideBounds(x, y);
+            if (lowerBound > 0.0 && lowerBound >= FeatherDistance)
+                continue;
+
             double distance = DistanceOutsideRegion(region, x, y);
             if (distance <= 0.0)
                 return 0.0;
@@ -71,8 +81,13 @@ public sealed class SculptConstraintMask
 
     private static double DistanceOutsideRegion(Region region, double x, double y)
     {
-        if (region.IsPolygon && IsPointInPolygon(region.XyVertices, region.VertexCount, x, y))
+        // A point outside the bounding box is outside the polygon; skip the ray cast for it.
+        if (region.IsPolygon &&
+            region.DistanceOutsideBounds(x, y) <= 0.0 &&
+            IsPointInPolygon(region.XyVertices, region.VertexCount, x, y))
+        {
             return 0.0;
+        }
 
         double distanceSquared = double.PositiveInfinity;
         int segmentCount = region.IsClosed ? region.VertexCount : region.VertexCount - 1;
@@ -147,5 +162,43 @@ public sealed class SculptConstraintMask
         int VertexCount,
         bool IsPolygon,
         bool IsClosed,
-        double HalfWidth);
+        double HalfWidth,
+        double MinX,
+        double MaxX,
+        double MinY,
+        double MaxY)
+    {
+        public static Region Create(double[] xyVertices, int vertexCount, bool isPolygon, bool isClosed, double halfWidth)
+        {
+            double minX = double.MaxValue;
+            double maxX = double.MinValue;
+            double minY = double.MaxValue;
+            double maxY = double.MinValue;
+            for (int i = 0; i < vertexCount; i++)
+            {
+                double x = xyVertices[i * 2];
+                double y = xyVertices[(i * 2) + 1];
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+
+            return new Region(xyVertices, vertexCount, isPolygon, isClosed, halfWidth, minX, maxX, minY, maxY);
+        }
+
+        /// <summary>
+        /// Lower bound on <c>DistanceOutsideRegion</c>: the distance from the point to the region's
+        /// bounding box, less the half width, clamped at zero. Never larger than the true value.
+        /// </summary>
+        public double DistanceOutsideBounds(double x, double y)
+        {
+            double dx = Math.Max(Math.Max(MinX - x, x - MaxX), 0.0);
+            double dy = Math.Max(Math.Max(MinY - y, y - MaxY), 0.0);
+            if (dx == 0.0 && dy == 0.0)
+                return 0.0;
+
+            return Math.Max(0.0, Math.Sqrt((dx * dx) + (dy * dy)) - HalfWidth);
+        }
+    }
 }

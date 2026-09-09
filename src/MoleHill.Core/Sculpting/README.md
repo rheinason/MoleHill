@@ -28,7 +28,11 @@ Key files:
 - `SculptBrush.cs` — `SculptBrushKind` (Draw/Subtract/Smooth/Flatten/Grab/Clay/Noise) and
   `SculptFalloffs.Evaluate` (Smooth/Linear/Sharp/Constant profiles).
 - `SculptConstraintMask.cs` — pure world-XY protected polygons and buffered open/closed polylines,
-  returning a smooth 0–1 sculpt influence through the configured outside feather.
+  returning a smooth 0–1 sculpt influence through the configured outside feather. Each region carries
+  its XY bounds: a region whose distance-to-bounds lower bound is positive and at or beyond the feather
+  distance can neither pin the point nor lower the nearest distance below the threshold, so its edges
+  are not visited. Every sculpt vertex and every field sample pays this loop, so it is a per-region
+  bounds test, never a shared index.
 - `SculptBrushEngine.cs` — one session's working state: flat arrays + `BaseZ` (recovered exactly as
   `z − field.Sample * mask`), per-dab brush math with `SpatialHashGrid2D` radius queries and
   `MeshSmoother.BuildNeighborGraph` CSR adjacency for the Smooth brush, first-touch undo capture, and
@@ -38,6 +42,9 @@ Key files:
 - `SculptFieldRasterizer.cs` — stroke commit: interpolates the delta surface (a `TerrainFaceGrid`
   over Z = delta) at every field sample in the stroke's dirty bounds; samples off the mesh stay
   untouched, protected samples retain their prior raw displacement, and feathered values are stored
-  without double attenuation.
+  without double attenuation. The delta surface covers **only** the faces whose XY bounds meet the
+  sampled rectangle, with vertices pulled in on first use — a face outside it cannot contain a sample,
+  so the result is unchanged while a small stroke stops paying for the whole terrain. Do not rebuild
+  the whole-mesh copy: that made commit cost scale with terrain size rather than stroke size.
 - `SculptStrokeUndo.cs` — per-stroke undo records (sparse old/new Z, replaced tile payloads, created
   midpoints, dirty bounds) + the linear `SculptUndoStack`.
