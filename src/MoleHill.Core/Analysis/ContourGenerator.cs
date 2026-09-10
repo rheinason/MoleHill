@@ -145,18 +145,6 @@ public static class ContourGenerator
         int segmentCount = segmentCoords.Count / 6;
         var segA = new int[segmentCount];
         var segB = new int[segmentCount];
-        var nodeSegments = new Dictionary<int, List<int>>();
-
-        void Link(int node, int segment)
-        {
-            if (!nodeSegments.TryGetValue(node, out var list))
-            {
-                list = new List<int>(2);
-                nodeSegments[node] = list;
-            }
-
-            list.Add(segment);
-        }
 
         int realCount = 0;
         for (int s = 0; s < segmentCount; s++)
@@ -168,29 +156,59 @@ public static class ContourGenerator
 
             segA[realCount] = a;
             segB[realCount] = b;
-            Link(a, realCount);
-            Link(b, realCount);
             realCount++;
+        }
+
+        // Node -> incident segments as flat CSR. A Dictionary<int, List<int>> allocated a list object
+        // plus its backing array for every welded node, and a segment-heavy contour job has roughly as
+        // many nodes as segments. Filling in segment order keeps each node's run in the insertion order
+        // the lists had, which is the order NextUnused picks a continuation in.
+        int nodeCount = nodes.Count;
+        var nodeStart = new int[nodeCount + 1];
+        for (int s = 0; s < realCount; s++)
+        {
+            nodeStart[segA[s] + 1]++;
+            nodeStart[segB[s] + 1]++;
+        }
+
+        for (int node = 1; node <= nodeCount; node++)
+            nodeStart[node] += nodeStart[node - 1];
+
+        var nodeSegments = new int[realCount * 2];
+        var cursor = new int[nodeCount];
+        Array.Copy(nodeStart, cursor, nodeCount);
+        for (int s = 0; s < realCount; s++)
+        {
+            nodeSegments[cursor[segA[s]]++] = s;
+            nodeSegments[cursor[segB[s]]++] = s;
         }
 
         var used = new bool[realCount];
         int Other(int segment, int node) => segA[segment] == node ? segB[segment] : segA[segment];
 
+        int Degree(int node) => nodeStart[node + 1] - nodeStart[node];
+
         int NextUnused(int node)
         {
-            if (!nodeSegments.TryGetValue(node, out var list))
-                return -1;
-
-            foreach (int segment in list)
+            for (int slot = nodeStart[node]; slot < nodeStart[node + 1]; slot++)
+            {
+                int segment = nodeSegments[slot];
                 if (!used[segment])
                     return segment;
+            }
 
             return -1;
         }
 
         var polylines = new List<ContourPolyline>();
 
-        void Extend(LinkedList<int> chain, int fromNode, bool prepend)
+        // Chain scratch, reused across seeds. `forward` grows from the seed's second node, `backward`
+        // from its first; the emitted order is backward reversed, then forward - exactly the order the
+        // former LinkedList's AddFirst/AddLast produced, without a node object per point.
+        var forward = new List<int>();
+        var backward = new List<int>();
+
+        void Extend(List<int> into, int fromNode)
         {
             int current = fromNode;
             while (true)
@@ -201,40 +219,54 @@ public static class ContourGenerator
 
                 used[segment] = true;
                 int other = Other(segment, current);
-                if (prepend)
-                    chain.AddFirst(other);
-                else
-                    chain.AddLast(other);
+                into.Add(other);
                 current = other;
             }
         }
 
-        // Prefer starting at open endpoints (degree 1) so open chains aren't split mid-way.
-        var seeds = Enumerable.Range(0, realCount)
-            .OrderBy(s => Math.Min(Degree(nodeSegments, segA[s]), Degree(nodeSegments, segB[s])));
+        // Prefer starting at open endpoints (degree 1) so open chains aren't split mid-way. Sorting a
+        // (key, index) pair keeps the stable order the LINQ OrderBy gave, without its allocations.
+        var seedOrder = new int[realCount];
+        var seedKeys = new int[realCount];
+        for (int s = 0; s < realCount; s++)
+        {
+            seedOrder[s] = s;
+            seedKeys[s] = Math.Min(Degree(segA[s]), Degree(segB[s]));
+        }
 
-        foreach (int seed in seeds)
+        Array.Sort(seedOrder, (left, right) =>
+        {
+            int compared = seedKeys[left].CompareTo(seedKeys[right]);
+            return compared != 0 ? compared : left.CompareTo(right);
+        });
+
+        foreach (int seed in seedOrder)
         {
             if (used[seed])
                 continue;
 
             used[seed] = true;
-            var chain = new LinkedList<int>();
-            chain.AddLast(segA[seed]);
-            chain.AddLast(segB[seed]);
-            Extend(chain, segB[seed], prepend: false);
-            Extend(chain, segA[seed], prepend: true);
+            forward.Clear();
+            backward.Clear();
+            forward.Add(segA[seed]);
+            forward.Add(segB[seed]);
+            Extend(forward, segB[seed]);
+            Extend(backward, segA[seed]);
 
-            var order = chain.ToArray();
-            bool closed = order.Length > 2 && order[0] == order[^1];
-            int emitCount = closed ? order.Length - 1 : order.Length;
+            int orderLength = backward.Count + forward.Count;
+            int First() => backward.Count > 0 ? backward[^1] : forward[0];
+            int Last() => forward[^1];
+
+            bool closed = orderLength > 2 && First() == Last();
+            int emitCount = closed ? orderLength - 1 : orderLength;
             var pointsXyz = new double[emitCount * 3];
             for (int i = 0; i < emitCount; i++)
             {
-                var node = nodes[order[i]];
-                pointsXyz[i * 3] = node.X;
-                pointsXyz[i * 3 + 1] = node.Y;
-                pointsXyz[i * 3 + 2] = node.Z;
+                int node = i < backward.Count ? backward[backward.Count - 1 - i] : forward[i - backward.Count];
+                (double X, double Y, double Z) point = nodes[node];
+                pointsXyz[i * 3] = point.X;
+                pointsXyz[i * 3 + 1] = point.Y;
+                pointsXyz[i * 3 + 2] = point.Z;
             }
 
             polylines.Add(new ContourPolyline { PointsXyz = pointsXyz, IsClosed = closed });
@@ -242,7 +274,4 @@ public static class ContourGenerator
 
         return polylines;
     }
-
-    private static int Degree(Dictionary<int, List<int>> nodeSegments, int node) =>
-        nodeSegments.TryGetValue(node, out var list) ? list.Count : 0;
 }

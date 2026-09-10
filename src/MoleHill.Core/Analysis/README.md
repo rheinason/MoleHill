@@ -5,7 +5,11 @@ Terrain analysis math. Pure, unit-tested.
 - `ContourGenerator.cs` — single-pass marching-triangles contour extraction (one pass over faces, each
   triangle only contributes to the levels in its own Z-span — far faster than one mesh-plane per level).
   Returns `ContourLevel`s of `ContourPolyline`s. The Rhino side (`TerrainBuildService.Analysis.cs`)
-  wraps these as curves.
+  wraps these as curves. Stitching keeps node incidence as flat CSR (a `List<int>` per welded node cost
+  a list object plus a backing array for roughly every segment) and walks chains into two reusable
+  buffers instead of a `LinkedList` node per point — the emitted order is `backward` reversed then
+  `forward`, which is what the old `AddFirst`/`AddLast` produced. Seeds are ordered by minimum endpoint
+  degree with an explicit index tiebreak, matching the stable `OrderBy` it replaced.
 - `ContourLevel.cs` / `ContourPolyline.cs` — result types.
 - `SlopeAnalyzer.cs` — slope analysis. `Summarize` computes min/max/area-weighted average without
   allocating preview colors (auto-fit additionally collects a transient slope + area array, since fitting

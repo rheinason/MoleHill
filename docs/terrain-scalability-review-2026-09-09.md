@@ -29,7 +29,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O09 | Resolved | Cancellation latency in heavy Core stages | Superseded work and retained geometry |
 | [x] | O10 | Resolved | Cache/display geometry ownership and peak memory | Mesh copies × stages/workers |
 | [x] | O11 | Resolved | Waterflow setup and independent traces | Faces plus starts × path length |
-| [ ] | O12 | Medium | Contour output and stitching allocations | Emitted segments and contour levels |
+| [x] | O12 | Resolved | Contour output and stitching allocations | Emitted segments and contour levels |
 | [ ] | O13 | Medium | Seam deviation nearest-segment queries | Source vertices × target edges |
 | [ ] | O14 | Medium, retopo only | Cross-field solver convergence | Vertices × iterations |
 | [ ] | O15 | Medium, interactive | Scatter preview draw calls | Visible instances × shape points |
@@ -404,6 +404,27 @@ surviving paths, cancellation on the parallel path, and the empty-start case.
 **Done when:** Multi-start workloads improve without multiplying full-mesh scratch per start or altering path results.
 
 ## O12 — Contour stitching allocates per node and retains raw segments
+
+**Resolved 2026-09-10:** The per-node allocation is gone. `StitchSegments` kept node incidence in a
+`Dictionary<int, List<int>>` — a list object plus its backing array for every welded node, and a
+segment-heavy job has roughly as many nodes as segments. It is now flat CSR (degree count, prefix sum,
+fill in segment order), which also makes `Degree` an O(1) subtraction instead of a dictionary lookup
+per sort comparison. Chain walking uses two reusable `List<int>` buffers instead of a `LinkedList<int>`
+node per point: `forward` grows from the seed's second node, `backward` from its first, and the emitted
+order is `backward` reversed then `forward` — exactly what `AddFirst`/`AddLast` produced. Seed ordering
+replaces a LINQ `OrderBy` with an index-array sort keyed on precomputed degrees plus an explicit index
+tiebreak, which reproduces `OrderBy`'s stability.
+
+**Equivalence evidence:** contour output was fingerprinted (SHA-256 over every polyline's closed flag,
+point count and full coordinate array, plus level and polyline counts) across six mesh-size x
+level-interval configurations, up to 1,421 polylines. All six are byte-identical before and after.
+`ContourStitchingTests` covers a closed ring not repeating its first point, an open chain running edge
+to edge without splitting, every emitted point sitting at its level, run-to-run identity on a
+segment-heavy job, and levels outside the mesh emitting nothing.
+
+Not done: releasing or processing levels in bounded batches. Peak live segment buffers are unchanged —
+that trade costs extra mesh scans, which the review itself flags, and needs the measurement of emitted
+segment counts it asks for first.
 
 **Confirmed patterns:** [src/MoleHill.Core/Analysis/ContourGenerator.cs:30](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Analysis/ContourGenerator.cs:30) collects segment coordinates for levels; [src/MoleHill.Core/Analysis/ContourGenerator.cs:146](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Analysis/ContourGenerator.cs:146) allocates endpoint arrays plus a dictionary of adjacency lists. The marching pass already skips levels outside each face's Z range.
 
