@@ -161,7 +161,12 @@ internal sealed partial class TerrainBuildService
             string.Equals(cachedTopologyEntry.GraderKind, "Pad", StringComparison.Ordinal) &&
             cachedTopologyEntry.Fingerprint == topologyFingerprint)
         {
-            topologyEntry = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(cachedTopologyEntry);
+            // Shared, not copied. A GradingTopologyCacheEntry is immutable after construction and every
+            // consumer below only reads it - PadGrader.ApplyGradingZ writes into its own fresh array and
+            // BuildMesh reads. Copying it here duplicated the whole retained grading topology (3 doubles
+            // per vertex plus the face array) on every hot-cache Grade Pad build. CreateWorkerCopy and
+            // ReplaceBuildCachesFrom already pass these entries by reference.
+            topologyEntry = cachedTopologyEntry;
             build.Diagnostics.AddRange(topologyEntry.Diagnostics);
             build.StructuredDiagnostics.AddRange(topologyEntry.StructuredDiagnostics);
             topologyTimer.Stop();
@@ -252,7 +257,10 @@ internal sealed partial class TerrainBuildService
                 Diagnostics = topologyDiagnostics,
                 StructuredDiagnostics = gradeResult?.StructuredDiagnostics.ToList() ?? failureStructuredDiagnostics.ToList()
             };
-            runtimeCache.GradingTopologyEntries[topologyStageKey] = TerrainRuntimeCacheCloner.CloneGradingTopologyEntry(topologyEntry);
+            // The entry was just built from arrays this scope owns (PadGrader's output, or a fresh copy
+            // of the upstream on the failure branch) and nothing mutates them afterwards, so the cache
+            // takes it as it is rather than duplicating the whole topology a second time.
+            runtimeCache.GradingTopologyEntries[topologyStageKey] = topologyEntry;
             build.RecordTiming(
                 "Grade Pad",
                 topologyTimer.Elapsed,

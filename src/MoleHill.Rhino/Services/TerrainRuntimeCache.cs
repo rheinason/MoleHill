@@ -401,6 +401,18 @@ internal sealed class StageCacheEntry
     public string? StairStepCountSummary { get; set; }
 }
 
+/// <summary>
+/// Retained grading topology for one stage.
+/// </summary>
+/// <remarks>
+/// <b>Immutable after construction.</b> Every member is <c>init</c>-only and no consumer writes into
+/// <see cref="Vertices"/>, <see cref="Faces"/> or <see cref="PatchSummaries"/> - `PadGrader.ApplyGradingZ`
+/// writes into its own fresh array, and mesh building only reads. That is what lets
+/// <c>CreateWorkerCopy</c> and <c>ReplaceBuildCachesFrom</c> pass entries between the UI-owned cache and
+/// worker copies by reference, and it is why storing and restoring one does not copy the whole terrain
+/// topology. If a consumer ever needs to mutate an entry, build a new one - do not reintroduce a
+/// defensive deep copy on the cache path.
+/// </remarks>
 internal sealed class GradingTopologyCacheEntry
 {
     public string GraderKind { get; init; } = string.Empty;
@@ -597,6 +609,11 @@ internal static class TerrainRuntimeCacheCloner
             .ToList();
     }
 
+    /// <summary>
+    /// Deep copy of a grading topology entry. <b>Not used on the build path</b> — entries are immutable
+    /// and are shared by reference there (see <see cref="GradingTopologyCacheEntry"/>). This exists for
+    /// callers that genuinely need an independent copy.
+    /// </summary>
     public static GradingTopologyCacheEntry CloneGradingTopologyEntry(GradingTopologyCacheEntry entry)
     {
         return new GradingTopologyCacheEntry

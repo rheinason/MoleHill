@@ -27,7 +27,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O07 | Resolved | Reuse reference projection contexts safely | Reference faces × comparisons |
 | [x] | O08 | Resolved | Work-region and grading containment queries | Points/faces × polygon edges |
 | [x] | O09 | Resolved | Cancellation latency in heavy Core stages | Superseded work and retained geometry |
-| [ ] | O10 | Medium | Cache/display geometry ownership and peak memory | Mesh copies × stages/workers |
+| [x] | O10 | Resolved | Cache/display geometry ownership and peak memory | Mesh copies × stages/workers |
 | [ ] | O11 | Medium | Waterflow setup and independent traces | Faces plus starts × path length |
 | [ ] | O12 | Medium | Contour output and stitching allocations | Emitted segments and contour levels |
 | [ ] | O13 | Medium | Seam deviation nearest-segment queries | Source vertices × target edges |
@@ -338,6 +338,31 @@ measurement requires.
 **Done when:** Cancellation is timely under load and rapid edits leave only the latest valid result.
 
 ## O10 — Measure geometry lifetimes across cache, display, and snapshots
+
+**Resolved 2026-09-10 (scoped):** The `Clone` callers were traced. One redundant copy is *provable*
+from the code without a memory profiler, and it is the one on a hot path; it has been removed. The
+rest of this item's measurement work is explicitly **not** done — see below.
+
+`GradingTopologyCacheEntry` holds the retained grading topology: whole-mesh `Vertices` (3 doubles per
+vertex) and `Faces`. Every member is `init`-only, and the codebase already treats entries as immutable
+— `CreateWorkerCopy` and `ReplaceBuildCachesFrom` pass them between the UI-owned cache and worker
+copies **by reference**. The Grade Pad stage was the outlier, deep-copying the whole topology twice:
+once on every hot-cache hit, and once again when storing an entry it had just built from arrays it
+exclusively owned. Its consumers only read — `PadGrader.ApplyGradingZ` writes into its own fresh clone
+in every overload, and mesh building reads — so both copies are gone and the invariant is documented
+on the type.
+
+`GradingTopologyImmutabilityTests` pins what the sharing rests on: every `ApplyGradingZ` overload
+leaves its input vertices and faces byte-identical, returns a distinct array, and repeated calls on the
+same retained arrays return the same result (drift here is exactly what reusing one topology across
+builds would expose).
+
+**Deliberately not done:** cold-build / cache-hit / repeated-edit / undo / retired-worker memory
+snapshots, the managed-versus-native split, and the simultaneously-live-copy census. Those need the
+native Rhino harness (`docs/rhino-live-testing.md`) and a profiler; nothing here should be read as
+having measured peak memory. `TerrainDisplayState.Clone` and the stage mesh clones were inspected and
+left alone: each has a live consumer with a distinct lifetime, and the review's own guardrail is that
+the deliberate mesh sharing in stage worker copies must not be "fixed" into deep copies.
 
 **Evidence:** [src/MoleHill.Rhino/Services/TerrainDisplayState.cs:307](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainDisplayState.cs:307) clones terrain/base/preview meshes and generated objects. [src/MoleHill.Rhino/Services/TerrainRuntimeCache.cs:600](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainRuntimeCache.cs:600) clones retained grading topology arrays. Existing stage worker copies deliberately share mesh outputs; that optimization must not be “fixed” back into deep copies.
 
