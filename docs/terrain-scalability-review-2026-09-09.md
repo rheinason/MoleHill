@@ -32,7 +32,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O12 | Resolved | Contour output and stitching allocations | Emitted segments and contour levels |
 | [x] | O13 | Resolved | Seam deviation nearest-segment queries | Source vertices × target edges |
 | [x] | O14 | Resolved | Cross-field solver convergence | Vertices × iterations |
-| [ ] | O15 | Medium, interactive | Scatter preview draw calls | Visible instances × shape points |
+| [ ] | O15 | **Blocked on measurement** | Scatter preview draw calls | Visible instances × shape points |
 | [ ] | O16 | Follow-up | Remaining zone splitter memory and index behavior | Full terrain plus boundary distribution |
 
 ## C01 — Verify reference-comparison cache identity before sharing more caches
@@ -503,6 +503,30 @@ low explicit iteration count still honoured as a maximum, and θ staying in [0, 
 **Done when:** A justified stopping rule or solver reduces work on representative cases with quality and determinism validation.
 
 ## O15 — Scatter preview may become draw-call bound
+
+**Not implemented 2026-09-10 — deliberately.** This is the one item in the batch whose "done when" is a
+*measured frame-time improvement with real Rhino viewport verification*, and that measurement has not
+been made. Changing the draw path without it would be exactly the speculative change the review warns
+against, so nothing here was touched.
+
+**What the code inspection found**, for whoever picks this up with a viewport attached:
+
+- `TerrainDisplayConduit.DrawScatterObjects` submits **one draw call per drawn item** —
+  `DrawPoint` per instance in Points mode, `DrawPoint` per shape point in ShapePoints mode (so an
+  instance with a 200-point shape is 200 submissions), `DrawBox` per instance, and instance geometry
+  otherwise. Batching Points and ShapePoints into one `DrawPoints` call per resolved colour is the
+  obvious candidate and would preserve the drawn set exactly.
+- The blocker on doing it blind is appearance, not correctness: `DrawPoint(point, color)` uses
+  RhinoCommon's default point style and radius, and a batched `DrawPoints` overload has to be given
+  those explicitly. Guessing them changes how the preview looks, which is a user-visible regression
+  that cannot be checked without a viewport.
+- The per-frame CPU work outside submission is already small: the colour, instance-definition, box and
+  shape-point lookups are all cached in `ScatterPreviewDrawFrame` for the frame, and preview caps are
+  applied before drawing.
+
+**Required before changing anything:** native viewport frame time at increasing visible counts,
+separately for point, shape, box and instance modes (`docs/rhino-live-testing.md`), to establish
+whether draw submission actually dominates. Do not remove the existing caps to demonstrate throughput.
 
 **Evidence:** [src/MoleHill.Rhino/Services/TerrainDisplayConduit.cs:177](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainDisplayConduit.cs:177) builds frame state and iterates capped instances; shape-point mode transforms and draws individual points. Preview caps and frame helpers already exist.
 
