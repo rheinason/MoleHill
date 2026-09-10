@@ -31,7 +31,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O11 | Resolved | Waterflow setup and independent traces | Faces plus starts × path length |
 | [x] | O12 | Resolved | Contour output and stitching allocations | Emitted segments and contour levels |
 | [x] | O13 | Resolved | Seam deviation nearest-segment queries | Source vertices × target edges |
-| [ ] | O14 | Medium, retopo only | Cross-field solver convergence | Vertices × iterations |
+| [x] | O14 | Resolved | Cross-field solver convergence | Vertices × iterations |
 | [ ] | O15 | Medium, interactive | Scatter preview draw calls | Visible instances × shape points |
 | [ ] | O16 | Follow-up | Remaining zone splitter memory and index behavior | Full terrain plus boundary distribution |
 
@@ -464,6 +464,35 @@ degenerate target.
 **Done when:** Detailed-loop scaling improves while deviation metrics match within a justified numerical bound.
 
 ## O14 — Cross-field diffusion can run 2,000 full passes
+
+**Resolved 2026-09-10:** `Options.Iterations` is now a maximum. Each Gauss-Seidel sweep tracks the
+largest per-vertex change of the 4-RoSy representative and exits once it falls below
+`Options.ConvergenceTolerance` (default 1e-7; the representative is a unit vector, so that is about
+2.5e-8 rad in θ — far below anything downstream resolves). The residual is accumulated in the same
+fixed order as the in-place updates, so the stopping point is deterministic. Traversal order,
+in-place updates and pinned vertices are untouched; no Jacobi, no parallelism — the review is right
+that those would be algorithm changes.
+
+**Residual versus iteration, measured.** Two families, comparing a converged run against the same run
+with the tolerance disabled:
+
+| Case | Vertices | Budget | Sweeps run | Final residual | Max θ difference |
+|---|---|---|---|---|---|
+| Regular sheet | 400 – 14,400 | 80 – 480 | **1** | 9.8e-17 | **0** |
+| Disc (boundary tangent sweeps all directions) | 1,201 – 19,201 | 138 – 554 | all | 3e-5 – 8e-4 | **0** |
+
+The useful finding is the second row: on a shape whose field genuinely has to diffuse, the field has
+**not** converged when the budget expires — the residual is still ~1e-4. So on those meshes the
+iteration budget, not the stopping rule, is what binds, and the rule correctly does not fire. The
+saving is real on the axis-aligned sheets that terrain meshes usually are (one sweep instead of
+hundreds, θ bit-identical), and the cost elsewhere is one subtraction per free vertex per sweep. Any
+future work on the disc-like cases is a **quality** question — whether the budget is large enough —
+not a scheduling one.
+
+`CrossFieldConvergenceTests` covers: stopping short of the budget, converged output matching the
+exhausted run on a regular and an irregular mesh, the disc case running its whole budget with
+identical output, determinism (sweeps, residual and θ all reproducible), pinned vertices unaffected, a
+low explicit iteration count still honoured as a maximum, and θ staying in [0, π/2).
 
 **Confirmed pattern:** [src/MoleHill.Core/Retopo/CrossFieldSolver.cs:99](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Retopo/CrossFieldSolver.cs:99) derives the iteration budget from vertex count, clamped to 50–2,000, and performs in-place Gauss–Seidel updates without a convergence exit in the inspected loop.
 

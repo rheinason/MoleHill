@@ -23,8 +23,18 @@ public static class CrossFieldSolver
 
         public double Tolerance { get; init; }
 
-        /// <summary>Smoothing iterations; 0 auto-scales with mesh size so features propagate across it.</summary>
+        /// <summary>Smoothing iterations; 0 auto-scales with mesh size so features propagate across it.
+        /// This is the <b>maximum</b> — diffusion stops early once it has converged.</summary>
         public int Iterations { get; init; }
+
+        /// <summary>
+        /// Convergence threshold on the largest per-vertex change of the 4-RoSy representative in one
+        /// sweep. The representative is a unit vector, so a change of e corresponds to about e radians
+        /// in 4θ, i.e. e/4 in θ. The default settles θ far below anything downstream can resolve while
+        /// letting a field that has stopped moving skip the remaining sweeps — the budget runs to 2,000
+        /// on a large mesh, and most of those sweeps change nothing. Zero or less runs every sweep.
+        /// </summary>
+        public double ConvergenceTolerance { get; init; } = 1e-7;
     }
 
     public sealed class Result
@@ -38,6 +48,15 @@ public static class CrossFieldSolver
         public bool[] Pinned { get; init; } = Array.Empty<bool>();
 
         public string? Warning { get; init; }
+
+        /// <summary>Diffusion sweeps actually run, which is at most <c>Options.Iterations</c>.</summary>
+        public int Iterations { get; init; }
+
+        /// <summary>Largest per-vertex representative change in the final sweep.</summary>
+        public double FinalResidual { get; init; }
+
+        /// <summary>True when diffusion stopped on the tolerance rather than exhausting its budget.</summary>
+        public bool Converged { get; init; }
     }
 
     private const double QuarterPi = Math.PI / 2.0;
@@ -103,8 +122,19 @@ public static class CrossFieldSolver
 
         // Gauss–Seidel diffusion: each free vertex becomes the normalized 4-RoSy average of its neighbours.
         // Pinned vertices are held fixed. Fixed iteration order ⇒ deterministic.
+        //
+        // The iteration budget is derived from vertex count and can reach 2,000 sweeps, but the field
+        // stops moving long before that on most meshes. Each sweep tracks the largest change of any
+        // vertex's representative and stops once it is below the tolerance; the residual is accumulated
+        // in the same fixed order as the updates, so the stopping point is deterministic too.
+        double convergenceTolerance = options.ConvergenceTolerance;
+        int sweepsRun = 0;
+        double residual = double.PositiveInfinity;
+        bool converged = false;
         for (int iter = 0; iter < iterations; iter++)
         {
+            sweepsRun++;
+            residual = 0.0;
             for (int i = 0; i < vertexCount; i++)
             {
                 if (pinned[i])
@@ -121,9 +151,23 @@ public static class CrossFieldSolver
                 double len = Math.Sqrt((sumX * sumX) + (sumY * sumY));
                 if (len > 1e-9)
                 {
-                    repX[i] = sumX / len;
-                    repY[i] = sumY / len;
+                    double newX = sumX / len;
+                    double newY = sumY / len;
+                    double deltaX = newX - repX[i];
+                    double deltaY = newY - repY[i];
+                    double delta = Math.Sqrt((deltaX * deltaX) + (deltaY * deltaY));
+                    if (delta > residual)
+                        residual = delta;
+
+                    repX[i] = newX;
+                    repY[i] = newY;
                 }
+            }
+
+            if (convergenceTolerance > 0.0 && residual <= convergenceTolerance)
+            {
+                converged = true;
+                break;
             }
         }
 
@@ -142,6 +186,9 @@ public static class CrossFieldSolver
             Success = true,
             Theta = theta,
             Pinned = pinned,
+            Iterations = sweepsRun,
+            FinalResidual = double.IsPositiveInfinity(residual) ? 0.0 : residual,
+            Converged = converged,
             Warning = pinnedCount == 0 ? "No feature or boundary edges to align to; field is unconstrained." : null
         };
     }

@@ -15,6 +15,14 @@ Pipeline (`QuadRemesher.Remesh` is the entry point; returns the field too for th
    Output is per-vertex θ ∈ [0, π/2) — the local quad-edge direction. Features come from the whole
    modifier stack (boundary, creases, the Retopo constraint curves, and `PersistentHardConstraints` —
    grade-path road edges arrive that way). The Retopo modifier draws it as a flow-cross overlay.
+   `Options.Iterations` is a **maximum**: each sweep tracks the largest per-vertex change of the 4-RoSy
+   representative and stops once it is below `ConvergenceTolerance` (default 1e-7, about 2.5e-8 rad in
+   θ). The residual accumulates in the same fixed order as the in-place updates, so the stopping point
+   is deterministic. Measured: an axis-aligned terrain sheet settles in **one** sweep of an 80-480
+   sweep budget with θ identical to the exhausted run; a disc, whose boundary tangent takes every
+   direction, is still at a ~1e-4 residual when its budget ends, so there the budget — not the
+   tolerance — binds, and that run is untouched. `Result` reports `Iterations`, `FinalResidual` and
+   `Converged`.
 2. **`Engine/IsotropicRemesher` with `FieldTheta`** — the field-aligned isotropic remesh: split /
    collapse / flip / relax / back-project with feature polylines pinned. Tangential relaxation is
    damped ACROSS the local field direction so vertices slide along field lines, and the **flip
