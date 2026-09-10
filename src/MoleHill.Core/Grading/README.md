@@ -75,6 +75,12 @@ staying unresolved.
 - `GradingGeometry2D.cs` - **the** 2D primitives (point-in-polygon, distance-to-polygon,
   interior point, segment intersection, Z interpolation). `PadGrader.Spatial.cs` are thin public compat
   wrappers over it.
+- `PreparedPolygon.cs` - the same two answers as `GradingGeometry2D.PointInPolygon` /
+  `DistanceToPolygon`, for loops queried many times. Rejects on loop bounds, and above
+  `IndexThreshold` vertices walks only the edges bucketed at the query's Y (crossing parity is
+  order-independent, so the restricted walk is exact). Below the threshold the linear walk wins and no
+  index is built - keep that fast path. A loop with a non-finite coordinate has no trustworthy bounds
+  and keeps the linear walk entirely.
 - `BatterStripBuilder.cs` - daylight loop + ruled batter strip (pad and path). `BuildDecimatedCarveXy`
   collapses a lock-curve-clamped daylight run back onto the wall breakline's own (terrain) vertices, so
   the carve loop rides a retaining wall instead of re-slivering its face (the strip seeds stay dense).

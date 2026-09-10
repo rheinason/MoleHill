@@ -273,7 +273,17 @@ internal static class GradedRegionAssembler
 
         // Keep every face inside the terrain outline (the convex-hull skirt is dropped by the centroid
         // test; because the outline is a constraint, no CDT face straddles it, so the test is exact).
-        int outlineCount = terrainOutline.Length / 2;
+        // Every face centroid is tested against the terrain outline and then against each clipped loop,
+        // so preparing them once turns faces x edges into faces x (bounds test + one Y bucket).
+        // Prepared containment answers exactly what the linear crossing test answered.
+        PreparedPolygon? preparedOutline = PreparedPolygon.TryCreate(terrainOutline, terrainOutline.Length / 2);
+        if (preparedOutline == null)
+            return null;
+
+        var preparedLoops = new PreparedPolygon?[clippedLoops.Count];
+        for (int k = 0; k < clippedLoops.Count; k++)
+            preparedLoops[k] = PreparedPolygon.TryCreate(clippedLoops[k], clippedLoops[k].Length / 2);
+
         var keptFaces = new List<int>(ex.FaceCount * 3);
         var keptAreaIndex = new List<int>(ex.FaceCount);
         for (int f = 0; f < ex.FaceCount; f++)
@@ -281,13 +291,13 @@ internal static class GradedRegionAssembler
             int a = ex.Faces[f * 3], b = ex.Faces[f * 3 + 1], c = ex.Faces[f * 3 + 2];
             double cx = (verts[a * 3] + verts[b * 3] + verts[c * 3]) / 3.0;
             double cy = (verts[a * 3 + 1] + verts[b * 3 + 1] + verts[c * 3 + 1]) / 3.0;
-            if (!GradingGeometry2D.PointInPolygon(cx, cy, terrainOutline, outlineCount))
+            if (!preparedOutline.Contains(cx, cy))
                 continue;
 
             int areaIndex = -1;
-            for (int k = 0; k < clippedLoops.Count; k++)
+            for (int k = 0; k < preparedLoops.Length; k++)
             {
-                if (GradingGeometry2D.PointInPolygon(cx, cy, clippedLoops[k], clippedLoops[k].Length / 2))
+                if (preparedLoops[k]?.Contains(cx, cy) == true)
                 {
                     areaIndex = k;
                     break;

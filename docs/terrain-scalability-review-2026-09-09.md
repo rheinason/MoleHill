@@ -25,7 +25,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O05 | Resolved | Localize stroke commit and constraint evaluation | Whole mesh per stroke; protection edges |
 | [x] | O06 | Resolved | Sparse Poisson occupancy and prepared containment | Bounding-box area / spacing² |
 | [x] | O07 | Resolved | Reuse reference projection contexts safely | Reference faces × comparisons |
-| [ ] | O08 | Medium-high | Work-region and grading containment queries | Points/faces × polygon edges |
+| [x] | O08 | Resolved | Work-region and grading containment queries | Points/faces × polygon edges |
 | [ ] | O09 | Medium-high | Cancellation latency in heavy Core stages | Superseded work and retained geometry |
 | [ ] | O10 | Medium | Cache/display geometry ownership and peak memory | Mesh copies × stages/workers |
 | [ ] | O11 | Medium | Waterflow setup and independent traces | Faces plus starts × path length |
@@ -265,6 +265,29 @@ distinct fill volumes; it remains skipped where Rhino's native runtime is unavai
 **Done when:** One unchanged reference is indexed once per appropriate scope and different current meshes still produce independent statistics.
 
 ## O08 — Prepared polygon queries have other high-volume consumers
+
+**Resolved 2026-09-10:** `PreparedPolygon` (Core/Grading) preprocesses a loop for repeated queries and
+answers exactly what the linear walks answered. Two exact accelerations: loop bounds (a point outside
+them is outside the loop; a point further than `margin` from them is further than `margin` from every
+edge), and — only above `IndexThreshold` (32) vertices — a Y-bucketed edge index for containment. The
+crossing test toggles only for edges straddling the query's Y and parity does not depend on the order
+those edges are visited in, so walking one bucket is exact. Below the threshold no index is built and
+the linear walk is kept, which is the small-polygon fast path the review asked for; a loop carrying a
+non-finite coordinate has no trustworthy bounds and keeps the linear walk entirely.
+
+Wired into both named consumers: `RegionInputFilter.KeepPointsInside` (loops prepared once, then every
+point rejected on bounds first — the margin test uses a threshold query rather than a full distance)
+and `GradedRegionAssembler`'s centroid classification (terrain outline and every clipped loop prepared
+once, before the per-face loop).
+
+`PreparedPolygonTests` compares against `GradingGeometry2D` as the oracle: 20,000 random points per
+loop size on a re-entrant star both below and above the index threshold, every vertex and five points
+along every edge, a 1e6-offset coordinate range, a zero-height sliver loop, four margins for the
+proximity query, and a loop with a NaN vertex.
+
+Not done here: an accelerated **exact minimum** distance. `IsWithin` is a threshold query, which is
+what both consumers need; a true nearest-distance index belongs with O13, which needs it for a
+different reason.
 
 **Confirmed patterns:** [src/MoleHill.Core/Processing/RegionInputFilter.cs:33](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Processing/RegionInputFilter.cs:33) tests every input point against polygon edges, and for outside points can also scan distance-to-polygon. [src/MoleHill.Core/Grading/GradedRegionAssembler.cs:284](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/GradedRegionAssembler.cs:284) classifies face centroids against terrain and clipped loops.
 

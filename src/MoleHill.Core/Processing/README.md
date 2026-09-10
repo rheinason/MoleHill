@@ -14,5 +14,6 @@ Pure, unit-tested.
   normalization without a quadratic preprocessing stall.
 - `TinInputCleaner.cs` — removes degenerate/duplicate input geometry.
 - `RegionInputFilter.cs` — keeps only points inside a work-region boundary (+margin); backs the
-  Triangulate "work boundary" fast sub-area crop (`TerrainBuildService` calls it). Reuses
-  `Grading/GradingGeometry2D`.
+  Triangulate "work boundary" fast sub-area crop (`TerrainBuildService` calls it). Boundaries are
+  prepared once through `Grading/PreparedPolygon`, since every input point is tested against every
+  boundary — on a detailed boundary the unprepared form is points × edges.

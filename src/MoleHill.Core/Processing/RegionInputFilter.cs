@@ -30,18 +30,22 @@ public static class RegionInputFilter
         }
 
         double marginClamped = Math.Max(margin, 0.0);
+
+        // Prepare each loop once. Every input point is tested against every boundary, so on a detailed
+        // boundary this loop is points x edges; prepared loops reject on bounds and, above their
+        // vertex threshold, walk only the edges that can cross the query's Y. The answers are the same.
+        List<PreparedPolygon> prepared = PreparedPolygon.CreateAll(polygonsXy);
+        if (prepared.Count == 0)
+            return keep;
+
         for (int i = 0; i < count; i++)
         {
             double x = pointsXyz[i * 3];
             double y = pointsXyz[i * 3 + 1];
-            foreach (double[] polygon in polygonsXy)
+            foreach (PreparedPolygon polygon in prepared)
             {
-                int vertexCount = polygon.Length / 2;
-                if (vertexCount < 3)
-                    continue;
-
-                if (GradingGeometry2D.PointInPolygon(x, y, polygon, vertexCount) ||
-                    (marginClamped > 0.0 && GradingGeometry2D.DistanceToPolygon(x, y, polygon, vertexCount) <= marginClamped))
+                if (polygon.Contains(x, y) ||
+                    (marginClamped > 0.0 && polygon.IsWithin(x, y, marginClamped)))
                 {
                     keep[i] = true;
                     break;
