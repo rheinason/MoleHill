@@ -75,6 +75,12 @@ staying unresolved.
 - `GradingGeometry2D.cs` - **the** 2D primitives (point-in-polygon, distance-to-polygon,
   interior point, segment intersection, Z interpolation). `PadGrader.Spatial.cs` are thin public compat
   wrappers over it.
+- `SegmentProximityIndex.cs` - **exact** nearest-segment distance for a closed loop queried many
+  times (seam deviation). Grows a query box until the best distance found inside it is no larger than
+  the box half-width, at which point everything unexamined is provably further; a box that outgrows the
+  whole extent falls back to a full scan, so a distant miss still reports its true distance rather than
+  a clamped radius. It calls `SeamValidator.DistancePointToSegment` deliberately, so an indexed answer
+  is bit-identical to that caller's scan. Loops under `IndexThreshold` segments keep the scan.
 - `PreparedPolygon.cs` - the same two answers as `GradingGeometry2D.PointInPolygon` /
   `DistanceToPolygon`, for loops queried many times. Rejects on loop bounds, and above
   `IndexThreshold` vertices walks only the edges bucketed at the query's Y (crossing parity is

@@ -111,23 +111,40 @@ internal static class SeamValidator
         if (targetCount < 2)
             return new LoopDeviationMetrics(sourceCount == 0 ? 0.0 : double.MaxValue, sourceCount);
 
+        // Checking every source vertex against every target segment is O(source x target) and turns
+        // quadratic when both loops are detailed. The index answers the exact same nearest distance
+        // (same formula, and a growing query box that only stops once everything outside it is provably
+        // further), so max deviation and miss count are unchanged. Small loops keep the scan.
+        SegmentProximityIndex? index = SegmentProximityIndex.TryCreateForClosedLoop(targetLoopXy, targetCount);
+        SegmentProximityIndex.QueryState? queryState = index != null
+            ? new SegmentProximityIndex.QueryState(index.SegmentCount)
+            : null;
+
         for (int i = 0; i < sourceCount; i++)
         {
             double px = sourceLoopXy[i * 2];
             double py = sourceLoopXy[i * 2 + 1];
-            double bestDistance = double.MaxValue;
-            for (int j = 0; j < targetCount; j++)
+            double bestDistance;
+            if (index != null && queryState != null)
             {
-                int next = (j + 1) % targetCount;
-                double distance = DistancePointToSegment(
-                    px,
-                    py,
-                    targetLoopXy[j * 2],
-                    targetLoopXy[j * 2 + 1],
-                    targetLoopXy[next * 2],
-                    targetLoopXy[next * 2 + 1]);
-                if (distance < bestDistance)
-                    bestDistance = distance;
+                bestDistance = index.NearestDistance(px, py, queryState);
+            }
+            else
+            {
+                bestDistance = double.MaxValue;
+                for (int j = 0; j < targetCount; j++)
+                {
+                    int next = (j + 1) % targetCount;
+                    double distance = DistancePointToSegment(
+                        px,
+                        py,
+                        targetLoopXy[j * 2],
+                        targetLoopXy[j * 2 + 1],
+                        targetLoopXy[next * 2],
+                        targetLoopXy[next * 2 + 1]);
+                    if (distance < bestDistance)
+                        bestDistance = distance;
+                }
             }
 
             if (bestDistance > maxDistance)
@@ -139,7 +156,7 @@ internal static class SeamValidator
         return new LoopDeviationMetrics(maxDistance, missCount);
     }
 
-    private static double DistancePointToSegment(double px, double py, double ax, double ay, double bx, double by)
+    internal static double DistancePointToSegment(double px, double py, double ax, double ay, double bx, double by)
     {
         double dx = bx - ax;
         double dy = by - ay;

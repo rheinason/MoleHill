@@ -30,7 +30,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O10 | Resolved | Cache/display geometry ownership and peak memory | Mesh copies × stages/workers |
 | [x] | O11 | Resolved | Waterflow setup and independent traces | Faces plus starts × path length |
 | [x] | O12 | Resolved | Contour output and stitching allocations | Emitted segments and contour levels |
-| [ ] | O13 | Medium | Seam deviation nearest-segment queries | Source vertices × target edges |
+| [x] | O13 | Resolved | Seam deviation nearest-segment queries | Source vertices × target edges |
 | [ ] | O14 | Medium, retopo only | Cross-field solver convergence | Vertices × iterations |
 | [ ] | O15 | Medium, interactive | Scatter preview draw calls | Visible instances × shape points |
 | [ ] | O16 | Follow-up | Remaining zone splitter memory and index behavior | Full terrain plus boundary distribution |
@@ -435,6 +435,25 @@ segment counts it asks for first.
 **Done when:** Segment-heavy contour jobs use less peak memory without regressing the existing single-pass advantage.
 
 ## O13 — Seam deviation is a direct all-pairs nearest-segment scan
+
+**Resolved 2026-09-10:** `SeamValidator.ComputeLoopDeviation` now measures through
+`SegmentProximityIndex` once the target loop passes `IndexThreshold` (64) segments; smaller loops keep
+the linear scan, so a short loop pays no index.
+
+The index is **exact**, which the guardrail requires: a fixed-radius query cannot report the true
+distance for a point that misses everything by a long way. It grows a query box and stops only when
+the best distance found inside is no larger than the box half-width — at that point every unexamined
+segment is outside the box, so its Chebyshev and therefore Euclidean distance exceeds the best found.
+A box that outgrows the whole indexed extent falls back to scanning every segment, so distant misses
+report their real distance. Distances come from `SeamValidator.DistancePointToSegment` itself rather
+than a second implementation, so an indexed answer is bit-identical to the scan's — nearest distance,
+max deviation, miss count and tolerance behaviour are all unchanged, and the closing segment of the
+loop is indexed like any other.
+
+`SeamLoopDeviationIndexTests` uses the all-pairs scan as the oracle: a detailed loop pair both below
+and above the threshold, a source 5,000 units away from its target, 500 mixed near/far sources against
+a 400-vertex star, a source lying exactly on its target, the closing segment specifically, and a
+degenerate target.
 
 **Confirmed pattern:** [src/MoleHill.Core/Grading/SeamValidator.cs:101](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/SeamValidator.cs:101) checks each source-loop vertex against every target-loop edge. That is O(S × T); it becomes quadratic when both loop sizes grow together.
 
