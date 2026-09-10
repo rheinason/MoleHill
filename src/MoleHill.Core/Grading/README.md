@@ -61,6 +61,12 @@ staying unresolved.
   tests require every single-use edge to remain on the original terrain perimeter. Output face indices
   grow in fixed-size chunks, and global vertex lookup uses cell head/tail links instead of per-cell lists,
   preserving original insertion order and nearest-point ties. Mesh-sized buffers still require linear memory.
+  **Measured (2026-09-10, `MeshAreaTopologySplitterScalingBenchmarkTests`, opt-in `MOLEHILL_PERF=1`):**
+  the dominant phase at scale is now `OutputSetup` — 58% of a one-million-face split, and the only phase
+  that grows with terrain size regardless of the workload. Its cost is `GlobalPointLookup` registering
+  every vertex with a cell size equal to the model tolerance, so nearly every vertex occupies its own
+  cell. Boundary-segment count is essentially free now, and touched-face triangulation scales with
+  touched faces, as it should. See `docs/terrain-scalability-review-2026-09-09.md` O16 for the tables.
 - `TerrainFaceGrid` stores cells as flat CSR (key -> slot, slot -> a run of face indices) built by a
   count pass then a fill pass, both in face order: the grid is immutable once built, and a `List<int>`
   per occupied cell cost millions of small objects on a large terrain. Its ray candidate buffer no

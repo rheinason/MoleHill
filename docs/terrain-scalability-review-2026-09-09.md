@@ -33,7 +33,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O13 | Resolved | Seam deviation nearest-segment queries | Source vertices × target edges |
 | [x] | O14 | Resolved | Cross-field solver convergence | Vertices × iterations |
 | [ ] | O15 | **Blocked on measurement** | Scatter preview draw calls | Visible instances × shape points |
-| [ ] | O16 | Follow-up | Remaining zone splitter memory and index behavior | Full terrain plus boundary distribution |
+| [x] | O16 | Baseline measured | Remaining zone splitter memory and index behavior | Full terrain plus boundary distribution |
 
 ## C01 — Verify reference-comparison cache identity before sharing more caches
 
@@ -537,6 +537,55 @@ whether draw submission actually dominates. Do not remove the existing caps to d
 **Done when:** Measured frame-time improvement with real Rhino viewport verification, not just a faster Core loop.
 
 ## O16 — Finish measuring the improved zone splitter
+
+**Baseline measured 2026-09-10.** `MeshAreaTopologySplitterScalingBenchmarkTests` (opt-in via
+`MOLEHILL_PERF=1`, Release) drives the splitter's own `PerformanceTimings` along the review's
+independent scale axes and reports per-phase elapsed and process-wide allocation, touched-face ratio,
+output growth, and the managed heap delta after a settling collection.
+
+Machine: this development box, Release, .NET 8, synthetic regular grids. Medians of single runs — the
+shape of the numbers is the point, not their absolute values.
+
+**Terrain faces, one fixed boundary:**
+
+| Faces | Total | faceData | boundary | map | registry | **setup** | triangulate | classify | Touched |
+|---|---|---|---|---|---|---|---|---|---|
+| 99,458 | 209 ms | 0.0 | 3.5 | 9.0 | 3.7 | **124.8** | 47.5 | 19.3 | 0.90% |
+| 399,618 | 364 ms | 0.0 | 0.1 | 61.5 | 0.7 | **151.7** | 121.1 | 28.6 | 0.45% |
+| 999,698 | 1,035 ms | 0.0 | 0.1 | 97.7 | 1.4 | **597.6** | 188.0 | 150.1 | 0.28% |
+
+**Zone pieces, fixed 399,618-face terrain:** 1 / 10 / 100 pieces → 275 / 301 / 594 ms, with
+`triangulate` 76 / 135 / 417 ms tracking touched faces 1,790 / 5,352 / 21,350. That phase scaling with
+touched faces is correct behaviour, not a defect. Output growth stays at 1.01x–1.13x.
+
+**Boundary segments, fixed terrain:** 8 / 64 / 512 / 2,048 boundary vertices → 234 / 226 / 231 / 250 ms.
+Essentially flat — the indexed boundary pair discovery is doing its job, and this axis is no longer
+interesting.
+
+**Distributions** (399,618 faces): tiny zone in a large terrain 188 ms, long thin corridor 238 ms,
+diagonal sliver 233 ms, six nested rings 385 ms. All in one band; no pathology among them.
+
+### The dominant phase has moved: it is now `OutputSetup`
+
+At one million faces, **58% of the split is spent in setup, before any cutting happens**, and setup is
+the only phase that scales with terrain size while being completely independent of the workload — 152
+ms of a 233 ms single-zone split on a 400k-face terrain. Its allocation grows the same way: 5.5 MB →
+23 MB → 50 MB, about 100 bytes per vertex.
+
+The cause is specific. Setup is `new List<double>(vertices)` (24 B/vertex), a `FaceBuffer`, and
+`GlobalPointLookup`, which registers **every existing vertex**. That lookup's cell size is the model
+tolerance (`_inverseCellSize = 1 / tolerance`), so on a terrain whose vertices are metres apart at a
+1e-6 tolerance, essentially every vertex lands in its own cell: the `Dictionary<long, (Head, Tail)>`
+degenerates into one entry per vertex (~40+ bytes), which is where the remaining ~75 B/vertex goes. The
+head/tail links already avoided a list per cell — the problem is the cell *size*, not the cell storage.
+
+**Next change, now justified by measurement:** give `GlobalPointLookup` a cell size derived from
+geometry scale rather than from tolerance, so occupied cells are proportional to genuine spatial
+clustering instead of to vertex count, and consider deferring vertex registration to the faces that are
+actually touched (0.28%–5.34% of them in every case above). Both must preserve the lookup's insertion
+order and nearest-point tie behaviour, which is what keeps welding deterministic. The same cell-size
+observation applies to `MeshConstraintTopologyInserter`'s `GlobalPointLookup`, which O01 deliberately
+left alone pending exactly this measurement.
 
 **Evidence:** [src/MoleHill.Core/Grading/MeshAreaTopologySplitter.cs:1](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/MeshAreaTopologySplitter.cs:1) still needs mesh-sized cut slots, a global vertex lookup, vertex storage, output chunks plus a final contiguous face array, and a serial output-emission/registry pass. The on-demand FaceData change only made that setup constant-space. Indexed boundary pair discovery can still have high candidate counts for heavily overlapping boxes.
 
