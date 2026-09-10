@@ -76,35 +76,122 @@ public static class WaterflowTracer
         double tolerance = Math.Max(Math.Abs(settings.Tolerance), 1e-12);
         int[] neighbors = BuildNeighbors(faces, faceCount, vertexCount, settings);
         FaceSpatialIndex faceIndexLookup = FaceSpatialIndex.Build(vertices, vertexCount, faces, faceCount, settings);
+        // Setup (neighbours + face index) is once per call; the traces themselves are independent
+        // functions of read-only state, so they can run together. Results are written by start index
+        // and compacted in order afterwards, so output order and the rejected count are exactly what
+        // the serial loop produced.
+        var traced = new Path?[startPointCount];
+        if (ShouldTraceInParallel(startPointCount, faceCount))
+        {
+            TraceStartsInParallel(
+                vertices, vertexCount, faces, faceCount, startXy, startPointCount,
+                neighbors, faceIndexLookup, settings, maxSteps, tolerance, traced);
+        }
+        else
+        {
+            var queryState = new FaceSpatialIndex.QueryState(faceIndexLookup.ItemCount);
+            for (int startIndex = 0; startIndex < startPointCount; startIndex++)
+            {
+                ThrowIfCancellationRequested(settings);
+                traced[startIndex] = TraceStart(
+                    vertices, vertexCount, faces, startXy, startIndex,
+                    neighbors, faceIndexLookup, queryState, settings, maxSteps, tolerance);
+            }
+        }
+
         var paths = new List<Path>(startPointCount);
         int rejected = 0;
-
         for (int startIndex = 0; startIndex < startPointCount; startIndex++)
         {
-            ThrowIfCancellationRequested(settings);
-            double x = startXy[startIndex * 2];
-            double y = startXy[startIndex * 2 + 1];
-            int faceIndex = FindContainingFace(vertices, vertexCount, faces, faceIndexLookup, x, y, tolerance, settings);
-            if (faceIndex < 0)
-            {
+            Path? path = traced[startIndex];
+            if (path == null)
                 rejected++;
-                continue;
-            }
-
-            Path path = TracePath(
-                vertices,
-                faces,
-                neighbors,
-                x,
-                y,
-                faceIndex,
-                settings,
-                maxSteps,
-                tolerance);
-            paths.Add(path);
+            else
+                paths.Add(path);
         }
 
         return new Result { Paths = paths, RejectedStartCount = rejected };
+    }
+
+    /// <summary>
+    /// Parallel tracing only pays off once there are enough independent starts to cover the partition
+    /// overhead, and the per-worker query scratch is sized by face count — so a handful of starts on a
+    /// large mesh stays serial.
+    /// </summary>
+    private static bool ShouldTraceInParallel(int startPointCount, int faceCount)
+    {
+        const int minimumStarts = 8;
+        const int minimumWork = 50_000;
+        return startPointCount >= minimumStarts &&
+               Environment.ProcessorCount > 1 &&
+               (long)startPointCount * faceCount >= minimumWork;
+    }
+
+    private static void TraceStartsInParallel(
+        IReadOnlyList<double> vertices,
+        int vertexCount,
+        IReadOnlyList<int> faces,
+        int faceCount,
+        IReadOnlyList<double> startXy,
+        int startPointCount,
+        int[] neighbors,
+        FaceSpatialIndex faceIndexLookup,
+        Options settings,
+        int maxSteps,
+        double tolerance,
+        Path?[] traced)
+    {
+        try
+        {
+            Parallel.For(
+                0,
+                startPointCount,
+                () => new FaceSpatialIndex.QueryState(faceIndexLookup.ItemCount),
+                (startIndex, _, queryState) =>
+                {
+                    ThrowIfCancellationRequested(settings);
+                    traced[startIndex] = TraceStart(
+                        vertices, vertexCount, faces, startXy, startIndex,
+                        neighbors, faceIndexLookup, queryState, settings, maxSteps, tolerance);
+                    return queryState;
+                },
+                static _ => { });
+        }
+        catch (AggregateException aggregate)
+        {
+            // Parallel.For wraps worker exceptions. Cancellation must keep reaching callers as the
+            // OperationCanceledException the serial path threw.
+            foreach (Exception inner in aggregate.Flatten().InnerExceptions)
+            {
+                if (inner is OperationCanceledException canceled)
+                    throw canceled;
+            }
+
+            throw;
+        }
+    }
+
+    private static Path? TraceStart(
+        IReadOnlyList<double> vertices,
+        int vertexCount,
+        IReadOnlyList<int> faces,
+        IReadOnlyList<double> startXy,
+        int startIndex,
+        IReadOnlyList<int> neighbors,
+        FaceSpatialIndex faceIndexLookup,
+        FaceSpatialIndex.QueryState queryState,
+        Options settings,
+        int maxSteps,
+        double tolerance)
+    {
+        double x = startXy[startIndex * 2];
+        double y = startXy[(startIndex * 2) + 1];
+        int faceIndex = FindContainingFace(
+            vertices, vertexCount, faces, faceIndexLookup, queryState, x, y, tolerance, settings);
+        if (faceIndex < 0)
+            return null;
+
+        return TracePath(vertices, faces, neighbors, x, y, faceIndex, settings, maxSteps, tolerance);
     }
 
     private static Path TracePath(
@@ -224,8 +311,12 @@ public static class WaterflowTracer
         int vertexCount,
         Options settings)
     {
-        var neighbors = Enumerable.Repeat(-1, faceCount * 3).ToArray();
-        var edges = new Dictionary<EdgeKey, (int Face, int Edge)>();
+        var neighbors = new int[faceCount * 3];
+        Array.Fill(neighbors, -1);
+
+        // Presized: a closed triangle mesh has about 1.5 edges per face, so an unsized dictionary
+        // rehashes its way up from 0 to that on every trace call.
+        var edges = new Dictionary<EdgeKey, (int Face, int Edge)>(Math.Max(16, faceCount * 2));
 
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
@@ -263,13 +354,14 @@ public static class WaterflowTracer
         int vertexCount,
         IReadOnlyList<int> faces,
         FaceSpatialIndex faceIndexLookup,
+        FaceSpatialIndex.QueryState queryState,
         double x,
         double y,
         double tolerance,
         Options settings)
     {
-        var candidates = new List<int>(16);
-        faceIndexLookup.Gather(x, y, tolerance, candidates);
+        List<int> candidates = queryState.Candidates;
+        faceIndexLookup.Gather(x, y, tolerance, queryState, candidates);
         for (int candidateIndex = 0; candidateIndex < candidates.Count; candidateIndex++)
         {
             if ((candidateIndex & 255) == 0)
@@ -418,18 +510,37 @@ public static class WaterflowTracer
         public double Evaluate(double x, double y) => OriginZ + (GradientX * (x - OriginX)) + (GradientY * (y - OriginY));
     }
 
+    /// <summary>
+    /// Face lookup index. Immutable once built: the mutable query buffers live in
+    /// <see cref="QueryState"/>, which each caller (and each parallel worker) owns. That is what makes
+    /// one index safe to share across concurrent traces instead of rebuilding it per start.
+    /// </summary>
     private sealed class FaceSpatialIndex
     {
         private readonly SpatialHashGrid2D _grid;
         private readonly int[] _faceIndexes;
-        private readonly SpatialHashGrid2D.QueryScratch _scratch;
-        private readonly List<int> _localCandidates = new(16);
 
         private FaceSpatialIndex(SpatialHashGrid2D grid, int[] faceIndexes)
         {
             _grid = grid;
             _faceIndexes = faceIndexes;
-            _scratch = new SpatialHashGrid2D.QueryScratch(faceIndexes.Length);
+        }
+
+        public int ItemCount => _faceIndexes.Length;
+
+        /// <summary>Per-caller query buffers. Never share one between threads.</summary>
+        public sealed class QueryState
+        {
+            public QueryState(int itemCount)
+            {
+                Scratch = new SpatialHashGrid2D.QueryScratch(itemCount);
+            }
+
+            public SpatialHashGrid2D.QueryScratch Scratch { get; }
+
+            public List<int> LocalCandidates { get; } = new(16);
+
+            public List<int> Candidates { get; } = new(16);
         }
 
         public static FaceSpatialIndex Build(
@@ -465,11 +576,11 @@ public static class WaterflowTracer
             return new FaceSpatialIndex(SpatialHashGrid2D.Build(bounds.ToArray()), indexes.ToArray());
         }
 
-        public void Gather(double x, double y, double tolerance, List<int> result)
+        public void Gather(double x, double y, double tolerance, QueryState state, List<int> result)
         {
             result.Clear();
-            _grid.GatherCandidates(Bounds2D.FromPoint(x, y, tolerance), _localCandidates, _scratch);
-            foreach (int localIndex in _localCandidates)
+            _grid.GatherCandidates(Bounds2D.FromPoint(x, y, tolerance), state.LocalCandidates, state.Scratch);
+            foreach (int localIndex in state.LocalCandidates)
                 result.Add(_faceIndexes[localIndex]);
         }
     }

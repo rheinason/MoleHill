@@ -52,3 +52,10 @@ Terrain analysis math. Pure, unit-tested.
 - `WaterflowTracer.cs` — deterministic downhill path tracing from XY starts through adjacent 2.5D
   triangles, stopping at terrain boundaries or local flat/sink faces. A per-call XY face index avoids
   repeated full-mesh start scans, and cancellation is checked during lookup and path transitions.
+  Setup (face adjacency + face index) runs once per call; the traces are independent functions of
+  read-only state, so above a start-count/face-count threshold they run in parallel. `FaceSpatialIndex`
+  is immutable and its query buffers live in a per-worker `QueryState` — that separation is what makes
+  one index shareable, so do not put scratch back on the index. Results are written by start index and
+  compacted afterwards, so path order and the rejected count match the serial loop exactly; a
+  cancellation raised inside the parallel loop is unwrapped from `AggregateException` so callers still
+  see `OperationCanceledException`.

@@ -28,7 +28,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O08 | Resolved | Work-region and grading containment queries | Points/faces × polygon edges |
 | [x] | O09 | Resolved | Cancellation latency in heavy Core stages | Superseded work and retained geometry |
 | [x] | O10 | Resolved | Cache/display geometry ownership and peak memory | Mesh copies × stages/workers |
-| [ ] | O11 | Medium | Waterflow setup and independent traces | Faces plus starts × path length |
+| [x] | O11 | Resolved | Waterflow setup and independent traces | Faces plus starts × path length |
 | [ ] | O12 | Medium | Contour output and stitching allocations | Emitted segments and contour levels |
 | [ ] | O13 | Medium | Seam deviation nearest-segment queries | Source vertices × target edges |
 | [ ] | O14 | Medium, retopo only | Cross-field solver convergence | Vertices × iterations |
@@ -373,6 +373,27 @@ the deliberate mesh sharing in stage worker copies must not be "fixed" into deep
 **Done when:** A measured redundant copy or retention path is removed with lifecycle tests; avoid a speculative global cache redesign.
 
 ## O11 — Waterflow setup and path traces can be separated
+
+**Resolved 2026-09-10:** Setup and tracing are now separated, and the traces run together.
+
+`FaceSpatialIndex` had mutable candidate scratch on the index itself, which the review correctly noted
+made it unshareable. Those buffers moved into a per-caller `QueryState`, leaving the index immutable
+and shareable; `FindContainingFace` takes the state instead of allocating a candidate list per start.
+With that, the start loop parallelises above a threshold (at least 8 starts and enough starts x faces
+to cover partition overhead — a handful of starts on a large mesh stays serial). Each worker gets its
+own `QueryState`; every trace is a pure function of read-only vertices, faces, neighbours and its own
+start, so results are written by start index and compacted in order afterwards. Path order, path
+content and the rejected count are therefore identical to the serial loop. Cancellation raised inside
+the parallel body is unwrapped from `AggregateException`, so callers still see
+`OperationCanceledException`.
+
+Setup allocation also dropped: the neighbour array is filled with `Array.Fill` instead of a LINQ
+`Enumerable.Repeat(...).ToArray()`, and the edge dictionary is presized to about the edge count instead
+of rehashing up from empty on every call.
+
+`WaterflowTracerParallelStartTests` uses the serial path as the oracle — 400 starts traced together
+versus the same starts traced one per call — plus run-to-run identity, rejected starts not shifting the
+surviving paths, cancellation on the parallel path, and the empty-start case.
 
 **Confirmed patterns:** [src/MoleHill.Core/Analysis/WaterflowTracer.cs:77](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Analysis/WaterflowTracer.cs:77) builds adjacency and a spatial index per call, then traces starts serially. [src/MoleHill.Core/Analysis/WaterflowTracer.cs:226](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Analysis/WaterflowTracer.cs:226) retains an edge dictionary while constructing a flat neighbor array. Per-path visited-face sets are allocated.
 
