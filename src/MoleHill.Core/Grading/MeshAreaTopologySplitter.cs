@@ -347,7 +347,8 @@ internal static class MeshAreaTopologySplitter
         int faceCount,
         MeshAreaSplitter.AreaBoundary[] areas,
         double boundaryTolerance,
-        out string? errorMessage)
+        out string? errorMessage,
+        Func<bool>? shouldCancel = null)
     {
         return Split(
             vertices,
@@ -357,7 +358,8 @@ internal static class MeshAreaTopologySplitter
             areas,
             boundaryTolerance,
             out errorMessage,
-            performanceTimings: null);
+            performanceTimings: null,
+            shouldCancel);
     }
 
     internal static MeshAreaSplitter.SplitResult? Split(
@@ -368,9 +370,16 @@ internal static class MeshAreaTopologySplitter
         MeshAreaSplitter.AreaBoundary[] areas,
         double boundaryTolerance,
         out string? errorMessage,
-        PerformanceTimings? performanceTimings)
+        PerformanceTimings? performanceTimings,
+        Func<bool>? shouldCancel = null)
     {
         errorMessage = null;
+
+        // A superseded build must stop here rather than finish mapping and re-triangulating millions of
+        // faces while holding their buffers. Cancelling throws, so a partial split can never be handed
+        // back and cached as a result.
+        CancellationProbe cancellation = CancellationProbe.For(shouldCancel);
+        cancellation.ThrowIfCancelled();
 
         if (areas.Length == 0)
         {
@@ -413,6 +422,7 @@ internal static class MeshAreaTopologySplitter
             phaseTimer.Restart();
         }
 
+        cancellation.ThrowIfCancelled();
         var boundarySegments = BuildBoundarySegments(areas, tolerance);
         if (performanceTimings != null)
         {
@@ -431,6 +441,7 @@ internal static class MeshAreaTopologySplitter
             return MeshAreaSplitter.Classify(vertices, vertexCount, faces, faceCount, areas, 0.0, out errorMessage);
         }
 
+        cancellation.ThrowIfCancelled();
         var faceCuts = MapBoundarySegmentsToFaces(faceData, boundarySegments, tolerance);
         if (performanceTimings != null)
         {
@@ -459,6 +470,7 @@ internal static class MeshAreaTopologySplitter
         // faces then subdivide the shared edge at the SAME points, so independent per-face
         // re-triangulation cannot leave a T-junction / crack. This is what keeps dense and nested
         // boundary loops manifold instead of producing naked edges along shared terrain edges.
+        cancellation.ThrowIfCancelled();
         var sharedEdgePoints = BuildSharedEdgeRegistry(faceData, faceCuts, tolerance);
         if (performanceTimings != null)
         {
@@ -486,6 +498,7 @@ internal static class MeshAreaTopologySplitter
 
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
+            cancellation.ThrowIfCancelledOften();
             var cuts = faceCuts[faceIndex];
             FaceData face = faceData.Get(faceIndex);
 
@@ -548,6 +561,7 @@ internal static class MeshAreaTopologySplitter
             phaseTimer.Restart();
         }
 
+        cancellation.ThrowIfCancelled();
         MeshAreaSplitter.SplitResult? result = MeshAreaSplitter.Classify(
             globalVertices.ToArray(),
             globalVertices.Count / 3,

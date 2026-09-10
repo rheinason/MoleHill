@@ -718,7 +718,8 @@ internal sealed partial class TerrainBuildService
         RhinoMesh mesh,
         RemeshModifierDefinition modifier,
         TerrainBuildResult build,
-        TerrainBuildMode mode)
+        TerrainBuildMode mode,
+        Func<bool>? shouldCancel)
     {
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
         double tolerance = toleranceProfile.CurveChordTolerance;
@@ -739,7 +740,7 @@ internal sealed partial class TerrainBuildService
         {
             "rebuild" => ApplyRemeshRebuild(snapshot, terrain, mesh, constraints, edgeLength, modifier, build, toleranceProfile),
             "local" => ApplyRemeshLocalRefine(mesh, constraints, edgeLength, modifier.CreaseAngle, toleranceProfile.RemeshConstraintTolerance, build),
-            _ => ApplyRemeshIsotropic(mesh, constraints, edgeLength, modifier, build, mode, toleranceProfile),
+            _ => ApplyRemeshIsotropic(mesh, constraints, edgeLength, modifier, build, mode, toleranceProfile, shouldCancel),
         };
     }
 
@@ -756,7 +757,8 @@ internal sealed partial class TerrainBuildService
         RemeshModifierDefinition modifier,
         TerrainBuildResult build,
         TerrainBuildMode mode,
-        TerrainTolerancePolicy.Profile toleranceProfile)
+        TerrainTolerancePolicy.Profile toleranceProfile,
+        Func<bool>? shouldCancel)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
         {
@@ -787,7 +789,11 @@ internal sealed partial class TerrainBuildService
                 CreaseAngleDeg = modifier.CreaseAngle,
                 Tolerance = toleranceProfile.RemeshConstraintTolerance,
                 WallFaceMinSlopeDeg = RemeshWallFaceMinSlopeDeg,
-                Iterations = mode == TerrainBuildMode.Preview || modifier.EdgeLength <= 0 ? 3 : 5
+                Iterations = mode == TerrainBuildMode.Preview || modifier.EdgeLength <= 0 ? 3 : 5,
+
+                // A rebuild the user has already superseded should stop inside the remesh, not after
+                // it: this is the longest-running Core stage in the pipeline.
+                ShouldCancel = shouldCancel
             });
 
         if (!result.Success)

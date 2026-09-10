@@ -160,7 +160,8 @@ public static class MeshAreaSplitter
         int faceCount,
         AreaBoundary[] areas,
         double boundaryTolerance,
-        out string? errorMessage)
+        out string? errorMessage,
+        Func<bool>? shouldCancel = null)
     {
         return MeshAreaTopologySplitter.Split(
             vertices,
@@ -169,7 +170,8 @@ public static class MeshAreaSplitter
             faceCount,
             areas,
             boundaryTolerance,
-            out errorMessage);
+            out errorMessage,
+            shouldCancel);
     }
 
     internal static SplitResult? SplitPreservingTopology(

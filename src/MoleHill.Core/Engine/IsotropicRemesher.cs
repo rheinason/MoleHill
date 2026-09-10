@@ -42,6 +42,14 @@ public static class IsotropicRemesher
         /// for downstream tri-to-quad pairing. Null = plain isotropic relaxation.
         /// </summary>
         public double[]? FieldTheta { get; init; }
+
+        /// <summary>
+        /// Optional cooperative cancellation, consulted between phases, rounds and sweeps and at
+        /// bounded intervals inside the long per-face and per-vertex loops. Cancelling throws
+        /// <see cref="OperationCanceledException"/>: a remesh abandoned part-way has no valid output,
+        /// and throwing keeps a caller from publishing one. Null never cancels.
+        /// </summary>
+        public Func<bool>? ShouldCancel { get; init; }
     }
 
     public sealed class Result
@@ -104,6 +112,9 @@ public static class IsotropicRemesher
         if (options.TargetEdgeLength <= 0)
             return new Result { Success = false, Vertices = vertices, Faces = faces, Warning = "Isotropic remesh requires a positive target edge length." };
 
+        CancellationProbe cancellation = CancellationProbe.For(options.ShouldCancel);
+        cancellation.ThrowIfCancelled();
+
         long tsStart = System.Diagnostics.Stopwatch.GetTimestamp();
         var graph = FeaturePolylineGraph.Build(
             vertices, faces, faceCount, constraints, options.CreaseAngleDeg, options.WallFaceMinSlopeDeg, options.Tolerance,
@@ -140,20 +151,24 @@ public static class IsotropicRemesher
             // Split before collapse so refinement and the coarsening it enables settle within the same
             // outer round. The disjoint 1.6 L / 0.8 L thresholds keep a split from immediately creating
             // short half-edges, avoiding the split/collapse oscillation this order used to trigger.
+            cancellation.ThrowIfCancelled();
             long ts = System.Diagnostics.Stopwatch.GetTimestamp();
-            int splits = SplitLongEdges(state, target * SplitFactor, projection);
+            int splits = SplitLongEdges(state, target * SplitFactor, projection, cancellation);
             msSplit += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
 
+            cancellation.ThrowIfCancelled();
             ts = System.Diagnostics.Stopwatch.GetTimestamp();
-            int collapses = CollapseShortEdges(state, target, projection);
+            int collapses = CollapseShortEdges(state, target, projection, cancellation);
             msCollapse += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
 
+            cancellation.ThrowIfCancelled();
             ts = System.Diagnostics.Stopwatch.GetTimestamp();
-            int flips = FlipForQuality(state);
+            int flips = FlipForQuality(state, cancellation);
             msFlip += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
 
+            cancellation.ThrowIfCancelled();
             ts = System.Diagnostics.Stopwatch.GetTimestamp();
-            int relaxed = RelaxAndProject(state, target, projection);
+            int relaxed = RelaxAndProject(state, target, projection, cancellation);
             msRelax += System.Diagnostics.Stopwatch.GetElapsedTime(ts).TotalMilliseconds;
 
             totalSplits += splits;
@@ -434,11 +449,17 @@ public static class IsotropicRemesher
     /// </summary>
     internal static int SplitLongEdges(MeshState state, double threshold, TerrainFaceGrid projection)
     {
+        return SplitLongEdges(state, threshold, projection, CancellationProbe.None);
+    }
+
+    internal static int SplitLongEdges(MeshState state, double threshold, TerrainFaceGrid projection, CancellationProbe cancellation)
+    {
         double thresholdSquared = threshold * threshold;
         int added = 0;
 
         for (int round = 0; round < MaxSplitRounds; round++)
         {
+            cancellation.ThrowIfCancelled();
             int faceCount = state.FaceCount;
             var frozenEdges = CollectFrozenEdges(state);
 
@@ -446,6 +467,7 @@ public static class IsotropicRemesher
             var markedSet = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
             for (int t = 0; t < faceCount; t++)
             {
+                cancellation.ThrowIfCancelledOften();
                 if (state.FaceFrozen[t])
                     continue;
                 int v0 = state.Tris[t * 3], v1 = state.Tris[t * 3 + 1], v2 = state.Tris[t * 3 + 2];
@@ -570,6 +592,11 @@ public static class IsotropicRemesher
     /// </summary>
     internal static int CollapseShortEdges(MeshState state, double target, TerrainFaceGrid projection)
     {
+        return CollapseShortEdges(state, target, projection, CancellationProbe.None);
+    }
+
+    internal static int CollapseShortEdges(MeshState state, double target, TerrainFaceGrid projection, CancellationProbe cancellation)
+    {
         const int maxRounds = 8;
         int total = 0;
         MeshVertexAdjacency? adjacency = null;
@@ -581,7 +608,8 @@ public static class IsotropicRemesher
 
         for (int round = 0; round < maxRounds; round++)
         {
-            int collapses = CollapseShortEdgesRound(state, target, projection, ref adjacency, candidates, locked);
+            cancellation.ThrowIfCancelled();
+            int collapses = CollapseShortEdgesRound(state, target, projection, ref adjacency, candidates, locked, cancellation);
             total += collapses;
             if (collapses == 0)
                 break;
@@ -636,7 +664,8 @@ public static class IsotropicRemesher
         TerrainFaceGrid projection,
         ref MeshVertexAdjacency? adjacency,
         List<(double lengthSquared, long key)> candidates,
-        CollapseRoundLocks locked)
+        CollapseRoundLocks locked,
+        CancellationProbe cancellation)
     {
         double collapseSquared = target * CollapseFactor * target * CollapseFactor;
         double maxResultSquared = target * SplitFactor * target * SplitFactor;
@@ -650,6 +679,7 @@ public static class IsotropicRemesher
         candidates.Clear();
         for (int u = 0; u < adjacency.VertexCount; u++)
         {
+            cancellation.ThrowIfCancelledOften();
             foreach (int v in adjacency.NeighborsOf(u))
             {
                 if (v < u)
@@ -668,6 +698,7 @@ public static class IsotropicRemesher
         int collapses = 0;
         foreach ((double _, long key) in candidates)
         {
+            cancellation.ThrowIfCancelledOften();
             int a = (int)(key >> 32);
             int b = (int)(key & 0xFFFFFFFFL);
             if (locked.IsLocked(a) || locked.IsLocked(b))
@@ -913,6 +944,11 @@ public static class IsotropicRemesher
     /// </summary>
     internal static int FlipForQuality(MeshState state)
     {
+        return FlipForQuality(state, CancellationProbe.None);
+    }
+
+    internal static int FlipForQuality(MeshState state, CancellationProbe cancellation)
+    {
         int totalFlips = 0;
         double[] vertices = state.Verts.ToArray(); // positions don't change during the flip phase
 
@@ -928,6 +964,7 @@ public static class IsotropicRemesher
 
         for (int sweep = 0; sweep < MaxFlipSweeps; sweep++)
         {
+            cancellation.ThrowIfCancelled();
             int faceCount = state.FaceCount;
             adjacency.Clear();
             createdEdges.Clear();
@@ -949,6 +986,7 @@ public static class IsotropicRemesher
             int flips = 0;
             foreach (KeyValuePair<long, (int t0, int o0, int t1, int o1, int count)> entry in adjacency)
             {
+                cancellation.ThrowIfCancelledOften();
                 (int t0, int o0, int t1, int o1, int count) e = entry.Value;
                 if (e.count != 2)
                     continue;
@@ -1060,6 +1098,11 @@ public static class IsotropicRemesher
     /// </summary>
     internal static int RelaxAndProject(MeshState state, double target, TerrainFaceGrid projection)
     {
+        return RelaxAndProject(state, target, projection, CancellationProbe.None);
+    }
+
+    internal static int RelaxAndProject(MeshState state, double target, TerrainFaceGrid projection, CancellationProbe cancellation)
+    {
         int faceCount = state.FaceCount;
         int vertexCount = state.VertexCount;
         MeshVertexAdjacency adjacency = MeshVertexAdjacency.Build(state.Tris, faceCount, vertexCount);
@@ -1068,6 +1111,7 @@ public static class IsotropicRemesher
         int moved = 0;
         for (int v = 0; v < vertexCount; v++)
         {
+            cancellation.ThrowIfCancelledOften();
             if (!adjacency.HasNeighbors(v))
                 continue; // orphaned by a collapse
 

@@ -26,7 +26,7 @@ Each unchecked row is an independent work item. Start with the correctness inves
 | [x] | O06 | Resolved | Sparse Poisson occupancy and prepared containment | Bounding-box area / spacing² |
 | [x] | O07 | Resolved | Reuse reference projection contexts safely | Reference faces × comparisons |
 | [x] | O08 | Resolved | Work-region and grading containment queries | Points/faces × polygon edges |
-| [ ] | O09 | Medium-high | Cancellation latency in heavy Core stages | Superseded work and retained geometry |
+| [x] | O09 | Resolved | Cancellation latency in heavy Core stages | Superseded work and retained geometry |
 | [ ] | O10 | Medium | Cache/display geometry ownership and peak memory | Mesh copies × stages/workers |
 | [ ] | O11 | Medium | Waterflow setup and independent traces | Faces plus starts × path length |
 | [ ] | O12 | Medium | Contour output and stitching allocations | Emitted segments and contour levels |
@@ -298,6 +298,34 @@ different reason.
 **Done when:** Oracle comparisons at edges/vertices pass and preprocessing no longer dominates the triangulation it is intended to reduce.
 
 ## O09 — Cancellation needs to penetrate heavy Core work
+
+**Resolved 2026-09-10:** `CancellationProbe` (Core/Engine) gives the heavy stages a bounded-interval
+cancellation check. `ThrowIfCancelled` runs at phase and round boundaries; `ThrowIfCancelledOften`
+sits inside the per-face and per-vertex loops and consults the callback every 4,096 iterations, so it
+costs a decrement on the hot path.
+
+`IsotropicRemesher.Options.ShouldCancel` is checked before the feature graph, between all four phases
+of every outer iteration, at the top of each split round, collapse round and flip sweep, and inside the
+split face scan, the collapse candidate scan and acceptance loop, the flip enumeration, and the relax
+vertex loop. `MeshAreaTopologySplitter.Split` takes an optional callback checked between its phases
+(boundary segments, face mapping, shared-edge registry, classification) and inside the per-face
+triangulation loop; `MeshAreaSplitter.SplitPreservingTopology` passes it through.
+
+Cancelling **throws** `OperationCanceledException` rather than returning a partial result. That is
+already the Rhino pipeline's contract (`ThrowIfCancellationRequested`, caught in
+`TerrainController.Build`), and it directly satisfies the guardrail: a stage abandoned part-way has no
+valid output, so there is nothing a caller could mistakenly publish to a cache.
+
+Wired into the Rhino callers: the Remesh modifier stage passes `ModifierBuildContext.ShouldCancel`
+into the isotropic remesh, and the zones stage passes its `shouldCancel` into the topology splitter.
+
+`CoreStageCancellationTests` covers the probe itself (never-cancelling shared instance, per-call versus
+interval checking), immediate and part-way cancellation of both stages, and — importantly — that a
+non-cancelling probe leaves both stages producing exactly the output they produced without one.
+
+Not measured here: cancel-to-stop latency under real load, active worker counts, and retained bytes.
+Those need the native-Rhino harness the benchmark plan describes; this item adds the mechanism the
+measurement requires.
 
 **Evidence:** [src/MoleHill.Rhino/Services/TerrainController.Build.cs:194](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainController.Build.cs:194) creates cancellation for background work, but the inspected MeshAreaTopologySplitter and IsotropicRemesher entry paths do not expose cancellation checks in their heavy loops.
 

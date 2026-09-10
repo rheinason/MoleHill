@@ -19,6 +19,12 @@ Key files:
   pass. The index is immutable once built, so a `List<int>` per occupied cell only bought a small object
   plus a backing array for each of millions of cells. Both passes visit items in index order, so a
   cell's run is ascending, exactly what the per-cell lists held.
+- `CancellationProbe.cs` - cooperative cancellation for the heavy Core stages. `ThrowIfCancelled` at
+  phase and round boundaries; `ThrowIfCancelledOften` inside per-face / per-vertex loops, which
+  consults the callback only every `DefaultInterval` iterations (its counter is deliberately
+  unsynchronised - sharing it across workers changes check frequency, never correctness). Cancelling
+  **throws** `OperationCanceledException`, matching the Rhino pipeline's contract: a stage abandoned
+  part-way has no valid output, and throwing stops a caller publishing one to a cache.
 - `ScaleAwareTolerance.cs` - numerical length floors derived from geometry scale/caller tolerance,
   never an assumed metre/mm model. Spatial grids and projection use it so uniform unit scaling does not
   change lookup topology.

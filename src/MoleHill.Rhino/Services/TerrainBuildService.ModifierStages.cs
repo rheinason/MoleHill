@@ -56,7 +56,7 @@ internal sealed partial class TerrainBuildService
             c.StageKey,
             "Remesh",
             ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, remesh, c.CurrentMeshFingerprint),
-            () => input == null ? WarnMissingMesh(c.Build, remesh.Label) : ApplyRemesh(c.Snapshot, c.Terrain, input, remesh, c.Build, c.Mode),
+            () => input == null ? WarnMissingMesh(c.Build, remesh.Label) : ApplyRemesh(c.Snapshot, c.Terrain, input, remesh, c.Build, c.Mode, c.ShouldCancel),
             result => DescribeModifierMeshResult(remesh.Label, result),
             out ulong fingerprint,
             c.ShouldCancel);

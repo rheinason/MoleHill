@@ -94,7 +94,8 @@ internal sealed partial class TerrainBuildService
             faceCount,
             boundaries,
             tolerance,
-            out var splitWarning);
+            out var splitWarning,
+            shouldCancel);
         splitTimer.Stop();
 
         if (result == null)
