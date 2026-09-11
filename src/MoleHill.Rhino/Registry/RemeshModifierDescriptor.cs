@@ -43,18 +43,21 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
             "EdgeLength", "Edge Length",
             m => ((RemeshModifierDefinition)m).EdgeLength,
             (m, v) => ((RemeshModifierDefinition)m).EdgeLength = v,
-            "Target edge length: the remesh regularizes the whole terrain toward even triangles of this size while keeping every vertex exactly on the surface. Smaller = denser, larger = coarser. Leave at 0 to preserve the mesh's approximate face density across its plan area. Preview builds run at twice this length."),
+            "Target edge length: the remesh regularizes the whole terrain toward even triangles of this size while keeping every vertex exactly on the surface. Smaller = denser, larger = coarser. Leave at 0 to preserve the mesh's approximate face density across its plan area. Preview builds run at twice this length.",
+            unit: ParameterUnit.ModelLength),
         ModifierParam.Number(
             "CreaseAngle", "Crease Angle",
             m => ((RemeshModifierDefinition)m).CreaseAngle,
             (m, v) => ((RemeshModifierDefinition)m).CreaseAngle = v,
-            "Preserve creases: feature edges (batter toes, slope breaks) folding at least this many degrees are pinned — vertices slide only along them and no edge flips across. Detected from the mesh each pass and never persisted as breaklines. Around 20-35 catches toe lines; leave at 0 to disable."),
+            "Preserve creases: feature edges (batter toes, slope breaks) folding at least this many degrees are pinned — vertices slide only along them and no edge flips across. Detected from the mesh each pass and never persisted as breaklines. Around 20-35 catches toe lines; leave at 0 to disable.",
+            unit: ParameterUnit.Degrees),
         ModifierParam.Number(
             "MinAngle", "Min Angle",
             m => ((RemeshModifierDefinition)m).MinAngle,
             (m, v) => ((RemeshModifierDefinition)m).MinAngle = v,
             "Full Rebuild only: minimum triangle angle in degrees. The constrained-Delaunay refinement splits skinny triangles until none is sharper than this. Around 20-30 gives well-shaped triangles; above ~34 the refinement may not terminate. Leave at 0 for no angle constraint.",
             max: 34.0,
+            unit: ParameterUnit.Degrees,
             visibleWhen: IsRebuild),
         ModifierParam.Number(
             "MaxArea", "Max Area",

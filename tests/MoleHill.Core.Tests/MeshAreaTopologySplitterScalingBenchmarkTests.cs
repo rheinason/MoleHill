@@ -6,7 +6,7 @@ using Xunit.Abstractions;
 namespace MoleHill.Core.Tests;
 
 /// <summary>
-/// Full-scale baseline for <see cref="MeshAreaTopologySplitter"/>, walking the review's independent
+/// Preliminary synthetic baseline for <see cref="MeshAreaTopologySplitter"/>, walking the review's independent
 /// scale axes so unrelated growth cannot hide complexity: terrain faces at a fixed boundary, boundary
 /// segments at a fixed terrain, zone-piece count at a fixed result, and the spatial distributions that
 /// stress cell membership.
@@ -14,8 +14,9 @@ namespace MoleHill.Core.Tests;
 /// <remarks>
 /// Opt in with <c>MOLEHILL_PERF=1</c>; otherwise every case returns immediately, as the other
 /// performance suites do. Reported per case: per-phase elapsed and process-wide allocation, touched-face
-/// ratio, output growth, and the managed heap delta after a settling collection. Process-wide allocation
-/// is used rather than current-thread, because the phases parallelise.
+/// ratio, output growth, and the uncollected managed heap delta from a collected starting state.
+/// Each case is a single observation, not a warmed median or peak/retained-memory measurement.
+/// Process-wide allocation is used rather than current-thread, because the phases parallelise.
 /// </remarks>
 public class MeshAreaTopologySplitterScalingBenchmarkTests(ITestOutputHelper output)
 {

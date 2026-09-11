@@ -14,6 +14,29 @@ namespace MoleHill.Core.Tests;
 public class SpatialIndexEquivalenceTests
 {
     [Fact]
+    public void QueryScratch_SparseMode_DoesNotAllocateByTerrainSize()
+    {
+        // Warm up before measuring this thread's allocation. No workers run in this check.
+        var warmup = new SpatialHashGrid2D.QueryScratch(sparse: true);
+        warmup.BeginQuery(10);
+        warmup.TryVisit(1);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var scratch = new SpatialHashGrid2D.QueryScratch(15_000_000, sparse: true);
+        scratch.BeginQuery(15_000_000);
+        bool first = scratch.TryVisit(14_999_999);
+        bool repeat = scratch.TryVisit(14_999_999);
+        scratch.BeginQuery(15_000_000);
+        bool nextQuery = scratch.TryVisit(14_999_999);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(first);
+        Assert.False(repeat);
+        Assert.True(nextQuery);
+        Assert.True(allocated < 16_384, $"Localized query allocated {allocated} bytes.");
+    }
+
+    [Fact]
     public void SpatialHashGrid2D_Candidates_ContainEveryOverlappingItemExactlyOnce()
     {
         var random = new Random(90210);
@@ -33,6 +56,8 @@ public class SpatialIndexEquivalenceTests
         SpatialHashGrid2D grid = SpatialHashGrid2D.Build(bounds);
         var scratch = new SpatialHashGrid2D.QueryScratch(bounds.Length);
         var candidates = new List<int>();
+        var sparseScratch = new SpatialHashGrid2D.QueryScratch(bounds.Length, sparse: true);
+        var sparseCandidates = new List<int>();
 
         for (int trial = 0; trial < 60; trial++)
         {
@@ -41,6 +66,8 @@ public class SpatialIndexEquivalenceTests
             var query = new Bounds2D(x, x + 3.0, y, y + 3.0);
 
             grid.GatherCandidates(query, candidates, scratch);
+            grid.GatherCandidates(query, sparseCandidates, sparseScratch);
+            Assert.Equal(candidates, sparseCandidates);
 
             var returned = new HashSet<int>(candidates);
             for (int i = 0; i < bounds.Length; i++)

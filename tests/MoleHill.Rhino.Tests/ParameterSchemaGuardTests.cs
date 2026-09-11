@@ -136,6 +136,111 @@ public class ParameterSchemaGuardTests
     }
 
     /// <summary>
+    /// Every slope input declares <see cref="ParameterUnit.Slope"/>.
+    ///
+    /// This is the guard behind the whole unit story: a slope row that forgets to declare its unit falls
+    /// back to a bare stepper showing degrees with nothing on screen saying so, which is the exact defect
+    /// this vocabulary exists to remove. Matching on the name is deliberately blunt — anything a user
+    /// would read as a slope has to opt in or be named on the allow-list below with a reason.
+    /// </summary>
+    [Fact]
+    public void EveryParameterThatReadsAsASlope_DeclaresTheSlopeUnit()
+    {
+        // Genuine angles, not slopes: a dihedral fold between two faces has no rise over run, and the
+        // Scatter/Waterflow style knobs below are labels and factors that merely contain the word.
+        var notSlopes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "CreaseAngle",   // remesh + retopo: dihedral crease detection, always degrees
+            "alignToSlope",  // a bool: orient instances to the terrain normal
+            "slopeFilterEnabled",
+        };
+
+        var offenders = new List<string>();
+
+        void Check(string family, string typeKind, string key, string label, ParameterKind kind, ParameterUnit unit)
+        {
+            if (notSlopes.Contains(key))
+                return;
+
+            bool readsAsSlope =
+                key.Contains("Slope", StringComparison.OrdinalIgnoreCase) ||
+                label.Contains("Slope", StringComparison.OrdinalIgnoreCase);
+            if (!readsAsSlope)
+                return;
+
+            // Only value rows carry a unit; a Choice of slope units or a read-only summary does not.
+            if (kind is not (ParameterKind.Number or ParameterKind.OptionalNumber or ParameterKind.Slider))
+                return;
+
+            if (unit != ParameterUnit.Slope)
+                offenders.Add($"{family}/{typeKind}/{key} ('{label}') declares {unit}, expected Slope.");
+        }
+
+        foreach (var d in TerrainTypeRegistry.Modifiers)
+            foreach (var p in d.Parameters)
+                Check("modifier", d.Kind, p.Key, p.Label, p.Kind, p.Unit);
+        foreach (var d in AnalysisTypeRegistry.Analyses)
+            foreach (var p in d.Parameters)
+                Check("analysis", d.Kind, p.Key, p.Label, p.Kind, p.Unit);
+        foreach (var d in AnnotationTypeRegistry.Annotations)
+            foreach (var p in d.Parameters)
+                Check("annotation", d.Kind, p.Key, p.Label, p.Kind, p.Unit);
+        foreach (var d in ObjectTypeRegistry.Objects)
+            foreach (var p in d.Parameters)
+                Check("object", d.Kind, p.Key, p.Label, p.Kind, p.Unit);
+
+        Assert.True(offenders.Count == 0, string.Join(Environment.NewLine, offenders));
+    }
+
+    /// <summary>
+    /// The grading batters are the slope rows this was built for, so name them outright: a refactor that
+    /// quietly turns one back into a plain Number would otherwise only show up in Rhino.
+    /// </summary>
+    [Theory]
+    [InlineData("grade-pad", "SlopeAngle")]
+    [InlineData("grade-pad", "CutSlopeAngle")]
+    [InlineData("grade-path", "SlopeAngle")]
+    [InlineData("grade-path", "CutSlopeAngle")]
+    [InlineData("in-situ-stair", "SlopeAngle")]
+    public void GradingBatters_AreSlopeRows(string kind, string key)
+    {
+        var descriptor = TerrainTypeRegistry.ForModifierKind(kind);
+        Assert.NotNull(descriptor);
+
+        var parameter = descriptor!.Parameters.SingleOrDefault(p => p.Key == key);
+        Assert.NotNull(parameter);
+        Assert.Equal(ParameterUnit.Slope, parameter!.Unit);
+    }
+
+    /// <summary>
+    /// A slope row is stored as an angle, so its bounds must stay inside what an angle can express —
+    /// otherwise a percent entry converts to 90 degrees or beyond and the batter maths divides by zero.
+    /// </summary>
+    [Fact]
+    public void SlopeRows_StayWithinTheAngleTheyAreStoredAs()
+    {
+        foreach (var descriptor in TerrainTypeRegistry.Modifiers)
+        {
+            foreach (var parameter in descriptor.Parameters.Where(p => p.Unit == ParameterUnit.Slope))
+            {
+                if (parameter.Max is { } max)
+                {
+                    Assert.True(
+                        max <= 90.0,
+                        $"modifier/{descriptor.Kind}/{parameter.Key}: max {max} exceeds a vertical slope.");
+                }
+
+                if (parameter.Min is { } min)
+                {
+                    Assert.True(
+                        min >= 0.0,
+                        $"modifier/{descriptor.Kind}/{parameter.Key}: min {min} is below flat.");
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// ColorRamp is the analysis family's alone (annotations draw rather than colour-map, modifiers change
     /// geometry) and BlockMix is Scatter's alone. The row builder renders both through a per-family
     /// bespoke hook, so a type in the wrong family declaring one would render an empty row.

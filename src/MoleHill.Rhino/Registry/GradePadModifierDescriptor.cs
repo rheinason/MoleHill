@@ -23,21 +23,22 @@ internal sealed class GradePadModifierDescriptor : ModifierTypeDescriptor
             "Boundaries", "Boundaries",
             m => ((GradePadModifierDefinition)m).Boundaries,
             RhinoObjectType.Curve),
-        ModifierParam.Number(
+        ModifierParam.Slope(
             "SlopeAngle", "Fill Slope",
             m => ((GradePadModifierDefinition)m).SlopeAngle,
             (m, v) => ((GradePadModifierDefinition)m).SlopeAngle = v,
-            "Fill slope in degrees, used where terrain sits below the pad. This is the main slope; the cut slope inherits it unless overridden. Boundary curve Z defines the finished pad plane; lower values are flatter and extend farther."),
-        ModifierParam.OptionalNumber(
+            "Fill slope, used where terrain sits below the pad. This is the main slope; the cut slope inherits it unless overridden. Boundary curve Z defines the finished pad plane; flatter slopes extend farther."),
+        ModifierParam.OptionalSlope(
             "CutSlopeAngle", "Cut Slope",
             m => ((GradePadModifierDefinition)m).CutSlopeAngle,
             (m, v) => ((GradePadModifierDefinition)m).CutSlopeAngle = v,
             m => ((GradePadModifierDefinition)m).SlopeAngle,
-            "Cut slope override in degrees, used where terrain sits above the pad. Leave blank to use the fill slope."),
+            "Cut slope override, used where terrain sits above the pad."),
         ModifierParam.Number(
             "MaxDistance", "Max Distance",
             m => ((GradePadModifierDefinition)m).MaxDistance,
             (m, v) => ((GradePadModifierDefinition)m).MaxDistance = v,
-            "Maximum grading reach. 0 means unlimited; smaller values keep the effect close to the pad."),
+            "Maximum grading reach. 0 means unlimited; smaller values keep the effect close to the pad.",
+            unit: ParameterUnit.ModelLength),
     };
 }

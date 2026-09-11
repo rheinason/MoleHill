@@ -27,6 +27,7 @@ internal static class ObjectParameterCatalog
             0.0,
             360.0,
             1,
+            unit: ParameterUnit.Degrees,
             liveScrub: true),
         ObjectParam.Slider(
             "randomRotationMaxDegrees",
@@ -39,6 +40,7 @@ internal static class ObjectParameterCatalog
             0.0,
             360.0,
             1,
+            unit: ParameterUnit.Degrees,
             liveScrub: true),
         ObjectParam.Slider(
             "randomScaleMin",
@@ -80,6 +82,7 @@ internal static class ObjectParameterCatalog
             (definition, value) => definition.ZOffset = value,
             "Lift or sink placed objects along their placement up axis.",
             min: null,
+            unit: ParameterUnit.ModelLength,
             liveEdit: true,
             liveScrub: true),
         ObjectParam.ReadOnly(

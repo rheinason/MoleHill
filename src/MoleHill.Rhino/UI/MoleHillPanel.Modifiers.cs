@@ -322,6 +322,13 @@ public sealed partial class MoleHillPanel
             expandWidget: true);
     }
 
+    /// <summary>
+    /// The "Peel Border" group. The four rows are declared in
+    /// <see cref="GeometryInputParameterCatalog.BoundaryPeel"/> and built through the shared schema row
+    /// builder — this method owns only their <em>placement</em> inside the section rule. They were
+    /// hand-written until the slope-unit work, which is how "Slope Limit" escaped the schema guard and
+    /// shipped as an unlabelled degrees field.
+    /// </summary>
     private Control CreateBoundaryPeelSettingsGroup(
         TerrainDefinition terrain,
         GeometryInputModifierDefinition modifier)
@@ -332,43 +339,12 @@ public sealed partial class MoleHillPanel
             Padding = new Padding(6, 2, 6, 6)
         };
 
-        settings.AddRow(CreateCheckEditor(
-            "Enabled",
-            modifier.PeelBoundaryTriangles,
-            value => MutateModifier(
-                terrain.TerrainId,
-                modifier.Id,
-                item => ((GeometryInputModifierDefinition)item).PeelBoundaryTriangles = value),
-            "Remove unwanted triangles only from the current TIN boundary. Interior faces are not candidates."));
-        settings.AddRow(CreateNumericEditor(
-            "Max Edge",
-            modifier.MaxBoundaryEdgeLength,
-            value => MutateModifier(
-                terrain.TerrainId,
-                modifier.Id,
-                item => ((GeometryInputModifierDefinition)item).MaxBoundaryEdgeLength = value),
-            help: "Boundary peeling edge threshold. 0 chooses an automatic threshold from mesh edge lengths.",
-            minValue: 0));
-        settings.AddRow(CreateNumericEditor(
-            "Max Angle",
-            modifier.MaxBoundaryAngleDegrees,
-            value => MutateModifier(
-                terrain.TerrainId,
-                modifier.Id,
-                item => ((GeometryInputModifierDefinition)item).MaxBoundaryAngleDegrees = value),
-            help: "Boundary triangles with a longer-than-threshold edge and an interior angle at or above this value are peeled.",
-            minValue: 0,
-            maxValue: 180));
-        settings.AddRow(CreateNumericEditor(
-            "Slope Limit",
-            modifier.MaxBoundarySlopeDegrees,
-            value => MutateModifier(
-                terrain.TerrainId,
-                modifier.Id,
-                item => ((GeometryInputModifierDefinition)item).MaxBoundarySlopeDegrees = value),
-            help: "Boundary triangles with slope at or above this angle are peeled. 0 disables slope-based peeling.",
-            minValue: 0,
-            maxValue: 90));
+        foreach (string key in GeometryInputParameterCatalog.BoundaryPeelKeys)
+        {
+            Control? row = BuildBespokePositionedModifierRow(terrain, modifier, key);
+            if (row != null)
+                settings.AddRow(row);
+        }
 
         return new StackLayout
         {

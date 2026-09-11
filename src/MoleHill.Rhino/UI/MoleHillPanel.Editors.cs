@@ -145,7 +145,8 @@ public sealed partial class MoleHillPanel
         double? minValue = 0,
         double? maxValue = null,
         bool liveEdit = false,
-        double? step = null)
+        double? step = null,
+        string? unitSuffix = null)
     {
         help ??= GetNumericHelp(label);
         var stepper = new NumericStepper
@@ -233,7 +234,7 @@ public sealed partial class MoleHillPanel
             timer.Stop();
             EndEdit();
         };
-        return new PropertyRow(CreateHelpLabel(label, help, 0), stepper);
+        return new PropertyRow(CreateHelpLabel(label, help, 0), WithUnitSuffix(stepper, unitSuffix));
     }
 
     /// <summary>
@@ -248,7 +249,8 @@ public sealed partial class MoleHillPanel
         double inheritedValue,
         Action<double> onChanged,
         int decimalPlaces = 3,
-        string? help = null)
+        string? help = null,
+        string? unitSuffix = null)
     {
         help ??= GetNumericHelp(label);
         var textBox = new TextBox
@@ -293,7 +295,150 @@ public sealed partial class MoleHillPanel
             Commit();
         };
 
-        return new PropertyRow(CreateHelpLabel(label, help, 0), textBox);
+        return new PropertyRow(CreateHelpLabel(label, help, 0), WithUnitSuffix(textBox, unitSuffix));
+    }
+
+    /// <summary>
+    /// Pairs an input widget with the dim trailing label that says what its number is in. Without one a
+    /// card row is a bare number: "Fill Slope 3" reads as degrees, percent or 1:3 with nothing on screen
+    /// to settle it. Passing no suffix returns the widget untouched, so unitless rows cost nothing.
+    /// </summary>
+    private static Control WithUnitSuffix(Control widget, string? unitSuffix, bool expandWidget = false)
+    {
+        if (string.IsNullOrEmpty(unitSuffix))
+            return widget;
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = UiMetrics.SpaceSmall,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(widget, expand: expandWidget),
+                UiControls.Label(unitSuffix, UiLabelRole.Meta)
+            }
+        };
+    }
+
+    /// <summary>
+    /// A slope field. The value is stored as an angle in degrees, but shown in whatever slope unit the
+    /// user works in and parsed with <see cref="SlopeInput"/>, so the same field accepts 25%, 1:3, 50‰ or
+    /// 14° regardless of which unit it is currently displaying — the Rhino length-field bargain, where
+    /// "10mm" is understood in a document working in metres.
+    ///
+    /// <para>A text box rather than a NumericStepper, because a stepper cannot hold "1:3". Unparseable
+    /// text reverts to the last committed value rather than committing a guess, and a good parse is
+    /// echoed back in the display unit immediately — which is what makes the vertical:horizontal reading
+    /// of "1:3" self-correcting for anyone whose office writes it the other way round.</para>
+    ///
+    /// <para><paramref name="inheritedDegrees"/> turns the field into the inherit-when-blank variant used
+    /// by the cut-slope overrides: blank shows the inherited slope as greyed placeholder text, and
+    /// clearing the field commits 0 (inherit again).</para>
+    /// </summary>
+    private Control CreateSlopeEditor(
+        string label,
+        double degrees,
+        Action<double> onChanged,
+        string? help = null,
+        double? inheritedDegrees = null)
+    {
+        SlopeAnalyzer.SlopeUnit unit = SlopeUnitPreference.Current;
+        bool optional = inheritedDegrees.HasValue;
+
+        help = ComposeSlopeHelp(help ?? GetNumericHelp(label), optional);
+
+        var textBox = new TextBox
+        {
+            Width = UiMetrics.NumericField,
+            Text = optional && degrees <= 0.0 ? string.Empty : SlopeInput.FormatDegreesAsUnit(degrees, unit)
+        };
+        if (optional)
+            textBox.PlaceholderText = SlopeInput.FormatDegreesAsUnit(inheritedDegrees!.Value, unit);
+        StyleTextBox(textBox);
+        ApplyHelp(textBox, help);
+
+        double committedValue = optional && degrees <= 0.0 ? 0.0 : degrees;
+        void Commit()
+        {
+            string text = (textBox.Text ?? string.Empty).Trim();
+            if (text.Length == 0)
+            {
+                // Blank means "inherit" on an optional field and "unchanged" on a required one; neither
+                // should be read as a slope of zero the user asked for.
+                if (!optional)
+                {
+                    textBox.Text = SlopeInput.FormatDegreesAsUnit(committedValue, unit);
+                    return;
+                }
+
+                if (!TerrainCommitGuard.HasMeaningfulNumericChange(committedValue, 0.0))
+                    return;
+
+                committedValue = 0.0;
+                onChanged(0.0);
+                return;
+            }
+
+            if (!SlopeInput.TryParseToDegrees(text, unit, out double parsedDegrees))
+            {
+                // Reverting beats committing a misread: the user sees their entry rejected rather than
+                // a silently wrong batter.
+                textBox.Text = optional && committedValue <= 0.0
+                    ? string.Empty
+                    : SlopeInput.FormatDegreesAsUnit(committedValue, unit);
+                return;
+            }
+
+            parsedDegrees = Math.Clamp(Math.Abs(parsedDegrees), 0.0, SlopeInput.MaxSlopeDegrees);
+
+            // Echo the canonical text back so "1:3" resolves visibly into the display unit.
+            textBox.Text = SlopeInput.FormatDegreesAsUnit(parsedDegrees, unit);
+            if (!TerrainCommitGuard.HasMeaningfulNumericChange(committedValue, parsedDegrees))
+                return;
+
+            committedValue = parsedDegrees;
+            onChanged(parsedDegrees);
+        }
+
+        // Commit on Enter/blur only, like the other free-typed fields: TextChanged fires per keystroke,
+        // and "1:3" is not a valid slope until the "3" arrives.
+        textBox.KeyDown += (_, e) =>
+        {
+            if (e.Key != Keys.Enter)
+                return;
+
+            Commit();
+            e.Handled = true;
+        };
+        textBox.LostFocus += (_, _) =>
+        {
+            if (_isRefreshing)
+                return;
+
+            Commit();
+        };
+
+        return new PropertyRow(
+            CreateHelpLabel(label, help, 0),
+            WithUnitSuffix(textBox, SlopeInput.Suffix(unit)));
+    }
+
+    /// <summary>Appends the typed-unit cheat sheet to a slope field's own help text.</summary>
+    private static string ComposeSlopeHelp(string help, bool optional)
+    {
+        string composed = help.TrimEnd();
+        if (composed.Length > 0 && !composed.EndsWith('.'))
+            composed += ".";
+
+        if (optional)
+            composed += " Leave blank to inherit.";
+
+        return composed
+            + " "
+            + SlopeInput.AcceptedFormatsHelp
+            + " The unit shown is set in Terrain Settings › Slope Units.";
     }
 
     private Control CreateSliderNumericEditor(
@@ -305,7 +450,10 @@ public sealed partial class MoleHillPanel
         int decimalPlaces = 3,
         double? hardMin = null,
         double? hardMax = null,
-        string? help = null)
+        string? help = null,
+        string? unitSuffix = null,
+        Func<double, string>? formatValue = null,
+        Func<string, double?>? parseValue = null)
     {
         help ??= GetNumericHelp(label);
         double committedValue = ClampSliderValue(value, hardMin, hardMax);
@@ -377,7 +525,7 @@ public sealed partial class MoleHillPanel
             ExpandSliderRange(numericValue, ref currentMin, ref currentMax);
             ClampSliderRangeToHardBounds(ref currentMin, ref currentMax, hardMin, hardMax);
             if (updateTextBox)
-                textBox.Text = FormatSliderValue(numericValue, decimalPlaces);
+                textBox.Text = formatValue?.Invoke(numericValue) ?? FormatSliderValue(numericValue, decimalPlaces);
             slider.Value = ToSliderValue(numericValue, currentMin, currentMax, slider.MaxValue);
             syncing = false;
         }
@@ -402,6 +550,21 @@ public sealed partial class MoleHillPanel
             if (string.IsNullOrEmpty(text))
             {
                 SyncControls(committedValue);
+                return;
+            }
+
+            // A transformed slider (slope) parses through its own unit-aware reader; the slider track
+            // itself stays in the stored unit, so only the text needs translating.
+            double? transformed = parseValue?.Invoke(text);
+            if (parseValue != null)
+            {
+                if (transformed == null)
+                {
+                    SyncControls(committedValue);
+                    return;
+                }
+
+                Commit(transformed.Value);
                 return;
             }
 
@@ -485,7 +648,10 @@ public sealed partial class MoleHillPanel
                 textBox
             }
         };
-        return new PropertyRow(CreateHelpLabel(label, help, 0), editor, expandWidget: true);
+        return new PropertyRow(
+            CreateHelpLabel(label, help, 0),
+            WithUnitSuffix(editor, unitSuffix, expandWidget: true),
+            expandWidget: true);
     }
 
     private static void ExpandSliderRange(double value, ref double min, ref double max)

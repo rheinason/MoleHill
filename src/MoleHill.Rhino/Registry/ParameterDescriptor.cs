@@ -64,6 +64,10 @@ internal sealed class ParameterDescriptor<TDefinition>
 
     // ---- Numeric (Number / OptionalNumber / Slider) ----
 
+    /// <summary>What this parameter's number is in. Drives the row's trailing unit label, and for
+    /// <see cref="ParameterUnit.Slope"/> the display conversion and unit-aware parsing too.</summary>
+    public ParameterUnit Unit { get; init; } = ParameterUnit.None;
+
     public int DecimalPlaces { get; init; } = 3;
     public double? Min { get; init; }
     public double? Max { get; init; }
@@ -168,6 +172,7 @@ internal sealed class ParameterDescriptor<TDefinition>
         double? max = null,
         int decimalPlaces = 3,
         double? step = null,
+        ParameterUnit unit = ParameterUnit.None,
         bool liveEdit = false,
         bool liveScrub = false,
         bool refreshOnly = false,
@@ -183,6 +188,7 @@ internal sealed class ParameterDescriptor<TDefinition>
             GetNumber = get,
             SetNumber = set,
             Help = help,
+            Unit = unit,
             Min = min,
             Max = max,
             DecimalPlaces = decimalPlaces,
@@ -204,6 +210,7 @@ internal sealed class ParameterDescriptor<TDefinition>
         Func<TDefinition, double> inheritedValue,
         string? help = null,
         int decimalPlaces = 3,
+        ParameterUnit unit = ParameterUnit.None,
         Func<TDefinition, bool>? visibleWhen = null) =>
         new()
         {
@@ -214,6 +221,7 @@ internal sealed class ParameterDescriptor<TDefinition>
             SetNumber = set,
             InheritedValue = inheritedValue,
             Help = help,
+            Unit = unit,
             DecimalPlaces = decimalPlaces,
             VisibleWhen = visibleWhen,
         };
@@ -230,6 +238,7 @@ internal sealed class ParameterDescriptor<TDefinition>
         double? hardMax = null,
         int decimalPlaces = 3,
         double? step = null,
+        ParameterUnit unit = ParameterUnit.None,
         bool liveScrub = false,
         Func<TDefinition, bool>? visibleWhen = null,
         Func<TDefinition, string>? labelFor = null) =>
@@ -240,6 +249,7 @@ internal sealed class ParameterDescriptor<TDefinition>
             Label = label,
             GetNumber = get,
             SetNumber = set,
+            Unit = unit,
             SoftMin = softMin,
             SoftMax = softMax,
             Min = hardMin,
@@ -251,6 +261,79 @@ internal sealed class ParameterDescriptor<TDefinition>
             LabelFor = labelFor,
             Help = help,
         };
+
+    /// <summary>
+    /// A grading slope stored as an angle in degrees. Identical to <see cref="Number"/> apart from the
+    /// unit: the row shows and parses it in whatever slope unit the user works in, so the same field
+    /// takes 25%, 1:3 or 14° and the definition still persists degrees.
+    /// </summary>
+    public static ParameterDescriptor<TDefinition> Slope(
+        string key,
+        string label,
+        Func<TDefinition, double> get,
+        Action<TDefinition, double> set,
+        string? help = null,
+        bool rebuildAfterCommit = false,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        Number(
+            key,
+            label,
+            get,
+            set,
+            help,
+            min: 0,
+            max: MoleHill.Core.Analysis.SlopeInput.MaxSlopeDegrees,
+            unit: ParameterUnit.Slope,
+            rebuildAfterCommit: rebuildAfterCommit,
+            visibleWhen: visibleWhen);
+
+    /// <summary>An inherit-when-blank slope — the cut-slope overrides, which fall back to the fill slope.</summary>
+    public static ParameterDescriptor<TDefinition> OptionalSlope(
+        string key,
+        string label,
+        Func<TDefinition, double> get,
+        Action<TDefinition, double> set,
+        Func<TDefinition, double> inheritedValue,
+        string? help = null,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        OptionalNumber(
+            key,
+            label,
+            get,
+            set,
+            inheritedValue,
+            help,
+            unit: ParameterUnit.Slope,
+            visibleWhen: visibleWhen);
+
+    /// <summary>
+    /// A slope on a slider. The slider track stays linear in degrees over its 0-90 domain — that is the
+    /// only slope unit with a bounded axis to drag along, since percent and ratio both run to infinity —
+    /// while the value box beside it reads and accepts the user's unit like any other slope field.
+    /// </summary>
+    public static ParameterDescriptor<TDefinition> SlopeSlider(
+        string key,
+        string label,
+        Func<TDefinition, double> get,
+        Action<TDefinition, double> set,
+        string? help = null,
+        double softMin = 0.0,
+        double softMax = 90.0,
+        bool liveScrub = false,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        Slider(
+            key,
+            label,
+            get,
+            set,
+            softMin,
+            softMax,
+            help,
+            hardMin: 0.0,
+            hardMax: 90.0,
+            unit: ParameterUnit.Slope,
+            liveScrub: liveScrub,
+            visibleWhen: visibleWhen);
 
     public static ParameterDescriptor<TDefinition> Bool(
         string key,

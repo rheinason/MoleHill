@@ -1,3 +1,4 @@
+using System.Linq;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -17,8 +18,9 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
     public override ModifierDefinition Create(UnitSystem unitSystem) => new AddGeometryModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunAddGeometryStage(context);
 
-    // Source rows only. The boundary-peel block is appended via the panel's bespoke-rows hook.
-    public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
+    // Source rows, then the shared boundary-peel rows. The panel positions the peel rows itself, inside
+    // its "Peel Border" group.
+    public override IReadOnlyList<ModifierParam> Parameters { get; } = new ModifierParam[]
     {
         ModifierParam.Sources(
             "Points", "Points",
@@ -36,5 +38,5 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
             "Boundary", "Boundary",
             m => ((AddGeometryModifierDefinition)m).Boundary,
             RhinoObjectType.Curve),
-    };
+    }.Concat(GeometryInputParameterCatalog.BoundaryPeel).ToArray();
 }

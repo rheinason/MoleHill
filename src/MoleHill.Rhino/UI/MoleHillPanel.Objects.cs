@@ -148,7 +148,8 @@ public sealed partial class MoleHillPanel
             decimalPlaces: 1,
             hardMin: 0.0,
             hardMax: 360.0,
-            help: "Minimum random rotation in degrees. Rotation is applied per object around its placement up axis and stays stable between rebuilds."));
+            help: "Minimum random rotation. Rotation is applied per object around its placement up axis and stays stable between rebuilds.",
+            unitSuffix: ResolveUnitSuffix(ParameterUnit.Degrees)));
         layout.AddRow(CreateSliderNumericEditor(
             "Rotate Max",
             definition.RandomRotationMaxDegrees,
@@ -159,7 +160,8 @@ public sealed partial class MoleHillPanel
             decimalPlaces: 1,
             hardMin: 0.0,
             hardMax: 360.0,
-            help: "Maximum random rotation in degrees. Set min and max equal to disable rotation variation."));
+            help: "Maximum random rotation. Set min and max equal to disable rotation variation.",
+            unitSuffix: ResolveUnitSuffix(ParameterUnit.Degrees)));
         layout.AddRow(CreateSliderNumericEditor(
             "Scale Min",
             definition.RandomScaleMin,
@@ -196,7 +198,8 @@ public sealed partial class MoleHillPanel
             decimalPlaces: 3,
             help: "Lift or sink placed objects. Project mode offsets in world Z; Surface mode offsets along the terrain normal.",
             minValue: null,
-            liveEdit: true));
+            liveEdit: true,
+            unitSuffix: ResolveUnitSuffix(ParameterUnit.ModelLength)));
         layout.AddRow(CreateReadOnlyValueRow(
             "Bindings",
             $"{CountReferences(definition.Sources)} source refs",

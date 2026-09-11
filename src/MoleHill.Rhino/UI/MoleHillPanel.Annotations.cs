@@ -414,7 +414,8 @@ public sealed partial class MoleHillPanel
             annotation.HatchRotationDegrees,
             value => MutateSection(item => item.HatchRotationDegrees = value),
             decimalPlaces: 1,
-            help: "Pattern rotation in degrees."));
+            help: "Pattern rotation.",
+            unitSuffix: ResolveUnitSuffix(ParameterUnit.Degrees)));
         layout.AddRow(CreateInsertionOriginEditor(terrain, annotation));
     }
 

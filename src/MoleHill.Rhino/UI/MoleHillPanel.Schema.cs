@@ -1,8 +1,10 @@
 using System;
 using System.Linq;
 using Eto.Forms;
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
+using MoleHill.Rhino.Services;
 using Rhino;
 
 namespace MoleHill.Rhino.UI;
@@ -50,6 +52,18 @@ public sealed partial class MoleHillPanel
                     parameter.Help);
 
             case ParameterKind.Number:
+                // A slope is stored in degrees but neither shown nor typed that way, so it gets the
+                // unit-aware field instead of a stepper. Everything else keeps the stepper and gains
+                // only the trailing unit label.
+                if (parameter.Unit == ParameterUnit.Slope)
+                {
+                    return CreateSlopeEditor(
+                        label,
+                        parameter.GetNumber!(definition),
+                        value => commit(item => parameter.SetNumber!(item, value)),
+                        parameter.Help);
+                }
+
                 return CreateNumericEditor(
                     label,
                     parameter.GetNumber!(definition),
@@ -59,18 +73,33 @@ public sealed partial class MoleHillPanel
                     parameter.Min,
                     parameter.Max,
                     liveEdit: parameter.LiveEdit,
-                    step: parameter.Step);
+                    step: parameter.Step,
+                    unitSuffix: ResolveUnitSuffix(parameter.Unit));
 
             case ParameterKind.OptionalNumber:
+                if (parameter.Unit == ParameterUnit.Slope)
+                {
+                    return CreateSlopeEditor(
+                        label,
+                        parameter.GetNumber!(definition),
+                        value => commit(item => parameter.SetNumber!(item, value)),
+                        parameter.Help,
+                        inheritedDegrees: parameter.InheritedValue!(definition));
+                }
+
                 return CreateOptionalNumericEditor(
                     label,
                     parameter.GetNumber!(definition),
                     parameter.InheritedValue!(definition),
                     value => commit(item => parameter.SetNumber!(item, value)),
                     parameter.DecimalPlaces,
-                    parameter.Help);
+                    parameter.Help,
+                    unitSuffix: ResolveUnitSuffix(parameter.Unit));
 
             case ParameterKind.Slider:
+                // The slider track stays in the stored unit (degrees for a slope — the only bounded
+                // slope axis to drag along); only the value box speaks the user's unit.
+                bool slopeSlider = parameter.Unit == ParameterUnit.Slope;
                 return CreateSliderNumericEditor(
                     label,
                     parameter.GetNumber!(definition),
@@ -80,7 +109,16 @@ public sealed partial class MoleHillPanel
                     parameter.DecimalPlaces,
                     parameter.Min,
                     parameter.Max,
-                    parameter.Help);
+                    parameter.Help,
+                    unitSuffix: ResolveUnitSuffix(parameter.Unit),
+                    formatValue: slopeSlider
+                        ? degrees => SlopeInput.FormatDegreesAsUnit(degrees, SlopeUnitPreference.Current)
+                        : null,
+                    parseValue: slopeSlider
+                        ? text => SlopeInput.TryParseToDegrees(text, SlopeUnitPreference.Current, out double degrees)
+                            ? degrees
+                            : null
+                        : null);
 
             case ParameterKind.Bool:
                 return CreateCheckEditor(
@@ -133,6 +171,22 @@ public sealed partial class MoleHillPanel
         }
     }
 
+    /// <summary>
+    /// The trailing unit label for a numeric row. Model lengths resolve against the active document so a
+    /// terrain in feet does not claim millimetres; the slope unit comes from the user's preference, which
+    /// is why every slope row relabels the moment that preference changes.
+    /// </summary>
+    private static string? ResolveUnitSuffix(ParameterUnit unit) => unit switch
+    {
+        ParameterUnit.ModelLength => RhinoDoc.ActiveDoc is { } doc
+            ? ModelUnits.Abbreviation(doc.ModelUnitSystem)
+            : null,
+        ParameterUnit.Degrees => "°",
+        ParameterUnit.Slope => SlopeInput.Suffix(SlopeUnitPreference.Current),
+        ParameterUnit.Percent => "%",
+        _ => null
+    };
+
     // ---- Modifiers ----
 
     /// <summary>
@@ -164,7 +218,10 @@ public sealed partial class MoleHillPanel
         (modifier is TriangulateModifierDefinition &&
          parameter.Key is "DemSurface" or "ContourMode") ||
         (modifier is GradePathModifierDefinition &&
-         parameter.Key is "Paths" or "Width" or "UseVariableWidth" or "WidthEdges" or "MaxEdgeDistance");
+         parameter.Key is "Paths" or "Width" or "UseVariableWidth" or "WidthEdges" or "MaxEdgeDistance") ||
+        // Declared by every geometry-input modifier, but drawn inside the panel's "Peel Border" group.
+        (modifier is GeometryInputModifierDefinition &&
+         GeometryInputParameterCatalog.BoundaryPeelKeys.Contains(parameter.Key, StringComparer.Ordinal));
 
     private Control? BuildBespokePositionedModifierRow(
         TerrainDefinition terrain,

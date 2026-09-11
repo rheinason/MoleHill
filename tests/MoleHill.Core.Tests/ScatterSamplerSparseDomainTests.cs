@@ -12,6 +12,62 @@ namespace MoleHill.Core.Tests;
 public class ScatterSamplerSparseDomainTests
 {
     [Fact]
+    public void Sample_GridWithLongRejectedRow_ObservesCancellationWithinRow()
+    {
+        int checks = 0;
+        var request = new ScatterRequest
+        {
+            Boundaries = new[] { new[] { 0.0, 0.0, 1e10, 1e10, 1e10, 1e10 + 1, 0.0, 1.0 } },
+            Pattern = ScatterPattern.Grid,
+            DensityMode = ScatterDensityMode.Spacing,
+            Spacing = 0.5,
+            MaxSamples = 100,
+            ShouldCancel = () => ++checks >= 2
+        };
+
+        var points = ScatterSampler.Sample(request);
+
+        Assert.Equal(2, checks);
+        Assert.True(points.Count < 100);
+        Assert.All(points, point => Assert.Equal(0.25, point.Y));
+    }
+
+    [Fact]
+    public void Sample_PoissonBeyondIntCellRange_PreservesMinimumSpacing()
+    {
+        var request = new ScatterRequest
+        {
+            Boundaries = new[] { Square(0, 0, 1e10) },
+            Pattern = ScatterPattern.PoissonDisk,
+            DensityMode = ScatterDensityMode.Spacing,
+            Spacing = 0.5,
+            MaxSamples = 500,
+            Seed = 12
+        };
+
+        var points = ScatterSampler.Sample(request);
+
+        Assert.Equal(500, points.Count);
+        AssertMinimumSpacing(points, 0.5);
+    }
+
+    [Fact]
+    public void Sample_RandomBeyondIntTargetCount_UsesSampleCap()
+    {
+        var request = new ScatterRequest
+        {
+            Boundaries = new[] { Square(0, 0, 200_000) },
+            Pattern = ScatterPattern.Random,
+            DensityMode = ScatterDensityMode.Spacing,
+            Spacing = 0.5,
+            MaxSamples = 100,
+            Seed = 12
+        };
+
+        Assert.Equal(100, ScatterSampler.Sample(request).Count);
+    }
+
+    [Fact]
     public void Sample_HugeExtentWithTinySpacingAndASmallCap_StaysWithinTheCap()
     {
         // Dense occupancy for this domain would be about (200000 / 0.35)^2 cells — hundreds of

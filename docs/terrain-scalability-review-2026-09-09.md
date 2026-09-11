@@ -1,11 +1,82 @@
 # Terrain scalability review and deep-dive backlog
 
 Date: 2026-09-09  
-Status: active backlog; C01 implemented in the current working tree.
+Status: implementation batch reviewed 2026-09-10; correctness fixes applied, performance acceptance remains partial.
+
+## Implementation review — 2026-09-10
+
+**Live smoke retry — passed for the scoped checks below.** Rhino **8.34.26223.11001**, disposable slot
+`aardvark`, final PID **35048**. Build command:
+`dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore --verbosity quiet`
+(zero warnings/errors). `PlugIn.Find` verified the already-loaded instance at
+`src/MoleHill.Rhino/bin/Debug/net7.0/MoleHill.Rhino.rhp`, module ID
+`463fab09-b5b8-494e-b304-00b4edf21acb`; Core loaded from the same build directory, module ID
+`826a6ec0-a5ae-4914-baec-37dd79c2db82`.
+
+- Separate `run_csharp` scatter check: 500 Poisson points on a 1e10-unit domain, minimum pair distance
+  **0.5003803742389592** for requested spacing 0.5; random sampling returned its cap of 100 points.
+- Separate waterflow check: a valid native **3,042-face** sloped terrain, **64** flow paths, every
+  coordinate identical to serial one-start calls; all paths were valid native polylines and inserted
+  into the disposable document. Document state confirmed **65 objects** (mesh plus paths).
+- `get_commands("mhCreateTerrain")` found the command. `run_command("mhCreateTerrain")` returned
+  `Done.`; a controller-state assertion found one terrain. `run_command("_Undo")` reported undoing
+  that command; a second controller-state assertion found zero terrains. `get_context` remained responsive.
+- `close_slot` returned `closed: true`; the router terminated only the owned PID after its graceful
+  shutdown timeout. Earlier retry PIDs 25548 and 42452 were also closed.
+
+The earlier timeout was isolated to a modal **"ID already in use"** error caused by loading an already
+loaded plugin again. Its text was verified through Windows accessibility and a screenshot, then the
+dialog was dismissed. The successful run checks the loaded instance before requesting a load;
+`docs/rhino-live-testing.md` now documents that sequence. No product-code change was needed for this
+test-harness issue. Scripts and numbered tool responses are retained in `.artifacts/live-smoke/`.
+These results establish native geometry, algorithm and command/undo smoke coverage, not full scatter
+UI/bake coverage, viewport appearance/frame time, or 15-million-face performance acceptance.
+
+Reviewed the committed C01/O01–O16 implementation and its tests. Fixed:
+
+- **O06, minimum-spacing regression:** Poisson cell coordinates were clamped at `int.MaxValue`.
+  A small output cap does not limit the initial seed's cell coordinate; on a 1e10-unit region,
+  unrelated cells collided and overwrote earlier samples. A 500-point regression failed before the
+  fix. Full cell-coordinate keys now preserve occupancy, with an exact distance-scan fallback beyond
+  the integer precision of doubles.
+- **O06, count overflow and cancellation:** random sampling converted a huge target to `int` before
+  applying the cap and returned zero points. Cap before conversion (regression failed before the fix).
+  Grid sampling now checks cancellation every 4,096 candidates within a row; rejected candidates on
+  a long row otherwise delayed cancellation until potentially billions of cells had been visited.
+- **O11, per-worker memory regression:** parallel start tracing allocated a face-sized stamp array
+  per worker (60 MB each at 15 million faces). Reusable sparse query scratch now grows with visited
+  candidates. Dense/sparse candidate sequences match, serial/parallel waterflow tests pass, and a
+  localized query against a 15-million-item capacity allocates less than 16 KB in the regression.
+
+Validation: `dotnet test MoleHill.sln --no-restore --verbosity quiet` — Core 682 passed; Rhino 516
+passed / 93 skipped; Grasshopper 35 passed / 14 skipped. The focused scatter, spatial-index and
+waterflow run passed all 53 tests. Opt-in performance cases were not enabled in these runs. Native
+Rhino interaction, viewport performance and full-scale peak memory were not verified in this review.
+
+**Live smoke attempt, 2026-09-10 — inconclusive:**
+`dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj --no-restore --verbosity quiet` passed with
+zero warnings/errors. The configured router could not spawn under its process restriction; a separate
+router launched outside that restriction successfully created disposable Rhino 8 slots. The first
+(`aardvark`, PID 40288) exposed missing `System` imports in the test script and was closed. The corrected
+attempt (`aardvark`, PID 29820) answered the initial `run_csharp` document check, but the combined plugin
+load/scatter/waterflow script timed out after 300 seconds. `get_context` still reported zero objects;
+`run_command("_Redraw")` reported an already-running command. Exact plugin load and all smoke assertions
+remain unverified; no application defect is inferred from the timeout. Window inspection was unavailable
+because computer-use approval timed out. `close_slot` reported `closed: true` for both attempts (the
+router escalated to terminating each exact PID after its graceful-close timeout). Diagnostic scripts
+and second-attempt responses are in `.artifacts/live-smoke/`. A follow-up should split plugin load and
+individual assertions into separate calls before retrying the smoke test.
+
+The checklist below records implementation progress, **not satisfaction of every "Done when"**.
+In particular O04 still lacks bounded membership-growth measurements, O05 still scans every face,
+O09 still has uninterruptible mapping/index/setup/classification phases, O10 lacks lifetime profiling,
+O11 lacks throughput measurements, O12 retains raw segment buffers, and O14 lacks downstream quad
+quality measurements. O16 is a preliminary synthetic baseline up to one million faces, not a
+15-million-face acceptance run. Keep these acceptance tasks open.
 
 ## Scope and confidence
 
-This review examines the working tree **including the uncommitted zone-splitting improvements**. It is a source-level survey of Core geometry, Rhino build/output/cache/display paths, and selected Grasshopper consumers. It is not a measured ranking of the actual 15-million-face model. No new benchmarks or native Rhino tests were run for this document. The prior implementation turn reported 560 passing Core tests; that does not validate the hypotheses below.
+The original survey examined the working tree **including the then-uncommitted zone-splitting improvements**. It covered Core geometry, Rhino build/output/cache/display paths, and selected Grasshopper consumers. It is not a measured ranking of the actual 15-million-face model. Later implementation notes and the O16 preliminary benchmark are recorded below; the original source observations describe the pre-change code and their line numbers may have moved.
 
 “Confirmed pattern” means the allocations or loops are present in inspected code. “Deep dive” means frequency, real cost, and the safest replacement still need measurement. Priorities describe investigation order, not promises of speedup. A linear pass is not automatically a defect, and an index or parallel loop is not automatically cheap.
 
@@ -13,25 +84,26 @@ The already-addressed area splitter changes are not proposed again: on-demand fa
 
 ## Suggested order
 
-Each unchecked row is an independent work item. Start with the correctness investigation, then choose the workload that matters most. Avoid one repository-wide rewrite.
+Each row is an independent work item. Checked rows have an implementation or recorded baseline; consult
+the acceptance gaps above before treating an item as closed. Avoid one repository-wide rewrite.
 
 | Status | ID | Priority | Deep dive | Main scale driver |
 |---|---|---|---|---|
-| [x] | C01 | Resolved | Reference-comparison cache identity | Multiple meshes in one zone |
-| [x] | O01 | Resolved | Constraint topology insertion | Terrain faces and constraint segments |
-| [x] | O02 | Resolved | Partition zone outputs in one pass | Faces × boundary entries |
-| [x] | O03 | Resolved | Remesh flip adjacency and feature setup | Faces × sweeps × iterations |
-| [x] | O04 | Resolved | Spatial-index construction and retained scratch | Face-cell memberships and worker count |
-| [x] | O05 | Resolved | Localize stroke commit and constraint evaluation | Whole mesh per stroke; protection edges |
-| [x] | O06 | Resolved | Sparse Poisson occupancy and prepared containment | Bounding-box area / spacing² |
-| [x] | O07 | Resolved | Reuse reference projection contexts safely | Reference faces × comparisons |
-| [x] | O08 | Resolved | Work-region and grading containment queries | Points/faces × polygon edges |
-| [x] | O09 | Resolved | Cancellation latency in heavy Core stages | Superseded work and retained geometry |
-| [x] | O10 | Resolved | Cache/display geometry ownership and peak memory | Mesh copies × stages/workers |
-| [x] | O11 | Resolved | Waterflow setup and independent traces | Faces plus starts × path length |
-| [x] | O12 | Resolved | Contour output and stitching allocations | Emitted segments and contour levels |
-| [x] | O13 | Resolved | Seam deviation nearest-segment queries | Source vertices × target edges |
-| [x] | O14 | Resolved | Cross-field solver convergence | Vertices × iterations |
+| [x] | C01 | Implemented | Reference-comparison cache identity | Multiple meshes in one zone |
+| [x] | O01 | Implemented | Constraint topology insertion | Terrain faces and constraint segments |
+| [x] | O02 | Implemented | Partition zone outputs in one pass | Faces × boundary entries |
+| [x] | O03 | Implemented | Remesh flip adjacency and feature setup | Faces × sweeps × iterations |
+| [x] | O04 | Implemented | Spatial-index construction and retained scratch | Face-cell memberships and worker count |
+| [x] | O05 | Implemented | Localize stroke commit and constraint evaluation | Whole mesh per stroke; protection edges |
+| [x] | O06 | Implemented | Sparse Poisson occupancy and prepared containment | Bounding-box area / spacing² |
+| [x] | O07 | Implemented | Reuse reference projection contexts safely | Reference faces × comparisons |
+| [x] | O08 | Implemented | Work-region and grading containment queries | Points/faces × polygon edges |
+| [x] | O09 | Implemented | Cancellation latency in heavy Core stages | Superseded work and retained geometry |
+| [x] | O10 | Implemented | Cache/display geometry ownership and peak memory | Mesh copies × stages/workers |
+| [x] | O11 | Implemented | Waterflow setup and independent traces | Faces plus starts × path length |
+| [x] | O12 | Implemented | Contour output and stitching allocations | Emitted segments and contour levels |
+| [x] | O13 | Implemented | Seam deviation nearest-segment queries | Source vertices × target edges |
+| [x] | O14 | Implemented | Cross-field solver convergence | Vertices × iterations |
 | [ ] | O15 | **Blocked on measurement** | Scatter preview draw calls | Visible instances × shape points |
 | [x] | O16 | Baseline measured | Remaining zone splitter memory and index behavior | Full terrain plus boundary distribution |
 
@@ -216,15 +288,18 @@ cases.
 
 ## O06 — Scatter has a dense domain allocation before the sample cap helps
 
-**Resolved 2026-09-10:** `SamplePoisson`'s backing grid is now a cell-keyed `Dictionary<long, int>`
+**Implemented 2026-09-10; corrected during review:** `SamplePoisson`'s backing grid is now a cell-keyed dictionary
 instead of a dense `int[gridWidth * gridHeight]`. Bridson's grid holds at most one sample per cell, so
 sparse occupancy costs one dictionary entry per accepted sample and no object per entry; the dense form
 allocated on bounding-box area over spacing squared regardless of the cap, and its `int` product
-overflowed outright on a large region with a small spacing. Grid dimensions in both `SamplePoisson` and
-`SampleGrid` are now counted in doubles and clamped (Poisson to int range, so the packed cell key stays
-injective) rather than cast through an `int` that wrapped negative and silently produced nothing. The
+overflowed outright on a large region with a small spacing. Poisson uses full integer-valued double
+cell coordinates without clamping; beyond their exact range it checks distances against all accepted
+samples. Grid dimensions are counted in doubles before clamping traversal dimensions. The
 5x5 neighbourhood is visited in the same order and returns on the first violation, and the RNG stream
-is untouched, so seeded output is unchanged.
+is untouched for ordinary domains. Corrected extreme domains no longer lose occupancy or minimum spacing.
+The output cap bounds emitted points, not all accepted samples: Bridson expansion still accepts points
+outside the loops to reach disconnected regions. Sparse/disconnected-domain memory therefore remains
+an acceptance measurement, rather than being guaranteed proportional to the output cap.
 
 Containment is prepared with per-loop bounding boxes computed once: a candidate outside a loop's box is
 outside that loop, so its edges are never walked. Loop semantics (inside **any** loop) are unchanged.
@@ -381,7 +456,8 @@ made it unshareable. Those buffers moved into a per-caller `QueryState`, leaving
 and shareable; `FindContainingFace` takes the state instead of allocating a candidate list per start.
 With that, the start loop parallelises above a threshold (at least 8 starts and enough starts x faces
 to cover partition overhead — a handful of starts on a large mesh stays serial). Each worker gets its
-own `QueryState`; every trace is a pure function of read-only vertices, faces, neighbours and its own
+own `QueryState`, using sparse visited candidates after this review rather than a face-sized stamp
+array; every trace is a pure function of read-only vertices, faces, neighbours and its own
 start, so results are written by start index and compacted in order afterwards. Path order, path
 content and the rejected count are therefore identical to the serial loop. Cancellation raised inside
 the parallel body is unwrapped from `AggregateException`, so callers still see
@@ -541,10 +617,12 @@ whether draw submission actually dominates. Do not remove the existing caps to d
 **Baseline measured 2026-09-10.** `MeshAreaTopologySplitterScalingBenchmarkTests` (opt-in via
 `MOLEHILL_PERF=1`, Release) drives the splitter's own `PerformanceTimings` along the review's
 independent scale axes and reports per-phase elapsed and process-wide allocation, touched-face ratio,
-output growth, and the managed heap delta after a settling collection.
+output growth, and a managed heap delta sampled after the call. Collection happens before the call;
+the after-sample is uncollected and is neither retained-live memory nor peak memory.
 
-Machine: this development box, Release, .NET 8, synthetic regular grids. Medians of single runs — the
-shape of the numbers is the point, not their absolute values.
+Machine: this development box, Release, .NET 8, synthetic regular grids. These are single-run
+observations, with no per-case warmup, median or spread. Repeat with warmups and isolated repeated
+runs before using the numbers to select or accept an optimization.
 
 **Terrain faces, one fixed boundary:**
 
@@ -579,7 +657,7 @@ tolerance (`_inverseCellSize = 1 / tolerance`), so on a terrain whose vertices a
 degenerates into one entry per vertex (~40+ bytes), which is where the remaining ~75 B/vertex goes. The
 head/tail links already avoided a list per cell — the problem is the cell *size*, not the cell storage.
 
-**Next change, now justified by measurement:** give `GlobalPointLookup` a cell size derived from
+**Candidate for repeated before/after measurement:** give `GlobalPointLookup` a cell size derived from
 geometry scale rather than from tolerance, so occupied cells are proportional to genuine spatial
 clustering instead of to vertex count, and consider deferring vertex registration to the faces that are
 actually touched (0.28%–5.34% of them in every case above). Both must preserve the lookup's insertion

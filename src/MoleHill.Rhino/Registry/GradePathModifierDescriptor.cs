@@ -29,7 +29,8 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
             "Width", "Width",
             m => ((GradePathModifierDefinition)m).Width,
             (m, v) => ((GradePathModifierDefinition)m).Width = v,
-            "Finished path width. This is the flat or controlled-width core before side grading starts."),
+            "Finished path width. This is the flat or controlled-width core before side grading starts.",
+            unit: ParameterUnit.ModelLength),
         ModifierParam.Bool(
             "UseVariableWidth", "Variable Width",
             m => ((GradePathModifierDefinition)m).UseVariableWidth,
@@ -46,22 +47,24 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
             m => ((GradePathModifierDefinition)m).MaxEdgeDistance,
             (m, v) => ((GradePathModifierDefinition)m).MaxEdgeDistance = v,
             "Maximum plan distance for matching a width edge to a centerline. A larger value helps match edges on wide sites; set to 0 to use the automatic four-times-Width fallback.",
+            unit: ParameterUnit.ModelLength,
             visibleWhen: static m => ((GradePathModifierDefinition)m).UseVariableWidth),
-        ModifierParam.Number(
+        ModifierParam.Slope(
             "SlopeAngle", "Fill Slope",
             m => ((GradePathModifierDefinition)m).SlopeAngle,
             (m, v) => ((GradePathModifierDefinition)m).SlopeAngle = v,
-            "Fill slope in degrees, used where terrain sits below the road. This is the main slope; the cut slope inherits it unless overridden. Lower values spread the shoulder farther."),
-        ModifierParam.OptionalNumber(
+            "Fill slope, used where terrain sits below the road. This is the main slope; the cut slope inherits it unless overridden. Flatter slopes spread the shoulder farther."),
+        ModifierParam.OptionalSlope(
             "CutSlopeAngle", "Cut Slope",
             m => ((GradePathModifierDefinition)m).CutSlopeAngle,
             (m, v) => ((GradePathModifierDefinition)m).CutSlopeAngle = v,
             m => ((GradePathModifierDefinition)m).SlopeAngle,
-            "Cut slope override in degrees, used where terrain sits above the road. Leave blank to use the fill slope."),
+            "Cut slope override, used where terrain sits above the road."),
         ModifierParam.Number(
             "MaxDistance", "Max Distance",
             m => ((GradePathModifierDefinition)m).MaxDistance,
             (m, v) => ((GradePathModifierDefinition)m).MaxDistance = v,
-            "Maximum grading reach away from the path. 0 means unlimited; lower values constrain the shoulder length."),
+            "Maximum grading reach away from the path. 0 means unlimited; lower values constrain the shoulder length.",
+            unit: ParameterUnit.ModelLength),
     };
 }

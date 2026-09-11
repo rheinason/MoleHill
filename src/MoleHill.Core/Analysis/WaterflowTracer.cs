@@ -115,8 +115,8 @@ public static class WaterflowTracer
 
     /// <summary>
     /// Parallel tracing only pays off once there are enough independent starts to cover the partition
-    /// overhead, and the per-worker query scratch is sized by face count — so a handful of starts on a
-    /// large mesh stays serial.
+    /// overhead. Per-worker query scratch is sparse so a large mesh does not multiply face-sized
+    /// stamp arrays by the worker count.
     /// </summary>
     private static bool ShouldTraceInParallel(int startPointCount, int faceCount)
     {
@@ -533,7 +533,7 @@ public static class WaterflowTracer
         {
             public QueryState(int itemCount)
             {
-                Scratch = new SpatialHashGrid2D.QueryScratch(itemCount);
+                Scratch = new SpatialHashGrid2D.QueryScratch(itemCount, sparse: true);
             }
 
             public SpatialHashGrid2D.QueryScratch Scratch { get; }

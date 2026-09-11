@@ -15,7 +15,38 @@ public class GeometryInputModifierDefinitionTests
             .Select(static parameter => parameter.Key)
             .ToArray();
 
-        Assert.Equal(new[] { "TinMesh", "DemSurface", "Points", "Breaklines", "Contours", "Boundary", "ContourMode" }, keys);
+        // The source rows, then Contour Mode, then the shared boundary-peel rows. The panel re-positions
+        // DemSurface, ContourMode and the peel rows into its own groups, but this order is the schema's
+        // contract for every other consumer.
+        Assert.Equal(
+            new[]
+            {
+                "TinMesh", "DemSurface", "Points", "Breaklines", "Contours", "Boundary", "ContourMode",
+                "PeelBoundaryTriangles", "MaxBoundaryEdgeLength", "MaxBoundaryAngleDegrees",
+                "MaxBoundarySlopeDegrees",
+            },
+            keys);
+    }
+
+    /// <summary>
+    /// Both geometry-input modifiers declare the peel rows from the one shared catalog, so the two cards
+    /// cannot drift apart — and, being declared, the rows are covered by the schema guards that caught
+    /// nothing while they were hand-written panel code.
+    /// </summary>
+    [Fact]
+    public void BothGeometryInputModifiers_DeclareTheSameBoundaryPeelRows()
+    {
+        string[] triangulate = new TriangulateModifierDescriptor().Parameters
+            .Select(static parameter => parameter.Key)
+            .Where(static key => GeometryInputParameterCatalog.BoundaryPeelKeys.Contains(key))
+            .ToArray();
+        string[] addGeometry = new AddGeometryModifierDescriptor().Parameters
+            .Select(static parameter => parameter.Key)
+            .Where(static key => GeometryInputParameterCatalog.BoundaryPeelKeys.Contains(key))
+            .ToArray();
+
+        Assert.Equal(GeometryInputParameterCatalog.BoundaryPeelKeys, triangulate);
+        Assert.Equal(GeometryInputParameterCatalog.BoundaryPeelKeys, addGeometry);
     }
 
     [Fact]

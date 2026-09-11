@@ -11,6 +11,12 @@ Terrain analysis math. Pure, unit-tested.
   `forward`, which is what the old `AddFirst`/`AddLast` produced. Seeds are ordered by minimum endpoint
   degree with an explicit index tiebreak, matching the stable `OrderBy` it replaced.
 - `ContourLevel.cs` / `ContourPolyline.cs` — result types.
+- `SlopeInput.cs` — the single parse/format point for slope values a user reads or types. Converts
+  between ratio, percent, promille, degrees and `1:n` pairs; accepts a unit written into the text
+  (`25%`, `150prom`, `14deg`, `1:3`, `1v:3h`) so a field takes any unit whatever it displays; and owns
+  the one table of per-unit suffix/name/decimals. Every unit has an ASCII spelling, since `‰` and `°`
+  are unreachable from a keyboard. `a:b` is read vertical:horizontal, so `1:3` is the flat one.
+  Pure and Rhino-free — the Rhino side supplies only *which* unit to show, via `SlopeUnitPreference`.
 - `SlopeAnalyzer.cs` — slope analysis. `Summarize` computes min/max/area-weighted average without
   allocating preview colors (auto-fit additionally collects a transient slope + area array, since fitting
   a range needs the distribution); `Analyze` keeps the per-face slope + palette mapping path for colored
@@ -59,7 +65,8 @@ Terrain analysis math. Pure, unit-tested.
   Setup (face adjacency + face index) runs once per call; the traces are independent functions of
   read-only state, so above a start-count/face-count threshold they run in parallel. `FaceSpatialIndex`
   is immutable and its query buffers live in a per-worker `QueryState` — that separation is what makes
-  one index shareable, so do not put scratch back on the index. Results are written by start index and
+  one index shareable, so do not put scratch back on the index. Scratch uses sparse visited sets,
+  sized by queried candidates rather than terrain faces per worker. Results are written by start index and
   compacted afterwards, so path order and the rejected count match the serial loop exactly; a
   cancellation raised inside the parallel loop is unwrapped from `AggregateException` so callers still
   see `OperationCanceledException`.

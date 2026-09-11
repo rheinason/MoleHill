@@ -1,3 +1,4 @@
+// Immutable spatial grid with dense or sparse caller-owned query scratch.
 namespace MoleHill.Core.Engine;
 
 internal readonly record struct Bounds2D(double MinX, double MaxX, double MinY, double MaxY)
@@ -19,20 +20,27 @@ internal sealed class SpatialHashGrid2D
     {
         private int[] _marks;
         private int _stamp;
+        private readonly HashSet<int>? _visited;
 
-        public QueryScratch(int itemCapacity = 0)
+        // Sparse scratch is for localized queries on a large shared index: workers then retain
+        // only the candidates they visit, rather than an item-sized stamp array each.
+        public QueryScratch(int itemCapacity = 0, bool sparse = false)
         {
-            _marks = itemCapacity > 0 ? new int[itemCapacity] : Array.Empty<int>();
+            _visited = sparse ? new HashSet<int>() : null;
+            _marks = !sparse && itemCapacity > 0 ? new int[itemCapacity] : Array.Empty<int>();
         }
 
         internal void EnsureCapacity(int itemCount)
         {
-            if (_marks.Length < itemCount)
+            if (_visited == null && _marks.Length < itemCount)
                 _marks = new int[itemCount];
         }
 
         internal bool TryVisit(int itemIndex)
         {
+            if (_visited != null)
+                return _visited.Add(itemIndex);
+
             if (_marks.Length == 0)
                 return true;
 
@@ -55,6 +63,12 @@ internal sealed class SpatialHashGrid2D
 
         internal void BeginQuery(int itemCount)
         {
+            if (_visited != null)
+            {
+                _visited.Clear();
+                return;
+            }
+
             EnsureCapacity(itemCount);
             if (_stamp == int.MaxValue)
             {

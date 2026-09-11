@@ -43,7 +43,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Toolbars\**\*">
+    <!-- Toolbars\icons\ is generator source only: generate-toolbar-icons.ps1 packs those PNGs into
+         the .rui's sprite strips, so shipping them again would be dead weight in the plugin. -->
+    <Content Include="Toolbars\**\*" Exclude="Toolbars\icons\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

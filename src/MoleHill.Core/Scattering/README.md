@@ -10,7 +10,9 @@ instances.
   SplitMix64 RNG (not `System.Random`) so results are stable across runtimes and rebuilds. Poisson
   occupancy is **sparse** (a cell-keyed dictionary, at most one entry per accepted sample) — a dense
   domain grid made the allocation a function of extent / spacing squared, unrelated to the requested
-  cap, and its int product overflowed on a large region. Grid and Poisson dimensions are counted in
-  doubles and clamped, so an extreme extent no longer wraps negative and silently emits nothing. Every
+  cap, and its int product overflowed on a large region. Poisson cell keys retain full integer-valued
+  double coordinates; beyond their exact range, spacing checks fall back to scanning accepted samples.
+  Random counts are capped before integer conversion. Grid traversal checks cancellation within long
+  rows, including rejected candidates. Every
   candidate is tested against per-loop bounding boxes before any polygon edge is walked.
 - `ScatterRequest.cs` — the input bundle.

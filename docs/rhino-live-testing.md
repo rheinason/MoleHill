@@ -38,15 +38,26 @@ run_csharp(slot, "Console.WriteLine(__rhino_doc__.Objects.Count);")
 
 ## 3. Load the plugin and confirm it really loaded
 
-Load by path from a script — **not** via `_PlugInManager`, which opens a modal dialog and wedges the
-slot (see Known failure modes):
+First check whether the exact build is already loaded. MoleHill loads at startup; calling the path
+overload again can open a modal "ID already in use" error even when the expected assembly is active.
+Use `PlugIn.Find` with MoleHill's ID and verify the instance's assembly path. Only load by path when
+there is no loaded instance — **not** via `_PlugInManager`, which opens a modal dialog:
 
 ```csharp
-System.Guid id;
-var r = Rhino.PlugIns.PlugIn.LoadPlugIn(
-    @"C:\Users\hbxma\Dropbox\TopoTest\src\MoleHill.Rhino\bin\Debug\net7.0\MoleHill.Rhino.rhp",
-    out id);
-Console.WriteLine("result=" + r);          // LoadPlugInResult, not bool
+var id = new System.Guid("0c0b9e83-4959-437e-a935-4addf0d3f886");
+string expected = @"C:\Users\hbxma\Dropbox\TopoTest\src\MoleHill.Rhino\bin\Debug\net7.0\MoleHill.Rhino.rhp";
+var plugin = Rhino.PlugIns.PlugIn.Find(id);
+if (plugin == null)
+{
+    var result = Rhino.PlugIns.PlugIn.LoadPlugIn(expected, out id);
+    Console.WriteLine("result=" + result);
+    plugin = Rhino.PlugIns.PlugIn.Find(id);
+}
+if (plugin == null || !string.Equals(plugin.GetType().Assembly.Location, expected,
+    System.StringComparison.OrdinalIgnoreCase))
+    throw new System.Exception("The exact plugin build is not loaded.");
+Console.WriteLine(plugin.GetType().Assembly.Location);
+Console.WriteLine(plugin.GetType().Assembly.ManifestModule.ModuleVersionId);
 ```
 
 Then verify two things, because `LoadPlugIn` reports `Success` for an already-registered plugin
@@ -60,9 +71,11 @@ whether or not this session actually loaded it:
   Console.WriteLine(Rhino.RhinoApp.CommandHistoryWindowText);
   ```
 
-  A `Blocking plug-in MoleHill.Rhino.` line means Rhino refused the assembly, and anything observed
-  afterwards is not a valid test of the build. Check the outputs for Mark of the Web
-  (`Get-Item <file> -Stream Zone.Identifier`), unblock, then respawn the slot.
+  A `Blocking plug-in MoleHill.Rhino.` line requires checking the loaded instance, not assuming success
+  or failure from history alone. In the 2026-09-10 smoke run, that startup line coexisted with a loaded
+  instance at the exact build path. If the instance is absent or points elsewhere, the build remains
+  unverified. Inspect registration and Mark of the Web (`Get-Item <file> -Stream Zone.Identifier`)
+  before choosing a repair; never test another installed version as though it were the new build.
 
 ## 4. Build the scene and drive the command as data
 

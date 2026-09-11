@@ -66,6 +66,14 @@ using AnnotationParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhi
 - **`Kind`** (`ParameterKind`) — Sources / Number / OptionalNumber / Slider / Bool / ReadOnly / Choice /
   Color / ColorRamp / Text / BlockMix. Use the static factories (`Number`, `Slider`, `Sources`, …) rather
   than the object initializer; they set the accessor pair each kind needs.
+- **`Unit`** (`ParameterUnit`) — what the number means: `None`, `ModelLength` (labelled with the
+  document's unit abbreviation), `Degrees` (a *true* angle — a dihedral crease or a rotation, never
+  converted), `Slope`, or `Percent`. Every numeric row declares one; the schema builder turns it into the
+  row's trailing unit label. `Slope` additionally routes the row to the unit-aware slope field, which
+  displays in `SlopeUnitPreference.Current` and accepts `25%` / `1:3` / `150prom` / `14deg` typed into it
+  while the definition still stores degrees. Use the `Slope` / `OptionalSlope` / `SlopeSlider` factories rather
+  than passing `unit:` by hand — they also apply the 0-90 bounds a stored angle needs.
+  `ParameterSchemaGuardTests` fails if a parameter that reads as a slope does not declare it.
 - **Accessors** — typed get/set delegates against the concrete definition (cast inside, mirroring the old
   hand-written card mutations). `ParameterSchemaGuardTests` asserts that every declared row actually
   carries the pair its kind requires, across all four families.
@@ -120,6 +128,11 @@ Other pieces in this folder:
   single declaration of every output destination: stable id, parent, default path, appearance, and whether
   its colour is data or drafting. The shipped layer template is generated from it. See
   `docs/architecture.md` → "Output layer roles".
+- `GeometryInputParameterCatalog.cs` — the boundary-peel rows (`Enabled`, `Max Edge`, `Max Angle`,
+  `Slope Limit`) shared by Triangulate and Add Geometry, declared once the way `ObjectParameterCatalog`
+  declares the shared object rows. The panel positions them inside its own "Peel Border" rule via
+  `IsBespokePositionedModifierParameter`; they were hand-written until the slope-unit work, which is
+  exactly why `Slope Limit` escaped the schema guard and shipped as an unlabelled degrees field.
 - `AnalysisFormatting.cs` — pure slope-unit/value-format/layer-color formatting helpers shared by the
   schema descriptors and the panel's hand-written rows. Lives here (not in `MoleHill.Rhino.UI`) so
   `MoleHill.Rhino.Tests`, which links `Registry/*.cs` directly without a UI reference, can still compile

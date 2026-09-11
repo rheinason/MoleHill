@@ -32,7 +32,7 @@ public sealed class SlopeAnalysisComponent : RegistryTerrainComponent
         Inputs = new[]
         {
             GhPort.Mesh("Mesh", "M", "Terrain mesh to analyze."),
-            GhPort.Integer("Unit", "U", "Slope unit: 0=ratio, 1=percent, 2=degrees.", @default: 1),
+            GhPort.Integer("Unit", "U", "Slope unit: 0=ratio, 1=percent, 2=degrees, 3=promille.", @default: 1),
             GhPort.Number("Low", "L", "Low end of color range (green). Default 0.", @default: 0.0),
             GhPort.Number("High", "H", "High end of color range (red). 0 = auto from data.", @default: 0.0),
         },

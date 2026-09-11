@@ -1,4 +1,6 @@
 using System.Drawing;
+using System.Linq;
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Shared;
 using Rhino;
@@ -72,19 +74,24 @@ internal static class GeometryCommandService
             return getBasePoint.CommandResult();
 
         Point3d basePoint = getBasePoint.Point();
-        double promille = CommandOptionCache.GetValue("MoleHill.GradientInterpolation.Promille", 100.0);
+
+        // Was a hardcoded Promille option. The slope is the same quantity mhSlopeCurve and mhOffsetFeature
+        // ask for, so it is asked for the same way — in whichever unit the user works in.
+        var slope = new SlopeCommandOption("MoleHill.GradientInterpolation.Slope", 0.1);
 
         while (true)
         {
             var getPoint = new GetPoint();
-            getPoint.SetCommandPrompt("Place point or press Enter to finish");
+            getPoint.SetCommandPrompt($"Place point or press Enter to finish (slope {slope.Description})");
             getPoint.AcceptNothing(true);
-            var promilleOption = new OptionDouble(promille, -1000.0, 1000.0);
-            getPoint.AddOptionDouble("Promille", ref promilleOption);
+            slope.AddTo(getPoint);
             getPoint.DynamicDraw += (_, e) =>
             {
                 Point3d previewPoint = e.CurrentPoint;
-                double elevation = GeometryCommandAlgorithms.InterpolateGradientElevation(basePoint, previewPoint, promilleOption.CurrentValue);
+                double elevation = GeometryCommandAlgorithms.InterpolateGradientElevation(
+                    basePoint,
+                    previewPoint,
+                    SlopeAnalyzer.ConvertRatioToUnit(slope.Ratio, SlopeAnalyzer.SlopeUnit.Promille));
                 var liftedPoint = new Point3d(previewPoint.X, previewPoint.Y, elevation);
                 e.Display.DrawPoint(liftedPoint);
                 e.Display.DrawDot(liftedPoint, elevation.ToString("F3"), TrackingColor, FeedbackColor);
@@ -93,8 +100,7 @@ internal static class GeometryCommandService
             GetResult result = getPoint.Get();
             if (result == GetResult.Option)
             {
-                promille = promilleOption.CurrentValue;
-                CommandOptionCache.SetValue("MoleHill.GradientInterpolation.Promille", promille);
+                slope.Commit(getPoint, result);
                 continue;
             }
 
@@ -104,11 +110,13 @@ internal static class GeometryCommandService
             if (result != GetResult.Point)
                 return getPoint.CommandResult();
 
-            promille = promilleOption.CurrentValue;
-            CommandOptionCache.SetValue("MoleHill.GradientInterpolation.Promille", promille);
+            slope.Commit(getPoint, result);
 
             Point3d point = getPoint.Point();
-            double z = GeometryCommandAlgorithms.InterpolateGradientElevation(basePoint, point, promille);
+            double z = GeometryCommandAlgorithms.InterpolateGradientElevation(
+                basePoint,
+                point,
+                SlopeAnalyzer.ConvertRatioToUnit(slope.Ratio, SlopeAnalyzer.SlopeUnit.Promille));
             doc.Objects.AddPoint(new Point3d(point.X, point.Y, z));
             doc.Views.Redraw();
         }
@@ -133,7 +141,7 @@ internal static class GeometryCommandService
             sourceCurve.PointAtStart.Z,
             sourceCurve.PointAtEnd.Z,
             doc.ModelAbsoluteTolerance);
-        double percentage = CommandOptionCache.GetValue("MoleHill.SlopeCurve.Percentage", 5.0);
+        var slope = new SlopeCommandOption("MoleHill.SlopeCurve.Slope", 0.05);
         bool replaceInput = CommandOptionCache.GetValue("MoleHill.SlopeCurve.ReplaceInput", true);
 
         while (true)
@@ -141,14 +149,13 @@ internal static class GeometryCommandService
             var getOption = new GetPoint();
             getOption.SetCommandPrompt(
                 usePercentage
-                    ? "Adjust slope options or press Enter to accept"
+                    ? $"Adjust slope options or press Enter to accept (slope {slope.Description})"
                     : "Curve already has slope; press Enter to use endpoints");
             getOption.AcceptNothing(true);
             getOption.AcceptPoint(false);
             var replaceOption = new OptionToggle(replaceInput, "Copy", "Replace");
-            var percentageOption = new OptionDouble(percentage, -100000.0, 100000.0);
             if (usePercentage)
-                getOption.AddOptionDouble("Percent", ref percentageOption);
+                slope.AddTo(getOption);
 
             getOption.AddOptionToggle("ReplaceInput", ref replaceOption);
             getOption.DynamicDraw += (_, e) =>
@@ -159,7 +166,7 @@ internal static class GeometryCommandService
                 bool previewSucceeded = usePercentage
                     ? GeometryCommandAlgorithms.TryCreateSlopeCurve(
                         sourceCurve,
-                        percentageOption.CurrentValue / 100.0,
+                        slope.Ratio,
                         out previewCurve,
                         out previewError)
                     : GeometryCommandAlgorithms.TryCreateSlopeCurveFromEndPoints(
@@ -179,10 +186,9 @@ internal static class GeometryCommandService
             if (optionResult == GetResult.Option)
             {
                 if (usePercentage)
-                    percentage = percentageOption.CurrentValue;
+                    slope.Commit(getOption, optionResult);
 
                 replaceInput = replaceOption.CurrentValue;
-                CommandOptionCache.SetValue("MoleHill.SlopeCurve.Percentage", percentage);
                 CommandOptionCache.SetValue("MoleHill.SlopeCurve.ReplaceInput", replaceInput);
                 continue;
             }
@@ -197,7 +203,7 @@ internal static class GeometryCommandService
         string? error;
         double slopeRatio = 0.0;
         bool succeeded = usePercentage
-            ? GeometryCommandAlgorithms.TryCreateSlopeCurve(sourceCurve, percentage / 100.0, out resultCurve, out error)
+            ? GeometryCommandAlgorithms.TryCreateSlopeCurve(sourceCurve, slope.Ratio, out resultCurve, out error)
             : GeometryCommandAlgorithms.TryCreateSlopeCurveFromEndPoints(sourceCurve, out resultCurve, out slopeRatio, out error);
 
         if (!succeeded || resultCurve == null)
@@ -206,8 +212,9 @@ internal static class GeometryCommandService
             return Result.Failure;
         }
 
+        // Report the measured slope in the unit the user works in, not a hardcoded percent.
         if (!usePercentage)
-            RhinoApp.WriteLine($"Slope = {(slopeRatio * 100.0):F2}%");
+            RhinoApp.WriteLine($"Slope = {SlopeInput.FormatWithUnit(slopeRatio, SlopeUnitPreference.Current)}");
 
         if (replaceInput)
         {
@@ -461,12 +468,16 @@ internal static class GeometryCommandService
         return Result.Success;
     }
 
-    private static readonly OffsetVerticalMode[] OffsetVerticalModes =
+    /// <summary>
+    /// The vertical is either an outright height change or a slope. It used to offer Percent, Degrees
+    /// and Ratio as three separate modes, which made the command the odd one out — the same slope, asked
+    /// for three ways, none of them the way mhSlopeCurve asked. They collapse into one Slope mode whose
+    /// unit is the shared preference, and which accepts all three (and promille) through it.
+    /// </summary>
+    private static readonly (string Label, bool IsSlope)[] OffsetVerticalModes =
     {
-        OffsetVerticalMode.Elevation,
-        OffsetVerticalMode.Percent,
-        OffsetVerticalMode.Degrees,
-        OffsetVerticalMode.Ratio
+        ("Elevation", false),
+        ("Slope", true),
     };
 
     public static Result RunOffsetFeature(RhinoDoc doc)
@@ -510,42 +521,41 @@ internal static class GeometryCommandService
         int verticalModeIndex = CommandOptionCache.GetValue("MoleHill.OffsetFeature.VerticalMode", 0);
         verticalModeIndex = Math.Clamp(verticalModeIndex, 0, OffsetVerticalModes.Length - 1);
         double elevationValue = CommandOptionCache.GetLength(offsetElevationKey, unitContext, 0.0);
-        double percentValue = CommandOptionCache.GetValue("MoleHill.OffsetFeature.Percent", 0.0);
-        double degreesValue = CommandOptionCache.GetValue("MoleHill.OffsetFeature.Degrees", 0.0);
-        double ratioValue = CommandOptionCache.GetValue("MoleHill.OffsetFeature.Ratio", 10.0);
+        var slope = new SlopeCommandOption("MoleHill.OffsetFeature.Slope", 0.0);
         bool useSourceLayer = CommandOptionCache.GetValue("MoleHill.OffsetFeature.UseSourceLayer", false);
 
         while (true)
         {
-            OffsetVerticalMode verticalMode = OffsetVerticalModes[verticalModeIndex];
+            bool verticalIsSlope = OffsetVerticalModes[verticalModeIndex].IsSlope;
             var getPoint = new GetPoint();
-            getPoint.SetCommandPrompt("Pick offset side or type distance");
+            getPoint.SetCommandPrompt(verticalIsSlope
+                ? $"Pick offset side or type distance (slope {slope.Description})"
+                : "Pick offset side or type distance");
             getPoint.AcceptNumber(true, false);
             var distanceOption = new OptionDouble(offsetDistance, RhinoMath.ZeroTolerance, 1000000000.0);
             getPoint.AddOptionDouble("Distance", ref distanceOption);
 
             int verticalListIndex = getPoint.AddOptionList(
                 "Vertical",
-                new[] { "Elevation", "Percent", "Degrees", "Ratio" },
+                OffsetVerticalModes.Select(mode => mode.Label),
                 verticalModeIndex);
 
-            // The GetPoint is rebuilt every iteration, so the numeric option can be labelled for
-            // whichever vertical mode is active.
-            var verticalOption = new OptionDouble(GetVerticalOptionValue(
-                verticalMode,
-                elevationValue,
-                percentValue,
-                degreesValue,
-                ratioValue));
-            getPoint.AddOptionDouble(GetVerticalOptionName(verticalMode), ref verticalOption);
+            // The GetPoint is rebuilt every iteration, so the vertical shows either a height field or
+            // the shared slope pair, never both.
+            var verticalOption = new OptionDouble(elevationValue);
+            if (verticalIsSlope)
+                slope.AddTo(getPoint);
+            else
+                getPoint.AddOptionDouble("DeltaZ", ref verticalOption);
 
             var layerOption = new OptionToggle(useSourceLayer, "Current", "Source");
             getPoint.AddOptionToggle("Layer", ref layerOption);
 
             getPoint.DynamicDraw += (_, e) =>
             {
-                if (!GeometryCommandAlgorithms.TryResolveVerticalDelta(
-                        verticalMode,
+                if (!TryResolveOffsetVertical(
+                        verticalIsSlope,
+                        slope.Ratio,
                         verticalOption.CurrentValue,
                         distanceOption.CurrentValue,
                         out double previewVerticalDelta,
@@ -588,7 +598,7 @@ internal static class GeometryCommandService
 
             if (pointResult == GetResult.Option)
             {
-                CommitOptions();
+                CommitOptions(pointResult);
                 if (getPoint.OptionIndex() == verticalListIndex)
                     verticalModeIndex = getPoint.Option().CurrentListOptionIndex;
 
@@ -599,10 +609,11 @@ internal static class GeometryCommandService
             if (pointResult != GetResult.Point)
                 return getPoint.CommandResult();
 
-            CommitOptions();
+            CommitOptions(pointResult);
 
-            if (!GeometryCommandAlgorithms.TryResolveVerticalDelta(
-                    verticalMode,
+            if (!TryResolveOffsetVertical(
+                    verticalIsSlope,
+                    slope.Ratio,
                     verticalOption.CurrentValue,
                     offsetDistance,
                     out double verticalDelta,
@@ -636,7 +647,7 @@ internal static class GeometryCommandService
             doc.Views.Redraw();
             return Result.Success;
 
-            void CommitOptions()
+            void CommitOptions(GetResult commitResult)
             {
                 offsetDistance = Math.Abs(distanceOption.CurrentValue);
                 CommandOptionCache.SetLength(offsetDistanceKey, unitContext, offsetDistance);
@@ -644,58 +655,159 @@ internal static class GeometryCommandService
                 useSourceLayer = layerOption.CurrentValue;
                 CommandOptionCache.SetValue("MoleHill.OffsetFeature.UseSourceLayer", useSourceLayer);
 
-                switch (verticalMode)
+                if (verticalIsSlope)
                 {
-                    case OffsetVerticalMode.Elevation:
-                        elevationValue = verticalOption.CurrentValue;
-                        CommandOptionCache.SetLength(offsetElevationKey, unitContext, elevationValue);
-                        break;
-                    case OffsetVerticalMode.Percent:
-                        percentValue = verticalOption.CurrentValue;
-                        CommandOptionCache.SetValue("MoleHill.OffsetFeature.Percent", percentValue);
-                        break;
-                    case OffsetVerticalMode.Degrees:
-                        degreesValue = verticalOption.CurrentValue;
-                        CommandOptionCache.SetValue("MoleHill.OffsetFeature.Degrees", degreesValue);
-                        break;
-                    case OffsetVerticalMode.Ratio:
-                        ratioValue = verticalOption.CurrentValue;
-                        CommandOptionCache.SetValue("MoleHill.OffsetFeature.Ratio", ratioValue);
-                        break;
+                    slope.Commit(getPoint, commitResult);
+                }
+                else
+                {
+                    elevationValue = verticalOption.CurrentValue;
+                    CommandOptionCache.SetLength(offsetElevationKey, unitContext, elevationValue);
                 }
             }
         }
     }
 
+
     /// <summary>
-    /// Label for the numeric option paired with the active vertical mode. These deliberately differ
-    /// from the "Vertical" list values so neither is ambiguous when typed at the command line.
+    /// The slope value + unit option pair every slope-taking command shares, so mhSlopeCurve,
+    /// mhGradientInterpolation and mhOffsetFeature no longer each demand a different unit — one asked
+    /// for percent, one for promille and one for degrees, and none of them said which at the prompt.
+    ///
+    /// <para>The command holds a slope as a ratio; the option shows and reads it in the user's slope
+    /// unit (<see cref="SlopeUnitPreference"/>), the same preference the panel's cards use. Switching
+    /// units here therefore switches them in the panel too — it is one setting, reachable from wherever
+    /// the user happens to be. Under the Ratio unit the value is the run <c>n</c> of 1:n, which is how
+    /// that unit has always been entered at the command line.</para>
     /// </summary>
-    private static string GetVerticalOptionName(OffsetVerticalMode mode)
+    private sealed class SlopeCommandOption
     {
-        return mode switch
+        /// <summary>Steepest ratio still expressible as an angle, so switching to Degrees cannot fail.</summary>
+        private static readonly double MaxRatio = Math.Tan(RhinoMath.ToRadians(SlopeInput.MaxSlopeDegrees));
+
+        private static readonly (string Label, SlopeAnalyzer.SlopeUnit Unit)[] UnitChoices =
         {
-            OffsetVerticalMode.Percent => "Grade",
-            OffsetVerticalMode.Degrees => "Angle",
-            OffsetVerticalMode.Ratio => "Run",
-            _ => "DeltaZ"
+            ("Percent", SlopeAnalyzer.SlopeUnit.Percent),
+            ("Promille", SlopeAnalyzer.SlopeUnit.Promille),
+            ("Ratio1toN", SlopeAnalyzer.SlopeUnit.Ratio),
+            ("Degrees", SlopeAnalyzer.SlopeUnit.Degrees),
         };
+
+        private readonly string _cacheKey;
+        private SlopeAnalyzer.SlopeUnit _unit;
+        private OptionDouble _value = new(0.0);
+        private int _unitOptionIndex = -1;
+        private double _ratio;
+
+        public SlopeCommandOption(string cacheKey, double defaultRatio)
+        {
+            _cacheKey = cacheKey;
+            _ratio = CommandOptionCache.GetValue(cacheKey, defaultRatio);
+            _unit = SlopeUnitPreference.Current;
+        }
+
+        /// <summary>The slope as rise/run — what the geometry actually needs.</summary>
+        public double Ratio => _ratio;
+
+        /// <summary>Human-readable slope for a prompt or a report line.</summary>
+        public string Description => SlopeInput.FormatWithUnit(_ratio, _unit);
+
+        /// <summary>
+        /// Adds the pair to a getter. Getters are rebuilt on every option loop, so this re-reads the
+        /// preference each time and relabels itself when the unit changed on the previous pass.
+        /// </summary>
+        public void AddTo(GetBaseClass get)
+        {
+            _unit = SlopeUnitPreference.Current;
+
+            // Deliberately the unbounded constructor. A slope option must accept negatives (a falling
+            // batter) and has no sensible fixed ceiling once the unit can be percent, promille or the
+            // run of 1:n — the ratio is clamped in Commit instead. Note the three-argument overload
+            // OptionDouble(value, setLowerLimit, limit) makes `limit` an *upper* bound when
+            // setLowerLimit is false, which silently capped this option at zero.
+            _value = new OptionDouble(ToDisplayValue(_ratio, _unit));
+            get.AddOptionDouble("Slope", ref _value);
+            _unitOptionIndex = get.AddOptionList("Units", UnitChoices.Select(choice => choice.Label), IndexOf(_unit));
+        }
+
+        /// <summary>
+        /// Reads both options back after an interaction with the getter. The typed number is always
+        /// interpreted in the unit that was on screen when it was typed, and only then is a newly picked
+        /// unit applied — otherwise switching from Percent to Degrees would read "25" as 25 degrees.
+        ///
+        /// <para><paramref name="result"/> gates the unit list deliberately: <c>OptionIndex</c> reports
+        /// the last option touched and is not cleared by a subsequent point or Enter, so reading it
+        /// unconditionally would re-apply a unit chosen on an earlier pass.</para>
+        /// </summary>
+        public void Commit(GetBaseClass get, GetResult result)
+        {
+            _ratio = Math.Clamp(FromDisplayValue(_value.CurrentValue, _unit), -MaxRatio, MaxRatio);
+            CommandOptionCache.SetValue(_cacheKey, _ratio);
+
+            if (result != GetResult.Option || _unitOptionIndex < 0 || get.OptionIndex() != _unitOptionIndex)
+                return;
+
+            int picked = get.Option().CurrentListOptionIndex;
+            if (picked >= 0 && picked < UnitChoices.Length)
+                SlopeUnitPreference.Current = UnitChoices[picked].Unit;
+        }
+
+        private static int IndexOf(SlopeAnalyzer.SlopeUnit unit)
+        {
+            for (int index = 0; index < UnitChoices.Length; index++)
+            {
+                if (UnitChoices[index].Unit == unit)
+                    return index;
+            }
+
+            return 0;
+        }
+
+        /// <summary>Ratio to the number the option shows. Ratio unit shows the run n of 1:n.</summary>
+        private static double ToDisplayValue(double ratio, SlopeAnalyzer.SlopeUnit unit)
+        {
+            if (unit != SlopeAnalyzer.SlopeUnit.Ratio)
+                return SlopeAnalyzer.ConvertRatioToUnit(ratio, unit);
+
+            return Math.Abs(ratio) <= RhinoMath.ZeroTolerance ? 0.0 : 1.0 / ratio;
+        }
+
+        private static double FromDisplayValue(double value, SlopeAnalyzer.SlopeUnit unit)
+        {
+            if (unit != SlopeAnalyzer.SlopeUnit.Ratio)
+                return SlopeAnalyzer.ConvertUnitToRatio(value, unit);
+
+            return Math.Abs(value) <= RhinoMath.ZeroTolerance ? 0.0 : 1.0 / value;
+        }
     }
 
-    private static double GetVerticalOptionValue(
-        OffsetVerticalMode mode,
+    /// <summary>
+    /// Resolves the offset line's vertical drop or rise from whichever vertical mode is active. The
+    /// slope arrives as a ratio from the shared option pair and is handed to the algorithm as a percent,
+    /// which is the mode that takes a ratio directly — the per-unit modes below it exist only for the
+    /// callers and tests that still speak in degrees or 1:n.
+    /// </summary>
+    private static bool TryResolveOffsetVertical(
+        bool verticalIsSlope,
+        double slopeRatio,
         double elevationValue,
-        double percentValue,
-        double degreesValue,
-        double ratioValue)
+        double horizontalDistance,
+        out double verticalDelta,
+        out string? error)
     {
-        return mode switch
-        {
-            OffsetVerticalMode.Percent => percentValue,
-            OffsetVerticalMode.Degrees => degreesValue,
-            OffsetVerticalMode.Ratio => ratioValue,
-            _ => elevationValue
-        };
+        return verticalIsSlope
+            ? GeometryCommandAlgorithms.TryResolveVerticalDelta(
+                OffsetVerticalMode.Percent,
+                SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, SlopeAnalyzer.SlopeUnit.Percent),
+                horizontalDistance,
+                out verticalDelta,
+                out error)
+            : GeometryCommandAlgorithms.TryResolveVerticalDelta(
+                OffsetVerticalMode.Elevation,
+                elevationValue,
+                horizontalDistance,
+                out verticalDelta,
+                out error);
     }
 
     public static Result RunReplaceCurveSection(RhinoDoc doc)

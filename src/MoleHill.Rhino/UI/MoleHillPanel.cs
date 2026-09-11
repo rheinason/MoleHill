@@ -523,6 +523,18 @@ public sealed partial class MoleHillPanel : Panel
             layerTemplateControls,
             expandWidget: true);
 
+        var slopeUnitRow = CreateDropDownEditor(
+            "Slope Units",
+            SlopeUnitPreference.Choices
+                .Select(unit => (AnalysisFormatting.GetSlopeUnitKey(unit), SlopeUnitLabel(unit)))
+                .ToList(),
+            AnalysisFormatting.GetSlopeUnitKey(SlopeUnitPreference.Current),
+            OnSlopeUnitChanged,
+            "The unit every slope field is shown in — grading batters, the stair daylight slope, the "
+                + "scatter slope filter. Whatever is selected here, a slope field still accepts any unit "
+                + "typed into it (25%, 1:3, 50‰, 14°) and converts. This is a personal display "
+                + "preference: it is not saved into the document and never changes the terrain.");
+
         var toleranceRow = new PropertyRow(
             CreateHelpLabel("Detail Size", "Smallest terrain detail to preserve automatically. Smaller values keep more detail; larger values simplify and merge nearby geometry more aggressively.", 0),
             _toleranceStepper);
@@ -583,6 +595,7 @@ public sealed partial class MoleHillPanel : Panel
                 new StackLayoutItem(terrainDisplayRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(previewLineWeightRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(toleranceRow, HorizontalAlignment.Stretch),
+                new StackLayoutItem(slopeUnitRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(bakeTrackingRow, HorizontalAlignment.Stretch),
                 new StackLayoutItem(layerTemplateRow, HorizontalAlignment.Stretch)
             }
@@ -1114,6 +1127,29 @@ public sealed partial class MoleHillPanel : Panel
         var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
         if (doc != null && terrain != null)
             _controller.RefreshTerrainDisplay(doc, terrain.TerrainId);
+    }
+
+    /// <summary>
+    /// Switches the unit every slope field reads and writes in. Nothing about the terrain changes — the
+    /// definitions still store degrees — so this saves no document and schedules no rebuild; it only
+    /// relabels and reformats the cards, which a plain refresh already does by marking every tab stale.
+    /// </summary>
+    private void OnSlopeUnitChanged(string key)
+    {
+        SlopeAnalyzer.SlopeUnit unit = AnalysisFormatting.ParseSlopeUnit(key);
+        if (unit == SlopeUnitPreference.Current)
+            return;
+
+        SlopeUnitPreference.Current = unit;
+        RefreshUi();
+    }
+
+    /// <summary>Dropdown text for a slope unit: the name plus the symbol the fields will show.</summary>
+    private static string SlopeUnitLabel(SlopeAnalyzer.SlopeUnit unit)
+    {
+        return unit == SlopeAnalyzer.SlopeUnit.Ratio
+            ? "Ratio (1:3)"
+            : $"{SlopeInput.Name(unit)} ({SlopeInput.Suffix(unit)})";
     }
 
     private void RefreshUi()

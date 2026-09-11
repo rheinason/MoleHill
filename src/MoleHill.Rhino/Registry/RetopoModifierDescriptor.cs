@@ -38,11 +38,13 @@ internal sealed class RetopoModifierDescriptor : ModifierTypeDescriptor
             "CreaseAngle", "Crease Angle",
             m => ((RetopoModifierDefinition)m).CreaseAngle,
             (m, v) => ((RetopoModifierDefinition)m).CreaseAngle = v,
-            "Align the field to interior creases (batter toes, slope breaks) folding at least this many degrees. Around 20-35 catches feature lines; 0 = align to boundary + constraint curves only."),
+            "Align the field to interior creases (batter toes, slope breaks) folding at least this many degrees. Around 20-35 catches feature lines; 0 = align to boundary + constraint curves only.",
+            unit: ParameterUnit.Degrees),
         ModifierParam.Number(
             "TargetEdgeLength", "Edge Length",
             m => ((RetopoModifierDefinition)m).TargetEdgeLength,
             (m, v) => ((RetopoModifierDefinition)m).TargetEdgeLength = v,
-            "Target quad size for the extracted quad-dominant mesh. 0 auto-derives from the mesh's extent and density. Preview builds run at twice this size."),
+            "Target quad size for the extracted quad-dominant mesh. 0 auto-derives from the mesh's extent and density. Preview builds run at twice this size.",
+            unit: ParameterUnit.ModelLength),
     };
 }

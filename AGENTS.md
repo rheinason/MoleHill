@@ -7,7 +7,7 @@
 - `src/MoleHill.Grasshopper/`: Grasshopper plugin code in `Components/`, `Utilities/`, `Resources/`, and plugin metadata in `MoleHillInfo.cs`.
 - `src/MoleHill.Rhino/`: Rhino plugin code in `Commands/`, `UI/`, `Services/`, `Model/`, `Resources/`, and `EmbeddedResources/`.
 
-Automated tests live in `tests/MoleHill.Core.Tests/` and `tests/MoleHill.Grasshopper.Tests/`. Utility scripts remain at repo root, including `generate-icons.ps1`, `generate-new-icons.ps1`, `build-yak-package.ps1`, and `generate-file-index.ps1`.
+Automated tests live in `tests/MoleHill.Core.Tests/` and `tests/MoleHill.Grasshopper.Tests/`. Utility scripts remain at repo root, including `generate-icons.ps1`, `generate-toolbar-icons.ps1`, `generate-new-icons.ps1`, `build-yak-package.ps1`, and `generate-file-index.ps1`.
 
 **Start here for navigation:** `docs/architecture.md` (the high-level map — pipeline, grading tier
 cascade, preview vs bake), `docs/file-index.md` (path → one-line summary for every source file;
@@ -38,6 +38,12 @@ relevant folder `README.md`, and update `CLAUDE.md`/`AGENTS.md` when conventions
 - `dotnet test tests/MoleHill.Grasshopper.Tests/MoleHill.Grasshopper.Tests.csproj`: run Grasshopper smoke tests only.
 - `dotnet clean MoleHill.sln`: useful before rebuilding if Rhino or Grasshopper is holding a plugin file lock.
 - `pwsh ./generate-icons.ps1`: regenerate 24x24 Grasshopper component icons.
+- `pwsh ./generate-toolbar-icons.ps1`: regenerate the Rhino toolbar button bitmaps inside
+  `src/MoleHill.Rhino/Toolbars/MoleHill.Toolbar.rui`. Prefers the committed hand-drawn PNGs in
+  `src/MoleHill.Rhino/Toolbars/icons/`, and fails if a tile has neither an asset nor a `$designs` entry.
+- `python tools/render-toolbar-artboards.py`: re-render those PNGs from the Illustrator vector source
+  (`Python Commands Source/Master.ai`). Needs PyMuPDF; run only when an artboard changes, since its
+  output is committed.
 - `pwsh ./build-yak-package.ps1`: build the combined Rhino + Grasshopper Yak package in `.artifacts/yak/`.
 - `pwsh ./build-yak-package.ps1 -Push`: build and publish the Yak package to the configured server.
 
@@ -79,6 +85,22 @@ Use C# with 4-space indentation, file-scoped namespaces, and one type per file. 
   watertightness tests must reject single-use interior edges, not only edges used more than twice.
 
 - **Analyses and annotations are separate content families.** An analysis *evaluates* the terrain (slope, elevation, cut/fill, earthworks, waterflow — the result is a measurement); an annotation *describes* it (contours, spot labels, callouts, sections — the result is drawing). They are peers, like modifiers/markers/objects: separate definition root, registry, type descriptor, JSON family, and collection on `TerrainDefinition`. Never add a member to one that only the other needs. The parameter vocabulary and the schema row builder are deliberately **not** separate: every family declares its card rows as `ParameterDescriptor<TDefinition>` and renders them through one generic `BuildSchemaRow`. The type parameter is what keeps the families apart — an analysis accessor cannot be handed an annotation — so they cannot be mixed and cannot drift. Annotations have **no** terrain-level visibility flag — an annotation is the drawing, so the per-card `IsEnabled` checkbox is the only control; `ShowAnalysisOutputs` governs analyses alone and must never gate annotation output. `ITerrainContentItem` is identity-only scaffolding, not a shared base. See `docs/architecture.md` → "Analysis vs annotation".
+- **Slope input is a unit, not a number.** Slope is stored as an angle in degrees on the grading
+  definitions, but never shown or typed that way by assumption: every slope field displays in the user's
+  chosen unit (`SlopeUnitPreference`, a per-user preference in plug-in settings — not document state) and
+  accepts any unit typed into it (`25%`, `150prom`, `14deg`, `1:3`, `1v:3h` — every unit has an ASCII
+  spelling because `‰` and `°` are unreachable from a keyboard) via
+  `MoleHill.Core.Analysis.SlopeInput`, the single parse/format point. `a:b` is read vertical:horizontal,
+  so `1:3` is the flat batter — the same reading `OffsetVerticalMode.Ratio` has always used. Declare a
+  slope row with the `Slope` / `OptionalSlope` / `SlopeSlider` parameter factories, never a plain
+  `Number`; `ParameterSchemaGuardTests` fails the build otherwise — but it only sees *declared* rows, so
+  a card needing unusual layout should declare the row and position it via
+  `IsBespokePositionedModifierParameter` (as the "Peel Border" group does) rather than hand-write it. Every other numeric row still declares
+  a `ParameterUnit` (`ModelLength`, `Degrees`, `Percent`, `None`) so no card shows a bare unlabelled
+  number. `ParameterUnit.Degrees` means a **true angle** — a dihedral crease, a rotation — and is never
+  converted; a fold between two faces has no rise over run. Slope-taking commands share one
+  `SlopeCommandOption` (value + `Units` list) so every prompt reads alike. See
+  `docs/architecture.md` → "Slope units".
 - **Output layer routing goes through `LayerRole`**: never hardcode or plumb a layer path for generated output, and never append a suffix to build one. `GeneratedRhinoObject.Role` is `required` and `LayerRoleTable.Path` is never null, so every producer names a destination and every destination resolves — that is what stops output baking onto Rhino's current layer. Appearance (colour, print width, linetype, annotation style, hatch) comes from the same role, so preview and bake cannot drift apart. See `docs/architecture.md` → "Output layer roles".
 
 Keep nullable annotations intentional: `MoleHill.*` projects have nullable enabled, while `TriangleNet` does not. Keep reusable computation in `MoleHill.Core`, Grasshopper-specific component and conversion code in `MoleHill.Grasshopper`, and Rhino command/panel/document workflows in `MoleHill.Rhino`.

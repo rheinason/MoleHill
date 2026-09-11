@@ -1,3 +1,4 @@
+using System.Linq;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
@@ -24,9 +25,9 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
     public override ModifierDefinition Create(UnitSystem unitSystem) => new TriangulateModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunTriangulateStage(context);
 
-    // Source rows first, then settings. The panel defers Contour Mode until immediately after its custom
-    // work-area row; the schema order remains the shared contract for non-panel consumers.
-    public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
+    // Source rows first, then settings. The panel defers Contour Mode and the boundary-peel rows to its
+    // own positions; the schema order remains the shared contract for non-panel consumers.
+    public override IReadOnlyList<ModifierParam> Parameters { get; } = new ModifierParam[]
     {
         ModifierParam.Sources(
             "TinMesh", "Exact TIN Mesh",
@@ -59,5 +60,5 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
             m => ((TriangulateModifierDefinition)m).ContourMode,
             (m, v) => ((TriangulateModifierDefinition)m).ContourMode = v ?? TriangulateModifierDefinition.AutoContourMode,
             $"Auto preserves contour edges below {TriangulateModifierDefinition.AutoUnconstrainedContourVertexThreshold:N0} source vertices, then treats dense contour stations as ordinary TIN samples for Grasshopper-like performance. Constrained preserves every contour segment. Vertices only always samples contour vertices without inserting their edges. Breaklines and Boundary remain constrained in every mode."),
-    };
+    }.Concat(GeometryInputParameterCatalog.BoundaryPeel).ToArray();
 }

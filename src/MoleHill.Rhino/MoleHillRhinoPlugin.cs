@@ -1,3 +1,4 @@
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Services;
 using MoleHill.Rhino.UI;
 using System.Drawing;
@@ -16,6 +17,8 @@ namespace MoleHill.Rhino;
 /// </summary>
 public sealed class MoleHillRhinoPlugin : PlugIn
 {
+    private const string SlopeUnitSettingKey = "SlopeInputUnit";
+
     private readonly TerrainDocumentStore _documentStore = new();
     private readonly LayerTemplateStore _layerTemplateStore = new();
     private static Icon? _panelIcon;
@@ -37,6 +40,13 @@ public sealed class MoleHillRhinoPlugin : PlugIn
         // every generated object resolves its layer through this.
         LayerRoleService.TemplateProvider = () => _layerTemplateStore.LoadTemplates();
         LayerRoleService.TemplateWriter = templates => _layerTemplateStore.SaveTemplates(templates);
+
+        // Which unit slope inputs are typed and shown in. A per-user display preference, so it lives in
+        // the plug-in's own settings rather than the document — see SlopeUnitPreference.
+        SlopeUnitPreference.Provider = () => (SlopeAnalyzer.SlopeUnit)Settings.GetInteger(
+            SlopeUnitSettingKey,
+            (int)SlopeUnitPreference.DefaultUnit);
+        SlopeUnitPreference.Writer = unit => Settings.SetInteger(SlopeUnitSettingKey, (int)unit);
 
         TerrainController.Instance.Initialize();
 

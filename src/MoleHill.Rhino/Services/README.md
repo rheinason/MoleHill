@@ -83,6 +83,12 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
 - `LayerRoleResolver.cs` - `LayerAppearance` and `LayerRoleTable`: one layer template flattened to
   role -> (path, appearance). Built on the document thread and carried on `TerrainBuildSnapshot`, since
   the background build has no document access. `Path` is non-null for every role by construction.
+- `SlopeUnitPreference.cs` - which unit slope *inputs* are shown and typed in (percent / promille /
+  ratio / degrees), shared by the panel cards and every slope-taking command. A per-user display
+  preference: persisted through provider/writer delegates the plug-in points at its own settings, so the
+  Registry and Services sources still compile in the test project with no live plug-in, and changing it
+  never touches a document. Distinct from the per-item `Unit` on slope analyses and annotations, which is
+  part of the drawing. Parsing and formatting themselves live in `MoleHill.Core.Analysis.SlopeInput`.
 - `LayerRoleService.cs` - resolves and caches the table a terrain uses, seeds a document with its own
   embedded copy of the template, and reports (never merges) divergence from the machine-local one.
 - `LayerCreationService.cs` - the only place layers are created. Seeds appearance at creation and leaves
