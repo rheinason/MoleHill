@@ -447,7 +447,7 @@ public class GeometryCommandAlgorithmsTests
             curve, new Plane(new Point3d(x, 0, 0), Vector3d.XAxis), 1e-9);
 
         Assert.NotNull(crossings);
-        Assert.Equal(1, crossings.Count);
+        Assert.Single(crossings);
         return crossings[0].PointA.Z;
     }
 
