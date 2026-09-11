@@ -1,5 +1,6 @@
 using MoleHill.Rhino.Services;
 using Rhino.Geometry;
+using Rhino.Geometry.Intersect;
 using Xunit;
 
 namespace MoleHill.Rhino.Tests;
@@ -80,6 +81,393 @@ public class GeometryCommandAlgorithmsTests
         double elevation = GeometryCommandAlgorithms.InterpolateTwoPointElevation(low, high, sample);
 
         Assert.Equal(15.0, elevation, 6);
+    }
+
+    [RhinoNativeFact]
+    public void CurveSectionEdit_AnchorEnd_HoldsSecondPickAndMovesFirst()
+    {
+        using var curve = new LineCurve(new Point3d(0, 0, 0), new Point3d(100, 0, 0));
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.ParameterAt(0.25), curve.Domain.ParameterAt(0.75),
+            CurveSectionEditMode.GradePercent, 10.0, 0.0, null,
+            CurveSectionAnchor.End, 0.0, SoftEditFalloff.Smooth, measureDeviation: true, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        using (result)
+        {
+            Assert.Equal(0.0, report.SecondElevation, 6);
+            Assert.Equal(-5.0, report.FirstElevation, 6);
+            Assert.Equal(0.10, report.SlopeRatio, 6);
+            Assert.Equal(50.0, report.PlanLength, 6);
+        }
+    }
+
+    [RhinoNativeFact]
+    public void CurveSectionEdit_AnchorMiddle_SplitsTheDeltaBetweenBothEnds()
+    {
+        using var curve = new LineCurve(new Point3d(0, 0, 0), new Point3d(100, 0, 0));
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.ParameterAt(0.25), curve.Domain.ParameterAt(0.75),
+            CurveSectionEditMode.GradePercent, 10.0, 0.0, null,
+            CurveSectionAnchor.Middle, 0.0, SoftEditFalloff.Smooth, measureDeviation: true, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        using (result)
+        {
+            Assert.Equal(-2.5, report.FirstElevation, 6);
+            Assert.Equal(2.5, report.SecondElevation, 6);
+        }
+    }
+
+    /// <summary>
+    /// Picking down-curve and up-curve must not produce the same result: the grade runs from the first
+    /// point picked towards the second, whichever way the curve happens to be parameterised.
+    /// </summary>
+    [RhinoNativeFact]
+    public void CurveSectionEdit_ReversedPickOrder_RunsGradeFromTheFirstPick()
+    {
+        using var curve = new LineCurve(new Point3d(0, 0, 0), new Point3d(100, 0, 0));
+        double atX25 = curve.Domain.ParameterAt(0.25);
+        double atX75 = curve.Domain.ParameterAt(0.75);
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, atX75, atX25,
+            CurveSectionEditMode.GradePercent, 10.0, 0.0, null,
+            CurveSectionAnchor.Start, 0.0, SoftEditFalloff.Smooth, measureDeviation: true, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        using (result)
+        {
+            // The first pick sits at x=75 and is the anchor; the far end of the section is x=25.
+            Assert.Equal(0.0, report.FirstElevation, 6);
+            Assert.Equal(5.0, report.SecondElevation, 6);
+
+            // 25 along from the first pick at 10% is 2.5 up — the opposite sense to what the same two
+            // points picked the other way round would produce.
+            Assert.Equal(2.5, ElevationAtPlanX(result!, 50.0), 6);
+        }
+    }
+
+    /// <summary>
+    /// The abrupt change the command was known for: a graded section's far end no longer matches the
+    /// curve it joins, and the two were bridged by a vertical line. A transition has to absorb that
+    /// delta into the neighbouring stretch instead, without dragging the curve's own endpoint along.
+    /// </summary>
+    [RhinoNativeFact]
+    public void CurveSectionEdit_Transition_AbsorbsStepWithoutMovingCurveEnd()
+    {
+        using var curve = new LineCurve(new Point3d(0, 0, 0), new Point3d(100, 0, 0));
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.ParameterAt(0.25), curve.Domain.ParameterAt(0.5),
+            CurveSectionEditMode.GradePercent, 10.0, 0.0, null,
+            CurveSectionAnchor.Start, 20.0, SoftEditFalloff.Smooth, measureDeviation: true, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        using (result)
+        {
+            // Anchored at x=25, so the section climbs 10% over 25 to reach 2.5 at x=50.
+            Assert.Equal(2.5, report.SecondElevation, 6);
+            Assert.Equal(2.5, ElevationAtPlanX(result!, 50.0), 3);
+
+            // Absorbed over 20 units of the stretch beyond the section, and no further.
+            Assert.InRange(ElevationAtPlanX(result!, 60.0), 0.05, 2.45);
+            Assert.Equal(0.0, ElevationAtPlanX(result!, 75.0), 3);
+            Assert.Equal(0.0, result!.PointAtEnd.Z, 6);
+            Assert.Equal(0.0, result.PointAtStart.Z, 6);
+
+            AssertNoVerticalStep(result);
+        }
+    }
+
+    [RhinoNativeFact]
+    public void CurveSectionEdit_WithoutTransition_StillBridgesWithAVerticalStep()
+    {
+        using var curve = new LineCurve(new Point3d(0, 0, 0), new Point3d(100, 0, 0));
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.ParameterAt(0.25), curve.Domain.ParameterAt(0.5),
+            CurveSectionEditMode.GradePercent, 10.0, 0.0, null,
+            CurveSectionAnchor.Start, 0.0, SoftEditFalloff.Smooth, measureDeviation: true, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        using (result)
+        {
+            Assert.Equal(2.5, report.SecondElevation, 6);
+
+            // Both elevations exist at x=50: the graded end and the untouched stretch it joins.
+            AssertCurveContainsPoint(result!, new Point3d(50, 0, 2.5));
+            AssertCurveContainsPoint(result!, new Point3d(50, 0, 0));
+        }
+    }
+
+    [RhinoNativeFact]
+    public void CurveSectionEdit_LinearFalloff_AbsorbsTheStepWithoutSineEasing()
+    {
+        using var curve = new LineCurve(new Point3d(0, 0, 0), new Point3d(100, 0, 0));
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.ParameterAt(0.25), curve.Domain.ParameterAt(0.5),
+            CurveSectionEditMode.GradePercent, 10.0, 0.0, null,
+            CurveSectionAnchor.Start, 20.0, SoftEditFalloff.Linear, measureDeviation: true, 1e-6,
+            out Curve? result, out _, out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        using (result)
+        {
+            // A quarter into a 20-unit transition: linear keeps three quarters of the 2.5 step, where
+            // the sine easing of Smooth would still be holding about 2.13. The midpoint is no use as a
+            // discriminator — both falloffs pass through half there.
+            Assert.Equal(1.875, ElevationAtPlanX(result!, 55.0), 2);
+            Assert.Equal(1.25, ElevationAtPlanX(result!, 60.0), 2);
+            Assert.Equal(0.0, ElevationAtPlanX(result!, 70.0), 3);
+        }
+    }
+
+    [RhinoNativeFact]
+    public void CurveSectionEdit_BetweenCurrentElevations_HoldsBothPickedEnds()
+    {
+        using var curve = new PolylineCurve(new[]
+        {
+            new Point3d(0, 0, 0),
+            new Point3d(50, 0, 30),
+            new Point3d(100, 0, 10)
+        });
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.T0, curve.Domain.T1,
+            CurveSectionEditMode.BetweenCurrentElevations, 0.0, 0.0, null,
+            CurveSectionAnchor.Start, 10.0, SoftEditFalloff.Smooth, measureDeviation: true, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        using (result)
+        {
+            Assert.Equal(0.0, report.FirstElevation, 6);
+            Assert.Equal(10.0, report.SecondElevation, 6);
+            Assert.Equal(0.1, report.SlopeRatio, 6);
+            Assert.Equal(15.0, ElevationAtPlanX(result!, 50.0), 6);
+        }
+    }
+
+    /// <summary>
+    /// Blending pulled the whole picked stretch towards the terrain at full strength and then stopped
+    /// dead at the picks, stepping at both ends. The transition length is spent inside the section
+    /// instead, ramping the pull up from each picked end.
+    /// </summary>
+    [RhinoNativeFact]
+    public void CurveSectionEdit_BlendToTerrain_FeathersInFromBothPickedEnds()
+    {
+        using var curve = new LineCurve(new Point3d(0, 0, 0), new Point3d(100, 0, 0));
+        using Mesh terrain = Mesh.CreateFromPlane(
+            new Plane(new Point3d(50, 0, 100), Vector3d.ZAxis),
+            new Interval(-60, 60), new Interval(-40, 40), 24, 16);
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.ParameterAt(0.25), curve.Domain.ParameterAt(0.75),
+            CurveSectionEditMode.BlendToTerrain, 0.0, 100.0, terrain,
+            CurveSectionAnchor.Start, 10.0, SoftEditFalloff.Smooth, measureDeviation: true, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        using (result)
+        {
+            Assert.Equal(0.0, report.FirstElevation, 6);
+            Assert.Equal(0.0, report.SecondElevation, 6);
+            Assert.Equal(100.0, ElevationAtPlanX(result!, 50.0), 3);
+
+            // Half way up a 10-unit ramp from the pick at x=25.
+            Assert.Equal(50.0, ElevationAtPlanX(result!, 30.0), 1);
+            Assert.Equal(0.0, result!.PointAtStart.Z, 6);
+            Assert.Equal(0.0, result.PointAtEnd.Z, 6);
+            AssertNoVerticalStep(result);
+        }
+    }
+
+    [RhinoNativeFact]
+    public void CurveSectionEdit_BlendToTerrainWithoutTransition_StepsAtBothPicks()
+    {
+        using var curve = new LineCurve(new Point3d(0, 0, 0), new Point3d(100, 0, 0));
+        using Mesh terrain = Mesh.CreateFromPlane(
+            new Plane(new Point3d(50, 0, 100), Vector3d.ZAxis),
+            new Interval(-60, 60), new Interval(-40, 40), 24, 16);
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.ParameterAt(0.25), curve.Domain.ParameterAt(0.75),
+            CurveSectionEditMode.BlendToTerrain, 0.0, 100.0, terrain,
+            CurveSectionAnchor.Start, 0.0, SoftEditFalloff.Smooth, measureDeviation: true, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        Assert.NotNull(result);
+        using (result)
+        {
+            Assert.Equal(100.0, report.FirstElevation, 3);
+            Assert.Equal(100.0, report.SecondElevation, 3);
+        }
+    }
+
+    /// <summary>
+    /// A polyline's control points are its vertices, and both elevation and station run linearly
+    /// between them, so moving Greville points reproduces the asked-for grade exactly. This is the
+    /// case that must report nothing, or the warning becomes noise users learn to ignore.
+    /// </summary>
+    [RhinoNativeFact]
+    public void MeasureElevationDeviation_PolylineGrade_ReportsNoDeviation()
+    {
+        using var curve = new PolylineCurve(new[]
+        {
+            new Point3d(0, 0, 0),
+            new Point3d(40, 0, 0),
+            new Point3d(40, 30, 0),
+            new Point3d(90, 30, 0)
+        });
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.T0, curve.Domain.T1, CurveSectionEditMode.GradePercent,
+            5.0, 0.0, null, CurveSectionAnchor.Start, 0.0, SoftEditFalloff.Smooth,
+            measureDeviation: true, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        using (result)
+        {
+            Assert.False(report.Deviation.ExceedsTolerance(0.001));
+            Assert.Equal(0.0, report.Deviation.MaxDeviation, 6);
+        }
+    }
+
+    /// <summary>
+    /// The case the measurement exists for: a degree-3 curve with four control points, whose plan
+    /// stationing is nowhere linear in parameter. The grade is interpolated at the Greville abscissae
+    /// and sags in between, and nothing about the curve says so on screen.
+    /// </summary>
+    [RhinoNativeFact]
+    public void MeasureElevationDeviation_CurvedNurbsGrade_ReportsWhereItStrays()
+    {
+        using NurbsCurve curve = NurbsCurve.Create(
+            periodic: false,
+            degree: 3,
+            new[]
+            {
+                new Point3d(0, 0, 0),
+                new Point3d(30, 40, 0),
+                new Point3d(70, -40, 0),
+                new Point3d(100, 0, 0)
+            });
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.T0, curve.Domain.T1, CurveSectionEditMode.GradePercent,
+            20.0, 0.0, null, CurveSectionAnchor.Start, 0.0, SoftEditFalloff.Smooth,
+            measureDeviation: true, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        using (result)
+        {
+            Assert.True(report.Deviation.ExceedsTolerance(0.001),
+                $"Expected a measurable stray, got {report.Deviation.MaxDeviation}.");
+            Assert.InRange(report.Deviation.Station, 0.0, report.PlanLength);
+            Assert.True(report.Deviation.SampleCount > 1);
+        }
+    }
+
+    [RhinoNativeFact]
+    public void MeasureElevationDeviation_NotRequested_ReportsNothing()
+    {
+        using NurbsCurve curve = NurbsCurve.Create(
+            periodic: false,
+            degree: 3,
+            new[]
+            {
+                new Point3d(0, 0, 0),
+                new Point3d(30, 40, 0),
+                new Point3d(70, -40, 0),
+                new Point3d(100, 0, 0)
+            });
+
+        bool succeeded = GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+            curve, curve.Domain.T0, curve.Domain.T1, CurveSectionEditMode.GradePercent,
+            20.0, 0.0, null, CurveSectionAnchor.Start, 0.0, SoftEditFalloff.Smooth,
+            measureDeviation: false, 1e-6,
+            out Curve? result, out CurveSectionEditResult report, out string? error);
+
+        Assert.True(succeeded, error);
+        using (result)
+        {
+            Assert.Equal(0, report.Deviation.SampleCount);
+            Assert.False(report.Deviation.ExceedsTolerance(0.001));
+        }
+    }
+
+    /// <summary>
+    /// The measurement is of interpolation error, not of a difference of intent: handed the rule the
+    /// curve already satisfies, it must read zero.
+    /// </summary>
+    [RhinoNativeFact]
+    public void MeasureElevationDeviation_CurveAlreadyMatchesTheRule_ReadsZero()
+    {
+        using var curve = new PolylineCurve(new[]
+        {
+            new Point3d(0, 0, 5),
+            new Point3d(50, 0, 10),
+            new Point3d(100, 0, 15)
+        });
+
+        GeometryCommandAlgorithms.CurveSlopeDeviation deviation =
+            GeometryCommandAlgorithms.MeasureElevationDeviation(curve, station => 5.0 + (station * 0.1));
+
+        Assert.Equal(0.0, deviation.MaxDeviation, 6);
+    }
+
+    /// <summary>
+    /// Elevation where the curve crosses a given plan position, read by intersecting a vertical plane.
+    /// Deliberately not a closest-point query on the plan projection: where the result still carries a
+    /// vertical step, that projection has a degenerate segment and the parameter comes back off by
+    /// enough to fail a comparison the geometry actually satisfies.
+    /// </summary>
+    private static double ElevationAtPlanX(Curve curve, double x)
+    {
+        CurveIntersections crossings = Intersection.CurvePlane(
+            curve, new Plane(new Point3d(x, 0, 0), Vector3d.XAxis), 1e-9);
+
+        Assert.NotNull(crossings);
+        Assert.Equal(1, crossings.Count);
+        return crossings[0].PointA.Z;
+    }
+
+    /// <summary>
+    /// A vertical step shows up as two elevations at one plan position, so sampling by arc length must
+    /// advance in plan at every step.
+    /// </summary>
+    private static void AssertNoVerticalStep(Curve curve)
+    {
+        double[] parameters = curve.DivideByCount(200, includeEnds: true);
+        Assert.NotNull(parameters);
+
+        double previousX = double.NegativeInfinity;
+        foreach (double parameter in parameters)
+        {
+            Point3d point = curve.PointAt(parameter);
+            Assert.True(point.X > previousX,
+                $"Plan position stalled at x={point.X}, which means a vertical step.");
+            previousX = point.X;
+        }
     }
 
     private static void AssertCurveContainsPoint(Curve curve, Point3d expected)

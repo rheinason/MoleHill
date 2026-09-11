@@ -18,6 +18,36 @@ internal enum CurveSectionEditMode
 }
 
 /// <summary>
+/// Which end of an edited curve section keeps its existing elevation. Grading a section at a chosen
+/// slope has to give up one of the two end elevations — this is the user's say in which one, and it
+/// is the difference between a re-grade that pivots around where the work starts and one that pivots
+/// around where it ties back in. Only <see cref="CurveSectionEditMode.GradePercent"/> has a free end
+/// to anchor: the other modes hold both ends by construction.
+/// </summary>
+internal enum CurveSectionAnchor
+{
+    /// <summary>Hold the first picked point; the second end moves.</summary>
+    Start,
+
+    /// <summary>Hold the second picked point; the first end moves.</summary>
+    End,
+
+    /// <summary>Hold the mid elevation of the two picks; both ends move by half the delta each.</summary>
+    Middle
+}
+
+/// <summary>
+/// What an edited section actually came out as, measured at the picked ends in pick order, so the
+/// command can report the achieved grade rather than only the requested one.
+/// </summary>
+internal readonly record struct CurveSectionEditResult(
+    double FirstElevation,
+    double SecondElevation,
+    double SlopeRatio,
+    double PlanLength,
+    GeometryCommandAlgorithms.CurveSlopeDeviation Deviation);
+
+/// <summary>
 /// How the vertical component of an offset feature line is specified.
 /// Every mode resolves to a single delta Z applied along the whole offset line.
 /// </summary>
@@ -38,6 +68,14 @@ internal enum OffsetVerticalMode
 
 internal static class GeometryCommandAlgorithms
 {
+    /// <summary>
+    /// Re-elevates the picked stretch of a curve and hands back the rest of it unchanged.
+    ///
+    /// <para>The overload without an anchor, a transition or a falloff is the original behaviour and
+    /// is kept for callers that only ever graded from the section start: it holds the first pick,
+    /// absorbs nothing, and leaves the vertical step at the far end that the full overload's
+    /// <paramref name="transitionLength" /> exists to remove.</para>
+    /// </summary>
     public static bool TryCreateCurveSectionEdit(
         Curve sourceCurve,
         double firstParameter,
@@ -50,7 +88,59 @@ internal static class GeometryCommandAlgorithms
         out Curve? resultCurve,
         out string? error)
     {
+        return TryCreateCurveSectionEdit(
+            sourceCurve, firstParameter, secondParameter, mode, gradePercent, terrainBlend, terrain,
+            CurveSectionAnchor.Start, 0.0, SoftEditFalloff.Smooth, measureDeviation: false, tolerance,
+            out resultCurve, out _, out error);
+    }
+
+    /// <summary>
+    /// Re-elevates the picked stretch of a curve, easing the elevation it gains or loses back into the
+    /// untouched remainder instead of stepping.
+    ///
+    /// <para>Grading a section to a chosen slope moves one of its ends, and that end is joined to a
+    /// stretch of curve that did not move. With <paramref name="transitionLength" /> at zero the two
+    /// are joined by a vertical line — same plan position, two elevations — which is a wall in the
+    /// terrain that follows. Given a length, the moved end's delta is instead distributed into the
+    /// adjoining stretch, decaying to nothing over that plan distance, so the curve ties back into its
+    /// original alignment. The length is clamped to the adjoining stretch, because a transition longer
+    /// than the curve it has to die out in would drag the curve's own endpoint with it.</para>
+    ///
+    /// <para><see cref="CurveSectionEditMode.BlendToTerrain" /> spends the same length the other way
+    /// round — inside the section, ramping the blend up from each picked end — because the elevation
+    /// it pulls towards is the terrain's and can differ from the curve by any amount at all. Feathering
+    /// inwards keeps both picked ends where they are and confines the edit to what was picked; pushing
+    /// an arbitrary terrain delta outwards would move curve the user did not select.</para>
+    /// </summary>
+    /// <param name="firstParameter">Curve parameter of the first pick. Pick order sets the direction
+    /// the grade runs, so this need not be the lower parameter.</param>
+    /// <param name="anchor">Which picked end keeps its elevation. Only meaningful for
+    /// <see cref="CurveSectionEditMode.GradePercent" />; the other modes hold both ends.</param>
+    /// <param name="transitionLength">Plan distance over which a moved end is eased back into the
+    /// curve, or for blend-to-terrain, ramped in from each end. Zero reproduces the vertical step.</param>
+    /// <param name="measureDeviation">Measures how far the Greville-edited section actually landed from
+    /// the prescribed elevations. Off for the live preview: under blend-to-terrain each sample is a mesh
+    /// ray, and the preview redraws on every mouse move.</param>
+    /// <param name="report">The achieved elevations and slope at the picks, in pick order.</param>
+    public static bool TryCreateCurveSectionEdit(
+        Curve sourceCurve,
+        double firstParameter,
+        double secondParameter,
+        CurveSectionEditMode mode,
+        double gradePercent,
+        double terrainBlend,
+        Mesh? terrain,
+        CurveSectionAnchor anchor,
+        double transitionLength,
+        SoftEditFalloff falloff,
+        bool measureDeviation,
+        double tolerance,
+        out Curve? resultCurve,
+        out CurveSectionEditResult report,
+        out string? error)
+    {
         resultCurve = null;
+        report = default;
         error = null;
 
         if (sourceCurve == null || !sourceCurve.IsValid)
@@ -62,15 +152,17 @@ internal static class GeometryCommandAlgorithms
         Interval domain = sourceCurve.Domain;
         firstParameter = Math.Clamp(firstParameter, domain.T0, domain.T1);
         secondParameter = Math.Clamp(secondParameter, domain.T0, domain.T1);
-        if (secondParameter < firstParameter)
-            (firstParameter, secondParameter) = (secondParameter, firstParameter);
 
-        double selectedPlanLength = CalculatePlanLength(sourceCurve, firstParameter, secondParameter);
-        if (!double.IsFinite(selectedPlanLength) || selectedPlanLength <= Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance))
-        {
-            error = "The selected curve section is too short.";
-            return false;
-        }
+        // Pick order is the grade's direction. The section itself is always trimmed low-to-high
+        // because that is the only way a curve can be cut, but "from the first point I picked to the
+        // second" is what the user meant by a falling grade, and that is often against the curve's
+        // own parameterisation.
+        bool reversed = secondParameter < firstParameter;
+        double lowParameter = reversed ? secondParameter : firstParameter;
+        double highParameter = reversed ? firstParameter : secondParameter;
+
+        double firstZ = sourceCurve.PointAt(firstParameter).Z;
+        double secondZ = sourceCurve.PointAt(secondParameter).Z;
 
         if (mode == CurveSectionEditMode.BlendToTerrain && terrain == null)
         {
@@ -78,7 +170,7 @@ internal static class GeometryCommandAlgorithms
             return false;
         }
 
-        Curve? section = sourceCurve.Trim(firstParameter, secondParameter);
+        Curve? section = sourceCurve.Trim(lowParameter, highParameter);
         if (section == null || !section.IsValid)
         {
             section?.Dispose();
@@ -87,40 +179,81 @@ internal static class GeometryCommandAlgorithms
         }
 
         terrainBlend = Math.Clamp(terrainBlend, 0.0, 100.0) / 100.0;
+        transitionLength = Math.Max(0.0, transitionLength);
         NurbsCurve edited = section.ToNurbsCurve();
         section.Dispose();
-        double[] greville = edited.GrevilleParameters();
-        if (greville.Length == 0)
+
+        // One plan projection for the whole pass. The projection preserves the domain, so every
+        // station below is a parameter query against this curve rather than another projection —
+        // stationing used to re-project the section once per control point.
+        Curve? planSection = CreatePlanCurve(edited);
+        if (planSection == null)
         {
-            error = "The curve does not expose editable control points.";
             edited.Dispose();
+            error = "Failed to measure the selected curve section in plan.";
             return false;
         }
 
-        var points = new List<Point3d>(greville.Length);
-        double firstZ = sourceCurve.PointAt(firstParameter).Z;
-        double secondZ = sourceCurve.PointAt(secondParameter).Z;
-        foreach (double parameter in greville)
+        double sectionPlanLength = planSection.GetLength();
+        if (!double.IsFinite(sectionPlanLength) ||
+            sectionPlanLength <= Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance))
         {
-            Point3d point = edited.PointAt(parameter);
-            if (parameter < firstParameter || parameter > secondParameter)
-            {
-                points.Add(point);
-                continue;
-            }
+            planSection.Dispose();
+            edited.Dispose();
+            error = "The selected curve section is too short.";
+            return false;
+        }
 
-            double station = CalculatePlanLength(edited, edited.Domain.T0, parameter);
+        // A grade is linear in station and so is exact at whatever control points the section already
+        // has. Blending is not: it samples the terrain per control point, and its edge feather needs
+        // somewhere to ramp.
+        if (mode == CurveSectionEditMode.BlendToTerrain)
+            InsertStationKnots(edited, planSection, 0.0, sectionPlanLength, BlendSectionSamples);
+
+        double[] greville = edited.GrevilleParameters();
+        if (greville.Length == 0)
+        {
+            planSection.Dispose();
+            edited.Dispose();
+            error = "The curve does not expose editable control points.";
+            return false;
+        }
+
+        double grade = gradePercent * 0.01;
+        double midZ = (firstZ + secondZ) * 0.5;
+
+        // Station is measured from the first pick, so a positive grade always climbs in the direction
+        // the user picked.
+        double GradeElevationAt(double station) => anchor switch
+        {
+            CurveSectionAnchor.End => secondZ + (grade * (station - sectionPlanLength)),
+            CurveSectionAnchor.Middle => midZ + (grade * (station - (sectionPlanLength * 0.5))),
+            _ => firstZ + (grade * station)
+        };
+
+        var points = new List<Point3d>(greville.Length);
+        double lowEndZ = double.NaN;
+        double highEndZ = double.NaN;
+
+        for (int index = 0; index < greville.Length; index++)
+        {
+            double parameter = greville[index];
+            Point3d point = edited.PointAt(parameter);
+            double ascendingStation = Math.Clamp(
+                planSection.GetLength(new Interval(planSection.Domain.T0, parameter)),
+                0.0,
+                sectionPlanLength);
+            double station = reversed ? sectionPlanLength - ascendingStation : ascendingStation;
             double z = point.Z;
+
             switch (mode)
             {
                 case CurveSectionEditMode.GradePercent:
-                    z = firstZ + station * gradePercent * 0.01;
+                    z = GradeElevationAt(station);
                     break;
 
                 case CurveSectionEditMode.BetweenCurrentElevations:
-                    z = selectedPlanLength <= RhinoMath.ZeroTolerance
-                        ? firstZ
-                        : firstZ + ((secondZ - firstZ) * station / selectedPlanLength);
+                    z = firstZ + ((secondZ - firstZ) * station / sectionPlanLength);
                     break;
 
                 case CurveSectionEditMode.BlendToTerrain:
@@ -130,35 +263,102 @@ internal static class GeometryCommandAlgorithms
                             tolerance,
                             out Point3d terrainPoint))
                     {
-                        error = "The curve section extends outside the active terrain.";
+                        planSection.Dispose();
                         edited.Dispose();
+                        error = "The curve section extends outside the active terrain.";
                         return false;
                     }
 
-                    z += (terrainPoint.Z - z) * terrainBlend;
+                    double feather = CalculateEdgeFeather(
+                        ascendingStation, sectionPlanLength, transitionLength, falloff);
+                    z += (terrainPoint.Z - z) * terrainBlend * feather;
                     break;
             }
+
+            if (index == 0)
+                lowEndZ = z;
+            if (index == greville.Length - 1)
+                highEndZ = z;
 
             points.Add(new Point3d(point.X, point.Y, z));
         }
 
+        // Kept only for the deviation measurement, whose blend rule needs the elevations the section
+        // had before the edit. Re-reading them from the source curve would lean on Trim having
+        // preserved the parameterisation, which is the assumption this method stopped trusting.
+        Curve? originalSection = measureDeviation ? edited.DuplicateCurve() : null;
+
         if (!edited.SetGrevillePoints(points))
         {
+            planSection.Dispose();
+            originalSection?.Dispose();
             error = "Failed to rebuild the curve section.";
             edited.Dispose();
             return false;
         }
 
+        // The rule the edit applied, evaluable at any station rather than only at a control point —
+        // which is exactly what asking "how far off is it in between?" requires.
+        double PrescribedElevationAt(double ascendingStation)
+        {
+            double station = reversed ? sectionPlanLength - ascendingStation : ascendingStation;
+            switch (mode)
+            {
+                case CurveSectionEditMode.GradePercent:
+                    return GradeElevationAt(station);
+
+                case CurveSectionEditMode.BetweenCurrentElevations:
+                    return firstZ + ((secondZ - firstZ) * station / sectionPlanLength);
+
+                default:
+                    if (!planSection.LengthParameter(ascendingStation, out double parameter))
+                        return double.NaN;
+
+                    Point3d before = originalSection!.PointAt(parameter);
+                    if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(
+                            terrain!, new Point3d(before.X, before.Y, 0.0), tolerance,
+                            out Point3d sampledTerrain))
+                    {
+                        return before.Z;
+                    }
+
+                    double sampleFeather = CalculateEdgeFeather(
+                        ascendingStation, sectionPlanLength, transitionLength, falloff);
+                    return before.Z + ((sampledTerrain.Z - before.Z) * terrainBlend * sampleFeather);
+            }
+        }
+
+        CurveSlopeDeviation deviation = measureDeviation
+            ? MeasureElevationDeviation(edited, PrescribedElevationAt)
+            : default;
+
+        planSection.Dispose();
+        originalSection?.Dispose();
+
+        double editedFirstZ = reversed ? highEndZ : lowEndZ;
+        double editedSecondZ = reversed ? lowEndZ : highEndZ;
+        report = new CurveSectionEditResult(
+            editedFirstZ,
+            editedSecondZ,
+            (editedSecondZ - editedFirstZ) / sectionPlanLength,
+            sectionPlanLength,
+            deviation);
+
+        // How far each joint moved, which is what the neighbouring stretch has to absorb.
+        double deltaAtLowEnd = lowEndZ - sourceCurve.PointAt(lowParameter).Z;
+        double deltaAtHighEnd = highEndZ - sourceCurve.PointAt(highParameter).Z;
+
         var pieces = new List<Curve>();
-        Curve? leading = firstParameter > domain.T0
-            ? sourceCurve.Trim(domain.T0, firstParameter)
+        Curve? leading = lowParameter > domain.T0
+            ? sourceCurve.Trim(domain.T0, lowParameter)
             : null;
-        Curve? trailing = secondParameter < domain.T1
-            ? sourceCurve.Trim(secondParameter, domain.T1)
+        Curve? trailing = highParameter < domain.T1
+            ? sourceCurve.Trim(highParameter, domain.T1)
             : null;
 
         if (leading != null)
         {
+            leading = ApplyTransitionDelta(leading, jointAtStart: false, deltaAtLowEnd, transitionLength, falloff);
             pieces.Add(leading);
             AddSectionBoundaryTransition(pieces, leading.PointAtEnd, edited.PointAtStart, tolerance);
         }
@@ -166,6 +366,7 @@ internal static class GeometryCommandAlgorithms
         pieces.Add(edited);
         if (trailing != null)
         {
+            trailing = ApplyTransitionDelta(trailing, jointAtStart: true, deltaAtHighEnd, transitionLength, falloff);
             AddSectionBoundaryTransition(pieces, edited.PointAtEnd, trailing.PointAtStart, tolerance);
             pieces.Add(trailing);
         }
@@ -195,6 +396,149 @@ internal static class GeometryCommandAlgorithms
         return true;
     }
 
+    /// <summary>
+    /// Eases <paramref name="delta" /> into one end of an untouched stretch of curve so it meets the
+    /// edited section without a step. Returns <paramref name="piece" /> itself when there is nothing
+    /// to absorb or the stretch cannot be rebuilt, and otherwise disposes it and returns the
+    /// replacement — so callers must assign the result back.
+    /// </summary>
+    private static Curve ApplyTransitionDelta(
+        Curve piece,
+        bool jointAtStart,
+        double delta,
+        double transitionLength,
+        SoftEditFalloff falloff)
+    {
+        if (Math.Abs(delta) <= RhinoMath.ZeroTolerance || transitionLength <= RhinoMath.ZeroTolerance)
+            return piece;
+
+        NurbsCurve nurbs = piece.ToNurbsCurve();
+        Curve? plan = CreatePlanCurve(nurbs);
+        double pieceLength = plan?.GetLength() ?? double.NaN;
+
+        // Clamped to the stretch that has to absorb it: beyond that there is no curve left to decay
+        // in, and the far endpoint — the end of the whole curve — would move.
+        double ramp = Math.Min(transitionLength, pieceLength);
+        if (plan == null || !double.IsFinite(ramp) || ramp <= RhinoMath.ZeroTolerance)
+        {
+            plan?.Dispose();
+            nurbs.Dispose();
+            return piece;
+        }
+
+        // A straight neighbour carries control points only at its two ends, so there is nothing
+        // between the joint and the far end for the falloff to act on — the delta would ramp evenly
+        // across the whole stretch instead of dying out over the transition length. Knots inside the
+        // band supply those control points without moving the curve or changing its type.
+        InsertStationKnots(
+            nurbs,
+            plan,
+            jointAtStart ? 0.0 : pieceLength - ramp,
+            jointAtStart ? ramp : pieceLength,
+            TransitionBandSamples);
+
+        double[] greville = nurbs.GrevilleParameters();
+        if (greville.Length == 0)
+        {
+            plan.Dispose();
+            nurbs.Dispose();
+            return piece;
+        }
+
+        var points = new List<Point3d>(greville.Length);
+        foreach (double parameter in greville)
+        {
+            Point3d point = nurbs.PointAt(parameter);
+            double station = Math.Clamp(
+                plan.GetLength(new Interval(plan.Domain.T0, parameter)), 0.0, pieceLength);
+            double distance = jointAtStart ? station : pieceLength - station;
+            double factor = CalculateFalloffFactor(Math.Clamp(distance, 0.0, ramp) / ramp, falloff);
+            points.Add(new Point3d(point.X, point.Y, point.Z + (delta * factor)));
+        }
+
+        plan.Dispose();
+        if (!nurbs.SetGrevillePoints(points))
+        {
+            nurbs.Dispose();
+            return piece;
+        }
+
+        piece.Dispose();
+        return nurbs;
+    }
+
+    /// <summary>Control points the falloff gets to work with inside a transition band.</summary>
+    private const int TransitionBandSamples = 12;
+
+    /// <summary>
+    /// Control points a blended section gets. Blending reads the terrain at control points, so on a
+    /// straight run between two of them it would read the terrain twice and interpolate across
+    /// whatever lies between — and the edge feather would have nothing to ramp over.
+    /// </summary>
+    private const int BlendSectionSamples = 32;
+
+    /// <summary>
+    /// Adds knots at evenly spaced plan stations, giving a curve control points where an elevation edit
+    /// needs to shape something. Knot insertion is geometry-preserving, so this changes only what the
+    /// curve can express, never where it runs. The plan curve shares the source domain, so its length
+    /// solver is what maps a station back to a parameter.
+    ///
+    /// <para>Both ends of the band are included, not just the interior. A band boundary that falls
+    /// inside the curve needs a control point of its own or the edit has nothing to land on there and
+    /// leaks a straight tail across the whole remainder — a transition that was asked to die out in 20
+    /// units instead petering out over the next 50.</para>
+    /// </summary>
+    private static void InsertStationKnots(
+        NurbsCurve curve,
+        Curve planCurve,
+        double fromStation,
+        double toStation,
+        int sampleCount)
+    {
+        double span = toStation - fromStation;
+        double planLength = planCurve.GetLength();
+        if (sampleCount < 2 || span <= RhinoMath.ZeroTolerance || !double.IsFinite(planLength))
+            return;
+
+        for (int index = 0; index <= sampleCount; index++)
+        {
+            double station = fromStation + (span * index / sampleCount);
+
+            // The curve's own ends already carry control points, and asking for a knot there is at
+            // best a no-op.
+            if (station <= RhinoMath.ZeroTolerance || station >= planLength - RhinoMath.ZeroTolerance)
+                continue;
+
+            if (planCurve.LengthParameter(station, out double parameter))
+                curve.Knots.InsertKnot(parameter);
+        }
+    }
+
+    /// <summary>
+    /// Ramps an in-section edit up from nothing at each picked end over <paramref name="rampLength" />
+    /// of plan distance, so the picked ends keep their elevation. Clamped to half the section, past
+    /// which the two ramps would overlap and the edit would never reach full strength.
+    /// </summary>
+    private static double CalculateEdgeFeather(
+        double station,
+        double sectionLength,
+        double rampLength,
+        SoftEditFalloff falloff)
+    {
+        if (rampLength <= RhinoMath.ZeroTolerance)
+            return 1.0;
+
+        double ramp = Math.Min(rampLength, sectionLength * 0.5);
+        if (ramp <= RhinoMath.ZeroTolerance)
+            return 1.0;
+
+        double distanceToNearestEnd = Math.Min(station, sectionLength - station);
+        if (distanceToNearestEnd >= ramp)
+            return 1.0;
+
+        return CalculateFalloffFactor(1.0 - (distanceToNearestEnd / ramp), falloff);
+    }
+
     private static void AddSectionBoundaryTransition(
         ICollection<Curve> pieces,
         Point3d from,
@@ -205,6 +549,73 @@ internal static class GeometryCommandAlgorithms
             return;
 
         pieces.Add(new LineCurve(from, to));
+    }
+
+    /// <summary>Samples taken along a curve when measuring how far it strays from its asked-for slope.</summary>
+    private const int DeviationSamples = 512;
+
+    /// <summary>
+    /// How far a curve strays from the elevations it was asked for, and where.
+    ///
+    /// <para>The slope commands deliberately re-elevate a curve by moving its existing Greville points
+    /// rather than rebuilding it from a dense sample, because that keeps the curve editable — same
+    /// degree, same control points, still something a user can grab. The cost is that the result only
+    /// *interpolates* the asked-for elevations, at the Greville abscissae; between them the elevation
+    /// follows the NURBS basis while the ideal follows arc length. For a degree-1 polyline the two
+    /// agree exactly and the deviation is zero. For a curved or high-degree curve with few control
+    /// points they do not, and nothing on screen says so — a curve can read as a clean 5% and sag
+    /// centimetres between its control points. Hence measuring it and saying so.</para>
+    /// </summary>
+    public readonly record struct CurveSlopeDeviation(
+        double MaxDeviation,
+        double Station,
+        Point3d Location,
+        int SampleCount)
+    {
+        /// <summary>True when the stray is larger than the document would call coincident.</summary>
+        public bool ExceedsTolerance(double tolerance) =>
+            MaxDeviation > Math.Max(Math.Abs(tolerance), RhinoMath.ZeroTolerance);
+    }
+
+    /// <summary>
+    /// Compares a re-elevated curve against the elevation rule it was built from, sampling densely by
+    /// plan station. <paramref name="prescribedElevationAtStation" /> is the same rule the edit applied,
+    /// so this measures interpolation error alone — not a difference of intent.
+    /// </summary>
+    public static CurveSlopeDeviation MeasureElevationDeviation(
+        Curve curve,
+        Func<double, double> prescribedElevationAtStation,
+        int sampleCount = DeviationSamples)
+    {
+        if (curve == null || prescribedElevationAtStation == null || sampleCount < 2)
+            return default;
+
+        using Curve? plan = CreatePlanCurve(curve);
+        double planLength = plan?.GetLength() ?? double.NaN;
+        if (plan == null || !double.IsFinite(planLength) || planLength <= RhinoMath.ZeroTolerance)
+            return default;
+
+        double worst = 0.0;
+        double worstStation = 0.0;
+        Point3d worstPoint = curve.PointAtStart;
+
+        for (int index = 0; index <= sampleCount; index++)
+        {
+            double station = planLength * index / sampleCount;
+            if (!plan.LengthParameter(station, out double parameter))
+                continue;
+
+            Point3d point = curve.PointAt(parameter);
+            double deviation = Math.Abs(point.Z - prescribedElevationAtStation(station));
+            if (deviation <= worst)
+                continue;
+
+            worst = deviation;
+            worstStation = station;
+            worstPoint = point;
+        }
+
+        return new CurveSlopeDeviation(worst, worstStation, worstPoint, sampleCount);
     }
 
     public static double CalculatePlanLength(Curve curve, double firstParameter, double secondParameter)
@@ -667,7 +1078,18 @@ internal static class GeometryCommandAlgorithms
         if (radius <= RhinoMath.ZeroTolerance)
             return 0.0;
 
-        double factor = Math.Max(0.0, 1.0 - (CalculatePlanDistance(basePoint, point) / radius));
+        return CalculateFalloffFactor(CalculatePlanDistance(basePoint, point) / radius, falloff);
+    }
+
+    /// <summary>
+    /// The one falloff curve every soft edit shares: full strength at <paramref name="normalizedDistance" />
+    /// zero, nothing at one. Radial soft edits measure that distance in plan from a base point; the
+    /// curve-section transition measures it along the curve from a joint. Same easing either way, so a
+    /// user who has learned what Smooth looks like in one place has learned it in both.
+    /// </summary>
+    private static double CalculateFalloffFactor(double normalizedDistance, SoftEditFalloff falloff)
+    {
+        double factor = Math.Clamp(1.0 - normalizedDistance, 0.0, 1.0);
         return factor > 0.0 && falloff == SoftEditFalloff.Smooth
             ? EaseInOutSine(factor)
             : factor;

@@ -222,6 +222,12 @@ one office and 33% for another without either editing the file — so changing i
 rebuilds nothing; it only relabels the cards. It is set from the panel's *Terrain Settings › Slope
 Units* row and from the `Units` option on any slope-taking command, and those are the same setting.
 
+`SlopeCommandOption` opens at the value last accepted, which is right for a command that is usually run
+with the same grade twice running. A command whose default can be *measured from the geometry in hand*
+passes `ignoreCachedValue` instead and seeds it from that: `mhSlopeCurveSection` opens at the picked
+section's own slope, so accepting immediately changes nothing. A remembered value there would have made
+the first run of the command flatten whatever was picked.
+
 Do not confuse it with the per-item `Unit` on slope analyses and annotations: that one is part of the
 drawing (a label's unit belongs in the document, and two labels may legitimately differ), this one is
 about how you type.

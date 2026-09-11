@@ -24,7 +24,7 @@ The Rhino plugin provides the panel-driven workflow for creating, editing, analy
 | `mhSplitAtIntersections` | Split selected curves at their pairwise intersections |
 | `mhDrapeCurve` | Sample selected curves onto a selected mesh or surface along World Z |
 | `mhInspectCurve` | Open the read-only plan-station profile inspector: an elevation profile coloured by grade, elevation, cut/fill or plan radius, with checks (grade, radius, vertical break, terrain coverage), measurements and an event list; the same colour ramp drives a live viewport overlay, and hovering the profile scrubs a marker along the curve. `Label` drops elevation / grade / station / cut-fill text dots along the curve |
-| `mhSlopeCurveSection` | Set or interpolate grade over a selected curve section, including blending to active terrain |
+| `mhSlopeCurveSection` | Set or interpolate grade over a selected curve section, including blending to active terrain. Previewed live; `Anchor` picks which end holds its elevation, and `Transition` eases the moved end back into the rest of the curve instead of stepping. Reports how far the result strays from the prescribed grade when control-point editing cannot express it exactly |
 | `mhCreateWall` | Draw a wall rail and generate its parallel, vertically offset companion rail |
 
 ## Grasshopper Components

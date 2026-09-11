@@ -216,6 +216,17 @@ internal static class GeometryCommandService
         if (!usePercentage)
             RhinoApp.WriteLine($"Slope = {SlopeInput.FormatWithUnit(slopeRatio, SlopeUnitPreference.Current)}");
 
+        // The curve is re-elevated by moving its Greville points, which only interpolates the intended
+        // grade. Measure against the rule that was applied — start elevation plus slope by plan station,
+        // the same thing TryCreateSlopeCurve builds from — and say so when it strays.
+        double appliedRatio = usePercentage ? slope.Ratio : slopeRatio;
+        double startElevation = sourceCurve.PointAtStart.Z;
+        ReportSlopeDeviation(
+            GeometryCommandAlgorithms.MeasureElevationDeviation(
+                resultCurve, station => startElevation + (station * appliedRatio)),
+            doc.ModelAbsoluteTolerance,
+            "curve");
+
         if (replaceInput)
         {
             bool replaced = doc.Objects.Replace(objRef.ObjectId, resultCurve);
@@ -232,9 +243,14 @@ internal static class GeometryCommandService
         return Result.Success;
     }
 
+    /// <summary>
+    /// Re-grades a picked stretch of a curve. Every option is previewed live and every mode shows only
+    /// the options it actually uses — the command used to offer a blend factor while grading and a
+    /// grade while blending, and showed neither result until after it had been accepted.
+    /// </summary>
     public static Result RunSlopeCurveSection(RhinoDoc doc)
     {
-        if (!ModelUnitGuard.TryGet(doc, out _))
+        if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext))
             return Result.Failure;
 
         var getObject = new GetObject();
@@ -254,83 +270,201 @@ internal static class GeometryCommandService
         if (firstPick.Get() != GetResult.Point)
             return firstPick.CommandResult();
 
+        Point3d firstPoint = firstPick.Point();
+
         var secondPick = new GetPoint();
-        secondPick.SetCommandPrompt("Pick second point on curve");
+        secondPick.SetCommandPrompt("Pick second point on curve (the grade runs towards it)");
         secondPick.Constrain(source, false);
+        secondPick.DynamicDraw += (_, e) => e.Display.DrawPoint(firstPoint, TrackingColor);
         if (secondPick.Get() != GetResult.Point)
             return secondPick.CommandResult();
 
-        if (!source.ClosestPoint(firstPick.Point(), out double firstParameter) ||
-            !source.ClosestPoint(secondPick.Point(), out double secondParameter))
+        Point3d secondPoint = secondPick.Point();
+
+        if (!source.ClosestPoint(firstPoint, out double firstParameter) ||
+            !source.ClosestPoint(secondPoint, out double secondParameter))
             return Result.Failure;
 
+        // The picked section's own slope is a better opening value than one remembered from whatever
+        // curve was graded last: it makes pressing Enter straight away a no-op, where the cached
+        // default used to open at zero and flatten the section on first use.
+        double pickedPlanLength = GeometryCommandAlgorithms.CalculatePlanLength(
+            source, firstParameter, secondParameter);
+        double measuredRatio = pickedPlanLength > RhinoMath.ZeroTolerance
+            ? (source.PointAt(secondParameter).Z - source.PointAt(firstParameter).Z) / pickedPlanLength
+            : 0.0;
+
         int modeIndex = CommandOptionCache.GetValue("MoleHill.SlopeCurveSection.Mode", 0);
-        double gradePercent = CommandOptionCache.GetValue("MoleHill.SlopeCurveSection.Percent", 0.0);
+        var slope = new SlopeCommandOption(
+            "MoleHill.SlopeCurveSection.Slope", measuredRatio, ignoreCachedValue: true);
         double blendPercent = CommandOptionCache.GetValue("MoleHill.SlopeCurveSection.Blend", 100.0);
         bool replaceInput = CommandOptionCache.GetValue("MoleHill.SlopeCurveSection.ReplaceInput", true);
+        int anchorIndex = CommandOptionCache.GetValue("MoleHill.SlopeCurveSection.Anchor", 0);
+        const string transitionKey = "MoleHill.SlopeCurveSection.Transition";
+        double transitionLength = CommandOptionCache.GetLength(transitionKey, unitContext, 5.0);
+        bool smoothFalloff = CommandOptionCache.GetValue("MoleHill.SlopeCurveSection.SmoothFalloff", true);
 
-        while (true)
-        {
-            var options = new GetPoint();
-            options.SetCommandPrompt("Choose section edit mode or press Enter to accept");
-            options.AcceptNothing(true);
-            var gradeOption = new OptionDouble(gradePercent, -100000.0, 100000.0);
-            var blendOption = new OptionDouble(blendPercent, 0.0, 100.0);
-            var replaceOption = new OptionToggle(replaceInput, "Copy", "Replace");
-            int modeOptionIndex = options.AddOptionList(
-                "Mode",
-                new[] { "GradePercent", "BetweenCurrentElevations", "BlendToTerrain" },
-                Math.Clamp(modeIndex, 0, 2));
-            options.AddOptionDouble("Grade", ref gradeOption);
-            options.AddOptionDouble("Blend", ref blendOption);
-            options.AddOptionToggle("Output", ref replaceOption);
-
-            GetResult optionResult = options.Get();
-            gradePercent = gradeOption.CurrentValue;
-            blendPercent = blendOption.CurrentValue;
-            replaceInput = replaceOption.CurrentValue;
-            if (optionResult == GetResult.Option)
-            {
-                if (options.OptionIndex() == modeOptionIndex)
-                    modeIndex = options.Option().CurrentListOptionIndex;
-                continue;
-            }
-
-            if (optionResult != GetResult.Nothing)
-                return options.CommandResult();
-
-            break;
-        }
-
-        CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.Mode", modeIndex);
-        CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.Percent", gradePercent);
-        CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.Blend", blendPercent);
-        CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.ReplaceInput", replaceInput);
-
+        // Resolved once and only if a mode asks for it, because the preview asks on every mouse move.
         Mesh? activeTerrain = null;
-        if (modeIndex == 2)
+        bool terrainResolved = false;
+        string? terrainError = null;
+
+        Mesh? ResolveTerrain()
         {
+            if (terrainResolved)
+                return activeTerrain;
+
+            terrainResolved = true;
             TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
             if (terrain == null)
             {
-                RhinoApp.WriteLine("Select an active MoleHill terrain before blending to terrain.");
-                return Result.Nothing;
+                terrainError = "Select an active MoleHill terrain before blending to terrain.";
+                return null;
             }
 
             activeTerrain = TerrainController.Instance.DuplicateFinalTerrainMesh(doc, terrain.TerrainId);
             if (activeTerrain == null)
             {
-                RhinoApp.WriteLine($"Active terrain '{terrain.Name}' has no current final build. Rebuild it before blending.");
-                return Result.Nothing;
+                terrainError =
+                    $"Active terrain '{terrain.Name}' has no current final build. Rebuild it before blending.";
             }
+
+            return activeTerrain;
+        }
+
+        bool TryBuildCandidate(
+            out Curve? candidate,
+            out CurveSectionEditResult candidateReport,
+            out string? candidateError,
+            bool measureDeviation = true)
+        {
+            var mode = (CurveSectionEditMode)Math.Clamp(modeIndex, 0, 2);
+            Mesh? terrain = mode == CurveSectionEditMode.BlendToTerrain ? ResolveTerrain() : null;
+            if (mode == CurveSectionEditMode.BlendToTerrain && terrain == null)
+            {
+                candidate = null;
+                candidateReport = default;
+                candidateError = terrainError;
+                return false;
+            }
+
+            return GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
+                source,
+                firstParameter,
+                secondParameter,
+                mode,
+                SlopeAnalyzer.ConvertRatioToUnit(slope.Ratio, SlopeAnalyzer.SlopeUnit.Percent),
+                blendPercent,
+                terrain,
+                (CurveSectionAnchor)Math.Clamp(anchorIndex, 0, 2),
+                transitionLength,
+                smoothFalloff ? SoftEditFalloff.Smooth : SoftEditFalloff.Linear,
+                measureDeviation,
+                doc.ModelAbsoluteTolerance,
+                out candidate,
+                out candidateReport,
+                out candidateError);
         }
 
         try
         {
-            if (!GeometryCommandAlgorithms.TryCreateCurveSectionEdit(
-                    source, firstParameter, secondParameter, (CurveSectionEditMode)modeIndex,
-                    gradePercent, blendPercent, activeTerrain, doc.ModelAbsoluteTolerance,
-                    out Curve? resultCurve, out string? error) || resultCurve == null)
+            while (true)
+            {
+                var mode = (CurveSectionEditMode)Math.Clamp(modeIndex, 0, 2);
+                bool isGrade = mode == CurveSectionEditMode.GradePercent;
+                bool isBlend = mode == CurveSectionEditMode.BlendToTerrain;
+
+                var options = new GetPoint();
+                options.SetCommandPrompt(
+                    $"Section edit mode {SectionModeLabels[(int)mode]} — " +
+                    $"{DescribeSectionEdit(TryBuildCandidate, doc.ModelAbsoluteTolerance)}. " +
+                    "Press Enter to accept");
+                options.AcceptNothing(true);
+
+                // A stray click in the viewport is not a reason to abandon the edit.
+                options.AcceptPoint(false);
+
+                var blendOption = new OptionDouble(blendPercent, 0.0, 100.0);
+                var replaceOption = new OptionToggle(replaceInput, "Copy", "Replace");
+                var transitionOption = new OptionDouble(transitionLength, true, 0.0);
+                var falloffOption = new OptionToggle(smoothFalloff, "Linear", "Smooth");
+
+                int modeOptionIndex = options.AddOptionList(
+                    "Mode",
+                    new[] { "Grade", "BetweenCurrentElevations", "BlendToTerrain" },
+                    (int)mode);
+
+                // Each mode adds only what it reads. An option on screen that the current mode ignores
+                // reads as a setting that did nothing.
+                int anchorOptionIndex = -1;
+                if (isGrade)
+                {
+                    slope.AddTo(options);
+                    anchorOptionIndex = options.AddOptionList(
+                        "Anchor",
+                        new[] { "Start", "End", "Middle" },
+                        Math.Clamp(anchorIndex, 0, 2));
+                }
+
+                if (isBlend)
+                    options.AddOptionDouble("Blend", ref blendOption);
+
+                if (isGrade || isBlend)
+                {
+                    options.AddOptionDouble("Transition", ref transitionOption);
+                    options.AddOptionToggle("Falloff", ref falloffOption);
+                }
+
+                options.AddOptionToggle("Output", ref replaceOption);
+                options.DynamicDraw += (_, e) =>
+                {
+                    e.Display.DrawPoint(firstPoint, TrackingColor);
+                    e.Display.DrawPoint(secondPoint, TrackingColor);
+                    if (!TryBuildCandidate(
+                            out Curve? previewCurve,
+                            out CurveSectionEditResult _,
+                            out string? _,
+                            measureDeviation: false) || previewCurve == null)
+                        return;
+
+                    e.Display.DrawCurve(previewCurve, TrackingColor, 2);
+                    previewCurve.Dispose();
+                };
+
+                GetResult optionResult = options.Get();
+                if (isGrade)
+                    slope.Commit(options, optionResult);
+
+                blendPercent = blendOption.CurrentValue;
+                replaceInput = replaceOption.CurrentValue;
+                transitionLength = Math.Max(0.0, transitionOption.CurrentValue);
+                smoothFalloff = falloffOption.CurrentValue;
+
+                if (optionResult == GetResult.Option)
+                {
+                    if (options.OptionIndex() == modeOptionIndex)
+                        modeIndex = options.Option().CurrentListOptionIndex;
+                    else if (anchorOptionIndex >= 0 && options.OptionIndex() == anchorOptionIndex)
+                        anchorIndex = options.Option().CurrentListOptionIndex;
+
+                    continue;
+                }
+
+                if (optionResult != GetResult.Nothing)
+                    return options.CommandResult();
+
+                break;
+            }
+
+            CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.Mode", modeIndex);
+            CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.Blend", blendPercent);
+            CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.ReplaceInput", replaceInput);
+            CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.Anchor", anchorIndex);
+            CommandOptionCache.SetLength(transitionKey, unitContext, transitionLength);
+            CommandOptionCache.SetValue("MoleHill.SlopeCurveSection.SmoothFalloff", smoothFalloff);
+
+            if (!TryBuildCandidate(out Curve? resultCurve, out CurveSectionEditResult report, out string? error) ||
+                resultCurve == null)
             {
                 RhinoApp.WriteLine(error ?? "Failed to edit the curve section.");
                 return Result.Failure;
@@ -353,6 +487,14 @@ internal static class GeometryCommandService
                 doc.EndUndoRecord(undoRecord);
             }
 
+            // What it came out as, not what was asked for: the anchor and the transition both move the
+            // ends, so the achieved grade is the only number worth reporting.
+            RhinoApp.WriteLine(
+                $"Section graded at {SlopeInput.FormatWithUnit(report.SlopeRatio, SlopeUnitPreference.Current)} " +
+                $"over {report.PlanLength:F3} " +
+                $"({report.FirstElevation:F3} to {report.SecondElevation:F3}).");
+            ReportSlopeDeviation(report.Deviation, doc.ModelAbsoluteTolerance, "section");
+
             doc.Views.Redraw();
             return Result.Success;
         }
@@ -360,6 +502,56 @@ internal static class GeometryCommandService
         {
             activeTerrain?.Dispose();
         }
+    }
+
+    private static readonly string[] SectionModeLabels = { "Grade", "BetweenCurrentElevations", "BlendToTerrain" };
+
+    private delegate bool SectionEditCandidateBuilder(
+        out Curve? candidate,
+        out CurveSectionEditResult report,
+        out string? error,
+        bool measureDeviation);
+
+    /// <summary>
+    /// The live outcome of the current settings, for the prompt. Building the candidate is the only way
+    /// to know what the anchor and the transition actually produced, so the prompt is built from the
+    /// same edit the preview draws.
+    /// </summary>
+    private static string DescribeSectionEdit(SectionEditCandidateBuilder build, double tolerance)
+    {
+        if (!build(out Curve? candidate, out CurveSectionEditResult report, out string? error,
+                   measureDeviation: true) || candidate == null)
+            return error ?? "not possible here";
+
+        candidate.Dispose();
+        string summary = $"grade {SlopeInput.FormatWithUnit(report.SlopeRatio, SlopeUnitPreference.Current)}, " +
+                         $"ends {report.FirstElevation:F3} to {report.SecondElevation:F3}";
+
+        // Only worth saying when it is worth acting on; an exact polyline edit would otherwise carry a
+        // permanent "deviation 0.000" that trains the eye to skip the whole line.
+        return report.Deviation.ExceedsTolerance(tolerance)
+            ? summary + $", off by {report.Deviation.MaxDeviation:F3}"
+            : summary;
+    }
+
+    /// <summary>
+    /// Says how far a Greville-edited curve actually landed from the slope it was given, but only when
+    /// that is more than the document calls coincident. The commands edit control points to keep the
+    /// curve editable, so a curved or high-degree curve with few of them can read as a clean grade and
+    /// still sag between them; silence here means the edit was exact, which for a polyline it is.
+    /// </summary>
+    private static void ReportSlopeDeviation(
+        GeometryCommandAlgorithms.CurveSlopeDeviation deviation,
+        double tolerance,
+        string subject)
+    {
+        if (!deviation.ExceedsTolerance(tolerance))
+            return;
+
+        RhinoApp.WriteLine(
+            $"The {subject} deviates up to {deviation.MaxDeviation:F3} from the prescribed slope, " +
+            $"at station {deviation.Station:F3}. Control points were moved to keep the curve editable; " +
+            "rebuild it with more points if that is too coarse.");
     }
 
     public static Result RunLiftCurvesWithLine(RhinoDoc doc)
@@ -699,10 +891,14 @@ internal static class GeometryCommandService
         private int _unitOptionIndex = -1;
         private double _ratio;
 
-        public SlopeCommandOption(string cacheKey, double defaultRatio)
+        /// <param name="ignoreCachedValue">Opens at <paramref name="defaultRatio" /> rather than at the
+        /// value last accepted. Set it when the default is measured from the geometry in hand — a slope
+        /// read off the curve being edited describes that curve, and a value remembered from the last
+        /// one does not.</param>
+        public SlopeCommandOption(string cacheKey, double defaultRatio, bool ignoreCachedValue = false)
         {
             _cacheKey = cacheKey;
-            _ratio = CommandOptionCache.GetValue(cacheKey, defaultRatio);
+            _ratio = ignoreCachedValue ? defaultRatio : CommandOptionCache.GetValue(cacheKey, defaultRatio);
             _unit = SlopeUnitPreference.Current;
         }
 

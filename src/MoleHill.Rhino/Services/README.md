@@ -201,6 +201,28 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   primitive, shared by `mhOffsetFeature` and `mhCreateWall`'s parallel rail;
   `TryResolveVerticalDelta` turns the command's `Vertical` mode (elevation / percent / degrees /
   1:n ratio) into that delta over the offset distance.
+  `TryCreateCurveSectionEdit` is `mhSlopeCurveSection`. Re-grading part of a curve has to move one of
+  the picked ends, and the moved end meets curve that did not move: with `Transition` at zero the two
+  are bridged by a vertical line, which is the step users saw. A transition length instead eases that
+  delta into the adjoining stretch (clamped to it, so the curve's own endpoint never moves), and
+  `BlendToTerrain` spends the same length inside the section, ramping the pull up from each pick so
+  both stay put. Straight neighbours carry control points only at their ends, so `InsertStationKnots`
+  adds them across the band — including its boundaries, or the edit leaks a straight tail over the
+  whole remainder instead of dying out where it was told to. `Anchor` chooses which pick keeps its
+  elevation, pick order sets the direction the grade runs, and the command reports the *achieved*
+  grade, since the anchor and the transition both move the ends. Every mode adds only the options it
+  reads and previews through `DynamicDraw`, the same way `mhSlopeCurve` does.
+  `MeasureElevationDeviation` + `CurveSlopeDeviation` answer the question both slope commands used to
+  leave open. Both re-elevate a curve by moving its existing Greville points — deliberately, because
+  that keeps the curve editable rather than replacing it with a dense rebuild — so the result only
+  *interpolates* the asked-for grade, exactly at the Greville abscissae. On a degree-1 polyline that is
+  exact and the deviation is zero. On a curved or high-degree curve with few control points it is not:
+  a 20% grade on a degree-3 four-point S-curve strays 0.43 model units mid-span, and nothing on screen
+  says so. Both commands therefore sample the result densely by plan station against the same rule the
+  edit applied and report the worst stray and where — but only when it exceeds document tolerance, so
+  the exact case stays silent instead of printing a zero users learn to skip. The measurement is opt-in
+  per call (`measureDeviation`) and the live preview opts out: under blend-to-terrain every sample is a
+  mesh ray, and the preview redraws on each mouse move.
 - `CurveReviewService.cs` / `CurveReviewForm.cs` / `CurveReviewAnalysis.cs` / `CurveReviewConduit.cs` /
   `CurveReviewPalette.cs` - the `mhInspectCurve` plan-station inspector. **It reports; it never edits** -
   see `docs/architecture.md` for why the profile-editing stack was removed rather than restyled. The
