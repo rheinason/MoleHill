@@ -96,26 +96,30 @@ both impounded volume and depth, both unit-aware, both user-set.
 
 ---
 
-### B3 — Difference surface, inside the Earthworks analysis
+### B3 — Difference surface — **shipped**, on Cut / Fill rather than Earthworks
 
-**Reference:** TBC/Carlson surface comparison; Civil 3D TIN-volume surfaces. The difference between two
-surfaces treated as an analysable surface in its own right, not just a scalar.
+**Shipped 2026-09-12.** Kept here only to record the one place this entry was wrong, since the mistake is
+easy to repeat: it was written as "an extension of the existing Earthworks analysis", listing a cut/fill
+colour map as the first thing to add. That map already existed, as the separate **Cut / Fill** analysis —
+which resolves the per-face delta and already pins zero through `RangeShape.SymmetricAboutZero`. Both
+analyses derive from `ReferenceComparisonAnalysisDefinition`; Earthworks owns the *volumes*, Cut / Fill
+owns the *delta*.
 
-**What MoleHill has:** `EarthworkAnalysisDefinition` already computes cut/fill against an explicit
-reference (baked geometry or another terrain), or estimates against the terrain's own base
-triangulation when no reference is set, and `ZoneAnalysisSummary` already tabulates that per zone.
+So the genuinely missing half was the drawn output, and it landed on Cut / Fill, which already holds the
+field and the ramp:
 
-**Decision: this is an extension of the existing Earthworks analysis, not a new analysis type.** Same
-definition, same reference-picking UI, same estimated/exact convention — what is added is *output*:
+- **Delta contours** at a stated depth, stepping out from zero both ways — "cut deeper than 1 m" as a
+  line — on a `CutFillContours` layer role.
+- **The balance line**, the same field at exactly zero, on its own `BalanceLine` role because it is a
+  decision rather than a depth. Omitted where the delta never changes sign; a site that is all fill has
+  no line where cut meets fill, and drawing one at the shallowest edge would invent a boundary.
 
-- a cut/fill colour map over the mesh, driven by the analysis family's existing `PalettePreset` /
-  `PaletteStops` / `ResolveRamp()` machinery (diverging ramp, zero pinned to the neutral stop);
-- contours of the delta at a user interval — "cut deeper than 1 m" as a drawn line;
-- the zero line (balance line) as its own output, which is the existing daylight zero-crossing
-  detection applied to `newZ - refZ`.
+The mechanism is a per-vertex field overload on `ContourGenerator` — elevation contouring is now that
+same marching-triangles pass with the field left null. Unmapped vertices carry NaN and every face
+touching one is skipped. See `docs/architecture.md` → "Analysis vs annotation".
 
-**Notes:** the ramp must pin zero rather than auto-fit symmetrically, or a site that is 90 % fill reads
-as though it balances. `AnalysisRange`'s anchoring already has the vocabulary for this.
+**Not done, and deliberately:** major/minor layer separation for delta contours (elevation contours have
+it; nobody has asked for it here), and delta contour *labels*.
 
 ---
 
@@ -145,30 +149,6 @@ CSV writer anywhere in the tree.
   annotation — that makes it update with the terrain, which is the entire argument for a live model.
 - Units: every figure is unit-bearing and must go through `ModelUnitContext`. A report that says "1250"
   with no unit is worse than no report.
-
----
-
-### B5 — Aspect analysis
-
-**Reference:** a standard Civil 3D surface analysis, alongside slope and elevation.
-
-**What MoleHill has:** `SlopeAnalyzer` already computes per-face normals; aspect is the other angle of
-the same normal. `Aspect` appears in the source only as an unrelated English word.
-
-**Where it fits:** an **analysis**, next to `slope` and `elevation`, reusing their entire apparatus.
-
-**Shape:** per-face compass bearing of steepest descent, mapped through a cyclic colour ramp. The one
-thing it needs that slope does not is a **cyclic** palette — a linear ramp over a 0–360° quantity puts a
-hard seam at north. Either add a cyclic preset to `ColorRampPresets`, or classify into named sectors
-(N/NE/E/…), which is what most users actually want to read anyway.
-
-**Notes:**
-
-- Near-flat faces have no meaningful aspect; they need a separate "flat" colour below a slope
-  threshold, not an arbitrary bearing.
-- North comes from the document, and `mhSetSunNorth` already exists — use that north, do not introduce
-  a second one.
-- Cheap. A good candidate to build first, as a way of proving the analysis-authoring path end to end.
 
 ---
 
@@ -410,7 +390,8 @@ be an obvious bug, so this exclusion is part of the first implementation, not a 
 
 Raised for consideration; none agreed. Kept here so they are not re-derived from scratch.
 
-*(Swale, Project To, boundary roles and survey field codes were promoted to Accepted — see B8–B11.)*
+*(Swale, Project To, boundary roles and survey field codes were promoted to Accepted — see B8–B11.
+Aspect (B5) shipped and its entry is gone; B3 shipped and is kept only to record where it was wrong.)*
 - **Gradient compliance checking as an analysis.** Accessibility limits — running slope, cross slope,
   landing intervals, whatever local standard applies — evaluated over the graded surface and over path
   corridors, reported as pass/warn regions. MoleHill already has the pattern: `mhInspectCurve`'s

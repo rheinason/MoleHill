@@ -174,7 +174,15 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   `PreviewTerrainMesh` authority across background build applies; builds defer while a stroke is being painted).
 - `SculptAnalysisColorizer.cs` - live slope/elevation/cut-fill coloring of the sculpt working mesh: per-dab
   vertex recolor from the freshly patched normals / Z / reference projection, with the range pinned at
-  session start.
+  session start. Aspect deliberately has none: its colours are per-face directions and a stroke changes
+  the direction of every face it touches, so there is nothing to pin. An active aspect card means the
+  sculpt stage draws in the terrain's own colour, exactly as it does with no analysis at all.
+- `DocumentNorth.cs` - the document's north, in one place: `doc.Lights.Sun.North`, the angle
+  `mhSetSunNorth` writes, as an azimuth CCW from +X. The aspect analysis reads it through here from both
+  the preview path (which holds a `RhinoDoc`) and the build path (via `TerrainBuildSnapshot.
+  NorthAzimuthDegrees`, captured on the document thread), so an aspect map cannot disagree with the sun.
+  North is not on the definition, so `ComputeAnalysisFingerprint` adds it explicitly for an aspect
+  analysis - otherwise rotating north leaves cached bearings on screen.
 - Reference comparison caches separate current-mesh statistics from reference projection contexts.
   Multiple zone pieces therefore share the expensive reference index while retaining independent
   cut/fill volumes and per-call projection diagnostics.

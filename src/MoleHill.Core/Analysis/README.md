@@ -3,9 +3,14 @@
 Terrain analysis math. Pure, unit-tested.
 
 - `ContourGenerator.cs` — single-pass marching-triangles contour extraction (one pass over faces, each
-  triangle only contributes to the levels in its own Z-span — far faster than one mesh-plane per level).
-  Returns `ContourLevel`s of `ContourPolyline`s. The Rhino side (`TerrainBuildService.Analysis.cs`)
-  wraps these as curves. Stitching keeps node incidence as flat CSR (a `List<int>` per welded node cost
+  triangle only contributes to the levels in its own value span — far faster than one mesh-plane per
+  level). Returns `ContourLevel`s of `ContourPolyline`s. The Rhino side (`TerrainBuildService.Analysis.cs`)
+  wraps these as curves. It contours an arbitrary **per-vertex field**, with the points it emits still on
+  the mesh; elevation contouring is that same pass with the field left null, so there is one
+  implementation rather than one per caller. The field overload is what draws a cut/fill delta — a level
+  is then a depth, and level 0 is the balance line. A vertex whose field value is not finite marks ground
+  the field does not describe, and every face touching one is skipped, so unmapped ground draws nothing
+  rather than a line derived from a value that was never measured. Stitching keeps node incidence as flat CSR (a `List<int>` per welded node cost
   a list object plus a backing array for roughly every segment) and walks chains into two reusable
   buffers instead of a `LinkedList` node per point — the emitted order is `backward` reversed then
   `forward`, which is what the old `AddFirst`/`AddLast` produced. Seeds are ordered by minimum endpoint
@@ -22,11 +27,23 @@ Terrain analysis math. Pure, unit-tested.
   a range needs the distribution); `Analyze` keeps the per-face slope + palette mapping path for colored
   previews and handles both gradient and stepped modes. Both paths parallelize above 20,000 faces. The
   display range comes from `AnalysisRange`, never from the raw maximum.
+- `AspectAnalyzer.cs` — aspect: the compass bearing each face drains towards, which is the other angle of
+  the normal `SlopeAnalyzer` already takes. Shaped like it — same flat arrays, same plan-area weighting,
+  same palette/band apparatus, a `Summarize` that allocates no colours. Two things it needs that slope
+  does not: a **pinned cyclic range** (bearings live on 0..360 and the ends meet, so fitting is
+  corruption, not improvement) and a **flat exemption** — a level face has no aspect, only rounding
+  noise, so faces flatter than a stated slope ratio carry NaN and are drawn neutral. North is supplied by
+  the caller as an azimuth CCW from +X, which is the convention Rhino's `Sun.North` uses. `SectorName`
+  names the nearest cardinal for a human readout; that rounding is deliberately *not* the same division
+  as the colour bands, whose edges sit on the cardinals. The summary's dominant bearing is a **circular**
+  mean — averaging the numbers would put the mean of 350° and 10° at due south.
 - `AnalysisRange.cs` — the single owner of what an analysis maps across its palette, and of what
   "auto-fit" means: an area-weighted 2nd-98th percentile (via a fixed-bin `Histogram`, so no sort and no
   retained values), snapped outward to a 1/2/5/10 number. Values outside the fitted range still draw,
   clamped to the end colours. `RangeShape` anchors the fit — `FromZero` (slope), `SymmetricAboutZero`
-  (cut/fill), `MinMax` (elevation) — and is applied before the snap. Everything that colours faces,
+  (cut/fill), `MinMax` (elevation), `Cyclic` (aspect) — and is applied before the snap. `Cyclic` is the
+  one shape that is never fitted at all: it pins a full turn with or without data, because a trimmed
+  bearing range stops naming directions. Everything that colours faces,
   writes a summary, or draws a legend resolves through here, so they cannot drift apart. `Histogram`
   additionally exposes `Resample(binCount)`, which downsamples its fixed bins into normalized bars for
   the panel's ramp-card histogram — the distribution auto-fit read, drawn behind the ramp it produced.
@@ -38,7 +55,9 @@ Terrain analysis math. Pure, unit-tested.
   documents. `Insert` takes the colour the ramp already shows at that position, so adding a stop changes
   nothing visually; `RemoveAt` refuses below two stops.
 - `ColorRampPresets.cs` — the built-in named ramps (`terrain-spectrum`, `viridis`, `magma`, `cool-warm`,
-  `turbo`, `terrain`, `blackbody`, `mono`). The keys are a persistence contract — `AnalysisDefinition.
+  `turbo`, `terrain`, `blackbody`, `mono`, `aspect-wheel`). `aspect-wheel` is the cyclic one: its first
+  and last stops are the *same* colour, so a plain linear sample wraps seamlessly and nothing needs cyclic
+  sampling code — a linear ramp over a compass would otherwise put a hard seam at due north. The keys are a persistence contract — `AnalysisDefinition.
   PalettePreset` stores one — so add freely but never rename, and `Resolve` falls back to the default
   rather than throwing on a key from a newer build. User-saved ramps live Rhino-side in
   `Services/ColorRampPresetStore`.

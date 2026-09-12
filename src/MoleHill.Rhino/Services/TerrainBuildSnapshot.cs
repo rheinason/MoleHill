@@ -5,6 +5,11 @@ using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Everything a background build needs from the document, captured once on the document thread. The build
+/// has no document access, so anything document-scoped — resolved sources, layer roles, annotation style,
+/// hatch pattern indices, the model units, north — has to be read into here first.
+/// </summary>
 internal sealed class TerrainBuildSnapshot
 {
     public required TerrainDefinition Terrain { get; init; }

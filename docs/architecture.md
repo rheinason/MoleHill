@@ -422,15 +422,42 @@ fingerprint, stage cache, timing) does not care which kind of content it runs, s
 **An analysis evaluates the terrain; an annotation describes it.** That is the whole test, and it decides
 which family a type belongs to:
 
-- **Analysis** (`Model/AnalysisDefinition`, `Registry/AnalysisTypeRegistry`) — slope, elevation, cut/fill,
-  earthworks, waterflow. The result is a measurement: a number, or a colour mapped onto the mesh. Only
-  these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`, `ResolveRamp()`).
+- **Analysis** (`Model/AnalysisDefinition`, `Registry/AnalysisTypeRegistry`) — slope, aspect, elevation,
+  cut/fill, earthworks, waterflow. The result is a measurement: a number, or a colour mapped onto the mesh.
+  Only these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`, `ResolveRamp()`).
 - **Annotation** (`Model/AnnotationDefinition`, `Registry/AnnotationTypeRegistry`) — contours, spot heights,
   spot slopes, flow arrows, grade callouts, and the three section types. The result is drawing, and it
   says what is already there. Only these carry `FollowsAnnotationStyle`.
 
 Waterflow is an analysis despite emitting curves: it *computes* flow paths, so its output is a finding,
-not a label. Earthworks is an analysis despite drawing nothing: a volume is a measurement.
+not a label. Earthworks is an analysis despite drawing nothing: a volume is a measurement. Cut / Fill
+draws *and* colours for the same reason — its delta contours and balance line are measured depths, not
+descriptions of something already drawn.
+
+**Aspect and Cut / Fill drawn output.** Two things worth knowing about the analysis family beyond the
+test above, because both are easy to reintroduce badly:
+
+- **`RangeShape.Cyclic` is not fitted.** Aspect's values are compass bearings, so its range is a full
+  turn, pinned. Auto-fitting it — trimming percentiles the way slope and elevation do — would make the
+  colours stop naming directions, so `AnalysisRange` returns 0–360 for a cyclic shape with or without
+  data, and `ColorRampControl` omits its Auto-fit and Min/Max rows rather than showing fields that can
+  change nothing. The `aspect-wheel` preset closes on itself (first stop colour == last), which is what
+  keeps a plain linear sample from putting a hard seam at due north; `Constant` mode then turns its eight
+  stops into eight crisp sectors. A face flatter than the card's threshold is flagged and drawn neutral,
+  never given a bearing — otherwise a graded pad reads as a hillside.
+- **North is the document's.** `Services/DocumentNorth` reads `doc.Lights.Sun.North`, the angle
+  `mhSetSunNorth` writes, so the aspect map and the sun agree. It lives outside the definition, which
+  means the serialized definition fingerprint cannot see it: `ComputeAnalysisFingerprint` adds it
+  explicitly for an aspect analysis, or rotating north would leave cached bearings on screen.
+- **Cut / Fill owns the delta; Earthworks owns the volumes.** Both derive from
+  `ReferenceComparisonAnalysisDefinition` and share one cached `ReferenceProjectionContext`
+  (`ResolveReferenceProjection`), so a card cannot colour against one reference and draw against another.
+  The colour map is per face, at the centroid; the **drawn** output contours a per-**vertex** field,
+  because contouring interpolates along an edge and needs the value at both ends. Unmapped vertices —
+  outside the comparison boundary, or over a hole in the reference — carry NaN, and `ContourGenerator`
+  skips every face touching one, so unmapped ground draws nothing rather than a depth never measured.
+  The balance line is that same field at exactly zero, on its own role because it means something
+  different from a depth; it is omitted entirely where the delta never changes sign.
 
 The two are **peer families, not a base and a subclass** — the same shape as `ModifierDefinition`,
 `MarkerDefinition`, and `TerrainObjectDefinition`, each with its own definition root, type registry,
@@ -673,7 +700,9 @@ one's stable id, parent, default path and appearance; the active layer template 
 layers. Nothing in the pipeline hardcodes or plumbs a layer path.
 
 - **The layer tree is the grouping the Layers pane works with.** Everything hangs off one `MoleHill`
-  root; drawing output is grouped under `Annotation` by what it is, and a section drawing is a single
+  root; drawing output is grouped under `Annotation` by what it is — including `Cut Fill Contours` and
+  `Balance Line`, which are depths rather than elevations and so must not read as terrain contours — and a
+  section drawing is a single
   branch (`Annotation::Sections`, with `Existing`, `Cuts`, `Grid`, `Ticks`, `Labels` and `CutFill::Cut` /
   `::Fill` beneath it) so a whole drawing can be hidden, locked or restyled at once. Model output
   (`Terrain`, `Auxiliary`, `Zones`, `Scatter`) is deliberately *not* under `Annotation`, so turning a

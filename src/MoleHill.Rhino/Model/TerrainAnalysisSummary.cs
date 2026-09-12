@@ -1,5 +1,10 @@
 namespace MoleHill.Rhino.Model;
 
+/// <summary>
+/// What one analysis or annotation measured on the last build, for the panel to read back without
+/// recomputing. Runtime display state: it is a flat bag of per-family fields rather than a hierarchy,
+/// because the stage runner treats every family alike and only the owning card reads its own fields.
+/// </summary>
 public sealed class TerrainAnalysisSummary
 {
     public Guid AnalysisId { get; set; }

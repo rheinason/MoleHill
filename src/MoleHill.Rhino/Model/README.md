@@ -16,6 +16,16 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
 - `LayerRole.cs` — the closed set of output destinations. `LayerTemplateDefinition` / `LayerTemplateEntry`
   bind roles to real layers and carry their appearance; `EmbeddedLayerTemplateState` is the document's own
   copy of the templates it uses.
+- `AspectAnalysisDefinition.cs` — which way the ground faces. Its range is *not* a user choice even though
+  the base class carries one: aspect is always the full compass, so `RangeLow`/`RangeHigh` are a full turn
+  and the ramp card hides the bounds. Defaults to the cyclic `aspect-wheel` preset in `Constant` mode,
+  which reads as eight sectors. `FlatSlopeThresholdDegrees` is a slope like every other in the model —
+  stored in degrees, typed in whatever unit the user works in.
+- `CutFillAnalysisDefinition.cs` — the signed delta, as colour *and* optionally as drawn lines
+  (`ShowDeltaContours` + `DeltaContourInterval`, `ShowBalanceLine`, each with an optional explicit colour
+  that falls back to its role's layer). `DrawsDeltaOutput` is the one question the build and the
+  fingerprint ask. The sibling `EarthworkAnalysisDefinition` owns the *volumes* off the same
+  `ReferenceComparisonAnalysisDefinition` base; nothing should compute the delta twice.
 
 ## Definition hierarchies (JSON-polymorphic base → subtypes)
 - **Modifiers** — polymorphism is registry-driven (`Services/TerrainJsonTypeResolver` reads each
