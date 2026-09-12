@@ -141,6 +141,10 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   Diagnostic and Guide channels. Owners are terrain/modifier/analysis/object/tool ids; palette, cloning,
   stable issue metadata, and bounds live here.
 - `TerrainRuntimeCache.cs` - per-terrain runtime cache (stage entries, TinEngine, display state, cloner).
+  `TerrainRuntimeCacheCloner.CloneAnalysis` copies a summary member by member, and every field has to be
+  listed: one left out reads back as zero on every build the stage cache serves, which is
+  indistinguishable from an analysis that measured nothing. `TerrainRuntimeCacheClonerTests` fails when a
+  property is added to `TerrainAnalysisSummary` and not here.
   Worker caches shallow-copy stage mesh outputs; the controller defers disposal of displaced main-cache
   meshes until retired worker tasks have drained. Grade Pad topology entries retain reusable flat
   geometry, while Grade Path entries retain summary metadata and patch bounds without duplicating full

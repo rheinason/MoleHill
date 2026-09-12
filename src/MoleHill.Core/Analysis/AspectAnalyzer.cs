@@ -35,7 +35,7 @@ public static class AspectAnalyzer
         public AspectSummary(
             int faceCount,
             int flatFaceCount,
-            double dominantBearing,
+            double? dominantBearing,
             double flatPlanArea,
             double totalPlanArea)
         {
@@ -52,11 +52,16 @@ public static class AspectAnalyzer
         public int FlatFaceCount { get; }
 
         /// <summary>
-        /// The plan-area-weighted circular mean bearing of every sloping face, in degrees. NaN when every
-        /// face is flat, or when the sloping faces cancel out exactly (a symmetric cone) — a mean direction
-        /// genuinely does not exist there, and reporting 0 would read as "north".
+        /// The plan-area-weighted circular mean bearing of every sloping face, in degrees, or null when
+        /// there is none: every face flat, or sloping faces that cancel out exactly (a symmetric cone). A
+        /// mean direction genuinely does not exist in those cases, and reporting 0 would read as "north".
+        ///
+        /// Null rather than NaN because this crosses into persisted state, and <c>System.Text.Json</c>
+        /// refuses to write a non-finite double — a NaN here stopped the whole terrain from saving. The
+        /// per-face <see cref="AspectResult.Bearings"/> array still uses NaN, which is the right sentinel
+        /// inside a <c>double[]</c> and the one <c>ContourGenerator</c> already reads.
         /// </summary>
-        public double DominantBearing { get; }
+        public double? DominantBearing { get; }
 
         public double FlatPlanArea { get; }
 
@@ -170,12 +175,12 @@ public static class AspectAnalyzer
     /// a band is a range the reader sees labelled with its own numbers, while "mainly north-facing" is a
     /// statement about a single mean bearing, and rounding is the honest way to say it.
     /// </summary>
-    public static string SectorName(double bearingDegrees)
+    public static string SectorName(double? bearingDegrees)
     {
-        if (!double.IsFinite(bearingDegrees))
+        if (bearingDegrees is not { } bearing || !double.IsFinite(bearing))
             return "—";
 
-        double normalized = Normalize360(bearingDegrees);
+        double normalized = Normalize360(bearing);
         int sector = (int)Math.Round(normalized / 45.0) % SectorNames.Length;
         return SectorNames[sector];
     }
@@ -233,8 +238,8 @@ public static class AspectAnalyzer
             sumY += Math.Sin(radians) * planArea;
         }
 
-        double dominant = sumX == 0.0 && sumY == 0.0
-            ? double.NaN
+        double? dominant = sumX == 0.0 && sumY == 0.0
+            ? null
             : Normalize360(Math.Atan2(sumY, sumX) * (180.0 / Math.PI));
 
         return new AspectSummary(faceCount, flatFaceCount, dominant, flatPlanArea, totalPlanArea);

@@ -123,6 +123,16 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
   Classify through indexed rays with the original polygon predicate. Preserve insertion-order
   vertex lookup ties when compacting storage. Cut slots and output arrays still use linear memory;
   watertightness tests must reject single-use interior edges, not only edges used more than twice.
+- **A terrain-level summary is persisted state, so it must be JSON-representable and it must be cloned
+  in full.** `TerrainAnalysisSummary` is saved with the terrain (`LastAnalysisResults`) and served back
+  through `TerrainRuntimeCacheCloner.CloneAnalysis`, a hand-written member-by-member copy. Two traps, both
+  found live rather than by any test of the analysis itself: a field left out of the cloner reads back as
+  **zero on every cached build**, indistinguishable from an analysis that measured nothing; and a field
+  defaulting to `double.NaN` or an infinity stops `System.Text.Json` writing the document *at all*, so
+  **every** terrain carrying **any** summary fails to save (and because every edit snapshots for undo, it
+  surfaces as a failed edit, not a failed save). Use a nullable to mean "not measured" — null is what
+  absence looks like in a document — and add the field to `CloneAnalysis`.
+  `TerrainRuntimeCacheClonerTests` and `TerrainSummarySerializationTests` fail if you forget either.
 - **Mesh counts must come from the same extraction as the mesh arrays.** `TryExtractMeshData` /
   `TryGetMeshData` normalize a *copy* (`ConvertQuadsToTriangles`, `CombineIdentical`, `CullUnused`,
   `CullDegenerateFaces`), so the arrays they return routinely describe a different vertex and face

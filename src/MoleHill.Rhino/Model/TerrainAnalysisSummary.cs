@@ -28,10 +28,16 @@ public sealed class TerrainAnalysisSummary
     public int AspectFaceCount { get; set; }
 
     /// <summary>
-    /// Plan-area-weighted circular mean bearing, in degrees clockwise from the document's north. NaN when
-    /// there is no mean direction — every face flat, or a symmetric mound whose aspects cancel.
+    /// Plan-area-weighted circular mean bearing, in degrees clockwise from the document's north, or null
+    /// when there is no mean direction — every face flat, or a symmetric mound whose aspects cancel.
+    ///
+    /// Nullable, not NaN. This type is persisted with the terrain, and <c>System.Text.Json</c> refuses to
+    /// write a non-finite double: a NaN default here stopped *every* terrain carrying *any* analysis
+    /// summary from saving, because each summary carries this field whether or not it measured aspect.
+    /// Nothing on this type may default to a non-finite value —
+    /// <c>TerrainSummarySerializationTests</c> pins that.
     /// </summary>
-    public double AspectDominantBearing { get; set; } = double.NaN;
+    public double? AspectDominantBearing { get; set; }
 
     /// <summary>
     /// Low end of the range currently mapped across the palette, in the analysis's own display unit

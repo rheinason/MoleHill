@@ -489,6 +489,15 @@ internal static class TerrainRuntimeCacheCloner
 {
     public static RhinoMesh? CloneMesh(RhinoMesh? mesh) => mesh?.DuplicateMesh();
 
+    /// <summary>
+    /// Deep-copies one summary, member by member.
+    ///
+    /// Every field has to be listed. A field left out of this list is not a cosmetic omission: it reads
+    /// back as zero on any build the stage cache serves, which looks exactly like an analysis that measured
+    /// nothing. <c>TerrainRuntimeCacheClonerTests.CloneAnalysis_CopiesEveryProperty</c> fails when a
+    /// property is added to <see cref="TerrainAnalysisSummary"/> and not to this method, because that is
+    /// otherwise only visible on a cache hit in a live session.
+    /// </summary>
     public static TerrainAnalysisSummary? CloneAnalysis(TerrainAnalysisSummary? analysis)
     {
         if (analysis == null)
@@ -503,8 +512,14 @@ internal static class TerrainRuntimeCacheCloner
             SlopeAveragePercent = analysis.SlopeAveragePercent,
             SlopeDisplayLowPercent = analysis.SlopeDisplayLowPercent,
             SlopeDisplayHighPercent = analysis.SlopeDisplayHighPercent,
+            AspectFaceCount = analysis.AspectFaceCount,
+            AspectFlatFaceCount = analysis.AspectFlatFaceCount,
+            AspectDominantBearing = analysis.AspectDominantBearing,
             DisplayRangeLow = analysis.DisplayRangeLow,
             DisplayRangeHigh = analysis.DisplayRangeHigh,
+            DistributionBins = analysis.DistributionBins == null
+                ? null
+                : (double[])analysis.DistributionBins.Clone(),
             ElevationMinZ = analysis.ElevationMinZ,
             ElevationMaxZ = analysis.ElevationMaxZ,
             CutFillDisplayAbsMax = analysis.CutFillDisplayAbsMax,
@@ -524,6 +539,8 @@ internal static class TerrainRuntimeCacheCloner
             WaterflowBoundaryCount = analysis.WaterflowBoundaryCount,
             WaterflowSinkCount = analysis.WaterflowSinkCount,
             WaterflowRejectedCount = analysis.WaterflowRejectedCount,
+            CutFillDeltaContourCount = analysis.CutFillDeltaContourCount,
+            CutFillBalanceCurveCount = analysis.CutFillBalanceCurveCount,
             SampleMinValue = analysis.SampleMinValue,
             SampleMaxValue = analysis.SampleMaxValue,
             SampleAverageValue = analysis.SampleAverageValue

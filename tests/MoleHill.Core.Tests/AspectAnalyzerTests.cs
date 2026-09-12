@@ -88,7 +88,7 @@ public class AspectAnalyzerTests
 
         Assert.True(double.IsNaN(result.Bearings[0]));
         Assert.Equal(1, result.Summary.FlatFaceCount);
-        Assert.True(double.IsNaN(result.Summary.DominantBearing));
+        Assert.Null(result.Summary.DominantBearing);
     }
 
     /// <summary>A face sloping less than the threshold is flat; the same face is not, once the threshold drops.</summary>
@@ -136,8 +136,11 @@ public class AspectAnalyzerTests
         AspectAnalyzer.AspectSummary summary = AspectAnalyzer.Summarize(
             vertices, 6, faces, 2, NorthIsPlusY, flatSlopeRatio: 0.0);
 
+        Assert.NotNull(summary.DominantBearing);
+        double dominant = summary.DominantBearing.Value;
+
         // Signed offset from north, so 359.9 reads as -0.1 rather than as almost a full turn away.
-        double signedFromNorth = AspectAnalyzer.Normalize360(summary.DominantBearing + 180.0) - 180.0;
+        double signedFromNorth = AspectAnalyzer.Normalize360(dominant + 180.0) - 180.0;
         Assert.Equal(0.0, signedFromNorth, 6);
         Assert.Equal("N", AspectAnalyzer.SectorName(summary.DominantBearing));
     }

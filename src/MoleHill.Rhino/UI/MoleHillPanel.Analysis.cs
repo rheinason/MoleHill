@@ -315,8 +315,8 @@ public sealed partial class MoleHillPanel
             {
                 if (summary != null)
                 {
-                    string dominant = double.IsFinite(summary.AspectDominantBearing)
-                        ? $"{AspectAnalyzer.SectorName(summary.AspectDominantBearing)} ({summary.AspectDominantBearing:F0}°)"
+                    string dominant = summary.AspectDominantBearing is { } bearing
+                        ? $"{AspectAnalyzer.SectorName(bearing)} ({bearing:F0}°)"
                         : "None — no mean direction";
                     layout.AddRow(CreateReadOnlyValueRow(
                         "Faces",
