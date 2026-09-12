@@ -127,6 +127,10 @@ internal sealed class SculptAnalysisColorizer
                     tolerance);
             }
 
+            // Aspect deliberately has no live sculpt colouring: its colours are per-face directions, and a
+            // stroke changes the direction of every face it touches, so there is nothing to pin the way a
+            // range is pinned here. An active aspect card means the sculpt stage draws in the terrain's own
+            // colour, which is the same thing that happens with no analysis at all.
             default:
                 return null;
         }

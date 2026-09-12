@@ -1,3 +1,4 @@
+using MoleHill.Core.Analysis;
 using MoleHill.Core.Sculpting;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
@@ -62,7 +63,14 @@ public sealed class TerrainUnitScalerTests
             ElevationGridInterval = 5,
             VerticalExaggeration = 2
         };
-        var cutFill = new CutFillAnalysisDefinition { RangeLow = -2, RangeHigh = 3, ColorInterval = 0.5 };
+        var cutFill = new CutFillAnalysisDefinition
+        {
+            RangeLow = -2,
+            RangeHigh = 3,
+            ColorInterval = 0.5,
+            DeltaContourInterval = 0.5
+        };
+        var aspect = new AspectAnalysisDefinition { FlatSlopeThresholdDegrees = 2.0 };
         var terrain = new TerrainDefinition
         {
             GlobalTolerance = 0.25,
@@ -75,7 +83,7 @@ public sealed class TerrainUnitScalerTests
                 sculpt
             ],
             Objects = [scatter],
-            Analyses = [cutFill],
+            Analyses = [cutFill, aspect],
             Annotations = [section]
         };
         terrain.LastAnalysisResults.Add(new TerrainAnalysisSummary
@@ -126,6 +134,14 @@ public sealed class TerrainUnitScalerTests
         Assert.Equal(-20, cutFill.RangeLow);
         Assert.Equal(30, cutFill.RangeHigh);
         Assert.Equal(5, cutFill.ColorInterval);
+        Assert.Equal(5, cutFill.DeltaContourInterval);
+
+        // Aspect is angles and bearings throughout, so a unit change must leave it completely alone —
+        // a flat threshold of 2° means the same thing in millimetres as in miles.
+        Assert.Equal(2.0, aspect.FlatSlopeThresholdDegrees);
+        Assert.Equal(0.0, aspect.RangeLow);
+        Assert.Equal(AnalysisRange.FullTurnDegrees, aspect.RangeHigh);
+        Assert.Equal(45.0, aspect.ColorInterval);
 
         TerrainAnalysisSummary summary = terrain.LastAnalysisResults[0];
         Assert.Equal(200, summary.SurfaceArea);

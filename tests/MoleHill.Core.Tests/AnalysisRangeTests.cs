@@ -25,6 +25,36 @@ public class AnalysisRangeTests
         Assert.True(range.High >= 14.0, $"Expected the real gradients to stay inside the range, got {range.High}.");
     }
 
+    /// <summary>
+    /// A cyclic range is the compass, so it is pinned whatever the data says. Fitting it would be worse
+    /// than useless: trim a bearing range and the colours stop naming directions.
+    /// </summary>
+    [Fact]
+    public void Resolve_Cyclic_PinsAFullTurnWhateverTheValues()
+    {
+        var values = new[] { 92.0, 94.0, 96.0, 98.0 };
+
+        AnalysisRange auto = AnalysisRange.Resolve(
+            values, ReadOnlySpan<double>.Empty, auto: true, 0.0, 0.0, RangeShape.Cyclic);
+        AnalysisRange requested = AnalysisRange.FromRequested(90.0, 100.0, RangeShape.Cyclic);
+
+        Assert.Equal(0.0, auto.Low);
+        Assert.Equal(AnalysisRange.FullTurnDegrees, auto.High);
+        Assert.Equal(0.0, requested.Low);
+        Assert.Equal(AnalysisRange.FullTurnDegrees, requested.High);
+    }
+
+    /// <summary>With no data at all a cyclic range is still the compass, not a 0..1 placeholder.</summary>
+    [Fact]
+    public void Resolve_Cyclic_WithNoValues_IsStillAFullTurn()
+    {
+        AnalysisRange range = AnalysisRange.Resolve(
+            ReadOnlySpan<double>.Empty, ReadOnlySpan<double>.Empty, auto: true, 0.0, 0.0, RangeShape.Cyclic);
+
+        Assert.Equal(0.0, range.Low);
+        Assert.Equal(AnalysisRange.FullTurnDegrees, range.High);
+    }
+
     /// <summary>Values past the fitted range still draw — they clamp, they are not dropped.</summary>
     [Fact]
     public void Normalize_ValuesOutsideTheRange_ClampToTheEnds()

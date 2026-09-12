@@ -3,18 +3,41 @@ namespace MoleHill.Core.Analysis;
 /// <summary>
 /// Single-pass marching-triangles contour generator. Instead of intersecting the whole mesh with a
 /// plane once per level (O(levels × faces) — N full mesh scans), it makes ONE pass over the faces:
-/// each triangle emits a crossing segment only for the levels inside its own Z-span (usually a handful),
+/// each triangle emits a crossing segment only for the levels inside its own value span (usually a
+/// handful),
 /// then segments are stitched into polylines per level. Total work ≈ faces × avg-levels-per-triangle +
 /// stitching, which is dramatically faster than the per-level plane intersection for dense terrain with
 /// many levels. Pure geometry (no Rhino), so it is unit-tested.
 /// </summary>
 public static class ContourGenerator
 {
+    /// <summary>Contours the mesh by elevation — the ordinary case, where the field being contoured is Z.</summary>
     public static List<ContourLevel> Generate(
         double[] verticesXyz,
         int vertexCount,
         int[] faces,
         int faceCount,
+        IReadOnlyList<double> levels,
+        double tolerance) =>
+        Generate(verticesXyz, vertexCount, faces, faceCount, field: null, levels, tolerance);
+
+    /// <summary>
+    /// Contours an arbitrary per-vertex scalar <paramref name="field"/> over the mesh, emitting the
+    /// crossings as points ON the mesh. Null contours elevation, so the two callers share one marching
+    /// pass rather than one each.
+    ///
+    /// This is what draws a cut/fill delta: the field is <c>newZ − refZ</c>, so a "level" is a depth and
+    /// level 0 is the balance line. A vertex whose field value is not finite marks ground the field does
+    /// not describe — outside the comparison boundary, or over a hole in the reference — and every face
+    /// touching one is skipped, so unmapped ground draws nothing rather than drawing a line derived from
+    /// a value that does not exist.
+    /// </summary>
+    public static List<ContourLevel> Generate(
+        double[] verticesXyz,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        double[]? field,
         IReadOnlyList<double> levels,
         double tolerance)
     {
@@ -39,30 +62,38 @@ public static class ContourGenerator
             double bx = verticesXyz[ib * 3], by = verticesXyz[ib * 3 + 1], bz = verticesXyz[ib * 3 + 2];
             double cx = verticesXyz[ic * 3], cy = verticesXyz[ic * 3 + 1], cz = verticesXyz[ic * 3 + 2];
 
-            double zmin = Math.Min(az, Math.Min(bz, cz));
-            double zmax = Math.Max(az, Math.Max(bz, cz));
-            if (zmax - zmin <= 0.0)
+            // The contoured value and the emitted point are separate: the crossing parameter comes from
+            // the field, the coordinates from the mesh. For elevation contours they are the same number.
+            double av = field == null ? az : field[ia];
+            double bv = field == null ? bz : field[ib];
+            double cv = field == null ? cz : field[ic];
+            if (field != null && !(double.IsFinite(av) && double.IsFinite(bv) && double.IsFinite(cv)))
                 continue;
 
-            // First level strictly above zmin. (A level == zmin can never emit: no vertex is below the
+            double vmin = Math.Min(av, Math.Min(bv, cv));
+            double vmax = Math.Max(av, Math.Max(bv, cv));
+            if (vmax - vmin <= 0.0)
+                continue;
+
+            // First level strictly above vmin. (A level == vmin can never emit: no vertex is below the
             // minimum, so AddCrossing finds no below->above transition.) The upper bound is INCLUSIVE of
-            // zmax: a face with an edge exactly at the level — e.g. a batter triangle whose two rim
-            // vertices sit at a round pad elevation and whose toe is below — has zmax == level and must
-            // still emit that rim edge. Excluding it (the old strict `< zmax`) silently dropped the
+            // vmax: a face with an edge exactly at the level — e.g. a batter triangle whose two rim
+            // vertices sit at a round pad elevation and whose toe is below — has vmax == level and must
+            // still emit that rim edge. Excluding it (the old strict `< vmax`) silently dropped the
             // pad-outline contour whenever users contoured at the pad's exact design elevation.
-            int start = UpperBound(sortedLevels, zmin);
-            for (int li = start; li < levelCount && sortedLevels[li] <= zmax; li++)
+            int start = UpperBound(sortedLevels, vmin);
+            for (int li = start; li < levelCount && sortedLevels[li] <= vmax; li++)
             {
                 double level = sortedLevels[li];
-                // A level between zmin and zmax (inclusive of zmax) crosses exactly two of the three
+                // A level between vmin and vmax (inclusive of vmax) crosses exactly two of the three
                 // edges. At-level vertices count as "above" (AddCrossing uses pz < level), so a face with
                 // two vertices exactly at the level and the third below emits the segment along that edge
                 // via crossings landing on the two at-level vertices (t = 0 / t = 1).
                 int found = 0;
-                AddCrossing(ax, ay, az, bx, by, bz, level, pts, ref found);
-                AddCrossing(bx, by, bz, cx, cy, cz, level, pts, ref found);
+                AddCrossing(ax, ay, az, av, bx, by, bz, bv, level, pts, ref found);
+                AddCrossing(bx, by, bz, bv, cx, cy, cz, cv, level, pts, ref found);
                 if (found < 2)
-                    AddCrossing(cx, cy, cz, ax, ay, az, level, pts, ref found);
+                    AddCrossing(cx, cy, cz, cv, ax, ay, az, av, level, pts, ref found);
 
                 if (found != 2)
                     continue;
@@ -88,19 +119,19 @@ public static class ContourGenerator
     }
 
     private static void AddCrossing(
-        double px, double py, double pz,
-        double qx, double qy, double qz,
+        double px, double py, double pz, double pv,
+        double qx, double qy, double qz, double qv,
         double level, Span<double> pts, ref int found)
     {
         if (found >= 2)
             return;
 
-        bool pBelow = pz < level;
-        bool qBelow = qz < level;
+        bool pBelow = pv < level;
+        bool qBelow = qv < level;
         if (pBelow == qBelow)
             return;
 
-        double t = (level - pz) / (qz - pz);
+        double t = (level - pv) / (qv - pv);
         pts[found * 3] = px + (qx - px) * t;
         pts[found * 3 + 1] = py + (qy - py) * t;
         pts[found * 3 + 2] = pz + (qz - pz) * t;

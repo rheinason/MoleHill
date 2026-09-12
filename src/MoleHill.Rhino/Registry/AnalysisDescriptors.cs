@@ -74,6 +74,33 @@ internal sealed class SlopeAnalysisDescriptor : AnalysisTypeDescriptor
     };
 }
 
+internal sealed class AspectAnalysisDescriptor : AnalysisTypeDescriptor
+{
+    public override string Kind => "aspect";
+    public override Type DefinitionType => typeof(AspectAnalysisDefinition);
+    public override string TypeLabel => "Aspect";
+    public override string MenuLabel => "Aspect";
+    public override string IconLabel => "N";
+    public override int AccentArgb => unchecked((int)0xFF00897B);
+    public override string Subtitle => "Which way it faces";
+    public override string? ActiveSubtitle => "Preview colors";
+    public override int SortOrder => 2;
+    public override AnalysisDefinition Create() => new AspectAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
+    {
+        AnalysisParam.ColorRamp(
+            "Colours the terrain preview by the compass direction it drains towards, through a wheel that " +
+            "closes on itself so north has no seam. The range is the full compass and cannot be narrowed."),
+        AnalysisParam.Slope(
+            "FlatSlopeThreshold", "Flat Below",
+            a => ((AspectAnalysisDefinition)a).FlatSlopeThresholdDegrees,
+            (a, v) => ((AspectAnalysisDefinition)a).FlatSlopeThresholdDegrees = v,
+            "Ground flatter than this has no direction to report and is drawn neutral grey. Raise it to " +
+            "stop survey noise on a level pad reading as a hillside."),
+    };
+}
+
 internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
 {
     public override string Kind => "elevation";
@@ -85,7 +112,7 @@ internal sealed class ElevationAnalysisDescriptor : AnalysisTypeDescriptor
     public override int AccentArgb => unchecked((int)0xFF1E88E5);
     public override string Subtitle => "Elevation preview";
     public override string? ActiveSubtitle => "Preview colors";
-    public override int SortOrder => 2;
+    public override int SortOrder => 3;
     public override AnalysisDefinition Create() => new ElevationAnalysisDefinition();
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
@@ -106,7 +133,7 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
     public override int AccentArgb => unchecked((int)0xFFEF6C00);
     public override string Subtitle => "Signed delta preview";
     public override string? ActiveSubtitle => "Preview colors";
-    public override int SortOrder => 3;
+    public override int SortOrder => 4;
     public override AnalysisDefinition Create() => new CutFillAnalysisDefinition();
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
@@ -121,6 +148,45 @@ internal sealed class CutFillAnalysisDescriptor : AnalysisTypeDescriptor
             RhinoObjectType.Curve),
         AnalysisParam.ColorRamp(
             "Colours the terrain preview by cut and fill depth. The range stays symmetric about zero, so unchanged ground sits mid-ramp."),
+        AnalysisParam.Bool(
+            "ShowBalanceLine", "Balance Line",
+            a => ((CutFillAnalysisDefinition)a).ShowBalanceLine,
+            (a, v) => ((CutFillAnalysisDefinition)a).ShowBalanceLine = v,
+            "Draw the line where the delta crosses zero — where cut meets fill.",
+            rebuildAfterCommit: true),
+        AnalysisParam.Color(
+            "BalanceLineColorArgb", "Balance Color",
+            a => ((CutFillAnalysisDefinition)a).BalanceLineColorArgb,
+            (a, v) => ((CutFillAnalysisDefinition)a).BalanceLineColorArgb = v,
+            "Explicit display and bake colour for the balance line. Clear to take the colour from the layer its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.BalanceLine)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.BalanceLine),
+            visibleWhen: a => ((CutFillAnalysisDefinition)a).ShowBalanceLine),
+        AnalysisParam.Bool(
+            "ShowDeltaContours", "Delta Contours",
+            a => ((CutFillAnalysisDefinition)a).ShowDeltaContours,
+            (a, v) => ((CutFillAnalysisDefinition)a).ShowDeltaContours = v,
+            "Draw contours of the depth itself, so “cut deeper than 1 m” is a line rather than a shade.",
+            rebuildAfterCommit: true),
+        AnalysisParam.Number(
+            "DeltaContourInterval", "Delta Interval",
+            a => ((CutFillAnalysisDefinition)a).DeltaContourInterval,
+            (a, v) => ((CutFillAnalysisDefinition)a).DeltaContourInterval = Math.Max(0.0, v),
+            "Depth between delta contours. Levels step out from zero both ways, so 0.5 draws at ±0.5, ±1.0 and so on.",
+            min: 0.0,
+            unit: ParameterUnit.ModelLength,
+            rebuildAfterCommit: true,
+            visibleWhen: a => ((CutFillAnalysisDefinition)a).ShowDeltaContours),
+        AnalysisParam.Color(
+            "DeltaContourColorArgb", "Contour Color",
+            a => ((CutFillAnalysisDefinition)a).DeltaContourColorArgb,
+            (a, v) => ((CutFillAnalysisDefinition)a).DeltaContourColorArgb = v,
+            "Explicit display and bake colour for the delta contours. Clear to take the colour from the layer its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.CutFillContours)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.CutFillContours),
+            visibleWhen: a => ((CutFillAnalysisDefinition)a).ShowDeltaContours),
     };
 
     public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
@@ -152,7 +218,7 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
     public override string IconLabel => "WF";
     public override int AccentArgb => unchecked((int)0xFF1565C0);
     public override string Subtitle => "Downhill paths from point sources";
-    public override int SortOrder => 4;
+    public override int SortOrder => 5;
     public override AnalysisDefinition Create() => new WaterflowAnalysisDefinition();
 
     public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]

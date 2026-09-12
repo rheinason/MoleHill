@@ -50,6 +50,12 @@ internal sealed partial class TerrainBuildService
             }
         }
 
+        // North is the document's, not the definition's, so the serialized fingerprint above cannot see it:
+        // without this, rotating north with mhSetSunNorth would leave every aspect card showing the old
+        // bearings from cache.
+        if (analysis is AspectAnalysisDefinition)
+            builder.Add(snapshot.NorthAzimuthDegrees);
+
         if (analysis is ReferenceComparisonAnalysisDefinition { ReferenceTerrainId: { } referenceTerrainId })
         {
             builder.Add(referenceTerrainId);

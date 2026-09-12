@@ -150,6 +150,12 @@ internal static class TerrainUnitScaler
             case WaterflowAnalysisDefinition waterflow:
                 waterflow.MaxLength *= lengthScale;
                 break;
+
+            case CutFillAnalysisDefinition cutFill:
+                // A depth between delta contours is a model length like any other. The range and the band
+                // interval are scaled above, with the other comparison analyses.
+                cutFill.DeltaContourInterval *= lengthScale;
+                break;
         }
     }
 

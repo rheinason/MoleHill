@@ -15,6 +15,12 @@ internal sealed class TerrainBuildSnapshot
 
     public ModelUnitContext UnitContext { get; init; }
 
+    /// <summary>
+    /// The document's north, as an angle CCW from +X, captured on the document thread. The aspect analysis
+    /// reads it; the build has no document access, so it cannot ask <see cref="DocumentNorth"/> itself.
+    /// </summary>
+    public double NorthAzimuthDegrees { get; init; } = DocumentNorth.DefaultAzimuthDegrees;
+
     /// <summary>The terrain's annotation style, captured on the document thread. Generated text binds to
     /// its id; marker block instances derive their scale from its effective text height.</summary>
     public AnnotationStyleSnapshot AnnotationStyle { get; init; } =

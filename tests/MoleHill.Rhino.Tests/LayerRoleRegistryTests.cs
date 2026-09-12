@@ -30,6 +30,7 @@ public class LayerRoleRegistryTests
             "terrain", "auxiliary", "annotation", "zones", "scatter",
             "walls", "grading-aux",
             "contours", "contours-major", "contours-minor",
+            "cut-fill-contours", "balance-line",
             "waterflow", "labels",
             "markers", "marker-labels",
             "sections", "sections-existing", "sections-cuts", "sections-grid", "sections-ticks",

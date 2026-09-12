@@ -158,6 +158,13 @@ internal sealed partial class TerrainBuildService
                     currentFaces,
                     slope,
                     surfaceArea),
+                AspectAnalysisDefinition aspect => BuildAspectSummary(
+                    snapshot,
+                    currentMesh,
+                    currentVertices,
+                    currentFaces,
+                    aspect,
+                    surfaceArea),
                 ElevationAnalysisDefinition => new TerrainAnalysisSummary
                 {
                     AnalysisId = analysis.Id,
@@ -315,6 +322,32 @@ internal sealed partial class TerrainBuildService
         };
     }
 
+    private static TerrainAnalysisSummary BuildAspectSummary(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh currentMesh,
+        double[] currentVertices,
+        int[] currentFaces,
+        AspectAnalysisDefinition analysis,
+        double surfaceArea)
+    {
+        var aspect = AspectAnalyzer.Summarize(
+            currentVertices,
+            currentMesh.Vertices.Count,
+            currentFaces,
+            currentMesh.Faces.Count,
+            snapshot.NorthAzimuthDegrees,
+            SlopeAnalyzer.ConvertUnitToRatio(analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees));
+
+        return new TerrainAnalysisSummary
+        {
+            AnalysisId = analysis.Id,
+            SurfaceArea = surfaceArea,
+            AspectFaceCount = aspect.FaceCount,
+            AspectFlatFaceCount = aspect.FlatFaceCount,
+            AspectDominantBearing = aspect.DominantBearing
+        };
+    }
+
     private static TerrainAnalysisSummary BuildEarthworkSummary(
         TerrainBuildSnapshot snapshot,
         RhinoMesh fallbackBaseMesh,
@@ -384,6 +417,23 @@ internal sealed partial class TerrainBuildService
             shouldCancel,
             analysis.ReferenceTerrainId);
 
+        int deltaContourCount = 0;
+        int balanceCurveCount = 0;
+        if (analysis.DrawsDeltaOutput)
+        {
+            EmitCutFillDeltaOutputs(
+                snapshot,
+                fallbackBaseMesh,
+                currentVertices,
+                currentFaces,
+                analysis,
+                build,
+                referenceProjectionCache,
+                shouldCancel,
+                out deltaContourCount,
+                out balanceCurveCount);
+        }
+
         return new TerrainAnalysisSummary
         {
             AnalysisId = analysis.Id,
@@ -391,11 +441,215 @@ internal sealed partial class TerrainBuildService
             ElevationMinZ = elevMinZ,
             ElevationMaxZ = elevMaxZ,
             CutFillDisplayAbsMax = stats.CutFillDisplayAbsMax,
+            CutFillDeltaContourCount = deltaContourCount,
+            CutFillBalanceCurveCount = balanceCurveCount,
             CutVolume = stats.CutVolume,
             FillVolume = stats.FillVolume,
             NetVolume = stats.NetVolume,
             EarthworkIsEstimated = stats.IsEstimated
         };
+    }
+
+    /// <summary>
+    /// Draws the cut/fill delta: contours of the depth, and the balance line where the depth crosses zero.
+    ///
+    /// The delta is contoured as a per-VERTEX field, not the per-face field the colour map and the volumes
+    /// use: contouring interpolates along an edge, so it needs the value at both of its ends. Vertices with
+    /// nothing beneath them — outside the comparison boundary, or over a hole in the reference — carry NaN,
+    /// and <see cref="ContourGenerator"/> skips every face touching one, so unmapped ground draws nothing
+    /// rather than a line derived from a depth that was never measured.
+    /// </summary>
+    private static void EmitCutFillDeltaOutputs(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh fallbackBaseMesh,
+        double[] currentVertices,
+        int[] currentFaces,
+        CutFillAnalysisDefinition analysis,
+        TerrainBuildResult build,
+        Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext> referenceProjectionCache,
+        Func<bool>? shouldCancel,
+        out int deltaContourCount,
+        out int balanceCurveCount)
+    {
+        deltaContourCount = 0;
+        balanceCurveCount = 0;
+
+        // Counts come from the arrays themselves, never from the Rhino mesh they were extracted out of:
+        // the extraction normalizes a copy, so the mesh's own counts can describe different geometry.
+        int vertexCount = currentVertices.Length / 3;
+        int faceCount = currentFaces.Length / 3;
+        if (vertexCount < 3 || faceCount == 0)
+            return;
+
+        ReferenceProjectionContext projection = ResolveReferenceProjection(
+            snapshot, fallbackBaseMesh, analysis.Reference, analysis.ReferenceTerrainId, referenceProjectionCache);
+        var boundaries = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, analysis.Boundary);
+        double tolerance = snapshot.ModelAbsoluteTolerance;
+
+        double[] field = ComputeReferenceDeltaField(
+            projection, currentVertices, vertexCount, boundaries, tolerance, shouldCancel);
+
+        GetFiniteRange(field, out double minDelta, out double maxDelta);
+        if (!(maxDelta > minDelta))
+            return;
+
+        double effectiveTolerance = Math.Max(Math.Abs(tolerance), double.Epsilon);
+        LayerRoleTable roles = snapshot.LayerRoles;
+
+        if (analysis.ShowDeltaContours && analysis.DeltaContourInterval > effectiveTolerance)
+        {
+            // Levels step out from zero rather than from the data's low end, so the drawn depths are round
+            // numbers either side of no-change — the way a cut/fill drawing is read. Zero itself belongs to
+            // the balance line, which means something different from a depth and draws on its own layer.
+            var levels = BuildContourLevels(minDelta, maxDelta, 0.0, analysis.DeltaContourInterval)
+                .Where(level => Math.Abs(level) > effectiveTolerance)
+                .ToList();
+
+            deltaContourCount = EmitDeltaFieldCurves(
+                currentVertices,
+                vertexCount,
+                currentFaces,
+                faceCount,
+                field,
+                levels,
+                effectiveTolerance,
+                analysis,
+                LayerRole.CutFillContours,
+                roles,
+                analysis.DeltaContourColorArgb,
+                level => $"{analysis.Label} delta {level:G4}",
+                build);
+        }
+
+        // No balance line unless the delta actually changes sign: a site that is all fill has no line where
+        // cut meets fill, and drawing one at the shallowest edge would invent a boundary.
+        if (analysis.ShowBalanceLine && minDelta < 0.0 && maxDelta > 0.0)
+        {
+            balanceCurveCount = EmitDeltaFieldCurves(
+                currentVertices,
+                vertexCount,
+                currentFaces,
+                faceCount,
+                field,
+                new[] { 0.0 },
+                effectiveTolerance,
+                analysis,
+                LayerRole.BalanceLine,
+                roles,
+                analysis.BalanceLineColorArgb,
+                _ => $"{analysis.Label} balance line",
+                build);
+        }
+    }
+
+    /// <summary>Contours one field at the given levels and adds the result to the build's output.</summary>
+    private static int EmitDeltaFieldCurves(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        double[] field,
+        IReadOnlyList<double> levels,
+        double tolerance,
+        CutFillAnalysisDefinition analysis,
+        LayerRole role,
+        LayerRoleTable roles,
+        int? colorArgb,
+        Func<double, string> nameFor,
+        TerrainBuildResult build)
+    {
+        if (levels.Count == 0)
+            return 0;
+
+        var contourLevels = ContourGenerator.Generate(
+            vertices, vertexCount, faces, faceCount, field, levels, tolerance);
+
+        string layerPath = roles.Path(role);
+        int curveCount = 0;
+        foreach (var contourLevel in contourLevels)
+        {
+            int indexAtLevel = 0;
+            foreach (var polyline in contourLevel.Polylines)
+            {
+                if (polyline.PointCount < 2)
+                    continue;
+
+                indexAtLevel++;
+                curveCount++;
+                string name = nameFor(contourLevel.Z);
+                build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+                {
+                    Geometry = new PolylineCurve(ToRhinoPolyline(polyline)),
+                    Name = indexAtLevel == 1 ? name : $"{name} ({indexAtLevel})",
+                    AnalysisId = analysis.Id,
+                    ColorArgb = colorArgb,
+                    AppearanceSource = colorArgb.HasValue
+                        ? GeneratedAppearanceSource.Object
+                        : GeneratedAppearanceSource.Layer,
+                    Role = role,
+                    LayerPath = layerPath
+                });
+            }
+        }
+
+        return curveCount;
+    }
+
+    /// <summary>
+    /// Per-vertex delta between this terrain and the reference, NaN where there is nothing to compare to.
+    /// </summary>
+    private static double[] ComputeReferenceDeltaField(
+        ReferenceProjectionContext projection,
+        double[] currentVertices,
+        int vertexCount,
+        IReadOnlyList<Curve> boundaries,
+        double tolerance,
+        Func<bool>? shouldCancel)
+    {
+        var field = new double[vertexCount];
+        for (int i = 0; i < vertexCount; i++)
+        {
+            if ((i & 127) == 0)
+                ThrowIfCancellationRequested(shouldCancel);
+
+            var point = new Point3d(
+                currentVertices[i * 3],
+                currentVertices[(i * 3) + 1],
+                currentVertices[(i * 3) + 2]);
+
+            if (!IsInsideBoundaries(point, boundaries, tolerance) ||
+                !TryProjectReferencePoint(projection, point, tolerance, out Point3d basePoint))
+            {
+                field[i] = double.NaN;
+                continue;
+            }
+
+            field[i] = point.Z - basePoint.Z;
+        }
+
+        return field;
+    }
+
+    /// <summary>The extent of a field's comparable values, ignoring the NaNs that mark unmapped ground.</summary>
+    private static void GetFiniteRange(double[] values, out double min, out double max)
+    {
+        min = double.MaxValue;
+        max = double.MinValue;
+        foreach (double value in values)
+        {
+            if (!double.IsFinite(value))
+                continue;
+            if (value < min)
+                min = value;
+            if (value > max)
+                max = value;
+        }
+
+        if (min > max)
+        {
+            min = 0.0;
+            max = 0.0;
+        }
     }
 
     private static TerrainAnalysisSummary BuildContourSummary(
@@ -683,18 +937,8 @@ internal sealed partial class TerrainBuildService
 
         bool isEstimated = !referenceSet.HasReferences && referenceTerrain == null;
         var boundaries = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, boundarySet);
-        var projectionKey = new ReferenceProjectionCacheKey(
-            cacheKey.ReferenceFingerprint,
-            referenceTerrainFingerprint,
-            cacheKey.UsesFallbackBaseMesh);
-        if (!referenceProjectionCache.TryGetValue(projectionKey, out ReferenceProjectionContext? projection))
-        {
-            // Projection depends only on the reference geometry. The result statistics also depend on
-            // the current mesh and clipping boundary, and therefore use the stricter cache key above.
-            RhinoMesh baseMesh = ResolveReferenceMesh(snapshot, referenceSet) ?? referenceTerrain?.Mesh ?? fallbackBaseMesh;
-            projection = CreateReferenceProjectionContext(baseMesh);
-            referenceProjectionCache[projectionKey] = projection;
-        }
+        ReferenceProjectionContext projection = ResolveReferenceProjection(
+            snapshot, fallbackBaseMesh, referenceSet, referenceTerrainId, referenceProjectionCache);
 
         ReferenceComparisonStats stats = EstimateReferenceComparison(
             projection,
@@ -715,6 +959,42 @@ internal sealed partial class TerrainBuildService
         }
 
         return stats;
+    }
+
+    /// <summary>
+    /// The cached height lookup for a comparison's reference surface.
+    ///
+    /// Projection depends only on the reference geometry, so it is keyed and cached more loosely than the
+    /// statistics that use it (those also depend on the current mesh and the clipping boundary). Shared by
+    /// the volume statistics and by the delta field the drawn outputs contour, so a cut/fill card cannot
+    /// colour against one reference and draw against another.
+    /// </summary>
+    private static ReferenceProjectionContext ResolveReferenceProjection(
+        TerrainBuildSnapshot snapshot,
+        RhinoMesh fallbackBaseMesh,
+        SourceReferenceSet referenceSet,
+        Guid? referenceTerrainId,
+        Dictionary<ReferenceProjectionCacheKey, ReferenceProjectionContext> referenceProjectionCache)
+    {
+        TerrainSectionReferenceSnapshot? referenceTerrain = null;
+        ulong referenceTerrainFingerprint = 0;
+        if (referenceTerrainId.HasValue &&
+            snapshot.SectionTerrains.TryGetValue(referenceTerrainId.Value, out referenceTerrain))
+            referenceTerrainFingerprint = referenceTerrain.MeshFingerprint;
+
+        var key = new ReferenceProjectionCacheKey(
+            ComputeSourceSetFingerprint(snapshot, referenceSet),
+            referenceTerrainFingerprint,
+            !referenceSet.HasReferences && referenceTerrain == null);
+
+        if (!referenceProjectionCache.TryGetValue(key, out ReferenceProjectionContext? projection))
+        {
+            RhinoMesh baseMesh = ResolveReferenceMesh(snapshot, referenceSet) ?? referenceTerrain?.Mesh ?? fallbackBaseMesh;
+            projection = CreateReferenceProjectionContext(baseMesh);
+            referenceProjectionCache[key] = projection;
+        }
+
+        return projection;
     }
 
     private static ReferenceProjectionContext CreateReferenceProjectionContext(RhinoMesh baseMesh)

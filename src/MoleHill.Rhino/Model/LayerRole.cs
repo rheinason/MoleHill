@@ -31,6 +31,13 @@ public enum LayerRole
     Contours,
     ContoursMajor,
     ContoursMinor,
+
+    /// <summary>Contours of a cut/fill delta — depths, not elevations.</summary>
+    CutFillContours,
+
+    /// <summary>Where the cut/fill delta crosses zero: the line cut and fill balance along.</summary>
+    BalanceLine,
+
     Waterflow,
     Labels,
 

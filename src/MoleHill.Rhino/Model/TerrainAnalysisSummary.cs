@@ -16,6 +16,18 @@ public sealed class TerrainAnalysisSummary
 
     public double SlopeDisplayHighPercent { get; set; }
 
+    /// <summary>Faces an aspect analysis found too flat to have a direction.</summary>
+    public int AspectFlatFaceCount { get; set; }
+
+    /// <summary>Total faces the aspect analysis looked at, so the flat count can be read as a share.</summary>
+    public int AspectFaceCount { get; set; }
+
+    /// <summary>
+    /// Plan-area-weighted circular mean bearing, in degrees clockwise from the document's north. NaN when
+    /// there is no mean direction — every face flat, or a symmetric mound whose aspects cancel.
+    /// </summary>
+    public double AspectDominantBearing { get; set; } = double.NaN;
+
     /// <summary>
     /// Low end of the range currently mapped across the palette, in the analysis's own display unit
     /// (percent/degrees/ratio for slope, model length for elevation and cut/fill). Null before the first
@@ -72,6 +84,12 @@ public sealed class TerrainAnalysisSummary
     public int WaterflowSinkCount { get; set; }
 
     public int WaterflowRejectedCount { get; set; }
+
+    /// <summary>Delta contour curves the cut/fill analysis drew on its last build.</summary>
+    public int CutFillDeltaContourCount { get; set; }
+
+    /// <summary>Balance-line curves — the zero crossing of the cut/fill delta — drawn on the last build.</summary>
+    public int CutFillBalanceCurveCount { get; set; }
 
     public double SampleMinValue { get; set; }
 

@@ -68,6 +68,7 @@ internal static class TerrainBuildSnapshotBuilder
             ModelAbsoluteTolerance = doc.ModelAbsoluteTolerance,
             ModelUnitSystem = doc.ModelUnitSystem,
             UnitContext = unitContext,
+            NorthAzimuthDegrees = DocumentNorth.AzimuthDegrees(doc),
             AnnotationStyle = AnnotationStyleService.Capture(
                 doc,
                 layerRoles.Appearance(LayerRole.Annotation).AnnotationStyleName

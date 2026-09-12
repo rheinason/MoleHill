@@ -10,7 +10,14 @@ public enum RangeShape
     MinMax = 1,
 
     /// <summary>Low and high are mirrored about zero. Cut/fill, so the neutral colour sits at no change.</summary>
-    SymmetricAboutZero = 2
+    SymmetricAboutZero = 2,
+
+    /// <summary>
+    /// A full turn, pinned to 0..360. Aspect: the values are compass bearings, so the range is the compass
+    /// and fitting it to the data is not an improvement but a corruption — trim a bearing range and the
+    /// colours stop naming directions. The only cyclic shape there is, so the period is not a parameter.
+    /// </summary>
+    Cyclic = 3
 }
 
 /// <summary>
@@ -35,6 +42,10 @@ public readonly record struct AnalysisRange(double Low, double High, bool IsAuto
 
     /// <summary>A safe 0..1 range, used when there is nothing to fit.</summary>
     public static AnalysisRange Unit => new(0.0, 1.0, false);
+
+    /// <summary>A full turn in degrees — the fixed range every <see cref="RangeShape.Cyclic"/> value maps
+    /// across.</summary>
+    public const double FullTurnDegrees = 360.0;
 
     /// <summary>Normalized position of a value inside the range, clamped to 0..1.</summary>
     public double Normalize(double value)
@@ -92,6 +103,11 @@ public readonly record struct AnalysisRange(double Low, double High, bool IsAuto
                 low = -magnitude;
                 high = magnitude;
                 break;
+
+            case RangeShape.Cyclic:
+                low = 0.0;
+                high = FullTurnDegrees;
+                break;
         }
 
         return new AnalysisRange(low, high, false).EnsureNonDegenerate();
@@ -136,6 +152,9 @@ public readonly record struct AnalysisRange(double Low, double High, bool IsAuto
             case RangeShape.SymmetricAboutZero:
                 double magnitude = Math.Max(Math.Abs(low), Math.Abs(high));
                 return (-magnitude, magnitude);
+
+            case RangeShape.Cyclic:
+                return (0.0, FullTurnDegrees);
 
             default:
                 return (low, high);
@@ -222,6 +241,10 @@ public readonly record struct AnalysisRange(double Low, double High, bool IsAuto
         /// <summary>The trimmed, outward-snapped range for this distribution.</summary>
         public AnalysisRange ResolveAuto(RangeShape shape)
         {
+            // A cyclic range is the compass, not a fit: it is the same with or without data.
+            if (shape == RangeShape.Cyclic)
+                return new AnalysisRange(0.0, FullTurnDegrees, true);
+
             if (!HasData)
             {
                 return shape == RangeShape.SymmetricAboutZero

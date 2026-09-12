@@ -96,8 +96,14 @@ internal sealed class ColorRampControl : Panel
         if (_mode == AnalysisColorMapper.Mode.Stepped)
             Add(BuildIntervalRow());
 
-        Add(BuildAutoRow());
-        Add(BuildRangeRow());
+        // A cyclic quantity's range is the compass: 0 to 360, fixed. Auto-fit has nothing to fit and the
+        // bounds have nothing to set, so the two rows are omitted rather than shown inert — which is the
+        // confusion this card was rebuilt to remove.
+        if (_options.Shape != RangeShape.Cyclic)
+        {
+            Add(BuildAutoRow());
+            Add(BuildRangeRow());
+        }
 
         _bar.Update(_ramp, _range, _mode, _interval, _options.Histogram, _expanded, _selected);
         ResumeLayout();

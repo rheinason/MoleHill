@@ -40,7 +40,24 @@ public static class ColorRampPresets
         Build("blackbody", "Blackbody", Even(
             (0, 0, 0), (143, 29, 0), (224, 96, 0), (255, 191, 71), (255, 255, 255))),
         Build("mono", "Mono", Even(
-            (20, 20, 20), (240, 240, 240)))
+            (20, 20, 20), (240, 240, 240))),
+
+        // Cyclic, for RangeShape.Cyclic quantities: the first and last stops are the SAME colour, so a
+        // plain linear sample wraps seamlessly and no cyclic sampling code is needed anywhere. A linear
+        // ramp over a compass would put a hard seam at north, which is the one place a reader looks first.
+        // Eight stops, one per named sector, cool through north and warm through south.
+        Build("aspect-wheel", "Aspect Wheel", new SlopeAnalyzer.ColorStop[]
+        {
+            new(0.000, 58, 96, 168),   // N
+            new(0.125, 46, 150, 156),  // NE
+            new(0.250, 63, 168, 84),   // E
+            new(0.375, 150, 186, 60),  // SE
+            new(0.500, 226, 188, 55),  // S
+            new(0.625, 222, 133, 48),  // SW
+            new(0.750, 200, 72, 78),   // W
+            new(0.875, 141, 84, 158),  // NW
+            new(1.000, 58, 96, 168)    // back to N
+        })
     };
 
     public static IReadOnlyList<ColorRampPreset> All => Presets;

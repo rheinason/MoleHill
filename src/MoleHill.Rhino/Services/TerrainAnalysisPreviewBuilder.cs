@@ -55,6 +55,7 @@ internal static class TerrainAnalysisPreviewBuilder
         RhinoMesh? previewMesh = activeAnalysis switch
         {
             SlopeAnalysisDefinition slope => BuildSlopePreviewMesh(state.TerrainMesh, slope, alpha, out resolvedRange, out distribution),
+            AspectAnalysisDefinition aspect => BuildAspectPreviewMesh(doc, state.TerrainMesh, aspect, alpha, out resolvedRange, out distribution),
             ElevationAnalysisDefinition elevation => BuildElevationPreviewMesh(state.TerrainMesh, elevation, alpha, out resolvedRange, out distribution),
             CutFillAnalysisDefinition cutFill => BuildCutFillPreviewMesh(doc, terrain, state, cutFill, alpha, resolveReferenceTerrainMesh, out resolvedRange, out distribution),
             _ => state.TerrainMesh
@@ -75,6 +76,7 @@ internal static class TerrainAnalysisPreviewBuilder
     public static RangeShape GetRangeShape(AnalysisDefinition analysis) => analysis switch
     {
         SlopeAnalysisDefinition => RangeShape.FromZero,
+        AspectAnalysisDefinition => RangeShape.Cyclic,
         CutFillAnalysisDefinition => RangeShape.SymmetricAboutZero,
         _ => RangeShape.MinMax
     };
@@ -110,19 +112,65 @@ internal static class TerrainAnalysisPreviewBuilder
         return BuildFaceColorMesh(vertices, faces, mesh.Faces.Count, slope.FaceColors, alpha);
     }
 
+    /// <summary>
+    /// Aspect colours the terrain by the compass direction each face drains towards.
+    ///
+    /// Unlike the slope and elevation builders beside it, this pairs the extracted arrays with the counts
+    /// the SAME extraction returned. <c>TryExtractMeshData</c> normalizes a copy of the mesh, so its arrays
+    /// routinely describe fewer vertices and faces than <c>mesh.Faces.Count</c> reports, and pairing the two
+    /// reads off the end of the array on a worker thread. See CLAUDE.md — the neighbours here still pair the
+    /// old way and are not a template.
+    /// </summary>
+    private static RhinoMesh? BuildAspectPreviewMesh(
+        RhinoDoc doc,
+        RhinoMesh mesh,
+        AspectAnalysisDefinition analysis,
+        byte alpha,
+        out AnalysisRange? range,
+        out double[]? distribution)
+    {
+        range = null;
+        distribution = null;
+        if (!RhinoGeometryConversions.TryExtractMeshData(
+                mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
+            return null;
+
+        var aspect = AspectAnalyzer.Analyze(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            DocumentNorth.AzimuthDegrees(doc),
+            SlopeAnalyzer.ConvertUnitToRatio(analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees),
+            analysis.ResolveRamp().Stops,
+            analysis.ColorMode,
+            analysis.ColorInterval,
+            UnmappedColor);
+
+        range = aspect.Range;
+
+        // Flat faces carry NaN, which the histogram ignores outright, so the rose shows the directions that
+        // exist rather than a spike at north for every level face.
+        distribution = BuildDistribution(aspect.Bearings, aspect.PlanAreas);
+        return BuildFaceColorMesh(vertices, faces, faceCount, aspect.FaceColors, alpha);
+    }
+
     internal static bool SupportsTerrainPreview(AnalysisDefinition analysis)
     {
-        return analysis is SlopeAnalysisDefinition or ElevationAnalysisDefinition or CutFillAnalysisDefinition;
+        return analysis is SlopeAnalysisDefinition or AspectAnalysisDefinition or ElevationAnalysisDefinition
+            or CutFillAnalysisDefinition;
     }
 
     /// <summary>
     /// Whether this content emits geometry into the drawing (as opposed to only colouring the terrain
-    /// mesh or reporting a number). Every annotation does, by definition; on the analysis side only
-    /// waterflow does.
+    /// mesh or reporting a number). Every annotation does, by definition; on the analysis side waterflow
+    /// always does, and cut/fill does when either of its drawn outputs is switched on — which is what
+    /// makes an edit to the layer template invalidate its cached curves.
     /// </summary>
     internal static bool ProducesGeneratedOutput(ITerrainContentItem item)
     {
-        return item is AnnotationDefinition or WaterflowAnalysisDefinition;
+        return item is AnnotationDefinition or WaterflowAnalysisDefinition
+            or CutFillAnalysisDefinition { DrawsDeltaOutput: true };
     }
 
     internal static bool ShouldDisplayGeneratedOutput(TerrainDefinition terrain, GeneratedRhinoObject generated)

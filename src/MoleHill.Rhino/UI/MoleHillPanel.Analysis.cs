@@ -311,6 +311,31 @@ public sealed partial class MoleHillPanel
                 break;
             }
 
+            case AspectAnalysisDefinition:
+            {
+                if (summary != null)
+                {
+                    string dominant = double.IsFinite(summary.AspectDominantBearing)
+                        ? $"{AspectAnalyzer.SectorName(summary.AspectDominantBearing)} ({summary.AspectDominantBearing:F0}°)"
+                        : "None — no mean direction";
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Faces",
+                        dominant,
+                        "The plan-area-weighted mean direction the terrain drains towards, from the last build."));
+
+                    string flat = summary.AspectFaceCount > 0
+                        ? $"{summary.AspectFlatFaceCount:N0} of {summary.AspectFaceCount:N0} " +
+                          $"({(double)summary.AspectFlatFaceCount / summary.AspectFaceCount:P0})"
+                        : "—";
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Flat",
+                        flat,
+                        "Faces too flat to have an aspect. These are drawn neutral grey, not given a direction."));
+                }
+
+                break;
+            }
+
             case ElevationAnalysisDefinition elevation:
             {
                 if (summary != null)
@@ -329,6 +354,18 @@ public sealed partial class MoleHillPanel
                     layout.AddRow(CreateReadOnlyValueRow("Cut / Fill / Net",
                         $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}",
                         "Current earthworks summary from the last build."));
+
+                    if (cutFill.DrawsDeltaOutput)
+                    {
+                        string balance = summary.CutFillBalanceCurveCount > 0
+                            ? $"{summary.CutFillBalanceCurveCount:N0} curve(s)"
+                            : cutFill.ShowBalanceLine ? "None — no sign change" : "Off";
+                        layout.AddRow(CreateReadOnlyValueRow(
+                            "Drawn",
+                            $"{summary.CutFillDeltaContourCount:N0} delta contour(s) | balance: {balance}",
+                            "Delta lines drawn on the last build. A balance line only exists where the " +
+                            "delta changes sign — a site that is all fill has none."));
+                    }
                 }
 
                 break;

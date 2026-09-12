@@ -93,6 +93,25 @@ internal static class LayerRoleRegistry
                 ColorArgb: unchecked((int)0xFFA98A5C), PrintColorArgb: Black, PlotWeight: 0.13),
             LayerRoleFacets.Line),
 
+        // Delta contours are depths, not elevations, so they must not read as terrain contours: their own
+        // branch, in the cut hue the sections already use for cut.
+        new(LayerRole.CutFillContours, "cut-fill-contours", "Cut / Fill Contours",
+            LayerRole.Annotation, "::Cut Fill Contours",
+            null,
+            new LayerAppearanceDefaults(
+                ColorArgb: CutColorArgb, PrintColorArgb: CutColorArgb, PlotWeight: 0.13),
+            LayerRoleFacets.Line),
+
+        // The balance line is a decision, not a measurement, and it is the one line on a cut/fill drawing
+        // a reader looks for first: heaviest of the three, and in neither the cut nor the fill colour.
+        new(LayerRole.BalanceLine, "balance-line", "Balance Line", LayerRole.Annotation, "::Balance Line",
+            null,
+            new LayerAppearanceDefaults(
+                ColorArgb: unchecked((int)0xFF7B1FA2),
+                PrintColorArgb: Black,
+                PlotWeight: 0.50),
+            LayerRoleFacets.Line),
+
         // ── Other drawing output under Annotation ────────────────────────────
         new(LayerRole.Waterflow, "waterflow", "Waterflow", LayerRole.Annotation, "::Waterflow",
             null,
