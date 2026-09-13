@@ -25,6 +25,16 @@ Plugin path: `src\MoleHill.Rhino\bin\Debug\net7.0\MoleHill.Rhino.rhp`.
 **So close the slot before every rebuild.** A live test cycle is spawn → test → `close_slot` → edit →
 build → spawn again, and skipping the close is the most common way to lose ten minutes here.
 
+**A green test run is not a compiling plugin.** `MoleHill.Rhino.Tests` *links* `Model/`, `Registry/` and
+most of `Services/` as source and project-references only `MoleHill.Core` — it never builds
+`MoleHill.Rhino.csproj`. So `UI/` is outside every test build, and a compile error there (a duplicated
+helper, say) passes the whole suite and surfaces only when the plugin itself is built. If a lock is
+blocking the real output, compile to a scratch directory rather than assuming:
+
+```powershell
+dotnet build src\MoleHill.Rhino\MoleHill.Rhino.csproj -p:OutDir=$env:TEMP\verifybuild\
+```
+
 ## 2. Spawn a disposable slot
 
 ```

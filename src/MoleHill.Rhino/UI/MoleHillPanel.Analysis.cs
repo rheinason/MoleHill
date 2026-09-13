@@ -479,14 +479,6 @@ public sealed partial class MoleHillPanel
 
     }
 
-    private static string FormatVolume(double value)
-    {
-        ModelUnitContext unitContext = ModelUnitContext.FromDocument(RhinoDoc.ActiveDoc);
-        if (!unitContext.IsSupported)
-            unitContext = ModelUnitContext.FromUnitSystem(UnitSystem.Meters);
-        return unitContext.FormatVolume(value);
-    }
-
     private static string FormatArea(double value)
     {
         ModelUnitContext unitContext = ModelUnitContext.FromDocument(RhinoDoc.ActiveDoc);
