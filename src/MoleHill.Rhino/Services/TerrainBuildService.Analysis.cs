@@ -160,7 +160,6 @@ internal sealed partial class TerrainBuildService
                     surfaceArea),
                 AspectAnalysisDefinition aspect => BuildAspectSummary(
                     snapshot,
-                    currentMesh,
                     currentVertices,
                     currentFaces,
                     aspect,
@@ -322,9 +321,13 @@ internal sealed partial class TerrainBuildService
         };
     }
 
+    /// <summary>
+    /// Counts come from the arrays themselves, never from the Rhino mesh they were extracted out of:
+    /// <c>TryExtractMeshData</c> normalizes a copy, so the mesh's own counts routinely describe
+    /// different geometry and pairing the two reads off the end of the array. See CLAUDE.md.
+    /// </summary>
     private static TerrainAnalysisSummary BuildAspectSummary(
         TerrainBuildSnapshot snapshot,
-        RhinoMesh currentMesh,
         double[] currentVertices,
         int[] currentFaces,
         AspectAnalysisDefinition analysis,
@@ -332,9 +335,9 @@ internal sealed partial class TerrainBuildService
     {
         var aspect = AspectAnalyzer.Summarize(
             currentVertices,
-            currentMesh.Vertices.Count,
+            currentVertices.Length / 3,
             currentFaces,
-            currentMesh.Faces.Count,
+            currentFaces.Length / 3,
             snapshot.NorthAzimuthDegrees,
             SlopeAnalyzer.ConvertUnitToRatio(analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees));
 

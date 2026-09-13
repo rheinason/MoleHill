@@ -318,7 +318,7 @@ internal sealed class ParameterDescriptor<TDefinition>
         Action<TDefinition, double> set,
         string? help = null,
         double softMin = 0.0,
-        double softMax = 90.0,
+        double softMax = MoleHill.Core.Analysis.SlopeInput.MaxSlopeDegrees,
         bool liveScrub = false,
         Func<TDefinition, bool>? visibleWhen = null) =>
         Slider(
@@ -330,7 +330,10 @@ internal sealed class ParameterDescriptor<TDefinition>
             softMax,
             help,
             hardMin: 0.0,
-            hardMax: 90.0,
+            // Not a round 90: tan(90 deg) is ~1.6e16, so a value box showing this in percent, promille
+            // or 1:n would read as an astronomical number the user cannot type back in — SlopeInput
+            // rejects anything steeper than this on parse. The bound keeps display and entry symmetric.
+            hardMax: MoleHill.Core.Analysis.SlopeInput.MaxSlopeDegrees,
             unit: ParameterUnit.Slope,
             liveScrub: liveScrub,
             visibleWhen: visibleWhen);

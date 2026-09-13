@@ -319,7 +319,7 @@ public sealed partial class MoleHillPanel
                         ? $"{AspectAnalyzer.SectorName(bearing)} ({bearing:F0}°)"
                         : "None — no mean direction";
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Faces",
+                        "Facing",
                         dominant,
                         "The plan-area-weighted mean direction the terrain drains towards, from the last build."));
 
