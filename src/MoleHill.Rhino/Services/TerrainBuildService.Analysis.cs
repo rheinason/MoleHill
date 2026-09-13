@@ -182,6 +182,14 @@ internal sealed partial class TerrainBuildService
                     build,
                     basinGraphCache,
                     shouldCancel),
+                PondingAnalysisDefinition ponding => BuildPondingSummary(
+                    snapshot,
+                    currentVertices,
+                    currentFaces,
+                    ponding,
+                    build,
+                    basinGraphCache,
+                    shouldCancel),
                 WaterflowAnalysisDefinition waterflow => BuildWaterflowSummary(
                     snapshot,
                     currentMesh,

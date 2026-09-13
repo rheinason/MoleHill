@@ -424,7 +424,7 @@ fingerprint, stage cache, timing) does not care which kind of content it runs, s
 which family a type belongs to:
 
 - **Analysis** (`Model/AnalysisDefinition`, `Registry/AnalysisTypeRegistry`) — slope, aspect, elevation,
-  cut/fill, earthworks, waterflow, catchments. The result is a measurement: a number, or a colour mapped
+  cut/fill, earthworks, waterflow, catchments, ponding. The result is a measurement: a number, or a colour mapped
   onto the mesh. Only these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`,
   `ResolveRamp()`) — though carrying it is not the same as using it, see catchments below.
 - **Annotation** (`Model/AnnotationDefinition`, `Registry/AnnotationTypeRegistry`) — contours, spot heights,
@@ -568,6 +568,14 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   are `WaterflowTracer` runs from each catchment's high point, so they draw the same kind of line the
   Waterflow card does. The card also reports the closed-depression count, which is the one number in the
   Analyses tab that indicates a mistake rather than describing the design.
+- **Ponding** measures what the catchment routing already found: the closed depressions. Spill elevation
+  comes from a priority flood over the same `BasinGraph` (a bottleneck path — the lowest lip that lets
+  water out, not the lowest point of the catchment boundary), volume from the earthworks prism sum, and
+  the shoreline from `ContourGenerator`'s per-vertex field at the water surface. It shares the basin graph
+  with Catchments through the pass-scoped `BasinGraphCache` whenever the two cards agree on their routing
+  settings. Unlike Catchments it carries a ramp, because ponded depth is a measurement rather than a name;
+  dry ground is masked out of the colouring, the range fit and the histogram rather than mapped to zero,
+  so the ramp is fitted to the water and "no water" is not a colour on it.
 - **Analysis coloring** is shared by slope, elevation, cut/fill, and sculpt preview through
   `AnalysisColorMapper`. Each preview supports a smooth gradient or stepped bands, with auto-fit or
   explicit bounds. Interval lengths scale with model units while slope intervals follow the selected
@@ -737,8 +745,9 @@ layers. Nothing in the pipeline hardcodes or plumbs a layer path.
 
 - **The layer tree is the grouping the Layers pane works with.** Everything hangs off one `MoleHill`
   root; drawing output is grouped under `Annotation` by what it is — including `Cut Fill Contours` and
-  `Balance Line`, which are depths rather than elevations and so must not read as terrain contours, and
-  `Catchments`, which is a divide rather than a flow and so must not read as waterflow — and a
+  `Balance Line`, which are depths rather than elevations and so must not read as terrain contours,
+  `Catchments`, which is a divide rather than a flow and so must not read as waterflow, and `Ponding`,
+  which reports a fault rather than describing the design and is the loudest thing on the sheet — and a
   section drawing is a single
   branch (`Annotation::Sections`, with `Existing`, `Cuts`, `Grid`, `Ticks`, `Labels` and `CutFill::Cut` /
   `::Fill` beneath it) so a whole drawing can be hidden, locked or restyled at once. Model output

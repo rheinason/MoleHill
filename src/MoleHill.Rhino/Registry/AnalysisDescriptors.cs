@@ -332,3 +332,82 @@ internal sealed class CatchmentAnalysisDescriptor : AnalysisTypeDescriptor
             visibleWhen: a => ((CatchmentAnalysisDefinition)a).ShowFlowPaths),
     };
 }
+
+/// <summary>
+/// Ponding: the depressions the terrain holds water in, measured.
+/// </summary>
+/// <remarks>
+/// This one carries a ramp, where its sibling <see cref="CatchmentAnalysisDescriptor"/> deliberately does
+/// not. The difference is not arbitrary: ponded depth is a *measurement* on a continuum, so near values
+/// should read as near colours and a legend naming the ends means something — everything a catchment
+/// index is not.
+/// </remarks>
+internal sealed class PondingAnalysisDescriptor : AnalysisTypeDescriptor
+{
+    public override string Kind => "ponding";
+    public override Type DefinitionType => typeof(PondingAnalysisDefinition);
+    public override string TypeLabel => "Ponding";
+    public override string MenuLabel => "Ponding";
+    public override string IconLabel => "PD";
+    public override int AccentArgb => unchecked((int)0xFFD32F2F);
+    public override string Subtitle => "Where water stands";
+    public override string? ActiveSubtitle => "Preview colors";
+    public override int SortOrder => 7;
+    public override AnalysisDefinition Create() => new PondingAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
+    {
+        AnalysisParam.ColorRamp(
+            "Colours the terrain preview by how deep the water stands. Ground that drains is left alone."),
+        AnalysisParam.Number(
+            "MinimumDepth", "Ignore Below",
+            a => ((PondingAnalysisDefinition)a).MinimumDepth,
+            (a, v) => ((PondingAnalysisDefinition)a).MinimumDepth = Math.Max(0.0, v),
+            "Depressions shallower than this are not reported. A survey-derived surface always has a few " +
+            "millimetres of dimple in it, and reporting those as ponds is how a useful check becomes one " +
+            "nobody looks at.",
+            min: 0.0,
+            unit: ParameterUnit.ModelLength,
+            rebuildAfterCommit: true),
+        AnalysisParam.Slope(
+            "FlatSlopeThreshold", "Flat Below",
+            a => ((PondingAnalysisDefinition)a).FlatSlopeThresholdDegrees,
+            (a, v) => ((PondingAnalysisDefinition)a).FlatSlopeThresholdDegrees = v,
+            "Ground flatter than this drains as one region rather than face by face. Shared with the " +
+            "Catchments card — set them alike and the terrain is only routed once.",
+            rebuildAfterCommit: true),
+        AnalysisParam.Bool(
+            "ShowOutlines", "Shorelines",
+            a => ((PondingAnalysisDefinition)a).ShowOutlines,
+            (a, v) => ((PondingAnalysisDefinition)a).ShowOutlines = v,
+            "Draw each pond's edge at the level it overflows at.",
+            rebuildAfterCommit: true),
+        AnalysisParam.Color(
+            "OutlineColorArgb", "Shoreline Color",
+            a => ((PondingAnalysisDefinition)a).OutlineColorArgb,
+            (a, v) => ((PondingAnalysisDefinition)a).OutlineColorArgb = v,
+            "Explicit display and bake colour for shorelines. Clear to take the colour from the layer its " +
+            "role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Ponding)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Ponding),
+            visibleWhen: a => ((PondingAnalysisDefinition)a).ShowOutlines),
+        AnalysisParam.Bool(
+            "ShowSpillPoints", "Spill Points",
+            a => ((PondingAnalysisDefinition)a).ShowSpillPoints,
+            (a, v) => ((PondingAnalysisDefinition)a).ShowSpillPoints = v,
+            "Mark where each pond overflows. That is where to cut a channel, so it is usually the first " +
+            "thing wanted after finding the pond.",
+            rebuildAfterCommit: true),
+        AnalysisParam.Color(
+            "SpillPointColorArgb", "Spill Color",
+            a => ((PondingAnalysisDefinition)a).SpillPointColorArgb,
+            (a, v) => ((PondingAnalysisDefinition)a).SpillPointColorArgb = v,
+            "Explicit display and bake colour for spill markers. Clear to take the colour from the layer " +
+            "its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.PondingSpillPoints)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.PondingSpillPoints),
+            visibleWhen: a => ((PondingAnalysisDefinition)a).ShowSpillPoints),
+    };
+}

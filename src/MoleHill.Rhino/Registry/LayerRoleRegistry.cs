@@ -142,6 +142,22 @@ internal static class LayerRoleRegistry
                 PlotWeight: 0.20),
             LayerRoleFacets.Line),
 
+        // Ponding is the one drawing output that reports a fault rather than describing the design, so it
+        // is the loudest thing on the sheet: a warning red, heavier than anything else under Annotation.
+        new(LayerRole.Ponding, "ponding", "Ponding", LayerRole.Annotation, "::Ponding",
+            null,
+            new LayerAppearanceDefaults(
+                ColorArgb: unchecked((int)0xFFD32F2F),
+                PrintColorArgb: unchecked((int)0xFFD32F2F),
+                PlotWeight: 0.50),
+            LayerRoleFacets.Line),
+
+        new(LayerRole.PondingSpillPoints, "ponding-spill-points", "Ponding Spill Points",
+            LayerRole.Ponding, "::Spill Points",
+            null,
+            new LayerAppearanceDefaults(PlotWeight: 0.35),
+            LayerRoleFacets.Line),
+
         // Labels print at the layer default width. The explicit pixel width keeps them at the
         // thickness they have always previewed at, rather than the 2 px the null weight would derive.
         new(LayerRole.Labels, "labels", "Labels", LayerRole.Annotation, "::Labels",

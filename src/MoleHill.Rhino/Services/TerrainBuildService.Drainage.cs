@@ -214,6 +214,121 @@ internal sealed partial class TerrainBuildService
         return drawn;
     }
 
+    private static TerrainAnalysisSummary BuildPondingSummary(
+        TerrainBuildSnapshot snapshot,
+        double[] vertices,
+        int[] faces,
+        PondingAnalysisDefinition analysis,
+        TerrainBuildResult build,
+        Dictionary<BasinGraphCacheKey, BasinGraph> basinGraphCache,
+        Func<bool>? shouldCancel)
+    {
+        int vertexCount = vertices.Length / 3;
+        int faceCount = faces.Length / 3;
+
+        BasinGraph graph = ResolveBasinGraph(
+            vertices, vertexCount, faces, faceCount, analysis, basinGraphCache, shouldCancel);
+        IReadOnlyList<PondingSolver.Pond> ponds = PondingSolver.Solve(
+            graph, vertices, vertexCount, faces,
+            new PondingSolver.Options
+            {
+                MinimumDepth = Math.Max(0.0, analysis.MinimumDepth),
+                Tolerance = snapshot.ModelAbsoluteTolerance,
+                CancellationRequested = shouldCancel
+            });
+
+        int outputCount = 0;
+        double totalVolume = 0.0;
+        double totalArea = 0.0;
+        double maxDepth = 0.0;
+        string outlineLayer = snapshot.LayerRoles.Path(LayerRole.Ponding);
+        string spillLayer = snapshot.LayerRoles.Path(LayerRole.PondingSpillPoints);
+
+        foreach (PondingSolver.Pond pond in ponds)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            totalVolume += pond.Volume;
+            totalArea += pond.PlanArea;
+            maxDepth = Math.Max(maxDepth, pond.MaxDepth);
+
+            if (analysis.ShowOutlines)
+            {
+                foreach (double[] outline in pond.Outlines)
+                {
+                    int pointCount = outline.Length / 3;
+                    if (pointCount < 3)
+                        continue;
+
+                    var polyline = new Polyline(pointCount);
+                    for (int index = 0; index < pointCount; index++)
+                    {
+                        polyline.Add(new Point3d(
+                            outline[index * 3],
+                            outline[(index * 3) + 1],
+                            outline[(index * 3) + 2]));
+                    }
+
+                    outputCount++;
+                    build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+                    {
+                        Role = LayerRole.Ponding,
+                        Geometry = new PolylineCurve(polyline),
+                        Name = $"{analysis.Label} {pond.BasinIndex + 1}",
+                        AnalysisId = analysis.Id,
+                        ColorArgb = analysis.OutlineColorArgb,
+                        LayerPath = outlineLayer
+                    });
+                }
+            }
+
+            if (!analysis.ShowSpillPoints)
+                continue;
+
+            outputCount++;
+            build.AuxiliaryObjects.Add(new GeneratedRhinoObject
+            {
+                Role = LayerRole.PondingSpillPoints,
+                Geometry = BuildSpillMarker(pond, snapshot),
+                Name = $"{analysis.Label} {pond.BasinIndex + 1} spill",
+                AnalysisId = analysis.Id,
+                ColorArgb = analysis.SpillPointColorArgb,
+                LayerPath = spillLayer
+            });
+        }
+
+        return new TerrainAnalysisSummary
+        {
+            AnalysisId = analysis.Id,
+            PondCount = ponds.Count,
+            PondTotalVolume = ponds.Count == 0 ? null : totalVolume,
+            PondTotalArea = ponds.Count == 0 ? null : totalArea,
+            PondMaxDepth = ponds.Count == 0 ? null : maxDepth,
+            CatchmentSinkCount = graph.SinkBasinCount,
+            GeneratedOutputCount = outputCount
+        };
+    }
+
+    /// <summary>
+    /// A cross at the spill, sized off the model unit rather than off the pond — a marker's job is to be
+    /// findable, and one scaled to its pond would be invisible on exactly the small ponds worth finding.
+    /// Drawn as a curve rather than a point object so it inherits the role's print width and reads on a
+    /// plot the way every other drawn output does.
+    /// </summary>
+    private static PolylineCurve BuildSpillMarker(PondingSolver.Pond pond, TerrainBuildSnapshot snapshot)
+    {
+        double arm = Math.Max(snapshot.ModelAbsoluteTolerance * 1000.0, 0.5);
+        var polyline = new Polyline(5)
+        {
+            new Point3d(pond.SpillX - arm, pond.SpillY - arm, pond.SpillZ),
+            new Point3d(pond.SpillX + arm, pond.SpillY + arm, pond.SpillZ),
+            new Point3d(pond.SpillX, pond.SpillY, pond.SpillZ),
+            new Point3d(pond.SpillX - arm, pond.SpillY + arm, pond.SpillZ),
+            new Point3d(pond.SpillX + arm, pond.SpillY - arm, pond.SpillZ)
+        };
+
+        return new PolylineCurve(polyline);
+    }
+
     /// <summary>
     /// Per-face colours for the catchment preview. Categorical, not ramped: a basin index is a name, not
     /// a magnitude, so what the colouring owes the reader is that two adjacent catchments never look

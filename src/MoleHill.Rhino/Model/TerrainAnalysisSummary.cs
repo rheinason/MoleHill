@@ -118,6 +118,24 @@ public sealed class TerrainAnalysisSummary
     /// <summary>Faces the routing treated as level ground, so the flat threshold can be judged.</summary>
     public int CatchmentFlatFaceCount { get; set; }
 
+    /// <summary>Depressions deep enough to report on the last build.</summary>
+    public int PondCount { get; set; }
+
+    /// <summary>
+    /// Total impounded volume across every reported pond, or null when none was measured.
+    ///
+    /// Nullable, not zero: "no depression was found" and "a depression was found that holds nothing" are
+    /// different answers, and only one of them is reassuring. Nullable rather than NaN for the reason at
+    /// <see cref="AspectDominantBearing"/>.
+    /// </summary>
+    public double? PondTotalVolume { get; set; }
+
+    /// <summary>Deepest standing water anywhere, or null when nothing was reported.</summary>
+    public double? PondMaxDepth { get; set; }
+
+    /// <summary>Total water-surface plan area, or null when nothing was reported.</summary>
+    public double? PondTotalArea { get; set; }
+
     /// <summary>Delta contour curves the cut/fill analysis drew on its last build.</summary>
     public int CutFillDeltaContourCount { get; set; }
 

@@ -59,6 +59,7 @@ internal static class TerrainAnalysisPreviewBuilder
             ElevationAnalysisDefinition elevation => BuildElevationPreviewMesh(state.TerrainMesh, elevation, alpha, out resolvedRange, out distribution),
             CutFillAnalysisDefinition cutFill => BuildCutFillPreviewMesh(doc, terrain, state, cutFill, alpha, resolveReferenceTerrainMesh, out resolvedRange, out distribution),
             CatchmentAnalysisDefinition catchment => BuildCatchmentPreviewMesh(state.TerrainMesh, catchment, alpha),
+            PondingAnalysisDefinition ponding => BuildPondingPreviewMesh(state.TerrainMesh, ponding, alpha, out resolvedRange, out distribution),
             _ => state.TerrainMesh
         };
 
@@ -79,6 +80,7 @@ internal static class TerrainAnalysisPreviewBuilder
         SlopeAnalysisDefinition => RangeShape.FromZero,
         AspectAnalysisDefinition => RangeShape.Cyclic,
         CutFillAnalysisDefinition => RangeShape.SymmetricAboutZero,
+        PondingAnalysisDefinition => RangeShape.FromZero,
         _ => RangeShape.MinMax
     };
 
@@ -190,10 +192,107 @@ internal static class TerrainAnalysisPreviewBuilder
             vertices, faces, faceCount, TerrainBuildService.BuildCatchmentFaceColors(graph), alpha);
     }
 
+    /// <summary>
+    /// Ponding colours the terrain by how deep the water stands.
+    /// </summary>
+    /// <remarks>
+    /// Ramped, where the catchment map beside it is categorical — and the difference is the point. Ponded
+    /// depth is a measurement on a continuum, so near values ought to read as near colours and a legend
+    /// naming the ends means something.
+    ///
+    /// Dry ground is *masked*, not mapped to zero. Mapping it would paint every draining face at the
+    /// ramp's low end, which is a colour, and the reader would have to know that this particular colour
+    /// means "no water" rather than "a little water" — on the one analysis whose whole job is to make a
+    /// problem obvious. Masked ground draws neutral grey and is excluded from the range fit and the
+    /// histogram, so the ramp is fitted to the water rather than to the site.
+    /// </remarks>
+    private static RhinoMesh? BuildPondingPreviewMesh(
+        RhinoMesh mesh,
+        PondingAnalysisDefinition analysis,
+        byte alpha,
+        out AnalysisRange? range,
+        out double[]? distribution)
+    {
+        range = null;
+        distribution = null;
+        if (!RhinoGeometryConversions.TryExtractMeshData(
+                mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
+            return null;
+
+        BasinGraph graph = DrainageBasinAnalyzer.Analyze(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            new DrainageBasinAnalyzer.Options
+            {
+                FlatSlopeRatio = SlopeAnalyzer.ConvertUnitToRatio(
+                    analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees)
+            });
+        IReadOnlyList<PondingSolver.Pond> ponds = PondingSolver.Solve(
+            graph, vertices, vertexCount, faces,
+            new PondingSolver.Options { MinimumDepth = Math.Max(0.0, analysis.MinimumDepth) });
+
+        var depths = new double[faceCount];
+        var areas = new double[faceCount];
+        var wet = new bool[faceCount];
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+            MeasureFace(vertices, faces, faceIndex, depths, areas);
+
+        // depths currently holds face-average elevation; turn it into depth below each pond's surface.
+        var surfaceOfBasin = new Dictionary<int, double>(ponds.Count);
+        foreach (PondingSolver.Pond pond in ponds)
+            surfaceOfBasin[pond.BasinIndex] = pond.SpillZ;
+
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int basin = graph.FaceBasin[faceIndex];
+            if (basin < 0 || !surfaceOfBasin.TryGetValue(basin, out double surfaceZ))
+            {
+                depths[faceIndex] = double.NaN;
+                continue;
+            }
+
+            double depth = surfaceZ - depths[faceIndex];
+            if (depth <= 0.0)
+            {
+                depths[faceIndex] = double.NaN;
+                continue;
+            }
+
+            depths[faceIndex] = depth;
+            wet[faceIndex] = true;
+        }
+
+        AnalysisRange resolved = ResolveMaskedRange(
+            depths, areas, wet, analysis.AutoColorRange, analysis.RangeLow, analysis.RangeHigh,
+            RangeShape.FromZero);
+        range = resolved;
+        distribution = BuildMaskedDistribution(depths, areas, wet);
+
+        var palette = analysis.ResolveRamp().Stops;
+        var bands = AnalysisColorMapper.ResolveBandsFor(resolved, analysis.ColorMode, analysis.ColorInterval, palette);
+        var colors = new byte[faceCount * 3];
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            if (!wet[faceIndex])
+            {
+                WriteColor(colors, faceIndex, UnmappedColor.R, UnmappedColor.G, UnmappedColor.B);
+                continue;
+            }
+
+            var color = AnalysisColorMapper.SampleResolved(
+                depths[faceIndex], resolved, analysis.ColorMode, bands, palette);
+            WriteColor(colors, faceIndex, color.R, color.G, color.B);
+        }
+
+        return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
+    }
+
     internal static bool SupportsTerrainPreview(AnalysisDefinition analysis)
     {
         return analysis is SlopeAnalysisDefinition or AspectAnalysisDefinition or ElevationAnalysisDefinition
-            or CutFillAnalysisDefinition or CatchmentAnalysisDefinition;
+            or CutFillAnalysisDefinition or CatchmentAnalysisDefinition or PondingAnalysisDefinition;
     }
 
     /// <summary>
@@ -207,7 +306,9 @@ internal static class TerrainAnalysisPreviewBuilder
         return item is AnnotationDefinition or WaterflowAnalysisDefinition
             or CutFillAnalysisDefinition { DrawsDeltaOutput: true }
             or CatchmentAnalysisDefinition { ShowBoundaries: true }
-            or CatchmentAnalysisDefinition { ShowFlowPaths: true };
+            or CatchmentAnalysisDefinition { ShowFlowPaths: true }
+            or PondingAnalysisDefinition { ShowOutlines: true }
+            or PondingAnalysisDefinition { ShowSpillPoints: true };
     }
 
     internal static bool ShouldDisplayGeneratedOutput(TerrainDefinition terrain, GeneratedRhinoObject generated)

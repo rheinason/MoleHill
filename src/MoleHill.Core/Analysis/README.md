@@ -117,4 +117,26 @@ Terrain analysis math. Pure, unit-tested.
   `Engine/EdgeLoopChainer`. Edges are emitted in each face's own winding, so the directed edges balance
   at every vertex and the loops close without any geometric decision about what is inside — which is
   what keeps a basin with an island in it, or one pinching to a point, from needing a special case.
+- `PondingSolver.cs` — measures the depressions `DrainageBasinAnalyzer` found: spill elevation, impounded
+  volume, water-surface area and the shoreline. Three things are easy to get wrong here and are settled
+  in the file:
+  - **The spill elevation is a bottleneck, not a shortest path.** Water escaping a depression does not
+    care about the total climb, only about the highest lip it must get over — so the level is the minimum
+    over all routes out of the maximum crossing elevation along that route, found by flooding from the
+    floor and always taking the lowest lip. A crossing costs the *lowest* point of the edge it passes
+    over, and a route costs the highest crossing along it.
+  - **Not the lowest vertex on the basin's boundary.** A depression's catchment runs up to the watershed
+    divide, so that boundary usually reaches the terrain edge far below the depression's own lip and the
+    answer comes back an order of magnitude low. The flood is bounded by the basin; the level is decided
+    by the lip.
+  - **The shoreline is contoured on `z − spillZ`, not `spillZ − z`.** The zero level must sit at the
+    field's *maximum*: `ContourGenerator` skips a level equal to the minimum, since no vertex is below it
+    and there is no below-to-above transition to find. With the sign the other way a bunded pad — the
+    whole depression at or below its rim, nothing above water — silently draws nothing. The inclusive
+    upper bound this leans on is the same one added so a contour at a pad's exact design elevation still
+    draws its outline.
+  Volume is the prism sum the earthworks analysis uses, over the basin's faces with depth clamped at
+  zero, so the dry upper catchment drops out on its own. Depressions shallower than `MinimumDepth` are
+  not reported: a millimetre of survey dimple is not a pond, and a check that says it is gets switched
+  off.
 

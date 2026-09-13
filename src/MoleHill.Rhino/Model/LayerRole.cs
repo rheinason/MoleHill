@@ -46,6 +46,12 @@ public enum LayerRole
     /// <summary>A catchment's longest downhill flow path, from its high point to its outlet.</summary>
     CatchmentFlowPaths,
 
+    /// <summary>Shorelines of closed depressions, at the level each overflows at.</summary>
+    Ponding,
+
+    /// <summary>Markers where a depression overflows.</summary>
+    PondingSpillPoints,
+
     Labels,
 
     /// <summary>Marker block instances.</summary>

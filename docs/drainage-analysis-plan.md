@@ -269,7 +269,7 @@ second, since it must run on every rebuild of a terrain that has the card on.
 |---|---|---|
 | 1 | Core: adjacency lift, flow routing, flat regions, basin labelling, `EdgeLoopChainer` | **done** — see §10 |
 | 2 | B1 end-to-end: `CatchmentAnalysisDefinition`, descriptor, layer roles, build partial, categorical preview, summary + cloner | **done** — see §11 and §12 |
-| 3 | B2: `PondingAnalysisDefinition`, priority flood, volume, contour outline, thresholds | a deliberately-built bathtub is caught and measured |
+| 3 | B2: `PondingAnalysisDefinition`, priority flood, volume, contour outline, thresholds | **code done** — see §13; live run outstanding |
 | 4 | Docs + benchmark | `docs/architecture.md` "Analysis vs annotation" extended, `Core/Analysis/README.md` and `docs/file-index.md` regenerated, backlog entries closed |
 
 Phase 1 is the risk. If flat routing does not hold up on a real graded scene, stop there and
@@ -411,3 +411,49 @@ named for the one job it has.
 **Not established:** a viewport capture was taken but could not be decoded here, so no claim in this
 section rests on a screenshot. The colouring claim rests on counting distinct vertex colours on the
 baked mesh, which is document state.
+
+---
+
+## 13. Phase 3 outcome (2026-09-13)
+
+B2 is wired end to end. New: `Core/Analysis/PondingSolver.cs`, `Model/PondingAnalysisDefinition.cs`,
+`PondingAnalysisDescriptor`, the `Ponding` and `PondingSpillPoints` layer roles, the build stage in
+`TerrainBuildService.Drainage.cs`, a masked-ramp preview, four summary fields with their `CloneAnalysis`
+entries, panel rows, and two test files (`PondingSolverTests`, `PondingAnalysisTests`). All three suites
+green — 1,435 passing.
+
+The card offers **Ignore Below** (`ModelLength`), **Flat Below** (`Slope`, shared with Catchments),
+**Shorelines** + colour and **Spill Points** + colour, and reports the number of depressions, the deepest
+water, the total volume and the total wet area.
+
+Three things worth recording:
+
+1. **The spill elevation is a bottleneck problem, and §2d's plan for it was too simple.** The plan said
+   "push the sink's rim edges into a min-heap keyed by the higher of the edge's two vertex Z values; pop
+   the lowest". Two corrections. The key is the *lower* of the two vertices — water crosses an edge at
+   its lowest point, not its highest. And a single pop off the rim is not the answer: the route out may
+   cross several faces, and its cost is the **highest** crossing along it, minimised over routes. That is
+   a minimax path, so the flood carries `max(levelSoFar, crossing)` and the first face reached in another
+   basin fixes the level.
+2. **The shoreline field had to be negated.** `spillZ − z` puts the zero level at the field's *minimum*,
+   which `ContourGenerator` skips — a level equal to the minimum has no below-to-above transition. That
+   silently drew nothing for a bunded pad, where the whole depression sits at or below its rim and
+   nothing is above water. `z − spillZ` puts it at the maximum and picks up the inclusive-`vmax` path
+   already added for contouring at a pad's exact design elevation.
+3. **Phase 1's sink consolidation was too narrow, and only Phase 3 could expose it.** It merged sinks
+   sharing an *identical* floor vertex. But a bowl can split into a piece holding the true low point and
+   a piece whose own lowest vertex is slightly higher — no shared floor, no merge. The catchment card
+   showed "2 depressions" where there is one, which looks merely cosmetic; the real damage was that each
+   one's escape runs straight into the other at its own floor, so both measure zero depth and **a real
+   depression reports as no pond at all**. Sinks are now also merged when joined *below the higher of
+   their two floors* — water standing at that floor already spans both. Joined above both floors is a
+   bund between two ponds and correctly stays two.
+
+**Dry ground is masked, not mapped to zero,** in the preview. Mapping it would paint every draining face
+at the ramp's low end, and the reader would have to know that this particular colour means "no water"
+rather than "a little water" — on the one analysis whose job is to make a problem obvious.
+
+**Outstanding:** the live run. The plugin `.rhp` could not be rebuilt because two leaked router-spawned
+Rhinos held the output DLLs (see §12 and the corrections made to `docs/rhino-live-testing.md`); the test
+projects link sources rather than the plugin output, so everything except the live run was completed and
+verified.

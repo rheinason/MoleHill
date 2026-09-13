@@ -86,7 +86,7 @@ public static class DrainageBasinAnalyzer
         int[] rootOfFace = ResolveRoots(faceCount, neighbors, geometry, routing, probe);
 
         int[] faceBasin = LabelBasins(faceCount, rootOfFace, out List<int> basinRoot);
-        ConsolidateSinksSharingAFloor(vertices, faces, faceCount, neighbors, faceBasin, basinRoot, routing, probe);
+        ConsolidateSinks(vertices, faces, faceCount, neighbors, faceBasin, basinRoot, routing, probe);
         if (settings.MinimumBasinAreaShare > 0.0 && basinRoot.Count > 1)
             MergeSmallBasins(vertices, faces, faceCount, neighbors, geometry, faceBasin, basinRoot.Count, settings, probe);
 
@@ -646,16 +646,30 @@ public static class DrainageBasinAnalyzer
     }
 
     /// <summary>
-    /// Merges sink basins that bottom out at the same vertex.
+    /// Merges sink basins that are really one depression.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Water converging on a pit arrives from every side, and the routing splits it between however many
-    /// cycles form around that one low vertex — a round bowl comes out as two half-bowls that share a
-    /// floor. They are one depression: a pond has one water surface, and reporting two would double-count
-    /// its volume and draw two outlines over each other. The floor vertex is the identity, because two
-    /// distinct pits cannot share their lowest point.
+    /// cycles form around the low ground — a round bowl comes out as two half-bowls. They are one
+    /// depression: a pond has one water surface, and reporting two would double-count its volume and draw
+    /// two outlines over each other.
+    /// </para>
+    /// <para>
+    /// Two rules, because the obvious one is not enough. Sinks that bottom out at the *same vertex* are
+    /// plainly one pit. But the split does not always land that neatly: a bowl can divide into a piece
+    /// holding the true low point and a piece whose own lowest vertex is a little higher, and those share
+    /// no floor. So sinks are also merged when they are joined below the higher of their two floors —
+    /// water standing at that floor already spans both, which is precisely what makes them one body of
+    /// water. Joined *above* both floors is a bund between two ponds, and stays two.
+    /// </para>
+    /// <para>
+    /// Left unmerged, such a pair is worse than cosmetic: each one's escape route runs straight into the
+    /// other at its own floor level, so both measure a spill equal to their floor, both report zero
+    /// depth, and a real depression is reported as no pond at all.
+    /// </para>
     /// </remarks>
-    private static void ConsolidateSinksSharingAFloor(
+    private static void ConsolidateSinks(
         IReadOnlyList<double> vertices,
         IReadOnlyList<int> faces,
         int faceCount,
@@ -694,29 +708,78 @@ public static class DrainageBasinAnalyzer
             }
         }
 
-        var survivorOfFloor = new Dictionary<int, int>();
-        var survivor = new int[basinCount];
+        var parent = new int[basinCount];
         for (int basin = 0; basin < basinCount; basin++)
-            survivor[basin] = basin;
+            parent[basin] = basin;
 
         bool merged = false;
+
+        // Rule one: a shared floor vertex is the same pit, whatever the routing made of it.
+        var keeperOfFloor = new Dictionary<int, int>();
         for (int basin = 0; basin < basinCount; basin++)
         {
             if (floorVertex[basin] < 0)
                 continue;
 
-            if (!survivorOfFloor.TryGetValue(floorVertex[basin], out int keeper))
+            if (!keeperOfFloor.TryGetValue(floorVertex[basin], out int keeper))
             {
-                survivorOfFloor.Add(floorVertex[basin], basin);
+                keeperOfFloor.Add(floorVertex[basin], basin);
                 continue;
             }
 
-            survivor[basin] = keeper;
+            parent[Find(parent, basin)] = Find(parent, keeper);
+            merged = true;
+        }
+
+        // Rule two: joined below the higher floor. Lowest joins first, so a chain of pits merges from the
+        // bottom up and the answer cannot depend on the order faces happened to be visited in.
+        var joins = new List<(double CrossingZ, int From, int To)>();
+        for (int face = 0; face < faceCount; face++)
+        {
+            probe.ThrowIfCancelledOften();
+            int from = faceBasin[face];
+            if (from < 0 || floorVertex[from] < 0)
+                continue;
+
+            for (int edge = 0; edge < 3; edge++)
+            {
+                int neighbor = neighbors[(face * 3) + edge];
+                if (neighbor < 0)
+                    continue;
+                int to = faceBasin[neighbor];
+                if (to < 0 || to == from || floorVertex[to] < 0 || to < from)
+                    continue;
+
+                int a = faces[(face * 3) + edge];
+                int b = faces[(face * 3) + ((edge + 1) % 3)];
+                joins.Add((Math.Min(vertices[(a * 3) + 2], vertices[(b * 3) + 2]), from, to));
+            }
+        }
+
+        joins.Sort((left, right) => left.CrossingZ.CompareTo(right.CrossingZ));
+        foreach ((double crossingZ, int from, int to) in joins)
+        {
+            int rootFrom = Find(parent, from);
+            int rootTo = Find(parent, to);
+            if (rootFrom == rootTo)
+                continue;
+            if (crossingZ > Math.Max(floorZ[rootFrom], floorZ[rootTo]))
+                continue;
+
+            // The survivor keeps the lower floor, so it is the one that actually holds the water.
+            int keeper = floorZ[rootFrom] <= floorZ[rootTo] ? rootFrom : rootTo;
+            int absorbed = keeper == rootFrom ? rootTo : rootFrom;
+            parent[absorbed] = keeper;
+            floorZ[keeper] = Math.Min(floorZ[keeper], floorZ[absorbed]);
             merged = true;
         }
 
         if (!merged)
             return;
+
+        var survivor = new int[basinCount];
+        for (int basin = 0; basin < basinCount; basin++)
+            survivor[basin] = Find(parent, basin);
 
         for (int face = 0; face < faceCount; face++)
         {

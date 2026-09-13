@@ -414,6 +414,45 @@ public sealed partial class MoleHillPanel
                 break;
             }
 
+            case PondingAnalysisDefinition ponding:
+            {
+                if (summary != null)
+                {
+                    // Phrased as an answer, not a count. "None" is the result people are looking for, and
+                    // it should read as reassurance rather than as an empty field.
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Standing water",
+                        summary.PondCount == 0
+                            ? "None — everywhere drains"
+                            : $"{summary.PondCount:N0} depression(s)",
+                        "Closed depressions deeper than “Ignore Below”. Water reaching one stays " +
+                        "there."));
+
+                    if (summary.PondCount > 0)
+                    {
+                        layout.AddRow(CreateReadOnlyValueRow(
+                            "Deepest / Volume",
+                            $"{FormatZoneLength(summary.PondMaxDepth ?? 0.0)} / {FormatVolume(summary.PondTotalVolume ?? 0.0)}",
+                            "Deepest standing water, and the total held across every depression, from the " +
+                            "last build."));
+                        layout.AddRow(CreateReadOnlyValueRow(
+                            "Wet area",
+                            FormatArea(summary.PondTotalArea ?? 0.0),
+                            "Total water-surface area at the level each depression overflows at."));
+                    }
+                }
+                else
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to check for standing water.",
+                        minHeight: 42));
+                }
+
+                break;
+            }
+
             case WaterflowAnalysisDefinition waterflow:
                 if (summary != null)
                 {
@@ -438,6 +477,14 @@ public sealed partial class MoleHillPanel
 
         }
 
+    }
+
+    private static string FormatVolume(double value)
+    {
+        ModelUnitContext unitContext = ModelUnitContext.FromDocument(RhinoDoc.ActiveDoc);
+        if (!unitContext.IsSupported)
+            unitContext = ModelUnitContext.FromUnitSystem(UnitSystem.Meters);
+        return unitContext.FormatVolume(value);
     }
 
     private static string FormatArea(double value)

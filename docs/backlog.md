@@ -39,60 +39,45 @@ never a modifier that silently moves it.
 
 ## Accepted
 
-### B1 — Watershed / catchment delineation
+### B1 + B2 — Watershed / catchment delineation and ponding — **shipped**
 
-**Reference:** Civil 3D surface watersheds — TIN-based basin segmentation producing drain targets and
-catchment polygons (boundary-drain, depression, flat-area and multi-drain basins), exportable as 2D/3D
-polygons for a downstream hydrology tool.
+**Shipped 2026-09-13**, as **two** analyses over one shared Core routing: **Catchments** and **Ponding**,
+sharing `DrainageAnalysisDefinition` and a pass-scoped `BasinGraphCache` — the arrangement Earthworks and
+Cut / Fill already had. B2's entry wondered whether it should be one analysis with a depressions toggle;
+two won, because the questions are asked separately. "Where does water go" draws forty polygons on a real
+survey; "did I build a bathtub" usually draws nothing and is worth leaving on permanently, and forcing
+the first to be on to get the second would make the check that catches errors the one people switch off.
 
-**What MoleHill has:** the *other* half. `WaterflowTracer` walks a single deterministic downhill path
-through a 2.5D mesh; the `waterflow` analysis draws those paths. There is no notion of which faces
-drain to which outlet.
+Kept here only for the four places these entries were wrong, since each cost a rebuild to find:
 
-**Where it fits:** a new **analysis** (`AnalysisDefinition` + `AnalysisTypeRegistry` descriptor). It
-evaluates the terrain and its result is a measurement per region, so it is an analysis, not an
-annotation — and it wants the colour-ramp apparatus to tint basins, which only analyses carry.
+- **"It wants the colour-ramp apparatus to tint basins"** (B1) — half right, and the wrong half is the
+  interesting one. A ramp maps a position on a continuum, so near values read as near colours; a basin
+  index is a *name*, and basin 4 is not more than basin 3. Catchments colour categorically from
+  `CategoricalPalette` and the card declares no ramp row. Ponding *does* ramp, because ponded depth is a
+  measurement — the distinction is the whole reason the two cards differ.
+- **"The lowest saddle on its watershed rim"** (B2) — the spill is the lowest *lip*, which is not the
+  lowest point of the catchment boundary. A depression's catchment runs up to the watershed divide and
+  usually reaches the terrain edge far below the depression itself, so the naive reading is an order of
+  magnitude low. It is a bottleneck path: the minimum over routes out of the maximum crossing along the
+  route.
+- **"Threshold on both impounded volume and depth"** (B2) — depth only, in `ModelLength`. `ParameterUnit`
+  has no volume member, this product does not show unlabelled numbers, and depth is the figure a reader
+  can actually judge: "50 mm standing water" means something where a cubic-metre threshold has to be
+  re-derived per site. Catchment merging is a *share* of the terrain (`Percent`) for the same reason, and
+  because a share is scale-free.
+- **"Flat and near-flat regions are the hard part"** (B1) — right, but incomplete. Flat regions were
+  tractable. The unforeseen difficulty was **cycles**: wherever water converges on a vertex, the two
+  faces sharing that vertex's opposite edge each fall towards it and each leave through their shared
+  edge, so face-to-face routing loops. That is the bottom of every valley and the low corner of every
+  graded pad, not a rarity. Cycles are the same phenomenon as flat regions — a connected set of faces
+  with no outlet among themselves — and go through the same spill routine.
 
-**Shape:** Core algorithm over the existing flat face/edge arrays, adjacent to `WaterflowTracer`.
-Per-face steepest-descent to an outlet, then group faces by outlet; a catchment boundary is the union
-of the grouped faces' unshared edges. Outputs: basin polygons on a layer role, area per basin, and the
-flow path from each basin to its outlet.
+See `docs/drainage-analysis-plan.md` for the full record, `docs/architecture.md` → "Analysis vs
+annotation", and `src/MoleHill.Core/Analysis/README.md`.
 
-**Notes / open questions:**
-
-- Flat and near-flat regions are the hard part — a graded pad is one enormous flat area, and a naive
-  steepest-descent gives every face on it a different arbitrary outlet. Needs explicit flat-region
-  handling (gradient propagation inward from the region's outflow edges) before this is usable on
-  *graded* terrain, which is the whole point.
-- Depressions interact with B2; build them together, or build B2's sink detection first.
-- Whether basins should be merged below a size threshold (Civil 3D asks for a minimum average depth and
-  a merge tolerance) — almost certainly yes, or a real survey yields hundreds of basins.
-
----
-
-### B2 — Depression / ponding detection and pond volume
-
-**Reference:** the "did I just build a bathtub" check. Present in most civil packages as low-point and
-sink reporting; TBC surfaces it through stockpile-and-depression volume reports.
-
-**What MoleHill has:** nothing. `Ponding` appears nowhere in the source (the grep hits are Triangle.NET
-internals). The tool will happily let a Grade Pad create a closed depression and say nothing about it.
-
-**Where it fits:** an **analysis**, and very likely the *same* analysis as B1 rather than a second one —
-a sink is a basin with no outlet on the terrain boundary. Worth deciding early: one "Drainage" analysis
-with a depressions toggle, or two analyses sharing one Core basin-graph result.
-
-**Shape:** find sinks (local minima, or basins with no boundary outlet), find each sink's spill
-elevation (the lowest saddle on its watershed rim), then compute impounded volume and the ponded
-polygon at that elevation. Volume integration is the same prism-over-faces sum the earthworks analysis
-already does.
-
-**Why it is high value:** it is the one analysis that catches a *design error* rather than describing
-the design. Everything else in the Analyses tab tells you what you drew; this one tells you it is
-wrong.
-
-**Notes:** must be tolerance-aware — a 2 mm numerical dimple on a 200 m pad is not a pond. Threshold on
-both impounded volume and depth, both unit-aware, both user-set.
+Not done, and deliberately: nested or merged ponds (one spill level per depression), pond volume at a
+*stated* level rather than at the spill, and catchment export for a downstream hydrology tool — the last
+is the boundary this backlog draws, and wants B4's CSV writer rather than anything new here.
 
 ---
 
@@ -394,7 +379,8 @@ be an obvious bug, so this exclusion is part of the first implementation, not a 
 Raised for consideration; none agreed. Kept here so they are not re-derived from scratch.
 
 *(Swale, Project To, boundary roles and survey field codes were promoted to Accepted — see B8–B11.
-Aspect (B5) shipped and its entry is gone; B3 shipped and is kept only to record where it was wrong.)*
+Aspect (B5) shipped and its entry is gone; B1, B2 and B3 shipped and are kept only to record where they
+were wrong.)*
 - **Gradient compliance checking as an analysis.** Accessibility limits — running slope, cross slope,
   landing intervals, whatever local standard applies — evaluated over the graded surface and over path
   corridors, reported as pass/warn regions. MoleHill already has the pattern: `mhInspectCurve`'s
