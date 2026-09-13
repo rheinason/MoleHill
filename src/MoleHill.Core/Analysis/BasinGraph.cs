@@ -46,15 +46,28 @@ public sealed class BasinGraph
         public required double LowestY { get; init; }
 
         /// <summary>
-        /// Highest vertex elevation in the basin, and where. The head of the basin's longest flow path:
-        /// tracing downhill from the *lowest* point would draw nothing, since the lowest point is the
-        /// outlet.
+        /// Head of the basin's flow path: the centroid of its highest face that actually falls.
         /// </summary>
-        public required double HighestZ { get; init; }
+        /// <remarks>
+        /// Three things are deliberate here, and each was a wrong answer first.
+        /// <list type="bullet">
+        /// <item>Not the lowest point — that *is* the outlet, so tracing from it draws nothing.</item>
+        /// <item>Not the highest vertex. A basin's highest vertex is usually a local maximum, and a trace
+        /// starting exactly on it lands in one arbitrary face of the several sharing it, where the descent
+        /// ray from that corner has no forward exit; the trace stops after a single point. That silently
+        /// cost more than half the flow paths on an ordinary hillside.</item>
+        /// <item>Not the highest face outright, but the highest that is not flat: a level face has no
+        /// direction to leave by, so a trace beginning on one stops immediately too. A wholly flat basin
+        /// falls back to its highest face and gets a short path, which is the honest result — flat ground
+        /// has no flow path to speak of.</item>
+        /// </list>
+        /// A centroid is strictly interior to its face, which is what guarantees an exit exists at all.
+        /// </remarks>
+        public required double FlowStartZ { get; init; }
 
-        public required double HighestX { get; init; }
+        public required double FlowStartX { get; init; }
 
-        public required double HighestY { get; init; }
+        public required double FlowStartY { get; init; }
     }
 
     /// <summary>Basin index per face, or -1 for a face that could not be routed (degenerate indices).</summary>

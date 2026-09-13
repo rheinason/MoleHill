@@ -268,7 +268,7 @@ second, since it must run on every rebuild of a terrain that has the card on.
 | Phase | Scope | Done when |
 |---|---|---|
 | 1 | Core: adjacency lift, flow routing, flat regions, basin labelling, `EdgeLoopChainer` | **done** — see §10 |
-| 2 | B1 end-to-end: `CatchmentAnalysisDefinition`, descriptor, layer roles, build partial, categorical preview, summary + cloner | **code done** — see §11; live run outstanding |
+| 2 | B1 end-to-end: `CatchmentAnalysisDefinition`, descriptor, layer roles, build partial, categorical preview, summary + cloner | **done** — see §11 and §12 |
 | 3 | B2: `PondingAnalysisDefinition`, priority flood, volume, contour outline, thresholds | a deliberately-built bathtub is caught and measured |
 | 4 | Docs + benchmark | `docs/architecture.md` "Analysis vs annotation" extended, `Core/Analysis/README.md` and `docs/file-index.md` regenerated, backlog entries closed |
 
@@ -362,6 +362,52 @@ Worth recording:
   what the slope and aspect previews also do. At 65 ms on 180k faces that is acceptable; if a colour-only
   edit ever feels slow on a large terrain, this is the thing to cache, not the routing to optimise.
 
-**Outstanding before Phase 3:** the live run on `GradePadTest.3dm` through an `rhino-mcp` slot. Both
-preceding analysis features shipped defects that only a live run caught, and both were in summary/cache
-state rather than in the mathematics — so this is not a formality.
+**The live run happened and was worth it — see §12.**
+
+---
+
+## 12. Live run (2026-09-13)
+
+Rhino 8, slot `aardvark`, plugin verified at
+`src/MoleHill.Rhino/bin/Debug/net7.0/MoleHill.Rhino.rhp` by `PlugIn.Find` → assembly location, module
+version id and file write time, plus the presence of `CatchmentAnalysisDefinition` in the loaded
+assembly. Scene built from script: a 441-point 40×40 m gentle hillside with a level pad cut into it
+(Terrain A), and the same plus a 1.5 m bowl (Terrain B).
+
+**What passed first time.** Terrain A: 20 catchments, **0 closed depressions** — the graded pad does not
+register as a pond, which is the false positive the whole feature had to avoid. Terrain B: 21
+catchments, **1** — exactly the bowl. A second rebuild with nothing changed came back
+`Analysis Catchments: 0 s (… cache hit)` with every summary field intact, so `CloneAnalysis` is
+complete; that is the trap both preceding analysis features fell into. The document saved (385 KB, no
+`NaN` or `Infinity` in the JSON) and a serialize/deserialize of the live-built state restored
+`basins=21 sinks=1 largest=370 flatFaces=128` unchanged. Baked output landed on
+`MoleHill::Annotation::Catchments` and `MoleHill::Annotation::Catchment Flow Paths`, 21 boundaries for
+21 catchments. The baked mesh carries all 12 `CategoricalPalette` hues.
+
+**What it caught, which no unit test did.** Only **9 flow paths for 21 catchments**. Zero rejected
+starts, so the tracer was finding a face and then stopping after a single point. The head was the
+basin's highest **vertex**, and a basin's highest vertex is usually a local maximum: the trace lands in
+one arbitrary face of the several sharing it, where the descent ray from that exact corner has no
+forward exit. A level face fails the same way, having no direction to leave by at all.
+
+`BasinGraph.Basin.Highest{X,Y,Z}` is now `FlowStart{X,Y,Z}` — the centroid of the basin's highest
+*falling* face, falling back to its highest face for a basin that is flat throughout. A centroid is
+strictly interior, which is what guarantees an exit exists. Re-verified live: **21 of 21**. Three Core
+tests pin it (`FlowStart_OnAHillsideWithAPad_TracesARealPathForEveryBasin`,
+`FlowStart_IsAFaceCentroid_NotAVertex`, `FlowStart_SitsOnAFallingFace_WhereverTheBasinHasOne`).
+
+The renaming is deliberate: `Highest*` invited exactly the misuse that caused this, so the member is now
+named for the one job it has.
+
+**Two notes, neither a defect of this work.**
+
+- Running a Rhino command inside a `run_csharp` call wedges the slot, and `_-Open` swaps the document
+  out from under the router and prunes the slot. Both are already in `docs/rhino-live-testing.md`; the
+  round-trip was re-done in-process instead.
+- Baking a terrain with any preview-colouring analysis active bakes the per-face colour mesh (2400
+  vertices for 800 faces, three per face) rather than the welded TIN. That is pre-existing and shared
+  with slope, aspect, elevation and cut/fill — worth a look some day, but not from here.
+
+**Not established:** a viewport capture was taken but could not be decoded here, so no claim in this
+section rests on a screenshot. The colouring claim rests on counting distinct vertex colours on the
+baked mesh, which is document state.

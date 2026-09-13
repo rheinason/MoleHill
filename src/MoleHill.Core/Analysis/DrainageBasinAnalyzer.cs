@@ -918,11 +918,17 @@ public static class DrainageBasinAnalyzer
         var lowestZ = new double[rawCount];
         var lowestX = new double[rawCount];
         var lowestY = new double[rawCount];
-        var highestZ = new double[rawCount];
-        var highestX = new double[rawCount];
-        var highestY = new double[rawCount];
+        // Two candidates per basin: the highest face that falls, and the highest face of any kind. The
+        // first is the flow-path head; the second only matters for a basin that is flat throughout.
+        var flowStartFace = new int[rawCount];
+        var flowStartZ = new double[rawCount];
+        var highestFace = new int[rawCount];
+        var highestFaceZ = new double[rawCount];
         Array.Fill(lowestZ, double.PositiveInfinity);
-        Array.Fill(highestZ, double.NegativeInfinity);
+        Array.Fill(flowStartFace, -1);
+        Array.Fill(flowStartZ, double.NegativeInfinity);
+        Array.Fill(highestFace, -1);
+        Array.Fill(highestFaceZ, double.NegativeInfinity);
         totalPlanArea = 0.0;
 
         for (int face = 0; face < faceCount; face++)
@@ -935,6 +941,19 @@ public static class DrainageBasinAnalyzer
             areas[basin] += geometry.PlanArea[face];
             totalPlanArea += geometry.PlanArea[face];
 
+            double centroidZ = geometry.CentroidZ[face];
+            if (centroidZ > highestFaceZ[basin])
+            {
+                highestFaceZ[basin] = centroidZ;
+                highestFace[basin] = face;
+            }
+
+            if (!geometry.IsFlat[face] && centroidZ > flowStartZ[basin])
+            {
+                flowStartZ[basin] = centroidZ;
+                flowStartFace[basin] = face;
+            }
+
             for (int corner = 0; corner < 3; corner++)
             {
                 int vertex = faces[(face * 3) + corner];
@@ -946,12 +965,6 @@ public static class DrainageBasinAnalyzer
                     lowestY[basin] = vertices[(vertex * 3) + 1];
                 }
 
-                if (z > highestZ[basin])
-                {
-                    highestZ[basin] = z;
-                    highestX[basin] = vertices[vertex * 3];
-                    highestY[basin] = vertices[(vertex * 3) + 1];
-                }
             }
         }
 
@@ -976,6 +989,7 @@ public static class DrainageBasinAnalyzer
             int basin = order[index];
             remap[basin] = index;
             int root = basinRoot[basin];
+            int startFace = flowStartFace[basin] >= 0 ? flowStartFace[basin] : highestFace[basin];
             basins[index] = new BasinGraph.Basin
             {
                 Index = index,
@@ -986,9 +1000,9 @@ public static class DrainageBasinAnalyzer
                 LowestZ = double.IsPositiveInfinity(lowestZ[basin]) ? 0.0 : lowestZ[basin],
                 LowestX = lowestX[basin],
                 LowestY = lowestY[basin],
-                HighestZ = double.IsNegativeInfinity(highestZ[basin]) ? 0.0 : highestZ[basin],
-                HighestX = highestX[basin],
-                HighestY = highestY[basin]
+                FlowStartX = startFace >= 0 ? geometry.CentroidX[startFace] : 0.0,
+                FlowStartY = startFace >= 0 ? geometry.CentroidY[startFace] : 0.0,
+                FlowStartZ = startFace >= 0 ? geometry.CentroidZ[startFace] : 0.0
             };
         }
 

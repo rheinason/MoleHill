@@ -141,10 +141,12 @@ internal sealed partial class TerrainBuildService
     }
 
     /// <summary>
-    /// One path per catchment, traced downhill from its high point. Traced rather than read off the
-    /// basin's own face pointers: <see cref="WaterflowTracer"/> follows the gradient continuously within
-    /// each face, so its line lands where water lands, while the face pointers only say which face is
-    /// next and would draw a staircase between centroids.
+    /// One path per catchment, traced downhill from the head <see cref="BasinGraph.Basin.FlowStartX"/>
+    /// names — the centroid of the basin's highest falling face, for the reasons recorded there.
+    ///
+    /// Traced rather than read off the basin's own face pointers: <see cref="WaterflowTracer"/> follows
+    /// the gradient continuously within each face, so its line lands where water lands, while the face
+    /// pointers only say which face is next and would draw a staircase between centroids.
     /// </summary>
     private static int DrawCatchmentFlowPaths(
         TerrainBuildSnapshot snapshot,
@@ -163,8 +165,8 @@ internal sealed partial class TerrainBuildService
         var starts = new double[graph.Basins.Count * 2];
         for (int index = 0; index < graph.Basins.Count; index++)
         {
-            starts[index * 2] = graph.Basins[index].HighestX;
-            starts[(index * 2) + 1] = graph.Basins[index].HighestY;
+            starts[index * 2] = graph.Basins[index].FlowStartX;
+            starts[(index * 2) + 1] = graph.Basins[index].FlowStartY;
         }
 
         WaterflowTracer.Result traced = WaterflowTracer.Trace(

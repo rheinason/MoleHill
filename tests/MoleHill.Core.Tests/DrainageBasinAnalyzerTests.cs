@@ -369,6 +369,138 @@ public class DrainageBasinAnalyzerTests
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Flow-path heads.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Every basin's flow head must actually produce a path.
+    ///
+    /// Found live, not here: the head was originally the basin's highest *vertex*, and more than half the
+    /// catchments on an ordinary hillside drew nothing. A basin's highest vertex is usually a local
+    /// maximum, so a trace starting exactly on it lands in one arbitrary face of the several sharing it,
+    /// where the descent ray from that corner has no forward exit — the trace stops after one point and
+    /// is discarded. Nothing about that is visible in the basin graph itself, which is why no test here
+    /// caught it.
+    /// </summary>
+    [Theory]
+    [InlineData(10, 10)]
+    [InlineData(21, 21)]
+    public void FlowStart_OnAHillsideWithAPad_TracesARealPathForEveryBasin(int nx, int ny)
+    {
+        var mesh = Grid(nx, ny, (x, y) =>
+            x >= nx * 0.3 && x <= nx * 0.7 && y >= ny * 0.3 && y <= ny * 0.7
+                ? 100.0 - (0.08 * ny * 0.5)
+                : 100.0 - (0.08 * y));
+        BasinGraph graph = Analyze(mesh, new DrainageBasinAnalyzer.Options { MinimumBasinAreaShare = 0.01 });
+        Assert.NotEmpty(graph.Basins);
+
+        var starts = new double[graph.Basins.Count * 2];
+        for (int index = 0; index < graph.Basins.Count; index++)
+        {
+            starts[index * 2] = graph.Basins[index].FlowStartX;
+            starts[(index * 2) + 1] = graph.Basins[index].FlowStartY;
+        }
+
+        WaterflowTracer.Result traced = WaterflowTracer.Trace(
+            mesh.Vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount, starts, graph.Basins.Count);
+
+        Assert.Equal(0, traced.RejectedStartCount);
+        Assert.Equal(graph.Basins.Count, traced.Paths.Count);
+
+        int stillborn = 0;
+        foreach (WaterflowTracer.Path path in traced.Paths)
+        {
+            if (path.PointCount < 2)
+                stillborn++;
+        }
+
+        Assert.Equal(0, stillborn);
+    }
+
+    /// <summary>
+    /// The head is a face centroid, so it is strictly inside the terrain rather than on a vertex — that
+    /// interiority is the whole reason an exit is guaranteed to exist.
+    /// </summary>
+    [Fact]
+    public void FlowStart_IsAFaceCentroid_NotAVertex()
+    {
+        var mesh = Grid(10, 10, (x, y) => 100.0 - (0.5 * y));
+
+        BasinGraph graph = Analyze(mesh);
+
+        foreach (BasinGraph.Basin basin in graph.Basins)
+        {
+            bool onAVertex = false;
+            for (int vertex = 0; vertex < mesh.VertexCount; vertex++)
+            {
+                if (Math.Abs(mesh.Vertices[vertex * 3] - basin.FlowStartX) < 1e-9 &&
+                    Math.Abs(mesh.Vertices[(vertex * 3) + 1] - basin.FlowStartY) < 1e-9)
+                    onAVertex = true;
+            }
+
+            Assert.False(onAVertex, $"basin {basin.Index} starts on a mesh vertex");
+        }
+    }
+
+    /// <summary>
+    /// A level face has no direction to leave by, so the head skips flat faces even when they are the
+    /// basin's highest. Stated as the exact property rather than as a coordinate in a particular scene:
+    /// wherever a basin has any falling face at all, its head sits on one. A basin that is flat
+    /// throughout has nothing to choose and falls back to its highest face, where a short path is the
+    /// honest answer rather than a bug.
+    /// </summary>
+    [Fact]
+    public void FlowStart_SitsOnAFallingFace_WhereverTheBasinHasOne()
+    {
+        // A level plateau above a slope, so most basins contain both kinds of face.
+        var mesh = Grid(10, 10, (x, y) => y <= 4 ? 100.0 : 100.0 - ((y - 4) * 0.5));
+        BasinGraph graph = Analyze(mesh);
+
+        foreach (BasinGraph.Basin basin in graph.Basins)
+        {
+            bool hasFallingFace = false;
+            int headFace = -1;
+            for (int face = 0; face < graph.FaceCount; face++)
+            {
+                if (graph.FaceBasin[face] != basin.Index)
+                    continue;
+
+                (double cx, double cy, bool falls) = FaceCentroid(mesh, face);
+                if (falls)
+                    hasFallingFace = true;
+                if (Math.Abs(cx - basin.FlowStartX) < 1e-9 && Math.Abs(cy - basin.FlowStartY) < 1e-9)
+                    headFace = face;
+            }
+
+            Assert.True(headFace >= 0, $"basin {basin.Index}'s head is not on any of its own faces");
+            if (!hasFallingFace)
+                continue;
+
+            (_, _, bool headFalls) = FaceCentroid(mesh, headFace);
+            Assert.True(headFalls, $"basin {basin.Index} has falling faces but its head is on a level one");
+        }
+    }
+
+    /// <summary>Plan centroid of a face, and whether it falls at all — the two things a head needs.</summary>
+    private static (double X, double Y, bool Falls) FaceCentroid(
+        (double[] Vertices, int VertexCount, int[] Faces, int FaceCount) mesh, int face)
+    {
+        double x = 0.0;
+        double y = 0.0;
+        var z = new double[3];
+        for (int corner = 0; corner < 3; corner++)
+        {
+            int vertex = mesh.Faces[(face * 3) + corner];
+            x += mesh.Vertices[vertex * 3] / 3.0;
+            y += mesh.Vertices[(vertex * 3) + 1] / 3.0;
+            z[corner] = mesh.Vertices[(vertex * 3) + 2];
+        }
+
+        bool falls = Math.Abs(z[0] - z[1]) > 1e-9 || Math.Abs(z[1] - z[2]) > 1e-9;
+        return (x, y, falls);
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Boundary extraction.
     // ---------------------------------------------------------------------------------------------
 
