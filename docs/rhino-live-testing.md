@@ -16,9 +16,14 @@ Build with no Rhino holding the `.rhp`:
 dotnet build src\MoleHill.Rhino\MoleHill.Rhino.csproj --no-restore
 ```
 
-A copy/lock warning (`MSB3021`/`MSB3027`) is secondary to compiler errors, but a live test must run
-the newly built assembly — close the locking process and rebuild rather than testing a stale binary.
+`MSB3021`/`MSB3027` are **errors, not warnings** — a running Rhino holds `MoleHill.Core.dll` and
+`MoleHill.Rhino.rhp`, the copy fails, and the build fails with it. Nothing is produced, so there is no
+question of testing a stale binary; the build simply does not happen. Close the locking Rhino (see §2 for
+how to close one the router will not) and build again.
 Plugin path: `src\MoleHill.Rhino\bin\Debug\net7.0\MoleHill.Rhino.rhp`.
+
+**So close the slot before every rebuild.** A live test cycle is spawn → test → `close_slot` → edit →
+build → spawn again, and skipping the close is the most common way to lose ten minutes here.
 
 ## 2. Spawn a disposable slot
 
@@ -26,9 +31,27 @@ Plugin path: `src\MoleHill.Rhino\bin\Debug\net7.0\MoleHill.Rhino.rhp`.
 spawn_slot(version: "8")   →   { slotId, port, pid, adopted }
 ```
 
-Record `slotId` and `pid`; pass `slot` explicitly on every later call. `close_slot` at the end kills
-exactly that instance. It refuses to close an *adopted* slot (a Rhino the user started), which is why
-this path is safe — never `Stop-Process Rhino`, which would kill the user's unrelated session.
+Record `slotId` and `pid`; pass `slot` explicitly on every later call. `close_slot` normally kills
+exactly that instance.
+
+**`adopted` does not mean "the user started it".** It means "this router session did not spawn it", and a
+Rhino the router spawned earlier can become adopted — after the router loses track of it (see §7 on
+`_-Open`), or across router restarts. `close_slot` then refuses it with `cannot_close_adopted` and there
+is **no router-side way to close it**, so it sits holding the build lock from §1 for the rest of the
+session. Verified 2026-09-13: two Rhinos both launched with `/runscript="_MCPSpawn"` — router-spawned,
+neither user-started — were both reported `adopted: true`, and both refused.
+
+That command line is how to tell them apart, and it is the only reliable way:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name = 'Rhino.exe'" |
+    Select-Object ProcessId, CreationDate, CommandLine
+```
+
+A router-spawned Rhino carries `/runscript="_MCPSpawn"`; the user's own does not. Stop **that exact
+PID**, and only after reading its command line — never `Stop-Process -Name Rhino`, which would take the
+user's unrelated session with it. If the environment blocks stopping the process, say so and ask the user
+to close the window rather than leaving the build silently broken.
 
 Confirm the slot is alive and the script host works before doing anything else:
 
@@ -104,9 +127,21 @@ screenshot.
 
 ## 5. Visual verification
 
-`get_viewport_image` captures the **viewport only** — correct for conduit output, meshes, curves and
-display colour, and its metadata block (camera, framed bounds, on-screen object count) diagnoses an
-empty capture without re-shooting.
+`get_viewport_image` captures the **viewport only** — meshes, curves and display colour — and its
+metadata block (camera, framed bounds, on-screen object count) diagnoses an empty capture without
+re-shooting.
+
+**It is not usable for conduit-only output.** The emptiness guard counts *document objects*, not what is
+on screen: with a terrain preview conduit actively drawing and every document object hidden, the call
+returns `"Viewport is empty — no document objects intersect the view frustum"` and **no image at all**
+(verified 2026-09-13 — `totalObjectCount: 0`, while the same build reported `1 preview outputs`). To
+capture preview output, bake it first or leave a document object in frame; and note that baking a terrain
+with a preview-colouring analysis active bakes the per-face colour mesh (three vertices per face), not
+the welded TIN.
+
+Keep the image small. A 640×640 capture came back as ~254k characters, over the tool-result limit, and
+was spilled to a file; 220×220 distinguishes a populated viewport from an empty one, and the metadata
+answers most questions without an image at all.
 
 Eto panels and modeless forms are separate top-level windows and are *not* in that image. Capture
 them from their real window bounds — never from guessed desktop coordinates:
@@ -138,6 +173,20 @@ blank, treat that as *unresolved* — confirm through a second channel (walk the
   `run_command` never returns, and after aborting the tool call the slot stays inside a command.
   Recovery is `close_slot` + `spawn_slot` — there is no in-place unwedge. Use script APIs, or the
   dash form of a command, instead.
+- **Running a Rhino command from inside `run_csharp` wedges the slot too.** `RhinoApp.RunScript(...)`
+  within a script call — even the dash form, even one that opens no dialog — blocked for the full 120 s
+  and left the slot unusable. The two mechanisms do not nest: `run_command` for commands, `run_csharp`
+  for RhinoCommon, never one inside the other.
+- **Anything that replaces the document detaches the slot, and the detached Rhino cannot be closed.**
+  `run_command(slot, "_-Open …")` reports the file read successfully, and then the *next* call fails with
+  `rhino_closed` — "its document or the Rhino window was closed" — and the slot is pruned. The process
+  does not exit. It is later re-adopted (§2), so `close_slot` refuses it, and it holds the build lock
+  until stopped by PID. `_-New` is the same shape.
+
+  So **do not reopen a document inside a live test.** To check that state survives a save and reload,
+  either serialize and deserialize in-process (`TerrainSerializer.Serialize` → `Deserialize`, the same
+  code path the document read uses), or spawn a *fresh* slot whose first action is the open — accepting
+  that the slot is then single-use.
 - **`Unknown command: _-ScriptEditor` from `run_python`/`run_csharp` is the wedge symptom**, not a
   missing script editor. Respawn the slot and the same script runs.
 - **The C# script host has a minimal `using` set** — no `System.Linq`, so use `foreach` or fully
@@ -174,6 +223,11 @@ Keep the reproduction minimal: one curve, one command, one transition.
 
 `close_slot` the exact slot, delete temporary traces, rebuild if code changed, and run the relevant
 tests (normally the full solution). Finish with `git status --short` and `git diff --check`.
+
+**Then check no Rhino is left running.** `close_slot` reporting `closed: true` only accounts for the slot
+named; `list_slots` plus the `Get-CimInstance` query in §2 accounts for the processes. A leaked
+router-spawned Rhino is invisible until the next build fails on a file lock, by which point the cause is
+several steps behind.
 
 The report should include: Rhino version and slot id/PID, plugin build path and the load-verification
 result, the exact command/script sequence, what was queried to confirm each assertion, which claims
