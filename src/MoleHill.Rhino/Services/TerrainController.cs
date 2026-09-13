@@ -691,10 +691,10 @@ internal sealed partial class TerrainController
     }
 
     /// <summary>
-    /// Prompts the user to drag a rectangle and sets it as the work-area boundary on the given
-    /// geometry-input modifier (limiting terrain computation to that area). Returns false if cancelled.
+    /// Prompts the user to drag a rectangle and replaces the Triangulate Data Clip object references,
+    /// preserving any layer references. Returns false if cancelled.
     /// </summary>
-    public bool SetModifierBoundaryRectangle(RhinoDoc doc, Guid terrainId, Guid modifierId)
+    public bool SetDataClipRectangle(RhinoDoc doc, Guid terrainId, Guid modifierId)
     {
         if (!ModelUnitGuard.TryGet(doc, out _))
             return false;
@@ -703,7 +703,7 @@ internal sealed partial class TerrainController
         if (rc != global::Rhino.Commands.Result.Success || corners == null || corners.Length < 4)
             return false;
 
-        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Set MoleHill Work Area");
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Set MoleHill Data Clip");
         var polyline = new global::Rhino.Geometry.Polyline(new[] { corners[0], corners[1], corners[2], corners[3], corners[0] });
         var curve = new global::Rhino.Geometry.PolylineCurve(polyline);
         Guid id = doc.Objects.AddCurve(curve);
@@ -712,25 +712,12 @@ internal sealed partial class TerrainController
 
         MutateTerrain(doc, terrainId, terrain =>
         {
-            if (FindGeometryInputModifier(terrain, modifierId) is { } modifier)
-                modifier.Boundary.ReplaceObjects(new[] { id });
+            if (terrain.Modifiers.FirstOrDefault(modifier => modifier.Id == modifierId) is TriangulateModifierDefinition triangulate)
+                triangulate.DataClipBoundaries.ReplaceObjects(new[] { id });
         });
         doc.Views.Redraw();
         return true;
     }
-
-    /// <summary>Clears the work-area boundary on a geometry-input modifier, restoring the full terrain.</summary>
-    public void ClearModifierBoundary(RhinoDoc doc, Guid terrainId, Guid modifierId)
-    {
-        MutateTerrain(doc, terrainId, terrain =>
-        {
-            if (FindGeometryInputModifier(terrain, modifierId) is { } modifier)
-                modifier.Boundary.ReplaceObjects(Array.Empty<Guid>());
-        });
-    }
-
-    private static GeometryInputModifierDefinition? FindGeometryInputModifier(TerrainDefinition terrain, Guid modifierId)
-        => terrain.Modifiers.FirstOrDefault(modifier => modifier.Id == modifierId) as GeometryInputModifierDefinition;
 
     public void RebuildTerrain(RhinoDoc doc, Guid terrainId)
     {

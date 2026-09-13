@@ -19,7 +19,7 @@ internal sealed partial class TerrainBuildService
 {
     private const int StageTimingDiagnosticThresholdMs = 250;
     private const double MinRepresentablePadPlaneNormalZ = 1e-3;
-    private const int TriangulateCacheVersion = 4;
+    private const int TriangulateCacheVersion = 5;
     private const int InSituStairTreadDepthWarningColorArgb = unchecked((int)0xFFFF0000);
 
     public TerrainBuildResult Build(
@@ -96,6 +96,43 @@ internal sealed partial class TerrainBuildService
             currentMeshFingerprint = context.CurrentMeshFingerprint;
             baseMesh = context.BaseMesh;
             baseMeshFingerprint = context.BaseMeshFingerprint;
+        }
+
+        TriangulateModifierDefinition? boundaryOwner = GetBoundaryOwner(terrain);
+        bool hasShapeBoundaries = boundaryOwner != null &&
+            (boundaryOwner.OuterBoundaries.HasReferences || boundaryOwner.HideBoundaries.HasReferences || boundaryOwner.ShowBoundaries.HasReferences);
+        if (currentMesh != null && hasShapeBoundaries)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            string trimCurrentKey = TerrainStageKey.ForMode(mode, "boundary-roles:current");
+            usedStageKeys.Add(trimCurrentKey);
+            RhinoMesh currentInput = currentMesh;
+            currentMesh = ExecuteCachedMeshStage(
+                build,
+                runtimeCache,
+                trimCurrentKey,
+                "Boundary Roles",
+                ComputeBoundaryRoleStageFingerprint(snapshot, terrain, currentMeshFingerprint),
+                () => ApplyTerrainBoundaryRoles(snapshot, terrain, currentInput, build, shouldCancel),
+                result => DescribeModifierMeshResult("Boundary Roles", result),
+                out currentMeshFingerprint,
+                shouldCancel);
+            if (baseMesh != null)
+            {
+                string trimBaseKey = TerrainStageKey.ForMode(mode, "boundary-roles:base");
+                usedStageKeys.Add(trimBaseKey);
+                RhinoMesh baseInput = baseMesh;
+                baseMesh = ExecuteCachedMeshStage(
+                    build,
+                    runtimeCache,
+                    trimBaseKey,
+                    "Boundary Roles Baseline",
+                    ComputeBoundaryRoleStageFingerprint(snapshot, terrain, baseMeshFingerprint),
+                    () => ApplyTerrainBoundaryRoles(snapshot, terrain, baseInput, build, shouldCancel),
+                    result => DescribeModifierMeshResult("Boundary Roles Baseline", result),
+                    out baseMeshFingerprint,
+                    shouldCancel);
+            }
         }
 
         build.PrimaryMesh = currentMesh;
@@ -473,6 +510,9 @@ internal sealed partial class TerrainBuildService
             builder.Add(ComputeSourceSetFingerprint(snapshot, sourceSet));
         }
 
+        if (modifier is AddGeometryModifierDefinition && GetBoundaryOwner(terrain) is { } boundaryOwner)
+            builder.Add(ComputeSourceSetFingerprint(snapshot, boundaryOwner.DataClipBoundaries));
+
         return builder.ToUInt64();
     }
 
@@ -499,14 +539,14 @@ internal sealed partial class TerrainBuildService
         builder.Add(TriangulateCacheVersion);
         builder.Add(snapshot.ModelAbsoluteTolerance);
         builder.Add(terrain.GlobalTolerance);
-        AddSerializedFingerprint(ref builder, modifier, modifier.GetType());
+        AddTriangulationSettingsFingerprint(ref builder, modifier);
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.TinMesh));
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.DemSurface));
         builder.Add(snapshot.DemFingerprints.GetValueOrDefault(modifier.Id));
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Points));
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Breaklines));
         builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Contours));
-        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.Boundary));
+        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.DataClipBoundaries));
         return builder.ToUInt64();
     }
 
@@ -525,12 +565,45 @@ internal sealed partial class TerrainBuildService
         builder.Add(TriangulateCacheVersion);
         builder.Add(terrain.GlobalTolerance);
         builder.Add(tolerance);
-        AddSerializedFingerprint(ref builder, modifier, modifier.GetType());
+        AddTriangulationSettingsFingerprint(ref builder, modifier);
         AddDoubleArrayFingerprint(ref builder, xyCoords);
         AddDoubleArrayFingerprint(ref builder, zValues);
         AddIntArrayFingerprint(ref builder, segments);
         builder.Add(ComputeConstraintsFingerprint(persistentHardConstraints));
         builder.Add(ComputeBoundaryPolylinesFingerprint(boundaryPolylines));
+        return builder.ToUInt64();
+    }
+
+    private static void AddTriangulationSettingsFingerprint(ref FingerprintBuilder builder, TriangulateModifierDefinition modifier)
+    {
+        builder.Add(modifier.Id);
+        builder.Add(modifier.IsEnabled);
+        builder.Add(modifier.Tolerance);
+        builder.Add(modifier.PeelBoundaryTriangles);
+        builder.Add(modifier.MaxBoundaryEdgeLength);
+        builder.Add(modifier.MaxBoundaryAngleDegrees);
+        builder.Add(modifier.MaxBoundarySlopeDegrees);
+        builder.Add(modifier.ContourMode);
+        builder.Add(modifier.DemElevationScale);
+        builder.Add(modifier.DemSourceFileName);
+    }
+
+    private static ulong ComputeBoundaryRoleStageFingerprint(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        ulong upstreamFingerprint)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("BoundaryRolesV1");
+        builder.Add(upstreamFingerprint);
+        builder.Add(snapshot.ModelAbsoluteTolerance);
+        builder.Add(terrain.GlobalTolerance);
+        if (GetBoundaryOwner(terrain) is { } owner)
+        {
+            builder.Add(ComputeSourceSetFingerprint(snapshot, owner.OuterBoundaries));
+            builder.Add(ComputeSourceSetFingerprint(snapshot, owner.HideBoundaries));
+            builder.Add(ComputeSourceSetFingerprint(snapshot, owner.ShowBoundaries));
+        }
         return builder.ToUInt64();
     }
 

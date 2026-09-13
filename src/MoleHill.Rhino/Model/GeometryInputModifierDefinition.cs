@@ -1,4 +1,5 @@
 using MoleHill.Core.Engine;
+using System.Text.Json.Serialization;
 
 namespace MoleHill.Rhino.Model;
 
@@ -16,7 +17,10 @@ public abstract class GeometryInputModifierDefinition : ModifierDefinition
 
     public SourceReferenceSet Contours { get; set; } = new();
 
-    public SourceReferenceSet Boundary { get; set; } = new();
+    /// <summary>Pre-v32 combined boundary input, retained only so old documents can migrate.</summary>
+    [JsonPropertyName("boundary")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceReferenceSet? LegacyBoundary { get; set; }
 
     public double Tolerance { get; set; }
 
@@ -47,6 +51,7 @@ public abstract class GeometryInputModifierDefinition : ModifierDefinition
         yield return Points;
         yield return Breaklines;
         yield return Contours;
-        yield return Boundary;
+        if (LegacyBoundary != null)
+            yield return LegacyBoundary;
     }
 }

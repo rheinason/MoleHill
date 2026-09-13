@@ -19,7 +19,9 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   cancelled, or failed lines; detailed progress, diagnostics, and timings remain in Status.
 - Triangulate flattens each source curve once and reuses the packed stations for constraints and TIN
   input. Its Contour Mode is `Auto` / `Constrained` / `Vertices only`; Auto treats contour sets at or
-  above 250,000 source vertices as unconstrained samples while breaklines and the boundary stay exact.
+  above 250,000 source vertices as unconstrained samples while breaklines stay exact. Data Clip filters
+  raw inputs exactly; Outer/Hide/Show are cached conforming trims after the modifier stack and before all
+  surface-derived output. The same roles trim the captured base mesh for comparative analyses.
   This matches the fast exploded-vertices Grasshopper path for multi-million-point contour datasets.
   The panel requests vertices/faces only from Core, skips unused edge-topology and large incremental-edit
   indexes, and uses a known-valid TIN finalizer rather than rescanning the Rhino mesh for duplicate,

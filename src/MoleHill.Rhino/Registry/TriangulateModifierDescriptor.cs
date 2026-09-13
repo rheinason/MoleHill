@@ -52,13 +52,29 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
             m => ((TriangulateModifierDefinition)m).Contours,
             RhinoObjectType.Curve),
         ModifierParam.Sources(
-            "Boundary", "Boundary",
-            m => ((TriangulateModifierDefinition)m).Boundary,
-            RhinoObjectType.Curve),
+            "OuterBoundaries", "Outer",
+            m => ((TriangulateModifierDefinition)m).OuterBoundaries,
+            RhinoObjectType.Curve,
+            "Trim the finished terrain to the largest valid closed World-XY boundary."),
+        ModifierParam.Sources(
+            "HideBoundaries", "Hide",
+            m => ((TriangulateModifierDefinition)m).HideBoundaries,
+            RhinoObjectType.Curve,
+            "Remove regions from the finished terrain."),
+        ModifierParam.Sources(
+            "ShowBoundaries", "Show",
+            m => ((TriangulateModifierDefinition)m).ShowBoundaries,
+            RhinoObjectType.Curve,
+            "Restore regions inside Hide boundaries without extending beyond Outer."),
+        ModifierParam.Sources(
+            "DataClipBoundaries", "Data Clip",
+            m => ((TriangulateModifierDefinition)m).DataClipBoundaries,
+            RhinoObjectType.Curve,
+            "Exactly limit raw point, contour, and breakline inputs before triangulation."),
         ModifierParam.Choice(
             "ContourMode", "Contour Mode", ContourModeOptions,
             m => ((TriangulateModifierDefinition)m).ContourMode,
             (m, v) => ((TriangulateModifierDefinition)m).ContourMode = v ?? TriangulateModifierDefinition.AutoContourMode,
-            $"Auto preserves contour edges below {TriangulateModifierDefinition.AutoUnconstrainedContourVertexThreshold:N0} source vertices, then treats dense contour stations as ordinary TIN samples for Grasshopper-like performance. Constrained preserves every contour segment. Vertices only always samples contour vertices without inserting their edges. Breaklines and Boundary remain constrained in every mode."),
+            $"Auto preserves contour edges below {TriangulateModifierDefinition.AutoUnconstrainedContourVertexThreshold:N0} source vertices, then treats dense contour stations as ordinary TIN samples for Grasshopper-like performance. Constrained preserves every contour segment. Vertices only always samples contour vertices without inserting their edges. Breaklines remain constrained in every mode."),
     }.Concat(GeometryInputParameterCatalog.BoundaryPeel).ToArray();
 }

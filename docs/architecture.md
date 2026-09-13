@@ -264,8 +264,9 @@ When boundary peeling is enabled, extraction retains Triangle.NET's native trian
 dense-id face map, validates reciprocal shared-edge adjacency, and uses that graph both for exact-median
 unique-edge traversal and incremental boundary exposure. Invalid adjacency falls back to the generic
 sorted-edge/dictionary path; callers requesting output edge arrays still receive the generic topology.
-`TinBoundaryPreparer` turns an optional user boundary into an explicit constraint loop; open
-contour/breakline endpoints never infer a perimeter, so an absent boundary uses the ordinary convex hull.
+The Rhino host now lets the TIN use its ordinary convex hull and applies terrain boundary roles after
+the modifier stack. `TinBoundaryPreparer` remains available to compiled callers that explicitly need a
+constraint perimeter; open contour/breakline endpoints never infer one.
 `ConformingDelaunay=true` is avoided (fails on tight parallel segments).
 Triangle.NET's large quality-refinement state is created only when quality, conforming Delaunay, or an
 incremental mesh mutation requests it. Plain and per-face conform triangulations avoid the otherwise
@@ -507,8 +508,11 @@ fails to load outright. A pre-31 document with `showAnalysisOutputs: false` keep
 starts drawing its annotations — the correct reading of a flag that only ever meant "hide the analysis".
 
 - **TIN inputs** are resolved by `TerrainBuildSnapshotResolver` from a `TerrainBuildSnapshot` (built by
-  `TerrainBuildSnapshotBuilder` from the live doc). A Triangulate **Boundary** now pre-filters inputs to
-  its area (`FilterInputsToWorkBoundary` + Core `RegionInputFilter`) — the fast "work region".
+  `TerrainBuildSnapshotBuilder` from the live doc). Triangulate owns four terrain-wide boundary source
+  sets. **Data Clip** exactly filters point/DEM inputs and clips crossing breaklines/contours before each
+  geometry-input triangulation. **Outer / Hide / Show** are World-XY final-mesh roles: after all modifiers,
+  Core conforms their edges once and keeps `Outer && (!Hide || Show)`. The same trim is applied to the
+  captured base mesh before comparative analyses, and preview/final builds use identical geometry.
 - Layer-backed inputs use Rhino's native `FindByLayer` lookup, then re-resolve every result by ID through the
   active object table before including normal, locked, or hidden document geometry. This rejects stale wrappers
   and transform predecessors that Rhino's layer lookup can retain. Terrain sources are restricted to ModelSpace,
@@ -521,8 +525,8 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   intermediate long-breakline stations without large-site vertex explosions or quadratic stalls.
 - Triangulate **Contour Mode** controls the large-input tradeoff: `Constrained` inserts every contour
   segment, `Vertices only` matches an exploded-points Grasshopper solve, and the default `Auto` switches
-  contours to vertex samples at 250,000 source vertices. Breaklines and the terrain boundary always
-  remain constrained. The build diagnostics report every unconstrained contour solve.
+  contours to vertex samples at 250,000 source vertices. Breaklines remain constrained; boundary roles
+  are deliberately separate from TIN constraints. The build diagnostics report every unconstrained solve.
 - Sparse point dedup uses a shared per-cell index store instead of millions of small cell lists. Panel TIN
   conversion trusts Core's validated triangle topology, so it skips redundant duplicate/unused/degenerate
   Rhino scans; cached flat arrays are also fingerprinted in bulk rather than through Rhino item accessors.
@@ -589,6 +593,7 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   explicit reference still wins, for comparing against surveyed ground that is not this terrain's own
   starting point. A missing reference is therefore never an error — the card states which basis is in use
   (`DescribeBasis` on either descriptor) rather than demanding a surface it does not need.
+  Outer/Hide/Show trim both meshes after the modifier stack so hidden regions never contribute to volumes.
 - **Cut/fill and earthworks can compare against another MoleHill terrain directly**, via
   `ReferenceComparisonAnalysisDefinition.ReferenceTerrainId` — the same "pick a sibling terrain" affordance
   section cut/fill already had (`CutFillReferenceTerrainId`), extended to the base class so both

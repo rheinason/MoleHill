@@ -10,7 +10,7 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainSerializer
 {
-    private const int DocumentSchemaVersion = 31;
+    private const int DocumentSchemaVersion = 32;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -85,6 +85,13 @@ internal static class TerrainSerializer
             terrain.LastAnalysisResults ??= new List<TerrainAnalysisSummary>();
             foreach (var input in terrain.Modifiers.OfType<GeometryInputModifierDefinition>())
                 input.TinMesh ??= new SourceReferenceSet();
+            foreach (var triangulate in terrain.Modifiers.OfType<TriangulateModifierDefinition>())
+            {
+                triangulate.OuterBoundaries ??= new SourceReferenceSet();
+                triangulate.HideBoundaries ??= new SourceReferenceSet();
+                triangulate.ShowBoundaries ??= new SourceReferenceSet();
+                triangulate.DataClipBoundaries ??= new SourceReferenceSet();
+            }
             foreach (var gradePath in terrain.Modifiers.OfType<GradePathModifierDefinition>())
             {
                 gradePath.WidthEdges ??= new SourceReferenceSet();
@@ -106,6 +113,7 @@ internal static class TerrainSerializer
             MigrateAnalyses(terrain, sourceSchemaVersion, unitContext);
             MigrateAnnotations(terrain, sourceSchemaVersion, unitContext);
             MigrateRemeshModifiers(terrain, sourceSchemaVersion);
+            MigrateBoundaryRoles(terrain, sourceSchemaVersion);
             terrain.EnsureBaseModifier();
             terrain.SchemaVersion = TerrainDefinition.CurrentSchemaVersion;
         }
@@ -121,6 +129,51 @@ internal static class TerrainSerializer
             sculpt.Tiles ??= new List<SculptTile>();
             sculpt.ConstraintFeather = Math.Max(0.0, sculpt.ConstraintFeather);
         }
+    }
+
+    private static void MigrateBoundaryRoles(TerrainDefinition terrain, int sourceSchemaVersion)
+    {
+        List<TriangulateModifierDefinition> triangulates = terrain.Modifiers
+            .OfType<TriangulateModifierDefinition>()
+            .ToList();
+        TriangulateModifierDefinition primary;
+        if (triangulates.Count == 0)
+        {
+            primary = new TriangulateModifierDefinition();
+            terrain.Modifiers.Insert(0, primary);
+        }
+        else
+        {
+            primary = triangulates[0];
+        }
+
+        // Boundary roles are terrain-wide. Consolidate role references before EnsureBaseModifier turns
+        // any duplicate legacy Triangulate cards into Add Geometry cards.
+        foreach (TriangulateModifierDefinition duplicate in triangulates.Skip(1))
+        {
+            MergeSourceSet(primary.OuterBoundaries, duplicate.OuterBoundaries);
+            MergeSourceSet(primary.HideBoundaries, duplicate.HideBoundaries);
+            MergeSourceSet(primary.ShowBoundaries, duplicate.ShowBoundaries);
+            MergeSourceSet(primary.DataClipBoundaries, duplicate.DataClipBoundaries);
+        }
+
+        if (sourceSchemaVersion < 32)
+        {
+            foreach (GeometryInputModifierDefinition input in terrain.Modifiers.OfType<GeometryInputModifierDefinition>())
+            {
+                if (input.LegacyBoundary?.HasReferences == true)
+                    MergeSourceSet(primary.OuterBoundaries, input.LegacyBoundary);
+            }
+        }
+
+        foreach (GeometryInputModifierDefinition input in terrain.Modifiers.OfType<GeometryInputModifierDefinition>())
+            input.LegacyBoundary = null;
+    }
+
+    private static void MergeSourceSet(SourceReferenceSet target, SourceReferenceSet source)
+    {
+        target.AddObjects(source.ObjectIds);
+        target.AddLayers(source.LayerPaths);
     }
 
     private sealed class TerrainDocumentEnvelope

@@ -230,12 +230,15 @@ anticipated.
 
 ### B8 — Boundary roles
 
+**Implemented.** Triangulate now exposes multi-source Outer, Hide, Show, and Data Clip rows. Data Clip
+clips raw inputs exactly; the other roles conform and trim both final and baseline meshes after the
+modifier stack, before analyses, zones, preview, and bake. Legacy Boundary references migrate to Outer.
+
 **Reference:** Civil 3D's boundary types — outer, hide, show, data clip — and Blender's Mask modifier.
 
-**What MoleHill has:** one kind of boundary, doing three jobs at once. Triangulate's Boundary is a
-work-region pre-filter (`FilterInputsToWorkBoundary` + Core `RegionInputFilter`) *and* an explicit
-constraint loop (`TinBoundaryPreparer`), with border peeling as a separate mechanism. Those are
-different intentions fused into one control, which is why "hide this region" has no answer today.
+**Previous state:** one kind of boundary did three jobs at once. Triangulate's Boundary was a
+work-region pre-filter and an explicit constraint loop, with border peeling as a separate mechanism.
+Those different intentions were fused into one control, which is why "hide this region" had no answer.
 
 **Where it fits:** not a new family — a **role on the boundary input**, the same move `LayerRole` made
 for output. Proposed roles:

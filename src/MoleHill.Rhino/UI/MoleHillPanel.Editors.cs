@@ -30,7 +30,8 @@ public sealed partial class MoleHillPanel
         Action<Action<SourceReferenceSet>> mutateSourceSet,
         RhinoObjectType objectFilter,
         Func<RhinoDoc, IEnumerable<string>> getLayerPaths,
-        string? help = null)
+        string? help = null,
+        Control? objectAccessory = null)
     {
         // ── Objects pill ──────────────────────────────────────────
         var activeDoc = RhinoDoc.ActiveDoc;
@@ -87,6 +88,8 @@ public sealed partial class MoleHillPanel
                 },
                 "Clear all referenced objects."));
         }
+        if (objectAccessory != null)
+            objectsRow.Items.Add(objectAccessory);
 
         // ── Layers pill ───────────────────────────────────────────
         int lc = sourceSet.LayerPaths.Count;

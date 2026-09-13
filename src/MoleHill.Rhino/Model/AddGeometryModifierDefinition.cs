@@ -27,8 +27,7 @@ public sealed class AddGeometryModifierDefinition : GeometryInputModifierDefinit
             TinMesh = CloneSourceSet(source.TinMesh),
             Points = CloneSourceSet(source.Points),
             Breaklines = CloneSourceSet(source.Breaklines),
-            Contours = CloneSourceSet(source.Contours),
-            Boundary = CloneSourceSet(source.Boundary)
+            Contours = CloneSourceSet(source.Contours)
         };
     }
 

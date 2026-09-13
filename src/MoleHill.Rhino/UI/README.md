@@ -29,7 +29,8 @@ fields by composing them, not by copying boilerplate.
   "Output Layers" row names the layer template the terrain routes through, opens the editor, and creates
   its layers; there are no per-terrain or per-card layer pickers. Expanded Smooth/Sculpt cards show a sampled mesh-quality
   warning when an uneven incoming TIN has no earlier Remesh modifier. Triangulate keeps its source rows
-  together, then shows Work area, Contour Mode, and a titled Peel Border settings group.
+  together, then shows a Boundaries group with standard Outer/Hide/Show/Data Clip object-and-layer rows,
+  a Rectangle shortcut on Data Clip, Contour Mode, and a titled Peel Border settings group.
 - `ColorRampControl.cs`, `ColorRampBar.cs`, `ScrubField.cs`, and `MoleHillPanel.ColorRamp.cs` - the
   colour-ramp card, declared by `ParameterDescriptor<AnalysisDefinition>.ColorRamp()` and rendered for Slope,
   Elevation and Cut/Fill. It replaced three separate things: the "Coloring & intervals" group, the

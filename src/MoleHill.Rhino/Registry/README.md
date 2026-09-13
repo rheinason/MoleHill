@@ -137,8 +137,8 @@ Other pieces in this folder:
   schema descriptors and the panel's hand-written rows. Lives here (not in `MoleHill.Rhino.UI`) so
   `MoleHill.Rhino.Tests`, which links `Registry/*.cs` directly without a UI reference, can still compile
   the analysis descriptors that use them.
-- Rows the schema can't express (Triangulate work-area picker and GeoTIFF-surface import/replace action,
-  geometry-input boundary-peel group), plus
+- Rows needing custom composition (Triangulate's four standard boundary source rows plus its Data Clip
+  rectangle shortcut, the GeoTIFF-surface import/replace action, and the geometry-input boundary-peel group), plus
   schema rows needing custom placement (Triangulate Contour Mode), are appended by
   `MoleHillPanel.AppendBespokeModifierRows` — the custom-draw escape hatch. The analysis
   equivalent is `AppendBespokeAnalysisRowsBefore`/`After` in `MoleHillPanel.Analysis.cs`.

@@ -83,10 +83,12 @@ internal sealed partial class TerrainBuildService
             }
 
             if (modifier.Points.HasReferences || modifier.DemSurface.HasReferences || modifier.Breaklines.HasReferences ||
-                modifier.Contours.HasReferences || modifier.Boundary.HasReferences)
+                modifier.Contours.HasReferences)
             {
-                build.Diagnostics.Add("Triangulate is using the exact TIN mesh; DEM surface, point, breakline, contour, and boundary sources are ignored.");
+                build.Diagnostics.Add("Triangulate is using the exact TIN mesh; DEM surface, point, breakline, and contour sources are ignored.");
             }
+            if (modifier.DataClipBoundaries.HasReferences)
+                build.Diagnostics.Add("Data Clip does not alter an Exact TIN mesh; Outer, Hide, and Show still apply to the finished terrain.");
 
             progress.Complete("Source resolution", $"exact TIN mesh: {exactTin.Vertices.Count:N0} vertices, {exactTin.Faces.Count:N0} faces");
             return StoreMeshStageCache(
@@ -105,7 +107,6 @@ internal sealed partial class TerrainBuildService
             build.Diagnostics.Add(demDiagnostic);
         var breaklineCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Breaklines);
         var contourCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Contours);
-        var boundaryCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Boundary);
         string contourSourceDetail = snapshot.SourceDiagnostics.TryGetValue(modifier.Contours, out SourceResolutionDiagnostics? contourDiagnostics)
             ? $"; model-space layer validation v8; contour objects: {contourDiagnostics.Describe()}"
             : "; model-space layer validation v8";
@@ -141,11 +142,8 @@ internal sealed partial class TerrainBuildService
             ? modifier.Tolerance
             : toleranceProfile.CurveChordTolerance;
 
-        // Work-region crop: a Triangulate boundary limits which inputs are triangulated so the user can
-        // work fast on a sub-area; clearing/growing the boundary restores the full terrain.
-        double workBoundaryMargin = Math.Max(toleranceProfile.DetailSize * 3.0, curveTolerance);
-        (points, breaklineCurves, contourCurves) = FilterInputsToWorkBoundary(
-            points, breaklineCurves, contourCurves, boundaryCurves, curveTolerance, workBoundaryMargin, build);
+        (points, breaklineCurves, contourCurves) = FilterInputsToDataClip(
+            snapshot, terrain, points, breaklineCurves, contourCurves, curveTolerance, build, shouldCancel);
 
         progress.Start("Input packing");
         List<TerrainTriangulationInputBuilder.FlattenedPolyline> flattenedBreaklines =
@@ -196,7 +194,7 @@ internal sealed partial class TerrainBuildService
                 ? flattenedContours.Select(static polyline => polyline.Points).ToList()
                 : Array.Empty<double[]>(),
             curveTolerance);
-        var boundaryPolylines = CreateBoundaryPolylines(boundaryCurves, curveTolerance);
+        var boundaryPolylines = Array.Empty<TinBoundaryPreparer.BoundaryPolyline>();
         int constraintVertexCount = polylines.Sum(static polyline => polyline.Length / 3);
         int boundaryVertexCount = boundaryPolylines.Sum(static polyline => polyline.PointCount);
         progress.Complete(
@@ -431,9 +429,12 @@ internal sealed partial class TerrainBuildService
         var points = TerrainBuildSnapshotResolver.ResolvePoints(snapshot, modifier.Points);
         var breaklineCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Breaklines);
         var contourCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Contours);
-        var boundaryCurves = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Boundary);
+        (points, breaklineCurves, contourCurves) = FilterInputsToDataClip(
+            snapshot, terrain, points, breaklineCurves, contourCurves,
+            modifier.Tolerance > 0 ? modifier.Tolerance : GetToleranceProfile(snapshot, terrain).CurveChordTolerance,
+            build, shouldCancel);
 
-        if (points.Count == 0 && breaklineCurves.Count == 0 && contourCurves.Count == 0 && boundaryCurves.Count == 0)
+        if (points.Count == 0 && breaklineCurves.Count == 0 && contourCurves.Count == 0)
         {
             build.Diagnostics.Add("Add Geometry has no sources.");
             return mesh.DuplicateMesh();
@@ -484,7 +485,7 @@ internal sealed partial class TerrainBuildService
 
         var boundaryPolylines = CombineBoundaryPolylines(
             CreateBoundaryPolylines(mesh, curveTolerance),
-            CreateBoundaryPolylines(boundaryCurves, curveTolerance));
+            Array.Empty<TinBoundaryPreparer.BoundaryPolyline>());
 
         var breaklineData = BreaklineDiscretizer.Process(polylines, shouldCancel);
         var merged = PointCloudProcessor.Merge(spotXyz, existingPointCount + points.Count, breaklineData, inputTolerance, shouldCancel);

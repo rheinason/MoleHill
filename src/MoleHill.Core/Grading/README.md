@@ -107,6 +107,9 @@ staying unresolved.
   Segment/triangle mapping uses one fixed-buffer three-edge pass instead of per-candidate lists and
   duplicate intersection calls; opt-in diagnostics split allocation by preparation, mapping, touched-face
   triangulation, and classification.
+- `TerrainBoundaryTrimmer.cs` - inserts Outer/Hide/Show edges in one conforming split, applies fixed
+  `Outer && (!Hide || Show)` precedence, compacts every surviving island into one mesh, and rejects open
+  or non-manifold output.
 - `MeshConstraintTopologyInserter.cs` - local constraint insertion (terrain-preserving); intersection
   results are value types in its allocation-sensitive inner loops. Face geometry is a `readonly struct`
   built on demand for candidate faces only (never an object per terrain face), constraint-segment pairs

@@ -31,11 +31,23 @@ public sealed class TriangulateModifierDefinition : GeometryInputModifierDefinit
 
     public string? DemSourceFileName { get; set; }
 
+    public SourceReferenceSet OuterBoundaries { get; set; } = new();
+
+    public SourceReferenceSet HideBoundaries { get; set; } = new();
+
+    public SourceReferenceSet ShowBoundaries { get; set; } = new();
+
+    public SourceReferenceSet DataClipBoundaries { get; set; } = new();
+
     public override IEnumerable<SourceReferenceSet> EnumerateSourceSets()
     {
         foreach (SourceReferenceSet sourceSet in base.EnumerateSourceSets())
             yield return sourceSet;
         yield return DemSurface;
+        yield return OuterBoundaries;
+        yield return HideBoundaries;
+        yield return ShowBoundaries;
+        yield return DataClipBoundaries;
     }
 
     public bool ShouldConstrainContours(int contourVertexCount)

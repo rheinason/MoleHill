@@ -17,7 +17,7 @@ using RhinoGetResult = Rhino.Input.GetResult;
 
 namespace MoleHill.Rhino.UI;
 
-// Modifiers tab: modifier card + body shell, work-area picker, boundary-peel editors.
+// Modifiers tab: modifier card + body shell, boundary-role inputs, boundary-peel editors.
 public sealed partial class MoleHillPanel
 {
     private Panel CreateModifierCard(TerrainDefinition terrain, ModifierDefinition modifier)
@@ -166,7 +166,7 @@ public sealed partial class MoleHillPanel
 
     /// <summary>
     /// Adds the few card rows that need custom placement or can't be expressed by the parameter schema
-    /// (custom-draw escape hatch): the Triangulate work-area picker, its deferred Contour Mode row, and
+    /// (custom-draw escape hatch): the Triangulate boundary group, its deferred Contour Mode row, and
     /// the geometry-input boundary-peel group. No-op for other types.
     /// </summary>
     private void AppendBespokeModifierRows(DynamicLayout layout, TerrainDefinition terrain, ModifierDefinition modifier)
@@ -175,7 +175,7 @@ public sealed partial class MoleHillPanel
         {
             case TriangulateModifierDefinition triangulate:
                 layout.AddRow(CreateDemSurfaceRow(terrain, triangulate));
-                layout.AddRow(CreateWorkAreaRow(terrain.TerrainId, modifier.Id));
+                layout.AddRow(CreateBoundaryRolesGroup(terrain, triangulate));
                 Control? contourModeRow = BuildBespokePositionedModifierRow(terrain, modifier, "ContourMode");
                 if (contourModeRow != null)
                     layout.AddRow(contourModeRow);
@@ -286,7 +286,7 @@ public sealed partial class MoleHillPanel
             expandWidget: true);
     }
 
-    private Control CreateWorkAreaRow(Guid terrainId, Guid modifierId)
+    private Control CreateBoundaryRolesGroup(TerrainDefinition terrain, TriangulateModifierDefinition modifier)
     {
         var rectangleButton = MakeInlineButton("Rectangle", (_, _) =>
         {
@@ -299,27 +299,47 @@ public sealed partial class MoleHillPanel
                 if (IsDisposed)
                     return;
 
-                _controller.SetModifierBoundaryRectangle(doc, terrainId, modifierId);
+                _controller.SetDataClipRectangle(doc, terrain.TerrainId, modifier.Id);
             });
-        }, "Drag a rectangle to limit terrain computation to that area (work fast on part of the terrain).");
+        }, "Draw a closed rectangle and use it as the Data Clip object reference.");
 
-        var clearButton = MakeInlineButton("Clear", (_, _) =>
+        var content = new DynamicLayout
         {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc != null)
-                _controller.ClearModifierBoundary(doc, terrainId, modifierId);
-        }, "Clear the work area and rebuild the full terrain.");
+            DefaultSpacing = new Size(6, 6),
+            Padding = new Padding(6, 2, 6, 6)
+        };
+        foreach (string key in new[] { "OuterBoundaries", "HideBoundaries", "ShowBoundaries" })
+        {
+            Control? row = BuildBespokePositionedModifierRow(terrain, modifier, key);
+            if (row != null)
+                content.AddRow(row);
+        }
 
-        // A PropertyRow like every other row on the card. As a bare StackLayout its label sat outside the
-        // label column and its buttons outside the widget column, so the one row that looked hand-placed
-        // was the one that was.
-        return new PropertyRow(
-            CreateHelpLabel(
-                "Work Area",
-                "Limit terrain computation to a rectangle, to work fast on part of a large terrain.",
-                0),
-            new AdaptiveColumns(UiMetrics.SpaceSmall, UiMetrics.Chs(8), rectangleButton, clearButton),
-            expandWidget: true);
+        ModifierTypeDescriptor descriptor = TerrainTypeRegistry.ForModifierType(typeof(TriangulateModifierDefinition))!;
+        ParameterDescriptor<ModifierDefinition>? dataClip = descriptor.Parameters.FirstOrDefault(parameter => parameter.Key == "DataClipBoundaries");
+        if (dataClip != null)
+        {
+            content.AddRow(CreateSourceEditor(
+                dataClip.Label,
+                modifier.DataClipBoundaries,
+                apply => MutateModifier(terrain.TerrainId, modifier.Id, item => apply(((TriangulateModifierDefinition)item).DataClipBoundaries)),
+                dataClip.ObjectFilter,
+                doc => _controller.GetSelectedLayerPaths(doc),
+                dataClip.Help,
+                rectangleButton));
+        }
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 0,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(CreateSectionRule("Boundaries"), HorizontalAlignment.Stretch),
+                new StackLayoutItem(content, HorizontalAlignment.Stretch)
+            }
+        };
     }
 
     /// <summary>

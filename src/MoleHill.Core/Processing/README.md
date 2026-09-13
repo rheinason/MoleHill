@@ -13,7 +13,7 @@ Pure, unit-tested.
   runs are detected in linear time, so multi-million-station polylines retain the panel's spacing
   normalization without a quadratic preprocessing stall.
 - `TinInputCleaner.cs` — removes degenerate/duplicate input geometry.
-- `RegionInputFilter.cs` — keeps only points inside a work-region boundary (+margin); backs the
-  Triangulate "work boundary" fast sub-area crop (`TerrainBuildService` calls it). Boundaries are
-  prepared once through `Grading/PreparedPolygon`, since every input point is tested against every
-  boundary — on a detailed boundary the unprepared form is points × edges.
+- `RegionInputClipper.cs` — exact union clipping for Data Clip: keeps points inside/on closed World-XY
+  loops and splits crossing polylines while linearly interpolating Z. The Rhino host applies it to raw
+  Triangulate and Add Geometry sources, never to the carried mesh.
+- `RegionInputFilter.cs` — legacy margin-capable point-region helper retained for compiled callers.

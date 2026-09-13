@@ -32,12 +32,14 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   descriptor's `Kind`), **not** `[JsonDerivedType]` attributes. `ModifierDefinition` →
   `GeometryInputModifierDefinition`
   (`TriangulateModifierDefinition`, `AddGeometryModifierDefinition`; carry `TinMesh/Points/Breaklines/
-  Contours/Boundary`; `TinMesh` preserves imported face topology and takes precedence over other sources),
+  Contours`; `TinMesh` preserves imported face topology and takes precedence over other sources),
   `GradePadModifierDefinition`, `GradePathModifierDefinition`, `RemeshModifierDefinition`,
   `SmoothModifierDefinition`, `MeshAreasModifierDefinition`, `MeshCollageModifierDefinition`,
   `RetainingWallModifierDefinition`, `InSituStairModifierDefinition`, `SculptModifierDefinition`.
   `TriangulateModifierDefinition.ContourMode` persists the Auto / Constrained / Vertices-only choice;
-  Auto switches dense contour sets to point samples while breaklines and Boundary remain constrained.
+  Auto switches dense contour sets to point samples while breaklines remain constrained. Triangulate alone
+  owns the terrain-wide `OuterBoundaries`, `HideBoundaries`, `ShowBoundaries`, and `DataClipBoundaries`
+  source sets; Add Geometry contributes no boundary state.
   Triangulate also stores a `DemSurface` source: a planar Rhino surface whose bitmap texture is a numeric
   GeoTIFF. Raster samples are mapped through the live surface at snapshot time, so moving the surface
   controls project placement without generating persistent point objects.

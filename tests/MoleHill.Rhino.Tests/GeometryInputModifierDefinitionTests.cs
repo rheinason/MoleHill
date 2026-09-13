@@ -21,7 +21,8 @@ public class GeometryInputModifierDefinitionTests
         Assert.Equal(
             new[]
             {
-                "TinMesh", "DemSurface", "Points", "Breaklines", "Contours", "Boundary", "ContourMode",
+                "TinMesh", "DemSurface", "Points", "Breaklines", "Contours",
+                "OuterBoundaries", "HideBoundaries", "ShowBoundaries", "DataClipBoundaries", "ContourMode",
                 "PeelBoundaryTriangles", "MaxBoundaryEdgeLength", "MaxBoundaryAngleDegrees",
                 "MaxBoundarySlopeDegrees",
             },
@@ -66,6 +67,74 @@ public class GeometryInputModifierDefinitionTests
         Assert.Equal(25.0, copy.MaxBoundaryEdgeLength);
         Assert.Equal(165.0, copy.MaxBoundaryAngleDegrees);
         Assert.Equal(70.0, copy.MaxBoundarySlopeDegrees);
+    }
+
+    [Fact]
+    public void AddGeometryParameters_DoNotExposeBoundaryRoleRows()
+    {
+        string[] keys = new AddGeometryModifierDescriptor().Parameters
+            .Select(parameter => parameter.Key)
+            .ToArray();
+
+        Assert.DoesNotContain("OuterBoundaries", keys);
+        Assert.DoesNotContain("HideBoundaries", keys);
+        Assert.DoesNotContain("ShowBoundaries", keys);
+        Assert.DoesNotContain("DataClipBoundaries", keys);
+    }
+
+    [Fact]
+    public void BoundaryRoles_RoundTripAllObjectAndLayerReferences()
+    {
+        Guid outerId = Guid.NewGuid();
+        Guid hideId = Guid.NewGuid();
+        var triangulate = new TriangulateModifierDefinition
+        {
+            OuterBoundaries = new SourceReferenceSet { ObjectIds = [outerId], LayerPaths = ["Survey::Outer"] },
+            HideBoundaries = new SourceReferenceSet { ObjectIds = [hideId] },
+            ShowBoundaries = new SourceReferenceSet { LayerPaths = ["Survey::Show"] },
+            DataClipBoundaries = new SourceReferenceSet { LayerPaths = ["Survey::Clip"] }
+        };
+
+        string json = TerrainSerializer.Serialize([new TerrainDefinition { Modifiers = [triangulate] }]);
+        TriangulateModifierDefinition restored = Assert.IsType<TriangulateModifierDefinition>(
+            Assert.Single(TerrainSerializer.Deserialize(json)).Modifiers[0]);
+
+        Assert.Equal(outerId, Assert.Single(restored.OuterBoundaries.ObjectIds));
+        Assert.Equal("Survey::Outer", Assert.Single(restored.OuterBoundaries.LayerPaths));
+        Assert.Equal(hideId, Assert.Single(restored.HideBoundaries.ObjectIds));
+        Assert.Equal("Survey::Show", Assert.Single(restored.ShowBoundaries.LayerPaths));
+        Assert.Equal("Survey::Clip", Assert.Single(restored.DataClipBoundaries.LayerPaths));
+    }
+
+    [Fact]
+    public void LegacyBoundaries_MigrateFromTriangulateAndAddGeometryToOuterOnly()
+    {
+        Guid triangulateBoundary = Guid.NewGuid();
+        Guid addBoundary = Guid.NewGuid();
+        var terrain = new TerrainDefinition
+        {
+            SchemaVersion = 31,
+            Modifiers =
+            [
+                new TriangulateModifierDefinition
+                {
+                    LegacyBoundary = new SourceReferenceSet { ObjectIds = [triangulateBoundary] }
+                },
+                new AddGeometryModifierDefinition
+                {
+                    LegacyBoundary = new SourceReferenceSet { ObjectIds = [addBoundary], LayerPaths = ["Old::Boundary"] }
+                }
+            ]
+        };
+
+        string json = TerrainSerializer.Serialize([terrain]);
+        TerrainDefinition restoredTerrain = Assert.Single(TerrainSerializer.Deserialize(json));
+        TriangulateModifierDefinition restored = Assert.IsType<TriangulateModifierDefinition>(restoredTerrain.Modifiers[0]);
+
+        Assert.Equal(new[] { triangulateBoundary, addBoundary }, restored.OuterBoundaries.ObjectIds);
+        Assert.Equal("Old::Boundary", Assert.Single(restored.OuterBoundaries.LayerPaths));
+        Assert.False(restored.DataClipBoundaries.HasReferences);
+        Assert.All(restoredTerrain.Modifiers.OfType<GeometryInputModifierDefinition>(), input => Assert.Null(input.LegacyBoundary));
     }
 
     [Fact]

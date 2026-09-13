@@ -216,7 +216,7 @@ public sealed partial class MoleHillPanel
         ModifierDefinition modifier,
         ParameterDescriptor<ModifierDefinition> parameter) =>
         (modifier is TriangulateModifierDefinition &&
-         parameter.Key is "DemSurface" or "ContourMode") ||
+         parameter.Key is "DemSurface" or "ContourMode" or "OuterBoundaries" or "HideBoundaries" or "ShowBoundaries" or "DataClipBoundaries") ||
         (modifier is GradePathModifierDefinition &&
          parameter.Key is "Paths" or "Width" or "UseVariableWidth" or "WidthEdges" or "MaxEdgeDistance") ||
         // Declared by every geometry-input modifier, but drawn inside the panel's "Peel Border" group.

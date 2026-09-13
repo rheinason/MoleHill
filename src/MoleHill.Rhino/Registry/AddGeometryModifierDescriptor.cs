@@ -34,9 +34,5 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
             "Contours", "Contours",
             m => ((AddGeometryModifierDefinition)m).Contours,
             RhinoObjectType.Curve),
-        ModifierParam.Sources(
-            "Boundary", "Boundary",
-            m => ((AddGeometryModifierDefinition)m).Boundary,
-            RhinoObjectType.Curve),
     }.Concat(GeometryInputParameterCatalog.BoundaryPeel).ToArray();
 }
