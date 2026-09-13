@@ -7,9 +7,19 @@ namespace MoleHill.Rhino.Services;
 
 /// <summary>
 /// Identity of a basin graph within one analysis pass. The mesh is fixed for the pass, so the routing
-/// settings are the whole key — two drainage cards that agree on them share one graph instead of routing
-/// the terrain twice, which is the entire reason the two analyses have a common base.
+/// settings are the whole key: two drainage cards that agree on them route the terrain once between them.
 /// </summary>
+/// <remarks>
+/// They do not always agree, and the defaults do not. A Catchments card merges slivers (1% by default)
+/// and Ponding never does, so a terrain carrying both routes twice — about 65 ms each on a 180k-face
+/// terrain, which is worth paying. The alternative is to have one card's settings decide what the other
+/// one computes, and two cards that quietly reconfigure each other is a worse thing to own than a second
+/// pass. They share whenever the Catchments card has merging turned off.
+///
+/// Sharing is *safe* either way, which is what allows this to be a cache rather than a special case:
+/// depressions are exempt from merging in both directions (see <c>MergeSmallBasins</c>), so the sink
+/// basins Ponding reads are identical in a merged and an unmerged graph.
+/// </remarks>
 internal readonly record struct BasinGraphCacheKey(double FlatSlopeRatio, double MergeShare);
 
 internal sealed partial class TerrainBuildService

@@ -571,9 +571,13 @@ starts drawing its annotations — the correct reading of a flag that only ever 
 - **Ponding** measures what the catchment routing already found: the closed depressions. Spill elevation
   comes from a priority flood over the same `BasinGraph` (a bottleneck path — the lowest lip that lets
   water out, not the lowest point of the catchment boundary), volume from the earthworks prism sum, and
-  the shoreline from `ContourGenerator`'s per-vertex field at the water surface. It shares the basin graph
-  with Catchments through the pass-scoped `BasinGraphCache` whenever the two cards agree on their routing
-  settings. Unlike Catchments it carries a ramp, because ponded depth is a measurement rather than a name;
+  the shoreline from `ContourGenerator`'s per-vertex field at the water surface. It can share the basin
+  graph with Catchments through the pass-scoped `BasinGraphCache`, though the defaults do not — Catchments
+  merges slivers and Ponding never does, so a terrain carrying both routes twice rather than letting one
+  card's settings decide what the other computes. **Depressions are exempt from sliver merging in both
+  directions**: absorbed into a neighbour a small one vanishes, so the Catchments card would report no
+  closed depressions while Ponding reports one; and a depression that absorbed its neighbours has its
+  escape pushed outward and is measured too deep. Unlike Catchments it carries a ramp, because ponded depth is a measurement rather than a name;
   dry ground is masked out of the colouring, the range fit and the histogram rather than mapped to zero,
   so the ramp is fitted to the water and "no water" is not a colour on it.
 - **Analysis coloring** is shared by slope, elevation, cut/fill, and sculpt preview through

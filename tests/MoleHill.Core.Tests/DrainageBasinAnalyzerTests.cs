@@ -358,6 +358,71 @@ public class DrainageBasinAnalyzerTests
         Assert.DoesNotContain(-1, merged.FaceBasin);
     }
 
+    /// <summary>
+    /// Merging tidies away sliver *catchments*; it must never tidy away a depression. A small pit high on
+    /// a slope has a small catchment, so it is exactly the thing an area threshold would absorb — and
+    /// absorbed, it vanishes from the graph, leaving the Catchments card reporting no closed depressions
+    /// while the Ponding card beside it reports one.
+    /// </summary>
+    [Fact]
+    public void Analyze_SmallPitHighOnASlope_SurvivesAggressiveMerging()
+    {
+        // The pit sits near the top, so almost nothing drains into it and its basin stays tiny.
+        var mesh = Grid(20, 20, (x, y) =>
+        {
+            double baseZ = 100.0 - (0.5 * y);
+            bool inPit = x >= 9 && x <= 11 && y >= 2 && y <= 4;
+            return inPit ? baseZ - 1.0 : baseZ;
+        });
+
+        BasinGraph unmerged = Analyze(mesh);
+        Assert.Equal(1, unmerged.SinkBasinCount);
+
+        // A threshold big enough to swallow most of the terrain's basins.
+        BasinGraph merged = Analyze(mesh, new DrainageBasinAnalyzer.Options
+        {
+            MinimumBasinAreaShare = 0.25
+        });
+
+        Assert.Equal(1, merged.SinkBasinCount);
+        Assert.True(
+            merged.Basins.Count < unmerged.Basins.Count,
+            "the merge threshold should still have absorbed ordinary catchments");
+    }
+
+    /// <summary>
+    /// The other direction: a sliver must not be absorbed *into* a depression either. A pond's spill is
+    /// found by flooding until the water reaches another basin, so a depression that has swallowed its
+    /// neighbours has its escape pushed outward and is measured too deep.
+    /// </summary>
+    [Fact]
+    public void Analyze_Merging_NeverGrowsADepression()
+    {
+        var mesh = Grid(20, 20, (x, y) =>
+        {
+            double baseZ = 100.0 - (0.5 * y);
+            bool inPit = x >= 9 && x <= 11 && y >= 2 && y <= 4;
+            return inPit ? baseZ - 1.0 : baseZ;
+        });
+
+        int SinkFaces(BasinGraph graph)
+        {
+            int count = 0;
+            foreach (BasinGraph.Basin basin in graph.Basins)
+            {
+                if (basin.Outlet == BasinGraph.OutletKind.Sink)
+                    count += basin.FaceCount;
+            }
+
+            return count;
+        }
+
+        BasinGraph unmerged = Analyze(mesh);
+        BasinGraph merged = Analyze(mesh, new DrainageBasinAnalyzer.Options { MinimumBasinAreaShare = 0.25 });
+
+        Assert.Equal(SinkFaces(unmerged), SinkFaces(merged));
+    }
+
     [Fact]
     public void Analyze_EmptyMesh_ReturnsAnEmptyGraph()
     {

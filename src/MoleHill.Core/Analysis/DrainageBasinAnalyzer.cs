@@ -88,7 +88,7 @@ public static class DrainageBasinAnalyzer
         int[] faceBasin = LabelBasins(faceCount, rootOfFace, out List<int> basinRoot);
         ConsolidateSinks(vertices, faces, faceCount, neighbors, faceBasin, basinRoot, routing, probe);
         if (settings.MinimumBasinAreaShare > 0.0 && basinRoot.Count > 1)
-            MergeSmallBasins(vertices, faces, faceCount, neighbors, geometry, faceBasin, basinRoot.Count, settings, probe);
+            MergeSmallBasins(vertices, faces, faceCount, neighbors, geometry, faceBasin, basinRoot, routing, settings, probe);
 
         IReadOnlyList<BasinGraph.Basin> basins = BuildBasins(
             vertices, faces, faceCount, geometry, routing, faceBasin, basinRoot, out double totalPlanArea);
@@ -835,6 +835,22 @@ public static class DrainageBasinAnalyzer
     /// would dominate the whole analysis. Chains formed within a round (A into B while B merges into C)
     /// resolve through the union-find, so the order faces are visited in cannot change the outcome.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// **Depressions are exempt, in both directions.** Merging exists to stop a survey's hundreds of
+    /// sliver catchments making the map unreadable — it is a tidying-up of things that are merely
+    /// numerous. A depression is not one of those: it is the finding the drainage analyses exist to
+    /// report, and a small one is still a place water stands. Absorbed into a neighbour it disappears
+    /// from the graph entirely, so the Catchments card would say "no closed depressions" while the
+    /// Ponding card beside it, which routes unmerged, reports one — the two cards contradicting each
+    /// other on screen.
+    /// </para>
+    /// <para>
+    /// The other direction matters as much and is less obvious: a sliver absorbed *into* a depression
+    /// extends it, and since a pond's spill is found by flooding until the water reaches a face of a
+    /// different basin, a larger basin pushes that escape further out and the pond is measured too deep.
+    /// </para>
+    /// </remarks>
     private static void MergeSmallBasins(
         IReadOnlyList<double> vertices,
         IReadOnlyList<int> faces,
@@ -842,10 +858,16 @@ public static class DrainageBasinAnalyzer
         int[] neighbors,
         FaceGeometry geometry,
         int[] faceBasin,
-        int basinCount,
+        List<int> basinRoot,
+        Routing routing,
         Options settings,
         CancellationProbe probe)
     {
+        int basinCount = basinRoot.Count;
+        var isSink = new bool[basinCount];
+        for (int basin = 0; basin < basinCount; basin++)
+            isSink[basin] = routing.OutletKind[basinRoot[basin]] == BasinGraph.OutletKind.Sink;
+
         var parent = new int[basinCount];
         for (int basin = 0; basin < basinCount; basin++)
             parent[basin] = basin;
@@ -877,7 +899,7 @@ public static class DrainageBasinAnalyzer
             bool anySmall = false;
             for (int basin = 0; basin < basinCount; basin++)
             {
-                if (Find(parent, basin) == basin && areas[basin] > 0.0 && areas[basin] < threshold)
+                if (!isSink[basin] && Find(parent, basin) == basin && areas[basin] > 0.0 && areas[basin] < threshold)
                     anySmall = true;
             }
 
@@ -898,7 +920,7 @@ public static class DrainageBasinAnalyzer
                     if (neighbor < 0 || faceBasin[neighbor] < 0)
                         continue;
                     int toBasin = Find(parent, faceBasin[neighbor]);
-                    if (toBasin == fromBasin)
+                    if (toBasin == fromBasin || isSink[toBasin])
                         continue;
 
                     // The elevation water must reach to cross this rim edge: the higher of its two ends.
@@ -906,7 +928,7 @@ public static class DrainageBasinAnalyzer
                     int b = faces[(face * 3) + ((edge + 1) % 3)];
                     double rimZ = Math.Max(vertices[(a * 3) + 2], vertices[(b * 3) + 2]);
 
-                    if (areas[fromBasin] < threshold && rimZ < spill[fromBasin])
+                    if (!isSink[fromBasin] && areas[fromBasin] < threshold && rimZ < spill[fromBasin])
                     {
                         spill[fromBasin] = rimZ;
                         target[fromBasin] = toBasin;

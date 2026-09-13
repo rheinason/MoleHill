@@ -269,7 +269,7 @@ second, since it must run on every rebuild of a terrain that has the card on.
 |---|---|---|
 | 1 | Core: adjacency lift, flow routing, flat regions, basin labelling, `EdgeLoopChainer` | **done** — see §10 |
 | 2 | B1 end-to-end: `CatchmentAnalysisDefinition`, descriptor, layer roles, build partial, categorical preview, summary + cloner | **done** — see §11 and §12 |
-| 3 | B2: `PondingAnalysisDefinition`, priority flood, volume, contour outline, thresholds | **code done** — see §13; live run outstanding |
+| 3 | B2: `PondingAnalysisDefinition`, priority flood, volume, contour outline, thresholds | **done** — see §13 and §14 |
 | 4 | Docs + benchmark | `docs/architecture.md` "Analysis vs annotation" extended, `Core/Analysis/README.md` and `docs/file-index.md` regenerated, backlog entries closed |
 
 Phase 1 is the risk. If flat routing does not hold up on a real graded scene, stop there and
@@ -453,7 +453,50 @@ Three things worth recording:
 at the ramp's low end, and the reader would have to know that this particular colour means "no water"
 rather than "a little water" — on the one analysis whose job is to make a problem obvious.
 
-**Outstanding:** the live run. The plugin `.rhp` could not be rebuilt because two leaked router-spawned
-Rhinos held the output DLLs (see §12 and the corrections made to `docs/rhino-live-testing.md`); the test
-projects link sources rather than the plugin output, so everything except the live run was completed and
-verified.
+**The live run happened — see §14.**
+
+---
+
+## 14. Phase 3 live run (2026-09-13)
+
+Rhino 8, plugin verified at the expected path by assembly location and file write time, with
+`PondingAnalysisDefinition`, `PondingAnalysisDescriptor` and Core's `PondingSolver` all present in the
+loaded build. Four scenes, each carrying **both** drainage cards.
+
+| Scene | Result |
+|---|---|
+| Pad enclosed on three sides, open at the low corners | **0 depressions** — it drains sideways |
+| Pad sunk below every surrounding point | **1 pond**, depth 0.5999985, volume 169.6 m³, wet area 326 m² |
+| Small pit, Catchments merging at 25% | **1 depression on both cards** |
+| Rebuild with nothing changed | `cache hit` on both stages, every field intact |
+
+The volume checks out by hand: a 16 × 16 m floor at 0.6 m is 153.6 m³, and the rest is the submerged
+batter ring, which the 326 m² wet area against a 256 m² floor accounts for.
+
+**The first scene is the one worth keeping.** It was meant to be the bathtub and was built wrong — a bund
+across the downhill edge only, with the pad's sides left lower than the pad. The analysis said no
+depression, and it was right. A pad that looks enclosed but drains at one corner is exactly the false
+positive this feature must not raise, so the mistake became the better test and both are kept.
+
+**What the live run caught:** with both cards on a terrain, **Catchments merges slivers and Ponding never
+does**, so the two routed the terrain with different settings — and `MergeSmallBasins` was free to absorb
+a sink basin into a neighbour. A depression's basin is its whole catchment, so a pit near the top of a
+slope has a small one and is exactly what an area threshold eats. Absorbed, it vanishes from the graph:
+the Catchments card reports "no closed depressions" while the Ponding card beside it reports one, the two
+contradicting each other on screen. The reverse matters as much and is less obvious — a sliver absorbed
+*into* a depression extends it, and since the spill is found by flooding until the water reaches another
+basin, a larger basin pushes the escape outward and the pond is measured too deep.
+
+Depressions are now exempt from merging in both directions, with two Core tests. Verified live at a 25%
+threshold, which collapses that terrain from ~20 catchments to 3 and still leaves the pit reported by
+both cards.
+
+This also corrected something overstated in §1 and in the first draft of the cache comment: the two cards
+share a basin graph only when their routing settings match, and **the defaults do not match**. A terrain
+carrying both routes twice, about 65 ms each at 180k faces. That is worth paying — the alternative is one
+card's settings quietly deciding what the other computes.
+
+**Also fixed, and caught only by building the plugin:** `MoleHillPanel` already had a `FormatVolume` and
+the ponding card added a second, so the type would not compile. Every test still passed, because
+`MoleHill.Rhino.Tests` links `Model/`, `Registry/` and most of `Services/` but never builds
+`MoleHill.Rhino.csproj`, leaving `UI/` outside every test build. Recorded in `docs/rhino-live-testing.md`.
