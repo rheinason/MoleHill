@@ -44,6 +44,17 @@ public sealed class BasinGraph
         public required double LowestX { get; init; }
 
         public required double LowestY { get; init; }
+
+        /// <summary>
+        /// Highest vertex elevation in the basin, and where. The head of the basin's longest flow path:
+        /// tracing downhill from the *lowest* point would draw nothing, since the lowest point is the
+        /// outlet.
+        /// </summary>
+        public required double HighestZ { get; init; }
+
+        public required double HighestX { get; init; }
+
+        public required double HighestY { get; init; }
     }
 
     /// <summary>Basin index per face, or -1 for a face that could not be routed (degenerate indices).</summary>

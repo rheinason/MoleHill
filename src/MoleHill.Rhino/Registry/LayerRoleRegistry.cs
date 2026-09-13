@@ -121,6 +121,27 @@ internal static class LayerRoleRegistry
                 PlotWeight: 0.30),
             LayerRoleFacets.Line),
 
+        // A catchment boundary is a divide, not a flow: it is drawn in the same family as waterflow but
+        // must not be mistaken for one, so it takes the heavier weight of the two and a distinct hue.
+        new(LayerRole.Catchments, "catchments", "Catchments", LayerRole.Annotation, "::Catchments",
+            null,
+            new LayerAppearanceDefaults(
+                ColorArgb: unchecked((int)0xFF00897B),
+                PrintColorArgb: Black,
+                PlotWeight: 0.35),
+            LayerRoleFacets.Line),
+
+        // Flow paths share the waterflow colour on purpose — they are the same thing, traced from a
+        // catchment's high point rather than from a point the user dropped.
+        new(LayerRole.CatchmentFlowPaths, "catchment-flow-paths", "Catchment Flow Paths",
+            LayerRole.Annotation, "::Catchment Flow Paths",
+            null,
+            new LayerAppearanceDefaults(
+                ColorArgb: unchecked((int)0xFF1565C0),
+                PrintColorArgb: unchecked((int)0xFF1565C0),
+                PlotWeight: 0.20),
+            LayerRoleFacets.Line),
+
         // Labels print at the layer default width. The explicit pixel width keeps them at the
         // thickness they have always previewed at, rather than the 2 px the null weight would derive.
         new(LayerRole.Labels, "labels", "Labels", LayerRole.Annotation, "::Labels",

@@ -58,6 +58,7 @@ internal static class TerrainAnalysisPreviewBuilder
             AspectAnalysisDefinition aspect => BuildAspectPreviewMesh(doc, state.TerrainMesh, aspect, alpha, out resolvedRange, out distribution),
             ElevationAnalysisDefinition elevation => BuildElevationPreviewMesh(state.TerrainMesh, elevation, alpha, out resolvedRange, out distribution),
             CutFillAnalysisDefinition cutFill => BuildCutFillPreviewMesh(doc, terrain, state, cutFill, alpha, resolveReferenceTerrainMesh, out resolvedRange, out distribution),
+            CatchmentAnalysisDefinition catchment => BuildCatchmentPreviewMesh(state.TerrainMesh, catchment, alpha),
             _ => state.TerrainMesh
         };
 
@@ -155,10 +156,44 @@ internal static class TerrainAnalysisPreviewBuilder
         return BuildFaceColorMesh(vertices, faces, faceCount, aspect.FaceColors, alpha);
     }
 
+    /// <summary>
+    /// Catchments colour the terrain by which outlet each face drains to.
+    /// </summary>
+    /// <remarks>
+    /// It writes no range and no distribution, and that is correct rather than unfinished: both describe
+    /// where a value sits on a continuum, and a catchment index is a name, not a magnitude. The card
+    /// draws no ramp and no histogram, because there is nothing for either to be about. Colours come from
+    /// <see cref="CategoricalPalette"/>, whose job is that two adjacent catchments never look alike.
+    /// </remarks>
+    private static RhinoMesh? BuildCatchmentPreviewMesh(
+        RhinoMesh mesh,
+        CatchmentAnalysisDefinition analysis,
+        byte alpha)
+    {
+        if (!RhinoGeometryConversions.TryExtractMeshData(
+                mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
+            return null;
+
+        BasinGraph graph = DrainageBasinAnalyzer.Analyze(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            new DrainageBasinAnalyzer.Options
+            {
+                FlatSlopeRatio = SlopeAnalyzer.ConvertUnitToRatio(
+                    analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees),
+                MinimumBasinAreaShare = Math.Clamp(analysis.MinimumBasinAreaPercent, 0.0, 100.0) / 100.0
+            });
+
+        return BuildFaceColorMesh(
+            vertices, faces, faceCount, TerrainBuildService.BuildCatchmentFaceColors(graph), alpha);
+    }
+
     internal static bool SupportsTerrainPreview(AnalysisDefinition analysis)
     {
         return analysis is SlopeAnalysisDefinition or AspectAnalysisDefinition or ElevationAnalysisDefinition
-            or CutFillAnalysisDefinition;
+            or CutFillAnalysisDefinition or CatchmentAnalysisDefinition;
     }
 
     /// <summary>
@@ -170,7 +205,9 @@ internal static class TerrainAnalysisPreviewBuilder
     internal static bool ProducesGeneratedOutput(ITerrainContentItem item)
     {
         return item is AnnotationDefinition or WaterflowAnalysisDefinition
-            or CutFillAnalysisDefinition { DrawsDeltaOutput: true };
+            or CutFillAnalysisDefinition { DrawsDeltaOutput: true }
+            or CatchmentAnalysisDefinition { ShowBoundaries: true }
+            or CatchmentAnalysisDefinition { ShowFlowPaths: true };
     }
 
     internal static bool ShouldDisplayGeneratedOutput(TerrainDefinition terrain, GeneratedRhinoObject generated)

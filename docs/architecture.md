@@ -423,8 +423,9 @@ fingerprint, stage cache, timing) does not care which kind of content it runs, s
 which family a type belongs to:
 
 - **Analysis** (`Model/AnalysisDefinition`, `Registry/AnalysisTypeRegistry`) — slope, aspect, elevation,
-  cut/fill, earthworks, waterflow. The result is a measurement: a number, or a colour mapped onto the mesh.
-  Only these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`, `ResolveRamp()`).
+  cut/fill, earthworks, waterflow, catchments. The result is a measurement: a number, or a colour mapped
+  onto the mesh. Only these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`,
+  `ResolveRamp()`) — though carrying it is not the same as using it, see catchments below.
 - **Annotation** (`Model/AnnotationDefinition`, `Registry/AnnotationTypeRegistry`) — contours, spot heights,
   spot slopes, flow arrows, grade callouts, and the three section types. The result is drawing, and it
   says what is already there. Only these carry `FollowsAnnotationStyle`.
@@ -458,6 +459,27 @@ test above, because both are easy to reintroduce badly:
   skips every face touching one, so unmapped ground draws nothing rather than a depth never measured.
   The balance line is that same field at exactly zero, on its own role because it means something
   different from a depth; it is omitted entirely where the delta never changes sign.
+
+**Catchments colour without a ramp.** The catchment analysis
+(`Model/CatchmentAnalysisDefinition`, Core `DrainageBasinAnalyzer`) segments the terrain by which outlet
+each face drains to, and paints the preview from `CategoricalPalette` rather than from the ramp. That is a
+deliberate refusal, not a gap: a ramp maps a position on a continuum, so neighbouring colours mean
+neighbouring values, while a basin index is a **name** — basin 4 is not "more" than basin 3. Stretched
+across the basins a ramp would give the picture a relationship the data does not have, and a legend naming
+its ends would be meaningless. So the card declares no `ColorRamp` row (Waterflow is already such a card),
+`BuildCatchmentPreviewMesh` writes no range and no distribution, and what the colouring owes the reader
+instead is that two adjacent catchments never look alike.
+
+Two more things about it:
+
+- **Flat ground is routed as a region, not face by face.** A graded pad is one enormous level area with no
+  gradient to route by; routed naively every face picks a different arbitrary outlet out of rounding noise
+  and the map becomes confetti. See `Core/Analysis/README.md` — the same pass also handles the cycles that
+  form wherever water converges on a vertex, and merges sinks that share a floor.
+- **The merge threshold is a share, not an area.** Catchments below `MinimumBasinAreaPercent` of the
+  terrain are absorbed into the one they spill into. A percentage is scale-free — the same 1% is right on a
+  housing plot and on a quarry — and it is also the only way to label the row, since `ParameterUnit` has no
+  model-area member and this product does not show unlabelled numbers.
 
 The two are **peer families, not a base and a subclass** — the same shape as `ModifierDefinition`,
 `MarkerDefinition`, and `TerrainObjectDefinition`, each with its own definition root, type registry,
@@ -533,6 +555,15 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   Independent starts share one immutable face index and run in parallel above the workload threshold.
   Each worker retains sparse candidate scratch, never a face-sized stamp array; results are compacted
   in start order so scheduling does not change path order.
+- **Catchments** route the terrain through Core's `DrainageBasinAnalyzer` — a downstream pointer per
+  face, resolved to basins, each draining off the terrain edge or into a closed depression. Flat regions
+  and convergent-vertex cycles are routed as units rather than face by face, which is what makes it usable
+  on graded ground. Two drainage cards agreeing on their routing settings share one `BasinGraph` through
+  a pass-scoped `BasinGraphCache`, the way Earthworks and Cut / Fill share a projection. Boundaries come
+  from `BasinBoundaryExtractor` (directed edges in face winding, chained by `EdgeLoopChainer`); flow paths
+  are `WaterflowTracer` runs from each catchment's high point, so they draw the same kind of line the
+  Waterflow card does. The card also reports the closed-depression count, which is the one number in the
+  Analyses tab that indicates a mistake rather than describing the design.
 - **Analysis coloring** is shared by slope, elevation, cut/fill, and sculpt preview through
   `AnalysisColorMapper`. Each preview supports a smooth gradient or stepped bands, with auto-fit or
   explicit bounds. Interval lengths scale with model units while slope intervals follow the selected
@@ -701,7 +732,8 @@ layers. Nothing in the pipeline hardcodes or plumbs a layer path.
 
 - **The layer tree is the grouping the Layers pane works with.** Everything hangs off one `MoleHill`
   root; drawing output is grouped under `Annotation` by what it is — including `Cut Fill Contours` and
-  `Balance Line`, which are depths rather than elevations and so must not read as terrain contours — and a
+  `Balance Line`, which are depths rather than elevations and so must not read as terrain contours, and
+  `Catchments`, which is a divide rather than a flow and so must not read as waterflow — and a
   section drawing is a single
   branch (`Annotation::Sections`, with `Existing`, `Cuts`, `Grid`, `Ticks`, `Labels` and `CutFill::Cut` /
   `::Fill` beneath it) so a whole drawing can be hidden, locked or restyled at once. Model output

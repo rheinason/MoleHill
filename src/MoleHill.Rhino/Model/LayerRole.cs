@@ -39,6 +39,13 @@ public enum LayerRole
     BalanceLine,
 
     Waterflow,
+
+    /// <summary>Catchment boundary polygons — the divides between drainage basins.</summary>
+    Catchments,
+
+    /// <summary>A catchment's longest downhill flow path, from its high point to its outlet.</summary>
+    CatchmentFlowPaths,
+
     Labels,
 
     /// <summary>Marker block instances.</summary>

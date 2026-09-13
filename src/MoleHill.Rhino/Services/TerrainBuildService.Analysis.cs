@@ -42,6 +42,9 @@ internal sealed partial class TerrainBuildService
         // Statistics are keyed on the current geometry too, so this cache is scoped to this pass; the
         // projection cache is build-wide and supplied by the caller.
         var referenceComparisonCache = new Dictionary<ReferenceComparisonCacheKey, ReferenceComparisonStats>();
+        // Same scoping, same reason: the drainage cards rest on one routing of this geometry, so two of
+        // them agreeing on their settings route it once.
+        var basinGraphCache = new Dictionary<BasinGraphCacheKey, BasinGraph>();
 
         bool EnsureAnalysisContext()
         {
@@ -171,6 +174,14 @@ internal sealed partial class TerrainBuildService
                     ElevationMinZ = elevMinZ,
                     ElevationMaxZ = elevMaxZ
                 },
+                CatchmentAnalysisDefinition catchment => BuildCatchmentSummary(
+                    snapshot,
+                    currentVertices,
+                    currentFaces,
+                    catchment,
+                    build,
+                    basinGraphCache,
+                    shouldCancel),
                 WaterflowAnalysisDefinition waterflow => BuildWaterflowSummary(
                     snapshot,
                     currentMesh,

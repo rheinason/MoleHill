@@ -204,8 +204,14 @@ Three options, in order of preference:
    with its own tests, and folding it into this one blurs two things.
 3. Bare numbers. Rejected; it is the convention this codebase explicitly does not break.
 
-Note that option 2 is a prerequisite B4 (volume and quantity reporting) will hit regardless, so if B4
-is scheduled next, doing it there and adopting it here later is fine.
+**Decided (Phase 2): option 1.** The catchment merge threshold is `MinimumBasinAreaPercent`, a
+`ParameterUnit.Percent` row. A share turned out to be the better parameter on its own merits, not merely
+the one that could be labelled: it is scale-free, so the same 1% is right on a housing plot and on a
+quarry, where an absolute area has to be retyped for every site. Phase 3's ponding thresholds follow the
+same rule — depth in `ModelLength`, nothing in area or volume.
+
+Option 2 remains a prerequisite B4 (volume and quantity reporting) will hit regardless; doing it there and
+adopting it here later is still fine, and now costs nothing, since no row is waiting on it.
 
 ---
 
@@ -262,7 +268,7 @@ second, since it must run on every rebuild of a terrain that has the card on.
 | Phase | Scope | Done when |
 |---|---|---|
 | 1 | Core: adjacency lift, flow routing, flat regions, basin labelling, `EdgeLoopChainer` | **done** — see §10 |
-| 2 | B1 end-to-end: `CatchmentAnalysisDefinition`, descriptor, layer roles, build partial, categorical preview, summary + cloner | catchments draw on `GradePadTest.3dm` in a live slot |
+| 2 | B1 end-to-end: `CatchmentAnalysisDefinition`, descriptor, layer roles, build partial, categorical preview, summary + cloner | **code done** — see §11; live run outstanding |
 | 3 | B2: `PondingAnalysisDefinition`, priority flood, volume, contour outline, thresholds | a deliberately-built bathtub is caught and measured |
 | 4 | Docs + benchmark | `docs/architecture.md` "Analysis vs annotation" extended, `Core/Analysis/README.md` and `docs/file-index.md` regenerated, backlog entries closed |
 
@@ -321,3 +327,41 @@ extract the largest basin's boundary. Comfortably inside the "well under a secon
 optimisation work is owed before Phase 2.
 
 **Still open, unchanged:** the area/volume `ParameterUnit` question in §5, which Phase 2 hits first.
+
+---
+
+## 11. Phase 2 outcome (2026-09-13)
+
+B1 is wired end to end. New: `Model/DrainageAnalysisDefinition.cs` (the shared base),
+`Model/CatchmentAnalysisDefinition.cs`, `CatchmentAnalysisDescriptor` in `Registry/AnalysisDescriptors.cs`,
+the `Catchments` and `CatchmentFlowPaths` layer roles, `Services/TerrainBuildService.Drainage.cs`,
+`Core/Analysis/CategoricalPalette.cs`, four summary fields with their `CloneAnalysis` entries, the panel
+summary rows, and `tests/MoleHill.Rhino.Tests/CatchmentAnalysisTests.cs`. Whole suite green (1,392
+passing).
+
+The card offers: **Flat Below** (a `Slope` row — takes `0.5%`, `1:200` or `0.3deg`), **Merge Below**
+(`Percent`), **Boundaries** + colour, **Flow Paths** + colour. It reports catchment count, largest area,
+the closed-depression count, and how many curves it drew.
+
+Worth recording:
+
+- **The closed-depression count is on the catchment card**, before any ponding card exists. The routing
+  already knows the terrain holds water somewhere, and withholding the one number in the Analyses tab
+  that indicates a *mistake* rather than describing the design would have been a strange thing to do for
+  the sake of phase boundaries. Phase 3 measures those depressions; this only counts them.
+- **Flow paths are traced, not read off the basin's own pointers.** The pointers only say which face is
+  next, so drawing them gives a staircase between centroids; `WaterflowTracer` follows the gradient
+  continuously within each face. It also means the catchment card and the Waterflow card draw the same
+  kind of line, from the same code.
+- **Flow paths start at the basin's *high* point**, which needed `HighestX/Y/Z` adding to
+  `BasinGraph.Basin`. Tracing from the lowest point — which is what the plan's wording implied — would
+  draw nothing, because the lowest point of a basin *is* its outlet.
+- **No boundary source set on the base**, though §1 listed one. Nothing uses it yet, and unused persisted
+  state is worse than a later addition; the flat-slope threshold is the whole of the shared base for now.
+- The preview recomputes the basin graph per refresh rather than reading the build's cached one, which is
+  what the slope and aspect previews also do. At 65 ms on 180k faces that is acceptable; if a colour-only
+  edit ever feels slow on a large terrain, this is the thing to cache, not the routing to optimise.
+
+**Outstanding before Phase 3:** the live run on `GradePadTest.3dm` through an `rhino-mcp` slot. Both
+preceding analysis features shipped defects that only a live run caught, and both were in summary/cache
+state rather than in the mathematics — so this is not a formality.

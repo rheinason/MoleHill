@@ -31,7 +31,7 @@ public class LayerRoleRegistryTests
             "walls", "grading-aux",
             "contours", "contours-major", "contours-minor",
             "cut-fill-contours", "balance-line",
-            "waterflow", "labels",
+            "waterflow", "catchments", "catchment-flow-paths", "labels",
             "markers", "marker-labels",
             "sections", "sections-existing", "sections-cuts", "sections-grid", "sections-ticks",
             "sections-labels", "sections-cutfill", "sections-cutfill-cut", "sections-cutfill-fill"

@@ -96,6 +96,28 @@ public sealed class TerrainAnalysisSummary
 
     public int WaterflowRejectedCount { get; set; }
 
+    /// <summary>Catchments the drainage routing resolved, after any sliver merging.</summary>
+    public int CatchmentBasinCount { get; set; }
+
+    /// <summary>
+    /// Catchments with no outlet — closed depressions. Reported here so the catchment card can say that
+    /// the terrain holds water somewhere even before a ponding card exists to measure it.
+    /// </summary>
+    public int CatchmentSinkCount { get; set; }
+
+    /// <summary>
+    /// Plan area of the largest catchment, or null when nothing was routed.
+    ///
+    /// Nullable rather than zero: an empty terrain and a terrain whose largest catchment is genuinely
+    /// tiny are different facts, and a zero here would read as the latter. Nullable rather than NaN for
+    /// the reason at <see cref="AspectDominantBearing"/> — a non-finite default stops the whole document
+    /// saving.
+    /// </summary>
+    public double? CatchmentLargestArea { get; set; }
+
+    /// <summary>Faces the routing treated as level ground, so the flat threshold can be judged.</summary>
+    public int CatchmentFlatFaceCount { get; set; }
+
     /// <summary>Delta contour curves the cut/fill analysis drew on its last build.</summary>
     public int CutFillDeltaContourCount { get; set; }
 

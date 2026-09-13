@@ -918,7 +918,11 @@ public static class DrainageBasinAnalyzer
         var lowestZ = new double[rawCount];
         var lowestX = new double[rawCount];
         var lowestY = new double[rawCount];
+        var highestZ = new double[rawCount];
+        var highestX = new double[rawCount];
+        var highestY = new double[rawCount];
         Array.Fill(lowestZ, double.PositiveInfinity);
+        Array.Fill(highestZ, double.NegativeInfinity);
         totalPlanArea = 0.0;
 
         for (int face = 0; face < faceCount; face++)
@@ -935,11 +939,19 @@ public static class DrainageBasinAnalyzer
             {
                 int vertex = faces[(face * 3) + corner];
                 double z = vertices[(vertex * 3) + 2];
-                if (z >= lowestZ[basin])
-                    continue;
-                lowestZ[basin] = z;
-                lowestX[basin] = vertices[vertex * 3];
-                lowestY[basin] = vertices[(vertex * 3) + 1];
+                if (z < lowestZ[basin])
+                {
+                    lowestZ[basin] = z;
+                    lowestX[basin] = vertices[vertex * 3];
+                    lowestY[basin] = vertices[(vertex * 3) + 1];
+                }
+
+                if (z > highestZ[basin])
+                {
+                    highestZ[basin] = z;
+                    highestX[basin] = vertices[vertex * 3];
+                    highestY[basin] = vertices[(vertex * 3) + 1];
+                }
             }
         }
 
@@ -973,7 +985,10 @@ public static class DrainageBasinAnalyzer
                 PlanArea = areas[basin],
                 LowestZ = double.IsPositiveInfinity(lowestZ[basin]) ? 0.0 : lowestZ[basin],
                 LowestX = lowestX[basin],
-                LowestY = lowestY[basin]
+                LowestY = lowestY[basin],
+                HighestZ = double.IsNegativeInfinity(highestZ[basin]) ? 0.0 : highestZ[basin],
+                HighestX = highestX[basin],
+                HighestY = highestY[basin]
             };
         }
 

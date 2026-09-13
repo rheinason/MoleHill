@@ -371,6 +371,49 @@ public sealed partial class MoleHillPanel
                 break;
             }
 
+            case CatchmentAnalysisDefinition catchment:
+            {
+                if (summary != null)
+                {
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Catchments",
+                        summary.CatchmentLargestArea is { } largest
+                            ? $"{summary.CatchmentBasinCount:N0} | largest {FormatArea(largest)}"
+                            : $"{summary.CatchmentBasinCount:N0}",
+                        "Catchments resolved on the last build, after any small ones were merged. " +
+                        "Raise “Merge Below” if there are too many to read."));
+
+                    // Surfaced on this card deliberately: the routing already knows the terrain holds
+                    // water somewhere, and saying nothing until a ponding card exists would be withholding
+                    // the one thing here that indicates a mistake rather than describing the design.
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Closed depressions",
+                        summary.CatchmentSinkCount > 0
+                            ? $"{summary.CatchmentSinkCount:N0} — water has nowhere to go"
+                            : "None",
+                        "Catchments with no outlet. Water reaching one stays there, which is usually a " +
+                        "grading mistake rather than a design."));
+
+                    if (catchment.ShowBoundaries || catchment.ShowFlowPaths)
+                    {
+                        layout.AddRow(CreateReadOnlyValueRow(
+                            "Drawn",
+                            $"{summary.GeneratedOutputCount:N0} curve(s)",
+                            "Boundary and flow-path curves drawn on the last build."));
+                    }
+                }
+                else
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to resolve catchments.",
+                        minHeight: 42));
+                }
+
+                break;
+            }
+
             case WaterflowAnalysisDefinition waterflow:
                 if (summary != null)
                 {

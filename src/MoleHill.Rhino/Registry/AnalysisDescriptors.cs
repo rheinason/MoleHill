@@ -253,3 +253,82 @@ internal sealed class WaterflowAnalysisDescriptor : AnalysisTypeDescriptor
     }
 
 }
+
+/// <summary>
+/// Catchments: which ground drains to which outlet.
+/// </summary>
+/// <remarks>
+/// No <c>ColorRamp</c> row, and that is the point rather than an omission. A ramp maps a measurement onto
+/// a continuum, so neighbouring colours mean neighbouring values; a catchment index means nothing of the
+/// sort, and stretching a ramp across the basins would give the picture a relationship the data does not
+/// have. Basins are coloured categorically instead, from <c>CategoricalPalette</c>. Waterflow is already
+/// a card with no ramp, so a card without one is the existing shape, not a new one.
+/// </remarks>
+internal sealed class CatchmentAnalysisDescriptor : AnalysisTypeDescriptor
+{
+    public override string Kind => "catchment";
+    public override Type DefinitionType => typeof(CatchmentAnalysisDefinition);
+    public override string TypeLabel => "Catchments";
+    public override string MenuLabel => "Catchments";
+    public override string IconLabel => "CA";
+    public override int AccentArgb => unchecked((int)0xFF00897B);
+    public override string Subtitle => "Where water drains to";
+    public override string? ActiveSubtitle => "Preview colors";
+    public override int SortOrder => 6;
+    public override AnalysisDefinition Create() => new CatchmentAnalysisDefinition();
+
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
+    {
+        AnalysisParam.Slope(
+            "FlatSlopeThreshold", "Flat Below",
+            a => ((CatchmentAnalysisDefinition)a).FlatSlopeThresholdDegrees,
+            (a, v) => ((CatchmentAnalysisDefinition)a).FlatSlopeThresholdDegrees = v,
+            "Ground flatter than this drains as one region rather than face by face. Raise it if a level " +
+            "pad breaks up into slivers; lower it if two areas that drain differently are being merged.",
+            rebuildAfterCommit: true),
+        AnalysisParam.Number(
+            "MinimumBasinArea", "Merge Below",
+            a => ((CatchmentAnalysisDefinition)a).MinimumBasinAreaPercent,
+            (a, v) => ((CatchmentAnalysisDefinition)a).MinimumBasinAreaPercent = Math.Clamp(v, 0.0, 100.0),
+            "Catchments smaller than this share of the terrain are absorbed into the one they spill into. " +
+            "A share rather than an area, so the same setting works on a plot and on a quarry. Zero keeps " +
+            "every catchment, which on a survey means hundreds of slivers along the low edge.",
+            min: 0.0,
+            max: 100.0,
+            decimalPlaces: 2,
+            unit: ParameterUnit.Percent,
+            rebuildAfterCommit: true),
+        AnalysisParam.Bool(
+            "ShowBoundaries", "Boundaries",
+            a => ((CatchmentAnalysisDefinition)a).ShowBoundaries,
+            (a, v) => ((CatchmentAnalysisDefinition)a).ShowBoundaries = v,
+            "Draw each catchment's boundary as a closed polygon.",
+            rebuildAfterCommit: true),
+        AnalysisParam.Color(
+            "BoundaryColorArgb", "Boundary Color",
+            a => ((CatchmentAnalysisDefinition)a).BoundaryColorArgb,
+            (a, v) => ((CatchmentAnalysisDefinition)a).BoundaryColorArgb = v,
+            "Explicit display and bake colour for catchment boundaries. Clear to take the colour from the " +
+            "layer its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.Catchments)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.Catchments),
+            visibleWhen: a => ((CatchmentAnalysisDefinition)a).ShowBoundaries),
+        AnalysisParam.Bool(
+            "ShowFlowPaths", "Flow Paths",
+            a => ((CatchmentAnalysisDefinition)a).ShowFlowPaths,
+            (a, v) => ((CatchmentAnalysisDefinition)a).ShowFlowPaths = v,
+            "Draw each catchment's longest flow path, from its high point down to its outlet.",
+            rebuildAfterCommit: true),
+        AnalysisParam.Color(
+            "FlowPathColorArgb", "Path Color",
+            a => ((CatchmentAnalysisDefinition)a).FlowPathColorArgb,
+            (a, v) => ((CatchmentAnalysisDefinition)a).FlowPathColorArgb = v,
+            "Explicit display and bake colour for catchment flow paths. Clear to take the colour from the " +
+            "layer its role routes to.",
+            fallbackColor: (terrain, _) => AnalysisFormatting.ResolveLayerColorArgb(
+                AnalysisFormatting.GetRoleLayerPath(terrain, LayerRole.CatchmentFlowPaths)),
+            defaultText: (terrain, _) => AnalysisFormatting.GetRoleColorText(terrain, LayerRole.CatchmentFlowPaths),
+            visibleWhen: a => ((CatchmentAnalysisDefinition)a).ShowFlowPaths),
+    };
+}
