@@ -82,4 +82,12 @@ Key files:
   chains, loop count) and compressed flat adjacency for ordered boundary extraction. Storage scales
   with edge/boundary counts rather than maximum vertex id; it is the watertight gate used everywhere.
 - `MeshConstraintTools.cs`, `TriangleBoundaryCuller.cs`, `BoundaryTrianglePeelSettings.cs`,
+- `FaceAdjacency.cs` — face-to-face adjacency across shared edges, as a flat `faceCount * 3` array with
+  -1 for a naked edge. Shared by `WaterflowTracer` and `DrainageBasinAnalyzer` deliberately: both walk
+  the dual graph, and if the two disagreed about which edges are naked or what a non-manifold edge means,
+  a traced flow path could cross a catchment boundary that claims water cannot go there.
+- `EdgeLoopChainer.cs` — directed edges into closed loops (open chains where they do not close). Kept
+  separate from `FeaturePolylineGraph`, which chains *undirected* feature edges and needs corner
+  classification and arc-length parameters a boundary polygon has no use for. Two small correct things
+  rather than one general one.
   `SpatialHashGrid2D.cs`, `IndexedMeshTools.cs`, `QualitySettings.cs` — supporting utilities.

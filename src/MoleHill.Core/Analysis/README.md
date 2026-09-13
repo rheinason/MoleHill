@@ -89,3 +89,32 @@ Terrain analysis math. Pure, unit-tested.
   compacted afterwards, so path order and the rejected count match the serial loop exactly; a
   cancellation raised inside the parallel loop is unwrapped from `AggregateException` so callers still
   see `OperationCanceledException`.
+- `DrainageBasinAnalyzer.cs` / `BasinGraph.cs` — segments the terrain into drainage basins: a downstream
+  face pointer per face, the basins those resolve to, and whether each drains off the terrain edge or
+  into a closed depression. One result serves both drainage questions (catchments and ponding), which is
+  why `BasinGraph` is its own type rather than either analyzer's return; it carries the face adjacency
+  too, because every consumer walks it. Routing follows each face's plane gradient — the same quantity
+  `WaterflowTracer` follows, through the same `FaceAdjacency` — so a traced path cannot cross a catchment
+  divide. Three things carry the weight:
+  - **Flat regions.** A graded pad is one enormous level area with no gradient to route by; routed face
+    by face it becomes confetti. Flat faces are grouped into connected regions and routed breadth-first
+    inward from the edges the region actually spills across. A region with nowhere to spill is a
+    depression, and saying so is the point. Vertical faces (a retaining wall) have no gradient and no
+    plan area, so they route as flat and spill onto the ground below instead of standing as a phantom
+    pond behind every wall.
+  - **Cycles are not an edge case.** Wherever water converges on a *vertex*, the two faces sharing that
+    vertex's opposite edge each fall towards it and each leave through their shared edge — face-to-face
+    routing goes round for ever. That happens at the bottom of every valley and on the low corner of
+    every graded pad, so a cycle is handed to the same spill routine flat regions use, and becomes a sink
+    only when there is genuinely nowhere lower.
+  - **Sinks sharing a floor are one depression.** A round bowl routes as two half-bowls that share their
+    lowest vertex; a pond has one water surface, so they are merged on floor-vertex identity. Two
+    distinct pits cannot share their lowest point.
+  Small basins optionally merge into the neighbour they spill into (`MinimumBasinAreaShare`) — a real
+  survey yields hundreds of slivers. Basins come out ordered by descending plan area so a categorical
+  colouring keeps its colours across rebuilds. ~65 ms over 180k faces.
+- `BasinBoundaryExtractor.cs` — a basin's faces to its closed boundary polygon(s), through
+  `Engine/EdgeLoopChainer`. Edges are emitted in each face's own winding, so the directed edges balance
+  at every vertex and the loops close without any geometric decision about what is inside — which is
+  what keeps a basin with an island in it, or one pinching to a point, from needing a special case.
+

@@ -1,0 +1,323 @@
+# Drainage analysis — implementation plan (B1 + B2)
+
+Backlog items **B1 (watershed / catchment delineation)** and **B2 (depression / ponding detection and
+pond volume)**, planned together because they are two questions asked of one computation: a sink is a
+basin with no outlet. Written 2026-09-13 against `analysis-aspect-and-difference`.
+
+The backlog entries state the *what*. This document settles the *how*, and in particular the five
+decisions the backlog deliberately left open.
+
+---
+
+## 1. One analysis or two?
+
+**Two analyses over one shared Core result**, following the Earthworks / Cut-Fill precedent exactly.
+
+Earthworks and Cut / Fill are separate cards sharing `ReferenceComparisonAnalysisDefinition` as a base
+and a `referenceComparisonCache` threaded through the analysis stage, so the expensive projection runs
+once no matter how many cards read it. Drainage is the same shape:
+
+```
+DrainageAnalysisDefinition (abstract)      ← shared: flat-slope epsilon, boundary source set
+├── CatchmentAnalysisDefinition            ← B1: basin polygons, areas, outlet paths
+└── PondingAnalysisDefinition              ← B2: sinks, spill elevation, impounded volume, pond outline
+```
+
+Both resolve through a `BasinGraphCache` keyed the way `referenceComparisonCache` is, so a terrain
+carrying both cards pays for the basin graph once.
+
+Why not one card with a toggle: the two answer different questions and a user wants them
+independently. "Where does water go" produces forty catchment polygons on a real survey; "did I build
+a bathtub" produces one red outline and usually nothing at all. Forcing the first to be on to get the
+second would make the check that catches design errors annoying enough to leave off — and it is the
+one analysis worth leaving on permanently.
+
+Why not two unrelated analyses: the flat-region routing below is most of the work, it is identical for
+both, and computing it twice on a 180k-face terrain is not affordable.
+
+---
+
+## 2. The Core algorithm
+
+New files in `src/MoleHill.Core/Analysis/`, adjacent to `WaterflowTracer` and operating on the same
+flat vertex/face arrays:
+
+| File | Contents |
+|---|---|
+| `DrainageBasinAnalyzer.cs` | the shared pass: flow routing → basin labels → rims |
+| `BasinGraph.cs` | its result: per-face basin id, per-basin outlet, rim adjacency |
+| `PondingSolver.cs` | B2 only: spill elevation, impounded volume, pond outline |
+| `EdgeLoopChainer.cs` | unshared-edge set → closed polylines (see §6) |
+
+### 2a. Flow routing
+
+1. **Face adjacency.** `WaterflowTracer.BuildNeighbors` already produces exactly the array needed and
+   is currently `private static`. Lift it to an internal shared helper rather than writing a second
+   one — two adjacency builders that disagree on the degenerate cases would be a genuinely nasty bug.
+   (`IndexedMeshTools.BuildEdgeTopology` is the other candidate; it is sort-based and already avoids
+   the edge-key hashing trap. Pick one during implementation and delete the duplicate.)
+
+2. **Per-face steepest descent.** Each face is a plane; its gradient is constant. The face drains
+   through whichever of its three edges the descent direction exits. That yields one `flowsTo[face]`
+   pointer per face — a forest.
+
+3. **Roots are one of three things:** a face whose exit edge is naked (drains off the terrain edge — a
+   *boundary outlet*), a face in a flat region (§2b), or a face that is a strict local minimum (an
+   interior sink — B2's raw material).
+
+4. **Basin labelling** by pointer-jumping to the root with path compression, iteration-capped. Cycles
+   are numerically possible on near-flat ground; break them by merging the cycle into one flat region
+   and re-routing it through §2b rather than by picking an arbitrary member.
+
+### 2b. Flat regions — the part that decides whether this ships
+
+This is the whole difficulty, and the backlog is right that it is what makes the feature usable on
+*graded* terrain, which is the point. A Grade Pad is one enormous flat area; naive steepest descent
+gives every face on it a different arbitrary outlet and the catchment map turns to confetti.
+
+Treatment, adapted from the standard Garbrecht–Martz flat-routing approach to a TIN:
+
+1. Faces whose gradient magnitude is below a **flat-slope epsilon** are flat. The epsilon is a user
+   parameter, declared with the `Slope` factory so it takes `0.5%`, `1:200` or `0.3deg` like every
+   other slope field — never a bare number. Default small but non-zero; a survey-derived surface is
+   never exactly level.
+2. Connected components of flat faces are flat regions.
+3. For each region, find its **outflow edges**: region-boundary edges whose non-region neighbour is
+   lower. BFS inward from all outflow edges at once, assigning each flat face a `flowsTo` pointer
+   toward its BFS parent. The whole region then drains coherently to its real outlets.
+4. A region with **no** outflow edge is a **sink region** — B2's input, and the correct answer, not a
+   failure.
+
+Do not skip step 3 and route flats to a nearest-lowest-vertex; that is the naive version and it is
+what makes other tools' watershed output unusable on engineered surfaces.
+
+### 2c. Catchment boundaries (B1 output)
+
+Group faces by basin id, collect edges used by exactly one face of the group, chain them into closed
+polylines. Output per basin: the boundary polyline(s), plan area, and the flow path from the basin's
+lowest point to its outlet (a `WaterflowTracer.Trace` call from that point, so the two features draw
+the same kind of line).
+
+**Merging.** Civil 3D asks for a merge tolerance because a real survey yields hundreds of basins, and
+it will here too. Merge any basin below a minimum plan area into the neighbour it spills into, before
+boundary extraction. Area has no `ParameterUnit` today — see §5.
+
+### 2d. Ponding (B2 output)
+
+For each sink region:
+
+1. **Spill elevation** by priority flood: push the sink's rim edges into a min-heap keyed by the
+   higher of the edge's two vertex Z values; pop the lowest. That edge is the spill point and its
+   far face names the basin the sink overflows into. Growing the region across the popped edge and
+   continuing gives nested/merged ponds correctly if that is ever wanted; for v1, stop at first pop.
+2. **Impounded volume** = Σ over basin faces of `planArea × max(0, spillZ − centroidZ)` — the same
+   prism sum `EstimateReferenceComparison` in `TerrainBuildService.Analysis.cs` already uses for
+   cut/fill. Match its convention rather than writing a second integrator.
+3. **Ponded outline** = the zero level of the per-vertex field `spillZ − z`, which is exactly the
+   per-vertex field overload B3 just added to `ContourGenerator`. No new tracing code: the pond
+   outline is a contour, and the marching-triangles pass that draws the balance line draws this too.
+4. **Thresholding** — mandatory, per the backlog: a 2 mm numerical dimple on a 200 m pad is not a
+   pond. Threshold on **maximum ponded depth** (`ParameterUnit.ModelLength`, unit-aware, user-set).
+   Volume as a second threshold is discussed in §5.
+
+---
+
+## 3. Preview colouring — the backlog's one wrong assumption
+
+The B1 entry says basins "want the colour-ramp apparatus, which only analyses carry". Half right. The
+ramp maps a **measurement** onto a continuum; a basin id is a **category**. Fitting a ramp across
+basin indices produces a picture where adjacent colours mean nothing and the legend is meaningless.
+
+So:
+
+- **Catchment** gets a **categorical** face colouring — a fixed set of well-separated hues cycled by
+  basin index, with basins ordered by descending plan area so the large basins keep their colour
+  across rebuilds instead of shuffling when a small one appears. Its card declares **no**
+  `ColorRamp` row. Waterflow is already a card with no ramp row, so this is precedented, not novel.
+- **Ponding** *is* a measurement — ponded depth — and takes the ramp normally.
+
+Both paint through the existing `TerrainAnalysisPreviewBuilder.BuildFaceColorMesh(vertices, faces,
+faceCount, byte[] colors, alpha)`, which needs nothing new.
+
+---
+
+## 4. Rhino wiring — the checklist
+
+The Aspect commit (`23c6dd2`) is the exact template; the file set is known. For each of the two
+analyses:
+
+- `Model/…AnalysisDefinition.cs` + the shared `DrainageAnalysisDefinition` base.
+- `Registry/AnalysisDescriptors.cs` — a descriptor each: `Kind`, `TypeLabel`, `IconLabel`,
+  `AccentArgb`, `SortOrder` (after waterflow, so 6 and 7), `Parameters`, and a `DescribeBlocker` for
+  ponding when the terrain has no closed depression to report on. JSON polymorphism is
+  registry-driven, so registering the descriptor is the whole serialization story.
+- `Model/LayerRole.cs` + `Registry/LayerRoleRegistry.cs` — new roles. Proposed: `Catchment`
+  (`Line`, boundary polylines), `CatchmentFlowPath` (`Line`), `Ponding` (`Line`, pond outlines),
+  `PondingSpillPoint` (`Line`, a marker at the spill). Every generated object names a role; never
+  build a path by appending a suffix.
+- `Services/TerrainBuildService.Drainage.cs` — a new partial, sibling of
+  `TerrainBuildService.Waterflow.cs`, which is the closest and cleanest template in the tree
+  (resolve sources → call Core → emit `GeneratedRhinoObject`s with `Role` + `LayerPath` → return a
+  summary).
+- `Services/TerrainBuildService.Analysis.cs` — two arms on the stage `switch`, plus the
+  `BasinGraphCache` threaded alongside `referenceComparisonCache`.
+- `Services/TerrainAnalysisPreviewBuilder.cs` — the two preview meshes and `SupportsTerrainPreview`.
+- `Model/TerrainAnalysisSummary.cs` — new fields, **and** `TerrainRuntimeCache.CloneAnalysis`.
+- `UI/MoleHillPanel.Analysis.cs` — the summary rows each card reads back.
+
+### The two summary traps, stated because this is exactly where they bite
+
+Both are documented in `CLAUDE.md` and both were found live rather than by any test of the analysis:
+
+1. **A field left out of `CloneAnalysis` reads back as zero on every cached build** — indistinguishable
+   from an analysis that measured nothing. "0 ponds" is the most dangerous possible wrong answer here,
+   because it is also the right answer most of the time.
+2. **A field defaulting to `double.NaN` or an infinity stops `System.Text.Json` writing the document at
+   all**, so every terrain carrying any summary fails to save — and because every edit snapshots for
+   undo, it surfaces as a failed *edit*. Spill elevation, pond depth and pond volume are all "not
+   measured" most of the time: they must be **nullable**, never NaN.
+
+`TerrainRuntimeCacheClonerTests` and `TerrainSummarySerializationTests` fail if either is forgotten.
+
+### Fingerprinting
+
+Nothing document-level is needed. Unlike Aspect — which had to add `snapshot.NorthAzimuthDegrees`
+explicitly because north lives on the document, not the definition — every drainage input is either on
+the definition or on the mesh, both already fingerprinted. The `LayerRoles.Fingerprint` term is added
+automatically by `ProducesGeneratedOutput`.
+
+---
+
+## 5. Open decision: area and volume have no unit
+
+`ParameterUnit` is `None | ModelLength | Degrees | Slope | Percent`. The convention is that no card
+shows a bare unlabelled number — `ParameterSchemaGuardTests` enforces declared rows — but a minimum
+*area* threshold (§2c) and a minimum *volume* threshold (§2d) are length² and length³.
+
+Three options, in order of preference:
+
+1. **Ship v1 with depth only.** Max ponded depth (`ModelLength`) is the threshold that matters, and
+   basin merging can key off a minimum **share** of total plan area (`Percent`), which is both
+   unit-clean and more robust across scales than an absolute area. *Recommended.*
+2. Add `ParameterUnit.ModelArea` / `ModelVolume`, with `TerrainUnitScaler` scaling them as length² and
+   length³. Correct long-term, and B4's reporting will want it anyway — but it is a separate change
+   with its own tests, and folding it into this one blurs two things.
+3. Bare numbers. Rejected; it is the convention this codebase explicitly does not break.
+
+Note that option 2 is a prerequisite B4 (volume and quantity reporting) will hit regardless, so if B4
+is scheduled next, doing it there and adopting it here later is fine.
+
+---
+
+## 6. Small piece of new Core: edge-loop chaining
+
+Catchment boundaries need "set of unshared edges → closed polylines".
+
+**Revised during Phase 1: no extraction from `FeaturePolylineGraph`.** The plan assumed the two were the
+same problem. They are not. A basin boundary is collected by walking the basin's faces and emitting each
+outward edge *in that face's own winding*, so the edges are **directed** and balance at every vertex —
+following the direction closes the loop with no geometric decision about what is inside, which is what
+keeps a basin with an island in it, or one pinching to a point, from needing a special case.
+`FeaturePolylineGraph` chains *undirected* feature edges and needs corner classification and arc-length
+parameters that a boundary polygon has no use for. Refactoring the remesher's feature extraction to
+share code with a twenty-line directed walk would have been risk for nothing. `EdgeLoopChainer` is the
+directed case only, and says so.
+
+**Performance note, per `CLAUDE.md`:** any dictionary or set keyed by a packed edge key MUST use
+`IndexedMeshTools.EdgeKeyComparer.Instance`. The default `long` hash collapses adjacent mesh indices
+into a handful of buckets and turns this O(n) pass quadratic — it previously cost 7 s of a 10 s remesh
+on a 180k-face terrain.
+
+---
+
+## 7. Testing
+
+**Core (`MoleHill.Core.Tests`)** — hand-built meshes with known answers:
+
+| Scene | Asserts |
+|---|---|
+| Single cone | one basin, outlet at the rim, boundary = the rim |
+| Two cones with a saddle | two basins, boundary follows the ridge, spill at the saddle |
+| Bowl (inverted cone) | one sink; impounded volume within tolerance of the analytic cone volume; spill Z = rim Z |
+| Flat pad with one low corner | **the flat-routing test** — all pad faces in one basin, not confetti |
+| Flat pad with no outflow | recognised as a sink region, not as N arbitrary basins |
+| Pad cut into a hillside | the realistic case: pad drains as one unit into the downslope basin |
+| Terrace that ponds | pond outline is closed and lies at the spill elevation |
+| Sub-tolerance dimple | reported as nothing at the default depth threshold |
+
+**Rhino (`MoleHill.Rhino.Tests`)** — round-trip serialization of both definitions, `CloneAnalysis`
+coverage (the guard test catches omissions automatically), layer-role registry coverage.
+
+**Live** — per `docs/rhino-live-testing.md`, on `GradePadTest.3dm` through a disposable `rhino-mcp`
+slot. This is not optional: the last two analysis features each shipped with defects that only a live
+run caught (`811e31c`, `a36d97b`), both in summary/cache state rather than in the mathematics.
+
+**Benchmark** — a 180k-face terrain alongside `mhBenchmarkLargeTin`. Target: basin graph well under a
+second, since it must run on every rebuild of a terrain that has the card on.
+
+---
+
+## 8. Staging
+
+| Phase | Scope | Done when |
+|---|---|---|
+| 1 | Core: adjacency lift, flow routing, flat regions, basin labelling, `EdgeLoopChainer` | **done** — see §10 |
+| 2 | B1 end-to-end: `CatchmentAnalysisDefinition`, descriptor, layer roles, build partial, categorical preview, summary + cloner | catchments draw on `GradePadTest.3dm` in a live slot |
+| 3 | B2: `PondingAnalysisDefinition`, priority flood, volume, contour outline, thresholds | a deliberately-built bathtub is caught and measured |
+| 4 | Docs + benchmark | `docs/architecture.md` "Analysis vs annotation" extended, `Core/Analysis/README.md` and `docs/file-index.md` regenerated, backlog entries closed |
+
+Phase 1 is the risk. If flat routing does not hold up on a real graded scene, stop there and
+reconsider — everything downstream is plumbing, and plumbing built on confetti basins is wasted.
+
+---
+
+## 9. What this plan deliberately does not do
+
+- **No hydrology.** No rainfall, no time of concentration, no flow accumulation weighting. The
+  backlog's boundary is right: export catchments so a real hydrology tool can consume them.
+- **No automatic fixing.** Ponding *reports*; it never lifts the ground to drain a depression. That
+  is the drift the backlog's opening test rules out, and the same argument that keeps swale inverts
+  (B10) off the terrain.
+- **No nested pond hierarchy in v1.** One spill elevation per sink. The priority flood extends to
+  merged ponds naturally if it is ever asked for.
+
+---
+
+## 10. Phase 1 outcome (2026-09-13)
+
+Shipped in `src/MoleHill.Core`: `Engine/FaceAdjacency.cs` (lifted out of `WaterflowTracer`, which now
+calls it), `Engine/EdgeLoopChainer.cs`, `Analysis/BasinGraph.cs`, `Analysis/DrainageBasinAnalyzer.cs`,
+`Analysis/BasinBoundaryExtractor.cs`, and 16 tests in
+`tests/MoleHill.Core.Tests/DrainageBasinAnalyzerTests.cs`. Whole suite green (1,374 passing).
+
+**Flat routing holds up**, which was the stated gate. A level plateau with one notch cut through its rim
+comes out as a single catchment; the same plateau sealed comes out as a single depression; a pad cut
+into a hillside reports no sink at all.
+
+Three things the plan did not anticipate, all found by the tests rather than by reasoning:
+
+1. **Cycles are the dominant failure mode, not an edge case.** The plan treated a routing cycle as a rare
+   numerical artefact of a saddle and proposed breaking it by declaring the lowest member a sink. In fact
+   a cycle forms wherever water converges on a **vertex**: the two faces sharing that vertex's opposite
+   edge each fall towards it and each leave through their shared edge. That happens at the bottom of
+   every valley and on the low corner of every graded pad — the first run put phantom sinks on the pad
+   scene *and* split the plateau. A cycle is now handed to the same spill routine flat regions use (it is
+   the same phenomenon: a connected set of faces with no outlet among themselves) and becomes a sink only
+   when there is genuinely nowhere lower.
+2. **A pit routes as several basins that share one floor.** A round bowl came out as two half-bowls. They
+   are one depression — a pond has one water surface — so sinks are consolidated on floor-vertex
+   identity, which is exact: two distinct pits cannot share their lowest point. Without this, B2 would
+   have double-counted pond volume and drawn two outlines over each other.
+3. **Vertical faces had to be folded into flat routing.** A retaining-wall face has no gradient and no
+   plan area. Given its own treatment it swallows the water arriving from the terrace above and reads as
+   a depression behind every wall; routed as flat ground it spills onto the terrace below.
+
+`BasinGraph` also carries the face adjacency, which the plan did not call for — boundary extraction walks
+it and the ponding rim walk will walk it again, and rebuilding it per consumer costs more than the
+routing does.
+
+**Performance:** 180k faces in 65 ms unmerged, 62 ms with sliver merging (321 basins → 11), 1 ms to
+extract the largest basin's boundary. Comfortably inside the "well under a second" target, so no
+optimisation work is owed before Phase 2.
+
+**Still open, unchanged:** the area/volume `ParameterUnit` question in §5, which Phase 2 hits first.

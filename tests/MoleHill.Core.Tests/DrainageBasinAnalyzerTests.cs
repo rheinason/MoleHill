@@ -1,0 +1,414 @@
+using MoleHill.Core.Analysis;
+using Xunit;
+
+namespace MoleHill.Core.Tests;
+
+public class DrainageBasinAnalyzerTests
+{
+    /// <summary>
+    /// A regular triangulated grid over [0, nx] x [0, ny] at unit spacing, with elevations from
+    /// <paramref name="height"/>. Every scene below is a height function, which keeps the tests about
+    /// landform rather than about mesh construction.
+    /// </summary>
+    private static (double[] Vertices, int VertexCount, int[] Faces, int FaceCount) Grid(
+        int nx, int ny, Func<double, double, double> height)
+    {
+        int columns = nx + 1;
+        int rows = ny + 1;
+        int vertexCount = columns * rows;
+        var vertices = new double[vertexCount * 3];
+        for (int j = 0; j < rows; j++)
+        {
+            for (int i = 0; i < columns; i++)
+            {
+                int vertex = (j * columns) + i;
+                vertices[vertex * 3] = i;
+                vertices[(vertex * 3) + 1] = j;
+                vertices[(vertex * 3) + 2] = height(i, j);
+            }
+        }
+
+        var faces = new int[nx * ny * 6];
+        int face = 0;
+        for (int j = 0; j < ny; j++)
+        {
+            for (int i = 0; i < nx; i++)
+            {
+                int a = (j * columns) + i;
+                int b = a + 1;
+                int c = a + columns + 1;
+                int d = a + columns;
+                faces[face++] = a;
+                faces[face++] = b;
+                faces[face++] = c;
+                faces[face++] = a;
+                faces[face++] = c;
+                faces[face++] = d;
+            }
+        }
+
+        return (vertices, vertexCount, faces, nx * ny * 2);
+    }
+
+    private static BasinGraph Analyze(
+        (double[] Vertices, int VertexCount, int[] Faces, int FaceCount) mesh,
+        DrainageBasinAnalyzer.Options? options = null)
+    {
+        return DrainageBasinAnalyzer.Analyze(
+            mesh.Vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount, options);
+    }
+
+    private static double SinkArea(BasinGraph graph)
+    {
+        double area = 0.0;
+        foreach (BasinGraph.Basin basin in graph.Basins)
+        {
+            if (basin.Outlet == BasinGraph.OutletKind.Sink)
+                area += basin.PlanArea;
+        }
+
+        return area;
+    }
+
+    /// <summary>A flat plateau ringed by higher ground, with an optional channel cut through the ring.</summary>
+    private static Func<double, double, double> Plateau(bool withNotch)
+    {
+        return (x, y) =>
+        {
+            if (x >= 2 && x <= 8 && y >= 2 && y <= 8)
+                return 10.0;
+            if (withNotch && x >= 4 && x <= 5 && y < 2)
+                return 10.0 - ((2.0 - y) * 2.0);
+            return 20.0;
+        };
+    }
+
+    private static bool IsOnPlateau(double[] vertices, int[] faces, int face)
+    {
+        double x = 0.0;
+        double y = 0.0;
+        for (int corner = 0; corner < 3; corner++)
+        {
+            int vertex = faces[(face * 3) + corner];
+            x += vertices[vertex * 3] / 3.0;
+            y += vertices[(vertex * 3) + 1] / 3.0;
+        }
+
+        return x > 2 && x < 8 && y > 2 && y < 8;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Flat ground. The whole reason this analyzer is not a twenty-line steepest-descent loop.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The confetti test. A perfectly level pad has no gradient to route by, so routed face by face every
+    /// face picks a different arbitrary outlet out of rounding noise. Routed as a region it drains through
+    /// the one place it can actually spill, and is therefore one catchment.
+    /// </summary>
+    [Fact]
+    public void Analyze_FlatPlateauWithOneOutflow_PutsTheWholePlateauInOneBasin()
+    {
+        var mesh = Grid(10, 10, Plateau(withNotch: true));
+
+        BasinGraph graph = Analyze(mesh);
+
+        int? plateauBasin = null;
+        for (int face = 0; face < graph.FaceCount; face++)
+        {
+            if (!IsOnPlateau(mesh.Vertices, mesh.Faces, face))
+                continue;
+
+            plateauBasin ??= graph.FaceBasin[face];
+            Assert.Equal(plateauBasin, graph.FaceBasin[face]);
+        }
+
+        Assert.NotNull(plateauBasin);
+    }
+
+    /// <summary>A level pad ringed by higher ground with no way out is a depression, not N arbitrary basins.</summary>
+    [Fact]
+    public void Analyze_FlatPlateauWithNoOutflow_ReportsASingleSink()
+    {
+        var mesh = Grid(10, 10, Plateau(withNotch: false));
+
+        BasinGraph graph = Analyze(mesh);
+
+        Assert.Equal(1, graph.SinkBasinCount);
+        BasinGraph.Basin sink = Assert.Single(
+            graph.Basins, basin => basin.Outlet == BasinGraph.OutletKind.Sink);
+        Assert.Equal(10.0, sink.LowestZ, 9);
+    }
+
+    /// <summary>
+    /// The case the whole feature exists for. A graded pad cut into a hillside spills downhill, and a
+    /// drainage check that calls it a pond is worse than no check at all — it is the false positive that
+    /// makes people switch the analysis off.
+    /// </summary>
+    [Fact]
+    public void Analyze_GradedPadOnAHillside_ReportsNoSink()
+    {
+        var mesh = Grid(10, 10, (x, y) =>
+            x >= 3 && x <= 7 && y >= 3 && y <= 7 ? 100.0 - (0.2 * 5.0) : 100.0 - (0.2 * y));
+
+        BasinGraph graph = Analyze(mesh);
+
+        Assert.Equal(0, graph.SinkBasinCount);
+    }
+
+    /// <summary>
+    /// A vertical retaining-wall face has no gradient and no plan area. Treated as its own thing it
+    /// swallows the water arriving from the terrace above and reads as a depression behind every wall;
+    /// routed as flat ground it spills onto the terrace below, which is what water does.
+    /// </summary>
+    [Fact]
+    public void Analyze_TerraceWithAVerticalWall_DrainsOverTheWallRatherThanPondingBehindIt()
+    {
+        var vertices = new[]
+        {
+            0.0, 0.0, 10.0,
+            10.0, 0.0, 10.0,
+            10.0, 5.0, 10.0,
+            0.0, 5.0, 10.0,
+            0.0, 5.0, 5.0,
+            10.0, 5.0, 5.0,
+            10.0, 10.0, 5.0,
+            0.0, 10.0, 5.0
+        };
+        var faces = new[]
+        {
+            0, 1, 2,
+            0, 2, 3,
+            3, 2, 5,
+            3, 5, 4,
+            4, 5, 6,
+            4, 6, 7
+        };
+
+        BasinGraph graph = DrainageBasinAnalyzer.Analyze(vertices, 8, faces, 6);
+
+        Assert.Equal(0, graph.SinkBasinCount);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Landform.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>A bowl has one low point and everything drains to it, so it is one depression.</summary>
+    [Fact]
+    public void Analyze_Bowl_ReportsOneSinkHoldingAlmostAllOfTheArea()
+    {
+        var mesh = Grid(10, 10, (x, y) => ((x - 5) * (x - 5)) + ((y - 5) * (y - 5)));
+
+        BasinGraph graph = Analyze(mesh);
+
+        Assert.Equal(1, graph.SinkBasinCount);
+        Assert.True(
+            SinkArea(graph) > graph.TotalPlanArea * 0.9,
+            $"sink held {SinkArea(graph):F1} of {graph.TotalPlanArea:F1}");
+    }
+
+    /// <summary>Two bowls behind one ridge are two depressions, and the ridge between them is the divide.</summary>
+    [Fact]
+    public void Analyze_TwoBowlsBehindARidge_ReportsTwoSubstantialSinks()
+    {
+        var mesh = Grid(20, 10, (x, y) =>
+        {
+            double centreX = x < 10 ? 5.0 : 15.0;
+            return ((x - centreX) * (x - centreX)) + ((y - 5) * (y - 5));
+        });
+
+        BasinGraph graph = Analyze(mesh);
+
+        int substantialSinks = 0;
+        foreach (BasinGraph.Basin basin in graph.Basins)
+        {
+            if (basin.Outlet == BasinGraph.OutletKind.Sink && basin.PlanArea > graph.TotalPlanArea * 0.1)
+                substantialSinks++;
+        }
+
+        Assert.Equal(2, substantialSinks);
+    }
+
+    /// <summary>A uniform slope holds no water anywhere; every basin runs off the terrain edge.</summary>
+    [Fact]
+    public void Analyze_UniformSlope_ReportsOnlyBoundaryOutlets()
+    {
+        var mesh = Grid(10, 10, (x, y) => 100.0 - (0.5 * y));
+
+        BasinGraph graph = Analyze(mesh);
+
+        Assert.NotEmpty(graph.Basins);
+        Assert.All(graph.Basins, basin => Assert.Equal(BasinGraph.OutletKind.Boundary, basin.Outlet));
+    }
+
+    /// <summary>
+    /// A shallow dimple is still a depression, and the router says so. Deciding that one 20 mm deep is
+    /// not worth drawing is a threshold on the *measurement*, which belongs to the ponding stage — the
+    /// router that silently dropped it would leave that stage unable to report what it never saw.
+    /// </summary>
+    [Fact]
+    public void Analyze_ShallowDimpleOnASlope_IsStillReportedAsASink()
+    {
+        var mesh = Grid(10, 10, (x, y) =>
+        {
+            // The dimple falls steeper than the ground it sits on, so it genuinely closes — and it is
+            // 50 mm deep, which is exactly the "is this really a pond" case.
+            double baseZ = 100.0 - (0.01 * y);
+            double dx = x - 5.0;
+            double dy = y - 5.0;
+            double radius = Math.Sqrt((dx * dx) + (dy * dy));
+            return radius < 2.0 ? baseZ - (0.025 * (2.0 - radius)) : baseZ;
+        });
+
+        BasinGraph graph = Analyze(mesh);
+
+        Assert.True(graph.SinkBasinCount >= 1);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Invariants that hold for every scene.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>Every face's pointers must reach an outlet. A cycle left in the graph hangs the caller.</summary>
+    [Fact]
+    public void Analyze_Bowl_EveryFaceReachesAnOutletInFiniteSteps()
+    {
+        var mesh = Grid(12, 12, (x, y) => ((x - 6) * (x - 6)) + ((y - 6) * (y - 6)));
+
+        BasinGraph graph = Analyze(mesh);
+
+        for (int face = 0; face < graph.FaceCount; face++)
+        {
+            int current = face;
+            int steps = 0;
+            while (graph.FlowsTo[current] >= 0)
+            {
+                current = graph.FlowsTo[current];
+                Assert.True(++steps <= graph.FaceCount, $"face {face} did not reach an outlet");
+            }
+        }
+    }
+
+    /// <summary>The basins partition the terrain: no face is counted twice, and none is left out.</summary>
+    [Fact]
+    public void Analyze_Bowl_BasinAreasSumToTheTerrainArea()
+    {
+        var mesh = Grid(10, 10, (x, y) => ((x - 5) * (x - 5)) + ((y - 5) * (y - 5)));
+
+        BasinGraph graph = Analyze(mesh);
+
+        double summed = 0.0;
+        int faceCount = 0;
+        foreach (BasinGraph.Basin basin in graph.Basins)
+        {
+            summed += basin.PlanArea;
+            faceCount += basin.FaceCount;
+        }
+
+        Assert.Equal(graph.TotalPlanArea, summed, 9);
+        Assert.Equal(100.0, summed, 9);
+        Assert.Equal(graph.FaceCount, faceCount);
+    }
+
+    /// <summary>Basins are ordered by descending area, which is what keeps a basin's colour stable.</summary>
+    [Fact]
+    public void Analyze_UniformSlope_OrdersBasinsByDescendingArea()
+    {
+        var mesh = Grid(10, 10, (x, y) => 100.0 - (0.5 * y));
+
+        BasinGraph graph = Analyze(mesh);
+
+        for (int index = 1; index < graph.Basins.Count; index++)
+            Assert.True(graph.Basins[index - 1].PlanArea >= graph.Basins[index].PlanArea);
+    }
+
+    /// <summary>Same mesh, same answer. A basin map that shuffles between rebuilds is unreadable.</summary>
+    [Fact]
+    public void Analyze_RunTwice_ProducesIdenticalLabels()
+    {
+        var mesh = Grid(10, 10, (x, y) => ((x - 5) * (x - 5)) + Math.Sin(y) + Plateau(true)(x, y));
+
+        BasinGraph first = Analyze(mesh);
+        BasinGraph second = Analyze(mesh);
+
+        Assert.Equal(first.Basins.Count, second.Basins.Count);
+        Assert.Equal(first.FaceBasin, second.FaceBasin);
+    }
+
+    /// <summary>
+    /// Merging absorbs slivers into the basin they spill into. A uniform slope is the worst case for
+    /// basin count — every face along the low edge is its own outlet — so it is the honest test of it.
+    /// </summary>
+    [Fact]
+    public void Analyze_UniformSlopeWithMerging_ProducesFewerBasinsAndKeepsEveryFace()
+    {
+        var mesh = Grid(10, 10, (x, y) => 100.0 - (0.5 * y));
+
+        BasinGraph unmerged = Analyze(mesh);
+        BasinGraph merged = Analyze(mesh, new DrainageBasinAnalyzer.Options
+        {
+            MinimumBasinAreaShare = 0.2
+        });
+
+        Assert.True(
+            merged.Basins.Count < unmerged.Basins.Count,
+            $"merging left {merged.Basins.Count} of {unmerged.Basins.Count} basins");
+        Assert.Equal(unmerged.TotalPlanArea, merged.TotalPlanArea, 9);
+        Assert.DoesNotContain(-1, merged.FaceBasin);
+    }
+
+    [Fact]
+    public void Analyze_EmptyMesh_ReturnsAnEmptyGraph()
+    {
+        BasinGraph graph = DrainageBasinAnalyzer.Analyze(Array.Empty<double>(), 0, Array.Empty<int>(), 0);
+
+        Assert.Empty(graph.Basins);
+        Assert.Equal(0, graph.FaceCount);
+        Assert.Equal(0, graph.SinkBasinCount);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Boundary extraction.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>A bowl's single basin is bounded by the terrain edge, so its loop is the terrain perimeter.</summary>
+    [Fact]
+    public void Extract_BowlBasin_ReturnsOneClosedLoopAroundTheTerrain()
+    {
+        var mesh = Grid(10, 10, (x, y) => ((x - 5) * (x - 5)) + ((y - 5) * (y - 5)));
+        BasinGraph graph = Analyze(mesh);
+        int largest = 0;
+
+        List<double[]> loops = BasinBoundaryExtractor.Extract(
+            graph, mesh.Vertices, mesh.VertexCount, mesh.Faces, largest);
+
+        double[] loop = Assert.Single(loops);
+        int pointCount = loop.Length / 3;
+        Assert.Equal(41, pointCount); // 40 boundary edges of a 10 x 10 grid, first point repeated
+        Assert.Equal(loop[0], loop[(pointCount - 1) * 3], 9);
+        Assert.Equal(loop[1], loop[((pointCount - 1) * 3) + 1], 9);
+    }
+
+    /// <summary>Every basin boundary closes. An open catchment polygon cannot be hatched or measured.</summary>
+    [Fact]
+    public void Extract_EveryBasinOfASlope_ReturnsClosedLoops()
+    {
+        var mesh = Grid(8, 8, (x, y) => 100.0 - (0.5 * y));
+        BasinGraph graph = Analyze(mesh);
+
+        foreach (BasinGraph.Basin basin in graph.Basins)
+        {
+            List<double[]> loops = BasinBoundaryExtractor.Extract(
+                graph, mesh.Vertices, mesh.VertexCount, mesh.Faces, basin.Index);
+
+            Assert.NotEmpty(loops);
+            foreach (double[] loop in loops)
+            {
+                int pointCount = loop.Length / 3;
+                Assert.Equal(loop[0], loop[(pointCount - 1) * 3], 9);
+                Assert.Equal(loop[1], loop[((pointCount - 1) * 3) + 1], 9);
+            }
+        }
+    }
+}

@@ -74,7 +74,8 @@ public static class WaterflowTracer
         Options settings = options ?? new Options();
         int maxSteps = Math.Max(1, settings.MaxSteps);
         double tolerance = Math.Max(Math.Abs(settings.Tolerance), 1e-12);
-        int[] neighbors = BuildNeighbors(faces, faceCount, vertexCount, settings);
+        int[] neighbors = FaceAdjacency.Build(
+            faces, faceCount, vertexCount, CancellationProbe.For(settings.CancellationRequested));
         FaceSpatialIndex faceIndexLookup = FaceSpatialIndex.Build(vertices, vertexCount, faces, faceCount, settings);
         // Setup (neighbours + face index) is once per call; the traces themselves are independent
         // functions of read-only state, so they can run together. Results are written by start index
@@ -305,50 +306,6 @@ public static class WaterflowTracer
         };
     }
 
-    private static int[] BuildNeighbors(
-        IReadOnlyList<int> faces,
-        int faceCount,
-        int vertexCount,
-        Options settings)
-    {
-        var neighbors = new int[faceCount * 3];
-        Array.Fill(neighbors, -1);
-
-        // Presized: a closed triangle mesh has about 1.5 edges per face, so an unsized dictionary
-        // rehashes its way up from 0 to that on every trace call.
-        var edges = new Dictionary<EdgeKey, (int Face, int Edge)>(Math.Max(16, faceCount * 2));
-
-        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
-        {
-            if ((faceIndex & 4095) == 0)
-                ThrowIfCancellationRequested(settings);
-            for (int edge = 0; edge < 3; edge++)
-            {
-                int a = faces[(faceIndex * 3) + edge];
-                int b = faces[(faceIndex * 3) + ((edge + 1) % 3)];
-                if ((uint)a >= (uint)vertexCount || (uint)b >= (uint)vertexCount || a == b)
-                    continue;
-
-                var key = new EdgeKey(a, b);
-                if (!edges.TryGetValue(key, out var previous))
-                {
-                    edges.Add(key, (faceIndex, edge));
-                    continue;
-                }
-
-                // Non-manifold edges are treated as boundaries rather than choosing an arbitrary
-                // third face. The first two faces still form a deterministic pair.
-                if (neighbors[(previous.Face * 3) + previous.Edge] < 0)
-                {
-                    neighbors[(previous.Face * 3) + previous.Edge] = faceIndex;
-                    neighbors[(faceIndex * 3) + edge] = previous.Face;
-                }
-            }
-        }
-
-        return neighbors;
-    }
-
     private static int FindContainingFace(
         IReadOnlyList<double> vertices,
         int vertexCount,
@@ -491,19 +448,6 @@ public static class WaterflowTracer
     }
 
     private static double Cross(double ax, double ay, double bx, double by) => (ax * by) - (ay * bx);
-
-    private readonly record struct EdgeKey
-    {
-        public EdgeKey(int a, int b)
-        {
-            A = Math.Min(a, b);
-            B = Math.Max(a, b);
-        }
-
-        public int A { get; }
-
-        public int B { get; }
-    }
 
     private readonly record struct Plane(double OriginX, double OriginY, double OriginZ, double GradientX, double GradientY)
     {
