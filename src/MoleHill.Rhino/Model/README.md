@@ -40,7 +40,9 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   Contours`; `TinMesh` preserves imported face topology and takes precedence over other sources),
   `GradePadModifierDefinition`, `GradePathModifierDefinition`, `RemeshModifierDefinition`,
   `SmoothModifierDefinition`, `MeshAreasModifierDefinition`, `MeshCollageModifierDefinition`,
-  `RetainingWallModifierDefinition`, `InSituStairModifierDefinition`, `SculptModifierDefinition`.
+  `RetainingWallModifierDefinition`, `InSituStairModifierDefinition`, `SculptModifierDefinition`,
+  `ProjectToModifierDefinition`. Project To stores one mutually exclusive Rhino-mesh or MoleHill-terrain
+  target plus nested boundary loops, Strength, and an inward Feather distance.
   `TriangulateModifierDefinition.ContourMode` persists the Auto / Constrained / Vertices-only choice;
   Auto switches dense contour sets to point samples while breaklines remain constrained. Triangulate alone
   owns the terrain-wide `OuterBoundaries`, `HideBoundaries`, `ShowBoundaries`, and `DataClipBoundaries`

@@ -6,7 +6,8 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 ## Build pipeline
 - `TerrainBuildService.cs` + `TerrainBuildService.*.cs` partials - the staged build orchestrator. Each
   partial owns a stage: `.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`,
-  `.Scatter`, `.Sculpt` (replays the sculpt displacement field as displacement-only), `.Report`; plus
+  `.Scatter`, `.Sculpt` (replays the sculpt displacement field as displacement-only), `.ProjectTo`
+  (Z-only conform to one mesh or terrain, with nested boundary feathering), `.Report`; plus
   `.Cache`, `.Fingerprints`, `.Types`. Most stages are fingerprint-cached
   (`StageCacheEntry`); analysis, zones, markers, object placements, and scatter run only in
   `TerrainBuildMode.Final`. Analysis entries are per analysis id, so changing one card does not
@@ -53,6 +54,9 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   overlap.
 - `TerrainBuildSnapshot.cs` / `TerrainBuildSnapshotBuilder.cs` / `TerrainBuildSnapshotResolver.cs` -
   resolve doc geometry (points/curves/blocks/layers) into the immutable build snapshot the service reads.
+  Another terrain selected by Project To is captured for preview as well as final builds, fingerprinted,
+  and registered as a live-rebuild dependency; target cycles are rejected by the panel and guarded by
+  dependent scheduling.
 - Layer-backed source sets use Rhino's native `FindByLayer` lookup, then re-resolve every result by ID through
   the active object table before accepting normal, locked, or hidden geometry. This rejects stale wrappers and
   transform predecessors that Rhino's layer lookup can retain. Terrain sources are restricted to ModelSpace;

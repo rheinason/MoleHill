@@ -315,6 +315,16 @@ pair among themselves in their own plane. Quad output is terminal: display/bake 
 `RhinoGeometryConversions.BuildMeshData` is quad-aware (quad → 2 tris) so downstream reads stay
 correct, but Retopo is meant to run last.
 
+The **Project To** modifier is a 2.5D vertical conform (`Core/Processing/SurfaceConformer`): each
+incoming terrain vertex looks up the target mesh at the same World XY through `MeshHeightProjector`
+and lerps its Z by Strength. The target is exactly one Rhino mesh or another MoleHill terrain's latest
+completed final mesh; a raw mesh assignment and terrain id are mutually exclusive in the card. Missing
+target coverage leaves the source vertex unchanged. With no boundaries the whole shared XY footprint is
+affected. Closed boundary loops use even-odd containment, so nested loops form donut holes and deeper
+nesting alternates back to included; Feather fades inward from every loop edge, keeping all exterior and
+hole regions untouched. Terrain targets participate in stage fingerprints and dependent live rebuilds;
+the picker omits choices that would create a projection cycle.
+
 ## Core + Rhino: sculpting
 
 The **Sculpt** modifier is Blender-style 2.5D brush sculpting (Draw/Subtract/Smooth/Flatten/Grab/
@@ -408,9 +418,9 @@ TIN production path's faster Triangle.NET-native adjacency.
 
 `TerrainBuildService.Build(snapshot, runtimeCache, mode)` runs stages, most behind a per-stage
 fingerprint cache (`runtimeCache.StageEntries`); decomposed into `TerrainBuildService.*.cs` partials
-(`.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Sculpt`,
+(`.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Sculpt`, `.ProjectTo`,
 plus `.Cache`, `.Fingerprints`, `.Types`, `.Report`). Order: TIN → modifiers (smooth/remesh/sculpt/grade
-pad/grade path) → analyses → annotations → zones → markers → object placements → scatter → report tables. **The generated-output
+pad/grade path/project-to) → analyses → annotations → zones → markers → object placements → scatter → report tables. **The generated-output
 stages run only in `TerrainBuildMode.Final` and are fingerprint-cached**. Analyses and annotations are each
 cached independently by id; zones, markers, objects, and scatter retain stage-level entries. Both families
 run through one `RunStage` local function in `.Analysis.cs` — the stage scaffolding (enabled check,

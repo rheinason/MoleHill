@@ -429,7 +429,7 @@ internal sealed partial class TerrainController
         RemoveRuntimeCache(doc.RuntimeSerialNumber, terrainId);
         RemoveRebuildState(doc.RuntimeSerialNumber, terrainId);
         state.Terrains.Remove(terrain);
-        RemoveTerrainFromSectionComparisons(doc, state, terrainId);
+        RemoveTerrainReferences(doc, state, terrainId);
         if (state.SelectedTerrainId == terrainId)
             state.SelectedTerrainId = state.Terrains.FirstOrDefault()?.TerrainId;
 
@@ -455,7 +455,7 @@ internal sealed partial class TerrainController
         RemoveRuntimeCache(doc.RuntimeSerialNumber, terrainId);
         RemoveRebuildState(doc.RuntimeSerialNumber, terrainId);
         state.Terrains.Remove(terrain);
-        RemoveTerrainFromSectionComparisons(doc, state, terrainId);
+        RemoveTerrainReferences(doc, state, terrainId);
         if (state.SelectedTerrainId == terrainId)
             state.SelectedTerrainId = state.Terrains.FirstOrDefault()?.TerrainId;
 
@@ -676,7 +676,7 @@ internal sealed partial class TerrainController
 
             if (!string.Equals(previousName, terrain.Name, StringComparison.Ordinal) ||
                 previousColorArgb != terrain.TerrainColorArgb)
-                ScheduleSectionDependents(doc, state, terrain.TerrainId);
+                ScheduleTerrainDependents(doc, state, terrain.TerrainId);
         }
         finally
         {
@@ -1651,20 +1651,26 @@ internal sealed partial class TerrainController
         bool includeSectionTerrains = true)
     {
         var references = new List<TerrainSectionReferenceSnapshot>();
-        if (!includeSectionTerrains)
-            return TerrainBuildSnapshotBuilder.Create(doc, terrain, references);
-
         DocumentState state = GetState(doc);
-        IEnumerable<Guid> sectionReferencedIds = terrain.Annotations
-            .OfType<TerrainSectionAnnotationDefinitionBase>()
-            .Where(analysis => analysis.IsEnabled)
-            .SelectMany(analysis => analysis.ComparisonTerrainIds);
-        IEnumerable<Guid> analysisReferencedIds = terrain.Analyses
-            .OfType<ReferenceComparisonAnalysisDefinition>()
-            .Where(analysis => analysis.IsEnabled && analysis.ReferenceTerrainId.HasValue)
-            .Select(analysis => analysis.ReferenceTerrainId!.Value);
+        IEnumerable<Guid> sectionReferencedIds = includeSectionTerrains
+            ? terrain.Annotations
+                .OfType<TerrainSectionAnnotationDefinitionBase>()
+                .Where(analysis => analysis.IsEnabled)
+                .SelectMany(analysis => analysis.ComparisonTerrainIds)
+            : Array.Empty<Guid>();
+        IEnumerable<Guid> analysisReferencedIds = includeSectionTerrains
+            ? terrain.Analyses
+                .OfType<ReferenceComparisonAnalysisDefinition>()
+                .Where(analysis => analysis.IsEnabled && analysis.ReferenceTerrainId.HasValue)
+                .Select(analysis => analysis.ReferenceTerrainId!.Value)
+            : Array.Empty<Guid>();
+        IEnumerable<Guid> projectToReferencedIds = terrain.Modifiers
+            .OfType<ProjectToModifierDefinition>()
+            .Where(modifier => modifier.IsEnabled && !modifier.TargetMesh.HasReferences && modifier.TargetTerrainId.HasValue)
+            .Select(modifier => modifier.TargetTerrainId!.Value);
         IEnumerable<Guid> referencedIds = sectionReferencedIds
             .Concat(analysisReferencedIds)
+            .Concat(projectToReferencedIds)
             .Where(id => id != Guid.Empty && id != terrain.TerrainId)
             .Distinct();
 
@@ -1690,7 +1696,7 @@ internal sealed partial class TerrainController
         return TerrainBuildSnapshotBuilder.Create(doc, terrain, references);
     }
 
-    private void ScheduleSectionDependents(RhinoDoc doc, DocumentState state, Guid referencedTerrainId)
+    private void ScheduleTerrainDependents(RhinoDoc doc, DocumentState state, Guid referencedTerrainId)
     {
         foreach (TerrainDefinition dependent in state.Terrains)
         {
@@ -1702,12 +1708,46 @@ internal sealed partial class TerrainController
             bool referencesTerrainFromAnalysis = dependent.Analyses
                 .OfType<ReferenceComparisonAnalysisDefinition>()
                 .Any(analysis => analysis.IsEnabled && analysis.ReferenceTerrainId == referencedTerrainId);
-            if (referencesTerrain || referencesTerrainFromAnalysis)
+            bool referencesTerrainFromProjectTo = dependent.Modifiers
+                .OfType<ProjectToModifierDefinition>()
+                .Any(modifier => modifier.IsEnabled && !modifier.TargetMesh.HasReferences &&
+                                 modifier.TargetTerrainId == referencedTerrainId);
+            bool projectionCycle = referencesTerrainFromProjectTo &&
+                                   TerrainProjectionDependsOn(state, referencedTerrainId, dependent.TerrainId, new HashSet<Guid>());
+            if (referencesTerrain || referencesTerrainFromAnalysis ||
+                (referencesTerrainFromProjectTo && !projectionCycle))
                 ScheduleRebuild(doc, dependent.TerrainId, notify: false);
         }
     }
 
-    private void RemoveTerrainFromSectionComparisons(RhinoDoc doc, DocumentState state, Guid removedTerrainId)
+    private static bool TerrainProjectionDependsOn(
+        DocumentState state,
+        Guid terrainId,
+        Guid soughtTerrainId,
+        HashSet<Guid> visited)
+    {
+        if (terrainId == soughtTerrainId)
+            return true;
+        if (!visited.Add(terrainId))
+            return false;
+
+        TerrainDefinition? terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
+        if (terrain == null)
+            return false;
+
+        foreach (Guid targetId in terrain.Modifiers
+                     .OfType<ProjectToModifierDefinition>()
+                     .Where(modifier => modifier.IsEnabled && !modifier.TargetMesh.HasReferences && modifier.TargetTerrainId.HasValue)
+                     .Select(modifier => modifier.TargetTerrainId!.Value))
+        {
+            if (TerrainProjectionDependsOn(state, targetId, soughtTerrainId, visited))
+                return true;
+        }
+
+        return false;
+    }
+
+    private void RemoveTerrainReferences(RhinoDoc doc, DocumentState state, Guid removedTerrainId)
     {
         foreach (TerrainDefinition terrain in state.Terrains)
         {
@@ -1727,6 +1767,14 @@ internal sealed partial class TerrainController
                 if (analysis.ReferenceTerrainId != removedTerrainId)
                     continue;
                 analysis.ReferenceTerrainId = null;
+                changed = true;
+            }
+
+            foreach (ProjectToModifierDefinition modifier in terrain.Modifiers.OfType<ProjectToModifierDefinition>())
+            {
+                if (modifier.TargetTerrainId != removedTerrainId)
+                    continue;
+                modifier.TargetTerrainId = null;
                 changed = true;
             }
 

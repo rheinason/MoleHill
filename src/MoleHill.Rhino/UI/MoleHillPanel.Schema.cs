@@ -219,6 +219,7 @@ public sealed partial class MoleHillPanel
          parameter.Key is "DemSurface" or "ContourMode" or "OuterBoundaries" or "HideBoundaries" or "ShowBoundaries" or "DataClipBoundaries") ||
         (modifier is GradePathModifierDefinition &&
          parameter.Key is "Paths" or "Width" or "UseVariableWidth" or "WidthEdges" or "MaxEdgeDistance") ||
+        (modifier is ProjectToModifierDefinition && parameter.Key == "TargetMesh") ||
         // Declared by every geometry-input modifier, but drawn inside the panel's "Peel Border" group.
         (modifier is GeometryInputModifierDefinition &&
          GeometryInputParameterCatalog.BoundaryPeelKeys.Contains(parameter.Key, StringComparer.Ordinal));

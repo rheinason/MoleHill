@@ -520,6 +520,13 @@ internal sealed partial class TerrainBuildService
         if (modifier is AddGeometryModifierDefinition && GetBoundaryOwner(terrain) is { } boundaryOwner)
             builder.Add(ComputeSourceSetFingerprint(snapshot, boundaryOwner.DataClipBoundaries));
 
+        if (modifier is ProjectToModifierDefinition { TargetTerrainId: { } targetTerrainId })
+        {
+            builder.Add(targetTerrainId);
+            if (snapshot.SectionTerrains.TryGetValue(targetTerrainId, out TerrainSectionReferenceSnapshot? targetTerrain))
+                builder.Add(targetTerrain.MeshFingerprint);
+        }
+
         return builder.ToUInt64();
     }
 

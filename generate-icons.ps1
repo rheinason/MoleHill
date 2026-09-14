@@ -500,6 +500,29 @@ New-Icon "$rhinoDir\ModSmooth.png" {
     $penSmooth.Dispose()
 } -size 16
 
+# ModProjectTo - lower terrain pulled vertically toward an upper target profile
+New-Icon "$rhinoDir\ModProjectTo.png" {
+    param($g)
+    $targetPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(70, 90, 105), 1.5)
+    $g.DrawLine($targetPen, 1, 4, 5, 3)
+    $g.DrawLine($targetPen, 5, 3, 10, 5)
+    $g.DrawLine($targetPen, 10, 5, 15, 3)
+    $targetPen.Dispose()
+
+    $terrainPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 121, 140), 2.5)
+    $g.DrawBezier($terrainPen, 1.0, 13.0, 5.0, 11.0, 10.0, 10.0, 15.0, 9.0)
+    $terrainPen.Dispose()
+
+    $arrowPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 121, 140), 1.2)
+    $g.DrawLine($arrowPen, 5, 10, 5, 5)
+    $g.DrawLine($arrowPen, 5, 5, 3.5, 7)
+    $g.DrawLine($arrowPen, 5, 5, 6.5, 7)
+    $g.DrawLine($arrowPen, 11, 8.5, 11, 6)
+    $g.DrawLine($arrowPen, 11, 6, 9.5, 8)
+    $g.DrawLine($arrowPen, 11, 6, 12.5, 8)
+    $arrowPen.Dispose()
+} -size 16
+
 # ModSculpt - teal sculpted mound with white brush cursor ring
 New-Icon "$rhinoDir\ModSculpt.png" {
     param($g)

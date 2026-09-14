@@ -126,6 +126,9 @@ public sealed partial class MoleHillPanel
         if (modifier is GradePathModifierDefinition gradePath)
             layout.AddRow(CreateGradePathGeometryGroup(terrain, gradePath));
 
+        if (modifier is ProjectToModifierDefinition projectTo)
+            layout.AddRow(CreateProjectToTargetGroup(terrain, projectTo));
+
         if (TryBuildSchemaModifierBody(layout, terrain, modifier))
             AppendBespokeModifierRows(layout, terrain, modifier);
 
@@ -189,6 +192,167 @@ public sealed partial class MoleHillPanel
             case GradePathModifierDefinition:
                 break;
         }
+    }
+
+    private Control CreateProjectToTargetGroup(TerrainDefinition owner, ProjectToModifierDefinition modifier)
+    {
+        RhinoDoc? doc = RhinoDoc.ActiveDoc;
+        IReadOnlyList<TerrainDefinition> terrains = doc == null
+            ? Array.Empty<TerrainDefinition>()
+            : _controller.GetTerrains(doc);
+
+        var options = new List<(string Key, string Label)> { ("", "None") };
+        options.AddRange(terrains
+            .Where(item => item.TerrainId != owner.TerrainId &&
+                           !ProjectToTerrainDependsOn(terrains, item.TerrainId, owner.TerrainId, new HashSet<Guid>()))
+            .Select(item => (item.TerrainId.ToString(), item.Name)));
+
+        Control terrainEditor = CreateDropDownEditor(
+            "Target Terrain",
+            options,
+            modifier.TargetTerrainId?.ToString() ?? "",
+            value => MutateModifier(owner.TerrainId, modifier.Id, item =>
+            {
+                var projectTo = (ProjectToModifierDefinition)item;
+                projectTo.TargetTerrainId = string.IsNullOrEmpty(value) ? null : Guid.Parse(value);
+                if (projectTo.TargetTerrainId.HasValue)
+                {
+                    projectTo.TargetMesh.ReplaceObjects(Array.Empty<Guid>());
+                    projectTo.TargetMesh.ReplaceLayers(Array.Empty<string>());
+                }
+            }),
+            "Another MoleHill terrain's latest completed final mesh. Selecting it clears Target Mesh.");
+
+        ModifierTypeDescriptor descriptor = TerrainTypeRegistry.ForModifierType(typeof(ProjectToModifierDefinition))!;
+        ParameterDescriptor<ModifierDefinition> targetParameter = descriptor.Parameters.First(parameter => parameter.Key == "TargetMesh");
+        Control meshEditor = CreateProjectToMeshTargetEditor(owner, modifier, targetParameter);
+
+        var content = new DynamicLayout
+        {
+            DefaultSpacing = new Size(UiMetrics.SpaceMedium, UiMetrics.SpaceMedium),
+            Padding = new Padding(6, 2, 6, 6)
+        };
+        content.AddRow(terrainEditor);
+        content.AddRow(meshEditor);
+
+        return new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 0,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(CreateSectionRule("Target"), HorizontalAlignment.Stretch),
+                new StackLayoutItem(content, HorizontalAlignment.Stretch)
+            }
+        };
+    }
+
+    private Control CreateProjectToMeshTargetEditor(
+        TerrainDefinition owner,
+        ProjectToModifierDefinition modifier,
+        ParameterDescriptor<ModifierDefinition> parameter)
+    {
+        RhinoDoc? activeDoc = RhinoDoc.ActiveDoc;
+        Guid? liveTargetId = modifier.TargetMesh.ObjectIds
+            .FirstOrDefault(id => activeDoc == null || activeDoc.Objects.FindId(id) != null);
+        if (liveTargetId == Guid.Empty)
+            liveTargetId = null;
+
+        var pickButton = MakePillButton(
+            liveTargetId.HasValue ? "1 Mesh" : "Select Mesh",
+            "Select exactly one Rhino mesh target. Press Enter to accept.");
+        pickButton.Click += (_, _) =>
+        {
+            RhinoDoc? doc = RhinoDoc.ActiveDoc;
+            if (doc == null)
+                return;
+
+            Application.Instance.AsyncInvoke(() =>
+            {
+                if (IsDisposed)
+                    return;
+
+                IReadOnlyList<Guid>? selected = _controller.EditSourceObjectIds(
+                    doc,
+                    modifier.TargetMesh.ObjectIds,
+                    parameter.ObjectFilter,
+                    "Select exactly one target mesh. Press Enter to accept.");
+                if (selected == null)
+                    return;
+
+                Guid[] ids = selected.Where(id => id != Guid.Empty).Distinct().ToArray();
+                if (ids.Length > 1)
+                {
+                    MessageBox.Show(this, "Project To accepts exactly one target mesh.", "Project To", MessageBoxButtons.OK, MessageBoxType.Warning);
+                    return;
+                }
+
+                MutateModifier(owner.TerrainId, modifier.Id, item =>
+                {
+                    var projectTo = (ProjectToModifierDefinition)item;
+                    projectTo.TargetMesh.ReplaceObjects(ids);
+                    projectTo.TargetMesh.ReplaceLayers(Array.Empty<string>());
+                    if (ids.Length == 1)
+                        projectTo.TargetTerrainId = null;
+                });
+                RefreshUi();
+            });
+        };
+
+        var controls = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 0,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items = { new StackLayoutItem(pickButton, expand: true) }
+        };
+        if (liveTargetId.HasValue)
+        {
+            controls.Items.Add(MakeIconButton(PanelButtonIcon.Clear, (_, _) =>
+            {
+                MutateModifier(owner.TerrainId, modifier.Id, item =>
+                {
+                    var projectTo = (ProjectToModifierDefinition)item;
+                    projectTo.TargetMesh.ReplaceObjects(Array.Empty<Guid>());
+                    projectTo.TargetMesh.ReplaceLayers(Array.Empty<string>());
+                });
+                RefreshUi();
+            }, "Clear the target mesh."));
+        }
+
+        return new PropertyRow(
+            CreateHelpLabel(parameter.Label, parameter.Help ?? "One Rhino mesh to project toward.", 0),
+            controls,
+            expandWidget: true);
+    }
+
+    private static bool ProjectToTerrainDependsOn(
+        IReadOnlyList<TerrainDefinition> terrains,
+        Guid terrainId,
+        Guid soughtTerrainId,
+        HashSet<Guid> visited)
+    {
+        if (terrainId == soughtTerrainId)
+            return true;
+        if (!visited.Add(terrainId))
+            return false;
+
+        TerrainDefinition? terrain = terrains.FirstOrDefault(item => item.TerrainId == terrainId);
+        if (terrain == null)
+            return false;
+
+        foreach (Guid targetId in terrain.Modifiers
+                     .OfType<ProjectToModifierDefinition>()
+                     .Where(item => item.IsEnabled && !item.TargetMesh.HasReferences && item.TargetTerrainId.HasValue)
+                     .Select(item => item.TargetTerrainId!.Value))
+        {
+            if (ProjectToTerrainDependsOn(terrains, targetId, soughtTerrainId, visited))
+                return true;
+        }
+
+        return false;
     }
 
     private Control CreateDemSurfaceRow(TerrainDefinition terrain, TriangulateModifierDefinition modifier)

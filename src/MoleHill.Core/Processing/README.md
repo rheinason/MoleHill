@@ -17,3 +17,6 @@ Pure, unit-tested.
   loops and splits crossing polylines while linearly interpolating Z. The Rhino host applies it to raw
   Triangulate and Add Geometry sources, never to the carried mesh.
 - `RegionInputFilter.cs` — legacy margin-capable point-region helper retained for compiled callers.
+- `SurfaceConformer.cs` — Z-only blend from an incoming terrain to a target 2.5D mesh. Optional closed
+  loops use even-odd nesting for islands and donut holes, with a smooth feather contained inside every
+  boundary edge.

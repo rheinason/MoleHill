@@ -256,17 +256,21 @@ concern, not a display one, and the answer must be the same for earthworks, zone
 
 ---
 
-### B9 — "Project To" modifier (conform to a target)
+### B9 — "Project To" modifier (conform to a target) — **shipped**
+
+**Shipped 2026-09-14.** The card accepts exactly one Rhino mesh or one other MoleHill terrain, then
+Strength, optional Boundaries, and an inward Feather distance. No boundary means the whole overlapping
+XY footprint. Multiple closed loops use even-odd nesting, which gives donut holes without a separate
+hole input; the same contained feather applies around outer and hole rims. Missing target coverage keeps
+the incoming terrain unchanged. Terrain targets fingerprint their final mesh, update dependants, and
+cannot be selected where that would introduce a projection cycle.
 
 **Reference:** Blender's Shrinkwrap, and Civil 3D's Paste Surface as the strength-1 special case.
 
-**Naming:** **not** Shrinkwrap. Rhino 8 already has a `ShrinkWrap` command that builds a hull mesh
-around geometry — a completely different operation, and reusing the word would be actively misleading.
-`Project To` is the working name (the Rhino `Project` verb, which users already read as "along the
-construction/world axis"); `Conform To` is the alternative if `Project` reads too close to Rhino's own
-curve-projection command. Pick before implementation; the concept is settled either way.
+**Naming:** **Project To**, not Shrinkwrap. Rhino 8 already uses `ShrinkWrap` for hull-mesh creation;
+Project To says that this operation is a World-Z projection toward another terrain surface.
 
-**What it does:** pull the terrain onto a **target** — another terrain, a mesh, or a surface — with a
+**What it does:** pull the terrain onto a **target** — another terrain or a mesh — with a
 **strength** of 0–1, limited to a **boundary** region, feathered over a falloff distance. Strength 1
 inside a boundary is Paste Surface. Strength 0.4 is a partial blend. A narrow feathered ring along the
 site edge is a tie-in to existing conditions, which is the case that comes up constantly and currently
@@ -279,9 +283,8 @@ nearest-surface-point / normal-direction ambiguity applies — it is a height lo
 `MeshHeightProjector` is already the fast XY→Z lookup, and the target/strength/boundary/falloff
 vocabulary is the one `SculptConstraintMask` established.
 
-**Notes:** the target is document geometry, so it needs the same source-tracking treatment other
-source sets get. Behaviour where the target does not cover the terrain must be explicit — no target
-above or below means strength 0 there, not a hole.
+The Rhino-mesh target uses ordinary source tracking. A MoleHill-terrain target reads its latest final
+mesh directly and participates in dependent rebuild scheduling.
 
 ---
 

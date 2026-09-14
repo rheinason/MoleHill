@@ -31,6 +31,9 @@ fields by composing them, not by copying boilerplate.
   warning when an uneven incoming TIN has no earlier Remesh modifier. Triangulate keeps its source rows
   together, then shows a Boundaries group with standard Outer/Hide/Show/Data Clip object-and-layer rows,
   a Rectangle shortcut on Data Clip, Contour Mode, and a titled Peel Border settings group.
+  Project To starts with a Target group: choosing a MoleHill terrain clears its Rhino mesh source and
+  assigning a mesh clears the terrain choice; cycle-producing terrain choices are omitted. Boundaries,
+  Strength, and Feather then use the ordinary schema rows.
 - `ColorRampControl.cs`, `ColorRampBar.cs`, `ScrubField.cs`, and `MoleHillPanel.ColorRamp.cs` - the
   colour-ramp card, declared by `ParameterDescriptor<AnalysisDefinition>.ColorRamp()` and rendered for Slope,
   Elevation and Cut/Fill. It replaced three separate things: the "Coloring & intervals" group, the

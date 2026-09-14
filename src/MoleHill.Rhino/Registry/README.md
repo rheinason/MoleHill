@@ -46,6 +46,9 @@ strings come from each descriptor's `Kind` and must stay stable so saved `.3dm` 
 - **Card** — `Parameters` (an ordered `ParameterDescriptor<ModifierDefinition>` list) is turned into Eto editor rows by
   `MoleHillPanel.Schema.cs`. The same schema is the contract for future **Grasshopper-component**
   generation (GH parity).
+- `ProjectToModifierDescriptor` follows that path for Boundaries, Strength, and Feather; its Target Mesh
+  row is declared in the same schema but positioned beside the bespoke MoleHill-terrain dropdown so the
+  two mutually exclusive target forms read as one group.
 
 ## Parameter schema
 

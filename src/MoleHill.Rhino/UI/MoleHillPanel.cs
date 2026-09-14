@@ -2657,6 +2657,7 @@ public sealed partial class MoleHillPanel : Panel
         "add-geometry"   => Color.FromArgb(2, 136, 209),
         "remesh"         => Color.FromArgb(56, 142, 60),
         "smooth"         => Color.FromArgb(123, 31, 162),
+        "project-to"     => Color.FromArgb(0, 121, 140),
         "retaining-wall" => Color.FromArgb(230, 74, 25),
         "grade-pad"      => Color.FromArgb(245, 124, 0),
         "grade-path"     => Color.FromArgb(93, 64, 55),
@@ -2703,6 +2704,12 @@ public sealed partial class MoleHillPanel : Panel
                 return string.Join(" | ", parts);
             case SmoothModifierDefinition s:
                 return $"{s.Iterations} iter | Str {s.Strength:G3}";
+            case ProjectToModifierDefinition projectTo:
+                string target = projectTo.TargetMesh.HasReferences
+                    ? "mesh"
+                    : projectTo.TargetTerrainId.HasValue ? "terrain" : "no target";
+                int projectBoundaries = projectTo.Boundaries.ObjectIds.Count + projectTo.Boundaries.LayerPaths.Count;
+                return $"{target} | {projectBoundaries} boundaries | Str {projectTo.Strength:G3}";
             case GradePadModifierDefinition p:
                 int bounds = p.Boundaries.ObjectIds.Count + p.Boundaries.LayerPaths.Count;
                 return $"{bounds} boundaries | Daylight {p.SlopeAngle:G4} deg";

@@ -104,6 +104,18 @@ internal static class TerrainSerializer
                     gradePath.UseVariableWidth = true;
                 }
             }
+            foreach (var projectTo in terrain.Modifiers.OfType<ProjectToModifierDefinition>())
+            {
+                projectTo.TargetMesh ??= new SourceReferenceSet();
+                projectTo.TargetMesh.ReplaceLayers(Array.Empty<string>());
+                projectTo.Boundaries ??= new SourceReferenceSet();
+                projectTo.Strength = Math.Clamp(projectTo.Strength, 0.0, 1.0);
+                projectTo.FeatherDistance = Math.Max(0.0, projectTo.FeatherDistance);
+                if (projectTo.TargetTerrainId == Guid.Empty)
+                    projectTo.TargetTerrainId = null;
+                if (projectTo.TargetMesh.HasReferences)
+                    projectTo.TargetTerrainId = null;
+            }
             NormalizeSculptModifiers(terrain);
             NormalizeObjects(terrain);
             PromoteLegacyTolerance(terrain);

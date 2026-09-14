@@ -525,7 +525,7 @@ internal sealed partial class TerrainController
                 "Rebuild total");
             commandElapsed += saveTimer.Elapsed + redrawTimer.Elapsed;
             if (sectionReferenceMeshChanged)
-                ScheduleSectionDependents(doc, state, terrain.TerrainId);
+                ScheduleTerrainDependents(doc, state, terrain.TerrainId);
         }
         else
         {
