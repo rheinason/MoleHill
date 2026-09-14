@@ -409,8 +409,8 @@ TIN production path's faster Triangle.NET-native adjacency.
 `TerrainBuildService.Build(snapshot, runtimeCache, mode)` runs stages, most behind a per-stage
 fingerprint cache (`runtimeCache.StageEntries`); decomposed into `TerrainBuildService.*.cs` partials
 (`.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Sculpt`,
-plus `.Cache`, `.Fingerprints`, `.Types`). Order: TIN → modifiers (smooth/remesh/sculpt/grade pad/
-grade path) → analyses → annotations → zones → markers → object placements → scatter. **The generated-output
+plus `.Cache`, `.Fingerprints`, `.Types`, `.Report`). Order: TIN → modifiers (smooth/remesh/sculpt/grade
+pad/grade path) → analyses → annotations → zones → markers → object placements → scatter → report tables. **The generated-output
 stages run only in `TerrainBuildMode.Final` and are fingerprint-cached**. Analyses and annotations are each
 cached independently by id; zones, markers, objects, and scatter retain stage-level entries. Both families
 run through one `RunStage` local function in `.Analysis.cs` — the stage scaffolding (enabled check,
@@ -428,7 +428,7 @@ which family a type belongs to:
   onto the mesh. Only these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`,
   `ResolveRamp()`) — though carrying it is not the same as using it, see catchments below.
 - **Annotation** (`Model/AnnotationDefinition`, `Registry/AnnotationTypeRegistry`) — contours, spot heights,
-  spot slopes, flow arrows, grade callouts, and the three section types. The result is drawing, and it
+  spot slopes, flow arrows, grade callouts, the three section types, and the report table. The result is drawing, and it
   says what is already there. Only these carry `FollowsAnnotationStyle`.
 
 Waterflow is an analysis despite emitting curves: it *computes* flow paths, so its output is a finding,
@@ -704,6 +704,42 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   only completed final meshes, fingerprint their geometry/name/colour, and rebuild live dependents when
   a referenced terrain changes without allowing cyclic references to loop indefinitely.
 
+## Rhino: quantity reporting
+
+The deliverable form of what a build measured: a CSV file, and the same figures drawn into the model.
+
+`Core/Reporting` holds the assembled form — `ReportDocument` → `ReportTable` → `ReportColumn`, plus
+`CsvWriter`. Cells are **already-formatted strings** and the **unit lives on the column**, not in the
+cell: rounding is a presentation decision that is the same decision in a spreadsheet and on a drawing,
+and `1250.00 m²` is a string no spreadsheet can sum while a bare `1250` says nothing.
+
+`Services/TerrainReportBuilder` assembles one from a terrain and the summaries of its last build
+(`ZoneAnalysisSummary` per zone, `TerrainAnalysisSummary` per analysis), in **model units**, with slope
+in the requested slope unit. It is the single place a figure is rounded and labelled, and both outputs
+read it, so they cannot disagree:
+
+- **`mhExportTerrainReport`** writes it as CSV (UTF-8 **with** a BOM — Excel reads a BOM-less file as the
+  system codepage and turns every `m²` into mojibake). It uses `SlopeUnitPreference`, because the export
+  is something you read.
+- **The Report Table annotation** (`ReportTableAnnotationDefinition`, `TerrainReportTableBuilder`) draws
+  it as text and rules on the `ReportTable` role. It carries its own `Unit`, because that one is part of
+  the drawing — the same split every other annotation makes.
+
+Two rules the report keeps, both about what it declines to say:
+
+- **A quantity that was not measured is blank, never zero.** A zero in a quantity report is a claim. "No
+  ponding analysis is switched on" must not read as "the terrain holds no water", and a zone whose
+  earthwork was never computed must not read as needing no excavation.
+- **A section that measured nothing is not drawn at all** (`ReportDocument.RemoveEmptyTables`), so an
+  empty heading never implies an empty result.
+
+**The report table is an annotation, and it runs last.** It describes the terrain and it is drawing, so
+it belongs to the annotation family — and being live is the point: a figure on the sheet cannot be left
+over from a design two revisions ago. But it cannot run in the annotation stage, because its input is
+every *other* stage's output: the zone schedule does not exist until the zones stage has run. It runs
+after scatter, in `TerrainBuildService.Report.cs`, and **uncached** — a correct cache key would have to
+fingerprint every stage's results, which costs more than laying out a few hundred text entities.
+
 ## Rhino: 2D drawing output (sheet readiness)
 
 Rhino owns styling and sheets. MoleHill declares where its output goes and how each destination starts
@@ -718,6 +754,12 @@ Rhino's, and a layer belongs to the user once it exists. There is no page/sheet 
   the style on the document thread into an `AnnotationStyleSnapshot` carried on `TerrainBuildSnapshot`,
   because the background build has no document access (same pattern as `BlockDefinitionBounds`); it also
   creates the style up front so preview and bake are sized identically from the first build.
+- **Stamping a style resets the entity's own size *and* justification.** Both are dimension-style fields,
+  and an entity keeps its own only as an override, which assigning the style clears. Size following the
+  style is the design, so generated text must be authored at the style height — a cell drawn at 1.4× it
+  previews large and bakes at 1×. Alignment is the opposite: a producer *places* text according to it, so
+  `AddTextEntity` reads it off before the stamp and sets it back after. Without that, every generated label
+  baked top-left however it previewed, which silently misplaces anything anchored by its alignment.
 - **Marker symbols stay block instances**, scaled from the style's effective text height
   (`TextHeight * DimensionScale`). Blocks are authored with internal text at height 1.0, so instance scale
   *is* the model text height and no per-scale duplicate definitions are needed. `BlockScale` becomes a

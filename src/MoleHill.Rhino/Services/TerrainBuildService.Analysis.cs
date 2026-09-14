@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
@@ -288,6 +288,9 @@ internal sealed partial class TerrainBuildService
                     shouldCancel,
                     snapshot.LayerRoles,
                     fallbackBaseMesh),
+                // The report table draws what every other stage measured, so it cannot run here: the zone
+                // schedule does not exist until the zones stage has run. See TerrainBuildService.Report.cs.
+                ReportTableAnnotationDefinition => null,
                 ContourAnnotationDefinition contour => BuildContourSummary(
                     terrain,
                     currentMesh,

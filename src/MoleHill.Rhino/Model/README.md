@@ -21,6 +21,11 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   and the ramp card hides the bounds. Defaults to the cyclic `aspect-wheel` preset in `Constant` mode,
   which reads as eight sectors. `FlatSlopeThresholdDegrees` is a slope like every other in the model —
   stored in degrees, typed in whatever unit the user works in.
+- `ReportTableAnnotationDefinition.cs` — the quantity summary drawn into the model. Which sections to
+  include, the rules, spacing as multiples of the text height, and an insertion origin (unset places it
+  beside the terrain). It carries its own slope `Unit` because that unit is part of the drawing; the CSV
+  export follows the per-user `SlopeUnitPreference` instead. It measures nothing — every figure comes from
+  the other stages, which is why its build runs last.
 - `CutFillAnalysisDefinition.cs` — the signed delta, as colour *and* optionally as drawn lines
   (`ShowDeltaContours` + `DeltaContourInterval`, `ShowBalanceLine`, each with an optional explicit colour
   that falls back to its role's layer). `DrawsDeltaOutput` is the one question the build and the

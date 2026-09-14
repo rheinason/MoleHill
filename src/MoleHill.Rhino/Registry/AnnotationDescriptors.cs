@@ -1,4 +1,4 @@
-using MoleHill.Core.Analysis;
+﻿using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
@@ -52,6 +52,7 @@ internal static class AnnotationParameterCatalog
         CurveSlopeLabelAnnotationDefinition d => d.Unit,
         PointSlopeLabelAnnotationDefinition d => d.Unit,
         SlopeArrowAnnotationDefinition d => d.Unit,
+        ReportTableAnnotationDefinition d => d.Unit,
         _ => SlopeAnalyzer.SlopeUnit.Percent
     };
 
@@ -62,6 +63,7 @@ internal static class AnnotationParameterCatalog
             case CurveSlopeLabelAnnotationDefinition d: d.Unit = unit; break;
             case PointSlopeLabelAnnotationDefinition d: d.Unit = unit; break;
             case SlopeArrowAnnotationDefinition d: d.Unit = unit; break;
+            case ReportTableAnnotationDefinition d: d.Unit = unit; break;
         }
     }
 
@@ -636,4 +638,99 @@ internal sealed class LongitudinalSectionAnnotationDescriptor : AnnotationTypeDe
             : null;
     }
 
+}
+
+/// <summary>
+/// The quantity summary drawn into the model — Civil 3D's inserted cut/fill table, as a live annotation.
+///
+/// It is the only annotation that draws nothing of its own: every figure comes from what the rest of the
+/// build measured, which is also why it has no sources row. Its blocker says so plainly, because a card
+/// that renders an empty table is indistinguishable from one whose terrain holds nothing.
+/// </summary>
+internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
+{
+    public override string Kind => "report-table";
+    public override Type DefinitionType => typeof(ReportTableAnnotationDefinition);
+    public override string TypeLabel => "Report Table";
+    public override string MenuLabel => "Report Table";
+    public override string IconLabel => "RT";
+    public override string? IconName => "AnReportTable";
+    public override int AccentArgb => unchecked((int)0xFF37474F);
+    public override string Subtitle => "Measured quantities, drawn as a table";
+    public override int SortOrder => 10;
+    public override AnnotationDefinition Create() => new ReportTableAnnotationDefinition();
+
+    public override IReadOnlyList<AnnotationParam> Parameters { get; } = new[]
+    {
+        AnnotationParam.Bool(
+            "IncludeOverview", "Terrain",
+            a => ((ReportTableAnnotationDefinition)a).IncludeOverview,
+            (a, v) => ((ReportTableAnnotationDefinition)a).IncludeOverview = v,
+            "Terrain name, the date the figures were measured, surface area and elevation range."),
+        AnnotationParam.Bool(
+            "IncludeZones", "Zone Schedule",
+            a => ((ReportTableAnnotationDefinition)a).IncludeZones,
+            (a, v) => ((ReportTableAnnotationDefinition)a).IncludeZones = v,
+            "Area, levels, slope and earthwork per zone, with a totals row."),
+        AnnotationParam.Bool(
+            "IncludeEarthworks", "Earthworks",
+            a => ((ReportTableAnnotationDefinition)a).IncludeEarthworks,
+            (a, v) => ((ReportTableAnnotationDefinition)a).IncludeEarthworks = v,
+            "Cut, fill and net volume from each Earthworks analysis on this terrain."),
+        AnnotationParam.Bool(
+            "IncludePonding", "Ponding",
+            a => ((ReportTableAnnotationDefinition)a).IncludePonding,
+            (a, v) => ((ReportTableAnnotationDefinition)a).IncludePonding = v,
+            "Pond count, impounded volume, depth and water area from each Ponding analysis."),
+        AnnotationParam.Bool(
+            "IncludeCatchments", "Catchments",
+            a => ((ReportTableAnnotationDefinition)a).IncludeCatchments,
+            (a, v) => ((ReportTableAnnotationDefinition)a).IncludeCatchments = v,
+            "Basin and closed-depression counts from each Catchments analysis."),
+        AnnotationParameterCatalog.SlopeUnitChoice(
+            "Unit the drawn slope columns are written in. This one belongs to the drawing, so it is " +
+            "stored with the terrain — unlike the slope unit you type in, which is a per-user preference."),
+        AnnotationParam.Bool(
+            "ShowGridLines", "Rules",
+            a => ((ReportTableAnnotationDefinition)a).ShowGridLines,
+            (a, v) => ((ReportTableAnnotationDefinition)a).ShowGridLines = v,
+            "Draw a rule under each heading row and below each table. Off leaves text only."),
+        AnnotationParam.Number(
+            "ColumnGap", "Column Gap",
+            a => ((ReportTableAnnotationDefinition)a).ColumnGap,
+            (a, v) => ((ReportTableAnnotationDefinition)a).ColumnGap = Math.Max(0.25, v),
+            "Space between columns, as a multiple of the text height — so the table stays proportioned " +
+            "when the annotation style is rescaled.",
+            min: 0.25, decimalPlaces: 2),
+        AnnotationParam.Number(
+            "RowSpacing", "Row Spacing",
+            a => ((ReportTableAnnotationDefinition)a).RowSpacing,
+            (a, v) => ((ReportTableAnnotationDefinition)a).RowSpacing = Math.Max(1.0, v),
+            "Line spacing, as a multiple of the text height.",
+            min: 1.0, decimalPlaces: 2),
+        AnnotationParam.Color(
+            "ColorArgb", "Color",
+            a => ((ReportTableAnnotationDefinition)a).ColorArgb,
+            (a, v) => ((ReportTableAnnotationDefinition)a).ColorArgb = v,
+            "Override colour for the table. Unset draws it in the Report Table layer's colour."),
+    };
+
+    public override string? DescribeBlocker(TerrainDefinition terrain, AnnotationDefinition annotation)
+    {
+        var table = (ReportTableAnnotationDefinition)annotation;
+        bool anythingSelected = table.IncludeOverview || table.IncludeZones ||
+            table.IncludeEarthworks || table.IncludePonding || table.IncludeCatchments;
+        if (!anythingSelected)
+            return "Nothing is selected to report — switch on at least one section below.";
+
+        // A report draws what other cards measured. Saying which card is missing is more use than an
+        // empty table, which reads as "this terrain has no quantities".
+        bool hasSource = terrain.Zones.Count > 0 || terrain.Analyses.Count > 0;
+        return hasSource
+            ? null
+            : "Nothing measures this terrain yet — add a zone, or an Earthworks, Ponding or Catchments analysis.";
+    }
+
+    public override string? DescribeBasis(TerrainDefinition terrain, AnnotationDefinition annotation) =>
+        "Figures come from the last build, in model units. mhExportTerrainReport writes the same report as CSV.";
 }

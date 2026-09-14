@@ -1,4 +1,4 @@
-using MoleHill.Rhino.Model;
+﻿using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
 using Xunit;
@@ -32,7 +32,7 @@ public class LayerRoleRegistryTests
             "contours", "contours-major", "contours-minor",
             "cut-fill-contours", "balance-line",
             "waterflow", "catchments", "catchment-flow-paths",
-            "ponding", "ponding-spill-points", "labels",
+            "ponding", "ponding-spill-points", "report-table", "labels",
             "markers", "marker-labels",
             "sections", "sections-existing", "sections-cuts", "sections-grid", "sections-ticks",
             "sections-labels", "sections-cutfill", "sections-cutfill-cut", "sections-cutfill-fill"

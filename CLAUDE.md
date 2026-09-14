@@ -117,6 +117,15 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
 - **RhinoMesh alias**: use `using RhinoMesh = Rhino.Geometry.Mesh;` when `Mesh` is ambiguous with TriangleNet types
 - **Normals**: always call `ComputeNormals()` then `UnifyNormals()` on all output Rhino meshes
 - **Edge-key hashing**: a `Dictionary`/`HashSet` keyed by a packed edge key (`(min << 32) | max`) MUST be constructed with `IndexedMeshTools.EdgeKeyComparer.Instance`. The default `long` hash is `lo ^ hi`, which for adjacent mesh indices collapses nearly every edge into a handful of buckets and turns an O(n) pass into a quadratic scan — it cost 7 s of a 10 s remesh on a 180k-face terrain. The same applies to per-vertex adjacency: prefer the flat CSR `MeshVertexAdjacency` over a dictionary of `List`/`HashSet` in any loop that rebuilds it per round.
+- **Generated text is sized and aligned by the annotation style — so author it accordingly.** Baking
+  stamps the terrain's dimension style onto every generated `TextEntity`, and a dimension style owns
+  *both* size and justification: the stamp resets the entity's own values to the style's. Height following
+  the style is the design, so never fight it — text drawn at a multiple of the style height previews large
+  and bakes at 1×, and preview and bake disagreeing is the one thing this pipeline does not do (express
+  hierarchy with spacing and rules instead). Alignment is the opposite case, because a producer *places*
+  text according to it — a right-aligned figure sits at its column's right edge — so `AddTextEntity`
+  (`TerrainController.Output.cs`) reads the alignment off before the stamp and sets it back after. Found
+  live: without it every generated label baked top-left however it previewed.
 - **Zone/area splitting:** construct face geometry on demand; do not retain an object for every
   terrain face. Index boundary intersections and map segments with face-owned parallel scratch,
   sorting candidates to preserve accumulation order. Clamp spatial queries to index extents.

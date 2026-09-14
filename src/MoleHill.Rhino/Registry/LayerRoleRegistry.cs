@@ -1,4 +1,4 @@
-using MoleHill.Rhino.Model;
+﻿using MoleHill.Rhino.Model;
 
 namespace MoleHill.Rhino.Registry;
 
@@ -177,6 +177,14 @@ internal static class LayerRoleRegistry
             null,
             new LayerAppearanceDefaults(PreviewWidthPx: 1, SuppressInheritedPlotWeight: true),
             LayerRoleFacets.Text, ColorFromObject: true),
+
+        // The report table is drawing, not measurement: black text and hairline rules on its own branch,
+        // so a drawing set can hide the quantities without hiding the plan they were measured from.
+        new(LayerRole.ReportTable, "report-table", "Report Table", LayerRole.Annotation, "::Report Table",
+            null,
+            new LayerAppearanceDefaults(
+                ColorArgb: Black, PrintColorArgb: Black, PlotWeight: 0.13, PreviewWidthPx: 1),
+            LayerRoleFacets.Line | LayerRoleFacets.Text),
 
         // ── Sections ─────────────────────────────────────────────────────────
         // The proposed terrain is the subject of the drawing: the heaviest line on it, and black.

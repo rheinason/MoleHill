@@ -119,6 +119,7 @@
       </tool_bar_item>
       <tool_bar_item guid="65d90305-d40e-483a-adac-f32ab8afdf9d">
         <left_macro_id>9d4f0fa8-e59a-4f02-99e9-909bbabb7f45</left_macro_id>
+        <right_macro_id>4b1e9d02-6c4a-4a0f-9b2e-3f0f4c6f5a71</right_macro_id>
       </tool_bar_item>
       <tool_bar_item guid="aa6018e3-1aea-479e-85e1-777117528f69">
         <left_macro_id>50536ab5-15ee-48b0-b210-fe92ef52b71e</left_macro_id>
@@ -473,6 +474,15 @@ _CurveType=_Interpolated</script>
         <locale_1033>Export LandXML</locale_1033>
       </tooltip>
       <script>mhExportLandXml</script>
+    </macro_item>
+    <macro_item guid="4b1e9d02-6c4a-4a0f-9b2e-3f0f4c6f5a71" bitmap_id="ee7c590c-90e2-4f45-8542-1af079c05e56">
+      <text>
+        <locale_1033>mhExportTerrainReport</locale_1033>
+      </text>
+      <tooltip>
+        <locale_1033>Export Terrain Report (CSV)</locale_1033>
+      </tooltip>
+      <script>mhExportTerrainReport</script>
     </macro_item>
     <macro_item guid="7fde48b1-0b10-427c-bb47-93daf61a5787" bitmap_id="93273efd-f8f3-4789-8d1c-52e8ba88b570">
       <text>

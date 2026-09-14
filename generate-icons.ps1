@@ -1,4 +1,4 @@
-Add-Type -AssemblyName System.Drawing
+﻿Add-Type -AssemblyName System.Drawing
 
 $ghDir = "$PSScriptRoot\src\MoleHill.Grasshopper\Resources"
 if (-not (Test-Path $ghDir)) { New-Item -ItemType Directory -Path $ghDir | Out-Null }
@@ -731,6 +731,23 @@ New-Icon "$rhinoDir\AnCutFill.png" {
     $down = New-Object System.Drawing.SolidBrush((Argb 25 118 210))   # cut
     $g.FillPolygon($down, @((PtF 11 14), (PtF 8 9), (PtF 14 9)))
     $up.Dispose(); $down.Dispose()
+} -size 16
+
+# AnReportTable - a ruled schedule: heavy heading band over two data rows
+New-Icon "$rhinoDir\AnReportTable.png" {
+    param($g)
+    $head = New-Object System.Drawing.SolidBrush((Argb 55 71 79))
+    $g.FillRectangle($head, 1, 2, 14, 3)
+    $head.Dispose()
+    $rule = New-Object System.Drawing.Pen((Argb 55 71 79), 1)
+    $g.DrawRectangle($rule, 1, 2, 14, 11)
+    $g.DrawLine($rule, 1, 8, 15, 8)
+    $g.DrawLine($rule, 7, 5, 7, 13)
+    $rule.Dispose()
+    $cell = New-Object System.Drawing.SolidBrush((Argb 120 144 156))
+    $g.FillRectangle($cell, 9, 6, 4, 1)
+    $g.FillRectangle($cell, 9, 10, 4, 1)
+    $cell.Dispose()
 } -size 16
 
 # AnContour - three nested contour rings

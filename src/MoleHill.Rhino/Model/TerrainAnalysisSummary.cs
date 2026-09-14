@@ -1,4 +1,4 @@
-namespace MoleHill.Rhino.Model;
+﻿namespace MoleHill.Rhino.Model;
 
 /// <summary>
 /// What one analysis or annotation measured on the last build, for the panel to read back without
@@ -141,6 +141,12 @@ public sealed class TerrainAnalysisSummary
 
     /// <summary>Balance-line curves — the zero crossing of the cut/fill delta — drawn on the last build.</summary>
     public int CutFillBalanceCurveCount { get; set; }
+
+    /// <summary>Data rows the report table drew on the last build, headings and titles excluded.</summary>
+    public int ReportRowCount { get; set; }
+
+    /// <summary>Tables the report table drew — a section that measured nothing is not drawn at all.</summary>
+    public int ReportTableCount { get; set; }
 
     public double SampleMinValue { get; set; }
 

@@ -12,7 +12,9 @@ using Rhino.Geometry;
 using Rhino.Input;
 using Rhino.Input.Custom;
 using Rhino.UI;
+using System.Text;
 using MoleHill.Core.Interop;
+using MoleHill.Core.Reporting;
 using MoleHill.Rhino.Model;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
@@ -331,6 +333,69 @@ internal static class DocumentCommandService
             return Result.Failure;
         }
         RhinoApp.WriteLine($"MoleHill: exported LandXML surface '{terrain.Name}'.");
+        return Result.Success;
+    }
+
+    /// <summary>
+    /// Writes the selected terrain's measured quantities to a CSV file: the per-zone schedule, the
+    /// earthwork volumes, and the drainage figures, as the last build measured them.
+    ///
+    /// It exports rather than measures. Everything here comes from the summaries the completed build
+    /// already produced, so a terrain that has not been built since its last edit exports what it last
+    /// measured — and says so — instead of quietly recomputing a different answer than the panel shows.
+    /// </summary>
+    public static Result RunExportTerrainReport(RhinoDoc doc)
+    {
+        if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext documentUnits))
+            return Result.Failure;
+
+        TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
+        if (terrain == null)
+        {
+            RhinoApp.WriteLine("MoleHill: no terrain is selected.");
+            return Result.Nothing;
+        }
+
+        IReadOnlyList<ZoneAnalysisSummary> zoneSummaries =
+            TerrainController.Instance.GetZoneAnalysisResults(doc, terrain.TerrainId);
+        IReadOnlyList<TerrainAnalysisSummary> analysisSummaries = terrain.LastAnalysisResults;
+        if (zoneSummaries.Count == 0 && analysisSummaries.Count == 0)
+        {
+            RhinoApp.WriteLine(
+                "MoleHill: nothing to report yet — build the terrain, and add a zone or an analysis to measure.");
+            return Result.Nothing;
+        }
+
+        ReportDocument report = TerrainReportBuilder.Build(
+            terrain,
+            zoneSummaries,
+            analysisSummaries,
+            documentUnits,
+            SlopeUnitPreference.Current,
+            DateTime.Now);
+
+        var dialog = new SaveFileDialog { Title = "Export Terrain Report", FileName = $"{terrain.Name} report.csv" };
+        dialog.Filters.Add(new FileFilter("CSV", ".csv"));
+        if (dialog.ShowDialog(RhinoEtoApp.MainWindowForDocument(doc)) != DialogResult.Ok ||
+            string.IsNullOrWhiteSpace(dialog.FileName))
+        {
+            return Result.Cancel;
+        }
+
+        try
+        {
+            // UTF-8 with a BOM: the headings carry m² and m³, and Excel reads a BOM-less file as the
+            // system codepage, which turns every unit in the report into mojibake.
+            File.WriteAllText(dialog.FileName, CsvWriter.Write(report), new UTF8Encoding(true));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            RhinoApp.WriteLine($"MoleHill: could not write the report: {ex.Message}");
+            return Result.Failure;
+        }
+
+        RhinoApp.WriteLine(
+            $"MoleHill: exported {report.Tables.Count:N0} table(s) for '{terrain.Name}' to {dialog.FileName}.");
         return Result.Success;
     }
 

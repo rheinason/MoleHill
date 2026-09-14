@@ -1,4 +1,4 @@
-namespace MoleHill.Rhino.Model;
+﻿namespace MoleHill.Rhino.Model;
 
 /// <summary>
 /// The closed set of destinations MoleHill generates output for.
@@ -51,6 +51,9 @@ public enum LayerRole
 
     /// <summary>Markers where a depression overflows.</summary>
     PondingSpillPoints,
+
+    /// <summary>The drawn quantity-summary table: its rules and its text.</summary>
+    ReportTable,
 
     Labels,
 

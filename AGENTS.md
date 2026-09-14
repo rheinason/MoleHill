@@ -101,6 +101,15 @@ Use C# with 4-space indentation, file-scoped namespaces, and one type per file. 
   converted; a fold between two faces has no rise over run. Slope-taking commands share one
   `SlopeCommandOption` (value + `Units` list) so every prompt reads alike. See
   `docs/architecture.md` → "Slope units".
+- **Generated text is sized and aligned by the annotation style — so author it accordingly.** Baking
+  stamps the terrain's dimension style onto every generated `TextEntity`, and a dimension style owns
+  *both* size and justification: the stamp resets the entity's own values to the style's. Height following
+  the style is the design, so never fight it — text drawn at a multiple of the style height previews large
+  and bakes at 1×, and preview and bake disagreeing is the one thing this pipeline does not do (express
+  hierarchy with spacing and rules instead). Alignment is the opposite case, because a producer *places*
+  text according to it — a right-aligned figure sits at its column's right edge — so `AddTextEntity`
+  (`TerrainController.Output.cs`) reads the alignment off before the stamp and sets it back after. Found
+  live: without it every generated label baked top-left however it previewed.
 - **Output layer routing goes through `LayerRole`**: never hardcode or plumb a layer path for generated output, and never append a suffix to build one. `GeneratedRhinoObject.Role` is `required` and `LayerRoleTable.Path` is never null, so every producer names a destination and every destination resolves — that is what stops output baking onto Rhino's current layer. Appearance (colour, print width, linetype, annotation style, hatch) comes from the same role, so preview and bake cannot drift apart. See `docs/architecture.md` → "Output layer roles".
 
 Keep nullable annotations intentional: `MoleHill.*` projects have nullable enabled, while `TriangleNet` does not. Keep reusable computation in `MoleHill.Core`, Grasshopper-specific component and conversion code in `MoleHill.Grasshopper`, and Rhino command/panel/document workflows in `MoleHill.Rhino`.

@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
@@ -549,6 +549,8 @@ internal static class TerrainRuntimeCacheCloner
             WaterflowRejectedCount = analysis.WaterflowRejectedCount,
             CutFillDeltaContourCount = analysis.CutFillDeltaContourCount,
             CutFillBalanceCurveCount = analysis.CutFillBalanceCurveCount,
+            ReportRowCount = analysis.ReportRowCount,
+            ReportTableCount = analysis.ReportTableCount,
             SampleMinValue = analysis.SampleMinValue,
             SampleMaxValue = analysis.SampleMaxValue,
             SampleAverageValue = analysis.SampleAverageValue

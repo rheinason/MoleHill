@@ -6,7 +6,7 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 ## Build pipeline
 - `TerrainBuildService.cs` + `TerrainBuildService.*.cs` partials - the staged build orchestrator. Each
   partial owns a stage: `.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`,
-  `.Scatter`, `.Sculpt` (replays the sculpt displacement field as displacement-only); plus
+  `.Scatter`, `.Sculpt` (replays the sculpt displacement field as displacement-only), `.Report`; plus
   `.Cache`, `.Fingerprints`, `.Types`. Most stages are fingerprint-cached
   (`StageCacheEntry`); analysis, zones, markers, object placements, and scatter run only in
   `TerrainBuildMode.Final`. Analysis entries are per analysis id, so changing one card does not
@@ -193,6 +193,20 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   Multiple zone pieces therefore share the expensive reference index while retaining independent
   cut/fill volumes and per-call projection diagnostics.
 - `SculptFieldCodec.cs` - persisted `SculptTile` list (base64) ⇄ runtime `SculptDisplacementField`.
+
+## Quantity reporting
+- `TerrainReportBuilder.cs` - assembles the last build's summaries into a `Core.Reporting.ReportDocument`,
+  in model units, with the slope unit the caller asks for. The single place a figure is rounded and
+  labelled, so the CSV export and the drawn table cannot disagree. A quantity nothing measured is blank,
+  never zero: in a quantity report a zero is a claim.
+- `TerrainReportTableBuilder.cs` - lays that document out as text and rules on the `ReportTable` role.
+  Column widths are estimated from the longest cell (`CharacterWidthRatio`) because measuring glyphs needs
+  a font and a device, and the build has no document thread; everything is sized in multiples of the text
+  height so the table rescales with the annotation style.
+- `TerrainBuildService.Report.cs` - the stage that drives them, after scatter and uncached. See
+  `docs/architecture.md` → "Rhino: quantity reporting" for why it cannot run with the other annotations.
+- `DocumentCommandService.RunExportTerrainReport` - `mhExportTerrainReport`, the CSV writer, UTF-8 with a
+  BOM so Excel reads `m²` rather than mojibake.
 
 ## Layer templates
 - `LayerTemplateStore.cs` - the machine-local templates (`%APPDATA%\MoleHill\layer-templates.json`), the

@@ -77,7 +77,7 @@ annotation", and `src/MoleHill.Core/Analysis/README.md`.
 
 Not done, and deliberately: nested or merged ponds (one spill level per depression), pond volume at a
 *stated* level rather than at the spill, and catchment export for a downstream hydrology tool — the last
-is the boundary this backlog draws, and wants B4's CSV writer rather than anything new here.
+is the boundary this backlog draws, and wants B4's CSV writer (now shipped) rather than anything new here.
 
 ---
 
@@ -108,32 +108,42 @@ it; nobody has asked for it here), and delta contour *labels*.
 
 ---
 
-### B4 — Volume and quantity reporting
+### B4 — Volume and quantity reporting — **shipped**
 
-**Reference:** Civil 3D's Volumes Dashboard and its "insert cut/fill summary" table; TBC takeoff
-reports. The deliverable the client actually pays for.
+**Shipped 2026-09-14**, as both outputs the entry asked for, over one assembled report:
+`Core/Reporting` (`ReportDocument` / `ReportTable` / `ReportColumn` / `CsvWriter`) holds the form,
+`Services/TerrainReportBuilder` fills it from the last build's summaries, and the two outputs only lay
+it out — `mhExportTerrainReport` as CSV (right-click on the LandXML export button), and the new
+**Report Table** annotation as text and rules on a `ReportTable` role. Neither computes a figure, so
+they cannot disagree about a volume.
 
-**What MoleHill has:** all the numbers, and no way out of the panel. `ZoneAnalysisSummary` holds plan
-area, surface area, elevation range, slope and cut/fill per zone, computed after overlap and priority
-rules so nothing double-counts — and it is runtime display state that evaporates on reload. There is no
-CSV writer anywhere in the tree.
+The entry's open question resolved as it leaned: the drawn table is an **annotation**. It describes the
+terrain, its output is drawing, and being rebuilt with the terrain is the whole argument — a quantity on
+a sheet must not be left over from a design two revisions ago.
 
-**Where it fits:** not a new family. Two outputs off existing state:
+Kept here only for the three things the entry did not foresee, each of which shaped the result:
 
-1. **CSV export** of the per-zone and whole-terrain summary, plus the B2 pond schedule and B1 catchment
-   areas once those exist. A command (`mhExportTerrainReport`), sibling of the LandXML export.
-2. **A drawn summary table** placed in the document as ordinary Rhino text — the equivalent of Civil
-   3D's summary insert. It must be generated output routed through `LayerRole` like everything else,
-   and regenerating it must replace rather than stack.
+- **It cannot run with the other annotations.** Its input is every *other* stage's output, and zones run
+  *after* analyses and annotations — so a report built in the annotation stage draws the previous build's
+  zone schedule, or nothing at all on a first build. It runs last, after scatter, and uncached: a correct
+  cache key would have to fingerprint every stage's results, which costs more than the few hundred text
+  entities it lays out.
+- **"Every figure is unit-bearing" is a statement about the column, not the cell.** A cell reading
+  `1250.00 m²` is a string no spreadsheet can sum, and a bare `1250` says nothing; the unit belongs in the
+  heading, which fixes both and is also what the drawn table wants. And there are two slope units in play,
+  not one: the drawn table carries its own, because a drawing's unit belongs to the document, while the
+  CSV follows the per-user `SlopeUnitPreference`, because an export is something you read.
+- **The hard part is what the report declines to say.** A quantity nothing measured is blank, never zero
+  — in a quantity report a zero is a claim, and "no ponding analysis is switched on" must not read as
+  "the terrain holds no water". Sections that measured nothing are dropped rather than printed as empty
+  headings, and the zone totals row sums only the zones that were actually measured and says so.
 
-**Notes:**
+See `docs/architecture.md` → "Rhino: quantity reporting" and `src/MoleHill.Core/Reporting/README.md`.
 
-- Low effort, high perceived value. Probably the best value-per-day item on this list.
-- Decide whether the drawn table is an **annotation** (it describes the terrain, it is drawing, it
-  would get `IsEnabled` and follow the annotation style) or a one-shot command output. Leaning
-  annotation — that makes it update with the terrain, which is the entire argument for a live model.
-- Units: every figure is unit-bearing and must go through `ModelUnitContext`. A report that says "1250"
-  with no unit is worse than no report.
+**Not done, and deliberately:** a per-pond and per-catchment schedule (the drainage analyses summarize to
+totals today, and a row per pond needs them to keep per-feature results), cost rates against quantities,
+and page-fitting the drawn table — it is one column block, and splitting it across sheets is Rhino's
+layout job, not the terrain's.
 
 ---
 
@@ -394,7 +404,7 @@ were wrong.)*
   triangle-quality distribution — read-only, in the panel. Cheap, and it makes B4's report richer
   without inventing new numbers.
 - **Setting-out / stakeout point export.** A CSV of grid points or triangle vertices at a stated
-  interval. Nearly free once B4's CSV writer exists, and LandXML export already covers the
+  interval. Nearly free now that B4's `Core/Reporting` CSV writer exists, and LandXML export already covers the
   machine-control case.
 - **Batch cross-sections at a stationed interval**, with cut/fill area per section and page-space
   layout. The section annotation already exists; what is missing is the *series* and the tabulation.

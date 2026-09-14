@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
@@ -213,6 +213,13 @@ internal sealed partial class TerrainBuildService
                 () => BuildScatterPlacements(snapshot, terrain, analysisMesh, build, shouldCancel),
                 () => $"{build.ScatterObjects.Count:N0} scatter outputs",
                 shouldCancel);
+
+            // Report tables run last, and uncached, because their input is every other stage's output —
+            // the zone schedule is not measured until the zones stage has run, so a report built with the
+            // analyses would draw the previous build's zone figures, or none at all on a first build. A
+            // cache key would have to fingerprint every stage's results to be correct, which costs more
+            // than laying out a few hundred text entities.
+            BuildReportTables(snapshot, terrain, analysisMesh, build, shouldCancel);
         }
 
         ThrowIfCancellationRequested(shouldCancel);

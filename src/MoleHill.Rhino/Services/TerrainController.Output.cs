@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
@@ -149,6 +149,12 @@ internal sealed partial class TerrainController
     /// user edits in Rhino rather than from values baked into the geometry. Falls back to the document's
     /// current style only when no style was captured. The entity is duplicated before stamping because
     /// generated geometry is shared with the display conduit.
+    ///
+    /// <para>Assigning a dimension style <em>resets the entity's justification to the style's</em>: alignment
+    /// is a style field, and an entity only keeps its own by overriding it, which assigning the style clears.
+    /// So the alignment the producer chose is read off before the stamp and set back after — otherwise every
+    /// generated label bakes top-left however it previewed, which silently misplaces anything whose position
+    /// depends on its alignment (a right-aligned figure in a report column, a centred section label).</para>
     /// </summary>
     private static Guid AddTextEntity(
         RhinoDoc doc,
@@ -158,6 +164,9 @@ internal sealed partial class TerrainController
     {
         if (textEntity.Duplicate() is not TextEntity toBake)
             toBake = textEntity;
+
+        TextHorizontalAlignment horizontalAlignment = toBake.TextHorizontalAlignment;
+        TextVerticalAlignment verticalAlignment = toBake.TextVerticalAlignment;
 
         int styleIndex = AnnotationStyleService.EnsureStyle(
             doc,
@@ -173,6 +182,9 @@ internal sealed partial class TerrainController
             if (currentStyleIndex >= 0 && currentStyleIndex < doc.DimStyles.Count)
                 toBake.DimensionStyleId = doc.DimStyles[currentStyleIndex].Id;
         }
+
+        toBake.TextHorizontalAlignment = horizontalAlignment;
+        toBake.TextVerticalAlignment = verticalAlignment;
 
         return doc.Objects.AddText(toBake, attributes);
     }

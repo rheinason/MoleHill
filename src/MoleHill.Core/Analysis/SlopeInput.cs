@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 
 namespace MoleHill.Core.Analysis;
@@ -98,7 +98,27 @@ public static class SlopeInput
     /// as its own trailing label. The exception is <see cref="SlopeAnalyzer.SlopeUnit.Ratio"/>, which is
     /// written as the pair itself ("1:3") because that pair <em>is</em> how the unit is read.
     /// </summary>
-    public static string FormatValue(double ratio, SlopeAnalyzer.SlopeUnit unit)
+    public static string FormatValue(double ratio, SlopeAnalyzer.SlopeUnit unit) =>
+        FormatValue(ratio, unit, "0.###", CultureInfo.CurrentCulture);
+
+    /// <summary>
+    /// The same value text for a report rather than a field: a fixed number of decimals so a column of
+    /// slopes lines up, and invariant culture so a file written on a comma-decimal machine still parses
+    /// on every other one. Kept here rather than spelled out at the caller so slope has one format point,
+    /// including the ratio pair — a report must read "1:3" for the same reason a field does.
+    /// </summary>
+    public static string FormatValueForReport(double ratio, SlopeAnalyzer.SlopeUnit unit, int decimals = 1) =>
+        FormatValue(
+            ratio,
+            unit,
+            "F" + decimals.ToString(CultureInfo.InvariantCulture),
+            CultureInfo.InvariantCulture);
+
+    private static string FormatValue(
+        double ratio,
+        SlopeAnalyzer.SlopeUnit unit,
+        string numericFormat,
+        IFormatProvider provider)
     {
         if (!double.IsFinite(ratio))
             return string.Empty;
@@ -106,7 +126,7 @@ public static class SlopeInput
         if (unit != SlopeAnalyzer.SlopeUnit.Ratio)
         {
             double converted = SlopeAnalyzer.ConvertRatioToUnit(ratio, unit);
-            return converted.ToString("0.###", CultureInfo.CurrentCulture);
+            return converted.ToString(numericFormat, provider);
         }
 
         if (Math.Abs(ratio) <= 1e-9)
@@ -117,8 +137,8 @@ public static class SlopeInput
         double magnitude = Math.Abs(ratio);
         string sign = ratio < 0.0 ? "-" : string.Empty;
         return magnitude <= 1.0
-            ? $"{sign}1:{(1.0 / magnitude).ToString("0.###", CultureInfo.CurrentCulture)}"
-            : $"{sign}{magnitude.ToString("0.###", CultureInfo.CurrentCulture)}:1";
+            ? $"{sign}1:{(1.0 / magnitude).ToString(numericFormat, provider)}"
+            : $"{sign}{magnitude.ToString(numericFormat, provider)}:1";
     }
 
     /// <summary>Value text plus its unit, for prompts and read-only summaries.</summary>

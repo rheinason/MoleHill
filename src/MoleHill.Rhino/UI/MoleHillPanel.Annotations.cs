@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -79,6 +79,49 @@ public sealed partial class MoleHillPanel
     {
         switch (annotation)
         {
+            case ReportTableAnnotationDefinition reportTable:
+            {
+                layout.AddRow(CreateInsertionOriginEditor(
+                    terrain,
+                    reportTable.Id,
+                    reportTable.HasInsertionPlane,
+                    reportTable.InsertionOriginX,
+                    reportTable.InsertionOriginY,
+                    reportTable.InsertionOriginZ,
+                    "Top-left corner of the drawn table. Auto places it beside the terrain.",
+                    "Pick the top-left corner where the table will be drawn.",
+                    "Clear the origin and let the table place itself beside the terrain.",
+                    (item, picked) =>
+                    {
+                        if (item is not ReportTableAnnotationDefinition table)
+                            return;
+
+                        table.InsertionOriginX = picked.X;
+                        table.InsertionOriginY = picked.Y;
+                        table.InsertionOriginZ = picked.Z;
+                        table.HasInsertionPlane = true;
+                    },
+                    item =>
+                    {
+                        if (item is ReportTableAnnotationDefinition table)
+                            table.HasInsertionPlane = false;
+                    }));
+
+                layout.AddRow(summary != null
+                    ? CreateReadOnlyValueRow(
+                        "Drawn",
+                        summary.ReportRowCount > 0
+                            ? $"{summary.ReportTableCount} table(s) | {summary.ReportRowCount} row(s)"
+                            : "Nothing measured yet",
+                        "Tables and data rows drawn by the last build. A section that measured nothing is not drawn.")
+                    : CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to draw the report table.",
+                        minHeight: 42));
+                break;
+            }
+
             case CurveElevationLabelAnnotationDefinition curveElevation:
             {
                 if (summary != null)
@@ -560,20 +603,71 @@ public sealed partial class MoleHillPanel
 
     private Control CreateInsertionOriginEditor(
         TerrainDefinition terrain,
-        TerrainSectionAnnotationDefinitionBase annotation)
+        TerrainSectionAnnotationDefinitionBase annotation) =>
+        CreateInsertionOriginEditor(
+            terrain,
+            annotation.Id,
+            annotation.HasInsertionPlane,
+            annotation.InsertionOriginX,
+            annotation.InsertionOriginY,
+            annotation.InsertionOriginZ,
+            "Insertion origin where the laid-out section is placed. World X/Z axes are used for direction.",
+            "Pick the origin point where the laid-out section will be placed.",
+            "Clear the insertion origin and let the section auto-position next to the terrain.",
+            (item, picked) =>
+            {
+                if (item is not TerrainSectionAnnotationDefinitionBase section)
+                    return;
+
+                section.InsertionOriginX = picked.X;
+                section.InsertionOriginY = picked.Y;
+                section.InsertionOriginZ = picked.Z;
+                section.InsertionXAxisX = 1.0;
+                section.InsertionXAxisY = 0.0;
+                section.InsertionXAxisZ = 0.0;
+                section.InsertionYAxisX = 0.0;
+                section.InsertionYAxisY = 1.0;
+                section.InsertionYAxisZ = 0.0;
+                section.HasInsertionPlane = true;
+            },
+            item =>
+            {
+                if (item is TerrainSectionAnnotationDefinitionBase section)
+                    section.HasInsertionPlane = false;
+            });
+
+    /// <summary>
+    /// The shared origin-picker row: a read-out, a Pick that runs an interactive GetPoint, and an Auto
+    /// that hands placement back to the builder. It stays bespoke rather than schema-declared because the
+    /// pick is a document interaction, and it takes accessors rather than a base type because the
+    /// annotations that place something in the drawing — sections and the report table — have no common
+    /// base and should not be given one just to share a row.
+    /// </summary>
+    private Control CreateInsertionOriginEditor(
+        TerrainDefinition terrain,
+        Guid annotationId,
+        bool hasOrigin,
+        double originX,
+        double originY,
+        double originZ,
+        string help,
+        string pickHelp,
+        string autoHelp,
+        Action<AnnotationDefinition, RhinoPoint3d> applyPick,
+        Action<AnnotationDefinition> applyAuto)
     {
-        string text = annotation.HasInsertionPlane
-            ? $"({annotation.InsertionOriginX:F2}, {annotation.InsertionOriginY:F2}, {annotation.InsertionOriginZ:F2})"
-            : "(auto: offset from terrain bbox)";
+        string text = hasOrigin
+            ? $"({originX:F2}, {originY:F2}, {originZ:F2})"
+            : "(auto: placed beside the terrain)";
 
         var summary = new Label
         {
             Text = text,
             VerticalAlignment = VerticalAlignment.Center,
-            TextColor = annotation.HasInsertionPlane ? UiTheme.PrimaryText : UiTheme.MutedText,
+            TextColor = hasOrigin ? UiTheme.PrimaryText : UiTheme.MutedText,
             Wrap = WrapMode.None
         };
-        ApplyHelp(summary, "Insertion origin where the laid-out section is placed. World X/Z axes are used for direction.");
+        ApplyHelp(summary, help);
 
         var pickButton = MakeInlineButton("Pick", (_, _) =>
         {
@@ -582,39 +676,20 @@ public sealed partial class MoleHillPanel
                 return;
 
             var gp = new RhinoGetPoint();
-            gp.SetCommandPrompt("Pick section insertion origin");
+            gp.SetCommandPrompt("Pick insertion origin");
             if (gp.Get() != RhinoGetResult.Point)
                 return;
 
             RhinoPoint3d picked = gp.Point();
-            MutateAnnotation(terrain.TerrainId, annotation.Id, item =>
-            {
-                if (item is TerrainSectionAnnotationDefinitionBase section)
-                {
-                    section.InsertionOriginX = picked.X;
-                    section.InsertionOriginY = picked.Y;
-                    section.InsertionOriginZ = picked.Z;
-                    section.InsertionXAxisX = 1.0;
-                    section.InsertionXAxisY = 0.0;
-                    section.InsertionXAxisZ = 0.0;
-                    section.InsertionYAxisX = 0.0;
-                    section.InsertionYAxisY = 1.0;
-                    section.InsertionYAxisZ = 0.0;
-                    section.HasInsertionPlane = true;
-                }
-            }, scheduleRebuild: true);
+            MutateAnnotation(terrain.TerrainId, annotationId, item => applyPick(item, picked), scheduleRebuild: true);
             RefreshUi();
-        }, "Pick the origin point where the laid-out section will be placed.");
+        }, pickHelp);
 
         var resetButton = MakeInlineButton("Auto", (_, _) =>
         {
-            MutateAnnotation(terrain.TerrainId, annotation.Id, item =>
-            {
-                if (item is TerrainSectionAnnotationDefinitionBase section)
-                    section.HasInsertionPlane = false;
-            }, scheduleRebuild: true);
+            MutateAnnotation(terrain.TerrainId, annotationId, applyAuto, scheduleRebuild: true);
             RefreshUi();
-        }, "Clear the insertion origin and let the section auto-position next to the terrain.");
+        }, autoHelp);
 
         var fields = new StackLayout
         {
@@ -631,7 +706,7 @@ public sealed partial class MoleHillPanel
         };
 
         return new PropertyRow(
-            CreateHelpLabel("Insertion", "Insertion origin where the laid-out section is placed.", 0),
+            CreateHelpLabel("Insertion", help, 0),
             fields,
             expandWidget: true);
     }
@@ -872,6 +947,9 @@ public sealed partial class MoleHillPanel
             LongitudinalSectionAnnotationDefinition longitudinal => summary != null
                 ? $"{summary.GeneratedOutputCount} objects | V exag {longitudinal.VerticalExaggeration:G3}"
                 : $"{CountReferences(longitudinal.Sources)} refs | sample {longitudinal.SampleInterval:G4}",
+            ReportTableAnnotationDefinition => summary != null
+                ? $"{summary.ReportTableCount} tables | {summary.ReportRowCount} rows"
+                : "measured quantities",
             _ => string.Empty
         };
     }
