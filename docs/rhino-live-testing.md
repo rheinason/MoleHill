@@ -179,6 +179,20 @@ blank, treat that as *unresolved* — confirm through a second channel (walk the
 
 ## 7. Known failure modes
 
+- **`spawn_slot` failing with Windows error 5 ("breakaway not permitted") is the host, not this
+  procedure.** The router launches Rhino with `CREATE_BREAKAWAY_FROM_JOB` so the new process outlives
+  the tool call. Whether that is allowed is decided by the Job Object the router itself was created in,
+  and the router is a child of whichever agent host started it — each host spawns **its own** instance
+  (measured 2026-09-14: two routers parented to `claude.exe`, eight to one `codex.exe`, all in jobs).
+  A host that creates its children in a job without `JOB_OBJECT_LIMIT_BREAKAWAY_OK` — typical of a
+  sandboxed runner, which wants killing the agent to kill everything it started — gets `ERROR_ACCESS_DENIED`
+  before Rhino ever starts, and `list_slots` shows nothing.
+
+  Nothing on the agent side fixes this: the build path, the `version: "8"` string, and the call order
+  are all irrelevant to it, so **do not re-verify the build or retry with different arguments**, and do
+  not work around it by launching `Rhino.exe` yourself — an unmanaged Rhino is adopted, refuses
+  `close_slot`, and holds the build lock (see §2). Say the live test is blocked by the host launcher
+  policy, hand it to a session whose host permits breakaway, or ask the user to run it.
 - **Modal-dialog commands wedge the slot.** `_PlugInManager`, `_Options` and friends open a dialog;
   `run_command` never returns, and after aborting the tool call the slot stays inside a command.
   Recovery is `close_slot` + `spawn_slot` — there is no in-place unwedge. Use script APIs, or the
