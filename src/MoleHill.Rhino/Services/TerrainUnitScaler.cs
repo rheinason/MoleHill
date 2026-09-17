@@ -87,6 +87,10 @@ internal static class TerrainUnitScaler
             case GradePadModifierDefinition gradePad:
                 gradePad.MaxDistance *= lengthScale;
                 break;
+            case GradeLineModifierDefinition gradeLine:
+                // Slope angles are angles, so only the reach scales.
+                gradeLine.MaxDistance *= lengthScale;
+                break;
             case GradePathModifierDefinition gradePath:
                 gradePath.Width *= lengthScale;
                 gradePath.MaxDistance *= lengthScale;
@@ -104,8 +108,12 @@ internal static class TerrainUnitScaler
                 remesh.EdgeLength *= lengthScale;
                 remesh.MaxArea *= areaScale;
                 break;
+            case SimplifyModifierDefinition simplify:
+                simplify.MaximumDeviation *= lengthScale;
+                break;
             case RetainingWallModifierDefinition retainingWall:
                 retainingWall.MaxWallWidth *= lengthScale;
+                retainingWall.MaxDistance *= lengthScale;
                 break;
             case RetopoModifierDefinition retopo:
                 retopo.TargetEdgeLength *= lengthScale;

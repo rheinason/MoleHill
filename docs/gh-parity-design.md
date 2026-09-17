@@ -1,5 +1,9 @@
 # Grasshopper parity — design
 
+For the current B7 product scope and delivery plan, see
+[Grasshopper terrain workflow redesign](grasshopper-redesign-plan.md). This document retains the
+completed registry migration and its historical reasoning; its future-work recommendations are superseded.
+
 Status: **B2 DONE** (2026-06-24). 8 of 10 components migrated to the spec framework; 2 intentionally
 bespoke. Goal achieved: a Grasshopper component is now a small spec (ports + Core-call `Solve`) on a
 shared base, with mesh/curve plumbing deduped.

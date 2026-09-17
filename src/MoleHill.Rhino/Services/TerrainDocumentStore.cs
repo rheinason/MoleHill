@@ -78,6 +78,7 @@ internal sealed class TerrainDocumentStore
 
     public void SaveJson(RhinoDoc doc, string json)
     {
+        TerrainDocumentIdentity.Ensure(doc);
         doc.Strings.SetString(Section, Entry, json);
     }
 

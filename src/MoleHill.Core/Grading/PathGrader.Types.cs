@@ -64,6 +64,11 @@ public static partial class PathGrader
         double HalfWidth,
         double SlopeRatio,
         double FillSlopeRatio,
+        double LeftSlopeRatio,
+        double LeftFillSlopeRatio,
+        double RightSlopeRatio,
+        double RightFillSlopeRatio,
+        double OutwardSideSign,
         double MaxDistance,
         double ShoulderDistance,
         double MaxInfluence,
@@ -78,6 +83,20 @@ public static partial class PathGrader
     {
         /// <summary>Cut (branchSign &gt;= 0) vs fill (branchSign &lt; 0) batter slope ratio.</summary>
         public double SlopeRatioForBranch(double branchSign) => branchSign < 0.0 ? FillSlopeRatio : SlopeRatio;
+
+        /// <summary>
+        /// The batter ratio for one side of the design line, so an asymmetric section survives the
+        /// elevation pass. <paramref name="sideSign"/> follows <see cref="ClosestPathLocation.SideSign"/>:
+        /// non-negative is the left side. Symmetric definitions resolve both sides to the same pair,
+        /// so this is the general form of <see cref="SlopeRatioForBranch"/>, not a special case.
+        /// </summary>
+        public double SlopeRatioFor(double branchSign, double sideSign)
+        {
+            bool fill = branchSign < 0.0;
+            if (sideSign >= 0.0)
+                return fill ? LeftFillSlopeRatio : LeftSlopeRatio;
+            return fill ? RightFillSlopeRatio : RightSlopeRatio;
+        }
     }
 
     private readonly record struct PreparedPathSections(
@@ -93,6 +112,7 @@ public static partial class PathGrader
         double[] RightShoulderZ,
         PathSectionResolutionStatus[] LeftStatuses,
         PathSectionResolutionStatus[] RightStatuses,
+        double OutwardSideSign,
         double MinX,
         double MaxX,
         double MinY,
@@ -127,6 +147,34 @@ public static partial class PathGrader
 
         public bool IsClosed { get; }
 
+        /// <summary>
+        /// Per-side batter overrides. Zero (or non-positive) means "inherit the shared
+        /// <see cref="SlopeAngleDeg"/>/<see cref="FillSlopeAngleDeg"/> pair", so a symmetric section
+        /// stays the default. Left is the side the plan normal (-tangentY, tangentX) points to.
+        /// </summary>
+        public double LeftCutSlopeAngleDeg { get; }
+
+        public double LeftFillSlopeAngleDeg { get; }
+
+        public double RightCutSlopeAngleDeg { get; }
+
+        public double RightFillSlopeAngleDeg { get; }
+
+        /// <summary>
+        /// Optional explicit outward directions, one unit normal per vertex, flat
+        /// <c>[nx0,ny0,nx1,ny1,...]</c>. A retaining-wall rail grades away from its partner rail, which
+        /// is not the curve's own plan normal — so that caller supplies the direction rather than
+        /// letting it be derived. When set, only that one side is graded.
+        /// </summary>
+        public double[]? OutwardNormals { get; }
+
+        /// <summary>
+        /// A width-less design line: the curve itself is the graded footprint and the batters run
+        /// away from it. Everything downstream (stationing, daylight, carve, weld) is the corridor
+        /// pipeline with the two rails coincident.
+        /// </summary>
+        public bool IsSingleLine => Width <= 0.0;
+
         public bool HasVariableWidth =>
             LeftEdgeXy is { Length: > 0 } && RightEdgeXy is { Length: > 0 };
 
@@ -135,7 +183,12 @@ public static partial class PathGrader
                               double fillSlopeAngleDeg = 0.0,
                               double[]? leftEdgeXy = null,
                               double[]? rightEdgeXy = null,
-                              bool isClosed = false)
+                              bool isClosed = false,
+                              double leftCutSlopeAngleDeg = 0.0,
+                              double leftFillSlopeAngleDeg = 0.0,
+                              double rightCutSlopeAngleDeg = 0.0,
+                              double rightFillSlopeAngleDeg = 0.0,
+                              double[]? outwardNormals = null)
         {
             XyVertices = xyVertices;
             ZValues = zValues;
@@ -149,8 +202,65 @@ public static partial class PathGrader
             LeftEdgeXy = leftEdgeXy;
             RightEdgeXy = rightEdgeXy;
             IsClosed = isClosed;
+            LeftCutSlopeAngleDeg = ResolveSideAngle(leftCutSlopeAngleDeg, SlopeAngleDeg);
+            LeftFillSlopeAngleDeg = ResolveSideAngle(leftFillSlopeAngleDeg, FillSlopeAngleDeg);
+            RightCutSlopeAngleDeg = ResolveSideAngle(rightCutSlopeAngleDeg, SlopeAngleDeg);
+            RightFillSlopeAngleDeg = ResolveSideAngle(rightFillSlopeAngleDeg, FillSlopeAngleDeg);
+            OutwardNormals = outwardNormals;
         }
 
+        private static double ResolveSideAngle(double overrideDeg, double inherited) =>
+            overrideDeg > 0.0 ? Math.Max(0.1, Math.Min(89.9, overrideDeg)) : inherited;
+
+        /// <summary>
+        /// Which side of the line a batter is allowed on: +1 left, -1 right, 0 both sides (the ordinary
+        /// case). Derived from <see cref="OutwardNormals"/> by comparing each supplied direction with the
+        /// line's own left normal, so a wall rail only grades away from its partner. Without this the
+        /// elevation pass would batter a one-sided rail in *both* directions — the daylight geometry
+        /// would be right and the elevations wrong, which is exactly how it presented live.
+        /// </summary>
+        internal double OutwardSideSign()
+        {
+            if (OutwardNormals is not { Length: > 0 })
+                return 0.0;
+
+            double sum = 0.0;
+            for (int i = 0; i < VertexCount; i++)
+            {
+                int next = Math.Min(i + 1, VertexCount - 1);
+                int prev = Math.Max(i - 1, 0);
+                double tx = XyVertices[next * 2] - XyVertices[prev * 2];
+                double ty = XyVertices[(next * 2) + 1] - XyVertices[(prev * 2) + 1];
+                double length = Math.Sqrt((tx * tx) + (ty * ty));
+                if (length <= 1e-12)
+                    continue;
+
+                // The left normal, matching ClosestPathLocation.SideSign's convention.
+                double lx = -ty / length;
+                double ly = tx / length;
+                sum += (lx * OutwardNormals[i * 2]) + (ly * OutwardNormals[(i * 2) + 1]);
+            }
+
+            return sum >= 0.0 ? 1.0 : -1.0;
+        }
+
+        /// <summary>
+        /// The flattest cut angle across both sides, which is the batter that reaches furthest and so
+        /// sizes the section search. A symmetric definition resolves both sides to
+        /// <see cref="SlopeAngleDeg"/>, so this returns exactly that for every ordinary path.
+        /// </summary>
+        internal double FlattestCutAngleDeg() => Math.Min(LeftCutSlopeAngleDeg, RightCutSlopeAngleDeg);
+
+        /// <summary>True when either side departs from the shared cut/fill pair.</summary>
+        internal bool HasAsymmetricSides =>
+            LeftCutSlopeAngleDeg != RightCutSlopeAngleDeg ||
+            LeftFillSlopeAngleDeg != RightFillSlopeAngleDeg;
+
+        /// <summary>
+        /// Transverse half extent of the graded footprint. A single line genuinely has none — it is
+        /// its own footprint — so this returns zero there, and every caller already floors it against
+        /// a model tolerance or adds it to another distance.
+        /// </summary>
         internal double MaximumHalfWidth()
         {
             double maximum = Width * 0.5;

@@ -46,6 +46,14 @@ public static partial class PathGrader
             return true;
         }
 
+        // A one-sided rail batters away from its partner only. Without this the wall's upper rail would
+        // also grade the ground *below* the wall, which reads as terrain climbing out of the toe.
+        if (preparedPath.OutwardSideSign != 0.0 &&
+            (closest.SideSign >= 0.0 ? 1.0 : -1.0) != preparedPath.OutwardSideSign)
+        {
+            return false;
+        }
+
         double distFromEdge = closest.Distance - edgeDistance;
         if (preparedBarriers.Segments.Length > 0 &&
             GradingBarriers.IsCrossedByBarrier(preparedBarriers, edgeX, edgeY, px, py, barrierScratch, barrierCandidates))
@@ -69,8 +77,9 @@ public static partial class PathGrader
         if (absDz <= 1e-12)
             return false;
 
-        // dz = terrainZ - roadZ: > 0 terrain above grade (cut), < 0 below (fill).
-        double slopeRatio = preparedPath.SlopeRatioForBranch(Math.Sign(dz));
+        // dz = terrainZ - roadZ: > 0 terrain above grade (cut), < 0 below (fill). The side matters
+        // too: an asymmetric section leaves a different batter on each side of the design line.
+        double slopeRatio = preparedPath.SlopeRatioFor(Math.Sign(dz), closest.SideSign);
         double neededDist = slopeRatio > 1e-12
             ? absDz / slopeRatio
             : double.MaxValue;

@@ -41,6 +41,7 @@ public abstract class RegistryTerrainComponent : GH_Component
                 GhPortType.Line => pManager.AddLineParameter(port.Name, port.Nick, port.Description, port.Access),
                 GhPortType.Text => pManager.AddTextParameter(port.Name, port.Nick, port.Description, port.Access),
                 GhPortType.Geometry => pManager.AddGeometryParameter(port.Name, port.Nick, port.Description, port.Access),
+                GhPortType.Generic => pManager.AddGenericParameter(port.Name, port.Nick, port.Description, port.Access),
                 _ => throw new ArgumentOutOfRangeException(nameof(port.Type), port.Type, "Unhandled port type."),
             };
             if (port.Optional)
@@ -63,6 +64,7 @@ public abstract class RegistryTerrainComponent : GH_Component
                 case GhPortType.Line: pManager.AddLineParameter(port.Name, port.Nick, port.Description, port.Access); break;
                 case GhPortType.Text: pManager.AddTextParameter(port.Name, port.Nick, port.Description, port.Access); break;
                 case GhPortType.Geometry: pManager.AddGeometryParameter(port.Name, port.Nick, port.Description, port.Access); break;
+                case GhPortType.Generic: pManager.AddGenericParameter(port.Name, port.Nick, port.Description, port.Access); break;
                 default: throw new ArgumentOutOfRangeException(nameof(port.Type), port.Type, "Unhandled port type.");
             }
         }

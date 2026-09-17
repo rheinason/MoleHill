@@ -203,4 +203,29 @@ public class QuadRemesherTests
             Assert.True(found, $"wall vertex ({vertices[i * 3]}, {vertices[i * 3 + 1]}, {vertices[i * 3 + 2]}) was moved or removed");
         }
     }
+
+    [Fact]
+    public void Remesh_ConstraintBreakline_PreservesEndpointsAndTopology()
+    {
+        var (vertices, faces) = BuildGrid(Steps(0, 12, 1.0), Steps(0, 12, 1.0), (_, _) => 0.0);
+        var points = new double[3 * 13];
+        for (int i = 0; i <= 12; i++) { points[i * 3] = 6; points[i * 3 + 1] = i; }
+        var constraints = new[] { new SurfaceRemesher.ConstraintPolyline(points, 13, false) };
+
+        var result = QuadRemesher.Remesh(vertices, faces, constraints, new QuadRemesher.Options
+        {
+            EdgeLength = 1.5, CreaseAngleDeg = 30, Tolerance = 0.01
+        });
+
+        Assert.True(result.Success, result.Warning);
+        // Endpoints are hard stations; the remesher is free to resample the interior at its target spacing.
+        foreach (int i in new[] { 0, 12 })
+        {
+            bool found = false;
+            for (int o = 0; o < result.Vertices.Length / 3 && !found; o++)
+                found = Math.Abs(result.Vertices[o * 3] - 6) < 1e-9 && Math.Abs(result.Vertices[o * 3 + 1] - i) < 1e-9;
+            Assert.True(found, $"constraint station (6, {i}) was not preserved");
+        }
+        AssertWatertight(result);
+    }
 }

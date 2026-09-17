@@ -271,6 +271,36 @@ New-Icon "$ghDir\GradePath.png" {
     $centerPen.Dispose()
 }
 
+# GradeLine - one design line with a different batter falling away on each side
+New-Icon "$ghDir\GradeLine.png" {
+    param($g)
+    # Batter faces: the left one flat, the right one steep, which is the asymmetric section
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddPolygon(@(
+        (New-Object System.Drawing.PointF(2, 20)),
+        (New-Object System.Drawing.PointF(11, 9)),
+        (New-Object System.Drawing.PointF(13, 9)),
+        (New-Object System.Drawing.PointF(18, 20))
+    ))
+    $fill = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(150, 120, 80))
+    $g.FillPath($fill, $path)
+    $fill.Dispose()
+    $path.Dispose()
+    # Existing ground
+    $groundPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(90, 65, 50), 2)
+    $g.DrawLine($groundPen, 1, 20, 23, 20)
+    $groundPen.Dispose()
+    # Batter edges
+    $edgePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(50, 35, 25), 1.5)
+    $g.DrawLine($edgePen, 2, 20, 11, 9)
+    $g.DrawLine($edgePen, 13, 9, 18, 20)
+    $edgePen.Dispose()
+    # The design line itself, on top and unmistakable
+    $linePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(60, 120, 210), 3)
+    $g.DrawLine($linePen, 9, 8, 15, 8)
+    $linePen.Dispose()
+}
+
 # Assembly icon - M in triangle, bolder strokes
 New-Icon "$ghDir\MoleHill.png" {
     param($g)
@@ -461,6 +491,28 @@ New-Icon "$rhinoDir\ModRemesh.png" {
     $innerPen.Dispose()
 } -size 16
 
+# ModSimplify - dense triangulation reduced to a sparse mesh over the same outline
+New-Icon "$rhinoDir\ModSimplify.png" {
+    param($g)
+    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 137, 123), 1.3)
+    # Dense triangulation on the left.
+    $g.DrawRectangle($pen, 1, 3, 5, 10)
+    $g.DrawLine($pen, 1, 3, 6, 8)
+    $g.DrawLine($pen, 6, 3, 1, 8)
+    $g.DrawLine($pen, 1, 8, 6, 13)
+    $g.DrawLine($pen, 6, 8, 1, 13)
+    # Sparse, same-outline triangulation on the right.
+    $g.DrawRectangle($pen, 10, 3, 5, 10)
+    $g.DrawLine($pen, 10, 3, 15, 13)
+    $g.DrawLine($pen, 15, 3, 10, 13)
+    $pen.Dispose()
+    $arrow = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(80, 80, 80), 1.2)
+    $g.DrawLine($arrow, (PtF 6.5 8), (PtF 9.2 8))
+    $g.DrawLine($arrow, (PtF 9.2 8), (PtF 7.7 6.7))
+    $g.DrawLine($arrow, (PtF 9.2 8), (PtF 7.7 9.3))
+    $arrow.Dispose()
+} -size 16
+
 # ModRetopo - indigo quad grid with white field-aligned cross marks
 New-Icon "$rhinoDir\ModRetopo.png" {
     param($g)
@@ -600,6 +652,32 @@ New-Icon "$rhinoDir\ModGradePath.png" {
     $centerPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(200, 180, 160), 1)
     $g.DrawBezier($centerPen, 2.0, 11.5, 5.0, 3.5, 11.0, 13.5, 15.0, 5.5)
     $centerPen.Dispose()
+} -size 16
+
+# ModGradeLine - design line with an asymmetric batter each side
+New-Icon "$rhinoDir\ModGradeLine.png" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddPolygon(@(
+        (New-Object System.Drawing.PointF(1, 13)),
+        (New-Object System.Drawing.PointF(7, 6)),
+        (New-Object System.Drawing.PointF(9, 6)),
+        (New-Object System.Drawing.PointF(12, 13))
+    ))
+    $fill = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(150, 120, 80))
+    $g.FillPath($fill, $path)
+    $fill.Dispose()
+    $path.Dispose()
+    $groundPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(93, 64, 55), 1.5)
+    $g.DrawLine($groundPen, 0.5, 13, 15.5, 13)
+    $groundPen.Dispose()
+    $edgePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(50, 30, 20), 1.2)
+    $g.DrawLine($edgePen, 1, 13, 7, 6)
+    $g.DrawLine($edgePen, 9, 6, 12, 13)
+    $edgePen.Dispose()
+    $linePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(60, 120, 210), 2.2)
+    $g.DrawLine($linePen, 6, 5, 10, 5)
+    $linePen.Dispose()
 } -size 16
 
 # ── Plugin / dockable-panel icon (multi-size .ico) ──────────────────────────

@@ -3,6 +3,13 @@
 Pad and path grading. **Invariant: grading output is always a watertight 2.5D mesh - never holes or
 spikes.** Pure, unit-tested. See `docs/architecture.md` for the tier cascade overview.
 
+`BracketedVolumeSearch` implements the B7 bounded net cut/fill search: both endpoints are measured,
+an unbracketed target returns the nearer end, and bisection records every sample with distinct
+`Converged`, `NoBracket`, `IterationCap`, `NonMonotone`, and `GradingFallback` outcomes.
+`PadElevationBalancer` translates one planar pad boundary in Z and evaluates each candidate through
+`PadGrader.Grade`, returning the actual best graded mesh and adjusted input boundary. GH integration
+and the first example graph remain B7 work.
+
 ## Tier cascade (Pad - `PadGrader.Grade`, takes the first watertight result)
 1. **explicit batter** - `PadGrader.Explicit.cs` (exact ruled side-slopes; crispest).
 2. **split-keep** - `GradeWithSplitKeep` + `GradedRegionAssembler.SplitConform` (conform terrain to
@@ -12,6 +19,52 @@ spikes.** Pure, unit-tested. See `docs/architecture.md` for the tier cascade ove
 
 If all three tiers defer, `PadGrader.Grade` fails cleanly with a structured diagnostic instead of
 emitting a non-watertight result.
+
+## Grade Line (the path cascade at width zero)
+
+A `PathDefinition` with `Width == 0` is a **single line**: the drawn curve is the footprint and both
+rails collapse onto it. `BuildCorridors` then walks the line out and back into one station ring — the
+forward pass rays left, the backward pass right — and the whole cascade below runs unchanged. The
+footprint has no area while the daylight loop does, so split-keep's footprint loop is skipped and the
+corridor conforms to its daylight envelope alone. Spacing comes from the batter reach
+(`ComputeSingleLineSegmentLength`) since there is no width to set it, and exactly one output polyline is
+published: a line has one design line, not two road edges.
+
+**Per-side batters.** `LeftCutSlopeAngleDeg` / `LeftFillSlopeAngleDeg` / `RightCutSlopeAngleDeg` /
+`RightFillSlopeAngleDeg` are optional overrides; zero inherits the shared cut/fill pair, so a symmetric
+definition is bit-identical to one without them. They must be honoured in **all three** places that
+compute a batter, not just the daylight ray: `BatterStripBuilder.BuildDaylightLoop`'s optional
+per-station angle array, `BuildPathSections`' per-side endpoint solve, and `PreparedPath.SlopeRatioFor`
+during the elevation pass. Missing the last one flattens an asymmetric section back to symmetric with no
+error anywhere.
+
+There is no per-side *enable*, and adding one would be wrong: a line at an authored elevation is a
+discontinuity, so a side with no batter would run from that elevation straight to the nearest existing
+vertices. "No grading on this side" is instead what `DaylightStatus.Flat` already reports where the
+terrain meets the line.
+
+`OutwardNormals` supplies explicit per-vertex outward directions and makes the grade **one-sided** — the
+retaining-wall case, where a rail batters away from its partner rather than along its own plan normal.
+Such a rail keeps the stationing it arrived with (the planner's), because the normals are supplied one
+per authored vertex and resampling would leave them misaligned.
+
+**One-sidedness has to be honoured in the elevation pass too, not just the carve.**
+`PathDefinition.OutwardSideSign()` derives which side (+1 left, -1 right, 0 both) from `OutwardNormals`,
+and both elevation paths gate on it: `TryComputePathInfluence` and — the one that actually runs under
+split-keep — `TryComputePathSectionInfluence`. Place the gate *after* each function's on-rail early
+return, or the rail loses its own pin and drops to existing ground. Without the gate a wall's upper rail
+also grades the ground below the wall: found live, where the toe side rose to 4.5 instead of falling to
+0, while the top side measured perfectly. `Grade_WallRails_EachBatterStaysOnItsOwnSideOfTheWall` covers
+it.
+
+**A one-sided grade always defers the explicit tier to split-keep, deliberately.** Its rail lies *on*
+the carve boundary rather than inside it, so the explicit fill carries that rail twice — once as a
+boundary vertex at terrain elevation, once as a rail vertex at the authored elevation — and the weld
+keeps the terrain one, silently flattening the rail to existing ground. Found live on a retaining wall,
+and worth knowing how it presented: the batter above the rail was *correct*, computed from the authored
+elevation, so only the rail row itself was wrong. Nothing threw, the build reported a clean watertight
+result, and the cut direction was unaffected — it only showed in fill. Split-keep conforms the rail in
+place and gets it right, so the explicit tier declines the case rather than welding a wrong elevation.
 
 ## Tier cascade (Path - `PathGrader.Grade`, takes the first result)
 Optional plan edges are resolved by `VariablePathWidthResolver` before this cascade — only when the

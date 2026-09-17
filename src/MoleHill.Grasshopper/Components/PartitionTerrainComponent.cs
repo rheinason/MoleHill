@@ -3,6 +3,7 @@ using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
 using MoleHill.Core.Grading;
+using MoleHill.Core.Processing;
 using MoleHill.Grasshopper.Types;
 using MoleHill.Grasshopper.Utilities;
 using Rhino.Geometry;
@@ -18,6 +19,12 @@ public sealed class PartitionTerrainComponent : GH_Component
         public required string Name { get; init; }
 
         public required string Key { get; init; }
+
+        public required int StackIndex { get; init; }
+
+        public required bool IsEnabled { get; init; }
+
+        public required bool UseInputElevationForPriority { get; init; }
 
         public List<Curve> Curves { get; } = new();
 
@@ -53,6 +60,8 @@ public sealed class PartitionTerrainComponent : GH_Component
         pManager[3].Optional = true;
         pManager.AddNumberParameter("Tolerance", "Tol", "Boundary insertion tolerance. 0 uses Rhino document tolerance.", GH_ParamAccess.item, 0.0);
         pManager[4].Optional = true;
+        pManager.AddTextParameter("Keys", "K", "Optional stable zone keys in branch order. When omitted, branch paths are used.", GH_ParamAccess.list);
+        pManager[5].Optional = true;
     }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -76,6 +85,8 @@ public sealed class PartitionTerrainComponent : GH_Component
         DA.GetDataTree(1, out boundaryTree);
         var names = new List<string>();
         DA.GetDataList(2, names);
+        var keys = new List<string>();
+        DA.GetDataList(5, keys);
         bool includeRemainder = true;
         DA.GetData(3, ref includeRemainder);
         double tolerance = 0.0;
@@ -83,12 +94,31 @@ public sealed class PartitionTerrainComponent : GH_Component
         if (tolerance <= 0.0)
             tolerance = Rhino.RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 0.001;
 
-        List<RegionInput> regions = CreateRegionInputs(boundaryTree, names, terrain);
+        List<RegionInput> regions = CreateRegionInputs(boundaryTree, names, keys, terrain);
         if (regions.Count == 0)
         {
             AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Provide closed zone curves or a MoleHill Terrain containing zones.");
             return;
         }
+        string[] duplicateKeys = regions.GroupBy(region => region.Key, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        if (duplicateKeys.Length > 0)
+        {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Error,
+                $"Zone keys must be unique. Duplicates: {string.Join(", ", duplicateKeys)}");
+            return;
+        }
+
+        ZonePriorityResolver.SortInPlace(regions, region => new ZonePriorityResolver.BoundaryPriority(
+            region.StackIndex, 0,
+            region.Curves.Count == 0 ? 0.0 : region.Curves.Max(curve =>
+            {
+                BoundingBox bounds = curve.GetBoundingBox(true);
+                return (bounds.Min.Z + bounds.Max.Z) * 0.5;
+            }),
+            region.UseInputElevationForPriority));
 
         if (!TerrainPartitionGeometry.TryExtractTriangleMesh(
                 terrain.Mesh,
@@ -107,6 +137,11 @@ public sealed class PartitionTerrainComponent : GH_Component
         var boundaries = new List<MeshAreaSplitter.AreaBoundary>();
         foreach (RegionInput region in regions)
         {
+            if (!region.IsEnabled)
+            {
+                report.Add($"{region.Name}: disabled zone skipped for partitioning.");
+                continue;
+            }
             var regionBoundaries = new List<MeshAreaSplitter.AreaBoundary>(region.Curves.Count);
             string? invalidReason = null;
             foreach (Curve curve in region.Curves)
@@ -244,6 +279,7 @@ public sealed class PartitionTerrainComponent : GH_Component
     private static List<RegionInput> CreateRegionInputs(
         GH_Structure<GH_Curve>? tree,
         IReadOnlyList<string> names,
+        IReadOnlyList<string> keys,
         MoleHillTerrainData terrain)
     {
         var result = new List<RegionInput>();
@@ -259,7 +295,11 @@ public sealed class PartitionTerrainComponent : GH_Component
                 {
                     Path = path,
                     Name = name,
-                    Key = path.ToString()
+                    Key = branchIndex < keys.Count && !string.IsNullOrWhiteSpace(keys[branchIndex])
+                        ? keys[branchIndex] : path.ToString(),
+                    StackIndex = branchIndex,
+                    IsEnabled = true,
+                    UseInputElevationForPriority = true
                 };
                 region.Curves.AddRange(tree.get_Branch(path)
                     .OfType<GH_Curve>()
@@ -278,7 +318,10 @@ public sealed class PartitionTerrainComponent : GH_Component
             {
                 Path = new GH_Path(index),
                 Name = source.Name,
-                Key = source.Key
+                Key = source.Key,
+                StackIndex = source.StackIndex,
+                IsEnabled = source.IsEnabled,
+                UseInputElevationForPriority = source.UseInputElevationForPriority
             };
             region.Curves.AddRange(source.Boundaries);
             result.Add(region);

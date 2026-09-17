@@ -12,7 +12,7 @@ internal sealed class ProjectToModifierDescriptor : ModifierTypeDescriptor
     public override Type DefinitionType => typeof(ProjectToModifierDefinition);
     public override string DisplayName => "Project To";
     public override string IconName => "ModProjectTo";
-    public override int SortOrder => 8;
+    public override int SortOrder => 9;
     public override string Subtitle => "Blend vertically to a target";
 
     public override ModifierDefinition Create(UnitSystem unitSystem) => new ProjectToModifierDefinition

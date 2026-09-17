@@ -312,7 +312,12 @@ internal sealed partial class TerrainBuildService
             RhinoGeometryConversions.BuildMesh(gradedVertices, topologyEntry.VertexCount, topologyEntry.Faces, topologyEntry.FaceCount),
             "Grade Pad",
             build);
-        AddPersistentElevationConstraints(build, resolvedInputs.Constraints);
+        // PadGrader's constraint set contains temporary XY construction loops for the pad, shoulder,
+        // and stitch apron. Their Z values are placeholders and some loops are deliberately softened
+        // or replaced while assembling the final patch, so they are not durable elevation constraints
+        // on resultMesh. The actual graded pad boundary is already published from OutputPolylines as a
+        // persistent hard constraint above. Persisting the construction set made downstream consumers
+        // reject the Grade Pad mesh as conflicting with metadata produced by the same stage.
 
         return StoreMeshStageCache(
             build,

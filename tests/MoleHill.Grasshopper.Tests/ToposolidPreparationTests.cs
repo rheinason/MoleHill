@@ -108,8 +108,21 @@ public sealed class ToposolidPreparationTests
     public void MoleHillTerrainGoo_WriteRead_PreservesPersistentContract()
     {
         using Mesh mesh = CreateGridMesh(2, 2, (x, y) => x + y);
+        var region = new MoleHillTerrainRegion("Paving", "paving-key", Array.Empty<Curve>())
+        {
+            StackIndex = 7,
+            IsEnabled = false,
+            UseInputElevationForPriority = false,
+            ColorArgb = unchecked((int)0xFF123456),
+            UseColorOverride = true,
+            LayerName = "Site::Paving",
+            MaterialName = "Paver",
+            SplitToSeparateMesh = false
+        };
         var terrain = new MoleHillTerrainData(
             mesh,
+            breaklines: null,
+            regions: new[] { region },
             name: "Site",
             key: "site-key",
             revision: long.MaxValue,
@@ -117,7 +130,8 @@ public sealed class ToposolidPreparationTests
             unitSystem: "Meters",
             metersPerModelUnit: 1.0,
             localToWorld: Transform.Translation(10.0, 20.0, 0.0),
-            hasProjectBaseTransform: true);
+            hasProjectBaseTransform: true,
+            fingerprint: "abc123");
         var source = new MoleHillTerrainGoo(terrain);
         var archive = new GH_Archive();
 
@@ -135,6 +149,17 @@ public sealed class ToposolidPreparationTests
         Assert.True(restored.Value.HasProjectBaseTransform);
         Assert.Equal(10.0, restored.Value.LocalToWorld.M03);
         Assert.Equal("diagnostic", Assert.Single(restored.Value.Diagnostics));
+        Assert.Equal("abc123", restored.Value.Fingerprint);
+        MoleHillTerrainRegion restoredRegion = Assert.Single(restored.Value.Regions);
+        Assert.Equal("paving-key", restoredRegion.Key);
+        Assert.Equal(7, restoredRegion.StackIndex);
+        Assert.False(restoredRegion.IsEnabled);
+        Assert.False(restoredRegion.UseInputElevationForPriority);
+        Assert.Equal(unchecked((int)0xFF123456), restoredRegion.ColorArgb);
+        Assert.True(restoredRegion.UseColorOverride);
+        Assert.Equal("Site::Paving", restoredRegion.LayerName);
+        Assert.Equal("Paver", restoredRegion.MaterialName);
+        Assert.False(restoredRegion.SplitToSeparateMesh);
     }
 
     private static Mesh CreateGridMesh(int xCount, int yCount, Func<double, double, double> elevation)

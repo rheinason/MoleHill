@@ -51,6 +51,10 @@ public static partial class PathGrader
             double halfWidth = path.MaximumHalfWidth();
             double slopeRatio = Math.Tan(path.SlopeAngleDeg * Math.PI / 180.0);
             double fillSlopeRatio = Math.Tan(path.FillSlopeAngleDeg * Math.PI / 180.0);
+            double leftSlopeRatio = Math.Tan(path.LeftCutSlopeAngleDeg * Math.PI / 180.0);
+            double leftFillSlopeRatio = Math.Tan(path.LeftFillSlopeAngleDeg * Math.PI / 180.0);
+            double rightSlopeRatio = Math.Tan(path.RightCutSlopeAngleDeg * Math.PI / 180.0);
+            double rightFillSlopeRatio = Math.Tan(path.RightFillSlopeAngleDeg * Math.PI / 180.0);
             double shoulderDistance = ComputePathShoulderDistance(outXy, origZ, vertCount, path, preparedBarriers, setupScratch, setupCandidates);
             var samplePath = BuildConstraintPolyline(
                 path,
@@ -86,6 +90,11 @@ public static partial class PathGrader
                 halfWidth,
                 slopeRatio,
                 fillSlopeRatio,
+                leftSlopeRatio,
+                leftFillSlopeRatio,
+                rightSlopeRatio,
+                rightFillSlopeRatio,
+                path.OutwardSideSign(),
                 path.MaxDistance,
                 shoulderDistance,
                 maxInfluence,

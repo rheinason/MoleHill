@@ -1,6 +1,7 @@
 using MoleHill.Core.Engine;
 using MoleHill.Grasshopper.Registry;
 using MoleHill.Shared;
+using MoleHill.Grasshopper.Types;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Components;
@@ -33,27 +34,33 @@ public sealed class RemeshComponent : RegistryTerrainComponent
         SubCategory = "Surface",
         Inputs = new[]
         {
-            GhPort.Mesh("Mesh", "M", "Triangle mesh to refine."),
+            GhPort.Mesh("Mesh", "M", "Triangle mesh to refine. Optional when Terrain is supplied.", optional: true),
             GhPort.Curve("Constraints", "C", "Curves to preserve as mesh edges (breaklines, boundaries)."),
             GhPort.Number("Edge Length", "E", "Maximum edge length. Controls point density. 0 = no constraint.", @default: 0.0),
             GhPort.Number("Max Area", "A", "Maximum triangle area. 0 = no constraint. Overrides Edge Length if both set.", @default: 0.0),
             GhPort.Number("Min Angle", "N", "Minimum triangle angle in degrees. 0 = no constraint.", @default: 20.0),
+            GhPort.Generic("Terrain", "T", "Optional typed Terrain input; its metadata is carried to the appended Terrain output.", optional: true),
         },
         Outputs = new[]
         {
             GhPort.Mesh("Mesh", "M", "Refined mesh."),
             GhPort.Integer("Face Count", "F", "Number of faces."),
             GhPort.Integer("Vertex Count", "V", "Number of vertices."),
+            GhPort.Generic("Terrain", "T", "Terrain-aware refined output when a Terrain input was supplied."),
         },
         Solve = Solve,
     };
 
     private static void Solve(GhSolveContext ctx)
     {
-        if (!ctx.TryGetMesh(0, out var mesh))
+        MoleHillTerrainData? sourceTerrain = ctx.TryGetTerrain(5, out var typedTerrain) ? typedTerrain : null;
+        if (!ctx.TryGetMesh(0, out var mesh) && sourceTerrain == null)
             return;
+        mesh ??= sourceTerrain!.Mesh.DuplicateMesh();
 
         var constraints = ctx.GetCurves(1);
+        if (constraints.Count == 0 && sourceTerrain != null)
+            constraints = sourceTerrain.Breaklines.Select(curve => curve.DuplicateCurve()).ToList();
         double edgeLength = ctx.GetNumber(2, 0.0);
         double maxArea = ctx.GetNumber(3, 0.0);
         double minAngle = ctx.GetNumber(4, 20.0);
@@ -78,6 +85,7 @@ public sealed class RemeshComponent : RegistryTerrainComponent
             ctx.SetData(0, mesh);
             ctx.SetData(1, faceCount);
             ctx.SetData(2, vertexCount);
+            EmitTerrain(ctx, sourceTerrain, mesh);
             return;
         }
 
@@ -116,6 +124,7 @@ public sealed class RemeshComponent : RegistryTerrainComponent
             ctx.SetData(0, mesh);
             ctx.SetData(1, faceCount);
             ctx.SetData(2, vertexCount);
+            EmitTerrain(ctx, sourceTerrain, mesh);
             return;
         }
 
@@ -126,6 +135,16 @@ public sealed class RemeshComponent : RegistryTerrainComponent
         ctx.SetData(0, outMesh);
         ctx.SetData(1, remeshResult.Faces.Length / 3);
         ctx.SetData(2, remeshResult.Vertices.Length / 3);
+        EmitTerrain(ctx, sourceTerrain, outMesh);
+    }
+
+    private static void EmitTerrain(GhSolveContext ctx, MoleHillTerrainData? source, Mesh mesh)
+    {
+        if (source == null) return;
+        var terrain = new MoleHillTerrainData(mesh, source.Breaklines, source.Regions,
+            source.Name, source.Key, source.Revision, source.Diagnostics, source.UnitSystem,
+            source.MetersPerModelUnit, source.LocalToWorld, source.HasProjectBaseTransform);
+        ctx.SetData(3, new MoleHillTerrainGoo(terrain));
     }
 
     private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)

@@ -103,11 +103,12 @@ public sealed class MoleHillTerrainGoo : GH_Goo<MoleHillTerrainData>
         if (Value == null)
             return false;
 
-        writer.SetInt32("Schema", 1);
+        writer.SetInt32("Schema", 3);
         writer.SetString("Mesh", GooSerialization.Encode(Value.Mesh));
         writer.SetString("Name", Value.Name);
         writer.SetString("Key", Value.Key);
         writer.SetInt64("Revision", Value.Revision);
+        writer.SetString("Fingerprint", Value.Fingerprint);
         writer.SetString("UnitSystem", Value.UnitSystem);
         writer.SetDouble("MetersPerModelUnit", Value.MetersPerModelUnit);
         writer.SetDoubleArray("LocalToWorld", GooSerialization.EncodeTransform(Value.LocalToWorld));
@@ -121,6 +122,14 @@ public sealed class MoleHillTerrainGoo : GH_Goo<MoleHillTerrainData>
             MoleHillTerrainRegion region = Value.Regions[regionIndex];
             writer.SetString("RegionName", regionIndex, region.Name);
             writer.SetString("RegionKey", regionIndex, region.Key);
+            writer.SetInt32("RegionStackIndex", regionIndex, region.StackIndex);
+            writer.SetBoolean("RegionEnabled", regionIndex, region.IsEnabled);
+            writer.SetBoolean("RegionElevationPriority", regionIndex, region.UseInputElevationForPriority);
+            writer.SetInt32("RegionColorArgb", regionIndex, region.ColorArgb);
+            writer.SetBoolean("RegionColorOverride", regionIndex, region.UseColorOverride);
+            writer.SetString("RegionLayerName", regionIndex, region.LayerName ?? string.Empty);
+            writer.SetString("RegionMaterialName", regionIndex, region.MaterialName ?? string.Empty);
+            writer.SetBoolean("RegionSplitToSeparateMesh", regionIndex, region.SplitToSeparateMesh);
             writer.SetInt32("RegionBoundaryCount", regionIndex, region.Boundaries.Count);
             for (int boundaryIndex = 0; boundaryIndex < region.Boundaries.Count; boundaryIndex++)
             {
@@ -139,8 +148,10 @@ public sealed class MoleHillTerrainGoo : GH_Goo<MoleHillTerrainData>
 
     public override bool Read(GH_IReader reader)
     {
-        if (!reader.ItemExists("Schema") || reader.GetInt32("Schema") != 1 || !reader.ItemExists("Mesh"))
+        if (!reader.ItemExists("Schema") ||
+            reader.GetInt32("Schema") is not (1 or 2 or 3) || !reader.ItemExists("Mesh"))
             return false;
+        int schema = reader.GetInt32("Schema");
 
         Mesh? mesh = GooSerialization.DecodeMesh(reader.GetString("Mesh"));
         if (mesh == null)
@@ -171,7 +182,17 @@ public sealed class MoleHillTerrainGoo : GH_Goo<MoleHillTerrainData>
             regions.Add(new MoleHillTerrainRegion(
                 reader.GetString("RegionName", regionIndex),
                 reader.GetString("RegionKey", regionIndex),
-                boundaries));
+                boundaries)
+            {
+                StackIndex = schema >= 3 ? reader.GetInt32("RegionStackIndex", regionIndex) : regionIndex,
+                IsEnabled = schema < 3 || reader.GetBoolean("RegionEnabled", regionIndex),
+                UseInputElevationForPriority = schema < 3 || reader.GetBoolean("RegionElevationPriority", regionIndex),
+                ColorArgb = schema >= 3 ? reader.GetInt32("RegionColorArgb", regionIndex) : unchecked((int)0xFF78B464),
+                UseColorOverride = schema >= 3 && reader.GetBoolean("RegionColorOverride", regionIndex),
+                LayerName = schema >= 3 ? reader.GetString("RegionLayerName", regionIndex) : null,
+                MaterialName = schema >= 3 ? reader.GetString("RegionMaterialName", regionIndex) : null,
+                SplitToSeparateMesh = schema < 3 || reader.GetBoolean("RegionSplitToSeparateMesh", regionIndex)
+            });
             foreach (Curve boundary in boundaries)
                 boundary.Dispose();
         }
@@ -192,7 +213,8 @@ public sealed class MoleHillTerrainGoo : GH_Goo<MoleHillTerrainData>
             reader.GetString("UnitSystem"),
             reader.GetDouble("MetersPerModelUnit"),
             GooSerialization.DecodeTransform(reader.GetDoubleArray("LocalToWorld")),
-            reader.GetBoolean("HasProjectBaseTransform"));
+            reader.GetBoolean("HasProjectBaseTransform"),
+            schema >= 2 && reader.ItemExists("Fingerprint") ? reader.GetString("Fingerprint") : string.Empty);
         mesh.Dispose();
         foreach (Curve breakline in breaklines)
             breakline.Dispose();

@@ -1,6 +1,7 @@
 using Grasshopper.Kernel;
 using MoleHill.Core.Grading;
 using MoleHill.Grasshopper.Registry;
+using MoleHill.Grasshopper.Types;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Components;
@@ -32,34 +33,41 @@ public sealed class MeshSmoothComponent : RegistryTerrainComponent
         SubCategory = "Surface",
         Inputs = new[]
         {
-            GhPort.Mesh("Mesh", "M", "Triangle mesh to smooth."),
+            GhPort.Mesh("Mesh", "M", "Triangle mesh to smooth. Optional when Terrain is supplied.", optional: true),
             GhPort.Curve("Boundaries", "B", "Closed curves defining regions to smooth. Leave empty to smooth the whole interior."),
             GhPort.Integer("Iterations", "I", "Number of smoothing passes.", @default: 3),
             GhPort.Number("Strength", "S", "Smoothing strength (0-1). When boundaries are provided, one value per boundary. When no boundaries, the first value sets global strength (default 0.5).", access: GH_ParamAccess.list),
             GhPort.Curve("Breaklines", "BL", "Curves along ridges or edges whose vertices should resist smoothing."),
             GhPort.Number("Fixity", "F", "How fixed breakline vertices are (0 = free, 1 = fully fixed).", @default: 1.0),
+            GhPort.Generic("Terrain", "T", "Optional typed Terrain input; its metadata is carried to the appended Terrain output.", optional: true),
         },
         Outputs = new[]
         {
             GhPort.Mesh("Mesh", "M", "Smoothed mesh."),
+            GhPort.Generic("Terrain", "T", "Terrain-aware smoothed output when a Terrain input was supplied."),
         },
         Solve = Solve,
     };
 
     private static void Solve(GhSolveContext ctx)
     {
-        if (!ctx.TryGetMesh(0, out var mesh))
+        MoleHillTerrainData? sourceTerrain = ctx.TryGetTerrain(6, out var typedTerrain) ? typedTerrain : null;
+        if (!ctx.TryGetMesh(0, out var mesh) && sourceTerrain == null)
             return;
+        mesh ??= sourceTerrain!.Mesh.DuplicateMesh();
 
         var boundaryCurves = ctx.GetCurves(1);
         int iterations = ctx.GetInt(2, 3);
         var strengths = ctx.GetNumbers(3);
         var breaklineCurves = ctx.GetCurves(4);
+        if (breaklineCurves.Count == 0 && sourceTerrain != null)
+            breaklineCurves = sourceTerrain.Breaklines.Select(curve => curve.DuplicateCurve()).ToList();
         double breaklineFixity = ctx.GetNumber(5, 1.0);
 
         if (iterations <= 0)
         {
             ctx.SetData(0, mesh);
+            EmitTerrain(ctx, sourceTerrain, mesh);
             return;
         }
 
@@ -120,6 +128,7 @@ public sealed class MeshSmoothComponent : RegistryTerrainComponent
         {
             ctx.Warn("No valid boundary curves. Curves must be closed.");
             ctx.SetData(0, mesh);
+            EmitTerrain(ctx, sourceTerrain, mesh);
             return;
         }
 
@@ -168,6 +177,17 @@ public sealed class MeshSmoothComponent : RegistryTerrainComponent
             tolerance,
             iterations);
 
-        ctx.SetData(0, GhSolveContext.BuildMesh(smoothed, faces));
+        Mesh output = GhSolveContext.BuildMesh(smoothed, faces);
+        ctx.SetData(0, output);
+        EmitTerrain(ctx, sourceTerrain, output);
+    }
+
+    private static void EmitTerrain(GhSolveContext ctx, MoleHillTerrainData? source, Mesh mesh)
+    {
+        if (source == null) return;
+        var terrain = new MoleHillTerrainData(mesh, source.Breaklines, source.Regions,
+            source.Name, source.Key, source.Revision, source.Diagnostics, source.UnitSystem,
+            source.MetersPerModelUnit, source.LocalToWorld, source.HasProjectBaseTransform);
+        ctx.SetData(1, new MoleHillTerrainGoo(terrain));
     }
 }

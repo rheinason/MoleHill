@@ -149,6 +149,12 @@ layout job, not the terrain's.
 
 ### B6 — Surface simplification with a stated error bound
 
+**Delivered 2026-09-14.** The Rhino modifier now provides constraint-preserving maximum-deviation,
+target-count and retain-percentage modes, backed by exact surface-overlay verification and honest
+fallback diagnostics. Automated, scale and disposable-Rhino validation are recorded in the
+[implementation plan](surface-simplification-plan.md); only larger release-characterization timings
+remain open. The existing point reducer remains a separate Toposolid export implementation.
+
 **Reference:** Civil 3D's surface simplification (point and edge decimation, to a percentage or to a
 maximum change in elevation). The prerequisite for using real survey or LiDAR data at all.
 
@@ -159,7 +165,8 @@ Toposolid export path.
 
 **Where it fits:** promote it to a **modifier**, early in the stack (it is input conditioning, like
 Triangulate's boundary pre-filter). Parameters: mode (max vertical deviation / target point count /
-percentage), the tolerance itself as a `ModelLength`, and whether constraints are exempt.
+percentage) and the active mode's value. Boundary and effective persistent constraints are always
+protected; there is no exemption switch.
 
 **Shape:** mostly a lift-and-generalise of the existing reducer, plus the modifier descriptor and
 schema rows. The real work is the constraint interaction, below.
@@ -176,50 +183,55 @@ schema rows. The real work is the constraint interaction, below.
 
 ---
 
-### B7 — Strengthen the Grasshopper surface components
+### B7 — Grasshopper terrain workflow redesign
 
-**Replaces the "auto-balance cut/fill" item from the original analysis.** Auto-balance was proposed as
-a solver that adjusts a Grade Pad's platform elevation to hit a net-zero volume target. In the Rhino
-panel that is the wrong home: it implies MoleHill reaching out and rewriting scene objects, a flow only
-the plant and project-object features use today and the least intuitive part of the product.
-Grasshopper is already the iteration environment — a solver there is just a component that gets solved
-repeatedly, with no hidden document mutation. **So the backlog item is the Grasshopper surface story,
-and balance-to-target is one component inside it.**
+**In progress.** The live reference/contract foundation, terrain-aware Grade Pad and bracketed balance
+helper are implemented. Disposable Rhino 8/Grasshopper validation covers independent bindings,
+rename and panel-selection stability, `.gh` save/reopen, frozen lifecycle, failed-status holding,
+and native `.3dm` source reopen. Full scope, remaining modifier/zone/Revit/usability phases,
+legacy `.gh` component/wire upgrade by direct deserialization (the normal `GH_DocumentIO.Open` path
+still stalls in automation), and other
+acceptance checks are in
+[the Grasshopper redesign plan](grasshopper-redesign-plan.md).
+The plan's delivery-gate audit records which phase evidence is complete and which acceptance fixtures
+remain.
 
-**What MoleHill has:** 15 components. Eight are on `RegistryTerrainComponent` (Remesh, Grade Pad, Grade
-Path, Mesh Smooth, Retaining Wall, In-Situ Stair, Slope Analysis, Mesh Areas), two are deliberate
-bespoke escape hatches (TIN Surface for its per-instance cache, Mesh Collage for dual-mode and hatch
-output), and the rest are the terrain-exchange and Toposolid boundary. The B2 parity migration in
-`gh-parity-design.md` is done.
+Make the Grasshopper surface usable as a coherent terrain-design environment:
 
-**The gap is coverage, not plumbing.** The Rhino panel has four content families; Grasshopper sees
-essentially one. There is no contour, elevation, earthworks, waterflow, section, spot-height, sculpt or
-retopo component. `ParameterDescriptor<TDefinition>` is now one generic descriptor shared by all four
-families and rendered by one generic row builder — so a generator written against the generic
-descriptor covers modifiers, analyses, annotations and objects at once, as `gh-parity-design.md`
-anticipated.
+1. Robust, live terrain references in multi-terrain documents: select by readable name and retain
+   stable identity through renames and panel selection changes.
+2. Modifier-to-component parity with consistent terrain data, constraints, units, and diagnostics.
+3. Dependable zones through GH editing, branching, partitioning, and export.
+4. Verified, approachable Rhino.Inside.Revit workflows.
+5. Icon and naming parity with native MoleHill.
+6. Exploratory grading and cut/fill balancing, with outputs that let users reproduce a chosen design.
 
-**Candidate scope, roughly in order:**
+The main workflow is **minimal Rhino terrain → live/frozen snapshot → GH modifiers → chosen result**.
+To return, users bake the successful inputs and manually recreate the native modifier, or bake the mesh
+and use **Exact TIN Mesh** as a geometry checkpoint. The latter does not restore modifier history or
+semantic constraint/zone data. Neither stack-to-graph nor graph-to-stack conversion is in scope.
 
-1. **Analyses and annotations as components** — contours first (the most-asked-for output, and
-   `ContourGenerator` is already a clean single-pass Core tracer), then elevation, earthworks,
-   waterflow. These are pure Core calls on flat arrays; no `TerrainBuildService` dependency.
-2. **Balance to target volume** — a component taking a Grade Pad's inputs and a target net volume,
-   returning the platform elevation that hits it. Net volume is monotonic in platform elevation, so a
-   bisection over the existing `PadGrader.Grade` plus the earthworks volume is enough; no optimiser.
-   This is the honest, scoped-down version of Civil 3D's Auto-Balance and OpenSite's grading solver,
-   and in Grasshopper it costs nothing architecturally — it is a loop around functions that exist.
-3. **Make the bespoke two less bespoke only where it is free** — not a rewrite. TIN Surface's cache and
-   Mesh Collage's dual mode are legitimate reasons to stay outside the spec framework.
+The earlier [parity design](gh-parity-design.md) records completed component infrastructure; this plan
+supersedes its future product direction. Begin with a complete reference → Grade Pad → volume comparison
+→ chosen-input workflow, then broaden coverage. B10's swale mode provides a subsequent exploration case.
 
-**Notes:**
+B7 is an umbrella; each sub-item closes on its own evidence (see the plan's delivery sequence and
+decisions D1–D14):
 
-- Existing `ComponentGuid`s and port schemas are frozen. Any change is verified in real Grasshopper via
-  `rhino-mcp`, per `docs/rhino-live-testing.md`.
-- Watch the `PostConstructor` ordering trap recorded in `gh-parity-design.md`: the spec must be reached
-  through the `protected abstract GhComponentSpec Spec` virtual property, never a field assigned after
-  `base(...)`.
-- This item is deliberately open-ended; split it into concrete entries once the first component lands.
+- **B7a — Reference, contracts, first workflow** (phases 1–2): `MoleHill.Interop` bridge, bound/follow
+  reference with stale-while-rebuilding status and content fingerprint, in-place component upgrades
+  (Terrain-or-Mesh inputs, Terrain output casting to Mesh), terrain-aware Grade Pad, volume comparison,
+  bracketed-bisection balance helper.
+- **B7b — Modifier coverage** (phase 3): remaining parity-matrix entries. Retopo terminal; Sculpt stays
+  Rhino-only.
+- **B7c — Zones** (phase 4): full zone workflow through editing, branching and partitioning. The
+  native boundary-priority comparator now lives in Core; GH still needs the full zone semantics and
+  must use that resolver before matched multi-zone acceptance.
+- **B7d — Rhino.Inside.Revit preparation** (phase 4): configured example `.gh` files with the Python
+  adapters pre-wired, labelled unverified in Revit. Revit-host verification is descoped.
+- **B7e — Usability and release** (phase 5): icons, discovery, previews, performance, examples. Native
+  artwork is embedded for the new modifier routes and a validated two-branch Snapshot example ships;
+  final release review and representative modifier examples remain.
 
 ---
 
@@ -288,34 +300,46 @@ mesh directly and participates in dependent rebuild scheduling.
 
 ---
 
-### B10 — Swale / ditch, as a Grade Path mode
+### B10 — Swale / ditch — **shipped**, as the Grade Line modifier
 
-**What it is:** structurally a swale *is* a Grade Path with a narrow or zero flat top — the corridor top
-becomes the invert, and the existing Cut Slope / Fill Slope batters become the channel sides. Grade
-Path already carries Width, separate cut and fill slopes, and variable width, so the corridor cascade
-needs nothing new.
+**Shipped 2026-09-16, and not in the shape this entry first proposed.** It was scoped as a *mode on
+Grade Path*; it ships instead as a sibling modifier, **Grade Line**, which is the corridor grader run at
+width zero. The reasoning: a swale is not the only thing a width-less corridor is good for. A crest, a
+toe, a bench edge, a wall rail and a ditch invert are all the same geometry — a drawn line at an
+authored elevation with ground battering away from it — so the general form earns its own card, and the
+swale is what you get when both sides cut.
 
-**Explicitly rejected: authoring the invert relative to existing ground.** The obvious-looking feature
-here is "0.3 m below existing, falling at 1 %", and it is the wrong move — it breaks the rule at the top
-of this file. The centreline curve's Z is the design; a Grade Path whose invert is inferred from the
-terrain cannot be read off the curve before the build runs, and it silently re-authors its own input.
-The user already has good tools for building that curve — `mhDrapeCurve` puts it on the terrain,
-`mhSlopeCurve` / `mhSlopeCurveSection` grade it, `mhOffsetFeature` offsets it keeping longitudinal
-grade — and *that* is where the help belongs.
+**What ships:**
 
-**Same argument for minimum longitudinal fall: report it, do not enforce it.** A swale that ponds is
-broken, but a modifier that quietly lifts the invert to fix the fall is exactly the drift being
-avoided. Make it a rule instead — `mhInspectCurve` already has Off/Report/Warn rules with
-user-persistent unit-aware thresholds and a max-grade check; a **minimum** grade check is the same
-mechanism, and B2's ponding analysis catches it from the other end, on the built surface.
+- **Grade Line** (`kind: "grade-line"`), a modifier and a matching Grasshopper component. Design lines
+  in, the curve's Z is the finished elevation, batters run to daylight.
+- **Per-side cut and fill slopes** — four optional overrides behind an *Asymmetric Sides* toggle. This
+  is the entry's "optional asymmetric left/right side slopes", generalised: each side gets its own cut
+  *and* fill, so a ditch with a steep backslope and a flat foreslope is four numbers on one card.
+- **A grading mode on Retaining Wall**, using the same core: each rail batters away from its partner,
+  so a wall can daylight into the bank above and the fill below without a second modifier.
 
-**So the actual scope is small:**
+**The V-swale is Grade Line with both sides cut.** The trapezoidal case — a flat invert width — stays
+Grade Path with a small width, which it already did; no relabelling of Cut Slope / Fill Slope was
+needed, because in the line form the two sides are named directly.
 
-- a **flat invert width** distinct from the corridor width (trapezoidal rather than V), and
-- optional **asymmetric left/right side slopes**,
-- with Cut Slope / Fill Slope relabelled to channel-side language in this mode.
+**There is no per-side enable, and that is deliberate.** A line at an authored elevation is a
+discontinuity: if one side got no batter, its faces would run from that elevation straight to whatever
+existing vertices were nearest — an uncontrolled slope, not untouched ground. So both sides always
+resolve and the control is the slope each leaves at. "This side needs no grading" is a measurement, not
+a switch: where the terrain already meets the line the batter builder reports `Flat` and emits nothing,
+which is also what makes stacked Grade Lines on `mhOffsetFeature` offsets compose into a compound
+cross-section.
 
-Ships as a mode on the Grade Path modifier and its Grasshopper component, not a sibling modifier.
+**Both original rejections stand, and the shipped feature honours them:**
+
+- **No invert authored relative to existing ground.** The curve's Z is the design, full stop. The help
+  belongs upstream in the curve — `mhDrapeCurve`, `mhSlopeCurve` / `mhSlopeCurveSection`,
+  `mhOffsetFeature`.
+- **Minimum longitudinal fall is reported, not enforced.** Nothing lifts an invert to fix its fall.
+  `mhInspectCurve`'s Off/Report/Warn rules are still where a minimum-grade check belongs, and B2's
+  ponding analysis catches it on the built surface.
+
 Pairs directly with B1/B2 — the point of a swale is where the water goes, and the drainage analyses are
 what prove it works.
 
@@ -331,18 +355,43 @@ gain. What Rhino does not do is read the **code** on a surveyed point (`EP`, `TC
 turn coded runs into breaklines, which is the step that otherwise means re-drawing the surveyor's
 linework by hand.
 
+**Scoped 2026-09-17** — see [the survey field codes plan](survey-field-codes-plan.md) for the full
+design and delivery sequence.
+
 **Scope:** a CSV/point reader that carries codes through (column mapping for PNEZD/ENZ, delimiter,
 units), a user-editable code table mapping codes to breakline / contour / boundary / spot roles, and
-run-ordering rules (sequence numbers, start/end markers, the `-` continuation convention). Output is
-ordinary Rhino curves and points, assigned to the terrain as sources — exactly like every other input
-preparation command, and like them it does not mutate a terrain definition.
+run-ordering rules (figure-number suffixes, start/end markers, the `-` continuation convention, arc and
+close flags — all four in v1). Output is ordinary Rhino curves and points on named layers.
 
 **Notes:**
 
 - It is an input-preparation **command** (`mhImportSurveyPoints`), a sibling of
-  `mhValidateTerrainInputs` and `mhDrapeCurve`, not a modifier.
+  `mhValidateTerrainInputs` and `mhDrapeCurve`, not a modifier. `mhEditFieldCodes` is its right-click
+  variant, so it shares the toolbar button rather than taking one of its own.
 - Code conventions are office- and surveyor-specific, so the code table must be user-editable and
-  persistable, in the same spirit as the layer templates.
+  persistable, in the same spirit as the layer templates — but **per-user in AppData only**, with no
+  document-embedded copy. Layer templates need one because a document must *draw* consistently for the
+  next person; a code table is consumed once at import and leaves ordinary curves behind.
+- **This entry was ambiguous where it mattered.** It said output is "assigned to the terrain as sources"
+  and also that the command "does not mutate a terrain definition". Those reconcile exactly one way:
+  each code rule names a destination **layer**, and the user assigns that layer through the ordinary
+  source editor — `SourceReferenceSet` already carries `LayerPaths`. That also makes a revised survey a
+  re-import rather than a reassignment.
+- **PNEZD is not XYZ.** Northing is Y and Easting is X, so the first two coordinate columns are swapped
+  against the obvious reading, and a mis-mapped file yields a silently transposed terrain that parses
+  cleanly and that no test can catch. The import dialog must preview parsed rows, not just offer a
+  format dropdown.
+- **Project base versus real world is a third of this feature, not a line of it.** A survey arrives in
+  real-world coordinates and the document usually is not. Three separate answers: horizontal placement
+  goes through `DocumentCommandService.ResolveProjectBase` (**not** straight to `TryGetTransform`, or a
+  document holding a legacy `FOTM`/`Georef` CPlane imports silently offset by the whole site
+  translation); with no base saved and coordinates far from origin the import offers to set a base at
+  the survey centroid rather than dropping a UTM point cloud into a tolerance-sensitive pipeline; and
+  **vertical datum is an offset on the import dialog**, because the project base is XY-only on purpose
+  (`TryValidateProjectBasePlane` rejects a non-zero origin Z) and a datum belongs to the *delivery*
+  rather than the site — two surveys on two datums can land in one document. Making the project base a
+  full 3D datum is a separate entry if it is ever wanted; it would touch validation, legacy migration,
+  LandXML export, GeoTIFF import and every saved document.
 - Still sits below B6 for the raw-point-volume case.
 
 ---

@@ -2,6 +2,7 @@ using Grasshopper.Kernel;
 using Rhino.Geometry;
 using MoleHill.Core.Grading;
 using MoleHill.Grasshopper.Registry;
+using MoleHill.Grasshopper.Types;
 
 namespace MoleHill.Grasshopper.Components;
 
@@ -35,13 +36,14 @@ public sealed class GradePadComponent : RegistryTerrainComponent
         SubCategory = "Grading",
         Inputs = new[]
         {
-            GhPort.Mesh("Mesh", "M", "Existing terrain mesh."),
+            GhPort.Mesh("Mesh", "M", "Existing terrain mesh. Optional when Terrain is supplied.", optional: true),
             GhPort.Curve("Boundaries", "B", "Closed curves defining pad areas. Flat curves make flat pads; 3D curves define the finished pad plane.", optional: false),
             GhPort.Number("Slope Angle", "S", "Cut slope angle in degrees per boundary (terrain above the pad). Shorter lists repeat last value.", access: GH_ParamAccess.list),
             GhPort.Number("Max Distance", "D", "Max horizontal transition distance per boundary. 0 = auto. Shorter lists repeat last value.", access: GH_ParamAccess.list),
             GhPort.Curve("Lock Curves", "L", "Curves whose edges are preserved as constrained segments in the remesh."),
             GhPort.Integer("Corner Segments", "CS", "Arc vertices per convex corner. 0 = sharp ridge (hip), >=1 = rounded fan. Shorter lists repeat last value.", access: GH_ParamAccess.list),
             GhPort.Number("Fill Slope", "Sf", "Fill slope angle in degrees per boundary (terrain below the pad). 0 = same as cut slope. Shorter lists repeat last value.", access: GH_ParamAccess.list),
+            GhPort.Generic("Terrain", "T", "Optional MoleHill Terrain input. When supplied, its constraints and metadata are carried to the appended Terrain output.", optional: true),
         },
         Outputs = new[]
         {
@@ -49,14 +51,17 @@ public sealed class GradePadComponent : RegistryTerrainComponent
             GhPort.Number("Cut Volume", "Cv", "Total excavation volume."),
             GhPort.Number("Fill Volume", "Fv", "Total embankment volume."),
             GhPort.Number("Net Volume", "Nv", "Cut - Fill (positive = net cut)."),
+            GhPort.Generic("Terrain", "T", "Terrain-aware graded output when a Terrain input was supplied."),
         },
         Solve = Solve,
     };
 
     private static void Solve(GhSolveContext ctx)
     {
-        if (!ctx.TryGetMesh(0, out var mesh))
+        MoleHillTerrainData? sourceTerrain = ctx.TryGetTerrain(7, out var typedTerrain) ? typedTerrain : null;
+        if (!ctx.TryGetMesh(0, out var mesh) && sourceTerrain == null)
             return;
+        mesh ??= sourceTerrain!.Mesh.DuplicateMesh();
 
         var boundaryCurves = ctx.GetCurves(1);
         if (boundaryCurves.Count == 0)
@@ -65,6 +70,8 @@ public sealed class GradePadComponent : RegistryTerrainComponent
         var slopeAngles = ctx.GetNumbers(2);
         var maxDists = ctx.GetNumbers(3);
         var lockCurves = ctx.GetCurves(4);
+        if (lockCurves.Count == 0 && sourceTerrain != null)
+            lockCurves = sourceTerrain.Breaklines.Select(curve => curve.DuplicateCurve()).ToList();
         var cornerSegmentsList = ctx.GetInts(5);
         var fillSlopeAngles = ctx.GetNumbers(6);
 
@@ -180,13 +187,22 @@ public sealed class GradePadComponent : RegistryTerrainComponent
         if (errorMessage != null)
             ctx.Warn(errorMessage);
 
-        ctx.SetData(0, GhSolveContext.BuildMesh(result.Vertices, result.Faces));
+        Mesh outputMesh = GhSolveContext.BuildMesh(result.Vertices, result.Faces);
+        ctx.SetData(0, outputMesh);
         ctx.SetData(1, result.CutVolume);
         ctx.SetData(2, result.FillVolume);
         ctx.SetData(3, result.NetVolume);
+        if (sourceTerrain != null)
+        {
+            var gradedTerrain = new MoleHillTerrainData(outputMesh, sourceTerrain.Breaklines, sourceTerrain.Regions,
+                sourceTerrain.Name, sourceTerrain.Key, sourceTerrain.Revision, sourceTerrain.Diagnostics,
+                sourceTerrain.UnitSystem, sourceTerrain.MetersPerModelUnit, sourceTerrain.LocalToWorld,
+                sourceTerrain.HasProjectBaseTransform);
+            ctx.SetData(4, new MoleHillTerrainGoo(gradedTerrain));
+        }
     }
 
-    private static bool TryCreatePadBoundary(
+    internal static bool TryCreatePadBoundary(
         Polyline polyline,
         int vertexCount,
         double slopeAngle,

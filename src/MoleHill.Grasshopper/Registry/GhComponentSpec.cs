@@ -14,6 +14,7 @@ public enum GhPortType
     Line,
     Text,
     Geometry,
+    Generic,
 }
 
 /// <summary>
@@ -58,6 +59,9 @@ public sealed class GhPort
 
     public static GhPort Geometry(string name, string nick, string desc, GH_ParamAccess access = GH_ParamAccess.list, bool optional = false) =>
         new() { Name = name, Nick = nick, Description = desc, Type = GhPortType.Geometry, Access = access, Optional = optional };
+
+    public static GhPort Generic(string name, string nick, string desc, GH_ParamAccess access = GH_ParamAccess.item, bool optional = false) =>
+        new() { Name = name, Nick = nick, Description = desc, Type = GhPortType.Generic, Access = access, Optional = optional };
 }
 
 /// <summary>

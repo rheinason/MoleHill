@@ -44,6 +44,14 @@ public sealed class DeconstructTerrainComponent : GH_Component
         pManager.AddNumberParameter("Meters Per Unit", "MPU", "Metres represented by one source model unit.", GH_ParamAccess.item);
         pManager.AddTransformParameter("Local To World", "X", "MoleHill project-local to real-world transform.", GH_ParamAccess.item);
         pManager.AddBooleanParameter("Has Project Base", "PB", "Whether Local To World represents a saved MoleHill Project Base.", GH_ParamAccess.item);
+        pManager.AddIntegerParameter("Zone Stack Indices", "ZI", "Original zone stack positions in branch order.", GH_ParamAccess.list);
+        pManager.AddBooleanParameter("Zone Enabled", "ZE", "Enabled state in branch order.", GH_ParamAccess.list);
+        pManager.AddBooleanParameter("Zone Elevation Priority", "ZEP", "Elevation-priority state in branch order.", GH_ParamAccess.list);
+        pManager.AddIntegerParameter("Zone Colors ARGB", "ZC", "Signed ARGB colors in branch order.", GH_ParamAccess.list);
+        pManager.AddBooleanParameter("Zone Color Override", "ZCO", "Color override state in branch order.", GH_ParamAccess.list);
+        pManager.AddTextParameter("Zone Layers", "ZL", "Output layer hints in branch order.", GH_ParamAccess.list);
+        pManager.AddTextParameter("Zone Materials", "ZM", "Output material hints in branch order.", GH_ParamAccess.list);
+        pManager.AddBooleanParameter("Zone Split", "ZS", "Native split-to-separate-mesh hints in branch order.", GH_ParamAccess.list);
     }
 
     protected override void SolveInstance(IGH_DataAccess DA)
@@ -83,6 +91,14 @@ public sealed class DeconstructTerrainComponent : GH_Component
         DA.SetData(11, terrain.MetersPerModelUnit);
         DA.SetData(12, terrain.LocalToWorld);
         DA.SetData(13, terrain.HasProjectBaseTransform);
+        DA.SetDataList(14, terrain.Regions.Select(region => region.StackIndex));
+        DA.SetDataList(15, terrain.Regions.Select(region => region.IsEnabled));
+        DA.SetDataList(16, terrain.Regions.Select(region => region.UseInputElevationForPriority));
+        DA.SetDataList(17, terrain.Regions.Select(region => region.ColorArgb));
+        DA.SetDataList(18, terrain.Regions.Select(region => region.UseColorOverride));
+        DA.SetDataList(19, terrain.Regions.Select(region => region.LayerName ?? string.Empty));
+        DA.SetDataList(20, terrain.Regions.Select(region => region.MaterialName ?? string.Empty));
+        DA.SetDataList(21, terrain.Regions.Select(region => region.SplitToSeparateMesh));
     }
 
     private static int ToGrasshopperInteger(long value)

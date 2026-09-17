@@ -38,7 +38,10 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   `GeometryInputModifierDefinition`
   (`TriangulateModifierDefinition`, `AddGeometryModifierDefinition`; carry `TinMesh/Points/Breaklines/
   Contours`; `TinMesh` preserves imported face topology and takes precedence over other sources),
-  `GradePadModifierDefinition`, `GradePathModifierDefinition`, `RemeshModifierDefinition`,
+  `GradePadModifierDefinition`, `GradePathModifierDefinition`, `GradeLineModifierDefinition`,
+  `RemeshModifierDefinition`,
+  `SimplifyModifierDefinition` (maximum-deviation, target-count, or retained-percentage surface
+  reduction against the incoming stage),
   `SmoothModifierDefinition`, `MeshAreasModifierDefinition`, `MeshCollageModifierDefinition`,
   `RetainingWallModifierDefinition`, `InSituStairModifierDefinition`, `SculptModifierDefinition`,
   `ProjectToModifierDefinition`. Project To stores one mutually exclusive Rhino-mesh or MoleHill-terrain
@@ -56,6 +59,14 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   than clearing them, so the panel card of a plain path shows only Centerlines/Width, and re-enabling
   restores the previous edges. `EnumerateSourceSets` still yields the parked set so stale-object cleanup
   and layer renames keep tracking it.
+  Grade Line stores design-line sources, a shared Fill/Cut slope pair, a `UseAsymmetricSides` opt-in
+  toggle and — read only while that toggle is on — four per-side overrides (left/right cut and fill).
+  Zero on an override means inherit, so the symmetric card is three rows. There is deliberately no
+  per-side enable: a line at an authored elevation is a discontinuity, so both sides always resolve and
+  the control is the slope each leaves at.
+  Retaining Wall stores a `Mode` (`breaklines`, the default, or `grade`) alongside the same slope
+  vocabulary, with the two sides named toe and top. The default is the legacy behaviour so a document
+  written before grading existed carries no `mode` key and still reads back breaklines-only.
   Sculpt persists both its raw displacement tiles and a constraint source set; selected closed curves
   protect their interiors, while earlier Grade Path sources resolve to their configured road width.
 - **Analyses** — `AnalysisDefinition` → `Slope`, `Elevation`, `CutFill`, `Earthwork`,

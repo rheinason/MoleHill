@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.660" />
+    <PackageReference Include="RhinoCommon" Version="8.34.26223.11001" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
@@ -27,6 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MoleHill.Core\MoleHill.Core.csproj" />
+    <ProjectReference Include="..\..\src\MoleHill.Interop\MoleHill.Interop.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -40,6 +42,7 @@
     <Compile Include="..\..\src\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
     <Compile Include="..\..\src\MoleHill.Shared\InSituStairReferenceBuilder.cs" Link="Shared\InSituStairReferenceBuilder.cs" />
     <Compile Include="..\..\src\MoleHill.Shared\RetainingWallBrepBuilder.cs" Link="Shared\RetainingWallBrepBuilder.cs" />
+    <Compile Include="..\..\src\MoleHill.Shared\RetainingWallGradePlanner.cs" Link="Shared\RetainingWallGradePlanner.cs" />
     <Compile Include="..\..\src\MoleHill.Shared\RetainingWallPlannerCore.cs" Link="Shared\RetainingWallPlannerCore.cs" />
     <Compile Include="..\..\src\MoleHill.Shared\ModelUnitContext.cs" Link="Shared\ModelUnitContext.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Model\*.cs" LinkBase="Model" />

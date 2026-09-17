@@ -130,6 +130,25 @@ internal sealed partial class TerrainBuildService
         c.CurrentMeshFingerprint = fingerprint;
     }
 
+    internal static void RunSimplifyStage(ModifierBuildContext c)
+    {
+        var simplify = (SimplifyModifierDefinition)c.Modifier;
+        RhinoMesh? input = c.CurrentMesh;
+        List<MoleHill.Core.Engine.SurfaceRemesher.ConstraintPolyline> effectiveConstraints =
+            CombineConstraints(c.Build.PersistentHardConstraints, c.Build.PersistentElevationConstraints);
+        c.CurrentMesh = ExecuteCachedMeshStage(
+            c.Build,
+            c.RuntimeCache,
+            c.StageKey,
+            "Simplify",
+            ComputeSimplifyStageFingerprint(c.Snapshot, c.Terrain, simplify, c.CurrentMeshFingerprint, effectiveConstraints),
+            () => input == null ? WarnMissingMesh(c.Build, simplify.Label) : ApplySimplify(c.Snapshot, c.Terrain, input, simplify, c.Build, c.ShouldCancel),
+            result => DescribeModifierMeshResult(simplify.Label, result),
+            out ulong fingerprint,
+            c.ShouldCancel);
+        c.CurrentMeshFingerprint = fingerprint;
+    }
+
     internal static void RunProjectToStage(ModifierBuildContext c)
     {
         var projectTo = (ProjectToModifierDefinition)c.Modifier;
@@ -199,6 +218,24 @@ internal sealed partial class TerrainBuildService
             ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, gradePath, c.CurrentMeshFingerprint),
             () => input == null ? WarnMissingMesh(c.Build, gradePath.Label) : ApplyGradePath(c.Snapshot, c.Terrain, input, gradePath, c.Build, c.RuntimeCache, c.Index, c.StageKey, c.Mode),
             result => DescribeModifierMeshResult(gradePath.Label, result),
+            out ulong fingerprint,
+            c.ShouldCancel);
+        c.CurrentMeshFingerprint = fingerprint;
+    }
+
+    internal static void RunGradeLineStage(ModifierBuildContext c)
+    {
+        var gradeLine = (GradeLineModifierDefinition)c.Modifier;
+        c.UsedStageKeys.Add(TerrainStageKey.CreateGradingTopology(c.StageKey, "Line"));
+        RhinoMesh? input = c.CurrentMesh;
+        c.CurrentMesh = ExecuteCachedMeshStage(
+            c.Build,
+            c.RuntimeCache,
+            c.StageKey,
+            "Grade Line",
+            ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, gradeLine, c.CurrentMeshFingerprint),
+            () => input == null ? WarnMissingMesh(c.Build, gradeLine.Label) : ApplyGradeLine(c.Snapshot, c.Terrain, input, gradeLine, c.Build, c.RuntimeCache, c.Index, c.StageKey, c.Mode),
+            result => DescribeModifierMeshResult(gradeLine.Label, result),
             out ulong fingerprint,
             c.ShouldCancel);
         c.CurrentMeshFingerprint = fingerprint;

@@ -101,6 +101,14 @@ public static partial class PathGrader
         double shoulderAllowance = path.MaxDistance > 0.0
             ? path.MaxDistance
             : Math.Max(path.Width * 2.0, halfWidth);
+        if (path.IsSingleLine && path.MaxDistance <= 0.0)
+        {
+            // A single line has neither a width nor a cap to size the envelope from, and this loop is
+            // meant to be conservative, so fall back to the line's own plan diagonal.
+            double dx = maxX - minX;
+            double dy = maxY - minY;
+            shoulderAllowance = Math.Max(shoulderAllowance, Math.Sqrt((dx * dx) + (dy * dy)));
+        }
         double expansion = halfWidth + shoulderAllowance;
         return new double[]
         {

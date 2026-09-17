@@ -77,6 +77,7 @@ public static partial class PathGrader
                 rightShoulderZ,
                 leftStatuses,
                 rightStatuses,
+                path.OutwardSideSign(),
                 mnX - maxInfluence,
                 mxX + maxInfluence,
                 mnY - maxInfluence,
@@ -186,6 +187,13 @@ public static partial class PathGrader
         double maximumHalfWidth = fallbackHalfWidth;
         double slopeRatio = Math.Tan(path.SlopeAngleDeg * Math.PI / 180.0);
         double fillSlopeRatio = Math.Tan(path.FillSlopeAngleDeg * Math.PI / 180.0);
+
+        // Each side solves its own shoulder endpoint, so each gets its own batter pair. A symmetric
+        // definition resolves both to the shared pair, so this is not a special case.
+        double leftSlopeRatio = Math.Tan(path.LeftCutSlopeAngleDeg * Math.PI / 180.0);
+        double leftFillSlopeRatio = Math.Tan(path.LeftFillSlopeAngleDeg * Math.PI / 180.0);
+        double rightSlopeRatio = Math.Tan(path.RightCutSlopeAngleDeg * Math.PI / 180.0);
+        double rightFillSlopeRatio = Math.Tan(path.RightFillSlopeAngleDeg * Math.PI / 180.0);
         bool allowCapFallback = path.MaxDistance > 1e-9;
 
         for (int i = 0; i < n; i++)
@@ -224,8 +232,8 @@ public static partial class PathGrader
                 samplePath.ZValues[i],
                 leftDistance > boundaryTolerance ? (leftEdgeX - cx) / leftDistance : normalX,
                 leftDistance > boundaryTolerance ? (leftEdgeY - cy) / leftDistance : normalY,
-                slopeRatio,
-                fillSlopeRatio,
+                leftSlopeRatio,
+                leftFillSlopeRatio,
                 maxSearchDistance,
                 localWidth,
                 boundaryTolerance,
@@ -253,8 +261,8 @@ public static partial class PathGrader
                 samplePath.ZValues[i],
                 rightDistance > boundaryTolerance ? (rightEdgeX - cx) / rightDistance : -normalX,
                 rightDistance > boundaryTolerance ? (rightEdgeY - cy) / rightDistance : -normalY,
-                slopeRatio,
-                fillSlopeRatio,
+                rightSlopeRatio,
+                rightFillSlopeRatio,
                 maxSearchDistance,
                 localWidth,
                 boundaryTolerance,
@@ -332,6 +340,15 @@ public static partial class PathGrader
             candidateZ = closest.PathZ;
             weight = ComputeRoadBlendWeight(edgeDistance, closest.Distance);
             return true;
+        }
+
+        // A one-sided rail batters away from its partner only — the wall's upper rail must not grade
+        // the ground below the wall. This sits after the on-rail case above so the rail itself still
+        // pins to its authored elevation; only the batter is confined to the outward side.
+        if (preparedPath.OutwardSideSign != 0.0 &&
+            (closest.SideSign >= 0.0 ? 1.0 : -1.0) != preparedPath.OutwardSideSign)
+        {
+            return false;
         }
 
         if (preparedBarriers.Segments.Length > 0 &&
@@ -820,7 +837,7 @@ public static partial class PathGrader
         if (path.MaxDistance > 0)
             return path.MaxDistance;
 
-        double slopeRatio = Math.Tan(path.SlopeAngleDeg * Math.PI / 180.0);
+        double slopeRatio = Math.Tan(path.FlattestCutAngleDeg() * Math.PI / 180.0);
         if (slopeRatio <= 1e-12)
             return 100.0;
 
@@ -858,7 +875,7 @@ public static partial class PathGrader
         if (path.MaxDistance > 0)
             return path.MaxDistance;
 
-        double slopeRatio = Math.Tan(path.SlopeAngleDeg * Math.PI / 180.0);
+        double slopeRatio = Math.Tan(path.FlattestCutAngleDeg() * Math.PI / 180.0);
         if (slopeRatio <= 1e-12)
             return 100.0;
 

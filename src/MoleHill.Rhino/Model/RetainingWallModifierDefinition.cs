@@ -7,7 +7,45 @@ public sealed class RetainingWallModifierDefinition : ModifierDefinition
     private double _maxWallWidth = 1.0;
     private bool _maxWallWidthWasSet;
 
+    /// <summary>Breaklines only — the historical behaviour, and still the default.</summary>
+    public const string BreaklineOnlyMode = "breaklines";
+
+    /// <summary>Insert the rails as breaklines, then batter the terrain away from each rail.</summary>
+    public const string GradeMode = "grade";
+
     public SourceReferenceSet WallCurves { get; set; } = new();
+
+    /// <summary>
+    /// Defaults to the breakline-only behaviour, so a document saved before grading existed
+    /// deserializes with no <c>mode</c> key and keeps exactly the result it had.
+    /// </summary>
+    public string Mode { get; set; } = BreaklineOnlyMode;
+
+    /// <summary>Main (fill) batter slope in degrees for the graded mode.</summary>
+    public double SlopeAngle { get; set; } = 33.0;
+
+    /// <summary>Cut-side batter slope override in degrees. 0 = inherit <see cref="SlopeAngle"/>.</summary>
+    public double CutSlopeAngle { get; set; }
+
+    /// <summary>Opt-in switch for different batters on the toe and top sides.</summary>
+    public bool UseAsymmetricSides { get; set; }
+
+    /// <summary>Toe-side (lower rail) overrides in degrees. 0 = inherit the shared pair.</summary>
+    public double ToeCutSlopeAngle { get; set; }
+
+    public double ToeFillSlopeAngle { get; set; }
+
+    /// <summary>Top-side (upper rail) overrides in degrees. 0 = inherit the shared pair.</summary>
+    public double TopCutSlopeAngle { get; set; }
+
+    public double TopFillSlopeAngle { get; set; }
+
+    public double MaxDistance { get; set; }
+
+    /// <summary>Derived from <see cref="Mode"/>, so it is never written to the document.</summary>
+    [JsonIgnore]
+    public bool GradesTerrain =>
+        string.Equals(Mode, GradeMode, StringComparison.OrdinalIgnoreCase);
 
     public double MaxWallWidth
     {

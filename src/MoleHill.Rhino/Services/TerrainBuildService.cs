@@ -543,6 +543,20 @@ internal sealed partial class TerrainBuildService
         return builder.ToUInt64();
     }
 
+    private static ulong ComputeSimplifyStageFingerprint(
+        TerrainBuildSnapshot snapshot,
+        TerrainDefinition terrain,
+        SimplifyModifierDefinition modifier,
+        ulong upstreamFingerprint,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> effectiveConstraints)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add("SurfaceSimplifierV1");
+        builder.Add(ComputeModifierStageFingerprint(snapshot, terrain, modifier, upstreamFingerprint));
+        builder.Add(ComputeConstraintsFingerprint(effectiveConstraints));
+        return builder.ToUInt64();
+    }
+
     private static ulong ComputeTriangulatePreResolutionFingerprint(
         TerrainBuildSnapshot snapshot,
         TerrainDefinition terrain,

@@ -9,10 +9,14 @@ each source folder. Build/test commands live in `AGENTS.md`.
 TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
                                           ←  MoleHill.Rhino       (Rhino host)
                             MoleHill.Shared (small shared types)
+                            MoleHill.Interop (Rhino/GH bridge DTOs and interface)
 ```
 
 - **`src/TriangleNet/`** — vendored Triangle.NET CDT engine. Do not refactor; treat as a library.
 - **`src/MoleHill.Core/`** — all reusable terrain logic, **no Rhino/GH dependency**, unit-tested.
+- **`src/MoleHill.Interop/`** — separately shipped, versioned RhinoCommon-only snapshot bridge contract.
+  Rhino and Grasshopper reference the same assembly; the GHA discovers the Rhino bridge instance by
+  type and reads snapshot fields through the interface. ILRepack leaves Interop outside the GHA.
   Sub-namespaces: `Engine/` (triangulation), `Processing/` (input prep), `Grading/` (pad/path),
   `Analysis/` (contours, slope, waterflow), `Scattering/` (object scatter sampling), `Sculpting/` (brush engine +
   displacement field).
@@ -131,13 +135,32 @@ Rhino panel:  TerrainDefinition (modifier stack, saved in .3dm)
 ## Rhino ↔ Grasshopper terrain exchange
 
 The host boundary uses an open `MoleHill Terrain` Grasshopper goo rather than treating the Rhino panel
-mesh as a Revit-ready object. `MoleHill Terrain Snapshot` reflects across the optional host assemblies
-(avoiding a Grasshopper → Rhino-plugin project reference) and reads only the latest completed **final**
-display state. `TerrainGrasshopperBridge` raises a small invalidation event when controller state changes,
+mesh as a Revit-ready object. `MoleHill Terrain Snapshot` locates the optional Rhino bridge instance
+by type and reads it through the shared, versioned `MoleHill.Interop` interface (avoiding a
+Grasshopper → Rhino-plugin project reference). It reads only completed **final** display state and can
+hold the last completed result within one Rhino session while a source rebuilds or fails, marking its
+`Status` output accordingly. `TerrainGrasshopperBridge` raises an invalidation event when controller state changes,
 so an open Grasshopper definition schedules a fresh solve. The display state retains final hard and
 elevation constraints plus the already-resolved named collage-zone boundaries alongside the mesh;
-snapshot DTOs cheaply duplicate that build-consistent geometry. Preview or deferred states are rejected
-rather than exported as apparently final terrain.
+snapshot DTOs duplicate that build-consistent geometry. Preview or deferred states are rejected as
+current data. A bound component saves the MoleHill document identity from Rhino document strings and
+the terrain GUID, so panel selection and active-document switches do not redirect it. Multiple open
+copies of one document identity require explicit selection. Snapshot content is fingerprinted with
+SHA-256 from final mesh, hard/elevation constraint kinds, zone inputs/semantics, units, and Project Base.
+The fingerprint is stored in the version-2 terrain goo and exposed as an appended Snapshot output.
+Freeze saves that goo within the GH component; Refresh replaces it from a completed source, while Resume
+live clears the frozen state. Broad source events are coalesced, then status, reference identity, and
+fingerprint and snapshot name are compared before expiring the component. Native canvas checks verified
+bound references across a panel selection change, source name refresh, `.gh` save/reopen, and the
+freeze/refresh/resume lifecycle. Small-fixture solution tracing found that a same-fingerprint rebuild
+and a frozen source-changed badge still replace downstream output objects. Fresh Rhino document reopen
+was also verified through a headless native document open followed by a successful final rebuild and
+Snapshot read. A Debug-build baseline with a 180,000-face exact TIN measured a 0.30 s native build and
+a 218.4 ms forced solve for two Snapshot → Deconstruct branches, with about 9.4 MB steady managed-memory
+growth over the post-build Rhino baseline. A pre-upgrade `.gh` archive restored both components and
+their wire through `GH_Document.Read`; the upgraded Snapshot gained its appended outputs and solved
+`Current` against a live terrain. `GH_DocumentIO.Open` on that fixture stalled before canvas attachment,
+so the normal legacy file-open path remains unverified.
 
 `Construct Terrain` and `Deconstruct Terrain` make the wrapper reversible: mesh, breaklines, zone tree,
 zone keys, name, stable key, lossless revision, diagnostics, document units, and optional Project Base
@@ -151,6 +174,10 @@ reuse exactly the same seam coordinates while untouched source triangles retain 
 outlines in one zone use odd/even containment, allowing disjoint parts and nested holes, and each output
 carries only source breakline segments projected onto its mesh. Users remain free to deconstruct,
 split/join/merge with standard Grasshopper tools, and reconstruct.
+Rhino's zone stage orders boundaries through Core `ZonePriorityResolver` using stack position, source
+order, and optional input elevation. Stack-priority zones separate elevation-sorted runs; this makes
+mixed priority modes deterministic where the former pairwise comparator could cycle. GH does not yet
+carry the complete priority metadata or invoke that ordering; this is part of B7c.
 
 `Prepare Toposolid` is the Revit-neutral compiled preparation boundary. One terrain item becomes one set of
 horizontal outer/hole profiles, a bounded list of elevation points, stable identity, a deterministic
@@ -303,6 +330,27 @@ walls, breaklines, grade-path road edges — plus the modifier's own Constraints
 Params: Algorithm, Edge Length (0 = preserve approximate face density from plan area / face count), and
 Crease Angle. Auto-density remeshes use three settle rounds; explicit targets use five in final builds.
 
+The **Simplify** modifier (`Core/Processing/SurfaceSimplifier`) reduces the incoming 2.5D mesh by a
+Maximum Deviation in model-length units, a Target Vertex Count, or a Retain Percentage. Percentage mode
+floor-rounds the incoming used-vertex share to the same count contract; 100% leaves the input unchanged.
+Count modes include every output vertex, fail explicitly when mandatory geometry exceeds the cap, and
+report achieved maximum deviation without implying an error tolerance. The surface reference is exactly
+the mesh entering that modifier, not
+the original survey or the triangulation baseline. Boundary edges and every effective persistent
+hard/elevation-constraint edge are mandatory; their vertices and connectivity survive unchanged. The
+Core loop rebuilds deterministic constrained candidates, then certifies the complete piecewise-linear
+surfaces with `SurfaceDeviationEvaluator`. That evaluator streams indexed triangle-overlay pairs and
+checks overlay vertices, so edge-crossing maxima and missing coverage cannot pass as zero error. Face
+validity uses an adaptive robust orientation predicate; model tolerance is not a minimum triangle width,
+because narrow nonzero-area grading fans are valid 2.5D input. Holes and disconnected islands remain
+part of the domain contract. Unsupported stacked-XY input, incoherent
+constraint metadata, failed coverage, stalled refinement, or a candidate that is not smaller leaves the
+input mesh in place with a diagnostic. The requested tolerance is never relaxed between preview and
+final builds. Runtime diagnostics report before/after vertex and face counts, achieved error, rounds,
+and termination reason; the stage cache restores those diagnostics on a hit. This can reduce downstream
+work, but it does not avoid the initial TIN build, conserve earthwork volume, or change the existing
+post-modifier Outer/Hide/Show processing.
+
 The **Retopo** modifier (finishing, meant to run last) is field-guided **quad** retopology
 (`Core/Retopo/`): `CrossFieldSolver` (a 2-D 4-RoSy cross-field pinned to feature tangents — boundary ∪
 creases ∪ the whole constraint stack incl. grade-path road edges — smoothed by matrix-free diffusion;
@@ -389,6 +437,19 @@ If all three tiers defer, `Grade` fails cleanly (returns null with a diagnostic)
 non-watertight mesh. (The former tier 4 — `ConstraintFirstGradingEngine` + refined-Z whole-mesh rebuild —
 was deleted; it produced spikes on exactly the degenerate scenes that reached it.)
 
+Grade Pad's shoulder and stitch-apron loops are topology-construction inputs, not persistent elevation
+constraints: their input Z values are placeholders and a successful grading tier may soften or replace
+them. The host persists the actual graded pad boundaries returned in `OutputPolylines` as hard
+constraints. This keeps downstream Remesh/Simplify metadata coherent with the mesh that Grade Pad built.
+
+For exploratory cut/fill balancing, `Core/Grading/BracketedVolumeSearch` measures both user-provided
+elevation bounds and bisects only when they bracket the target net volume. It keeps every cut/fill/net
+sample and the nearest result, detects non-monotone measurements and grading tier fallbacks, and has a
+finite iteration cap. `PadElevationBalancer` supplies actual one-pad grading and translated boundary
+geometry through `PadGrader`. `Balance Grade Pad` exposes that one-pad search in GH with a chosen
+boundary, graded mesh, volumes, status, and sample lists. It currently uses a mesh port, so the output
+does not carry terrain constraints or zones; the terrain-aware Grade Pad migration remains B7 work.
+
 `PathGrader.Grade` is the corridor analogue with its own cascade: **explicit corridor**
 (`PathGrader.Explicit.cs`, carve/fill with density-guarded batter + station seeds) → **split-keep**
 (`PathGrader.SplitKeep.cs`, conform corridor daylight + road-edge footprint loops in place — also
@@ -401,6 +462,28 @@ irregular vertices are pulled into the carve) and re-conforms via a single CDT w
 splitter emits an untraceable boundary. Shared: `GradingGeometry2D` (all 2D primitives —
 point-in-polygon, distance, interior point; `PadGrader.Spatial.cs` are thin compat wrappers),
 `BatterStripBuilder`, `MeshAreaTopologySplitter`, `GradedRegionAssembler.WeldGradedRegion`.
+
+**Grade Line is the corridor at width zero**, not a fourth grader. `PathDefinition.IsSingleLine` (width
+0) collapses both rails onto the drawn curve, so `BuildCorridors` walks the line out and back into one
+station ring: the forward pass rays left, the backward pass rays right, and the same explicit →
+split-keep → constraint-insertion cascade runs unchanged. The footprint has zero area while the daylight
+loop does not, so split-keep's `BuildCorridorFootprintLoop` returns null for a line and the corridor
+conforms to its daylight envelope alone. Station spacing cannot come from a width, so
+`ComputeSingleLineSegmentLength` derives it from the batter reach instead. Only one output polyline is
+published — a line has one design line, not two road edges — and it persists as a hard constraint, which
+is what lets stacked Grade Lines on `mhOffsetFeature` offsets build a compound cross-section.
+
+**Batters are per side.** `PathDefinition` carries optional Left/Right cut and fill overrides; zero
+inherits the shared pair, so a symmetric definition resolves both sides to the same numbers and behaves
+exactly as before. The overrides reach the geometry in three places, all of which already knew which
+side they were on: `BatterStripBuilder.BuildDaylightLoop` takes an optional per-station angle array,
+`PathGrader.Sections` solves each shoulder endpoint with its own pair, and `PreparedPath.SlopeRatioFor`
+picks by `ClosestPathLocation.SideSign` during the elevation pass. Missing the last of those is what
+made an asymmetric section silently flatten back to symmetric. There is no per-side *enable*: a line at
+an authored elevation is a discontinuity, so every side resolves to some slope, and "no grading here" is
+the `DaylightStatus.Flat` a station reports when terrain already meets the line. The **Retaining Wall**
+graded mode is the same machinery with an explicit `OutwardNormals` array — a rail batters away from its
+partner, which is not the curve's own plan normal — via `RetainingWallGradePlanner` in `MoleHill.Shared`.
 
 Grading search work is spatialized without changing deterministic tie order. `TerrainFaceGrid`
 collects candidate faces from the finite daylight-ray corridor, deduplicates them, and evaluates them
@@ -418,9 +501,9 @@ TIN production path's faster Triangle.NET-native adjacency.
 
 `TerrainBuildService.Build(snapshot, runtimeCache, mode)` runs stages, most behind a per-stage
 fingerprint cache (`runtimeCache.StageEntries`); decomposed into `TerrainBuildService.*.cs` partials
-(`.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Sculpt`, `.ProjectTo`,
+(`.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`, `.Scatter`, `.Sculpt`, `.ProjectTo`, `.Simplify`,
 plus `.Cache`, `.Fingerprints`, `.Types`, `.Report`). Order: TIN → modifiers (smooth/remesh/sculpt/grade
-pad/grade path/project-to) → analyses → annotations → zones → markers → object placements → scatter → report tables. **The generated-output
+pad/grade path/grade line/project-to/simplify) → analyses → annotations → zones → markers → object placements → scatter → report tables. **The generated-output
 stages run only in `TerrainBuildMode.Final` and are fingerprint-cached**. Analyses and annotations are each
 cached independently by id; zones, markers, objects, and scatter retain stage-level entries. Both families
 run through one `RunStage` local function in `.Analysis.cs` — the stage scaffolding (enabled check,
@@ -937,6 +1020,21 @@ endpoints/Z extrema and caps removed path detour before re-running all normal ac
 rails and closed rails are not rewritten. Successful cleanup is an Information overlay. Finite
 wall-centerline crossings are split into vertically separated plan crossings (Information) and
 overlapping height ranges (Warning), with exact crossing geometry and all four rails.
+
+## Planning documents (proposed, not current architecture)
+
+These describe intended destinations and measured history. Nothing in them is current behaviour; this
+map remains the description of what the code does today.
+
+- `docs/interactive-terrain-plan-2026-09-16.md` — proposed interactive/realtime editing program,
+  scoped to Triangulate → Retaining Wall first. Records why general local re-triangulation stays
+  deferred, and the cancel-on-every-request policy that blocks continuous input.
+- `docs/performance-optimization-routes-2026-07-30.md` — six measured optimization routes, implemented
+  route by route; the source of the 1.2M-point TIN and Grade Path timings.
+- `docs/large-terrain-performance-review-2026-07-05.md` — the H/M/L job list, all closed; records why
+  dirty-region crop/stitch was built (`DirtyRegionPlanner`) and then not integrated.
+- `docs/terrain-scalability-review-2026-09-09.md` — C01/O01–O16 scalability items and their open
+  acceptance gaps.
 
 ## Determinism & gotchas
 

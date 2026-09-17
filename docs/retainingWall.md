@@ -4,7 +4,26 @@
 
 The retaining-wall workflow accepts unordered wall-rail curves, pairs them into walls, builds solid wall Breps, and inserts the accepted toe/top rails as hard terrain breaklines.
 
-This is not a daylighting or grading tool. Rail Z values are authoritative: when a wall is accepted, the terrain is forced to the toe/top rail elevations during breakline insertion.
+**Rail Z values are authoritative in every mode.** When a wall is accepted the terrain is forced to the toe/top rail elevations during breakline insertion, and nothing downstream moves a rail.
+
+## Modes
+
+The modifier has one **Mode** row with two settings. It defaults to `Breaklines only`, so a document saved before grading existed reads back with exactly the result it had.
+
+| Mode | What it does |
+|---|---|
+| `Breaklines only` (default) | Pairs, solids and breakline insertion, and nothing else. The terrain meets the rails and is otherwise untouched. |
+| `Grade terrain` | Everything above, plus a batter running away from each rail out to daylight. |
+
+In `Grade terrain` each rail grades **one way only — away from its partner rail**, so the wall face is never buried and terrain is never pushed through it. That outward direction is not the rail curve's own plan normal, so it is computed from the pairing and handed to the grader explicitly (`RetainingWallGradePlanner` in `src/MoleHill.Shared/`, shared by the Rhino modifier and the Grasshopper component).
+
+The card carries a shared Fill Slope and an optional Cut Slope, and an **Asymmetric Sides** toggle that reveals a cut and a fill override for the toe side and for the top side. A blank override inherits the shared pair, so the symmetric case costs nothing.
+
+There is no per-side "off" switch, for the same reason Grade Line has none: a rail sits at an authored elevation, so its side always resolves to some slope. Where the terrain already meets the rail the batter measures no difference and emits nothing — that is what "this side needs no grading" looks like. A side that should stay a bare face is that side set to the vertical maximum.
+
+Grading reuses the ordinary corridor cascade at width zero (see `docs/architecture.md` → "Core: grading"), so the watertight invariant, the barrier handling and the daylight diagnostics are the same ones Grade Pad and Grade Path use. If grading fails, the accepted breaklines are kept and the failure is reported.
+
+**Grading runs before the rails are inserted, and that ordering is load-bearing.** Insertion forces the terrain to the rail elevations; a batter measured after it therefore starts with zero height difference at its own foot, reports `Flat`, and emits nothing. The failure is silent — the build reports a clean conform and hands back an ungraded mesh — so it was found only by measuring a section across a live 4 m wall. Grading the incoming mesh first also means the wall's own rails are not yet hard constraints, so a rail never becomes a barrier standing on its own batter's foot. Other walls and road edges still act as barriers, exactly as they do for Grade Pad's lock curves.
 
 ## Public Inputs
 
@@ -15,7 +34,7 @@ This is not a daylighting or grading tool. Rail Z values are authoritative: when
 | Max Wall Width | double | Maximum expected spacing between paired wall rails |
 | Wall Layer (Rhino) | Layer path | Optional output layer for wall Breps |
 
-Removed retaining-wall concepts: `Sharpness`, `Shoulder Width`, daylight outputs, fallback wall meshes, and wall-strip Z grading.
+Removed retaining-wall concepts: `Sharpness`, `Shoulder Width`, fallback wall meshes, and wall-strip Z grading. Daylighting returned in 2026-09 as the opt-in `Grade terrain` mode above — built on the shared grading cascade rather than the bespoke wall-strip code that was removed.
 
 ## Outputs
 

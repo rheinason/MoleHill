@@ -2,6 +2,21 @@ namespace MoleHill.Core.Grading;
 
 public static partial class PathGrader
 {
+    /// <summary>
+    /// Station spacing for a single line, which has no width to set the density. Three stations across
+    /// the batter's own reach gives the ruled rows the density a corridor gets from its width.
+    /// </summary>
+    private static double ComputeSingleLineSegmentLength(PathDefinition path, TerrainFaceGrid terrain, double tolerance)
+    {
+        double reach = path.MaxDistance > 0.0
+            ? path.MaxDistance
+            : terrain.BoundsDiagonal * 0.05;
+        double floor = Math.Max(
+            GradingTolerances.ModelToleranceOrDefault(tolerance) * 1000.0,
+            MoleHill.Core.Engine.ScaleAwareTolerance.LengthFloor(reach));
+        return Math.Max(reach / 3.0, floor);
+    }
+
     private static double ComputeConstraintSegmentLength(PathDefinition path, double shoulderDistance)
     {
         // Width controls longitudinal sampling density. A variable rail may sit far from the

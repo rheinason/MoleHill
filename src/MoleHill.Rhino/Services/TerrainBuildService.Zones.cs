@@ -68,7 +68,9 @@ internal sealed partial class TerrainBuildService
             return;
         }
 
-        entries.Sort(CompareZoneEntries);
+        ZonePriorityResolver.SortInPlace(entries, entry => new ZonePriorityResolver.BoundaryPriority(
+            entry.ZoneOrder, entry.SourceOrder, entry.PriorityZ,
+            entry.Zone.UseInputElevationForPriority));
         foreach (IGrouping<Guid, ZoneBoundaryEntry> group in entries
                      .GroupBy(entry => entry.Zone.ZoneId)
                      .OrderBy(group => group.Min(entry => entry.ZoneOrder)))
@@ -254,31 +256,6 @@ internal sealed partial class TerrainBuildService
         }
 
         return result;
-    }
-
-    private static int CompareZoneEntries(ZoneBoundaryEntry left, ZoneBoundaryEntry right)
-    {
-        bool leftUsesZ = left.Zone.UseInputElevationForPriority;
-        bool rightUsesZ = right.Zone.UseInputElevationForPriority;
-
-        if (leftUsesZ && rightUsesZ)
-        {
-            int zCompare = left.PriorityZ.CompareTo(right.PriorityZ);
-            if (zCompare != 0)
-                return zCompare;
-        }
-        else
-        {
-            int zoneCompare = left.ZoneOrder.CompareTo(right.ZoneOrder);
-            if (zoneCompare != 0)
-                return zoneCompare;
-        }
-
-        int sourceCompare = left.SourceOrder.CompareTo(right.SourceOrder);
-        if (sourceCompare != 0)
-            return sourceCompare;
-
-        return left.ZoneOrder.CompareTo(right.ZoneOrder);
     }
 
     /// <summary>Indexes every enabled Grade Path modifier's resolved centerlines by source curve id, so a

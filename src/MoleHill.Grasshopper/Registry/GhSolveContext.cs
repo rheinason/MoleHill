@@ -1,7 +1,9 @@
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Types;
 using MoleHill.Shared;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
+using MoleHill.Grasshopper.Types;
 
 namespace MoleHill.Grasshopper.Registry;
 
@@ -77,6 +79,38 @@ public sealed class GhSolveContext
     public int GetInt(int index, int fallback = 0)
     {
         int value = fallback;
+        _access.GetData(index, ref value);
+        return value;
+    }
+
+    public bool TryGetTerrain(int index, out MoleHillTerrainData terrain)
+    {
+        IGH_Goo? goo = null;
+        if (_access.GetData(index, ref goo) && goo is MoleHillTerrainGoo terrainGoo && terrainGoo.Value != null)
+        {
+            terrain = terrainGoo.Value;
+            return true;
+        }
+        terrain = null!;
+        return false;
+    }
+
+    public bool TryGetCurve(int index, out Curve curve)
+    {
+        Curve? value = null;
+        if (_access.GetData(index, ref value) && value != null)
+        {
+            curve = value;
+            return true;
+        }
+
+        curve = null!;
+        return false;
+    }
+
+    public string GetText(int index, string fallback = "")
+    {
+        string value = fallback;
         _access.GetData(index, ref value);
         return value;
     }

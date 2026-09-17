@@ -1,6 +1,7 @@
 using Grasshopper.Kernel;
 using MoleHill.Core.Grading;
 using MoleHill.Grasshopper.Registry;
+using MoleHill.Grasshopper.Types;
 using MoleHill.Shared;
 using Rhino.Geometry;
 
@@ -33,11 +34,12 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
         SubCategory = "Grading",
         Inputs = new[]
         {
-            GhPort.Mesh("Mesh", "M", "Existing terrain mesh."),
+            GhPort.Mesh("Mesh", "M", "Existing terrain mesh. Optional when Terrain is supplied.", optional: true),
             GhPort.Geometry("Reference Surface", "R", "Mesh, Brep, extrusion, or surface describing the stair run."),
             GhPort.Number("Riser Height", "H", "Vertical rise per step. Defaults to 0.15 m in document units."),
             GhPort.Number("Slope Angle", "S", "Daylight slope angle in degrees.", @default: 33.0),
             GhPort.Number("Max Distance", "D", "Maximum grading reach away from the stair. 0 = unlimited.", @default: 0.0),
+            GhPort.Generic("Terrain", "T", "Optional typed Terrain input; its metadata is carried to the appended Terrain output.", optional: true),
         },
         Outputs = new[]
         {
@@ -49,14 +51,17 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
             GhPort.Number("Fill Volume", "Fv", "Total embankment volume."),
             GhPort.Number("Net Volume", "Nv", "Cut - Fill (positive = net cut)."),
             GhPort.Text("Warning", "W", "Surface interpretation or grading warning text.", access: GH_ParamAccess.item),
+            GhPort.Generic("Terrain", "T", "Terrain-aware stair output when a Terrain input was supplied."),
         },
         Solve = Solve,
     };
 
     private static void Solve(GhSolveContext ctx)
     {
-        if (!ctx.TryGetMesh(0, out var mesh))
+        MoleHillTerrainData? sourceTerrain = ctx.TryGetTerrain(5, out var typedTerrain) ? typedTerrain : null;
+        if (!ctx.TryGetMesh(0, out var mesh) && sourceTerrain == null)
             return;
+        mesh ??= sourceTerrain!.Mesh.DuplicateMesh();
 
         var referenceGeometry = ctx.GetGeometry(1);
         if (referenceGeometry.Count == 0)
@@ -138,7 +143,8 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
         if (!string.IsNullOrWhiteSpace(warning))
             ctx.Warn(warning);
 
-        ctx.SetData(0, GhSolveContext.BuildMesh(currentVertices, currentFaces));
+        var outMesh = GhSolveContext.BuildMesh(currentVertices, currentFaces);
+        ctx.SetData(0, outMesh);
         ctx.SetDataList(1, stairBuild.References.SelectMany(reference => reference.StairBreps));
         ctx.SetDataList(2, stairBuild.References.Select(reference => reference.TreadDepth));
         ctx.SetDataList(3, stairBuild.References.Select(reference => reference.StepCount));
@@ -146,6 +152,14 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
         ctx.SetData(5, fillVolume);
         ctx.SetData(6, cutVolume - fillVolume);
         ctx.SetData(7, warning);
+        if (sourceTerrain != null)
+        {
+            var terrain = new MoleHillTerrainData(outMesh, sourceTerrain.Breaklines, sourceTerrain.Regions,
+                sourceTerrain.Name, sourceTerrain.Key, sourceTerrain.Revision, sourceTerrain.Diagnostics,
+                sourceTerrain.UnitSystem, sourceTerrain.MetersPerModelUnit, sourceTerrain.LocalToWorld,
+                sourceTerrain.HasProjectBaseTransform);
+            ctx.SetData(8, new MoleHillTerrainGoo(terrain));
+        }
     }
 
     private static bool TryExtractMesh(Mesh mesh, out double[] vertices, out int[] faces, out string? errorMessage)

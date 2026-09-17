@@ -2,6 +2,8 @@ using Grasshopper.Kernel;
 using Rhino.Geometry;
 using MoleHill.Core.Grading;
 using MoleHill.Grasshopper.Registry;
+using MoleHill.Grasshopper.Types;
+using MoleHill.Shared;
 
 namespace MoleHill.Grasshopper.Components;
 
@@ -33,7 +35,7 @@ public sealed class GradePathComponent : RegistryTerrainComponent
         SubCategory = "Grading",
         Inputs = new[]
         {
-            GhPort.Mesh("Mesh", "M", "Existing terrain mesh."),
+            GhPort.Mesh("Mesh", "M", "Existing terrain mesh. Optional when Terrain is supplied.", optional: true),
             GhPort.Curve("Paths", "P", "Path curves. Curve Z = road elevation profile.", optional: false),
             GhPort.Number("Width", "W", "Road width per path (total, centered on path). Shorter lists repeat last value.", access: GH_ParamAccess.list, optional: false),
             GhPort.Number("Slope Angle", "S", "Cut slope angle in degrees per path (terrain above the road). Shorter lists repeat last value.", access: GH_ParamAccess.list),
@@ -41,6 +43,7 @@ public sealed class GradePathComponent : RegistryTerrainComponent
             GhPort.Number("Fill Slope", "Sf", "Fill slope angle in degrees per path (terrain below the road). 0 = same as cut slope. Shorter lists repeat last value.", access: GH_ParamAccess.list),
             GhPort.Curve("Width Edges", "E", "Optional plan curves matched uniquely to centerline sides. Edge Z is ignored.", access: GH_ParamAccess.list),
             GhPort.Number("Max Edge Distance", "Ed", "Maximum edge matching distance. 0 = four times fallback Width.", optional: true),
+            GhPort.Generic("Terrain", "T", "Optional typed Terrain input; its metadata is carried to the appended Terrain output.", optional: true),
         },
         Outputs = new[]
         {
@@ -48,14 +51,17 @@ public sealed class GradePathComponent : RegistryTerrainComponent
             GhPort.Number("Cut Volume", "Cv", "Total excavation volume."),
             GhPort.Number("Fill Volume", "Fv", "Total embankment volume."),
             GhPort.Number("Net Volume", "Nv", "Cut - Fill (positive = net cut)."),
+            GhPort.Generic("Terrain", "T", "Terrain-aware graded output when a Terrain input was supplied."),
         },
         Solve = Solve,
     };
 
     private static void Solve(GhSolveContext ctx)
     {
-        if (!ctx.TryGetMesh(0, out var mesh))
+        MoleHillTerrainData? sourceTerrain = ctx.TryGetTerrain(8, out var typedTerrain) ? typedTerrain : null;
+        if (!ctx.TryGetMesh(0, out var mesh) && sourceTerrain == null)
             return;
+        mesh ??= sourceTerrain!.Mesh.DuplicateMesh();
 
         var pathCurves = ctx.GetCurves(1);
         if (pathCurves.Count == 0)
@@ -205,10 +211,19 @@ public sealed class GradePathComponent : RegistryTerrainComponent
         if (errorMessage != null)
             ctx.Warn(errorMessage);
 
-        ctx.SetData(0, GhSolveContext.BuildMesh(result.Vertices, result.Faces));
+        var outMesh = GhSolveContext.BuildMesh(result.Vertices, result.Faces);
+        ctx.SetData(0, outMesh);
         ctx.SetData(1, result.CutVolume);
         ctx.SetData(2, result.FillVolume);
         ctx.SetData(3, result.NetVolume);
+        if (sourceTerrain != null)
+        {
+            var terrain = new MoleHillTerrainData(outMesh,
+                sourceTerrain.Breaklines, sourceTerrain.Regions, sourceTerrain.Name, sourceTerrain.Key,
+                sourceTerrain.Revision, sourceTerrain.Diagnostics, sourceTerrain.UnitSystem,
+                sourceTerrain.MetersPerModelUnit, sourceTerrain.LocalToWorld, sourceTerrain.HasProjectBaseTransform);
+            ctx.SetData(4, new MoleHillTerrainGoo(terrain));
+        }
     }
 
     private static bool TryToPlanPolyline(Curve curve, double tolerance, out Polyline polyline)

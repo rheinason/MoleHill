@@ -68,7 +68,8 @@ public static partial class PathGrader
         int N,
         double[] DaylightXy,
         double Spacing,
-        BatterStripBuilder.DaylightLoop Loop);
+        BatterStripBuilder.DaylightLoop Loop,
+        bool IsSingleLine = false);
 
     private static GradingResult? GradeWithExplicitCorridor(
         double[] vertices,
@@ -96,6 +97,22 @@ public static partial class PathGrader
         {
             errorMessage = "Grade Path road edge crosses a hard constraint; explicit corridor grading deferred.";
             return null;
+        }
+
+        // A one-sided grade daylights away from its rail, so the rail lies *on* the carve boundary
+        // rather than inside it. The explicit fill then carries that rail twice — once as a boundary
+        // vertex at terrain elevation, once as a rail vertex at the authored elevation — and the weld
+        // keeps the terrain one, which silently flattens the rail to existing ground. (Found live on a
+        // retaining wall: the batter itself was correct, only the rail row was wrong, so nothing threw
+        // and nothing looked obviously broken.) Split-keep conforms the rail in place and gets this
+        // right, so defer to it rather than weld a wrong elevation.
+        foreach (PathDefinition path in paths)
+        {
+            if (path.OutwardNormals is { Length: > 0 })
+            {
+                errorMessage = "Grade Path one-sided rail grading is handled by terrain conform; explicit corridor grading deferred.";
+                return null;
+            }
         }
 
         // Lock curves clip the corridor batters (passed as barriers to the daylight ray-march).
@@ -232,14 +249,26 @@ public static partial class PathGrader
 
         foreach (PathDefinition path in paths)
         {
-            if (path.VertexCount < 2 || path.Width <= tolerance)
+            if (path.VertexCount < 2 || (!path.IsSingleLine && path.Width <= tolerance))
             {
                 errorMessage = "Grade Path definition was degenerate.";
                 return null;
             }
 
-            double spacing = ComputeConstraintSegmentLength(path, shoulderDistance: 0.0);
-            ConstraintPath center = BuildConstraintPolyline(path, spacing, tolerance);
+            // A rail carrying explicit outward normals grades one way only (the retaining-wall case:
+            // a wall batters away from its partner rail, never through it).
+            bool oneSided = path.OutwardNormals is { Length: > 0 };
+
+            double spacing = path.IsSingleLine
+                ? ComputeSingleLineSegmentLength(path, terrain, tolerance)
+                : ComputeConstraintSegmentLength(path, shoulderDistance: 0.0);
+
+            // Those normals are supplied one per authored vertex, so a one-sided rail must keep the
+            // stationing it arrived with — resampling it would leave the directions misaligned with
+            // the stations they belong to. Its stationing is the planner's, not ours to second-guess.
+            ConstraintPath center = oneSided
+                ? BuildConstraintPolyline(path, maxSegmentLength: 0.0, tolerance)
+                : BuildConstraintPolyline(path, spacing, tolerance);
             int n = center.VertexCount;
             if (n < 2)
             {
@@ -247,7 +276,10 @@ public static partial class PathGrader
                 return null;
             }
 
-            double halfWidth = path.Width * 0.5;
+            // A single line is its own footprint, so both rails collapse onto the centerline. The
+            // stations still walk out and back, which is what gives the left and right batters their
+            // own rays and their own slopes.
+            double halfWidth = path.IsSingleLine ? 0.0 : path.Width * 0.5;
             var leftXyz = new double[n * 3];
             var rightXyz = new double[n * 3];
             for (int i = 0; i < n; i++)
@@ -266,37 +298,62 @@ public static partial class PathGrader
                 rightXyz[i * 3 + 2] = cz;
             }
 
-            // Side stations only (left edge forward, right edge backward); the daylight at the road
+            // Side stations (left edge forward, right edge backward); the daylight at the road
             // ends is rounded by an arc afterward to avoid the overlapping-corner-fan pinch.
-            int sideCount = n * 2;
+            int sideCount = oneSided ? n : n * 2;
             var stationXy = new double[sideCount * 2];
             var normals = new double[sideCount * 2];
             var footZ = new double[sideCount];
+            var slopeAngles = new double[sideCount * 2];
             for (int i = 0; i < n; i++)
             {
                 stationXy[i * 2] = leftXyz[i * 3];
                 stationXy[i * 2 + 1] = leftXyz[i * 3 + 1];
-                double ldx = leftXyz[i * 3] - center.XyVertices[i * 2];
-                double ldy = leftXyz[(i * 3) + 1] - center.XyVertices[(i * 2) + 1];
-                NormalizeOrFallback(ldx, ldy, -center.TangentY[i], center.TangentX[i], out normals[i * 2], out normals[(i * 2) + 1]);
+                if (oneSided)
+                {
+                    NormalizeOrFallback(
+                        path.OutwardNormals![i * 2], path.OutwardNormals[(i * 2) + 1],
+                        -center.TangentY[i], center.TangentX[i],
+                        out normals[i * 2], out normals[(i * 2) + 1]);
+                }
+                else
+                {
+                    double ldx = leftXyz[i * 3] - center.XyVertices[i * 2];
+                    double ldy = leftXyz[(i * 3) + 1] - center.XyVertices[(i * 2) + 1];
+                    NormalizeOrFallback(ldx, ldy, -center.TangentY[i], center.TangentX[i], out normals[i * 2], out normals[(i * 2) + 1]);
+                }
+
                 footZ[i] = center.ZValues[i];
+                slopeAngles[i * 2] = path.LeftCutSlopeAngleDeg;
+                slopeAngles[(i * 2) + 1] = path.LeftFillSlopeAngleDeg;
             }
 
-            for (int i = 0; i < n; i++)
+            if (!oneSided)
             {
-                int src = n - 1 - i;
-                int dst = n + i;
-                stationXy[dst * 2] = rightXyz[src * 3];
-                stationXy[dst * 2 + 1] = rightXyz[src * 3 + 1];
-                double rdx = rightXyz[src * 3] - center.XyVertices[src * 2];
-                double rdy = rightXyz[(src * 3) + 1] - center.XyVertices[(src * 2) + 1];
-                NormalizeOrFallback(rdx, rdy, center.TangentY[src], -center.TangentX[src], out normals[dst * 2], out normals[(dst * 2) + 1]);
-                footZ[dst] = center.ZValues[src];
+                for (int i = 0; i < n; i++)
+                {
+                    int src = n - 1 - i;
+                    int dst = n + i;
+                    stationXy[dst * 2] = rightXyz[src * 3];
+                    stationXy[dst * 2 + 1] = rightXyz[src * 3 + 1];
+                    double rdx = rightXyz[src * 3] - center.XyVertices[src * 2];
+                    double rdy = rightXyz[(src * 3) + 1] - center.XyVertices[(src * 2) + 1];
+                    NormalizeOrFallback(rdx, rdy, center.TangentY[src], -center.TangentX[src], out normals[dst * 2], out normals[(dst * 2) + 1]);
+                    footZ[dst] = center.ZValues[src];
+                    slopeAngles[dst * 2] = path.RightCutSlopeAngleDeg;
+                    slopeAngles[(dst * 2) + 1] = path.RightFillSlopeAngleDeg;
+                }
             }
+
+            // A two-sided ring always wraps (out along one side, back along the other). A one-sided
+            // rail wraps only if the rail itself is closed — getting this wrong costs the spike
+            // regularizer its wrap-around at the seam of a closed wall.
+            bool daylightWraps = !oneSided || path.IsClosed;
 
             BatterStripBuilder.DaylightLoop loop = BatterStripBuilder.BuildDaylightLoop(
-                stationXy, sideCount, isClosed: true, normals, footZ,
-                path.SlopeAngleDeg, path.FillSlopeAngleDeg, path.MaxDistance, terrain, barriers, tolerance);
+                stationXy, sideCount, isClosed: daylightWraps, normals, footZ,
+                path.SlopeAngleDeg, path.FillSlopeAngleDeg, path.MaxDistance, terrain, barriers, tolerance,
+                path.HasAsymmetricSides ? slopeAngles : null);
 
             foreach (BatterStripBuilder.DaylightStation station in loop.Stations)
             {
@@ -315,20 +372,33 @@ public static partial class PathGrader
                 polyXy.Add(dayXy[i * 2 + 1]);
             }
 
-            // End arc bulges along +tangent at the last station; start arc along -tangent at the first.
-            AddEndArc(polyXy, dayXy[(n - 1) * 2], dayXy[(n - 1) * 2 + 1], dayXy[n * 2], dayXy[n * 2 + 1],
-                center.XyVertices[(n - 1) * 2], center.XyVertices[(n - 1) * 2 + 1],
-                center.TangentX[n - 1], center.TangentY[n - 1], spacing);
-
-            for (int i = n; i < sideCount; i++)
+            if (oneSided)
             {
-                polyXy.Add(dayXy[i * 2]);
-                polyXy.Add(dayXy[i * 2 + 1]);
+                // Only one side daylights, so the envelope closes along the rail itself rather than
+                // sweeping an arc past the ends — a wall's batter must not wrap around its end.
+                for (int i = n - 1; i >= 0; i--)
+                {
+                    polyXy.Add(center.XyVertices[i * 2]);
+                    polyXy.Add(center.XyVertices[(i * 2) + 1]);
+                }
             }
+            else
+            {
+                // End arc bulges along +tangent at the last station; start arc along -tangent at the first.
+                AddEndArc(polyXy, dayXy[(n - 1) * 2], dayXy[(n - 1) * 2 + 1], dayXy[n * 2], dayXy[n * 2 + 1],
+                    center.XyVertices[(n - 1) * 2], center.XyVertices[(n - 1) * 2 + 1],
+                    center.TangentX[n - 1], center.TangentY[n - 1], spacing);
 
-            AddEndArc(polyXy, dayXy[(sideCount - 1) * 2], dayXy[(sideCount - 1) * 2 + 1], dayXy[0], dayXy[1],
-                center.XyVertices[0], center.XyVertices[1],
-                -center.TangentX[0], -center.TangentY[0], spacing);
+                for (int i = n; i < sideCount; i++)
+                {
+                    polyXy.Add(dayXy[i * 2]);
+                    polyXy.Add(dayXy[i * 2 + 1]);
+                }
+
+                AddEndArc(polyXy, dayXy[(sideCount - 1) * 2], dayXy[(sideCount - 1) * 2 + 1], dayXy[0], dayXy[1],
+                    center.XyVertices[0], center.XyVertices[1],
+                    -center.TangentX[0], -center.TangentY[0], spacing);
+            }
 
             double[] daylightPolyXy = polyXy.ToArray();
 
@@ -350,11 +420,14 @@ public static partial class PathGrader
                 daylightPolyXy = envelope;
             }
 
-            corridors.Add(new PathCorridor(leftXyz, rightXyz, n, daylightPolyXy, spacing, loop));
+            corridors.Add(new PathCorridor(leftXyz, rightXyz, n, daylightPolyXy, spacing, loop, path.IsSingleLine));
             if (outputPolylines != null)
             {
+                // The two rails coincide on a single line, so publish the design line once — emitting
+                // it twice would install the same breakline as two persistent constraints.
                 outputPolylines.Add(new OutputPolyline(leftXyz, n, isClosed: false));
-                outputPolylines.Add(new OutputPolyline(rightXyz, n, isClosed: false));
+                if (!path.IsSingleLine)
+                    outputPolylines.Add(new OutputPolyline(rightXyz, n, isClosed: false));
             }
         }
 

@@ -238,6 +238,12 @@ public static partial class PathGrader
         if (n < 2)
             return null;
 
+        // A single line has no footprint area — its rails coincide — so there is no loop to conform
+        // to. The corridor conforms to its daylight envelope alone, and the line itself goes in as an
+        // interior constraint.
+        if (corridor.IsSingleLine)
+            return null;
+
         var loop = new double[n * 4];
         for (int i = 0; i < n; i++)
         {

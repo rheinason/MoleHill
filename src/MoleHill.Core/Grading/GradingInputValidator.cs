@@ -274,9 +274,17 @@ internal static class GradingInputValidator
                 return false;
             }
 
-            if (!double.IsFinite(path.Width) || path.Width <= 0)
+            // Width zero is the single-line design: the curve itself is the footprint, so there is no
+            // corridor to be degenerate. A negative or non-finite width is still nonsense.
+            if (!double.IsFinite(path.Width) || path.Width < 0)
             {
                 errorMessage = "Path width must be positive.";
+                return false;
+            }
+
+            if (path.IsSingleLine && path.HasVariableWidth)
+            {
+                errorMessage = "A single-line grade cannot also carry variable-width rails.";
                 return false;
             }
 

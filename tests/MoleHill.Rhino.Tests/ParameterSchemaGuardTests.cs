@@ -201,6 +201,12 @@ public class ParameterSchemaGuardTests
     [InlineData("grade-pad", "CutSlopeAngle")]
     [InlineData("grade-path", "SlopeAngle")]
     [InlineData("grade-path", "CutSlopeAngle")]
+    [InlineData("grade-line", "SlopeAngle")]
+    [InlineData("grade-line", "CutSlopeAngle")]
+    [InlineData("grade-line", "LeftCutSlopeAngle")]
+    [InlineData("grade-line", "LeftFillSlopeAngle")]
+    [InlineData("grade-line", "RightCutSlopeAngle")]
+    [InlineData("grade-line", "RightFillSlopeAngle")]
     [InlineData("in-situ-stair", "SlopeAngle")]
     public void GradingBatters_AreSlopeRows(string kind, string key)
     {

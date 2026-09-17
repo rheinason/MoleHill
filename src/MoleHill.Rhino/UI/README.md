@@ -34,6 +34,9 @@ fields by composing them, not by copying boilerplate.
   Project To starts with a Target group: choosing a MoleHill terrain clears its Rhino mesh source and
   assigning a mesh clears the terrain choice; cycle-producing terrain choices are omitted. Boundaries,
   Strength, and Feather then use the ordinary schema rows.
+  Simplify likewise uses ordinary schema rows: its Mode choice reveals Maximum Deviation, Target
+  Vertices, or Retain Percentage, and its collapsed summary shows the active request. Measured
+  reduction/error details stay in build diagnostics rather than document state.
 - `ColorRampControl.cs`, `ColorRampBar.cs`, `ScrubField.cs`, and `MoleHillPanel.ColorRamp.cs` - the
   colour-ramp card, declared by `ParameterDescriptor<AnalysisDefinition>.ColorRamp()` and rendered for Slope,
   Elevation and Cut/Fill. It replaced three separate things: the "Coloring & intervals" group, the

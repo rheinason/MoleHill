@@ -31,6 +31,28 @@ public sealed class TerrainPartitionGeometryTests
         Assert.Equal(new[] { 0, -1 }, owners);
     }
 
+    [Fact]
+    public void ClassifyFaceOwners_OverlappingRegions_LaterBranchWins()
+    {
+        var result = new MeshAreaSplitter.SplitResult(
+            new[] { 1.0, 1.0, 0.0, 2.0, 1.0, 0.0, 1.0, 2.0, 0.0 },
+            3,
+            new[] { 0, 1, 2 },
+            1,
+            new[] { 0, 1 },
+            1);
+
+        int[] owners = TerrainPartitionGeometry.ClassifyFaceOwners(
+            result,
+            new IReadOnlyList<MeshAreaSplitter.AreaBoundary>[]
+            {
+                new[] { Boundary(0.0, 0.0, 10.0, 10.0) },
+                new[] { Boundary(0.0, 0.0, 3.0, 3.0) }
+            });
+
+        Assert.Equal(new[] { 1 }, owners);
+    }
+
     [RhinoNativeFact]
     public void ClipBreaklinesToMesh_CrossingLine_ReturnsOnlyCoveredSegment()
     {

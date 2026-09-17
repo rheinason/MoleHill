@@ -2659,6 +2659,7 @@ public sealed partial class MoleHillPanel : Panel
         "smooth"         => Color.FromArgb(123, 31, 162),
         "project-to"     => Color.FromArgb(0, 121, 140),
         "retaining-wall" => Color.FromArgb(230, 74, 25),
+        "simplify"       => Color.FromArgb(0, 137, 123),
         "grade-pad"      => Color.FromArgb(245, 124, 0),
         "grade-path"     => Color.FromArgb(93, 64, 55),
         "in-situ-stair"  => Color.FromArgb(0, 121, 107),
@@ -2702,6 +2703,13 @@ public sealed partial class MoleHillPanel : Panel
                 parts.Add(r.EdgeLength > 0 ? $"Edge: {r.EdgeLength:G4}" : "Edge: auto");
                 if (r.CreaseAngle > 0) parts.Add($"Crease: {r.CreaseAngle:G4} deg");
                 return string.Join(" | ", parts);
+            case SimplifyModifierDefinition simplify:
+                return simplify.Mode switch
+                {
+                    SimplifyModifierDefinition.TargetVertexCountMode => $"At most {simplify.TargetVertexCount:N0} vertices",
+                    SimplifyModifierDefinition.RetainPercentageMode => $"Retain {simplify.RetainPercentage:G4}%",
+                    _ => $"Max dz: {simplify.MaximumDeviation:G4}"
+                };
             case SmoothModifierDefinition s:
                 return $"{s.Iterations} iter | Str {s.Strength:G3}";
             case ProjectToModifierDefinition projectTo:
@@ -2719,9 +2727,16 @@ public sealed partial class MoleHillPanel : Panel
                     return $"{paths} paths | W={path.Width:G4}";
                 int edges = path.WidthEdges.ObjectIds.Count + path.WidthEdges.LayerPaths.Count;
                 return $"{paths} paths | variable, {edges} width edges | W={path.Width:G4} fallback";
+            case GradeLineModifierDefinition line:
+                int lineCount = line.Lines.ObjectIds.Count + line.Lines.LayerPaths.Count;
+                return line.UseAsymmetricSides
+                    ? $"{lineCount} lines | asymmetric sides"
+                    : $"{lineCount} lines | Fill {line.SlopeAngle:G4} deg";
             case RetainingWallModifierDefinition w:
                 int curves = w.WallCurves.ObjectIds.Count + w.WallCurves.LayerPaths.Count;
-                return $"{curves} curves";
+                return w.GradesTerrain
+                    ? $"{curves} curves | grading {(w.UseAsymmetricSides ? "asymmetric" : $"{w.SlopeAngle:G4} deg")}"
+                    : $"{curves} curves";
             case InSituStairModifierDefinition stair:
                 int refs = stair.ReferenceSurface.ObjectIds.Count + stair.ReferenceSurface.LayerPaths.Count;
                 return !string.IsNullOrWhiteSpace(stair.ComputedTreadDepthSummary)

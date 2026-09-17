@@ -181,6 +181,7 @@ New-Item -ItemType Directory -Path $miscLicensesDirectory -Force | Out-Null
 $filesToCopy = @(
     @{ Source = Join-Path $rhinoOutput "MoleHill.Rhino.rhp"; Destination = Join-Path $packageContentRoot "MoleHill.Rhino.rhp" }
     @{ Source = Join-Path $rhinoOutput "MoleHill.Core.dll"; Destination = Join-Path $packageContentRoot "MoleHill.Core.dll" }
+    @{ Source = Join-Path $rhinoOutput "MoleHill.Interop.dll"; Destination = Join-Path $packageContentRoot "MoleHill.Interop.dll" }
     @{ Source = Join-Path $rhinoOutput "MoleHill.Rhino.deps.json"; Destination = Join-Path $packageContentRoot "MoleHill.Rhino.deps.json" }
     @{ Source = Join-Path $rhinoOutput "MoleHill.Rhino.runtimeconfig.json"; Destination = Join-Path $packageContentRoot "MoleHill.Rhino.runtimeconfig.json" }
     @{ Source = Join-Path $grasshopperOutput "MoleHill.gha"; Destination = Join-Path $packageContentRoot "MoleHill.gha" }
@@ -195,7 +196,7 @@ foreach ($file in $filesToCopy) {
     Copy-RequiredFile $file.Source $file.Destination
 }
 
-Copy-RuntimeAssemblies @($rhinoOutput, $grasshopperOutput) $packageContentRoot @("MoleHill.Core.dll")
+Copy-RuntimeAssemblies @($rhinoOutput, $grasshopperOutput) $packageContentRoot @("MoleHill.Core.dll", "MoleHill.Interop.dll")
 
 $rhinoToolbarDirectory = Join-Path $rhinoOutput "Toolbars"
 if (Test-Path $rhinoToolbarDirectory) {

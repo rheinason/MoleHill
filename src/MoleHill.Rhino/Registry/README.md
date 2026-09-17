@@ -153,6 +153,10 @@ Other pieces in this folder:
    `Services/TerrainBuildService.ModifierStages.cs`, and a `Parameters` schema.
 3. That's it — serialization, menu, factory, build dispatch, and card all pick it up via reflection.
 
+`SimplifyModifierDescriptor` is the mode-dependent example: its ordinary Choice row reveals either a
+model-length deviation, unitless integer vertex cap, or percentage row, dispatches through
+`RunSimplifyStage`, and relies on the generic card and JSON paths without bespoke UI.
+
 ## Serialization
 `Services/TerrainJsonTypeResolver` builds `ModifierDefinition` JSON polymorphism from this registry
 (descriptor `Kind` = discriminator) plus two deserialize-only legacy shims (`mesh-areas`,

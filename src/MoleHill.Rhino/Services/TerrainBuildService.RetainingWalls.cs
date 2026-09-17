@@ -137,6 +137,12 @@ internal sealed partial class TerrainBuildService
             $"{wallConstraints.Count:N0} raw rail constraints from {usableWallCount:N0} usable walls",
             StageTimingDiagnosticThresholdMs);
 
+        // Grade before the rails go in. Insertion forces the terrain to the rail elevations, so a batter
+        // measured after it starts with zero height difference at its own foot, reports Flat, and emits
+        // nothing at all — the build looks clean and grades nothing. Found live on a 4 m wall.
+        mesh = ApplyRetainingWallGrading(
+            snapshot, terrain, mesh, modifier, plan.Walls, wallTolerance, build, mode, build.PersistentHardConstraints);
+
         int rawConstraintCount = wallConstraints.Count;
         var prepareTimer = Stopwatch.StartNew();
         wallConstraints = PrepareWallConstraintsForRemesh(mesh, wallConstraints, wallTolerance);

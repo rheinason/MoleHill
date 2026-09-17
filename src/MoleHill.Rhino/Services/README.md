@@ -7,7 +7,8 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 - `TerrainBuildService.cs` + `TerrainBuildService.*.cs` partials - the staged build orchestrator. Each
   partial owns a stage: `.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`,
   `.Scatter`, `.Sculpt` (replays the sculpt displacement field as displacement-only), `.ProjectTo`
-  (Z-only conform to one mesh or terrain, with nested boundary feathering), `.Report`; plus
+  (Z-only conform to one mesh or terrain, with nested boundary feathering), `.Simplify` (certified
+  deviation/count/percentage 2.5D reduction with persistent constraint-edge preservation), `.Report`; plus
   `.Cache`, `.Fingerprints`, `.Types`. Most stages are fingerprint-cached
   (`StageCacheEntry`); analysis, zones, markers, object placements, and scatter run only in
   `TerrainBuildMode.Final`. Analysis entries are per analysis id, so changing one card does not
@@ -37,13 +38,26 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   diagnostic when used.
 - Large final Grade Path stages with persistent hard constraints ask Core to try split-keep before the
   explicit carve/weld tier; smaller and unconstrained paths remain explicit-first.
+- Grade Line runs the Core path cascade at width zero (`TerrainBuildService.GradeLine.cs`). It registers
+  a grading-topology stage key and invalidates overlapping downstream grading stages exactly as Grade
+  Path does, and persists its single output polyline as a hard constraint — which is what lets stacked
+  Grade Lines on offset feature lines compose into a compound cross-section.
 - Retaining Wall inserts accepted toe/top rails directly into the incoming mesh first, splitting only
   crossed faces and preserving untouched topology. A full constrained rebuild is reserved for cases
   where local topology insertion cannot produce an accepted mesh.
+  In `Grade terrain` mode it then batters the terrain away from each rail, one side per rail, using the
+  same Core cascade via the shared `RetainingWallGradePlanner`. Grading runs after insertion succeeds,
+  so rail elevations are already forced; if it fails the accepted breaklines are kept and the failure is
+  reported.
 - Isotropic Remesh with Edge Length 0 derives its target from plan area per input face instead of the
   median edge. This preserves approximate global face density on terrains mixing dense feature sampling
   with sparse outer faces; disjoint split/collapse thresholds and split-before-collapse settle auto mode
   in three rounds without the former operator churn.
+- Simplify maps every effective persistent hard/elevation constraint onto the actual incoming mesh
+  edges, rejects stale or conflicting constraint geometry, protects the complete boundary, and calls
+  Core's deterministic reducer. Candidate acceptance is based on a full triangle-overlay surface check;
+  failure retains the incoming mesh. Its algorithm-version and effective-constraint fingerprints make
+  cache invalidation explicit, and cached diagnostics retain the measured counts/error/reason.
 - Retaining-wall warnings carry local failure points/focus segments from the shared planner. The
   viewport shows action-oriented labels such as `Ends do not match`, `Rail doubles back`, and
   `Missing matching rail`; the whole input rail is retained only as subdued context.
@@ -122,6 +136,12 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   native Undo/Redo stack: the controller stores serialized before-state snapshots, joins an existing
   command record when one is active, and coalesces live panel gestures into one record. Undo restoration
   cancels stale work, clears caches, persists the restored JSON, and schedules fresh live builds.
+- `TerrainController.Grasshopper.cs`, `TerrainGrasshopperBridge.cs`, `TerrainReferenceResolver.cs`,
+  `TerrainDocumentIdentity.cs`, and `TerrainSnapshotFingerprint.cs` - expose completed terrain
+  snapshots through the separately shipped `MoleHill.Interop` contract. A document identity is saved
+  in Rhino document strings; a SHA-256 content fingerprint covers final mesh, constraint kinds,
+  zone sources/semantics, units, and project coordinates. The bridge rejects ambiguous terrain names
+  and reports current/rebuilding/failed source status.
 - `TerrainUndoSnapshot.cs` - the private-state payload carried by Rhino custom undo events. Its state
   equality ignores the action label so no-op edits do not create history entries, while the label follows
   the snapshot through Undo and Redo.
@@ -157,6 +177,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   vertex/face arrays. The controller also inspects the cached incoming stage for Smooth/Sculpt
   mesh-regularity warnings when no earlier Remesh is enabled. Per-owner diagnostic visibility is
   session-only on the main cache, intentionally excluded from worker copies and build-cache merges.
+- Grade Pad persists its actual graded `OutputPolylines` as hard constraints. Its temporary pad,
+  shoulder, and stitch-apron topology loops are never republished as elevation constraints because
+  their placeholder Z values and final connectivity do not describe the completed graded mesh.
 - `GeneratedRhinoObject.cs` - a previewable/bakeable output (geometry or block instance). Brep outputs
   cache explicit meshes built with the document's render settings so conduit tessellation stays stable
   across frames and closely matches the baked object.

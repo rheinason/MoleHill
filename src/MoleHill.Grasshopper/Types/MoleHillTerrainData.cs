@@ -17,6 +17,24 @@ public sealed class MoleHillTerrainData
         double metersPerModelUnit = 1.0,
         Transform? localToWorld = null,
         bool hasProjectBaseTransform = false)
+        : this(mesh, breaklines, regions, name, key, revision, diagnostics, unitSystem,
+            metersPerModelUnit, localToWorld, hasProjectBaseTransform, string.Empty)
+    {
+    }
+
+    public MoleHillTerrainData(
+        Mesh mesh,
+        IEnumerable<Curve>? breaklines,
+        IEnumerable<MoleHillTerrainRegion>? regions,
+        string? name,
+        string? key,
+        long revision,
+        IEnumerable<string>? diagnostics,
+        string? unitSystem,
+        double metersPerModelUnit,
+        Transform? localToWorld,
+        bool hasProjectBaseTransform,
+        string fingerprint)
     {
         Mesh = mesh?.DuplicateMesh() ?? throw new ArgumentNullException(nameof(mesh));
         Breaklines = (breaklines ?? Array.Empty<Curve>())
@@ -39,6 +57,7 @@ public sealed class MoleHillTerrainData
             : 1.0;
         LocalToWorld = localToWorld is { IsValid: true } transform ? transform : Transform.Identity;
         HasProjectBaseTransform = hasProjectBaseTransform;
+        Fingerprint = fingerprint ?? string.Empty;
     }
 
     public Mesh Mesh { get; }
@@ -64,6 +83,8 @@ public sealed class MoleHillTerrainData
 
     public bool HasProjectBaseTransform { get; }
 
+    public string Fingerprint { get; }
+
     public bool IsValid => Mesh.IsValid && Mesh.Vertices.Count >= 3 && Mesh.Faces.Count > 0;
 
     public MoleHillTerrainData Duplicate()
@@ -79,6 +100,7 @@ public sealed class MoleHillTerrainData
             UnitSystem,
             MetersPerModelUnit,
             LocalToWorld,
-            HasProjectBaseTransform);
+            HasProjectBaseTransform,
+            Fingerprint);
     }
 }

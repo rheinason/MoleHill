@@ -52,6 +52,22 @@ public sealed class ConstructTerrainComponent : GH_Component
         pManager[11].Optional = true;
         pManager.AddBooleanParameter("Has Project Base", "PB", "Whether Local To World represents a saved MoleHill Project Base.", GH_ParamAccess.item, false);
         pManager[12].Optional = true;
+        pManager.AddBooleanParameter("Zone Enabled", "ZE", "Enabled state for each zone branch.", GH_ParamAccess.list);
+        pManager[13].Optional = true;
+        pManager.AddBooleanParameter("Zone Elevation Priority", "ZEP", "Use input elevation to order overlapping zones.", GH_ParamAccess.list);
+        pManager[14].Optional = true;
+        pManager.AddIntegerParameter("Zone Colors ARGB", "ZC", "Zone display colors as signed ARGB integers.", GH_ParamAccess.list);
+        pManager[15].Optional = true;
+        pManager.AddBooleanParameter("Zone Color Override", "ZCO", "Override the source layer color for each zone.", GH_ParamAccess.list);
+        pManager[16].Optional = true;
+        pManager.AddTextParameter("Zone Layers", "ZL", "Optional output layer hint for each zone.", GH_ParamAccess.list);
+        pManager[17].Optional = true;
+        pManager.AddTextParameter("Zone Materials", "ZM", "Optional output material hint for each zone.", GH_ParamAccess.list);
+        pManager[18].Optional = true;
+        pManager.AddBooleanParameter("Zone Split", "ZS", "Native split-to-separate-mesh hint; GH partitioning stays explicit.", GH_ParamAccess.list);
+        pManager[19].Optional = true;
+        pManager.AddIntegerParameter("Zone Stack Indices", "ZI", "Optional original zone stack positions in branch order.", GH_ParamAccess.list);
+        pManager[20].Optional = true;
     }
 
     protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -99,6 +115,23 @@ public sealed class ConstructTerrainComponent : GH_Component
         DA.GetData(12, ref hasProjectBaseTransform);
         hasProjectBaseTransform &= hasTransformInput;
 
+        var zoneEnabled = new List<bool>();
+        DA.GetDataList(13, zoneEnabled);
+        var zoneElevationPriority = new List<bool>();
+        DA.GetDataList(14, zoneElevationPriority);
+        var zoneColors = new List<int>();
+        DA.GetDataList(15, zoneColors);
+        var zoneColorOverride = new List<bool>();
+        DA.GetDataList(16, zoneColorOverride);
+        var zoneLayers = new List<string>();
+        DA.GetDataList(17, zoneLayers);
+        var zoneMaterials = new List<string>();
+        DA.GetDataList(18, zoneMaterials);
+        var zoneSplit = new List<bool>();
+        DA.GetDataList(19, zoneSplit);
+        var zoneStackIndices = new List<int>();
+        DA.GetDataList(20, zoneStackIndices);
+
         var regions = new List<MoleHillTerrainRegion>();
         if (zoneTree != null)
         {
@@ -110,16 +143,23 @@ public sealed class ConstructTerrainComponent : GH_Component
                     .Where(item => item.Value != null)
                     .Select(item => item.Value)
                     .ToArray();
-                if (boundaries.Length == 0)
-                    continue;
-
                 string zoneName = branchIndex < zoneNames.Count && !string.IsNullOrWhiteSpace(zoneNames[branchIndex])
                     ? zoneNames[branchIndex]
                     : $"Zone {branchIndex + 1}";
                 string zoneKey = branchIndex < zoneKeys.Count && !string.IsNullOrWhiteSpace(zoneKeys[branchIndex])
                     ? zoneKeys[branchIndex]
                     : path.ToString();
-                regions.Add(new MoleHillTerrainRegion(zoneName, zoneKey, boundaries));
+                regions.Add(new MoleHillTerrainRegion(zoneName, zoneKey, boundaries)
+                {
+                    StackIndex = branchIndex < zoneStackIndices.Count ? zoneStackIndices[branchIndex] : branchIndex,
+                    IsEnabled = branchIndex >= zoneEnabled.Count || zoneEnabled[branchIndex],
+                    UseInputElevationForPriority = branchIndex >= zoneElevationPriority.Count || zoneElevationPriority[branchIndex],
+                    ColorArgb = branchIndex < zoneColors.Count ? zoneColors[branchIndex] : unchecked((int)0xFF78B464),
+                    UseColorOverride = branchIndex < zoneColorOverride.Count && zoneColorOverride[branchIndex],
+                    LayerName = branchIndex < zoneLayers.Count ? zoneLayers[branchIndex] : null,
+                    MaterialName = branchIndex < zoneMaterials.Count ? zoneMaterials[branchIndex] : null,
+                    SplitToSeparateMesh = branchIndex >= zoneSplit.Count || zoneSplit[branchIndex]
+                });
             }
         }
 

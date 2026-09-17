@@ -44,6 +44,18 @@ spawn_slot(version: "8")   →   { slotId, port, pid, adopted }
 Record `slotId` and `pid`; pass `slot` explicitly on every later call. `close_slot` normally kills
 exactly that instance.
 
+If the desktop MCP connection reports Windows error 5 while spawning, its parent Job Object may
+block the router's managed Rhino breakaway. The repository's
+[`tools/rhino-live-client.py`](../tools/rhino-live-client.py) starts the same installed router from a
+standalone shell that permits breakaway. Run it with Python, then send JSON lines such as
+`{"tool":"spawn_slot","args":{"version":"8"}}` and
+`{"tool":"close_slot","args":{"slot":"$lastSlot"}}`. It reports each router result and closes
+its exact owned slot on exit. This route was verified on 2026-09-15 with Rhino 8 and real Grasshopper
+canvas solves, and rechecked on 2026-09-16 by spawning slot `aardvark` (PID 33444), executing a
+`run_csharp` probe with the router's `script` argument, and closing that exact slot successfully. A
+sandboxed shell may still block process launch; use the host's approved unsandboxed
+command execution when that happens. The normal build-before-spawn and exact-slot rules still apply.
+
 **`adopted` does not mean "the user started it".** It means "this router session did not spawn it", and a
 Rhino the router spawned earlier can become adopted — after the router loses track of it (see §7 on
 `_-Open`), or across router restarts. `close_slot` then refuses it with `cannot_close_adopted` and there

@@ -148,6 +148,13 @@ internal static class BatterStripBuilder
     /// that follows the centerline profile. <paramref name="footprintZByStation"/> is aligned to the
     /// station list (one Z per footprint vertex/fan station).
     /// </summary>
+    /// <param name="slopeAnglesByStation">
+    /// Optional per-station cut/fill angle pairs, flat <c>[cut0, fill0, cut1, fill1, ...]</c>. When
+    /// supplied it overrides <paramref name="cutSlopeAngleDeg"/>/<paramref name="fillSlopeAngleDeg"/>
+    /// station by station, which is how an asymmetric section (a different batter on each side of a
+    /// line) is expressed. The cut/fill branch itself is unchanged: each station still picks between
+    /// its own pair by the sign of (terrain − grade).
+    /// </param>
     internal static DaylightLoop BuildDaylightLoop(
         double[] footprintXy,
         int footprintCount,
@@ -159,7 +166,8 @@ internal static class BatterStripBuilder
         double maxDistance,
         TerrainFaceGrid terrain,
         PreparedBarriers barriers,
-        double tolerance)
+        double tolerance,
+        double[]? slopeAnglesByStation = null)
     {
         if (footprintZByStation is null) throw new ArgumentNullException(nameof(footprintZByStation));
         if (footprintZByStation.Length < footprintCount)
@@ -167,7 +175,8 @@ internal static class BatterStripBuilder
         return BuildDaylightLoopCore(
             footprintXy, footprintCount, isClosed, outwardNormals,
             (i, _, _) => footprintZByStation[i],
-            cutSlopeAngleDeg, fillSlopeAngleDeg, maxDistance, terrain, barriers, tolerance);
+            cutSlopeAngleDeg, fillSlopeAngleDeg, maxDistance, terrain, barriers, tolerance,
+            slopeAnglesByStation);
     }
 
     private static DaylightLoop BuildDaylightLoopCore(
@@ -181,7 +190,8 @@ internal static class BatterStripBuilder
         double maxDistance,
         TerrainFaceGrid terrain,
         PreparedBarriers barriers,
-        double tolerance)
+        double tolerance,
+        double[]? slopeAnglesByStation = null)
     {
         if (footprintXy is null) throw new ArgumentNullException(nameof(footprintXy));
         if (outwardNormals is null) throw new ArgumentNullException(nameof(outwardNormals));
@@ -192,9 +202,11 @@ internal static class BatterStripBuilder
             throw new ArgumentException("Footprint vertex array is shorter than the vertex count.", nameof(footprintXy));
         if (outwardNormals.Length < footprintCount * 2)
             throw new ArgumentException("Outward-normal array is shorter than the vertex count.", nameof(outwardNormals));
+        if (slopeAnglesByStation is not null && slopeAnglesByStation.Length < footprintCount * 2)
+            throw new ArgumentException("Per-station slope array is shorter than the station count.", nameof(slopeAnglesByStation));
 
-        double cutSlopeRatio = Math.Tan(Math.Clamp(cutSlopeAngleDeg, 0.1, 89.9) * Math.PI / 180.0);
-        double fillSlopeRatio = Math.Tan(Math.Clamp(fillSlopeAngleDeg, 0.1, 89.9) * Math.PI / 180.0);
+        double cutSlopeRatio = SlopeRatio(cutSlopeAngleDeg);
+        double fillSlopeRatio = SlopeRatio(fillSlopeAngleDeg);
         double zTolerance = GradingTolerances.VertexAdjustmentZTolerance(tolerance);
         double searchDistance = maxDistance > 0.0
             ? maxDistance
@@ -212,14 +224,22 @@ internal static class BatterStripBuilder
             double nx = outwardNormals[i * 2];
             double ny = outwardNormals[i * 2 + 1];
 
+            double stationCutRatio = cutSlopeRatio;
+            double stationFillRatio = fillSlopeRatio;
+            if (slopeAnglesByStation is not null)
+            {
+                stationCutRatio = SlopeRatio(slopeAnglesByStation[i * 2]);
+                stationFillRatio = SlopeRatio(slopeAnglesByStation[(i * 2) + 1]);
+            }
+
             stations[i] = BuildStation(
                 fx,
                 fy,
                 fz,
                 nx,
                 ny,
-                cutSlopeRatio,
-                fillSlopeRatio,
+                stationCutRatio,
+                stationFillRatio,
                 searchDistance,
                 maxDistance,
                 zTolerance,
@@ -288,6 +308,10 @@ internal static class BatterStripBuilder
         if (any)
             Array.Copy(updated, stations, n);
     }
+
+    /// <summary>Rise/run for a batter angle, clamped to the same range the grading definitions use.</summary>
+    private static double SlopeRatio(double angleDeg) =>
+        Math.Tan(Math.Clamp(angleDeg, 0.1, 89.9) * Math.PI / 180.0);
 
     private static double Median3(double a, double b, double c) =>
         Math.Max(Math.Min(a, b), Math.Min(Math.Max(a, b), c));
