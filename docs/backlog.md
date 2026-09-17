@@ -331,18 +331,43 @@ gain. What Rhino does not do is read the **code** on a surveyed point (`EP`, `TC
 turn coded runs into breaklines, which is the step that otherwise means re-drawing the surveyor's
 linework by hand.
 
+**Scoped 2026-09-17** — see [the survey field codes plan](survey-field-codes-plan.md) for the full
+design and delivery sequence.
+
 **Scope:** a CSV/point reader that carries codes through (column mapping for PNEZD/ENZ, delimiter,
 units), a user-editable code table mapping codes to breakline / contour / boundary / spot roles, and
-run-ordering rules (sequence numbers, start/end markers, the `-` continuation convention). Output is
-ordinary Rhino curves and points, assigned to the terrain as sources — exactly like every other input
-preparation command, and like them it does not mutate a terrain definition.
+run-ordering rules (figure-number suffixes, start/end markers, the `-` continuation convention, arc and
+close flags — all four in v1). Output is ordinary Rhino curves and points on named layers.
 
 **Notes:**
 
 - It is an input-preparation **command** (`mhImportSurveyPoints`), a sibling of
-  `mhValidateTerrainInputs` and `mhDrapeCurve`, not a modifier.
+  `mhValidateTerrainInputs` and `mhDrapeCurve`, not a modifier. `mhEditFieldCodes` is its right-click
+  variant, so it shares the toolbar button rather than taking one of its own.
 - Code conventions are office- and surveyor-specific, so the code table must be user-editable and
-  persistable, in the same spirit as the layer templates.
+  persistable, in the same spirit as the layer templates — but **per-user in AppData only**, with no
+  document-embedded copy. Layer templates need one because a document must *draw* consistently for the
+  next person; a code table is consumed once at import and leaves ordinary curves behind.
+- **This entry was ambiguous where it mattered.** It said output is "assigned to the terrain as sources"
+  and also that the command "does not mutate a terrain definition". Those reconcile exactly one way:
+  each code rule names a destination **layer**, and the user assigns that layer through the ordinary
+  source editor — `SourceReferenceSet` already carries `LayerPaths`. That also makes a revised survey a
+  re-import rather than a reassignment.
+- **PNEZD is not XYZ.** Northing is Y and Easting is X, so the first two coordinate columns are swapped
+  against the obvious reading, and a mis-mapped file yields a silently transposed terrain that parses
+  cleanly and that no test can catch. The import dialog must preview parsed rows, not just offer a
+  format dropdown.
+- **Project base versus real world is a third of this feature, not a line of it.** A survey arrives in
+  real-world coordinates and the document usually is not. Three separate answers: horizontal placement
+  goes through `DocumentCommandService.ResolveProjectBase` (**not** straight to `TryGetTransform`, or a
+  document holding a legacy `FOTM`/`Georef` CPlane imports silently offset by the whole site
+  translation); with no base saved and coordinates far from origin the import offers to set a base at
+  the survey centroid rather than dropping a UTM point cloud into a tolerance-sensitive pipeline; and
+  **vertical datum is an offset on the import dialog**, because the project base is XY-only on purpose
+  (`TryValidateProjectBasePlane` rejects a non-zero origin Z) and a datum belongs to the *delivery*
+  rather than the site — two surveys on two datums can land in one document. Making the project base a
+  full 3D datum is a separate entry if it is ever wanted; it would touch validation, legacy migration,
+  LandXML export, GeoTIFF import and every saved document.
 - Still sits below B6 for the raw-point-volume case.
 
 ---
