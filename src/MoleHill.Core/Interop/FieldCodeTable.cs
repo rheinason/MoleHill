@@ -11,6 +11,9 @@ namespace MoleHill.Core.Interop;
 /// </summary>
 public sealed class FieldCodeTable
 {
+    /// <summary>Schema version of the saved file, so a later shape can migrate rather than reset.</summary>
+    public int Version { get; set; }
+
     public List<FieldCodeRule> Rules { get; set; } = new();
 
     /// <summary>Tokens that open a run, e.g. ST, BEG, START.</summary>
@@ -117,6 +120,7 @@ public sealed class FieldCodeTable
     /// </summary>
     public static FieldCodeTable CreateDefault() => new()
     {
+        Version = CurrentVersion,
         StartTokens = new List<string> { "ST", "BEG", "START" },
         EndTokens = new List<string> { "END", "FIN" },
         ArcTokens = new List<string> { "AR", "ARC", "CRV" },
@@ -141,8 +145,12 @@ public sealed class FieldCodeTable
         }
     };
 
+    /// <summary>Current schema version written by <see cref="CreateDefault"/> and the store.</summary>
+    public const int CurrentVersion = 1;
+
     public FieldCodeTable Clone() => new()
     {
+        Version = Version,
         Rules = Rules.Select(static rule => rule.Clone()).ToList(),
         StartTokens = new List<string>(StartTokens),
         EndTokens = new List<string>(EndTokens),

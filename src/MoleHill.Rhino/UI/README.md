@@ -98,6 +98,13 @@ low-priority actions into overflow while remaining pinned to the available clien
   elevation, slope, mesh counts, and Earthworks cut/fill when a reference is configured.
 - `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter,
   with Eto-drawn isometric thumbnails.
+- `FieldCodeTableEditorDialog.cs` - editor for the per-user survey field code table: a `GridView` of
+  code rules (code, role, layer, closed, note) plus the marker spellings the office's crews type, and
+  JSON import/export. The marker fields are the part that is easy to leave out and expensive to omit -
+  hard-coding ST and END would work for one office and fail silently for the next, since the codes
+  would still parse and the runs would simply never close. A blank Layer follows the role's own input
+  layer, which is what lets one layer assignment pick up a whole survey. Edits are made against a
+  clone and written only on Save.
 - `LayerTemplateEditorDialog.cs` - graphical layer-template editor: a `TreeGridView` of the layer
   hierarchy with display/print color swatches, plot-weight and a read-only Receives column, a properties
   panel for the selected layer including which output role it receives, multi-template management, and

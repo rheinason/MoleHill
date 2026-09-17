@@ -220,6 +220,17 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
 - `LayerTemplateCommandService.cs` - `mhApplyLayerTemplate` (create-only) and `mhResetLayerStyles`, which
   re-stamps appearance onto existing layers and asks first, since that discards the user's edits.
 
+## Survey field codes
+- `FieldCodeTableStore.cs` - the machine-local field code table
+  (`%APPDATA%\MoleHill\field-codes.json`), read by the survey importer. **No document-embedded twin,
+  unlike `LayerTemplateStore`:** a layer template needs one because a document must keep *drawing*
+  consistently for the next person, whereas a code table is consumed once at import and leaves ordinary
+  curves behind, so the document has nothing left to remember. Sharing is Import/Export instead. A
+  corrupt file falls back to the shipped defaults rather than failing - the table is a convenience, not
+  a document. `Normalize` uppercases and de-duplicates codes at read time, because two rules for one code
+  would otherwise make the winner depend on invisible list order.
+- `SurveyImportCommandService.cs` - command routes for survey import; currently `mhEditFieldCodes`.
+
 ## Other
 - `GeometryCommandService.cs`, `TerrainInputCommandService.cs`, `TerrainInputCommandAlgorithms.cs`,
   `BlockCommandService.cs`, `RhinoSourceResolver.cs`,

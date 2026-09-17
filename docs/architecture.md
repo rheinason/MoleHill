@@ -750,6 +750,50 @@ every *other* stage's output: the zone schedule does not exist until the zones s
 after scatter, in `TerrainBuildService.Report.cs`, and **uncached** — a correct cache key would have to
 fingerprint every stage's results, which costs more than laying out a few hundred text entities.
 
+## Rhino: survey field codes
+
+Reading a coded survey file is **input preparation**, not a modifier. `mhImportSurveyPoints` produces
+ordinary Rhino curves and points on named layers and never touches a `TerrainDefinition`; the user then
+assigns those layers through the normal source editor, exactly as with `mhDrapeCurve`. A revised survey
+is therefore a re-import, not a reassignment. `mhEditFieldCodes` is the table editor, and the
+right-click variant of the same toolbar button.
+
+Core (`Interop/`) does all of it except the geometry. `SurveyPointFileReader` maps columns; then
+`FieldCodeParser` splits each description into code, figure number and markers, and
+`SurveyFigureBuilder` walks the points keeping one open run per code.
+
+Four things are settled here and are easy to get wrong:
+
+- **PNEZD is not XYZ.** Its columns are Point, *Northing*, *Easting*, Z, Description — northing is Y and
+  easting is X, so the first two coordinate columns are the opposite way round from the obvious reading.
+  A file read with them swapped parses perfectly and yields a terrain transposed about the 45° line,
+  which nothing downstream can detect. `SurveyColumnMap` therefore names its fields `EastingColumn` and
+  `NorthingColumn`, never X and Y, and the import dialog must preview parsed rows rather than only
+  offering a format dropdown.
+- **File order is the ordering authority, never the point number.** A surveyor renumbers, and a file
+  merged from two days' work carries numbers that decrease partway through; sorting by number would
+  reorder a kerb line into a zigzag.
+- **The marker spellings are data.** `ST`/`END`/`AR`/`CL` live on the table, because hard-coding them
+  would work for one office and fail silently for the next — the codes would still parse and the runs
+  would simply never close, which reads as a convention nobody used.
+- **Nothing is dropped.** An unrecognised code is the normal first-run state, so its points are created
+  on the table's unmatched layer and counted by code; a one-point run degrades to a spot level; and
+  `Ignore` is a rule distinct from a missing one, because the two want opposite treatment — silence
+  versus a prompt to write the rule.
+
+A rule that names no layer follows its **role**, onto the input layers the layer template already ships
+(`MoleHill::Inputs::Breaklines`, `::Contours`, `::Boundary`, `::Spots`). That is forced rather than
+chosen: a layer source resolves only objects whose layer index matches exactly, so sublayers of an
+assigned layer are never collected, and a layer per code would need assigning one at a time. The
+unmatched layer is deliberately *not* one of the role layers — an unmatched point's meaning is unknown,
+and feeding it to the terrain as though it had been understood is worse than losing it.
+
+The table is per-user (`%APPDATA%\MoleHill\field-codes.json`) with **no document-embedded copy**,
+unlike layer templates: a template is re-read on every build so a document must carry one, whereas a
+code table is consumed once at import and leaves ordinary curves behind.
+
+See `docs/survey-field-codes-plan.md` and `src/MoleHill.Core/Interop/README.md`.
+
 ## Rhino: 2D drawing output (sheet readiness)
 
 Rhino owns styling and sheets. MoleHill declares where its output goes and how each destination starts

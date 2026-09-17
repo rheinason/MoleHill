@@ -21,11 +21,14 @@ public sealed class MoleHillRhinoPlugin : PlugIn
 
     private readonly TerrainDocumentStore _documentStore = new();
     private readonly LayerTemplateStore _layerTemplateStore = new();
+    private readonly FieldCodeTableStore _fieldCodeTableStore = new();
     private static Icon? _panelIcon;
 
     public static MoleHillRhinoPlugin Instance { get; private set; } = null!;
 
     internal LayerTemplateStore LayerTemplateStore => _layerTemplateStore;
+
+    internal FieldCodeTableStore FieldCodeTableStore => _fieldCodeTableStore;
 
     public override PlugInLoadTime LoadTime => PlugInLoadTime.AtStartup;
 
