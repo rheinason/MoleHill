@@ -33,8 +33,45 @@ public sealed class FieldCodeTable
     /// </summary>
     public string ContinuationSuffix { get; set; } = "-";
 
-    /// <summary>Layer that points whose code has no rule are created on, so nothing is ever dropped.</summary>
-    public string UnmatchedLayer { get; set; } = "Survey::Unmatched";
+    /// <summary>
+    /// Layer that points whose code has no rule are created on, so nothing is ever dropped.
+    ///
+    /// Deliberately not one of the role layers below. An unmatched point's meaning is unknown, and
+    /// dropping it onto the breakline or spot layer would feed it to the terrain as though it had been
+    /// understood — which is worse than losing it, because it is then wrong rather than missing.
+    /// </summary>
+    public string UnmatchedLayer { get; set; } = DefaultUnmatchedLayer;
+
+    public const string DefaultUnmatchedLayer = "MoleHill::Inputs::Unmatched Codes";
+
+    /// <summary>
+    /// Where a role's output goes when a rule does not name its own layer.
+    ///
+    /// These are the input layers the layer template already ships — the ones it describes as "the plain
+    /// layers a user draws their own inputs and feature curves on, which nothing routes to". Survey
+    /// linework is exactly that, so it belongs there rather than in a parallel tree of its own.
+    ///
+    /// <b>One layer per role, not per code, and that is forced rather than chosen.</b> A layer source
+    /// resolves objects whose layer index matches exactly — sublayers of an assigned layer are not
+    /// collected — so codes nested under a role layer would each need assigning by hand. Defaulting all
+    /// breakline codes to one layer means a single "Layers" assignment picks up the whole survey. A user
+    /// who wants EP drawn separately from TC just types a layer on that rule.
+    /// </summary>
+    public static string DefaultLayerFor(FieldCodeRole role) => role switch
+    {
+        FieldCodeRole.Breakline => "MoleHill::Inputs::Breaklines",
+        FieldCodeRole.Contour => "MoleHill::Inputs::Contours",
+        FieldCodeRole.Boundary => "MoleHill::Inputs::Boundary",
+        FieldCodeRole.Spot => "MoleHill::Inputs::Spots",
+        _ => string.Empty
+    };
+
+    /// <summary>The layer a rule's output lands on: its own when set, otherwise the role's default.</summary>
+    public static string ResolveLayer(FieldCodeRule rule)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        return string.IsNullOrWhiteSpace(rule.Layer) ? DefaultLayerFor(rule.Role) : rule.Layer.Trim();
+    }
 
     /// <summary>Finds the rule for a code, case-insensitively, or null when the table does not know it.</summary>
     public FieldCodeRule? Find(string code)
@@ -85,18 +122,22 @@ public sealed class FieldCodeTable
         ArcTokens = new List<string> { "AR", "ARC", "CRV" },
         CloseTokens = new List<string> { "CL", "CLOSE" },
         ContinuationSuffix = "-",
-        UnmatchedLayer = "Survey::Unmatched",
+        UnmatchedLayer = DefaultUnmatchedLayer,
+
+        // Layers are left empty so every rule follows its role. That is what makes one "Layers"
+        // assignment pick up the whole survey, and it keeps the shipped table honest about the fact
+        // that the code's meaning, not its name, decides where it goes.
         Rules = new List<FieldCodeRule>
         {
-            new() { Code = "EP", Role = FieldCodeRole.Breakline, Layer = "Survey::Edge of Pavement", Description = "Edge of pavement" },
-            new() { Code = "TC", Role = FieldCodeRole.Breakline, Layer = "Survey::Top of Kerb", Description = "Top of kerb" },
-            new() { Code = "TOE", Role = FieldCodeRole.Breakline, Layer = "Survey::Toe", Description = "Toe of slope" },
-            new() { Code = "TOP", Role = FieldCodeRole.Breakline, Layer = "Survey::Crest", Description = "Top of slope" },
-            new() { Code = "CL", Role = FieldCodeRole.Breakline, Layer = "Survey::Centreline", Description = "Centreline" },
-            new() { Code = "BDY", Role = FieldCodeRole.Boundary, Layer = "Survey::Boundary", Description = "Site boundary", ClosedByDefault = true },
-            new() { Code = "BLD", Role = FieldCodeRole.Boundary, Layer = "Survey::Buildings", Description = "Building footprint", ClosedByDefault = true },
-            new() { Code = "SPOT", Role = FieldCodeRole.Spot, Layer = "Survey::Spot Levels", Description = "Spot level" },
-            new() { Code = "GND", Role = FieldCodeRole.Spot, Layer = "Survey::Spot Levels", Description = "Ground shot" }
+            new() { Code = "EP", Role = FieldCodeRole.Breakline, Description = "Edge of pavement" },
+            new() { Code = "TC", Role = FieldCodeRole.Breakline, Description = "Top of kerb" },
+            new() { Code = "TOE", Role = FieldCodeRole.Breakline, Description = "Toe of slope" },
+            new() { Code = "TOP", Role = FieldCodeRole.Breakline, Description = "Top of slope" },
+            new() { Code = "CL", Role = FieldCodeRole.Breakline, Description = "Centreline" },
+            new() { Code = "BDY", Role = FieldCodeRole.Boundary, Description = "Site boundary", ClosedByDefault = true },
+            new() { Code = "BLD", Role = FieldCodeRole.Boundary, Description = "Building footprint", ClosedByDefault = true },
+            new() { Code = "SPOT", Role = FieldCodeRole.Spot, Description = "Spot level" },
+            new() { Code = "GND", Role = FieldCodeRole.Spot, Description = "Ground shot" }
         }
     };
 

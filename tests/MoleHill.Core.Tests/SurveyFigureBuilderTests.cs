@@ -191,11 +191,43 @@ public sealed class SurveyFigureBuilderTests
     }
 
     [Fact]
-    public void Build_FigureUsesTheRulesLayer()
+    public void Build_RuleWithNoLayer_FallsBackToTheRoleLayer()
     {
+        // The shipped rules name no layer, so one "Layers" assignment picks up every breakline code.
         SurveyFigure figure = Assert.Single(SurveyFigureBuilder.Build(Points("TC", "TC"), Table()).Figures);
 
+        Assert.Equal("MoleHill::Inputs::Breaklines", figure.Layer);
+    }
+
+    [Fact]
+    public void Build_RuleWithItsOwnLayer_OverridesTheRoleLayer()
+    {
+        FieldCodeTable table = Table();
+        table.Find("TC")!.Layer = "Survey::Top of Kerb";
+
+        SurveyFigure figure = Assert.Single(SurveyFigureBuilder.Build(Points("TC", "TC"), table).Figures);
+
         Assert.Equal("Survey::Top of Kerb", figure.Layer);
+    }
+
+    [Fact]
+    public void Build_BoundaryAndBreaklineRoles_LandOnDifferentDefaultLayers()
+    {
+        SurveyImportResult result = SurveyFigureBuilder.Build(Points("EP", "EP", "BDY", "BDY"), Table());
+
+        Assert.Equal("MoleHill::Inputs::Breaklines", result.Figures.Single(f => f.Code == "EP").Layer);
+        Assert.Equal("MoleHill::Inputs::Boundary", result.Figures.Single(f => f.Code == "BDY").Layer);
+    }
+
+    [Fact]
+    public void UnmatchedLayer_IsNotOneOfTheRoleLayers()
+    {
+        // An unmatched point's meaning is unknown; feeding it to the terrain would be worse than losing it.
+        FieldCodeTable table = Table();
+
+        Assert.DoesNotContain(
+            table.UnmatchedLayer,
+            Enum.GetValues<FieldCodeRole>().Select(FieldCodeTable.DefaultLayerFor).Where(layer => layer.Length > 0));
     }
 
     [Fact]

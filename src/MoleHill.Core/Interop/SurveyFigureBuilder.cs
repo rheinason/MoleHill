@@ -121,7 +121,7 @@ public static class SurveyFigureBuilder
             figures.Add(new SurveyFigure(
                 run.Code,
                 run.Rule.Role,
-                run.Rule.Layer,
+                FieldCodeTable.ResolveLayer(run.Rule),
                 run.PointIndices,
                 run.ArcFlags,
                 closed,
