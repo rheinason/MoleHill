@@ -37,9 +37,6 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
     private readonly TextBox _unmatchedLayer = new();
     private readonly Label _status = new() { TextColor = UiTheme.MutedText, Wrap = WrapMode.Word };
 
-    /// <summary>Guards the handlers while the controls are being filled from the model.</summary>
-    private bool _isRefreshing;
-
     private FieldCodeTableEditorDialog(FieldCodeTableStore store)
     {
         _store = store;
@@ -226,25 +223,20 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
     /// <summary>The single place the controls are filled from <see cref="_table"/>.</summary>
     private void Refresh()
     {
-        _isRefreshing = true;
-        try
-        {
-            _rows.Clear();
-            foreach (FieldCodeRule rule in _table.Rules)
-                _rows.Add(RuleRow.From(rule));
+        // No re-entrancy guard here, unlike SurveyImportDialog: nothing on this card raises a change
+        // event that writes back to the model. The grid edits its row objects directly and the text
+        // boxes are read on demand in Collect, so filling them cannot start another refresh.
+        _rows.Clear();
+        foreach (FieldCodeRule rule in _table.Rules)
+            _rows.Add(RuleRow.From(rule));
 
-            _startTokens.Text = string.Join(", ", _table.StartTokens);
-            _endTokens.Text = string.Join(", ", _table.EndTokens);
-            _arcTokens.Text = string.Join(", ", _table.ArcTokens);
-            _closeTokens.Text = string.Join(", ", _table.CloseTokens);
-            _continuation.Text = _table.ContinuationSuffix;
-            _unmatchedLayer.Text = _table.UnmatchedLayer;
-            _status.Text = $"{_rows.Count} codes. Saved to {_store.GetStorePath()}";
-        }
-        finally
-        {
-            _isRefreshing = false;
-        }
+        _startTokens.Text = string.Join(", ", _table.StartTokens);
+        _endTokens.Text = string.Join(", ", _table.EndTokens);
+        _arcTokens.Text = string.Join(", ", _table.ArcTokens);
+        _closeTokens.Text = string.Join(", ", _table.CloseTokens);
+        _continuation.Text = _table.ContinuationSuffix;
+        _unmatchedLayer.Text = _table.UnmatchedLayer;
+        _status.Text = $"{_rows.Count} codes. Saved to {_store.GetStorePath()}";
     }
 
     /// <summary>Reads every control back into a table. Normalization is the store's job, not the grid's.</summary>
