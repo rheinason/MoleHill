@@ -64,7 +64,20 @@ Rhino processes. If a capture is blank or bounds are unavailable, report it as u
 manual confirmation rather than claiming either success or a bug.
 
 ## Yak Release Notes
-- Use `build-yak-package.ps1` for Yak packages instead of relying on the Grasshopper project's local Yak target. The script stages a combined package under `.artifacts/yak/MoleHill-<version>/` and includes both `MoleHill.Rhino.rhp` and `MoleHill.gha` under `net7.0/`.
+- `build-yak-package.ps1` is the **only** packaging path. The Grasshopper project's local Yak target
+  has been removed, not merely deprecated: it ran `yak spec --input MoleHill.gha`, so yak described the
+  *Grasshopper* assembly and produced a Grasshopper-only package over an output folder holding just the
+  `.gha`. That package looked publishable, and 0.14.3-beta shipped from it to the production server on
+  2026-09-09. It installed cleanly, gave Grasshopper its components, and left Rhino's PlugInManager
+  empty, because the archive contained no `.rhp`. This guidance already said to use the script; a note
+  was not enough, so the target is gone.
+- **A Yak version can never be overwritten.** A bad publish is permanent and can only be corrected by
+  bumping `MoleHillVersion` in `Directory.Build.props` and publishing again, so verify before pushing.
+  The script now opens the built archive and refuses to push unless it contains `MoleHill.Rhino.rhp`,
+  `MoleHill.gha`, `MoleHill.Core.dll`, `MoleHill.Interop.dll` and `manifest.yml` — staging the right
+  files is not evidence the archive holds them.
+- The script stages a combined package under `.artifacts/yak/MoleHill-<version>/` with both
+  `MoleHill.Rhino.rhp` and `MoleHill.gha` under `net7.0/`.
 - Source the release version from `Directory.Build.props` (`MoleHillVersion`). Keep prerelease tags short, for example `0.5.0-beta` instead of `0.5.0-beta.1`, because longer version strings make the Package Manager listing wrap awkwardly inside Rhino.
 - Keep the Yak package id as `MoleHill`. Yak will warn that the Rhino content name `MoleHill.Rhino` does not match the package id; this is acceptable for the current combined package.
 - Do not rename the Rhino assembly to `MoleHill` unless the package layout changes too. The Rhino and Grasshopper builds would then collide on `MoleHill.deps.json` and `MoleHill.runtimeconfig.json` inside the same Yak package.

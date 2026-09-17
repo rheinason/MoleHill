@@ -235,6 +235,38 @@ try {
         throw "Yak build did not produce a package."
     }
 
+    # Inspect what is actually inside the archive before it can be pushed.
+    #
+    # This exists because 0.14.3-beta shipped to the production server carrying only MoleHill.gha: it
+    # had been built by the csproj target, which ran `yak spec --input MoleHill.gha` and therefore
+    # described the Grasshopper assembly. It installed cleanly, gave Grasshopper its components, and
+    # left Rhino's PlugInManager empty, because the package held no .rhp at all. A Yak version can
+    # never be overwritten, so that mistake is permanent and had to be fixed by publishing again.
+    #
+    # Staging the right files is not evidence the archive holds them, so assert on the archive.
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($package.FullName)
+    try {
+        $entries = $archive.Entries | ForEach-Object { $_.FullName }
+    }
+    finally {
+        $archive.Dispose()
+    }
+
+    $requiredEntries = @(
+        "MoleHill.Rhino.rhp",
+        "MoleHill.gha",
+        "MoleHill.Core.dll",
+        "MoleHill.Interop.dll",
+        "manifest.yml"
+    )
+    $missing = $requiredEntries | Where-Object { $name = $_; -not ($entries | Where-Object { $_ -like "*$name" }) }
+    if ($missing) {
+        throw ("Package '{0}' is missing: {1}. Refusing to publish a package that would install but not appear in Rhino's PlugInManager." -f $package.Name, ($missing -join ', '))
+    }
+
+    Write-Host ("Verified {0} entries, including {1}" -f $entries.Count, ($requiredEntries -join ', '))
+
     if ($Push) {
         Invoke-Step $YakExecutable @("push", "--source", $Source, $package.FullName)
     }

@@ -66,27 +66,14 @@
     <Copy SourceFiles="$(OutputPath)MoleHill.Interop.dll" DestinationFolder="$(GHLibDir)" SkipUnchangedFiles="true" ContinueOnError="true" />
   </Target>
 
-  <Target Name="BuildYakPackage" AfterTargets="MergeAssemblies"
-          Condition="'$(TargetFramework)' == 'net7.0-windows'">
-    <PropertyGroup>
-      <YakExecutable Condition="$(YakExecutable) == '' and Exists('C:\Program Files\Rhino 8\System\Yak.exe')">C:\Program Files\Rhino 8\System\Yak.exe</YakExecutable>
-      <BuildYakPackage Condition="$(BuildYakPackage) == '' and $(YakExecutable) != ''">False</BuildYakPackage>
-    </PropertyGroup>
-    <Warning Text="Could not find Yak executable" Condition="$(YakExecutable) == ''" />
-    <ItemGroup>
-      <YakPackagesToDelete Include="$(OutputPath)*.yak;$(OutputPath)manifest.yml;$(OutputPath)**\manifest.yml" />
-    </ItemGroup>
-    <Delete Files="@(YakPackagesToDelete)" />
-    <!-- yak does NOT resolve a relative input path against its working directory: it reports
-         "Inspection failed" and silently writes a TEMPLATE manifest with placeholder fields, which
-         then fails the build step with "Invalid version number". Both paths must be absolute. -->
-    <PropertyGroup>
-      <YakGhaPath>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\$(OutputPath)MoleHill.gha'))</YakGhaPath>
-      <!-- GetDirectoryName leaves no trailing separator. A trailing backslash immediately before the
-           closing quote of a command-line argument escapes that quote, mangling the value yak sees. -->
-      <YakOutputDir>$([System.IO.Path]::GetDirectoryName('$(YakGhaPath)'))</YakOutputDir>
-    </PropertyGroup>
-    <Exec Command="&quot;$(YakExecutable)&quot; spec --input &quot;$(YakGhaPath)&quot; --output &quot;$(YakOutputDir)&quot;" WorkingDirectory="$(YakOutputDir)" Condition="$(BuildYakPackage) == 'True'" />
-    <Exec Command="&quot;$(YakExecutable)&quot; build --platform win" WorkingDirectory="$(YakOutputDir)" Condition="$(BuildYakPackage) == 'True'" />
-  </Target>
+  <!-- There is deliberately no Yak target here. One used to live in this file: it invoked
+       `yak spec` with the merged MoleHill.gha as its input, so yak inspected the *Grasshopper*
+       assembly and emitted a Grasshopper-only manifest over an output folder holding only the .gha.
+       The package it produced looked publishable and was published as 0.14.3-beta, which installed
+       cleanly, gave Grasshopper its components, and left Rhino's PlugInManager empty because the
+       archive contained no .rhp. A Yak version can never be overwritten, so that had to be corrected
+       by shipping a new version.
+
+       build-yak-package.ps1 is the only packaging path. It stages the .rhp alongside the .gha and
+       asserts on the built archive's contents before it will push. -->
 </Project>
