@@ -98,6 +98,12 @@ low-priority actions into overflow while remaining pinned to the available clien
   elevation, slope, mesh counts, and Earthworks cut/fill when a reference is configured.
 - `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter,
   with Eto-drawn isometric thumbnails.
+- `SurveyImportDialog.cs` - how to read a survey point file, with a live preview of the first rows.
+  **The preview grid is the point of the dialog, not decoration:** PNEZD writes northing before
+  easting, so a file read as XYZ parses perfectly and yields a terrain transposed about the 45 degree
+  line that no later stage and no automated test can detect. Showing resolved X/Y/Z/code lets the
+  user see easting in the X column before committing. Also carries the per-delivery vertical offset,
+  which is not saved because a datum belongs to the file rather than the site.
 - `FieldCodeTableEditorDialog.cs` - editor for the per-user survey field code table: a `GridView` of
   code rules (code, role, layer, closed, note) plus the marker spellings the office's crews type, and
   JSON import/export. The marker fields are the part that is easy to leave out and expensive to omit -

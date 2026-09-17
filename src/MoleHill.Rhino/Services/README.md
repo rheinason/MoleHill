@@ -229,7 +229,22 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   corrupt file falls back to the shipped defaults rather than failing - the table is a convenience, not
   a document. `Normalize` uppercases and de-duplicates codes at read time, because two rules for one code
   would otherwise make the winner depend on invisible list order.
-- `SurveyImportCommandService.cs` - command routes for survey import; currently `mhEditFieldCodes`.
+- `SurveyImportCommandService.cs` - `mhImportSurveyPoints` and `mhEditFieldCodes`. The import creates
+  ordinary curves and points on named layers and **never touches a `TerrainDefinition`** - the user
+  assigns those layers through the normal source editor, which is what makes a revised survey a
+  re-import rather than a reassignment. One undo record, with full rollback: a half-imported survey
+  is worse than none, because the user cannot tell which half is missing. The summary names the
+  unmatched codes, since that is the list they act on.
+- `SurveyPlacement.cs` - where an incoming survey lands. Routes through
+  `DocumentCommandService.ResolveProjectBase` rather than straight to `TryGetTransform`, because that
+  call is what migrates a legacy `FOTM`/`Georef` CPlane - skipping it imports such a document silently
+  offset by the whole site translation. With no base saved and coordinates over 100 km from the
+  origin it asks rather than assuming, offering a project base at the survey's own centre. Vertical
+  datum is deliberately *not* here: it is an offset on the read, because a datum belongs to the
+  delivery rather than the site.
+- `SurveyGeometryBuilder.cs` - figures to curves. A flagged point becomes a three-point arc through
+  its neighbours; a flag that cannot resolve falls back to a straight segment, since a curve drawn
+  straighter than intended is a drafting matter and a failed import is a lost survey.
 
 ## Other
 - `GeometryCommandService.cs`, `TerrainInputCommandService.cs`, `TerrainInputCommandAlgorithms.cs`,
