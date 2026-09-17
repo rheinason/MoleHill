@@ -355,8 +355,12 @@ gain. What Rhino does not do is read the **code** on a surveyed point (`EP`, `TC
 turn coded runs into breaklines, which is the step that otherwise means re-drawing the surveyor's
 linework by hand.
 
-**Scoped 2026-09-17** — see [the survey field codes plan](survey-field-codes-plan.md) for the full
-design and delivery sequence.
+**Shipped 2026-09-17** — `mhImportSurveyPoints` reads a coded survey file into figures on named layers,
+`mhEditFieldCodes` edits the per-user code table, and the two share one Document-toolbar button. See
+[the survey field codes plan](survey-field-codes-plan.md) for the design, the delivery sequence and the
+live-verification record. Still open: the two Eto dialogs and the toolbar button are unverified in a
+real installed build, because a worktree copy of the plugin shares its GUID with the installed one and
+cannot be loaded alongside it.
 
 **Scope:** a CSV/point reader that carries codes through (column mapping for PNEZD/ENZ, delimiter,
 units), a user-editable code table mapping codes to breakline / contour / boundary / spot roles, and

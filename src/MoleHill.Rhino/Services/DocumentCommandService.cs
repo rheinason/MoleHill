@@ -793,7 +793,15 @@ internal static class DocumentCommandService
         return Result.Failure;
     }
 
-    private static Result ResolveProjectBase(RhinoDoc doc, out bool hasProjectBase)
+    /// <summary>
+    /// Resolves the document's project base, offering to migrate a legacy named CPlane first.
+    ///
+    /// Internal rather than private because every georeferenced import must go through it. Calling
+    /// <see cref="ProjectBaseCPlaneService.TryGetTransform"/> directly would skip the legacy migration,
+    /// and a document holding a FOTM or Georef CPlane would then import silently offset by the whole
+    /// site translation - which parses, draws, and looks correct until somebody measures.
+    /// </summary>
+    internal static Result ResolveProjectBase(RhinoDoc doc, out bool hasProjectBase)
     {
         hasProjectBase = false;
         if (ProjectBaseCPlaneService.HasProjectBasePlane(doc))
