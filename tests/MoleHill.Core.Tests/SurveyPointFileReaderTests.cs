@@ -207,6 +207,30 @@ public sealed class SurveyPointFileReaderTests
     public void FromPreset_UnknownName_ReturnsNull() => Assert.Null(SurveyColumnMap.FromPreset("PZDNE"));
 
     [Fact]
-    public void RequiredColumnCount_Pnezd_CountsThroughTheDescriptionColumn() =>
-        Assert.Equal(5, SurveyColumnMap.FromPreset("PNEZD")!.RequiredColumnCount);
+    public void RequiredColumnCount_Pnezd_DoesNotCountTheOptionalDescription() =>
+        Assert.Equal(4, SurveyColumnMap.FromPreset("PNEZD")!.RequiredColumnCount);
+
+    [Fact]
+    public void Read_RowWithNoDescriptionColumn_KeepsTheCoordinatesWithAnEmptyDescription()
+    {
+        // Exporters routinely omit the trailing field on an uncoded shot instead of writing an empty
+        // one. Dropping the row would lose a good level and leave only a line number behind.
+        SurveyPointFile file = SurveyPointFileReader.Read("1,5000,2000,12.5", Options("PNEZD"));
+
+        SurveyPoint point = Assert.Single(file.Points);
+        Assert.Equal(2000.0, point.X, 6);
+        Assert.Equal(12.5, point.Z, 6);
+        Assert.Equal(string.Empty, point.RawDescription);
+        Assert.Empty(file.Diagnostics);
+    }
+
+    [Fact]
+    public void Read_RowMissingAnElevation_IsStillReported()
+    {
+        // The relaxation above must not swallow a row that is genuinely short of coordinates.
+        SurveyPointFile file = SurveyPointFileReader.Read("1,5000,2000", Options("PNEZD"));
+
+        Assert.Empty(file.Points);
+        Assert.Single(file.Diagnostics);
+    }
 }

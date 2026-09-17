@@ -1,6 +1,7 @@
 # B11 — Survey field codes to breaklines
 
-Implementation plan. Status: **scoped, not started.** Written 2026-09-17.
+Implementation plan. Status: **phases 1-5 delivered**, live-verified 2026-09-17 except the two Eto
+dialogs and the toolbar button, which need a run from an installed build. Written 2026-09-17.
 
 Backlog entry: `docs/backlog.md` → B11.
 
@@ -221,7 +222,7 @@ zero, and here a figure nothing matched must never read as a figure nobody surve
 | 3 | Rhino store and `mhEditFieldCodes` | Table round-trips through AppData; a corrupt file falls back to factory defaults; import/export work |
 | 4 | Rhino import service, dialog, `mhImportSurveyPoints` | Preview grid reflects mapping changes live; geometry lands on the right layers under one undo record, with full rollback on failure |
 | 4b | Placement | `ResolveProjectBase` runs before any transform; the far-from-origin prompt offers centroid / continue / cancel; the vertical offset applies at read time |
-| 5 | Toolbar, docs, live validation | Button renders from an artboard or a `$designs` entry; a real coded file imports in a disposable Rhino slot and its breakline layer builds a terrain |
+| 5 | Toolbar, docs, live validation | **Done.** `mhImportSurveyPoints` + `mhEditFieldCodes` share one Document-toolbar button (edit on `right_macro_id`), drawn from a `$designs` entry and checked at 16/24/32 px; the reader, figure builder, geometry builder and placement all verified in a disposable slot — see below |
 
 Placement is split out as 4b because it is the part with the most ways to be quietly wrong, and each
 needs its own live check: a document with a saved base, one with a legacy `FOTM` or `Georef` CPlane, and
@@ -238,6 +239,35 @@ not mirrored into source subfolders — naming `MethodName_Scenario_ExpectedResu
 Phase 5's live check is the one that matters: automated tests cannot tell a transposed survey from a
 correct one, nor an unreferenced one from a georeferenced one, because all of them parse cleanly. The
 three placement documents named under 4b are the fixtures for it.
+
+## Live verification — 2026-09-17
+
+Run in a disposable Rhino 8 slot against a 20-row PNEZD file in UTM-scale coordinates carrying every
+convention (figure suffixes, `ST`/`END`, an `AR` flag, a `-` continuation, a `ClosedByDefault` code, an
+`Ignore` code, a bad coordinate and a row with no description).
+
+**The worktree plugin cannot be loaded as a plugin.** MoleHill auto-loads at startup from the main
+checkout, and a second copy shares its plugin GUID, so `PlugIn.Find` returns the *other* build — exactly
+the stale-binary trap `docs/rhino-live-testing.md` warns about. The worktree assemblies were therefore
+loaded into a separate `AssemblyLoadContext` that resolves RhinoCommon back to the default context, so
+geometry types stay compatible, and the loaded MVIDs were checked to differ from the running plugin's.
+Anything that needs the *command* registered — the two Eto dialogs, the command names, the toolbar
+button — is **not** covered by this and still wants a run from a real installed build.
+
+| Checked | Result |
+|---|---|
+| PNEZD column mapping | X = 500010 (easting, column 3), Y = 6100010 (northing, column 2) — not transposed |
+| Figures | `EP1` (4 pts, arc flag on the third), `EP2` (3), `BLD` (4, closed with no marker), `TOE` (3, joined by `-`) |
+| Roles | 2 spots; `TREE` counted as ignored, *not* as unmatched; layers resolved to the role defaults |
+| Diagnostics | bad coordinate reported at its real line number; unclosed runs reported and closed |
+| Geometry | arc bulges past its chord; collinear arc falls back to straight; duplicate shots dropped; out-of-range index skipped; closure; Z preserved — the eleven assertions the skipped unit tests make |
+| Placement | UTM flagged far-from-origin, local grid not; centre rounded to 500000, 6100000; **the generated base plane passes `TryValidateProjectBasePlane`**, which rejects a non-zero origin Z |
+
+**One defect found, and only here.** A row carrying coordinates but no description column was *rejected*,
+because `RequiredColumnCount` counted the description. Exporters routinely omit that trailing field on an
+uncoded shot rather than writing an empty one, so a good level was being discarded with only a line number
+to show for it — the one thing this pipeline is not supposed to do. The description is now optional; a
+genuinely short row is still reported. Re-verified in a fresh slot: 19 points instead of 18.
 
 ## Relationship to other entries
 

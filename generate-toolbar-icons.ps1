@@ -167,6 +167,18 @@ $designs = @{
         $b2 = Brush $green; $g.FillPolygon($b2, $pts); $b2.Dispose()
         $p2 = InkPen $s 0.075; $g.DrawPolygon($p2, $pts); $p2.Dispose()
     }
+    # Coded survey points resolving into linework: the run is the product, the points the by-product.
+    'mhImportSurveyPoints' = {
+        param($g, $s)
+        # A solid triangle, not an arrow: a shaft plus a head inside five pixels is mud at 16 px.
+        $tri = @((PtF ($s * 0.30) ($s * 0.08)), (PtF ($s * 0.70) ($s * 0.08)), (PtF ($s * 0.50) ($s * 0.42)))
+        $b = Brush $ink; $g.FillPolygon($b, $tri); $b.Dispose()
+        $pts = @((PtF ($s * 0.12) ($s * 0.72)), (PtF ($s * 0.38) ($s * 0.56)), (PtF ($s * 0.64) ($s * 0.84)), (PtF ($s * 0.90) ($s * 0.60)))
+        $pa = AccentPen $s 0.12; $g.DrawLines($pa, $pts); $pa.Dispose()
+        $bd = Brush $ink
+        foreach ($pt in $pts) { $g.FillEllipse($bd, ($pt.X - $s * 0.07), ($pt.Y - $s * 0.07), ($s * 0.14), ($s * 0.14)) }
+        $bd.Dispose()
+    }
     'mhTrimBoundary' = {
         param($g, $s)
         $poly = @((PtF ($s * 0.14) ($s * 0.22)), (PtF ($s * 0.84) ($s * 0.28)), (PtF ($s * 0.76) ($s * 0.82)), (PtF ($s * 0.18) ($s * 0.74)))

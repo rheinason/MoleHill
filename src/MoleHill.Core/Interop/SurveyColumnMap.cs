@@ -46,7 +46,16 @@ public sealed class SurveyColumnMap
 
     public const string CustomPresetName = "Custom";
 
-    /// <summary>The lowest row length this map can read. A row shorter than this cannot be mapped.</summary>
+    /// <summary>
+    /// The lowest row length this map can read. A row shorter than this cannot be mapped.
+    ///
+    /// <b>The description column is deliberately not counted.</b> Plenty of exporters omit the trailing
+    /// field entirely on an uncoded shot rather than writing an empty one, and requiring it would throw
+    /// away a row that carries perfectly good coordinates — which is the one thing this pipeline does not
+    /// do. Such a row reads with an empty description and is then reported as uncoded, which is true and
+    /// visible, where dropping it would lose the level with only a line number to show for it. Found by
+    /// the live run, not by any unit test of the reader.
+    /// </summary>
     public int RequiredColumnCount
     {
         get
@@ -54,8 +63,6 @@ public sealed class SurveyColumnMap
             int required = Math.Max(EastingColumn, Math.Max(NorthingColumn, ElevationColumn));
             if (NumberColumn is { } number)
                 required = Math.Max(required, number);
-            if (DescriptionColumn is { } description)
-                required = Math.Max(required, description);
             return required + 1;
         }
     }
