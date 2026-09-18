@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Rhino;
 using Rhino.Geometry;
 
@@ -29,8 +30,13 @@ internal static class TerrainPresentationMesh
     // One shading copy per source mesh, so the conduit does not rebuild it on every redraw. The source
     // is held weakly: a terrain rebuild replaces the mesh, and the old pair must not pin it in memory.
     private static readonly object Gate = new();
-    private static WeakReference<Mesh>? _sourceRef;
-    private static Mesh? _shaded;
+    private static readonly ConditionalWeakTable<Mesh, Mesh> ShadingCopies = new();
+
+    internal static void Invalidate(Mesh? mesh)
+    {
+        if (mesh == null) return;
+        lock (Gate) ShadingCopies.Remove(mesh);
+    }
 
     /// <summary>
     /// A face leaning this far from horizontal is a wall. The same number, and the same meaning, as the
@@ -60,34 +66,28 @@ internal static class TerrainPresentationMesh
 
         lock (Gate)
         {
-            if (_sourceRef != null && _sourceRef.TryGetTarget(out Mesh? cachedSource) &&
-                ReferenceEquals(cachedSource, mesh) && _shaded != null)
+            if (ShadingCopies.TryGetValue(mesh, out Mesh? shaded)) return shaded;
+            Mesh? copy = null;
+            try
             {
-                return _shaded;
+                copy = mesh.DuplicateMesh();
+                if (copy == null) return mesh;
+                if (!TryUnweldWallSeams(copy))
+                {
+                    copy.Dispose();
+                    ShadingCopies.Add(mesh, mesh);
+                    return mesh;
+                }
+                if (copy.Normals.Count != copy.Vertices.Count) copy.Normals.ComputeNormals();
+                ShadingCopies.Add(mesh, copy);
+                return copy;
             }
-        }
-
-        try
-        {
-            Mesh copy = mesh.DuplicateMesh();
-            if (copy == null)
+            catch (Exception)
+            {
+                copy?.Dispose();
+                // Shading is cosmetic; retain the computational geometry on failure.
                 return mesh;
-
-            if (TryUnweldWallSeams(copy) && copy.Normals.Count != copy.Vertices.Count)
-                copy.Normals.ComputeNormals();
-
-            lock (Gate)
-            {
-                _sourceRef = new WeakReference<Mesh>(mesh);
-                _shaded = copy;
             }
-
-            return copy;
-        }
-        catch (Exception)
-        {
-            // Shading is cosmetic; the welded mesh renders wrongly but it renders.
-            return mesh;
         }
     }
 
@@ -107,9 +107,9 @@ internal static class TerrainPresentationMesh
         if (mesh.FaceNormals.Count != faceCount)
             return false;
 
-        // |normal.Z| <= cos(90 - slope) is the same test as "leans at least `slope` from horizontal",
+        // A unit face normal has |Z| = cos(slope from horizontal).
         // without a trig call per face.
-        double wallLimit = Math.Cos(RhinoMath.ToRadians(90.0 - WallFaceMinSlopeDegrees));
+        double wallLimit = Math.Cos(RhinoMath.ToRadians(WallFaceMinSlopeDegrees));
         var isWall = new bool[faceCount];
         for (int face = 0; face < faceCount; face++)
             isWall[face] = Math.Abs(mesh.FaceNormals[face].Z) <= wallLimit;

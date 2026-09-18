@@ -95,6 +95,8 @@ internal sealed class TerrainDisplayState
     public void InvalidatePreviewBounds()
     {
         _previewBounds = null;
+        TerrainPresentationMesh.Invalidate(PreviewTerrainMesh);
+        TerrainPresentationMesh.Invalidate(TerrainMesh);
         // The mesh changed under a state object that is otherwise immutable, so the RDK's cached
         // render primitives for this terrain are now stale too.
         InvalidateRenderContent();

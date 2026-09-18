@@ -741,7 +741,7 @@ internal sealed partial class TerrainBuildService
         {
             "rebuild" => ApplyRemeshRebuild(snapshot, terrain, mesh, constraints, edgeLength, modifier, build, toleranceProfile),
             "local" => ApplyRemeshLocalRefine(mesh, constraints, edgeLength, modifier.CreaseAngle, toleranceProfile.RemeshConstraintTolerance, build),
-            _ => ApplyRemeshIsotropic(mesh, constraints, edgeLength, modifier, build, mode, toleranceProfile, shouldCancel),
+            _ => ApplyRemeshIsotropic(mesh, constraints, localConstraints, edgeLength, modifier, build, mode, toleranceProfile, shouldCancel),
         };
     }
 
@@ -754,6 +754,7 @@ internal sealed partial class TerrainBuildService
     private static RhinoMesh ApplyRemeshIsotropic(
         RhinoMesh mesh,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> localConstraints,
         double edgeLength,
         RemeshModifierDefinition modifier,
         TerrainBuildResult build,
@@ -761,10 +762,36 @@ internal sealed partial class TerrainBuildService
         TerrainTolerancePolicy.Profile toleranceProfile,
         Func<bool>? shouldCancel)
     {
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(
+                mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for remesh.");
             return mesh.DuplicateMesh();
+        }
+
+        // The isotropic remesher only PINS constraints that already run along mesh edges; it never inserts
+        // one. Upstream constraints are embedded by the stage that made them, but this card's own
+        // Constraints input is not, so without this step they were silently ignored. Insert them into the
+        // existing faces (draped: Z comes from the terrain) so the remesher sees them as edges to keep.
+        if (localConstraints.Count > 0)
+        {
+            if (MeshConstraintTopologyInserter.TryInsert(
+                    vertices, vertexCount, faces, faceCount, localConstraints, toleranceProfile.RemeshConstraintTolerance,
+                    out var insertedVertices, out int insertedVertexCount, out var insertedFaces, out int insertedFaceCount,
+                    out string? insertError))
+            {
+                vertices = insertedVertices.Length == insertedVertexCount * 3
+                    ? insertedVertices
+                    : insertedVertices[..(insertedVertexCount * 3)];
+                faces = insertedFaces.Length == insertedFaceCount * 3
+                    ? insertedFaces
+                    : insertedFaces[..(insertedFaceCount * 3)];
+            }
+            else
+            {
+                build.Diagnostics.Add($"Remesh skipped because its constraint curves could not be inserted: {insertError}");
+                return mesh.DuplicateMesh();
+            }
         }
 
         // EdgeLength 0 = preserve the mesh's approximate global plan density. A median edge badly

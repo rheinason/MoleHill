@@ -124,6 +124,16 @@ wall elevation reference so points inside the band follow the wall. The per-face
 build log says which ran. Background and the rejected alternatives are in
 `docs/wall-pinch-investigation.md`.
 
+Isotropic Remesh inserts the card's own constraint curves before refinement and skips the operation if
+insertion fails. `FeaturePolylineGraph` protects every existing edge whose endpoints lie on a constraint
+segment, using CSR adjacency so unrelated nearby vertices cannot interrupt a subdivided chain. Spatial
+lookup falls back to a vertex scan when a segment walk would cost more than the mesh size.
+
+`TerrainPresentationMesh` splits wall shading seams on a presentation copy for the conduit, RDK render
+provider and bake. The computational mesh stays welded. Walls are faces at least 70° from horizontal
+(`abs(normal.Z) <= cos(70°)`). Copies are cached per source mesh with weak keys; sculpt invalidates them
+through `TerrainDisplayState.InvalidatePreviewBounds` when it edits a preview in place.
+
 Area/zone topology splitting stays in Core (`MeshAreaTopologySplitter`): face geometry is constructed
 on demand, boundary intersections are spatially indexed, and boundary-to-face mapping runs in parallel
 with face-owned cut data and deterministic segment order. Spatial grid queries clamp to the index extent

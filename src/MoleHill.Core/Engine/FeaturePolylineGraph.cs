@@ -597,8 +597,12 @@ internal sealed class FeaturePolylineGraph
     }
 
     /// <summary>
-    /// Marks mesh edges coinciding with constraint polyline segments as features (same nearest-vertex
-    /// matching the local refiner uses — constraint vertices are embedded in the mesh by grading).
+    /// Marks the mesh edges running along each constraint polyline segment as features. Every mesh vertex
+    /// lying on a segment (in plan, within tolerance) is collected, and actual mesh edges joining those
+    /// vertices are pinned. Nearby unrelated vertices must not interrupt the chain. A segment is routinely a CHAIN of mesh edges, not one:
+    /// upstream stages put vertices partway along constraints (the retaining-wall quality patch refines
+    /// every rail and breakline it crosses). Matching only a mesh edge spanning the whole segment dropped
+    /// every such constraint from the remesh, which then flipped, collapsed and relaxed straight across it.
     /// </summary>
     private static void MarkConstraintFeatureEdges(
         double[] vertices,
@@ -619,64 +623,67 @@ internal sealed class FeaturePolylineGraph
             }
         }
 
-        if (!hasWork)
+        if (!hasWork || vertexCount == 0)
             return;
 
-        var meshEdges = new HashSet<long>(faceCount * 3, IndexedMeshTools.EdgeKeyComparer.Instance);
-        for (int t = 0; t < faceCount; t++)
+        var adjacency = MeshVertexAdjacency.Build(new List<int>(faces), faceCount, vertexCount);
+        var nearSegment = new bool[vertexCount];
+
+        // Cells sized to the mesh's typical spacing, so a segment walk visits a handful of cells per edge
+        // rather than thousands of tolerance-sized ones. Never smaller than the matching radius, so the
+        // 3x3 block around each step always covers it.
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        for (int i = 0; i < vertexCount; i++)
         {
-            int a = faces[t * 3], b = faces[t * 3 + 1], c = faces[t * 3 + 2];
-            meshEdges.Add(EdgeKey(a, b));
-            meshEdges.Add(EdgeKey(b, c));
-            meshEdges.Add(EdgeKey(c, a));
+            minX = Math.Min(minX, vertices[i * 3]);
+            maxX = Math.Max(maxX, vertices[i * 3]);
+            minY = Math.Min(minY, vertices[i * 3 + 1]);
+            maxY = Math.Max(maxY, vertices[i * 3 + 1]);
         }
 
-        var index = new VertexXYGrid(vertices, vertexCount, Math.Max(tolerance * 4.0, 1e-6));
+        double spacing = Math.Sqrt(Math.Max((maxX - minX) * (maxY - minY), 0.0) / vertexCount);
+        var index = new VertexXYGrid(vertices, vertexCount, Math.Max(Math.Max(spacing, tolerance * 4.0), 1e-6));
+        var onSegment = new List<(double T, int Vertex)>();
         foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
         {
             int pointCount = constraint.PointCount;
             if (pointCount < 2)
                 continue;
 
-            int previous = index.FindNearest(constraint.Points[0], constraint.Points[1], tolerance);
-            for (int i = 1; i < pointCount; i++)
+            int segmentCount = constraint.IsClosed ? pointCount : pointCount - 1;
+            for (int s = 0; s < segmentCount; s++)
             {
-                int current = index.FindNearest(constraint.Points[i * 3], constraint.Points[i * 3 + 1], tolerance);
-                TryPin(featureEdges, meshEdges, previous, current);
-                previous = current;
-            }
-
-            if (constraint.IsClosed)
-            {
-                int first = index.FindNearest(constraint.Points[0], constraint.Points[1], tolerance);
-                TryPin(featureEdges, meshEdges, previous, first);
+                int e = (s + 1) % pointCount;
+                index.CollectNearSegment(
+                    constraint.Points[s * 3], constraint.Points[s * 3 + 1],
+                    constraint.Points[e * 3], constraint.Points[e * 3 + 1],
+                    tolerance, onSegment);
+                foreach (var point in onSegment) nearSegment[point.Vertex] = true;
+                foreach (var point in onSegment)
+                    foreach (int neighbour in adjacency.NeighborsOf(point.Vertex))
+                        if (neighbour > point.Vertex && nearSegment[neighbour])
+                            featureEdges.Add(EdgeKey(point.Vertex, neighbour));
+                foreach (var point in onSegment) nearSegment[point.Vertex] = false;
             }
         }
     }
 
-    private static void TryPin(HashSet<long> featureEdges, HashSet<long> meshEdges, int a, int b)
-    {
-        if (a < 0 || b < 0 || a == b)
-            return;
-        long key = EdgeKey(a, b);
-        if (meshEdges.Contains(key))
-            featureEdges.Add(key);
-    }
-
-    /// <summary>Minimal XY spatial hash for nearest-vertex lookup (constraint point → mesh vertex).</summary>
+    /// <summary>Minimal XY spatial hash for finding the mesh vertices that lie along a constraint segment.</summary>
     private sealed class VertexXYGrid
     {
         private readonly double[] _vertices;
-        private readonly Dictionary<long, List<int>> _cells = new();
+        private readonly Dictionary<(long X, long Y), List<int>> _cells = new();
+        private readonly int _vertexCount;
         private readonly double _inverseCellSize;
 
         public VertexXYGrid(double[] vertices, int vertexCount, double cellSize)
         {
             _vertices = vertices;
+            _vertexCount = vertexCount;
             _inverseCellSize = 1.0 / cellSize;
             for (int i = 0; i < vertexCount; i++)
             {
-                long key = CellKey(vertices[i * 3], vertices[i * 3 + 1]);
+                var key = CellKey(vertices[i * 3], vertices[i * 3 + 1]);
                 if (!_cells.TryGetValue(key, out List<int>? bucket))
                 {
                     bucket = new List<int>(2);
@@ -687,41 +694,70 @@ internal sealed class FeaturePolylineGraph
             }
         }
 
-        public int FindNearest(double x, double y, double tolerance)
+        /// <summary>
+        /// Fills <paramref name="result"/> with every vertex within <paramref name="tolerance"/> of segment
+        /// A→B in plan. Walks the segment in cell-sized steps and
+        /// scans the 3x3 block around each, which covers the tolerance because cells are never smaller.
+        /// </summary>
+        public void CollectNearSegment(double ax, double ay, double bx, double by, double tolerance, List<(double T, int Vertex)> result)
         {
-            double bestDistanceSquared = tolerance * tolerance;
-            int best = -1;
-            long centerX = (long)Math.Floor(x * _inverseCellSize);
-            long centerY = (long)Math.Floor(y * _inverseCellSize);
-            for (long cy = centerY - 1; cy <= centerY + 1; cy++)
-            {
-                for (long cx = centerX - 1; cx <= centerX + 1; cx++)
-                {
-                    if (!_cells.TryGetValue((cx << 32) | (uint)cy, out List<int>? bucket))
-                        continue;
+            result.Clear();
+            double dx = bx - ax, dy = by - ay;
+            double lengthSquared = dx * dx + dy * dy;
+            if (!double.IsFinite(lengthSquared) || lengthSquared <= 1e-24)
+                return;
 
-                    foreach (int candidate in bucket)
+            double length = Math.Sqrt(lengthSquared);
+            double toleranceT = tolerance / length;
+            double toleranceSquared = tolerance * tolerance;
+            void AddCandidate(int candidate)
+            {
+                double px = _vertices[candidate * 3] - ax;
+                double py = _vertices[candidate * 3 + 1] - ay;
+                double t = (px * dx + py * dy) / lengthSquared;
+                if (t < -toleranceT || t > 1.0 + toleranceT) return;
+                double ox = px - t * dx, oy = py - t * dy;
+                if (ox * ox + oy * oy <= toleranceSquared) result.Add((t, candidate));
+            }
+
+            double requestedSteps = Math.Ceiling(length * _inverseCellSize) + 1;
+            // A constraint may extend kilometres beyond a small mesh. Bound work by the mesh size,
+            // and avoid overflowing an int step count or allocating millions of empty visited cells.
+            if (requestedSteps > _vertexCount)
+            {
+                for (int candidate = 0; candidate < _vertexCount; candidate++) AddCandidate(candidate);
+                return;
+            }
+            int steps = (int)requestedSteps;
+            var visitedCells = new HashSet<(long X, long Y)>();
+            for (int step = 0; step <= steps; step++)
+            {
+                double f = (double)step / steps;
+                long centerX = (long)Math.Floor((ax + dx * f) * _inverseCellSize);
+                long centerY = (long)Math.Floor((ay + dy * f) * _inverseCellSize);
+                for (long cy = centerY - 1; cy <= centerY + 1; cy++)
+                {
+                    for (long cx = centerX - 1; cx <= centerX + 1; cx++)
                     {
-                        double dx = _vertices[candidate * 3] - x;
-                        double dy = _vertices[candidate * 3 + 1] - y;
-                        double distanceSquared = (dx * dx) + (dy * dy);
-                        if (distanceSquared < bestDistanceSquared)
+                        var key = (cx, cy);
+                        if (!visitedCells.Add(key) || !_cells.TryGetValue(key, out List<int>? bucket))
+                            continue;
+
+                        foreach (int candidate in bucket)
                         {
-                            bestDistanceSquared = distanceSquared;
-                            best = candidate;
+                            AddCandidate(candidate);
                         }
                     }
                 }
             }
 
-            return best;
         }
 
-        private long CellKey(double x, double y)
+        private (long X, long Y) CellKey(double x, double y)
         {
             long cx = (long)Math.Floor(x * _inverseCellSize);
             long cy = (long)Math.Floor(y * _inverseCellSize);
-            return (cx << 32) | (uint)cy;
+            return (cx, cy);
         }
     }
 }

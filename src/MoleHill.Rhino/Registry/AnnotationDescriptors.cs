@@ -292,8 +292,8 @@ internal sealed class PointSlopeLabelAnnotationDescriptor : AnnotationTypeDescri
         AnnotationParam.Sources(
             "Sources", "Sources",
             a => ((PointSlopeLabelAnnotationDefinition)a).Sources,
-            RhinoObjectType.Point,
-            "Point objects or layers projected to the terrain before local slope is sampled."),
+            RhinoObjectType.Point | RhinoObjectType.Curve,
+            "Point objects and curve edit points projected to the terrain before local slope is sampled."),
         AnnotationParameterCatalog.SlopeUnitChoice(
             "Show terrain slope labels as percent, promille, ratio, or degrees."),
         AnnotationParam.Bool(

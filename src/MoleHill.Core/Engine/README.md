@@ -13,6 +13,9 @@ Incremental-edit dictionaries are retained only through 250,000 vertices; larger
 caching without their memory cost.
 
 Key files:
+- `FeaturePolylineGraph.cs` protects full subdivided constraint chains through actual CSR mesh adjacency,
+  not consecutive vertices in a proximity-sorted list. Constraint queries use mesh-sized spatial cells
+  and switch to a bounded vertex scan for long off-mesh runs.
 - `SpatialHashGrid2D.cs` - read-only spatial queries with caller-owned scratch; query cell ranges are
   clamped to the index extent so oversized overlapping queries do not traverse empty space outside it.
   Cells are **flat CSR** (key -> slot, slot -> a run of item indices), built by a count pass then a fill

@@ -1,7 +1,48 @@
 # Terrain pinches around retaining walls — investigation notes
 
-**Status:** one fix shipped (unmerged, working tree); one problem diagnosed but unfixed; one live bug
-unreproduced. Written 2026-09-18.
+**Current status (2026-09-18):** wall refinement, quality patch insertion and presentation-only unwelding
+are committed. Follow-up constraint protection and review corrections are in the working tree.
+The reported live tear remains unreproduced. Older experiment sections below are historical.
+
+## Review corrections — 2026-09-18
+
+- Correct the shading threshold from `cos(90° - 70°)` to `cos(70°)`: the former classified slopes above
+  20° as walls. A 30° hillside meeting flat ground must keep its smooth seam; a 75° wall meeting 20°
+  ground must separate their normals.
+- Cache presentation copies per mesh with weak keys. The former single-entry cache rebuilt alternately
+  visible terrains every redraw. Invalidate the copy when sculpt edits a preview mesh in place.
+- Use the same presentation mesh in the RDK provider as in the conduit and bake.
+- Protect actual constraint-chain edges through adjacency. Sorting all nearby vertices and pinning only
+  consecutive pairs misses a valid edge when an unrelated nearby vertex sorts between its endpoints.
+- Bound constraint queries by mesh size: an off-mesh segment could previously overflow the integer
+  cell-step count or walk an enormous empty region. Large queries now use a vertex scan.
+- If insertion of a Remesh card's own constraints fails, leave the terrain unchanged rather than
+  remeshing with constraints that were not inserted.
+
+Regression coverage: `FeaturePolylineGraphConstraintTests` (including nearby unrelated vertices and
+very long constraint segments) and `TerrainPresentationMeshTests` (slope classification, source mesh
+immutability, per-mesh caching and sculpt invalidation). The presentation tests require Rhino's native
+runtime and must not be reported as executed when the test host skips them.
+
+Live verification of the reviewed build in Rhino 8.34.26223.11001 passed the equivalent shading
+checks (smooth 30° hillside, separate 20°/75° seam normals, unchanged computational mesh, per-source
+cache reuse and sculpt invalidation). Rhino's native unweld rounds some display-copy coordinates to
+single precision; the bounds assertion therefore uses a 1e-6 tolerance.
+
+Replaying bundle `Terrain-1-20260917-231313-848a8059` gave:
+
+| Build | Vertices / faces | Worst XY angle | Faces < 5° | Interior naked / non-manifold edges |
+|---|---:|---:|---:|---:|
+| Before Remesh | 406 / 779 | 20.000° | 0 | 0 / 0 |
+| Preview | 458 / 842 | 5.606° | 0 | 0 / 0 |
+| Final | 1268 / 2392 | 11.103° | 0 | 0 / 0 |
+
+All three preserve plan area 1159.9940853. The normal plugin build passed without warnings or errors;
+the full solution suite passed 1669 tests with 144 native-runtime skips. Local artifacts are under
+`.artifacts/wall-patch-live/`: `Wall-patch-reviewed.3dm`, `review-final.png` and
+`review-native-checks.txt`. The saved meshes use presentation unwelding; quality measurements use
+the welded computational meshes. Shallow wall ends below the 70° classification threshold still
+shade smoothly by design.
 
 Reference case: `Trailer loading bay ramp.3dm`, bundle
 `Terrain-1-20260917-200440-848a8059`. A 0.2 m wide retaining wall running ~17.7 m across a sparse
@@ -15,11 +56,11 @@ Measurements below are **XY triangle angles**, so they must not be compared dire
 3D wall-face angles. The exported output has no interior single-use edges, no non-manifold
 edges, and no zero-area faces; this bundle still does not reproduce the reported live tear.
 
-Implemented a bounded, opt-in experiment in
-`MeshConstraintTopologyInserter.PatchExperiment.cs`. It removes internal edges of the touched
+The initial bounded, opt-in experiment (since promoted to `.WallPatch.cs` with the `.WallQuality.cs`
+acceptance wrapper) removes internal edges of the touched
 region, keeps the authored vertices and clipped rail segments, and quality-triangulates against
 the patch perimeter. Boundary Steiner points are propagated by bisecting adjacent untouched
-triangles. It does **not** run in the Rhino build pipeline.
+triangles. That initial experiment preceded the current quality-first Rhino insertion path.
 
 | Variant | Worst XY angle | Faces < 5° / < 1° | Vertices / faces |
 |---|---:|---:|---:|
@@ -167,6 +208,21 @@ read as "coplanar". Anything that reasons about which way a steep face points mu
 
 ---
 
+## Remesh dropped constraints that had been split upstream (fixed 2026-09-18)
+
+After the quality patch shipped, Remesh left a 45 mm sliver beside the low, tapered end of the wall
+and cut straight across a breakline. Cause: `FeaturePolylineGraph.MarkConstraintFeatureEdges` snapped
+each constraint *point* to a mesh vertex and pinned the edge between consecutive points only if that
+exact mesh edge existed. The patch refines every rail and breakline it crosses, so most constraint
+segments became chains of short edges and none of them matched. On the ramp case, 20 of 216
+rail/breakline edges ended up unpinned: the whole x = 17.7 breakline, plus the last ~1.5 m of both rails.
+Everywhere else the rails were held only by accident, as auto-detected creases or through the ≥70° wall
+freeze, and both give out where the wall is low. Now every mesh vertex lying on a constraint segment is
+collected, and actual mesh edges joining those vertices are pinned
+(`FeaturePolylineGraphConstraintTests`). Separately, isotropic Remesh never *inserted* the Remesh card's
+own constraints, only pinned them if they already ran along mesh edges. `ApplyRemeshIsotropic` now drapes
+them in with `MeshConstraintTopologyInserter.TryInsert` first.
+
 ## Still open
 
 ### 1. A live tear that was not reproduced
@@ -212,7 +268,7 @@ Working implementation is parked in the session scratchpad as `inserter.patch-wi
 Pinches beside retaining walls had two separate causes. The Remesh one — the wall freeze blocking
 refinement, so the terrain beside a wall was squeezed toward zero area, worse on every iteration — is
 **fixed**: a frozen wall may now be refined, because bisecting an edge moves nothing. The pre-Remesh one
-is **diagnosed but unfixed**: the Retaining Wall modifier stitches its corridor into one terrain face at a
-time, which forces slivers when a 0.2 m corridor crosses a 12 m face. The patch-based fix for it is built
-and proven structurally sound, but needs one more decision about how the transition crosses the patch
-boundary before it improves anything.
+now handled by a bounded, quality-first patch path with adaptive expansion and the original per-face
+fallback. Remesh must then preserve every subdivided rail edge, including low wall ends where steep-face
+freezing cannot help. Presentation-only unwelding addresses a separate normal-averaging artifact and
+must never replace the welded mesh used for terrain computation.

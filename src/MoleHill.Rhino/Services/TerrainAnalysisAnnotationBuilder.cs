@@ -222,37 +222,40 @@ internal static class TerrainAnalysisAnnotationBuilder
         foreach (var obj in objects)
         {
             ThrowIfCancellationRequested(shouldCancel);
-            if (obj.Geometry is not Point point)
+            if (obj.Geometry is not Point && obj.Geometry is not Curve)
                 continue;
 
             sourceCount++;
-            if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, point.Location, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint, out int faceIndex) ||
-                !TryGetTerrainSlopeNormal(mesh, faceIndex, out Vector3d normal))
-                continue;
+            foreach (var samplePoint in ExtractElevationSamples(obj.Geometry, snapshot.ModelAbsoluteTolerance))
+            {
+                if (!TerrainMeshProjection.TryProjectPointAlongWorldZ(mesh, samplePoint, snapshot.ModelAbsoluteTolerance, out Point3d worldPoint, out int faceIndex) ||
+                    !TryGetTerrainSlopeNormal(mesh, faceIndex, out Vector3d normal))
+                    continue;
 
-            double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
-            double slopeRatio = Math.Tan(slopeRadians);
-            double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
-            Vector3d direction = GetTerrainSlopeDirection(normal, snapshot.ModelAbsoluteTolerance, analysis.FlipDirection);
+                double slopeRadians = Math.Atan2(Math.Sqrt((normal.X * normal.X) + (normal.Y * normal.Y)), Math.Abs(normal.Z));
+                double slopeRatio = Math.Tan(slopeRadians);
+                double slopeValue = SlopeAnalyzer.ConvertRatioToUnit(slopeRatio, analysis.Unit);
+                Vector3d direction = GetTerrainSlopeDirection(normal, snapshot.ModelAbsoluteTolerance, analysis.FlipDirection);
 
-            stats.Add(slopeValue);
-            outputCount++;
+                stats.Add(slopeValue);
+                outputCount++;
 
-            if (!analysis.IsEnabled)
-                continue;
+                if (!analysis.IsEnabled)
+                    continue;
 
-            build.AuxiliaryObjects.Add(CreateAnnotationObject(
-                snapshot,
-                analysis,
-                outputCount,
-                worldPoint,
-                slopeValue,
-                unitSuffix,
-                null,
-                analysis.BlockDefinitionName,
-                MarkerBlockTemplate.AnnotationSlope,
-                layerRoles,
-                direction));
+                build.AuxiliaryObjects.Add(CreateAnnotationObject(
+                    snapshot,
+                    analysis,
+                    outputCount,
+                    worldPoint,
+                    slopeValue,
+                    unitSuffix,
+                    null,
+                    analysis.BlockDefinitionName,
+                    MarkerBlockTemplate.AnnotationSlope,
+                    layerRoles,
+                    direction));
+            }
         }
 
         return CreateSummary(analysis.Id, sourceCount, outputCount, stats);

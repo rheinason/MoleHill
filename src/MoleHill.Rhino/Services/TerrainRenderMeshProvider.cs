@@ -130,6 +130,7 @@ public sealed class TerrainRenderMeshProvider : RenderMeshProvider
             return;
 
         Mesh? mesh = displayState.PreviewTerrainMesh ?? displayState.TerrainMesh;
+        mesh = TerrainPresentationMesh.CreateForDisplay(mesh);
         if (mesh == null || mesh.Faces.Count == 0)
             return;
 
