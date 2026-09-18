@@ -168,6 +168,12 @@ staying unresolved.
   built on demand for candidate faces only (never an object per terrain face), constraint-segment pairs
   are discovered through a `SpatialHashGrid2D` rather than an all-pairs sweep, and the input arrays are
   cloned only on the paths that return them unchanged.
+  Its `.WallPatch.cs` and `.WallQuality.cs` partials are the retaining-wall quality path: the patch is
+  re-triangulated as a whole against its own perimeter, adjacent untouched triangles are bisected to stay
+  conforming, and elevations are sampled from a lifted wall reference. `.WallQuality.cs` expands the
+  patch ring by ring and validates achieved quality, area, perimeter and vertex retention before
+  publishing; the per-face path above is the fallback when it declines. See
+  `docs/wall-pinch-investigation.md` for background and the rejected alternatives.
 - `FaceOwnerGroups.cs` / `SubMeshVertexRemap.cs` - sub-mesh extraction support for the hosts. Group a
   split result's faces by owner **once** (`FaceOwnerGroups`) and reuse one `SubMeshVertexRemap` across
   the extractions: rescanning every face per area is O(areas x faces), and a fresh hash set plus

@@ -629,17 +629,24 @@ internal sealed partial class TerrainBuildService
             return false;
         }
 
-        if (!MeshConstraintTopologyInserter.TryInsert(
+        var qualityConstraints = CombineConstraints(
+            CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints), wallConstraints);
+        bool qualityInserted = MeshConstraintTopologyInserter.TryInsertQualityWallPatch(
+            vertices, faces, qualityConstraints, tolerance,
+            out double[] outputVertices, out int[] outputFaces, out string? qualityMessage);
+        int outputVertexCount = outputVertices.Length / 3;
+        int outputFaceCount = outputFaces.Length / 3;
+        if (!qualityInserted && !MeshConstraintTopologyInserter.TryInsert(
                 vertices,
                 mesh.Vertices.Count,
                 faces,
                 mesh.Faces.Count,
                 wallConstraints,
                 tolerance,
-                out double[] outputVertices,
-                out int outputVertexCount,
-                out int[] outputFaces,
-                out int outputFaceCount,
+                out outputVertices,
+                out outputVertexCount,
+                out outputFaces,
+                out outputFaceCount,
                 out string? topologyError))
         {
             if (reportFailures)
@@ -665,6 +672,12 @@ internal sealed partial class TerrainBuildService
 
         ApplyPreservedConstraintElevations(outputVertices, wallConstraints, tolerance);
         insertedMesh = BuildMeshFromArrays(outputVertices, outputFaces);
+        if (qualityInserted)
+        {
+            build.Diagnostics.Add(qualityMessage!);
+            return true;
+        }
+        build.Diagnostics.Add($"Retaining Wall uses per-face insertion: {qualityMessage}");
         build.Diagnostics.Add(afterCombinedRemeshFailed
             ? "Retaining Wall topology fallback inserted wall breaklines into the existing mesh after combined remesh failed."
             : "Retaining Wall topology insertion inserted wall breaklines into the existing mesh.");

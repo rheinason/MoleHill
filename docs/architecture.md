@@ -114,6 +114,16 @@ new surface if assignment fails. CRS reprojection remains out of scope.
 
 ## Two hosts, one core
 
+Retaining-wall insertion tries a quality patch first. `MeshConstraintTopologyInserter.WallQuality.cs`
+expands a patch ring by ring until the stitched result clears a 5-degree floor, verifying achieved
+quality, plan-area conservation, a single closed perimeter and no discarded input vertex before it
+publishes; `.WallPatch.cs` builds each candidate, re-triangulating the touched region against its own
+perimeter, bisecting adjacent untouched triangles so the patch stays conforming, and sampling a lifted
+wall elevation reference so points inside the band follow the wall. The per-face path in
+`MeshConstraintTopologyInserter.cs` remains the verified fallback whenever the patch declines, and the
+build log says which ran. Background and the rejected alternatives are in
+`docs/wall-pinch-investigation.md`.
+
 Area/zone topology splitting stays in Core (`MeshAreaTopologySplitter`): face geometry is constructed
 on demand, boundary intersections are spatially indexed, and boundary-to-face mapping runs in parallel
 with face-owned cut data and deterministic segment order. Spatial grid queries clamp to the index extent

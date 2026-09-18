@@ -5,7 +5,7 @@ namespace MoleHill.Core.Grading;
 /// <summary>
 /// Inserts constraint segments into existing terrain faces with topology-preserving local triangulation.
 /// </summary>
-internal static class MeshConstraintTopologyInserter
+internal static partial class MeshConstraintTopologyInserter
 {
     private readonly record struct Point2D(double X, double Y);
     private readonly record struct ConstraintSegment(Point2D Start, Point2D End);
