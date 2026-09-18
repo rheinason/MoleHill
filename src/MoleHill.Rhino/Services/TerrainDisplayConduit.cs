@@ -49,7 +49,14 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             return;
 
         if (terrain.ShowTerrainMesh && displayState.PreviewTerrainMesh != null)
-            DrawGeneratedMesh(e, doc, terrain, displayState.PreviewTerrainMesh, LayerRoleService.GetTable(doc, terrain).Path(LayerRole.Terrain), null, terrain.TerrainColorArgb);
+        {
+            // Shade an unwelded copy: terrain and wall share their rail vertices, and one averaged normal
+            // per vertex smears the wall's near-vertical normal across the flat ground beside it.
+            // See TerrainPresentationMesh. The display state keeps the welded mesh, which analysis
+            // preview, sculpt and the case exporter all pair with arrays extracted from it.
+            Mesh? shaded = TerrainPresentationMesh.CreateForDisplay(displayState.PreviewTerrainMesh);
+            DrawGeneratedMesh(e, doc, terrain, shaded ?? displayState.PreviewTerrainMesh, LayerRoleService.GetTable(doc, terrain).Path(LayerRole.Terrain), null, terrain.TerrainColorArgb);
+        }
 
         DrawRuntimeOverlays(e, displayState);
 

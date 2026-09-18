@@ -43,7 +43,9 @@ internal sealed partial class TerrainController
             Guid id = AddGeneratedObject(doc, terrain, new GeneratedRhinoObject
             {
                 Role = LayerRole.Terrain,
-                Geometry = build.PrimaryMesh,
+                // Bake the unwelded shading copy for the same reason the conduit draws one: a welded
+                // wall crease shades flat ground as if it were near-vertical. See TerrainPresentationMesh.
+                Geometry = TerrainPresentationMesh.CreateForDisplay(build.PrimaryMesh) ?? build.PrimaryMesh,
                 Name = terrain.Name,
                 LayerPath = LayerRoleService.GetTable(doc).Path(LayerRole.Terrain)
             }, blockAttributeRefreshIds);
