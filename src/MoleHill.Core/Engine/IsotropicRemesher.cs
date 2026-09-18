@@ -11,10 +11,15 @@ namespace MoleHill.Core.Engine;
 /// off-surface smoothing, no volume drift. Feature polylines (boundary ∪ creases ∪ constraint
 /// breaklines, see <see cref="FeaturePolylineGraph"/>) are hard-pinned: their edges never flip, their
 /// vertices only slide 1-D along the polyline (exact on-polyline positions), corners never move, and
-/// collapses never merge across features. Steep retaining-wall faces are frozen outright — never split,
-/// collapsed, flipped, or moved — so walls pass through verbatim and can't be buried; wall faces are
-/// also excluded from the back-projection grid so near-wall samples always land on the correct terrain
-/// side of the crest/toe fold.
+/// collapses never merge across features. Steep retaining-wall faces are frozen against MOTION — never
+/// collapsed, flipped, or moved, so every input wall vertex passes through bit-identical and walls can't
+/// be buried — but they ARE refined, because bisecting an edge puts the new point exactly ON it and so
+/// changes no geometry at all. Denying that pinned the terrain's resolution to the wall's own sampling,
+/// and a wall base line coarser than the target left the faces bridging that mismatch collapsing toward
+/// zero area, worse on every iteration. Faces frozen by the non-manifold QUARANTINE are a separate mask
+/// (<see cref="FeaturePolylineGraph.QuarantinedFaces"/>) and are still never subdivided — splitting a
+/// duplicated face duplicates its children too. Wall faces are also excluded from the back-projection
+/// grid so near-wall samples always land on the correct terrain side of the crest/toe fold.
 /// </summary>
 public static class IsotropicRemesher
 {
@@ -311,6 +316,9 @@ public static class IsotropicRemesher
         public readonly List<double> Verts;
         public readonly List<int> Tris;
         public readonly List<bool> FaceFrozen;
+
+        /// <summary>Parallel to <see cref="FaceFrozen"/>: frozen because non-manifold, never subdividable.</summary>
+        public readonly List<bool> FaceQuarantined;
         public readonly List<byte> Kind;
         public readonly List<int> Chain;
         public readonly List<double> Param;
@@ -330,6 +338,7 @@ public static class IsotropicRemesher
             Param = new List<double>(graph.VertexParam);
             FeatureEdges = new Dictionary<long, int>(graph.FeatureEdgeChains, IndexedMeshTools.EdgeKeyComparer.Instance);
             FaceFrozen = new List<bool>(graph.FrozenFaces);
+            FaceQuarantined = new List<bool>(graph.QuarantinedFaces);
         }
 
         public int FaceCount => Tris.Count / 3;
@@ -368,6 +377,7 @@ public static class IsotropicRemesher
                     Tris[write * 3 + 1] = Tris[t * 3 + 1];
                     Tris[write * 3 + 2] = Tris[t * 3 + 2];
                     FaceFrozen[write] = FaceFrozen[t];
+                    FaceQuarantined[write] = FaceQuarantined[t];
                 }
 
                 write++;
@@ -375,6 +385,7 @@ public static class IsotropicRemesher
 
             Tris.RemoveRange(write * 3, (count - write) * 3);
             FaceFrozen.RemoveRange(write, count - write);
+            FaceQuarantined.RemoveRange(write, count - write);
         }
 
         public Result ToResult(
@@ -461,18 +472,21 @@ public static class IsotropicRemesher
         {
             cancellation.ThrowIfCancelled();
             int faceCount = state.FaceCount;
-            var frozenEdges = CollectFrozenEdges(state);
+            var quarantinedEdges = CollectQuarantinedEdges(state);
+            var wallEdges = CollectWallEdges(state);
 
             var marked = new List<long>();
             var markedSet = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
             for (int t = 0; t < faceCount; t++)
             {
                 cancellation.ThrowIfCancelledOften();
-                if (state.FaceFrozen[t])
+                // Only the QUARANTINE blocks subdivision. A wall is healthy geometry that must not move,
+                // and bisecting it moves nothing; a non-manifold face's children are duplicated too.
+                if (state.FaceQuarantined[t])
                     continue;
                 int v0 = state.Tris[t * 3], v1 = state.Tris[t * 3 + 1], v2 = state.Tris[t * 3 + 2];
                 long longest = LongestEdgeKey(state.Verts, v0, v1, v2, out double longestSquared);
-                if (longestSquared <= thresholdSquared || frozenEdges.Contains(longest))
+                if (longestSquared <= thresholdSquared || quarantinedEdges.Contains(longest))
                     continue;
                 // Chainless pinned features are contained sickness (non-manifold edges from imperfect
                 // upstream welds): splitting one would double its non-manifold count. Leave it alone.
@@ -491,12 +505,13 @@ public static class IsotropicRemesher
             {
                 int a = (int)(edgeKey >> 32);
                 int b = (int)(edgeKey & 0xFFFFFFFFL);
-                midpoints[edgeKey] = CreateMidpoint(state, projection, edgeKey, a, b);
+                midpoints[edgeKey] = CreateMidpoint(state, projection, wallEdges, edgeKey, a, b);
                 added++;
             }
 
             var next = new List<int>(state.Tris.Count * 2);
             var nextFrozen = new List<bool>(state.FaceFrozen.Count * 2);
+            var nextQuarantined = new List<bool>(state.FaceQuarantined.Count * 2);
             for (int t = 0; t < faceCount; t++)
             {
                 int v0 = state.Tris[t * 3], v1 = state.Tris[t * 3 + 1], v2 = state.Tris[t * 3 + 2];
@@ -507,23 +522,41 @@ public static class IsotropicRemesher
                 EmitRefinedTriangle(state.Verts, next, v0, v1, v2, m0, m1, m2);
                 int emitted = next.Count / 3 - before;
                 for (int i = 0; i < emitted; i++)
+                {
                     nextFrozen.Add(state.FaceFrozen[t]);
+                    nextQuarantined.Add(state.FaceQuarantined[t]);
+                }
             }
 
             state.Tris.Clear();
             state.Tris.AddRange(next);
             state.FaceFrozen.Clear();
             state.FaceFrozen.AddRange(nextFrozen);
+            state.FaceQuarantined.Clear();
+            state.FaceQuarantined.AddRange(nextQuarantined);
         }
 
         return added;
     }
 
-    private static int CreateMidpoint(MeshState state, TerrainFaceGrid projection, long edgeKey, int a, int b)
+    private static int CreateMidpoint(
+        MeshState state, TerrainFaceGrid projection, HashSet<long> wallEdges, long edgeKey, int a, int b)
     {
         double chordX = (state.Verts[a * 3] + state.Verts[b * 3]) * 0.5;
         double chordY = (state.Verts[a * 3 + 1] + state.Verts[b * 3 + 1]) * 0.5;
         double chordZ = (state.Verts[a * 3 + 2] + state.Verts[b * 3 + 2]) * 0.5;
+
+        // A wall edge is pinned so the wall is never MOVED — but a point bisecting it lies exactly on the
+        // edge, so inserting one moves nothing and buries nothing. The midpoint takes the exact chord,
+        // never the back-projected surface (which would smear a near-vertical wall onto the terrain), and
+        // is itself frozen so no later phase can drift it off the line.
+        if (wallEdges.Contains(edgeKey))
+        {
+            int wallMid = state.AddVertex(chordX, chordY, chordZ, FeaturePolylineGraph.KindFrozen, -1, 0.0);
+            if (state.FeatureEdges.TryGetValue(edgeKey, out int wallChain))
+                InheritFeatureEdge(state, a, b, wallMid, wallChain);
+            return wallMid;
+        }
 
         if (state.FeatureEdges.TryGetValue(edgeKey, out int chain))
         {
@@ -557,13 +590,34 @@ public static class IsotropicRemesher
         state.FeatureEdges[EdgeKey(mid, b)] = chain;
     }
 
-    private static HashSet<long> CollectFrozenEdges(MeshState state)
+    /// <summary>
+    /// Every edge of a frozen face. A midpoint on one of these must take the exact chord and stay pinned:
+    /// it lies on the wall, and back-projecting it would sample the terrain grid instead.
+    /// </summary>
+    private static HashSet<long> CollectWallEdges(MeshState state)
+    {
+        var wall = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
+        int faceCount = state.FaceCount;
+        for (int t = 0; t < faceCount; t++)
+        {
+            if (!state.FaceFrozen[t])
+                continue;
+            int v0 = state.Tris[t * 3], v1 = state.Tris[t * 3 + 1], v2 = state.Tris[t * 3 + 2];
+            wall.Add(EdgeKey(v0, v1));
+            wall.Add(EdgeKey(v1, v2));
+            wall.Add(EdgeKey(v2, v0));
+        }
+
+        return wall;
+    }
+
+    private static HashSet<long> CollectQuarantinedEdges(MeshState state)
     {
         var frozen = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
         int faceCount = state.FaceCount;
         for (int t = 0; t < faceCount; t++)
         {
-            if (!state.FaceFrozen[t])
+            if (!state.FaceQuarantined[t])
                 continue;
             int v0 = state.Tris[t * 3], v1 = state.Tris[t * 3 + 1], v2 = state.Tris[t * 3 + 2];
             frozen.Add(EdgeKey(v0, v1));

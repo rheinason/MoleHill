@@ -50,6 +50,15 @@ internal sealed class FeaturePolylineGraph
     /// <summary>Per input face: true when the face is steeper than the wall threshold (frozen).</summary>
     public bool[] FrozenFaces = Array.Empty<bool>();
 
+    /// <summary>
+    /// Per input face: true when the face is frozen because it touches a NON-MANIFOLD edge, not because
+    /// it is a wall. Both are frozen against motion, but only this one must also never be subdivided —
+    /// a duplicated face's children are duplicated too, so splitting one doubles the sickness. Kept apart
+    /// from <see cref="FrozenFaces"/> because a wall is healthy geometry that merely must not move, and
+    /// conflating the two denied walls any refinement at all.
+    /// </summary>
+    public bool[] QuarantinedFaces = Array.Empty<bool>();
+
     public List<Chain> Chains = new();
 
     /// <summary>
@@ -74,7 +83,8 @@ internal sealed class FeaturePolylineGraph
             VertexKind = new byte[vertexCount],
             VertexChain = new int[vertexCount],
             VertexParam = new double[vertexCount],
-            FrozenFaces = BuildFrozenFaceMask(vertices, faces, faceCount, wallFaceMinSlopeDeg)
+            FrozenFaces = BuildFrozenFaceMask(vertices, faces, faceCount, wallFaceMinSlopeDeg),
+            QuarantinedFaces = new bool[faceCount]
         };
         Array.Fill(graph.VertexChain, -1);
 
@@ -128,6 +138,7 @@ internal sealed class FeaturePolylineGraph
                     nonManifoldEdges.Contains(EdgeKey(c, a)))
                 {
                     graph.FrozenFaces[f] = true;
+                    graph.QuarantinedFaces[f] = true;
                 }
             }
         }

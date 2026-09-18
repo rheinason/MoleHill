@@ -375,6 +375,87 @@ public class IsotropicRemesherTests
         AssertWatertight(result.Faces);
     }
 
+    /// <summary>
+    /// Degrees from horizontal of a face normal — 90 is a vertical wall.
+    /// </summary>
+    private static double FaceSlopeDeg(double[] v, int a, int b, int c)
+    {
+        double ux = v[b * 3] - v[a * 3], uy = v[b * 3 + 1] - v[a * 3 + 1], uz = v[b * 3 + 2] - v[a * 3 + 2];
+        double wx = v[c * 3] - v[a * 3], wy = v[c * 3 + 1] - v[a * 3 + 1], wz = v[c * 3 + 2] - v[a * 3 + 2];
+        double nx = (uy * wz) - (uz * wy), ny = (uz * wx) - (ux * wz), nz = (ux * wy) - (uy * wx);
+        double length = Math.Sqrt((nx * nx) + (ny * ny) + (nz * nz));
+        return length < 1e-18 ? 90.0 : Math.Acos(Math.Clamp(Math.Abs(nz) / length, 0, 1)) * 180.0 / Math.PI;
+    }
+
+    private static double MinAngleDeg(double[] v, int a, int b, int c)
+    {
+        int[] corners = { a, b, c };
+        double smallest = 180.0;
+        for (int i = 0; i < 3; i++)
+        {
+            int o = corners[i], p = corners[(i + 1) % 3], q = corners[(i + 2) % 3];
+            double ux = v[p * 3] - v[o * 3], uy = v[p * 3 + 1] - v[o * 3 + 1], uz = v[p * 3 + 2] - v[o * 3 + 2];
+            double wx = v[q * 3] - v[o * 3], wy = v[q * 3 + 1] - v[o * 3 + 1], wz = v[q * 3 + 2] - v[o * 3 + 2];
+            double lu = Math.Sqrt((ux * ux) + (uy * uy) + (uz * uz));
+            double lw = Math.Sqrt((wx * wx) + (wy * wy) + (wz * wz));
+            if (lu < 1e-15 || lw < 1e-15)
+                return 0.0;
+            double dot = Math.Clamp(((ux * wx) + (uy * wy) + (uz * wz)) / (lu * lw), -1, 1);
+            smallest = Math.Min(smallest, Math.Acos(dot) * 180.0 / Math.PI);
+        }
+
+        return smallest;
+    }
+
+    /// <summary>Worst min-angle over the non-steep (terrain) faces only; walls are legitimately thin.</summary>
+    private static double WorstTerrainMinAngle(IsotropicRemesher.Result result, double wallSlopeDeg)
+    {
+        double worst = 180.0;
+        for (int t = 0; t < result.Faces.Length / 3; t++)
+        {
+            int a = result.Faces[t * 3], b = result.Faces[t * 3 + 1], c = result.Faces[t * 3 + 2];
+            if (FaceSlopeDeg(result.Vertices, a, b, c) >= wallSlopeDeg)
+                continue;
+            worst = Math.Min(worst, MinAngleDeg(result.Vertices, a, b, c));
+        }
+
+        return worst;
+    }
+
+    /// <summary>
+    /// A frozen wall pins its own edges so the wall is never moved. It must NOT also pin the terrain's
+    /// resolution along the wall: when the wall's base line is sampled far more coarsely than the target
+    /// edge length, the terrain beside it refines while the base line cannot, and the faces bridging that
+    /// mismatch collapse toward zero area — a visible pinch that got strictly worse with every iteration
+    /// (measured 0.235 deg at one iteration down to 0.000 deg at five on a real trailer-ramp model).
+    /// Splitting a wall edge inserts a point that lies exactly on it, so the wall moves nowhere.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(5)]
+    public void Remesh_WallBaseCoarserThanTarget_TerrainBesideWallDoesNotDegenerate(int iterations)
+    {
+        // Wall band at x = 5.0 .. 5.2 (rise 3 over run 0.2 = 86 deg). The base line carries a vertex only
+        // every 10 units along y, an order coarser than the 1.0 target the terrain refines to.
+        double[] xs = { 0, 5.0, 5.2, 10.2 };
+        var (vertices, faces) = BuildGrid(
+            xs, Steps(0, 20, 10.0), (x, y) => x <= 5.0 ? 0.0 : (x >= 5.2 ? 3.0 : (x - 5.0) * 15.0));
+
+        var result = RemeshOrThrow(vertices, faces, NoConstraints, new IsotropicRemesher.Options
+        {
+            TargetEdgeLength = 1.0,
+            CreaseAngleDeg = 30,
+            Tolerance = 0.01,
+            WallFaceMinSlopeDeg = 70,
+            Iterations = iterations
+        });
+
+        double worst = WorstTerrainMinAngle(result, 70.0);
+        Assert.True(worst > 0.5, $"terrain beside the wall degenerated to {worst:F4} deg after {iterations} iterations");
+        AssertWatertight(result.Faces);
+    }
+
     [Fact]
     public void Remesh_SteepWallBand_WallVerticesBitEqualAndMeshWatertight()
     {
