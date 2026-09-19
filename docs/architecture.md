@@ -1246,10 +1246,34 @@ of 188,000 edges, within a couple of percent of the fixture's 186,501:
 | Pad over 90% of the terrain | 1,138 ms | 852 ms |
 
 The 1,138 ms baseline reproduces the 0.91 s the end-to-end trace attributed to this constructor, so the
-benchmark is measuring the same cost; and the 90% case shows clipping has no losing case. This is still
-a micro-benchmark: **no trace has yet measured what the 7.0 s build becomes.**
+benchmark is measuring the same cost; and the 90% case shows clipping has no losing case.
 `ConstraintCoincidenceSnapperRegionTests` covers equivalence separately — a speed number is not a
 correctness argument.
+
+**Measured through the whole build, 2026-09-19.** The micro-benchmark above left one gap: what the
+geometry-heavy build itself becomes. `GeometryHeavyStackBenchmark` runs the same stack through the real
+`TerrainBuildService`, so the Rhino stage around the Core graders is included. Two runs, Release, on a
+reconstruction of the traced fixture (62,500 points, 124,002 faces after Triangulate):
+
+| Stage, on the Grade Pad edit | Before the clip | After |
+|---|---|---|
+| `Grade Pad` (whole stage) | 2,970 ms | **650–840 ms** |
+| → `Grade Pad Constraints` | 1,280 ms | **145–151 ms** |
+| `Grade Path` (whole stage) | 1,720 ms | **606–608 ms** |
+| → `Grade Path Constraints` | 720 ms | **121–125 ms** |
+| Edit to finished mesh | 5,120 ms | **3,840–3,908 ms** |
+
+**The rank has changed, and that is the finding.** Grading is no longer the largest item in a
+geometry-heavy build — **`Remesh` is, at 2,333 ms of a 3,840 ms edit (61%)**, against roughly 1.4 s for
+both grading stages together. The next optimization in this workstream belongs in `Remesh`, not in the
+two snapper bullets left above; those now govern ~270 ms combined and should be ranked accordingly.
+
+Two honesty notes on the comparison. The fixture is a **reconstruction** — the original was not saved —
+so only the stages whose inputs match are comparable: Triangulate reproduces at 390 ms against 380 ms
+and the face counts land within 0.5%, which is what licenses the grading rows. `Remesh` is **not**
+comparable: `EdgeLength 0` derives its target from plan area per input face, and this fixture's spacing
+makes it decimate 116k faces to 110k where the original went 124k to 49k. So the 2,333 ms is this
+fixture's Remesh, and the share it takes of this build is the claim — not that Remesh regressed.
 
 Two other explanations were measured and **disproved** first, and are recorded so they are not
 re-investigated: `TryExtractMeshData` is 67 ms on a 124k-face mesh, and the whole per-stage mesh

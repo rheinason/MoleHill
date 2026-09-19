@@ -45,6 +45,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- One benchmark gate for every lane, so a performance run states what it actually executed.
+         Linked rather than copied: two gates would drift and a skipped body reads as a pass. -->
+    <Compile Include="..\MoleHill.Core.Tests\PerformanceLane.cs" Link="PerformanceLane.cs" />
     <Compile Include="..\..\src\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
     <Compile Include="..\..\src\MoleHill.Shared\InSituStairReferenceBuilder.cs" Link="Shared\InSituStairReferenceBuilder.cs" />
     <Compile Include="..\..\src\MoleHill.Shared\RetainingWallBrepBuilder.cs" Link="Shared\RetainingWallBrepBuilder.cs" />

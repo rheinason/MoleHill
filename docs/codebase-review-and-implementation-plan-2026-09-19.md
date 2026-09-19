@@ -103,6 +103,19 @@ envelope (already computed, ~8% of this fixture's area); size the grid cell to t
 All three change only how constraints are found, not which ones, so each needs a geometry-equivalence
 test rather than only a timing one.
 
+**The first remediation is delivered and now measured end to end** (2026-09-19). Clipping the snapper to
+its constraints' bounds took the Grade Pad edit from **5,120 ms to 3,840 ms**, with `Grade Pad` 2,970 ->
+650-840 ms and `Grade Path` 1,720 -> 606-608 ms. See [architecture.md](architecture.md), "Measured
+through the whole build". **Grading is no longer the largest item in a geometry-heavy build — `Remesh`
+is, at 61% of the edit.** Rank `Remesh` ahead of the two remaining snapper bullets, which now govern
+~270 ms combined.
+
+That measurement needed a route around a broken lane, and the route is reusable.
+`GeometryHeavyStackBenchmark` splits the benchmark body from its `[RhinoNativeFact]` wrapper and exposes
+`RunToFile`, because on Rhino 8.35 the native lane cannot start at all — so the xunit wrapper is dead on
+this machine and the body is instead loaded into a `rhino-mcp` slot and invoked there. Any benchmark
+that needs the native runtime can follow the same shape until the lane is repaired.
+
 **Still open.** (a) The marshal from a finished worker back to the UI thread is now the largest single
 interval on the small fixture (275 ms of 385 ms). It measures 0.1 ms when Rhino's loop is busy, so only
 a trace from a genuinely interactive session will say what an ordinary edit sees. (b) Ponding at 3.72 s

@@ -126,3 +126,17 @@ version skew above — it survives matched 8.35/8.35 assemblies, and `LoadLibrar
 the DLL directory suffices — no longer holds. Repairing it means hosting the runtime properly
 (`Rhino.Inside` / `RhinoCore`) rather than pointing at a directory. Until then the native lane reports
 nothing, and `[RhinoNativeFact]` coverage is unverified on this machine.
+
+**The working detour, for a test you need an answer from now.** Rhino 8.35 runs on .NET 8, the same
+target as the test projects, so the test assembly loads straight into a live Rhino. Split the body out
+of its `[RhinoNativeFact]` wrapper into a `public static` entry that writes its result to a file, spawn
+a `rhino-mcp` slot, and invoke it there by reflection:
+
+```csharp
+var asm = System.Reflection.Assembly.LoadFrom(@"...\MoleHill.Rhino.Tests\bin\Release\net8.0\MoleHill.Rhino.Tests.dll");
+asm.GetType("MoleHill.Rhino.Tests.GeometryHeavyStackBenchmark").GetMethod("RunToFile").Invoke(null, new object[] { outPath });
+```
+
+`GeometryHeavyStackBenchmark` is the worked example. The result file is the report, because
+`run_command` returns only "Done.". This is a detour, not a lane: it runs one body on demand and proves
+nothing about the other 130.
