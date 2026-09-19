@@ -2,8 +2,108 @@
 
 Date: 2026-09-19  
 Reviewed revision: `fc1a90b`, initially clean working tree  
-Status: review complete; deliveries 1-6 implemented on branch `review-plan-2026-09-19` - see
-**Implementation status** below for what is implemented versus what is verified
+Status: review complete; deliveries 1-6 implemented on branch `review-plan-2026-09-19`. Start at
+**Handoff** for where to pick up, and **Implementation status** for implemented versus verified
+
+## Handoff
+
+Last worked: 2026-09-19. Branch **`review-plan-2026-09-19`**, cut from `retaining-wall-pinch` at
+`fc1a90b`. Working tree clean; nothing is in flight or half-applied.
+
+**The branch is not based on `main`.** Its merge base with `main` is `816aff3`, so it carries the five
+retaining-wall-pinch commits (`d7627e4`..`fc1a90b`) underneath this work. Review or merge that branch
+first, or rebase this one, otherwise a PR against `main` mixes two unrelated changes.
+
+Nine commits, one per delivery slice, in the order of the sequence table:
+
+```
+e32a38a  Add 2026-09-19 codebase review and implementation plan     (this doc, as the baseline)
+97b152e  Refuse future-schema terrain documents before normalization (R01)
+920dcdf  Finish the packed-edge comparer migration and guard it      (R02)
+5e3a3fd  Add declared build inputs and separated validation lanes    (R08/R09)
+35abb9a  Keep the package lane working across host-path properties   (R08/R09 fix)
+3812ae4  Observe cancellation inside the zone splitter's phases      (R03)
+2c35c4b  Bound spatial-index membership growth and measure it        (R04)
+f8fde7c  Characterize build-result geometry ownership                (R05, table only)
+0f79354  Record implementation status and repair source navigation   (R13)
+```
+
+50 files, +2,765 / -175 against `fc1a90b`.
+
+### Resume here
+
+```powershell
+git checkout review-plan-2026-09-19
+./validate.ps1 managed     # expect 974 / 694 / 39 passing, 130 + 15 skipped (all native)
+./validate.ps1 warnings    # expect 9 projects compiled, owned-code warnings 0
+```
+
+Then the two lanes this session could not run, on a machine with Rhino 8 installed and **Rhino closed**
+(it locks the `.rhp` and `.gha`):
+
+```powershell
+./validate.ps1 native      # 130 Rhino + 15 Grasshopper tests currently skip; this makes them run
+./validate.ps1 perf        # Release, serialized; the first recorded timings for this codebase
+```
+
+Those two are the only reason anything in the status table sits in the "still open" column for
+deliveries 1-5. Nothing about them is expected to fail; they have simply never been executed.
+
+### Next action
+
+**R05, stage 2.** The ownership table ([build-result-ownership.md](build-result-ownership.md)) is
+written and is the prerequisite the review asked for. The next change is the build-result ownership
+object with `Transfer`/`Discard`, closing the four gaps that document names. Start at gap 1 - it is the
+smallest and the most clearly wrong: `RunBackgroundBuild` returns its worker cache on the cancelled,
+superseded and failed paths, and `ApplyBuildResult` returns before the merge, so whatever geometry that
+build had already produced is dropped rather than discarded.
+
+Do **not** start R06 (scheduler extraction) first. It needs the ownership contract to exist, and its
+acceptance explicitly requires replaying the event sequences in a disposable Rhino slot before
+interactive behaviour changes - see [rhino-live-testing.md](rhino-live-testing.md).
+
+### Claims this branch does not make
+
+Stated plainly so nobody quotes them later:
+
+- **No timings were recorded.** R02 fixes a hash-collapse mechanism and proves the bucket spread, but
+  no grading case was measured before or after. The historical "7 s of a 10 s remesh" figure describes
+  the *original* fix in `IndexedMeshTools`, not this one.
+- **No native acceptance.** Every `[RhinoNativeFact]` skipped. R01's "a rejected document is not
+  overwritten" test is one of them.
+- **No cancellation-latency measurement.** The 250 ms p95 target in R03 remains a proposal.
+- **R04's budget constants come from the test fixtures**, not from a measured production distribution.
+
+### Traps found the hard way
+
+Each of these cost time in this session and will cost it again:
+
+- **A `.ps1` with a non-ASCII character breaks under Windows PowerShell 5.1.** It decodes the file as
+  ANSI, and a UTF-8 em dash lands on a byte the parser treats as a string delimiter - the error points
+  at a line 200 further down. `validate.ps1` is deliberately ASCII-only with a BOM. Keep it that way.
+- **`dotnet build` will not recompile just because you changed a warning-suppression property.** The
+  up-to-date check is timestamp-based, so a warning sweep can return a clean log from a build that
+  never ran. `validate.ps1 warnings` refuses to report success if it saw no compiler output, for
+  exactly this reason.
+- **`-p:NoWarn=a;b;c` needs `%3B` for the separators**, or MSBuild reads them as further switches.
+- **`Directory.Build.props` must keep one `PropertyGroup`.** `build-yak-package.ps1` read the version
+  with dotted XML access, which throws on an array. Hardened in `35abb9a`, but the packaging script is
+  the only path that ships a `.rhp`, so treat it as fragile.
+- **Piping the packaging script's output promotes yak's expected stderr warning to a fatal error.**
+  The package lane runs it in a separate process for that reason.
+- **There are two `CloneStageCacheEntry` methods** with different deep/shallow behaviour - one in
+  `TerrainRuntimeCacheCloner`, one in `TerrainBuildService.Cache`. Read the qualified name.
+
+### New files worth knowing about
+
+| File | Why it exists |
+|---|---|
+| `validate.ps1` | The lane driver. Every lane writes evidence to `.artifacts/validate/<lane>-<timestamp>/` |
+| [validation-lanes.md](validation-lanes.md) | What each lane proves and, more importantly, what it does not |
+| [build-result-ownership.md](build-result-ownership.md) | The R05 ownership table; read before touching `TerrainRuntimeCache` |
+| `global.json`, `.editorconfig` | The SDK floor, and the vendored-TriangleNet warning exemption that replaced the project-wide `NoWarn` |
+| `tests/.../PackedEdgeKeyComparerGuardTests.cs` | Scans `src/` for default-comparer packed-key collections. A new spatial-cell key must be added to its allowlist with a reason, or the build fails |
+| `tests/.../PerformanceLane.cs` | The shared benchmark gate. Every new benchmark routes through `ShouldRun`, or the perf lane cannot tell whether it executed |
 
 ## Assessment
 
