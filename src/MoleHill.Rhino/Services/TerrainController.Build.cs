@@ -181,16 +181,25 @@ internal sealed partial class TerrainController
         terrain.LastBuildMessage = $"{(mode == TerrainBuildMode.Preview ? "Preview" : "Build")} #{buildVersion:N0}: snapshot starting...";
         WriteBuildStarted(terrain, mode, buildVersion);
         RaiseStateChanged();
+        var latency = new TerrainLatencyScope(
+            doc.RuntimeSerialNumber,
+            terrain.TerrainId,
+            buildVersion,
+            rebuildState.BuildGeneration + 1,
+            mode);
+        latency.Mark(TerrainLatencyPhase.SnapshotStart, $"{terrain.Modifiers.Count:N0} modifiers");
         var snapshotTimer = Stopwatch.StartNew();
         TerrainBuildSnapshot snapshot = CreateBuildSnapshot(
             doc,
             terrain,
             includeSectionTerrains: mode == TerrainBuildMode.Final);
         snapshotTimer.Stop();
+        latency.Mark(TerrainLatencyPhase.SnapshotEnd);
 
         var workerCacheTimer = Stopwatch.StartNew();
         TerrainRuntimeCache workerCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).CreateWorkerCopy();
         workerCacheTimer.Stop();
+        latency.Mark(TerrainLatencyPhase.CloneEnd);
         var cancellation = new CancellationTokenSource();
         long buildGeneration = ++rebuildState.BuildGeneration;
 
@@ -201,6 +210,7 @@ internal sealed partial class TerrainController
         rebuildState.WorkerCancellation = cancellation;
         Action<TerrainBuildProgress> reportProgress = progress =>
             rebuildState.ProgressUpdates.Enqueue(new QueuedBuildProgress(buildVersion, buildGeneration, mode, progress));
+        latency.Mark(TerrainLatencyPhase.WorkerQueued);
         rebuildState.WorkerTask = Task.Run(() => ExecuteBackgroundBuild(
             snapshot,
             workerCache,
@@ -210,7 +220,29 @@ internal sealed partial class TerrainController
             snapshotTimer.Elapsed,
             workerCacheTimer.Elapsed,
             cancellation.Token,
-            reportProgress));
+            reportProgress,
+            latency));
+
+        // Wake the UI thread when the worker finishes. Completion is otherwise discovered only by
+        // TryCompleteFinishedBuild polling inside OnIdle, and Rhino does not raise Idle merely because
+        // a background thread completed: measured 2026-09-19 on the trailer-ramp terrain, a build whose
+        // real work was under 5 ms sat finished-but-unpublished for 451 ms across zero Idle ticks,
+        // while 22 callbacks posted with InvokeOnUiThread ran in that same window. So the UI thread was
+        // available throughout - nothing had asked it to look.
+        _ = rebuildState.WorkerTask.ContinueWith(
+            (_, state) =>
+            {
+                latency.Mark(TerrainLatencyPhase.WakePosted);
+                RhinoApp.InvokeOnUiThread((Action)(() =>
+                {
+                    latency.Mark(TerrainLatencyPhase.WakeRan);
+                    ((TerrainController)state!).PumpFinishedBuilds();
+                }));
+            },
+            this,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 
         terrain.LastBuildMessage = mode == TerrainBuildMode.Preview
             ? $"Previewing terrain #{buildVersion:N0}..."
@@ -248,16 +280,27 @@ internal sealed partial class TerrainController
 
         try
         {
+            var latency = new TerrainLatencyScope(
+                doc.RuntimeSerialNumber,
+                terrain.TerrainId,
+                buildVersion,
+                rebuildState.BuildGeneration,
+                mode);
+            latency.Mark(TerrainLatencyPhase.Dispatch, "synchronous");
+            latency.Mark(TerrainLatencyPhase.SnapshotStart, $"{terrain.Modifiers.Count:N0} modifiers");
             var snapshotTimer = Stopwatch.StartNew();
             TerrainBuildSnapshot snapshot = CreateBuildSnapshot(
                 doc,
                 terrain,
                 includeSectionTerrains: mode == TerrainBuildMode.Final);
             snapshotTimer.Stop();
+            latency.Mark(TerrainLatencyPhase.SnapshotEnd);
 
             var workerCacheTimer = Stopwatch.StartNew();
             TerrainRuntimeCache workerCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).CreateWorkerCopy();
             workerCacheTimer.Stop();
+            latency.Mark(TerrainLatencyPhase.CloneEnd);
+            latency.Mark(TerrainLatencyPhase.WorkerQueued);
 
             BackgroundBuildResult result = ExecuteBackgroundBuild(
                 snapshot,
@@ -267,7 +310,10 @@ internal sealed partial class TerrainController
                 rebuildState.BuildGeneration,
                 snapshotTimer.Elapsed,
                 workerCacheTimer.Elapsed,
-                CancellationToken.None);
+                CancellationToken.None,
+                reportProgress: null,
+                latency);
+            latency.Mark(TerrainLatencyPhase.CompletionDispatch, "synchronous");
             if (result.WasCanceled || rebuildState.RequestedVersion > buildVersion)
             {
                 terrain.LastBuildMessage = rebuildState.RequestedVersion > buildVersion
@@ -312,9 +358,11 @@ internal sealed partial class TerrainController
         TimeSpan snapshotElapsed,
         TimeSpan workerCacheCloneElapsed,
         CancellationToken cancellationToken,
-        Action<TerrainBuildProgress>? reportProgress = null)
+        Action<TerrainBuildProgress>? reportProgress = null,
+        TerrainLatencyScope? latency = null)
     {
         var timer = Stopwatch.StartNew();
+        latency?.Mark(TerrainLatencyPhase.WorkerStart);
         try
         {
             TerrainBuildResult build = _buildService.Build(
@@ -322,8 +370,10 @@ internal sealed partial class TerrainController
                 workerCache,
                 mode,
                 () => cancellationToken.IsCancellationRequested,
-                reportProgress);
+                reportProgress,
+                latency);
             timer.Stop();
+            latency?.Mark(TerrainLatencyPhase.WorkerEnd, "ok");
             return new BackgroundBuildResult(
                 buildVersion,
                 buildGeneration,
@@ -340,6 +390,7 @@ internal sealed partial class TerrainController
         catch (OperationCanceledException)
         {
             timer.Stop();
+            latency?.Mark(TerrainLatencyPhase.WorkerEnd, "cancelled");
             return new BackgroundBuildResult(
                 buildVersion,
                 buildGeneration,
@@ -356,6 +407,7 @@ internal sealed partial class TerrainController
         catch (Exception ex)
         {
             timer.Stop();
+            latency?.Mark(TerrainLatencyPhase.WorkerEnd, $"failed: {ex.GetType().Name}");
             return new BackgroundBuildResult(
                 buildVersion,
                 buildGeneration,
@@ -385,9 +437,11 @@ internal sealed partial class TerrainController
         rebuildState.IsBuilding = false;
         rebuildState.RunningVersion = 0;
         rebuildState.CancelRequested = false;
+        TerrainLatencyScope latency = LatencyScopeFor(doc, terrain, result);
 
         if (result.Generation != rebuildState.BuildGeneration)
         {
+            latency.Mark(TerrainLatencyPhase.Closed, "discarded (stale generation)");
             terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} discarded after reset.";
             terrain.LastStructuredDiagnostics.Clear();
             WriteBuildCancelled(terrain, result.Mode, result.Version);
@@ -397,6 +451,7 @@ internal sealed partial class TerrainController
 
         if (rebuildState.RequestedVersion > result.Version)
         {
+            latency.Mark(TerrainLatencyPhase.Closed, "superseded");
             terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled; newer request queued.";
             terrain.LastStructuredDiagnostics.Clear();
             WriteBuildCancelled(terrain, result.Mode, result.Version);
@@ -409,6 +464,7 @@ internal sealed partial class TerrainController
             if (result.Mode == TerrainBuildMode.Final)
                 terrain.LastBuildUtc = DateTimeOffset.UtcNow;
 
+            latency.Mark(TerrainLatencyPhase.Closed, "cancelled");
             terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled.";
             terrain.LastStructuredDiagnostics.Clear();
             WriteBuildCancelled(terrain, result.Mode, result.Version);
@@ -421,6 +477,7 @@ internal sealed partial class TerrainController
             if (result.Mode == TerrainBuildMode.Final)
                 terrain.LastBuildUtc = DateTimeOffset.UtcNow;
 
+            latency.Mark(TerrainLatencyPhase.Closed, "failed");
             terrain.LastBuildMessage = FormatBuildFailureStatus(result.Mode, result.Version, result.Error);
             terrain.LastStructuredDiagnostics.Clear();
             WriteBuildFailed(terrain, result.Mode, result.Version);
@@ -432,6 +489,9 @@ internal sealed partial class TerrainController
         ApplySuccessfulBuild(doc, state, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), rebuildState, result);
     }
 
+    private static TerrainLatencyScope LatencyScopeFor(RhinoDoc doc, TerrainDefinition terrain, BackgroundBuildResult result) =>
+        new(doc.RuntimeSerialNumber, terrain.TerrainId, result.Version, result.Generation, result.Mode);
+
     private void ApplySuccessfulBuild(
         RhinoDoc doc,
         DocumentState state,
@@ -441,6 +501,7 @@ internal sealed partial class TerrainController
         BackgroundBuildResult result)
     {
         TerrainBuildResult build = result.Build!;
+        TerrainLatencyScope latency = LatencyScopeFor(doc, terrain, result);
         build.RecordTiming("Snapshot build", result.SnapshotElapsed, $"{result.SnapshotTerrain.Modifiers.Count:N0} modifiers", MinorTimingDiagnosticThresholdMs);
         build.RecordTiming("Worker cache clone", result.WorkerCacheCloneElapsed, null, MinorTimingDiagnosticThresholdMs);
 
@@ -448,6 +509,7 @@ internal sealed partial class TerrainController
         List<Mesh> displacedMeshes = runtimeCache.ReplaceBuildCachesFrom(result.WorkerCache);
         DisposeDisplacedCacheMeshesWhenSafe(displacedMeshes, rebuildState);
         cacheMergeTimer.Stop();
+        latency.Mark(TerrainLatencyPhase.MergeEnd);
         build.RecordTiming("Worker cache merge", cacheMergeTimer.Elapsed, null, MinorTimingDiagnosticThresholdMs);
 
         SyncComputedModifierState(terrain, result.SnapshotTerrain);
@@ -481,6 +543,7 @@ internal sealed partial class TerrainController
             runtimeCache.LastFinalMeshFingerprint = finalMeshFingerprint;
         }
         displayTimer.Stop();
+        latency.Mark(TerrainLatencyPhase.DisplayEnd);
         TerrainDisplayState displayState = runtimeCache.DisplayState
             ?? throw new InvalidOperationException("Terrain display state was not produced by the build.");
         build.RecordTiming("Display refresh", displayTimer.Elapsed, DescribeDisplayState(displayState), StageTimingDiagnosticThresholdMs);
@@ -490,6 +553,7 @@ internal sealed partial class TerrainController
         if (result.Mode == TerrainBuildMode.Final)
         {
             SyncTerrainObjects(doc, terrain, build);
+            latency.Mark(TerrainLatencyPhase.SyncEnd);
             terrain.LastStructuredDiagnostics = build.StructuredDiagnostics.ToList();
             terrain.LastBuildMessage = build.Diagnostics.Count == 0
                 ? "Build succeeded."
@@ -498,11 +562,13 @@ internal sealed partial class TerrainController
             var saveTimer = Stopwatch.StartNew();
             Save(doc, state);
             saveTimer.Stop();
+            latency.Mark(TerrainLatencyPhase.SaveEnd);
             build.RecordTiming("Document save", saveTimer.Elapsed, $"{state.Terrains.Count:N0} terrains", MinorTimingDiagnosticThresholdMs);
 
             var redrawTimer = Stopwatch.StartNew();
             doc.Views.Redraw();
             redrawTimer.Stop();
+            latency.Mark(TerrainLatencyPhase.RedrawEnd);
             build.RecordTiming("Viewport redraw", redrawTimer.Elapsed, null, MinorTimingDiagnosticThresholdMs);
 
             var totalTimingDetail = $"snapshot {FormatElapsed(result.SnapshotElapsed)}, clone {FormatElapsed(result.WorkerCacheCloneElapsed)}, build {FormatElapsed(buildElapsed)}, merge {FormatElapsed(cacheMergeTimer.Elapsed)}, display {FormatElapsed(displayTimer.Elapsed)}, save {FormatElapsed(saveTimer.Elapsed)}, redraw {FormatElapsed(redrawTimer.Elapsed)}; {DescribeDisplayState(displayState)}";
@@ -554,10 +620,12 @@ internal sealed partial class TerrainController
             var redrawTimer = Stopwatch.StartNew();
             doc.Views.Redraw();
             redrawTimer.Stop();
+            latency.Mark(TerrainLatencyPhase.RedrawEnd);
             build.RecordTiming("Viewport redraw", redrawTimer.Elapsed, null, MinorTimingDiagnosticThresholdMs);
             commandElapsed += redrawTimer.Elapsed;
         }
 
+        latency.Mark(TerrainLatencyPhase.Closed, "applied");
         WriteBuildFinished(terrain, result.Mode, result.Version, commandElapsed);
         RaiseStateChanged();
     }

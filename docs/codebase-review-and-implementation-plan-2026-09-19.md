@@ -2,7 +2,9 @@
 
 Date: 2026-09-19  
 Reviewed revision: `fc1a90b`, initially clean working tree  
-Status: review complete; deliveries 1-6 implemented on branch `review-plan-2026-09-19`. Start at
+Status: deliveries 1-5 implemented with acceptance gaps; delivery 6 is characterization only.
+The edit-to-visible latency workstream has started: the trace is built and first measurements are
+recorded in architecture.md. Branch `review-plan-2026-09-19`. Start at
 **Handoff** for where to pick up, and **Implementation status** for implemented versus verified
 
 ## Handoff
@@ -14,7 +16,7 @@ Last worked: 2026-09-19. Branch **`review-plan-2026-09-19`**, cut from `retainin
 retaining-wall-pinch commits (`d7627e4`..`fc1a90b`) underneath this work. Review or merge that branch
 first, or rebase this one, otherwise a PR against `main` mixes two unrelated changes.
 
-Nine commits, one per delivery slice, in the order of the sequence table:
+Implementation/history commits through `0f79354` (some deliveries span multiple commits):
 
 ```
 e32a38a  Add 2026-09-19 codebase review and implementation plan     (this doc, as the baseline)
@@ -28,7 +30,7 @@ f8fde7c  Characterize build-result geometry ownership                (R05, table
 0f79354  Record implementation status and repair source navigation   (R13)
 ```
 
-50 files, +2,765 / -175 against `fc1a90b`.
+At progress audit revision `1eb436f`: 50 files, +2,865 / -175 against `fc1a90b`.
 
 ### Resume here
 
@@ -43,20 +45,42 @@ Then the two lanes this session could not run, on a machine with Rhino 8 install
 
 ```powershell
 ./validate.ps1 native      # 130 Rhino + 15 Grasshopper tests currently skip; this makes them run
-./validate.ps1 perf        # Release, serialized; the first recorded timings for this codebase
+./validate.ps1 perf        # Release, serialized; establish measurements for these changes
 ```
 
-Those two are the only reason anything in the status table sits in the "still open" column for
-deliveries 1-5. Nothing about them is expected to fail; they have simply never been executed.
+These lanes remain unverified in the implementation handoff. Running them alone does not close all
+acceptance gaps: representative before/after grading timings, cancellation latency/peak memory,
+production index distributions and coarsened query cost still need targeted measurements. Their
+outcomes should not be assumed. Earlier reviews contain historical timings, but those do not measure
+this branch's changes.
 
 ### Next action
 
-**R05, stage 2.** The ownership table ([build-result-ownership.md](build-result-ownership.md)) is
+**The edit-to-visible trace is built and the first measurements are in** (2026-09-19). See
+[architecture.md](architecture.md) - "Rhino: edit-to-visible latency" for the numbers and
+`mhLatencyTrace` for the command. Headline: on the trailer-ramp fixture an unchanged rebuild spent
+**3 ms computing and 1,084 ms scheduling**. The computation is not the wait.
+
+Two follow-ups, in this order:
+
+1. **Re-measure the completion pickup in an interactive Rhino.** The headless slot's own message loop
+   is parked - a posted invoke took 264 ms to run while the post cost 0.0 ms - so the 100-630 ms
+   pickup figures cannot be quoted as product numbers. Run `mhLatencyTrace` > On, edit, then
+   `mhLatencyTrace` > Report in a real session. The 500 ms debounce needs no such confirmation.
+2. **Decide the debounce policy.** It is the single largest and most certain component (500 ms of every
+   edit, 42-75% of the measured wait). The five-edit burst discarded zero worker time, so coalescing is
+   already doing its job; the question is whether the flat 500 ms should become gesture-end-driven or
+   adaptive to the last build's duration. This is a product decision, not a measurement gap.
+
+Only then rank stage optimization: geometry was 8-31% of the wait, and on a cached rebuild 0.2%.
+
+**Next ownership action: R05, stage 2.** The ownership table ([build-result-ownership.md](build-result-ownership.md)) is
 written and is the prerequisite the review asked for. The next change is the build-result ownership
 object with `Transfer`/`Discard`, closing the four gaps that document names. Start at gap 1 - it is the
-smallest and the most clearly wrong: `RunBackgroundBuild` returns its worker cache on the cancelled,
-superseded and failed paths, and `ApplyBuildResult` returns before the merge, so whatever geometry that
-build had already produced is dropped rather than discarded.
+smallest: `ExecuteBackgroundBuild` returns its worker cache on canceled and failed paths, and
+`CompleteBackgroundBuild` returns before the merge for canceled, superseded, failed or stale-generation
+results. Newly produced geometry then lacks an explicit discard endpoint. This is a deterministic
+cleanup gap, not proof of a permanent leak.
 
 Do **not** start R06 (scheduler extraction) first. It needs the ownership contract to exist, and its
 acceptance explicitly requires replaying the event sequences in a disposable Rhino slot before
@@ -185,6 +209,38 @@ Rhino, viewport, Revit, full-scale benchmark, Release build, or Yak package acce
 `MOLEHILL_PERF` was not enabled; the passing count includes opt-in benchmark methods that return early.
 
 ## Implementation status
+
+### Progress audit — 2026-09-19, revision `1eb436f`
+
+Checked commit history and current source against this plan. Deliveries 1-5 have implementation
+commits and tests; delivery 6 has an ownership table only. R06/R07/R10/R11/R12 remain unstarted.
+Validation and package successes in the table below are implementation-session reports unless
+explicitly identified as rerun in this audit.
+
+Audit rerun: `dotnet test MoleHill.sln --no-restore --verbosity quiet -p:SkipGrasshopperLibraryCopy=True
+--logger trx --results-directory .artifacts/review-progress-2026-09-19` exited successfully:
+Core **974 passed**, Rhino **694 passed / 130 skipped**, Grasshopper **39 passed / 15 skipped**.
+Total **1,707 passed, 0 failed, 145 skipped**. No native, performance, warnings, or package lane was
+rerun during this audit; this test run does not establish those acceptance results.
+
+The main user-facing performance work is still outstanding. A diff against `fc1a90b` shows no changes
+to `TerrainController.cs`, `TerrainController.Build.cs`, `TerrainController.Events.cs`, or
+`TerrainBuildService.cs`. Thus the 500 ms debounce, waiting for worker completion, due-request
+selection, publication after final-only outputs, and incomplete summed total timing remain as
+described in the priority refinement. Core cancellation and edge hashing may help individual builds,
+but no measured reduction in edit-to-visible latency is established.
+
+| Latency work | Progress |
+|---|---|
+| End-to-end request trace, including canceled work and publication gaps | Not implemented |
+| Eligible-request selection / multi-terrain head-of-queue blocking | Not implemented |
+| Cancellation inside splitting/index phases | Implemented; latency budget unmeasured |
+| Packed-edge hash corrections | Implemented; representative build speedup unmeasured |
+| Publish exact geometry before dependent outputs, with freshness/ownership contracts | Not implemented |
+| Rank and optimize the two largest measured final-build delays | Awaiting representative trace |
+
+The headline and handoff have been corrected to separate implemented work from acceptance and to
+put latency instrumentation before further broad refactoring.
 
 Delivery order below matches the **Implementation sequence** table. "Implemented" and "verified" are
 kept apart deliberately: a managed suite cannot close an acceptance item that names a native soak run

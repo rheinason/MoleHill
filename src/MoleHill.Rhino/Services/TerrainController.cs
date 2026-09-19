@@ -48,6 +48,11 @@ internal sealed partial class TerrainController
     private readonly Dictionary<uint, DocumentState> _states = new();
     private readonly Dictionary<(uint docSerial, Guid terrainId, TerrainBuildMode mode), PendingBuildRequest> _pendingRebuilds = new();
     private readonly Dictionary<uint, DateTime> _pendingDocumentSaves = new();
+    // Latency trace only: remembers which pending requests have already had their "due" moment
+    // recorded, so the debounce interval and the post-debounce dispatch wait stay separable.
+    private readonly HashSet<(uint docSerial, Guid terrainId, TerrainBuildMode mode, long version)> _latencyDueMarked = new();
+    private readonly HashSet<(uint docSerial, Guid terrainId, TerrainBuildMode mode, long version, string reason)> _latencyBlockedReasons = new();
+    private bool _isPumpingFinishedBuilds;
     private readonly Dictionary<uint, PendingTerrainEdit> _pendingTerrainEdits = new();
     private readonly HashSet<(uint docSerial, uint undoSerial)> _terrainUndoRecords = new();
     private readonly HashSet<uint> _pendingSourceReferencePrunes = new();
@@ -1840,9 +1845,26 @@ internal sealed partial class TerrainController
         rebuildState.RequestedVersion++;
         if (rebuildState.IsBuilding)
         {
+            TerrainLatencyTrace.Record(
+                docSerial,
+                terrainId,
+                rebuildState.RunningVersion,
+                rebuildState.BuildGeneration,
+                rebuildState.RunningMode,
+                TerrainLatencyPhase.CancelRequested,
+                $"superseded by #{rebuildState.RequestedVersion:N0}");
             rebuildState.CancelRequested = true;
             rebuildState.WorkerCancellation?.Cancel();
         }
+
+        TerrainLatencyTrace.Record(
+            docSerial,
+            terrainId,
+            rebuildState.RequestedVersion,
+            rebuildState.BuildGeneration,
+            TerrainBuildMode.Final,
+            TerrainLatencyPhase.Edit,
+            isImmediate ? "immediate" : $"debounce {FinalDebounceMs} ms");
         return rebuildState.RequestedVersion;
     }
 

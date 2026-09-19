@@ -55,10 +55,10 @@ These are the places where no obvious endpoint exists. None of them is demonstra
 leak: managed reachability and Rhino's own finalization may reclaim the memory. What they cost is the
 ability to *prove* peak native memory and safe cleanup — which is the point of R05.
 
-**Gap 1 — an abandoned worker cache is dropped, not discarded.** `RunBackgroundBuild` returns the
+**Gap 1 — an abandoned worker cache is dropped, not discarded.** `ExecuteBackgroundBuild` returns the
 worker cache on every path, including `catch (OperationCanceledException)` and `catch (Exception)`. On
 the success path `ApplySuccessfulBuild` merges it. On the cancelled, superseded and failed paths
-`ApplyBuildResult` returns *before* the merge, so `result.WorkerCache` simply goes out of scope. Any
+`CompleteBackgroundBuild` returns *before* the merge, so `result.WorkerCache` simply goes out of scope. Any
 mesh that build had already produced — a completed TIN stage before cancellation landed in a later one
 — is released to the GC rather than disposed. The same applies when a result arrives for a stale
 generation.

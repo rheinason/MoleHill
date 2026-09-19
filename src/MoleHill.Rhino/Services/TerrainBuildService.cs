@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
@@ -28,10 +28,11 @@ internal sealed partial class TerrainBuildService
         TerrainRuntimeCache runtimeCache,
         TerrainBuildMode mode = TerrainBuildMode.Final,
         Func<bool>? shouldCancel = null,
-        Action<TerrainBuildProgress>? reportProgress = null)
+        Action<TerrainBuildProgress>? reportProgress = null,
+        TerrainLatencyScope? latency = null)
     {
         TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
-        return Build(snapshot, runtimeCache, mode, shouldCancel, reportProgress);
+        return Build(snapshot, runtimeCache, mode, shouldCancel, reportProgress, latency);
     }
 
     public TerrainBuildResult Build(
@@ -39,7 +40,8 @@ internal sealed partial class TerrainBuildService
         TerrainRuntimeCache runtimeCache,
         TerrainBuildMode mode = TerrainBuildMode.Final,
         Func<bool>? shouldCancel = null,
-        Action<TerrainBuildProgress>? reportProgress = null)
+        Action<TerrainBuildProgress>? reportProgress = null,
+        TerrainLatencyScope? latency = null)
     {
         var totalTimer = Stopwatch.StartNew();
         TerrainDefinition terrain = snapshot.Terrain;
@@ -137,6 +139,9 @@ internal sealed partial class TerrainBuildService
 
         build.PrimaryMesh = currentMesh;
         build.BaseMesh = baseMesh ?? currentMesh;
+        latency?.Mark(
+            TerrainLatencyPhase.GeometryReady,
+            currentMesh == null ? "no mesh" : $"{currentMesh.Vertices.Count:N0} verts, {currentMesh.Faces.Count:N0} faces");
         if (currentMesh != null && mode == TerrainBuildMode.Final)
         {
             ThrowIfCancellationRequested(shouldCancel);
@@ -162,6 +167,7 @@ internal sealed partial class TerrainBuildService
                 usedStageKeys,
                 referenceProjectionCache,
                 shouldCancel));
+            latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}analyses", $"{build.AnalysisResults.Count:N0} analyses");
 
             string zonesStageKey = TerrainStageKey.ForMode(mode, "zones");
             usedStageKeys.Add(zonesStageKey);
@@ -180,6 +186,7 @@ internal sealed partial class TerrainBuildService
                 () => BuildTerrainZones(snapshot, analysisMesh, terrain, build, referenceProjectionCache, shouldCancel),
                 () => $"{build.ZoneObjects.Count:N0} zone outputs",
                 shouldCancel);
+            latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}zones", $"{build.ZoneObjects.Count:N0} zone outputs");
 
             string markersStageKey = TerrainStageKey.ForMode(mode, "markers");
             usedStageKeys.Add(markersStageKey);
@@ -191,6 +198,7 @@ internal sealed partial class TerrainBuildService
                 () => BuildMarkers(snapshot, terrain, analysisMesh, build, shouldCancel),
                 () => $"{build.MarkerObjects.Count:N0} marker outputs",
                 shouldCancel);
+            latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}markers", $"{build.MarkerObjects.Count:N0} marker outputs");
 
             string objectsStageKey = TerrainStageKey.ForMode(mode, "objects");
             usedStageKeys.Add(objectsStageKey);
@@ -202,6 +210,7 @@ internal sealed partial class TerrainBuildService
                 () => BuildObjectPlacements(snapshot, terrain, analysisMesh, build, shouldCancel),
                 () => $"{build.ObjectPlacements.Sum(static group => group.Placements.Count):N0} object placements",
                 shouldCancel);
+            latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}objects", $"{build.ObjectPlacements.Sum(static group => group.Placements.Count):N0} placements");
 
             string scatterStageKey = TerrainStageKey.ForMode(mode, "scatter");
             usedStageKeys.Add(scatterStageKey);
@@ -219,8 +228,12 @@ internal sealed partial class TerrainBuildService
             // analyses would draw the previous build's zone figures, or none at all on a first build. A
             // cache key would have to fingerprint every stage's results to be correct, which costs more
             // than laying out a few hundred text entities.
+            latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}scatter", $"{build.ScatterObjects.Count:N0} scatter outputs");
             BuildReportTables(snapshot, terrain, analysisMesh, build, shouldCancel);
+            latency?.Mark($"{TerrainLatencyPhase.OutputFamilyPrefix}reports");
         }
+
+        latency?.Mark(TerrainLatencyPhase.OutputsEnd);
 
         ThrowIfCancellationRequested(shouldCancel);
         runtimeCache.PruneUnused(usedStageKeys, mode);

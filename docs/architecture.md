@@ -1100,6 +1100,52 @@ map remains the description of what the code does today.
 - `docs/terrain-scalability-review-2026-09-09.md` — C01/O01–O16 scalability items and their open
   acceptance gaps.
 
+## Rhino: edit-to-visible latency
+
+`Rebuild total` measures from the snapshot onward, so it cannot see the largest part of the wait. The
+latency trace (`TerrainLatencyTrace`, `TerrainLatencyReport`, command `mhLatencyTrace`) records the
+whole path instead, from the edit that caused the rebuild to the redraw that shows it:
+
+```
+edit -> due -> dispatch -> snapshot -> clone -> worker queue -> geometry-ready
+     -> outputs:{analyses,zones,markers,objects,scatter,reports} -> worker-end
+     -> wake/idle pickup -> merge -> display -> object sync -> save -> redraw -> closed
+```
+
+Timestamps are monotonic `Stopwatch` ticks so UI-thread and worker marks are comparable. The report
+differences *consecutive* events, so intervals partition a request completely and a pair with no agreed
+name prints as `unclassified` rather than being folded into a neighbour. Superseded requests are kept
+and reported as abandoned worker time. The trace is off by default and costs one volatile read per site.
+
+**Measured 2026-09-19** on the trailer-ramp fixture (Triangulate + Retaining Wall + Remesh, 2.4k-5.1k
+faces, one analysis), Rhino 8 in a headless `rhino-mcp` slot:
+
+| Scenario | edit to visible | geometry | dependent outputs |
+|---|---|---|---|
+| Cold first build | 1,218 ms | 384 ms | 36 ms |
+| Unchanged rebuild (all stages cached) | 1,087 ms | 2.5 ms | 0.5 ms |
+| Remesh parameter edit | 1,306 ms | 117 ms | 5 ms |
+| Five rapid edits (slider drag) | 2,364 ms for the surviving edit | 191 ms | 9 ms |
+
+The computation is not the wait. On the unchanged rebuild, **97% of 1,087 ms was scheduling**: 530 ms
+debounce and 524 ms waiting for the finished result to be picked up, against 3 ms of real work.
+Debounce coalescing is sound - the five-edit burst discarded **zero** worker time.
+
+Two structural facts behind that:
+
+- **`FinalDebounceMs` is a flat 500 ms on every edit**, and `ScheduleRebuild` queues Final directly;
+  there is no cheaper preview first and no gesture-end fast path.
+- **A finished build is discovered only by polling.** `TryCompleteFinishedBuild` runs inside `OnIdle`;
+  nothing wakes the UI thread when a worker completes. `StartBackgroundBuild` now also posts
+  `PumpFinishedBuilds` through `RhinoApp.InvokeOnUiThread` from the worker continuation, with the idle
+  poll left as the backstop and a re-entrancy guard because the completion path saves and redraws.
+
+**The pickup figure above is not yet trustworthy as a product number.** In the headless slot the posted
+invoke *itself* took 264 ms to run while the post cost 0.0 ms, so what is parked is the host message
+loop, not MoleHill's polling. An interactive Rhino pumps that loop constantly. Re-measure the pickup
+interval with `mhLatencyTrace` in a real session before ranking or optimizing it; the debounce figure
+needs no such caveat.
+
 ## Rhino: build-result ownership
 
 A background build runs against a *worker copy* of the terrain's runtime cache. The copy is shallow

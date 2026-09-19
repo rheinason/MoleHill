@@ -195,6 +195,9 @@ internal sealed partial class TerrainController
             return;
 
         var now = DateTime.UtcNow;
+        if (TerrainLatencyTrace.IsEnabled)
+            MarkDueRequestsForLatencyTrace(now);
+
         var nextItem = _pendingRebuilds
             .Where(item => item.Value.DueAtUtc <= now)
             .OrderBy(item => item.Value.DueAtUtc)
@@ -207,7 +210,10 @@ internal sealed partial class TerrainController
 
         var key = nextItem.Value;
         if (ShouldDeferBuildForSculpt(key.terrainId))
+        {
+            RecordDispatchBlocked(key, "sculpt stroke active");
             return; // an active sculpt stroke owns the preview mesh; dispatch between strokes instead
+        }
 
         var doc = RhinoDoc.FromRuntimeSerialNumber(key.docSerial);
         if (doc == null)
@@ -226,7 +232,12 @@ internal sealed partial class TerrainController
 
         var rebuildState = GetRebuildState(key.docSerial, key.terrainId);
         if (rebuildState.IsBuilding)
+        {
+            // Head-of-queue blocking: this due request belongs to a terrain that is still building, and
+            // the dispatcher returns without considering any other eligible terrain (plan R06).
+            RecordDispatchBlocked(key, $"terrain busy with #{rebuildState.RunningVersion:N0}");
             return;
+        }
 
         long skippedVersion = key.mode == TerrainBuildMode.Preview
             ? rebuildState.SkippedPreviewVersion
@@ -238,7 +249,63 @@ internal sealed partial class TerrainController
         }
 
         _pendingRebuilds.Remove(key);
+        _latencyDueMarked.Remove((key.docSerial, key.terrainId, key.mode, rebuildState.RequestedVersion));
+        _latencyBlockedReasons.RemoveWhere(item =>
+            item.docSerial == key.docSerial && item.terrainId == key.terrainId && item.mode == key.mode);
+        TerrainLatencyTrace.Record(
+            key.docSerial,
+            key.terrainId,
+            rebuildState.RequestedVersion,
+            rebuildState.BuildGeneration,
+            key.mode,
+            TerrainLatencyPhase.Dispatch,
+            $"{_pendingRebuilds.Count:N0} still pending");
         StartBackgroundBuild(doc, state, terrain, key.mode, rebuildState.RequestedVersion);
+    }
+
+    /// <summary>
+    /// Records the moment a pending request stops waiting out its debounce, so the report can separate
+    /// the configured debounce from time spent due-but-undispatched.
+    /// </summary>
+    private void MarkDueRequestsForLatencyTrace(DateTime now)
+    {
+        foreach (var entry in _pendingRebuilds)
+        {
+            if (entry.Value.DueAtUtc > now)
+                continue;
+
+            var marker = (entry.Key.docSerial, entry.Key.terrainId, entry.Key.mode, entry.Value.Version);
+            if (!_latencyDueMarked.Add(marker))
+                continue;
+
+            TerrainLatencyTrace.Record(
+                entry.Key.docSerial,
+                entry.Key.terrainId,
+                entry.Value.Version,
+                GetRebuildState(entry.Key.docSerial, entry.Key.terrainId).BuildGeneration,
+                entry.Key.mode,
+                TerrainLatencyPhase.Due);
+        }
+    }
+
+    private void RecordDispatchBlocked((uint docSerial, Guid terrainId, TerrainBuildMode mode) key, string reason)
+    {
+        if (!TerrainLatencyTrace.IsEnabled || !_pendingRebuilds.TryGetValue(key, out var request))
+            return;
+
+        // Idle fires continuously while a request is blocked. Record the reason once per request, or
+        // the ring buffer fills with thousands of identical events during a single slow build.
+        if (!_latencyBlockedReasons.Add((key.docSerial, key.terrainId, key.mode, request.Version, reason)))
+            return;
+
+        TerrainLatencyTrace.Record(
+            key.docSerial,
+            key.terrainId,
+            request.Version,
+            GetRebuildState(key.docSerial, key.terrainId).BuildGeneration,
+            key.mode,
+            TerrainLatencyPhase.DispatchBlocked,
+            reason);
     }
 
     private void OnUnitsChangedWithScaling(object? sender, UnitsChangedWithScalingEventArgs e)
@@ -353,6 +420,29 @@ internal sealed partial class TerrainController
             RhinoApp.WriteLine($"MoleHill: block attribute key repair left {stillMissing.Count} annotation block(s) with missing blank keys.");
     }
 
+    /// <summary>
+    /// Publishes a finished build without waiting for the next <see cref="RhinoApp.Idle"/>. Posted from
+    /// the worker continuation; the idle poll remains the backstop, so this is an accelerator and never
+    /// the only route. Re-entrancy is guarded because the completion path saves the document and
+    /// redraws, either of which may pump messages.
+    /// </summary>
+    private void PumpFinishedBuilds()
+    {
+        if (_isPumpingFinishedBuilds)
+            return;
+
+        _isPumpingFinishedBuilds = true;
+        try
+        {
+            ProcessBuildProgressUpdates();
+            TryCompleteFinishedBuild();
+        }
+        finally
+        {
+            _isPumpingFinishedBuilds = false;
+        }
+    }
+
     private bool TryCompleteFinishedBuild()
     {
         foreach (var entry in _rebuildStates.ToList())
@@ -381,7 +471,15 @@ internal sealed partial class TerrainController
                 return true;
             }
 
-            CompleteBackgroundBuild(doc, state, terrain, rebuildState, workerTask.GetAwaiter().GetResult());
+            BackgroundBuildResult finished = workerTask.GetAwaiter().GetResult();
+            TerrainLatencyTrace.Record(
+                entry.Key.docSerial,
+                entry.Key.terrainId,
+                finished.Version,
+                finished.Generation,
+                finished.Mode,
+                TerrainLatencyPhase.CompletionDispatch);
+            CompleteBackgroundBuild(doc, state, terrain, rebuildState, finished);
             return true;
         }
 
