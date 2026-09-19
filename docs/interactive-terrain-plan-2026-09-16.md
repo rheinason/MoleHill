@@ -496,3 +496,36 @@ change the current architecture merely by describing the destination.
   `docs/large-terrain-performance-review-2026-07-05.md` — historical measurements and decisions.
 - `tests/MoleHill.Grasshopper.Tests/TerrainRetainingWallPlannerLarge20260705CopiedCaseTests.cs` —
   captured planner fixture; supplement with whole-stack and live-interaction fixtures.
+
+## Implementation log
+
+Running record of the first implementation pass. Each entry says what was attempted, what landed, how
+it was verified, and what is still unproven. **Verification vocabulary:** *compiles* = builds clean;
+*unit-tested* = a test in `tests/` covers it; *live-verified* = observed in Rhino via `rhino-mcp`;
+*unmeasured* = believed faster but no trace taken. Treat anything not marked live-verified or measured
+as unproven for latency claims.
+
+Build note for this pass: the user's Rhino was open throughout, so `MoleHill.Rhino` could not write its
+normal output directory. It was compiled with `dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj
+-p:OutputPath=<scratch>` — a compile check only. **Nothing in this log is live-verified yet**; a pass in
+a real Rhino session is owed before any of it is quoted as a latency improvement.
+
+### 1 — Preview no longer builds retaining-wall solids (Step 1)
+
+Plan item: "Separate rail planning from solid construction so preview avoids making discarded solids."
+
+Implemented: `RetainingWallPlannerCore.Plan` (`src/MoleHill.Shared/`) gained a `buildSolids` parameter
+defaulting to true, forwarded to the existing `PlanPolylines(..., buildSolids)` instead of the hardcoded
+`true`. `TerrainBuildService.ApplyRetainingWalls` passes `mode == TerrainBuildMode.Final`. Preview was
+already discarding the Breps — only the `Final` branch adds them to `AuxiliaryObjects` — so the pairing,
+rails and constraints are untouched and no geometry changes on either path.
+
+Deliberate behaviour difference: the two `SolidFailed` report entries in `BuildWalls` (Brep build failed;
+Brep is open) are only raised when solids are built, so preview no longer shows those two warnings. They
+still appear on the final build, which is the one that publishes the solid. Recorded here because it is a
+visible diagnostic change, not a pure optimisation.
+
+Verified: compiles; `MoleHill.Grasshopper.Tests` green (39 passed, 15 skipped — the skips are the
+native-runtime planner geometry tests, which are exactly the ones that would exercise the Brep path, so
+this is *not* evidence the solid path still works — the GH component still requests solids by default and
+is unchanged). Unmeasured: no trace of the preview saving yet.

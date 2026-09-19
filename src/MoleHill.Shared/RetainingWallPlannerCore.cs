@@ -312,12 +312,15 @@ internal static class RetainingWallPlannerCore
     /// <summary>
     /// Curve-based entry point: tessellates each curve (the only step that needs the Rhino native
     /// runtime besides solid Brep generation) and hands the polylines to <see cref="PlanPolylines"/>.
+    /// Pass <paramref name="buildSolids"/> false when the caller only needs the rails and pairing —
+    /// a terrain preview never publishes the Breps, so making them is pure waste on that path.
     /// </summary>
     public static PlanResult Plan(
         IReadOnlyList<Curve> curves,
         double maxWallWidth,
         double? curveParsingTolerance = null,
-        double? curveCleanupTolerance = null)
+        double? curveCleanupTolerance = null,
+        bool buildSolids = true)
     {
         double resolvedMaxWallWidth = PositiveLength(maxWallWidth, maxWallWidth);
         double geometryTolerance = ResolveGeometryTolerance(resolvedMaxWallWidth, curveParsingTolerance);
@@ -354,7 +357,7 @@ internal static class RetainingWallPlannerCore
             maxWallWidth,
             curveParsingTolerance,
             curveCleanupTolerance,
-            buildSolids: true,
+            buildSolids,
             seedReport: report);
     }
 

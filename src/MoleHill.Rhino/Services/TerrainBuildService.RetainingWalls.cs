@@ -47,11 +47,16 @@ internal sealed partial class TerrainBuildService
         }
 
         var planTimer = Stopwatch.StartNew();
+        // Only Final mode publishes the wall solids (see the AuxiliaryObjects add below). Preview
+        // discarded them, so it no longer asks for them: the rails, pairing and constraints are
+        // identical either way, and the Brep loft is the expensive half of BuildWalls.
+        bool buildWallSolids = mode == TerrainBuildMode.Final;
         var plan = RetainingWallPlannerCore.Plan(
             wallCurves,
             maxWallWidth,
             curveParsingTolerance: wallTolerance,
-            curveCleanupTolerance: railCleanupTolerance);
+            curveCleanupTolerance: railCleanupTolerance,
+            buildSolids: buildWallSolids);
         planTimer.Stop();
         build.RecordTiming(
             "Retaining Wall Plan",
