@@ -29,6 +29,7 @@ public static partial class PadGrader
         int faceCount,
         PadBoundary[] pads,
         LockCurve[] lockCurves,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints,
         double modelTolerance,
         double terrainDetailSize,
         out string? errorMessage)
@@ -89,7 +90,7 @@ public static partial class PadGrader
 
         // Split the terrain along the carve regions, preserving terrain detail everywhere else.
         GradedRegionAssembler.SplitOutsideResult split = GradedRegionAssembler.SplitOutside(
-            vertices, vertexCount, faces, faceCount, groupLoops, tolerance);
+            vertices, vertexCount, faces, faceCount, groupLoops, tolerance, hardConstraints);
         if (!split.Success)
         {
             errorMessage = split.Warning ?? "Grade Pad terrain split failed.";
@@ -199,6 +200,7 @@ public static partial class PadGrader
         int faceCount,
         PadBoundary[] pads,
         LockCurve[] lockCurves,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints,
         double modelTolerance,
         double terrainDetailSize,
         out string? errorMessage)
@@ -270,7 +272,7 @@ public static partial class PadGrader
 
         // Conform the terrain to the daylight + footprint loops and keep the whole mesh (no weld).
         MeshAreaSplitter.SplitResult? conformed = GradedRegionAssembler.SplitConform(
-            vertices, vertexCount, faces, faceCount, conformLoops, tolerance);
+            vertices, vertexCount, faces, faceCount, conformLoops, tolerance, hardConstraints);
         if (conformed is null)
         {
             errorMessage = "Grade Pad terrain conform (split-keep) failed; deferring.";

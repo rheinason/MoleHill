@@ -1,4 +1,4 @@
-using TriangleNet;
+﻿using TriangleNet;
 using TriangleNet.Geometry;
 using TriangleNet.Meshing;
 using MoleHill.Core.Engine;
@@ -74,7 +74,8 @@ public static partial class PadGrader
         out IReadOnlyList<OutputPolyline> failureOutputPolylines,
         out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics,
         double modelTolerance = GradingTolerances.DefaultModelTolerance,
-        double terrainDetailSize = 0.0)
+        double terrainDetailSize = 0.0,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? hardConstraints = null)
     {
         errorMessage = null;
         failureOutputPolylines = Array.Empty<OutputPolyline>();
@@ -94,6 +95,21 @@ public static partial class PadGrader
         {
             failureStructuredDiagnostics = BuildFailureDiagnostic(
                 "grade_pad.input.invalid_lock_curve",
+                errorMessage,
+                GradingDiagnosticSeverity.Warning);
+            return null;
+        }
+
+        // Retaining walls and other persistent breaklines must survive a pad grade. The conforming
+        // tiers can fall back to a whole-terrain CDT re-conform, which flips away the near-vertical
+        // wall-face edges unless they are re-inserted as exact constraints - a pad on the far side of
+        // the terrain then orphans a wall's foot vertices. Path grading has always threaded these; pad
+        // grading did not, which is what the wall-foot regression was.
+        hardConstraints ??= Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        if (!GradingInputValidator.ValidateConstraintPolylines(hardConstraints, "Hard", out errorMessage))
+        {
+            failureStructuredDiagnostics = BuildFailureDiagnostic(
+                "grade_pad.input.invalid_hard_constraint",
                 errorMessage,
                 GradingDiagnosticSeverity.Warning);
             return null;
@@ -120,6 +136,7 @@ public static partial class PadGrader
             faceCount,
             pads,
             lockCurves,
+            hardConstraints,
             modelTolerance,
             terrainDetailSize,
             out string? explicitFailureReason);
@@ -149,6 +166,7 @@ public static partial class PadGrader
             faceCount,
             pads,
             lockCurves,
+            hardConstraints,
             modelTolerance,
             terrainDetailSize,
             out string? splitKeepFailureReason);

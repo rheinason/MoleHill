@@ -161,7 +161,7 @@ internal static class GradedRegionAssembler
     /// null when the terrain is non-simple (no single outline) or the CDT/extract did not produce a
     /// clean manifold mesh, so the caller can defer.
     /// </summary>
-    private static MeshAreaSplitter.SplitResult? SplitConformViaCdt(
+    internal static MeshAreaSplitter.SplitResult? SplitConformViaCdt(
         double[] terrainVertices,
         int terrainVertexCount,
         int[] terrainFaces,
@@ -784,7 +784,7 @@ internal static class GradedRegionAssembler
     }
 
     /// <summary>Builds the terrain's single naked-edge outline loop as flat XY, or null if it has 0/many.</summary>
-    private static double[]? TryBuildTerrainOutline(int[] faces, int faceCount, double[] vertices)
+    internal static double[]? TryBuildTerrainOutline(int[] faces, int faceCount, double[] vertices)
     {
         var boundary = new List<(int a, int b)>();
         MeshConstraintTools.AddBoundarySegments(boundary, IndexedMeshTools.CreateEdgeKeySet(), faces, faceCount);
