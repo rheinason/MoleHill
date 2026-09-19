@@ -2,55 +2,157 @@ using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
+/// <summary>
+/// Snaps constraint points onto nearby terrain vertices and edges.
+///
+/// The index may be clipped to a caller-declared region of interest. Indexing a whole terrain to snap
+/// a handful of grading constraints was measured at 0.91 s of a 1.00 s <c>PadGrader.CreateConstraints</c>
+/// on a 186,501-edge terrain, and a pad influences a few percent of it. Clipping is exact rather than
+/// approximate: a query at a point only ever reaches members whose tolerance-expanded bounds meet that
+/// point's own tolerance box, so every member that could win a query lying wholly inside the region is
+/// inside the region too. A query that escapes the declared region abandons it and rebuilds over the
+/// whole mesh, so a badly chosen region costs speed and never geometry.
+/// </summary>
 internal sealed class ConstraintCoincidenceSnapper
 {
     private readonly double[] _vertices;
-    private readonly VertexRef[] _vertexRefs;
-    private readonly SpatialHashGrid2D _vertexIndex;
-    private readonly EdgeRef[] _edges;
-    private readonly SpatialHashGrid2D _edgeIndex;
+    private readonly int _vertexCount;
+    private readonly int[] _faces;
+    private readonly int _faceCount;
+    private VertexRef[] _vertexRefs = Array.Empty<VertexRef>();
+    private SpatialHashGrid2D _vertexIndex;
+    private EdgeRef[] _edges = Array.Empty<EdgeRef>();
+    private SpatialHashGrid2D _edgeIndex;
     private readonly double _tolerance;
     private readonly double _toleranceSquared;
-    private readonly SpatialHashGrid2D.QueryScratch _vertexScratch;
-    private readonly SpatialHashGrid2D.QueryScratch _edgeScratch;
+    private SpatialHashGrid2D.QueryScratch _vertexScratch;
+    private SpatialHashGrid2D.QueryScratch _edgeScratch;
     private readonly List<int> _vertexCandidates = new(8);
     private readonly List<int> _edgeCandidates = new(16);
+    private Bounds2D? _region;
 
     private readonly record struct VertexRef(double X, double Y);
     private readonly record struct EdgeRef(double Ax, double Ay, double Bx, double By);
+
+    /// <summary>Indexed vertex and deduplicated-edge counts, for tests and timing diagnostics.</summary>
+    internal (int Vertices, int Edges) IndexedCounts => (_vertexRefs.Length, _edges.Length);
+
+    /// <summary>True once a query outside the declared region forced the full-mesh rebuild.</summary>
+    internal bool RegionWasAbandoned { get; private set; }
+
+    /// <summary>
+    /// Builds a snapper indexed only where <paramref name="constraints"/> can actually reach. Construct
+    /// it after the constraints exist, not before: the region is then exact by construction rather than
+    /// an estimate of a pad or path influence envelope.
+    /// </summary>
+    internal static ConstraintCoincidenceSnapper ForConstraints(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        double tolerance,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints)
+    {
+        return new ConstraintCoincidenceSnapper(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            tolerance,
+            RegionCovering(constraints, tolerance));
+    }
+
+    /// <summary>
+    /// The tolerance-expanded XY bounds of every constraint point, or null when there is nothing to
+    /// snap — null means "index everything", which is the safe reading of an unknown region.
+    /// </summary>
+    internal static Bounds2D? RegionCovering(
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        double tolerance)
+    {
+        double minX = double.MaxValue, maxX = double.MinValue;
+        double minY = double.MaxValue, maxY = double.MinValue;
+        bool any = false;
+        for (int c = 0; c < constraints.Count; c++)
+        {
+            SurfaceRemesher.ConstraintPolyline constraint = constraints[c];
+            for (int i = 0; i < constraint.PointCount; i++)
+            {
+                double x = constraint.Points[i * 3];
+                double y = constraint.Points[i * 3 + 1];
+                if (double.IsNaN(x) || double.IsNaN(y))
+                    return null;
+
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+                any = true;
+            }
+        }
+
+        if (!any)
+            return null;
+
+        // One tolerance for the query box around each point, one more so a member whose own expanded
+        // bounds only just reach that box is still inside the region.
+        double pad = Math.Abs(tolerance) * 2.0;
+        return new Bounds2D(minX - pad, maxX + pad, minY - pad, maxY + pad);
+    }
 
     internal ConstraintCoincidenceSnapper(
         double[] vertices,
         int vertexCount,
         int[] faces,
         int faceCount,
-        double tolerance)
+        double tolerance,
+        Bounds2D? region = null)
     {
         _vertices = vertices;
+        _vertexCount = vertexCount;
+        _faces = faces;
+        _faceCount = faceCount;
         _tolerance = tolerance;
         _toleranceSquared = tolerance * tolerance;
+        _region = region;
 
-        _vertexRefs = new VertexRef[vertexCount];
-        var vertexBounds = new Bounds2D[vertexCount];
-        for (int i = 0; i < vertexCount; i++)
+        BuildIndex(region);
+    }
+
+    [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_vertexIndex), nameof(_edgeIndex), nameof(_vertexScratch), nameof(_edgeScratch))]
+    private void BuildIndex(Bounds2D? region)
+    {
+        double tolerance = _tolerance;
+        double[] vertices = _vertices;
+        int seedCapacity = region == null ? _vertexCount : Math.Min(_vertexCount, 1024);
+
+        var vertexRefs = new List<VertexRef>(Math.Max(seedCapacity, 1));
+        var vertexBounds = new List<Bounds2D>(Math.Max(seedCapacity, 1));
+        for (int i = 0; i < _vertexCount; i++)
         {
             double x = vertices[i * 3];
             double y = vertices[i * 3 + 1];
-            _vertexRefs[i] = new VertexRef(x, y);
-            vertexBounds[i] = new Bounds2D(x - tolerance, x + tolerance, y - tolerance, y + tolerance);
+            var bounds = new Bounds2D(x - tolerance, x + tolerance, y - tolerance, y + tolerance);
+            if (region is { } vertexRegion && !bounds.Intersects(vertexRegion))
+                continue;
+
+            vertexRefs.Add(new VertexRef(x, y));
+            vertexBounds.Add(bounds);
         }
 
-        _vertexIndex = SpatialHashGrid2D.Build(vertexBounds);
-        _vertexScratch = new SpatialHashGrid2D.QueryScratch(Math.Max(vertexCount, 1));
+        _vertexRefs = vertexRefs.ToArray();
+        _vertexIndex = SpatialHashGrid2D.Build(vertexBounds.ToArray());
+        _vertexScratch = new SpatialHashGrid2D.QueryScratch(Math.Max(_vertexRefs.Length, 1));
 
-        var edgeKeys = new HashSet<long>(faceCount * 3, IndexedMeshTools.EdgeKeyComparer.Instance);
-        var edges = new List<EdgeRef>(faceCount * 2);
-        var edgeBounds = new List<Bounds2D>(faceCount * 2);
-        for (int f = 0; f < faceCount; f++)
+        int edgeCapacity = region == null ? Math.Max(_faceCount * 2, 1) : Math.Min(Math.Max(_faceCount * 2, 1), 1024);
+        var edgeKeys = new HashSet<long>(edgeCapacity, IndexedMeshTools.EdgeKeyComparer.Instance);
+        var edges = new List<EdgeRef>(edgeCapacity);
+        var edgeBounds = new List<Bounds2D>(edgeCapacity);
+        for (int f = 0; f < _faceCount; f++)
         {
-            AddEdge(faces[f * 3], faces[f * 3 + 1]);
-            AddEdge(faces[f * 3 + 1], faces[f * 3 + 2]);
-            AddEdge(faces[f * 3 + 2], faces[f * 3]);
+            AddEdge(_faces[f * 3], _faces[f * 3 + 1]);
+            AddEdge(_faces[f * 3 + 1], _faces[f * 3 + 2]);
+            AddEdge(_faces[f * 3 + 2], _faces[f * 3]);
         }
 
         _edges = edges.ToArray();
@@ -59,26 +161,40 @@ internal sealed class ConstraintCoincidenceSnapper
 
         void AddEdge(int a, int b)
         {
-            long key = IndexedMeshTools.GetEdgeKey(a, b);
-            if (!edgeKeys.Add(key))
-                return;
-
             double ax = vertices[a * 3];
             double ay = vertices[a * 3 + 1];
             double bx = vertices[b * 3];
             double by = vertices[b * 3 + 1];
-            edges.Add(new EdgeRef(ax, ay, bx, by));
-            edgeBounds.Add(new Bounds2D(
+            var bounds = new Bounds2D(
                 Math.Min(ax, bx) - tolerance,
                 Math.Max(ax, bx) + tolerance,
                 Math.Min(ay, by) - tolerance,
-                Math.Max(ay, by) + tolerance));
+                Math.Max(ay, by) + tolerance);
+
+            // Region test before the hash: the point of clipping is to not pay per terrain edge.
+            if (region is { } edgeRegion && !bounds.Intersects(edgeRegion))
+                return;
+
+            if (!edgeKeys.Add(IndexedMeshTools.GetEdgeKey(a, b)))
+                return;
+
+            edges.Add(new EdgeRef(ax, ay, bx, by));
+            edgeBounds.Add(bounds);
         }
     }
 
     internal void SnapPoint(double x, double y, out double snappedX, out double snappedY)
     {
         var queryBounds = new Bounds2D(x - _tolerance, x + _tolerance, y - _tolerance, y + _tolerance);
+
+        // A query reaching outside the declared region could miss a member that was never indexed.
+        // Abandon the region and index the whole mesh rather than return a silently different answer.
+        if (_region is { } region && !Contains(region, queryBounds))
+        {
+            _region = null;
+            RegionWasAbandoned = true;
+            BuildIndex(null);
+        }
 
         _vertexIndex.GatherCandidates(queryBounds, _vertexCandidates, _vertexScratch);
         double bestDistanceSquared = _toleranceSquared;
@@ -170,6 +286,12 @@ internal sealed class ConstraintCoincidenceSnapper
         return pointCount >= 2
             ? new SurfaceRemesher.ConstraintPolyline(points.ToArray(), pointCount, constraint.IsClosed, constraint.PreserveInputElevation)
             : new SurfaceRemesher.ConstraintPolyline(Array.Empty<double>(), 0, constraint.IsClosed, constraint.PreserveInputElevation);
+    }
+
+    private static bool Contains(in Bounds2D outer, in Bounds2D inner)
+    {
+        return inner.MinX >= outer.MinX && inner.MaxX <= outer.MaxX &&
+               inner.MinY >= outer.MinY && inner.MaxY <= outer.MaxY;
     }
 
     private static double ParameterOnSegment(double ax, double ay, double bx, double by, double px, double py)

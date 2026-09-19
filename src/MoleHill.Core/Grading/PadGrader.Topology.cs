@@ -184,13 +184,6 @@ public static partial class PadGrader
             padInfluenceDistances[i] = ComputePadTransitionDistance(vertices, vertexCount, pads[i]);
         var coupledShoulderLoops = new List<double[]>();
         var coupledStitchLoops = new List<double[]>();
-        var coincidenceSnapper = new ConstraintCoincidenceSnapper(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)));
-
         var faceGridForConstraints = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         for (int padIndex = 0; padIndex < pads.Length; padIndex++)
         {
@@ -378,6 +371,15 @@ public static partial class PadGrader
             }
         }
 
+        // Built here, not before the pad loop: the snapper can then index only the terrain the finished
+        // constraints reach, instead of every edge in the mesh to snap a handful of polylines.
+        var coincidenceSnapper = ConstraintCoincidenceSnapper.ForConstraints(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)),
+            constraints);
         for (int i = 0; i < constraints.Count; i++)
             constraints[i] = coincidenceSnapper.SnapConstraintPolyline(constraints[i]);
 

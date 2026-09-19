@@ -556,3 +556,47 @@ abandoned build, which the trace already reports as abandoned worker time.
 Verified: compiles; `MoleHill.Rhino.Tests` green (722 passed, 130 skipped). Unmeasured: no before/after
 abandoned-worker-time figure yet — that measurement belongs with Step 2, where the sustained-gesture
 fixture exists to produce cancellations on purpose.
+
+### 3 — Clip the grading constraint snapper to the constraints' own footprint (Step 1)
+
+Plan item, from "A Step 1-shaped finding outside the wall path": remediation 1, "clip the index to the
+pad/path influence envelope … the largest expected win." Measured cost was 0.91 s of a 1.00 s
+`PadGrader.CreateConstraints` building `SpatialHashGrid2D` over all 186,501 mesh edges, plus 0.72 s in
+`PathGrader.CreateConstraints` — together ~2.0 s of a 7.0 s build.
+
+**The plan proposed the wrong region.** The influence envelope would have to be estimated before the
+constraints exist. It does not have to be: both graders construct the snapper at the top of the method
+but do not *use* it until a single loop at the very bottom that snaps the finished constraint list. Moving
+construction to just above that loop makes the region exact by construction — the tolerance-expanded
+bounds of the constraint points that will actually be queried — with nothing estimated. Recording this
+because it is a case where reading the call site beat implementing the plan as written.
+
+Implemented in `ConstraintCoincidenceSnapper`:
+
+- Optional `Bounds2D? region`; vertices and edges whose tolerance-expanded bounds miss it are not indexed.
+  The region test runs *before* the edge-key hash, so a clipped build does not pay per terrain edge.
+- `ForConstraints(...)` / `RegionCovering(constraints, tolerance)` compute the region from a constraint
+  list. `RegionCovering` returns null — meaning "index everything" — for an empty list or a NaN point.
+- **Exactness argument:** a query at `p` only reaches members whose expanded bounds meet `p ± tolerance`.
+  If that query box lies inside the region, every such member met the region too, so it was indexed. The
+  region is padded by `2 × tolerance` to cover both expansions.
+- **Escape hatch:** `SnapPoint` checks the query box against the region and, if it is not contained,
+  discards the region, rebuilds over the whole mesh and continues (`RegionWasAbandoned` records it). A
+  wrong region therefore costs speed, never geometry. Nothing currently triggers it — the region is
+  derived from the queries — but it is what makes the clipping safe to extend to an estimated envelope
+  later.
+
+Applied at all three call sites: `PadGrader.Topology.cs`, `PathGrader.Constraints.cs`, and
+`TerrainBuildService.PrepareWallConstraintsForRemesh`. Also fixed at the wall site, while in there, the
+`TryExtractMeshData` + `mesh.Vertices.Count` pairing CLAUDE.md warns about — one of the ~10 known sites,
+now taking the counts from the extraction.
+
+Not done from that finding: remediation 2 (match cell size to mesh edge length) and remediation 3 (share
+one index across a build's grading stages). Clipping should subsume most of remediation 3's value, since
+a clipped index is cheap enough that sharing it matters less; revisit only with a measurement.
+
+Verified: `MoleHill.Core.Tests` 980 passed; `MoleHill.Rhino.Tests` 722 passed / 130 skipped; compiles.
+New `ConstraintCoincidenceSnapperRegionTests` (6 tests) covers clipped-vs-full equality for a local
+constraint and for one spanning the whole mesh, the index-size reduction, the out-of-region rebuild, and
+both null-region cases. **Unmeasured:** no trace confirming the 0.91 s actually goes away. That is the
+next thing owed, and it needs a Rhino session.

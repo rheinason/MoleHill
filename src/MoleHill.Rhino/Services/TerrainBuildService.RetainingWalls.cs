@@ -555,7 +555,15 @@ internal sealed partial class TerrainBuildService
         if (constraints.Count == 0)
             return prepared;
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
+        // Counts from the extraction, never from the Rhino mesh: the extraction normalizes a copy, so
+        // mesh.Vertices.Count/mesh.Faces.Count can describe a different mesh than these arrays do.
+        if (!RhinoGeometryConversions.TryExtractMeshData(
+                mesh,
+                out var vertices,
+                out int meshVertexCount,
+                out var faces,
+                out int meshFaceCount,
+                out _))
         {
             foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
             {
@@ -567,12 +575,13 @@ internal sealed partial class TerrainBuildService
             return prepared;
         }
 
-        var snapper = new ConstraintCoincidenceSnapper(
+        var snapper = ConstraintCoincidenceSnapper.ForConstraints(
             vertices,
-            mesh.Vertices.Count,
+            meshVertexCount,
             faces,
-            mesh.Faces.Count,
-            Math.Max(Math.Abs(tolerance), double.Epsilon));
+            meshFaceCount,
+            Math.Max(Math.Abs(tolerance), double.Epsilon),
+            constraints);
 
         foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints)
         {

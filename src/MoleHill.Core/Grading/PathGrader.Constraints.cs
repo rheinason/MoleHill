@@ -202,12 +202,6 @@ public static partial class PathGrader
         bool hasBoundaryLoop = MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(vertices, faces, faceCount, out var boundaryLoop, out int boundaryVertexCount);
         var constraints = new List<SurfaceRemesher.ConstraintPolyline>(paths.Length * 5);
         double suggestedEdgeLength = double.MaxValue;
-        var coincidenceSnapper = new ConstraintCoincidenceSnapper(
-            vertices,
-            vertexCount,
-            faces,
-            faceCount,
-            Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)));
         var faceGrid = new TerrainFaceGrid(vertices, vertexCount, faces, faceCount);
         PreparedBarriers preparedBarriers = GradingBarriers.Build(barrierConstraints);
         var barrierScratch = new SpatialHashGrid2D.QueryScratch(Math.Max(preparedBarriers.Segments.Length, 1));
@@ -413,6 +407,15 @@ public static partial class PathGrader
             }
         }
 
+        // Built here, not before the path loop: the snapper can then index only the terrain the finished
+        // constraints reach, instead of every edge in the mesh to snap a handful of polylines.
+        var coincidenceSnapper = ConstraintCoincidenceSnapper.ForConstraints(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            Math.Max(dedupTol, GradingTolerances.ConstraintSnapTolerance(dedupTol)),
+            constraints);
         for (int i = 0; i < constraints.Count; i++)
             constraints[i] = coincidenceSnapper.SnapConstraintPolyline(constraints[i]);
 
