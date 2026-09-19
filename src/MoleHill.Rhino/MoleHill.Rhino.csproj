@@ -23,7 +23,12 @@
 
   <ItemGroup>
     <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.660" />
-    <PackageReference Include="RhinoCommon" Version="8.9.24194.18121" ExcludeAssets="runtime" />
+    <!-- 8.9 is the compatibility FLOOR: the plug-in must load on any Rhino 8.9+, so it compiles
+         against the oldest supported RhinoCommon and takes the runtime assembly from the host
+         (ExcludeAssets="runtime"). PrivateAssets="all" stops that floor flowing to consumers:
+         the test projects load a real Rhino and must bind to the INSTALLED RhinoCommon, not to
+         this one. Without it they inherit 8.9 transitively and mismatch the native runtime. -->
+    <PackageReference Include="RhinoCommon" Version="8.9.24194.18121" ExcludeAssets="runtime" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

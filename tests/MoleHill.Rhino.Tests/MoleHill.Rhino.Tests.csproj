@@ -9,7 +9,13 @@
 
   <ItemGroup>
     <PackageReference Include="BitMiracle.LibTiff.NET" Version="2.4.660" />
-    <PackageReference Include="RhinoCommon" Version="8.34.26223.11001" />
+    <!-- No RhinoCommon package pin. These tests load the real Rhino: managed RhinoCommon, native
+         rhcommon_c.dll and the installed Grasshopper are a version-locked set, so the reference
+         below takes RhinoCommon from $(RhinoSystemDir) and it always matches whatever Rhino is
+         installed. A pinned version is wrong the moment Rhino updates itself: 8.34 managed
+         against 8.35 native failed at load with ERROR_DLL_INIT_FAILED (0x8007045A), and against
+         8.35 Grasshopper it failed to compile with CS1705. The 8.9 compatibility floor is the
+         src projects' job and is asserted there. -->
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />

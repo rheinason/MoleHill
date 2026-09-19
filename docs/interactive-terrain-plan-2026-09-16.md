@@ -853,3 +853,47 @@ Recommended, but **not done here** because it is a solution-wide decision: make 
 installed Rhino in all three projects (they already have `$(RhinoSystemDir)` and `RhinoInstallDir` for
 it), or pin all three *and* pin the Rhino version the lanes are allowed to run against. Whichever is
 chosen, the managed lane should build `--no-incremental` at least once, or it will hide the next one.
+
+### 11 — Correction: the version skew was real but was **not** the native lane's cause
+
+Entry 9 attributed the native `rhcommon_c` load failure to managed RhinoCommon 8.34 being copied
+beside native 8.35. **That attribution was wrong.** The skew was real and did real damage — it is what
+broke the Grasshopper test *compile* (entry 10) — but it is not why the native runtime fails.
+
+Both were fixed and then tested, which is what exposed the error:
+
+**The reference policy is now the one the design always intended** (`docs/validation-lanes.md` already
+said the installed assembly should win at runtime; NuGet was in fact winning):
+
+- `src/MoleHill.Rhino` and `src/MoleHill.Interop` keep `RhinoCommon 8.9 ExcludeAssets="runtime"` — the
+  8.9 **compatibility floor**, so the plug-in loads on any Rhino 8.9+ — and gained
+  `PrivateAssets="all"` so that floor stops flowing to consumers. That transitive flow is why simply
+  deleting the test pin had previously re-bound to 8.9.
+- Both test projects drop their `RhinoCommon 8.34` pin entirely. They load a real Rhino, so they take
+  RhinoCommon from `$(RhinoSystemDir)` via the `Reference` they already had. They now always match
+  whatever Rhino is installed, and a Rhino auto-update cannot desynchronise them again.
+
+Verified: `MoleHill.Grasshopper.Tests` **compiles clean again**, and the test output now copies
+RhinoCommon **8.35.26251.13001**, matching the installed native runtime exactly.
+
+**And the native tests still fail identically.** The decisive probe: `LoadLibraryEx` on
+`C:\Program Files\Rhino 8\System\rhcommon_c.dll` fails with Win32 **1114** (`ERROR_DLL_INIT_FAILED`)
+**from a bare PowerShell process** with the System directory on the search path and
+`LOAD_WITH_ALTERED_SEARCH_PATH` — no test host, no .NET version question, no assembly pairing involved.
+Rhino 8.35's native core simply refuses to initialise outside a Rhino process.
+
+So the lane's whole premise — that setting the DLL search path is enough to use RhinoCommon
+out-of-process — no longer holds on this Rhino. That is a deeper problem than a pin:
+`RhinoNativeRuntime` would need to host the runtime properly (`Rhino.Inside` /
+`Rhino.Runtime.InProcess.RhinoCore`, with the licensing that implies) rather than just pointing at a
+directory. Not attempted here, and it should be decided on its own merits rather than inside this plan.
+
+Status of the two claims this pass wanted to verify:
+
+| Claim | Status |
+|---|---|
+| Clipping the grading constraint index (entry 3) | **Measured**, 899.8 ms → 345.6 ms, A/B on one fixture |
+| Wall plan cache survives an upstream Z edit (entries 4-5) | **Still unproven.** Tests written; the lane that would run them cannot start |
+
+Also changed, per the decision to stop a stale build passing: `validate.ps1`'s managed lane now builds
+`--no-incremental`, as the warnings lane already did.
