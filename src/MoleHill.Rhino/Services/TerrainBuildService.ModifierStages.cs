@@ -178,7 +178,7 @@ internal sealed partial class TerrainBuildService
             c.StageKey,
             "Retaining Wall",
             ComputeModifierStageFingerprint(c.Snapshot, c.Terrain, retainingWall, c.CurrentMeshFingerprint),
-            () => input == null ? WarnMissingMesh(c.Build, retainingWall.Label) : ApplyRetainingWalls(c.Snapshot, c.Terrain, input, retainingWall, c.Build, c.Mode),
+            () => input == null ? WarnMissingMesh(c.Build, retainingWall.Label) : ApplyRetainingWalls(c.Snapshot, c.Terrain, input, retainingWall, c.Build, c.Mode, c.ShouldCancel),
             result => DescribeModifierMeshResult(retainingWall.Label, result),
             out ulong fingerprint,
             c.ShouldCancel);

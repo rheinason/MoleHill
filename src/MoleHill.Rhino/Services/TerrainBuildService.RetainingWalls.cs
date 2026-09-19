@@ -23,7 +23,8 @@ internal sealed partial class TerrainBuildService
         RhinoMesh mesh,
         RetainingWallModifierDefinition modifier,
         TerrainBuildResult build,
-        TerrainBuildMode mode)
+        TerrainBuildMode mode,
+        Func<bool>? shouldCancel)
     {
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
         double wallTolerance = toleranceProfile.RetainingWallTolerance(modifier.MaxWallWidth);
@@ -40,6 +41,7 @@ internal sealed partial class TerrainBuildService
             resolveTimer.Elapsed,
             $"{wallCurves.Count:N0} curve inputs",
             StageTimingDiagnosticThresholdMs);
+        ThrowIfCancellationRequested(shouldCancel);
         if (wallCurves.Count == 0)
         {
             build.Diagnostics.Add("Retaining Wall has no curve inputs.");
@@ -69,6 +71,7 @@ internal sealed partial class TerrainBuildService
             AddRetainingWallReportOverlay(build, modifier, wallCurves, entry, wallTolerance);
         }
 
+        ThrowIfCancellationRequested(shouldCancel);
         if (plan.Walls.Count == 0)
         {
             build.Diagnostics.Add("Retaining Wall produced no accepted wall pairs.");
@@ -82,6 +85,7 @@ internal sealed partial class TerrainBuildService
         int wallBrepOutputCount = 0;
         foreach (var wall in plan.Walls)
         {
+            ThrowIfCancellationRequested(shouldCancel);
             constraintCurveTimer.Start();
             if (!IsWallStripUsable(wall.Rails, wallTolerance, out var stripMessage))
             {
@@ -145,9 +149,11 @@ internal sealed partial class TerrainBuildService
         // Grade before the rails go in. Insertion forces the terrain to the rail elevations, so a batter
         // measured after it starts with zero height difference at its own foot, reports Flat, and emits
         // nothing at all — the build looks clean and grades nothing. Found live on a 4 m wall.
+        ThrowIfCancellationRequested(shouldCancel);
         mesh = ApplyRetainingWallGrading(
             snapshot, terrain, mesh, modifier, plan.Walls, wallTolerance, build, mode, build.PersistentHardConstraints);
 
+        ThrowIfCancellationRequested(shouldCancel);
         int rawConstraintCount = wallConstraints.Count;
         var prepareTimer = Stopwatch.StartNew();
         wallConstraints = PrepareWallConstraintsForRemesh(mesh, wallConstraints, wallTolerance);
@@ -164,6 +170,7 @@ internal sealed partial class TerrainBuildService
             return mesh;
         }
 
+        ThrowIfCancellationRequested(shouldCancel);
         var topologyTimer = Stopwatch.StartNew();
         bool inserted = TryInsertWallConstraintsIntoExistingMesh(
             mesh,
@@ -216,6 +223,7 @@ internal sealed partial class TerrainBuildService
             $"{build.PersistentHardConstraints.Count:N0} hard + {build.PersistentElevationConstraints.Count:N0} elevation + {wallConstraints.Count:N0} wall -> {remeshConstraints.Count:N0} remesh constraints",
             StageTimingDiagnosticThresholdMs);
 
+        ThrowIfCancellationRequested(shouldCancel);
         var remeshTimer = Stopwatch.StartNew();
         var remeshed = RebuildMeshWithConstraints(
             snapshot,

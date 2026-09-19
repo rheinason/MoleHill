@@ -529,3 +529,30 @@ Verified: compiles; `MoleHill.Grasshopper.Tests` green (39 passed, 15 skipped �
 native-runtime planner geometry tests, which are exactly the ones that would exercise the Brep path, so
 this is *not* evidence the solid path still works — the GH component still requests solids by default and
 is unchanged). Unmeasured: no trace of the preview saving yet.
+
+### 2 — Cancellation checkpoints inside the wall stage (Step 1)
+
+Plan item: "the current wall method does not accept the build cancellation callback … the plumbing is
+one parameter — the work is choosing the checkpoints inside."
+
+Implemented: `ApplyRetainingWalls` takes `Func<bool>? shouldCancel` and
+`RunRetainingWallStage` forwards `c.ShouldCancel`, which was already in hand at that call site. Seven
+checkpoints, at the phase boundaries the stage already times, using the existing
+`ThrowIfCancellationRequested` idiom (`TerrainBuildService.Analysis.cs`), so cancellation surfaces as
+`OperationCanceledException` exactly as it does in the analysis stages:
+
+after curve resolve · after planning · once per wall in the strip/constraint loop · before wall grading ·
+before constraint prep · before topology insertion · before the constrained-rebuild fallback.
+
+The last is the one that matters most: the fallback rebuild is the stage's worst case and previously ran
+to completion on a build that had already been superseded. The per-wall check bounds a scene with many
+pairs; the rest are cheap boundaries that cost nothing and shorten the tail.
+
+What this does **not** do: it does not make cancellation *finer* than a wall — a single very large pair
+still runs its insertion to completion — and it does not touch `RequestRebuild`'s cancel-on-every-request
+policy, which is Step 2 and remains the blocking constraint. This only reduces the *cost* of an
+abandoned build, which the trace already reports as abandoned worker time.
+
+Verified: compiles; `MoleHill.Rhino.Tests` green (722 passed, 130 skipped). Unmeasured: no before/after
+abandoned-worker-time figure yet — that measurement belongs with Step 2, where the sustained-gesture
+fixture exists to produce cancellations on purpose.
