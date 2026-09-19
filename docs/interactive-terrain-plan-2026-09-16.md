@@ -812,3 +812,44 @@ or pin all three and pin the Rhino version), so it is written up here rather tha
 
 Consequence for this plan: entries 4-5 remain **asserted by tests that have never executed**. Treat the
 wall plan cache as unproven until the native lane runs somewhere.
+
+### 10 — The same version skew also breaks the Grasshopper test build, and `validate.ps1 managed` was hiding it
+
+Chasing entry 9 turned up a second, worse instance of the same cause. `MoleHill.Grasshopper.Tests`
+**does not compile from clean**:
+
+```
+error CS1705: Assembly 'Grasshopper' with identity 'Grasshopper, Version=8.35.26251.13001' uses
+'RhinoCommon, Version=8.35.26251.13001' which has a higher version than referenced assembly
+'RhinoCommon' with identity 'RhinoCommon, Version=8.34.26223.11001'
+```
+
+The installed Grasshopper (8.35, referenced by path) is built against RhinoCommon 8.35; the project
+pins the 8.34 package. Same Rhino 8.34 → 8.35 update, same unpinned assumption, compile error instead
+of a load failure.
+
+**Verified pre-existing, not caused by this pass:** it reproduces at commit `0a73fdb` — the state before
+any change here — in a clean `git worktree`. The reason it went unnoticed is the part worth keeping:
+
+> `validate.ps1 managed` reported this project green four times during this session. It was building
+> incrementally against a `MoleHill.Grasshopper.Tests.dll` compiled **before** the Rhino update. The
+> lane only failed once something forced a real recompile.
+
+So the managed lane can pass on a project that cannot be built. That is the same class of problem the
+`PerformanceLane` gate and the "managed lane is NOT native acceptance" banner exist to prevent, and it
+is not currently covered for a stale-artifact build. `validate.ps1` uses `--no-incremental` in the
+warnings lane only; the warnings lane passed earlier for exactly that reason, which is a useful
+accident rather than a design.
+
+Taken together with entry 9, one Rhino update silently disabled two of the three acceptance signals:
+
+| Signal | State | Masked by |
+|---|---|---|
+| Native lane (Rhino runtime tests) | Broken at load, 0x8007045A | Skipping in the managed lane |
+| `MoleHill.Grasshopper.Tests` compile | Broken | Incremental build against a pre-update binary |
+| Owned-code warning ratchet | Working | — (it is the one lane that forces `--no-incremental`) |
+
+Recommended, but **not done here** because it is a solution-wide decision: make RhinoCommon follow the
+installed Rhino in all three projects (they already have `$(RhinoSystemDir)` and `RhinoInstallDir` for
+it), or pin all three *and* pin the Rhino version the lanes are allowed to run against. Whichever is
+chosen, the managed lane should build `--no-incremental` at least once, or it will hide the next one.
