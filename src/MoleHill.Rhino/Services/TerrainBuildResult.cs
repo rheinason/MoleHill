@@ -27,6 +27,13 @@ internal sealed class TerrainBuildResult
 
     public bool HasDeferredOutputs { get; set; }
 
+    /// <summary>
+    /// How long the final-only output stages took after the mesh was complete. Fed back into
+    /// <see cref="TerrainRuntimeCache.PeakDependentOutputsDuration"/> so the next build can decide
+    /// whether publishing its geometry early is worth an extra copy and redraw.
+    /// </summary>
+    public TimeSpan DependentOutputsElapsed { get; set; }
+
     public Mesh? PrimaryMesh { get; set; }
 
     public Mesh? BaseMesh { get; set; }

@@ -29,10 +29,11 @@ internal sealed partial class TerrainBuildService
         TerrainBuildMode mode = TerrainBuildMode.Final,
         Func<bool>? shouldCancel = null,
         Action<TerrainBuildProgress>? reportProgress = null,
-        TerrainLatencyScope? latency = null)
+        TerrainLatencyScope? latency = null,
+        Action<RhinoMesh, RhinoMesh?>? publishInterimGeometry = null)
     {
         TerrainBuildSnapshot snapshot = TerrainBuildSnapshotBuilder.Create(doc, terrain);
-        return Build(snapshot, runtimeCache, mode, shouldCancel, reportProgress, latency);
+        return Build(snapshot, runtimeCache, mode, shouldCancel, reportProgress, latency, publishInterimGeometry);
     }
 
     public TerrainBuildResult Build(
@@ -41,7 +42,8 @@ internal sealed partial class TerrainBuildService
         TerrainBuildMode mode = TerrainBuildMode.Final,
         Func<bool>? shouldCancel = null,
         Action<TerrainBuildProgress>? reportProgress = null,
-        TerrainLatencyScope? latency = null)
+        TerrainLatencyScope? latency = null,
+        Action<RhinoMesh, RhinoMesh?>? publishInterimGeometry = null)
     {
         var totalTimer = Stopwatch.StartNew();
         TerrainDefinition terrain = snapshot.Terrain;
@@ -142,6 +144,20 @@ internal sealed partial class TerrainBuildService
         latency?.Mark(
             TerrainLatencyPhase.GeometryReady,
             currentMesh == null ? "no mesh" : $"{currentMesh.Vertices.Count:N0} verts, {currentMesh.Faces.Count:N0} faces");
+
+        // The mesh the user is waiting to see is finished here, but the result is not returned until the
+        // final-only output stages below have run - measured at 5.1 s of a 7.5 s wait on a 244k-face
+        // terrain with drainage analyses enabled. Hand it over now when the caller asked for that. The
+        // caller copies before displaying, because the stages below keep reading `currentMesh`.
+        var dependentOutputsTimer = new Stopwatch();
+        if (publishInterimGeometry != null && mode == TerrainBuildMode.Final && currentMesh != null)
+        {
+            ThrowIfCancellationRequested(shouldCancel);
+            publishInterimGeometry(currentMesh, baseMesh);
+            latency?.Mark(TerrainLatencyPhase.InterimPublished);
+        }
+
+        dependentOutputsTimer.Start();
         if (currentMesh != null && mode == TerrainBuildMode.Final)
         {
             ThrowIfCancellationRequested(shouldCancel);
@@ -236,6 +252,8 @@ internal sealed partial class TerrainBuildService
         latency?.Mark(TerrainLatencyPhase.OutputsEnd);
 
         ThrowIfCancellationRequested(shouldCancel);
+        dependentOutputsTimer.Stop();
+        build.DependentOutputsElapsed = dependentOutputsTimer.Elapsed;
         runtimeCache.PruneUnused(usedStageKeys, mode);
         totalTimer.Stop();
         build.RecordTiming("Build pipeline", totalTimer.Elapsed, DescribeBuildOutputs(build));

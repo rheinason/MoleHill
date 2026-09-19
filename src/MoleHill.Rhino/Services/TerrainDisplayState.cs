@@ -32,7 +32,39 @@ internal sealed class TerrainDisplayState
     /// </summary>
     public void InvalidateRenderContent() => RenderHash = NextRenderVersion();
 
+    /// <summary>
+    /// True while the dependent outputs on this state are older than its geometry. Already gates bake,
+    /// the interop mesh accessors and the Grasshopper bridge, so a partially published build cannot be
+    /// mistaken for a completed one. <see cref="OutputsAreStale"/> is the same fact derived from the
+    /// revisions; this flag stays because Preview builds set it without advancing a geometry revision.
+    /// </summary>
     public bool HasDeferredOutputs { get; set; }
+
+    /// <summary>
+    /// The build version that produced the geometry on this state. Advances when a build publishes its
+    /// mesh - including an interim publication made before the dependent outputs have finished.
+    /// </summary>
+    public long GeometryRevision { get; set; }
+
+    /// <summary>
+    /// The build version that produced the analyses, zones, markers, objects and scatter on this state.
+    /// Lags <see cref="GeometryRevision"/> exactly while an interim publication is on screen, which is
+    /// what lets the UI say the drawing is from an earlier edit instead of implying it is current.
+    /// </summary>
+    public long OutputsRevision { get; set; }
+
+    /// <summary>The outputs on screen describe an earlier geometry than the mesh on screen.</summary>
+    public bool OutputsAreStale => OutputsRevision < GeometryRevision;
+
+    /// <summary>
+    /// Set only on an interim publication. The worker keeps building against its own mesh after the
+    /// interim one is shown, so the displayed copy has to be a copy - otherwise a later stage could
+    /// mutate geometry the conduit is already drawing. Deliberately not disposed here: the conduit may
+    /// still be mid-draw when a state is replaced, and the existing displaced-mesh machinery
+    /// (DisposeDisplacedCacheMeshesWhenSafe) covers build-owned meshes, not this one. See
+    /// docs/build-result-ownership.md.
+    /// </summary>
+    public Mesh? InterimTerrainMesh { get; set; }
 
     public Mesh? TerrainMesh { get; set; }
 
@@ -312,6 +344,8 @@ internal sealed class TerrainDisplayState
         {
             IsPreview = IsPreview,
             HasDeferredOutputs = HasDeferredOutputs,
+            GeometryRevision = GeometryRevision,
+            OutputsRevision = OutputsRevision,
             TerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(TerrainMesh),
             BaseTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(BaseTerrainMesh),
             PreviewTerrainMesh = TerrainRuntimeCacheCloner.CloneMesh(PreviewTerrainMesh),

@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
@@ -23,7 +23,12 @@ namespace MoleHill.Rhino.Services;
 // Display state, terrain-object placement sync, visibility/lock, and display/base material management.
 internal sealed partial class TerrainController
 {
-    private void UpdateDisplayState(RhinoDoc doc, TerrainDefinition terrain, TerrainRuntimeCache runtimeCache, TerrainBuildResult build)
+    private void UpdateDisplayState(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        TerrainRuntimeCache runtimeCache,
+        TerrainBuildResult build,
+        long buildVersion = 0)
     {
         BoundingBox previousPreviewBounds = runtimeCache.DisplayState?.GetPreviewBounds(doc) ?? BoundingBox.Empty;
         TerrainDisplayState? previousDisplayState = runtimeCache.DisplayState;
@@ -32,7 +37,13 @@ internal sealed partial class TerrainController
             IsPreview = build.Mode == TerrainBuildMode.Preview,
             HasDeferredOutputs = build.HasDeferredOutputs,
             TerrainMesh = build.PrimaryMesh,
-            BaseTerrainMesh = build.BaseMesh
+            BaseTerrainMesh = build.BaseMesh,
+            // A final build lands geometry and outputs together, so both revisions advance and nothing
+            // is stale. A preview carries the previous outputs forward, so its outputs revision does not.
+            GeometryRevision = buildVersion,
+            OutputsRevision = build.Mode == TerrainBuildMode.Final
+                ? buildVersion
+                : previousDisplayState?.OutputsRevision ?? 0
         };
         displayState.RuntimeOverlays.AddRange(TerrainRuntimeCacheCloner.CloneRuntimeOverlays(build.RuntimeOverlays));
         displayState.HardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(build.PersistentHardConstraints));
@@ -58,6 +69,82 @@ internal sealed partial class TerrainController
         runtimeCache.DisplayState = displayState;
         UpdateRuntimePreview(doc, terrain, runtimeCache);
         NotifyRenderMeshesChanged(doc);
+    }
+
+    /// <summary>
+    /// Shows a finished terrain mesh before its dependent outputs have been computed, carrying the
+    /// previous build's analyses, annotations, markers and scatter forward and marking them stale.
+    ///
+    /// Runs on the UI thread, posted from the worker. It refuses if the build it belongs to has since
+    /// been superseded or reset, so a slow build cannot repaint over a newer one. The published mesh is
+    /// a copy taken on the worker, because the stages still to run keep reading the original.
+    /// </summary>
+    private void PublishInterimGeometry(
+        uint docSerial,
+        Guid terrainId,
+        long buildVersion,
+        long buildGeneration,
+        Mesh interimMesh,
+        Mesh? interimBaseMesh)
+    {
+        RhinoDoc? doc = RhinoDoc.FromRuntimeSerialNumber(docSerial);
+        if (doc == null)
+            return;
+
+        if (!_rebuildStates.TryGetValue((docSerial, terrainId), out TerrainRebuildState? rebuildState) ||
+            rebuildState.BuildGeneration != buildGeneration ||
+            rebuildState.RequestedVersion > buildVersion)
+        {
+            return;
+        }
+
+        TerrainDefinition? terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
+        if (terrain == null)
+            return;
+
+        TerrainRuntimeCache runtimeCache = GetRuntimeCache(docSerial, terrainId);
+        TerrainDisplayState? previous = runtimeCache.DisplayState;
+        if (previous == null)
+            return;
+
+        BoundingBox previousPreviewBounds = previous.GetPreviewBounds(doc);
+        var displayState = new TerrainDisplayState
+        {
+            IsPreview = false,
+            // The outputs on screen are the previous build's, so every existing consumer that refuses
+            // deferred output - bake, the interop mesh accessors, the Grasshopper bridge - refuses this
+            // state too. That is the freshness contract; the revisions below say how stale it is.
+            HasDeferredOutputs = true,
+            TerrainMesh = interimMesh,
+            InterimTerrainMesh = interimMesh,
+            BaseTerrainMesh = interimBaseMesh ?? interimMesh,
+            GeometryRevision = buildVersion,
+            OutputsRevision = previous.OutputsRevision
+        };
+        displayState.VisibleDiagnosticOwners.UnionWith(runtimeCache.VisibleDiagnosticOwners);
+        displayState.AnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneAnalyses(previous.AnalysisResults));
+        displayState.ZoneObjects.AddRange(previous.ZoneObjects);
+        displayState.TerrainRegions.AddRange(previous.TerrainRegions.Select(region => region.Duplicate()));
+        displayState.ZoneAnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneZoneAnalyses(previous.ZoneAnalysisResults));
+        displayState.HardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(previous.HardConstraints));
+        displayState.ElevationConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(previous.ElevationConstraints));
+        displayState.PreserveDeferredOutputsFrom(previous);
+        displayState.IncludePreviousPreviewBounds(previousPreviewBounds);
+        runtimeCache.DisplayState = displayState;
+        UpdateRuntimePreview(doc, terrain, runtimeCache);
+        NotifyRenderMeshesChanged(doc);
+        terrain.LastBuildMessage =
+            $"Terrain #{buildVersion:N0} shown; outputs from #{previous.OutputsRevision:N0} still updating.";
+        doc.Views.Redraw();
+        TerrainLatencyTrace.Record(
+            docSerial,
+            terrainId,
+            buildVersion,
+            buildGeneration,
+            TerrainBuildMode.Final,
+            TerrainLatencyPhase.InterimVisible,
+            $"{interimMesh.Faces.Count:N0} faces; outputs stale at #{previous.OutputsRevision:N0}");
+        RaiseStateChanged();
     }
 
     /// <summary>

@@ -226,6 +226,31 @@ internal sealed partial class TerrainController
         rebuildState.WorkerCancellation = cancellation;
         Action<TerrainBuildProgress> reportProgress = progress =>
             rebuildState.ProgressUpdates.Enqueue(new QueuedBuildProgress(buildVersion, buildGeneration, mode, progress));
+        // Show the finished mesh ahead of its dependent outputs when the last build proved those
+        // outputs cost real time. The copy happens here on the worker, not on the UI thread.
+        TerrainRuntimeCache uiCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId);
+        uint docSerial = doc.RuntimeSerialNumber;
+        Guid interimTerrainId = terrain.TerrainId;
+        Action<Mesh, Mesh?>? publishInterimGeometry = null;
+        if (TerrainInterimPublishPolicy.ShouldPublishGeometryEarly(
+                mode,
+                uiCache.PeakDependentOutputsDuration,
+                uiCache.DisplayState != null))
+        {
+            publishInterimGeometry = (primary, baseMesh) =>
+            {
+                Mesh primaryCopy = primary.DuplicateMesh();
+                Mesh? baseCopy = ReferenceEquals(baseMesh, primary) ? primaryCopy : baseMesh?.DuplicateMesh();
+                RhinoApp.InvokeOnUiThread((Action)(() => PublishInterimGeometry(
+                    docSerial,
+                    interimTerrainId,
+                    buildVersion,
+                    buildGeneration,
+                    primaryCopy,
+                    baseCopy)));
+            };
+        }
+
         latency.Mark(TerrainLatencyPhase.WorkerQueued);
         rebuildState.WorkerTask = Task.Run(() => ExecuteBackgroundBuild(
             snapshot,
@@ -237,7 +262,8 @@ internal sealed partial class TerrainController
             workerCacheTimer.Elapsed,
             cancellation.Token,
             reportProgress,
-            latency));
+            latency,
+            publishInterimGeometry));
 
         // Wake the UI thread when the worker finishes. Completion is otherwise discovered only by
         // TryCompleteFinishedBuild polling inside OnIdle, and Rhino does not raise Idle merely because
@@ -375,7 +401,8 @@ internal sealed partial class TerrainController
         TimeSpan workerCacheCloneElapsed,
         CancellationToken cancellationToken,
         Action<TerrainBuildProgress>? reportProgress = null,
-        TerrainLatencyScope? latency = null)
+        TerrainLatencyScope? latency = null,
+        Action<Mesh, Mesh?>? publishInterimGeometry = null)
     {
         var timer = Stopwatch.StartNew();
         latency?.Mark(TerrainLatencyPhase.WorkerStart);
@@ -387,7 +414,8 @@ internal sealed partial class TerrainController
                 mode,
                 () => cancellationToken.IsCancellationRequested,
                 reportProgress,
-                latency);
+                latency,
+                publishInterimGeometry);
             timer.Stop();
             latency?.Mark(TerrainLatencyPhase.WorkerEnd, "ok");
             return new BackgroundBuildResult(
@@ -540,6 +568,7 @@ internal sealed partial class TerrainController
             // replacement. Current preview geometry is conduit-only and must never accumulate in doc.
             PurgeOrphanedOwnedObjects(doc, terrain);
             runtimeCache.LastFinalDuration = buildElapsed;
+            runtimeCache.ObserveDependentOutputsDuration(build.DependentOutputsElapsed);
             rebuildState.AppliedVersion = result.Version;
         }
         else
@@ -549,7 +578,7 @@ internal sealed partial class TerrainController
         }
 
         var displayTimer = Stopwatch.StartNew();
-        UpdateDisplayState(doc, terrain, runtimeCache, build);
+        UpdateDisplayState(doc, terrain, runtimeCache, build, result.Version);
         ReassertSculptPreviewMesh(doc, terrain.TerrainId);
         bool sectionReferenceMeshChanged = false;
         if (result.Mode == TerrainBuildMode.Final)

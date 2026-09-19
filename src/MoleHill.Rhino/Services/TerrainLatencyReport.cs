@@ -35,6 +35,10 @@ internal static class TerrainLatencyReport
         [(TerrainLatencyPhase.CloneEnd, TerrainLatencyPhase.WorkerQueued)] = "start overhead",
         [(TerrainLatencyPhase.WorkerQueued, TerrainLatencyPhase.WorkerStart)] = "thread-pool queue",
         [(TerrainLatencyPhase.WorkerStart, TerrainLatencyPhase.GeometryReady)] = "geometry (modifiers)",
+        [(TerrainLatencyPhase.GeometryReady, TerrainLatencyPhase.InterimPublished)] = "interim copy + post",
+        [(TerrainLatencyPhase.InterimPublished, TerrainLatencyPhase.InterimVisible)] = "interim marshal + redraw",
+        [(TerrainLatencyPhase.InterimVisible, TerrainLatencyPhase.OutputsEnd)] = "dependent outputs",
+        [(TerrainLatencyPhase.InterimPublished, TerrainLatencyPhase.OutputsEnd)] = "dependent outputs",
         [(TerrainLatencyPhase.GeometryReady, TerrainLatencyPhase.OutputsEnd)] = "dependent outputs",
         [(TerrainLatencyPhase.GeometryReady, TerrainLatencyPhase.WorkerEnd)] = "worker tail",
         [(TerrainLatencyPhase.OutputsEnd, TerrainLatencyPhase.WorkerEnd)] = "worker tail",
@@ -67,6 +71,7 @@ internal static class TerrainLatencyReport
 
         var visibleSamples = new List<double>();
         var geometrySamples = new List<double>();
+        var geometryVisibleSamples = new List<double>();
         var outputSamples = new List<double>();
         double abandonedMs = 0.0;
         int abandonedCount = 0;
@@ -93,6 +98,7 @@ internal static class TerrainLatencyReport
             }
 
             double? editToVisible = Span(ordered, TerrainLatencyPhase.Edit, TerrainLatencyPhase.RedrawEnd);
+            double? editToGeometryVisible = Span(ordered, TerrainLatencyPhase.Edit, TerrainLatencyPhase.InterimVisible);
             double? geometry = Span(ordered, TerrainLatencyPhase.WorkerStart, TerrainLatencyPhase.GeometryReady);
             double? outputs = Span(ordered, TerrainLatencyPhase.GeometryReady, TerrainLatencyPhase.OutputsEnd);
             double? worker = Span(ordered, TerrainLatencyPhase.WorkerStart, TerrainLatencyPhase.WorkerEnd);
@@ -103,6 +109,12 @@ internal static class TerrainLatencyReport
                 {
                     visibleSamples.Add(editToVisible.Value);
                     report.AppendLine($"    = edit to visible: {editToVisible.Value:0.0} ms");
+                }
+
+                if (editToGeometryVisible.HasValue)
+                {
+                    geometryVisibleSamples.Add(editToGeometryVisible.Value);
+                    report.AppendLine($"    = edit to terrain visible (outputs still stale): {editToGeometryVisible.Value:0.0} ms");
                 }
 
                 if (geometry.HasValue)
@@ -120,7 +132,8 @@ internal static class TerrainLatencyReport
         }
 
         report.AppendLine("=== Summary");
-        AppendStat(report, "edit to visible", visibleSamples);
+        AppendStat(report, "edit to visible (everything current)", visibleSamples);
+        AppendStat(report, "edit to terrain visible (interim)", geometryVisibleSamples);
         AppendStat(report, "geometry (modifiers)", geometrySamples);
         AppendStat(report, "dependent outputs", outputSamples);
         report.AppendLine($"  abandoned worker time: {abandonedMs:0.0} ms across {abandonedCount:N0} superseded/cancelled requests");

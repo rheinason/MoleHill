@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
@@ -31,6 +31,22 @@ internal sealed class TerrainRuntimeCache
 
     public TimeSpan? LastFinalDuration { get; set; }
 
+    /// <summary>
+    /// The longest any final build in this session has spent on dependent outputs after its mesh was
+    /// complete. Decides whether a build publishes its geometry early - see
+    /// <see cref="TerrainInterimPublishPolicy"/>, which explains why this is a peak and not the last
+    /// value: a cached-output build measures near zero, and keying on it would switch early publication
+    /// off again right before the next expensive edit.
+    /// </summary>
+    public TimeSpan? PeakDependentOutputsDuration { get; set; }
+
+    /// <summary>Raises <see cref="PeakDependentOutputsDuration"/> to cover this build.</summary>
+    public void ObserveDependentOutputsDuration(TimeSpan elapsed)
+    {
+        if (PeakDependentOutputsDuration is not { } peak || elapsed > peak)
+            PeakDependentOutputsDuration = elapsed;
+    }
+
     public ulong LastFinalMeshFingerprint { get; set; }
 
     public TerrainRuntimeCache CreateWorkerCopy()
@@ -44,7 +60,8 @@ internal sealed class TerrainRuntimeCache
             // incremental edits) is fixed — see docs/release-review-2026-07-04.md P1.
             TinEngine = TinEngine,
             LastPreviewDuration = LastPreviewDuration,
-            LastFinalDuration = LastFinalDuration
+            LastFinalDuration = LastFinalDuration,
+            PeakDependentOutputsDuration = PeakDependentOutputsDuration
         };
 
         foreach (var entry in StageEntries)
@@ -110,6 +127,7 @@ internal sealed class TerrainRuntimeCache
         DisplayState = null;
         LastPreviewDuration = null;
         LastFinalDuration = null;
+        PeakDependentOutputsDuration = null;
         LastFinalMeshFingerprint = 0;
         TinEngine.InvalidateCache();
         return meshOutputs;

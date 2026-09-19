@@ -98,7 +98,7 @@ public sealed class TerrainLatencyReportTests
         Assert.Contains("[superseded]", report);
         Assert.Contains("abandoned worker time: 300.0 ms across 1", report);
         // Abandoned work must not pollute the applied-request breakdown.
-        Assert.Contains("edit to visible: n=1", report);
+        Assert.Contains("edit to visible (everything current): n=1", report);
     }
 
     [Fact]

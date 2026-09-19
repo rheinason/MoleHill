@@ -113,3 +113,25 @@ native soak run, so it cannot be closed from the managed test suite alone.
 This work is coordinated with R03 (cancellation), which is what makes the abandoned-result paths common
 enough to matter, and precedes R06 (scheduler extraction), which needs the ownership contract to be
 explicit before the state machine can be moved.
+
+## Interim published geometry (added 2026-09-19)
+
+`TerrainController.PublishInterimGeometry` shows a finished terrain mesh before its dependent outputs
+settle. The mesh it displays is a **copy**, duplicated on the worker thread, held as
+`TerrainDisplayState.InterimTerrainMesh`.
+
+| Piece | Produced by | Held by | Disposed by |
+|---|---|---|---|
+| `InterimTerrainMesh` | worker, via `DuplicateMesh` | the interim `TerrainDisplayState` | nobody - collected |
+
+Two deliberate choices:
+
+- **It is a copy.** The stages that run after `PrimaryMesh` is assigned keep reading the original mesh,
+  so displaying that instance would let a later stage mutate geometry the conduit is already drawing.
+- **It is not disposed.** A conduit may be mid-draw when a display state is replaced, and
+  `DisposeDisplacedCacheMeshesWhenSafe` covers build-owned meshes, not this one. Disposing here would
+  risk tearing a live draw to reclaim one transient mesh per slow build. Bounded, not a leak in the
+  unbounded sense: at most one live per terrain, replaced on the next publication.
+
+This is characterization, matching the rest of this document. If the ownership object with
+`Transfer`/`Discard` (R05 stage 2) is built, this mesh is a fifth case for it.

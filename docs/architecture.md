@@ -1144,11 +1144,42 @@ analyses enabled:
 | **edit to visible** | **7,464 ms** | |
 
 So the shape of the wait depends entirely on scale, and **each scale wants a different fix**. Small
-terrain: the scheduling constants. Large terrain: the mesh is finished at ~700 ms and the user still
-waits 7.5 s, because `Build` assigns `PrimaryMesh` before the final-only output stages but returns only
-after all of them, and `ApplySuccessfulBuild` publishes display state after that. Publishing the
-completed mesh ahead of its dependent outputs is worth roughly 3.4x here - which is why it needs the
-explicit geometry/output revisions and freshness described in the review plan, not a bare assignment.
+terrain: the scheduling constants. Large terrain: the dependent outputs.
+
+The 5.1 s is not "analyses are slow" - it is two of them. Per-analysis, on that mesh: Slope 0.12 s,
+Aspect 0.01 s, Elevation and Waterflow under 0.01 s, **Catchments 1.40 s** and **Ponding 3.72 s**, the
+latter two also emitting 2,449 generated objects between them. The per-face analyses handle 244k faces
+in 0.13 s combined. Whether Ponding's 3.72 s is itself reducible is open and unmeasured.
+
+### Publishing geometry before its outputs
+
+`Build` assigns `PrimaryMesh` before the final-only output stages but returns only after all of them, so
+a finished mesh waits behind work that merely describes it. It now hands that mesh over as soon as it is
+ready, and `TerrainController.PublishInterimGeometry` shows it with the previous build's outputs carried
+forward and marked stale.
+
+Freshness is `HasDeferredOutputs` plus two revisions on `TerrainDisplayState`: `GeometryRevision` and
+`OutputsRevision`, with `OutputsAreStale` when they differ. Reusing the existing flag matters - bake, the
+interop mesh accessors (`DuplicateFinalTerrainMesh`/`PeekFinalTerrainMesh`) and the Grasshopper bridge
+already refuse a state carrying deferred output, so a partial publication cannot be mistaken for a
+completed build without touching any of those call sites. The revisions add *how* stale, which is what
+lets the status line name the edit the drawing still belongs to.
+
+Ownership: the published mesh is a **copy**, taken on the worker, because the stages still to run keep
+reading the original. It is deliberately not disposed - a conduit may be mid-draw when a state is
+replaced, and the displaced-mesh machinery covers build-owned meshes, not this one. See
+[build-result-ownership.md](build-result-ownership.md).
+
+[`TerrainInterimPublishPolicy`](../src/MoleHill.Rhino/Services/TerrainInterimPublishPolicy.cs) gates it on
+the **peak** dependent-output cost seen for that terrain, not the last one. Keying on the last build was
+wrong in a way that showed up immediately in live testing: one rebuild whose analyses all hit the stage
+cache measures ~3 ms and would switch early publication off again right before the next expensive edit.
+The costs are asymmetric too - a wrong yes buys one copy and one redraw (6 ms measured), a wrong no costs
+seconds - so the rule biases toward publishing.
+
+Measured live on the heavy fixture after a real source edit: geometry ready at 1,296 ms, interim
+published at 1,301 ms, **terrain on screen at 3,110 ms** with outputs marked stale, analyses not finished
+until 6,606 ms. On the small fixture the policy declines, which is correct - its outputs are 0.5 ms.
 
 Two structural facts behind the small-terrain numbers:
 

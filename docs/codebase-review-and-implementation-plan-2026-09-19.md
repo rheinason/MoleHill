@@ -74,6 +74,16 @@ Two follow-ups, in this order:
 
 Only then rank stage optimization: geometry was 8-31% of the wait, and on a cached rebuild 0.2%.
 
+**Delivered since.** Adaptive debounce (`TerrainDebouncePolicy`) and early publication of geometry ahead
+of dependent outputs (`TerrainInterimPublishPolicy`, `TerrainController.PublishInterimGeometry`, with
+`GeometryRevision`/`OutputsRevision` freshness on `TerrainDisplayState`). Both measured live; see
+[architecture.md](architecture.md) - "Rhino: edit-to-visible latency".
+
+**Still open.** (a) The interactive re-measurement above - every UI-thread figure from a headless slot is
+suspect. (b) Ponding at 3.72 s and Catchments at 1.40 s on a 244k-face mesh: the other four analyses
+total 0.13 s, so these two are the whole dependent-output cost and neither has been profiled. (c) Redraw
+at ~1.0 s and display publish at ~0.43 s on that mesh are now the largest remaining UI-thread costs.
+
 **Next ownership action: R05, stage 2.** The ownership table ([build-result-ownership.md](build-result-ownership.md)) is
 written and is the prerequisite the review asked for. The next change is the build-result ownership
 object with `Transfer`/`Discard`, closing the four gaps that document names. Start at gap 1 - it is the
