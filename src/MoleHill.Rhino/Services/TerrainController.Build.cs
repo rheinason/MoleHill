@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
@@ -23,6 +23,13 @@ namespace MoleHill.Rhino.Services;
 // Build orchestration: scheduling, debounce, background build lifecycle, apply-result, long-build warnings.
 internal sealed partial class TerrainController
 {
+    /// <summary>
+    /// How often to give the message loop something to process while a build is in flight. 15 ms is
+    /// roughly the resolution a Windows timer offers anyway, and it bounds the completion wake at about
+    /// one frame instead of the measured 320 ms median.
+    /// </summary>
+    private const double BuildWakeIntervalSeconds = 0.015;
+
     private void ScheduleRebuild(RhinoDoc doc, Guid terrainId, bool notify = true)
     {
         if (!ModelUnitGuard.TryGet(doc, out _, report: false))
@@ -50,6 +57,49 @@ internal sealed partial class TerrainController
                 : $"Scheduled rebuild #{requestedVersion:N0}.";
         if (notify)
             RaiseStateChanged();
+    }
+
+    /// <summary>
+    /// Keeps a message arriving while a build is in flight, so the completion callback is actually run.
+    ///
+    /// The posted wake is not the problem - <c>worker-end -&gt; wake-posted</c> measures 0.0 ms. The
+    /// problem is that posting a callback does not by itself give the host a reason to look at its
+    /// queue: after an edit settles, no input arrives, Rhino's loop has nothing to process, and the
+    /// callback waits. Measured in an interactive Rhino on 2026-09-19, <c>wake-posted -&gt; wake-ran</c>
+    /// was a median **320 ms** (154-486 ms) while redraw was 8 ms and geometry 74 ms - **71% of
+    /// edit-to-visible spent with nobody working**. The same figure appears in a headless slot, so it is
+    /// the host's scheduling, not a measurement artifact.
+    ///
+    /// A timer tick is a real Windows message, which is what wakes a loop that is otherwise waiting.
+    /// It runs only while a build is in flight and stops itself as soon as none is, so an idle Rhino is
+    /// left alone.
+    /// </summary>
+    private void EnsureBuildWakeTimer()
+    {
+        if (_buildWakeTimer == null)
+        {
+            _buildWakeTimer = new UITimer { Interval = BuildWakeIntervalSeconds };
+            _buildWakeTimer.Elapsed += (_, _) =>
+            {
+                PumpFinishedBuilds();
+                if (!HasRunningBuild())
+                    _buildWakeTimer?.Stop();
+            };
+        }
+
+        if (!_buildWakeTimer.Started)
+            _buildWakeTimer.Start();
+    }
+
+    private bool HasRunningBuild()
+    {
+        foreach (TerrainRebuildState rebuildState in _rebuildStates.Values)
+        {
+            if (rebuildState.WorkerTask != null)
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -323,6 +373,9 @@ internal sealed partial class TerrainController
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+
+        // The post above is free but does not make the host look at its queue; this does.
+        EnsureBuildWakeTimer();
 
         terrain.LastBuildMessage = mode == TerrainBuildMode.Preview
             ? $"Previewing terrain #{buildVersion:N0}..."

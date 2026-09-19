@@ -1429,12 +1429,42 @@ edit-to-visible from 454 ms to **1,140 ms**. It is reverted, and the comment at 
 it so the two sites are not "unified" later: dispatch needs a queue that will not run it inline, the
 wake needs whichever queue the host drains soonest, and those are not the same queue.
 
-**What this measurement cannot settle.** In a headless slot the UI thread is pumped by a `DoEvents`
-spin inside a script that is itself occupying that thread, so how promptly either queue is drained is
-not necessarily what a real session sees. The 320 ms figure is consistent with the 275 ms recorded
-earlier by a different method, which makes it unlikely to be pure noise - but attributing it, and
-therefore deciding whether small-terrain realtime is reachable at all, needs a trace from a genuinely
-interactive Rhino. That remains the one open prerequisite.
+### The wake marshal is real, and nothing was waking the message loop
+
+The slot measurement above could not distinguish a real host cost from an artifact of a pumped-by-script
+UI thread. **An interactive Rhino settled it** (2026-09-19, user-run `mhLatencyTrace`, a 2,409-face
+terrain with 3 modifiers and 2 analyses):
+
+| | Interactive | Headless slot |
+|---|---|---|
+| edit to visible, median | 492 ms (p95 566) | 454 ms |
+| geometry (modifiers), median | 74 ms | 5 ms |
+| **wake marshal wait** | **71.1%**, median ~320 ms (154-486) | 72.3%, median ~320 ms |
+| redraw | 3.6% | 17.2% |
+| abandoned worker time | **0.0 ms across 0 requests** | 0.0 ms |
+
+The two environments agree on the number that matters, so it is the host's scheduling and not a
+measurement artifact. On a real edit **71% of the wait is spent with nobody working at all.**
+
+The mechanism is visible in the phase split: `worker-end -> wake-posted` is **0.0 ms** - posting the
+completion callback is free - and `wake-posted -> wake-ran` is the entire cost. Posting a callback does
+not give the host a reason to look at its queue. Once an edit settles no input arrives, Rhino's loop has
+nothing to process, and the callback waits for whatever happens to wake it next. An earlier note in this
+workstream saw the same thing from the other side: a build whose work was under 5 ms sat
+finished-but-unpublished for 451 ms across zero Idle ticks, while the UI thread was available throughout.
+
+So the fix is not a faster post but **a reason to look**: `EnsureBuildWakeTimer` runs a 15 ms `UITimer`
+while a build is in flight and stops itself when none is. A timer tick is a real Windows message, which
+is what wakes a loop that is otherwise waiting, and an idle Rhino is left alone. The posted wake is kept
+- it costs nothing and is sometimes prompt.
+
+This is also why swapping the post to Eto's queue could not have worked: the queue was never the
+problem, and the experiment said so by measuring worse.
+
+**Not yet verified.** The timer is reasoned from the trace, not measured against it. The number to
+re-run is `wake marshal wait`: it should fall from ~320 ms to about one tick, taking a small-terrain
+edit from ~492 ms to roughly 180 ms - at which point geometry (74 ms) becomes the largest single term
+for the first time in this workstream.
 
 ### Publishing geometry before its outputs
 
