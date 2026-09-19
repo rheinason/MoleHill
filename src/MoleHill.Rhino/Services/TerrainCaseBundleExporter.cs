@@ -53,16 +53,18 @@ internal static class TerrainCaseBundleExporter
         AddOutputMesh(caseDirectory, outputMeshes, "base", displayState?.BaseTerrainMesh);
         AddOutputMesh(caseDirectory, outputMeshes, "preview", displayState?.PreviewTerrainMesh);
 
-        TerrainCoreCaseTestExport? coreTestExport = null;
-        if (TerrainCoreCaseTestExporter.TryCreate(snapshot, out var generatedCoreTest) &&
-            generatedCoreTest != null)
+        // Every recorded grading call ships, not just the primary one. A build that grades a wall's
+        // rails and then a pad has two cases worth replaying, and the failing one is often not the last.
+        IReadOnlyList<TerrainCoreCaseTestExport> coreTestExports = TerrainCoreCaseTestExporter.CreateAll(snapshot);
+        foreach (TerrainCoreCaseTestExport generatedCoreTest in coreTestExports)
         {
-            coreTestExport = generatedCoreTest;
             File.WriteAllText(
-                Path.Combine(caseDirectory, coreTestExport.FileName),
-                coreTestExport.SourceCode,
+                Path.Combine(caseDirectory, generatedCoreTest.FileName),
+                generatedCoreTest.SourceCode,
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         }
+
+        TerrainCoreCaseTestExport? coreTestExport = coreTestExports.Count > 0 ? coreTestExports[0] : null;
 
         IReadOnlyList<RetainingWallPlannerCaseTestExport> retainingWallPlannerExports =
             RetainingWallPlannerCaseTestExporter.Create(snapshot);
@@ -88,6 +90,7 @@ internal static class TerrainCaseBundleExporter
             BuildLogFile = Path.GetFileName(buildLogPath),
             TerrainDefinitionFile = Path.GetFileName(terrainJsonPath),
             CoreTestFile = coreTestExport?.FileName,
+            CoreTestFiles = coreTestExports.Select(static export => export.FileName).ToList(),
             RetainingWallPlannerTestFiles = retainingWallPlannerExports.Select(static export => export.FileName).ToList(),
             SourceModelFile = sourceModelFileName,
             SourceObjects = sourceObjects.Select(ToManifest).ToList(),
@@ -324,8 +327,12 @@ internal static class TerrainCaseBundleExporter
         if (!string.IsNullOrWhiteSpace(manifest.SourceModelFile))
             lines.Add($"- {manifest.SourceModelFile}: resolved input geometry in world space");
 
-        if (!string.IsNullOrWhiteSpace(manifest.CoreTestFile))
-            lines.Add($"- {manifest.CoreTestFile}: xUnit core regression test source copied by Copy Case");
+        foreach (string coreTestFile in manifest.CoreTestFiles)
+        {
+            lines.Add(string.Equals(coreTestFile, manifest.CoreTestFile, StringComparison.Ordinal)
+                ? $"- {coreTestFile}: xUnit core regression test source copied by Copy Case"
+                : $"- {coreTestFile}: xUnit core regression test source for a further recorded grading stage");
+        }
 
         foreach (string retainingWallPlannerTestFile in manifest.RetainingWallPlannerTestFiles)
             lines.Add($"- {retainingWallPlannerTestFile}: xUnit retaining-wall planner regression test source copied by Copy Case");
@@ -362,6 +369,9 @@ internal static class TerrainCaseBundleExporter
         public string BuildLogFile { get; init; } = string.Empty;
 
         public string? CoreTestFile { get; init; }
+
+        /// <summary>Every recorded grading case, primary first. <see cref="CoreTestFile"/> is its name.</summary>
+        public List<string> CoreTestFiles { get; init; } = new();
 
         public List<string> RetainingWallPlannerTestFiles { get; init; } = new();
 

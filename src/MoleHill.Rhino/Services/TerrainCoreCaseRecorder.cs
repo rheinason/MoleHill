@@ -42,6 +42,8 @@ internal sealed class TerrainCoreCaseRecorder
         int faceCount,
         PathGrader.PathDefinition[] paths,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        double modelTolerance,
+        bool preferSplitKeep,
         bool succeeded,
         int? resultVertexCount,
         int? resultFaceCount,
@@ -58,7 +60,9 @@ internal sealed class TerrainCoreCaseRecorder
             (int[])faces.Clone(),
             faceCount,
             ClonePaths(paths),
-            hardConstraints.Select(CloneConstraint).ToArray()));
+            hardConstraints.Select(CloneConstraint).ToArray(),
+            modelTolerance,
+            preferSplitKeep));
     }
 
     public void RecordPad(
@@ -95,6 +99,13 @@ internal sealed class TerrainCoreCaseRecorder
             ?? _records.LastOrDefault();
     }
 
+    /// <summary>
+    /// A recorded case is only worth replaying if it reproduces the call exactly. Every member that
+    /// steers the grade is copied — in particular the per-side angles and <c>OutwardNormals</c>, which
+    /// are what make a retaining-wall rail one-sided. Dropping the normals silently downgrades a wall
+    /// rail to an ordinary two-sided path, so the replay would grade a different problem from the one
+    /// that was captured. <c>TerrainCoreCaseRecorderFidelityTests</c> fails if a member is missed.
+    /// </summary>
     private static PathGrader.PathDefinition[] ClonePaths(IEnumerable<PathGrader.PathDefinition> paths)
     {
         return paths
@@ -108,7 +119,12 @@ internal sealed class TerrainCoreCaseRecorder
                 path.FillSlopeAngleDeg,
                 path.LeftEdgeXy is null ? null : (double[])path.LeftEdgeXy.Clone(),
                 path.RightEdgeXy is null ? null : (double[])path.RightEdgeXy.Clone(),
-                path.IsClosed))
+                path.IsClosed,
+                path.LeftCutSlopeAngleDeg,
+                path.LeftFillSlopeAngleDeg,
+                path.RightCutSlopeAngleDeg,
+                path.RightFillSlopeAngleDeg,
+                path.OutwardNormals is null ? null : (double[])path.OutwardNormals.Clone()))
             .ToArray();
     }
 
@@ -190,7 +206,9 @@ internal sealed record TerrainCorePathCaseRecord(
     int[] Faces,
     int FaceCount,
     PathGrader.PathDefinition[] Paths,
-    SurfaceRemesher.ConstraintPolyline[] HardConstraints)
+    SurfaceRemesher.ConstraintPolyline[] HardConstraints,
+    double ModelTolerance,
+    bool PreferSplitKeep)
     : TerrainCoreCaseRecord(StageName, Succeeded, ResultVertexCount, ResultFaceCount, Message);
 
 internal sealed record TerrainCorePadCaseRecord(

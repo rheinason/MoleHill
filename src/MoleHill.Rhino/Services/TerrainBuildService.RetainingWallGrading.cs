@@ -28,6 +28,7 @@ internal sealed partial class TerrainBuildService
         IReadOnlyList<RetainingWallPlannerCore.PlannedWall> walls,
         double wallTolerance,
         TerrainBuildResult build,
+        TerrainRuntimeCache runtimeCache,
         TerrainBuildMode mode)
     {
         if (!modifier.GradesTerrain || walls.Count == 0)
@@ -54,24 +55,48 @@ internal sealed partial class TerrainBuildService
             return mesh;
         }
 
+        // The exact arguments handed to Core, kept so the call can be replayed verbatim. Built once and
+        // shared with the recorder below: a recorder that re-derives them can drift from the real call.
+        PathGrader.PathDefinition[] railGradeArray = railGrades.ToArray();
+        SurfaceRemesher.ConstraintPolyline[] railHardConstraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        bool railPreferSplitKeep = TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
+            mode,
+            hasPersistentHardConstraints: false,
+            faceCount);
+
         var coreTimer = Stopwatch.StartNew();
         GradingResult? gradingResult = PathGrader.Grade(
             vertices,
             vertexCount,
             faces,
             faceCount,
-            railGrades.ToArray(),
+            railGradeArray,
             // Retaining-wall batters are authoritative terrain edits. Existing preserved-elevation
             // curves (including input contours) must not stop the batter before it reaches daylight;
             // those constraints are still carried into the subsequent wall remesh unchanged.
-            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            railHardConstraints,
             out string? warning,
             wallTolerance,
-            preferSplitKeep: TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
-                mode,
-                hasPersistentHardConstraints: false,
-                faceCount));
+            preferSplitKeep: railPreferSplitKeep);
         coreTimer.Stop();
+
+        // Record the rail grade like any other Core grading call. Without this the stage that produces
+        // the wall batters is invisible to Copy Case, so a bundle exported from a failing wall carries
+        // only the later Grade Pad — which is exactly how this stage stayed unreproducible.
+        runtimeCache.CoreCaseRecorder?.RecordPath(
+            $"{modifier.Label} Rails",
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            railGradeArray,
+            railHardConstraints,
+            wallTolerance,
+            railPreferSplitKeep,
+            gradingResult != null,
+            gradingResult?.VertexCount,
+            gradingResult?.FaceCount,
+            warning);
 
         if (gradingResult == null)
         {

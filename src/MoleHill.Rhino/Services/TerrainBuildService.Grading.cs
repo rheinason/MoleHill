@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
@@ -222,7 +222,8 @@ internal sealed partial class TerrainBuildService
                 out IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> failureOutputPolylines,
                 out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics,
                 gradePadTolerance,
-                toleranceProfile.DetailSize);
+                toleranceProfile.DetailSize,
+                build.PersistentHardConstraints);
             ThrowIfCancellationRequested(shouldCancel);
             runtimeCache.CoreCaseRecorder?.RecordPad(
                 modifier.Label,
@@ -915,6 +916,11 @@ internal sealed partial class TerrainBuildService
             mesh.Faces.Count,
             resolvedInputs.Paths,
             build.PersistentHardConstraints,
+            gradePathTolerance,
+            TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
+                mode,
+                build.PersistentHardConstraints.Count > 0,
+                mesh.Faces.Count),
             gradingResult != null,
             gradingResult?.VertexCount,
             gradingResult?.FaceCount,

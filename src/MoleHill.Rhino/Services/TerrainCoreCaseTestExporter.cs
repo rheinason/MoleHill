@@ -11,8 +11,19 @@ internal static class TerrainCoreCaseTestExporter
 {
     public static bool TryCreate(TerrainBuildSnapshot snapshot, out TerrainCoreCaseTestExport? export)
     {
-        export = null;
+        IReadOnlyList<TerrainCoreCaseTestExport> exports = CreateAll(snapshot);
+        export = exports.Count > 0 ? exports[0] : null;
+        return export != null;
+    }
 
+    /// <summary>
+    /// One test per recorded grading call, not just the "best" one. A build commonly grades several
+    /// times — a Retaining Wall's rails, then a Grade Pad — and <see cref="TerrainCoreCaseRecorder
+    /// .SelectBestRecord"/> returns a single record, so the later stage used to evict the earlier one
+    /// from the bundle. That is how a failing wall grade shipped a Grade Pad test instead.
+    /// </summary>
+    public static IReadOnlyList<TerrainCoreCaseTestExport> CreateAll(TerrainBuildSnapshot snapshot)
+    {
         var recorder = new TerrainCoreCaseRecorder();
         var runtimeCache = new TerrainRuntimeCache
         {
@@ -30,19 +41,43 @@ internal static class TerrainCoreCaseTestExporter
             // the exception can still become a focused regression test.
         }
 
-        TerrainCoreCaseRecord? record = recorder.SelectBestRecord();
-        if (record == null)
-            return false;
-
         string terrainName = string.IsNullOrWhiteSpace(snapshot.Terrain.Name)
             ? "Terrain"
             : snapshot.Terrain.Name;
-        string caseName = $"{SanitizeIdentifier(terrainName)}_{SanitizeIdentifier(record.StageName)}";
-        string className = $"{caseName}_CopiedCaseTests";
-        string methodName = $"{caseName}_CopiedCase";
-        string fileName = $"{methodName}.cs";
-        export = new TerrainCoreCaseTestExport(fileName, GenerateSource(className, methodName, record));
-        return true;
+
+        var exports = new List<TerrainCoreCaseTestExport>();
+        var usedNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (TerrainCoreCaseRecord record in recorder.Records)
+        {
+            string caseName = $"{SanitizeIdentifier(terrainName)}_{SanitizeIdentifier(record.StageName)}";
+            // Several stages can share a label (a wall grades every rail under one modifier name), so
+            // disambiguate rather than overwrite — an evicted record is an unreproducible case.
+            string uniqueName = caseName;
+            for (int suffix = 2; !usedNames.Add(uniqueName); suffix++)
+                uniqueName = $"{caseName}_{suffix.ToString(CultureInfo.InvariantCulture)}";
+
+            string className = $"{uniqueName}_CopiedCaseTests";
+            string methodName = $"{uniqueName}_CopiedCase";
+            exports.Add(new TerrainCoreCaseTestExport(
+                $"{methodName}.cs",
+                GenerateSource(className, methodName, record)));
+        }
+
+        // The record the old selector would have picked stays first, so the Copy Case clipboard and
+        // the manifest's primary entry keep their existing meaning.
+        TerrainCoreCaseRecord? best = recorder.SelectBestRecord();
+        if (best != null)
+        {
+            int bestIndex = recorder.Records.ToList().IndexOf(best);
+            if (bestIndex > 0)
+            {
+                TerrainCoreCaseTestExport primary = exports[bestIndex];
+                exports.RemoveAt(bestIndex);
+                exports.Insert(0, primary);
+            }
+        }
+
+        return exports;
     }
 
     private static string GenerateSource(string className, string methodName, TerrainCoreCaseRecord record)
@@ -118,7 +153,11 @@ internal static class TerrainCoreCaseTestExporter
         builder.AppendLine("            faceCount,");
         builder.AppendLine("            paths,");
         builder.AppendLine("            hardConstraints,");
-        builder.AppendLine("            out string? errorMessage);");
+        builder.AppendLine("            out string? errorMessage,");
+        // Both of these default on PathGrader.Grade, and both change which tier runs — a replay that
+        // omits them grades at the wrong tolerance under the wrong topology strategy.
+        builder.AppendLine($"            {FormatDouble(record.ModelTolerance)},");
+        builder.AppendLine($"            {(record.PreferSplitKeep ? "true" : "false")});");
         builder.AppendLine();
         AppendCommonAssertions(builder, "result", "errorMessage", record);
     }
@@ -180,7 +219,16 @@ internal static class TerrainCoreCaseTestExporter
                 builder.AppendLine("                null,");
             else
                 AppendInlineDoubleArray(builder, path.RightEdgeXy, 16, trailingComma: true);
-            builder.AppendLine($"                {(path.IsClosed ? "true" : "false")}),");
+            builder.AppendLine($"                {(path.IsClosed ? "true" : "false")},");
+            builder.AppendLine($"                {FormatDouble(path.LeftCutSlopeAngleDeg)},");
+            builder.AppendLine($"                {FormatDouble(path.LeftFillSlopeAngleDeg)},");
+            builder.AppendLine($"                {FormatDouble(path.RightCutSlopeAngleDeg)},");
+            builder.AppendLine($"                {FormatDouble(path.RightFillSlopeAngleDeg)},");
+            // The one-sidedness of a retaining-wall rail lives here and nowhere else.
+            if (path.OutwardNormals is null)
+                builder.AppendLine("                null),");
+            else
+                AppendInlineDoubleArray(builder, path.OutwardNormals, 16, trailingComma: false, suffix: "),");
         }
         builder.AppendLine("        };");
     }
@@ -261,13 +309,21 @@ internal static class TerrainCoreCaseTestExporter
         builder.AppendLine("        };");
     }
 
-    private static void AppendInlineDoubleArray(StringBuilder builder, double[] values, int valuesPerLine, bool trailingComma)
+    private static void AppendInlineDoubleArray(
+        StringBuilder builder,
+        double[] values,
+        int valuesPerLine,
+        bool trailingComma,
+        string? suffix = null)
     {
-        builder.AppendLine("                new[]");
+        // Explicitly double[], never an inferred new[]. FormatDouble writes a whole number as "0", so an
+        // array of whole numbers infers int[] and the generated case does not compile — and a wall rail's
+        // outward normals are almost always exactly 0 and 1.
+        builder.AppendLine("                new double[]");
         builder.AppendLine("                {");
         AppendArrayValues(builder, values.Select(FormatDouble), valuesPerLine, indent: "                    ");
         builder.Append("                }");
-        builder.AppendLine(trailingComma ? "," : string.Empty);
+        builder.AppendLine(suffix ?? (trailingComma ? "," : string.Empty));
     }
 
     private static void AppendArrayValues(
