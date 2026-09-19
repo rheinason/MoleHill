@@ -1196,11 +1196,33 @@ Two structural facts behind the small-terrain numbers:
   `PumpFinishedBuilds` through `RhinoApp.InvokeOnUiThread` from the worker continuation, with the idle
   poll left as the backstop and a re-entrancy guard because the completion path saves and redraws.
 
-**The pickup figure above is not yet trustworthy as a product number.** In the headless slot the posted
-invoke *itself* took 264 ms to run while the post cost 0.0 ms, so what is parked is the host message
-loop, not MoleHill's polling. An interactive Rhino pumps that loop constantly. Re-measure the pickup
-interval with `mhLatencyTrace` in a real session before ranking or optimizing it; the debounce figure
-needs no such caveat.
+**On reading a host wait.** Earlier figures in this workstream attributed 100-630 ms, and once 28.7 s,
+to Rhino failing to run MoleHill's completion callback. That was mostly a measurement error, recorded
+here because it is easy to repeat: `Thread.Sleep` inside a `rhino-mcp` `run_csharp` script runs **on
+Rhino's UI thread**, so a script that sleeps to wait for a build blocks the very message loop it is
+measuring. Wait by returning from the script and polling with short calls instead.
+
+Re-measured without blocking, on the heavy fixture, the host wait is **87 ms of 8,307 ms (1.1%)**: the
+posted wake-up runs in 0.1 ms. The report therefore splits every marshalled hop into the wait for the
+host (`*-posted` -> `*-ran`, `LatencyKind.HostWait`) and the work that then runs (`*-ran` -> `*-visible`,
+`LatencyKind.Work`), and the summary attributes the whole wait to debounce, MoleHill working, host wait,
+or redraw. An interval whose pair has no agreed meaning prints as `unclassified` and is never folded
+into a neighbour.
+
+Heavy fixture, fully attributed:
+
+| Owner | Time | Share |
+|---|---|---|
+| MoleHill working | 6,199 ms | 74.6% |
+| Rhino redrawing | 1,048 ms | 12.6% |
+| Debounce | 972 ms | 11.7% |
+| Waiting for the host | 87 ms | 1.1% |
+
+**The interim publication costs 1,858 ms on the UI thread** on that fixture - it rebuilds the runtime
+preview for 244k faces and redraws, the same work the final publication then does again (508 ms display
+publish + 1,048 ms redraw). So early publication currently pays the display cost twice and freezes the
+UI for ~1.9 s while doing it. It still wins overall (terrain visible at 3,315 ms rather than 8,307 ms),
+but that 1.9 s is now the largest remaining target in the path it was built to shorten.
 
 ## Rhino: build-result ownership
 

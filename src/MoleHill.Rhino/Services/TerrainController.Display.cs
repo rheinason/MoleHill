@@ -87,6 +87,14 @@ internal sealed partial class TerrainController
         Mesh interimMesh,
         Mesh? interimBaseMesh)
     {
+        TerrainLatencyTrace.Record(
+            docSerial,
+            terrainId,
+            buildVersion,
+            buildGeneration,
+            TerrainBuildMode.Final,
+            TerrainLatencyPhase.InterimRan);
+
         RhinoDoc? doc = RhinoDoc.FromRuntimeSerialNumber(docSerial);
         if (doc == null)
             return;

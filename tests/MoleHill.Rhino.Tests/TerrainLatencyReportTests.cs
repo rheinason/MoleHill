@@ -122,6 +122,56 @@ public sealed class TerrainLatencyReportTests
     }
 
     [Fact]
+    public void Format_SeparatesTimeNobodyIsWorkingFromTimeSpentWorking()
+    {
+        // The question that matters when a build looks slow: is anything actually running? A wait for
+        // Rhino to run a posted callback is not shortened by optimizing any stage.
+        string report = TerrainLatencyReport.Format(AppliedRequest());
+
+        Assert.Contains("Who the wait belongs to", report);
+        Assert.Contains("waiting for Rhino to run our code (nobody working)", report);
+        Assert.Contains("MoleHill working", report);
+        Assert.Contains("HOST", report);
+        Assert.Contains("work", report);
+    }
+
+    [Fact]
+    public void Format_InterimPublicationLandingAfterTheBuild_IsStillAttributed()
+    {
+        // When the dependent outputs are cheap, the interim publication is queued behind the host loop
+        // and arrives after worker-end. That ordering used to print as the report's largest
+        // "unclassified" interval - the exact gap this trace exists to close.
+        var events = new List<TerrainLatencyEvent>
+        {
+            Event(0, TerrainLatencyPhase.Edit),
+            Event(60, TerrainLatencyPhase.Due),
+            Event(61, TerrainLatencyPhase.Dispatch),
+            Event(61, TerrainLatencyPhase.SnapshotStart),
+            Event(61, TerrainLatencyPhase.SnapshotEnd),
+            Event(61, TerrainLatencyPhase.CloneEnd),
+            Event(61, TerrainLatencyPhase.WorkerQueued),
+            Event(62, TerrainLatencyPhase.WorkerStart),
+            Event(400, TerrainLatencyPhase.GeometryReady),
+            Event(406, TerrainLatencyPhase.InterimPublished),
+            Event(409, TerrainLatencyPhase.OutputsEnd),
+            Event(409, TerrainLatencyPhase.WorkerEnd, detail: "ok"),
+            Event(409, TerrainLatencyPhase.WakePosted),
+            Event(2_126, TerrainLatencyPhase.InterimVisible),
+            Event(2_126, TerrainLatencyPhase.WakeRan),
+            Event(2_127, TerrainLatencyPhase.CompletionDispatch),
+            Event(2_128, TerrainLatencyPhase.MergeEnd),
+            Event(2_130, TerrainLatencyPhase.DisplayEnd),
+            Event(2_200, TerrainLatencyPhase.RedrawEnd),
+            Event(2_201, TerrainLatencyPhase.Closed, detail: "applied"),
+        };
+
+        string report = TerrainLatencyReport.Format(events);
+
+        Assert.DoesNotContain("unclassified", report);
+        Assert.Contains("interim marshal + redraw", report);
+    }
+
+    [Fact]
     public void FormatCsv_EmitsOneRowPerEventRelativeToTheFirstTimestamp()
     {
         string csv = TerrainLatencyReport.FormatCsv(AppliedRequest());

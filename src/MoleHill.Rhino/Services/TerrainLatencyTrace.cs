@@ -37,6 +37,8 @@ internal static class TerrainLatencyPhase
     public const string WorkerStart = "worker-start";
     public const string GeometryReady = "geometry-ready";
     public const string InterimPublished = "interim-published";
+    /// <summary>The posted interim publication began running on the UI thread.</summary>
+    public const string InterimRan = "interim-ran";
     public const string InterimVisible = "interim-visible";
     public const string OutputsEnd = "outputs-end";
     public const string WorkerEnd = "worker-end";

@@ -79,10 +79,18 @@ of dependent outputs (`TerrainInterimPublishPolicy`, `TerrainController.PublishI
 `GeometryRevision`/`OutputsRevision` freshness on `TerrainDisplayState`). Both measured live; see
 [architecture.md](architecture.md) - "Rhino: edit-to-visible latency".
 
-**Still open.** (a) The interactive re-measurement above - every UI-thread figure from a headless slot is
-suspect. (b) Ponding at 3.72 s and Catchments at 1.40 s on a 244k-face mesh: the other four analyses
-total 0.13 s, so these two are the whole dependent-output cost and neither has been profiled. (c) Redraw
-at ~1.0 s and display publish at ~0.43 s on that mesh are now the largest remaining UI-thread costs.
+**Re-measured.** The host wait is **1.1%**, not the dominant term claimed earlier. Those earlier figures
+were largely a measurement error: `Thread.Sleep` in a `run_csharp` script runs on Rhino's UI thread and
+blocks the loop being measured. The report now separates each marshal hop from the work that follows it,
+and attributes the whole wait to debounce / MoleHill working / host wait / redraw.
+
+**Still open.** (a) The interim publication costs **1,858 ms on the UI thread** - it rebuilds the runtime
+preview and redraws, which the final publication then repeats (508 + 1,048 ms). Early publication pays
+the display cost twice and freezes the UI while doing it; this is now the largest target in the path it
+was built to shorten. (b) Ponding at 3.72 s and Catchments at 1.40 s on a 244k-face mesh: the other four
+analyses total 0.13 s, so these two are the whole dependent-output cost and neither has been profiled.
+(c) A trace taken in a genuinely interactive Rhino would still be worth having, but is no longer
+load-bearing for any conclusion here.
 
 **Next ownership action: R05, stage 2.** The ownership table ([build-result-ownership.md](build-result-ownership.md)) is
 written and is the prerequisite the review asked for. The next change is the build-result ownership

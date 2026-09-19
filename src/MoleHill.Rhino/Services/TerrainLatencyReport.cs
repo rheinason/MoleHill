@@ -19,41 +19,82 @@ internal static class TerrainLatencyReport
         public List<TerrainLatencyEvent> Events { get; } = new();
     }
 
-    /// <summary>Named intervals, keyed by the phase pair that bounds them.</summary>
-    private static readonly Dictionary<(string From, string To), string> IntervalNames = new()
+    /// <summary>
+    /// Who is responsible for an interval. The question the trace has to answer is not only "which
+    /// stage is slow" but "is anyone working during this". A <see cref="LatencyKind.HostWait"/>
+    /// interval is time when MoleHill has finished a piece of work and is waiting for Rhino's message
+    /// loop to run the callback that consumes it - no CPU of ours is busy, and no optimization of any
+    /// stage shortens it.
+    /// </summary>
+    private enum LatencyKind
     {
-        [(TerrainLatencyPhase.Edit, TerrainLatencyPhase.Due)] = "debounce",
-        [(TerrainLatencyPhase.Edit, TerrainLatencyPhase.Dispatch)] = "debounce",
-        [(TerrainLatencyPhase.Edit, TerrainLatencyPhase.DispatchBlocked)] = "debounce",
-        [(TerrainLatencyPhase.Due, TerrainLatencyPhase.Dispatch)] = "dispatch wait",
-        [(TerrainLatencyPhase.Due, TerrainLatencyPhase.DispatchBlocked)] = "dispatch wait",
-        [(TerrainLatencyPhase.DispatchBlocked, TerrainLatencyPhase.DispatchBlocked)] = "blocked (busy/deferred)",
-        [(TerrainLatencyPhase.DispatchBlocked, TerrainLatencyPhase.Dispatch)] = "blocked (busy/deferred)",
-        [(TerrainLatencyPhase.Dispatch, TerrainLatencyPhase.SnapshotStart)] = "start overhead",
-        [(TerrainLatencyPhase.SnapshotStart, TerrainLatencyPhase.SnapshotEnd)] = "snapshot",
-        [(TerrainLatencyPhase.SnapshotEnd, TerrainLatencyPhase.CloneEnd)] = "worker cache clone",
-        [(TerrainLatencyPhase.CloneEnd, TerrainLatencyPhase.WorkerQueued)] = "start overhead",
-        [(TerrainLatencyPhase.WorkerQueued, TerrainLatencyPhase.WorkerStart)] = "thread-pool queue",
-        [(TerrainLatencyPhase.WorkerStart, TerrainLatencyPhase.GeometryReady)] = "geometry (modifiers)",
-        [(TerrainLatencyPhase.GeometryReady, TerrainLatencyPhase.InterimPublished)] = "interim copy + post",
-        [(TerrainLatencyPhase.InterimPublished, TerrainLatencyPhase.InterimVisible)] = "interim marshal + redraw",
-        [(TerrainLatencyPhase.InterimVisible, TerrainLatencyPhase.OutputsEnd)] = "dependent outputs",
-        [(TerrainLatencyPhase.InterimPublished, TerrainLatencyPhase.OutputsEnd)] = "dependent outputs",
-        [(TerrainLatencyPhase.GeometryReady, TerrainLatencyPhase.OutputsEnd)] = "dependent outputs",
-        [(TerrainLatencyPhase.GeometryReady, TerrainLatencyPhase.WorkerEnd)] = "worker tail",
-        [(TerrainLatencyPhase.OutputsEnd, TerrainLatencyPhase.WorkerEnd)] = "worker tail",
-        [(TerrainLatencyPhase.WorkerEnd, TerrainLatencyPhase.CompletionDispatch)] = "idle completion wait",
-        [(TerrainLatencyPhase.WorkerEnd, TerrainLatencyPhase.WakePosted)] = "wake post latency",
-        [(TerrainLatencyPhase.WakePosted, TerrainLatencyPhase.WakeRan)] = "wake marshal wait",
-        [(TerrainLatencyPhase.WakePosted, TerrainLatencyPhase.CompletionDispatch)] = "wake marshal wait",
-        [(TerrainLatencyPhase.WakeRan, TerrainLatencyPhase.CompletionDispatch)] = "pump to pickup",
-        [(TerrainLatencyPhase.CompletionDispatch, TerrainLatencyPhase.MergeEnd)] = "cache merge",
-        [(TerrainLatencyPhase.MergeEnd, TerrainLatencyPhase.DisplayEnd)] = "display publish",
-        [(TerrainLatencyPhase.DisplayEnd, TerrainLatencyPhase.SyncEnd)] = "object sync",
-        [(TerrainLatencyPhase.DisplayEnd, TerrainLatencyPhase.RedrawEnd)] = "redraw",
-        [(TerrainLatencyPhase.SyncEnd, TerrainLatencyPhase.SaveEnd)] = "document save",
-        [(TerrainLatencyPhase.SaveEnd, TerrainLatencyPhase.RedrawEnd)] = "redraw",
-        [(TerrainLatencyPhase.RedrawEnd, TerrainLatencyPhase.Closed)] = "close overhead",
+        /// <summary>Deliberate delay before dispatching, to coalesce a gesture.</summary>
+        Debounce,
+
+        /// <summary>MoleHill is computing.</summary>
+        Work,
+
+        /// <summary>Waiting for the host to run our code: message loop, idle event, thread pool.</summary>
+        HostWait,
+
+        /// <summary>Rhino redrawing its viewports.</summary>
+        Redraw,
+
+        /// <summary>A phase pair with no agreed meaning. Reported, never folded into a neighbour.</summary>
+        Unclassified
+    }
+
+    private readonly record struct Interval(string Name, LatencyKind Kind);
+
+    /// <summary>Named intervals, keyed by the phase pair that bounds them.</summary>
+    private static readonly Dictionary<(string From, string To), Interval> IntervalNames = new()
+    {
+        [(TerrainLatencyPhase.Edit, TerrainLatencyPhase.Due)] = new Interval("debounce", LatencyKind.Debounce),
+        [(TerrainLatencyPhase.Edit, TerrainLatencyPhase.Dispatch)] = new Interval("debounce", LatencyKind.Debounce),
+        [(TerrainLatencyPhase.Edit, TerrainLatencyPhase.DispatchBlocked)] = new Interval("debounce", LatencyKind.Debounce),
+        [(TerrainLatencyPhase.Due, TerrainLatencyPhase.Dispatch)] = new Interval("dispatch wait", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.Due, TerrainLatencyPhase.DispatchBlocked)] = new Interval("dispatch wait", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.DispatchBlocked, TerrainLatencyPhase.DispatchBlocked)] = new Interval("blocked (busy/deferred)", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.DispatchBlocked, TerrainLatencyPhase.Dispatch)] = new Interval("blocked (busy/deferred)", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.Dispatch, TerrainLatencyPhase.SnapshotStart)] = new Interval("start overhead", LatencyKind.Work),
+        [(TerrainLatencyPhase.SnapshotStart, TerrainLatencyPhase.SnapshotEnd)] = new Interval("snapshot", LatencyKind.Work),
+        [(TerrainLatencyPhase.SnapshotEnd, TerrainLatencyPhase.CloneEnd)] = new Interval("worker cache clone", LatencyKind.Work),
+        [(TerrainLatencyPhase.CloneEnd, TerrainLatencyPhase.WorkerQueued)] = new Interval("start overhead", LatencyKind.Work),
+        [(TerrainLatencyPhase.WorkerQueued, TerrainLatencyPhase.WorkerStart)] = new Interval("thread-pool queue", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.WorkerStart, TerrainLatencyPhase.GeometryReady)] = new Interval("geometry (modifiers)", LatencyKind.Work),
+        [(TerrainLatencyPhase.GeometryReady, TerrainLatencyPhase.InterimPublished)] = new Interval("interim copy + post", LatencyKind.Work),
+        [(TerrainLatencyPhase.InterimPublished, TerrainLatencyPhase.InterimRan)] = new Interval("interim marshal wait", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.InterimRan, TerrainLatencyPhase.InterimVisible)] = new Interval("interim publish + redraw", LatencyKind.Work),
+        [(TerrainLatencyPhase.InterimPublished, TerrainLatencyPhase.InterimVisible)] = new Interval("interim marshal + redraw", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.InterimVisible, TerrainLatencyPhase.OutputsEnd)] = new Interval("dependent outputs", LatencyKind.Work),
+        [(TerrainLatencyPhase.InterimPublished, TerrainLatencyPhase.OutputsEnd)] = new Interval("dependent outputs", LatencyKind.Work),
+        [(TerrainLatencyPhase.GeometryReady, TerrainLatencyPhase.OutputsEnd)] = new Interval("dependent outputs", LatencyKind.Work),
+        [(TerrainLatencyPhase.GeometryReady, TerrainLatencyPhase.WorkerEnd)] = new Interval("worker tail", LatencyKind.Work),
+        [(TerrainLatencyPhase.OutputsEnd, TerrainLatencyPhase.WorkerEnd)] = new Interval("worker tail", LatencyKind.Work),
+        [(TerrainLatencyPhase.WorkerEnd, TerrainLatencyPhase.CompletionDispatch)] = new Interval("idle completion wait", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.WorkerEnd, TerrainLatencyPhase.WakePosted)] = new Interval("wake post latency", LatencyKind.Work),
+        [(TerrainLatencyPhase.WakePosted, TerrainLatencyPhase.WakeRan)] = new Interval("wake marshal wait", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.WakePosted, TerrainLatencyPhase.CompletionDispatch)] = new Interval("wake marshal wait", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.WakeRan, TerrainLatencyPhase.CompletionDispatch)] = new Interval("pump to pickup", LatencyKind.Work),
+        // When the dependent outputs turn out to be cheap, the interim publication is still queued
+        // behind the host loop and lands after the build has already finished. Name those orderings
+        // too, or the report shows its largest interval as "unclassified".
+        [(TerrainLatencyPhase.WakePosted, TerrainLatencyPhase.InterimRan)] = new Interval("interim marshal wait", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.WakePosted, TerrainLatencyPhase.InterimVisible)] = new Interval("interim marshal + redraw", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.InterimVisible, TerrainLatencyPhase.WakeRan)] = new Interval("wake marshal wait", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.InterimVisible, TerrainLatencyPhase.CompletionDispatch)] = new Interval("wake marshal wait", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.InterimPublished, TerrainLatencyPhase.WorkerEnd)] = new Interval("worker tail", LatencyKind.Work),
+        [(TerrainLatencyPhase.OutputsEnd, TerrainLatencyPhase.InterimVisible)] = new Interval("interim marshal + redraw", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.OutputsEnd, TerrainLatencyPhase.InterimRan)] = new Interval("interim marshal wait", LatencyKind.HostWait),
+        [(TerrainLatencyPhase.InterimRan, TerrainLatencyPhase.WakeRan)] = new Interval("interim publish + redraw", LatencyKind.Work),
+        [(TerrainLatencyPhase.InterimRan, TerrainLatencyPhase.CompletionDispatch)] = new Interval("interim publish + redraw", LatencyKind.Work),
+        [(TerrainLatencyPhase.CompletionDispatch, TerrainLatencyPhase.MergeEnd)] = new Interval("cache merge", LatencyKind.Work),
+        [(TerrainLatencyPhase.MergeEnd, TerrainLatencyPhase.DisplayEnd)] = new Interval("display publish", LatencyKind.Work),
+        [(TerrainLatencyPhase.DisplayEnd, TerrainLatencyPhase.SyncEnd)] = new Interval("object sync", LatencyKind.Work),
+        [(TerrainLatencyPhase.DisplayEnd, TerrainLatencyPhase.RedrawEnd)] = new Interval("redraw", LatencyKind.Redraw),
+        [(TerrainLatencyPhase.SyncEnd, TerrainLatencyPhase.SaveEnd)] = new Interval("document save", LatencyKind.Work),
+        [(TerrainLatencyPhase.SaveEnd, TerrainLatencyPhase.RedrawEnd)] = new Interval("redraw", LatencyKind.Redraw),
+        [(TerrainLatencyPhase.RedrawEnd, TerrainLatencyPhase.Closed)] = new Interval("close overhead", LatencyKind.Work),
     };
 
     public static string Format(IReadOnlyList<TerrainLatencyEvent> events, Guid? terrainFilter = null)
@@ -76,6 +117,7 @@ internal static class TerrainLatencyReport
         double abandonedMs = 0.0;
         int abandonedCount = 0;
         var intervalTotals = new Dictionary<string, double>(StringComparer.Ordinal);
+        var kindTotals = new Dictionary<LatencyKind, double>();
 
         foreach (Request request in requests)
         {
@@ -89,12 +131,16 @@ internal static class TerrainLatencyReport
                 TerrainLatencyEvent from = ordered[index - 1];
                 TerrainLatencyEvent to = ordered[index];
                 double ms = TerrainLatencyTrace.MillisecondsBetween(from.Timestamp, to.Timestamp);
-                string name = NameFor(from.Phase, to.Phase);
+                Interval interval = NameFor(from.Phase, to.Phase);
                 string detail = to.Detail is null ? string.Empty : $"  ({to.Detail})";
-                report.AppendLine($"    {ms,9:0.0} ms  {name,-24} {from.Phase} -> {to.Phase}{detail}");
+                report.AppendLine(
+                    $"    {ms,9:0.0} ms  {Tag(interval.Kind)}  {interval.Name,-24} {from.Phase} -> {to.Phase}{detail}");
 
                 if (applied)
-                    intervalTotals[name] = intervalTotals.GetValueOrDefault(name) + ms;
+                {
+                    intervalTotals[interval.Name] = intervalTotals.GetValueOrDefault(interval.Name) + ms;
+                    kindTotals[interval.Kind] = kindTotals.GetValueOrDefault(interval.Kind) + ms;
+                }
             }
 
             double? editToVisible = Span(ordered, TerrainLatencyPhase.Edit, TerrainLatencyPhase.RedrawEnd);
@@ -138,6 +184,23 @@ internal static class TerrainLatencyReport
         AppendStat(report, "dependent outputs", outputSamples);
         report.AppendLine($"  abandoned worker time: {abandonedMs:0.0} ms across {abandonedCount:N0} superseded/cancelled requests");
         report.AppendLine();
+
+        if (kindTotals.Count > 0)
+        {
+            double kindTotal = kindTotals.Values.Sum();
+            report.AppendLine("=== Who the wait belongs to (applied requests only)");
+            foreach (LatencyKind kind in new[]
+                     { LatencyKind.Debounce, LatencyKind.Work, LatencyKind.HostWait, LatencyKind.Redraw, LatencyKind.Unclassified })
+            {
+                if (!kindTotals.TryGetValue(kind, out double value) || value <= 0.0)
+                    continue;
+
+                double kindShare = kindTotal > 0.0 ? value / kindTotal * 100.0 : 0.0;
+                report.AppendLine($"  {value,9:0.0} ms  {kindShare,5:0.0}%  {Describe(kind)}");
+            }
+
+            report.AppendLine();
+        }
 
         if (intervalTotals.Count > 0)
         {
@@ -195,18 +258,30 @@ internal static class TerrainLatencyReport
             .ToList();
     }
 
-    private static string NameFor(string from, string to)
+    private static Interval NameFor(string from, string to)
     {
         if (to.StartsWith(TerrainLatencyPhase.OutputFamilyPrefix, StringComparison.Ordinal))
-            return to[TerrainLatencyPhase.OutputFamilyPrefix.Length..];
+            return new Interval(to[TerrainLatencyPhase.OutputFamilyPrefix.Length..], LatencyKind.Work);
         if (from.StartsWith(TerrainLatencyPhase.OutputFamilyPrefix, StringComparison.Ordinal) &&
             to == TerrainLatencyPhase.OutputsEnd)
         {
-            return "outputs tail";
+            return new Interval("outputs tail", LatencyKind.Work);
         }
 
-        return IntervalNames.TryGetValue((from, to), out string? name) ? name : "unclassified";
+        return IntervalNames.TryGetValue((from, to), out Interval interval)
+            ? interval
+            : new Interval("unclassified", LatencyKind.Unclassified);
     }
+
+    /// <summary>Four-character column so a timeline can be scanned for host waits at a glance.</summary>
+    private static string Tag(LatencyKind kind) => kind switch
+    {
+        LatencyKind.Debounce => "WAIT",
+        LatencyKind.Work => "work",
+        LatencyKind.HostWait => "HOST",
+        LatencyKind.Redraw => "draw",
+        _ => "????"
+    };
 
     private static string OutcomeOf(List<TerrainLatencyEvent> ordered)
     {
@@ -240,6 +315,15 @@ internal static class TerrainLatencyReport
         report.AppendLine(
             $"  {label}: n={sorted.Count}, median {median:0.0} ms, p95 {p95:0.0} ms, min {sorted[0]:0.0} ms, max {sorted[^1]:0.0} ms");
     }
+
+    private static string Describe(LatencyKind kind) => kind switch
+    {
+        LatencyKind.Debounce => "debounce (deliberate delay before dispatching)",
+        LatencyKind.Work => "MoleHill working",
+        LatencyKind.HostWait => "waiting for Rhino to run our code (nobody working)",
+        LatencyKind.Redraw => "Rhino redrawing",
+        _ => "unclassified"
+    };
 
     private static string Short(Guid id) => id.ToString("N")[..8];
 }
