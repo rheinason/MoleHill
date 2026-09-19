@@ -89,6 +89,13 @@ dispatch so a zero delay means zero), and a plain preview for interim publicatio
 was computed from a different face set). Heavy fixture: edit to terrain visible **3,072 -> 1,159 ms**.
 Small fixture: edit to visible **1,087 -> 385 ms**.
 
+**Geometry-heavy terrains are a separate problem.** A stack of Triangulate -> Grade Pad -> Grade Path ->
+Smooth -> Remesh with no analyses spends **98.5%** of edit-to-visible inside the modifier chain, so none
+of the scheduling work above helps it and early publication correctly declines. The largest single item
+is **`ResolveGradePadInputs` at 1.42 s for one rectangular boundary** - more than `PadGrader.Grade`
+itself (1.36 s). Mesh marshalling was measured and excluded as the cause (67 ms extract, ~113 ms full
+round trip). See [architecture.md](architecture.md), "The geometry-heavy case is a different problem".
+
 **Still open.** (a) The marshal from a finished worker back to the UI thread is now the largest single
 interval on the small fixture (275 ms of 385 ms). It measures 0.1 ms when Rhino's loop is busy, so only
 a trace from a genuinely interactive session will say what an ordinary edit sees. (b) Ponding at 3.72 s

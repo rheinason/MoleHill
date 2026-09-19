@@ -45,6 +45,7 @@ internal sealed partial class TerrainBuildService
             return cachedMesh;
         }
 
+        var inputsTimer = Stopwatch.StartNew();
         int diagnosticsStart = build.Diagnostics.Count;
         int structuredDiagnosticsStart = build.StructuredDiagnostics.Count;
         ThrowIfCancellationRequested(shouldCancel);
@@ -90,6 +91,7 @@ internal sealed partial class TerrainBuildService
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
         double curveTolerance = toleranceProfile.CurveChordTolerance;
         double gradePadTolerance = toleranceProfile.GradePadTolerance;
+        var resolveTimer = Stopwatch.StartNew();
         ResolvedGradePadInputs resolvedInputs = ResolveGradePadInputs(
             snapshot,
             vertices,
@@ -99,6 +101,8 @@ internal sealed partial class TerrainBuildService
             modifier,
             curveTolerance,
             gradePadTolerance);
+        resolveTimer.Stop();
+        build.RecordTiming("Grade Pad Resolve", resolveTimer.Elapsed, $"{resolvedInputs.Pads.Length:N0} pads", StageTimingDiagnosticThresholdMs);
         build.Diagnostics.AddRange(resolvedInputs.Diagnostics);
         build.StructuredDiagnostics.AddRange(resolvedInputs.StructuredDiagnostics);
         ThrowIfCancellationRequested(shouldCancel);
@@ -122,6 +126,7 @@ internal sealed partial class TerrainBuildService
                 structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
         }
 
+        var locksTimer = Stopwatch.StartNew();
         var effectiveLocks = CombinePadLockCurves(
             resolvedInputs.Locks,
             build.PersistentHardConstraints,
@@ -135,6 +140,10 @@ internal sealed partial class TerrainBuildService
             build.Diagnostics.Add(
                 $"Grade Pad ignored {skippedPersistentLockCount:N0} persistent hard constraint(s) outside the pad influence envelope when building pad lock barriers.");
         }
+        locksTimer.Stop();
+        build.RecordTiming("Grade Pad Locks", locksTimer.Elapsed, $"{effectiveLocks.Length:N0} locks", StageTimingDiagnosticThresholdMs);
+
+        var dirtyTimer = Stopwatch.StartNew();
         List<GradingPatch> patchSummaries = BuildPadPatchSummaries(resolvedInputs.Pads);
         List<string> dirtyStageKeys = runtimeCache.FindIntersectingGradingStageKeys(
             TerrainRuntimeCache.GetStagePrefix(mode),
@@ -154,6 +163,19 @@ internal sealed partial class TerrainBuildService
             modifier,
             resolvedInputs.Pads,
             effectiveLocks);
+        dirtyTimer.Stop();
+        build.RecordTiming("Grade Pad Dirty Scan + Fingerprint", dirtyTimer.Elapsed, null, StageTimingDiagnosticThresholdMs);
+
+        // Everything above is stage scaffolding, not grading: mesh extraction, curve resolution, lock
+        // combination, overlap scanning and four fingerprints. It is timed separately because the
+        // stage total was measurably larger than PadGrader's own cost and nothing said where the rest
+        // went - see docs/architecture.md, "Rhino: edit-to-visible latency".
+        inputsTimer.Stop();
+        build.RecordTiming(
+            "Grade Pad Inputs",
+            inputsTimer.Elapsed,
+            $"{mesh.Vertices.Count:N0} verts, {resolvedInputs.Pads.Length:N0} pads, {effectiveLocks.Length:N0} locks",
+            StageTimingDiagnosticThresholdMs);
 
         GradingTopologyCacheEntry? topologyEntry;
         var topologyTimer = Stopwatch.StartNew();
@@ -308,10 +330,17 @@ internal sealed partial class TerrainBuildService
             $"{topologyEntry.VertexCount:N0} verts",
             StageTimingDiagnosticThresholdMs);
 
+        var outputMeshTimer = Stopwatch.StartNew();
         RhinoMesh resultMesh = FinalizeGradingMesh(
             RhinoGeometryConversions.BuildMesh(gradedVertices, topologyEntry.VertexCount, topologyEntry.Faces, topologyEntry.FaceCount),
             "Grade Pad",
             build);
+        outputMeshTimer.Stop();
+        build.RecordTiming(
+            "Grade Pad Output Mesh",
+            outputMeshTimer.Elapsed,
+            $"{topologyEntry.VertexCount:N0} verts, {topologyEntry.FaceCount:N0} faces",
+            StageTimingDiagnosticThresholdMs);
         // PadGrader's constraint set contains temporary XY construction loops for the pad, shoulder,
         // and stitch apron. Their Z values are placeholders and some loops are deliberately softened
         // or replaced while assembling the final patch, so they are not durable elevation constraints

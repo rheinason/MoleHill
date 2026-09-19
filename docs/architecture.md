@@ -1151,6 +1151,47 @@ Aspect 0.01 s, Elevation and Waterflow under 0.01 s, **Catchments 1.40 s** and *
 latter two also emitting 2,449 generated objects between them. The per-face analyses handle 244k faces
 in 0.13 s combined. Whether Ponding's 3.72 s is itself reducible is open and unmeasured.
 
+### The geometry-heavy case is a different problem
+
+A terrain with a long geometric modifier stack and **no** analyses behaves nothing like the
+analysis-heavy one. Measured 2026-09-19 on a synthetic 62,500-point survey (124,621 faces) running
+Triangulate -> Grade Pad -> Grade Path -> Smooth -> Remesh, no analyses or annotations:
+
+| Owner | Time | Share |
+|---|---|---|
+| MoleHill working | 5,127 ms | 98.5% |
+| Rhino redrawing | 73 ms | 1.4% |
+| Debounce | 2 ms | 0.0% |
+| Waiting for the host | 1 ms | 0.0% |
+
+Three things follow, and they are the pitfalls of this shape:
+
+- **Early publication does nothing here, and correctly declines.** There are no dependent outputs to get
+  ahead of, so there is no earlier moment to publish. The whole wait *is* the geometry.
+- **Editing a modifier near the top of the stack re-runs everything below it.** A Grade Pad slope nudge
+  cost 5.12 s against 6.28 s cold: only Triangulate's 0.38 s was reused. Stage caching is per-modifier
+  and strictly sequential, so cache depth is worth nothing for an early edit.
+- **Remesh decimates 124k faces to 49k at the *end* of the chain.** Every upstream modifier pays full
+  price on 111-124k faces to produce a mesh that is then thrown away down to 49k. Reordering changes
+  results, so this is a design question rather than a free win - but it is why redraw is 73 ms here and
+  1,048 ms on the analysis fixture: redraw tracks the *final* face count.
+
+**Stage scaffolding can cost more than the algorithm it wraps.** Grade Pad's stage was 2.97 s against
+1.36 s of `PadGrader.Grade`. Splitting it found the rest is not what it looks like:
+
+| Grade Pad sub-stage | Time |
+|---|---|
+| `Grade Pad Resolve` (`ResolveGradePadInputs`) | **1.42 s** |
+| `PadGrader.Grade` (topology) | 1.36 s |
+| Output mesh (`BuildMesh` + normalize) | 0.17 s |
+| Locks, dirty scan, fingerprints | ~0 s |
+
+Resolving **one rectangular boundary** costs more than grading against it. It takes the terrain's
+vertex and face arrays, so it scales with the mesh rather than with the number of pads. Two plausible
+explanations were measured and **disproved** before this one: `TryExtractMeshData` is 67 ms on a
+124k-face mesh, and the whole per-stage mesh marshalling round trip (extract, `BuildMesh`, normalize,
+cache clone) is ~113 ms on 110k faces. What `ResolveGradePadInputs` spends 1.42 s on is not yet known.
+
 ### Publishing geometry before its outputs
 
 `Build` assigns `PrimaryMesh` before the final-only output stages but returns only after all of them, so
