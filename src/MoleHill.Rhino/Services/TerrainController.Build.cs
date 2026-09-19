@@ -379,6 +379,7 @@ internal sealed partial class TerrainController
                 int ticksAtPost = Volatile.Read(ref _buildWakeTicks);
                 long panelTicksAtPost = TerrainUiThreadProbe.PanelRefreshTicks;
                 int panelCountAtPost = TerrainUiThreadProbe.PanelRefreshCount;
+                long tabTicksAtPost = TerrainUiThreadProbe.TabLayoutTicks;
                 latency.Mark(TerrainLatencyPhase.WakePosted);
 
                 // InvokeOnUiThread here, deliberately, even though the dispatch path uses Eto's
@@ -398,7 +399,8 @@ internal sealed partial class TerrainController
                     latency.Mark(
                         TerrainLatencyPhase.WakeRan,
                         $"{ticksWhileWaiting} wake ticks, timer {(controller._buildWakeTimer?.Started == true ? "running" : "stopped")}; " +
-                        $"panel refresh {panelMs:N0} ms over {panelRefreshes} runs");
+                        $"panel refresh {panelMs:N0} ms over {panelRefreshes} runs " +
+                        $"(tab layout {TerrainUiThreadProbe.TicksToMilliseconds(TerrainUiThreadProbe.TabLayoutTicks - tabTicksAtPost):N0} ms)");
                     controller.PumpFinishedBuilds();
                 }));
             },

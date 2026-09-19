@@ -123,6 +123,8 @@ public sealed partial class MoleHillPanel : Panel
     private bool _isStateChangedSubscribed;
     private int _deferredControllerRefreshDepth;
     private bool _hasDeferredControllerRefresh;
+    /// <summary>A refresh is already queued; further state changes need not queue another.</summary>
+    private bool _controllerRefreshPosted;
     private int _selectedTabIndex;
 
     /// <summary>
@@ -694,7 +696,10 @@ public sealed partial class MoleHillPanel : Panel
         {
             _selectedTabIndex = Math.Clamp(index, 0, tabScrollables.Length - 1);
             _tabContentPanel.Content = tabScrollables[_selectedTabIndex];
+            long tabLayoutStart = System.Diagnostics.Stopwatch.GetTimestamp();
             RebuildVisibleTabLayout();
+            Services.TerrainUiThreadProbe.RecordTabLayout(
+                System.Diagnostics.Stopwatch.GetTimestamp() - tabLayoutStart);
         }
 
         _tabChipMap.Clear();
@@ -972,13 +977,28 @@ public sealed partial class MoleHillPanel : Panel
         _isStateChangedSubscribed = false;
     }
 
+    /// <summary>
+    /// Coalesces controller state changes into one refresh per trip through the message loop.
+    ///
+    /// One terrain edit raises <c>StateChanged</c> several times - scheduling the rebuild, starting it,
+    /// applying it - and each used to post its own <see cref="RefreshUi"/>. That matters far beyond the
+    /// panel, because those refreshes share a queue with the finished build's completion callback:
+    /// measured in an interactive Rhino on 2026-09-19, a single edit spent **287 ms in two panel
+    /// refreshes** inside the 263 ms the completed terrain sat waiting to be published. The panel was
+    /// the reason the terrain was late.
+    ///
+    /// The flag clears before the refresh runs, so a state change raised *during* a refresh still gets
+    /// one of its own rather than being swallowed.
+    /// </summary>
     private void HandleControllerStateChanged(object? sender, EventArgs e)
     {
-        if (IsDisposed || !_isPanelLoaded)
+        if (IsDisposed || !_isPanelLoaded || _controllerRefreshPosted)
             return;
 
+        _controllerRefreshPosted = true;
         Application.Instance?.AsyncInvoke(() =>
         {
+            _controllerRefreshPosted = false;
             if (IsDisposed || !_isPanelLoaded)
                 return;
 

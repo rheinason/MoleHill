@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace MoleHill.Rhino.Services;
 
@@ -20,17 +20,24 @@ internal static class TerrainUiThreadProbe
 {
     private static long _panelRefreshTicks;
     private static int _panelRefreshCount;
+    private static long _tabLayoutTicks;
 
     /// <summary>Total stopwatch ticks spent inside the panel's refresh since the process started.</summary>
     public static long PanelRefreshTicks => Volatile.Read(ref _panelRefreshTicks);
 
     public static int PanelRefreshCount => Volatile.Read(ref _panelRefreshCount);
 
+    /// <summary>Rebuilding the visible tab's cards, the suspected bulk of a refresh.</summary>
+    public static long TabLayoutTicks => Volatile.Read(ref _tabLayoutTicks);
+
     public static void RecordPanelRefresh(long elapsedTicks)
     {
         Interlocked.Add(ref _panelRefreshTicks, elapsedTicks);
         Interlocked.Increment(ref _panelRefreshCount);
     }
+
+    public static void RecordTabLayout(long elapsedTicks) =>
+        Interlocked.Add(ref _tabLayoutTicks, elapsedTicks);
 
     public static double TicksToMilliseconds(long ticks) =>
         ticks * 1000.0 / Stopwatch.Frequency;

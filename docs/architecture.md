@@ -1495,9 +1495,32 @@ onto the same queue the completion callback is waiting in. One edit raises it th
 `TerrainUiThreadProbe` now times every panel refresh, and the wake reports how many milliseconds of it
 ran while the completion was waiting - directly comparable to the tick count, in the same detail string.
 
-If panel refresh accounts for the window, this is MoleHill's own cost and fixable (coalesce the
-refreshes, or do less per refresh). If it does not, the work belongs to Rhino and the next step is to
-find out what a document change costs it.
+**It accounts for all of it.** Measured interactively:
+
+| Sample | Wake marshal wait | Panel refresh during it |
+|---|---|---|
+| #4 | 263 ms | **287 ms over 2 runs** |
+| #7 | 272 ms | **290 ms over 2 runs** |
+
+The panel more than fills the window. **The terrain was late because the panel was rebuilding itself**,
+on the same queue, from the same edit. Nothing about Rhino's scheduling was ever the problem, which is
+why two fixes aimed at it did nothing - and why the tick counter, not more reasoning, is what found it.
+
+Two costs, addressed separately:
+
+- **It ran two to three times per edit.** One edit raises `StateChanged` when the rebuild is scheduled,
+  when it starts and when it is applied, and each posted its own `RefreshUi`.
+  `HandleControllerStateChanged` now coalesces them into one refresh per trip through the message loop,
+  with the flag cleared before the refresh runs so a change raised *during* a refresh still gets one.
+- **One refresh is still ~145 ms**, which is the real number and is not yet explained. `RefreshUi` sets
+  a few dozen control properties and then calls `RebuildVisibleTabLayout`, which reconstructs the
+  visible tab's cards; the probe now times that separately, so the next trace says whether the cost is
+  the card rebuild or the property updates around it. **Do not optimize either on the strength of the
+  name.**
+
+The prize is large and now well-located: at 70% of edit-to-visible, removing this cost would take this
+fixture's edit from ~390 ms to roughly 110 ms, at which point geometry (87-98 ms) is the whole
+remaining wait and the small-terrain realtime question becomes a geometry question for the first time.
 
 **A geometry figure that looked wrong is explained, and it is not a cache problem.** These traces show
 67-96 ms of geometry on 2,409 faces where `InteractiveScaleBenchmark` measures 16 ms on 2,694, which
