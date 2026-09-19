@@ -2,16 +2,14 @@
   <PropertyGroup>
     <MoleHillVersion>0.14.5-beta</MoleHillVersion>
     <BuildInParallel>false</BuildInParallel>
-  </PropertyGroup>
 
-  <!--
-    Host installation paths. The Rhino plugin and both host test projects reference assemblies from an
-    installed Rhino rather than from packages, so the path has to exist somewhere; keeping it here means
-    it is declared configuration in one file instead of an absolute developer path buried in four
-    csprojs. Override on another machine with `-p:RhinoInstallDir=...` or the matching environment
-    variable. See docs/validation-lanes.md.
-  -->
-  <PropertyGroup>
+    <!--
+      Host installation paths. The Rhino plugin and both host test projects reference assemblies from an
+      installed Rhino rather than from packages, so the path has to exist somewhere; keeping it here
+      means it is declared configuration in one file instead of an absolute developer path buried in
+      four csprojs. Override on another machine with `-p:RhinoInstallDir=...` or the matching
+      environment variable. See docs/validation-lanes.md.
+    -->
     <RhinoInstallDir Condition="'$(RhinoInstallDir)' == '' and '$(MOLEHILL_RHINO_DIR)' != ''">$(MOLEHILL_RHINO_DIR)</RhinoInstallDir>
     <RhinoInstallDir Condition="'$(RhinoInstallDir)' == ''">C:\Program Files\Rhino 8</RhinoInstallDir>
     <RhinoSystemDir Condition="'$(RhinoSystemDir)' == ''">$(RhinoInstallDir)\System</RhinoSystemDir>

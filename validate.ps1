@@ -180,8 +180,22 @@ try {
 
     function Invoke-Package {
         Write-Banner 'Lane: package (build the Yak archive and check its contents; never -Push)'
-        & (Join-Path $repoRoot 'build-yak-package.ps1')
-        if ($LASTEXITCODE -ne 0) { throw "build-yak-package.ps1 failed (exit $LASTEXITCODE)." }
+        # Run the packaging script in its OWN process. yak writes an expected warning to stderr
+        # ("Content name doesn't match manifest", documented in AGENTS.md as acceptable for the
+        # combined package); piping or redirecting that inside this session turns it into an
+        # ErrorRecord, which the packaging script's own ErrorActionPreference=Stop then treats as
+        # fatal. A child process keeps its streams out of this pipeline, and the exit code - not a
+        # stderr line - decides the verdict.
+        $packageLog = Join-Path $laneResults 'package-build.log'
+        $packageErrorLog = Join-Path $laneResults 'package-build.err.log'
+        $packageProcess = Start-Process -FilePath 'powershell' -PassThru -Wait -NoNewWindow `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repoRoot 'build-yak-package.ps1')) `
+            -RedirectStandardOutput $packageLog -RedirectStandardError $packageErrorLog
+        Get-Content $packageLog -Tail 20 | Out-Host
+        if ($packageProcess.ExitCode -ne 0) {
+            Get-Content $packageErrorLog | Out-Host
+            throw "build-yak-package.ps1 failed (exit $($packageProcess.ExitCode)). See $packageLog."
+        }
 
         $archive = Get-ChildItem -Path (Join-Path $repoRoot '.artifacts/yak') -Filter '*.yak' -Recurse |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1

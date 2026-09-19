@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$Configuration = "Release",
     [switch]$Push,
@@ -125,7 +125,11 @@ if (-not (Test-Path $propsPath)) {
 }
 
 [xml]$props = Get-Content -Path $propsPath
-$version = $props.Project.PropertyGroup.MoleHillVersion
+# SelectSingleNode rather than $props.Project.PropertyGroup.MoleHillVersion: with more than one
+# PropertyGroup that dotted access returns an array and throws, which once failed packaging for a
+# reason that had nothing to do with the version.
+$versionNode = $props.SelectSingleNode('/Project/PropertyGroup/MoleHillVersion')
+$version = if ($versionNode) { $versionNode.InnerText } else { $null }
 
 if ([string]::IsNullOrWhiteSpace($version)) {
     throw "MoleHillVersion is missing from '$propsPath'."
