@@ -696,10 +696,7 @@ public sealed partial class MoleHillPanel : Panel
         {
             _selectedTabIndex = Math.Clamp(index, 0, tabScrollables.Length - 1);
             _tabContentPanel.Content = tabScrollables[_selectedTabIndex];
-            long tabLayoutStart = System.Diagnostics.Stopwatch.GetTimestamp();
             RebuildVisibleTabLayout();
-            Services.TerrainUiThreadProbe.RecordTabLayout(
-                System.Diagnostics.Stopwatch.GetTimestamp() - tabLayoutStart);
         }
 
         _tabChipMap.Clear();
@@ -1331,7 +1328,26 @@ public sealed partial class MoleHillPanel : Panel
     /// below the fold threw the user back to the start of the list. The position is restored after the
     /// content is in place, clamped by the scrollable itself if the new content is shorter.
     /// </summary>
+    /// <summary>
+    /// Timed from the inside rather than at a call site. The first attempt wrapped the tab-selection
+    /// caller and reported 0 ms against a 94 ms refresh, which isolated nothing - there are two callers
+    /// and the refresh path is the other one.
+    /// </summary>
     private void RebuildVisibleTabLayout()
+    {
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            RebuildVisibleTabLayoutCore();
+        }
+        finally
+        {
+            Services.TerrainUiThreadProbe.RecordTabLayout(
+                System.Diagnostics.Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    private void RebuildVisibleTabLayoutCore()
     {
         if (_tabScrollables == null)
             return;

@@ -1518,9 +1518,52 @@ Two costs, addressed separately:
   the card rebuild or the property updates around it. **Do not optimize either on the strength of the
   name.**
 
-The prize is large and now well-located: at 70% of edit-to-visible, removing this cost would take this
-fixture's edit from ~390 ms to roughly 110 ms, at which point geometry (87-98 ms) is the whole
-remaining wait and the small-terrain realtime question becomes a geometry question for the first time.
+**Measured after coalescing: 492 -> 111-121 ms**, and the composition has inverted.
+
+| | First interactive trace | After coalescing |
+|---|---|---|
+| edit to visible, median | 492 ms | **121 ms** |
+| wake marshal wait | 71.1% (~320 ms) | **4.8%** (3-8 ms) |
+| geometry (modifiers) | 21% | **76%** (84-93 ms) |
+| redraw | 3.6% | 7.6% |
+| panel refreshes landing in the wake | 2 (287 ms) | **0** |
+
+**The win is not that less work happens - it is that the work now fits.** The build runs on a worker and
+the refresh on the UI thread, so they always overlapped; what changed is the ratio. Two or three
+refreshes (~290 ms) against an 87 ms build overran it by ~200 ms, and the finished terrain queued behind
+the overrun. One refresh (~94 ms) against a ~90 ms build finishes inside the build window, so
+edit-to-visible is now `max(geometry, panel)` rather than `geometry + spillover`.
+
+That also bounds how much more the panel is worth. It is off the critical path for a discrete edit and
+cannot be measured from the wake window any more, because it no longer lands there. Its remaining ~94 ms
+matters only for sustained gestures, where it would contend with a build of about the same size - and
+gesture rate is blocked by geometry first. **Do not optimize the panel further without a gesture trace
+showing it costs something.**
+
+A note on the instrument, because the first placement was wrong: `RebuildVisibleTabLayout` has two
+callers, and wrapping the tab-selection one reported 0 ms against a 94 ms refresh. It is now timed from
+inside the method so every caller is covered. And a refresh is recorded when it *finishes*, so one
+straddling the start of a window donates all its time to that window - which is how 287 ms was reported
+inside a 263 ms wait. Good enough to name a culprit, not to subtract.
+
+### What is left on a small terrain
+
+At 111-121 ms the **exact settlement target of <=200 ms is met** for this workflow. The interactive
+target is not: 30 updates/s needs 33 ms and geometry alone is 84-93 ms.
+
+The remaining wait is almost entirely real geometry, and the case bundle breaks it down: `Triangulate`
+is a cache hit, `Retaining Wall` is ~20 ms, `Remesh` is ~42 ms. Nothing here is waste to be removed -
+it is the cost of the stack. So the only route to gesture rate is to run less of it *during* the
+gesture and settle exactly on release, which is what this plan has always called an approximate
+interactive surface.
+
+The machinery for that mostly exists and is not wired up. `TerrainBuildMode.Preview` already halves
+remesh iterations and doubles the target edge length, and `IsPreview` is already refused by bake, the
+interop accessors and the Grasshopper bridge - but the ordinary edit path always queues `Final`, so
+preview is never dispatched (see
+[interactive-terrain-plan-2026-09-16.md](interactive-terrain-plan-2026-09-16.md) implementation log
+entry 5). Dispatching Preview during a gesture and Final on release is the next step, and it is
+scheduling work on top of parts that already exist rather than new geometry.
 
 **A geometry figure that looked wrong is explained, and it is not a cache problem.** These traces show
 67-96 ms of geometry on 2,409 faces where `InteractiveScaleBenchmark` measures 16 ms on 2,694, which

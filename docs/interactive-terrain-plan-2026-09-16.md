@@ -422,7 +422,27 @@ policy: geometry is a median 5.0 ms against a 454 ms edit-to-visible, of which *
 worker→UI marshal**. A fix for that was tried (Eto's `AsyncInvoke` in place of
 `RhinoApp.InvokeOnUiThread`) and measured three times worse, so it is reverted and recorded.
 
-**The next thing this plan needs is not code.** Every latency measurement in it, including these, comes
+**Resolved 2026-09-19, and the answer was ours.** The ~320 ms marshal was real in an interactive Rhino
+(71% of edit-to-visible), and the cause was MoleHill's own panel: one edit raised `StateChanged` three
+times, each posting a `RefreshUi`, and ~290 ms of panel rebuild overran the 87 ms build on the one UI
+thread the completion callback also needs. Coalescing them took a small-terrain edit from **492 ms to
+111-121 ms**. Geometry is now **76%** of the wait and the panel has left the critical path.
+
+Two fixes aimed at the host's scheduling failed first - Eto's invoke queue (three times worse) and a
+wake timer (no change) - and what settled it was counting the timer's own ticks: **0 delivered** during
+the wait meant the thread was occupied, not starved, which pointed at our own work rather than Rhino's.
+Recorded because the wrong reading survived two attempts to act on it.
+
+**Where the small-terrain target now stands.** Exact settlement <=200 ms is **met** at 111-121 ms. The
+interactive target is not: 30 updates/s needs 33 ms and geometry alone is 84-93 ms, of which
+`Retaining Wall` is ~20 ms and `Remesh` ~42 ms - real work, not waste. So gesture rate needs less work
+*during* the gesture, which is this plan's approximate interactive surface, and the next concrete step
+is entry 5's finding: `TerrainBuildMode.Preview` already exists, already relaxes the remesh, and is
+already refused by bake and the bridges, but the ordinary edit path always queues `Final` so it is
+never dispatched. Wiring Preview to the gesture and Final to the release is scheduling work over parts
+that already exist.
+
+**The remaining prerequisite is narrower than it was.** Every latency measurement in it, including these, comes
 from a headless slot whose UI thread is pumped by a script occupying that same thread. Whether the
 ~320 ms marshal is real or an artifact of that decides whether small-terrain realtime is reachable at
 all, and no amount of further work in the slot can answer it. A trace from a genuinely interactive
