@@ -121,6 +121,30 @@ machine; treat as shape rather than as budgets.
 | Analysis-heavy (244k faces, 6 analyses) | 7,213 ms | dependent outputs — Ponding 3.72 s, Catchments 1.40 s |
 | Geometry-heavy (124k faces, 5 modifiers, no analyses) | 5,203 ms | **98.5% the modifier chain** |
 
+**Measured 2026-09-19, the headroom at each scale.** The table above is edit-to-visible; this is the
+*evaluation* inside it, on this plan's own first workflow (Triangulate -> Retaining Wall) under a
+repeated rail raise with caches warm. `InteractiveScaleBenchmark`, worker time only:
+
+| Scale | Faces | Warm rail edit | Wall topology insert |
+|---|---|---|---|
+| small | 2,694 | **16 ms** | 14 ms |
+| medium | 25,186 | **81 ms** | 65 ms |
+| large | 51,334 | 171 ms | 140 ms |
+| plan target | 100,542 | **452 ms** | 388 ms |
+
+This is the number the 66 ms input-to-visible target needed, and it settles two things:
+
+- **The "warmed 100k-face fixture" in the target table is not reachable exactly.** Evaluation alone is
+  452 ms, ~7x the whole budget, before scheduling or redraw. Either that row names a bounded
+  approximation or it names a smaller fixture; as written it promises something no scheduling work can
+  deliver.
+- **Below roughly 10k faces the target is reachable with no geometry work at all**, which makes Step 2
+  the entire remaining job at that scale rather than a prerequisite for it.
+
+The wall topology insert is 80-86% of every warm edit and scales with the whole terrain although a rail
+pair touches a small fixed neighbourhood. Localizing it is Step 4's "benchmark existing insertion"
+question, arriving earlier than expected and as the sole lever for medium terrains.
+
 ### What this changes in this plan
 
 - **"Orchestration remains part of the cost" was overstated for the geometry-heavy case.** On that

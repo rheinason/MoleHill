@@ -118,6 +118,35 @@ is **not** a licence to change the constant: build time and query time trade aga
 `relax` (301 ms) and `split` (79 ms) are the queries that would pay. The open experiment is the summed
 cost across a real remesh at each cell size. Next after that: `FlipForQuality`, 422 ms / 24%.
 
+**Geometry-heavy work is parked here, deliberately.** The chain is fully documented and the next
+experiment is named, so it can be resumed cold: measure the summed build+query cost of `Remesh` at cell
+sizes target x0.5 / x1 / x2 / x4 over a real remesh, then decide the constant; after that
+`FlipForQuality` at 24%. Nothing is half-applied - the profiling instrumentation is committed and the
+constants are untouched. The reason for parking is priority, not difficulty: the geometry-heavy shape is
+a 5-modifier stack on 124k faces, and the interactive targets are about small and medium terrains, which
+are a different problem with a different answer (below).
+
+**Now the priority: small and medium terrains.** See [architecture.md](architecture.md), "Interactive
+scale". Measured on Triangulate -> Retaining Wall under a repeated rail raise, worker time only:
+small (2.7k faces) **16 ms**, medium (25k) **81 ms**, large (51k) 171 ms, 100k 452 ms.
+
+This splits the work in two and both halves are now evidenced:
+
+1. **Small terrains are inside the 66 ms budget already; the blocker is purely scheduling.** 16 ms of
+   evaluation leaves 50 ms for everything else. What stops a small terrain following a drag is
+   `RequestRebuild` cancelling the running build on every sample, so a gesture shows nothing until
+   input stops. That is Step 2 of [interactive-terrain-plan-2026-09-16.md](interactive-terrain-plan-2026-09-16.md),
+   and at this scale Step 2 is the whole job.
+2. **Medium terrains are over budget on evaluation alone**, so no scheduling change can rescue them.
+   The wall topology insert is 80-86% of every warm edit and scales with the whole terrain even though
+   a rail pair touches a small fixed neighbourhood - the same whole-mesh-for-a-local-edit shape as the
+   snapper and the projection grid. Localizing it is the one lever for this scale.
+
+Two caveats that bound what can be promised. The 275 ms worker-to-UI marshal on the small fixture is
+still **unverified** - it measures 0.1 ms when Rhino's loop is busy, so only a genuinely interactive
+session will say what an ordinary edit sees, and it is over half the small fixture's current 385 ms. And
+no sustained gesture has ever been traced; every measurement to date is an isolated or burst edit.
+
 That measurement needed a route around a broken lane, and the route is reusable.
 `GeometryHeavyStackBenchmark` splits the benchmark body from its `[RhinoNativeFact]` wrapper and exposes
 `RunToFile`, because on Rhino 8.35 the native lane cannot start at all — so the xunit wrapper is dead on

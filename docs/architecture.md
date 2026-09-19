@@ -1319,6 +1319,44 @@ Two other explanations were measured and **disproved** first, and are recorded s
 re-investigated: `TryExtractMeshData` is 67 ms on a 124k-face mesh, and the whole per-stage mesh
 marshalling round trip (extract, `BuildMesh`, normalize, cache clone) is ~113 ms on 110k faces.
 
+### Interactive scale: what a warm edit costs as the terrain grows
+
+The realtime targets are stated as input-to-visible budgets, but nothing had measured how much of one
+the *evaluation* consumes. `InteractiveScaleBenchmark` measures the interactive plan's first supported
+workflow - Triangulate -> Retaining Wall - under the edit a height drag actually produces: a rail
+raise, repeated, with the stage caches warm. Release, two runs, worker time only.
+
+| Scale | Faces | Cold | Warm rail edit | Of which wall topology insert |
+|---|---|---|---|---|
+| small | 2,694 | 23 ms | **16 ms** | 14 ms |
+| medium | 25,186 | 100 ms | **81 ms** | 65 ms |
+| large | 51,334 | 231 ms | **171 ms** | 140 ms |
+| plan target | 100,542 | 603 ms | **452 ms** | 388 ms |
+
+Read against the plan's 66 ms input-to-visible target, this splits the problem cleanly in two:
+
+- **Small terrains are already inside the budget and the blocker is scheduling.** 16 ms of evaluation
+  leaves 50 ms for dispatch, the worker-to-UI marshal, display publication and redraw. Nothing about
+  the geometry needs to change; what stops a small terrain following a drag is that
+  `TerrainController.RequestRebuild` cancels the running build on every sample, so a sustained gesture
+  shows nothing until input stops. That is Step 2 of the interactive plan, and this measurement says
+  Step 2 is the *whole* job at this scale.
+- **Medium terrains are over budget on evaluation alone**, so scheduling cannot rescue them: 81 ms
+  exceeds 66 ms before anything is drawn. They comfortably meet the 200 ms *settlement* target, so the
+  honest position is fast settlement at 25k faces and a gesture-rate surface only below roughly 10k.
+
+**And the cost is the same shape as the other two findings.** The wall topology insert is 80-86% of
+every warm edit and scales with the whole terrain (14 -> 65 -> 140 -> 388 ms) although a rail pair
+touches a small, fixed neighbourhood of faces. Whole-mesh work for a local operation, for the third
+time: first `ConstraintCoincidenceSnapper` indexing every edge to snap 3 polylines, then
+`BuildProjectionGrid` indexing every face at half the target edge, now this. Localizing the insert to
+the rails' neighbourhood is what would move medium terrains inside the interactive budget, and it is
+the single lever for that scale.
+
+One measurement note: the first scale in a run carries the JIT cost for every stage below it. The
+first pass reported small at 37 ms and the second at 16 ms, with all larger scales stable to within a
+few percent. Read the first row of a cold process as warm-up.
+
 ### Publishing geometry before its outputs
 
 `Build` assigns `PrimaryMesh` before the final-only output stages but returns only after all of them, so
