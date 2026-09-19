@@ -1,4 +1,4 @@
-// Immutable spatial grid with dense or sparse caller-owned query scratch.
+﻿// Immutable spatial grid with dense or sparse caller-owned query scratch.
 namespace MoleHill.Core.Engine;
 
 internal readonly record struct Bounds2D(double MinX, double MaxX, double MinY, double MaxY)
@@ -119,7 +119,11 @@ internal sealed class SpatialHashGrid2D
         ItemCount = itemCount;
     }
 
-    public static SpatialHashGrid2D Build(Bounds2D[] bounds, bool[]? valid = null)
+    /// <param name="cancellation">
+    /// Consulted while scanning items and filling cells. Index construction is a phase in its own right
+    /// on a large model - a superseded build must be able to stop inside it, not only before it.
+    /// </param>
+    public static SpatialHashGrid2D Build(Bounds2D[] bounds, bool[]? valid = null, CancellationProbe? cancellation = null)
     {
         if (bounds.Length == 0)
         {
@@ -141,8 +145,10 @@ internal sealed class SpatialHashGrid2D
         double maxY = double.MinValue;
         int validCount = 0;
 
+        CancellationProbe probe = cancellation ?? CancellationProbe.None;
         for (int i = 0; i < bounds.Length; i++)
         {
+            probe.ThrowIfCancelledOften();
             if (valid != null && !valid[i])
                 continue;
 
@@ -189,6 +195,7 @@ internal sealed class SpatialHashGrid2D
         var counts = new List<int>(Math.Max(16, validCount));
         for (int i = 0; i < bounds.Length; i++)
         {
+            probe.ThrowIfCancelledOften();
             if (!TryGetCellRange(bounds, valid, i, minX, minY, invCellSize, out long cminX, out long cmaxX, out long cminY, out long cmaxY))
                 continue;
 
@@ -221,11 +228,15 @@ internal sealed class SpatialHashGrid2D
 
         // Pass 2: fill. Items are visited in index order in both passes, so each cell's run stays
         // ascending - the order the per-cell lists had, and the order candidates are gathered in.
+        // Checked before the membership buffer is allocated: it is the largest allocation here, and a
+        // build already known to be superseded should not reserve it.
+        probe.ThrowIfCancelled();
         var cellItems = new int[running];
         var cursor = new int[counts.Count];
         Array.Copy(cellStart, cursor, counts.Count);
         for (int i = 0; i < bounds.Length; i++)
         {
+            probe.ThrowIfCancelledOften();
             if (!TryGetCellRange(bounds, valid, i, minX, minY, invCellSize, out long cminX, out long cmaxX, out long cminY, out long cmaxY))
                 continue;
 

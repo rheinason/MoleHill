@@ -423,7 +423,7 @@ internal static class MeshAreaTopologySplitter
         }
 
         cancellation.ThrowIfCancelled();
-        var boundarySegments = BuildBoundarySegments(areas, tolerance);
+        var boundarySegments = BuildBoundarySegments(areas, tolerance, cancellation);
         if (performanceTimings != null)
         {
             performanceTimings.BoundarySegmentsMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
@@ -442,7 +442,7 @@ internal static class MeshAreaTopologySplitter
         }
 
         cancellation.ThrowIfCancelled();
-        var faceCuts = MapBoundarySegmentsToFaces(faceData, boundarySegments, tolerance);
+        var faceCuts = MapBoundarySegmentsToFaces(faceData, boundarySegments, tolerance, cancellation);
         if (performanceTimings != null)
         {
             performanceTimings.FaceMappingMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
@@ -471,7 +471,7 @@ internal static class MeshAreaTopologySplitter
         // re-triangulation cannot leave a T-junction / crack. This is what keeps dense and nested
         // boundary loops manifold instead of producing naked edges along shared terrain edges.
         cancellation.ThrowIfCancelled();
-        var sharedEdgePoints = BuildSharedEdgeRegistry(faceData, faceCuts, tolerance);
+        var sharedEdgePoints = BuildSharedEdgeRegistry(faceData, faceCuts, tolerance, cancellation);
         if (performanceTimings != null)
         {
             performanceTimings.SharedEdgeRegistryMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
@@ -481,6 +481,8 @@ internal static class MeshAreaTopologySplitter
             phaseTimer.Restart();
         }
 
+        // The output buffers copy the whole input mesh; check before reserving them rather than after.
+        cancellation.ThrowIfCancelled();
         var globalVertices = new List<double>(vertices);
         var globalFaces = new FaceBuffer();
         var pointLookup = new GlobalPointLookup(globalVertices, tolerance);
@@ -600,13 +602,16 @@ internal static class MeshAreaTopologySplitter
     private static Dictionary<(int, int), List<Point2D>> BuildSharedEdgeRegistry(
         FaceSource faceData,
         FaceCutData?[] faceCuts,
-        double tolerance)
+        double tolerance,
+        CancellationProbe? cancellation = null)
     {
+        CancellationProbe probe = cancellation ?? CancellationProbe.None;
         var registry = new Dictionary<(int, int), List<Point2D>>();
         double toleranceSquared = tolerance * tolerance;
 
         for (int faceIndex = 0; faceIndex < faceData.Count; faceIndex++)
         {
+            probe.ThrowIfCancelledOften();
             var cuts = faceCuts[faceIndex];
             if (cuts == null || cuts.EdgePoints.Count == 0)
                 continue;
@@ -702,11 +707,16 @@ internal static class MeshAreaTopologySplitter
         }
     }
 
-    private static List<BoundarySegment> BuildBoundarySegments(MeshAreaSplitter.AreaBoundary[] areas, double tolerance)
+    private static List<BoundarySegment> BuildBoundarySegments(
+        MeshAreaSplitter.AreaBoundary[] areas,
+        double tolerance,
+        CancellationProbe? cancellation = null)
     {
+        CancellationProbe probe = cancellation ?? CancellationProbe.None;
         var sourceSegments = new List<BoundarySegment>();
         for (int areaIndex = 0; areaIndex < areas.Length; areaIndex++)
         {
+            probe.ThrowIfCancelledOften();
             var area = areas[areaIndex];
             for (int vertexIndex = 0; vertexIndex < area.VertexCount; vertexIndex++)
             {
@@ -740,12 +750,13 @@ internal static class MeshAreaTopologySplitter
         // Zone boundaries come straight from GIS/CAD polygons and routinely carry tens of thousands of
         // vertices; the n^2 sweep this replaces did ~1.6e9 bbox tests on a 56k-vertex cadastral layer.
         // Every other hot loop in this file is already indexed this way.
-        var pairGrid = SpatialHashGrid2D.Build(segmentBounds);
+        var pairGrid = SpatialHashGrid2D.Build(segmentBounds, valid: null, probe);
         var pairScratch = new SpatialHashGrid2D.QueryScratch(sourceSegments.Count);
         var pairCandidates = new List<int>(16);
 
         for (int i = 0; i < sourceSegments.Count; i++)
         {
+            probe.ThrowIfCancelledOften();
             pairGrid.GatherCandidates(segmentBounds[i], pairCandidates, pairScratch);
             // Sorted so each unordered pair is still visited exactly once, in the same ascending order
             // the all-pairs sweep used - split parameters accumulate identically.
@@ -828,11 +839,15 @@ internal static class MeshAreaTopologySplitter
     private static FaceCutData[] MapBoundarySegmentsToFaces(
         FaceSource faceData,
         List<BoundarySegment> boundarySegments,
-        double tolerance)
+        double tolerance,
+        CancellationProbe? cancellation = null)
     {
+        CancellationProbe probe = cancellation ?? CancellationProbe.None;
+        probe.ThrowIfCancelled();
         var segmentBounds = new Bounds2D[boundarySegments.Count];
         for (int i = 0; i < boundarySegments.Count; i++)
         {
+            probe.ThrowIfCancelledOften();
             BoundarySegment segment = boundarySegments[i];
             segmentBounds[i] = new Bounds2D(
                 Math.Min(segment.Start.X, segment.End.X) - tolerance,
@@ -841,7 +856,8 @@ internal static class MeshAreaTopologySplitter
                 Math.Max(segment.Start.Y, segment.End.Y) + tolerance);
         }
 
-        var grid = SpatialHashGrid2D.Build(segmentBounds);
+        var grid = SpatialHashGrid2D.Build(segmentBounds, valid: null, probe);
+        probe.ThrowIfCancelled();
         var result = new FaceCutData[faceData.Count];
 
         // Cut endpoints within this distance of a terrain edge are projected onto it so they conform
@@ -849,7 +865,11 @@ internal static class MeshAreaTopologySplitter
         // enough to absorb near-edge cut points, far below terrain detail.
         double edgeSnapToleranceSquared = (tolerance * 8.0) * (tolerance * 8.0);
 
-        System.Threading.Tasks.Parallel.For(
+        // Each worker gets its own probe: a shared countdown is decremented by all of them at once,
+        // which would consult the callback far more often than once per interval per worker.
+        try
+        {
+            System.Threading.Tasks.Parallel.For(
             0,
             faceData.Count,
             () => (
@@ -857,9 +877,11 @@ internal static class MeshAreaTopologySplitter
                 Candidates: new List<int>(16),
                 EdgePointBuffer: new EdgePoint[8],
                 ParameterBuffer: new double[8],
-                ClippedPieceBuffer: new SegmentPiece[7]),
+                ClippedPieceBuffer: new SegmentPiece[7],
+                Cancellation: probe.Fork(CancellationProbe.ParallelWorkerInterval)),
             (faceIndex, _, state) =>
         {
+            state.Cancellation.ThrowIfCancelledOften();
             FaceData face = faceData.Get(faceIndex);
             Bounds2D faceBounds = face.Bounds;
 
@@ -923,6 +945,14 @@ internal static class MeshAreaTopologySplitter
 
             return state;
         }, _ => { });
+        }
+        catch (AggregateException aggregate) when (
+            aggregate.Flatten().InnerExceptions.Any(inner => inner is OperationCanceledException))
+        {
+            // Parallel.For wraps a worker's exception. Cancellation must reach the host as an
+            // OperationCanceledException, not as an aggregated build failure that reads like a bug.
+            throw new OperationCanceledException("Cancelled.");
+        }
 
         return result;
     }

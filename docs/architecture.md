@@ -1100,6 +1100,28 @@ map remains the description of what the code does today.
 - `docs/terrain-scalability-review-2026-09-09.md` — C01/O01–O16 scalability items and their open
   acceptance gaps.
 
+## Core: cancellation inside a phase
+
+A superseded build must stop *inside* an expensive phase, not merely between phases. `CancellationProbe`
+(`Core/Engine/`) is the one mechanism: `ThrowIfCancelled` at phase and round boundaries,
+`ThrowIfCancelledOften` in per-face/per-vertex loops, where it consults the callback once per interval.
+
+Two rules that are easy to get wrong:
+
+- **Parallel loops need `Fork()`.** A shared probe's countdown is decremented by every worker at once,
+  so the interval elapses far sooner than one worker's `DefaultInterval` iterations — and, worse, a
+  worker holding only a few thousand faces of a partitioned loop would never reach a 4096-tick interval
+  at all, leaving the phase effectively unprobed. Each worker takes `probe.Fork(CancellationProbe.ParallelWorkerInterval)`
+  in its thread-local state.
+- **`Parallel.For` wraps the throw.** Cancellation must reach the host as `OperationCanceledException`;
+  the `AggregateException` the TPL produces would be read as an ordinary build failure. The parallel
+  phase catches and unwraps it (see `MeshAreaTopologySplitter.MapBoundarySegmentsToFaces`).
+
+Cancellation is reported by throwing, never by returning early with a partial result: there is no valid
+output at that point, and throwing makes publishing a half-finished result to a cache impossible by
+construction. `SpatialHashGrid2D.Build` takes an optional probe and also checks before allocating its
+membership buffer — the largest allocation in index construction.
+
 ## Rhino: document schema compatibility
 
 Terrain state is persisted as JSON in the `.3dm` (`TerrainDocumentStore`, `TerrainSerializer`). Two

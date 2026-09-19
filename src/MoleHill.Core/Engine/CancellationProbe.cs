@@ -1,4 +1,4 @@
-namespace MoleHill.Core.Engine;
+﻿namespace MoleHill.Core.Engine;
 
 /// <summary>
 /// Cooperative cancellation for the heavy Core stages, so a superseded build stops instead of running
@@ -24,6 +24,14 @@ public sealed class CancellationProbe
     /// <summary>Loop iterations between two consultations of the callback.</summary>
     public const int DefaultInterval = 4096;
 
+    /// <summary>
+    /// Interval for a worker inside a parallel loop. Much shorter than <see cref="DefaultInterval"/>
+    /// because the iterations are split across workers: at 4096 a worker holding a few thousand faces
+    /// of a partitioned loop would never reach its first consultation, and the phase would run to
+    /// completion after cancellation exactly as if no probe were there.
+    /// </summary>
+    public const int ParallelWorkerInterval = 256;
+
     /// <summary>A probe that never cancels. Shared; holds no state that matters.</summary>
     public static readonly CancellationProbe None = new(null);
 
@@ -45,6 +53,17 @@ public sealed class CancellationProbe
     public static CancellationProbe For(Func<bool>? shouldCancel)
     {
         return shouldCancel == null ? None : new CancellationProbe(shouldCancel);
+    }
+
+    /// <summary>
+    /// A second probe watching the same callback with its own countdown. Give each worker of a parallel
+    /// loop one of these: a shared probe's counter would be decremented by every worker at once, so the
+    /// interval would pass far sooner than <see cref="DefaultInterval"/> iterations of any one worker,
+    /// and the callback would be consulted proportionally more often than intended.
+    /// </summary>
+    public CancellationProbe Fork(int? interval = null)
+    {
+        return _shouldCancel == null ? None : new CancellationProbe(_shouldCancel, interval ?? _interval);
     }
 
     /// <summary>Consults the callback now. For phase and round boundaries.</summary>
