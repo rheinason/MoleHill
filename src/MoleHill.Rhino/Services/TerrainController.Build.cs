@@ -377,6 +377,8 @@ internal sealed partial class TerrainController
             (_, state) =>
             {
                 int ticksAtPost = Volatile.Read(ref _buildWakeTicks);
+                long panelTicksAtPost = TerrainUiThreadProbe.PanelRefreshTicks;
+                int panelCountAtPost = TerrainUiThreadProbe.PanelRefreshCount;
                 latency.Mark(TerrainLatencyPhase.WakePosted);
 
                 // InvokeOnUiThread here, deliberately, even though the dispatch path uses Eto's
@@ -390,9 +392,13 @@ internal sealed partial class TerrainController
                 {
                     var controller = (TerrainController)state!;
                     int ticksWhileWaiting = Volatile.Read(ref controller._buildWakeTicks) - ticksAtPost;
+                    double panelMs = TerrainUiThreadProbe.TicksToMilliseconds(
+                        TerrainUiThreadProbe.PanelRefreshTicks - panelTicksAtPost);
+                    int panelRefreshes = TerrainUiThreadProbe.PanelRefreshCount - panelCountAtPost;
                     latency.Mark(
                         TerrainLatencyPhase.WakeRan,
-                        $"{ticksWhileWaiting} wake ticks while waiting, timer {(controller._buildWakeTimer?.Started == true ? "running" : "stopped")}");
+                        $"{ticksWhileWaiting} wake ticks, timer {(controller._buildWakeTimer?.Started == true ? "running" : "stopped")}; " +
+                        $"panel refresh {panelMs:N0} ms over {panelRefreshes} runs");
                     controller.PumpFinishedBuilds();
                 }));
             },

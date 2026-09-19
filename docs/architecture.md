@@ -1484,10 +1484,27 @@ cannot remove.
 - **0 ticks** - the thread never processed a queued message in that window, so it was busy or blocked.
   The wait belongs to Rhino's own post-edit work, and the next question is what that work is.
 
-Do not attempt a third fix before that number exists. Note that the geometry figures in these traces
-(67-94 ms on 2,409 faces, against 16 ms measured for a warm rail edit on 2,694 faces in
-`InteractiveScaleBenchmark`) suggest this fixture's 3-modifier stack is not hitting its stage caches the
-way the benchmark's does - a separate thread worth pulling once the wake is settled.
+**The tick count came back 0, on every sample, with the timer running.** The thread processed no queued
+message at all across a 275-492 ms window. It is not starved; it is **occupied**. That rules out every
+fix of the shape "ask the host to look sooner", which is what both failed attempts were, and it makes
+the remaining question "what is holding the UI thread?" rather than "how do we get scheduled?".
+
+First suspect is MoleHill's own work, because there is a lot of it on that thread and it is triggered by
+the same edit: `RaiseStateChanged` fires synchronously into `MoleHillPanel`, which posts `RefreshUi`
+onto the same queue the completion callback is waiting in. One edit raises it three times.
+`TerrainUiThreadProbe` now times every panel refresh, and the wake reports how many milliseconds of it
+ran while the completion was waiting - directly comparable to the tick count, in the same detail string.
+
+If panel refresh accounts for the window, this is MoleHill's own cost and fixable (coalesce the
+refreshes, or do less per refresh). If it does not, the work belongs to Rhino and the next step is to
+find out what a document change costs it.
+
+**A geometry figure that looked wrong is explained, and it is not a cache problem.** These traces show
+67-96 ms of geometry on 2,409 faces where `InteractiveScaleBenchmark` measures 16 ms on 2,694, which
+suggested a stage cache was missing. The case bundle exported from this very session says otherwise: its
+build log records `Triangulate: 0 s (cache hit)`, and the 70 ms is real work in the two stages the
+benchmark's fixture does not have - `Retaining Wall` 20 ms and `Remesh` 40 ms. The benchmark stack ends
+at the wall; this one ends at a Remesh. Nothing to fix, and the cache guess is withdrawn.
 
 ### Publishing geometry before its outputs
 

@@ -1157,6 +1157,22 @@ public sealed partial class MoleHillPanel : Panel
         if (IsDisposed)
             return;
 
+        // Timed because this is the largest piece of UI-thread work MoleHill schedules per edit, and a
+        // finished build's completion callback queues behind it. See TerrainUiThreadProbe.
+        long refreshStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            RefreshUiCore();
+        }
+        finally
+        {
+            Services.TerrainUiThreadProbe.RecordPanelRefresh(
+                System.Diagnostics.Stopwatch.GetTimestamp() - refreshStart);
+        }
+    }
+
+    private void RefreshUiCore()
+    {
         // Keep shared label instances in sync with the current theme.
         _terrainColorLabel.TextColor = UiTheme.MutedText;
         _statusHintLabel.TextColor   = UiTheme.MutedText;
