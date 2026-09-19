@@ -1,5 +1,10 @@
 # Codebase cleanup plan
 
+> Current cross-cutting review and implementation sequence:
+> [Codebase review — 2026-09-19](codebase-review-and-implementation-plan-2026-09-19.md).
+> The July snapshot below is retained as historical context; use the newer review for current
+> priorities and validation gaps.
+
 Grounded in a survey of the current tree (2026-07-11). Ordered by value/risk: do the safe, high-value
 items first. The bar for every step: **`dotnet build` clean + `dotnet test tests/MoleHill.Core.Tests`
 green**; for static-only code moves, compile-clean implies behavior-identical. Do NOT touch
