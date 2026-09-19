@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Reflection;
@@ -31,7 +31,6 @@ internal sealed partial class TerrainController
     private const int StageTimingDiagnosticThresholdMs = 250;
     private const int MinorTimingDiagnosticThresholdMs = 100;
     private const int TotalTimingDiagnosticThresholdMs = 750;
-    private const int FinalDebounceMs = 500;
     private const int LiveEditSaveDebounceMs = 400;
     private const double PreviewWarningThresholdSeconds = 1.5;
     private const double FinalWarningThresholdSeconds = 5.0;
@@ -1857,14 +1856,19 @@ internal sealed partial class TerrainController
             rebuildState.WorkerCancellation?.Cancel();
         }
 
-        TerrainLatencyTrace.Record(
-            docSerial,
-            terrainId,
-            rebuildState.RequestedVersion,
-            rebuildState.BuildGeneration,
-            TerrainBuildMode.Final,
-            TerrainLatencyPhase.Edit,
-            isImmediate ? "immediate" : $"debounce {FinalDebounceMs} ms");
+        // A debounced request records its own edit in ScheduleRebuild, where the resolved delay is known.
+        if (isImmediate)
+        {
+            TerrainLatencyTrace.Record(
+                docSerial,
+                terrainId,
+                rebuildState.RequestedVersion,
+                rebuildState.BuildGeneration,
+                TerrainBuildMode.Final,
+                TerrainLatencyPhase.Edit,
+                "immediate");
+        }
+
         return rebuildState.RequestedVersion;
     }
 

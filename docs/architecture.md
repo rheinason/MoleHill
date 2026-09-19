@@ -1131,10 +1131,35 @@ The computation is not the wait. On the unchanged rebuild, **97% of 1,087 ms was
 debounce and 524 ms waiting for the finished result to be picked up, against 3 ms of real work.
 Debounce coalescing is sound - the five-edit burst discarded **zero** worker time.
 
-Two structural facts behind that:
+**A heavy terrain inverts this.** Same trace, a synthetic 122,500-point survey (244,476 faces) with six
+analyses enabled:
 
-- **`FinalDebounceMs` is a flat 500 ms on every edit**, and `ScheduleRebuild` queues Final directly;
-  there is no cheaper preview first and no gesture-end fast path.
+| Interval | Time | Share |
+|---|---|---|
+| Analyses (dependent outputs) | 5,144 ms | 68.9% |
+| Redraw | 1,066 ms | 14.3% |
+| Geometry (modifiers) | 698 ms | 9.3% |
+| Display publish | 431 ms | 5.8% |
+| Debounce | 119 ms | 1.6% |
+| **edit to visible** | **7,464 ms** | |
+
+So the shape of the wait depends entirely on scale, and **each scale wants a different fix**. Small
+terrain: the scheduling constants. Large terrain: the mesh is finished at ~700 ms and the user still
+waits 7.5 s, because `Build` assigns `PrimaryMesh` before the final-only output stages but returns only
+after all of them, and `ApplySuccessfulBuild` publishes display state after that. Publishing the
+completed mesh ahead of its dependent outputs is worth roughly 3.4x here - which is why it needs the
+explicit geometry/output revisions and freshness described in the review plan, not a bare assignment.
+
+Two structural facts behind the small-terrain numbers:
+
+- **The debounce was a flat 500 ms on every edit.** It is now
+  [`TerrainDebouncePolicy`](../src/MoleHill.Rhino/Services/TerrainDebouncePolicy.cs): the previous final
+  build's worker duration, clamped to [60, 500] ms. The floor sits above a slider drag's 16-40 ms event
+  spacing so a drag still coalesces; the ceiling is the old constant, so no terrain ever waits longer
+  than it used to and slow terrains keep exactly their current protection against discarded work.
+  Verified live: 500 ms on the first build, 60 ms once a cached rebuild had measured itself at 1.9 ms,
+  and back to 500 ms on the heavy fixture. `ScheduleRebuild` still queues Final directly; there is no
+  cheaper preview first and no gesture-end fast path.
 - **A finished build is discovered only by polling.** `TryCompleteFinishedBuild` runs inside `OnIdle`;
   nothing wakes the UI thread when a worker completes. `StartBackgroundBuild` now also posts
   `PumpFinishedBuilds` through `RhinoApp.InvokeOnUiThread` from the worker continuation, with the idle

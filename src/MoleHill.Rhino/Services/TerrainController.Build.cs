@@ -29,7 +29,16 @@ internal sealed partial class TerrainController
             return;
 
         long requestedVersion = RequestRebuild(doc.RuntimeSerialNumber, terrainId, isImmediate: false);
-        QueuePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Final, requestedVersion, FinalDebounceMs);
+        int debounceMs = ResolveFinalDebounceMs(doc.RuntimeSerialNumber, terrainId);
+        QueuePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Final, requestedVersion, debounceMs);
+        TerrainLatencyTrace.Record(
+            doc.RuntimeSerialNumber,
+            terrainId,
+            requestedVersion,
+            GetRebuildState(doc.RuntimeSerialNumber, terrainId).BuildGeneration,
+            TerrainBuildMode.Final,
+            TerrainLatencyPhase.Edit,
+            $"debounce {debounceMs} ms");
         var terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
         if (terrain != null)
             terrain.LastBuildMessage = GetRebuildState(doc.RuntimeSerialNumber, terrainId).IsBuilding
@@ -38,6 +47,13 @@ internal sealed partial class TerrainController
         if (notify)
             RaiseStateChanged();
     }
+
+    /// <summary>
+    /// The debounce for the next edit, scaled to what this terrain's last final build actually cost.
+    /// See <see cref="TerrainDebouncePolicy"/> for why a constant is the wrong shape here.
+    /// </summary>
+    private int ResolveFinalDebounceMs(uint docSerial, Guid terrainId) =>
+        TerrainDebouncePolicy.ResolveFinalDebounceMs(GetRuntimeCache(docSerial, terrainId).LastFinalDuration);
 
     private bool HasPendingFinalBuild(uint docSerial, Guid terrainId)
     {
