@@ -1228,15 +1228,28 @@ visible in the grid's own `BuildStatistics` (added by R04):
 - **It is rebuilt per grading modifier**, over a nearly identical mesh, with no sharing between the
   Grade Pad and Grade Path stages of the same build.
 
-**Addressed 2026-09-19 (first bullet only, unmeasured).** `ConstraintCoincidenceSnapper` now takes an
+**Addressed 2026-09-19 (first bullet only).** `ConstraintCoincidenceSnapper` now takes an
 optional region and indexes only the vertices and edges that meet it, and both graders build the snapper
 *after* their constraint list exists rather than at the top of the method — so the region is the
 constraints' own tolerance-expanded bounds, exact by construction, with no influence envelope to
 estimate. Clipping is safe rather than approximate: a query whose tolerance box lies inside the region
 can only be won by a member that met the region, and a query that escapes the region discards it and
 rebuilds over the whole mesh (`RegionWasAbandoned`), so a badly chosen region costs speed and never
-geometry. The cell-size and cross-stage-sharing bullets are untouched. **No trace has yet confirmed the
-0.91 s goes away** — `ConstraintCoincidenceSnapperRegionTests` proves equivalence, not speed.
+geometry. The cell-size and cross-stage-sharing bullets are untouched.
+
+Measured by `ConstraintCoincidenceSnapperScalingBenchmarkTests` (`MOLEHILL_PERF=1`) on a synthetic grid
+of 188,000 edges, within a couple of percent of the fixture's 186,501:
+
+| Case | Whole-mesh index | Clipped index |
+|---|---|---|
+| Pad over 8% of the terrain | 1,138 ms (188,000 edges) | **8.4 ms** (1,408 edges) |
+| Pad over 90% of the terrain | 1,138 ms | 852 ms |
+
+The 1,138 ms baseline reproduces the 0.91 s the end-to-end trace attributed to this constructor, so the
+benchmark is measuring the same cost; and the 90% case shows clipping has no losing case. This is still
+a micro-benchmark: **no trace has yet measured what the 7.0 s build becomes.**
+`ConstraintCoincidenceSnapperRegionTests` covers equivalence separately — a speed number is not a
+correctness argument.
 
 Two other explanations were measured and **disproved** first, and are recorded so they are not
 re-investigated: `TryExtractMeshData` is 67 ms on a 124k-face mesh, and the whole per-stage mesh
