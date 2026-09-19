@@ -505,10 +505,12 @@ it was verified, and what is still unproven. **Verification vocabulary:** *compi
 *unmeasured* = believed faster but no trace taken. Treat anything not marked live-verified or measured
 as unproven for latency claims.
 
-Build note for this pass: the user's Rhino was open throughout, so `MoleHill.Rhino` could not write its
-normal output directory. It was compiled with `dotnet build src/MoleHill.Rhino/MoleHill.Rhino.csproj
--p:OutputPath=<scratch>` — a compile check only. **Nothing in this log is live-verified yet**; a pass in
-a real Rhino session is owed before any of it is quoted as a latency improvement.
+Build note for this pass: the user's Rhino was open for entries 1-5, so `MoleHill.Rhino` could not write
+its normal output directory and was compiled with `-p:OutputPath=<scratch>` as a compile check. It was
+closed by entry 6; the full solution then built clean and `validate.ps1 managed` and `warnings` both
+passed (980/981 Core, 726 Rhino, 39 Grasshopper; 0 owned-code warnings). **Nothing here is
+live-verified** — see entry 7 for the attempt and why it failed — so no claim below is an end-to-end
+latency result. Entry 3 is the one item with a real measurement behind it, and it is a micro-benchmark.
 
 ### 1 — Preview no longer builds retaining-wall solids (Step 1)
 
@@ -686,11 +688,11 @@ No source file was added, removed or renamed, so nothing else in the index moved
 
 Recorded so the next pass does not have to rediscover it:
 
-- **Nothing here is live-verified or measured.** Rhino was open for the whole session, so
-  `MoleHill.Rhino` was only ever compiled to a scratch output directory. Every claim above rests on unit
-  tests and on reading the call sites. The single highest-value next action is a Rhino session on the
-  geometry-heavy fixture checking two timing rows: `PadGrader.CreateConstraints` (entry 3) and
-  `Retaining Wall Plan … cache hit` after an upstream-only edit (entries 4-5).
+- **Nothing here is live-verified.** Entry 7 records the attempt: the slot spawned and registered the
+  build, but every `run_csharp`/`run_python` call failed. Entry 3 is measured by micro-benchmark; entries
+  1, 2, 4 and 5 rest on unit tests and on reading the call sites. The highest-value next action is a
+  Rhino session on the geometry-heavy fixture checking two timing rows: `PadGrader.CreateConstraints`
+  (entry 3) and `Retaining Wall Plan … cache hit` after an upstream-only edit (entries 4-5).
 - **Step 2 is untouched**, deliberately — see entry 5. `RequestRebuild` still cancels the running build
   on every request.
 - Step 1's "reuse mesh extraction and index preparation within an evaluation" is only partly done: the
@@ -698,3 +700,39 @@ Recorded so the next pass does not have to rediscover it:
   their own `TerrainFaceGrid`.
 - Remediations 2 and 3 from the grading finding (cell size, one shared index per build) are not
   attempted and should not be, until entry 3 is measured — clipping may already have taken most of it.
+
+### 7 — Measuring entry 3, and a failed attempt at live verification
+
+**Live verification was attempted and did not work.** Rhino was closed by this point, the full solution
+built clean (`validate.ps1 managed` and `warnings` both green, 0 owned-code warnings), and a disposable
+`rhino-mcp` slot spawned fine — `get_commands` listed `mhLatencyTrace`, so the build registered. But
+**every `run_csharp` and `run_python` call failed**, on two separately spawned slots, while `run_command`
+and `get_context` worked. Without the script host there is no way to build a fixture or read a trace, so
+the slot was closed and no live claim is made. If this recurs, `docs/rhino-live-testing.md` §2 describes
+the `tools/rhino-live-client.py` fallback, which was written for spawn failures and is untried against a
+script-host failure.
+
+**So entry 3 was measured directly instead**, as an opt-in benchmark
+(`ConstraintCoincidenceSnapperScalingBenchmarkTests`, `MOLEHILL_PERF=1`, using the existing
+`PerformanceLane` gate). A 250×250 grid gives 63,001 vertices / 188,000 unique edges, within a couple of
+percent of the traced fixture's 62,500 / 186,501:
+
+| Case | Whole-mesh index | Clipped index |
+|---|---|---|
+| 188,000 edges, pad over 8% of the terrain | 1,138.0 ms (188,000 edges) | **8.4 ms** (1,408 edges) |
+| 30,200 edges, pad over 8% | 87.9 ms | 1.4 ms |
+| 188,000 edges, pad over **90%** of the terrain | 1,138.0 ms | 851.6 ms |
+
+Two things worth keeping:
+
+- **The baseline reproduces the trace.** 1,138 ms here for 188,000 edges against the traced 0.91 s for
+  186,501 — so this micro-benchmark is measuring the same cost the end-to-end trace attributed to this
+  constructor, and the ~135× reduction on the realistic case is not measuring something else.
+- **The degenerate case does not regress.** A pad covering 90% of the terrain still indexes less than
+  the whole mesh and costs less, so clipping has no case where it loses. That was the main risk of
+  adding a filter to a hot loop and it is now checked rather than assumed.
+
+What this still is **not**: an end-to-end latency measurement. It says the 0.91 s constructor becomes
+milliseconds; it does not say what the 7.0 s build becomes, because the rest of
+`PadGrader.CreateConstraints` and the stages around it are unchanged and unmeasured here. The live trace
+remains owed.
