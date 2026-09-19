@@ -2,7 +2,8 @@
 
 Date: 2026-09-19  
 Reviewed revision: `fc1a90b`, initially clean working tree  
-Status: review complete; implementation proposed, not performed
+Status: review complete; deliveries 1-6 implemented on branch `review-plan-2026-09-19` - see
+**Implementation status** below for what is implemented versus what is verified
 
 ## Assessment
 
@@ -82,6 +83,32 @@ outputs. TRX evidence is in the ignored `.artifacts/review-2026-09-19/` director
 restore state; it does not demonstrate a fresh-machine restore. Native tests were skipped. No live
 Rhino, viewport, Revit, full-scale benchmark, Release build, or Yak package acceptance was performed.
 `MOLEHILL_PERF` was not enabled; the passing count includes opt-in benchmark methods that return early.
+
+## Implementation status
+
+Delivery order below matches the **Implementation sequence** table. "Implemented" and "verified" are
+kept apart deliberately: a managed suite cannot close an acceptance item that names a native soak run
+or a measured budget.
+
+| Order | Item | Implemented | Verified by | Still open |
+|---|---|---|---|---|
+| 1 | R01 future-schema guard | Yes | Managed tests: future envelope/terrain/mixed list, empty future document, legacy migration + idempotent round-trip, unknown property at the current version, malformed input | The store-level no-overwrite test is `[RhinoNativeFact]` and **skipped** without a Rhino runtime; open/save in a live Rhino not run |
+| 2 | R02 edge comparer fixes | Yes | Full managed suite unchanged; `PackedEdgeKeyComparerGuardTests` scans `src/` and fails on a default-comparer packed-key collection; `EdgeKeyComparerTests` asserts bucket spread on consecutive and shuffled numbering | No end-to-end timing on a representative grading case; the historical 7 s remesh figure is **not** re-measured and must not be quoted as this change's result |
+| 3 | R08/R09 validation baseline | Yes | `validate.ps1 managed`, `warnings` and `package` run green end to end; the perf gate verified in both directions (fails on a skipped body, runs with `MOLEHILL_PERF=1`) | `validate.ps1 native` not run — no Rhino runtime was available in this session; `perf` not run as a full lane, so there are **no recorded timings** |
+| 4 | R03 cancellation propagation | Yes | Mid-phase cancellation tests at measured fractions of a full run, on two mesh sizes; parallel cancellation asserted to surface as `OperationCanceledException`, never `AggregateException` | The p50/p95 cancellation-latency trace and peak-memory measurement are **not** done; the proposed 250 ms budget remains a proposal |
+| 5 | R04 spatial capacity | Yes | Brute-force equivalence on uniform, clustered, long-diagonal, mixed tiny/huge, degenerate-extent and invalid-bounds fixtures; membership growth recorded across doubling sizes; ordinary distributions asserted **not** coarsened | Budget constants chosen from these fixtures, not from a measured production distribution; no query-cost comparison after coarsening |
+| 6 | R05 ownership | Table only | [build-result-ownership.md](build-result-ownership.md) — characterization written from current sources | The ownership object, `Transfer`/`Discard`, generated-object disposal and the native repeated-edit soak are all **not** started |
+| 7-11 | R06, R07, R10, R11, R08 cleanup, R12 | No | - | Not started. R06 needs the R05 contract first; its acceptance also requires replaying the cases in a live Rhino slot |
+| Ongoing | R13 documentation | Partial | Architecture sections added for schema compatibility, cancellation, index capacity and ownership; `MoleHill.Core`/`MoleHill.Rhino` project-root READMEs added (they were referenced but missing); `docs/validation-lanes.md` added | The July cleanup plan still presents partial-file decomposition as current work; `docs/architecture.md` is still a long feature history rather than a concise map |
+
+Two incidental fixes fell out of the above and are worth knowing about:
+
+- The owned-code nullability warning count was **6**, not the 456 the project-wide `NoWarn` implied:
+  450 were vendored TriangleNet. The suppression is now scoped to the vendor in `.editorconfig` and
+  the 6 are fixed, so the solution builds clean under `-warnaserror`.
+- Folding the new host-path properties into a second `PropertyGroup` broke `build-yak-package.ps1`,
+  which read the version with dotted XML access. Caught by the new package lane on its first run,
+  which is the lane earning its keep on day one.
 
 ## Findings and recommendations
 
