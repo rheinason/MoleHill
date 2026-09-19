@@ -18,6 +18,14 @@ namespace MoleHill.Rhino.Services;
 internal sealed partial class TerrainBuildService
 {
     private const int StageTimingDiagnosticThresholdMs = 250;
+
+    /// <summary>
+    /// How much of the upstream vertex count a Retaining Wall constrained rebuild must retain to be
+    /// accepted. Breakline insertion adds vertices, so any real loss means the rebuild reseeded from
+    /// the boundary and discarded the interior. Generous, because legitimate tiny-face cleanup trims
+    /// a handful: this is a floor against wholesale detail loss, not a quality measure.
+    /// </summary>
+    private const double RetainingWallRebuildMinimumVertexRatio = 0.90;
     private const double MinRepresentablePadPlaneNormalZ = 1e-3;
     private const int TriangulateCacheVersion = 5;
     private const int InSituStairTreadDepthWarningColorArgb = unchecked((int)0xFFFF0000);

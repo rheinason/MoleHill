@@ -85,7 +85,21 @@ density when variable edges flare outward.
    via `ApplyGradingZ`; watertight by construction - no hole tracing, so it also covers corridors
    whose daylight reaches the terrain edge).
 3. **constraint insertion** - `PathGrader.Patches.cs` (local topology insertion + Z-only grading;
-   last resort, may emit unhealthy topology - diagnostics record why the upper tiers deferred).
+   last resort - diagnostics record why the upper tiers deferred).
+
+**Every tier has a floor, including the last one.** Tier 3 used to be allowed to emit unhealthy
+topology, on the reasoning that a last resort is better than nothing. It is not: a torn mesh returned
+with a null error is indistinguishable downstream from a clean grade, and the Rhino retaining-wall
+stage then rebuilds from it and loses the terrain (measured: 2,828 faces to 249, taking the upstream
+Remesh with it). Tier 3 now validates its own output through
+`GradingTopologyDiagnostics.IsNotWorseThanInput` and returns null with a message instead.
+
+The bar is **not worse than the input**, never absolute health: a terrain may legitimately carry an
+interior hole, and such a terrain has more than one boundary component before any grading runs.
+What is never legitimate is a grade that *adds* a loop, opens a naked-edge chain, or tears the mesh
+non-manifold. `RetainingWallRailGradeContractTests` pins this across a swept slope angle on captured
+wall rails; several angles still fail to grade, which is a known open geometry defect in the tiers
+above - the contract is that they fail *visibly*.
 
 The optional `preferSplitKeep` performance flag reverses the first two attempts for large constrained
 meshes that are likely to reject explicit carve/weld assembly. Rhino final builds enable it only for
@@ -99,8 +113,11 @@ single-CDT re-conform (`SplitConformViaCdt`) when the hand-rolled splitter emits
 re-conform re-triangulates the WHOLE terrain, so it must re-insert the caller's hard-constraint
 breaklines (retaining walls) as exact constraint edges; otherwise the CDT flips away the near-vertical
 wall-face edges and orphans wall-top vertices into tent-pole spikes. `SplitOutside`/`SplitConform`
-therefore take the `hardConstraints` list and thread it through (Path passes them; Pad's public entry
-does not carry them yet). Path shoulder sections whose daylight ray runs off the surveyed terrain cap
+therefore take the `hardConstraints` list and thread it through, and **both** graders pass it: a pad
+whose daylight reaches the terrain edge re-conforms the whole terrain, so a wall on the far side of
+the site is just as exposed as one beside a path. `PadGrader.Grade`'s widest overload takes the list
+as a trailing optional argument and hands it to the explicit and split-keep tiers;
+`GradePadRetainingWallRegressionTests` pins the re-conform with and without it. Path shoulder sections whose daylight ray runs off the surveyed terrain cap
 AT the terrain boundary with the terrain's own elevation (`PathGrader.Sections.cs`) instead of
 staying unresolved.
 

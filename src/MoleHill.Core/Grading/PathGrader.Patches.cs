@@ -161,6 +161,21 @@ public static partial class PathGrader
             topologyFaceCount,
             topologyFaces,
             operation: "grade_path"));
+
+        // This is the last tier: when the explicit and split-keep tiers defer, whatever is produced
+        // here is what ships. So it is the one place that must refuse to ship a torn mesh — the tiers
+        // above it check themselves and defer, and without the same floor here a grade that damages
+        // the terrain is indistinguishable from one that succeeded. Returning the failure lets the
+        // caller keep its upstream mesh, which is strictly better than grading it into holes.
+        if (!GradingTopologyDiagnostics.IsNotWorseThanInput(
+                faces, faceCount, topologyFaces, topologyFaceCount, out string? topologyDamage))
+        {
+            errorMessage =
+                $"Grade Path constraint-insertion topology damaged the terrain ({topologyDamage}); " +
+                "the upstream mesh was kept.";
+            return null;
+        }
+
         errorMessage = null;
         return BuildResult(
             outXy,

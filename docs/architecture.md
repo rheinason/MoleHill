@@ -487,12 +487,20 @@ does not carry terrain constraints or zones; the terrain-aware Grade Pad migrati
 (`PathGrader.Explicit.cs`, carve/fill with density-guarded batter + station seeds) → **split-keep**
 (`PathGrader.SplitKeep.cs`, conform corridor daylight + road-edge footprint loops in place — also
 covers daylight reaching the terrain edge) → **constraint insertion** (`PathGrader.Patches.cs`, last
-resort). Final Rhino builds prefer split-keep first for large meshes with persistent hard constraints;
+resort). **Every tier validates its own output, the last one included** — it returns null with a
+message rather than emitting topology worse than its input (more boundary loops, new naked-edge
+chains, new non-manifold edges). A last resort that ships a torn mesh is worse than no grade at all:
+the error is null, so downstream cannot tell it from success, and the retaining-wall stage rebuilds
+from the damage and loses the terrain. The bar is *not worse than input*, not absolute health, so a
+terrain with a legitimate interior hole still grades. See `src/MoleHill.Core/Grading/README.md`.
+Final Rhino builds prefer split-keep first for large meshes with persistent hard constraints;
 this avoids paying for an explicit carve/weld that commonly defers on those already-complex meshes,
 while direct Core callers keep explicit-first behavior by default. `GradedRegionAssembler.SplitOutside`
 repairs pinched hole boundaries (outside faces at
 irregular vertices are pulled into the carve) and re-conforms via a single CDT when the hand-rolled
-splitter emits an untraceable boundary. Shared: `GradingGeometry2D` (all 2D primitives —
+splitter emits an untraceable boundary. That re-conform re-triangulates the whole terrain, so both
+graders pass their persistent hard constraints (retaining walls) down to it — otherwise a pad on the
+far side of the site flips a wall's face edges away and drops its foot vertices. Shared: `GradingGeometry2D` (all 2D primitives —
 point-in-polygon, distance, interior point; `PadGrader.Spatial.cs` are thin compat wrappers),
 `BatterStripBuilder`, `MeshAreaTopologySplitter`, `GradedRegionAssembler.WeldGradedRegion`.
 

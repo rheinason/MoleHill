@@ -191,7 +191,7 @@ internal sealed partial class TerrainBuildService
         // nothing at all — the build looks clean and grades nothing. Found live on a 4 m wall.
         ThrowIfCancellationRequested(shouldCancel);
         mesh = ApplyRetainingWallGrading(
-            snapshot, terrain, mesh, modifier, plan.Walls, wallTolerance, build, mode);
+            snapshot, terrain, mesh, modifier, plan.Walls, wallTolerance, build, runtimeCache, mode);
 
         ThrowIfCancellationRequested(shouldCancel);
         int rawConstraintCount = wallConstraints.Count;
@@ -276,7 +276,12 @@ internal sealed partial class TerrainBuildService
             "Retaining Wall",
             build,
             out bool keptInputMesh,
-            preferReducedInteriorSeed: true,
+            // Never PREFER the reduced-interior seed. That seeds the CDT from the boundary and the
+            // constraints alone, so every interior vertex is discarded — the upstream Remesh's detail
+            // and any batter graded above. It is taken before the full-seed attempt is even evaluated,
+            // so as a preference it is not a fallback at all. It remains reachable when the full-seed
+            // attempt is rejected, which is what the detail guard below exists to contain.
+            preferReducedInteriorSeed: false,
             addReducedInteriorGuideSeeds: false,
             addConstraintCorridorSeeds: false,
             toleranceOverride: wallTolerance,
@@ -289,6 +294,28 @@ internal sealed partial class TerrainBuildService
                 ? "kept upstream mesh"
                 : ReferenceEquals(remeshed, mesh) ? "returned upstream mesh" : $"{remeshed.Vertices.Count:N0} verts, {remeshed.Faces.Count:N0} faces",
             StageTimingDiagnosticThresholdMs);
+
+        // Inserting breaklines ADDS vertices; it never removes the terrain. A rebuild that comes back
+        // with markedly fewer is one that reseeded from the boundary and threw the interior away, and
+        // shipping it silently destroys an upstream Remesh — measured on this stage at 2,828 faces down
+        // to 249. Losing the wall breaklines is recoverable and visible; losing the terrain is neither.
+        if (!ReferenceEquals(remeshed, mesh) && !keptInputMesh &&
+            remeshed.Vertices.Count < mesh.Vertices.Count * RetainingWallRebuildMinimumVertexRatio)
+        {
+            build.Diagnostics.Add(
+                $"Retaining Wall constrained rebuild discarded terrain detail " +
+                $"({mesh.Vertices.Count:N0} -> {remeshed.Vertices.Count:N0} verts); the upstream mesh was kept " +
+                "and the wall breaklines were not inserted.");
+            AddRetainingWallConstraintOverlay(
+                build,
+                modifier,
+                wallConstraints,
+                RuntimeOverlaySeverity.Error,
+                "retaining_wall.rebuild_discarded_detail",
+                "The constrained rebuild would have discarded terrain detail; the upstream mesh was retained.",
+                "Detail loss");
+            return mesh;
+        }
 
         if (!ReferenceEquals(remeshed, mesh))
         {
