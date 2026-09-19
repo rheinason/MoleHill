@@ -736,3 +736,33 @@ What this still is **not**: an end-to-end latency measurement. It says the 0.91 
 milliseconds; it does not say what the 7.0 s build becomes, because the rest of
 `PadGrader.CreateConstraints` and the stages around it are unchanged and unmeasured here. The live trace
 remains owed.
+
+### 8 — Entry 3 measured A/B, and a working route into a live Rhino
+
+**The script host does work — through `_-RunPythonScript`, not `run_csharp`.** `run_csharp` and
+`run_python` still fail on a spawned slot, but `run_command` does not, so a `.py` file on disk driven by
+`_-RunPythonScript` gives a full scripting host; have the script write its results to a file and read
+that file directly. Confirmed against slot `aardvark`: the loaded plugin is the exact build at
+`src/MoleHill.Rhino/bin/Debug/net7.0/MoleHill.Rhino.rhp`. This supersedes entry 7's "live verification is
+blocked" — it is not, and `docs/rhino-live-testing.md` should carry this route.
+
+**Entry 3 now has a true A/B**, `PadGraderCreateConstraintsBenchmarkTests` (`MOLEHILL_PERF=1`), on one
+fixture of 63,001 vertices / 125,000 faces / 188,000 edges with one pad over ~8% of the terrain — run
+once with the clipped index and once with the call site reverted to the whole-mesh index, so the two
+numbers differ only in the change:
+
+| `PadGrader.CreateConstraints` | Time |
+|---|---|
+| Whole-mesh index (pre-change) | 899.8 ms |
+| Constraint-clipped index | **345.6 ms** |
+
+**554 ms removed, a 2.6× reduction of the method the trace named.** Note the shape: the index was 91% of
+the constructor but the constructor was not all of `CreateConstraints`, so the method does not fall by
+the index's 135×. The remaining 345 ms is the rest of constraint construction and is **not** attributed
+yet — that is the next thing to drill into if grading is to be interactive, and it is now the dominant
+term where the index used to be.
+
+Comparability caveat, stated rather than buried: the pre-change figure here is 899.8 ms against the
+live trace's 1,280 ms for the same method. Same machine, but this synthetic fixture produces 2
+constraints where the traced pad produced 3, and has no lock curves. The A/B is internally valid; the
+absolute numbers are not the traced build's.
