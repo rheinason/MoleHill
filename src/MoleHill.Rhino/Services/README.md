@@ -46,13 +46,13 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   a grading-topology stage key and invalidates overlapping downstream grading stages exactly as Grade
   Path does, and persists its single output polyline as a hard constraint — which is what lets stacked
   Grade Lines on offset feature lines compose into a compound cross-section.
-- Retaining Wall inserts accepted toe/top rails directly into the incoming mesh first, splitting only
-  crossed faces and preserving untouched topology. A full constrained rebuild is reserved for cases
-  where local topology insertion cannot produce an accepted mesh.
-  In `Grade terrain` mode it then batters the terrain away from each rail, one side per rail, using the
-  same Core cascade via the shared `RetainingWallGradePlanner`. Grading runs after insertion succeeds,
-  so rail elevations are already forced; if it fails the accepted breaklines are kept and the failure is
-  reported.
+- Retaining Wall grades the incoming mesh first in `Grade terrain` mode, battering away from each rail,
+  one side per rail, using the same Core cascade via the shared `RetainingWallGradePlanner`. The batter
+  ignores upstream preserved-elevation curves so contours cannot stop it before daylight; those curves
+  remain intact for the later remesh. It then inserts accepted toe/top rails into the graded mesh,
+  splitting only crossed faces and preserving untouched topology. A full constrained rebuild is reserved for cases
+  where local topology insertion cannot produce an accepted mesh. If grading fails, the accepted
+  breaklines are kept and the failure is reported.
 - Isotropic Remesh with Edge Length 0 derives its target from plan area per input face instead of the
   median edge. This preserves approximate global face density on terrains mixing dense feature sampling
   with sparse outer faces; disjoint split/collapse thresholds and split-before-collapse settle auto mode

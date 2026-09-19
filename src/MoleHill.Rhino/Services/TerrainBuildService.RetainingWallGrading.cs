@@ -28,8 +28,7 @@ internal sealed partial class TerrainBuildService
         IReadOnlyList<RetainingWallPlannerCore.PlannedWall> walls,
         double wallTolerance,
         TerrainBuildResult build,
-        TerrainBuildMode mode,
-        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> barrierConstraints)
+        TerrainBuildMode mode)
     {
         if (!modifier.GradesTerrain || walls.Count == 0)
             return mesh;
@@ -62,15 +61,15 @@ internal sealed partial class TerrainBuildService
             faces,
             faceCount,
             railGrades.ToArray(),
-            // The terrain's existing constraints act as barriers, exactly as Grade Pad's lock curves do.
-            // This wall's own rails are deliberately not among them: grading runs before they are
-            // inserted, so a rail never becomes a barrier standing on its own batter's foot.
-            barrierConstraints,
+            // Retaining-wall batters are authoritative terrain edits. Existing preserved-elevation
+            // curves (including input contours) must not stop the batter before it reaches daylight;
+            // those constraints are still carried into the subsequent wall remesh unchanged.
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
             out string? warning,
             wallTolerance,
             preferSplitKeep: TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
                 mode,
-                barrierConstraints.Count > 0,
+                hasPersistentHardConstraints: false,
                 faceCount));
         coreTimer.Stop();
 

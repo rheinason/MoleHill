@@ -191,7 +191,7 @@ internal sealed partial class TerrainBuildService
         // nothing at all — the build looks clean and grades nothing. Found live on a 4 m wall.
         ThrowIfCancellationRequested(shouldCancel);
         mesh = ApplyRetainingWallGrading(
-            snapshot, terrain, mesh, modifier, plan.Walls, wallTolerance, build, mode, build.PersistentHardConstraints);
+            snapshot, terrain, mesh, modifier, plan.Walls, wallTolerance, build, mode);
 
         ThrowIfCancellationRequested(shouldCancel);
         int rawConstraintCount = wallConstraints.Count;
