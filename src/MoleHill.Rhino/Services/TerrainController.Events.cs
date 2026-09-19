@@ -448,7 +448,13 @@ internal sealed partial class TerrainController
         try
         {
             ProcessBuildProgressUpdates();
-            TryCompleteFinishedBuild();
+            if (TryCompleteFinishedBuild())
+            {
+                // A build finishing is exactly when the next one becomes dispatchable, and during a
+                // gesture there is always a newer sample waiting. Leaving it for the next Idle put a
+                // poll interval between every frame.
+                TryDispatchPendingBuild();
+            }
         }
         finally
         {

@@ -1357,6 +1357,85 @@ One measurement note: the first scale in a run carries the JIT cost for every st
 first pass reported small at 37 ms and the second at 16 ms, with all larger scales stable to within a
 few percent. Read the first row of a cold process as warm-up.
 
+### What happens to a build a newer edit overtakes
+
+Two decisions used to have the same answer, and between them they made continuous input impossible:
+`RequestRebuild` cancelled the running build on **every** new request, and `CompleteBackgroundBuild`
+discarded **every** result whose version had been overtaken. During a drag each sample therefore killed
+the evaluation the previous sample started, and any evaluation that did survive was thrown away
+unpublished - so the terrain showed nothing at all until input stopped, however cheap the build was.
+That was the blocking constraint the interactive plan names as Step 2.
+
+[`TerrainSupersededBuildPolicy`](../src/MoleHill.Rhino/Services/TerrainSupersededBuildPolicy.cs) splits
+them:
+
+- **Finish, don't cancel, when the build is cheap.** The threshold is
+  `TerrainDebouncePolicy.MaxIntervalMs`, and the two constants are the same fact rather than two tuned
+  numbers: the debounce already rate-limits a gesture to one dispatch per build duration capped at that
+  value, so a build inside the cap finishes within an interval the gesture was going to spend waiting
+  anyway. Above the cap the terrain falls further behind the pointer with every sample, which is the
+  regime cancelling exists for. An unmeasured terrain is still cancelled - the first build of a session
+  is the one most likely to be slow. An explicit Rebuild still pre-empts, because that is a user asking
+  for a fresh build now.
+- **Publish a superseded result as a preview frame.** The geometry is exact for the input it was given;
+  what it is not is *current*, which is precisely what `IsPreview` already means to every consumer that
+  refuses it - bake, the interop mesh accessors and the Grasshopper bridge all go through
+  `TerrainSnapshotEligibility`, so no call site changed. Publication is monotonic (never replace a newer
+  frame with an older one, or a slow build finishing after a fast one walks the terrain backwards) and
+  age-limited by the same constant.
+
+`PublishSupersededGeometry` is deliberately much less than `ApplySuccessfulBuild`: no worker-cache
+merge, no document save, no owned-object sync, and `AppliedVersion` does not advance. None of that
+belongs on a frame a newer build is already on its way to replace, and doing it would record an older
+version as the applied one. It does update `LastFinalDuration`, because a superseded build measured the
+terrain's cost as honestly as an applied one and both the debounce cadence and the cancel decision read
+it - without that, one slow first build makes the policy cancel cheap builds for the rest of the
+session.
+
+One scheduling gap came with it: `PumpFinishedBuilds` completed a build but did not then dispatch the
+next one, leaving it for the next Idle. A build finishing is exactly when the next becomes
+dispatchable, and during a gesture there is always a newer sample waiting, so that put a poll interval
+between every frame.
+
+**Measured over a 60-sample gesture** on a 2,704-point terrain (Triangulate only), Release, in a
+`rhino-mcp` slot with the message loop pumped by `DoEvents`:
+
+| | Before | After |
+|---|---|---|
+| Cancellations during the gesture | one per overlapping sample | **0** |
+| Evaluations that completed | those not overtaken | **72 of 72** |
+| Abandoned worker time | all overtaken work | **0.0 ms across 0 requests** |
+| Builds allowed to finish that would have been cancelled | - | 12 |
+| Frames published that would have been discarded | - | 4 |
+
+The step's exit condition in [interactive-terrain-plan-2026-09-16.md](interactive-terrain-plan-2026-09-16.md)
+is a sustained-input trace showing evaluations *completing* and previews publishing rather than only
+cancellations. That is met.
+
+**It did not make the gesture realtime, and the trace says why.** Geometry is a median **5.0 ms**;
+edit-to-visible is a median **454 ms**, and **72.3% of it is `wake marshal wait`** - the interval
+between a worker finishing and the UI thread running the posted completion, ~320 ms every build
+regardless of how cheap the build was. Redraw is 17.2%, snapshot 3.9%, and everything MoleHill actually
+computes is 6.5% of the total.
+
+So on a small terrain the remaining barrier to realtime is neither geometry nor scheduling policy: it
+is a fixed per-build cost in getting back onto the UI thread.
+
+**A plausible fix was tried and measured three times worse.** The dispatch path had already moved from
+`RhinoApp.InvokeOnUiThread` to `Eto.Forms.Application.Instance.AsyncInvoke`, so the obvious hypothesis
+was that Rhino's invoke queue is drained slowly and Eto's posts a message the loop takes sooner.
+Swapping the completion wake to `AsyncInvoke` moved the median wake from 320 ms to **1,079 ms** and
+edit-to-visible from 454 ms to **1,140 ms**. It is reverted, and the comment at the call site records
+it so the two sites are not "unified" later: dispatch needs a queue that will not run it inline, the
+wake needs whichever queue the host drains soonest, and those are not the same queue.
+
+**What this measurement cannot settle.** In a headless slot the UI thread is pumped by a `DoEvents`
+spin inside a script that is itself occupying that thread, so how promptly either queue is drained is
+not necessarily what a real session sees. The 320 ms figure is consistent with the 275 ms recorded
+earlier by a different method, which makes it unlikely to be pure noise - but attributing it, and
+therefore deciding whether small-terrain realtime is reachable at all, needs a trace from a genuinely
+interactive Rhino. That remains the one open prerequisite.
+
 ### Publishing geometry before its outputs
 
 `Build` assigns `PrimaryMesh` before the final-only output stages but returns only after all of them, so

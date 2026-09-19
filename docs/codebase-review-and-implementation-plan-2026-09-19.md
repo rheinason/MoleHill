@@ -142,6 +142,13 @@ This splits the work in two and both halves are now evidenced:
    a rail pair touches a small fixed neighbourhood - the same whole-mesh-for-a-local-edit shape as the
    snapper and the projection grid. Localizing it is the one lever for this scale.
 
+**Step 2 is delivered** (2026-09-19). `TerrainSupersededBuildPolicy` ends cancel-on-every-request and
+publishes overtaken-but-completed builds as preview frames. Over a 60-sample gesture: 0 cancellations,
+72/72 evaluations completed, 0.0 ms abandoned worker time. The gesture is still not realtime, and the
+trace moved the blame off scheduling entirely: geometry is 5.0 ms median against 454 ms edit-to-visible,
+**72.3% of which is the worker->UI marshal**. Swapping that marshal to Eto's queue was tried and
+measured three times worse; reverted and recorded at the call site.
+
 Two caveats that bound what can be promised. The 275 ms worker-to-UI marshal on the small fixture is
 still **unverified** - it measures 0.1 ms when Rhino's loop is busy, so only a genuinely interactive
 session will say what an ordinary edit sees, and it is over half the small fixture's current 385 ms. And

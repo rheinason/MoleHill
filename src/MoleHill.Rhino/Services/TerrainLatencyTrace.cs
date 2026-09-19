@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 
 namespace MoleHill.Rhino.Services;
@@ -30,6 +30,16 @@ internal static class TerrainLatencyPhase
     public const string DispatchBlocked = "dispatch-blocked";
     public const string Dispatch = "dispatch";
     public const string CancelRequested = "cancel-requested";
+
+    /// <summary>
+    /// A newer edit arrived while this build was running and it was deliberately NOT cancelled, because
+    /// finishing it is cheap enough to produce a frame. The counterpart to
+    /// <see cref="CancelRequested"/>; see <c>TerrainSupersededBuildPolicy</c>.
+    /// </summary>
+    public const string SupersededAllowedToFinish = "superseded-allowed-to-finish";
+
+    /// <summary>A superseded-but-completed build was published as a preview frame rather than discarded.</summary>
+    public const string SupersededPublished = "superseded-published";
     public const string SnapshotStart = "snapshot-start";
     public const string SnapshotEnd = "snapshot-end";
     public const string CloneEnd = "clone-end";

@@ -305,6 +305,14 @@ internal sealed partial class TerrainController
             (_, state) =>
             {
                 latency.Mark(TerrainLatencyPhase.WakePosted);
+
+                // InvokeOnUiThread here, deliberately, even though the dispatch path uses Eto's
+                // AsyncInvoke. Swapping this one to AsyncInvoke was tried on 2026-09-19 because the
+                // wake marshal is the dominant cost of an edit, and it measured **three times worse**:
+                // median wake 320 -> 1,079 ms and edit-to-visible 454 -> 1,140 ms over a 60-sample
+                // gesture. The two call sites want different things - dispatch needs a queue that will
+                // not run it inline, this needs whichever queue the host drains soonest - and on this
+                // evidence that is Rhino's. Do not "unify" them.
                 RhinoApp.InvokeOnUiThread((Action)(() =>
                 {
                     latency.Mark(TerrainLatencyPhase.WakeRan);
@@ -525,6 +533,19 @@ internal sealed partial class TerrainController
 
         if (rebuildState.RequestedVersion > result.Version)
         {
+            // A build that a newer edit overtook but that still ran to completion is the frame a
+            // gesture is made of, so show it rather than discarding the work. Only a result that was
+            // cancelled, failed, or is too old to be useful falls through to the old behaviour.
+            if (!result.WasCanceled &&
+                result.Error == null &&
+                result.Build != null &&
+                PublishSupersededGeometry(
+                    doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId), result))
+            {
+                latency.Mark(TerrainLatencyPhase.Closed, "superseded, published as preview");
+                return;
+            }
+
             latency.Mark(TerrainLatencyPhase.Closed, "superseded");
             terrain.LastBuildMessage = $"{result.Mode} #{result.Version:N0} cancelled; newer request queued.";
             terrain.LastStructuredDiagnostics.Clear();

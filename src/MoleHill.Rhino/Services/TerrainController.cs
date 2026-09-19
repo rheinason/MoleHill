@@ -1851,16 +1851,27 @@ internal sealed partial class TerrainController
         rebuildState.RequestedVersion++;
         if (rebuildState.IsBuilding)
         {
+            // An explicit Rebuild is a user asking for a fresh build now, so it still pre-empts.
+            // A sampled edit does not: cancelling a build cheap enough to finish is what made a
+            // gesture show nothing at all. See TerrainSupersededBuildPolicy.
+            bool shouldCancel = isImmediate ||
+                TerrainSupersededBuildPolicy.ShouldCancelRunningBuild(
+                    GetRuntimeCache(docSerial, terrainId).LastFinalDuration);
+
             TerrainLatencyTrace.Record(
                 docSerial,
                 terrainId,
                 rebuildState.RunningVersion,
                 rebuildState.BuildGeneration,
                 rebuildState.RunningMode,
-                TerrainLatencyPhase.CancelRequested,
+                shouldCancel ? TerrainLatencyPhase.CancelRequested : TerrainLatencyPhase.SupersededAllowedToFinish,
                 $"superseded by #{rebuildState.RequestedVersion:N0}");
-            rebuildState.CancelRequested = true;
-            rebuildState.WorkerCancellation?.Cancel();
+
+            if (shouldCancel)
+            {
+                rebuildState.CancelRequested = true;
+                rebuildState.WorkerCancellation?.Cancel();
+            }
         }
 
         // A debounced request records its own edit in ScheduleRebuild, where the resolved delay is known.

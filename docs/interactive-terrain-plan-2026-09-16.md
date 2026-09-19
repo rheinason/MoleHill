@@ -409,6 +409,25 @@ as well as geometry work.
 Exit evidence must include a sustained-input trace showing evaluations *completing* and previews
 publishing — a trace showing only cancellations means this step has not landed.
 
+**Step 2's primary deliverable landed 2026-09-19.** `TerrainSupersededBuildPolicy` replaces
+cancel-on-every-request: a build cheap enough to finish is allowed to, and a completed-but-overtaken
+result publishes as a preview frame instead of being discarded. Exit evidence, over a 60-sample
+gesture: **0 cancellations, 72 of 72 evaluations completed, 0.0 ms abandoned worker time**, 12 builds
+allowed to finish that would previously have been killed and 4 frames shown that would have been
+thrown away. See [architecture.md](architecture.md) → "What happens to a build a newer edit overtakes".
+
+What did **not** land is the rest of the step - session ownership, source capture reuse, immediate
+release settlement - and the gesture is still not realtime. The trace says the barrier is no longer
+policy: geometry is a median 5.0 ms against a 454 ms edit-to-visible, of which **72.3% is the
+worker→UI marshal**. A fix for that was tried (Eto's `AsyncInvoke` in place of
+`RhinoApp.InvokeOnUiThread`) and measured three times worse, so it is reverted and recorded.
+
+**The next thing this plan needs is not code.** Every latency measurement in it, including these, comes
+from a headless slot whose UI thread is pumped by a script occupying that same thread. Whether the
+~320 ms marshal is real or an artifact of that decides whether small-terrain realtime is reachable at
+all, and no amount of further work in the slot can answer it. A trace from a genuinely interactive
+Rhino is the prerequisite for ranking anything else here.
+
 ### Step 3 — Fixed-XY TIN and one-wall edits
 
 Prepare stable source mappings and wall insertion provenance. Exercise the TIN Z-update path without

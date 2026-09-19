@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text;
@@ -155,6 +155,88 @@ internal sealed partial class TerrainController
             TerrainLatencyPhase.InterimVisible,
             $"{interimMesh.Faces.Count:N0} faces; outputs stale at #{previous.OutputsRevision:N0}");
         RaiseStateChanged();
+    }
+
+    /// <summary>
+    /// Shows a build that a newer edit overtook, instead of throwing it away.
+    ///
+    /// This is the frame a gesture is made of. The build ran to completion and its geometry is exact
+    /// for the input it was given; what it is not is *current*, so it publishes as a preview and every
+    /// consumer that refuses a preview - bake, the interop mesh accessors, the Grasshopper bridge, all
+    /// via <c>TerrainSnapshotEligibility</c> - refuses it unchanged.
+    ///
+    /// Deliberately much less than <see cref="ApplySuccessfulBuild"/>: no worker-cache merge, no
+    /// document save, no owned-object sync, and <c>AppliedVersion</c> does not advance. None of that
+    /// belongs on a frame that a newer build is already on its way to replace, and doing it would also
+    /// record an older version as the applied one. Outputs are carried forward from the previous state
+    /// and marked stale, exactly as an interim publication does.
+    /// </summary>
+    /// <returns>True when the frame was shown.</returns>
+    private bool PublishSupersededGeometry(
+        RhinoDoc doc,
+        TerrainDefinition terrain,
+        TerrainRuntimeCache runtimeCache,
+        BackgroundBuildResult result)
+    {
+        TerrainDisplayState? previous = runtimeCache.DisplayState;
+        Mesh? mesh = result.Build?.PrimaryMesh;
+        if (previous == null || mesh == null)
+            return false;
+
+        if (!TerrainSupersededBuildPolicy.ShouldPublishSupersededResult(
+                hasMesh: true,
+                result.BuildElapsed,
+                result.Version,
+                previous.GeometryRevision))
+        {
+            return false;
+        }
+
+        BoundingBox previousPreviewBounds = previous.GetPreviewBounds(doc);
+        var displayState = new TerrainDisplayState
+        {
+            // Exact geometry, but not for the current input - which is what a preview is.
+            IsPreview = true,
+            HasDeferredOutputs = true,
+            TerrainMesh = mesh,
+            InterimTerrainMesh = mesh,
+            BaseTerrainMesh = result.Build?.BaseMesh ?? mesh,
+            GeometryRevision = result.Version,
+            OutputsRevision = previous.OutputsRevision
+        };
+        displayState.VisibleDiagnosticOwners.UnionWith(runtimeCache.VisibleDiagnosticOwners);
+        displayState.AnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneAnalyses(previous.AnalysisResults));
+        displayState.ZoneObjects.AddRange(previous.ZoneObjects);
+        displayState.TerrainRegions.AddRange(previous.TerrainRegions.Select(region => region.Duplicate()));
+        displayState.ZoneAnalysisResults.AddRange(TerrainRuntimeCacheCloner.CloneZoneAnalyses(previous.ZoneAnalysisResults));
+        displayState.HardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(previous.HardConstraints));
+        displayState.ElevationConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(previous.ElevationConstraints));
+        displayState.PreserveDeferredOutputsFrom(previous);
+        displayState.IncludePreviousPreviewBounds(previousPreviewBounds);
+        runtimeCache.DisplayState = displayState;
+
+        // A superseded build measured this terrain's cost as honestly as an applied one, and both the
+        // debounce cadence and the cancel decision read it. Without this a gesture whose builds are all
+        // superseded keeps steering by whatever the last *applied* build cost - which, after a slow
+        // first build, means cancelling cheap builds for the rest of the session.
+        runtimeCache.LastFinalDuration = result.BuildElapsed;
+
+        UpdateRuntimePreview(doc, terrain, runtimeCache);
+        NotifyRenderMeshesChanged(doc);
+        terrain.LastBuildMessage =
+            $"Terrain #{result.Version:N0} shown while editing; outputs from #{previous.OutputsRevision:N0}.";
+        terrain.LastStructuredDiagnostics.Clear();
+        doc.Views.Redraw();
+        TerrainLatencyTrace.Record(
+            doc.RuntimeSerialNumber,
+            terrain.TerrainId,
+            result.Version,
+            result.Generation,
+            result.Mode,
+            TerrainLatencyPhase.SupersededPublished,
+            $"{mesh.Faces.Count:N0} faces in {result.BuildElapsed.TotalMilliseconds:N0} ms");
+        RaiseStateChanged();
+        return true;
     }
 
     /// <summary>
