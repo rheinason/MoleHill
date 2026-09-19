@@ -20,6 +20,9 @@ regenerate `docs/file-index.md` with `generate-file-index.ps1`, revise `docs/arc
 relevant folder `README.md`, and update `CLAUDE.md`/`AGENTS.md` when conventions move.
 
 **Load-bearing conventions** an agent must know:
+- Build inputs are declared, not discovered: `global.json` pins the SDK floor (rolls forward), and
+  `Directory.Build.props` holds `RhinoInstallDir`/`WindowsDesktopRefPackDir` so no absolute developer
+  path sits in a csproj. A newer SDK is never a reason to retarget the plugin TFMs.
 - `MoleHill.Core` is pure and unit-tested; `MoleHill.Rhino`/`MoleHill.Grasshopper` are thin hosts. Put
   reusable math in Core (with a test), Rhino/GH API calls in the host projects.
 - Large classes are decomposed into `partial class` files (`TerrainBuildService.*.cs`,
@@ -46,6 +49,10 @@ relevant folder `README.md`, and update `CLAUDE.md`/`AGENTS.md` when conventions
   output is committed.
 - `pwsh ./build-yak-package.ps1`: build the combined Rhino + Grasshopper Yak package in `.artifacts/yak/`.
 - `pwsh ./build-yak-package.ps1 -Push`: build and publish the Yak package to the configured server.
+- `pwsh ./validate.ps1 <managed|native|perf|warnings|package|all>`: run one validation lane and record
+  what it actually exercised (`.artifacts/validate/`). A green managed run is **not** native, packaged,
+  or measured acceptance — native tests skip without Rhino and benchmarks return early without
+  `MOLEHILL_PERF`. See [`docs/validation-lanes.md`](docs/validation-lanes.md).
 
 Close Rhino before rebuilding when possible; the Grasshopper build copies `MoleHill.gha` to `%AppData%\Grasshopper\Libraries\`, and Rhino can keep that file locked. Grasshopper builds a merged plugin at `src/MoleHill.Grasshopper/bin/Debug/net7.0/MoleHill.gha`, and the Rhino plugin output is `src/MoleHill.Rhino/bin/Debug/net7.0/MoleHill.Rhino.rhp`.
 

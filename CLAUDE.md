@@ -27,7 +27,14 @@ dotnet clean                         # Use before retry if ILRepack locks .gha
 pwsh ./generate-icons.ps1           # Regenerate 24x24 PNG icon assets
 pwsh ./generate-toolbar-icons.ps1   # Regenerate the Rhino toolbar button bitmaps in the .rui
 python tools/render-toolbar-artboards.py   # Re-render hand-drawn icons from Master.ai (rare)
+
+pwsh ./validate.ps1 managed         # One validation lane; also native | perf | warnings | package | all
 ```
+
+`dotnet test` alone is not acceptance: native tests skip without Rhino and benchmarks return early
+without `MOLEHILL_PERF`. Use `validate.ps1` and read `docs/validation-lanes.md` before quoting a test
+result as evidence. Build inputs are declared — `global.json` pins the SDK floor, and
+`Directory.Build.props` holds `RhinoInstallDir`/`WindowsDesktopRefPackDir`.
 
 Close Rhino before rebuilding — Rhino holds a lock on the `.gha` file in `%AppData%\Grasshopper\Libraries\`.
 

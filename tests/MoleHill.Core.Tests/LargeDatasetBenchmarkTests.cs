@@ -269,11 +269,7 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void LargeDatasetBenchmark_TopologyRepresentationComparison()
     {
-        if (!IsPerfEnabled())
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the TIN topology representation comparison.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "TIN topology representation comparison")) return;
 
         if (!File.Exists(CsvPath))
         {
@@ -330,11 +326,7 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void LargeDatasetBenchmark_ExplicitBoundaryPreparation_ReportsTimeAndAllocation()
     {
-        if (!IsPerfEnabled())
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the explicit-boundary preparation benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "explicit-boundary preparation")) return;
 
         if (!File.Exists(CsvPath))
         {
@@ -497,9 +489,6 @@ public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
 
         Assert.NotNull(result);
     }
-
-    private static bool IsPerfEnabled() =>
-        string.Equals(Environment.GetEnvironmentVariable("MOLEHILL_PERF"), "1", StringComparison.Ordinal);
 
     private static PointCloudProcessor.MergedData LoadMergedCsv()
     {

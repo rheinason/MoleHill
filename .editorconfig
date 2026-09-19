@@ -1,0 +1,48 @@
+# MoleHill editor configuration.
+#
+# Deliberately narrow: it records the conventions AGENTS.md already states, as editor defaults rather
+# than as build errors. Nothing here is severity-raised, because turning a style rule into a warning
+# would reformat historical geometry files in a diff nobody can review. Raise a rule only together
+# with the batch that fixes it.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{ps1,psm1}]
+indent_size = 4
+
+[*.cs]
+# AGENTS.md: 4-space indentation, file-scoped namespaces, one type per file.
+csharp_style_namespace_declarations = file_scoped:suggestion
+csharp_using_directive_placement = outside_namespace:suggestion
+csharp_prefer_braces = when_multiline:silent
+csharp_new_line_before_open_brace = all
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+dotnet_sort_system_directives_first = true
+
+# PascalCase types/methods/properties, camelCase locals/parameters, _camelCase private fields.
+dotnet_naming_rule.private_fields_underscore_camel.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore_camel.style = underscore_camel_case
+dotnet_naming_rule.private_fields_underscore_camel.severity = suggestion
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+
+# Vendored sources: formatting is upstream's, not ours.
+[src/TriangleNet/**.cs]
+generated_code = true

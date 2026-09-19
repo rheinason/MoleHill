@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net7.0</TargetFramework>
     <RootNamespace>MoleHill.Core</RootNamespace>
@@ -6,7 +6,15 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <NoWarn>1591;1572;1573;1574;0649;8600;8601;8602;8603;8604;8618;8625;8765;8767</NoWarn>
+    <!--
+      Only the XML-doc and unassigned-field codes remain project-wide. The nullability codes used to be
+      here for one reason: MoleHill.Core compiles the vendored TriangleNet sources directly, and they
+      predate nullable reference types - 450 of the 456 warnings in the 2026-09-19 inventory were
+      TriangleNet's. That suppression is now scoped to the vendor in .editorconfig
+      (`[src/TriangleNet/**.cs] generated_code = true`), so owned code is analysed normally and
+      `./validate.ps1 warnings` can hold it at zero.
+    -->
+    <NoWarn>1591;1572;1573;1574;0649</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

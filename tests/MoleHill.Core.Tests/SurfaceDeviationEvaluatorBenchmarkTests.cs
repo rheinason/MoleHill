@@ -11,11 +11,7 @@ public class SurfaceDeviationEvaluatorBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void Evaluate_RollingGrid_ReportsOverlayTimingAndAllocation()
     {
-        if (!string.Equals(Environment.GetEnvironmentVariable("MOLEHILL_PERF"), "1", StringComparison.Ordinal))
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the surface-deviation benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "surface-deviation")) return;
 
         // 300 x 300 cells gives the default first release-scale checkpoint: 180,000 faces.
         // Override for the larger plan checkpoints, e.g. MOLEHILL_SURFACE_GRID_SIZE=707 (~1M faces).

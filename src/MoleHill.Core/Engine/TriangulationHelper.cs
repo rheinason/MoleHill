@@ -1,4 +1,4 @@
-using TriangleNet.Geometry;
+﻿using TriangleNet.Geometry;
 using TriangleNet.Meshing;
 
 namespace MoleHill.Core.Engine;
@@ -37,8 +37,10 @@ public static class TriangulationHelper
         ConstraintOptions options,
         QualityOptions? qualityOptions = null)
     {
+        // Null quality is the vendor's "no refinement" sentinel; TriangleNet's signature predates
+        // nullable annotations, so the argument is forgiven rather than defaulted.
         lock (TriangulateLock)
-            return new GenericMesher().Triangulate(polygon, options, qualityOptions);
+            return new GenericMesher().Triangulate(polygon, options, qualityOptions!);
     }
 
     /// <summary>
@@ -161,7 +163,7 @@ public static class TriangulationHelper
                 IMesh mesh;
                 lock (TriangulateLock)
                 {
-                    mesh = mesher.Triangulate(poly, opts, qualityOptions);
+                    mesh = mesher.Triangulate(poly, opts, qualityOptions!);
                 }
                 if (mesh.Triangles.Count > 0)
                     return mesh;

@@ -11,11 +11,7 @@ public class SurfaceSimplifierBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void Simplify_RollingGrid180kFaces_ReportsReductionTimingAndAllocation()
     {
-        if (!string.Equals(Environment.GetEnvironmentVariable("MOLEHILL_PERF"), "1", StringComparison.Ordinal))
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the surface-simplifier benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "surface-simplifier")) return;
 
         int gridSize = ReadGridSize();
         BuildGrid(gridSize, out double[] vertices, out int[] faces);
@@ -26,11 +22,7 @@ public class SurfaceSimplifierBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void Simplify_RollingGrid180kFacesWithMandatoryDiagonal_ReportsReductionTimingAndAllocation()
     {
-        if (!string.Equals(Environment.GetEnvironmentVariable("MOLEHILL_PERF"), "1", StringComparison.Ordinal))
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the constrained surface-simplifier benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "constrained surface-simplifier")) return;
 
         int gridSize = ReadGridSize();
         BuildGrid(gridSize, out double[] vertices, out int[] faces);
@@ -48,11 +40,7 @@ public class SurfaceSimplifierBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void Simplify_RollingGrid180kFacesTo50kVertices_ReportsAchievedErrorAndResources()
     {
-        if (!string.Equals(Environment.GetEnvironmentVariable("MOLEHILL_PERF"), "1", StringComparison.Ordinal))
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the count-mode surface-simplifier benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "count-mode surface-simplifier")) return;
 
         int gridSize = ReadGridSize();
         BuildGrid(gridSize, out double[] vertices, out int[] faces);

@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -21,7 +21,7 @@
 
   <ItemGroup>
     <Reference Include="RhinoCommon">
-      <HintPath>C:\Program Files\Rhino 8\System\RhinoCommon.dll</HintPath>
+      <HintPath>$(RhinoSystemDir)\RhinoCommon.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>
@@ -32,7 +32,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="C:\Program Files\Rhino 8\System\rhcommon_c.dll">
+    <None Include="$(RhinoSystemDir)\rhcommon_c.dll">
       <Link>rhcommon_c.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

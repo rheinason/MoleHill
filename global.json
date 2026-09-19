@@ -1,0 +1,8 @@
+{
+  "//": "Pins the SDK MoleHill is known to build and test with. rollForward=latestMajor keeps a newer SDK working (the 2026-09-19 review ran on 10.0.400); the version below is the floor, not a ceiling. Do NOT retarget the plugin TFMs to match a newer SDK - the host runtime matrix is a separate decision, see docs/validation-lanes.md.",
+  "sdk": {
+    "version": "8.0.400",
+    "rollForward": "latestMajor",
+    "allowPrerelease": false
+  }
+}

@@ -24,7 +24,7 @@ public class MeshAreaTopologySplitterScalingBenchmarkTests(ITestOutputHelper out
     [Trait("Category", "Performance")]
     public void Split_TerrainFaceScaling_AtAFixedBoundary()
     {
-        if (!Enabled("terrain face scaling"))
+        if (!PerformanceLane.ShouldRun(output, "terrain face scaling"))
             return;
 
         foreach (int side in new[] { 224, 448, 708 })
@@ -37,7 +37,7 @@ public class MeshAreaTopologySplitterScalingBenchmarkTests(ITestOutputHelper out
     [Trait("Category", "Performance")]
     public void Split_BoundarySegmentScaling_AtAFixedTerrain()
     {
-        if (!Enabled("boundary segment scaling"))
+        if (!PerformanceLane.ShouldRun(output, "boundary segment scaling"))
             return;
 
         const int side = 448;
@@ -51,7 +51,7 @@ public class MeshAreaTopologySplitterScalingBenchmarkTests(ITestOutputHelper out
     [Trait("Category", "Performance")]
     public void Split_ZonePieceScaling_AtAFixedTerrain()
     {
-        if (!Enabled("zone piece scaling"))
+        if (!PerformanceLane.ShouldRun(output, "zone piece scaling"))
             return;
 
         const int side = 448;
@@ -65,7 +65,7 @@ public class MeshAreaTopologySplitterScalingBenchmarkTests(ITestOutputHelper out
     [Trait("Category", "Performance")]
     public void Split_SpatialDistributions_ThatStressCellMembership()
     {
-        if (!Enabled("spatial distribution"))
+        if (!PerformanceLane.ShouldRun(output, "spatial distribution"))
             return;
 
         const int side = 448;
@@ -128,15 +128,6 @@ public class MeshAreaTopologySplitterScalingBenchmarkTests(ITestOutputHelper out
             $"    output={result!.VertexCount:N0}v/{result.FaceCount:N0}f " +
             $"(growth {(faceCount == 0 ? 0.0 : (double)result.FaceCount / faceCount):0.000}x)" +
             (string.IsNullOrWhiteSpace(warning) ? string.Empty : $"  warning: {warning}"));
-    }
-
-    private bool Enabled(string what)
-    {
-        if (string.Equals(Environment.GetEnvironmentVariable("MOLEHILL_PERF"), "1", StringComparison.Ordinal))
-            return true;
-
-        output.WriteLine($"Set MOLEHILL_PERF=1 to run the zone splitter {what} benchmark.");
-        return false;
     }
 
     /// <summary>Loops in normalized [0,1] terrain coordinates, resampled to the requested vertex count.</summary>

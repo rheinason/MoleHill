@@ -1,4 +1,5 @@
-﻿using MoleHill.Core.Engine;
+﻿using System.Diagnostics.CodeAnalysis;
+using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
@@ -684,7 +685,7 @@ internal static class MeshTopologyOperations
         Dictionary<int, List<int>> adjacency,
         int branch,
         int firstNeighbor,
-        out List<int>? cycle)
+        [NotNullWhen(true)] out List<int>? cycle)
     {
         cycle = null;
         var path = new List<int> { branch, firstNeighbor };

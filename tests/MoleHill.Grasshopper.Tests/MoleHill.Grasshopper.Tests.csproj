@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -27,15 +27,15 @@
 
   <ItemGroup>
     <Reference Include="Grasshopper">
-      <HintPath>C:\Program Files\Rhino 8\Plug-ins\Grasshopper\Grasshopper.dll</HintPath>
+      <HintPath>$(RhinoGrasshopperDir)\Grasshopper.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="GH_IO">
-      <HintPath>C:\Program Files\Rhino 8\Plug-ins\Grasshopper\GH_IO.dll</HintPath>
+      <HintPath>$(RhinoGrasshopperDir)\GH_IO.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="RhinoCommon">
-      <HintPath>C:\Program Files\Rhino 8\System\RhinoCommon.dll</HintPath>
+      <HintPath>$(RhinoSystemDir)\RhinoCommon.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

@@ -14,11 +14,7 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void GradePath_LargeTerrain20260705Benchmark_ReportsShapeTimingAndTopology()
     {
-        if (!IsPerfEnabled())
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the large terrain Grade Path benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "large terrain Grade Path")) return;
 
         long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
         var stopwatch = Stopwatch.StartNew();
@@ -101,11 +97,7 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void MeshHeightProjector_LargeReferenceBenchmark_ReportsLinearLookupTiming()
     {
-        if (!IsPerfEnabled())
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the MeshHeightProjector benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "MeshHeightProjector")) return;
 
         const int gridSize = 224;
         BuildRegularGrid(gridSize, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount);
@@ -149,11 +141,7 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void TerrainFaceGrid_DaylightScaling_ReportsFaceStationCost()
     {
-        if (!IsPerfEnabled())
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the daylight scaling benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "daylight scaling")) return;
 
         const int stationCount = 128;
         foreach (int gridSize in new[] { 64, 128, 224 })
@@ -217,11 +205,7 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void PathGrader_ClosestSegmentScaling_ReportsSegmentQueryCost()
     {
-        if (!IsPerfEnabled())
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the closest-path-segment scaling benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "closest-path-segment scaling")) return;
 
         const int queryCount = 10_000;
         var queryXy = new double[queryCount * 2];
@@ -301,11 +285,7 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void MeshAreaTopologySplitter_SegmentScaling_ReportsTimeAndAllocation()
     {
-        if (!IsPerfEnabled())
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the conform-loop segment scaling benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "conform-loop segment scaling")) return;
 
         const int gridSize = 48;
         BuildRegularGrid(
@@ -353,11 +333,7 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void MeshTopologyValidator_FlatScaling_ReportsTimeAndAllocation()
     {
-        if (!IsPerfEnabled())
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the flat-topology scaling benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "flat-topology scaling")) return;
 
         foreach (int gridSize in new[] { 72, 224, 708 })
         {
@@ -393,11 +369,7 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
     [Trait("Category", "Performance")]
     public void ScatterSampler_PoissonDomainShape_ReportsHiddenBoundingBoxCost()
     {
-        if (!IsPerfEnabled())
-        {
-            output.WriteLine("Set MOLEHILL_PERF=1 to run the Poisson domain-shape benchmark.");
-            return;
-        }
+        if (!PerformanceLane.ShouldRun(output, "Poisson domain-shape")) return;
 
         const double spacing = 2.0;
         _ = ScatterSampler.Sample(new ScatterRequest
@@ -453,9 +425,6 @@ public class LargeTerrainPerformanceBenchmarkTests(ITestOutputHelper output)
             Assert.NotEmpty(points);
         }
     }
-
-    private static bool IsPerfEnabled() =>
-        string.Equals(Environment.GetEnvironmentVariable("MOLEHILL_PERF"), "1", StringComparison.Ordinal);
 
     private static double[] BuildCircleLoop(
         double centerX,
