@@ -579,7 +579,152 @@ internal static partial class MeshConstraintTopologyInserter
             }
         }
 
+        ConformSharedEdgeSplits(vertices, faces, faceCount, result, tolerance);
         return result;
+    }
+
+    /// <summary>
+    /// Makes every shared edge conform: the two faces incident to an edge must subdivide it at the
+    /// same set of points, so their sub-edges match one for one.
+    ///
+    /// Edge points are collected per face, and each face decides independently whether a segment
+    /// touches it. Two neighbours can therefore disagree about one point on the edge they share --
+    /// measured on a real terrain, one face split at t=[.345,.529,.688,.707] while its neighbour split
+    /// the same edge at t=[.345,.529,.688,.698,.707]. The extra point leaves a vertex sitting in the
+    /// interior of the other face's sub-edge: that sub-edge is used by one face only, so every
+    /// downstream boundary analysis counts it as a naked edge and reports a hole that does not exist.
+    ///
+    /// The surface is complete either way -- no area is lost and no face is dropped -- but the mesh is
+    /// non-conforming, which fails the watertightness gates and rejects wall breakline insertion. Two
+    /// such points on a 2,148-face terrain were enough to report 3 boundary loops instead of 1.
+    ///
+    /// Taking the union is the correct reconciliation rather than the intersection: each point was put
+    /// there because some constraint genuinely reaches that spot, and dropping it from the face that
+    /// found it would move a constraint. A point on the shared edge is on both faces' planes -- along
+    /// that edge both interpolate linearly between the same two endpoints -- so the split vertex takes
+    /// the same elevation from either side.
+    /// </summary>
+    private static void ConformSharedEdgeSplits(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        FaceCutData?[] cuts,
+        double tolerance)
+    {
+        // Edge key -> the (face, local edge index) pairs using it. Only manifold pairs can disagree.
+        var edgeUsers = new Dictionary<long, (int FaceA, int EdgeA, int FaceB, int EdgeB, int Count)>(
+            faceCount, IndexedMeshTools.EdgeKeyComparer.Instance);
+
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            int a = faces[faceIndex * 3];
+            int b = faces[(faceIndex * 3) + 1];
+            int c = faces[(faceIndex * 3) + 2];
+            AccumulateEdgeUser(edgeUsers, a, b, faceIndex, 0);
+            AccumulateEdgeUser(edgeUsers, b, c, faceIndex, 1);
+            AccumulateEdgeUser(edgeUsers, c, a, faceIndex, 2);
+        }
+
+        var pointsOnEdge = new List<(double Parameter, Point2D Point)>(8);
+        foreach (var entry in edgeUsers.Values)
+        {
+            if (entry.Count != 2)
+                continue;
+
+            FaceCutData? cutA = cuts[entry.FaceA];
+            FaceCutData? cutB = cuts[entry.FaceB];
+            if (cutA is null && cutB is null)
+                continue;
+
+            var faceA = new FaceData(vertices, faces, entry.FaceA);
+            Point2D edgeStart = faceA.GetEdgeStart(entry.EdgeA);
+            Point2D edgeEnd = faceA.GetEdgeEnd(entry.EdgeA);
+
+            pointsOnEdge.Clear();
+            GatherEdgePointsOn(cutA, entry.EdgeA, edgeStart, edgeEnd, tolerance, pointsOnEdge);
+            GatherEdgePointsOn(cutB, entry.EdgeB, edgeStart, edgeEnd, tolerance, pointsOnEdge);
+            if (pointsOnEdge.Count == 0)
+                continue;
+
+            var faceB = new FaceData(vertices, faces, entry.FaceB);
+            foreach (var (_, point) in pointsOnEdge)
+            {
+                if (!faceA.IsNearVertex(point, tolerance))
+                {
+                    cutA ??= cuts[entry.FaceA] = new FaceCutData();
+                    AddUniqueEdgePoint(cutA.EdgePoints, new EdgePoint(entry.EdgeA, point), faceA, tolerance);
+                }
+
+                if (!faceB.IsNearVertex(point, tolerance))
+                {
+                    cutB ??= cuts[entry.FaceB] = new FaceCutData();
+                    AddUniqueEdgePoint(cutB.EdgePoints, new EdgePoint(entry.EdgeB, point), faceB, tolerance);
+                }
+            }
+        }
+    }
+
+    private static void AccumulateEdgeUser(
+        Dictionary<long, (int FaceA, int EdgeA, int FaceB, int EdgeB, int Count)> edgeUsers,
+        int start,
+        int end,
+        int faceIndex,
+        int edgeIndex)
+    {
+        long key = start < end
+            ? ((long)start << 32) | (uint)end
+            : ((long)end << 32) | (uint)start;
+
+        if (!edgeUsers.TryGetValue(key, out var entry))
+        {
+            edgeUsers[key] = (faceIndex, edgeIndex, -1, -1, 1);
+            return;
+        }
+
+        // A third user means non-manifold input; leave those edges alone rather than guess.
+        edgeUsers[key] = entry.Count == 1
+            ? (entry.FaceA, entry.EdgeA, faceIndex, edgeIndex, 2)
+            : (entry.FaceA, entry.EdgeA, entry.FaceB, entry.EdgeB, entry.Count + 1);
+    }
+
+    /// <summary>
+    /// Collects this face's split points lying on the given edge, keyed by parameter along it, skipping
+    /// any already gathered within tolerance so the union does not double-insert a shared point.
+    /// </summary>
+    private static void GatherEdgePointsOn(
+        FaceCutData? cut,
+        int edgeIndex,
+        Point2D edgeStart,
+        Point2D edgeEnd,
+        double tolerance,
+        List<(double Parameter, Point2D Point)> destination)
+    {
+        if (cut is null)
+            return;
+
+        double toleranceSquared = tolerance * tolerance;
+        foreach (EdgePoint edgePoint in cut.EdgePoints)
+        {
+            if (edgePoint.EdgeIndex != edgeIndex)
+                continue;
+
+            double parameter = ParameterOnEdge(edgeStart, edgeEnd, edgePoint.Point);
+            if (parameter <= 0.0 || parameter >= 1.0)
+                continue;
+
+            bool alreadyPresent = false;
+            for (int i = 0; i < destination.Count; i++)
+            {
+                if (DistanceSquared(destination[i].Point, edgePoint.Point) <= toleranceSquared)
+                {
+                    alreadyPresent = true;
+                    break;
+                }
+            }
+
+            if (!alreadyPresent)
+                destination.Add((parameter, edgePoint.Point));
+        }
     }
 
     private static bool TriangulateTouchedFace(

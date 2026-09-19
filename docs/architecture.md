@@ -489,7 +489,8 @@ does not carry terrain constraints or zones; the terrain-aware Grade Pad migrati
 covers daylight reaching the terrain edge) → **constraint insertion** (`PathGrader.Patches.cs`, last
 resort). **Every tier validates its own output, the last one included** — it returns null with a
 message rather than emitting topology worse than its input (more boundary loops, new naked-edge
-chains, new non-manifold edges). A last resort that ships a torn mesh is worse than no grade at all:
+chains, new non-manifold edges) — typically non-conforming connectivity rather than missing surface.
+A last resort that ships such a mesh is worse than no grade at all:
 the error is null, so downstream cannot tell it from success, and the retaining-wall stage rebuilds
 from the damage and loses the terrain. The bar is *not worse than input*, not absolute health, so a
 terrain with a legitimate interior hole still grades. See `src/MoleHill.Core/Grading/README.md`.

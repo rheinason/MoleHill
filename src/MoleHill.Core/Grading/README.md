@@ -94,6 +94,13 @@ stage then rebuilds from it and loses the terrain (measured: 2,828 faces to 249,
 Remesh with it). Tier 3 now validates its own output through
 `GradingTopologyDiagnostics.IsNotWorseThanInput` and returns null with a message instead.
 
+**What it rejects is non-conforming connectivity, not missing terrain.** The failure that motivated
+this reported "extra boundary loops" while total surface area was unchanged to the last digit and no
+face was lost: constraint insertion had split an edge in one face and not in its neighbour, leaving a
+vertex inside the neighbour's sub-edge. That sub-edge is used once, so boundary analysis counts it as
+naked. `MeshConstraintTopologyInserter.ConformSharedEdgeSplits` now reconciles both incident faces to
+the same ordered split set, so shared edges conform by construction.
+
 The bar is **not worse than the input**, never absolute health: a terrain may legitimately carry an
 interior hole, and such a terrain has more than one boundary component before any grading runs.
 What is never legitimate is a grade that *adds* a loop, opens a naked-edge chain, or tears the mesh
