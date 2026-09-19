@@ -92,9 +92,16 @@ Small fixture: edit to visible **1,087 -> 385 ms**.
 **Geometry-heavy terrains are a separate problem.** A stack of Triangulate -> Grade Pad -> Grade Path ->
 Smooth -> Remesh with no analyses spends **98.5%** of edit-to-visible inside the modifier chain, so none
 of the scheduling work above helps it and early publication correctly declines. The largest single item
-is **`ResolveGradePadInputs` at 1.42 s for one rectangular boundary** - more than `PadGrader.Grade`
-itself (1.36 s). Mesh marshalling was measured and excluded as the cause (67 ms extract, ~113 ms full
-round trip). See [architecture.md](architecture.md), "The geometry-heavy case is a different problem".
+is **`SpatialHashGrid2D.Build` over every mesh edge, 0.91 s**, inside the `ConstraintCoincidenceSnapper`
+that `PadGrader.CreateConstraints` builds to snap 3 constraint polylines. `PathGrader.CreateConstraints`
+repeats it. Mesh marshalling was measured and excluded as the cause (67 ms extract, ~113 ms full round
+trip). See [architecture.md](architecture.md), "The geometry-heavy case is a different problem".
+
+Three remediations are visible and none has been attempted: restrict the index to the pad/path influence
+envelope (already computed, ~8% of this fixture's area); size the grid cell to the mesh edge length
+(815,328 memberships for 186,501 edges today); and share one index across the grading stages of a build.
+All three change only how constraints are found, not which ones, so each needs a geometry-equivalence
+test rather than only a timing one.
 
 **Still open.** (a) The marshal from a finished worker back to the UI thread is now the largest single
 interval on the small fixture (275 ms of 385 ms). It measures 0.1 ms when Rhino's loop is busy, so only

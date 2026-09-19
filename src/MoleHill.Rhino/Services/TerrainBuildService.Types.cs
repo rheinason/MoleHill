@@ -73,6 +73,13 @@ internal sealed partial class TerrainBuildService
         public required string[] Diagnostics { get; init; }
 
         public required IReadOnlyList<GradingDiagnostic> StructuredDiagnostics { get; init; }
+
+        /// <summary>
+        /// How long <c>PadGrader.CreateConstraints</c> took. Reported separately because it is the only
+        /// part of input resolution that scales with the terrain mesh rather than with the number of
+        /// pads, and it dominated the stage - see docs/architecture.md, "The geometry-heavy case".
+        /// </summary>
+        public TimeSpan ConstraintElapsed { get; init; }
     }
 
     private sealed class ResolvedGradePathInputs
@@ -85,6 +92,9 @@ internal sealed partial class TerrainBuildService
 
         public IReadOnlyList<VariablePathWidthResolver.Diagnostic> WidthDiagnostics { get; init; } =
             Array.Empty<VariablePathWidthResolver.Diagnostic>();
+
+        /// <summary>How long <c>PathGrader.CreateConstraints</c> took; see the Pad equivalent.</summary>
+        public TimeSpan ConstraintElapsed { get; init; }
     }
 
     private readonly record struct ConstraintSignature(

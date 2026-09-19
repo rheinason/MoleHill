@@ -1186,11 +1186,36 @@ Three things follow, and they are the pitfalls of this shape:
 | Output mesh (`BuildMesh` + normalize) | 0.17 s |
 | Locks, dirty scan, fingerprints | ~0 s |
 
-Resolving **one rectangular boundary** costs more than grading against it. It takes the terrain's
-vertex and face arrays, so it scales with the mesh rather than with the number of pads. Two plausible
-explanations were measured and **disproved** before this one: `TryExtractMeshData` is 67 ms on a
-124k-face mesh, and the whole per-stage mesh marshalling round trip (extract, `BuildMesh`, normalize,
-cache clone) is ~113 ms on 110k faces. What `ResolveGradePadInputs` spends 1.42 s on is not yet known.
+Resolving **one rectangular boundary** costs more than grading against it, and the cost is all in one
+place. Drilling down:
+
+| Step | Time | Producing |
+|---|---|---|
+| `PadGrader.CreateConstraints` | 1.28 s | 3 constraint polylines |
+| -> `ConstraintCoincidenceSnapper` ctor | 1.00 s | |
+| -> -> `SpatialHashGrid2D.Build` over mesh **edges** | **0.91 s** | 186,501 edges indexed |
+| -> -> `SpatialHashGrid2D.Build` over mesh vertices | 0.10 s | 62,500 vertices indexed |
+| `TryBuildBoundaryLoop` | 9 ms | |
+| `ValidateTerrainMesh` | 0.6 ms | |
+
+`Grade Path` shows the same shape: `PathGrader.CreateConstraints` is 0.72 s of a 1.72 s stage, for
+47 constraints over 55,822 vertices.
+
+So **the largest single cost in a geometry-heavy build is indexing every edge of the terrain in order to
+snap a handful of constraint points onto it.** Three things make it worse than it needs to be, all
+visible in the grid's own `BuildStatistics` (added by R04):
+
+- **The index covers the whole terrain**, not the pad's influence envelope. The pad occupies roughly 8%
+  of this survey's area, and the code already computes a transition distance per pad.
+- **Each edge lands in ~4.4 cells** - 815,328 memberships for 186,501 edges, because the chosen cell
+  size (1.15) is below the typical edge length (2.0). `MaxCellOccupancy` is 8, so the grid is not
+  degenerate; it is simply indexing a lot of straddling edges.
+- **It is rebuilt per grading modifier**, over a nearly identical mesh, with no sharing between the
+  Grade Pad and Grade Path stages of the same build.
+
+Two other explanations were measured and **disproved** first, and are recorded so they are not
+re-investigated: `TryExtractMeshData` is 67 ms on a 124k-face mesh, and the whole per-stage mesh
+marshalling round trip (extract, `BuildMesh`, normalize, cache clone) is ~113 ms on 110k faces.
 
 ### Publishing geometry before its outputs
 
