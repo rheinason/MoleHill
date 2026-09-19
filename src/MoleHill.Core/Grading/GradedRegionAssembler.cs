@@ -1,4 +1,4 @@
-using MoleHill.Core.Engine;
+﻿using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
@@ -200,7 +200,7 @@ internal static class GradedRegionAssembler
 
         var segments = new List<(int a, int b)>();
         var terrainBoundary = new List<(int a, int b)>();
-        MeshConstraintTools.AddBoundarySegments(terrainBoundary, new HashSet<long>(), terrainFaces, terrainFaceCount);
+        MeshConstraintTools.AddBoundarySegments(terrainBoundary, IndexedMeshTools.CreateEdgeKeySet(), terrainFaces, terrainFaceCount);
         foreach (var (a, b) in terrainBoundary)
         {
             int ai = terrainMap[a], bi = terrainMap[b];
@@ -554,7 +554,9 @@ internal static class GradedRegionAssembler
     /// </summary>
     private static Dictionary<int, List<int>> BuildHoleBoundaryAdjacency(int[] faces, int faceCount, bool[] insideFlags)
     {
-        var edgeCounts = new Dictionary<long, (int inside, int outside)>();
+        var edgeCounts = new Dictionary<long, (int inside, int outside)>(
+            Math.Max(8, faceCount * 2),
+            IndexedMeshTools.EdgeKeyComparer.Instance);
 
         void Bump(int a, int b, bool inside)
         {
@@ -785,7 +787,7 @@ internal static class GradedRegionAssembler
     private static double[]? TryBuildTerrainOutline(int[] faces, int faceCount, double[] vertices)
     {
         var boundary = new List<(int a, int b)>();
-        MeshConstraintTools.AddBoundarySegments(boundary, new HashSet<long>(), faces, faceCount);
+        MeshConstraintTools.AddBoundarySegments(boundary, IndexedMeshTools.CreateEdgeKeySet(), faces, faceCount);
         if (boundary.Count == 0)
             return null;
 
@@ -858,7 +860,7 @@ internal static class GradedRegionAssembler
     private static List<int[]> ChainBoundaryLoops(Dictionary<int, List<int>> adjacency)
     {
         var loops = new List<int[]>();
-        var visited = new HashSet<long>(); // visited undirected edges
+        var visited = IndexedMeshTools.CreateEdgeKeySet(); // visited undirected edges
 
         foreach (int start in adjacency.Keys)
         {

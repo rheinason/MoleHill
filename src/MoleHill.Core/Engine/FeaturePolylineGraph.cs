@@ -65,7 +65,7 @@ internal sealed class FeaturePolylineGraph
     /// Arc parameter of corner/frozen vertices per chain they lie on (feature vertices use the arrays).
     /// Key = (vertex &lt;&lt; 32) | chainId. Populated at build time only; corners never move or gain chains.
     /// </summary>
-    private readonly Dictionary<long, double> _cornerParams = new();
+    private readonly Dictionary<long, double> _cornerParams = new(IndexedMeshTools.EdgeKeyComparer.Instance);
 
     public static FeaturePolylineGraph Build(
         double[] vertices,

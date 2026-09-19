@@ -1,3 +1,5 @@
+﻿using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Grading;
 
 internal static class MeshArtifactCleaner
@@ -209,7 +211,7 @@ internal static class MeshArtifactCleaner
             };
         }
 
-        var edgeToFaces = new Dictionary<ulong, List<int>>(faceCount * 2);
+        var edgeToFaces = new Dictionary<ulong, List<int>>(faceCount * 2, IndexedMeshTools.PackedKeyComparer.Instance);
         var faceNeighbors = new List<int>[faceCount];
         for (int i = 0; i < faceCount; i++)
             faceNeighbors[i] = new List<int>(3);

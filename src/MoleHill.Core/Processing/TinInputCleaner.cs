@@ -1,3 +1,5 @@
+﻿using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Processing;
 
 /// <summary>
@@ -124,7 +126,7 @@ public static class TinInputCleaner
         }
 
         var segments = new List<SegmentData>(input.SegmentCount);
-        var segmentKeys = new HashSet<long>();
+        var segmentKeys = IndexedMeshTools.CreateEdgeKeySet(input.SegmentCount);
         int degenerateSegmentsRemoved = 0;
         int duplicateSegmentsRemoved = 0;
         int collinearVerticesCollapsed = 0;
@@ -314,7 +316,7 @@ public static class TinInputCleaner
     private static void ReplaceDegreeTwoVertex(List<SegmentData> segments, int a, int vertex, int b)
     {
         var rebuilt = new List<SegmentData>(segments.Count);
-        var keys = new HashSet<long>();
+        var keys = IndexedMeshTools.CreateEdgeKeySet(segments.Count);
 
         foreach (var segment in segments)
         {
@@ -556,7 +558,7 @@ public static class TinInputCleaner
     private static void RebuildSegmentsWithCuts(List<SegmentData> segments, List<SegmentCut>[] cuts)
     {
         var rebuilt = new List<SegmentData>(segments.Count * 2);
-        var keys = new HashSet<long>();
+        var keys = IndexedMeshTools.CreateEdgeKeySet(segments.Count);
 
         for (int i = 0; i < segments.Count; i++)
         {

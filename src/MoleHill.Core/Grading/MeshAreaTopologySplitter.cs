@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
@@ -988,7 +988,7 @@ internal static class MeshAreaTopologySplitter
         }
 
         var segments = new List<(int a, int b)>();
-        var segmentKeys = new HashSet<long>();
+        var segmentKeys = IndexedMeshTools.CreateEdgeKeySet();
 
         if (cutData != null)
         {

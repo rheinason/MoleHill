@@ -1,3 +1,5 @@
+﻿using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Grading;
 
 internal enum CoincidentVertexZPolicy
@@ -161,7 +163,7 @@ internal static class MeshTopologyOperations
             return (vertices, vertexCount, faces, faceCount, 0);
 
         // Edges already present between boundary vertices (don't merge across an existing edge).
-        var connected = new HashSet<ulong>();
+        var connected = new HashSet<ulong>(edgeCounts.Count, IndexedMeshTools.PackedKeyComparer.Instance);
         foreach ((ulong edge, int _) in edgeCounts)
             connected.Add(edge);
 
@@ -528,7 +530,7 @@ internal static class MeshTopologyOperations
         var xyList = new List<double>(firstVertexCount * 2 + secondVertexCount * 2);
         var zList = new List<double>(firstVertexCount + secondVertexCount);
         var vertHash = new SpatialVertexHash(tolerance);
-        var seenFaces = new HashSet<ulong>();
+        var seenFaces = new HashSet<ulong>(firstFaceCount + secondFaceCount, IndexedMeshTools.PackedKeyComparer.Instance);
 
         int AddVertex(double x, double y, double z)
         {
@@ -622,7 +624,7 @@ internal static class MeshTopologyOperations
 
     private static Dictionary<ulong, int> BuildEdgeCounts(int[] faces, int faceCount)
     {
-        var edgeCounts = new Dictionary<ulong, int>(faceCount * 2);
+        var edgeCounts = new Dictionary<ulong, int>(faceCount * 2, IndexedMeshTools.PackedKeyComparer.Instance);
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             int a = faces[faceIndex * 3];

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
@@ -931,7 +931,7 @@ internal sealed partial class TerrainBuildService
     private static double ComputeMedianUndirectedEdgeLength(double[] vertices, int[] faces, int faceCount)
     {
         var edgeLengths = new List<double>(faceCount * 3);
-        var seen = new HashSet<long>();
+        var seen = IndexedMeshTools.CreateEdgeKeySet(faceCount * 2);
 
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {

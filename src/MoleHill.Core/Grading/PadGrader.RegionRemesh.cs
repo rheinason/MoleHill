@@ -1,4 +1,4 @@
-using MoleHill.Core.Engine;
+﻿using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
@@ -826,7 +826,7 @@ public static partial class PadGrader
     private static bool TryBreakDroppedRegionPinches(List<int> keptFaces, List<int> droppedFaces)
     {
         // Naked-edge degree per vertex over the dropped region (an edge on exactly one dropped face).
-        var edgeCount = new Dictionary<long, int>();
+        var edgeCount = IndexedMeshTools.CreateEdgeKeyMap<int>(Math.Max(8, droppedFaces.Count));
         void Inc(int a, int b)
         {
             long k = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;

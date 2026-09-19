@@ -1,4 +1,4 @@
-namespace MoleHill.Core.Engine;
+﻿namespace MoleHill.Core.Engine;
 
 internal static class IndexedMeshTools
 {
@@ -193,4 +193,32 @@ internal static class IndexedMeshTools
         public bool Equals(long x, long y) => x == y;
         public int GetHashCode(long key) => HashCode.Combine((int)(key >> 32), (int)(key & 0xFFFFFFFF));
     }
+
+    /// <summary>
+    /// The <see cref="EdgeKeyComparer"/> counterpart for keys packed into a <see cref="ulong"/> rather
+    /// than a <see cref="long"/> - edge keys built unsigned, and the 3x21-bit face keys in
+    /// <c>MeshTopologyOperations</c>. The default <see cref="ulong"/> hash XORs the halves exactly as
+    /// the signed one does, so it collapses in the same way.
+    /// </summary>
+    internal sealed class PackedKeyComparer : IEqualityComparer<ulong>
+    {
+        internal static readonly PackedKeyComparer Instance = new();
+        public bool Equals(ulong x, ulong y) => x == y;
+        public int GetHashCode(ulong key) => HashCode.Combine((uint)(key >> 32), (uint)key);
+    }
+
+    /// <summary>
+    /// A set of packed edge keys with the right comparer already attached. Prefer this over
+    /// <c>new HashSet&lt;long&gt;()</c> at an edge-key site: the capacity stays explicit and the
+    /// comparer cannot be forgotten. Spatial-cell keys use a different encoding - not this.
+    /// </summary>
+    internal static HashSet<long> CreateEdgeKeySet(int capacity = 0) =>
+        new(Math.Max(0, capacity), EdgeKeyComparer.Instance);
+
+    /// <summary>
+    /// A map from packed edge key to <typeparamref name="TValue"/>, with the right comparer attached.
+    /// See <see cref="CreateEdgeKeySet"/>.
+    /// </summary>
+    internal static Dictionary<long, TValue> CreateEdgeKeyMap<TValue>(int capacity = 0) =>
+        new(Math.Max(0, capacity), EdgeKeyComparer.Instance);
 }

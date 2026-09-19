@@ -1,4 +1,4 @@
-using MoleHill.Core.Engine;
+﻿using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
@@ -911,7 +911,7 @@ public static partial class PadGrader
         // pairs reconstructed from the loop: input dedup can fold a self-touching loop so that
         // consecutive indices no longer correspond to loop edges, which would punch false gaps in the
         // wall (and add false walls) and make the flood leak.
-        var walls = new HashSet<long>();
+        var walls = IndexedMeshTools.CreateEdgeKeySet(boundarySegmentCount);
         for (int i = 0; i < boundarySegmentCount; i++)
         {
             if (sourceToVertex.TryGetValue(boundarySegments[i].a, out int u) &&
@@ -922,7 +922,7 @@ public static partial class PadGrader
         }
 
         // Edge -> incident faces.
-        var edgeFaces = new Dictionary<long, List<int>>(faceCount * 3);
+        var edgeFaces = IndexedMeshTools.CreateEdgeKeyMap<List<int>>(faceCount * 3);
         void Incident(int a, int b, int f)
         {
             long k = FillEdgeKey(a, b);

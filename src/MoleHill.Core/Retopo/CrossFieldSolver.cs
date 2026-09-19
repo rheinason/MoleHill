@@ -1,4 +1,4 @@
-using MoleHill.Core.Engine;
+﻿using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Retopo;
 
@@ -81,7 +81,7 @@ public static class CrossFieldSolver
         double tolerance = Math.Max(options.Tolerance, 1e-6);
 
         var boundarySegments = new List<(int a, int b)>();
-        MeshConstraintTools.AddBoundarySegments(boundarySegments, new HashSet<long>(), faces, faceCount);
+        MeshConstraintTools.AddBoundarySegments(boundarySegments, IndexedMeshTools.CreateEdgeKeySet(), faces, faceCount);
         foreach ((int a, int b) in boundarySegments)
             AccumulateFeatureEdge(vertices, a, b, accumX, accumY);
 
@@ -258,7 +258,7 @@ public static class CrossFieldSolver
         if (constraints.Count == 0)
             yield break;
 
-        var meshEdges = new HashSet<long>(faceCount * 3);
+        var meshEdges = IndexedMeshTools.CreateEdgeKeySet(faceCount * 3);
         for (int t = 0; t < faceCount; t++)
         {
             int a = faces[t * 3], b = faces[t * 3 + 1], c = faces[t * 3 + 2];

@@ -1,3 +1,5 @@
+﻿using MoleHill.Core.Engine;
+
 namespace MoleHill.Core.Grading;
 
 internal readonly record struct GradingVolumeMetrics(double CutVolume, double FillVolume);
@@ -118,7 +120,7 @@ internal static class GradingResultBuilder
         ValidateDoubleArrayPrefix(gradedZ, requiredVertexCount, stride: 1, nameof(gradedZ));
 
         var daylightPts = new List<double>();
-        var processedEdges = new HashSet<long>();
+        var processedEdges = IndexedMeshTools.CreateEdgeKeySet(faceCount * 2);
 
         for (int f = 0; f < faceCount; f++)
         {
@@ -182,7 +184,7 @@ internal static class GradingResultBuilder
         ValidateDoubleArrayPrefix(gradedVertices, requiredVertexCount, stride: 3, nameof(gradedVertices));
 
         var daylightPts = new List<double>();
-        var processedEdges = new HashSet<long>();
+        var processedEdges = IndexedMeshTools.CreateEdgeKeySet(faceCount * 2);
 
         for (int f = 0; f < faceCount; f++)
         {

@@ -1,4 +1,4 @@
-namespace MoleHill.Core.Engine;
+﻿namespace MoleHill.Core.Engine;
 
 /// <summary>
 /// Adds an explicit outer boundary loop to TIN inputs before triangulation.
@@ -144,7 +144,7 @@ public static class TinBoundaryPreparer
         var xyList = xyCoords.ToList();
         var zList = zValues.ToList();
         var segmentList = new List<(int a, int b)>(segments.Length / 2 + boundary.PointCount);
-        var segmentKeys = new HashSet<long>();
+        var segmentKeys = IndexedMeshTools.CreateEdgeKeySet();
 
         CopySegments(segments, xyCoords.Length / 2, segmentList, segmentKeys);
 

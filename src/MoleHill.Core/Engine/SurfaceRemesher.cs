@@ -585,9 +585,9 @@ public static class SurfaceRemesher
         int faceCount = originalFaces.Length / 3;
 
         var segments = new List<(int a, int b)>();
-        var segmentKeys = new HashSet<long>();
+        var segmentKeys = IndexedMeshTools.CreateEdgeKeySet();
         var boundarySegments = new List<(int a, int b)>();
-        MeshConstraintTools.AddBoundarySegments(boundarySegments, new HashSet<long>(), originalFaces, faceCount);
+        MeshConstraintTools.AddBoundarySegments(boundarySegments, IndexedMeshTools.CreateEdgeKeySet(), originalFaces, faceCount);
 
         bool usesFullOriginalVertexSeed = seedInteriorVertices || boundarySegments.Count == 0;
         var xyList = new List<double>(usesFullOriginalVertexSeed ? originalVertexCount * 2 : Math.Max(boundarySegments.Count * 4, 8));
@@ -1330,7 +1330,7 @@ public static class SurfaceRemesher
     private static List<Segment2D> BuildPerimeterSegments(double[] originalVertices, int[] originalFaces, int faceCount)
     {
         var boundaryEdges = new List<(int a, int b)>();
-        MeshConstraintTools.AddBoundarySegments(boundaryEdges, new HashSet<long>(), originalFaces, faceCount);
+        MeshConstraintTools.AddBoundarySegments(boundaryEdges, IndexedMeshTools.CreateEdgeKeySet(), originalFaces, faceCount);
         var segments = new List<Segment2D>(boundaryEdges.Count);
 
         foreach (var (a, b) in boundaryEdges)

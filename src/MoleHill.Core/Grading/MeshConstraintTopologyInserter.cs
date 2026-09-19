@@ -1,4 +1,4 @@
-using MoleHill.Core.Engine;
+﻿using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
@@ -619,7 +619,7 @@ internal static partial class MeshConstraintTopologyInserter
         }
 
         var segments = new List<(int a, int b)>();
-        var segmentKeys = new HashSet<long>();
+        var segmentKeys = IndexedMeshTools.CreateEdgeKeySet();
 
         foreach (SegmentPiece piece in cutData.InternalSegments)
         {
