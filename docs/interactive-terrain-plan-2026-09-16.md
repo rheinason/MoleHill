@@ -631,3 +631,40 @@ Verified: compiles; `MoleHill.Rhino.Tests` 726 passed / 130 skipped, including 4
 entries are dropped), prefix-scoped pruning, and detach. **Unmeasured and not live-verified:** whether a
 real upstream Z edit now reports "cache hit" on the Retaining Wall Plan timing row. That is a one-line
 check in a Rhino session and is the first thing to do when one is available.
+
+### 5 — Finding: `TerrainBuildMode.Preview` is never dispatched, and what that cost entries 1 and 4
+
+While sizing Step 2 I traced every producer of a build request. There are exactly two calls to
+`QueuePendingBuild` — `TerrainController.Build.cs:43` (the debounced document-edit path) and
+`TerrainController.cs:749` (the immediate path) — **and both pass `TerrainBuildMode.Final`.** Nothing in
+`src/` ever queues a `Preview` build. The mode is read all over the build service, the slow-build
+warnings, the display state and the tests, but in a running Rhino session every build is Final.
+
+This is not a small bookkeeping detail for this plan:
+
+- **It changes Step 2's design.** The plan's primary deliverable is "within an active session, a new
+  sample must replace the pending sample rather than cancelling the running evaluation". The obvious
+  narrow version — coalesce previews, keep cancel-on-request for finals — **does nothing**, because the
+  gesture path *is* the final path. And coalescing Final is not a free choice: publishing a superseded
+  Final result writes authoritative state and `LastBuildUtc` for a sample the document has already moved
+  past, which is precisely what this plan's own release gate forbids ("Exact state cannot be overwritten
+  by obsolete previews"). Step 2 therefore needs an interactive mode that actually gets dispatched — the
+  session is not optional scaffolding around the scheduling change, it is the thing that makes a
+  coalesceable request exist. Recorded rather than guessed at: I did not implement a scheduling change
+  on top of this.
+- **It makes entry 1 inert today.** Preview skipping wall solids is correct and is what the interactive
+  path will need, but with no preview dispatch, `buildSolids` is true on every build in a live session,
+  so there is no saving to measure yet. The earlier claim of a preview saving was premature.
+- **It made entry 4 dead code**, which is repaired below.
+
+Repair to entry 4: the plan cache now serves **any** mode, with `BuiltSolids` part of the cache match
+rather than a refusal. The Brep-ownership objection that drove the preview-only restriction turned out to
+be already solved in this codebase: the stage cache holds canonical geometry and hands out
+`Geometry.Duplicate()` copies (`TerrainRuntimeCacheCloner.CloneGeneratedObject`). The wall stage now does
+the same — a plan served from cache publishes `wall.Brep.DuplicateBrep()`, a freshly planned one
+publishes its own instance. So a Final build after an upstream Z edit reuses its rail plan, which is the
+case the finding was about in the first place.
+
+Verified: compiles; `MoleHill.Rhino.Tests` 726 passed / 130 skipped. **Still unmeasured**, and now clearly
+the most valuable next measurement: a Rhino session showing "Retaining Wall Plan … cache hit" after an
+upstream-only edit.

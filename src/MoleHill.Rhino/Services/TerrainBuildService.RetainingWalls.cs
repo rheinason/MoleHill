@@ -65,11 +65,12 @@ internal sealed partial class TerrainBuildService
             maxWallWidth,
             wallTolerance,
             railCleanupTolerance);
+        // A plan built without solids cannot serve a build that needs them, so BuiltSolids is part of
+        // the match rather than a note on the entry.
         bool planFromCache =
             runtimeCache.RetainingWallPlanEntries.TryGetValue(stageKey, out RetainingWallPlanCacheEntry? cachedPlan) &&
             cachedPlan.Fingerprint == planFingerprint &&
-            cachedPlan.BuiltSolids == buildWallSolids &&
-            !buildWallSolids;
+            cachedPlan.BuiltSolids == buildWallSolids;
 
         RetainingWallPlannerCore.PlanResult plan;
         if (planFromCache)
@@ -85,15 +86,12 @@ internal sealed partial class TerrainBuildService
                 curveCleanupTolerance: railCleanupTolerance,
                 buildSolids: buildWallSolids);
 
-            if (buildWallSolids)
-                runtimeCache.RetainingWallPlanEntries.Remove(stageKey);
-            else
-                runtimeCache.RetainingWallPlanEntries[stageKey] = new RetainingWallPlanCacheEntry
-                {
-                    Fingerprint = planFingerprint,
-                    BuiltSolids = false,
-                    Plan = plan
-                };
+            runtimeCache.RetainingWallPlanEntries[stageKey] = new RetainingWallPlanCacheEntry
+            {
+                Fingerprint = planFingerprint,
+                BuiltSolids = buildWallSolids,
+                Plan = plan
+            };
         }
         planTimer.Stop();
         build.RecordTiming(
@@ -144,7 +142,9 @@ internal sealed partial class TerrainBuildService
                     build.AuxiliaryObjects.Add(new GeneratedRhinoObject
                     {
                         Role = LayerRole.Walls,
-                        Geometry = wall.Brep,
+                        // A cached plan is the cache's own copy and outlives this build, so publish a
+                        // duplicate — the same contract CloneGeneratedObject keeps for the stage cache.
+                        Geometry = planFromCache ? wall.Brep.DuplicateBrep() : wall.Brep,
                         Name = $"Wall {wall.CurveA}-{wall.CurveB}",
                         Kind = GeneratedObjectKind.RetainingWall,
                         LayerPath = snapshot.LayerRoles.Path(LayerRole.Walls)

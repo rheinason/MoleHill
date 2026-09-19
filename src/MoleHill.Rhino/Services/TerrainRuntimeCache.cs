@@ -22,8 +22,8 @@ internal sealed class TerrainRuntimeCache
     /// Retaining-wall rail plans, keyed by stage key. Planning depends only on the wall curves and the
     /// wall tolerances - never on the terrain mesh - so it is cached separately from the wall stage,
     /// whose own fingerprint includes the upstream mesh. An upstream Z edit therefore misses the stage
-    /// and still reuses the plan. Preview only: see
-    /// <see cref="RetainingWallPlanCacheEntry"/> for why plans carrying Breps are not cached.
+    /// and still reuses the plan. See <see cref="RetainingWallPlanCacheEntry"/> for the ownership rule
+    /// that applies to a cached plan's Breps.
     /// </summary>
     public Dictionary<string, RetainingWallPlanCacheEntry> RetainingWallPlanEntries { get; } = new(StringComparer.Ordinal);
 
@@ -491,12 +491,13 @@ internal sealed class SmoothStageCacheEntry
 /// <summary>
 /// One cached retaining-wall rail plan.
 ///
-/// Only plans built without solids are cached. A cached plan is shared by reference across worker
-/// copies and across builds, and a <c>Brep</c> is a native object with a lifetime the cache does not
-/// own — handing the same instance to two builds' outputs is a disposal question this cache has no
-/// answer for. Final builds therefore re-plan, and preview, the path the interactive program cares
-/// about, is the one that reuses. <see cref="BuiltSolids"/> is part of the guard rather than an
-/// assumption: an entry that somehow carries solids is refused rather than served.
+/// A cached plan is shared by reference across worker copies and across builds, so anything native it
+/// carries belongs to the cache and not to the build being served. A plan built with solids holds
+/// <c>Brep</c>s, and the wall stage publishes a duplicate of one rather than the cached instance —
+/// the same rule <c>TerrainRuntimeCacheCloner.CloneGeneratedObject</c> keeps for the stage cache.
+///
+/// <see cref="BuiltSolids"/> is part of the cache match, not a note: a plan built without solids
+/// cannot serve a build that needs them.
 /// </summary>
 internal sealed class RetainingWallPlanCacheEntry
 {
