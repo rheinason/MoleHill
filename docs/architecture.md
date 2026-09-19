@@ -1100,6 +1100,26 @@ map remains the description of what the code does today.
 - `docs/terrain-scalability-review-2026-09-09.md` — C01/O01–O16 scalability items and their open
   acceptance gaps.
 
+## Rhino: document schema compatibility
+
+Terrain state is persisted as JSON in the `.3dm` (`TerrainDocumentStore`, `TerrainSerializer`). Two
+stamps travel with it: an envelope `schemaVersion` and a per-terrain `SchemaVersion`. They are bumped
+together — `TerrainSerializer.SupportedSchemaVersion` and `TerrainDefinition.CurrentSchemaVersion` are
+asserted equal by `TerrainSchemaVersionGuardTests`, because a future document could otherwise slip past
+one guard using the other's number.
+
+Reading is one-directional. *Older* documents migrate forward: `Deserialize` keeps the source version,
+runs the version-gated migrations against it, then stamps the current version. A missing or zero version
+is a legacy document, not a future one, and is accepted. *Newer* documents are refused — `GuardSupportedSchema`
+throws before any normalization or legacy rewriting runs, `TerrainDocumentStore.Load` turns that into a
+null result plus a failure message, and `TerrainController` marks the document unreadable so `Save` refuses
+to persist. That is what keeps the original JSON on disk intact.
+
+The refusal is not paranoia about unknown `$type` discriminators — those already fail safely. It is about
+*known* types carrying properties a newer build added: `System.Text.Json` drops them silently, so loading
+and saving a future document would quietly write back a lossy copy stamped with the older version. Unknown
+properties at the *current* version are still accepted; only the version claim triggers the refusal.
+
 ## Determinism & gotchas
 
 - Deterministic seeded randomness (FNV / SplitMix64) so scatter and grading don't reshuffle per solve;

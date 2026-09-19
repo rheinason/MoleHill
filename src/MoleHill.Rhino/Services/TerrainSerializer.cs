@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
@@ -54,7 +54,12 @@ internal static class TerrainSerializer
             return new List<TerrainDefinition>();
 
         var envelope = JsonSerializer.Deserialize<TerrainDocumentEnvelope>(SplitLegacyAnnotations(json), JsonOptions);
-        if (envelope?.Terrains == null)
+        if (envelope == null)
+            return new List<TerrainDefinition>();
+
+        GuardSupportedSchema(envelope);
+
+        if (envelope.Terrains == null)
             return new List<TerrainDefinition>();
 
         foreach (var terrain in envelope.Terrains)
@@ -187,6 +192,36 @@ internal static class TerrainSerializer
         target.AddObjects(source.ObjectIds);
         target.AddLayers(source.LayerPaths);
     }
+
+    /// <summary>
+    /// The newest document schema this build can read. A document stamped higher than this was written
+    /// by a newer plugin: it may carry properties on types this build already knows, which
+    /// <c>System.Text.Json</c> silently drops. Loading it would therefore round-trip a lossy copy and
+    /// re-stamp it with this build's version, so it is refused here — before any legacy rewriting or
+    /// normalization runs — and the caller's load-failure path preserves the original JSON untouched.
+    /// A missing or zero version is a legacy document, not a future one, and is accepted.
+    /// </summary>
+    internal static int SupportedSchemaVersion => DocumentSchemaVersion;
+
+    private static void GuardSupportedSchema(TerrainDocumentEnvelope envelope)
+    {
+        if (envelope.SchemaVersion > DocumentSchemaVersion)
+            throw new NotSupportedException(FutureSchemaMessage(envelope.SchemaVersion));
+
+        if (envelope.Terrains == null)
+            return;
+
+        foreach (TerrainDefinition terrain in envelope.Terrains)
+        {
+            if (terrain != null && terrain.SchemaVersion > TerrainDefinition.CurrentSchemaVersion)
+                throw new NotSupportedException(FutureSchemaMessage(terrain.SchemaVersion));
+        }
+    }
+
+    private static string FutureSchemaMessage(int documentVersion) =>
+        $"this document's terrain data uses schema version {documentVersion}, but this build of MoleHill " +
+        $"reads up to version {DocumentSchemaVersion}. Update MoleHill to open it; the stored data is " +
+        "left untouched in the meantime.";
 
     private sealed class TerrainDocumentEnvelope
     {
