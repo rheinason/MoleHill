@@ -1100,6 +1100,19 @@ map remains the description of what the code does today.
 - `docs/terrain-scalability-review-2026-09-09.md` — C01/O01–O16 scalability items and their open
   acceptance gaps.
 
+## Rhino: build-result ownership
+
+A background build runs against a *worker copy* of the terrain's runtime cache. The copy is shallow
+where it matters: the `TinEngine` is shared deliberately, and stage meshes and generated-object lists
+are carried over by reference. So a worker cache mixes **borrowed** entries with entries it produced
+itself, and nothing in the type distinguishes the two — which is exactly why `PruneUnused` removes
+without disposing, and why `Clear()` must never be called on a worker copy.
+
+[build-result-ownership.md](build-result-ownership.md) is the ownership table: who holds each piece of
+geometry, who may dispose it, and the four places that currently have no obvious endpoint. Read it
+before changing anything in `TerrainRuntimeCache` or the worker retirement paths. It is
+characterization, not yet a contract — R05 of the 2026-09-19 review.
+
 ## Core: spatial index capacity
 
 `SpatialHashGrid2D` is the shared 2D index (flat CSR: key to slot, slot to a run of item indices). The
