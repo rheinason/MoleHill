@@ -1100,6 +1100,30 @@ map remains the description of what the code does today.
 - `docs/terrain-scalability-review-2026-09-09.md` — C01/O01–O16 scalability items and their open
   acceptance gaps.
 
+## Core: spatial index capacity
+
+`SpatialHashGrid2D` is the shared 2D index (flat CSR: key to slot, slot to a run of item indices). The
+number that matters when reasoning about its cost is **memberships**, not item count: an item is
+registered into *every* cell its bounding box covers. A long diagonal, a huge box among small ones, or
+heavily overlapping bounds over a fine grid make memberships grow super-linearly — and the membership
+array is sized from exactly that sum.
+
+`Build` therefore accumulates memberships into a `long`, checks them against a budget
+(`MembershipsPerItemBudget` per indexed item, floor `MinimumMembershipBudget`), and abandons the count
+the moment it is passed rather than counting a pathological distribution all the way out. Past the
+budget the grid is coarsened by `CoarseningFactor` and recounted; a single cell holds every item exactly
+once, so the loop always terminates inside the budget instead of failing.
+
+That is a **guard, not a tuning knob**. An ordinary terrain-shaped distribution sits at ~4 memberships
+per item, orders of magnitude below the budget, and takes the first pass untouched —
+`SpatialHashGrid2DCapacityTests` asserts that explicitly, alongside brute-force equivalence on uniform,
+clustered, long-diagonal, mixed tiny/huge and degenerate-extent fixtures. Coarsening is a pure function
+of the input, so a build stays reproducible; it widens the candidate set a query gathers, which callers
+already filter with an exact bounds test.
+
+`Build` also reports `BuildStatistics` (items, indexed items, cells, memberships, max occupancy, cell
+size, coarsening passes) so this growth can be measured rather than assumed.
+
 ## Core: cancellation inside a phase
 
 A superseded build must stop *inside* an expensive phase, not merely between phases. `CancellationProbe`

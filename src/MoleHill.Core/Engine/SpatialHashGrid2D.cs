@@ -97,6 +97,43 @@ internal sealed class SpatialHashGrid2D
 
     public int ItemCount { get; }
 
+    /// <summary>
+    /// What building the index actually cost. An item is registered into every cell its bounding box
+    /// covers, so memberships - not item count - is what the flattened array is sized from, and what a
+    /// long diagonal or a huge box in a fine grid inflates. Recorded so the growth can be measured
+    /// rather than assumed.
+    /// </summary>
+    internal readonly record struct BuildStatistics(
+        int ItemCount,
+        int IndexedItemCount,
+        int CellCount,
+        long Memberships,
+        int MaxCellOccupancy,
+        double CellSize,
+        int CoarseningPasses);
+
+    /// <summary>The statistics for the build that produced this index.</summary>
+    internal BuildStatistics Statistics { get; private init; }
+
+    /// <summary>
+    /// Memberships allowed per indexed item before the grid is coarsened. Generous: a well-behaved
+    /// distribution sits near 1-4, and the point is to catch memberships growing super-linearly in the
+    /// item count, not to tune ordinary builds.
+    /// </summary>
+    internal const int MembershipsPerItemBudget = 32;
+
+    /// <summary>Floor for the budget, so a handful of items is never coarsened on a ratio alone.</summary>
+    internal const int MinimumMembershipBudget = 1 << 20;
+
+    /// <summary>Cell-size multiplier per coarsening pass; each pass cuts a box's cell coverage ~16x.</summary>
+    private const double CoarseningFactor = 4.0;
+
+    /// <summary>
+    /// Coarsening passes before the grid collapses straight to a single cell. Bounded so a degenerate
+    /// input cannot spin: 8 passes is a 65,536x cell size, past any real distribution.
+    /// </summary>
+    private const int MaxCoarseningPasses = 8;
+
     private SpatialHashGrid2D(
         Dictionary<long, int> cellSlots,
         int[] cellStart,
@@ -125,8 +162,21 @@ internal sealed class SpatialHashGrid2D
     /// </param>
     public static SpatialHashGrid2D Build(Bounds2D[] bounds, bool[]? valid = null, CancellationProbe? cancellation = null)
     {
+        return Build(bounds, valid, cancellation, out _);
+    }
+
+    /// <summary>
+    /// As the three-argument overload, and reports what the build cost.
+    /// </summary>
+    internal static SpatialHashGrid2D Build(
+        Bounds2D[] bounds,
+        bool[]? valid,
+        CancellationProbe? cancellation,
+        out BuildStatistics statistics)
+    {
         if (bounds.Length == 0)
         {
+            statistics = new BuildStatistics(0, 0, 0, 0, 0, 1, 0);
             return new SpatialHashGrid2D(
                 new Dictionary<long, int>(),
                 new int[1],
@@ -172,6 +222,7 @@ internal sealed class SpatialHashGrid2D
 
         if (validCount == 0)
         {
+            statistics = new BuildStatistics(bounds.Length, 0, 0, 0, 0, 1, 0);
             return new SpatialHashGrid2D(
                 new Dictionary<long, int>(),
                 new int[1],
@@ -188,43 +239,99 @@ internal sealed class SpatialHashGrid2D
         double cellSize = span > 0
             ? Math.Max(span / Math.Max(8.0, Math.Sqrt(validCount)), 1e-9)
             : 1.0;
-        double invCellSize = 1.0 / cellSize;
-        var cellSlots = new Dictionary<long, int>(Math.Max(16, validCount));
 
         // Pass 1: assign a slot to every occupied cell and count its memberships.
-        var counts = new List<int>(Math.Max(16, validCount));
-        for (int i = 0; i < bounds.Length; i++)
+        //
+        // Memberships are accumulated into a long and checked against a budget before anything is sized
+        // from them. An item is registered into EVERY cell its bounding box covers, so a long diagonal,
+        // a huge box among small ones, or overlapping bounds over a fine grid make memberships grow
+        // super-linearly in the item count - and the flattened array was previously sized from an int
+        // sum of exactly that. Past the budget the grid is coarsened and recounted. That is a guard,
+        // not a tuning knob: an ordinary distribution sits orders of magnitude below the budget and
+        // takes the first pass unchanged. Coarsening is a pure function of the input, so a build stays
+        // reproducible; it widens the candidate set a query gathers, which callers already filter by
+        // an exact bounds test.
+        long membershipBudget = Math.Max(
+            (long)validCount * MembershipsPerItemBudget,
+            MinimumMembershipBudget);
+
+        Dictionary<long, int> cellSlots;
+        List<int> counts;
+        long memberships;
+        int coarseningPasses = 0;
+        while (true)
         {
-            probe.ThrowIfCancelledOften();
-            if (!TryGetCellRange(bounds, valid, i, minX, minY, invCellSize, out long cminX, out long cmaxX, out long cminY, out long cmaxY))
-                continue;
+            double invCellSizeAttempt = 1.0 / cellSize;
+            cellSlots = new Dictionary<long, int>(Math.Max(16, validCount));
+            counts = new List<int>(Math.Max(16, validCount));
+            memberships = 0;
+            bool overBudget = false;
 
-            for (long cx = cminX; cx <= cmaxX; cx++)
+            for (int i = 0; i < bounds.Length && !overBudget; i++)
             {
-                for (long cy = cminY; cy <= cmaxY; cy++)
-                {
-                    long key = PackKey(cx, cy);
-                    if (!cellSlots.TryGetValue(key, out int slot))
-                    {
-                        slot = counts.Count;
-                        cellSlots[key] = slot;
-                        counts.Add(0);
-                    }
+                probe.ThrowIfCancelledOften();
+                if (!TryGetCellRange(bounds, valid, i, minX, minY, invCellSizeAttempt, out long cminX, out long cmaxX, out long cminY, out long cmaxY))
+                    continue;
 
-                    counts[slot]++;
+                for (long cx = cminX; cx <= cmaxX && !overBudget; cx++)
+                {
+                    for (long cy = cminY; cy <= cmaxY; cy++)
+                    {
+                        long key = PackKey(cx, cy);
+                        if (!cellSlots.TryGetValue(key, out int slot))
+                        {
+                            slot = counts.Count;
+                            cellSlots[key] = slot;
+                            counts.Add(0);
+                        }
+
+                        counts[slot]++;
+
+                        // Abandoned the moment the budget is passed, so a pathological distribution is
+                        // cheap to reject instead of being counted all the way out first.
+                        if (++memberships > membershipBudget)
+                        {
+                            overBudget = true;
+                            break;
+                        }
+                    }
                 }
             }
+
+            if (!overBudget)
+                break;
+
+            // One cell holds every item exactly once, so memberships there equals the item count: the
+            // coarsening always terminates inside the budget rather than failing.
+            double coarser = cellSize * CoarseningFactor;
+            coarseningPasses++;
+            cellSize = !double.IsFinite(coarser) || coarser <= cellSize || coarseningPasses > MaxCoarseningPasses
+                ? Math.Max(span * 2.0, 1.0)
+                : coarser;
         }
+
+        double invCellSize = 1.0 / cellSize;
 
         var cellStart = new int[counts.Count + 1];
         int running = 0;
+        int maxOccupancy = 0;
         for (int slot = 0; slot < counts.Count; slot++)
         {
             cellStart[slot] = running;
             running += counts[slot];
+            if (counts[slot] > maxOccupancy)
+                maxOccupancy = counts[slot];
         }
 
         cellStart[counts.Count] = running;
+        statistics = new BuildStatistics(
+            bounds.Length,
+            validCount,
+            counts.Count,
+            memberships,
+            maxOccupancy,
+            cellSize,
+            coarseningPasses);
 
         // Pass 2: fill. Items are visited in index order in both passes, so each cell's run stays
         // ascending - the order the per-cell lists had, and the order candidates are gathered in.
@@ -247,7 +354,10 @@ internal sealed class SpatialHashGrid2D
             }
         }
 
-        return new SpatialHashGrid2D(cellSlots, cellStart, cellItems, minX, maxX, minY, maxY, invCellSize, bounds.Length);
+        return new SpatialHashGrid2D(cellSlots, cellStart, cellItems, minX, maxX, minY, maxY, invCellSize, bounds.Length)
+        {
+            Statistics = statistics
+        };
     }
 
     private static bool TryGetCellRange(
