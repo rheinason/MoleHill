@@ -1461,10 +1461,33 @@ is what wakes a loop that is otherwise waiting, and an idle Rhino is left alone.
 This is also why swapping the post to Eto's queue could not have worked: the queue was never the
 problem, and the experiment said so by measuring worse.
 
-**Not yet verified.** The timer is reasoned from the trace, not measured against it. The number to
-re-run is `wake marshal wait`: it should fall from ~320 ms to about one tick, taking a small-terrain
-edit from ~492 ms to roughly 180 ms - at which point geometry (74 ms) becomes the largest single term
-for the first time in this workstream.
+**The timer did not work either.** Re-measured interactively with it running, the wake was
+**unchanged**: median ~299 ms (283-351), still **76.5%** of edit-to-visible. Edit-to-visible improved
+only from 492 to 393 ms, and that is accounted for by the first trace carrying one cold build.
+
+That is two failed fixes aimed at the same reading - Eto's invoke queue (three times worse) and a timer
+message (no change). Both assumed a **starved queue**: that the thread was free and simply had not been
+asked to look. Two independent ways of asking it to look changed nothing, which is strong evidence the
+assumption is wrong.
+
+So the reading to test now is the other one: **the UI thread is not free**. If Rhino is busy for ~300 ms
+after an edit doing its own work - object replacement, conduit and display regeneration, whatever a
+document change costs it - then our completion is simply queued behind that, no wake mechanism can
+help, and the honest conclusion is that a small-terrain edit has a host-imposed floor that MoleHill
+cannot remove.
+
+`_buildWakeTicks` separates the two and nothing else will. The wake's detail string now reports how many
+15 ms timer ticks ran on the UI thread between the callback being posted and it running:
+
+- **~20 ticks** - the thread was free and running our code throughout, so the completion is being
+  deprioritized behind something specific, and that something is findable.
+- **0 ticks** - the thread never processed a queued message in that window, so it was busy or blocked.
+  The wait belongs to Rhino's own post-edit work, and the next question is what that work is.
+
+Do not attempt a third fix before that number exists. Note that the geometry figures in these traces
+(67-94 ms on 2,409 faces, against 16 ms measured for a warm rail edit on 2,694 faces in
+`InteractiveScaleBenchmark`) suggest this fixture's 3-modifier stack is not hitting its stage caches the
+way the benchmark's does - a separate thread worth pulling once the wake is settled.
 
 ### Publishing geometry before its outputs
 

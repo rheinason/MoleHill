@@ -60,17 +60,24 @@ internal sealed partial class TerrainController
     }
 
     /// <summary>
-    /// Keeps a message arriving while a build is in flight, so the completion callback is actually run.
+    /// Gives the message loop something to process while a build is in flight, and counts how often it
+    /// gets to run - see <see cref="_buildWakeTicks"/>.
     ///
-    /// The posted wake is not the problem - <c>worker-end -&gt; wake-posted</c> measures 0.0 ms. The
-    /// problem is that posting a callback does not by itself give the host a reason to look at its
-    /// queue: after an edit settles, no input arrives, Rhino's loop has nothing to process, and the
-    /// callback waits. Measured in an interactive Rhino on 2026-09-19, <c>wake-posted -&gt; wake-ran</c>
-    /// was a median **320 ms** (154-486 ms) while redraw was 8 ms and geometry 74 ms - **71% of
-    /// edit-to-visible spent with nobody working**. The same figure appears in a headless slot, so it is
-    /// the host's scheduling, not a measurement artifact.
+    /// **This did not fix the wake, and is currently kept as instrumentation.** The cost it was aimed
+    /// at is real and dominant: measured in an interactive Rhino on 2026-09-19,
+    /// <c>worker-end -&gt; wake-posted</c> is 0.0 ms while <c>wake-posted -&gt; wake-ran</c> is a median
+    /// ~320 ms - 71% of edit-to-visible - against 8 ms of redraw and 74 ms of geometry, and a headless
+    /// slot reports the same ~320 ms, so it is the host's scheduling rather than a measurement artifact.
+    /// The reasoning was that posting a callback gives the host no reason to look at its queue once an
+    /// edit settles and no input is arriving, and that a timer tick, being a real Windows message, would
+    /// wake a loop that is otherwise waiting.
     ///
-    /// A timer tick is a real Windows message, which is what wakes a loop that is otherwise waiting.
+    /// Re-measured with the timer running, the wake was **unchanged** at a ~299 ms median. That is the
+    /// second failed fix aimed at a starved queue (the first moved the post to Eto's invoke queue and
+    /// measured three times worse), which is strong evidence the queue is not what is slow. The tick
+    /// counter is there to say which of the two remaining explanations is right before anything else is
+    /// tried.
+    ///
     /// It runs only while a build is in flight and stops itself as soon as none is, so an idle Rhino is
     /// left alone.
     /// </summary>
@@ -81,6 +88,7 @@ internal sealed partial class TerrainController
             _buildWakeTimer = new UITimer { Interval = BuildWakeIntervalSeconds };
             _buildWakeTimer.Elapsed += (_, _) =>
             {
+                Interlocked.Increment(ref _buildWakeTicks);
                 PumpFinishedBuilds();
                 if (!HasRunningBuild())
                     _buildWakeTimer?.Stop();
@@ -90,6 +98,20 @@ internal sealed partial class TerrainController
         if (!_buildWakeTimer.Started)
             _buildWakeTimer.Start();
     }
+
+    /// <summary>
+    /// Ticks of <see cref="_buildWakeTimer"/>, so the wake can report how many times the UI thread ran
+    /// a queued timer message while a finished build was waiting for it.
+    ///
+    /// This distinguishes the only two explanations left for the ~300 ms wake, which no amount of
+    /// reasoning about queues can separate: **many ticks** means the thread was free and running our
+    /// code all along, so the completion is being deprioritized behind something rather than starved;
+    /// **no ticks** means the thread was busy or the message was not delivered, and the wait is Rhino
+    /// doing its own work after an edit. Two fixes aimed at the "starved queue" reading - Eto's invoke
+    /// queue, then this timer - both failed to move the number, which is why the next step is a
+    /// measurement rather than a third fix.
+    /// </summary>
+    private int _buildWakeTicks;
 
     private bool HasRunningBuild()
     {
@@ -354,6 +376,7 @@ internal sealed partial class TerrainController
         _ = rebuildState.WorkerTask.ContinueWith(
             (_, state) =>
             {
+                int ticksAtPost = Volatile.Read(ref _buildWakeTicks);
                 latency.Mark(TerrainLatencyPhase.WakePosted);
 
                 // InvokeOnUiThread here, deliberately, even though the dispatch path uses Eto's
@@ -365,8 +388,12 @@ internal sealed partial class TerrainController
                 // evidence that is Rhino's. Do not "unify" them.
                 RhinoApp.InvokeOnUiThread((Action)(() =>
                 {
-                    latency.Mark(TerrainLatencyPhase.WakeRan);
-                    ((TerrainController)state!).PumpFinishedBuilds();
+                    var controller = (TerrainController)state!;
+                    int ticksWhileWaiting = Volatile.Read(ref controller._buildWakeTicks) - ticksAtPost;
+                    latency.Mark(
+                        TerrainLatencyPhase.WakeRan,
+                        $"{ticksWhileWaiting} wake ticks while waiting, timer {(controller._buildWakeTimer?.Started == true ? "running" : "stopped")}");
+                    controller.PumpFinishedBuilds();
                 }));
             },
             this,
