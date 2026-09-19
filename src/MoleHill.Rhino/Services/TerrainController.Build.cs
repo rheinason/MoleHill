@@ -30,7 +30,8 @@ internal sealed partial class TerrainController
 
         long requestedVersion = RequestRebuild(doc.RuntimeSerialNumber, terrainId, isImmediate: false);
         int debounceMs = ResolveFinalDebounceMs(doc.RuntimeSerialNumber, terrainId);
-        QueuePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Final, requestedVersion, debounceMs);
+        // Mark the edit before queueing: a zero-delay request can be dispatched before this method
+        // returns, and an edit stamped afterwards would sort after its own dispatch.
         TerrainLatencyTrace.Record(
             doc.RuntimeSerialNumber,
             terrainId,
@@ -39,6 +40,9 @@ internal sealed partial class TerrainController
             TerrainBuildMode.Final,
             TerrainLatencyPhase.Edit,
             $"debounce {debounceMs} ms");
+        QueuePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Final, requestedVersion, debounceMs);
+        if (debounceMs == 0)
+            RequestImmediateDispatch();
         var terrain = GetState(doc).Terrains.FirstOrDefault(item => item.TerrainId == terrainId);
         if (terrain != null)
             terrain.LastBuildMessage = GetRebuildState(doc.RuntimeSerialNumber, terrainId).IsBuilding
@@ -49,11 +53,37 @@ internal sealed partial class TerrainController
     }
 
     /// <summary>
-    /// The debounce for the next edit, scaled to what this terrain's last final build actually cost.
-    /// See <see cref="TerrainDebouncePolicy"/> for why a constant is the wrong shape here.
+    /// Asks the dispatcher to run as soon as the current Rhino event finishes, instead of waiting for
+    /// the next Idle. Coalesced: many edits in one gesture post at most one pending dispatch.
     /// </summary>
-    private int ResolveFinalDebounceMs(uint docSerial, Guid terrainId) =>
-        TerrainDebouncePolicy.ResolveFinalDebounceMs(GetRuntimeCache(docSerial, terrainId).LastFinalDuration);
+    private void RequestImmediateDispatch()
+    {
+        if (_immediateDispatchPosted)
+            return;
+
+        _immediateDispatchPosted = true;
+        // Eto's AsyncInvoke, not RhinoApp.InvokeOnUiThread: the latter runs *inline* when already on
+        // the UI thread, which would start a build in the middle of the Rhino document event that
+        // produced the edit - during OnBeforeTransformObjects, before the transform has been applied.
+        // This has to queue behind the current event.
+        Application.Instance.AsyncInvoke(() =>
+        {
+            _immediateDispatchPosted = false;
+            TryDispatchPendingBuild();
+        });
+    }
+
+    /// <summary>
+    /// The delay before this edit is dispatched. Zero unless the terrain dispatched recently, so an
+    /// isolated edit is immediate and only a gesture is rate-limited - see <see cref="TerrainDebouncePolicy"/>.
+    /// </summary>
+    private int ResolveFinalDebounceMs(uint docSerial, Guid terrainId)
+    {
+        DateTime? lastDispatch = GetRebuildState(docSerial, terrainId).LastDispatchUtc;
+        return TerrainDebouncePolicy.ResolveDelayMs(
+            GetRuntimeCache(docSerial, terrainId).LastFinalDuration,
+            lastDispatch.HasValue ? DateTime.UtcNow - lastDispatch.Value : null);
+    }
 
     private bool HasPendingFinalBuild(uint docSerial, Guid terrainId)
     {

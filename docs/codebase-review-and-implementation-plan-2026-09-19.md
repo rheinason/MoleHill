@@ -84,13 +84,17 @@ were largely a measurement error: `Thread.Sleep` in a `run_csharp` script runs o
 blocks the loop being measured. The report now separates each marshal hop from the work that follows it,
 and attributes the whole wait to debounce / MoleHill working / host wait / redraw.
 
-**Still open.** (a) The interim publication costs **1,858 ms on the UI thread** - it rebuilds the runtime
-preview and redraws, which the final publication then repeats (508 + 1,048 ms). Early publication pays
-the display cost twice and freezes the UI while doing it; this is now the largest target in the path it
-was built to shorten. (b) Ponding at 3.72 s and Catchments at 1.40 s on a 244k-face mesh: the other four
-analyses total 0.13 s, so these two are the whole dependent-output cost and neither has been profiled.
-(c) A trace taken in a genuinely interactive Rhino would still be worth having, but is no longer
-load-bearing for any conclusion here.
+**Delivered since.** Leading-edge debounce (a delay only while input is still arriving, plus a posted
+dispatch so a zero delay means zero), and a plain preview for interim publications (the stale colouring
+was computed from a different face set). Heavy fixture: edit to terrain visible **3,072 -> 1,159 ms**.
+Small fixture: edit to visible **1,087 -> 385 ms**.
+
+**Still open.** (a) The marshal from a finished worker back to the UI thread is now the largest single
+interval on the small fixture (275 ms of 385 ms). It measures 0.1 ms when Rhino's loop is busy, so only
+a trace from a genuinely interactive session will say what an ordinary edit sees. (b) Ponding at 3.72 s
+and Catchments at 1.40 s on a 244k-face mesh: the other four analyses total 0.13 s, so these two are the
+whole dependent-output cost and neither has been profiled. (c) The final publication still costs ~500 ms
+display publish + ~1,000 ms redraw on 244k faces, now paid after the interim one.
 
 **Next ownership action: R05, stage 2.** The ownership table ([build-result-ownership.md](build-result-ownership.md)) is
 written and is the prerequisite the review asked for. The next change is the build-result ownership

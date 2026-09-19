@@ -52,6 +52,7 @@ internal sealed partial class TerrainController
     private readonly HashSet<(uint docSerial, Guid terrainId, TerrainBuildMode mode, long version)> _latencyDueMarked = new();
     private readonly HashSet<(uint docSerial, Guid terrainId, TerrainBuildMode mode, long version, string reason)> _latencyBlockedReasons = new();
     private bool _isPumpingFinishedBuilds;
+    private bool _immediateDispatchPosted;
     private readonly Dictionary<uint, PendingTerrainEdit> _pendingTerrainEdits = new();
     private readonly HashSet<(uint docSerial, uint undoSerial)> _terrainUndoRecords = new();
     private readonly HashSet<uint> _pendingSourceReferencePrunes = new();
@@ -136,6 +137,12 @@ internal sealed partial class TerrainController
         public long SkippedPreviewVersion { get; set; }
 
         public long SkippedFinalVersion { get; set; }
+
+        /// <summary>
+        /// When this terrain last dispatched a build. Drives the leading-edge debounce: an edit arriving
+        /// after a quiet interval dispatches immediately, and only a gesture is rate-limited.
+        /// </summary>
+        public DateTime? LastDispatchUtc { get; set; }
 
         public Task<BackgroundBuildResult>? WorkerTask { get; set; }
 

@@ -1183,14 +1183,22 @@ until 6,606 ms. On the small fixture the policy declines, which is correct - its
 
 Two structural facts behind the small-terrain numbers:
 
-- **The debounce was a flat 500 ms on every edit.** It is now
-  [`TerrainDebouncePolicy`](../src/MoleHill.Rhino/Services/TerrainDebouncePolicy.cs): the previous final
-  build's worker duration, clamped to [60, 500] ms. The floor sits above a slider drag's 16-40 ms event
-  spacing so a drag still coalesces; the ceiling is the old constant, so no terrain ever waits longer
-  than it used to and slow terrains keep exactly their current protection against discarded work.
-  Verified live: 500 ms on the first build, 60 ms once a cached rebuild had measured itself at 1.9 ms,
-  and back to 500 ms on the heavy fixture. `ScheduleRebuild` still queues Final directly; there is no
-  cheaper preview first and no gesture-end fast path.
+- **The debounce was a flat 500 ms on every edit**, which put a floor under edit-to-visible that no
+  build optimization could lift. [`TerrainDebouncePolicy`](../src/MoleHill.Rhino/Services/TerrainDebouncePolicy.cs)
+  is now **leading-edge**: a delay exists only while input is still arriving. The first edit after a
+  quiet period waits nothing; further edits are rate-limited to one dispatch per interval, and the
+  interval is the previous build's worker duration clamped to [60, 500] ms. The floor sits above a
+  slider drag's 16-40 ms event spacing so a drag still coalesces; the ceiling is the old constant, so
+  a slow terrain keeps exactly its previous protection against discarded work.
+
+  A zero delay also has to *mean* zero, so `ScheduleRebuild` posts the dispatcher instead of leaving the
+  request for the next `OnIdle` - measured at 430 ms of pure waiting on an edit whose debounce had
+  already resolved to zero. It posts through **`Eto.Forms.Application.Instance.AsyncInvoke`**, not
+  `RhinoApp.InvokeOnUiThread`: the latter runs *inline* when already on the UI thread, which started a
+  build in the middle of the `OnBeforeTransformObjects` handler that produced the edit, before the
+  transform had been applied.
+
+  Measured live: debounce fell from 944 ms to **1.8 ms** on an isolated edit.
 - **A finished build is discovered only by polling.** `TryCompleteFinishedBuild` runs inside `OnIdle`;
   nothing wakes the UI thread when a worker completes. `StartBackgroundBuild` now also posts
   `PumpFinishedBuilds` through `RhinoApp.InvokeOnUiThread` from the worker continuation, with the idle
@@ -1218,11 +1226,27 @@ Heavy fixture, fully attributed:
 | Debounce | 972 ms | 11.7% |
 | Waiting for the host | 87 ms | 1.1% |
 
-**The interim publication costs 1,858 ms on the UI thread** on that fixture - it rebuilds the runtime
-preview for 244k faces and redraws, the same work the final publication then does again (508 ms display
-publish + 1,048 ms redraw). So early publication currently pays the display cost twice and freezes the
-UI for ~1.9 s while doing it. It still wins overall (terrain visible at 3,315 ms rather than 8,307 ms),
-but that 1.9 s is now the largest remaining target in the path it was built to shorten.
+**An interim publication previews plain.** Splitting the interim hop showed it costing 1,858 ms on the
+UI thread, of which 692 ms was rebuilding the analysis colour mesh. That work was not merely expensive
+but wrong: it coloured the *new* mesh from the *previous* build's analysis, computed against a different
+face set. So `UpdateRuntimePreview` skips the colouring whenever `OutputsAreStale` - the colouring is
+not stale, it is absent, and saying so is the honest picture. Redrawing a plain mesh instead of a
+three-vertices-per-face colour mesh roughly halves the redraw too.
+
+Heavy fixture, end to end:
+
+| | Before | After |
+|---|---|---|
+| Debounce | 944 ms | 1.8 ms |
+| Interim preview build | 692 ms | 0 ms |
+| Interim redraw | 1,069 ms | 502 ms |
+| **Edit to terrain visible** | **3,072 ms** | **1,159 ms** |
+| Edit to everything current | 8,272 ms | 7,213 ms |
+
+Small fixture (2.6k faces), edit to visible: **1,087 ms -> 385 ms**, of which 96 ms is MoleHill working
+and 275 ms is the marshal from the finished worker back to the UI thread. That marshal is the last
+significant unknown: it measures 0.1 ms when Rhino's loop is busy and ~275 ms when it is quiescent, and
+only a trace from a genuinely interactive session will say which an ordinary edit resembles.
 
 ## Rhino: build-result ownership
 

@@ -139,7 +139,9 @@ internal sealed partial class TerrainController
         displayState.PreserveDeferredOutputsFrom(previous);
         displayState.IncludePreviousPreviewBounds(previousPreviewBounds);
         runtimeCache.DisplayState = displayState;
+        TerrainLatencyTrace.Record(docSerial, terrainId, buildVersion, buildGeneration, TerrainBuildMode.Final, TerrainLatencyPhase.InterimCloned);
         UpdateRuntimePreview(doc, terrain, runtimeCache);
+        TerrainLatencyTrace.Record(docSerial, terrainId, buildVersion, buildGeneration, TerrainBuildMode.Final, TerrainLatencyPhase.InterimPreview);
         NotifyRenderMeshesChanged(doc);
         terrain.LastBuildMessage =
             $"Terrain #{buildVersion:N0} shown; outputs from #{previous.OutputsRevision:N0} still updating.";
@@ -198,6 +200,22 @@ internal sealed partial class TerrainController
             runtimeCache.DisplayState.ActiveAnalysisRange = null;
             runtimeCache.DisplayState.ActiveAnalysisDistribution = null;
             terrain.LastAnalysisResults.Clear();
+            return;
+        }
+
+        if (runtimeCache.DisplayState.OutputsAreStale)
+        {
+            // An interim publication shows new geometry beside the previous build's analyses. There is
+            // no analysis for *this* mesh yet, and the previous one was computed against a different
+            // face set - colouring these faces from it is meaningless as well as expensive (measured
+            // 692 ms on 244k faces, on the UI thread, in the publication whose whole point is to be
+            // quick). So preview plain until the real analysis lands, which is also the honest picture:
+            // the colouring is not stale, it is absent.
+            runtimeCache.DisplayState.PreviewTerrainMesh = runtimeCache.DisplayState.TerrainMesh;
+            runtimeCache.DisplayState.ActiveAnalysisId = null;
+            runtimeCache.DisplayState.ActiveAnalysisLabel = null;
+            runtimeCache.DisplayState.ActiveAnalysisRange = null;
+            runtimeCache.DisplayState.ActiveAnalysisDistribution = null;
             return;
         }
 

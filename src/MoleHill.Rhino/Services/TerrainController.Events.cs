@@ -191,6 +191,18 @@ internal sealed partial class TerrainController
         if (TryCompleteFinishedBuild())
             return;
 
+        TryDispatchPendingBuild();
+    }
+
+    /// <summary>
+    /// Picks the oldest due rebuild request and starts it. Called from <see cref="OnIdle"/>, and also
+    /// posted directly when an edit is due immediately - otherwise an undelayed request still waits for
+    /// whenever Rhino next raises Idle, measured at 430 ms on an edit whose debounce had resolved to
+    /// zero. Posting rather than dispatching inline keeps this out of the middle of the Rhino document
+    /// event that produced the edit.
+    /// </summary>
+    private void TryDispatchPendingBuild()
+    {
         if (_pendingRebuilds.Count == 0)
             return;
 
@@ -249,6 +261,7 @@ internal sealed partial class TerrainController
         }
 
         _pendingRebuilds.Remove(key);
+        rebuildState.LastDispatchUtc = DateTime.UtcNow;
         _latencyDueMarked.Remove((key.docSerial, key.terrainId, key.mode, rebuildState.RequestedVersion));
         _latencyBlockedReasons.RemoveWhere(item =>
             item.docSerial == key.docSerial && item.terrainId == key.terrainId && item.mode == key.mode);
