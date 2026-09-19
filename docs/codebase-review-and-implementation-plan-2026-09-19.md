@@ -104,11 +104,19 @@ All three change only how constraints are found, not which ones, so each needs a
 test rather than only a timing one.
 
 **The first remediation is delivered and now measured end to end** (2026-09-19). Clipping the snapper to
-its constraints' bounds took the Grade Pad edit from **5,120 ms to 3,840 ms**, with `Grade Pad` 2,970 ->
-650-840 ms and `Grade Path` 1,720 -> 606-608 ms. See [architecture.md](architecture.md), "Measured
+its constraints' bounds took the Grade Pad edit from **5,120 ms to ~3,050 ms**, with `Grade Pad` 2,970 ->
+622-852 ms and `Grade Path` 1,720 -> 505-536 ms. See [architecture.md](architecture.md), "Measured
 through the whole build". **Grading is no longer the largest item in a geometry-heavy build — `Remesh`
-is, at 61% of the edit.** Rank `Remesh` ahead of the two remaining snapper bullets, which now govern
-~270 ms combined.
+is, at 56% of the edit.** Rank `Remesh` ahead of the two remaining snapper bullets, which now govern
+~250 ms combined.
+
+**And `Remesh` profiles to one function.** `BuildProjectionGrid` is **677 ms, 39% of the stage** — a
+back-projection index built at half the target edge length, giving 7.8 memberships per face. It is the
+same finding as the snapper, in a second place: a spatial index whose cell is far smaller than the
+geometry it indexes. Coarsening it to 2x the target measures 758 -> 58 ms on the build side alone. That
+is **not** a licence to change the constant: build time and query time trade against each other, and
+`relax` (301 ms) and `split` (79 ms) are the queries that would pay. The open experiment is the summed
+cost across a real remesh at each cell size. Next after that: `FlipForQuality`, 422 ms / 24%.
 
 That measurement needed a route around a broken lane, and the route is reusable.
 `GeometryHeavyStackBenchmark` splits the benchmark body from its `[RhinoNativeFact]` wrapper and exposes

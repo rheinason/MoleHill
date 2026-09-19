@@ -81,8 +81,11 @@ public static class IsotropicRemesher
         /// <summary>Per output face: true when the face is a frozen (steep retaining-wall) face.</summary>
         public bool[] FrozenFaces { get; init; } = Array.Empty<bool>();
 
-        /// <summary>Coarse phase timing (milliseconds), for build diagnostics.</summary>
-        public string Timing { get; init; } = string.Empty;
+        /// <summary>
+        /// Phase timing (milliseconds), for build diagnostics. Settable within Core because the
+        /// closing phase is itself timed, so the string cannot exist until the result does.
+        /// </summary>
+        public string Timing { get; internal set; } = string.Empty;
     }
 
     // Keep the split/collapse bands disjoint: splitting an edge at this threshold creates two
@@ -120,7 +123,9 @@ public static class IsotropicRemesher
         CancellationProbe cancellation = CancellationProbe.For(options.ShouldCancel);
         cancellation.ThrowIfCancelled();
 
-        long tsStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        long tsMethod = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        long tsStart = tsMethod;
         var graph = FeaturePolylineGraph.Build(
             vertices, faces, faceCount, constraints, options.CreaseAngleDeg, options.WallFaceMinSlopeDeg, options.Tolerance,
             minCreaseChainLength: options.TargetEdgeLength * 3.0);
@@ -129,11 +134,14 @@ public static class IsotropicRemesher
         // Back-projection grid over the ORIGINAL mesh with wall faces excluded: a near-vertical wall is
         // an XY sliver, so sampling it would return a mid-wall Z and smear the wall onto the terrain.
         // Cell size = half the target so queries in dense graded corridors stay near-constant time.
+        long tsSetup = System.Diagnostics.Stopwatch.GetTimestamp();
         TerrainFaceGrid? projection = BuildProjectionGrid(
             vertices, faces, faceCount, graph.FrozenFaces, options.TargetEdgeLength * 0.5);
         if (projection is null)
             return new Result { Success = true, Vertices = vertices, Faces = faces, Warning = "All faces are steep (frozen); nothing to remesh." };
+        double msGrid = System.Diagnostics.Stopwatch.GetElapsedTime(tsSetup).TotalMilliseconds;
 
+        long tsState = System.Diagnostics.Stopwatch.GetTimestamp();
         var state = new MeshState(vertices, faces, graph);
         // The sampler gets its own grid over the FULL input mesh: the projection grid excludes wall
         // faces and renumbers the survivors, so its face indices don't match the theta array's mesh.
@@ -145,7 +153,11 @@ public static class IsotropicRemesher
         // Imperfect upstream grading can hand us a mesh that is already non-manifold or has open
         // chains. The acceptance gate is therefore relative: the output must be no WORSE than the
         // input (the sick edges themselves are pinned by the feature graph and pass through).
+        double msState = System.Diagnostics.Stopwatch.GetElapsedTime(tsState).TotalMilliseconds;
+
+        long tsTopology = System.Diagnostics.Stopwatch.GetTimestamp();
         var inputTopology = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
+        double msTopology = System.Diagnostics.Stopwatch.GetElapsedTime(tsTopology).TotalMilliseconds;
 
         double target = options.TargetEdgeLength;
         int totalSplits = 0, totalCollapses = 0, totalFlips = 0, totalRelaxed = 0;
@@ -184,8 +196,25 @@ public static class IsotropicRemesher
                 break;
         }
 
-        string timing = $"graph {msGraph:0} ms, split {msSplit:0} ms, collapse {msCollapse:0} ms, flip {msFlip:0} ms, relax {msRelax:0} ms";
-        return state.ToResult(vertices, faces, inputTopology, totalSplits, totalCollapses, totalFlips, totalRelaxed, timing);
+        // Every interval, with an explicit remainder rather than a sum that hides the gaps. The first
+        // profile of this method reported only the four operator phases and the graph, which left 32%
+        // of the stage unattributed and unrankable. "finish" is ToResult: compaction plus a second
+        // boundary-graph analysis. "setup" is the projection grid, the MeshState copy and the input
+        // topology analysis — all whole-mesh passes made before any operator runs.
+        long tsFinish = System.Diagnostics.Stopwatch.GetTimestamp();
+        Result result = state.ToResult(
+            vertices, faces, inputTopology, totalSplits, totalCollapses, totalFlips, totalRelaxed, timing: string.Empty);
+        double msFinish = System.Diagnostics.Stopwatch.GetElapsedTime(tsFinish).TotalMilliseconds;
+
+        double msTotal = System.Diagnostics.Stopwatch.GetElapsedTime(tsMethod).TotalMilliseconds;
+        double msOther = msTotal -
+            (msGraph + msGrid + msState + msTopology + msSplit + msCollapse + msFlip + msRelax + msFinish);
+        string timing =
+            $"graph {msGraph:0} ms, grid {msGrid:0} ms, state {msState:0} ms, topology {msTopology:0} ms, " +
+            $"split {msSplit:0} ms, collapse {msCollapse:0} ms, flip {msFlip:0} ms, relax {msRelax:0} ms, " +
+            $"finish {msFinish:0} ms, other {msOther:0} ms, total {msTotal:0} ms";
+        result.Timing = timing;
+        return result;
     }
 
     /// <summary>

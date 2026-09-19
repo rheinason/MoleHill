@@ -116,6 +116,12 @@ public static class GeometryHeavyStackBenchmark
             string detail = string.IsNullOrEmpty(timing.Detail) ? string.Empty : $"  [{timing.Detail}]";
             write($"    {timing.Elapsed.TotalMilliseconds,9:N1} ms  {timing.Stage}{detail}");
         }
+
+        // IsotropicRemesher already reports its own phase split (graph / split / collapse / flip /
+        // relax) and it arrives here, not in Timings. Anything the stage spent outside those phases is
+        // the difference between the stage timer and their sum.
+        foreach (string diagnostic in result.Diagnostics)
+            write($"      . {diagnostic}");
     }
 
     private static StackFixture CreateFixture()

@@ -1257,23 +1257,63 @@ reconstruction of the traced fixture (62,500 points, 124,002 faces after Triangu
 
 | Stage, on the Grade Pad edit | Before the clip | After |
 |---|---|---|
-| `Grade Pad` (whole stage) | 2,970 ms | **650–840 ms** |
-| → `Grade Pad Constraints` | 1,280 ms | **145–151 ms** |
-| `Grade Path` (whole stage) | 1,720 ms | **606–608 ms** |
-| → `Grade Path Constraints` | 720 ms | **121–125 ms** |
-| Edit to finished mesh | 5,120 ms | **3,840–3,908 ms** |
+| `Grade Pad` (whole stage) | 2,970 ms | **622-852 ms** |
+| -> `Grade Pad Constraints` | 1,280 ms | **126-162 ms** |
+| `Grade Path` (whole stage) | 1,720 ms | **505-536 ms** |
+| -> `Grade Path Constraints` | 720 ms | **97-108 ms** |
+| Edit to finished mesh | 5,120 ms | **2,909-3,249 ms** |
 
 **The rank has changed, and that is the finding.** Grading is no longer the largest item in a
-geometry-heavy build — **`Remesh` is, at 2,333 ms of a 3,840 ms edit (61%)**, against roughly 1.4 s for
-both grading stages together. The next optimization in this workstream belongs in `Remesh`, not in the
-two snapper bullets left above; those now govern ~270 ms combined and should be ranked accordingly.
+geometry-heavy build - **`Remesh` is, at ~1,700 ms of a ~3,050 ms edit (56%)**, against roughly 1.2 s
+for both grading stages together. The two snapper bullets left above now govern ~250 ms combined and
+should be ranked accordingly.
 
-Two honesty notes on the comparison. The fixture is a **reconstruction** — the original was not saved —
-so only the stages whose inputs match are comparable: Triangulate reproduces at 390 ms against 380 ms
-and the face counts land within 0.5%, which is what licenses the grading rows. `Remesh` is **not**
-comparable: `EdgeLength 0` derives its target from plan area per input face, and this fixture's spacing
-makes it decimate 116k faces to 110k where the original went 124k to 49k. So the 2,333 ms is this
-fixture's Remesh, and the share it takes of this build is the claim — not that Remesh regressed.
+The fixture is a **reconstruction** - the original was not saved - so only the stages whose inputs match
+are comparable: Triangulate reproduces at 390 ms against 380 ms and the face counts land within 0.5%,
+which is what licenses the grading rows. `Remesh` is **not** comparable across the two traces:
+`EdgeLength 0` derives its target from plan area per input face, and this fixture's spacing makes it
+decimate 116k faces to 110k where the original went 124k to 49k. So the Remesh figure is this fixture's,
+and the share it takes of this build is the claim - not that Remesh regressed.
+
+### Inside Remesh: the projection grid is 39% of it
+
+`IsotropicRemesher` reported only its four operator phases plus the feature graph, which summed to 68%
+of the stage and left the rest unattributed - so the largest item in the largest stage was invisible.
+It now times every interval and carries an explicit `other` remainder. Measured on the same edit
+(Release, two runs):
+
+| Remesh phase | Time | Share of stage |
+|---|---|---|
+| `BuildProjectionGrid` (`grid`) | **677-679 ms** | **39%** |
+| `FlipForQuality` | 417-422 ms | 24% |
+| `RelaxAndProject` | 301 ms | 17% |
+| `CollapseShortEdges` | 140-144 ms | 8% |
+| `SplitLongEdges` | 79 ms | 5% |
+| `FeaturePolylineGraph.Build` | 16-17 ms | 1% |
+| input topology / `ToResult` / `MeshState` | 20-22 ms | 1% |
+| `other` (unclassified) | **0 ms** | - |
+| Remesher total | 1,652-1,661 ms | |
+| Stage total | 1,730-1,739 ms | (the ~78 ms difference is mesh marshalling) |
+
+**The largest single cost in a geometry-heavy build is again a spatial index whose cell is far smaller
+than the geometry it indexes** - the same shape as the grading snapper finding above, in a second
+place. `BuildProjectionGrid` uses `TargetEdgeLength * 0.5`, and the comment says why: so back-projection
+queries in dense graded corridors stay near-constant time. Measured directly over a 125,000-face grid at
+the fixture's scale (target 1.112):
+
+| Cell size | Build | Memberships | Per face |
+|---|---|---|---|
+| 0.556 (target x 0.5, today) | 758 ms | 977,202 | 7.8x |
+| 1.112 (target) | 182 ms | 449,352 | 3.6x |
+| 2.224 (target x 2) | 58 ms | 262,088 | 2.1x |
+| 4.448 (target x 4) | 20 ms | 187,272 | 1.5x |
+
+**This is not yet a fix, and the constant must not simply be changed.** Build time and query time trade
+against each other here: a coarser cell scans more faces per back-projection query, and back-projection
+is what `relax` (301 ms) and `split` (79 ms) spend their time on. The experiment above measures only the
+build side. What settles it is the *sum* across a real remesh at each cell size, which nothing has
+measured. Whoever takes this should also note the grid is rebuilt per Remesh stage over a mesh the
+previous stage already indexed - the same cross-stage sharing question the snapper has.
 
 Two other explanations were measured and **disproved** first, and are recorded so they are not
 re-investigated: `TryExtractMeshData` is 67 ms on a 124k-face mesh, and the whole per-stage mesh

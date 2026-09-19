@@ -140,3 +140,27 @@ asm.GetType("MoleHill.Rhino.Tests.GeometryHeavyStackBenchmark").GetMethod("RunTo
 `GeometryHeavyStackBenchmark` is the worked example. The result file is the report, because
 `run_command` returns only "Done.". This is a detour, not a lane: it runs one body on demand and proves
 nothing about the other 130.
+
+**Two traps in the detour, both of which silently produce wrong numbers.**
+
+- **Rhino has already loaded the plugin's assemblies, and yours will bind to those.** A slot loads
+  `MoleHill.Rhino.rhp` at startup, which pulls in `MoleHill.Core` from the plugin's **Debug** output.
+  `Assembly.LoadFrom` on the Release test DLL then resolves `MoleHill.Core` to the copy already in the
+  AppDomain - not the one beside the test DLL. Everything measured is Debug Core, and nothing says so.
+  Caught here by a profile whose new instrumentation did not appear in its own output. Assert it before
+  believing a number:
+
+  ```csharp
+  var core = AppDomain.CurrentDomain.GetAssemblies().First(a => a.GetName().Name == "MoleHill.Core");
+  Console.WriteLine(core.Location);   // which build
+  var dbg = (System.Diagnostics.DebuggableAttribute)core.GetCustomAttributes(typeof(System.Diagnostics.DebuggableAttribute), false)[0];
+  Console.WriteLine(!dbg.IsJITOptimizerDisabled);   // true = optimized
+  ```
+
+  To measure Release Core, stage it into the plugin's output directory before spawning the slot and put
+  the Debug copy back afterwards. On this fixture Debug vs Release Core was 3,840-4,037 ms against
+  2,909-3,249 ms - a 25% error, large enough to reverse a ranking.
+- **The slot locks the test DLL too.** `LoadFrom` holds it, so the next `dotnet build` fails with
+  MSB3021/MSB3027 naming the Rhino PID. The close-before-rebuild rule in
+  [rhino-live-testing.md](rhino-live-testing.md) covers the `.rhp`; it applies to the test assembly
+  the same way.
