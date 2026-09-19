@@ -766,3 +766,49 @@ Comparability caveat, stated rather than buried: the pre-change figure here is 8
 live trace's 1,280 ms for the same method. Same machine, but this synthetic fixture produces 2
 constraints where the traced pad produced 3, and has no lock curves. The A/B is internally valid; the
 absolute numbers are not the traced build's.
+
+### 9 — The wall plan cache has tests but cannot be run here: the native lane is broken
+
+Two `[RhinoNativeFact]` tests were added to `TerrainModifierStackIntegrationTests`, on its existing
+wall+pad fixture, to prove entries 4-5 rather than assert them:
+
+- `Build_UpstreamZEdit_MissesTheWallStageButReusesTheRailPlan` — lifts the source point grid (same XY,
+  new Z, new source fingerprint), rebuilds, and asserts the **wall stage does not** report a cache hit
+  while **`Retaining Wall Plan` does**. That is exactly the case the plan's finding described.
+- `Build_WallCurveEdit_ReplansRatherThanServingTheCachedPlan` — changes `MaxWallWidth`, a planner input,
+  and asserts the plan is **not** served from cache. A cache with no miss case is not a cache.
+
+**They could not be executed on this machine, and neither could the six wall tests that were already
+there.** All fail identically with `System.DllNotFoundException: Unable to load DLL 'rhcommon_c' …
+initialization routine failed (0x8007045A)`. This predates anything in this pass.
+
+**Diagnosed, not fixed.** Managed RhinoCommon and native `rhcommon_c.dll` are a version-locked pair. The
+test host loads:
+
+| Assembly | Version |
+|---|---|
+| `RhinoCommon.dll` copied to the test output (from the NuGet `PackageReference`) | 8.34.26223.11001 |
+| `rhcommon_c.dll` copied to the test output (from `$(RhinoSystemDir)`, i.e. the install) | **8.35**.26251.13001 |
+
+Rhino was updated 8.34 → 8.35; the pin was not. The native side then fails `DllMain`. The test csproj
+already carries a `<Reference Include="RhinoCommon">` with `HintPath=$(RhinoSystemDir)\RhinoCommon.dll`
+and `Private=true` — the install *is* meant to be the source of truth, as `Directory.Build.props`
+intends — but the `PackageReference` wins the copy.
+
+Two repairs were attempted and **both reverted**, because neither is local:
+
+1. `ExcludeAssets="runtime"` on the package, the idiom `src/MoleHill.Rhino.csproj` already uses. It
+   removes the runtime copy but compile still binds to 8.34, so the run skips with "could not find
+   dependent assembly 'RhinoCommon, Version=8.34.26223'".
+2. Removing the `PackageReference` outright. It compiles, but the bind then resolves to **8.9.24194**,
+   the version `src/MoleHill.Rhino` pins, and the assembly still is not copied.
+
+The real shape of it: **three RhinoCommon identities coexist in this solution** — 8.9 pinned in
+`src/MoleHill.Rhino`, 8.34 pinned in both test projects, 8.35 installed — and the native lane only works
+when the copied managed assembly happens to match the installed native one. It has been quietly
+skipping in the managed lane, which is precisely the failure mode `PerformanceLane` and the lane banner
+were built to prevent for benchmarks. This wants a deliberate decision (float all three to the install,
+or pin all three and pin the Rhino version), so it is written up here rather than patched around.
+
+Consequence for this plan: entries 4-5 remain **asserted by tests that have never executed**. Treat the
+wall plan cache as unproven until the native lane runs somewhere.

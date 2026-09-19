@@ -98,6 +98,86 @@ public class TerrainModifierStackIntegrationTests
         Assert.DoesNotContain(result.Timings, static timing => timing.Stage == "Retaining Wall Remesh");
     }
 
+    /// <summary>
+    /// The wall stage's fingerprint includes the upstream mesh, so moving the terrain's source points
+    /// must miss the stage — that is correct, the rails have to be re-inserted into a different mesh.
+    /// Rail *planning* reads only the wall curves and tolerances, so it must survive that miss. Before
+    /// the plan cache (2026-09-19) it did not, and every upstream Z edit re-planned unchanged walls.
+    /// </summary>
+    [RhinoNativeFact]
+    public void Build_UpstreamZEdit_MissesTheWallStageButReusesTheRailPlan()
+    {
+        StackFixture fixture = CreateFixture(wallBeforePad: true);
+        fixture.Pad.IsEnabled = false;
+        var cache = new TerrainRuntimeCache();
+        var service = new TerrainBuildService();
+
+        service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
+
+        // An upstream Z-only edit: the same points at the same XY, lifted. The wall curves are untouched.
+        RaisePointGrid(fixture.Snapshot, fixture.Terrain, 0.75);
+
+        TerrainBuildResult afterEdit = service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
+
+        Assert.NotNull(afterEdit.PrimaryMesh);
+        Assert.Single(afterEdit.AuxiliaryObjects, static output => output.Kind == GeneratedObjectKind.RetainingWall);
+
+        Assert.DoesNotContain(
+            afterEdit.Timings,
+            static timing => timing.Stage == "Retaining Wall" &&
+                             timing.Detail?.Contains("cache hit", StringComparison.OrdinalIgnoreCase) == true);
+        Assert.Contains(
+            afterEdit.Timings,
+            static timing => timing.Stage == "Retaining Wall Plan" &&
+                             timing.Detail?.Contains("cache hit", StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    /// <summary>The plan cache must not outlive a change to the wall curves themselves.</summary>
+    [RhinoNativeFact]
+    public void Build_WallCurveEdit_ReplansRatherThanServingTheCachedPlan()
+    {
+        StackFixture fixture = CreateFixture(wallBeforePad: true);
+        fixture.Pad.IsEnabled = false;
+        var cache = new TerrainRuntimeCache();
+        var service = new TerrainBuildService();
+
+        service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
+
+        // Max Wall Width is a planner input: it changes pairing and acceptance, not just thickness.
+        fixture.Wall.MaxWallWidth = 2.5;
+
+        TerrainBuildResult afterEdit = service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
+
+        Assert.DoesNotContain(
+            afterEdit.Timings,
+            static timing => timing.Stage == "Retaining Wall Plan" &&
+                             timing.Detail?.Contains("cache hit", StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    private static void RaisePointGrid(TerrainBuildSnapshot snapshot, TerrainDefinition terrain, double dz)
+    {
+        var triangulate = terrain.Modifiers.OfType<TriangulateModifierDefinition>().Single();
+        List<ResolvedSourceObject> objects = snapshot.SourceObjects[triangulate.Points];
+        var raised = new List<ResolvedSourceObject>(objects.Count);
+        foreach (ResolvedSourceObject source in objects)
+        {
+            var point = (Point)source.Geometry;
+            var lifted = new Point(new Point3d(point.Location.X, point.Location.Y, point.Location.Z + dz));
+            BoundingBox bbox = lifted.GetBoundingBox(true);
+            raised.Add(new ResolvedSourceObject
+            {
+                ObjectId = source.ObjectId,
+                Geometry = lifted,
+                LocalBoundingBox = bbox,
+                WorldBoundingBox = bbox,
+                GeometryDataCrc = lifted.DataCRC(0)
+            });
+        }
+
+        snapshot.SourceObjects[triangulate.Points] = raised;
+        snapshot.SourceFingerprints[triangulate.Points] = 102;
+    }
+
     private static bool IsStageKey(string key, int modifierIndex, Guid modifierId, string modifierType)
     {
         return key.StartsWith($"final:modifier:{modifierIndex}:{modifierType}:", StringComparison.Ordinal) &&

@@ -81,6 +81,22 @@ Confirm the slot is alive and the script host works before doing anything else:
 run_csharp(slot, "Console.WriteLine(__rhino_doc__.Objects.Count);")
 ```
 
+**If `run_csharp` fails, drive a script file through `run_command` instead.** Observed 2026-09-19:
+`run_csharp` *and* `run_python` both failed on two separately spawned slots while `run_command`,
+`get_context` and `get_commands` all worked and the freshly built plugin was correctly registered. The
+router's script hosts are not the only way in — Rhino's own command is:
+
+```
+run_command(slot, '_-RunPythonScript "C:\...\probe.py"')
+```
+
+The leading `-` suppresses the file dialog. The script gets a full scripting host, so **have it write
+its results to a file** and read that file from disk; `run_command` returns only `"Done."`, and
+`RhinoApp.WriteLine` output is not returned either. Wrap the body in `try` / `traceback.format_exc()`
+and write the traceback to the same file, or a failing script is indistinguishable from a passing one.
+This route was verified on 2026-09-19 by reading back `Rhino.PlugIns.PlugIn.Find`'s assembly location
+and module version id for the exact build.
+
 ## 3. Load the plugin and confirm it really loaded
 
 First check whether the exact build is already loaded. MoleHill loads at startup; calling the path
