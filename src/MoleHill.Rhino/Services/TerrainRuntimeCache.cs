@@ -2,6 +2,7 @@ using System.Text;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
@@ -16,6 +17,15 @@ internal sealed class TerrainRuntimeCache
     public Dictionary<string, GradingTopologyCacheEntry> GradingTopologyEntries { get; } = new(StringComparer.Ordinal);
 
     public Dictionary<string, SmoothStageCacheEntry> SmoothEntries { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Retaining-wall rail plans, keyed by stage key. Planning depends only on the wall curves and the
+    /// wall tolerances - never on the terrain mesh - so it is cached separately from the wall stage,
+    /// whose own fingerprint includes the upstream mesh. An upstream Z edit therefore misses the stage
+    /// and still reuses the plan. Preview only: see
+    /// <see cref="RetainingWallPlanCacheEntry"/> for why plans carrying Breps are not cached.
+    /// </summary>
+    public Dictionary<string, RetainingWallPlanCacheEntry> RetainingWallPlanEntries { get; } = new(StringComparer.Ordinal);
 
     public TerrainDisplayState? DisplayState { get; set; }
 
@@ -73,6 +83,9 @@ internal sealed class TerrainRuntimeCache
         foreach (var entry in SmoothEntries)
             copy.SmoothEntries[entry.Key] = entry.Value;
 
+        foreach (var entry in RetainingWallPlanEntries)
+            copy.RetainingWallPlanEntries[entry.Key] = entry.Value;
+
         return copy;
     }
 
@@ -105,6 +118,11 @@ internal sealed class TerrainRuntimeCache
             SmoothEntries[entry.Key] = entry.Value;
         source.SmoothEntries.Clear();
 
+        RetainingWallPlanEntries.Clear();
+        foreach (var entry in source.RetainingWallPlanEntries)
+            RetainingWallPlanEntries[entry.Key] = entry.Value;
+        source.RetainingWallPlanEntries.Clear();
+
         return displacedMeshes;
     }
 
@@ -124,6 +142,7 @@ internal sealed class TerrainRuntimeCache
         StageEntries.Clear();
         GradingTopologyEntries.Clear();
         SmoothEntries.Clear();
+        RetainingWallPlanEntries.Clear();
         DisplayState = null;
         LastPreviewDuration = null;
         LastFinalDuration = null;
@@ -149,6 +168,9 @@ internal sealed class TerrainRuntimeCache
 
             foreach (string stageKey in SmoothEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
                 SmoothEntries.Remove(stageKey);
+
+            foreach (string stageKey in RetainingWallPlanEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
+                RetainingWallPlanEntries.Remove(stageKey);
             return;
         }
 
@@ -165,6 +187,9 @@ internal sealed class TerrainRuntimeCache
 
         foreach (string stageKey in SmoothEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
             SmoothEntries.Remove(stageKey);
+
+        foreach (string stageKey in RetainingWallPlanEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
+            RetainingWallPlanEntries.Remove(stageKey);
     }
 
     public List<string> FindIntersectingGradingStageKeys(
@@ -461,6 +486,25 @@ internal sealed class SmoothStageCacheEntry
     public ulong Fingerprint { get; init; }
 
     public required MeshSmoother.PreparedSmoothingData Prepared { get; init; }
+}
+
+/// <summary>
+/// One cached retaining-wall rail plan.
+///
+/// Only plans built without solids are cached. A cached plan is shared by reference across worker
+/// copies and across builds, and a <c>Brep</c> is a native object with a lifetime the cache does not
+/// own — handing the same instance to two builds' outputs is a disposal question this cache has no
+/// answer for. Final builds therefore re-plan, and preview, the path the interactive program cares
+/// about, is the one that reuses. <see cref="BuiltSolids"/> is part of the guard rather than an
+/// assumption: an entry that somehow carries solids is refused rather than served.
+/// </summary>
+internal sealed class RetainingWallPlanCacheEntry
+{
+    public ulong Fingerprint { get; init; }
+
+    public bool BuiltSolids { get; init; }
+
+    public required RetainingWallPlannerCore.PlanResult Plan { get; init; }
 }
 
 internal sealed class FingerprintBuilder

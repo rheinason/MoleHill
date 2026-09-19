@@ -600,3 +600,34 @@ New `ConstraintCoincidenceSnapperRegionTests` (6 tests) covers clipped-vs-full e
 constraint and for one spanning the whole mesh, the index-size reduction, the out-of-region rebuild, and
 both null-region cases. **Unmeasured:** no trace confirming the 0.91 s actually goes away. That is the
 next thing owed, and it needs a Rhino session.
+
+### 4 — Cache the wall plan independently of the upstream terrain (Step 1)
+
+Plan item: "The outer wall-stage cache includes the upstream mesh fingerprint. An upstream Z edit can
+miss the whole stage and repeat rail planning even when the wall curves are unchanged. Planning is
+independent of the terrain mesh and should have its own cache."
+
+Implemented: `TerrainRuntimeCache.RetainingWallPlanEntries`, keyed by stage key, holding a
+`RetainingWallPlanCacheEntry` (fingerprint, `BuiltSolids`, the `PlanResult`).
+`ComputeRetainingWallPlanFingerprint` covers exactly the planner's inputs — the wall-curve source set,
+max wall width, wall tolerance, rail cleanup tolerance — and deliberately **not** the upstream mesh, which
+is the entire point. The stage still misses on an upstream Z edit and still re-runs insertion; it just no
+longer re-plans rails that did not change.
+
+Lifecycle handled alongside the existing dictionaries: `CreateWorkerCopy`, `ReplaceBuildCachesFrom`,
+`DetachMeshOutputs`, and both branches of `PruneUnused`. Entries are shared by reference exactly as
+`SmoothEntries` and `GradingTopologyEntries` are, and the wall stage key is already registered in
+`usedStageKeys` on every build (`TerrainBuildService.cs:67`) whether or not the stage cache hit, so the
+plan entry is not pruned out from under a cached stage.
+
+**Preview only, on purpose.** A plan built with solids carries `Brep`s — native objects whose lifetime
+this cache does not own — and serving one instance to two builds' `AuxiliaryObjects` is a disposal
+question with no good answer here. Final re-plans; preview, the path the interactive program is about,
+reuses. `BuiltSolids` is stored and checked rather than assumed, so an entry that somehow carries solids
+is refused rather than served.
+
+Verified: compiles; `MoleHill.Rhino.Tests` 726 passed / 130 skipped, including 4 new
+`TerrainRetainingWallPlanCacheTests` covering worker copy, merge-back (including that stale main-cache
+entries are dropped), prefix-scoped pruning, and detach. **Unmeasured and not live-verified:** whether a
+real upstream Z edit now reports "cache hit" on the Retaining Wall Plan timing row. That is a one-line
+check in a Rhino session and is the first thing to do when one is available.

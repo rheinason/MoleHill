@@ -24,6 +24,8 @@ internal sealed partial class TerrainBuildService
         RetainingWallModifierDefinition modifier,
         TerrainBuildResult build,
         TerrainBuildMode mode,
+        TerrainRuntimeCache runtimeCache,
+        string stageKey,
         Func<bool>? shouldCancel)
     {
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
@@ -53,17 +55,55 @@ internal sealed partial class TerrainBuildService
         // discarded them, so it no longer asks for them: the rails, pairing and constraints are
         // identical either way, and the Brep loft is the expensive half of BuildWalls.
         bool buildWallSolids = mode == TerrainBuildMode.Final;
-        var plan = RetainingWallPlannerCore.Plan(
-            wallCurves,
+
+        // Planning reads the wall curves and the wall tolerances and nothing else — not the terrain.
+        // The wall stage's own fingerprint includes the upstream mesh, so an upstream Z edit misses
+        // the stage; this key does not, and the plan survives it.
+        ulong planFingerprint = ComputeRetainingWallPlanFingerprint(
+            snapshot,
+            modifier,
             maxWallWidth,
-            curveParsingTolerance: wallTolerance,
-            curveCleanupTolerance: railCleanupTolerance,
-            buildSolids: buildWallSolids);
+            wallTolerance,
+            railCleanupTolerance);
+        bool planFromCache =
+            runtimeCache.RetainingWallPlanEntries.TryGetValue(stageKey, out RetainingWallPlanCacheEntry? cachedPlan) &&
+            cachedPlan.Fingerprint == planFingerprint &&
+            cachedPlan.BuiltSolids == buildWallSolids &&
+            !buildWallSolids;
+
+        RetainingWallPlannerCore.PlanResult plan;
+        if (planFromCache)
+        {
+            plan = cachedPlan!.Plan;
+        }
+        else
+        {
+            plan = RetainingWallPlannerCore.Plan(
+                wallCurves,
+                maxWallWidth,
+                curveParsingTolerance: wallTolerance,
+                curveCleanupTolerance: railCleanupTolerance,
+                buildSolids: buildWallSolids);
+
+            if (buildWallSolids)
+                runtimeCache.RetainingWallPlanEntries.Remove(stageKey);
+            else
+                runtimeCache.RetainingWallPlanEntries[stageKey] = new RetainingWallPlanCacheEntry
+                {
+                    Fingerprint = planFingerprint,
+                    BuiltSolids = false,
+                    Plan = plan
+                };
+        }
         planTimer.Stop();
         build.RecordTiming(
             "Retaining Wall Plan",
-            plan.Timing.Total > TimeSpan.Zero ? plan.Timing.Total : planTimer.Elapsed,
-            DescribeRetainingWallPlanTiming(plan.Timing, plan.Walls.Count),
+            planFromCache
+                ? planTimer.Elapsed
+                : plan.Timing.Total > TimeSpan.Zero ? plan.Timing.Total : planTimer.Elapsed,
+            planFromCache
+                ? AppendCacheHitDetail($"{plan.Walls.Count:N0} planned walls")
+                : DescribeRetainingWallPlanTiming(plan.Timing, plan.Walls.Count),
             StageTimingDiagnosticThresholdMs);
         foreach (var entry in plan.Report)
         {
@@ -275,6 +315,27 @@ internal sealed partial class TerrainBuildService
             "Breaklines failed");
 
         return remeshed;
+    }
+
+    /// <summary>
+    /// Everything <see cref="RetainingWallPlannerCore.Plan"/> reads, and nothing else. Deliberately
+    /// excludes the upstream mesh: that is the whole reason this key exists separately from
+    /// <c>ComputeModifierStageFingerprint</c>. Adding an input to the planner means adding it here.
+    /// </summary>
+    private static ulong ComputeRetainingWallPlanFingerprint(
+        TerrainBuildSnapshot snapshot,
+        RetainingWallModifierDefinition modifier,
+        double maxWallWidth,
+        double wallTolerance,
+        double railCleanupTolerance)
+    {
+        var builder = new FingerprintBuilder();
+        builder.Add(nameof(ComputeRetainingWallPlanFingerprint));
+        builder.Add(ComputeSourceSetFingerprint(snapshot, modifier.WallCurves));
+        builder.Add(maxWallWidth);
+        builder.Add(wallTolerance);
+        builder.Add(railCleanupTolerance);
+        return builder.ToUInt64();
     }
 
     private static void AddRetainingWallReportOverlay(
