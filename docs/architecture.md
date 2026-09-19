@@ -1092,7 +1092,9 @@ map remains the description of what the code does today.
 
 - `docs/interactive-terrain-plan-2026-09-16.md` — proposed interactive/realtime editing program,
   scoped to Triangulate → Retaining Wall first. Records why general local re-triangulation stays
-  deferred, and the cancel-on-every-request policy that blocks continuous input.
+  deferred, and the cancel-on-every-request policy that blocks continuous input. Its
+  **Measured baseline — 2026-09-19** section carries the edit-to-visible findings below into that
+  plan's steps, including the grading edge-index cost as a Step 1 item.
 - `docs/performance-optimization-routes-2026-07-30.md` — six measured optimization routes, implemented
   route by route; the source of the 1.2M-point TIN and Grade Path timings.
 - `docs/large-terrain-performance-review-2026-07-05.md` — the H/M/L job list, all closed; records why

@@ -718,7 +718,10 @@ selecting a new indexing strategy. Broader extraction should wait for the pilot'
   O15 scatter viewport measurement. Do not reimplement completed CSR, grouping, or sparse-scratch work.
 - [Interactive terrain](interactive-terrain-plan-2026-09-16.md) remains a product plan. R03/R05/R06
   support it, but this review does not approve approximate meshes for bake or analysis or promise
-  universal realtime performance.
+  universal realtime performance. The edit-to-visible measurements and the grading edge-index finding
+  are carried into its **Measured baseline — 2026-09-19** section, which is where that work should be
+  picked up; it also records that the leading-edge debounce raises rather than lowers the priority of
+  that plan's Step 2.
 - [Grasshopper redesign](grasshopper-redesign-plan.md) remains the feature/compatibility backlog.
   R09/R10 support its host acceptance and snapshot cost work.
 - Domain plans for drainage and simplification remain authoritative for their numerical contracts.

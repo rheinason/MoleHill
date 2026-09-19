@@ -1,7 +1,12 @@
 # Interactive terrain plan — 2026-09-16
 
 Status: proposed architecture and implementation sequence, revised after inspecting the current code.
-No new performance measurements or realtime implementation are claimed by this document.
+The realtime program itself is still proposed and unimplemented.
+
+**Part of Step 0's evidence now exists** (2026-09-19): an end-to-end edit-to-visible trace, three
+measured fixtures, and four scheduling/publication changes that came out of them. See
+**Measured baseline** below before planning further work - several assumptions in this document are
+now testable, and one of them was wrong.
 
 ## Product objective
 
@@ -99,6 +104,96 @@ those Breps. Separate rail planning from solid construction so preview avoids ma
 
 Historical timings are regression references, not comparable end-to-end realtime baselines. Do not
 infer a universal 30–100× required improvement from unlike cases.
+
+## Measured baseline — 2026-09-19
+
+Measured with `mhLatencyTrace` (`TerrainLatencyTrace` / `TerrainLatencyReport`), which records the whole
+path from the edit to the redraw and attributes every interval to debounce, MoleHill working, waiting
+for the host, or redraw. Full numbers and method in
+[architecture.md](architecture.md) → "Rhino: edit-to-visible latency". Rhino 8, `rhino-mcp` slot, one
+machine; treat as shape rather than as budgets.
+
+**The wait has three distinct shapes, and they want different fixes.**
+
+| Fixture | Edit to visible | Dominant cost |
+|---|---|---|
+| Small (2.6k faces, warm) | 385 ms | scheduling and the worker→UI marshal |
+| Analysis-heavy (244k faces, 6 analyses) | 7,213 ms | dependent outputs — Ponding 3.72 s, Catchments 1.40 s |
+| Geometry-heavy (124k faces, 5 modifiers, no analyses) | 5,203 ms | **98.5% the modifier chain** |
+
+### What this changes in this plan
+
+- **"Orchestration remains part of the cost" was overstated for the geometry-heavy case.** On that
+  fixture debounce is 2 ms, host wait 1 ms, snapshot 1.1 ms, worker cache clone 0.4 ms, cache merge
+  0.8 ms and display publish 1.6 ms — 6 ms of orchestration against 5,121 ms of geometry. Orchestration
+  is a real cost on *small* terrains and a rounding error on large ones. Do not spend Step 1/Step 6
+  effort on copy and publication overhead without measuring the fixture it is meant to help.
+- **The three-channel freshness design is partly built.** `TerrainDisplayState` now carries
+  `GeometryRevision` and `OutputsRevision` with `OutputsAreStale`, and a build publishes its completed
+  mesh before its dependent outputs settle, carrying the previous build's outputs forward and marked
+  stale. Bake, the interop mesh accessors and the Grasshopper bridge already refused a state carrying
+  deferred output, so channel 3's completed-revision contract holds without touching those call sites.
+  This is the authoritative-vs-interactive split of channels 2 and 3, for whole-build granularity only —
+  it is not a gesture-rate interactive surface and does not pre-empt Step 2.
+- **Interactive-surface targets must budget publication, not just evaluation.** Publishing a 244k-face
+  mesh cost 692 ms of preview colouring plus ~1,000 ms of redraw until the interim path was changed to
+  preview plain. Redraw tracks the *final* face count: 1,048 ms at 244k faces, 73 ms at 49k. A 66 ms
+  input-to-visible target is a budget for the whole publication path, and on a large mesh the redraw
+  alone exceeds it. Either the interactive surface is much smaller than the exact one, or the target
+  applies only to bounded regions.
+- **The debounce is no longer a fixed floor, but cancel-on-every-request is untouched.**
+  `TerrainDebouncePolicy` is now leading-edge: an isolated edit waits 0 ms and only a gesture is
+  rate-limited. Measured 944 ms → 1.8 ms. This does **not** address Step 2. `RequestRebuild` cancels the
+  running build at *schedule* time, before any debounce applies, so during sustained input every sample
+  still kills the evaluation the previous sample started. Removing the delay means dispatch now follows
+  each cancellation sooner, so a sustained gesture starts and abandons *more* builds than before while
+  still showing nothing until input stops. **Step 2 remains the blocking constraint and this raises its
+  priority rather than reducing it.**
+
+### A Step 1-shaped finding outside the wall path
+
+Step 1 is about removing redundant preparation in the wall stages. The geometry-heavy trace found the
+same species of waste in grading, and it is the largest single item in that build:
+
+`PadGrader.CreateConstraints` spends 1.00 s constructing a `ConstraintCoincidenceSnapper`, of which
+**0.91 s is `SpatialHashGrid2D.Build` over all 186,501 mesh edges** — to snap 3 constraint polylines
+onto the terrain. `PathGrader.CreateConstraints` repeats it (0.72 s, 47 constraints). Together ~2.0 s of
+a 7.0 s build. The grid's own `BuildStatistics` show 815,328 memberships for 186,501 edges with
+`MaxCellOccupancy` 8 — not degenerate, simply indexing the whole terrain at a cell size below the
+typical edge length.
+
+Three remediations, none attempted, all of which change only *how* constraints are found and so need
+geometry-equivalence tests rather than timing tests alone:
+
+1. Clip the index to the pad/path influence envelope — already computed per pad, ~8% of that fixture's
+   area. The largest expected win.
+2. Match cell size to mesh edge length.
+3. Share one index across the grading stages of a build instead of rebuilding per modifier.
+
+This belongs in Step 1 alongside the wall preparation work, and is a prerequisite for Step 5 (pad and
+slope editing) being interactive at all.
+
+### Step 0 evidence: delivered and still missing
+
+Delivered: the end-to-end trace with per-interval ownership; synthetic geometry-heavy and
+analysis-heavy fixtures; per-stage and sub-stage timings for Grade Pad and Grade Path; measured
+cancellation/abandoned-worker accounting.
+
+Still missing, and Step 0 is not complete without it: 100k/500k wall fixtures specifically; a
+five-second sustained native gesture (every measurement here is an isolated or burst edit, never
+continuous input); allocation and peak-memory figures; TIN gate wait; and presentation latency beyond
+the return of `doc.Views.Redraw()`.
+
+### Method warnings
+
+Two mistakes cost time and would recur:
+
+- **`Thread.Sleep` inside a `rhino-mcp` `run_csharp` script runs on Rhino's UI thread**, so a script
+  that sleeps while waiting for a build blocks the loop it is measuring. It produced an apparent 28.7 s
+  host stall. Wait by returning from the script and polling with short calls.
+- **`RhinoApp.InvokeOnUiThread` runs inline when already on the UI thread.** Using it to defer work
+  started a build inside the `OnBeforeTransformObjects` handler that produced the edit, before the
+  transform had been applied. `Eto.Forms.Application.Instance.AsyncInvoke` queues properly.
 
 ## Runtime design
 
@@ -225,7 +320,7 @@ as though they describe the new terrain.
 
 | Step | Action | Exit evidence |
 |---|---|---|
-| 0 | Capture fixtures and instrument complete interactions | Baseline traces, exact references, native-input feasibility |
+| 0 | Capture fixtures and instrument complete interactions | Baseline traces, exact references, native-input feasibility — **partly delivered 2026-09-19; see Measured baseline** |
 | 1 | Remove wall-specific redundant preparation | Preview makes no wall solids; unchanged plans survive upstream-only edits |
 | 2 | Implement minimal prepared session and bounded scheduler | Sustained input advances previews; undo/interruption reject stale work |
 | 3 | Deliver TIN + one wall stage for qualified height edits | Surface latency and exact convergence pass measured gates |
@@ -244,6 +339,11 @@ constraint prep, insertion/fallback, validation → normalization/fingerprint/co
 first redraw using the new revision. Include allocations, peak retained/native memory, cache hits,
 cancellation latency, gate wait, and dependent-output settlement. CPU build times alone do not prove
 visible latency; record limitations of presentation measurement explicitly.
+
+`mhLatencyTrace` (On / Clear / Report / Save) now provides the request-level half of this trace and
+writes CSV; extend it rather than starting a second mechanism. Its phase vocabulary already covers
+queue, snapshot, worker start, geometry-ready, each dependent-output family, completion pickup,
+publication and redraw, and it reports abandoned worker time for superseded requests.
 
 Extend `mhBenchmarkLargeTin` or add an opt-in sibling, using the existing captured wall tests as a
 starting point. Verify native curve gesture delivery through `docs/rhino-live-testing.md`. Include a
@@ -268,6 +368,13 @@ frequency.
 a new sample must replace the pending sample rather than cancelling the running evaluation, so that
 evaluations complete and previews can be published. The existing policy stays in force outside sessions,
 where it is correct. Nothing later in this plan is observable until this changes.
+
+Confirmed 2026-09-19: the cancellation fires in `TerrainController.cs::RequestRebuild`, at *schedule*
+time and before any debounce applies, so no scheduling change can soften it. The 2026-09-19 leading-edge
+debounce made isolated edits immediate and, as a side effect, lets a sustained gesture start and abandon
+more evaluations than the old fixed delay did — the visible outcome is unchanged (nothing until input
+stops) but the wasted work is greater. Measure abandoned worker time (the trace reports it) before and
+after this step.
 
 Around that, implement session ownership, revision-aware publication, one latest-pending sample, source
 capture reuse, and immediate release settlement. Use a simple wall-height fixture and lightweight guides to
