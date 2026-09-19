@@ -321,8 +321,8 @@ as though they describe the new terrain.
 | Step | Action | Exit evidence |
 |---|---|---|
 | 0 | Capture fixtures and instrument complete interactions | Baseline traces, exact references, native-input feasibility — **partly delivered 2026-09-19; see Measured baseline** |
-| 1 | Remove wall-specific redundant preparation | Preview makes no wall solids; unchanged plans survive upstream-only edits |
-| 2 | Implement minimal prepared session and bounded scheduler | Sustained input advances previews; undo/interruption reject stale work |
+| 1 | Remove wall-specific redundant preparation | Preview makes no wall solids; unchanged plans survive upstream-only edits - **code landed 2026-09-19, unmeasured; see Implementation log 1-5** |
+| 2 | Implement minimal prepared session and bounded scheduler | Sustained input advances previews; undo/interruption reject stale work - **blocked on an interactive build mode that is actually dispatched; see Implementation log 5** |
 | 3 | Deliver TIN + one wall stage for qualified height edits | Surface latency and exact convergence pass measured gates |
 | 4 | Extend to two wall stages and XY rail movement | Ordered composition, old-footprint restoration, continuous surface feedback |
 | 5 | Generalize to pad/slope editing | Prepared approximate grading converges with measured deviation |
@@ -668,3 +668,33 @@ case the finding was about in the first place.
 Verified: compiles; `MoleHill.Rhino.Tests` 726 passed / 130 skipped. **Still unmeasured**, and now clearly
 the most valuable next measurement: a Rhino session showing "Retaining Wall Plan … cache hit" after an
 upstream-only edit.
+
+### 6 — Documentation pass for entries 1-5
+
+`docs/architecture.md` gained the wall-planning cache, the `buildSolids` split and the stage's
+cancellation checkpoints in its Retaining Wall section, and a marked "Addressed 2026-09-19 (first bullet
+only, unmeasured)" note under the grading constraint-index measurements — the other two bullets there
+(cell size, cross-stage sharing) are explicitly still open. `src/MoleHill.Core/Grading/README.md`
+documents `ConstraintCoincidenceSnapper` and the build-it-after-the-constraints rule.
+`docs/file-index.md` regenerated; both changed entries are better than before, because
+`TerrainRuntimeCache` had no type-level summary and the generator was quoting an unrelated property
+comment. It has one now.
+
+No source file was added, removed or renamed, so nothing else in the index moved.
+
+### What this pass did not do
+
+Recorded so the next pass does not have to rediscover it:
+
+- **Nothing here is live-verified or measured.** Rhino was open for the whole session, so
+  `MoleHill.Rhino` was only ever compiled to a scratch output directory. Every claim above rests on unit
+  tests and on reading the call sites. The single highest-value next action is a Rhino session on the
+  geometry-heavy fixture checking two timing rows: `PadGrader.CreateConstraints` (entry 3) and
+  `Retaining Wall Plan … cache hit` after an upstream-only edit (entries 4-5).
+- **Step 2 is untouched**, deliberately — see entry 5. `RequestRebuild` still cancels the running build
+  on every request.
+- Step 1's "reuse mesh extraction and index preparation within an evaluation" is only partly done: the
+  snapper no longer indexes the whole mesh, but grading stages still each extract mesh data and build
+  their own `TerrainFaceGrid`.
+- Remediations 2 and 3 from the grading finding (cell size, one shared index per build) are not
+  attempted and should not be, until entry 3 is measured — clipping may already have taken most of it.

@@ -8,6 +8,14 @@ using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 
+/// <summary>
+/// Everything one terrain keeps between builds: the persistent <see cref="TinEngine"/>, the per-stage
+/// caches, the last published display state, and the session-only measurements the scheduling policies
+/// read. The UI thread owns one of these per terrain; a build runs against a worker copy
+/// (<see cref="CreateWorkerCopy"/>) that is merged back on completion
+/// (<see cref="ReplaceBuildCachesFrom"/>). Stage entries are shared by reference across that boundary,
+/// so an entry is replaced, never mutated in place.
+/// </summary>
 internal sealed class TerrainRuntimeCache
 {
     public TinEngine TinEngine { get; init; } = new();

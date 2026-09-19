@@ -322,7 +322,20 @@ unused 4,096-bucket refinement queues, while `IMesh.Refine` retains its lazy cre
 The Rhino **Retaining Wall** stage first uses `MeshConstraintTopologyInserter` to split only the faces
 crossed by accepted toe/top rails. Untouched terrain faces and vertices retain their existing topology,
 and inserted rails join the persistent hard-constraint stack for later modifiers. A full constrained
-`SurfaceRemesher` rebuild is used only when the local insertion cannot produce an accepted mesh.
+`SurfaceRemesher` rebuild is used only when the local insertion cannot produce an accepted mesh. The
+stage takes the build cancellation callback and checks it at each of its phase boundaries, so a
+superseded build abandons the constrained rebuild instead of finishing it.
+
+Rail **planning** is cached apart from the stage, in `TerrainRuntimeCache.RetainingWallPlanEntries`.
+`RetainingWallPlannerCore.Plan` reads the wall curves and the wall tolerances and never the terrain,
+but the wall stage's own fingerprint includes the upstream mesh — so an upstream Z edit misses the stage
+and would otherwise re-plan walls that had not moved. `ComputeRetainingWallPlanFingerprint` covers the
+planner's inputs alone; add an input to the planner and it belongs in that key. A cached plan's `Brep`s
+belong to the cache, so the stage publishes a duplicate, the rule
+`TerrainRuntimeCacheCloner.CloneGeneratedObject` already keeps for stage-cached geometry. `Plan` also
+takes `buildSolids`: a caller wanting only rails and constraints does not pay for the solid loft, and
+`BuiltSolids` is part of the cache match because a plan without solids cannot serve a build that needs
+them.
 
 The **Remesh** modifier offers three algorithms via its **Algorithm** dropdown (`Mode`: `"isotropic"`
 default, `"rebuild"`, `"local"`), all sharing the same constraint stack (persistent hard constraints —
@@ -1214,6 +1227,16 @@ visible in the grid's own `BuildStatistics` (added by R04):
   degenerate; it is simply indexing a lot of straddling edges.
 - **It is rebuilt per grading modifier**, over a nearly identical mesh, with no sharing between the
   Grade Pad and Grade Path stages of the same build.
+
+**Addressed 2026-09-19 (first bullet only, unmeasured).** `ConstraintCoincidenceSnapper` now takes an
+optional region and indexes only the vertices and edges that meet it, and both graders build the snapper
+*after* their constraint list exists rather than at the top of the method — so the region is the
+constraints' own tolerance-expanded bounds, exact by construction, with no influence envelope to
+estimate. Clipping is safe rather than approximate: a query whose tolerance box lies inside the region
+can only be won by a member that met the region, and a query that escapes the region discards it and
+rebuilds over the whole mesh (`RegionWasAbandoned`), so a badly chosen region costs speed and never
+geometry. The cell-size and cross-stage-sharing bullets are untouched. **No trace has yet confirmed the
+0.91 s goes away** — `ConstraintCoincidenceSnapperRegionTests` proves equivalence, not speed.
 
 Two other explanations were measured and **disproved** first, and are recorded so they are not
 re-investigated: `TryExtractMeshData` is 67 ms on a 124k-face mesh, and the whole per-stage mesh

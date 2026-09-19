@@ -185,3 +185,11 @@ staying unresolved.
   of rebuilding the boundary graph.
 - `ClipperGeometry.cs` - polygon boolean/offset (Clipper) for daylight unions and offsets.
 - `GradingDiagnostic.cs` / `MeshTopologyOperations.cs` - diagnostics + watertight repair helpers.
+- `ConstraintCoincidenceSnapper.cs` - snaps constraint points onto nearby terrain vertices and edges
+  before the constraints go into a triangulation. Build it **after** the constraint list exists, through
+  `ForConstraints`, not at the top of the method: it then indexes only the terrain those constraints can
+  reach instead of every edge in the mesh, which was measured at 0.91 s of a 1.00 s
+  `PadGrader.CreateConstraints` on a 186k-edge terrain. The clipping is exact — a query whose tolerance
+  box lies inside the region can only be won by a member that met the region — and a query that escapes
+  the region discards it and rebuilds over the whole mesh, so a wrong region costs speed, never
+  geometry.
