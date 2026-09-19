@@ -103,7 +103,26 @@ Host assembly paths (`RhinoInstallDir`, `RhinoSystemDir`, `RhinoGrasshopperDir`,
 `WindowsDesktopRefPackDir`) are declared in `Directory.Build.props` and overridable per machine, so no
 absolute developer path is buried in a csproj.
 
-Note one deliberate asymmetry worth knowing when reading a host test result: `MoleHill.Rhino.Tests`
-references the `RhinoCommon` **package** *and* the installed `RhinoCommon.dll`. The installed assembly
-wins at runtime because it is copied local, which is what makes the native runtime usable — but it
-means the version a host test exercised is the installed Rhino's, not the package's.
+**RhinoCommon resolves differently in src and in tests, deliberately.**
+
+- `src/MoleHill.Rhino` and `src/MoleHill.Interop` pin `RhinoCommon 8.9` with `ExcludeAssets="runtime"`
+  and `PrivateAssets="all"`. 8.9 is the **compatibility floor** — the plug-in must load on any Rhino
+  8.9+, so it compiles against the oldest supported API and takes the runtime assembly from the host.
+  `PrivateAssets` stops that floor flowing to consumers.
+- The test projects pin **nothing**. They load a real Rhino, so they take `RhinoCommon` from
+  `$(RhinoSystemDir)` through a copy-local `Reference`, and always match the installed runtime.
+
+So the version a host test exercised is the installed Rhino's. This is not cosmetic: managed
+RhinoCommon, native `rhcommon_c.dll` and the installed Grasshopper are a version-locked set. The test
+projects previously pinned `8.34`; Rhino auto-updated to `8.35` on 2026-09-19 and
+`MoleHill.Grasshopper.Tests` stopped compiling (CS1705). If you find yourself adding a RhinoCommon
+version to a test project, that is the bug.
+
+**Known broken (2026-09-19): the native lane cannot start on Rhino 8.35.** Every `[RhinoNativeFact]`
+fails with `DllNotFoundException: rhcommon_c … initialization routine failed`. This is **not** the
+version skew above — it survives matched 8.35/8.35 assemblies, and `LoadLibraryEx` on
+`rhcommon_c.dll` returns Win32 1114 from a bare PowerShell process with the search path set. Rhino
+8.35's native core will not initialise outside a Rhino process, so the lane's premise — that setting
+the DLL directory suffices — no longer holds. Repairing it means hosting the runtime properly
+(`Rhino.Inside` / `RhinoCore`) rather than pointing at a directory. Until then the native lane reports
+nothing, and `[RhinoNativeFact]` coverage is unverified on this machine.

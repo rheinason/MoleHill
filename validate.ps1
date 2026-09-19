@@ -98,11 +98,17 @@ try {
 
     function Invoke-Managed {
         Write-Banner 'Lane: managed (fast source-linked regressions; native tests skip)'
-        # --no-incremental, deliberately. On 2026-09-19 this lane reported green four times against a
-        # MoleHill.Grasshopper.Tests.dll compiled before a Rhino auto-update, while the project could no
-        # longer be compiled at all (CS1705, installed Grasshopper 8.35 against a pinned RhinoCommon
+        # Compile from scratch before testing. On 2026-09-19 this lane reported green four times against
+        # a MoleHill.Grasshopper.Tests.dll compiled before a Rhino auto-update, while the project could
+        # no longer be compiled at all (CS1705, installed Grasshopper 8.35 against a pinned RhinoCommon
         # 8.34). A lane that can pass on a project that does not build is not a regression signal.
-        $result = Invoke-TestLane 'Debug' @('--no-restore', '--no-incremental')
+        # It has to be a separate build step: 'dotnet test' rejects --no-incremental.
+        $buildArguments = @('build', $solution, '--configuration', 'Debug', '--no-incremental', '-p:SkipGrasshopperLibraryCopy=True')
+        Write-Host "dotnet $($buildArguments -join ' ')"
+        & dotnet @buildArguments | Tee-Object -FilePath (Join-Path $laneResults 'build.log') | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "Managed lane build failed (exit $LASTEXITCODE). See $laneResults." }
+
+        $result = Invoke-TestLane 'Debug' @('--no-restore', '--no-build')
         Assert-Success $result 'Managed lane'
         $result.Summary | ForEach-Object { Write-Host $_ }
         Write-Host 'Managed lane is NOT native acceptance: the skipped counts above are native tests.' -ForegroundColor Yellow
