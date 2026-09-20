@@ -113,6 +113,14 @@ meshes that are likely to reject explicit carve/weld assembly. Rhino final build
 meshes with at least 10,000 faces and persistent hard constraints; the default Core contract remains
 explicit-first.
 
+**`SplitConform` accepts the hand-rolled split only when it leaves topology no worse than the input.**
+It used to accept anything that was not non-manifold, but the same "cut point a hair off an existing
+vertex" situation also yields a plainly NON-CONFORMING edge -- one face split, its neighbour not, a
+vertex left inside the neighbour's sub-edge. Nothing non-manifold, no area lost, but the terrain gains
+a boundary loop, split-keep's own gate rejects it, and the corridor drops to the constraint-insertion
+tier, which does Z-only grading and no ruled batter at all. Falling through to `SplitConformViaCdt`
+(valid by construction) costs terrain detail and is still far better than an invalid mesh.
+
 `GradedRegionAssembler.SplitOutside` (used by both explicit tiers) repairs pinched/branched hole
 boundaries by pulling outside faces at irregular vertices into the carve region, and falls back to a
 single-CDT re-conform (`SplitConformViaCdt`) when the hand-rolled splitter emits an untraceable

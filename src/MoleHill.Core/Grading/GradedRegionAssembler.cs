@@ -138,8 +138,24 @@ internal static class GradedRegionAssembler
         // that happens, re-conform with a single Triangle.NET CDT, which is always a valid
         // (non-overlapping, manifold) triangulation. Keep the hand-rolled result whenever it is clean
         // so the terrain-detail-preserving path is unchanged for the scenes it already handles.
-        if (handRolled is not null && !HasNonManifoldEdge(handRolled.Faces, handRolled.FaceCount))
+        // Non-manifold is not the only way the hand-rolled split can come back unusable. The same
+        // "a hair off an existing vertex" situation also produces a plain NON-CONFORMING edge: the cut
+        // point splits one face and its neighbour keeps the whole edge, so a vertex ends up inside that
+        // edge. Nothing is non-manifold and no area is lost -- measured on a wall rail, the split
+        // preserved projected area exactly -- but the sub-edge is used once, so it reads as a naked
+        // edge and the terrain gains a boundary loop. Split-keep's own gate then rejects the result and
+        // the corridor drops to a tier that does no ruled batter at all, which is how a 20 degree wall
+        // came out at roughly 46 degrees.
+        //
+        // So accept the hand-rolled split only when it leaves the terrain's topology no worse than it
+        // found it, and otherwise fall through to the CDT re-conform below, which is a valid
+        // triangulation by construction. Preserving terrain detail is not worth an invalid mesh.
+        if (handRolled is not null &&
+            GradingTopologyDiagnostics.IsNotWorseThanInput(
+                terrainFaces, terrainFaceCount, handRolled.Faces, handRolled.FaceCount, out _))
+        {
             return handRolled;
+        }
 
         MeshAreaSplitter.SplitResult? cdt = SplitConformViaCdt(
             terrainVertices, terrainVertexCount, terrainFaces, terrainFaceCount, clippedLoops, terrainOutline, tolerance, hardConstraints);
