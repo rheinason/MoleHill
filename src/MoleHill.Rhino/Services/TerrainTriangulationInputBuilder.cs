@@ -10,7 +10,8 @@ internal static class TerrainTriangulationInputBuilder
     public static List<double[]> CreateTriangulationPolylines(
         IReadOnlyList<Curve> breaklineCurves,
         IReadOnlyList<Curve> contourCurves,
-        double tolerance)
+        double tolerance,
+        double[]? samplePoints = null)
     {
         // Keep the panel's newer conditioning behavior for both source types. Core derives spacing from
         // the observed source segments (with tolerance only as a microscopic floor), preventing the old
@@ -24,7 +25,8 @@ internal static class TerrainTriangulationInputBuilder
         return TerrainConstraintPreprocessor.Process(
             breaklines,
             contours,
-            tolerance);
+            tolerance,
+            samplePoints);
     }
 
     public static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)

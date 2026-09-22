@@ -193,7 +193,8 @@ internal sealed partial class TerrainBuildService
             constrainContours
                 ? flattenedContours.Select(static polyline => polyline.Points).ToList()
                 : Array.Empty<double[]>(),
-            curveTolerance);
+            curveTolerance,
+            spotXyz);
         var boundaryPolylines = Array.Empty<TinBoundaryPreparer.BoundaryPolyline>();
         int constraintVertexCount = polylines.Sum(static polyline => polyline.Length / 3);
         int boundaryVertexCount = boundaryPolylines.Sum(static polyline => polyline.PointCount);
@@ -481,7 +482,8 @@ internal sealed partial class TerrainBuildService
         polylines.AddRange(TerrainTriangulationInputBuilder.CreateTriangulationPolylines(
             breaklineCurves,
             contourCurves,
-            curveTolerance));
+            curveTolerance,
+            spotXyz));
 
         var boundaryPolylines = CombineBoundaryPolylines(
             CreateBoundaryPolylines(mesh, curveTolerance),

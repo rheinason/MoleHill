@@ -658,6 +658,12 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   observed source-segment medians rather than document tolerance. Segment lengths are collected once
   per source class and collinear runs are scanned linearly, preserving straight-run normalization and
   intermediate long-breakline stations without large-site vertex explosions or quadratic stalls.
+  Breaklines are additionally stationed to their clearance from the other inputs (contours, spot/DEM
+  samples, vertices-only contours, other breaklines; Add Geometry also counts the carried mesh's
+  vertices). A breakline's own median says nothing about its neighbours: removing the old
+  `tolerance × 200` cap (to stop large-site contour explosions) left a sparse breakline between dense
+  contours as a few hubs fanning to 100+ vertices each, which is what "the breakline can't hold the
+  terrain" looked like. Voids gain no stations, because densifying there measurably worsens the fan.
 - Triangulate **Contour Mode** controls the large-input tradeoff: `Constrained` inserts every contour
   segment, `Vertices only` matches an exploded-points Grasshopper solve, and the default `Auto` switches
   contours to vertex samples at 250,000 source vertices. Breaklines remain constrained; boundary roles

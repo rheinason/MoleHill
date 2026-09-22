@@ -11,7 +11,10 @@ Pure, unit-tested.
 - `TerrainConstraintPreprocessor.cs` — conditions breakline and contour spacing before meshing using
   observed source-segment medians. Segment lengths are collected once per source class and straight
   runs are detected in linear time, so multi-million-station polylines retain the panel's spacing
-  normalization without a quadratic preprocessing stall.
+  normalization without a quadratic preprocessing stall. Breaklines are then stationed to their
+  **clearance** — the plan distance to the nearest contour, spot sample or other breakline vertex — so a
+  sparse breakline between dense contours no longer becomes a few hub vertices fanning into slivers
+  under 1°, while a breakline in a void (large clearance) gains nothing. Contours are never restationed.
 - `TinInputCleaner.cs` — removes degenerate/duplicate input geometry.
 - `RegionInputClipper.cs` — exact union clipping for Data Clip: keeps points inside/on closed World-XY
   loops and splits crossing polylines while linearly interpolating Z. The Rhino host applies it to raw

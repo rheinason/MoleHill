@@ -9,10 +9,15 @@ public static class TerrainConstraintPreprocessor
 {
     private readonly record struct Vertex(double X, double Y, double Z);
 
+    /// <param name="samplePoints">
+    /// Optional flat XYZ spot samples (points, DEM samples, vertices-only contours). They take no part in
+    /// the output, but a breakline next to them is stationed to their density.
+    /// </param>
     public static List<double[]> Process(
         IReadOnlyList<double[]> breaklinePolylines,
         IReadOnlyList<double[]> contourPolylines,
-        double tolerance)
+        double tolerance,
+        double[]? samplePoints = null)
     {
         // Collect and sort each source class once. Multi-million-station surveys used to scan and sort
         // the populated class twice while deriving the combined and class-specific spacing values.
@@ -27,13 +32,226 @@ public static class TerrainConstraintPreprocessor
         double combinedSpacing = measuredBreaklineSpacing ??
             measuredContourSpacing ??
             ComputeClampedMedian(contourLengths, tolerance);
-        double breaklineSpacing = measuredBreaklineSpacing ?? combinedSpacing;
         double contourSpacing = measuredContourSpacing ?? combinedSpacing;
 
-        var result = new List<double[]>(breaklinePolylines.Count + contourPolylines.Count);
-        result.AddRange(ProcessPolylines(breaklinePolylines, breaklineSpacing, tolerance));
-        result.AddRange(ProcessPolylines(contourPolylines, contourSpacing, tolerance));
+        int sampleCount = samplePoints == null ? 0 : samplePoints.Length / 3;
+        bool hasNeighbourData = contourLengths.Count > 0 || sampleCount > 0;
+
+        // With contours or spots present, a breakline's stations come from the data around it (below).
+        // Borrowing the contour median here instead made a two-point breakline 0.25 m-dense across a 3 m
+        // gap — slivers — while a four-point one kept its own median and stayed sparse.
+        double breaklineSpacing = measuredBreaklineSpacing ??
+            (hasNeighbourData ? double.PositiveInfinity : combinedSpacing);
+
+        var processedBreaklines = ProcessPolylines(breaklinePolylines, breaklineSpacing, tolerance).ToList();
+        var processedContours = ProcessPolylines(contourPolylines, contourSpacing, tolerance).ToList();
+        if (processedBreaklines.Count > 0)
+        {
+            double floor = Math.Max(tolerance * 8.0, (measuredContourSpacing ?? 0.0) * 0.5);
+            StationBreaklinesToNeighbours(processedBreaklines, processedContours, samplePoints, sampleCount, floor, tolerance);
+        }
+
+        var result = new List<double[]>(processedBreaklines.Count + processedContours.Count);
+        result.AddRange(processedBreaklines);
+        result.AddRange(processedContours);
         return result;
+    }
+
+    /// <summary>
+    /// Adds stations along each breakline segment at roughly its clearance — the plan distance to the
+    /// nearest input vertex that is not its own. A sparse breakline between dense contours otherwise
+    /// becomes a few hub vertices, each fanning to 100+ contour vertices in slivers under 1°, and the line
+    /// cannot hold its shape in the TIN. Stationing to the clearance gives near-equilateral triangles
+    /// across the gap. In a void the clearance is large, so nothing is added — densifying there is
+    /// measurably worse, because the added stations only give isolated vertices more distant partners.
+    /// </summary>
+    private static void StationBreaklinesToNeighbours(
+        List<double[]> breaklines,
+        List<double[]> contours,
+        double[]? samplePoints,
+        int sampleCount,
+        double floor,
+        double tolerance)
+    {
+        var index = NeighbourIndex.Build(breaklines, contours, samplePoints, sampleCount);
+        if (index == null)
+            return;
+
+        // Never more than double the input: a breakline cannot out-number the data it is stationed to.
+        long budget = index.Count;
+        var output = new List<double>();
+        for (int b = 0; b < breaklines.Count && budget > 0; b++)
+        {
+            double[] polyline = breaklines[b];
+            int pointCount = polyline.Length / 3;
+            output.Clear();
+            output.Add(polyline[0]);
+            output.Add(polyline[1]);
+            output.Add(polyline[2]);
+            bool changed = false;
+            for (int i = 0; i + 1 < pointCount; i++)
+            {
+                var start = new Vertex(polyline[i * 3], polyline[i * 3 + 1], polyline[i * 3 + 2]);
+                var end = new Vertex(polyline[i * 3 + 3], polyline[i * 3 + 4], polyline[i * 3 + 5]);
+                double length = Distance(start, end);
+                double position = 0.0;
+                while (budget > 0)
+                {
+                    double remaining = length - position;
+                    double t = position / length;
+                    double spacing = Math.Max(
+                        index.Clearance(Lerp(start.X, end.X, t), Lerp(start.Y, end.Y, t), b, remaining),
+                        floor);
+
+                    // Only split when the remainder holds at least one and a half stations, so the last
+                    // gap is never a sliver next to the segment end.
+                    if (remaining < spacing * 1.5)
+                        break;
+
+                    position += spacing;
+                    t = position / length;
+                    AddVertex(output, new Vertex(Lerp(start.X, end.X, t), Lerp(start.Y, end.Y, t), Lerp(start.Z, end.Z, t)), tolerance);
+                    budget--;
+                    changed = true;
+                }
+
+                AddVertex(output, end, tolerance);
+            }
+
+            if (changed)
+                breaklines[b] = output.ToArray();
+        }
+    }
+
+    /// <summary>XY hash of every input vertex, tagged with its breakline (or -1), for clearance queries.</summary>
+    private sealed class NeighbourIndex
+    {
+        private readonly Dictionary<(long X, long Y), List<int>> _cells;
+        private readonly double[] _xy;
+        private readonly int[] _owner;
+        private readonly double _cellSize;
+        private readonly double _diagonal;
+
+        public int Count => _owner.Length;
+
+        private NeighbourIndex(double[] xy, int[] owner, double cellSize, double diagonal)
+        {
+            _xy = xy;
+            _owner = owner;
+            _cellSize = cellSize;
+            _diagonal = diagonal;
+            _cells = new Dictionary<(long, long), List<int>>();
+            for (int i = 0; i < owner.Length; i++)
+            {
+                var key = Key(xy[i * 2], xy[i * 2 + 1]);
+                if (!_cells.TryGetValue(key, out List<int>? bucket))
+                    _cells.Add(key, bucket = new List<int>(4));
+                bucket.Add(i);
+            }
+        }
+
+        public static NeighbourIndex? Build(List<double[]> breaklines, List<double[]> contours, double[]? samples, int sampleCount)
+        {
+            int count = sampleCount;
+            foreach (double[] p in breaklines) count += p.Length / 3;
+            foreach (double[] p in contours) count += p.Length / 3;
+            if (count == 0)
+                return null;
+
+            var xy = new double[count * 2];
+            var owner = new int[count];
+            int n = 0;
+            double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+            void Add(double x, double y, int tag)
+            {
+                if (!double.IsFinite(x) || !double.IsFinite(y))
+                    return;
+                xy[n * 2] = x;
+                xy[n * 2 + 1] = y;
+                owner[n++] = tag;
+                minX = Math.Min(minX, x); maxX = Math.Max(maxX, x);
+                minY = Math.Min(minY, y); maxY = Math.Max(maxY, y);
+            }
+
+            for (int b = 0; b < breaklines.Count; b++)
+                for (int i = 0; i < breaklines[b].Length / 3; i++)
+                    Add(breaklines[b][i * 3], breaklines[b][i * 3 + 1], b);
+            foreach (double[] p in contours)
+                for (int i = 0; i < p.Length / 3; i++)
+                    Add(p[i * 3], p[i * 3 + 1], -1);
+            for (int i = 0; i < sampleCount; i++)
+                Add(samples![i * 3], samples[i * 3 + 1], -1);
+            if (n == 0)
+                return null;
+
+            if (n < count)
+            {
+                Array.Resize(ref xy, n * 2);
+                Array.Resize(ref owner, n);
+            }
+
+            double width = maxX - minX, height = maxY - minY;
+            double diagonal = Math.Sqrt((width * width) + (height * height));
+            double cellSize = Math.Sqrt(Math.Max(width * height, diagonal * diagonal * 1e-6) / n);
+            if (!(cellSize > 0.0) || !double.IsFinite(cellSize))
+                cellSize = Math.Max(diagonal, 1.0);
+            return new NeighbourIndex(xy, owner, cellSize, diagonal);
+        }
+
+        /// <summary>
+        /// Plan distance from (x, y) to the nearest vertex not owned by <paramref name="self"/>, searched no
+        /// farther than <paramref name="maxRadius"/> (returned when nothing is nearer).
+        /// </summary>
+        public double Clearance(double x, double y, int self, double maxRadius)
+        {
+            double limit = Math.Min(maxRadius, _diagonal);
+            if (!(limit > 0.0))
+                return maxRadius;
+
+            double bestSq = limit * limit;
+            var (cx, cy) = Key(x, y);
+            long rings = (long)Math.Ceiling(limit / _cellSize) + 1;
+            if ((2 * rings + 1) * (2 * rings + 1) > _owner.Length)
+            {
+                for (int i = 0; i < _owner.Length; i++)
+                    Consider(i);
+                return Math.Sqrt(bestSq);
+            }
+
+            for (long r = 0; r <= rings; r++)
+            {
+                for (long gy = cy - r; gy <= cy + r; gy++)
+                {
+                    bool edgeRow = gy == cy - r || gy == cy + r;
+                    for (long gx = cx - r; gx <= cx + r; gx += edgeRow || r == 0 ? 1 : 2 * r)
+                    {
+                        if (_cells.TryGetValue((gx, gy), out List<int>? bucket))
+                            foreach (int i in bucket)
+                                Consider(i);
+                    }
+                }
+
+                // Every unvisited cell is at least r cells away.
+                double reached = r * _cellSize;
+                if (reached * reached >= bestSq)
+                    break;
+            }
+
+            return Math.Sqrt(bestSq);
+
+            void Consider(int i)
+            {
+                if (_owner[i] == self && self >= 0)
+                    return;
+                double dx = _xy[i * 2] - x, dy = _xy[i * 2 + 1] - y;
+                double dSq = (dx * dx) + (dy * dy);
+                if (dSq < bestSq)
+                    bestSq = dSq;
+            }
+        }
+
+        private (long X, long Y) Key(double x, double y) =>
+            ((long)Math.Floor(x / _cellSize), (long)Math.Floor(y / _cellSize));
     }
 
     private static IEnumerable<double[]> ProcessPolylines(
