@@ -195,9 +195,14 @@ public class TinEngine
                     return _cachedResult;
                 }
 
-                _cachedSnapshot = new InputSnapshot(xyHash, zHash);
-                if (peelSettings.UsesSlopeCriterion && _cachedMesh != null)
+                // WithUpdatedZ only rewrites vertices that map to an input index. A Steiner point —
+                // where a breakline crosses a contour or another breakline — takes its Z from the
+                // constraints through it, so a Z-only edit must re-interpolate it or the crossing
+                // keeps the old elevation and the edited breakline stops controlling the terrain.
+                bool needsInterpolation = HasInterpolatedVertices(_cachedResult, vertexCount);
+                if ((peelSettings.UsesSlopeCriterion || needsInterpolation) && _cachedMesh != null)
                 {
+                    _cachedSnapshot = new InputSnapshot(xyHash, zHash);
                     _cachedResult = BuildResult(
                         _cachedMesh,
                         xyCoords,
@@ -205,13 +210,17 @@ public class TinEngine
                         segments,
                         peelSettings,
                         includeEdgeTopology);
-                }
-                else
-                {
-                    _cachedResult = _cachedResult.WithUpdatedZ(zValues);
+                    return _cachedResult;
                 }
 
-                return _cachedResult;
+                if (!needsInterpolation)
+                {
+                    _cachedSnapshot = new InputSnapshot(xyHash, zHash);
+                    _cachedResult = _cachedResult.WithUpdatedZ(zValues);
+                    return _cachedResult;
+                }
+
+                // Steiner points but no retained mesh to re-interpolate them on: rebuild below.
             }
 
             if (TryApplyIncrementalEdit(
@@ -270,6 +279,19 @@ public class TinEngine
             map[key] = i;
         }
         return map;
+    }
+
+    private static bool HasInterpolatedVertices(TinResult result, int inputVertexCount)
+    {
+        int[] sourceIds = result.SourceIds;
+        for (int i = 0; i < result.VertexCount; i++)
+        {
+            int srcId = sourceIds[i];
+            if (srcId < 0 || srcId >= inputVertexCount)
+                return true;
+        }
+
+        return false;
     }
 
     private static bool AreSegmentsEqual(int[] a, int[] b)

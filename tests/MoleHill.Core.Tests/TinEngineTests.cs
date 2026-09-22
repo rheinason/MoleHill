@@ -58,6 +58,32 @@ public class TinEngineTests
     }
 
     [Fact]
+    public void Build_ZOnlyChangeWithCrossingBreaklines_ReinterpolatesSteinerZ()
+    {
+        // Two sparse two-point breaklines crossing at the origin: the crossing is a Steiner point.
+        double[] xy =
+        {
+            -20.0, -20.0, 20.0, -20.0, 20.0, 20.0, -20.0, 20.0,
+            -15.0, 0.0, 15.0, 0.0,
+            0.0, -15.0, 0.0, 15.0
+        };
+        int[] segments = { 4, 5, 6, 7 };
+        double[] z1 = new double[8];
+        double[] z2 = { 0.0, 0.0, 0.0, 0.0, 10.0, 10.0, 0.0, 0.0 };
+
+        var engine = new TinEngine();
+        TinResult? first = engine.Build(xy, z1, segments, QualitySettings.None, out _, useConvexHull: true);
+        TinResult? edited = engine.Build(xy, z2, segments, QualitySettings.None, out _, useConvexHull: true);
+        TinResult? fresh = new TinEngine().Build(xy, z2, segments, QualitySettings.None, out _, useConvexHull: true);
+
+        Assert.NotNull(first);
+        Assert.NotNull(edited);
+        Assert.NotNull(fresh);
+        Assert.Contains(first!.SourceIds, id => id >= 8);
+        Assert.Equal(fresh!.Vertices, edited!.Vertices);
+    }
+
+    [Fact]
     public void Build_WithoutEdgeTopology_ReturnsFacesWithoutEdgeArrays()
     {
         var engine = new TinEngine();
