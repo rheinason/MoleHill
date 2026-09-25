@@ -177,6 +177,57 @@ internal static class SurveyPlacement
         return Result.Success;
     }
 
+    private const string CreatedBaseUndoDescription = "Import survey points (project base)";
+
+    /// <summary>
+    /// Removes a project base this import created, when the import then failed.
+    ///
+    /// The base is saved while placement is resolved, before any geometry exists, so a failed import
+    /// would otherwise leave a base behind that nothing the user sees explains. Clearing (rather than
+    /// deleting the named CPlane directly) keeps a legacy CPlane suppressed, which is the state the
+    /// document was in when the prompt ran: a live legacy base would have been found and used instead.
+    /// </summary>
+    public static void RevertCreatedProjectBase(RhinoDoc doc) => ProjectBaseCPlaneService.ClearProjectBasePlane(doc);
+
+    /// <summary>
+    /// Joins the created base to the import's undo record, so undoing the import also removes the base
+    /// and redoing it restores the base. Named CPlanes are not object-table changes, so without this the
+    /// base would outlive an undo of the survey it was made for.
+    ///
+    /// The handler sets an absolute state (a plane, or no base) and registers the inverse, so it stays
+    /// correct whether or not Rhino also records the named-CPlane change itself.
+    /// </summary>
+    public static void RegisterCreatedProjectBaseUndo(RhinoDoc doc)
+    {
+        if (!doc.UndoRecordingIsActive)
+            return;
+
+        doc.AddCustomUndoEvent(CreatedBaseUndoDescription, OnProjectBaseUndo, new ProjectBaseUndoState(null));
+    }
+
+    private static void OnProjectBaseUndo(object? sender, CustomUndoEventArgs e)
+    {
+        if (e.Tag is not ProjectBaseUndoState target)
+            return;
+
+        RhinoDoc doc = e.Document;
+        Plane? current = ProjectBaseCPlaneService.TryGetProjectBasePlane(doc, out Plane plane, out _) ? plane : null;
+        try
+        {
+            if (target.Plane is { } restore)
+                ProjectBaseCPlaneService.SaveProjectBasePlane(doc, restore);
+            else
+                ProjectBaseCPlaneService.ClearProjectBasePlane(doc);
+        }
+        finally
+        {
+            // Registered even if the restore fails, so redo is not lost for the rest of the session.
+            doc.AddCustomUndoEvent(CreatedBaseUndoDescription, OnProjectBaseUndo, new ProjectBaseUndoState(current));
+        }
+    }
+
+    private sealed record ProjectBaseUndoState(Plane? Plane);
+
     /// <summary>
     /// The survey's centre, rounded so the saved base is a number a person can read off and retype.
     ///

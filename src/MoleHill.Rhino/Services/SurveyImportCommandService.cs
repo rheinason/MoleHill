@@ -146,6 +146,8 @@ internal static class SurveyImportCommandService
 
             doc.Views.Redraw();
             Report(file, parsed, choice, units, figuresDrawn, spotsDrawn, unmatchedDrawn);
+            if (choice == SurveyPlacementChoice.ProjectBaseCreated)
+                SurveyPlacement.RegisterCreatedProjectBaseUndo(doc);
             success = true;
             return Result.Success;
         }
@@ -157,7 +159,14 @@ internal static class SurveyImportCommandService
         finally
         {
             if (!success)
+            {
                 RollBack(doc, created);
+                if (choice == SurveyPlacementChoice.ProjectBaseCreated)
+                {
+                    SurveyPlacement.RevertCreatedProjectBase(doc);
+                    RhinoApp.WriteLine("MoleHill: the project base created for this survey was removed again.");
+                }
+            }
             doc.EndUndoRecord(undoRecord);
         }
     }
