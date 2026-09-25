@@ -38,9 +38,25 @@ where the code can be tested. There are three exceptions:
   items were fixed without changing output. The section-slicer, reference re-mesh, catchment
   preview and Grasshopper snapshot-hash items, and the duplication and dead-code items, are still
   open.
-- **Needs a live Rhino check** (the native test lane is broken on 8.35, so these fixes are built but
-  not exercised): H2, H6, H8, H10, H11, H14, H17, H22 and M3 (panel, conduit and bake paths), and
-  S3, S5 and S7 (survey undo and placement).
+- **Live Rhino check, 2026-09-25** (Rhino 8.35.26251.13001, router slot `aardvark`, PID 34308,
+  exact build loaded from `src/MoleHill.Rhino/bin/Debug/net7.0`):
+  - **Native tests run inside Rhino.** The `[RhinoNativeFact]` tests were loaded into the live Rhino
+    and invoked by reflection. The pre-fix commit `08ff422` and HEAD fail exactly the same 19 tests,
+    so none of those failures comes from these fixes; they are rot in a lane that has not run since
+    8.35. HEAD passes 121 (the baseline passes 113), including the new native tests for H3, H6, H8,
+    H10, H14 and H17.
+  - **Checked against live document state:**
+    - H1: a duplicated Report Table keeps its settings.
+    - H14: all 26 baked table texts are red, coloured by object.
+    - H9: the section card shows no hatch rows.
+    - H2: the drop handler's reorder moves annotations and leaves Analyses alone.
+    - S3: a local-grid survey stays put; a UTM survey maps through the base.
+    - S4: a `GND` spot lands on its own rule's layer.
+    - S5: one undo removes the whole import.
+    - S7: undo removes the created base together with the import, and redo restores both.
+    - S8: `TOE 1.5` stays one figure.
+  - **Not checked live:** H11, H22 and M3 need real pointer and keyboard gestures, which the testing
+    rules forbid synthesising, so they are built but untested by hand.
 
 Behaviour changes users will notice:
 
