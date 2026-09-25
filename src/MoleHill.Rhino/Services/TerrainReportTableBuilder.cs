@@ -223,7 +223,9 @@ internal static class TerrainReportTableBuilder
             Name = $"{annotation.Label} text",
             AnalysisId = annotation.Id,
             ColorArgb = annotation.ColorArgb,
-            AppearanceSource = GeneratedAppearanceSource.Layer,
+            AppearanceSource = annotation.ColorArgb.HasValue
+                ? GeneratedAppearanceSource.Object
+                : GeneratedAppearanceSource.Layer,
             LayerPath = layerPath
         });
     }
@@ -245,7 +247,9 @@ internal static class TerrainReportTableBuilder
             Name = $"{annotation.Label} rule",
             AnalysisId = annotation.Id,
             ColorArgb = annotation.ColorArgb,
-            AppearanceSource = GeneratedAppearanceSource.Layer,
+            AppearanceSource = annotation.ColorArgb.HasValue
+                ? GeneratedAppearanceSource.Object
+                : GeneratedAppearanceSource.Layer,
             LayerPath = layerPath
         });
     }
