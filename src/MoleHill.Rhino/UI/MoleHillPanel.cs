@@ -2479,33 +2479,33 @@ public sealed partial class MoleHillPanel : Panel
         };
     }
 
-    private void WireAnnotationCardDragDrop(Control box, Guid terrainId, Guid analysisId)
+    private void WireAnnotationCardDragDrop(Control box, Guid terrainId, Guid annotationId)
     {
         box.AllowDrop = true;
         var cardHighlight = Color.FromArgb(100, 120, 200, 255);
 
         box.DragEnter += (_, e) =>
         {
-            if (!e.Data.Contains("analysis-drag")) return;
+            if (!e.Data.Contains("annotation-drag")) return;
             e.Effects = DragEffects.Move;
             if (_dragOverAnnotationId.HasValue && _annotationStripMap.TryGetValue(_dragOverAnnotationId.Value, out var prevStrip))
                 if (_annotationStripColors.TryGetValue(_dragOverAnnotationId.Value, out var prevColor))
                     prevStrip.BackgroundColor = prevColor;
-            _dragOverAnnotationId = analysisId;
-            if (_annotationStripMap.TryGetValue(analysisId, out var strip))
+            _dragOverAnnotationId = annotationId;
+            if (_annotationStripMap.TryGetValue(annotationId, out var strip))
                 strip.BackgroundColor = cardHighlight;
             ClearAllSepHighlights(_annotationSepMap);
-            if (_annotationSepMap.TryGetValue(analysisId, out var sep))
+            if (_annotationSepMap.TryGetValue(annotationId, out var sep))
                 sep.BackgroundColor = UiTheme.SepHighlight;
         };
 
         box.DragLeave += (_, _) =>
         {
-            if (_dragOverAnnotationId != analysisId)
+            if (_dragOverAnnotationId != annotationId)
                 return;
 
-            if (_annotationStripMap.TryGetValue(analysisId, out var strip))
-                if (_annotationStripColors.TryGetValue(analysisId, out var origColor))
+            if (_annotationStripMap.TryGetValue(annotationId, out var strip))
+                if (_annotationStripColors.TryGetValue(annotationId, out var origColor))
                     strip.BackgroundColor = origColor;
             _dragOverAnnotationId = null;
             ClearAllSepHighlights(_annotationSepMap);
@@ -2513,19 +2513,19 @@ public sealed partial class MoleHillPanel : Panel
 
         box.DragDrop += (_, e) =>
         {
-            if (!e.Data.Contains("analysis-drag")) return;
-            var idStr = e.Data.GetString("analysis-drag");
+            if (!e.Data.Contains("annotation-drag")) return;
+            var idStr = e.Data.GetString("annotation-drag");
             if (!Guid.TryParse(idStr, out var sourceId)) return;
 
-            if (_annotationStripMap.TryGetValue(analysisId, out var strip))
-                if (_annotationStripColors.TryGetValue(analysisId, out var origColor))
+            if (_annotationStripMap.TryGetValue(annotationId, out var strip))
+                if (_annotationStripColors.TryGetValue(annotationId, out var origColor))
                     strip.BackgroundColor = origColor;
             _dragOverAnnotationId = null;
             ClearAllSepHighlights(_annotationSepMap);
 
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) return;
-            _controller.MutateTerrain(doc, terrainId, t => MoveAnalysisToDisplaySeparator(t, sourceId, analysisId), scheduleRebuild: false);
+            _controller.MutateTerrain(doc, terrainId, t => MoveAnnotationToDisplaySeparator(t, sourceId, annotationId), scheduleRebuild: false);
             RefreshTerrainPreview(terrainId);
         };
     }
@@ -2536,7 +2536,7 @@ public sealed partial class MoleHillPanel : Panel
 
         outerSep.DragEnter += (_, e) =>
         {
-            if (!e.Data.Contains("analysis-drag")) return;
+            if (!e.Data.Contains("annotation-drag")) return;
             e.Effects = DragEffects.Move;
             if (_dragOverAnnotationId.HasValue && _annotationStripMap.TryGetValue(_dragOverAnnotationId.Value, out var prevStrip))
                 if (_annotationStripColors.TryGetValue(_dragOverAnnotationId.Value, out var prevColor))
@@ -2550,8 +2550,8 @@ public sealed partial class MoleHillPanel : Panel
 
         outerSep.DragDrop += (_, e) =>
         {
-            if (!e.Data.Contains("analysis-drag")) return;
-            var idStr = e.Data.GetString("analysis-drag");
+            if (!e.Data.Contains("annotation-drag")) return;
+            var idStr = e.Data.GetString("annotation-drag");
             if (!Guid.TryParse(idStr, out var sourceId)) return;
 
             innerSep.BackgroundColor = Colors.Transparent;
@@ -2559,7 +2559,7 @@ public sealed partial class MoleHillPanel : Panel
 
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) return;
-            _controller.MutateTerrain(doc, terrainId, t => MoveAnalysisToDisplaySeparator(t, sourceId, insertBeforeId), scheduleRebuild: false);
+            _controller.MutateTerrain(doc, terrainId, t => MoveAnnotationToDisplaySeparator(t, sourceId, insertBeforeId), scheduleRebuild: false);
             RefreshTerrainPreview(terrainId);
         };
     }
@@ -2584,6 +2584,28 @@ public sealed partial class MoleHillPanel : Panel
 
         int insertIdx = terrain.Analyses.FindIndex(analysis => analysis.Id == insertBeforeId);
         terrain.Analyses.Insert(insertIdx >= 0 ? insertIdx : terrain.Analyses.Count, item);
+    }
+
+    private static void MoveAnnotationToDisplaySeparator(TerrainDefinition terrain, Guid sourceId, Guid insertBeforeId)
+    {
+        if (sourceId == insertBeforeId)
+            return;
+
+        int fromIdx = terrain.Annotations.FindIndex(annotation => annotation.Id == sourceId);
+        if (fromIdx < 0)
+            return;
+
+        var item = terrain.Annotations[fromIdx];
+        terrain.Annotations.RemoveAt(fromIdx);
+
+        if (insertBeforeId == Guid.Empty)
+        {
+            terrain.Annotations.Add(item);
+            return;
+        }
+
+        int insertIdx = terrain.Annotations.FindIndex(annotation => annotation.Id == insertBeforeId);
+        terrain.Annotations.Insert(insertIdx >= 0 ? insertIdx : terrain.Annotations.Count, item);
     }
 
     // ── Drag-and-drop: modifier cards ────────────────────────────────────
