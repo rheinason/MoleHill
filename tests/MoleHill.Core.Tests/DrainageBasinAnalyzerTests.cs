@@ -619,6 +619,27 @@ public class DrainageBasinAnalyzerTests
         }
     }
 
+    /// <summary>The one-pass extraction must give every basin exactly what the per-basin scan gives it.</summary>
+    [Fact]
+    public void ExtractAll_MultiBasinTerrain_MatchesPerBasinExtract()
+    {
+        var mesh = Grid(12, 12, (x, y) => Math.Sin(x * 0.9) + Math.Cos(y * 0.7) + (0.05 * x));
+        BasinGraph graph = Analyze(mesh);
+        Assert.True(graph.Basins.Count > 1);
+
+        List<double[]>[] all = BasinBoundaryExtractor.ExtractAll(graph, mesh.Vertices, mesh.VertexCount, mesh.Faces);
+
+        Assert.Equal(graph.Basins.Count, all.Length);
+        foreach (BasinGraph.Basin basin in graph.Basins)
+        {
+            List<double[]> single = BasinBoundaryExtractor.Extract(
+                graph, mesh.Vertices, mesh.VertexCount, mesh.Faces, basin.Index);
+            Assert.Equal(single.Count, all[basin.Index].Count);
+            for (int loop = 0; loop < single.Count; loop++)
+                Assert.Equal(single[loop], all[basin.Index][loop]);
+        }
+    }
+
     /// <summary>Every basin boundary closes. An open catchment polygon cannot be hatched or measured.</summary>
     [Fact]
     public void Extract_EveryBasinOfASlope_ReturnsClosedLoops()

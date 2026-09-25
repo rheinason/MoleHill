@@ -113,11 +113,12 @@ internal sealed partial class TerrainBuildService
         string layerPath = snapshot.LayerRoles.Path(LayerRole.Catchments);
         int drawn = 0;
 
+        List<double[]>[] loopsByBasin = BasinBoundaryExtractor.ExtractAll(
+            graph, vertices, vertexCount, faces, shouldCancel);
         foreach (BasinGraph.Basin basin in graph.Basins)
         {
             ThrowIfCancellationRequested(shouldCancel);
-            List<double[]> loops = BasinBoundaryExtractor.Extract(
-                graph, vertices, vertexCount, faces, basin.Index);
+            List<double[]> loops = loopsByBasin[basin.Index];
 
             foreach (double[] loop in loops)
             {
