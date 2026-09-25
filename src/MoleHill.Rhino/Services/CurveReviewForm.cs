@@ -705,9 +705,9 @@ internal sealed class CurveReviewForm : Form
         {
             CurveReviewRuleKind.MaximumGrade => _analysis.GradeExceedances.FirstOrDefault()?.PeakPoint,
             CurveReviewRuleKind.MinimumPlanRadius => _analysis.RadiusViolations.FirstOrDefault()?.PeakPoint
-                ?? _analysis.Events.FirstOrDefault(item => item.Kind == CurveReviewEventKind.PlanCorner).Point,
-            CurveReviewRuleKind.VerticalGradeChange => _analysis.Events.FirstOrDefault(item => item.Kind == CurveReviewEventKind.VerticalBreak).Point,
-            CurveReviewRuleKind.TerrainCoverage => _analysis.Events.FirstOrDefault(item => item.Kind == CurveReviewEventKind.TerrainGap).Point,
+                ?? CurveReviewAnalysis.FirstEventPoint(_analysis.Events, CurveReviewEventKind.PlanCorner),
+            CurveReviewRuleKind.VerticalGradeChange => CurveReviewAnalysis.FirstEventPoint(_analysis.Events, CurveReviewEventKind.VerticalBreak),
+            CurveReviewRuleKind.TerrainCoverage => CurveReviewAnalysis.FirstEventPoint(_analysis.Events, CurveReviewEventKind.TerrainGap),
             _ => null
         };
         if (point.HasValue && point.Value.IsValid)

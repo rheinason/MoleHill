@@ -95,6 +95,22 @@ internal sealed class CurveReviewAnalysis
     public bool RadiusFails => PlanCornerCount > 0 || RadiusViolations.Count > 0;
     public int WarningCount => Checks.Count(item => item.IsWarning);
 
+    /// <summary>
+    /// Where the first event of <paramref name="kind"/> sits, or null when there is none. The event is a
+    /// struct, so <c>FirstOrDefault(...).Point</c> reads the world origin when nothing matches — a zoom
+    /// target that looks like a real one.
+    /// </summary>
+    public static Point3d? FirstEventPoint(IReadOnlyList<CurveReviewEvent> events, CurveReviewEventKind kind)
+    {
+        foreach (CurveReviewEvent item in events)
+        {
+            if (item.Kind == kind)
+                return item.Point;
+        }
+
+        return null;
+    }
+
     /// <summary>Scale used to map an absolute grade onto the review color ramp.</summary>
     public double GradeColorScale => MaximumGradeLimit is > 0.0
         ? MaximumGradeLimit.Value
