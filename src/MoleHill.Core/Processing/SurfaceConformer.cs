@@ -108,15 +108,11 @@ public static class SurfaceConformer
         if (!(feather > 0.0))
             return 1.0;
 
+        // One distance per loop: a loop further than the feather cannot lower the minimum below it, so
+        // there is no need to test "within" first and then measure again.
         double nearest = double.PositiveInfinity;
         for (int i = 0; i < loops.Count; i++)
-        {
-            PreparedLoop loop = loops[i];
-            if (!loop.Polygon.IsWithin(x, y, feather))
-                continue;
-
-            nearest = Math.Min(nearest, GradingGeometry2D.DistanceToPolygon(x, y, loop.Xy, loop.VertexCount));
-        }
+            nearest = Math.Min(nearest, loops[i].Polygon.DistanceIfNear(x, y, feather));
 
         if (!double.IsFinite(nearest) || nearest >= feather)
             return 1.0;
