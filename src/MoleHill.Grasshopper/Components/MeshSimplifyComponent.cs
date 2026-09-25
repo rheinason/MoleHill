@@ -1,4 +1,5 @@
 using Grasshopper.Kernel;
+using MoleHill.Core.Engine;
 using MoleHill.Core.Processing;
 using MoleHill.Grasshopper.Registry;
 using MoleHill.Grasshopper.Types;
@@ -85,6 +86,31 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
             required.Add(a); required.Add(b);
         }
 
+        // A Terrain's breaklines are its hard edges, so they survive simplification wherever the mesh still
+        // carries them. One that no longer lies on mesh edges (after an upstream remesh or grade) is skipped
+        // rather than failing the whole solve, and is left off the output Terrain so it never claims an edge
+        // the simplified mesh does not have.
+        IReadOnlyList<Curve> keptBreaklines = Array.Empty<Curve>();
+        if (sourceTerrain != null && sourceTerrain.Breaklines.Count > 0)
+        {
+            var candidates = new List<Curve>();
+            var constraints = new List<SurfaceRemesher.ConstraintPolyline>();
+            foreach (Curve breakline in sourceTerrain.Breaklines)
+            {
+                if (breakline == null || !breakline.TryGetPolyline(out Polyline polyline) || polyline.Count < 2)
+                    continue;
+                candidates.Add(breakline);
+                constraints.Add(ToConstraintPolyline(polyline, breakline.IsClosed));
+            }
+
+            required.AddRange(SurfaceConstraintEdgeResolver.ResolveEach(
+                vertices, faces, constraints, ctx.Tolerance, out bool[] resolved));
+            keptBreaklines = candidates.Where((_, i) => resolved[i]).ToArray();
+            int skipped = sourceTerrain.Breaklines.Count - keptBreaklines.Count;
+            if (skipped > 0)
+                ctx.Warn($"{skipped} Terrain breakline(s) do not lie on mesh edges; they were not protected and are left off the Terrain output.");
+        }
+
         int usedVertexCount = faces.Distinct().Count();
         if (modeText.Contains("percentage", StringComparison.OrdinalIgnoreCase))
         {
@@ -113,12 +139,25 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
         ctx.SetData(3, $"{result.Termination}: {result.Diagnostic}");
         if (sourceTerrain != null)
         {
-            var terrain = new MoleHillTerrainData(output, sourceTerrain.Breaklines, sourceTerrain.Regions,
+            var terrain = new MoleHillTerrainData(output, keptBreaklines, sourceTerrain.Regions,
                 sourceTerrain.Name, sourceTerrain.Key, sourceTerrain.Revision, sourceTerrain.Diagnostics,
                 sourceTerrain.UnitSystem, sourceTerrain.MetersPerModelUnit, sourceTerrain.LocalToWorld,
                 sourceTerrain.HasProjectBaseTransform);
             ctx.SetData(4, new MoleHillTerrainGoo(terrain));
         }
+    }
+
+    private static SurfaceRemesher.ConstraintPolyline ToConstraintPolyline(Polyline polyline, bool isClosed)
+    {
+        var points = new double[polyline.Count * 3];
+        for (int i = 0; i < polyline.Count; i++)
+        {
+            points[i * 3] = polyline[i].X;
+            points[i * 3 + 1] = polyline[i].Y;
+            points[i * 3 + 2] = polyline[i].Z;
+        }
+
+        return new SurfaceRemesher.ConstraintPolyline(points, polyline.Count, isClosed);
     }
 
     private static int NearestVertex(double[] vertices, Point3d point, double tolerance)

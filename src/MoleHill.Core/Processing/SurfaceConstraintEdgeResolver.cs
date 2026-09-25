@@ -10,6 +10,32 @@ public static class SurfaceConstraintEdgeResolver
         double Bx, double By, double Bz,
         bool CheckElevation);
 
+    /// <summary>
+    /// Resolves each constraint on its own, so one that no longer lies on the mesh does not sink the rest.
+    /// <paramref name="resolved"/> says which constraints were represented; only their edges are returned.
+    /// </summary>
+    public static int[] ResolveEach(
+        double[] vertices,
+        int[] faces,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        double tolerance,
+        out bool[] resolved)
+    {
+        ArgumentNullException.ThrowIfNull(constraints);
+        resolved = new bool[constraints.Count];
+        var required = new List<int>();
+        for (int i = 0; i < constraints.Count; i++)
+        {
+            if (!TryResolve(vertices, faces, [constraints[i]], tolerance, out int[] segments, out _))
+                continue;
+
+            resolved[i] = true;
+            required.AddRange(segments);
+        }
+
+        return required.ToArray();
+    }
+
     public static bool TryResolve(
         double[] vertices,
         int[] faces,

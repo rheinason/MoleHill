@@ -52,6 +52,22 @@ public sealed class SurfaceConstraintEdgeResolverTests
         Assert.Contains("not represented", failure, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void ResolveEach_OneConstraintMissingFromMesh_KeepsTheRepresentedOne()
+    {
+        Grid(out double[] vertices, out int[] faces);
+        var onMesh = new SurfaceRemesher.ConstraintPolyline(
+            new[] { 0.0, 1.0, 1.0, 2.0, 1.0, 3.0 }, 2, IsClosed: false, PreserveInputElevation: true);
+        var offMesh = new SurfaceRemesher.ConstraintPolyline(
+            new[] { 0.25, 0.25, 0.5, 1.75, 0.25, 2.0 }, 2, IsClosed: false);
+
+        int[] segments = SurfaceConstraintEdgeResolver.ResolveEach(
+            vertices, faces, [offMesh, onMesh], 1e-8, out bool[] resolved);
+
+        Assert.Equal(new[] { false, true }, resolved);
+        Assert.Equal(4, segments.Length);
+    }
+
     private static void Grid(out double[] vertices, out int[] faces)
     {
         vertices =

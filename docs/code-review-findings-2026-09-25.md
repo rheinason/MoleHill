@@ -53,11 +53,13 @@ Behaviour changes users will notice:
   Outer; Add Geometry boundaries are dropped (H18).
 - **Grasshopper Mesh Simplify:** the retain percentage now rounds down, matching Rhino (M12).
 
-Open questions for the owner:
+Owner decisions:
 
-- **H18:** should a dropped legacy Add Geometry boundary be kept, for example as breaklines?
-- **M12:** should Grasshopper Mesh Simplify keep the Terrain's breaklines as required edges? If a
-  breakline doesn't lie on mesh edges, should the simplify fail or skip it?
+- **H18:** a dropped legacy Add Geometry boundary is **not** carried over as breaklines. It is
+  dropped.
+- **M12:** Grasshopper Mesh Simplify now protects each Terrain breakline that still lies on mesh
+  edges. It skips any that don't, with a warning, and leaves them off the output Terrain, so one
+  stale breakline no longer fails the whole solve.
 
 ## 1. Unmerged branch — ultrareview
 
