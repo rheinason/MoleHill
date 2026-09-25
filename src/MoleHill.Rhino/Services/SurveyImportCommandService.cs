@@ -90,6 +90,10 @@ internal static class SurveyImportCommandService
     /// <summary>
     /// Creates the geometry under one undo record, rolling the whole import back if any part of it
     /// fails. A half-imported survey is worse than none: the user cannot tell which half is missing.
+    ///
+    /// The rollback lives in the finally block alone, next to the one <c>EndUndoRecord</c>, so every
+    /// exit path — a failed add, an exception, success — ends the record exactly once (the GeoTIFF
+    /// importer's pattern).
     /// </summary>
     private static Result Create(
         RhinoDoc doc,
@@ -111,6 +115,7 @@ internal static class SurveyImportCommandService
 
         uint undoRecord = doc.BeginUndoRecord("Import survey points");
         var created = new List<Guid>();
+        bool success = false;
         try
         {
             int figuresDrawn = 0;
@@ -128,7 +133,6 @@ internal static class SurveyImportCommandService
                 Guid id = doc.Objects.AddCurve(curve, attributes);
                 if (id == Guid.Empty)
                 {
-                    RollBack(doc, created, undoRecord);
                     RhinoApp.WriteLine("MoleHill: could not create the survey linework; nothing was imported.");
                     return Result.Failure;
                 }
@@ -142,16 +146,18 @@ internal static class SurveyImportCommandService
 
             doc.Views.Redraw();
             Report(file, parsed, choice, units, figuresDrawn, spotsDrawn, unmatchedDrawn);
+            success = true;
             return Result.Success;
         }
         catch (Exception ex)
         {
-            RollBack(doc, created, undoRecord);
             RhinoApp.WriteLine($"MoleHill: the survey import failed and was rolled back: {ex.Message}");
             return Result.Failure;
         }
         finally
         {
+            if (!success)
+                RollBack(doc, created);
             doc.EndUndoRecord(undoRecord);
         }
     }
@@ -204,12 +210,12 @@ internal static class SurveyImportCommandService
     private static int EnsureLayer(RhinoDoc doc, string layerPath) =>
         LayerCreationService.EnsureLayerPath(doc, layerPath, LayerRoleService.GetTable(doc));
 
-    private static void RollBack(RhinoDoc doc, List<Guid> created, uint undoRecord)
+    private static void RollBack(RhinoDoc doc, List<Guid> created)
     {
         foreach (Guid id in created)
             doc.Objects.Delete(id, quiet: true);
         created.Clear();
-        doc.EndUndoRecord(undoRecord);
+        doc.Views.Redraw();
     }
 
     /// <summary>
