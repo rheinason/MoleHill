@@ -174,14 +174,14 @@ internal static class TerrainSerializer
             MergeSourceSet(primary.DataClipBoundaries, duplicate.DataClipBoundaries);
         }
 
-        if (sourceSchemaVersion < 32)
-        {
-            foreach (GeometryInputModifierDefinition input in terrain.Modifiers.OfType<GeometryInputModifierDefinition>())
-            {
-                if (input.LegacyBoundary?.HasReferences == true)
-                    MergeSourceSet(primary.OuterBoundaries, input.LegacyBoundary);
-            }
-        }
+        // Only the base Triangulate card's legacy boundary was a terrain crop, so only it becomes Outer. It
+        // stays on the same card, so a disabled card keeps it without trimming (a disabled card owns no
+        // boundaries). A legacy Add Geometry boundary did the opposite — it was combined with the existing
+        // mesh boundary to extend the patch — and has no equivalent role; turning it into an Outer trim
+        // would crop the whole terrain to the patch, so it is dropped. Duplicate legacy Triangulate cards
+        // become Add Geometry cards on load, so theirs is dropped for the same reason.
+        if (sourceSchemaVersion < 32 && primary.LegacyBoundary?.HasReferences == true)
+            MergeSourceSet(primary.OuterBoundaries, primary.LegacyBoundary);
 
         foreach (GeometryInputModifierDefinition input in terrain.Modifiers.OfType<GeometryInputModifierDefinition>())
             input.LegacyBoundary = null;

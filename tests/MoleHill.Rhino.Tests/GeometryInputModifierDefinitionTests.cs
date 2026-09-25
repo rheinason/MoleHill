@@ -107,10 +107,13 @@ public class GeometryInputModifierDefinitionTests
     }
 
     [Fact]
-    public void LegacyBoundaries_MigrateFromTriangulateAndAddGeometryToOuterOnly()
+    public void Deserialize_LegacyBoundaries_MigratesOnlyBaseTriangulateToOuter()
     {
+        // A legacy Add Geometry boundary extended its patch; it was never a terrain crop, so it must not
+        // become one. Nor may a duplicate Triangulate card's (it becomes Add Geometry on load).
         Guid triangulateBoundary = Guid.NewGuid();
         Guid addBoundary = Guid.NewGuid();
+        Guid duplicateBoundary = Guid.NewGuid();
         var terrain = new TerrainDefinition
         {
             SchemaVersion = 31,
@@ -123,6 +126,10 @@ public class GeometryInputModifierDefinitionTests
                 new AddGeometryModifierDefinition
                 {
                     LegacyBoundary = new SourceReferenceSet { ObjectIds = [addBoundary], LayerPaths = ["Old::Boundary"] }
+                },
+                new TriangulateModifierDefinition
+                {
+                    LegacyBoundary = new SourceReferenceSet { ObjectIds = [duplicateBoundary] }
                 }
             ]
         };
@@ -131,10 +138,35 @@ public class GeometryInputModifierDefinitionTests
         TerrainDefinition restoredTerrain = Assert.Single(TerrainSerializer.Deserialize(json));
         TriangulateModifierDefinition restored = Assert.IsType<TriangulateModifierDefinition>(restoredTerrain.Modifiers[0]);
 
-        Assert.Equal(new[] { triangulateBoundary, addBoundary }, restored.OuterBoundaries.ObjectIds);
-        Assert.Equal("Old::Boundary", Assert.Single(restored.OuterBoundaries.LayerPaths));
+        Assert.Equal(triangulateBoundary, Assert.Single(restored.OuterBoundaries.ObjectIds));
+        Assert.Empty(restored.OuterBoundaries.LayerPaths);
         Assert.False(restored.DataClipBoundaries.HasReferences);
+        Assert.Single(restoredTerrain.Modifiers.OfType<TriangulateModifierDefinition>());
         Assert.All(restoredTerrain.Modifiers.OfType<GeometryInputModifierDefinition>(), input => Assert.Null(input.LegacyBoundary));
+    }
+
+    [Fact]
+    public void Deserialize_LegacyBoundaryOnDisabledTriangulate_StaysOnThatCard()
+    {
+        Guid boundary = Guid.NewGuid();
+        var terrain = new TerrainDefinition
+        {
+            SchemaVersion = 31,
+            Modifiers =
+            [
+                new TriangulateModifierDefinition
+                {
+                    IsEnabled = false,
+                    LegacyBoundary = new SourceReferenceSet { ObjectIds = [boundary] }
+                }
+            ]
+        };
+
+        TerrainDefinition restoredTerrain = Assert.Single(TerrainSerializer.Deserialize(TerrainSerializer.Serialize([terrain])));
+        TriangulateModifierDefinition restored = Assert.IsType<TriangulateModifierDefinition>(restoredTerrain.Modifiers[0]);
+
+        Assert.False(restored.IsEnabled);
+        Assert.Equal(boundary, Assert.Single(restored.OuterBoundaries.ObjectIds));
     }
 
     [Fact]
