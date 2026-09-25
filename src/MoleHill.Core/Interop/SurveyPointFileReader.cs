@@ -12,6 +12,12 @@ namespace MoleHill.Core.Interop;
 /// Numbers are parsed invariant-culture. A survey file is an interchange format written by an instrument
 /// or an office package, so its decimal point does not follow the reader's locale; parsing "1234,56" as
 /// a comma decimal would also collide with the commonest delimiter.
+///
+/// <b>Thousands separators are not accepted either.</b> Allowing them turns a comma-decimal value such
+/// as <c>512345,67</c> (the natural export from a semicolon-delimited, comma-decimal locale) into
+/// <c>51234567</c> — a coordinate a hundred times too large that parses, draws, and looks like a survey.
+/// A row that fails loudly with a line number is the better outcome; no survey exporter writes grouped
+/// digits into a coordinate column.
 /// </summary>
 public static class SurveyPointFileReader
 {
@@ -215,16 +221,24 @@ public static class SurveyPointFileReader
     private static bool TryParseCoordinate(string field, out double value) =>
         double.TryParse(
             field.Trim(),
-            NumberStyles.Float | NumberStyles.AllowThousands,
+            NumberStyles.Float,
             CultureInfo.InvariantCulture,
             out value) && double.IsFinite(value);
 
     private static SurveyReadDiagnostic Unparseable(int lineNumber, string what, int column, string[] fields)
     {
         string text = column < fields.Length ? fields[column].Trim() : string.Empty;
+
+        // Name the likely cause when the text is a number written with a decimal comma: the fix is in
+        // the export settings, and "could not read" alone sends the user looking at the wrong thing.
+        string hint = text.Contains(',') &&
+                      double.TryParse(text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out _)
+            ? " It looks like a decimal comma; export the file with a decimal point."
+            : string.Empty;
+
         return new SurveyReadDiagnostic(
             lineNumber,
-            $"Could not read a {what} from column {column + 1} (\"{text}\").");
+            $"Could not read a {what} from column {column + 1} (\"{text}\").{hint}");
     }
 
     private static bool IsComment(string line, SurveyReadOptions options)

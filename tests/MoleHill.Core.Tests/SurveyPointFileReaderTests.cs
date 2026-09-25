@@ -120,6 +120,34 @@ public sealed class SurveyPointFileReaderTests
     }
 
     [Fact]
+    public void Read_CommaDecimalInSemicolonFile_FailsLoudlyInsteadOfReadingTooLarge()
+    {
+        // A comma-decimal locale exports semicolon-delimited rows. Read with thousands separators
+        // allowed, "512345,67" became 51234567 — a hundred times too far away and entirely silent.
+        SurveyPointFile file = SurveyPointFileReader.Read(
+            "1;6123456,78;512345,67;12,5;EP",
+            Options("PNEZD", delimiter: ';'));
+
+        Assert.Empty(file.Points);
+        SurveyReadDiagnostic diagnostic = Assert.Single(file.Diagnostics);
+        Assert.Equal(1, diagnostic.LineNumber);
+        Assert.Contains("512345,67", diagnostic.Message);
+        Assert.Contains("decimal comma", diagnostic.Message);
+    }
+
+    [Fact]
+    public void Read_PointDecimalInSemicolonFile_StillReads()
+    {
+        SurveyPointFile file = SurveyPointFileReader.Read(
+            "1;6123456.78;512345.67;12.5;EP",
+            Options("PNEZD", delimiter: ';'));
+
+        SurveyPoint point = Assert.Single(file.Points);
+        Assert.Equal(512345.67, point.X, 6);
+        Assert.Equal(6123456.78, point.Y, 6);
+    }
+
+    [Fact]
     public void Read_HeaderRow_IsSkippedWhenDeclared()
     {
         var options = Options("PNEZD");
