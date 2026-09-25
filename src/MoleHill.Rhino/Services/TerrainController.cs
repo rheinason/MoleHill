@@ -1628,16 +1628,18 @@ internal sealed partial class TerrainController
         return JsonSerializer.Deserialize(json, definition.GetType()) as TerrainObjectDefinition;
     }
 
+    // Both directions must use the same options: SharedOptions writes camelCase names, which the
+    // default (case-sensitive, PascalCase) options would silently fail to bind on the way back.
     private static AnnotationDefinition? CloneAnnotation(AnnotationDefinition annotation)
     {
         string json = JsonSerializer.Serialize(annotation, annotation.GetType(), TerrainSerializer.SharedOptions);
-        return JsonSerializer.Deserialize(json, annotation.GetType()) as AnnotationDefinition;
+        return JsonSerializer.Deserialize(json, annotation.GetType(), TerrainSerializer.SharedOptions) as AnnotationDefinition;
     }
 
     private static AnalysisDefinition? CloneAnalysis(AnalysisDefinition analysis)
     {
-        string json = JsonSerializer.Serialize(analysis, analysis.GetType());
-        return JsonSerializer.Deserialize(json, analysis.GetType()) as AnalysisDefinition;
+        string json = JsonSerializer.Serialize(analysis, analysis.GetType(), TerrainSerializer.SharedOptions);
+        return JsonSerializer.Deserialize(json, analysis.GetType(), TerrainSerializer.SharedOptions) as AnalysisDefinition;
     }
 
     private static string NextTerrainName(IEnumerable<TerrainDefinition> terrains)
