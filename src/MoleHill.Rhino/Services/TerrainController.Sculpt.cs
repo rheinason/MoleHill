@@ -25,6 +25,7 @@ internal sealed partial class TerrainController
         _sculptSessionTerrainId = terrainId;
         _sculptSessionPreviewMesh = workingMesh;
         _sculptStrokeInProgress = false;
+        TerrainPresentationMesh.SetLiveEditedMesh(workingMesh);
         RemovePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Preview);
         RemovePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Final);
         ReassertSculptPreviewMesh(doc, terrainId);
@@ -41,6 +42,7 @@ internal sealed partial class TerrainController
             return;
 
         _sculptSessionPreviewMesh = workingMesh;
+        TerrainPresentationMesh.SetLiveEditedMesh(workingMesh);
         ReassertSculptPreviewMesh(doc, terrainId);
     }
 
@@ -53,6 +55,7 @@ internal sealed partial class TerrainController
         _sculptSessionTerrainId = null;
         _sculptSessionPreviewMesh = null;
         _sculptStrokeInProgress = false;
+        TerrainPresentationMesh.SetLiveEditedMesh(null);
 
         if (releasedMesh == null)
             return;

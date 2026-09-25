@@ -32,10 +32,27 @@ internal static class TerrainPresentationMesh
     private static readonly object Gate = new();
     private static readonly ConditionalWeakTable<Mesh, Mesh> ShadingCopies = new();
 
+    // A mesh edited in place many times a second — the sculpt session's working mesh — is drawn as-is.
+    // Its cached copy would go stale on the first dab (the cache is keyed by identity, not content) and
+    // only refresh on mouse-up, while rebuilding it per dab costs a full duplicate and unweld per mouse
+    // event. The session patches that mesh's normals itself; wall seams smear only until it ends.
+    private static Mesh? _liveEditedMesh;
+
     internal static void Invalidate(Mesh? mesh)
     {
         if (mesh == null) return;
         lock (Gate) ShadingCopies.Remove(mesh);
+    }
+
+    /// <summary>Marks <paramref name="mesh"/> as edited in place, so it bypasses the shading copy;
+    /// pass null to release it.</summary>
+    internal static void SetLiveEditedMesh(Mesh? mesh)
+    {
+        lock (Gate)
+        {
+            _liveEditedMesh = mesh;
+            if (mesh != null) ShadingCopies.Remove(mesh);
+        }
     }
 
     /// <summary>
@@ -66,6 +83,7 @@ internal static class TerrainPresentationMesh
 
         lock (Gate)
         {
+            if (ReferenceEquals(mesh, _liveEditedMesh)) return mesh;
             if (ShadingCopies.TryGetValue(mesh, out Mesh? shaded)) return shaded;
             Mesh? copy = null;
             try
