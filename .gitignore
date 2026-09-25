@@ -45,3 +45,6 @@ scratch_*.obj
 # Python bytecode from the tools/ scripts (render-toolbar-artboards, rhino-live-client)
 __pycache__/
 *.pyc
+
+# Local UI screenshots (not part of the build or docs)
+screenshots/
