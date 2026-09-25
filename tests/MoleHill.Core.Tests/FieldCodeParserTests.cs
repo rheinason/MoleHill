@@ -121,4 +121,39 @@ public sealed class FieldCodeParserTests
         Assert.Equal("EP-", parsed.Code);
         Assert.False(parsed.IsContinuation);
     }
+
+    [Theory]
+    [InlineData("TOE 1.5")]
+    [InlineData("TOE 0.25 ST")]
+    [InlineData("TOE -1.5")]
+    [InlineData("TOE .5")]
+    public void Parse_DecimalAttribute_IsNotReadAsAFigureNumber(string description)
+    {
+        // A full stop is a separator ("EP.ST"), but not inside a number: "TOE 1.5" read as figure 1
+        // split the toe away from every other TOE shot.
+        ParsedFieldCode parsed = FieldCodeParser.Parse(description, Table());
+
+        Assert.Equal("TOE", parsed.Code);
+        Assert.Null(parsed.FigureNumber);
+        Assert.Equal("TOE", parsed.RunKey);
+    }
+
+    [Fact]
+    public void Parse_DecimalAttributeFollowedByMarker_StillSeesTheMarker()
+    {
+        ParsedFieldCode parsed = FieldCodeParser.Parse("TOE 0.25 ST", Table());
+
+        Assert.True(parsed.IsStart);
+    }
+
+    [Fact]
+    public void Parse_FigureNumberThenStopMarker_StillSplitsOnTheStop()
+    {
+        // "EP1.ST" and "EP 1." are the stop used as punctuation, not decimals.
+        Assert.Equal(1, FieldCodeParser.Parse("EP 1.", Table()).FigureNumber);
+
+        ParsedFieldCode parsed = FieldCodeParser.Parse("EP1.ST", Table());
+        Assert.Equal(1, parsed.FigureNumber);
+        Assert.True(parsed.IsStart);
+    }
 }

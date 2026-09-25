@@ -54,7 +54,9 @@ internal static class SurveyImportCommandService
         if (placement != Result.Success)
             return placement;
 
-        FieldCodeTable table = MoleHillRhinoPlugin.Instance.FieldCodeTableStore.Load();
+        FieldCodeTable table = MoleHillRhinoPlugin.Instance.FieldCodeTableStore.Load(out string? tableWarning);
+        if (tableWarning != null)
+            RhinoApp.WriteLine(tableWarning);
         SurveyImportResult parsed = SurveyFigureBuilder.Build(file.Points, table);
 
         return Create(doc, file, parsed, table, toDocument, choice, units);
@@ -90,6 +92,10 @@ internal static class SurveyImportCommandService
     /// <summary>
     /// Creates the geometry under one undo record, rolling the whole import back if any part of it
     /// fails. A half-imported survey is worse than none: the user cannot tell which half is missing.
+    ///
+    /// The rollback lives in the finally block alone, next to the one <c>EndUndoRecord</c>, so every
+    /// exit path — a failed add, an exception, success — ends the record exactly once (the GeoTIFF
+    /// importer's pattern).
     /// </summary>
     private static Result Create(
         RhinoDoc doc,
@@ -111,6 +117,8 @@ internal static class SurveyImportCommandService
 
         uint undoRecord = doc.BeginUndoRecord("Import survey points");
         var created = new List<Guid>();
+        var reportedLayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool success = false;
         try
         {
             int figuresDrawn = 0;
@@ -122,13 +130,12 @@ internal static class SurveyImportCommandService
 
                 var attributes = new ObjectAttributes
                 {
-                    LayerIndex = EnsureLayer(doc, figure.Layer)
+                    LayerIndex = EnsureLayer(doc, figure.Layer, FieldCodeTable.DefaultLayerFor(figure.Role), reportedLayers)
                 };
 
                 Guid id = doc.Objects.AddCurve(curve, attributes);
                 if (id == Guid.Empty)
                 {
-                    RollBack(doc, created, undoRecord);
                     RhinoApp.WriteLine("MoleHill: could not create the survey linework; nothing was imported.");
                     return Result.Failure;
                 }
@@ -137,21 +144,37 @@ internal static class SurveyImportCommandService
                 figuresDrawn++;
             }
 
-            int spotsDrawn = AddPoints(doc, points, parsed.SpotPointIndices, SpotLayer(table), created);
-            int unmatchedDrawn = AddPoints(doc, points, parsed.UnmatchedPointIndices, table.UnmatchedLayer, created);
+            int spotsDrawn = AddSpots(doc, points, parsed, created, reportedLayers);
+            int unmatchedDrawn = AddPoints(
+                doc,
+                points,
+                parsed.UnmatchedPointIndices,
+                EnsureLayer(doc, table.UnmatchedLayer, FieldCodeTable.DefaultUnmatchedLayer, reportedLayers),
+                created);
 
             doc.Views.Redraw();
             Report(file, parsed, choice, units, figuresDrawn, spotsDrawn, unmatchedDrawn);
+            if (choice == SurveyPlacementChoice.ProjectBaseCreated)
+                SurveyPlacement.RegisterCreatedProjectBaseUndo(doc);
+            success = true;
             return Result.Success;
         }
         catch (Exception ex)
         {
-            RollBack(doc, created, undoRecord);
             RhinoApp.WriteLine($"MoleHill: the survey import failed and was rolled back: {ex.Message}");
             return Result.Failure;
         }
         finally
         {
+            if (!success)
+            {
+                RollBack(doc, created);
+                if (choice == SurveyPlacementChoice.ProjectBaseCreated)
+                {
+                    SurveyPlacement.RevertCreatedProjectBase(doc);
+                    RhinoApp.WriteLine("MoleHill: the project base created for this survey was removed again.");
+                }
+            }
             doc.EndUndoRecord(undoRecord);
         }
     }
@@ -160,13 +183,13 @@ internal static class SurveyImportCommandService
         RhinoDoc doc,
         IReadOnlyList<Point3d> points,
         IReadOnlyList<int> indices,
-        string layer,
+        int layerIndex,
         List<Guid> created)
     {
         if (indices.Count == 0)
             return 0;
 
-        var attributes = new ObjectAttributes { LayerIndex = EnsureLayer(doc, layer) };
+        var attributes = new ObjectAttributes { LayerIndex = layerIndex };
         int drawn = 0;
         foreach (int index in indices)
         {
@@ -184,23 +207,75 @@ internal static class SurveyImportCommandService
         return drawn;
     }
 
-    private static string SpotLayer(FieldCodeTable table)
+    /// <summary>
+    /// Adds each spot on the layer its own rule resolved to, grouped so each layer is ensured once.
+    /// Grouping keeps file order within a layer, which is the only order a user could notice.
+    /// </summary>
+    private static int AddSpots(
+        RhinoDoc doc,
+        IReadOnlyList<Point3d> points,
+        SurveyImportResult parsed,
+        List<Guid> created,
+        HashSet<string> reportedLayers)
     {
-        FieldCodeRule? spotRule = table.Rules.FirstOrDefault(rule => rule.Role == FieldCodeRole.Spot);
-        return spotRule != null
-            ? FieldCodeTable.ResolveLayer(spotRule)
-            : FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot);
+        int drawn = 0;
+        foreach (IGrouping<string, int> group in Enumerable.Range(0, parsed.SpotPointIndices.Count)
+                     .GroupBy(i => parsed.SpotLayers[i], StringComparer.OrdinalIgnoreCase))
+        {
+            List<int> indices = group.Select(i => parsed.SpotPointIndices[i]).ToList();
+            int layerIndex = EnsureLayer(doc, group.Key, FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot), reportedLayers);
+            drawn += AddPoints(doc, points, indices, layerIndex, created);
+        }
+
+        return drawn;
     }
 
-    private static int EnsureLayer(RhinoDoc doc, string layerPath) =>
-        LayerCreationService.EnsureLayerPath(doc, layerPath, LayerRoleService.GetTable(doc));
+    /// <summary>
+    /// The layer for a typed path, or for <paramref name="fallbackPath"/> when the typed one is unusable.
+    ///
+    /// <see cref="LayerCreationService.EnsureLayerPath"/> answers a blank or rejected path with the
+    /// <i>current</i> layer, so an unvalidated path would scatter survey linework onto whatever the user
+    /// last clicked. The fallback is always one of this command's own role layers, and the substitution
+    /// is reported once per path so the user can correct the rule.
+    /// </summary>
+    private static int EnsureLayer(RhinoDoc doc, string layerPath, string fallbackPath, HashSet<string> reportedLayers)
+    {
+        LayerRoleTable roles = LayerRoleService.GetTable(doc);
+        if (IsUsableLayerPath(layerPath))
+        {
+            int index = LayerCreationService.EnsureLayerPath(doc, layerPath, roles);
+            if (index >= 0 && index < doc.Layers.Count &&
+                string.Equals(doc.Layers[index].FullPath, layerPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
 
-    private static void RollBack(RhinoDoc doc, List<Guid> created, uint undoRecord)
+        if (reportedLayers.Add(layerPath ?? string.Empty))
+        {
+            RhinoApp.WriteLine(
+                $"MoleHill: \"{layerPath}\" is not a usable layer path; that output went to {fallbackPath} instead. " +
+                "Correct it with mhEditFieldCodes.");
+        }
+
+        return LayerCreationService.EnsureLayerPath(doc, fallbackPath, roles);
+    }
+
+    /// <summary>
+    /// Whether a typed layer path can be created as written: the structural rules in Core plus Rhino's
+    /// own naming rules for each segment. Shared with the field code editor so it can refuse to save
+    /// a path the import would have to replace.
+    /// </summary>
+    internal static bool IsUsableLayerPath(string? layerPath) =>
+        FieldCodeTable.IsValidLayerPath(layerPath) &&
+        layerPath!.Split("::").All(ModelComponent.IsValidComponentName);
+
+    private static void RollBack(RhinoDoc doc, List<Guid> created)
     {
         foreach (Guid id in created)
             doc.Objects.Delete(id, quiet: true);
         created.Clear();
-        doc.EndUndoRecord(undoRecord);
+        doc.Views.Redraw();
     }
 
     /// <summary>
@@ -223,6 +298,8 @@ internal static class SurveyImportCommandService
         {
             SurveyPlacementChoice.ProjectBase => "in local project coordinates",
             SurveyPlacementChoice.ProjectBaseCreated => "in local project coordinates, against a new project base",
+            SurveyPlacementChoice.LocalGrid =>
+                "on the file's own local grid (the survey is near the origin, so the project base was not applied)",
             _ => "in real-world coordinates"
         };
 

@@ -85,6 +85,51 @@ public sealed class SurveyFigureBuilderTests
     }
 
     [Fact]
+    public void Build_ContinuationAfterEnd_RejoinsTheClosedRun()
+    {
+        // The crew ended the edge, shot a toe, and came back: EP- carries on from the last EP point.
+        SurveyImportResult result = SurveyFigureBuilder.Build(
+            Points("EP", "EP END", "TOE", "TOE", "EP-", "EP"),
+            Table());
+
+        SurveyFigure edge = result.Figures.Single(f => f.Code == "EP");
+        Assert.Equal(new[] { 0, 1, 4, 5 }, edge.PointIndices);
+        Assert.Equal(2, result.Figures.Count);
+    }
+
+    [Fact]
+    public void Build_ContinuationAfterTwoRuns_RejoinsTheMostRecentOne()
+    {
+        SurveyImportResult result = SurveyFigureBuilder.Build(
+            Points("EP ST", "EP END", "EP ST", "EP END", "EP-"),
+            Table());
+
+        Assert.Equal(2, result.Figures.Count);
+        Assert.Equal(new[] { 0, 1 }, result.Figures[0].PointIndices);
+        Assert.Equal(new[] { 2, 3, 4 }, result.Figures[1].PointIndices);
+    }
+
+    [Fact]
+    public void Build_ContinuationWithFigureNumbers_RejoinsOnlyItsOwnFigure()
+    {
+        SurveyImportResult result = SurveyFigureBuilder.Build(
+            Points("EP1", "EP1 END", "EP2", "EP2 END", "EP1-"),
+            Table());
+
+        Assert.Equal(new[] { 0, 1, 4 }, result.Figures.Single(f => f.FigureNumber == 1).PointIndices);
+        Assert.Equal(new[] { 2, 3 }, result.Figures.Single(f => f.FigureNumber == 2).PointIndices);
+    }
+
+    [Fact]
+    public void Build_ContinuationWithNothingToContinue_StartsARunAndSaysSo()
+    {
+        SurveyImportResult result = SurveyFigureBuilder.Build(Points("EP-", "EP"), Table());
+
+        Assert.Equal(new[] { 0, 1 }, Assert.Single(result.Figures).PointIndices);
+        Assert.Contains(result.Diagnostics, d => d.LineNumber == 1 && d.Message.Contains("continues a run"));
+    }
+
+    [Fact]
     public void Build_CloseMarker_ClosesTheFigureIntoALoop()
     {
         SurveyImportResult result = SurveyFigureBuilder.Build(Points("BLD", "BLD", "BLD", "BLD CL"), Table());
@@ -140,6 +185,43 @@ public sealed class SurveyFigureBuilderTests
 
         Assert.Empty(result.Figures);
         Assert.Equal(new[] { 0, 1, 2 }, result.SpotPointIndices);
+    }
+
+    [Fact]
+    public void Build_TwoSpotRulesWithTheirOwnLayers_EachSpotLandsOnItsOwnRulesLayer()
+    {
+        // Every spot used to land on the first Spot rule's layer, silently ignoring the rest.
+        FieldCodeTable table = Table();
+        table.Find("SPOT")!.Layer = "Survey::Spot Levels";
+        table.Find("GND")!.Layer = "Survey::Ground";
+
+        SurveyImportResult result = SurveyFigureBuilder.Build(Points("GND", "SPOT", "GND"), table);
+
+        Assert.Equal(new[] { 0, 1, 2 }, result.SpotPointIndices);
+        Assert.Equal(new[] { "Survey::Ground", "Survey::Spot Levels", "Survey::Ground" }, result.SpotLayers);
+    }
+
+    [Fact]
+    public void Build_SpotRuleWithNoLayer_FallsBackToTheSpotRoleLayer()
+    {
+        FieldCodeTable table = Table();
+        table.Find("SPOT")!.Layer = "Survey::Spot Levels";
+
+        SurveyImportResult result = SurveyFigureBuilder.Build(Points("GND"), table);
+
+        Assert.Equal(FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot), Assert.Single(result.SpotLayers));
+    }
+
+    [Fact]
+    public void Build_OnePointRunKeptAsSpot_LandsOnTheSpotRoleLayer()
+    {
+        FieldCodeTable table = Table();
+        table.Find("SPOT")!.Layer = "Survey::Spot Levels";
+
+        SurveyImportResult result = SurveyFigureBuilder.Build(Points("TOE"), table);
+
+        Assert.Equal(new[] { 0 }, result.SpotPointIndices);
+        Assert.Equal(FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot), Assert.Single(result.SpotLayers));
     }
 
     [Fact]
@@ -229,6 +311,26 @@ public sealed class SurveyFigureBuilderTests
             table.UnmatchedLayer,
             Enum.GetValues<FieldCodeRole>().Select(FieldCodeTable.DefaultLayerFor).Where(layer => layer.Length > 0));
     }
+
+    [Theory]
+    [InlineData("Survey")]
+    [InlineData("Survey::Edge of Pavement")]
+    [InlineData("MoleHill::Inputs::Breaklines")]
+    public void IsValidLayerPath_WellFormedPath_IsAccepted(string path) =>
+        Assert.True(FieldCodeTable.IsValidLayerPath(path));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Survey::")]
+    [InlineData("::Survey")]
+    [InlineData("Survey::::EP")]
+    [InlineData("Survey :: EP")]
+    [InlineData("Survey:EP")]
+    [InlineData("Survey:::EP")]
+    [InlineData("Survey::E\tP")]
+    public void IsValidLayerPath_MalformedPath_IsRejected(string path) =>
+        Assert.False(FieldCodeTable.IsValidLayerPath(path));
 
     [Fact]
     public void Build_NoPoints_ReturnsEmptyResult()

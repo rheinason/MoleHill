@@ -18,7 +18,13 @@ internal enum SurveyPlacementChoice
     ProjectBaseCreated,
 
     /// <summary>Left where the file put it.</summary>
-    RealWorld
+    RealWorld,
+
+    /// <summary>
+    /// The document has a project base, but the survey is already on a small local grid, so it was left
+    /// where the file put it rather than shifted by the base offset.
+    /// </summary>
+    LocalGrid
 }
 
 /// <summary>
@@ -32,6 +38,11 @@ internal enum SurveyPlacementChoice
 /// <c>Georef</c> named CPlane. Skipping it would import a document that holds one silently offset by the
 /// entire site translation — which parses, draws, and looks exactly like a correct import until somebody
 /// measures against existing linework.
+///
+/// <b>A project base is applied only to a survey that is actually far from the origin.</b> The base maps
+/// real-world coordinates into the local frame; a survey already on a site grid near the origin is in
+/// that frame (or some other local one) already, and pushing it through the base would shift it by the
+/// whole site offset.
 ///
 /// <b>Far from origin with no base is a decision, not a default.</b> A survey in UTM sits at roughly
 /// 500,000 E / 6,000,000 N and arrives as thousands of points feeding triangulation and a Z-aware dedup
@@ -85,6 +96,14 @@ internal static class SurveyPlacement
         if (resolution != Result.Success)
             return resolution;
 
+        bool farFromOrigin = points.Count > 0 && IsFarFromOrigin(points, units);
+
+        if (hasProjectBase && !farFromOrigin)
+        {
+            choice = SurveyPlacementChoice.LocalGrid;
+            return Result.Success;
+        }
+
         if (hasProjectBase)
         {
             if (!ProjectBaseCPlaneService.TryGetTransform(true, doc, out transform, out string? error))
@@ -99,7 +118,7 @@ internal static class SurveyPlacement
 
         // Small coordinates with no project base need no conversation: the survey is already on a local
         // grid, and asking would be a prompt with one sensible answer.
-        if (points.Count == 0 || !IsFarFromOrigin(points, units))
+        if (!farFromOrigin)
             return Result.Success;
 
         return PromptForFarFromOrigin(doc, points, units, ref transform, ref choice);
@@ -157,6 +176,57 @@ internal static class SurveyPlacement
             "Existing geometry was not moved; mhClearProjectBase removes it.");
         return Result.Success;
     }
+
+    private const string CreatedBaseUndoDescription = "Import survey points (project base)";
+
+    /// <summary>
+    /// Removes a project base this import created, when the import then failed.
+    ///
+    /// The base is saved while placement is resolved, before any geometry exists, so a failed import
+    /// would otherwise leave a base behind that nothing the user sees explains. Clearing (rather than
+    /// deleting the named CPlane directly) keeps a legacy CPlane suppressed, which is the state the
+    /// document was in when the prompt ran: a live legacy base would have been found and used instead.
+    /// </summary>
+    public static void RevertCreatedProjectBase(RhinoDoc doc) => ProjectBaseCPlaneService.ClearProjectBasePlane(doc);
+
+    /// <summary>
+    /// Joins the created base to the import's undo record, so undoing the import also removes the base
+    /// and redoing it restores the base. Named CPlanes are not object-table changes, so without this the
+    /// base would outlive an undo of the survey it was made for.
+    ///
+    /// The handler sets an absolute state (a plane, or no base) and registers the inverse, so it stays
+    /// correct whether or not Rhino also records the named-CPlane change itself.
+    /// </summary>
+    public static void RegisterCreatedProjectBaseUndo(RhinoDoc doc)
+    {
+        if (!doc.UndoRecordingIsActive)
+            return;
+
+        doc.AddCustomUndoEvent(CreatedBaseUndoDescription, OnProjectBaseUndo, new ProjectBaseUndoState(null));
+    }
+
+    private static void OnProjectBaseUndo(object? sender, CustomUndoEventArgs e)
+    {
+        if (e.Tag is not ProjectBaseUndoState target)
+            return;
+
+        RhinoDoc doc = e.Document;
+        Plane? current = ProjectBaseCPlaneService.TryGetProjectBasePlane(doc, out Plane plane, out _) ? plane : null;
+        try
+        {
+            if (target.Plane is { } restore)
+                ProjectBaseCPlaneService.SaveProjectBasePlane(doc, restore);
+            else
+                ProjectBaseCPlaneService.ClearProjectBasePlane(doc);
+        }
+        finally
+        {
+            // Registered even if the restore fails, so redo is not lost for the rest of the session.
+            doc.AddCustomUndoEvent(CreatedBaseUndoDescription, OnProjectBaseUndo, new ProjectBaseUndoState(current));
+        }
+    }
+
+    private sealed record ProjectBaseUndoState(Plane? Plane);
 
     /// <summary>
     /// The survey's centre, rounded so the saved base is a number a person can read off and retype.

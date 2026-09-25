@@ -76,6 +76,33 @@ public sealed class FieldCodeTable
         return string.IsNullOrWhiteSpace(rule.Layer) ? DefaultLayerFor(rule.Role) : rule.Layer.Trim();
     }
 
+    /// <summary>
+    /// Whether a typed layer path has a shape a document can hold: <c>::</c>-separated segments, none
+    /// blank, none padded with whitespace, none carrying control characters.
+    ///
+    /// Structural only — the host adds its own naming rules on top. It exists because an unusable path
+    /// does not fail when the layer is created: it quietly lands the output on whatever layer happens
+    /// to be current, which is the one place this command must never put anything.
+    /// </summary>
+    public static bool IsValidLayerPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        foreach (string segment in path.Split("::"))
+        {
+            if (segment.Length == 0 ||
+                segment.Trim().Length != segment.Length ||
+                segment.Any(char.IsControl) ||
+                segment.Contains(':'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>Finds the rule for a code, case-insensitively, or null when the table does not know it.</summary>
     public FieldCodeRule? Find(string code)
     {

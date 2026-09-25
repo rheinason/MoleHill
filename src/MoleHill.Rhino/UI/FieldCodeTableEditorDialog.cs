@@ -25,6 +25,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
 {
     private readonly FieldCodeTableStore _store;
     private FieldCodeTable _table;
+    private readonly string? _loadWarning;
 
     private readonly GridView _grid = new() { ShowHeader = true, Height = 300 };
     private readonly ObservableCollection<RuleRow> _rows = new();
@@ -40,7 +41,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
     private FieldCodeTableEditorDialog(FieldCodeTableStore store)
     {
         _store = store;
-        _table = store.Load().Clone();
+        _table = store.Load(out _loadWarning).Clone();
 
         Title = "MoleHill Field Codes";
         Resizable = true;
@@ -50,6 +51,8 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
 
         Content = BuildLayout();
         Refresh();
+        if (_loadWarning != null)
+            _status.Text = _loadWarning;
     }
 
     public static bool ShowDialog(RhinoDoc doc, FieldCodeTableStore store)
@@ -325,6 +328,32 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
 
     private void Commit()
     {
+        // Checked on the rows, before Collect normalizes: normalization would keep the first rule for a
+        // code and drop the others without a word, and the one dropped is usually the one just edited.
+        List<string> duplicates = FieldCodeTableStore.FindDuplicateCodes(_rows.Select(static row => row.ToRule()));
+        if (duplicates.Count > 0)
+        {
+            _status.Text = $"Each code can have only one rule, but {string.Join(", ", duplicates)} " +
+                           (duplicates.Count == 1 ? "is" : "are") + " listed more than once. Rename or remove the extra rows, then save.";
+            return;
+        }
+
+        // A path the import cannot create would be swapped for the role's layer at import time; saying
+        // so here, where it was typed, is cheaper than a command-line note after the fact.
+        List<string> badLayers = _rows
+            .Select(static row => row.Layer.Trim())
+            .Where(static layer => layer.Length > 0)
+            .Append(_unmatchedLayer.Text?.Trim() ?? string.Empty)
+            .Where(static layer => layer.Length > 0 && !SurveyImportCommandService.IsUsableLayerPath(layer))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (badLayers.Count > 0)
+        {
+            _status.Text = $"Not a usable layer path: {string.Join(", ", badLayers.Select(static layer => $"\"{layer}\""))}. " +
+                           "Use names separated by :: with no blank parts, or leave Layer blank to follow the role.";
+            return;
+        }
+
         FieldCodeTable collected = Collect();
         if (collected.Rules.Count == 0 && !Confirm("Save a table with no codes? Every point will be reported as unmatched."))
             return;
