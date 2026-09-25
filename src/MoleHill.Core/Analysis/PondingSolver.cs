@@ -93,7 +93,7 @@ public static class PondingSolver
                 continue;
 
             Pond? pond = SolveOne(graph, vertices, vertexCount, faces, basin, settings, probe);
-            if (pond != null && pond.MaxDepth >= settings.MinimumDepth)
+            if (pond != null)
                 ponds.Add(pond);
         }
 
@@ -120,6 +120,12 @@ public static class PondingSolver
 
         double floorZ = basin.LowestZ;
         if (spillZ <= floorZ)
+            return null;
+
+        // The depth test needs only the spill level, so apply it before measuring and tracing: both walk
+        // the basin, and most sinks on a real terrain are numerical dimples this rejects. Same expression
+        // as Pond.MaxDepth, so the result is unchanged.
+        if (spillZ - floorZ < settings.MinimumDepth)
             return null;
 
         MeasureFill(graph, vertices, faces, basin, spillZ, out double volume, out double planArea);
