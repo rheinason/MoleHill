@@ -49,8 +49,13 @@ internal static class LayerRoutingMigration
 
             foreach (ModifierDefinition modifier in terrain.Modifiers)
             {
+                // A wall card's old default was the shared auxiliary layer, not today's Walls sublayer,
+                // so an untouched wall carries that value and must not read as a customisation.
                 if (modifier is RetainingWallModifierDefinition wall)
-                    Bind(bindings, conflicts, LayerRole.Walls, wall.LegacyOutputLayerPath, wall.Label);
+                {
+                    Bind(bindings, conflicts, LayerRole.Walls, wall.LegacyOutputLayerPath, wall.Label,
+                        legacyDefaultPath: TerrainDefinition.DefaultAuxiliaryLayerPath);
+                }
             }
 
             foreach (ITerrainContentItem item in LegacyRoutedContent(terrain))
@@ -129,11 +134,16 @@ internal static class LayerRoutingMigration
         List<string> conflicts,
         LayerRole role,
         string? layerPath,
-        string owner)
+        string owner,
+        string? legacyDefaultPath = null)
     {
         string? path = NullIfBlank(layerPath);
-        if (path == null || string.Equals(path, LayerRoleRegistry.DefaultPath(role), StringComparison.OrdinalIgnoreCase))
+        if (path == null
+            || string.Equals(path, LayerRoleRegistry.DefaultPath(role), StringComparison.OrdinalIgnoreCase)
+            || (legacyDefaultPath != null && string.Equals(path, legacyDefaultPath, StringComparison.OrdinalIgnoreCase)))
+        {
             return;
+        }
 
         if (bindings.TryGetValue(role, out string? existing))
         {

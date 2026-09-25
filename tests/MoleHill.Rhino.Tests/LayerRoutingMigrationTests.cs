@@ -28,6 +28,23 @@ public class LayerRoutingMigrationTests
         Assert.False(LayerRoutingMigration.Plan(new[] { terrain }, "Site").HasTemplate);
     }
 
+    /// <summary>
+    /// Before schema 30 a Retaining Wall defaulted to the shared auxiliary layer, not the Walls sublayer
+    /// that is the role's default now. An untouched wall still carries that old default and is not a
+    /// customisation.
+    /// </summary>
+    [Fact]
+    public void Plan_WallWithLegacyDefaultLayer_GetsNoTemplate()
+    {
+        var terrain = new TerrainDefinition();
+        terrain.Modifiers.Add(new RetainingWallModifierDefinition
+        {
+            LegacyOutputLayerPath = TerrainDefinition.DefaultAuxiliaryLayerPath
+        });
+
+        Assert.False(LayerRoutingMigration.Plan(new[] { terrain }, "Site").HasTemplate);
+    }
+
     [Fact]
     public void ADocumentWithNoLegacyValuesAtAll_GetsNoTemplate()
     {
