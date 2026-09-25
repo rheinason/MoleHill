@@ -909,6 +909,11 @@ internal static class TerrainAnalysisAnnotationBuilder
             // which is the only thing telling them apart.
             bool isOwnerProfile = profileIndex == 0;
 
+            // A comparison terrain that is also the cut/fill reference has already been drawn above as
+            // existing ground, from this same slice; drawing it again stacks a second, coloured line on it.
+            if (!isOwnerProfile && ReferenceEquals(profile.Slice, referenceSliceForProfile))
+                continue;
+
             foreach (Polyline poly in SectionLayoutHelper.LayoutFlatAll(
                          profile.Slice, cellPlane, horizontalScale, verticalScale, baseElevation))
             {

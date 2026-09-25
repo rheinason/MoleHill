@@ -215,7 +215,8 @@ public sealed partial class MoleHillPanel : Panel
         ApplyHelp(_terrainOpacityStepper, "Terrain opacity used for the preview and the baked terrain mesh.");
         ApplyHelp(_terrainOpacitySlider, "Drag to adjust terrain opacity for preview and bake.");
         ApplyHelp(_terrainColorSwatch, "Click to pick the terrain display color.");
-        _terrainOpacityStepper.GotFocus += (_, _) => BeginControllerRefreshDeferral();
+        var (beginStepperDeferral, endStepperDeferral) = CreatePairedRefreshDeferral();
+        _terrainOpacityStepper.GotFocus += (_, _) => beginStepperDeferral();
         _terrainColorSwatch.MouseDown += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
@@ -238,7 +239,7 @@ public sealed partial class MoleHillPanel : Panel
                 SetTerrainOpacityControls(opacityPercent);
                 ApplyTerrainOpacity(opacityPercent);
             }
-            EndControllerRefreshDeferral();
+            endStepperDeferral();
         };
         _terrainOpacityStepper.KeyDown += (_, e) =>
         {
@@ -248,20 +249,21 @@ public sealed partial class MoleHillPanel : Panel
             int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
             SetTerrainOpacityControls(opacityPercent);
             ApplyTerrainOpacity(opacityPercent);
-            EndControllerRefreshDeferral();
+            endStepperDeferral();
             e.Handled = true;
         };
+        var (beginOpacitySliderDeferral, endOpacitySliderDeferral) = CreatePairedRefreshDeferral();
         _terrainOpacitySlider.MouseDown += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
-                BeginControllerRefreshDeferral();
+                beginOpacitySliderDeferral();
         };
         _terrainOpacitySlider.MouseUp += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
-                EndControllerRefreshDeferral();
+                endOpacitySliderDeferral();
         };
-        _terrainOpacitySlider.LostFocus += (_, _) => EndControllerRefreshDeferral();
+        _terrainOpacitySlider.LostFocus += (_, _) => endOpacitySliderDeferral();
         _terrainOpacitySlider.ValueChanged += (_, _) =>
         {
             if (_isRefreshing || _isUpdatingOpacityControls)
@@ -285,17 +287,18 @@ public sealed partial class MoleHillPanel : Panel
             _previewLineWeightValue.Text = weight.ToString("0.0", CultureInfo.CurrentCulture) + "x";
             MutateSelectedTerrainLive(terrain => terrain.PreviewLineWeight = weight);
         };
+        var (beginLineWeightDeferral, endLineWeightDeferral) = CreatePairedRefreshDeferral();
         _previewLineWeightSlider.MouseDown += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
-                BeginControllerRefreshDeferral();
+                beginLineWeightDeferral();
         };
         _previewLineWeightSlider.MouseUp += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
-                EndControllerRefreshDeferral();
+                endLineWeightDeferral();
         };
-        _previewLineWeightSlider.LostFocus += (_, _) => EndControllerRefreshDeferral();
+        _previewLineWeightSlider.LostFocus += (_, _) => endLineWeightDeferral();
         ApplyHelp(_showWiresCheck, "Show or hide MoleHill terrain mesh wires in preview and generated terrain meshes.");
         _showWiresCheck.CheckedChanged += (_, _) =>
         {
@@ -1060,6 +1063,31 @@ public sealed partial class MoleHillPanel : Panel
         if (_deferredControllerRefreshDepth == 0 && RhinoDoc.ActiveDoc is { } doc)
             _controller.BeginTerrainEditGesture(doc);
         _deferredControllerRefreshDepth++;
+    }
+
+    /// <summary>
+    /// A begin/end pair for one control that may see several "end" events for a single "begin" (Enter
+    /// then LostFocus, MouseUp then LostFocus). Only the end matching this control's own begin releases
+    /// the shared deferral, so a stray extra end cannot close another control's gesture mid-drag.
+    /// </summary>
+    private (Action Begin, Action End) CreatePairedRefreshDeferral()
+    {
+        bool isDeferring = false;
+        return (
+            () =>
+            {
+                if (isDeferring)
+                    return;
+                isDeferring = true;
+                BeginControllerRefreshDeferral();
+            },
+            () =>
+            {
+                if (!isDeferring)
+                    return;
+                isDeferring = false;
+                EndControllerRefreshDeferral();
+            });
     }
 
     private void EndControllerRefreshDeferral()
@@ -2479,33 +2507,33 @@ public sealed partial class MoleHillPanel : Panel
         };
     }
 
-    private void WireAnnotationCardDragDrop(Control box, Guid terrainId, Guid analysisId)
+    private void WireAnnotationCardDragDrop(Control box, Guid terrainId, Guid annotationId)
     {
         box.AllowDrop = true;
         var cardHighlight = Color.FromArgb(100, 120, 200, 255);
 
         box.DragEnter += (_, e) =>
         {
-            if (!e.Data.Contains("analysis-drag")) return;
+            if (!e.Data.Contains("annotation-drag")) return;
             e.Effects = DragEffects.Move;
             if (_dragOverAnnotationId.HasValue && _annotationStripMap.TryGetValue(_dragOverAnnotationId.Value, out var prevStrip))
                 if (_annotationStripColors.TryGetValue(_dragOverAnnotationId.Value, out var prevColor))
                     prevStrip.BackgroundColor = prevColor;
-            _dragOverAnnotationId = analysisId;
-            if (_annotationStripMap.TryGetValue(analysisId, out var strip))
+            _dragOverAnnotationId = annotationId;
+            if (_annotationStripMap.TryGetValue(annotationId, out var strip))
                 strip.BackgroundColor = cardHighlight;
             ClearAllSepHighlights(_annotationSepMap);
-            if (_annotationSepMap.TryGetValue(analysisId, out var sep))
+            if (_annotationSepMap.TryGetValue(annotationId, out var sep))
                 sep.BackgroundColor = UiTheme.SepHighlight;
         };
 
         box.DragLeave += (_, _) =>
         {
-            if (_dragOverAnnotationId != analysisId)
+            if (_dragOverAnnotationId != annotationId)
                 return;
 
-            if (_annotationStripMap.TryGetValue(analysisId, out var strip))
-                if (_annotationStripColors.TryGetValue(analysisId, out var origColor))
+            if (_annotationStripMap.TryGetValue(annotationId, out var strip))
+                if (_annotationStripColors.TryGetValue(annotationId, out var origColor))
                     strip.BackgroundColor = origColor;
             _dragOverAnnotationId = null;
             ClearAllSepHighlights(_annotationSepMap);
@@ -2513,19 +2541,19 @@ public sealed partial class MoleHillPanel : Panel
 
         box.DragDrop += (_, e) =>
         {
-            if (!e.Data.Contains("analysis-drag")) return;
-            var idStr = e.Data.GetString("analysis-drag");
+            if (!e.Data.Contains("annotation-drag")) return;
+            var idStr = e.Data.GetString("annotation-drag");
             if (!Guid.TryParse(idStr, out var sourceId)) return;
 
-            if (_annotationStripMap.TryGetValue(analysisId, out var strip))
-                if (_annotationStripColors.TryGetValue(analysisId, out var origColor))
+            if (_annotationStripMap.TryGetValue(annotationId, out var strip))
+                if (_annotationStripColors.TryGetValue(annotationId, out var origColor))
                     strip.BackgroundColor = origColor;
             _dragOverAnnotationId = null;
             ClearAllSepHighlights(_annotationSepMap);
 
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) return;
-            _controller.MutateTerrain(doc, terrainId, t => MoveAnalysisToDisplaySeparator(t, sourceId, analysisId), scheduleRebuild: false);
+            _controller.MutateTerrain(doc, terrainId, t => MoveAnnotationToDisplaySeparator(t, sourceId, annotationId), scheduleRebuild: false);
             RefreshTerrainPreview(terrainId);
         };
     }
@@ -2536,7 +2564,7 @@ public sealed partial class MoleHillPanel : Panel
 
         outerSep.DragEnter += (_, e) =>
         {
-            if (!e.Data.Contains("analysis-drag")) return;
+            if (!e.Data.Contains("annotation-drag")) return;
             e.Effects = DragEffects.Move;
             if (_dragOverAnnotationId.HasValue && _annotationStripMap.TryGetValue(_dragOverAnnotationId.Value, out var prevStrip))
                 if (_annotationStripColors.TryGetValue(_dragOverAnnotationId.Value, out var prevColor))
@@ -2550,8 +2578,8 @@ public sealed partial class MoleHillPanel : Panel
 
         outerSep.DragDrop += (_, e) =>
         {
-            if (!e.Data.Contains("analysis-drag")) return;
-            var idStr = e.Data.GetString("analysis-drag");
+            if (!e.Data.Contains("annotation-drag")) return;
+            var idStr = e.Data.GetString("annotation-drag");
             if (!Guid.TryParse(idStr, out var sourceId)) return;
 
             innerSep.BackgroundColor = Colors.Transparent;
@@ -2559,7 +2587,7 @@ public sealed partial class MoleHillPanel : Panel
 
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) return;
-            _controller.MutateTerrain(doc, terrainId, t => MoveAnalysisToDisplaySeparator(t, sourceId, insertBeforeId), scheduleRebuild: false);
+            _controller.MutateTerrain(doc, terrainId, t => MoveAnnotationToDisplaySeparator(t, sourceId, insertBeforeId), scheduleRebuild: false);
             RefreshTerrainPreview(terrainId);
         };
     }
@@ -2584,6 +2612,28 @@ public sealed partial class MoleHillPanel : Panel
 
         int insertIdx = terrain.Analyses.FindIndex(analysis => analysis.Id == insertBeforeId);
         terrain.Analyses.Insert(insertIdx >= 0 ? insertIdx : terrain.Analyses.Count, item);
+    }
+
+    private static void MoveAnnotationToDisplaySeparator(TerrainDefinition terrain, Guid sourceId, Guid insertBeforeId)
+    {
+        if (sourceId == insertBeforeId)
+            return;
+
+        int fromIdx = terrain.Annotations.FindIndex(annotation => annotation.Id == sourceId);
+        if (fromIdx < 0)
+            return;
+
+        var item = terrain.Annotations[fromIdx];
+        terrain.Annotations.RemoveAt(fromIdx);
+
+        if (insertBeforeId == Guid.Empty)
+        {
+            terrain.Annotations.Add(item);
+            return;
+        }
+
+        int insertIdx = terrain.Annotations.FindIndex(annotation => annotation.Id == insertBeforeId);
+        terrain.Annotations.Insert(insertIdx >= 0 ? insertIdx : terrain.Annotations.Count, item);
     }
 
     // ── Drag-and-drop: modifier cards ────────────────────────────────────

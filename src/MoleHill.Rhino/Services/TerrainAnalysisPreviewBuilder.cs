@@ -111,7 +111,7 @@ internal static class TerrainAnalysisPreviewBuilder
             analysis.ColorInterval);
 
         range = slope.Range;
-        distribution = BuildDistribution(slope.Slopes, ReadOnlySpan<double>.Empty);
+        distribution = BuildDistribution(slope.Slopes, ReadOnlySpan<double>.Empty, slope.Range);
         return BuildFaceColorMesh(vertices, faces, mesh.Faces.Count, slope.FaceColors, alpha);
     }
 
@@ -154,7 +154,7 @@ internal static class TerrainAnalysisPreviewBuilder
 
         // Flat faces carry NaN, which the histogram ignores outright, so the rose shows the directions that
         // exist rather than a spike at north for every level face.
-        distribution = BuildDistribution(aspect.Bearings, aspect.PlanAreas);
+        distribution = BuildDistribution(aspect.Bearings, aspect.PlanAreas, aspect.Range);
         return BuildFaceColorMesh(vertices, faces, faceCount, aspect.FaceColors, alpha);
     }
 
@@ -268,7 +268,7 @@ internal static class TerrainAnalysisPreviewBuilder
             depths, areas, wet, analysis.AutoColorRange, analysis.RangeLow, analysis.RangeHigh,
             RangeShape.FromZero);
         range = resolved;
-        distribution = BuildMaskedDistribution(depths, areas, wet);
+        distribution = BuildMaskedDistribution(depths, areas, wet, resolved);
 
         var palette = analysis.ResolveRamp().Stops;
         var bands = AnalysisColorMapper.ResolveBandsFor(resolved, analysis.ColorMode, analysis.ColorInterval, palette);
@@ -361,7 +361,7 @@ internal static class TerrainAnalysisPreviewBuilder
             values, areas, analysis.AutoColorRange, analysis.RangeLow, analysis.RangeHigh, RangeShape.MinMax);
         range = resolved;
 
-        distribution = BuildDistribution(values, areas);
+        distribution = BuildDistribution(values, areas, resolved);
 
         var palette = analysis.ResolveRamp().Stops;
         byte[] colors = BuildMappedColors(values, resolved, analysis.ColorMode, analysis.ColorInterval, palette);
@@ -461,7 +461,7 @@ internal static class TerrainAnalysisPreviewBuilder
 
         // Only the comparable faces belong in the histogram too — an unmapped face has no depth, and
         // counting it as zero would put a spike at "no change" that isn't in the data.
-        distribution = BuildMaskedDistribution(values, areas, mapped);
+        distribution = BuildMaskedDistribution(values, areas, mapped, resolved);
 
         var palette = analysis.ResolveRamp().Stops;
         IReadOnlyList<AnalysisColorMapper.Band>? bands =
@@ -482,36 +482,68 @@ internal static class TerrainAnalysisPreviewBuilder
 
     /// <summary>
     /// Bars for the analysis card's histogram, area-weighted where areas are available so a thousand
-    /// slivers cannot out-vote the ground they sit on — the same weighting the range fit uses, so the
-    /// shape drawn behind the ramp is the shape auto-fit was reading.
+    /// slivers cannot out-vote the ground they sit on — the same weighting the range fit uses.
+    ///
+    /// Binned over the mapped <paramref name="range"/>, not the data's own extent: the card draws the bars
+    /// across the ramp, which spans the mapped range, so a bar must sit under the colour its faces are
+    /// painted. Values outside the range fall in the end bars, as they take the end colours.
     /// </summary>
-    private static double[]? BuildDistribution(ReadOnlySpan<double> values, ReadOnlySpan<double> weights)
+    private static double[]? BuildDistribution(ReadOnlySpan<double> values, ReadOnlySpan<double> weights, AnalysisRange? range)
+        => BuildRangeDistribution(values, weights, mask: null, range, HistogramBars);
+
+    private static double[]? BuildMaskedDistribution(double[] values, double[] areas, bool[] mask, AnalysisRange range)
+        => BuildRangeDistribution(values, areas, mask, range, HistogramBars);
+
+    /// <summary>
+    /// Weighted bar heights over <paramref name="range"/>, scaled so the tallest is 1.0 — the shape the
+    /// card draws behind its ramp. Non-finite values (vertical or flat faces) and masked-out entries are
+    /// ignored; an empty weight span weights every value equally. Null when there is nothing to draw.
+    /// </summary>
+    internal static double[]? BuildRangeDistribution(
+        ReadOnlySpan<double> values,
+        ReadOnlySpan<double> weights,
+        bool[]? mask,
+        AnalysisRange? range,
+        int barCount)
     {
-        if (values.Length == 0)
+        if (values.Length == 0 || barCount <= 0 || range is not { } mapped)
             return null;
 
-        double[] bars = AnalysisRange.Histogram.Build(values, weights).Resample(HistogramBars);
-        return bars.Length == 0 ? null : bars;
-    }
+        double low = mapped.Low;
+        double span = mapped.High - mapped.Low;
+        if (!double.IsFinite(low) || !double.IsFinite(span) || span <= 0.0)
+            return null;
 
-    private static double[]? BuildMaskedDistribution(double[] values, double[] areas, bool[] mask)
-    {
-        var histogram = new AnalysisRange.Histogram();
+        var bars = new double[barCount];
+        bool any = false;
         for (int i = 0; i < values.Length; i++)
         {
-            if (mask[i])
-                histogram.Observe(values[i]);
+            if (mask != null && (i >= mask.Length || !mask[i]))
+                continue;
+
+            double value = values[i];
+            if (!double.IsFinite(value))
+                continue;
+
+            double weight = weights.Length == values.Length ? weights[i] : 1.0;
+            if (!double.IsFinite(weight) || weight <= 0.0)
+                continue;
+
+            int bar = (int)Math.Floor((value - low) / span * barCount);
+            bars[Math.Clamp(bar, 0, barCount - 1)] += weight;
+            any = true;
         }
 
-        histogram.FreezeBounds();
-        for (int i = 0; i < values.Length; i++)
-        {
-            if (mask[i])
-                histogram.Add(values[i], areas[i]);
-        }
+        if (!any)
+            return null;
 
-        double[] bars = histogram.Resample(HistogramBars);
-        return bars.Length == 0 ? null : bars;
+        double tallest = bars.Max();
+        if (tallest <= 0.0)
+            return null;
+
+        for (int i = 0; i < barCount; i++)
+            bars[i] /= tallest;
+        return bars;
     }
 
     /// <summary>Fits a range over only the entries flagged in <paramref name="mask"/>.</summary>
