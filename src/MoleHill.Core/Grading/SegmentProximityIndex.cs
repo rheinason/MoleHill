@@ -100,6 +100,50 @@ internal sealed class SegmentProximityIndex
             new Bounds2D(minX, maxX, minY, maxY));
     }
 
+    /// <summary>
+    /// Indexes arbitrary segments given as vertex-index pairs <c>[a0, b0, a1, b1, …]</c> into a flat XY
+    /// array. Always builds, however few segments there are; returns null only when there are none or a
+    /// coordinate is non-finite.
+    /// </summary>
+    public static SegmentProximityIndex? TryCreateForSegments(double[] xy, int[] segments, int segmentCount)
+    {
+        if (xy == null || segments == null || segmentCount <= 0 || segments.Length < segmentCount * 2)
+            return null;
+
+        var starts = new int[segmentCount];
+        var ends = new int[segmentCount];
+        var bounds = new Bounds2D[segmentCount];
+        double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
+
+        for (int i = 0; i < segmentCount; i++)
+        {
+            int a = segments[i * 2];
+            int b = segments[(i * 2) + 1];
+            if ((uint)a >= (uint)(xy.Length / 2) || (uint)b >= (uint)(xy.Length / 2))
+                return null;
+
+            starts[i] = a;
+            ends[i] = b;
+            double ax = xy[a * 2], ay = xy[(a * 2) + 1];
+            double bx = xy[b * 2], by = xy[(b * 2) + 1];
+            if (!double.IsFinite(ax) || !double.IsFinite(ay) || !double.IsFinite(bx) || !double.IsFinite(by))
+                return null;
+
+            bounds[i] = new Bounds2D(Math.Min(ax, bx), Math.Max(ax, bx), Math.Min(ay, by), Math.Max(ay, by));
+            minX = Math.Min(minX, bounds[i].MinX);
+            maxX = Math.Max(maxX, bounds[i].MaxX);
+            minY = Math.Min(minY, bounds[i].MinY);
+            maxY = Math.Max(maxY, bounds[i].MaxY);
+        }
+
+        return new SegmentProximityIndex(
+            xy,
+            starts,
+            ends,
+            SpatialHashGrid2D.Build(bounds),
+            new Bounds2D(minX, maxX, minY, maxY));
+    }
+
     /// <summary>Per-caller query buffers. Never share one between threads.</summary>
     public sealed class QueryState
     {
