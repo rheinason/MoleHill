@@ -188,6 +188,43 @@ public sealed class SurveyFigureBuilderTests
     }
 
     [Fact]
+    public void Build_TwoSpotRulesWithTheirOwnLayers_EachSpotLandsOnItsOwnRulesLayer()
+    {
+        // Every spot used to land on the first Spot rule's layer, silently ignoring the rest.
+        FieldCodeTable table = Table();
+        table.Find("SPOT")!.Layer = "Survey::Spot Levels";
+        table.Find("GND")!.Layer = "Survey::Ground";
+
+        SurveyImportResult result = SurveyFigureBuilder.Build(Points("GND", "SPOT", "GND"), table);
+
+        Assert.Equal(new[] { 0, 1, 2 }, result.SpotPointIndices);
+        Assert.Equal(new[] { "Survey::Ground", "Survey::Spot Levels", "Survey::Ground" }, result.SpotLayers);
+    }
+
+    [Fact]
+    public void Build_SpotRuleWithNoLayer_FallsBackToTheSpotRoleLayer()
+    {
+        FieldCodeTable table = Table();
+        table.Find("SPOT")!.Layer = "Survey::Spot Levels";
+
+        SurveyImportResult result = SurveyFigureBuilder.Build(Points("GND"), table);
+
+        Assert.Equal(FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot), Assert.Single(result.SpotLayers));
+    }
+
+    [Fact]
+    public void Build_OnePointRunKeptAsSpot_LandsOnTheSpotRoleLayer()
+    {
+        FieldCodeTable table = Table();
+        table.Find("SPOT")!.Layer = "Survey::Spot Levels";
+
+        SurveyImportResult result = SurveyFigureBuilder.Build(Points("TOE"), table);
+
+        Assert.Equal(new[] { 0 }, result.SpotPointIndices);
+        Assert.Equal(FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot), Assert.Single(result.SpotLayers));
+    }
+
+    [Fact]
     public void Build_UnknownCode_IsCountedAndKeptNotDropped()
     {
         SurveyImportResult result = SurveyFigureBuilder.Build(Points("TREE", "TREE", "EP", "EP"), Table());

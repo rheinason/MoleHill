@@ -30,6 +30,7 @@ public static class SurveyFigureBuilder
 
         var figures = new List<SurveyFigure>();
         var spots = new List<int>();
+        var spotLayers = new List<string>();
         var unmatched = new List<int>();
         var unmatchedCodes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var diagnostics = new List<SurveyReadDiagnostic>();
@@ -72,6 +73,7 @@ public static class SurveyFigureBuilder
             if (rule.Role == FieldCodeRole.Spot)
             {
                 spots.Add(index);
+                spotLayers.Add(FieldCodeTable.ResolveLayer(rule));
                 continue;
             }
 
@@ -118,14 +120,14 @@ public static class SurveyFigureBuilder
         }
 
         foreach (OpenRun run in finishedRuns)
-            Materialize(run, figures, spots, diagnostics, points);
+            Materialize(run, figures, spots, spotLayers, diagnostics, points);
 
         // Everything still open ran off the end of the file. That is ordinary — a crew rarely closes the
         // last figure — so it is closed and reported, not failed.
         foreach (OpenRun run in openRuns)
         {
             run.IsClosed = run.Rule.ClosedByDefault;
-            Materialize(run, figures, spots, diagnostics, points);
+            Materialize(run, figures, spots, spotLayers, diagnostics, points);
             if (run.PointIndices.Count >= MinimumFigurePoints)
             {
                 diagnostics.Add(new SurveyReadDiagnostic(
@@ -134,7 +136,7 @@ public static class SurveyFigureBuilder
             }
         }
 
-        return new SurveyImportResult(figures, spots, unmatched, unmatchedCodes, diagnostics, ignored);
+        return new SurveyImportResult(figures, spots, unmatched, unmatchedCodes, diagnostics, ignored, spotLayers);
     }
 
     private static void Finish(OpenRun run, List<OpenRun> openRuns, List<OpenRun> finishedRuns, bool closed)
@@ -148,6 +150,7 @@ public static class SurveyFigureBuilder
         OpenRun run,
         List<SurveyFigure> figures,
         List<int> spots,
+        List<string> spotLayers,
         List<SurveyReadDiagnostic> diagnostics,
         IReadOnlyList<SurveyPoint> points)
     {
@@ -165,10 +168,12 @@ public static class SurveyFigureBuilder
         }
 
         // One point is not a line. Keeping it as a spot rather than discarding it is the difference
-        // between a level the user can see and a level that vanished silently.
+        // between a level the user can see and a level that vanished silently. It goes to the Spot role's
+        // own layer: the run's rule describes linework, and no Spot rule claimed this point.
         foreach (int index in run.PointIndices)
         {
             spots.Add(index);
+            spotLayers.Add(FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot));
             diagnostics.Add(new SurveyReadDiagnostic(
                 points[index].LineNumber,
                 $"Run '{run.Code}' held only one point and was kept as a spot level."));

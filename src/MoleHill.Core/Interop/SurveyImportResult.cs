@@ -17,20 +17,32 @@ public sealed class SurveyImportResult
         IReadOnlyList<int> unmatchedPointIndices,
         IReadOnlyDictionary<string, int> unmatchedCodes,
         IReadOnlyList<SurveyReadDiagnostic> diagnostics,
-        int ignoredPointCount)
+        int ignoredPointCount,
+        IReadOnlyList<string> spotLayers)
     {
+        if (spotLayers.Count != spotPointIndices.Count)
+            throw new ArgumentException("Spot layers must be parallel to spot point indices.", nameof(spotLayers));
+
         Figures = figures;
         SpotPointIndices = spotPointIndices;
         UnmatchedPointIndices = unmatchedPointIndices;
         UnmatchedCodes = unmatchedCodes;
         Diagnostics = diagnostics;
         IgnoredPointCount = ignoredPointCount;
+        SpotLayers = spotLayers;
     }
 
     public IReadOnlyList<SurveyFigure> Figures { get; }
 
     /// <summary>Points whose rule is <see cref="FieldCodeRole.Spot"/>, plus runs too short to be lines.</summary>
     public IReadOnlyList<int> SpotPointIndices { get; }
+
+    /// <summary>
+    /// The layer each spot lands on, parallel to <see cref="SpotPointIndices"/>: the matched Spot rule's
+    /// own layer (or the Spot role's default when the rule names none), and the Spot role's default for a
+    /// run too short to be a line.
+    /// </summary>
+    public IReadOnlyList<string> SpotLayers { get; }
 
     /// <summary>Points whose code has no rule. Created, never discarded.</summary>
     public IReadOnlyList<int> UnmatchedPointIndices { get; }

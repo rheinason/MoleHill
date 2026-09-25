@@ -137,7 +137,7 @@ internal static class SurveyImportCommandService
                 figuresDrawn++;
             }
 
-            int spotsDrawn = AddPoints(doc, points, parsed.SpotPointIndices, SpotLayer(table), created);
+            int spotsDrawn = AddSpots(doc, points, parsed, created);
             int unmatchedDrawn = AddPoints(doc, points, parsed.UnmatchedPointIndices, table.UnmatchedLayer, created);
 
             doc.Views.Redraw();
@@ -184,12 +184,21 @@ internal static class SurveyImportCommandService
         return drawn;
     }
 
-    private static string SpotLayer(FieldCodeTable table)
+    /// <summary>
+    /// Adds each spot on the layer its own rule resolved to, grouped so each layer is ensured once.
+    /// Grouping keeps file order within a layer, which is the only order a user could notice.
+    /// </summary>
+    private static int AddSpots(RhinoDoc doc, IReadOnlyList<Point3d> points, SurveyImportResult parsed, List<Guid> created)
     {
-        FieldCodeRule? spotRule = table.Rules.FirstOrDefault(rule => rule.Role == FieldCodeRole.Spot);
-        return spotRule != null
-            ? FieldCodeTable.ResolveLayer(spotRule)
-            : FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot);
+        int drawn = 0;
+        foreach (IGrouping<string, int> group in Enumerable.Range(0, parsed.SpotPointIndices.Count)
+                     .GroupBy(i => parsed.SpotLayers[i], StringComparer.OrdinalIgnoreCase))
+        {
+            List<int> indices = group.Select(i => parsed.SpotPointIndices[i]).ToList();
+            drawn += AddPoints(doc, points, indices, group.Key, created);
+        }
+
+        return drawn;
     }
 
     private static int EnsureLayer(RhinoDoc doc, string layerPath) =>
