@@ -316,6 +316,10 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   limits are set rarely and checks are read constantly; a failing check row and any event row are click
   targets that zoom the viewport to the occurrence. `CurveReviewRules` supplies Off/Report/Warn results;
   the Rhino-side store persists thresholds per user and stores radius in metres.
+  `CurveReviewThresholdInput` turns a threshold into field text and back: the maximum grade is a slope,
+  shown and typed in the user's slope unit through `SlopeInput`; the vertical grade change stays in
+  percentage points (a grade difference, not a slope). Empty or unparseable text reverts the field —
+  "no limit" is the rule's Off mode, never a threshold of zero.
   `CurveReviewMetricSeries` (in `CurveReviewPalette.cs`) is the single source of colour: the panel chart
   and the viewport ribbon both build one for the selected metric - grade, elevation, cut/fill or plan
   radius - so they cannot drift. Plan radius is coloured by *tightness*, not raw radius, so a straight
