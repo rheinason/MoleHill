@@ -962,10 +962,12 @@ internal static class MeshAreaTopologySplitter
         }, _ => { });
         }
         catch (AggregateException aggregate) when (
-            aggregate.Flatten().InnerExceptions.Any(inner => inner is OperationCanceledException))
+            aggregate.Flatten().InnerExceptions.All(inner => inner is OperationCanceledException))
         {
             // Parallel.For wraps a worker's exception. Cancellation must reach the host as an
             // OperationCanceledException, not as an aggregated build failure that reads like a bug.
+            // Only when EVERY worker was cancelled, though: a genuine failure in one worker that
+            // coincides with another worker's cancellation must surface as the failure it is.
             throw new OperationCanceledException("Cancelled.");
         }
 
