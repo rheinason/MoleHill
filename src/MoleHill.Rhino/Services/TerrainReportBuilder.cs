@@ -188,7 +188,10 @@ internal static class TerrainReportBuilder
             new ReportColumn("Net", VolumeUnit(unitContext), ReportAlignment.Right),
             new ReportColumn("Basis"));
 
-        foreach (EarthworkAnalysisDefinition analysis in terrain.Analyses.OfType<EarthworkAnalysisDefinition>())
+        // Cut / Fill measures the same volumes as Earthworks (both compare against a reference), so both
+        // report here. Each analysis is its own row under its own label and the table carries no total, so
+        // a terrain with both is never summed twice.
+        foreach (ReferenceComparisonAnalysisDefinition analysis in terrain.Analyses.OfType<ReferenceComparisonAnalysisDefinition>())
         {
             TerrainAnalysisSummary? summary = Find(analysisSummaries, analysis.Id);
             if (summary == null)

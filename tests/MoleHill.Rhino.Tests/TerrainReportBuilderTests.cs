@@ -197,4 +197,34 @@ public sealed class TerrainReportBuilderTests
 
         Assert.Equal(new[] { "Earthworks", "120.00", "80.00", "40.00", "Exact" }, table.Rows[0]);
     }
+
+    [Fact]
+    public void Build_CutFillAnalysis_ReportsItsVolumesBesideEarthworks()
+    {
+        var terrain = new TerrainDefinition();
+        var earthwork = new EarthworkAnalysisDefinition { Label = "Earthworks" };
+        var cutFill = new CutFillAnalysisDefinition { Label = "Cut / Fill" };
+        terrain.Analyses.Add(earthwork);
+        terrain.Analyses.Add(cutFill);
+
+        var summaries = new[]
+        {
+            new TerrainAnalysisSummary
+            {
+                AnalysisId = earthwork.Id, CutVolume = 120.0, FillVolume = 80.0, NetVolume = 40.0,
+                EarthworkIsEstimated = false
+            },
+            new TerrainAnalysisSummary
+            {
+                AnalysisId = cutFill.Id, CutVolume = 10.0, FillVolume = 30.0, NetVolume = -20.0,
+                EarthworkIsEstimated = true
+            }
+        };
+
+        ReportTable table = Table(Build(terrain, analyses: summaries), "Earthworks");
+
+        Assert.Equal(2, table.Rows.Count);
+        Assert.Equal(new[] { "Earthworks", "120.00", "80.00", "40.00", "Exact" }, table.Rows[0]);
+        Assert.Equal(new[] { "Cut / Fill", "10.00", "30.00", "-20.00", "Estimated" }, table.Rows[1]);
+    }
 }
