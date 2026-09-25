@@ -480,6 +480,40 @@ public class LineGraderTests
         }
     }
 
+    /// <summary>
+    /// A one-sided rail whose normals point to its right must batter at its right-side angles in the
+    /// daylight loop as well as the elevation pass. The loop used to take the left-side angles for
+    /// every one-sided rail, so a right-facing rail's envelope and its batter disagreed.
+    /// </summary>
+    [Fact]
+    public void Grade_OneSidedRailFacingRight_UsesTheRightSideAngles()
+    {
+        var terrain = FlatTerrain(10.0);
+
+        // Rail along +X, so its left is +Y; normals point to -Y, its right.
+        PathGrader.PathDefinition Rail(double sharedDeg, double rightCutDeg) =>
+            new(
+                new[] { -20.0, 0.0, 0.0, 0.0, 20.0, 0.0 },
+                new[] { 0.0, 0.0, 0.0 },
+                3,
+                width: 0.0,
+                slopeAngleDeg: sharedDeg,
+                rightCutSlopeAngleDeg: rightCutDeg,
+                outwardNormals: new[] { 0.0, -1.0, 0.0, -1.0, 0.0, -1.0 });
+
+        GradingResult? overridden = PathGrader.Grade(
+            terrain.v, terrain.vc, terrain.f, terrain.fc, new[] { Rail(45.0, 20.0) }, out string? overriddenError);
+        GradingResult? shared = PathGrader.Grade(
+            terrain.v, terrain.vc, terrain.f, terrain.fc, new[] { Rail(20.0, 0.0) }, out string? sharedError);
+
+        Assert.True(overridden != null, overriddenError);
+        Assert.True(shared != null, sharedError);
+        PadInvariantAssert.AssertWatertightManifold(overridden!);
+        Assert.True(
+            Math.Abs(overridden.CutVolume - shared!.CutVolume) <= 0.01 * shared.CutVolume,
+            $"Right-side override cut {overridden.CutVolume:F1}; the same shared angle cuts {shared.CutVolume:F1}.");
+    }
+
     private static void AssertVertexNear(GradingResult result, double x, double y, double expectedZ)
     {
         double best = double.MaxValue;

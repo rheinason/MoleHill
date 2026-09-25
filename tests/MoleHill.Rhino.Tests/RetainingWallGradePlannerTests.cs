@@ -69,6 +69,40 @@ public class RetainingWallGradePlannerTests
     }
 
     [Fact]
+    public void Build_SideOverride_AppliesToWhicheverSideTheRailGrades()
+    {
+        // Whether a rail batters to the grader's left or right depends on its direction, so a side's
+        // override must reach both — otherwise a right-facing rail silently grades at the shared pair.
+        var toe = new[] { new Point3d(0, 0, 0), new Point3d(10, 0, 0) };
+        var top = new[] { new Point3d(0, 1, 3), new Point3d(10, 1, 3) };
+        var wall = new RetainingWallPlannerCore.PlannedWall(
+            new RetainingWallPlannerCore.WallRails(toe, top, isClosed: false, minWidth: 1.0),
+            brep: null,
+            curveA: 0,
+            curveB: 1,
+            pairLine: new Line(toe[0], top[0]));
+
+        var grades = RetainingWallGradePlanner.Build(
+            new[] { wall },
+            new RetainingWallGradePlanner.Options
+            {
+                FillAngleDeg = 33.0,
+                Toe = new RetainingWallGradePlanner.SideSlopes(20.0, 25.0),
+                Top = new RetainingWallGradePlanner.SideSlopes(40.0, 45.0),
+            });
+
+        Assert.Equal(2, grades.Count);
+        Assert.Equal(20.0, grades[0].LeftCutSlopeAngleDeg, 9);
+        Assert.Equal(20.0, grades[0].RightCutSlopeAngleDeg, 9);
+        Assert.Equal(25.0, grades[0].LeftFillSlopeAngleDeg, 9);
+        Assert.Equal(25.0, grades[0].RightFillSlopeAngleDeg, 9);
+        Assert.Equal(40.0, grades[1].LeftCutSlopeAngleDeg, 9);
+        Assert.Equal(40.0, grades[1].RightCutSlopeAngleDeg, 9);
+        Assert.Equal(45.0, grades[1].LeftFillSlopeAngleDeg, 9);
+        Assert.Equal(45.0, grades[1].RightFillSlopeAngleDeg, 9);
+    }
+
+    [Fact]
     public void BuildOutwardNormals_ClosedPartnerNearestTheClosingSegment_UsesThatSegment()
     {
         // A station beside the partner's closing segment (last vertex back to first) must measure

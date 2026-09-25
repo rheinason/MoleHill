@@ -89,8 +89,12 @@ internal static class RetainingWallGradePlanner
                 maxDistance: options.MaxDistance,
                 fillSlopeAngleDeg: options.FillAngleDeg,
                 isClosed: wall.Rails.IsClosed,
+                // The rail grades one side only, and which of the grader's left/right that is depends
+                // on the rail's direction — so the side's override goes on both.
                 leftCutSlopeAngleDeg: side.CutAngleDeg,
                 leftFillSlopeAngleDeg: side.FillAngleDeg,
+                rightCutSlopeAngleDeg: side.CutAngleDeg,
+                rightFillSlopeAngleDeg: side.FillAngleDeg,
                 outwardNormals: normals));
         }
     }
