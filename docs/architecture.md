@@ -401,7 +401,9 @@ incoming terrain vertex looks up the target mesh at the same World XY through `M
 and lerps its Z by Strength. The target is exactly one Rhino mesh or another MoleHill terrain's latest
 completed final mesh; a raw mesh assignment and terrain id are mutually exclusive in the card. Missing
 target coverage leaves the source vertex unchanged. With no boundaries the whole shared XY footprint is
-affected. Closed boundary loops use even-odd containment, so nested loops form donut holes and deeper
+affected, and Feather fades the projection in from the footprint's edge (distance to the nearest vertex
+the target does not cover) so it leaves no step there. Vertices of wall faces (≥ 70°, the remesher's
+threshold) are never projected — top and toe would land on one Z and bury the wall. Closed boundary loops use even-odd containment, so nested loops form donut holes and deeper
 nesting alternates back to included; Feather fades inward from every loop edge, keeping all exterior and
 hole regions untouched. Terrain targets participate in stage fingerprints and dependent live rebuilds;
 the picker omits choices that would create a projection cycle.

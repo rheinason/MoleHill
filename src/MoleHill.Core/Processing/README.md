@@ -22,7 +22,8 @@ Pure, unit-tested.
 - `RegionInputFilter.cs` — legacy margin-capable point-region helper retained for compiled callers.
 - `SurfaceConformer.cs` — Z-only blend from an incoming terrain to a target 2.5D mesh. Optional closed
   loops use even-odd nesting for islands and donut holes, with a smooth feather contained inside every
-  boundary edge.
+  boundary edge (or, with no loops, inside the target footprint's edge). Wall-face vertices are left
+  in place.
 - `SurfaceDeviationEvaluator.cs` — indexed, streaming XY-overlay comparison for two 2.5D triangle
   meshes. It certifies maximum vertical deviation at overlay vertices, verifies domain area in both
   directions (including holes/islands), records a worst-error witness, and supports cancellation.
