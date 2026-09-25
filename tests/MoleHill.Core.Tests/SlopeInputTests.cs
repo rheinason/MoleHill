@@ -102,6 +102,39 @@ public class SlopeInputTests
         Assert.False(SlopeInput.TryParse(text, Percent, out _));
     }
 
+    [Theory]
+    [InlineData(95.0)]
+    [InlineData(-95.0)]
+    [InlineData(90.0)]
+    public void TryConvertDisplayNumber_AngleBeyondMaxSlope_Fails(double degrees)
+    {
+        // tan(95°) is negative: without the bound a command-line 95° became a falling slope.
+        Assert.False(SlopeInput.TryConvertDisplayNumber(degrees, Degrees, out _));
+    }
+
+    [Theory]
+    [InlineData(45.0, Degrees, 1.0)]
+    [InlineData(25.0, Percent, 0.25)]
+    [InlineData(50.0, Promille, 0.05)]
+    [InlineData(4.0, Ratio, 0.25)]
+    [InlineData(0.0, Ratio, 0.0)]
+    public void TryConvertDisplayNumber_NumberInUnit_ReturnsRatio(double value, SlopeAnalyzer.SlopeUnit unit, double expected)
+    {
+        Assert.True(SlopeInput.TryConvertDisplayNumber(value, unit, out double ratio));
+        Assert.Equal(expected, ratio, 9);
+    }
+
+    [Theory]
+    [InlineData(Percent)]
+    [InlineData(Promille)]
+    [InlineData(Degrees)]
+    [InlineData(Ratio)]
+    public void ToDisplayNumber_ThenTryConvertDisplayNumber_RoundTrips(SlopeAnalyzer.SlopeUnit unit)
+    {
+        Assert.True(SlopeInput.TryConvertDisplayNumber(SlopeInput.ToDisplayNumber(0.4, unit), unit, out double ratio));
+        Assert.Equal(0.4, ratio, 9);
+    }
+
     [Fact]
     public void TryParseToDegrees_RatioPair_ConvertsToStoredAngle()
     {

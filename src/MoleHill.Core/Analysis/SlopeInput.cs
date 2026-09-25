@@ -184,6 +184,42 @@ public static class SlopeInput
     }
 
     /// <summary>
+    /// A bare number in <paramref name="unit"/> to a slope ratio (rise/run) — the conversion behind a
+    /// command-line slope option, which takes a number and shows its unit beside it. Under
+    /// <see cref="SlopeAnalyzer.SlopeUnit.Ratio"/> the number is the run <c>n</c> of 1:n (0 is flat).
+    /// Fails, as <see cref="TryParse"/> does, for an angle steeper than <see cref="MaxSlopeDegrees"/>:
+    /// past 90° <c>tan</c> wraps round and would read 95° as a falling slope.
+    /// </summary>
+    public static bool TryConvertDisplayNumber(double value, SlopeAnalyzer.SlopeUnit unit, out double ratio)
+    {
+        ratio = 0.0;
+        if (!double.IsFinite(value))
+            return false;
+
+        if (unit == SlopeAnalyzer.SlopeUnit.Degrees && Math.Abs(value) > MaxSlopeDegrees)
+            return false;
+
+        if (unit == SlopeAnalyzer.SlopeUnit.Ratio)
+        {
+            ratio = Math.Abs(value) <= 1e-12 ? 0.0 : 1.0 / value;
+            return double.IsFinite(ratio);
+        }
+
+        ratio = SlopeAnalyzer.ConvertUnitToRatio(value, unit);
+        return double.IsFinite(ratio);
+    }
+
+    /// <summary>Inverse of <see cref="TryConvertDisplayNumber"/>: the number a slope option shows in
+    /// <paramref name="unit"/>, the run <c>n</c> of 1:n under Ratio.</summary>
+    public static double ToDisplayNumber(double ratio, SlopeAnalyzer.SlopeUnit unit)
+    {
+        if (unit != SlopeAnalyzer.SlopeUnit.Ratio)
+            return SlopeAnalyzer.ConvertRatioToUnit(ratio, unit);
+
+        return Math.Abs(ratio) <= 1e-12 ? 0.0 : 1.0 / ratio;
+    }
+
+    /// <summary>
     /// <see cref="TryParse"/> against a field whose stored value is an angle in degrees — the form the
     /// grading definitions persist, so displaying them in another unit needs no schema change.
     /// </summary>

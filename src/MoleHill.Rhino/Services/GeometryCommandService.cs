@@ -937,7 +937,11 @@ internal static class GeometryCommandService
         /// </summary>
         public void Commit(GetBaseClass get, GetResult result)
         {
-            _ratio = Math.Clamp(FromDisplayValue(_value.CurrentValue, _unit), -MaxRatio, MaxRatio);
+            // A number the unit cannot hold (an angle past MaxSlopeDegrees, which tan() would wrap into a
+            // falling slope) is rejected rather than clamped, exactly as a panel field rejects it: the
+            // previous slope stays and is shown again on the next pass.
+            if (SlopeInput.TryConvertDisplayNumber(_value.CurrentValue, _unit, out double ratio))
+                _ratio = Math.Clamp(ratio, -MaxRatio, MaxRatio);
             CommandOptionCache.SetValue(_cacheKey, _ratio);
 
             if (result != GetResult.Option || _unitOptionIndex < 0 || get.OptionIndex() != _unitOptionIndex)
@@ -960,21 +964,8 @@ internal static class GeometryCommandService
         }
 
         /// <summary>Ratio to the number the option shows. Ratio unit shows the run n of 1:n.</summary>
-        private static double ToDisplayValue(double ratio, SlopeAnalyzer.SlopeUnit unit)
-        {
-            if (unit != SlopeAnalyzer.SlopeUnit.Ratio)
-                return SlopeAnalyzer.ConvertRatioToUnit(ratio, unit);
-
-            return Math.Abs(ratio) <= RhinoMath.ZeroTolerance ? 0.0 : 1.0 / ratio;
-        }
-
-        private static double FromDisplayValue(double value, SlopeAnalyzer.SlopeUnit unit)
-        {
-            if (unit != SlopeAnalyzer.SlopeUnit.Ratio)
-                return SlopeAnalyzer.ConvertUnitToRatio(value, unit);
-
-            return Math.Abs(value) <= RhinoMath.ZeroTolerance ? 0.0 : 1.0 / value;
-        }
+        private static double ToDisplayValue(double ratio, SlopeAnalyzer.SlopeUnit unit) =>
+            SlopeInput.ToDisplayNumber(ratio, unit);
     }
 
     /// <summary>
