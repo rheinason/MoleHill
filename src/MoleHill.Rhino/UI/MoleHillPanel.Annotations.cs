@@ -373,25 +373,6 @@ public sealed partial class MoleHillPanel
         }
     }
 
-    private static IReadOnlyList<(string Key, string Label)> GetHatchPatternOptions()
-    {
-        var names = new List<string>(HatchPatternService.BuiltInPatternNames);
-        RhinoDoc? doc = RhinoDoc.ActiveDoc;
-        if (doc != null)
-        {
-            foreach (var pattern in doc.HatchPatterns)
-            {
-                if (pattern != null && !pattern.IsDeleted &&
-                    !names.Contains(pattern.Name, StringComparer.OrdinalIgnoreCase))
-                {
-                    names.Add(pattern.Name);
-                }
-            }
-        }
-
-        return names.Select(name => (name, name)).ToList();
-    }
-
     /// <summary>
     /// The range the legend should describe: the one the preview mesh was actually coloured with, stamped
     /// onto the summary when the mesh was built. Falls back to resolving the configured bounds directly,
@@ -432,33 +413,10 @@ public sealed partial class MoleHillPanel
             "Existing ground for cut/fill shading: a survey mesh or surface, sliced along the same section " +
             "line. Leave empty to compare against this terrain's own initial triangulation instead."));
 
-        layout.AddRow(CreateDropDownEditor(
-            "Cut Hatch",
-            GetHatchPatternOptions(),
-            HatchPatternService.ResolvePatternName(annotation.CutHatchPatternName, HatchPatternService.DefaultCutPatternName),
-            value => MutateSection(item => item.CutHatchPatternName = value),
-            "Hatch pattern for cut regions. By drafting convention cut reads denser than fill."));
-        layout.AddRow(CreateDropDownEditor(
-            "Fill Hatch",
-            GetHatchPatternOptions(),
-            HatchPatternService.ResolvePatternName(annotation.FillHatchPatternName, HatchPatternService.DefaultFillPatternName),
-            value => MutateSection(item => item.FillHatchPatternName = value),
-            "Hatch pattern for fill regions."));
-        layout.AddRow(CreateNumericEditor(
-            "Hatch Scale",
-            annotation.HatchScale,
-            value => MutateSection(item => item.HatchScale = Math.Max(0.0, value)),
-            decimalPlaces: 3,
-            help: "Pattern scale. 0 derives a scale from the text height so the fill reads as a texture at " +
-                  "the drawing's scale — a pattern's own spacing is arbitrary, so a fixed 1 prints solid black.",
-            minValue: 0.0));
-        layout.AddRow(CreateNumericEditor(
-            "Hatch Angle",
-            annotation.HatchRotationDegrees,
-            value => MutateSection(item => item.HatchRotationDegrees = value),
-            decimalPlaces: 1,
-            help: "Pattern rotation.",
-            unitSuffix: ResolveUnitSuffix(ParameterUnit.Degrees)));
+        // No hatch pattern, scale or angle rows: cut and fill appearance comes from the
+        // SectionsCutFillCut/Fill layer roles (edited in the layer template), so preview and bake
+        // match every other generated output. The definition's hatch fields remain only as the
+        // legacy fallback the builder reads when a role supplies no pattern.
         layout.AddRow(CreateInsertionOriginEditor(terrain, annotation));
     }
 
