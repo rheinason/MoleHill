@@ -24,6 +24,41 @@ failure was reproduced.
 
 ---
 
+## Resolution (2026-09-25)
+
+All findings in sections 1 and 2 were fixed on `review-plan-2026-09-19`, with a test for each fix
+where the code can be tested. There are three exceptions:
+
+- **M15 (Add Geometry after walls): not changed.** On closer reading, the mechanism does not hold
+  for Retaining Walls. The wall rails are persistent hard constraints, and breakline merging looks
+  at Z as well as XY. The remaining exposure is narrower: steep faces that sit on no constraint and
+  are thinner than the input merge tolerance. The safe fix there is local insertion rather than
+  re-triangulating everything. Open until someone reproduces it in Rhino.
+- **Performance and low items:** the Ponding, basin-boundary, Data Clip and Project To distance
+  items were fixed without changing output. The section-slicer, reference re-mesh, catchment
+  preview and Grasshopper snapshot-hash items, and the duplication and dead-code items, are still
+  open.
+- **Needs a live Rhino check** (the native test lane is broken on 8.35, so these fixes are built but
+  not exercised): H2, H6, H8, H10, H11, H14, H17, H22 and M3 (panel, conduit and bake paths), and
+  S3, S5 and S7 (survey undo and placement).
+
+Behaviour changes users will notice:
+
+- **Ratio slope fields:** a bare number in a Ratio-unit panel field now means 1:n (M9).
+- **Section hatch rows removed:** the Cut/Fill hatch pattern, scale and angle rows are gone from the
+  section card; hatches follow the layer template (H9).
+- **Surveys near the origin:** a survey within 100 km of the origin is no longer shifted by the
+  project base (S3).
+- **Legacy boundaries:** in pre-v32 documents, only the base Triangulate card's boundary migrates to
+  Outer; Add Geometry boundaries are dropped (H18).
+- **Grasshopper Mesh Simplify:** the retain percentage now rounds down, matching Rhino (M12).
+
+Open questions for the owner:
+
+- **H18:** should a dropped legacy Add Geometry boundary be kept, for example as breaklines?
+- **M12:** should Grasshopper Mesh Simplify keep the Terrain's breaklines as required edges? If a
+  breakline doesn't lie on mesh edges, should the simplify fail or skip it?
+
 ## 1. Unmerged branch — ultrareview
 
 The ultrareview found no blocking defects. Its four findings, all verified by the reviewer:
