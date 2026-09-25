@@ -582,7 +582,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
         if (generated.Geometry is Hatch hatch)
         {
-            LayerAppearance hatchAppearance = LayerRoleService.GetTable(doc).Appearance(generated.Role);
+            LayerAppearance hatchAppearance = LayerRoleService.GetTable(doc, terrain).Appearance(generated.Role);
             var color = TerrainDisplayColors.Resolve(
                 doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb, hatchAppearance);
 
@@ -620,7 +620,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         {
             // Colour and thickness both come from the object's role, which is the same record the
             // bake stamps — so the viewport shows the drawing's hierarchy, and baking changes nothing.
-            LayerAppearance appearance = LayerRoleService.GetTable(doc).Appearance(generated.Role);
+            LayerAppearance appearance = LayerRoleService.GetTable(doc, terrain).Appearance(generated.Role);
             var color = TerrainDisplayColors.Resolve(
                 doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb, appearance);
             int width = appearance.ScalePreviewWidth(terrain.PreviewLineWeight);
@@ -639,7 +639,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
             try
             {
-                DrawMarkerTemplate(e, doc, generated, terrain.PreviewLineWeight);
+                DrawMarkerTemplate(e, doc, terrain, generated, terrain.PreviewLineWeight);
             }
             finally
             {
@@ -707,10 +707,11 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
     private static void DrawMarkerTemplate(
         DrawEventArgs e,
         global::Rhino.RhinoDoc doc,
+        TerrainDefinition terrain,
         GeneratedRhinoObject generated,
         double previewLineWeight)
     {
-        LayerAppearance appearance = LayerRoleService.GetTable(doc).Appearance(generated.Role);
+        LayerAppearance appearance = LayerRoleService.GetTable(doc, terrain).Appearance(generated.Role);
         var color = TerrainDisplayColors.Resolve(
             doc, generated.LayerPath, generated.SourceLayerPath, generated.ColorArgb, appearance);
         int width = appearance.ScalePreviewWidth(previewLineWeight);

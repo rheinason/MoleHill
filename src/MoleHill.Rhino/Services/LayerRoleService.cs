@@ -18,7 +18,7 @@ internal static class LayerRoleService
 {
     private static readonly object Gate = new();
     private static readonly Dictionary<(uint Document, string Template), LayerRoleTable> Cache = new();
-    private static readonly HashSet<uint> LayersEnsured = new();
+    private static readonly HashSet<(uint Document, string Template)> LayersEnsured = new();
 
     /// <summary>
     /// Where the machine-local templates come from. The plugin points this at its
@@ -69,7 +69,7 @@ internal static class LayerRoleService
             foreach (var key in Cache.Keys.Where(key => key.Document == doc.RuntimeSerialNumber).ToList())
                 Cache.Remove(key);
 
-            LayersEnsured.Remove(doc.RuntimeSerialNumber);
+            LayersEnsured.RemoveWhere(key => key.Document == doc.RuntimeSerialNumber);
         }
     }
 
@@ -87,9 +87,10 @@ internal static class LayerRoleService
 
         lock (Gate)
         {
-            // Once per document per session. The work is idempotent, but a build should not walk the
-            // whole layer table every time it runs.
-            if (!LayersEnsured.Add(doc.RuntimeSerialNumber))
+            // Once per document and template per session. The work is idempotent, but a build should
+            // not walk the whole layer table every time it runs. Keyed by template too, so a second
+            // terrain naming a different template still gets its layers before it previews.
+            if (!LayersEnsured.Add((doc.RuntimeSerialNumber, terrain?.LayerTemplateName ?? string.Empty)))
                 return;
         }
 

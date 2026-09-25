@@ -899,7 +899,7 @@ internal sealed partial class TerrainController
                     // a second bake path alongside SyncOutputs, and it is the one the picker's Bake uses.
                     Geometry = (TerrainPresentationMesh.CreateForDisplay(terrainMesh) ?? terrainMesh).DuplicateMesh(),
                     Name = terrain.Name,
-                    LayerPath = LayerRoleService.GetTable(doc).Path(LayerRole.Terrain),
+                    LayerPath = LayerRoleService.GetTable(doc, terrain).Path(LayerRole.Terrain),
                     ColorArgb = terrain.TerrainColorArgb
                 }, blockAttributeRefreshIds);
                 if (id != Guid.Empty)

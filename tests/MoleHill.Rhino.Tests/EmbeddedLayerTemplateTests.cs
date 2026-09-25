@@ -161,6 +161,33 @@ public class EmbeddedLayerTemplateTests : IDisposable
         Assert.Equal("Drawing::Existing", LayerRoleService.GetTable(doc, existing).Path(LayerRole.Annotation));
     }
 
+    /// <summary>
+    /// Layers are ensured per template, not once per document: a second terrain naming a different
+    /// template must find its own layers created before it previews, or preview and bake read
+    /// different layer appearance.
+    /// </summary>
+    [RhinoNativeFact]
+    public void EnsureTemplateLayers_SecondTerrainWithOtherTemplate_CreatesItsLayers()
+    {
+        using RhinoDoc doc = RhinoDoc.CreateHeadless(null);
+
+        var existingTemplate = new LayerTemplateDefinition
+        {
+            Version = 1,
+            Name = "Existing",
+            Entries = new List<LayerTemplateEntry> { new() { Roles = { "annotation" }, Path = "Drawing::Existing" } }
+        };
+        LayerRoleService.TemplateProvider = () => new[] { Office("Drawing::Proposed") };
+        LayerRoleService.Invalidate();
+        LayerRoleService.EnsureTemplateLayers(doc, new TerrainDefinition { Name = "Proposed" });
+        LayerTemplateDocumentStore.Embed(doc, existingTemplate, localFingerprint: 0, makeActive: false);
+
+        LayerRoleService.EnsureTemplateLayers(doc, new TerrainDefinition { Name = "Existing", LayerTemplateName = "Existing" });
+
+        Assert.True(doc.Layers.FindByFullPath("Drawing::Proposed", -1) >= 0);
+        Assert.True(doc.Layers.FindByFullPath("Drawing::Existing", -1) >= 0);
+    }
+
     /// <summary>A terrain naming a template the document does not carry keeps routing, rather than
     /// losing its layers because a name went stale.</summary>
     [RhinoNativeFact]

@@ -47,7 +47,7 @@ internal sealed partial class TerrainController
                 // wall crease shades flat ground as if it were near-vertical. See TerrainPresentationMesh.
                 Geometry = TerrainPresentationMesh.CreateForDisplay(build.PrimaryMesh) ?? build.PrimaryMesh,
                 Name = terrain.Name,
-                LayerPath = LayerRoleService.GetTable(doc).Path(LayerRole.Terrain)
+                LayerPath = LayerRoleService.GetTable(doc, terrain).Path(LayerRole.Terrain)
             }, blockAttributeRefreshIds);
 
             if (id != Guid.Empty)
@@ -287,8 +287,8 @@ internal sealed partial class TerrainController
         // constructed an object without going through the role table.
         string layerPath = !string.IsNullOrWhiteSpace(generated.LayerPath)
             ? generated.LayerPath!
-            : LayerRoleService.GetTable(doc).Path(generated.Role);
-        attributes.LayerIndex = EnsureLayer(doc, layerPath, generated.SourceLayerPath);
+            : LayerRoleService.GetTable(doc, terrain).Path(generated.Role);
+        attributes.LayerIndex = EnsureLayer(doc, layerPath, generated.SourceLayerPath, terrain);
 
         if (generated.PlotWeight.HasValue && !useLayerAppearance)
         {
@@ -584,7 +584,11 @@ internal sealed partial class TerrainController
         }
     }
 
-    private int EnsureLayer(RhinoDoc doc, string fullPath, string? sourceLayerPath = null)
+    private int EnsureLayer(
+        RhinoDoc doc,
+        string fullPath,
+        string? sourceLayerPath = null,
+        TerrainDefinition? terrain = null)
     {
         global::Rhino.DocObjects.Layer? sourceLayer = TryGetSourceLayer(doc, sourceLayerPath);
         int existingIndex = doc.Layers.FindByFullPath(fullPath, -1);
@@ -594,7 +598,7 @@ internal sealed partial class TerrainController
             return existingIndex;
         }
 
-        return EnsureLayerPath(doc, fullPath, sourceLayer);
+        return EnsureLayerPath(doc, fullPath, sourceLayer, terrain);
     }
 
     /// <summary>
@@ -603,9 +607,13 @@ internal sealed partial class TerrainController
     /// inspector's labelling all create layers by the same rule: seed appearance once at creation,
     /// then leave the layer alone.
     /// </summary>
-    internal static int EnsureLayerPath(RhinoDoc doc, string fullPath, global::Rhino.DocObjects.Layer? sourceLayer = null)
+    internal static int EnsureLayerPath(
+        RhinoDoc doc,
+        string fullPath,
+        global::Rhino.DocObjects.Layer? sourceLayer = null,
+        TerrainDefinition? terrain = null)
     {
-        return LayerCreationService.EnsureLayerPath(doc, fullPath, LayerRoleService.GetTable(doc), sourceLayer);
+        return LayerCreationService.EnsureLayerPath(doc, fullPath, LayerRoleService.GetTable(doc, terrain), sourceLayer);
     }
 
     private static global::Rhino.DocObjects.Layer? TryGetSourceLayer(RhinoDoc doc, string? sourceLayerPath)
