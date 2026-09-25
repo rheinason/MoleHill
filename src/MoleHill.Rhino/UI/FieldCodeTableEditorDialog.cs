@@ -338,6 +338,22 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
             return;
         }
 
+        // A path the import cannot create would be swapped for the role's layer at import time; saying
+        // so here, where it was typed, is cheaper than a command-line note after the fact.
+        List<string> badLayers = _rows
+            .Select(static row => row.Layer.Trim())
+            .Where(static layer => layer.Length > 0)
+            .Append(_unmatchedLayer.Text?.Trim() ?? string.Empty)
+            .Where(static layer => layer.Length > 0 && !SurveyImportCommandService.IsUsableLayerPath(layer))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (badLayers.Count > 0)
+        {
+            _status.Text = $"Not a usable layer path: {string.Join(", ", badLayers.Select(static layer => $"\"{layer}\""))}. " +
+                           "Use names separated by :: with no blank parts, or leave Layer blank to follow the role.";
+            return;
+        }
+
         FieldCodeTable collected = Collect();
         if (collected.Rules.Count == 0 && !Confirm("Save a table with no codes? Every point will be reported as unmatched."))
             return;

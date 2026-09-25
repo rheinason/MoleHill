@@ -312,6 +312,26 @@ public sealed class SurveyFigureBuilderTests
             Enum.GetValues<FieldCodeRole>().Select(FieldCodeTable.DefaultLayerFor).Where(layer => layer.Length > 0));
     }
 
+    [Theory]
+    [InlineData("Survey")]
+    [InlineData("Survey::Edge of Pavement")]
+    [InlineData("MoleHill::Inputs::Breaklines")]
+    public void IsValidLayerPath_WellFormedPath_IsAccepted(string path) =>
+        Assert.True(FieldCodeTable.IsValidLayerPath(path));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Survey::")]
+    [InlineData("::Survey")]
+    [InlineData("Survey::::EP")]
+    [InlineData("Survey :: EP")]
+    [InlineData("Survey:EP")]
+    [InlineData("Survey:::EP")]
+    [InlineData("Survey::E\tP")]
+    public void IsValidLayerPath_MalformedPath_IsRejected(string path) =>
+        Assert.False(FieldCodeTable.IsValidLayerPath(path));
+
     [Fact]
     public void Build_NoPoints_ReturnsEmptyResult()
     {

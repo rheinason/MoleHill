@@ -117,6 +117,7 @@ internal static class SurveyImportCommandService
 
         uint undoRecord = doc.BeginUndoRecord("Import survey points");
         var created = new List<Guid>();
+        var reportedLayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool success = false;
         try
         {
@@ -129,7 +130,7 @@ internal static class SurveyImportCommandService
 
                 var attributes = new ObjectAttributes
                 {
-                    LayerIndex = EnsureLayer(doc, figure.Layer)
+                    LayerIndex = EnsureLayer(doc, figure.Layer, FieldCodeTable.DefaultLayerFor(figure.Role), reportedLayers)
                 };
 
                 Guid id = doc.Objects.AddCurve(curve, attributes);
@@ -143,8 +144,13 @@ internal static class SurveyImportCommandService
                 figuresDrawn++;
             }
 
-            int spotsDrawn = AddSpots(doc, points, parsed, created);
-            int unmatchedDrawn = AddPoints(doc, points, parsed.UnmatchedPointIndices, table.UnmatchedLayer, created);
+            int spotsDrawn = AddSpots(doc, points, parsed, created, reportedLayers);
+            int unmatchedDrawn = AddPoints(
+                doc,
+                points,
+                parsed.UnmatchedPointIndices,
+                EnsureLayer(doc, table.UnmatchedLayer, FieldCodeTable.DefaultUnmatchedLayer, reportedLayers),
+                created);
 
             doc.Views.Redraw();
             Report(file, parsed, choice, units, figuresDrawn, spotsDrawn, unmatchedDrawn);
@@ -177,13 +183,13 @@ internal static class SurveyImportCommandService
         RhinoDoc doc,
         IReadOnlyList<Point3d> points,
         IReadOnlyList<int> indices,
-        string layer,
+        int layerIndex,
         List<Guid> created)
     {
         if (indices.Count == 0)
             return 0;
 
-        var attributes = new ObjectAttributes { LayerIndex = EnsureLayer(doc, layer) };
+        var attributes = new ObjectAttributes { LayerIndex = layerIndex };
         int drawn = 0;
         foreach (int index in indices)
         {
@@ -205,21 +211,64 @@ internal static class SurveyImportCommandService
     /// Adds each spot on the layer its own rule resolved to, grouped so each layer is ensured once.
     /// Grouping keeps file order within a layer, which is the only order a user could notice.
     /// </summary>
-    private static int AddSpots(RhinoDoc doc, IReadOnlyList<Point3d> points, SurveyImportResult parsed, List<Guid> created)
+    private static int AddSpots(
+        RhinoDoc doc,
+        IReadOnlyList<Point3d> points,
+        SurveyImportResult parsed,
+        List<Guid> created,
+        HashSet<string> reportedLayers)
     {
         int drawn = 0;
         foreach (IGrouping<string, int> group in Enumerable.Range(0, parsed.SpotPointIndices.Count)
                      .GroupBy(i => parsed.SpotLayers[i], StringComparer.OrdinalIgnoreCase))
         {
             List<int> indices = group.Select(i => parsed.SpotPointIndices[i]).ToList();
-            drawn += AddPoints(doc, points, indices, group.Key, created);
+            int layerIndex = EnsureLayer(doc, group.Key, FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot), reportedLayers);
+            drawn += AddPoints(doc, points, indices, layerIndex, created);
         }
 
         return drawn;
     }
 
-    private static int EnsureLayer(RhinoDoc doc, string layerPath) =>
-        LayerCreationService.EnsureLayerPath(doc, layerPath, LayerRoleService.GetTable(doc));
+    /// <summary>
+    /// The layer for a typed path, or for <paramref name="fallbackPath"/> when the typed one is unusable.
+    ///
+    /// <see cref="LayerCreationService.EnsureLayerPath"/> answers a blank or rejected path with the
+    /// <i>current</i> layer, so an unvalidated path would scatter survey linework onto whatever the user
+    /// last clicked. The fallback is always one of this command's own role layers, and the substitution
+    /// is reported once per path so the user can correct the rule.
+    /// </summary>
+    private static int EnsureLayer(RhinoDoc doc, string layerPath, string fallbackPath, HashSet<string> reportedLayers)
+    {
+        LayerRoleTable roles = LayerRoleService.GetTable(doc);
+        if (IsUsableLayerPath(layerPath))
+        {
+            int index = LayerCreationService.EnsureLayerPath(doc, layerPath, roles);
+            if (index >= 0 && index < doc.Layers.Count &&
+                string.Equals(doc.Layers[index].FullPath, layerPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        if (reportedLayers.Add(layerPath ?? string.Empty))
+        {
+            RhinoApp.WriteLine(
+                $"MoleHill: \"{layerPath}\" is not a usable layer path; that output went to {fallbackPath} instead. " +
+                "Correct it with mhEditFieldCodes.");
+        }
+
+        return LayerCreationService.EnsureLayerPath(doc, fallbackPath, roles);
+    }
+
+    /// <summary>
+    /// Whether a typed layer path can be created as written: the structural rules in Core plus Rhino's
+    /// own naming rules for each segment. Shared with the field code editor so it can refuse to save
+    /// a path the import would have to replace.
+    /// </summary>
+    internal static bool IsUsableLayerPath(string? layerPath) =>
+        FieldCodeTable.IsValidLayerPath(layerPath) &&
+        layerPath!.Split("::").All(ModelComponent.IsValidComponentName);
 
     private static void RollBack(RhinoDoc doc, List<Guid> created)
     {
