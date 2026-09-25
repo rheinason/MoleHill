@@ -162,6 +162,131 @@ internal static class GradedRegionAssembler
         return cdt ?? handRolled;
     }
 
+    /// <summary>
+    /// Adds each segment to <paramref name="output"/> split at every point of <paramref name="xy"/> that lies
+    /// within <paramref name="tolerance"/> of its interior, in order along the segment. Points are bucketed
+    /// on a coarse grid so a long segment only tests the points near it.
+    /// </summary>
+    internal static void AddSegmentsSplitAtOnSegmentPoints(
+        IReadOnlyList<double> xy,
+        IReadOnlyList<(int a, int b)> segmentsToSplit,
+        double tolerance,
+        List<(int a, int b)> output)
+    {
+        if (segmentsToSplit.Count == 0)
+            return;
+
+        int pointCount = xy.Count / 2;
+        double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+        for (int i = 0; i < pointCount; i++)
+        {
+            double x = xy[i * 2], y = xy[i * 2 + 1];
+            minX = Math.Min(minX, x);
+            minY = Math.Min(minY, y);
+            maxX = Math.Max(maxX, x);
+            maxY = Math.Max(maxY, y);
+        }
+
+        double extent = Math.Max(maxX - minX, maxY - minY);
+        double cell = Math.Max(extent / Math.Max(1.0, Math.Sqrt(pointCount)), tolerance * 4.0);
+        if (!(cell > 0.0) || double.IsInfinity(cell))
+        {
+            output.AddRange(segmentsToSplit);
+            return;
+        }
+
+        int columns = Math.Max(1, (int)Math.Floor((maxX - minX) / cell) + 1);
+        int rows = Math.Max(1, (int)Math.Floor((maxY - minY) / cell) + 1);
+        var bucketStart = new int[(columns * rows) + 1];
+        var pointCell = new int[pointCount];
+        for (int i = 0; i < pointCount; i++)
+        {
+            int cx = Math.Clamp((int)((xy[i * 2] - minX) / cell), 0, columns - 1);
+            int cy = Math.Clamp((int)((xy[i * 2 + 1] - minY) / cell), 0, rows - 1);
+            pointCell[i] = (cy * columns) + cx;
+            bucketStart[pointCell[i] + 1]++;
+        }
+
+        for (int c = 0; c < columns * rows; c++)
+            bucketStart[c + 1] += bucketStart[c];
+
+        var bucketPoints = new int[pointCount];
+        var fill = (int[])bucketStart.Clone();
+        for (int i = 0; i < pointCount; i++)
+            bucketPoints[fill[pointCell[i]]++] = i;
+
+        double toleranceSquared = tolerance * tolerance;
+        var onSegment = new List<(double t, int point)>();
+        foreach ((int a, int b) in segmentsToSplit)
+        {
+            double ax = xy[a * 2], ay = xy[a * 2 + 1];
+            double dx = xy[b * 2] - ax, dy = xy[b * 2 + 1] - ay;
+            double lengthSquared = (dx * dx) + (dy * dy);
+            if (lengthSquared <= toleranceSquared)
+            {
+                output.Add((a, b));
+                continue;
+            }
+
+            int c0 = Math.Clamp((int)((Math.Min(ax, ax + dx) - tolerance - minX) / cell), 0, columns - 1);
+            int c1 = Math.Clamp((int)((Math.Max(ax, ax + dx) + tolerance - minX) / cell), 0, columns - 1);
+            int r0 = Math.Clamp((int)((Math.Min(ay, ay + dy) - tolerance - minY) / cell), 0, rows - 1);
+            int r1 = Math.Clamp((int)((Math.Max(ay, ay + dy) + tolerance - minY) / cell), 0, rows - 1);
+
+            onSegment.Clear();
+            double length = Math.Sqrt(lengthSquared);
+            double endMargin = tolerance / length;
+            for (int r = r0; r <= r1; r++)
+            {
+                for (int c = c0; c <= c1; c++)
+                {
+                    int bucket = (r * columns) + c;
+                    for (int k = bucketStart[bucket]; k < bucketStart[bucket + 1]; k++)
+                    {
+                        int p = bucketPoints[k];
+                        if (p == a || p == b)
+                            continue;
+
+                        double px = xy[p * 2] - ax, py = xy[p * 2 + 1] - ay;
+                        double t = ((px * dx) + (py * dy)) / lengthSquared;
+                        if (t <= endMargin || t >= 1.0 - endMargin)
+                            continue;
+
+                        double ox = px - (t * dx), oy = py - (t * dy);
+                        if ((ox * ox) + (oy * oy) <= toleranceSquared)
+                            onSegment.Add((t, p));
+                    }
+                }
+            }
+
+            if (onSegment.Count == 0)
+            {
+                output.Add((a, b));
+                continue;
+            }
+
+            onSegment.Sort((x, y) => x.t != y.t ? x.t.CompareTo(y.t) : x.point.CompareTo(y.point));
+            int previous = a;
+            double previousT = 0.0;
+            foreach ((double t, int point) in onSegment)
+            {
+                // The caller's weld rounds to grid cells, so two points within tolerance can both
+                // survive it when they straddle a cell edge. Routing through both would force a
+                // sub-tolerance constraint segment — the very sliver this split exists to avoid.
+                if (point == previous || t - previousT <= endMargin)
+                    continue;
+
+                output.Add((previous, point));
+                previous = point;
+                previousT = t;
+            }
+
+            if (previous != b)
+                output.Add((previous, b));
+        }
+    }
+
     private static bool HasNonManifoldEdge(int[] faces, int faceCount)
     {
         return MeshTopologyValidator.HasNonManifoldEdge(faces, faceCount);
@@ -247,6 +372,7 @@ internal static class GradedRegionAssembler
         // (preserving the surveyed wall elevation); forcing the segment keeps the wall face intact.
         if (hardConstraints is not null)
         {
+            var hardSegments = new List<(int a, int b)>();
             foreach (SurfaceRemesher.ConstraintPolyline constraint in hardConstraints)
             {
                 int cn = constraint.PointCount;
@@ -262,9 +388,18 @@ internal static class GradedRegionAssembler
                 {
                     int u = ci[j], v = ci[(j + 1) % cn];
                     if (u != v)
-                        segments.Add((u, v));
+                        hardSegments.Add((u, v));
                 }
             }
+
+            // Upstream stages have already embedded these constraints, so each segment is typically a
+            // chain of terrain vertices sitting a hair (~1e-7) off the corner-to-corner line. Forced whole,
+            // the segment passes those vertices by and Triangle.NET closes each one against it with a
+            // zero-area sliver the full length of the side. The mesh stays watertight, but a remesh then
+            // splits the long edge and the collinear short edges to coincident midpoints, and Rhino's
+            // float vertex weld turns those into non-manifold edges and scrambled normals. Route the
+            // segment through the vertices it already passes through instead.
+            AddSegmentsSplitAtOnSegmentPoints(xy, hardSegments, weldTol, segments);
         }
 
         TriangulationOutcome outcome = TriangulationHelper.Triangulate(

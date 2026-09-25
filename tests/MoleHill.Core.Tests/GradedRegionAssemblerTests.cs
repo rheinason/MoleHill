@@ -89,6 +89,74 @@ public class GradedRegionAssemblerTests
     }
 
     [Fact]
+    public void SplitConformViaCdt_HardConstraintAlreadyEmbeddedAsVertexChain_EmitsNoSliverFaces()
+    {
+        // A pad boundary an upstream stage already embedded: the side vertices sit a hair (1e-7) off the
+        // corner-to-corner line, exactly as a graded pad side comes out. Forcing each side whole let
+        // Triangle.NET close every such vertex against it with a zero-area sliver the length of the side,
+        // which a later remesh turned into coincident vertices and scrambled normals.
+        var t = FlatGrid(21, 2.0, 10.0);
+        for (int i = 0; i < t.vc; i++)
+        {
+            double x = t.v[i * 3], y = t.v[i * 3 + 1];
+            bool onSide = (x > 10.5 && x < 29.5 && (y == 10.0 || y == 30.0)) ||
+                          (y > 10.5 && y < 29.5 && (x == 10.0 || x == 30.0));
+            if (onSide)
+            {
+                double offset = (i % 2 == 0 ? 1.0 : -1.0) * 1e-7;
+                if (y == 10.0 || y == 30.0)
+                    t.v[i * 3 + 1] += offset;
+                else
+                    t.v[i * 3] += offset;
+            }
+        }
+
+        var padBoundary = new SurfaceRemesher.ConstraintPolyline(
+            new double[] { 10, 10, 10, 30, 10, 10, 30, 30, 10, 10, 30, 10 }, 4, true, true);
+        double[] outline = { 0, 0, 40, 0, 40, 40, 0, 40 };
+        double[] daylight = { 2, 2, 8, 2, 8, 8, 2, 8 };
+
+        MeshAreaSplitter.SplitResult? result = GradedRegionAssembler.SplitConformViaCdt(
+            t.v, t.vc, t.f, t.fc, new[] { daylight }, outline, 0.002, new[] { padBoundary });
+
+        Assert.NotNull(result);
+        for (int f = 0; f < result!.FaceCount; f++)
+        {
+            int a = result.Faces[f * 3], b = result.Faces[f * 3 + 1], c = result.Faces[f * 3 + 2];
+            double ax = result.Vertices[a * 3], ay = result.Vertices[a * 3 + 1];
+            double bx = result.Vertices[b * 3] - ax, by = result.Vertices[b * 3 + 1] - ay;
+            double cx = result.Vertices[c * 3] - ax, cy = result.Vertices[c * 3 + 1] - ay;
+            double doubleArea = Math.Abs((bx * cy) - (by * cx));
+            double longest = Math.Sqrt(Math.Max((bx * bx) + (by * by), Math.Max((cx * cx) + (cy * cy),
+                ((cx - bx) * (cx - bx)) + ((cy - by) * (cy - by)))));
+            Assert.True(doubleArea / longest > 1e-3, $"Face {f} is a sliver (height {doubleArea / longest:E2}, length {longest:0.###}).");
+        }
+    }
+
+    [Fact]
+    public void AddSegmentsSplitAtOnSegmentPoints_RoutesThroughPointsWithinTolerance_InOrder()
+    {
+        double[] xy = { 0, 0, 10, 0, 7, 1e-7, 3, -1e-7, 5, 0.5 };
+        var output = new List<(int a, int b)>();
+
+        GradedRegionAssembler.AddSegmentsSplitAtOnSegmentPoints(xy, new[] { (0, 1) }, 0.002, output);
+
+        Assert.Equal(new[] { (0, 3), (3, 2), (2, 1) }, output);
+    }
+
+    [Fact]
+    public void AddSegmentsSplitAtOnSegmentPoints_TwoPointsWithinTolerance_RoutesThroughOnlyOne()
+    {
+        // Points 2 and 3 are 0.001 apart — inside tolerance, but a rounding weld can leave both.
+        double[] xy = { 0, 0, 10, 0, 5, 0, 5.001, 0 };
+        var output = new List<(int a, int b)>();
+
+        GradedRegionAssembler.AddSegmentsSplitAtOnSegmentPoints(xy, new[] { (0, 1) }, 0.002, output);
+
+        Assert.Equal(new[] { (0, 2), (2, 1) }, output);
+    }
+
+    [Fact]
     public void Grade_PadDaylightReachingTerrainEdge_ClipsAndUsesExplicit()
     {
         // Flat grid terrain at z=10 over [0,40]; a pad at z=0 near the +x edge so the 45Â° batter
