@@ -121,6 +121,9 @@ internal static class TerrainUnitScaler
             case SculptModifierDefinition sculpt:
                 ScaleSculpt(sculpt, lengthScale);
                 break;
+            case ProjectToModifierDefinition projectTo:
+                projectTo.FeatherDistance *= lengthScale;
+                break;
         }
     }
 
@@ -210,6 +213,14 @@ internal static class TerrainUnitScaler
                 break;
             case TerrainSectionAnnotationDefinitionBase sectionBase:
                 ScaleSection(sectionBase, lengthScale);
+                break;
+            case ReportTableAnnotationDefinition reportTable:
+                // Column gap and row spacing are multiples of the text height, so only the absolute text
+                // height and the insertion point are lengths.
+                reportTable.InsertionOriginX *= lengthScale;
+                reportTable.InsertionOriginY *= lengthScale;
+                reportTable.InsertionOriginZ *= lengthScale;
+                reportTable.TextHeight *= lengthScale;
                 break;
         }
     }

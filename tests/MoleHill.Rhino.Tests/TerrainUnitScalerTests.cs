@@ -149,4 +149,33 @@ public sealed class TerrainUnitScalerTests
         Assert.Equal(-20, summary.SampleMinValue);
         Assert.Equal(30, summary.SampleMaxValue);
     }
+
+    [Fact]
+    public void Scale_ProjectToAndReportTable_ScalesLengthsAndKeepsTextMultiples()
+    {
+        var projectTo = new ProjectToModifierDefinition { FeatherDistance = 2, Strength = 0.5 };
+        var reportTable = new ReportTableAnnotationDefinition
+        {
+            InsertionOriginX = 1,
+            InsertionOriginY = 2,
+            InsertionOriginZ = 3,
+            TextHeight = 0.5,
+            ColumnGap = 1.5,
+            RowSpacing = 1.8
+        };
+        var terrain = new TerrainDefinition();
+        terrain.Modifiers.Add(projectTo);
+        terrain.Annotations.Add(reportTable);
+
+        TerrainUnitScaler.Scale(new[] { terrain }, 10);
+
+        Assert.Equal(20, projectTo.FeatherDistance);
+        Assert.Equal(0.5, projectTo.Strength);
+        Assert.Equal(10, reportTable.InsertionOriginX);
+        Assert.Equal(20, reportTable.InsertionOriginY);
+        Assert.Equal(30, reportTable.InsertionOriginZ);
+        Assert.Equal(5, reportTable.TextHeight);
+        Assert.Equal(1.5, reportTable.ColumnGap);
+        Assert.Equal(1.8, reportTable.RowSpacing);
+    }
 }
