@@ -49,6 +49,15 @@ internal static class MeshAreaTopologySplitter
         public long ClassificationAllocatedBytes { get; internal set; }
     }
 
+    /// <summary>
+    /// Test seam: faces (by input index) this predicate accepts are treated as if Triangle.NET had
+    /// failed to re-triangulate them. Triangle.NET is robust enough that no small fixture reliably
+    /// fails, yet the degraded-face path is what keeps a GIS-scale split alive. Thread-static because
+    /// the per-face triangulation loop runs on the calling thread, so parallel tests cannot see it.
+    /// </summary>
+    [ThreadStatic]
+    internal static Predicate<int>? ForceRetriangulationFailureForTesting;
+
     private readonly record struct Point2D(double X, double Y);
     private readonly record struct BoundarySegment(Point2D Start, Point2D End);
     private readonly record struct SegmentPiece(Point2D Start, Point2D End);
@@ -531,7 +540,8 @@ internal static class MeshAreaTopologySplitter
                     performanceTimings.MultipleInternalSegmentFaceCount++;
             }
 
-            if (!TriangulateTouchedFace(face, cuts, sharedEdgePoints, pointLookup, globalFaces, tolerance, out string? faceError))
+            bool forceFailure = ForceRetriangulationFailureForTesting?.Invoke(faceIndex) == true;
+            if (!TriangulateTouchedFace(face, cuts, sharedEdgePoints, pointLookup, globalFaces, tolerance, forceFailure, out string? faceError))
             {
                 // One face that cannot be re-triangulated must not discard the split for the whole
                 // terrain. On a multi-million-face GIS mesh a handful of faces are degenerate or carry
@@ -546,9 +556,12 @@ internal static class MeshAreaTopologySplitter
             }
         }
 
+        // Held apart from errorMessage until classification has run: Classify writes its own out
+        // parameter (null on success), which used to discard this warning on every split.
+        string? degradedWarning = null;
         if (degradedFaceCount > 0)
         {
-            errorMessage =
+            degradedWarning =
                 $"{degradedFaceCount:N0} of {faceCount:N0} terrain faces kept their original topology " +
                 $"because they could not be re-triangulated against the zone boundaries. " +
                 $"First cause: {firstFaceError ?? "unknown"}";
@@ -571,7 +584,10 @@ internal static class MeshAreaTopologySplitter
             globalFaces.Count / 3,
             areas,
             0.0,
-            out errorMessage);
+            out string? classifyMessage);
+        errorMessage = degradedWarning == null
+            ? classifyMessage
+            : string.IsNullOrWhiteSpace(classifyMessage) ? degradedWarning : $"{degradedWarning} {classifyMessage}";
         if (performanceTimings != null)
         {
             performanceTimings.ClassificationMilliseconds = phaseTimer!.Elapsed.TotalMilliseconds;
@@ -964,6 +980,7 @@ internal static class MeshAreaTopologySplitter
         GlobalPointLookup pointLookup,
         FaceBuffer globalFaces,
         double tolerance,
+        bool forceFailure,
         out string? errorMessage)
     {
         errorMessage = null;
@@ -1079,7 +1096,9 @@ internal static class MeshAreaTopologySplitter
             return true;
         }
 
-        var outcome = TriangulationHelper.Triangulate(localPoints.Xy, localPoints.Count, segments, 0, 0, convex: true, segmentSplitting: 0);
+        var outcome = forceFailure
+            ? new TriangulationOutcome { WarningMessage = "failure forced for testing." }
+            : TriangulationHelper.Triangulate(localPoints.Xy, localPoints.Count, segments, 0, 0, convex: true, segmentSplitting: 0);
         if (outcome.Mesh == null || MeshConstraintTools.ConstraintsWereDropped(outcome.Flags))
         {
             errorMessage =

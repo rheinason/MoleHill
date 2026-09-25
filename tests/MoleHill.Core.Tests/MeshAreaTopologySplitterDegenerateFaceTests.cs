@@ -96,7 +96,32 @@ public class MeshAreaTopologySplitterDegenerateFaceTests
         // The split must survive: a face it cannot subdivide is kept, never a null result.
         Assert.True(result != null, $"split collapsed entirely: {warning}");
         Assert.True(result!.FaceCount >= 2, "no faces were emitted");
-        if (!string.IsNullOrWhiteSpace(warning) && warning!.Contains("kept their original topology"))
-            Assert.Contains("terrain faces", warning);
+    }
+
+    [Fact]
+    public void SplitPreservingTopology_FaceFailsRetriangulation_ReportsDegradedFaces()
+    {
+        const double tolerance = 0.005;
+        var verts = new double[] { 0, 0, 0, 100, 0, 0, 100, 100, 0, 0, 100, 0 };
+        var faces = new[] { 0, 1, 2, 0, 2, 3 };
+
+        MeshAreaSplitter.SplitResult? result;
+        string? warning;
+        MeshAreaTopologySplitter.ForceRetriangulationFailureForTesting = faceIndex => faceIndex == 0;
+        try
+        {
+            result = MeshAreaSplitter.SplitPreservingTopology(
+                verts, 4, faces, 2, new[] { Square(20, 20, 80, 80) }, tolerance, out warning);
+        }
+        finally
+        {
+            MeshAreaTopologySplitter.ForceRetriangulationFailureForTesting = null;
+        }
+
+        // The degraded-face warning used to be overwritten by classification's own (null) message.
+        Assert.NotNull(result);
+        Assert.NotNull(warning);
+        Assert.Contains("1 of 2 terrain faces", warning!);
+        Assert.Contains("failure forced for testing", warning);
     }
 }
