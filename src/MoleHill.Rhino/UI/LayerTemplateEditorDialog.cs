@@ -1006,6 +1006,10 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
                 throw new InvalidOperationException("At least one template with one layer is required.");
 
             _store.SaveTemplates(_templates);
+
+            // The document's embedded copy is what it renders by, so the edit has to reach it too or
+            // the saved change never shows in the drawing it was made from.
+            LayerRoleService.PullEditedFromLocal(_doc, _store.LoadTemplates());
             Result = true;
             Close();
         }

@@ -138,6 +138,44 @@ internal static class LayerRoleService
         return true;
     }
 
+    /// <summary>
+    /// Carries a template-editor save into the document it was opened from: every embedded copy
+    /// whose machine-local template of the same name was just saved differently is replaced by it.
+    ///
+    /// Without this an edit never reaches a document that already carries a copy, because the copy
+    /// wins. Only the document the editor was opened on is updated — the edit is an explicit action
+    /// there — so any other document still renders as saved wherever it is opened. Which template is
+    /// active is left alone, and a template the editor no longer has keeps its embedded copy.
+    /// </summary>
+    /// <returns>How many embedded copies were replaced.</returns>
+    public static int PullEditedFromLocal(RhinoDoc doc, IReadOnlyList<LayerTemplateDefinition> saved)
+    {
+        EmbeddedLayerTemplateState? state = LayerTemplateDocumentStore.Load(doc);
+        if (state == null)
+            return 0;
+
+        int replaced = 0;
+        foreach (EmbeddedLayerTemplate embedded in state.Templates.ToList())
+        {
+            LayerTemplateDefinition? local = saved.FirstOrDefault(item =>
+                string.Equals(item.Name, embedded.Template.Name, StringComparison.OrdinalIgnoreCase));
+            if (local == null)
+                continue;
+
+            ulong fingerprint = LayerRoleTable.Build(local).Fingerprint;
+            if (fingerprint == LayerRoleTable.Build(embedded.Template).Fingerprint)
+                continue;
+
+            LayerTemplateDocumentStore.Embed(doc, local.Copy(), fingerprint, makeActive: false);
+            replaced++;
+        }
+
+        if (replaced > 0)
+            Invalidate(doc);
+
+        return replaced;
+    }
+
     /// <summary>Writes the document's copy back over the machine-local template of the same name.</summary>
     public static bool PushToLocal(RhinoDoc doc, string templateName)
     {

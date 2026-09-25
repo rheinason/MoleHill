@@ -107,6 +107,54 @@ public class EmbeddedLayerTemplateTests : IDisposable
     }
 
     /// <summary>
+    /// Saving in the template editor must reach the document it was opened from, even though that
+    /// document already carries its own copy — otherwise the edit never shows.
+    /// </summary>
+    [RhinoNativeFact]
+    public void PullEditedFromLocal_EditedTemplate_ReplacesTheDocumentCopy()
+    {
+        using RhinoDoc doc = RhinoDoc.CreateHeadless(null);
+
+        LayerRoleService.TemplateProvider = () => new[] { Office("Drawing::Original") };
+        LayerRoleService.Invalidate();
+        LayerRoleService.EnsureTemplateLayers(doc);
+        Assert.Equal("Drawing::Original", LayerRoleService.GetTable(doc).Path(LayerRole.Annotation));
+
+        var saved = new[] { Office("Drawing::Edited") };
+        LayerRoleService.TemplateProvider = () => saved;
+
+        Assert.Equal(1, LayerRoleService.PullEditedFromLocal(doc, saved));
+        Assert.Equal("Drawing::Edited", LayerRoleService.GetTable(doc).Path(LayerRole.Annotation));
+        Assert.False(LayerRoleService.DivergesFromLocal(doc));
+    }
+
+    /// <summary>
+    /// The sync touches only templates the document carries and never changes which one is active:
+    /// a template the document does not embed is not added.
+    /// </summary>
+    [RhinoNativeFact]
+    public void PullEditedFromLocal_TemplateNotEmbedded_LeavesTheDocumentAlone()
+    {
+        using RhinoDoc doc = RhinoDoc.CreateHeadless(null);
+
+        LayerRoleService.TemplateProvider = () => new[] { Office("Drawing::Original") };
+        LayerRoleService.Invalidate();
+        LayerRoleService.EnsureTemplateLayers(doc);
+
+        var other = new LayerTemplateDefinition
+        {
+            Version = 1,
+            Name = "Other",
+            Entries = new List<LayerTemplateEntry> { new() { Roles = { "annotation" }, Path = "Drawing::Other" } }
+        };
+
+        Assert.Equal(0, LayerRoleService.PullEditedFromLocal(doc, new[] { Office("Drawing::Original"), other }));
+        EmbeddedLayerTemplateState state = LayerTemplateDocumentStore.Load(doc)!;
+        Assert.Single(state.Templates);
+        Assert.Equal("Office", state.ActiveName);
+    }
+
+    /// <summary>
     /// A document from another office, whose template is not installed here, is not divergent — it
     /// simply has nothing to compare against, and must keep rendering as saved.
     /// </summary>
