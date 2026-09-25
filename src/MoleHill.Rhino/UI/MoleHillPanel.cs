@@ -1327,8 +1327,7 @@ public sealed partial class MoleHillPanel : Panel
     /// A rebuild replaces the whole stack, and the scrollable then snaps to the top — so editing anything
     /// below the fold threw the user back to the start of the list. The position is restored after the
     /// content is in place, clamped by the scrollable itself if the new content is shorter.
-    /// </summary>
-    /// <summary>
+    ///
     /// Timed from the inside rather than at a call site. The first attempt wrapped the tab-selection
     /// caller and reported 0 ms against a 94 ms refresh, which isolated nothing - there are two callers
     /// and the refresh path is the other one.
