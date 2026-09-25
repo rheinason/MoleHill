@@ -72,7 +72,7 @@ internal static class RetainingWallGradePlanner
 
             var xy = new double[rail.Length * 2];
             var z = new double[rail.Length];
-            double[] normals = BuildOutwardNormals(rail, partner, options.Tolerance);
+            double[] normals = BuildOutwardNormals(rail, partner, options.Tolerance, wall.Rails.IsClosed);
             for (int i = 0; i < rail.Length; i++)
             {
                 xy[i * 2] = rail[i].X;
@@ -100,7 +100,17 @@ internal static class RetainingWallGradePlanner
     /// plan-coincident — a truly vertical wall face — there is no across direction to use, so the rail's
     /// own plan normal stands in, flipped to agree with the run's prevailing outward direction.
     /// </summary>
-    internal static double[] BuildOutwardNormals(Point3d[] rail, Point3d[] partner, double tolerance)
+    /// <remarks>
+    /// "Across" is the closest point on the partner polyline, never the partner vertex with the same
+    /// index: the two rails are tessellated independently, so their vertex counts differ, and a closed
+    /// pair need not start at the same place. Pairing by index pointed stations diagonally or even back
+    /// toward the wall, which graded batter into the wall face.
+    /// </remarks>
+    internal static double[] BuildOutwardNormals(
+        Point3d[] rail,
+        Point3d[] partner,
+        double tolerance,
+        bool partnerClosed = false)
     {
         var normals = new double[rail.Length * 2];
         double snapTolerance = Math.Max(tolerance, 1e-12);
@@ -111,9 +121,9 @@ internal static class RetainingWallGradePlanner
         double sumY = 0.0;
         for (int i = 0; i < rail.Length; i++)
         {
-            Point3d across = partner[Math.Min(i, partner.Length - 1)];
-            double dx = rail[i].X - across.X;
-            double dy = rail[i].Y - across.Y;
+            ClosestPointOnPolyline2D(rail[i], partner, partnerClosed, out double acrossX, out double acrossY);
+            double dx = rail[i].X - acrossX;
+            double dy = rail[i].Y - acrossY;
             double length = Math.Sqrt((dx * dx) + (dy * dy));
             if (length <= snapTolerance)
                 continue;
@@ -156,5 +166,41 @@ internal static class RetainingWallGradePlanner
         }
 
         return normals;
+    }
+
+    /// <summary>Plan-closest point on a polyline; a closed polyline includes its closing segment.</summary>
+    private static void ClosestPointOnPolyline2D(
+        Point3d point,
+        Point3d[] polyline,
+        bool isClosed,
+        out double closestX,
+        out double closestY)
+    {
+        closestX = polyline[0].X;
+        closestY = polyline[0].Y;
+        double best = double.MaxValue;
+        int segmentCount = isClosed ? polyline.Length : polyline.Length - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            Point3d a = polyline[i];
+            Point3d b = polyline[(i + 1) % polyline.Length];
+            double sx = b.X - a.X;
+            double sy = b.Y - a.Y;
+            double lengthSq = (sx * sx) + (sy * sy);
+            double t = lengthSq < 1e-18
+                ? 0.0
+                : Math.Clamp((((point.X - a.X) * sx) + ((point.Y - a.Y) * sy)) / lengthSq, 0.0, 1.0);
+            double cx = a.X + (t * sx);
+            double cy = a.Y + (t * sy);
+            double dx = point.X - cx;
+            double dy = point.Y - cy;
+            double distanceSq = (dx * dx) + (dy * dy);
+            if (distanceSq < best)
+            {
+                best = distanceSq;
+                closestX = cx;
+                closestY = cy;
+            }
+        }
     }
 }
