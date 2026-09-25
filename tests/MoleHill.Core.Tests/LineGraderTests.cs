@@ -180,6 +180,46 @@ public class LineGraderTests
     }
 
     [Fact]
+    public void HasAsymmetricSides_BothSidesOverriddenToTheSameAngle_IsTrue()
+    {
+        PathGrader.PathDefinition overridden = Line(
+            new[] { -20.0, 0.0, 20.0, 0.0 }, new[] { 0.0, 0.0 }, slopeAngleDeg: 45.0, leftCut: 20.0, rightCut: 20.0);
+        PathGrader.PathDefinition plain = Line(new[] { -20.0, 0.0, 20.0, 0.0 }, new[] { 0.0, 0.0 }, slopeAngleDeg: 45.0);
+
+        Assert.True(overridden.HasAsymmetricSides);
+        Assert.False(plain.HasAsymmetricSides);
+    }
+
+    /// <summary>
+    /// Both sides overridden to one angle must grade exactly like that angle set as the shared pair.
+    /// The daylight envelope used to be ray-marched at the shared angle while the sections graded at
+    /// the override, so the carve and the batter disagreed.
+    /// </summary>
+    [Fact]
+    public void Grade_BothSidesOverriddenToTheSameAngle_MatchesThatSharedAngle()
+    {
+        var terrain = FlatTerrain(10.0);
+        double[] xy = { -20.0, 0.0, 20.0, 0.0 };
+        double[] z = { 0.0, 0.0 };
+
+        GradingResult? overridden = PathGrader.Grade(
+            terrain.v, terrain.vc, terrain.f, terrain.fc,
+            new[] { Line(xy, z, slopeAngleDeg: 45.0, leftCut: 20.0, rightCut: 20.0) },
+            out string? overriddenError);
+        GradingResult? shared = PathGrader.Grade(
+            terrain.v, terrain.vc, terrain.f, terrain.fc,
+            new[] { Line(xy, z, slopeAngleDeg: 20.0) },
+            out string? sharedError);
+
+        Assert.True(overridden != null, overriddenError);
+        Assert.True(shared != null, sharedError);
+        PadInvariantAssert.AssertWatertightManifold(overridden!);
+        Assert.True(
+            Math.Abs(overridden.CutVolume - shared!.CutVolume) <= 0.01 * shared.CutVolume,
+            $"Overridden sides cut {overridden.CutVolume:F1}; the same shared angle cuts {shared.CutVolume:F1}.");
+    }
+
+    [Fact]
     public void Grade_LineAcrossSlopingTerrain_UsesCutOnOneSideAndFillOnTheOther()
     {
         // Terrain rises from z=0 at x=-60 to z=20 at x=+60, so a line along X at a constant z=10

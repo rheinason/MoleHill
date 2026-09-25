@@ -251,10 +251,17 @@ public static partial class PathGrader
         /// </summary>
         internal double FlattestCutAngleDeg() => Math.Min(LeftCutSlopeAngleDeg, RightCutSlopeAngleDeg);
 
-        /// <summary>True when either side departs from the shared cut/fill pair.</summary>
+        /// <summary>
+        /// True when either side departs from the shared cut/fill pair. Comparing left with right is
+        /// not enough: both sides overridden to the same angle agree with each other yet not with the
+        /// shared pair, and the daylight loop, which grades at the shared pair unless told otherwise,
+        /// would then disagree with the sections that grade at the override.
+        /// </summary>
         internal bool HasAsymmetricSides =>
-            LeftCutSlopeAngleDeg != RightCutSlopeAngleDeg ||
-            LeftFillSlopeAngleDeg != RightFillSlopeAngleDeg;
+            LeftCutSlopeAngleDeg != SlopeAngleDeg ||
+            RightCutSlopeAngleDeg != SlopeAngleDeg ||
+            LeftFillSlopeAngleDeg != FillSlopeAngleDeg ||
+            RightFillSlopeAngleDeg != FillSlopeAngleDeg;
 
         /// <summary>
         /// Transverse half extent of the graded footprint. A single line genuinely has none — it is
