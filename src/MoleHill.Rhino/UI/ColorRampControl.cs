@@ -549,11 +549,14 @@ internal sealed class ColorRampControl : Panel
         bool symmetric = _options.Shape == RangeShape.SymmetricAboutZero;
         bool fromZero = _options.Shape == RangeShape.FromZero;
 
+        // A symmetric range keeps the larger magnitude of the pair it is given, so pairing the edited
+        // bound with the other, unedited one could widen the range but never narrow it. The edited
+        // field's magnitude must win: mirror it onto the other side before the shape is applied.
         var min = new ScrubField(
             symmetric ? "Cut" : "Min",
             _range.Low,
             _options.FormatValue,
-            (value, live) => SetRange(value, _range.High, live),
+            (value, live) => SetRange(value, symmetric ? -value : _range.High, live),
             () => _range.Low,
             max: _range.High,
             help: symmetric
@@ -567,7 +570,7 @@ internal sealed class ColorRampControl : Panel
             symmetric ? "Fill" : "Max",
             _range.High,
             _options.FormatValue,
-            (value, live) => SetRange(_range.Low, value, live),
+            (value, live) => SetRange(symmetric ? -value : _range.Low, value, live),
             () => _range.High,
             min: fromZero ? 0.0 : null,
             help: "Values at or above this use the last colour. Drag to scrub.")
