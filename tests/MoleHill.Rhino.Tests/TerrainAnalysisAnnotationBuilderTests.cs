@@ -236,6 +236,33 @@ public class TerrainAnalysisAnnotationBuilderTests
     }
 
     [RhinoNativeFact]
+    public void BuildContourObjects_QuadMeshWithUnusedVertex_ContoursWholeSurface()
+    {
+        // Extraction triangulates the quad (1 face -> 2) and culls the unused vertex (5 -> 4), so the
+        // Rhino mesh's own counts describe neither array. Pairing them read past the vertex array and
+        // contoured only the first triangle.
+        Mesh mesh = CreateSlopedMesh();
+        mesh.Vertices.Add(50.0, 50.0, -1000.0);
+        var analysis = new ContourAnnotationDefinition
+        {
+            IsEnabled = true,
+            Interval = 20.0,
+            StartZ = 0.0,
+            ShowLabels = false
+        };
+
+        var (objects, _) = TerrainBuildService.BuildContourObjects(mesh, analysis);
+
+        var interiorContours = objects
+            .Select(output => output.Geometry)
+            .OfType<Curve>()
+            .Where(curve => curve.PointAtStart.Z > 1.0 && curve.PointAtStart.Z < 99.0)
+            .ToList();
+        Assert.NotEmpty(interiorContours);
+        Assert.All(interiorContours, curve => Assert.Equal(10.0, curve.GetLength(), precision: 6));
+    }
+
+    [RhinoNativeFact]
     public void BuildTerrainSectionSummary_MultipleTerrains_EmitsCutRegion()
     {
         var analysis = new TerrainSectionAnnotationDefinition { IsEnabled = true };

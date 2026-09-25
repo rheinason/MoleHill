@@ -35,6 +35,8 @@ internal sealed partial class TerrainBuildService
         ThrowIfCancellationRequested(shouldCancel);
         double[] currentVertices = Array.Empty<double>();
         int[] currentFaces = Array.Empty<int>();
+        int currentVertexCount = 0;
+        int currentFaceCount = 0;
         double elevMinZ = 0.0;
         double elevMaxZ = 0.0;
         double surfaceArea = 0.0;
@@ -51,12 +53,22 @@ internal sealed partial class TerrainBuildService
             if (analysisContextPrepared)
                 return true;
 
-            if (!RhinoGeometryConversions.TryExtractMeshData(currentMesh, out double[] vertices, out int[] faces, out _))
+            // The counts must come from the same extraction as the arrays: TryExtractMeshData normalizes
+            // a copy, so currentMesh.Vertices.Count/Faces.Count can describe a different mesh.
+            if (!RhinoGeometryConversions.TryExtractMeshData(
+                    currentMesh,
+                    out double[] vertices,
+                    out int vertexCount,
+                    out int[] faces,
+                    out int faceCount,
+                    out _))
                 return false;
 
             currentVertices = vertices;
             currentFaces = faces;
-            GetElevationRange(currentVertices, currentMesh.Vertices.Count, out elevMinZ, out elevMaxZ);
+            currentVertexCount = vertexCount;
+            currentFaceCount = faceCount;
+            GetElevationRange(currentVertices, currentVertexCount, out elevMinZ, out elevMaxZ);
             surfaceArea = AreaMassProperties.Compute(currentMesh)?.Area ?? 0.0;
             analysisContextPrepared = true;
             return true;
@@ -156,9 +168,10 @@ internal sealed partial class TerrainBuildService
                     referenceProjectionCache,
                     shouldCancel),
                 SlopeAnalysisDefinition slope => BuildSlopeSummary(
-                    currentMesh,
                     currentVertices,
+                    currentVertexCount,
                     currentFaces,
+                    currentFaceCount,
                     slope,
                     surfaceArea),
                 AspectAnalysisDefinition aspect => BuildAspectSummary(
@@ -192,9 +205,10 @@ internal sealed partial class TerrainBuildService
                     shouldCancel),
                 WaterflowAnalysisDefinition waterflow => BuildWaterflowSummary(
                     snapshot,
-                    currentMesh,
                     currentVertices,
+                    currentVertexCount,
                     currentFaces,
+                    currentFaceCount,
                     waterflow,
                     build,
                     shouldCancel),
@@ -311,9 +325,10 @@ internal sealed partial class TerrainBuildService
     }
 
     private static TerrainAnalysisSummary BuildSlopeSummary(
-        RhinoMesh currentMesh,
         double[] currentVertices,
+        int currentVertexCount,
         int[] currentFaces,
+        int currentFaceCount,
         SlopeAnalysisDefinition analysis,
         double surfaceArea)
     {
@@ -323,9 +338,9 @@ internal sealed partial class TerrainBuildService
         double highPercent = ConvertSlopeUnitToPercent(analysis.RangeHigh, analysis.Unit);
         var slope = SlopeAnalyzer.Summarize(
             currentVertices,
-            currentMesh.Vertices.Count,
+            currentVertexCount,
             currentFaces,
-            currentMesh.Faces.Count,
+            currentFaceCount,
             SlopeAnalyzer.SlopeUnit.Percent,
             analysis.AutoColorRange,
             Math.Max(0.0, lowPercent),
@@ -700,10 +715,10 @@ internal sealed partial class TerrainBuildService
         ContourAnnotationDefinition analysis,
         double tolerance = 1e-4)
     {
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out _))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out _, out _, out _))
             return (new List<GeneratedRhinoObject>(), new TerrainAnalysisSummary { AnalysisId = analysis.Id });
 
-        GetElevationRange(vertices, mesh.Vertices.Count, out double minZ, out double maxZ);
+        GetElevationRange(vertices, vertexCount, out double minZ, out double maxZ);
         return BuildContourCore(mesh, analysis, minZ, maxZ, tolerance);
     }
 
@@ -722,7 +737,7 @@ internal sealed partial class TerrainBuildService
         double firstLevel = 0.0;
         double lastLevel = 0.0;
 
-        if (RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
+        if (RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
         {
             double effectiveTolerance = Math.Max(Math.Abs(tolerance), double.Epsilon);
             var levels = BuildContourLevels(elevMinZ, elevMaxZ, analysis.StartZ, Math.Max(analysis.Interval, effectiveTolerance));
@@ -730,7 +745,7 @@ internal sealed partial class TerrainBuildService
             // Single pass over the faces (marching triangles) instead of one mesh-plane intersection
             // per level. Each triangle only contributes to the levels inside its own Z-span.
             var contourLevels = ContourGenerator.Generate(
-                vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, levels, effectiveTolerance);
+                vertices, vertexCount, faces, faceCount, levels, effectiveTolerance);
 
             int everyNth = Math.Max(1, analysis.LabelEveryNth);
             bool wantLabels = analysis.ShowLabels && analysis.IsEnabled;

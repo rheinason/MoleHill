@@ -9,9 +9,10 @@ internal sealed partial class TerrainBuildService
 {
     private static TerrainAnalysisSummary BuildWaterflowSummary(
         TerrainBuildSnapshot snapshot,
-        RhinoMesh mesh,
         double[] vertices,
+        int vertexCount,
         int[] faces,
+        int faceCount,
         WaterflowAnalysisDefinition analysis,
         TerrainBuildResult build,
         Func<bool>? shouldCancel)
@@ -35,9 +36,9 @@ internal sealed partial class TerrainBuildService
 
         WaterflowTracer.Result traced = WaterflowTracer.Trace(
             vertices,
-            mesh.Vertices.Count,
+            vertexCount,
             faces,
-            mesh.Faces.Count,
+            faceCount,
             starts,
             sourcePoints.Count,
             new WaterflowTracer.Options
