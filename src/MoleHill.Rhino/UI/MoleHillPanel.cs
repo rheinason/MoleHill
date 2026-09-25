@@ -215,7 +215,8 @@ public sealed partial class MoleHillPanel : Panel
         ApplyHelp(_terrainOpacityStepper, "Terrain opacity used for the preview and the baked terrain mesh.");
         ApplyHelp(_terrainOpacitySlider, "Drag to adjust terrain opacity for preview and bake.");
         ApplyHelp(_terrainColorSwatch, "Click to pick the terrain display color.");
-        _terrainOpacityStepper.GotFocus += (_, _) => BeginControllerRefreshDeferral();
+        var (beginStepperDeferral, endStepperDeferral) = CreatePairedRefreshDeferral();
+        _terrainOpacityStepper.GotFocus += (_, _) => beginStepperDeferral();
         _terrainColorSwatch.MouseDown += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
@@ -238,7 +239,7 @@ public sealed partial class MoleHillPanel : Panel
                 SetTerrainOpacityControls(opacityPercent);
                 ApplyTerrainOpacity(opacityPercent);
             }
-            EndControllerRefreshDeferral();
+            endStepperDeferral();
         };
         _terrainOpacityStepper.KeyDown += (_, e) =>
         {
@@ -248,20 +249,21 @@ public sealed partial class MoleHillPanel : Panel
             int opacityPercent = (int)Math.Round(_terrainOpacityStepper.Value);
             SetTerrainOpacityControls(opacityPercent);
             ApplyTerrainOpacity(opacityPercent);
-            EndControllerRefreshDeferral();
+            endStepperDeferral();
             e.Handled = true;
         };
+        var (beginOpacitySliderDeferral, endOpacitySliderDeferral) = CreatePairedRefreshDeferral();
         _terrainOpacitySlider.MouseDown += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
-                BeginControllerRefreshDeferral();
+                beginOpacitySliderDeferral();
         };
         _terrainOpacitySlider.MouseUp += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
-                EndControllerRefreshDeferral();
+                endOpacitySliderDeferral();
         };
-        _terrainOpacitySlider.LostFocus += (_, _) => EndControllerRefreshDeferral();
+        _terrainOpacitySlider.LostFocus += (_, _) => endOpacitySliderDeferral();
         _terrainOpacitySlider.ValueChanged += (_, _) =>
         {
             if (_isRefreshing || _isUpdatingOpacityControls)
@@ -285,17 +287,18 @@ public sealed partial class MoleHillPanel : Panel
             _previewLineWeightValue.Text = weight.ToString("0.0", CultureInfo.CurrentCulture) + "x";
             MutateSelectedTerrainLive(terrain => terrain.PreviewLineWeight = weight);
         };
+        var (beginLineWeightDeferral, endLineWeightDeferral) = CreatePairedRefreshDeferral();
         _previewLineWeightSlider.MouseDown += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
-                BeginControllerRefreshDeferral();
+                beginLineWeightDeferral();
         };
         _previewLineWeightSlider.MouseUp += (_, e) =>
         {
             if (e.Buttons == MouseButtons.Primary)
-                EndControllerRefreshDeferral();
+                endLineWeightDeferral();
         };
-        _previewLineWeightSlider.LostFocus += (_, _) => EndControllerRefreshDeferral();
+        _previewLineWeightSlider.LostFocus += (_, _) => endLineWeightDeferral();
         ApplyHelp(_showWiresCheck, "Show or hide MoleHill terrain mesh wires in preview and generated terrain meshes.");
         _showWiresCheck.CheckedChanged += (_, _) =>
         {
@@ -1060,6 +1063,31 @@ public sealed partial class MoleHillPanel : Panel
         if (_deferredControllerRefreshDepth == 0 && RhinoDoc.ActiveDoc is { } doc)
             _controller.BeginTerrainEditGesture(doc);
         _deferredControllerRefreshDepth++;
+    }
+
+    /// <summary>
+    /// A begin/end pair for one control that may see several "end" events for a single "begin" (Enter
+    /// then LostFocus, MouseUp then LostFocus). Only the end matching this control's own begin releases
+    /// the shared deferral, so a stray extra end cannot close another control's gesture mid-drag.
+    /// </summary>
+    private (Action Begin, Action End) CreatePairedRefreshDeferral()
+    {
+        bool isDeferring = false;
+        return (
+            () =>
+            {
+                if (isDeferring)
+                    return;
+                isDeferring = true;
+                BeginControllerRefreshDeferral();
+            },
+            () =>
+            {
+                if (!isDeferring)
+                    return;
+                isDeferring = false;
+                EndControllerRefreshDeferral();
+            });
     }
 
     private void EndControllerRefreshDeferral()
