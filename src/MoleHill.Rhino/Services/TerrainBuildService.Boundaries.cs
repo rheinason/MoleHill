@@ -8,8 +8,10 @@ namespace MoleHill.Rhino.Services;
 
 internal sealed partial class TerrainBuildService
 {
+    // A disabled card must not keep trimming the terrain or clipping Add Geometry inputs — the card is
+    // off, so its boundaries are too.
     private static TriangulateModifierDefinition? GetBoundaryOwner(TerrainDefinition terrain) =>
-        terrain.Modifiers.OfType<TriangulateModifierDefinition>().FirstOrDefault();
+        terrain.Modifiers.OfType<TriangulateModifierDefinition>().FirstOrDefault(triangulate => triangulate.IsEnabled);
 
     private static List<MeshAreaSplitter.AreaBoundary> ResolveBoundaryAreas(
         TerrainBuildSnapshot snapshot,
