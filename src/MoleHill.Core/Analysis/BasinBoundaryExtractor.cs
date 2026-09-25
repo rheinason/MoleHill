@@ -6,9 +6,10 @@ namespace MoleHill.Core.Analysis;
 public static class BasinBoundaryExtractor
 {
     /// <summary>
-    /// Boundary loops of one basin, as flat XYZ point arrays that follow the mesh exactly. Each loop
+    /// Boundary loops of one basin, as flat XYZ point arrays that follow the mesh exactly. A closed loop
     /// repeats its first point at the end, so a caller can hand it straight to a polyline without
-    /// deciding whether it closes.
+    /// deciding whether it closes. An open chain — only possible where the mesh's winding is
+    /// inconsistent — is returned open, with its first and last points distinct.
     /// </summary>
     /// <remarks>
     /// The loops come out of the mesh's own winding: every edge of a basin face whose neighbour is in a
@@ -48,14 +49,20 @@ public static class BasinBoundaryExtractor
             }
         }
 
-        List<int[]> chains = EdgeLoopChainer.ChainDirected(boundaryEdges, boundaryEdges.Count / 2, vertexCount);
+        var closed = new List<bool>();
+        List<int[]> chains = EdgeLoopChainer.ChainDirected(boundaryEdges, boundaryEdges.Count / 2, vertexCount, closed);
         var loops = new List<double[]>(chains.Count);
-        foreach (int[] chain in chains)
+        for (int chainIndex = 0; chainIndex < chains.Count; chainIndex++)
         {
+            int[] chain = chains[chainIndex];
             if (chain.Length < 3)
                 continue;
 
-            var points = new double[(chain.Length + 1) * 3];
+            // Only a chain that really returned to its start is closed. An open chain (unbalanced edges
+            // on an inconsistently wound mesh) stays open: closing it would draw a straight divide that
+            // does not exist.
+            bool isClosed = closed[chainIndex];
+            var points = new double[(chain.Length + (isClosed ? 1 : 0)) * 3];
             for (int index = 0; index < chain.Length; index++)
             {
                 int vertex = chain[index];
@@ -64,9 +71,13 @@ public static class BasinBoundaryExtractor
                 points[(index * 3) + 2] = vertices[(vertex * 3) + 2];
             }
 
-            points[chain.Length * 3] = points[0];
-            points[(chain.Length * 3) + 1] = points[1];
-            points[(chain.Length * 3) + 2] = points[2];
+            if (isClosed)
+            {
+                points[chain.Length * 3] = points[0];
+                points[(chain.Length * 3) + 1] = points[1];
+                points[(chain.Length * 3) + 2] = points[2];
+            }
+
             loops.Add(points);
         }
 

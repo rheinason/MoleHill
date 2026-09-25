@@ -16,9 +16,11 @@ internal static class EdgeLoopChainer
 {
     /// <summary>
     /// Chains <paramref name="edges"/>, a flat <c>[a0, b0, a1, b1, …]</c> array of directed edges, into
-    /// vertex sequences. A closed loop does not repeat its first vertex at the end.
+    /// vertex sequences. A closed loop does not repeat its first vertex at the end. When
+    /// <paramref name="closed"/> is given, it receives one flag per returned chain: true where the chain's
+    /// last edge returned to its first vertex, false for an open chain.
     /// </summary>
-    public static List<int[]> ChainDirected(IReadOnlyList<int> edges, int edgeCount, int vertexCount)
+    public static List<int[]> ChainDirected(IReadOnlyList<int> edges, int edgeCount, int vertexCount, List<bool>? closed = null)
     {
         var chains = new List<int[]>();
         if (edgeCount <= 0)
@@ -60,6 +62,7 @@ internal static class EdgeLoopChainer
             chain.Clear();
             int current = seed;
             int startVertex = edges[seed * 2];
+            bool isClosed;
 
             while (true)
             {
@@ -68,7 +71,10 @@ internal static class EdgeLoopChainer
                 int to = edges[(current * 2) + 1];
 
                 if (to == startVertex)
+                {
+                    isClosed = true;
                     break;
+                }
 
                 int next = TakeUnusedOutgoing(outgoing, outgoingStart, walked, used, to, vertexCount);
                 if (next < 0)
@@ -76,6 +82,7 @@ internal static class EdgeLoopChainer
                     // Ran out before closing: an open chain. Keep its last vertex, which a loop would
                     // have folded back onto its first.
                     chain.Add(to);
+                    isClosed = false;
                     break;
                 }
 
@@ -83,7 +90,10 @@ internal static class EdgeLoopChainer
             }
 
             if (chain.Count >= 2)
+            {
                 chains.Add(chain.ToArray());
+                closed?.Add(isClosed);
+            }
         }
 
         return chains;
