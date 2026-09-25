@@ -158,6 +158,30 @@ internal sealed class FieldCodeTableStore
     }
 
     /// <summary>
+    /// Codes that more than one rule claims, compared the way <see cref="Normalize"/> dedupes them.
+    ///
+    /// The editor checks this before saving because <see cref="Normalize"/> keeps the first rule and
+    /// silently drops the rest — and the dropped one is usually the row the user just edited.
+    /// Normalize keeps doing that for loads, where a hand-edited file has no one to ask.
+    /// </summary>
+    internal static List<string> FindDuplicateCodes(IEnumerable<FieldCodeRule> rules)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var duplicates = new List<string>();
+        foreach (FieldCodeRule rule in rules)
+        {
+            if (rule == null || string.IsNullOrWhiteSpace(rule.Code))
+                continue;
+
+            string code = rule.Code.Trim().ToUpperInvariant();
+            if (!seen.Add(code) && !duplicates.Contains(code))
+                duplicates.Add(code);
+        }
+
+        return duplicates;
+    }
+
+    /// <summary>
     /// Trims the table into a shape the parser can rely on: codes uppercased and deduplicated, blank
     /// rules and blank marker tokens dropped.
     ///

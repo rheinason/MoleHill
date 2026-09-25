@@ -196,6 +196,27 @@ public sealed class FieldCodeTableStoreTests : IDisposable
     }
 
     [Fact]
+    public void FindDuplicateCodes_SameCodeDifferentCaseAndSpacing_IsReportedOnce()
+    {
+        var rules = new[]
+        {
+            new FieldCodeRule { Code = "EP" },
+            new FieldCodeRule { Code = " ep " },
+            new FieldCodeRule { Code = "Ep" },
+            new FieldCodeRule { Code = "TC" },
+            new FieldCodeRule { Code = "  " }
+        };
+
+        Assert.Equal(new[] { "EP" }, FieldCodeTableStore.FindDuplicateCodes(rules));
+    }
+
+    [Fact]
+    public void FindDuplicateCodes_DistinctCodes_ReportsNothing()
+    {
+        Assert.Empty(FieldCodeTableStore.FindDuplicateCodes(FieldCodeTable.CreateDefault().Rules));
+    }
+
+    [Fact]
     public void Normalize_BlankCodeRule_IsDropped()
     {
         var table = new FieldCodeTable

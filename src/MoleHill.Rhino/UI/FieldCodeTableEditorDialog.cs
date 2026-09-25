@@ -328,6 +328,16 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
 
     private void Commit()
     {
+        // Checked on the rows, before Collect normalizes: normalization would keep the first rule for a
+        // code and drop the others without a word, and the one dropped is usually the one just edited.
+        List<string> duplicates = FieldCodeTableStore.FindDuplicateCodes(_rows.Select(static row => row.ToRule()));
+        if (duplicates.Count > 0)
+        {
+            _status.Text = $"Each code can have only one rule, but {string.Join(", ", duplicates)} " +
+                           (duplicates.Count == 1 ? "is" : "are") + " listed more than once. Rename or remove the extra rows, then save.";
+            return;
+        }
+
         FieldCodeTable collected = Collect();
         if (collected.Rules.Count == 0 && !Confirm("Save a table with no codes? Every point will be reported as unmatched."))
             return;
