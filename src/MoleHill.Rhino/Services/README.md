@@ -332,8 +332,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   lookups; endpoint discontinuities are excluded, real plan corners remain distinct from finite radii, and
   adjacent vertical-break samples merge into one PI event.
 - `CurveReviewLabeller.cs` - the inspector's `Label` button. Picks points constrained to the inspected
-  curve and drops text dots reading any combination of elevation, grade, station and cut/fill, taken from
-  the analysis already on screen. Dots go to the `Labels` role's layer via
+  curve and drops text dots reading any combination of elevation, grade, station and cut/fill. Station
+  and cut/fill are read at the picked point itself (plan length to its curve parameter, terrain projected
+  under it), not at the nearest analysis sample; grade is the analysis stretch containing that station. Dots go to the `Labels` role's layer via
   `LayerRoleService.EnsureRoleLayer`, so they inherit its print width, and the whole run is one
   undo record. Replaces the removed `mhSlopeCheckAndMark` command. The terrain mesh is peeked (`TerrainController.PeekFinalTerrainMesh`,
   read-only, no copy) and the analysis is rebuilt only when the object serial, terrain mesh, or a limit
