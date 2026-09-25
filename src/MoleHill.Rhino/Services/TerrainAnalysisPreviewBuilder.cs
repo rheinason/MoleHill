@@ -93,15 +93,16 @@ internal static class TerrainAnalysisPreviewBuilder
     {
         range = null;
         distribution = null;
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
+        if (!RhinoGeometryConversions.TryExtractMeshData(
+                mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
             return null;
 
         var palette = analysis.ResolveRamp();
         var slope = SlopeAnalyzer.Analyze(
             vertices,
-            mesh.Vertices.Count,
+            vertexCount,
             faces,
-            mesh.Faces.Count,
+            faceCount,
             analysis.Unit,
             analysis.AutoColorRange,
             analysis.RangeLow,
@@ -112,7 +113,7 @@ internal static class TerrainAnalysisPreviewBuilder
 
         range = slope.Range;
         distribution = BuildDistribution(slope.Slopes, ReadOnlySpan<double>.Empty, slope.Range);
-        return BuildFaceColorMesh(vertices, faces, mesh.Faces.Count, slope.FaceColors, alpha);
+        return BuildFaceColorMesh(vertices, faces, faceCount, slope.FaceColors, alpha);
     }
 
     /// <summary>
@@ -345,10 +346,10 @@ internal static class TerrainAnalysisPreviewBuilder
     {
         range = null;
         distribution = null;
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
+        if (!RhinoGeometryConversions.TryExtractMeshData(
+                mesh, out var vertices, out _, out var faces, out int faceCount, out _))
             return null;
 
-        int faceCount = mesh.Faces.Count;
         var values = new double[faceCount];
         var areas = new double[faceCount];
         if (faceCount >= ParallelColorThreshold)
@@ -406,7 +407,8 @@ internal static class TerrainAnalysisPreviewBuilder
         range = null;
         distribution = null;
         RhinoMesh? terrainMesh = state.TerrainMesh;
-        if (terrainMesh == null || !RhinoGeometryConversions.TryExtractMeshData(terrainMesh, out var vertices, out var faces, out _))
+        if (terrainMesh == null || !RhinoGeometryConversions.TryExtractMeshData(
+                terrainMesh, out var vertices, out _, out var faces, out int faceCount, out _))
             return null;
 
         RhinoMesh? referenceTerrainMesh = analysis.ReferenceTerrainId is { } referenceTerrainId
@@ -418,7 +420,6 @@ internal static class TerrainAnalysisPreviewBuilder
 
         MeshHeightProjector? referenceProjector = CreateReferenceProjector(referenceMesh);
         var boundaries = RhinoSourceResolver.ResolveCurves(doc, analysis.Boundary);
-        int faceCount = terrainMesh.Faces.Count;
         var values = new double[faceCount];
         var areas = new double[faceCount];
 
