@@ -262,6 +262,9 @@ one, the plugin separates **how a slope is stored** from **how it is written**.
   `prom` and `deg` carry them.
 - **`a:b` means vertical:horizontal**, so `1:3` is the flat batter. This is the plugin-wide reading and
   matches what `OffsetVerticalMode.Ratio` ("the run of 1:n") has always meant at the command line.
+  For the same reason a **bare number under the Ratio unit is the run `n` of 1:n** — in a panel field
+  exactly as in a command-line `SlopeCommandOption` (both go through `SlopeInput.TryConvertDisplayNumber`),
+  so `4` is the 1:4 batter everywhere. Only a written `0.25 ratio` is read as rise/run.
 
 `SlopeUnitPreference` (Rhino/Services) holds the chosen unit. It is a **per-user display preference**,
 persisted in the plug-in's own settings rather than the document — the same terrain should read 1:3 for

@@ -64,6 +64,30 @@ public class SlopeInputTests
         Assert.Equal(0.045, asPromille, 9);
     }
 
+    [Theory]
+    [InlineData("4", 0.25)]
+    [InlineData("3", 1.0 / 3.0)]
+    [InlineData("0.5", 2.0)]
+    [InlineData("0", 0.0)]
+    public void TryParse_BareNumberUnderRatio_IsTheRunOfOneToN(string text, double expected)
+    {
+        // The command line has always read a Ratio-unit number as n of 1:n; the panel now agrees, so a
+        // bare 4 is the 1:4 batter in both places rather than a 76° one in the panel.
+        Assert.True(SlopeInput.TryParse(text, Ratio, out double ratio));
+        Assert.Equal(expected, ratio, 9);
+        Assert.True(SlopeInput.TryConvertDisplayNumber(double.Parse(text, CultureInfo.InvariantCulture), Ratio, out double commandLine));
+        Assert.Equal(commandLine, ratio, 9);
+    }
+
+    [Fact]
+    public void TryParse_WrittenRatioSuffix_IsRiseOverRun()
+    {
+        Assert.True(SlopeInput.TryParse("0.25 ratio", Percent, out double fromPercent));
+        Assert.Equal(0.25, fromPercent, 9);
+        Assert.True(SlopeInput.TryParse("0.25 ratio", Ratio, out double fromRatio));
+        Assert.Equal(0.25, fromRatio, 9);
+    }
+
     // 1:3 is vertical:horizontal — the flat batter, not the steep one. This is the plugin-wide reading
     // and matches OffsetVerticalMode.Ratio ("the run of 1:n") at the command line.
     [Theory]
@@ -100,6 +124,39 @@ public class SlopeInputTests
     public void TryParse_UnusableText_Fails(string text)
     {
         Assert.False(SlopeInput.TryParse(text, Percent, out _));
+    }
+
+    [Theory]
+    [InlineData(95.0)]
+    [InlineData(-95.0)]
+    [InlineData(90.0)]
+    public void TryConvertDisplayNumber_AngleBeyondMaxSlope_Fails(double degrees)
+    {
+        // tan(95°) is negative: without the bound a command-line 95° became a falling slope.
+        Assert.False(SlopeInput.TryConvertDisplayNumber(degrees, Degrees, out _));
+    }
+
+    [Theory]
+    [InlineData(45.0, Degrees, 1.0)]
+    [InlineData(25.0, Percent, 0.25)]
+    [InlineData(50.0, Promille, 0.05)]
+    [InlineData(4.0, Ratio, 0.25)]
+    [InlineData(0.0, Ratio, 0.0)]
+    public void TryConvertDisplayNumber_NumberInUnit_ReturnsRatio(double value, SlopeAnalyzer.SlopeUnit unit, double expected)
+    {
+        Assert.True(SlopeInput.TryConvertDisplayNumber(value, unit, out double ratio));
+        Assert.Equal(expected, ratio, 9);
+    }
+
+    [Theory]
+    [InlineData(Percent)]
+    [InlineData(Promille)]
+    [InlineData(Degrees)]
+    [InlineData(Ratio)]
+    public void ToDisplayNumber_ThenTryConvertDisplayNumber_RoundTrips(SlopeAnalyzer.SlopeUnit unit)
+    {
+        Assert.True(SlopeInput.TryConvertDisplayNumber(SlopeInput.ToDisplayNumber(0.4, unit), unit, out double ratio));
+        Assert.Equal(0.4, ratio, 9);
     }
 
     [Fact]

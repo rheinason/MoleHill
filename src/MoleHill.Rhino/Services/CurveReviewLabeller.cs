@@ -49,6 +49,12 @@ internal static class CurveReviewLabeller
         if (content == CurveLabelContent.None)
             content = CurveLabelContent.Elevation;
 
+        // Readings are taken at the picked point itself, not at the nearest analysis sample: samples sit
+        // up to half a spacing apart, and a baked dot that is off by that much is simply wrong. One plan
+        // projection serves every pick in the session.
+        using Curve? planCurve = GeometryCommandAlgorithms.CreatePlanCurve(curve);
+        var reader = new PointReader(curve, planCurve, CurveReviewService.PeekTerrainMesh(doc), doc.ModelAbsoluteTolerance);
+
         int layerIndex = EnsureLabelLayer(doc);
         uint undoRecord = doc.BeginUndoRecord("Label curve");
         int placed = 0;
@@ -65,7 +71,7 @@ internal static class CurveReviewLabeller
                 // against the ribbon it is being placed on.
                 getPoint.DynamicDraw += (_, e) =>
                 {
-                    string preview = BuildLabel(analysis, e.CurrentPoint, content);
+                    string preview = BuildLabel(analysis, reader, e.CurrentPoint, content);
                     if (preview.Length > 0)
                         e.Display.DrawDot(e.CurrentPoint, preview, System.Drawing.Color.FromArgb(58, 58, 62), System.Drawing.Color.White);
                 };
@@ -75,7 +81,7 @@ internal static class CurveReviewLabeller
                     break;
 
                 Point3d point = getPoint.Point();
-                string text = BuildLabel(analysis, point, content);
+                string text = BuildLabel(analysis, reader, point, content);
                 if (text.Length == 0)
                     continue;
 
@@ -98,26 +104,27 @@ internal static class CurveReviewLabeller
     }
 
     /// <summary>The label text for a point on the curve, assembled from the readings the user asked for.</summary>
-    public static string BuildLabel(CurveReviewAnalysis analysis, Point3d point, CurveLabelContent content)
+    private static string BuildLabel(CurveReviewAnalysis analysis, PointReader reader, Point3d point, CurveLabelContent content)
     {
         if (!point.IsValid)
             return string.Empty;
 
         var parts = new List<string>(4);
-        CurveReviewSample? sample = FindNearestSample(analysis, point);
+        double station = reader.StationAt(point, analysis);
 
-        if (content.HasFlag(CurveLabelContent.Station) && sample.HasValue)
-            parts.Add($"STA {sample.Value.Station.ToString("F1", CultureInfo.CurrentCulture)}");
+        if (content.HasFlag(CurveLabelContent.Station) && double.IsFinite(station))
+            parts.Add($"STA {station.ToString("F1", CultureInfo.CurrentCulture)}");
 
         if (content.HasFlag(CurveLabelContent.Elevation))
             parts.Add(point.Z.ToString("F2", CultureInfo.CurrentCulture));
 
-        if (content.HasFlag(CurveLabelContent.Grade) && TryFindSpanGrade(analysis, point, out double grade))
+        if (content.HasFlag(CurveLabelContent.Grade) &&
+            CurveReviewAnalysis.SpanGradeAtStation(analysis.Spans, station) is double grade)
             parts.Add(grade.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture) + "%");
 
-        if (content.HasFlag(CurveLabelContent.CutFill) && sample is { HasTerrain: true } terrainSample)
+        if (content.HasFlag(CurveLabelContent.CutFill) && reader.TryTerrainZAt(point, out double terrainZ))
         {
-            double delta = point.Z - terrainSample.TerrainZ;
+            double delta = point.Z - terrainZ;
             parts.Add(delta >= 0.0
                 ? $"fill {delta.ToString("F2", CultureInfo.CurrentCulture)}"
                 : $"cut {(-delta).ToString("F2", CultureInfo.CurrentCulture)}");
@@ -169,30 +176,43 @@ internal static class CurveReviewLabeller
         return best;
     }
 
-    /// <summary>Grade of the stretch the point falls in, matched by station rather than by proximity so a
-    /// pick near a kink reports the stretch it is actually on.</summary>
-    private static bool TryFindSpanGrade(CurveReviewAnalysis analysis, Point3d point, out double grade)
+    /// <summary>Station and terrain readings at an exact picked point on the inspected curve.</summary>
+    private sealed class PointReader
     {
-        grade = 0.0;
-        if (analysis.Spans.Count == 0)
-            return false;
+        private readonly Curve _curve;
+        private readonly Curve? _planCurve;
+        private readonly Mesh? _terrainMesh;
+        private readonly double _tolerance;
 
-        CurveReviewSample? sample = FindNearestSample(analysis, point);
-        if (sample is not { } station)
-            return false;
-
-        foreach (CurveReviewSpan span in analysis.Spans)
+        public PointReader(Curve curve, Curve? planCurve, Mesh? terrainMesh, double tolerance)
         {
-            if (station.Station >= span.StartStation && station.Station <= span.EndStation)
-            {
-                grade = span.Grade;
-                return true;
-            }
+            _curve = curve;
+            _planCurve = planCurve;
+            _terrainMesh = terrainMesh;
+            _tolerance = tolerance;
         }
 
-        grade = station.Station <= analysis.Spans[0].StartStation
-            ? analysis.Spans[0].Grade
-            : analysis.Spans[^1].Grade;
-        return true;
+        /// <summary>Plan station of the point — the plan length to its parameter on the curve, the same
+        /// measure the analysis stations by. Falls back to the nearest sample only when the curve has no
+        /// plan projection.</summary>
+        public double StationAt(Point3d point, CurveReviewAnalysis analysis)
+        {
+            if (_planCurve != null && _curve.ClosestPoint(point, out double parameter))
+                return CurveReviewAnalyzer.PlanLengthAt(_planCurve, parameter);
+
+            return FindNearestSample(analysis, point) is { } sample ? sample.Station : double.NaN;
+        }
+
+        /// <summary>Terrain elevation straight below or above the point, as the analysis samples it.</summary>
+        public bool TryTerrainZAt(Point3d point, out double terrainZ)
+        {
+            terrainZ = 0.0;
+            if (_terrainMesh == null ||
+                !TerrainMeshProjection.TryProjectPointAlongWorldZ(_terrainMesh, point, _tolerance, out Point3d projected))
+                return false;
+
+            terrainZ = projected.Z;
+            return true;
+        }
     }
 }

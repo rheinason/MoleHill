@@ -95,6 +95,40 @@ internal sealed class CurveReviewAnalysis
     public bool RadiusFails => PlanCornerCount > 0 || RadiusViolations.Count > 0;
     public int WarningCount => Checks.Count(item => item.IsWarning);
 
+    /// <summary>
+    /// Where the first event of <paramref name="kind"/> sits, or null when there is none. The event is a
+    /// struct, so <c>FirstOrDefault(...).Point</c> reads the world origin when nothing matches — a zoom
+    /// target that looks like a real one.
+    /// </summary>
+    public static Point3d? FirstEventPoint(IReadOnlyList<CurveReviewEvent> events, CurveReviewEventKind kind)
+    {
+        foreach (CurveReviewEvent item in events)
+        {
+            if (item.Kind == kind)
+                return item.Point;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Grade of the stretch containing a plan station; a station before the first or after the last
+    /// stretch takes the end one. Null when there are no stretches.
+    /// </summary>
+    public static double? SpanGradeAtStation(IReadOnlyList<CurveReviewSpan> spans, double station)
+    {
+        if (spans.Count == 0 || double.IsNaN(station))
+            return null;
+
+        foreach (CurveReviewSpan span in spans)
+        {
+            if (station >= span.StartStation && station <= span.EndStation)
+                return span.Grade;
+        }
+
+        return station <= spans[0].StartStation ? spans[0].Grade : spans[^1].Grade;
+    }
+
     /// <summary>Scale used to map an absolute grade onto the review color ramp.</summary>
     public double GradeColorScale => MaximumGradeLimit is > 0.0
         ? MaximumGradeLimit.Value
@@ -395,7 +429,9 @@ internal static class CurveReviewAnalyzer
         return spans;
     }
 
-    private static double PlanLengthAt(Curve planCurve, double parameter) => parameter <= planCurve.Domain.T0
+    /// <summary>Plan station of a curve parameter, measured along the World-XY projection from
+    /// <see cref="GeometryCommandAlgorithms.CreatePlanCurve"/> (which keeps the source domain).</summary>
+    internal static double PlanLengthAt(Curve planCurve, double parameter) => parameter <= planCurve.Domain.T0
         ? 0.0
         : planCurve.GetLength(new Interval(planCurve.Domain.T0, parameter));
 

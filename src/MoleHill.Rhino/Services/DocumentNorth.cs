@@ -1,3 +1,4 @@
+using MoleHill.Rhino.Model;
 using Rhino;
 
 namespace MoleHill.Rhino.Services;
@@ -24,4 +25,17 @@ internal static class DocumentNorth
         double north = doc?.Lights.Sun.North ?? DefaultAzimuthDegrees;
         return double.IsFinite(north) ? north : DefaultAzimuthDegrees;
     }
+
+    /// <summary>
+    /// Terrains whose output reads north and that rebuild on their own: a live-updating terrain with an
+    /// enabled aspect analysis. North lives on the document, so changing it touches no definition and
+    /// nothing else would schedule their rebuild. A terrain with live update off keeps its manual contract
+    /// and picks the new north up on its next Rebuild.
+    /// </summary>
+    public static IReadOnlyList<Guid> TerrainsToRefreshAfterChange(IEnumerable<TerrainDefinition> terrains) =>
+        terrains
+            .Where(terrain => terrain.LiveUpdateEnabled &&
+                              terrain.Analyses.Any(analysis => analysis is AspectAnalysisDefinition { IsEnabled: true }))
+            .Select(terrain => terrain.TerrainId)
+            .ToList();
 }

@@ -2,6 +2,7 @@
 using System.Globalization;
 using Eto.Drawing;
 using Eto.Forms;
+using MoleHill.Core.Analysis;
 using MoleHill.Rhino.UI;
 using MoleHill.Shared;
 using Rhino;
@@ -356,14 +357,22 @@ internal sealed class CurveReviewForm : Form
 
         var threshold = new TextBox
         {
-            Text = result.Threshold.ToString("F2", CultureInfo.CurrentCulture),
+            Text = CurveReviewThresholdInput.Format(result.Kind, result.Threshold, SlopeUnitPreference.Current),
             Width = UiMetrics.NumericField,
             Height = UiMetrics.CompactControlHeight
         };
         UiControls.StyleInput(threshold);
         BindCommitted(threshold, () =>
         {
-            SetRuleThreshold(result.Kind, Parse(threshold.Text));
+            // Unparseable or empty text reverts the field instead of committing a zero limit.
+            SlopeAnalyzer.SlopeUnit slopeUnit = SlopeUnitPreference.Current;
+            if (!CurveReviewThresholdInput.TryParse(result.Kind, threshold.Text, slopeUnit, out double value))
+            {
+                threshold.Text = CurveReviewThresholdInput.Format(result.Kind, GetRuleThreshold(result.Kind), slopeUnit);
+                return;
+            }
+
+            SetRuleThreshold(result.Kind, value);
             SaveRules();
         });
 
@@ -664,6 +673,15 @@ internal sealed class CurveReviewForm : Form
         }
     }
 
+    private double GetRuleThreshold(CurveReviewRuleKind kind) => kind switch
+    {
+        CurveReviewRuleKind.MaximumGrade => _rules.MaximumGradePercent,
+        CurveReviewRuleKind.MinimumPlanRadius => _rules.MinimumRadius,
+        CurveReviewRuleKind.VerticalGradeChange => _rules.VerticalBreakThresholdPercent,
+        CurveReviewRuleKind.TerrainCoverage => _rules.MinimumTerrainCoveragePercent,
+        _ => 0.0
+    };
+
     private void SetRuleThreshold(CurveReviewRuleKind kind, double value)
     {
         if (!double.IsFinite(value))
@@ -687,9 +705,9 @@ internal sealed class CurveReviewForm : Form
         {
             CurveReviewRuleKind.MaximumGrade => _analysis.GradeExceedances.FirstOrDefault()?.PeakPoint,
             CurveReviewRuleKind.MinimumPlanRadius => _analysis.RadiusViolations.FirstOrDefault()?.PeakPoint
-                ?? _analysis.Events.FirstOrDefault(item => item.Kind == CurveReviewEventKind.PlanCorner).Point,
-            CurveReviewRuleKind.VerticalGradeChange => _analysis.Events.FirstOrDefault(item => item.Kind == CurveReviewEventKind.VerticalBreak).Point,
-            CurveReviewRuleKind.TerrainCoverage => _analysis.Events.FirstOrDefault(item => item.Kind == CurveReviewEventKind.TerrainGap).Point,
+                ?? CurveReviewAnalysis.FirstEventPoint(_analysis.Events, CurveReviewEventKind.PlanCorner),
+            CurveReviewRuleKind.VerticalGradeChange => CurveReviewAnalysis.FirstEventPoint(_analysis.Events, CurveReviewEventKind.VerticalBreak),
+            CurveReviewRuleKind.TerrainCoverage => CurveReviewAnalysis.FirstEventPoint(_analysis.Events, CurveReviewEventKind.TerrainGap),
             _ => null
         };
         if (point.HasValue && point.Value.IsValid)
@@ -720,14 +738,6 @@ internal sealed class CurveReviewForm : Form
             commit();
             e.Handled = true;
         };
-    }
-
-    private static double Parse(string? text)
-    {
-        if (double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out double value) ||
-            double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
-            return double.IsFinite(value) ? value : 0.0;
-        return 0.0;
     }
 
     private static string Invariant(FormattableString value) => value.ToString(CultureInfo.InvariantCulture);
@@ -761,7 +771,7 @@ internal sealed class CurveReviewForm : Form
 
     private static string FormatActual(CurveReviewCheckResult result) => result.Kind switch
     {
-        CurveReviewRuleKind.MaximumGrade => Invariant($"{result.Actual:F2}%"),
+        CurveReviewRuleKind.MaximumGrade => SlopeInput.FormatWithUnit(result.Actual / 100.0, SlopeUnitPreference.Current),
         CurveReviewRuleKind.MinimumPlanRadius => result.HasPlanCorners
             ? "corner"
             : double.IsFinite(result.Actual) ? Invariant($"R {result.Actual:F1}") : "straight",
@@ -772,7 +782,7 @@ internal sealed class CurveReviewForm : Form
 
     private string FormatThreshold(CurveReviewCheckResult result) => result.Kind switch
     {
-        CurveReviewRuleKind.MaximumGrade => Invariant($"{result.Threshold:F0}%"),
+        CurveReviewRuleKind.MaximumGrade => SlopeInput.FormatWithUnit(result.Threshold / 100.0, SlopeUnitPreference.Current),
         CurveReviewRuleKind.MinimumPlanRadius => Invariant($"{result.Threshold:F0} {_units.Abbreviation}").TrimEnd(),
         CurveReviewRuleKind.VerticalGradeChange => Invariant($"{result.Threshold:F0}% pts"),
         CurveReviewRuleKind.TerrainCoverage => Invariant($"{result.Threshold:F0}%"),
@@ -781,7 +791,7 @@ internal sealed class CurveReviewForm : Form
 
     private string RuleUnit(CurveReviewRuleKind kind) => kind switch
     {
-        CurveReviewRuleKind.MaximumGrade => "%",
+        CurveReviewRuleKind.MaximumGrade => SlopeInput.Suffix(SlopeUnitPreference.Current),
         CurveReviewRuleKind.MinimumPlanRadius => _units.Abbreviation,
         CurveReviewRuleKind.VerticalGradeChange => "% pts",
         CurveReviewRuleKind.TerrainCoverage => "%",

@@ -219,7 +219,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   the preview path (which holds a `RhinoDoc`) and the build path (via `TerrainBuildSnapshot.
   NorthAzimuthDegrees`, captured on the document thread), so an aspect map cannot disagree with the sun.
   North is not on the definition, so `ComputeAnalysisFingerprint` adds it explicitly for an aspect
-  analysis - otherwise rotating north leaves cached bearings on screen.
+  analysis - otherwise rotating north leaves cached bearings on screen. Because changing north edits no
+  terrain, `mhSetSunNorth` itself rebuilds the terrains `TerrainsToRefreshAfterChange` names (live-updating,
+  with an enabled aspect analysis) when the angle actually changes.
 - Reference comparison caches separate current-mesh statistics from reference projection contexts.
   Multiple zone pieces therefore share the expensive reference index while retaining independent
   cut/fill volumes and per-call projection diagnostics.
@@ -316,6 +318,10 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   limits are set rarely and checks are read constantly; a failing check row and any event row are click
   targets that zoom the viewport to the occurrence. `CurveReviewRules` supplies Off/Report/Warn results;
   the Rhino-side store persists thresholds per user and stores radius in metres.
+  `CurveReviewThresholdInput` turns a threshold into field text and back: the maximum grade is a slope,
+  shown and typed in the user's slope unit through `SlopeInput`; the vertical grade change stays in
+  percentage points (a grade difference, not a slope). Empty or unparseable text reverts the field —
+  "no limit" is the rule's Off mode, never a threshold of zero.
   `CurveReviewMetricSeries` (in `CurveReviewPalette.cs`) is the single source of colour: the panel chart
   and the viewport ribbon both build one for the selected metric - grade, elevation, cut/fill or plan
   radius - so they cannot drift. Plan radius is coloured by *tightness*, not raw radius, so a straight
@@ -328,8 +334,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   lookups; endpoint discontinuities are excluded, real plan corners remain distinct from finite radii, and
   adjacent vertical-break samples merge into one PI event.
 - `CurveReviewLabeller.cs` - the inspector's `Label` button. Picks points constrained to the inspected
-  curve and drops text dots reading any combination of elevation, grade, station and cut/fill, taken from
-  the analysis already on screen. Dots go to the `Labels` role's layer via
+  curve and drops text dots reading any combination of elevation, grade, station and cut/fill. Station
+  and cut/fill are read at the picked point itself (plan length to its curve parameter, terrain projected
+  under it), not at the nearest analysis sample; grade is the analysis stretch containing that station. Dots go to the `Labels` role's layer via
   `LayerRoleService.EnsureRoleLayer`, so they inherit its print width, and the whole run is one
   undo record. Replaces the removed `mhSlopeCheckAndMark` command. The terrain mesh is peeked (`TerrainController.PeekFinalTerrainMesh`,
   read-only, no copy) and the analysis is rebuilt only when the object serial, terrain mesh, or a limit

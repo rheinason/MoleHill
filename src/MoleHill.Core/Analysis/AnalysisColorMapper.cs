@@ -47,14 +47,16 @@ public static class AnalysisColorMapper
         double interval = ResolveInterval(safe.Low, safe.High, requestedInterval);
         double span = safe.Span;
 
-        int count = (int)Math.Ceiling(span / interval - 1e-9);
-        if (count < 1)
-            count = 1;
-        while (count > MaximumBands)
+        // Count and coarsen in double: an interval below span/int.MaxValue overflows an int cast, and the
+        // wrapped count once collapsed stepped mode into a single flat colour.
+        double rawCount = Math.Ceiling(span / interval - 1e-9);
+        while (rawCount > MaximumBands)
         {
             interval *= 2.0;
-            count = (int)Math.Ceiling(span / interval - 1e-9);
+            rawCount = Math.Ceiling(span / interval - 1e-9);
         }
+
+        int count = Math.Max(1, (int)rawCount);
 
         var bands = new Band[count];
         for (int i = 0; i < count; i++)
@@ -68,12 +70,17 @@ public static class AnalysisColorMapper
         return bands;
     }
 
-    /// <summary>Index of the band containing a value; the end bands absorb everything beyond the range.</summary>
+    /// <summary>
+    /// Index of the band containing a value. Every band is half-open, [Low, High), so a value on a shared
+    /// edge belongs to the band above it — the first band included, which once kept its top edge and so
+    /// classified the 2 of a 0/2/4 legend differently from the 4. The end bands absorb everything beyond
+    /// the range, which is also what closes the last band at the top of the range.
+    /// </summary>
     public static int FindBand(IReadOnlyList<Band> bands, double value)
     {
         if (bands.Count == 0)
             return -1;
-        if (double.IsNaN(value) || double.IsNegativeInfinity(value) || value <= bands[0].High)
+        if (double.IsNaN(value) || double.IsNegativeInfinity(value) || value < bands[0].High)
             return 0;
         if (double.IsPositiveInfinity(value) || value >= bands[^1].Low)
             return bands.Count - 1;
