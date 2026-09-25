@@ -253,6 +253,24 @@ public class TerrainAnalysisAnnotationBuilderTests
     }
 
     [RhinoNativeFact]
+    public void BuildTerrainSectionSummary_ReferenceTerrainIsComparison_DrawsItsProfileOnce()
+    {
+        var analysis = new TerrainSectionAnnotationDefinition { IsEnabled = true };
+        var cut = new LineCurve(new Point3d(0, 5, 0), new Point3d(10, 5, 0));
+        TerrainBuildSnapshot snapshot = CreateSectionSnapshot(analysis, cut, CreateFlatMesh(2.0));
+        var build = new TerrainBuildResult();
+
+        TerrainAnalysisAnnotationBuilder.BuildTerrainSectionSummary(
+            snapshot, CreateFlatMesh(0.0), analysis, build, shouldCancel: null);
+
+        // The reference ("Existing") is drawn as the grey existing-ground line only, not again as a
+        // coloured comparison profile.
+        Assert.Contains(build.AuxiliaryObjects, output => output.Name.EndsWith("existing ground", StringComparison.Ordinal));
+        Assert.DoesNotContain(build.AuxiliaryObjects, output => output.Name.EndsWith(" Existing", StringComparison.Ordinal));
+        Assert.Contains(build.AuxiliaryObjects, output => output.Name.EndsWith(" Proposed", StringComparison.Ordinal));
+    }
+
+    [RhinoNativeFact]
     public void BuildCrossSectionStationSummary_MultipleTerrains_EmitsCutRegion()
     {
         var analysis = new CrossSectionStationAnnotationDefinition
