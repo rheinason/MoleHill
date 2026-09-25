@@ -732,7 +732,7 @@ internal sealed partial class TerrainBuildService
         out RhinoMesh insertedMesh)
     {
         insertedMesh = mesh;
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
         {
             if (reportFailures)
                 build.Diagnostics.Add(errorMessage ?? "Retaining Wall topology insertion could not extract the upstream mesh.");
@@ -748,9 +748,9 @@ internal sealed partial class TerrainBuildService
         int outputFaceCount = outputFaces.Length / 3;
         if (!qualityInserted && !MeshConstraintTopologyInserter.TryInsert(
                 vertices,
-                mesh.Vertices.Count,
+                vertexCount,
                 faces,
-                mesh.Faces.Count,
+                faceCount,
                 wallConstraints,
                 tolerance,
                 out outputVertices,
@@ -764,14 +764,14 @@ internal sealed partial class TerrainBuildService
             return false;
         }
 
-        if (!TopologyChanged(vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, outputVertices, outputVertexCount, outputFaces, outputFaceCount, tolerance))
+        if (!TopologyChanged(vertices, vertexCount, faces, faceCount, outputVertices, outputVertexCount, outputFaces, outputFaceCount, tolerance))
         {
             if (reportFailures)
                 build.Diagnostics.Add("Retaining Wall topology insertion found no terrain faces crossed by wall constraints.");
             return false;
         }
 
-        var inputBoundary = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, mesh.Faces.Count);
+        var inputBoundary = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
         var outputBoundary = MeshTopologyValidator.AnalyzeBoundaryGraph(outputFaces, outputFaceCount);
         if (!IsTopologyInsertionBoundarySafe(inputBoundary, outputBoundary, out string boundaryMessage))
         {
