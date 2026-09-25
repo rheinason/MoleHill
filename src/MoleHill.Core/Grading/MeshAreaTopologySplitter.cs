@@ -546,11 +546,9 @@ internal static class MeshAreaTopologySplitter
                 // One face that cannot be re-triangulated must not discard the split for the whole
                 // terrain. On a multi-million-face GIS mesh a handful of faces are degenerate or carry
                 // constraints Triangle.NET will not honour; failing hard there returned NO zones at all
-                // for the entire model. Emit this face unchanged (nothing was appended for it yet) and
-                // carry on, reporting how many were degraded.
-                globalFaces.Add(face.I0);
-                globalFaces.Add(face.I1);
-                globalFaces.Add(face.I2);
+                // for the entire model. TriangulateTouchedFace has already emitted the face as a fan
+                // over its subdivided edges (see EmitBoundaryFan); carry on, reporting how many were
+                // degraded.
                 degradedFaceCount++;
                 firstFaceError ??= faceError;
             }
@@ -562,8 +560,9 @@ internal static class MeshAreaTopologySplitter
         if (degradedFaceCount > 0)
         {
             degradedWarning =
-                $"{degradedFaceCount:N0} of {faceCount:N0} terrain faces kept their original topology " +
-                $"because they could not be re-triangulated against the zone boundaries. " +
+                $"{degradedFaceCount:N0} of {faceCount:N0} terrain faces could not be re-triangulated " +
+                $"against the zone boundaries; they were split only along their edges, so the zone " +
+                $"boundary follows them approximately. " +
                 $"First cause: {firstFaceError ?? "unknown"}";
         }
 
@@ -1052,6 +1051,7 @@ internal static class MeshAreaTopologySplitter
             }
         }
 
+        var edgePointCounts = new int[3];
         for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
         {
             var points = edgePointLists[edgeIndex];
@@ -1071,6 +1071,7 @@ internal static class MeshAreaTopologySplitter
                 points[writeIndex++] = current;
             }
 
+            edgePointCounts[edgeIndex] = writeIndex;
             for (int i = 0; i < writeIndex - 1; i++)
             {
                 int start = points[i].LocalIndex;
@@ -1105,6 +1106,7 @@ internal static class MeshAreaTopologySplitter
                 $"face at ({face.A.X:0.###}, {face.A.Y:0.###}) with {localPoints.Count} local points and " +
                 $"{segments.Count} constraint segments - " +
                 (outcome.WarningMessage ?? "no triangles produced.");
+            EmitBoundaryFan(face, edgePointLists, edgePointCounts, localPoints, pointLookup, globalFaces);
             return false;
         }
 
@@ -1144,6 +1146,60 @@ internal static class MeshAreaTopologySplitter
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Fallback for a face that cannot be re-triangulated against its interior cut segments. Its
+    /// neighbours still subdivide the shared edges at the registry points, so emitting the face whole
+    /// would leave T-junctions (single-use edges) along them. Instead it is fanned from its centroid
+    /// over the ring of corners and edge points: every ring point lies on the boundary of the convex
+    /// face and the centroid is strictly inside it, so each fan triangle is valid, and the edges match
+    /// the neighbours' subdivision exactly. The interior constraints are dropped, so classification
+    /// assigns each fan triangle to a zone on its own and the boundary crosses this face approximately.
+    /// </summary>
+    private static void EmitBoundaryFan(
+        in FaceData face,
+        List<(double Parameter, int LocalIndex)>[] edgePointLists,
+        int[] edgePointCounts,
+        LocalPointBuilder localPoints,
+        GlobalPointLookup pointLookup,
+        FaceBuffer globalFaces)
+    {
+        // Resolve every ring point (corners included) exactly as the successful path resolves its
+        // output vertices, so a neighbour that split the same edge lands on the same global vertices.
+        var ring = new List<int>(edgePointCounts[0] + edgePointCounts[1] + edgePointCounts[2]);
+        for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)
+        {
+            var points = edgePointLists[edgeIndex];
+            for (int i = 0; i < edgePointCounts[edgeIndex]; i++)
+            {
+                int localIndex = points[i].LocalIndex;
+                Point2D point = localPoints.GetPoint(localIndex);
+                int global = pointLookup.Resolve(point, face.InterpolateZ(point));
+
+                // Each edge ends on the corner the next one starts from.
+                if (ring.Count == 0 || ring[^1] != global)
+                    ring.Add(global);
+            }
+        }
+
+        if (ring.Count > 1 && ring[^1] == ring[0])
+            ring.RemoveAt(ring.Count - 1);
+
+        var center = new Point2D((face.A.X + face.B.X + face.C.X) / 3.0, (face.A.Y + face.B.Y + face.C.Y) / 3.0);
+        int centerIndex = pointLookup.Resolve(center, face.InterpolateZ(center));
+        for (int i = 0; i < ring.Count; i++)
+        {
+            int start = ring[i];
+            int end = ring[(i + 1) % ring.Count];
+            if (start == end || start == centerIndex || end == centerIndex)
+                continue;
+
+            // Ring order follows the face's A -> B -> C winding, so the fan keeps its orientation.
+            globalFaces.Add(centerIndex);
+            globalFaces.Add(start);
+            globalFaces.Add(end);
+        }
     }
 
     private static void AnalyzeSegmentAgainstFace(
