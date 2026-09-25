@@ -99,6 +99,22 @@ public sealed class AnalysisColorMapperTests
         Assert.Equal(bands[^1].Color.R, AnalysisColorMapper.SampleBanded(double.PositiveInfinity, bands).R);
     }
 
+    [Theory]
+    [InlineData(0.0, 0)]
+    [InlineData(1.999, 0)]
+    [InlineData(2.0, 1)]
+    [InlineData(4.0, 2)]
+    [InlineData(8.0, 4)]
+    [InlineData(10.0, 4)]
+    public void FindBand_ValueOnABandEdge_BelongsToTheBandAbove(double value, int expected)
+    {
+        // Bands are half-open [Low, High) — the first as much as the others; only the range's top edge
+        // falls into the last band, because the end band absorbs everything at or beyond it.
+        var bands = AnalysisColorMapper.ResolveBands(new AnalysisRange(0.0, 10.0, false), 2.0, Palette);
+
+        Assert.Equal(expected, AnalysisColorMapper.FindBand(bands, value));
+    }
+
     [Fact]
     public void InfiniteValues_MapToMatchingRangeEnd()
     {
