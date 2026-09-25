@@ -596,10 +596,10 @@ internal sealed partial class TerrainBuildService
 
     private static RhinoMesh CleanTinyFaces(RhinoMesh mesh, double tolerance, string sourceLabel, TerrainBuildResult build)
     {
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out _))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out var faces, out int faceCount, out _))
             return mesh;
 
-        TinyFaceCleanupResult cleanup = ComputeTinyFaceCleanup(vertices, faces, mesh.Faces.Count, tolerance);
+        TinyFaceCleanupResult cleanup = ComputeTinyFaceCleanup(vertices, faces, faceCount, tolerance);
         if (!cleanup.HasChanges)
         {
             if (cleanup.BlockedFaceCount > 0)

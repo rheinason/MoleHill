@@ -212,7 +212,7 @@ internal sealed class SculptAnalysisColorizer
         return summary.Range;
     }
 
-    private static AnalysisRange ResolveElevationRange(
+    internal static AnalysisRange ResolveElevationRange(
         double[] vertices,
         int[] faces,
         int faceCount,
@@ -230,16 +230,15 @@ internal sealed class SculptAnalysisColorizer
             int i2 = faces[f * 3 + 2];
             values[f] = (vertices[i0 * 3 + 2] + vertices[i1 * 3 + 2] + vertices[i2 * 3 + 2]) / 3.0;
 
+            // Plan (XY-projected) area, as TerrainAnalysisPreviewBuilder.MeasureFace weights it: with 3D
+            // area the sculpt session's auto-range disagreed with the preview's, so colours jumped when a
+            // session started and ended.
             double e1x = vertices[i1 * 3] - vertices[i0 * 3];
             double e1y = vertices[i1 * 3 + 1] - vertices[i0 * 3 + 1];
-            double e1z = vertices[i1 * 3 + 2] - vertices[i0 * 3 + 2];
             double e2x = vertices[i2 * 3] - vertices[i0 * 3];
             double e2y = vertices[i2 * 3 + 1] - vertices[i0 * 3 + 1];
-            double e2z = vertices[i2 * 3 + 2] - vertices[i0 * 3 + 2];
-            double nx = (e1y * e2z) - (e1z * e2y);
-            double ny = (e1z * e2x) - (e1x * e2z);
             double nz = (e1x * e2y) - (e1y * e2x);
-            areas[f] = Math.Sqrt((nx * nx) + (ny * ny) + (nz * nz)) * 0.5;
+            areas[f] = Math.Abs(nz) * 0.5;
         }
 
         return AnalysisRange.Resolve(

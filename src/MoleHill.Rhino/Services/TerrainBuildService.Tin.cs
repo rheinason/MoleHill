@@ -1235,7 +1235,7 @@ internal sealed partial class TerrainBuildService
         string stageKey,
         TerrainBuildMode mode)
     {
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for smoothing.");
             return mesh;
@@ -1311,9 +1311,9 @@ internal sealed partial class TerrainBuildService
         {
             prepared = MeshSmoother.Prepare(
                 vertices,
-                mesh.Vertices.Count,
+                vertexCount,
                 faces,
-                mesh.Faces.Count,
+                faceCount,
                 boundaries.ToArray(),
                 breaklines.ToArray(),
                 tolerance);
@@ -1333,7 +1333,7 @@ internal sealed partial class TerrainBuildService
                 ? Math.Min(2, Math.Max(1, modifier.Iterations))
                 : Math.Max(1, modifier.Iterations));
 
-        for (int i = 0; i < mesh.Vertices.Count; i++)
+        for (int i = 0; i < vertexCount; i++)
         {
             smoothed[i * 3] = vertices[i * 3];
             smoothed[i * 3 + 1] = vertices[i * 3 + 1];
@@ -1345,7 +1345,7 @@ internal sealed partial class TerrainBuildService
             return mesh;
         }
 
-        var smoothedMesh = RhinoGeometryConversions.BuildMesh(smoothed, mesh.Vertices.Count, faces, mesh.Faces.Count);
+        var smoothedMesh = RhinoGeometryConversions.BuildMesh(smoothed, vertexCount, faces, faceCount);
         if (smoothedMesh.Faces.Count == 0 || smoothedMesh.Vertices.Count == 0 || !smoothedMesh.IsValid)
         {
             build.Diagnostics.Add("Smooth produced an invalid mesh. Original mesh kept.");

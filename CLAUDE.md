@@ -156,8 +156,9 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
   reads off the end — an `IndexOutOfRangeException` raised on a worker thread whose stack names no
   caller. Use the counts-returning `TryExtractMeshData` overload (`out vertexCount`, `out faceCount`)
   and pass those. `MeshAreaTopologySplitter.Split` validates the pair and returns a diagnosis rather
-  than throwing, but that is a backstop, not a licence: ~10 sites in `TerrainBuildService.*` and
-  `TerrainAnalysisPreviewBuilder` still pair the old way, so don't copy one as a template.
+  than throwing, but that is a backstop, not a licence. `TerrainBuildService.*` no longer pairs the
+  old way; `TerrainAnalysisPreviewBuilder` was fixed separately, so if a site there still pairs
+  arrays with `mesh.Faces.Count`, don't copy it as a template.
 - **Z-aware dedup**: breakline-to-breakline vertex merge requires XY AND Z proximity — preserves parallel retaining walls at different elevations
 - **PadGrader helpers**: `FindNearVertex`, `InterpolateZ`, `PointInPolygon`, `DistToPolygon` are `public`; inner classes `SpatialHash` and `FaceGrid` are `internal` (accessible within the assembly)
 - **Daylight line**: detected as zero-crossing of `newZ - origZ` across edges

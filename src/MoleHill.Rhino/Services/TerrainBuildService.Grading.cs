@@ -68,7 +68,7 @@ internal sealed partial class TerrainBuildService
                 out outputFingerprint);
         }
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for grade pad.");
             return StoreMeshStageCache(
@@ -95,9 +95,9 @@ internal sealed partial class TerrainBuildService
         ResolvedGradePadInputs resolvedInputs = ResolveGradePadInputs(
             snapshot,
             vertices,
-            mesh.Vertices.Count,
+            vertexCount,
             faces,
-            mesh.Faces.Count,
+            faceCount,
             modifier,
             curveTolerance,
             gradePadTolerance);
@@ -110,7 +110,7 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(
             "Grade Pad Constraints",
             resolvedInputs.ConstraintElapsed,
-            $"{resolvedInputs.Constraints.Length:N0} constraints over {mesh.Vertices.Count:N0} verts",
+            $"{resolvedInputs.Constraints.Length:N0} constraints over {vertexCount:N0} verts",
             StageTimingDiagnosticThresholdMs);
         build.Diagnostics.AddRange(resolvedInputs.Diagnostics);
         build.StructuredDiagnostics.AddRange(resolvedInputs.StructuredDiagnostics);
@@ -141,7 +141,7 @@ internal sealed partial class TerrainBuildService
             build.PersistentHardConstraints,
             resolvedInputs.Pads,
             vertices,
-            mesh.Vertices.Count,
+            vertexCount,
             toleranceProfile.DetailSize,
             out int skippedPersistentLockCount);
         if (skippedPersistentLockCount > 0)
@@ -183,7 +183,7 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(
             "Grade Pad Inputs",
             inputsTimer.Elapsed,
-            $"{mesh.Vertices.Count:N0} verts, {resolvedInputs.Pads.Length:N0} pads, {effectiveLocks.Length:N0} locks",
+            $"{vertexCount:N0} verts, {resolvedInputs.Pads.Length:N0} pads, {effectiveLocks.Length:N0} locks",
             StageTimingDiagnosticThresholdMs);
 
         GradingTopologyCacheEntry? topologyEntry;
@@ -217,9 +217,9 @@ internal sealed partial class TerrainBuildService
             var topologyDiagnostics = new List<string>();
             var gradeResult = PadGrader.Grade(
                 vertices,
-                mesh.Vertices.Count,
+                vertexCount,
                 faces,
-                mesh.Faces.Count,
+                faceCount,
                 resolvedInputs.Pads,
                 effectiveLocks.Length > 0 ? effectiveLocks : null,
                 out var gradeWarning,
@@ -232,9 +232,9 @@ internal sealed partial class TerrainBuildService
             runtimeCache.CoreCaseRecorder?.RecordPad(
                 modifier.Label,
                 vertices,
-                mesh.Vertices.Count,
+                vertexCount,
                 faces,
-                mesh.Faces.Count,
+                faceCount,
                 resolvedInputs.Pads,
                 effectiveLocks.Length > 0 ? effectiveLocks : null,
                 gradeResult != null,
@@ -260,9 +260,9 @@ internal sealed partial class TerrainBuildService
                 build.Diagnostics.AddRange(topologyDiagnostics);
                 build.StructuredDiagnostics.AddRange(failureStructuredDiagnostics);
                 topologyVertices = (double[])vertices.Clone();
-                topologyVertexCount = mesh.Vertices.Count;
+                topologyVertexCount = vertexCount;
                 topologyFaces = (int[])faces.Clone();
-                topologyFaceCount = mesh.Faces.Count;
+                topologyFaceCount = faceCount;
             }
             else
             {
@@ -311,8 +311,8 @@ internal sealed partial class TerrainBuildService
         bool gradePadStageFailed = topologyEntry.Diagnostics.Any(
             static diagnostic => diagnostic.Contains("Grade Pad protected patch failed", StringComparison.OrdinalIgnoreCase));
         build.Diagnostics.Add(gradePadStageFailed
-            ? $"Grade Pad protected patch failed; upstream mesh retained ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)})."
-            : $"Grade Pad local patch ({DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, topologyEntry.VertexCount, topologyEntry.FaceCount)}).");
+            ? $"Grade Pad protected patch failed; upstream mesh retained ({DescribeTopologyCounts(vertexCount, faceCount, topologyEntry.VertexCount, topologyEntry.FaceCount)})."
+            : $"Grade Pad local patch ({DescribeTopologyCounts(vertexCount, faceCount, topologyEntry.VertexCount, topologyEntry.FaceCount)}).");
 
         ulong resolvedInputFingerprint = ComputeGradePadResolvedInputFingerprint(topologyEntry.OutputFingerprint, resolvedInputs.Pads, modifier);
         if (cachedEntry != null && cachedEntry.ResolvedInputFingerprint == resolvedInputFingerprint)
@@ -393,9 +393,9 @@ internal sealed partial class TerrainBuildService
     {
         var result = PadGrader.Grade(
             vertices,
-            mesh.Vertices.Count,
+            vertices.Length / 3,
             faces,
-            mesh.Faces.Count,
+            faces.Length / 3,
             resolvedInputs.Pads,
             effectiveLocks.Length == 0 ? null : effectiveLocks,
             out var warning,
@@ -826,7 +826,7 @@ internal sealed partial class TerrainBuildService
         string stageKey,
         TerrainBuildMode mode)
     {
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for grade path.");
             return mesh;
@@ -842,7 +842,7 @@ internal sealed partial class TerrainBuildService
         double curveTolerance = toleranceProfile.CurveChordTolerance;
         double gradePathTolerance = toleranceProfile.GradePathTolerance;
         var pathResolveTimer = Stopwatch.StartNew();
-        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, mesh.Vertices.Count, faces, mesh.Faces.Count, modifier, curveTolerance, gradePathTolerance);
+        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, vertexCount, faces, faceCount, modifier, curveTolerance, gradePathTolerance);
         pathResolveTimer.Stop();
         build.RecordTiming(
             "Grade Path Resolve",
@@ -852,7 +852,7 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(
             "Grade Path Constraints",
             resolvedInputs.ConstraintElapsed,
-            $"{resolvedInputs.Constraints.Length:N0} constraints over {mesh.Vertices.Count:N0} verts",
+            $"{resolvedInputs.Constraints.Length:N0} constraints over {vertexCount:N0} verts",
             StageTimingDiagnosticThresholdMs);
         foreach (VariablePathWidthResolver.Diagnostic diagnostic in resolvedInputs.WidthDiagnostics)
             build.Diagnostics.Add(diagnostic.Message);
@@ -863,9 +863,9 @@ internal sealed partial class TerrainBuildService
             runtimeCache.GradingTopologyEntries[TerrainStageKey.CreateGradingTopology(stageKey, "Path")] =
                 BuildPathTopologySummary(
                     vertices,
-                    mesh.Vertices.Count,
+                    vertexCount,
                     faces,
-                    mesh.Faces.Count,
+                    faceCount,
                     gradingResult: null,
                     Array.Empty<GradingPatch>(),
                     Array.Empty<string>());
@@ -900,14 +900,14 @@ internal sealed partial class TerrainBuildService
         bool preferSplitKeep = TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
             mode,
             hasInteractingHardConstraints,
-            mesh.Faces.Count);
+            faceCount);
         string topologyStageKey = TerrainStageKey.CreateGradingTopology(stageKey, "Path");
         var coreTimer = Stopwatch.StartNew();
         GradingResult? gradingResult = PathGrader.Grade(
             vertices,
-            mesh.Vertices.Count,
+            vertexCount,
             faces,
-            mesh.Faces.Count,
+            faceCount,
             resolvedInputs.Paths,
             build.PersistentHardConstraints,
             out string? warning,
@@ -917,9 +917,9 @@ internal sealed partial class TerrainBuildService
         runtimeCache.CoreCaseRecorder?.RecordPath(
             modifier.Label,
             vertices,
-            mesh.Vertices.Count,
+            vertexCount,
             faces,
-            mesh.Faces.Count,
+            faceCount,
             resolvedInputs.Paths,
             build.PersistentHardConstraints,
             gradePathTolerance,
@@ -935,9 +935,9 @@ internal sealed partial class TerrainBuildService
             build.Diagnostics.Add(warning ?? "Grade Path failed.");
             runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologySummary(
                 vertices,
-                mesh.Vertices.Count,
+                vertexCount,
                 faces,
-                mesh.Faces.Count,
+                faceCount,
                 gradingResult: null,
                 patchSummaries,
                 build.Diagnostics);
@@ -947,7 +947,7 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(
             "Grade Path Core",
             coreTimer.Elapsed,
-            DescribeTopologyCounts(mesh.Vertices.Count, mesh.Faces.Count, gradingResult.VertexCount, gradingResult.FaceCount),
+            DescribeTopologyCounts(vertexCount, faceCount, gradingResult.VertexCount, gradingResult.FaceCount),
             StageTimingDiagnosticThresholdMs);
         if (!string.IsNullOrWhiteSpace(warning))
             build.Diagnostics.Add(warning);
@@ -957,9 +957,9 @@ internal sealed partial class TerrainBuildService
         AddPersistentElevationConstraints(build, resolvedInputs.Constraints);
         runtimeCache.GradingTopologyEntries[topologyStageKey] = BuildPathTopologySummary(
             vertices,
-            mesh.Vertices.Count,
+            vertexCount,
             faces,
-            mesh.Faces.Count,
+            faceCount,
             gradingResult,
             patchSummaries,
             build.Diagnostics);
@@ -1275,7 +1275,7 @@ internal sealed partial class TerrainBuildService
             return mesh.DuplicateMesh();
         }
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for in-situ stair grading.");
             return mesh;
@@ -1328,9 +1328,9 @@ internal sealed partial class TerrainBuildService
         modifier.ComputedStepCountSummary = stairBuild.StepCountSummary;
 
         double[] currentVertices = vertices;
-        int currentVertexCount = mesh.Vertices.Count;
+        int currentVertexCount = vertexCount;
         int[] currentFaces = faces;
-        int currentFaceCount = mesh.Faces.Count;
+        int currentFaceCount = faceCount;
         var gradingWarnings = new List<string>();
 
         var gradingTimer = Stopwatch.StartNew();

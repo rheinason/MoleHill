@@ -96,7 +96,110 @@ public class MeshAreaTopologySplitterDegenerateFaceTests
         // The split must survive: a face it cannot subdivide is kept, never a null result.
         Assert.True(result != null, $"split collapsed entirely: {warning}");
         Assert.True(result!.FaceCount >= 2, "no faces were emitted");
-        if (!string.IsNullOrWhiteSpace(warning) && warning!.Contains("kept their original topology"))
-            Assert.Contains("terrain faces", warning);
+    }
+
+    [Fact]
+    public void SplitPreservingTopology_FaceFailsRetriangulation_ReportsDegradedFaces()
+    {
+        const double tolerance = 0.005;
+        var verts = new double[] { 0, 0, 0, 100, 0, 0, 100, 100, 0, 0, 100, 0 };
+        var faces = new[] { 0, 1, 2, 0, 2, 3 };
+
+        MeshAreaSplitter.SplitResult? result;
+        string? warning;
+        MeshAreaTopologySplitter.ForceRetriangulationFailureForTesting = faceIndex => faceIndex == 0;
+        try
+        {
+            result = MeshAreaSplitter.SplitPreservingTopology(
+                verts, 4, faces, 2, new[] { Square(20, 20, 80, 80) }, tolerance, out warning);
+        }
+        finally
+        {
+            MeshAreaTopologySplitter.ForceRetriangulationFailureForTesting = null;
+        }
+
+        // The degraded-face warning used to be overwritten by classification's own (null) message.
+        Assert.NotNull(result);
+        Assert.NotNull(warning);
+        Assert.Contains("1 of 2 terrain faces", warning!);
+        Assert.Contains("failure forced for testing", warning);
+    }
+
+    [Fact]
+    public void SplitPreservingTopology_FacesFailRetriangulation_OutputStaysWatertight()
+    {
+        const double tolerance = 0.005;
+        const int n = 5;
+        const double spacing = 10.0;
+        double extent = (n - 1) * spacing;
+        var verts = new List<double>();
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+                verts.AddRange(new[] { x * spacing, y * spacing, x + (0.5 * y) });
+
+        var faces = new List<int>();
+        for (int y = 0; y < n - 1; y++)
+        {
+            for (int x = 0; x < n - 1; x++)
+            {
+                int v00 = (y * n) + x;
+                faces.AddRange(new[] { v00, v00 + 1, v00 + n + 1, v00, v00 + n + 1, v00 + n });
+            }
+        }
+
+        MeshAreaSplitter.SplitResult? result;
+        string? warning;
+        // Every other face fails, so failed faces sit next to faces that did split their shared edges.
+        MeshAreaTopologySplitter.ForceRetriangulationFailureForTesting = faceIndex => faceIndex % 2 == 0;
+        try
+        {
+            result = MeshAreaSplitter.SplitPreservingTopology(
+                verts.ToArray(), verts.Count / 3, faces.ToArray(), faces.Count / 3,
+                new[] { Square(15, 15, 25, 25) }, tolerance, out warning);
+        }
+        finally
+        {
+            MeshAreaTopologySplitter.ForceRetriangulationFailureForTesting = null;
+        }
+
+        Assert.NotNull(result);
+        Assert.Contains("terrain faces", warning ?? string.Empty);
+
+        var edgeUse = new Dictionary<(int, int), int>();
+        for (int f = 0; f < result!.FaceCount; f++)
+        {
+            for (int e = 0; e < 3; e++)
+            {
+                int a = result.Faces[(f * 3) + e];
+                int b = result.Faces[(f * 3) + ((e + 1) % 3)];
+                var key = a < b ? (a, b) : (b, a);
+                edgeUse[key] = edgeUse.TryGetValue(key, out int count) ? count + 1 : 1;
+            }
+        }
+
+        bool OnOuterBoundary(int vertex)
+        {
+            double x = result.Vertices[vertex * 3];
+            double y = result.Vertices[(vertex * 3) + 1];
+            return x <= 1e-9 || y <= 1e-9 || x >= extent - 1e-9 || y >= extent - 1e-9;
+        }
+
+        foreach (var (edge, count) in edgeUse)
+        {
+            Assert.True(count <= 2, $"edge {edge} is used {count} times");
+            if (count == 1)
+            {
+                // A single-use edge inside the terrain is a T-junction or a crack.
+                bool sameSide =
+                    OnOuterBoundary(edge.Item1) && OnOuterBoundary(edge.Item2) &&
+                    (Math.Abs(result.Vertices[edge.Item1 * 3] - result.Vertices[edge.Item2 * 3]) <= 1e-9 ||
+                     Math.Abs(result.Vertices[(edge.Item1 * 3) + 1] - result.Vertices[(edge.Item2 * 3) + 1]) <= 1e-9);
+                Assert.True(sameSide, $"interior edge {edge} is used only once");
+            }
+        }
+
+        // The failed faces still contribute sub-triangles on both sides of the zone boundary.
+        Assert.Contains(result.FaceAreaIndex, index => index == 0);
+        Assert.Contains(result.FaceAreaIndex, index => index == -1);
     }
 }
