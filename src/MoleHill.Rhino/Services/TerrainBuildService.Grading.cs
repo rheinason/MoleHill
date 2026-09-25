@@ -200,6 +200,10 @@ internal sealed partial class TerrainBuildService
             topologyEntry = cachedTopologyEntry;
             build.Diagnostics.AddRange(topologyEntry.Diagnostics);
             build.StructuredDiagnostics.AddRange(topologyEntry.StructuredDiagnostics);
+            // The pad boundary a fresh grade publishes as a hard constraint. Skipping it here made
+            // downstream grading depend on whether this topology happened to be cached.
+            build.PersistentHardConstraints.AddRange(
+                TerrainRuntimeCacheCloner.CloneConstraints(topologyEntry.OutputConstraints));
             topologyTimer.Stop();
             build.RecordTiming(
                 "Grade Pad Topology",
@@ -246,13 +250,15 @@ internal sealed partial class TerrainBuildService
             int[] topologyFaces;
             int topologyFaceCount;
             bool gradePadTopologyFailed = gradeResult == null;
+            List<SurfaceRemesher.ConstraintPolyline> outputConstraints = CreateOutputPolylineConstraints(
+                gradeResult?.OutputPolylines ?? failureOutputPolylines);
+            build.PersistentHardConstraints.AddRange(TerrainRuntimeCacheCloner.CloneConstraints(outputConstraints));
             if (gradeResult == null)
             {
                 if (string.IsNullOrWhiteSpace(gradeWarning))
                     topologyDiagnostics.Add("Grade Pad protected patch failed; upstream mesh retained.");
                 build.Diagnostics.AddRange(topologyDiagnostics);
                 build.StructuredDiagnostics.AddRange(failureStructuredDiagnostics);
-                AddOutputPolylinesAsBreaklines(failureOutputPolylines, build);
                 topologyVertices = (double[])vertices.Clone();
                 topologyVertexCount = mesh.Vertices.Count;
                 topologyFaces = (int[])faces.Clone();
@@ -265,7 +271,6 @@ internal sealed partial class TerrainBuildService
 
                 build.Diagnostics.AddRange(topologyDiagnostics);
                 build.StructuredDiagnostics.AddRange(gradeResult.StructuredDiagnostics);
-                AddOutputPolylinesAsBreaklines(gradeResult.OutputPolylines, build);
                 topologyVertices = gradeResult.Vertices;
                 topologyVertexCount = gradeResult.VertexCount;
                 topologyFaces = gradeResult.Faces;
@@ -286,6 +291,7 @@ internal sealed partial class TerrainBuildService
                 PatchSummaries = gradeResult?.PatchSummaries.Count > 0
                     ? ClonePatchSummaries(gradeResult.PatchSummaries)
                     : patchSummaries,
+                OutputConstraints = outputConstraints,
                 Diagnostics = topologyDiagnostics,
                 StructuredDiagnostics = gradeResult?.StructuredDiagnostics.ToList() ?? failureStructuredDiagnostics.ToList()
             };
@@ -878,20 +884,23 @@ internal sealed partial class TerrainBuildService
                 $"Grade Path invalidated {dirtyStageKeys.Count} overlapping downstream grading stage(s): {string.Join(", ", dirtyStageKeys.Select(TerrainStageKey.GetBase))}.");
         }
 
+        // A hard constraint elsewhere on the terrain (a distant Grade Pad boundary) says nothing about
+        // whether this corridor's explicit assembly will be rejected, so only one that crosses or
+        // overlaps the path's own constraints may reorder the tiers.
+        bool hasInteractingHardConstraints = false;
         if (build.PersistentHardConstraints.Count > 0 && resolvedInputs.Constraints.Length > 0)
         {
-            var pathConstraintData = resolvedInputs.Constraints
-                .Select(static constraint => new ConstraintConflictDiagnostics.PolylineData(constraint.Points, constraint.PointCount, constraint.IsClosed))
-                .ToArray();
-            var hardConstraintData = build.PersistentHardConstraints
-                .Select(static constraint => new ConstraintConflictDiagnostics.PolylineData(constraint.Points, constraint.PointCount, constraint.IsClosed))
-                .ToArray();
-            var conflictSummary = ConstraintConflictDiagnostics.Analyze(pathConstraintData, hardConstraintData, gradePathTolerance);
+            var conflictSummary = AnalyzeHardConstraintConflicts(resolvedInputs.Constraints, build.PersistentHardConstraints, gradePathTolerance);
+            hasInteractingHardConstraints = conflictSummary.HasConflicts;
             build.Diagnostics.Add(conflictSummary.CreateSummaryMessage());
             if (conflictSummary.CreateSampleMessage() is string sampleMessage)
                 build.Diagnostics.Add(sampleMessage);
         }
 
+        bool preferSplitKeep = TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
+            mode,
+            hasInteractingHardConstraints,
+            mesh.Faces.Count);
         string topologyStageKey = TerrainStageKey.CreateGradingTopology(stageKey, "Path");
         var coreTimer = Stopwatch.StartNew();
         GradingResult? gradingResult = PathGrader.Grade(
@@ -903,10 +912,7 @@ internal sealed partial class TerrainBuildService
             build.PersistentHardConstraints,
             out string? warning,
             gradePathTolerance,
-            preferSplitKeep: TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
-                mode,
-                build.PersistentHardConstraints.Count > 0,
-                mesh.Faces.Count));
+            preferSplitKeep: preferSplitKeep);
         coreTimer.Stop();
         runtimeCache.CoreCaseRecorder?.RecordPath(
             modifier.Label,
@@ -917,10 +923,7 @@ internal sealed partial class TerrainBuildService
             resolvedInputs.Paths,
             build.PersistentHardConstraints,
             gradePathTolerance,
-            TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
-                mode,
-                build.PersistentHardConstraints.Count > 0,
-                mesh.Faces.Count),
+            preferSplitKeep,
             gradingResult != null,
             gradingResult?.VertexCount,
             gradingResult?.FaceCount,
@@ -966,20 +969,44 @@ internal sealed partial class TerrainBuildService
             build);
     }
 
+    private static ConstraintConflictDiagnostics.ConflictSummary AnalyzeHardConstraintConflicts(
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> pathConstraints,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
+        double tolerance)
+    {
+        return ConstraintConflictDiagnostics.Analyze(
+            pathConstraints
+                .Select(static constraint => new ConstraintConflictDiagnostics.PolylineData(constraint.Points, constraint.PointCount, constraint.IsClosed))
+                .ToArray(),
+            hardConstraints
+                .Select(static constraint => new ConstraintConflictDiagnostics.PolylineData(constraint.Points, constraint.PointCount, constraint.IsClosed))
+                .ToArray(),
+            tolerance);
+    }
+
     private static void AddOutputPolylinesAsBreaklines(
         IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> polylines,
         TerrainBuildResult build)
     {
+        build.PersistentHardConstraints.AddRange(CreateOutputPolylineConstraints(polylines));
+    }
+
+    private static List<SurfaceRemesher.ConstraintPolyline> CreateOutputPolylineConstraints(
+        IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> polylines)
+    {
+        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(polylines.Count);
         foreach (var poly in polylines)
         {
             if (poly.VertexCount < 2)
                 continue;
-            build.PersistentHardConstraints.Add(new SurfaceRemesher.ConstraintPolyline(
+            constraints.Add(new SurfaceRemesher.ConstraintPolyline(
                 poly.Vertices,
                 poly.VertexCount,
                 poly.IsClosed,
                 PreserveInputElevation: true));
         }
+
+        return constraints;
     }
 
     private static void AddPersistentHardConstraints(

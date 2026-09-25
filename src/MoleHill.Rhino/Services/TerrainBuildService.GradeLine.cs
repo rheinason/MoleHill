@@ -72,6 +72,16 @@ internal sealed partial class TerrainBuildService
                 $"Grade Line invalidated {dirtyStageKeys.Count} overlapping downstream grading stage(s): {string.Join(", ", dirtyStageKeys.Select(TerrainStageKey.GetBase))}.");
         }
 
+        // Same rule as Grade Path: only a hard constraint that meets this line's corridor may reorder
+        // the tiers. The corridor constraints are built only when the answer could change.
+        bool hasInteractingHardConstraints =
+            TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(mode, hasInteractingHardConstraints: true, faceCount) &&
+            build.PersistentHardConstraints.Count > 0 &&
+            AnalyzeHardConstraintConflicts(
+                PathGrader.CreateConstraints(vertices, vertexCount, faces, faceCount, lines, gradeLineTolerance).Constraints,
+                build.PersistentHardConstraints,
+                gradeLineTolerance).HasConflicts;
+
         var coreTimer = Stopwatch.StartNew();
         GradingResult? gradingResult = PathGrader.Grade(
             vertices,
@@ -84,7 +94,7 @@ internal sealed partial class TerrainBuildService
             gradeLineTolerance,
             preferSplitKeep: TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
                 mode,
-                build.PersistentHardConstraints.Count > 0,
+                hasInteractingHardConstraints,
                 faceCount));
         coreTimer.Stop();
 

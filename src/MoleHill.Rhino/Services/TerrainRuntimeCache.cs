@@ -484,6 +484,12 @@ internal sealed class GradingTopologyCacheEntry
 
     public List<GradingPatch> PatchSummaries { get; init; } = new();
 
+    // Grade Pad publishes these as persistent hard constraints. A topology cache hit must publish the
+    // same set as a fresh grade, or downstream stages (Grade Path's mode choice) see a different
+    // terrain depending on cache state.
+    public IReadOnlyList<SurfaceRemesher.ConstraintPolyline> OutputConstraints { get; init; } =
+        Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+
     public List<string> Diagnostics { get; init; } = new();
 
     public List<GradingDiagnostic> StructuredDiagnostics { get; init; } = new();
@@ -736,6 +742,7 @@ internal static class TerrainRuntimeCacheCloner
                     UsesFallbackBand = patch.UsesFallbackBand
                 })
                 .ToList(),
+            OutputConstraints = CloneConstraints(entry.OutputConstraints),
             Diagnostics = entry.Diagnostics.ToList(),
             StructuredDiagnostics = entry.StructuredDiagnostics.ToList()
         };

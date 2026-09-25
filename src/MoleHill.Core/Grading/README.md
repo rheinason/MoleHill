@@ -110,8 +110,11 @@ above - the contract is that they fail *visibly*.
 
 The optional `preferSplitKeep` performance flag reverses the first two attempts for large constrained
 meshes that are likely to reject explicit carve/weld assembly. Rhino final builds enable it only for
-meshes with at least 10,000 faces and persistent hard constraints; the default Core contract remains
-explicit-first.
+meshes with at least 10,000 faces and a persistent hard constraint that crosses or overlaps the
+corridor's own constraints; the default Core contract remains explicit-first. A hard constraint merely
+*existing* is not enough: a distant Grade Pad's boundary once flipped a path into split-keep, which
+graded it as a near-vertical wall where explicit assembly succeeds
+(`GradePathDistantHardConstraintCopiedCaseTests`).
 
 **`SplitConform` accepts the hand-rolled split only when it leaves topology no worse than the input.**
 It used to accept anything that was not non-manifold, but the same "cut point a hair off an existing

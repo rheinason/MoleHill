@@ -44,13 +44,18 @@ internal static class TerrainBuildHeuristics
                faceCount <= MaxLocalizedGradePathRoadEdgeFallbackFaces;
     }
 
+    /// <param name="hasInteractingHardConstraints">
+    /// True only when a persistent hard constraint crosses or overlaps the corridor's own constraints.
+    /// Merely having one anywhere on the terrain is not enough: a distant pad boundary switched the tier
+    /// order, and split-keep grades visibly worse than explicit assembly where both succeed.
+    /// </param>
     public static bool ShouldPreferSplitKeepGradePath(
         TerrainBuildMode mode,
-        bool hasPersistentHardConstraints,
+        bool hasInteractingHardConstraints,
         int faceCount)
     {
         return mode == TerrainBuildMode.Final &&
-               hasPersistentHardConstraints &&
+               hasInteractingHardConstraints &&
                faceCount >= MinSplitKeepPreferredFaces;
     }
 }

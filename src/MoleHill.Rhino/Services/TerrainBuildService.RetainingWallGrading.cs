@@ -61,7 +61,7 @@ internal sealed partial class TerrainBuildService
         SurfaceRemesher.ConstraintPolyline[] railHardConstraints = Array.Empty<SurfaceRemesher.ConstraintPolyline>();
         bool railPreferSplitKeep = TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
             mode,
-            hasPersistentHardConstraints: false,
+            hasInteractingHardConstraints: false,
             faceCount);
 
         var coreTimer = Stopwatch.StartNew();
