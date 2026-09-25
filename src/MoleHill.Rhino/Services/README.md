@@ -219,7 +219,9 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   the preview path (which holds a `RhinoDoc`) and the build path (via `TerrainBuildSnapshot.
   NorthAzimuthDegrees`, captured on the document thread), so an aspect map cannot disagree with the sun.
   North is not on the definition, so `ComputeAnalysisFingerprint` adds it explicitly for an aspect
-  analysis - otherwise rotating north leaves cached bearings on screen.
+  analysis - otherwise rotating north leaves cached bearings on screen. Because changing north edits no
+  terrain, `mhSetSunNorth` itself rebuilds the terrains `TerrainsToRefreshAfterChange` names (live-updating,
+  with an enabled aspect analysis) when the angle actually changes.
 - Reference comparison caches separate current-mesh statistics from reference projection contexts.
   Multiple zone pieces therefore share the expensive reference index while retaining independent
   cut/fill volumes and per-call projection diagnostics.

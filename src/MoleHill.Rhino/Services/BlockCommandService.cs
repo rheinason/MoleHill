@@ -83,8 +83,19 @@ internal static class BlockCommandService
             angle = 0.0;
 
         Sun rhinoSun = doc.Lights.Sun;
+        bool changed = Math.Abs(DocumentNorth.AzimuthDegrees(doc) - angle) > RhinoMath.ZeroTolerance;
         rhinoSun.North = angle;
         RhinoApp.WriteLine(angle.ToString("G", CultureInfo.InvariantCulture));
+
+        // Aspect colours and bearings are measured from north, and the build fingerprint includes it, but
+        // nothing about this command edits a terrain — so without asking, they kept the old north until
+        // some unrelated edit happened to rebuild them.
+        if (changed)
+        {
+            foreach (Guid terrainId in DocumentNorth.TerrainsToRefreshAfterChange(TerrainController.Instance.GetTerrains(doc)))
+                TerrainController.Instance.RebuildTerrain(doc, terrainId);
+        }
+
         return Result.Success;
     }
 
