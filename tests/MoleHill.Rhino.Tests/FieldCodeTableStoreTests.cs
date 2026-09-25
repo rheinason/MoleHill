@@ -88,6 +88,89 @@ public sealed class FieldCodeTableStoreTests : IDisposable
     }
 
     [Fact]
+    public void LoadFrom_CorruptFile_ReturnsDefaultsWarnsAndLeavesTheFileUntouched()
+    {
+        // A read failure (a Dropbox lock, a truncated write) used to overwrite the user's table.
+        string path = PathFor("field-codes.json");
+        const string original = "{ this is not json";
+        File.WriteAllText(path, original);
+
+        FieldCodeTable loaded = FieldCodeTableStore.LoadFrom(path, out string? warning);
+
+        Assert.Equal(FieldCodeTable.CreateDefault().Rules.Count, loaded.Rules.Count);
+        Assert.NotNull(warning);
+        Assert.Equal(original, File.ReadAllText(path));
+        Assert.Empty(Directory.GetFiles(_directory, "field-codes.json.bak-*"));
+    }
+
+    [Fact]
+    public void LoadFrom_LockedFile_ReturnsDefaultsWithoutThrowing()
+    {
+        string path = PathFor("field-codes.json");
+        FieldCodeTableStore.WriteTo(path, FieldCodeTable.CreateDefault());
+
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            FieldCodeTable loaded = FieldCodeTableStore.LoadFrom(path, out string? warning);
+
+            Assert.NotEmpty(loaded.Rules);
+            Assert.NotNull(warning);
+        }
+
+        Assert.True(FieldCodeTableStore.TryRead(path, out _));
+    }
+
+    [Fact]
+    public void LoadFrom_MissingFile_WritesTheDefaultsWithoutWarning()
+    {
+        string path = PathFor("field-codes.json");
+
+        FieldCodeTable loaded = FieldCodeTableStore.LoadFrom(path, out string? warning);
+
+        Assert.Null(warning);
+        Assert.NotEmpty(loaded.Rules);
+        Assert.True(File.Exists(path));
+    }
+
+    [Fact]
+    public void SaveTo_OverAnUnreadableFile_BacksItUpFirst()
+    {
+        string path = PathFor("field-codes.json");
+        const string original = "{ this is not json";
+        File.WriteAllText(path, original);
+
+        FieldCodeTableStore.SaveTo(path, FieldCodeTable.CreateDefault());
+
+        string backup = Assert.Single(Directory.GetFiles(_directory, "field-codes.json.bak-*"));
+        Assert.Equal(original, File.ReadAllText(backup));
+        Assert.True(FieldCodeTableStore.TryRead(path, out _));
+    }
+
+    [Fact]
+    public void SaveTo_OverAReadableFile_MakesNoBackup()
+    {
+        string path = PathFor("field-codes.json");
+        FieldCodeTableStore.WriteTo(path, FieldCodeTable.CreateDefault());
+
+        FieldCodeTableStore.SaveTo(path, FieldCodeTable.CreateDefault());
+
+        Assert.Empty(Directory.GetFiles(_directory, "field-codes.json.bak-*"));
+    }
+
+    [Fact]
+    public void Read_RoleNameFromANewerBuild_SkipsOnlyThatRuleAndWarns()
+    {
+        string path = PathFor("newer.json");
+        File.WriteAllText(path, """{"Rules":[{"Code":"EP","Role":"Breakline"},{"Code":"WALL","Role":"RetainingWall"}]}""");
+
+        Assert.True(FieldCodeTableStore.TryRead(path, out FieldCodeTable? loaded, out string? warning));
+
+        Assert.NotNull(loaded!.Find("EP"));
+        Assert.Null(loaded.Find("WALL"));
+        Assert.Contains("WALL", warning);
+    }
+
+    [Fact]
     public void Read_MissingFile_ReportsFailureRatherThanThrowing()
     {
         Assert.False(FieldCodeTableStore.TryRead(PathFor("absent.json"), out _));

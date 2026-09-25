@@ -25,6 +25,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
 {
     private readonly FieldCodeTableStore _store;
     private FieldCodeTable _table;
+    private readonly string? _loadWarning;
 
     private readonly GridView _grid = new() { ShowHeader = true, Height = 300 };
     private readonly ObservableCollection<RuleRow> _rows = new();
@@ -40,7 +41,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
     private FieldCodeTableEditorDialog(FieldCodeTableStore store)
     {
         _store = store;
-        _table = store.Load().Clone();
+        _table = store.Load(out _loadWarning).Clone();
 
         Title = "MoleHill Field Codes";
         Resizable = true;
@@ -50,6 +51,8 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
 
         Content = BuildLayout();
         Refresh();
+        if (_loadWarning != null)
+            _status.Text = _loadWarning;
     }
 
     public static bool ShowDialog(RhinoDoc doc, FieldCodeTableStore store)

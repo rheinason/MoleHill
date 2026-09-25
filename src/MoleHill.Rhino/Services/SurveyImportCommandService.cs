@@ -54,7 +54,9 @@ internal static class SurveyImportCommandService
         if (placement != Result.Success)
             return placement;
 
-        FieldCodeTable table = MoleHillRhinoPlugin.Instance.FieldCodeTableStore.Load();
+        FieldCodeTable table = MoleHillRhinoPlugin.Instance.FieldCodeTableStore.Load(out string? tableWarning);
+        if (tableWarning != null)
+            RhinoApp.WriteLine(tableWarning);
         SurveyImportResult parsed = SurveyFigureBuilder.Build(file.Points, table);
 
         return Create(doc, file, parsed, table, toDocument, choice, units);
