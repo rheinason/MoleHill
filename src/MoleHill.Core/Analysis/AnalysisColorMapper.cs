@@ -47,14 +47,16 @@ public static class AnalysisColorMapper
         double interval = ResolveInterval(safe.Low, safe.High, requestedInterval);
         double span = safe.Span;
 
-        int count = (int)Math.Ceiling(span / interval - 1e-9);
-        if (count < 1)
-            count = 1;
-        while (count > MaximumBands)
+        // Count and coarsen in double: an interval below span/int.MaxValue overflows an int cast, and the
+        // wrapped count once collapsed stepped mode into a single flat colour.
+        double rawCount = Math.Ceiling(span / interval - 1e-9);
+        while (rawCount > MaximumBands)
         {
             interval *= 2.0;
-            count = (int)Math.Ceiling(span / interval - 1e-9);
+            rawCount = Math.Ceiling(span / interval - 1e-9);
         }
+
+        int count = Math.Max(1, (int)rawCount);
 
         var bands = new Band[count];
         for (int i = 0; i < count; i++)

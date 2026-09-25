@@ -90,6 +90,19 @@ public sealed class AnalysisColorMapperTests
     }
 
     [Fact]
+    public void ResolveBands_TinyIntervalBeyondIntRange_IsCoarsenedToManyBands()
+    {
+        // span / 1e-9 is 1e10 bands — past int.MaxValue, which used to overflow the cast and leave one band.
+        var bands = AnalysisColorMapper.ResolveBands(new AnalysisRange(0.0, 10.0, false), 1e-9, Palette);
+
+        Assert.True(bands.Count > 1);
+        Assert.True(bands.Count <= AnalysisColorMapper.MaximumBands);
+        Assert.Equal(0.0, bands[0].Low);
+        Assert.Equal(10.0, bands[^1].High, precision: 9);
+        Assert.NotEqual(bands[0].Color.R, bands[^1].Color.R);
+    }
+
+    [Fact]
     public void SampleBanded_ValuesBeyondTheRangeUseTheEndBands()
     {
         var bands = AnalysisColorMapper.ResolveBands(new AnalysisRange(0.0, 10.0, false), 2.0, Palette);
