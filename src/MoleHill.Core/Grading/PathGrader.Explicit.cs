@@ -301,6 +301,12 @@ public static partial class PathGrader
             // Side stations (left edge forward, right edge backward); the daylight at the road
             // ends is rounded by an arc afterward to avoid the overlapping-corner-fan pinch.
             int sideCount = oneSided ? n : n * 2;
+
+            // A one-sided rail's stations sit on whichever side its normals point to, and the elevation
+            // pass grades that side at that side's angles — so the daylight loop must use them too.
+            bool outwardIsRight = oneSided && path.OutwardSideSign() < 0.0;
+            double firstSideCut = outwardIsRight ? path.RightCutSlopeAngleDeg : path.LeftCutSlopeAngleDeg;
+            double firstSideFill = outwardIsRight ? path.RightFillSlopeAngleDeg : path.LeftFillSlopeAngleDeg;
             var stationXy = new double[sideCount * 2];
             var normals = new double[sideCount * 2];
             var footZ = new double[sideCount];
@@ -324,8 +330,8 @@ public static partial class PathGrader
                 }
 
                 footZ[i] = center.ZValues[i];
-                slopeAngles[i * 2] = path.LeftCutSlopeAngleDeg;
-                slopeAngles[(i * 2) + 1] = path.LeftFillSlopeAngleDeg;
+                slopeAngles[i * 2] = firstSideCut;
+                slopeAngles[(i * 2) + 1] = firstSideFill;
             }
 
             if (!oneSided)

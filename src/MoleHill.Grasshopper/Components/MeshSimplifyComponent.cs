@@ -25,7 +25,7 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
         SubCategory = "Surface",
         Inputs = new[]
         {
-            GhPort.Mesh("Mesh", "M", "Triangle terrain mesh.", optional: false),
+            GhPort.Mesh("Mesh", "M", "Triangle terrain mesh. Optional when a Terrain is supplied.", optional: true),
             GhPort.Text("Mode", "Mo", "Maximum deviation or Target vertex count.", optional: true),
             GhPort.Number("Maximum Deviation", "D", "Maximum allowed vertical deviation in model units.", optional: true, @default: 0.0),
             GhPort.Integer("Target Vertex Count", "N", "Target vertex count when Mode is Target vertex count.", optional: true, @default: 0),
@@ -48,7 +48,11 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
     {
         MoleHillTerrainData? sourceTerrain = ctx.TryGetTerrain(6, out var typedTerrain) ? typedTerrain : null;
         bool hasMesh = ctx.TryGetMesh(0, out Mesh mesh);
-        if (!hasMesh && sourceTerrain == null) return;
+        if (!hasMesh && sourceTerrain == null)
+        {
+            ctx.Warn("Supply a Mesh or a Terrain.");
+            return;
+        }
         mesh ??= sourceTerrain!.Mesh.DuplicateMesh();
         if (!ctx.TryToFlatFaces(mesh, out int[] faces)) return;
         if (faces.Length == 0)
@@ -84,12 +88,14 @@ public sealed class MeshSimplifyComponent : RegistryTerrainComponent
         int usedVertexCount = faces.Distinct().Count();
         if (modeText.Contains("percentage", StringComparison.OrdinalIgnoreCase))
         {
-            if (!double.IsFinite(retainPercentage) || retainPercentage <= 0.0 || retainPercentage > 100.0)
+            // Same resolution as the Rhino Simplify modifier (TerrainBuildService.TryResolvePercentageTarget),
+            // so a percentage keeps the same vertex count in both hosts.
+            if (!double.IsFinite(retainPercentage) || retainPercentage < 0.0 || retainPercentage > 100.0)
             {
-                ctx.Error("Retain Percentage must be greater than 0 and at most 100.");
+                ctx.Error("Retain Percentage must be between 0 and 100.");
                 return;
             }
-            target = Math.Max(3, (int)Math.Ceiling(usedVertexCount * retainPercentage / 100.0));
+            target = (int)Math.Floor(usedVertexCount * retainPercentage / 100.0);
             countMode = true;
         }
         var options = new SurfaceSimplifier.Options

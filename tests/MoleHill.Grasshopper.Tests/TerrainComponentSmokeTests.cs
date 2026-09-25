@@ -76,6 +76,8 @@ public class TerrainComponentSmokeTests
         Assert.Equal("Terrain", balancePad.Params.Input[11].Name);
         Assert.Equal("Terrain", balancePad.Params.Output[12].Name);
         Assert.Equal("Simplify", simplify.NickName);
+        // Terrain-only wiring must solve, so the Mesh input cannot be required.
+        Assert.True(simplify.Params.Input[0].Optional);
         Assert.Equal("Required Edges", simplify.Params.Input[4].Name);
         Assert.Equal("Retain Percentage", simplify.Params.Input[5].Name);
         Assert.Equal("Terrain", simplify.Params.Input[6].Name);

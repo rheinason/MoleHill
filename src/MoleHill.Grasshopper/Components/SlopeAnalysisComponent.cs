@@ -53,7 +53,7 @@ public sealed class SlopeAnalysisComponent : RegistryTerrainComponent
             return;
 
         int unit = ctx.GetInt(1, 1);
-        if (unit < 0 || unit > 2) unit = 1;
+        if (unit < (int)SlopeAnalyzer.SlopeUnit.Ratio || unit > (int)SlopeAnalyzer.SlopeUnit.Promille) unit = 1;
 
         double colorLow = ctx.GetNumber(2, 0.0);
         double colorHigh = ctx.GetNumber(3, 0.0);

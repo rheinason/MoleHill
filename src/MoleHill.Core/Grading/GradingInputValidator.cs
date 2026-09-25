@@ -316,6 +316,19 @@ internal static class GradingInputValidator
                 }
             }
 
+            // Outward normals are read one pair per vertex on a grading worker, so a short array would
+            // surface there as an IndexOutOfRangeException naming no caller. An empty array means none.
+            if (path.OutwardNormals is { Length: > 0 } &&
+                !ValidateFiniteValues(
+                    path.OutwardNormals,
+                    checked(path.VertexCount * 2),
+                    "One-sided path outward normals are shorter than VertexCount requires.",
+                    "One-sided path outward normals must contain only finite values.",
+                    out errorMessage))
+            {
+                return false;
+            }
+
             if (!double.IsFinite(path.SlopeAngleDeg) ||
                 !double.IsFinite(path.MaxDistance) ||
                 path.MaxDistance < 0.0)

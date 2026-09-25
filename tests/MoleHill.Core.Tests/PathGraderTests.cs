@@ -100,6 +100,50 @@ public class PathGraderTests
     }
 
     [Fact]
+    public void Grade_ShortOutwardNormals_ReturnsValidationFailure()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 5.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0, 1.0 },
+            vertexCount: 3,
+            width: 0.0,
+            outwardNormals: new[] { 0.0, 1.0, 0.0, 1.0 });
+
+        GradingResult? result = PathGrader.Grade(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("outward normals", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Grade_NonFiniteOutwardNormals_ReturnsValidationFailure()
+    {
+        var path = new PathGrader.PathDefinition(
+            xyVertices: new[] { 2.0, 5.0, 8.0, 5.0 },
+            zValues: new[] { 1.0, 1.0 },
+            vertexCount: 2,
+            width: 0.0,
+            outwardNormals: new[] { 0.0, 1.0, double.NaN, 1.0 });
+
+        GradingResult? result = PathGrader.Grade(
+            BuildSquareVertices(),
+            4,
+            BuildSquareFaces(),
+            2,
+            new[] { path },
+            out string? errorMessage);
+
+        Assert.Null(result);
+        Assert.Contains("outward normals", errorMessage ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Grade_NonFiniteHardConstraint_ReturnsFailure()
     {
         var path = new PathGrader.PathDefinition(

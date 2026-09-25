@@ -81,7 +81,7 @@ public sealed class RetopoComponent : RegistryTerrainComponent
             output.Faces.AddFace(result.Quads[i], result.Quads[i + 1], result.Quads[i + 2], result.Quads[i + 3]);
         for (int i = 0; i < result.Tris.Length; i += 3)
             output.Faces.AddFace(result.Tris[i], result.Tris[i + 1], result.Tris[i + 2]);
-        output.Normals.ComputeNormals(); output.Compact();
+        output.Normals.ComputeNormals(); output.UnifyNormals(); output.Compact();
         ctx.SetData(0, output); ctx.SetData(1, result.QuadCount); ctx.SetData(2, result.TriangleCount);
         ctx.SetData(3, result.Warning ?? string.Empty);
         if (!string.IsNullOrWhiteSpace(result.Warning)) ctx.Warn(result.Warning);
