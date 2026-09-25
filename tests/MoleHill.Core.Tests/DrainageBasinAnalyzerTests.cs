@@ -587,6 +587,59 @@ public class DrainageBasinAnalyzerTests
         Assert.Equal(loop[1], loop[((pointCount - 1) * 3) + 1], 9);
     }
 
+    /// <summary>
+    /// A square split into two faces with the second wound backwards: the boundary edges no longer balance,
+    /// so they chain into two open runs. Those must come out open — closing each with a straight segment
+    /// back to its start would draw a divide along the square's diagonal.
+    /// </summary>
+    [Fact]
+    public void Extract_InconsistentWinding_ReturnsOpenChainsUnclosed()
+    {
+        double[] vertices = { 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0 };
+        int[] faces = { 0, 1, 2, 0, 3, 2 };
+        var graph = new BasinGraph
+        {
+            FaceBasin = new[] { 0, 0 },
+            FlowsTo = new[] { -1, 0 },
+            FaceCount = 2,
+            Neighbors = new[] { -1, -1, 1, -1, -1, 0 },
+            Basins = Array.Empty<BasinGraph.Basin>(),
+            FlatFaceCount = 0,
+            TotalPlanArea = 1.0
+        };
+
+        List<double[]> chains = BasinBoundaryExtractor.Extract(graph, vertices, 4, faces, 0);
+
+        Assert.Equal(2, chains.Count);
+        foreach (double[] chain in chains)
+        {
+            Assert.Equal(9, chain.Length); // three distinct points, no repeated first point
+            int last = (chain.Length / 3) - 1;
+            Assert.False(chain[0] == chain[last * 3] && chain[1] == chain[(last * 3) + 1]);
+        }
+    }
+
+    /// <summary>The one-pass extraction must give every basin exactly what the per-basin scan gives it.</summary>
+    [Fact]
+    public void ExtractAll_MultiBasinTerrain_MatchesPerBasinExtract()
+    {
+        var mesh = Grid(12, 12, (x, y) => Math.Sin(x * 0.9) + Math.Cos(y * 0.7) + (0.05 * x));
+        BasinGraph graph = Analyze(mesh);
+        Assert.True(graph.Basins.Count > 1);
+
+        List<double[]>[] all = BasinBoundaryExtractor.ExtractAll(graph, mesh.Vertices, mesh.VertexCount, mesh.Faces);
+
+        Assert.Equal(graph.Basins.Count, all.Length);
+        foreach (BasinGraph.Basin basin in graph.Basins)
+        {
+            List<double[]> single = BasinBoundaryExtractor.Extract(
+                graph, mesh.Vertices, mesh.VertexCount, mesh.Faces, basin.Index);
+            Assert.Equal(single.Count, all[basin.Index].Count);
+            for (int loop = 0; loop < single.Count; loop++)
+                Assert.Equal(single[loop], all[basin.Index][loop]);
+        }
+    }
+
     /// <summary>Every basin boundary closes. An open catchment polygon cannot be hatched or measured.</summary>
     [Fact]
     public void Extract_EveryBasinOfASlope_ReturnsClosedLoops()

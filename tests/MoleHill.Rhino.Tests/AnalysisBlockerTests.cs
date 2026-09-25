@@ -101,6 +101,37 @@ public class AnalysisBlockerTests
         Assert.Equal(AnalysisPrerequisites.NothingToCompareMessage, Blocker(new CutFillAnalysisDefinition(), off));
     }
 
+    public static TheoryData<ModifierDefinition> ElevationChangingModifiers() => new()
+    {
+        new RetainingWallModifierDefinition(),
+        new GradeLineModifierDefinition(),
+        new ProjectToModifierDefinition(),
+        new AddGeometryModifierDefinition(),
+        new InSituStairModifierDefinition(),
+    };
+
+    [Theory]
+    [MemberData(nameof(ElevationChangingModifiers))]
+    public void CutFill_WithElevationChangingModifier_HasSomethingToCompare(ModifierDefinition modifier)
+    {
+        modifier.IsEnabled = true;
+
+        Assert.Null(Blocker(new CutFillAnalysisDefinition(), modifier));
+    }
+
+    [Fact]
+    public void CutFill_WithOnlyResamplingModifiers_SaysThereIsNothingToCompare()
+    {
+        // Triangulate is the base itself; Remesh and Simplify re-sample the same surface.
+        Assert.Equal(
+            AnalysisPrerequisites.NothingToCompareMessage,
+            Blocker(
+                new CutFillAnalysisDefinition(),
+                new TriangulateModifierDefinition { IsEnabled = true },
+                new RemeshModifierDefinition { IsEnabled = true },
+                new SimplifyModifierDefinition { IsEnabled = true }));
+    }
+
     [Fact]
     public void Waterflow_WithoutPoints_NamesTheMissingInput()
     {

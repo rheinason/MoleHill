@@ -68,6 +68,23 @@ public class TerrainBoundaryRolePipelineTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.StartsWith("Data Clip kept 9/25 points", StringComparison.Ordinal));
     }
 
+    [RhinoNativeFact]
+    public void Build_DisabledTriangulateWithOuter_DoesNotTrimTerrain()
+    {
+        Fixture fixture = CreateFixture();
+        var disabled = new TriangulateModifierDefinition { IsEnabled = false };
+        AddBoundary(fixture.Snapshot, disabled.OuterBoundaries, 501, Rectangle(-0.5, -0.5, 0.5, 0.5));
+        fixture.Snapshot.Terrain.Modifiers.Insert(0, disabled);
+
+        TerrainBuildResult result = new TerrainBuildService().Build(
+            fixture.Snapshot, new TerrainRuntimeCache(), TerrainBuildMode.Preview);
+
+        Assert.NotNull(result.PrimaryMesh);
+        BoundingBox bounds = result.PrimaryMesh.GetBoundingBox(true);
+        Assert.InRange(bounds.Min.X, -2.00001, -1.99999);
+        Assert.InRange(bounds.Max.X, 1.99999, 2.00001);
+    }
+
     private static Fixture CreateFixture()
     {
         var triangulate = new TriangulateModifierDefinition { PeelBoundaryTriangles = false, Tolerance = 0.01 };

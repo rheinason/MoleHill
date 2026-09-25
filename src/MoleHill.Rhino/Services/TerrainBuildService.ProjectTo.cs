@@ -56,7 +56,10 @@ internal sealed partial class TerrainBuildService
             modifier.Strength,
             modifier.FeatherDistance,
             tolerance,
-            shouldCancel);
+            shouldCancel,
+            faces,
+            faceCount,
+            RemeshWallFaceMinSlopeDeg);
 
         if (conformed.Any(value => !double.IsFinite(value)))
         {

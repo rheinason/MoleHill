@@ -181,13 +181,23 @@ public sealed class PreparedPolygon
         if (margin < 0.0)
             return false;
 
+        return DistanceIfNear(x, y, margin) <= margin;
+    }
+
+    /// <summary>
+    /// The point's exact distance to the loop's boundary, or positive infinity when the loop bounds
+    /// already place it further than <paramref name="margin"/>. For a caller that needs the distance
+    /// itself, not just <see cref="IsWithin"/>'s answer, so the edges are walked once rather than twice.
+    /// </summary>
+    public double DistanceIfNear(double x, double y, double margin)
+    {
         if (_boundsUsable &&
             (x < MinX - margin || x > MaxX + margin || y < MinY - margin || y > MaxY + margin))
         {
-            return false;
+            return double.PositiveInfinity;
         }
 
-        return GradingGeometry2D.DistanceToPolygon(x, y, _xy, _vertexCount) <= margin;
+        return GradingGeometry2D.DistanceToPolygon(x, y, _xy, _vertexCount);
     }
 
     private int BucketOf(double y)

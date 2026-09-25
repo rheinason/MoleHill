@@ -47,14 +47,21 @@ internal static class AnalysisPrerequisites
     /// <summary>
     /// Whether this modifier type moves the surface vertically.
     ///
-    /// Triangulate and the geometry inputs establish the ground rather than alter it — they are what the
-    /// initial triangulation *is* — so they are deliberately excluded. Remesh only redistributes vertices
-    /// across the same surface.
+    /// Triangulate establishes the ground rather than altering it — its output is what the initial
+    /// triangulation <em>is</em> — so it is deliberately excluded. Add Geometry is not: the base mesh is
+    /// captured once, after the first Triangulate stage, so points and breaklines added later really do
+    /// differ from it. Remesh, Retopo and Simplify only re-sample the same surface (Simplify within its
+    /// certified deviation), and Mesh Areas / Mesh Collage only split or colour it, so none of them counts.
     /// </summary>
     private static bool ChangesElevations(ModifierDefinition modifier) => modifier switch
     {
         GradePadModifierDefinition => true,
         GradePathModifierDefinition => true,
+        GradeLineModifierDefinition => true,
+        RetainingWallModifierDefinition => true,
+        InSituStairModifierDefinition => true,
+        ProjectToModifierDefinition => true,
+        AddGeometryModifierDefinition => true,
         SculptModifierDefinition => true,
         SmoothModifierDefinition => true,
         _ => false

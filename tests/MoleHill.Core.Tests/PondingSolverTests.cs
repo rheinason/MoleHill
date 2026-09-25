@@ -156,6 +156,39 @@ public class PondingSolverTests
         Assert.NotEmpty(everything);
     }
 
+    /// <summary>
+    /// The depth filter runs before the pond is measured, so it must still be inclusive at the threshold:
+    /// a pond exactly as deep as the minimum is reported, and one a hair deeper minimum drops it.
+    /// </summary>
+    [Fact]
+    public void Solve_MinimumDepthAtPondDepth_KeepsThePondInclusively()
+    {
+        var mesh = Grid(20, 20, (x, y) =>
+        {
+            double baseZ = 100.0 - (0.01 * y);
+            double dx = x - 10.0;
+            double dy = y - 10.0;
+            double radius = Math.Sqrt((dx * dx) + (dy * dy));
+            return radius < 3.0 ? baseZ - (0.02 * (3.0 - radius)) : baseZ;
+        });
+        BasinGraph graph = DrainageBasinAnalyzer.Analyze(
+            mesh.Vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount);
+        var all = PondingSolver.Solve(
+            graph, mesh.Vertices, mesh.VertexCount, mesh.Faces,
+            new PondingSolver.Options { MinimumDepth = 0.0 });
+        double deepest = all.Max(pond => pond.MaxDepth);
+
+        var atThreshold = PondingSolver.Solve(
+            graph, mesh.Vertices, mesh.VertexCount, mesh.Faces,
+            new PondingSolver.Options { MinimumDepth = deepest });
+        var aboveThreshold = PondingSolver.Solve(
+            graph, mesh.Vertices, mesh.VertexCount, mesh.Faces,
+            new PondingSolver.Options { MinimumDepth = deepest + 1e-9 });
+
+        Assert.Contains(atThreshold, pond => pond.MaxDepth == deepest && pond.Volume > 0.0 && pond.Outlines.Count > 0);
+        Assert.Empty(aboveThreshold);
+    }
+
     /// <summary>A hillside with nothing cut into it holds no water, and must report none.</summary>
     [Fact]
     public void Solve_UniformSlope_ReportsNoPond()
