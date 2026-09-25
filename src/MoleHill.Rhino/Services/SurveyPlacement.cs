@@ -18,7 +18,13 @@ internal enum SurveyPlacementChoice
     ProjectBaseCreated,
 
     /// <summary>Left where the file put it.</summary>
-    RealWorld
+    RealWorld,
+
+    /// <summary>
+    /// The document has a project base, but the survey is already on a small local grid, so it was left
+    /// where the file put it rather than shifted by the base offset.
+    /// </summary>
+    LocalGrid
 }
 
 /// <summary>
@@ -32,6 +38,11 @@ internal enum SurveyPlacementChoice
 /// <c>Georef</c> named CPlane. Skipping it would import a document that holds one silently offset by the
 /// entire site translation — which parses, draws, and looks exactly like a correct import until somebody
 /// measures against existing linework.
+///
+/// <b>A project base is applied only to a survey that is actually far from the origin.</b> The base maps
+/// real-world coordinates into the local frame; a survey already on a site grid near the origin is in
+/// that frame (or some other local one) already, and pushing it through the base would shift it by the
+/// whole site offset.
 ///
 /// <b>Far from origin with no base is a decision, not a default.</b> A survey in UTM sits at roughly
 /// 500,000 E / 6,000,000 N and arrives as thousands of points feeding triangulation and a Z-aware dedup
@@ -85,6 +96,14 @@ internal static class SurveyPlacement
         if (resolution != Result.Success)
             return resolution;
 
+        bool farFromOrigin = points.Count > 0 && IsFarFromOrigin(points, units);
+
+        if (hasProjectBase && !farFromOrigin)
+        {
+            choice = SurveyPlacementChoice.LocalGrid;
+            return Result.Success;
+        }
+
         if (hasProjectBase)
         {
             if (!ProjectBaseCPlaneService.TryGetTransform(true, doc, out transform, out string? error))
@@ -99,7 +118,7 @@ internal static class SurveyPlacement
 
         // Small coordinates with no project base need no conversation: the survey is already on a local
         // grid, and asking would be a prompt with one sensible answer.
-        if (points.Count == 0 || !IsFarFromOrigin(points, units))
+        if (!farFromOrigin)
             return Result.Success;
 
         return PromptForFarFromOrigin(doc, points, units, ref transform, ref choice);

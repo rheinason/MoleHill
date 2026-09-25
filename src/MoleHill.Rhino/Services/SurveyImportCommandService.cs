@@ -238,6 +238,8 @@ internal static class SurveyImportCommandService
         {
             SurveyPlacementChoice.ProjectBase => "in local project coordinates",
             SurveyPlacementChoice.ProjectBaseCreated => "in local project coordinates, against a new project base",
+            SurveyPlacementChoice.LocalGrid =>
+                "on the file's own local grid (the survey is near the origin, so the project base was not applied)",
             _ => "in real-world coordinates"
         };
 
