@@ -7,6 +7,8 @@ namespace MoleHill.Core.Grading;
 /// </summary>
 internal static partial class MeshConstraintTopologyInserter
 {
+    private const int MaxQualityPatchFaces = 25000;
+
     internal static bool TryInsertQualityWallPatch(double[] vertices, int[] faces,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints, double tolerance,
         out double[] outputVertices, out int[] outputFaces, out string? message)
@@ -32,9 +34,16 @@ internal static partial class MeshConstraintTopologyInserter
             // across the stitched output, including its untouched neighbours, before publishing it.
             for (int rings = 0; rings <= 6; rings++)
             {
+                // The budget is passed in so an oversized candidate is abandoned straight after
+                // triangulation, before its vertices are sampled and its neighbours stitched.
                 if (!TryBuildWallPatchCandidate(vertices, faces, constraints, tolerance, 0,
-                        out var candidateVertices, out var candidateFaces, out message, rings)) return false;
-                if (candidateFaces.Length / 3 > 25000) break;
+                        out var candidateVertices, out var candidateFaces, out message, out bool exceededFaceBudget,
+                        rings, maxOutputFaces: MaxQualityPatchFaces))
+                {
+                    if (exceededFaceBudget) break;
+                    return false;
+                }
+                if (candidateFaces.Length / 3 > MaxQualityPatchFaces) break;
                 double worst = PatchMinimumAngle(candidateVertices, candidateFaces);
                 if (worst < 5) continue;
                 if (candidateVertices.Any(v => !double.IsFinite(v))) return false;

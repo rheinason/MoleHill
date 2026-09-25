@@ -13,8 +13,25 @@ internal static partial class MeshConstraintTopologyInserter
         double tolerance, int segmentSplitting,
         out double[] outputVertices, out int[] outputFaces, out string? error, int neighbourRings = 0, double maxArea = 0)
     {
+        return TryBuildWallPatchCandidate(vertices, faces, constraints, tolerance, segmentSplitting,
+            out outputVertices, out outputFaces, out error, out _, neighbourRings, maxArea);
+    }
+
+    /// <param name="maxOutputFaces">
+    /// Face budget for the candidate. When the patch's own triangles plus the untouched faces already
+    /// exceed it, the candidate is abandoned before any elevation sampling or neighbour stitching and
+    /// <paramref name="exceededFaceBudget"/> is set; the returned arrays are then the unchanged input.
+    /// </param>
+    internal static bool TryBuildWallPatchCandidate(
+        double[] vertices, int[] faces,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        double tolerance, int segmentSplitting,
+        out double[] outputVertices, out int[] outputFaces, out string? error, out bool exceededFaceBudget,
+        int neighbourRings = 0, double maxArea = 0, int maxOutputFaces = int.MaxValue)
+    {
         CloneInput(vertices, faces, out outputVertices, out outputFaces);
         error = null;
+        exceededFaceBudget = false;
         int faceCount = faces.Length / 3;
         if (faceCount == 0 || faceCount > 4096)
         {
@@ -77,9 +94,31 @@ internal static partial class MeshConstraintTopologyInserter
         var points = new LocalPointBuilder(tolerance);
         var segments = new List<(int a, int b)>();
         var keys = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
+        // Sample runs once per patch vertex, so index the reference faces rather than scanning them all.
+        // Bounds are padded past ContainsPoint's barycentric slack; candidates are visited in index order
+        // so the lowest-index containing face still wins, and a miss falls back to the full scan, so the
+        // result is exactly what the linear scan returned.
+        int referenceFaceCount = referenceFaces.Length / 3;
+        Bounds2D[] referenceBounds = BuildFaceBounds(referenceVertices, referenceFaces, referenceFaceCount);
+        for (int f = 0; f < referenceFaceCount; f++)
+        {
+            Bounds2D b = referenceBounds[f];
+            double pad = tolerance + (1e-4 * Math.Max(b.MaxX - b.MinX, b.MaxY - b.MinY));
+            referenceBounds[f] = new Bounds2D(b.MinX - pad, b.MaxX + pad, b.MinY - pad, b.MaxY + pad);
+        }
+        SpatialHashGrid2D referenceGrid = SpatialHashGrid2D.Build(referenceBounds);
+        var sampleScratch = new SpatialHashGrid2D.QueryScratch(referenceFaceCount);
+        var sampleCandidates = new List<int>();
         double Sample(Point2D p)
         {
-            for (int f = 0; f < referenceFaces.Length / 3; f++)
+            referenceGrid.GatherCandidates(Bounds2D.FromPoint(p.X, p.Y), sampleCandidates, sampleScratch);
+            sampleCandidates.Sort();
+            foreach (int f in sampleCandidates)
+            {
+                var face = new FaceData(referenceVertices, referenceFaces, f);
+                if (face.ContainsPoint(p, tolerance)) return face.InterpolateZ(p);
+            }
+            for (int f = 0; f < referenceFaceCount; f++)
             {
                 var face = new FaceData(referenceVertices, referenceFaces, f);
                 if (face.ContainsPoint(p, tolerance)) return face.InterpolateZ(p);
@@ -128,13 +167,28 @@ internal static partial class MeshConstraintTopologyInserter
             new TriangleNet.Meshing.ConstraintOptions { Convex = true, ConformingDelaunay = true, SegmentSplitting = segmentSplitting },
             new TriangleNet.Meshing.QualityOptions { MinimumAngle = 20, MaximumArea = maxArea, SteinerPoints = 10000 });
         var extracted = TriangleNetExtractor.Extract(mesh);
+        Point2D Point(int i) => new(extracted.Xy[i * 2], extracted.Xy[i * 2 + 1]);
+        var keptFaces = new List<int>(extracted.FaceCount);
+        for (int f = 0; f < extracted.FaceCount; f++)
+        {
+            var pa = Point(extracted.Faces[f * 3]); var pb = Point(extracted.Faces[f * 3 + 1]); var pc = Point(extracted.Faces[f * 3 + 2]);
+            var center = new Point2D((pa.X + pb.X + pc.X) / 3, (pa.Y + pb.Y + pc.Y) / 3);
+            if (patch.Any(i => new FaceData(vertices, faces, i).ContainsPoint(center, tolerance))) keptFaces.Add(f);
+        }
+        // Neighbour bisection below only adds faces, so this is a lower bound on the output size:
+        // exceeding it here means the finished candidate would too, without sampling a single vertex.
+        if ((long)keptFaces.Count + (faceCount - patch.Length) > maxOutputFaces)
+        {
+            exceededFaceBudget = true;
+            error = $"Wall patch exceeds {maxOutputFaces:N0} output faces.";
+            return false;
+        }
         var globalVertices = new List<double>(vertices);
         for (int i = 2; i < globalVertices.Count; i += 3) globalVertices[i] = referenceVertices[i];
         // Model-tolerance welding can erase short, valid refined edges. Match only numerical duplicates.
         var lookup = new GlobalPointLookup(globalVertices, Math.Max(1e-9, tolerance * 1e-6));
         var globalFaces = new List<int>();
         var mapped = new Dictionary<int, int>();
-        Point2D Point(int i) => new(extracted.Xy[i * 2], extracted.Xy[i * 2 + 1]);
         int Map(int i)
         {
             if (!mapped.TryGetValue(i, out int g))
@@ -144,12 +198,9 @@ internal static partial class MeshConstraintTopologyInserter
             }
             return g;
         }
-        for (int f = 0; f < extracted.FaceCount; f++)
+        foreach (int f in keptFaces)
         {
             int a = extracted.Faces[f * 3], b = extracted.Faces[f * 3 + 1], c = extracted.Faces[f * 3 + 2];
-            var pa = Point(a); var pb = Point(b); var pc = Point(c);
-            var center = new Point2D((pa.X + pb.X + pc.X) / 3, (pa.Y + pb.Y + pc.Y) / 3);
-            if (!patch.Any(i => new FaceData(vertices, faces, i).ContainsPoint(center, tolerance))) continue;
             globalFaces.Add(Map(a)); globalFaces.Add(Map(b)); globalFaces.Add(Map(c));
         }
         // Propagate every boundary Steiner point to its untouched neighbour before triangulating it.

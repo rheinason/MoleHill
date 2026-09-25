@@ -321,5 +321,79 @@ public class RetainingWallPinchCaseTests
                              (2 * adjacentA * adjacentB), -1, 1)) * 180 / Math.PI;
 
     private readonly record struct AngleSummary(double WorstDegrees, int BelowFive, int BelowOne);
+
+    [Fact]
+    public void TryBuildWallPatchCandidate_OverFaceBudget_AbandonsCandidateAndReportsBudget()
+    {
+        double[] vertices = { 0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0 };
+        int[] faces = { 0, 1, 2, 0, 2, 3 };
+        var rails = new[] { Rail((0, 4, 0), (10, 4, 0)), Rail((0, 6, 2), (10, 6, 2)) };
+
+        Assert.False(MeshConstraintTopologyInserter.TryBuildWallPatchCandidate(vertices, faces, rails, 1e-6,
+            0, out var outputVertices, out var outputFaces, out var error, out bool exceeded,
+            maxArea: 0.2, maxOutputFaces: 10));
+
+        Assert.True(exceeded);
+        Assert.Contains("exceeds", error);
+        Assert.Equal(vertices, outputVertices);
+        Assert.Equal(faces, outputFaces);
+    }
+
+    // Golden fingerprints of the copied wall case, captured from the linear-scan Sample() before the
+    // reference faces were indexed. Indexing is a speed change only: every candidate must be identical.
+    [Theory]
+    [InlineData(0, 3685227935813L, 585032642L, 402, 775)]
+    [InlineData(1, 4100439794582L, 597149611L, 408, 779)]
+    [InlineData(2, 3234618735548L, 502700981L, 382, 731)]
+    public void TryBuildWallPatchCandidate_CopiedWallCase_OutputUnchangedByIndexedSampling(
+        int rings, long expectedVertexChecksum, long expectedFaceChecksum, int expectedVertexCount, int expectedFaceCount)
+    {
+        double[] vertices =
+        {
+            0, -14.376288, 2.95, 2.0114703, -14.376288, 2.8695412,
+            11.059209, -14.376288, 2.6433477, 26, -14.376288, 2.2698278,
+            0, 12.29018, 2.95, 2.0114703, 12.29018, 2.8695412,
+            11.059209, 12.29018, 2.6433477, 26, 12.29018, 2.2698278,
+            0, 30.238869, 2.95, 2.0114703, 30.238869, 2.8695412,
+            11.059209, 30.238869, 2.6433477, 26, 30.238869, 2.2698278,
+            17.703857, 8, 2.4772315, 17.703857, 0, 2.4772315,
+            11, 0, 2.075, 11, 8, 2.075
+        };
+        int[] faces =
+        {
+            14, 0, 1, 4, 0, 14, 13, 15, 14, 14, 1, 2,
+            15, 5, 14, 5, 8, 4, 8, 5, 9, 5, 6, 9,
+            5, 4, 14, 6, 5, 15, 15, 13, 12, 3, 13, 2,
+            3, 7, 13, 12, 13, 7, 6, 15, 12, 9, 6, 10,
+            7, 10, 6, 10, 7, 11, 7, 6, 12, 2, 13, 14
+        };
+        SurfaceRemesher.ConstraintPolyline[] rails =
+        {
+            Rail((-0.2, 0, 2.95), (-0.2, 8, 2.95)),
+            Rail((0, 0, 1.8), (0, 8, 1.8)),
+            Rail((0, 0, 1.8), (11, 0, 2.075), (17.703858159219195, 0, 2.4772314895531515)),
+            Rail((0, -0.2, 2.95), (2.011470431092811, -0.2, 2.869541182756288),
+                (11.059208693155119, -0.2, 2.64334772620473), (17.70385815921919, -0.2, 2.477231489553128)),
+            Rail((0, 8, 1.8), (11, 8, 2.075), (17.703858159219195, 8, 2.4772314895531515)),
+            Rail((0, 8.2, 2.95), (2.011470431092811, 8.2, 2.869541182756288),
+                (11.059208693155119, 8.2, 2.64334772620473), (17.70385815921919, 8.2, 2.477231489553128))
+        };
+
+        Assert.True(MeshConstraintTopologyInserter.TryBuildWallPatchCandidate(vertices, faces, rails, 0.01,
+            0, out var patchVertices, out var patchFaces, out var error, rings), error);
+
+        long vertexChecksum = 0;
+        for (int i = 0; i < patchVertices.Length; i++)
+            vertexChecksum += (long)Math.Round(patchVertices[i] * 1e6) * (i + 1);
+        long faceChecksum = 0;
+        for (int i = 0; i < patchFaces.Length; i++)
+            faceChecksum += (long)patchFaces[i] * (i + 1);
+
+        _output.WriteLine($"[InlineData({rings}, {vertexChecksum}L, {faceChecksum}L, {patchVertices.Length / 3}, {patchFaces.Length / 3})]");
+        Assert.Equal(expectedVertexCount, patchVertices.Length / 3);
+        Assert.Equal(expectedFaceCount, patchFaces.Length / 3);
+        Assert.Equal(expectedVertexChecksum, vertexChecksum);
+        Assert.Equal(expectedFaceChecksum, faceChecksum);
+    }
 }
 
