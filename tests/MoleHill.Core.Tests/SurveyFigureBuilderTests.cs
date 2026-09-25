@@ -85,6 +85,51 @@ public sealed class SurveyFigureBuilderTests
     }
 
     [Fact]
+    public void Build_ContinuationAfterEnd_RejoinsTheClosedRun()
+    {
+        // The crew ended the edge, shot a toe, and came back: EP- carries on from the last EP point.
+        SurveyImportResult result = SurveyFigureBuilder.Build(
+            Points("EP", "EP END", "TOE", "TOE", "EP-", "EP"),
+            Table());
+
+        SurveyFigure edge = result.Figures.Single(f => f.Code == "EP");
+        Assert.Equal(new[] { 0, 1, 4, 5 }, edge.PointIndices);
+        Assert.Equal(2, result.Figures.Count);
+    }
+
+    [Fact]
+    public void Build_ContinuationAfterTwoRuns_RejoinsTheMostRecentOne()
+    {
+        SurveyImportResult result = SurveyFigureBuilder.Build(
+            Points("EP ST", "EP END", "EP ST", "EP END", "EP-"),
+            Table());
+
+        Assert.Equal(2, result.Figures.Count);
+        Assert.Equal(new[] { 0, 1 }, result.Figures[0].PointIndices);
+        Assert.Equal(new[] { 2, 3, 4 }, result.Figures[1].PointIndices);
+    }
+
+    [Fact]
+    public void Build_ContinuationWithFigureNumbers_RejoinsOnlyItsOwnFigure()
+    {
+        SurveyImportResult result = SurveyFigureBuilder.Build(
+            Points("EP1", "EP1 END", "EP2", "EP2 END", "EP1-"),
+            Table());
+
+        Assert.Equal(new[] { 0, 1, 4 }, result.Figures.Single(f => f.FigureNumber == 1).PointIndices);
+        Assert.Equal(new[] { 2, 3 }, result.Figures.Single(f => f.FigureNumber == 2).PointIndices);
+    }
+
+    [Fact]
+    public void Build_ContinuationWithNothingToContinue_StartsARunAndSaysSo()
+    {
+        SurveyImportResult result = SurveyFigureBuilder.Build(Points("EP-", "EP"), Table());
+
+        Assert.Equal(new[] { 0, 1 }, Assert.Single(result.Figures).PointIndices);
+        Assert.Contains(result.Diagnostics, d => d.LineNumber == 1 && d.Message.Contains("continues a run"));
+    }
+
+    [Fact]
     public void Build_CloseMarker_ClosesTheFigureIntoALoop()
     {
         SurveyImportResult result = SurveyFigureBuilder.Build(Points("BLD", "BLD", "BLD", "BLD CL"), Table());

@@ -11,6 +11,12 @@ namespace MoleHill.Core.Interop;
 /// A run closes on an end marker, on a close marker, when a start marker reopens the same key, or at end
 /// of file. Runs of different codes interleave freely, which is what happens when a crew shoots two kerb
 /// lines and a toe in one pass.
+///
+/// A point carrying the table's continuation suffix (<c>EP-</c>) joins the open run of its key, or, when
+/// that run has already been closed, reopens the most recently closed one and carries on from its last
+/// point. That is the suffix's whole purpose: the crew ended a line, shot something else, and came back
+/// to it. Figures are therefore only materialized once the file has been walked, so a run can be
+/// reopened after it was ended.
 /// </summary>
 public static class SurveyFigureBuilder
 {
@@ -32,6 +38,10 @@ public static class SurveyFigureBuilder
         // Open runs keyed by code+figure number. Insertion-ordered so end-of-file closure reports them in
         // the order they were opened rather than in hash order, which would differ between runs.
         var openRuns = new List<OpenRun>();
+
+        // Runs that have been closed, in close order. A reopened run leaves this list and rejoins it at
+        // the end when it closes again, so figure order stays the order the figures were finished.
+        var finishedRuns = new List<OpenRun>();
 
         for (int index = 0; index < points.Count; index++)
         {
@@ -71,9 +81,27 @@ public static class SurveyFigureBuilder
             // that is the whole reason a crew types it on a code they are about to reuse.
             if (parsed.IsStart && run != null)
             {
-                Close(run, figures, spots, diagnostics, points, closed: false);
-                openRuns.Remove(run);
+                Finish(run, openRuns, finishedRuns, closed: false);
                 run = null;
+            }
+
+            // A continuation with no open run reopens the last finished run of the same key. A start
+            // marker on the same point contradicts it; the start marker is the more deliberate of the two.
+            if (run == null && parsed.IsContinuation && !parsed.IsStart)
+            {
+                run = FindLast(finishedRuns, parsed.RunKey);
+                if (run != null)
+                {
+                    finishedRuns.Remove(run);
+                    run.IsClosed = false;
+                    openRuns.Add(run);
+                }
+                else
+                {
+                    diagnostics.Add(new SurveyReadDiagnostic(
+                        point.LineNumber,
+                        $"'{point.RawDescription.Trim()}' continues a run, but no earlier '{parsed.Code}' run exists; a new run was started."));
+                }
             }
 
             if (run == null)
@@ -86,17 +114,18 @@ public static class SurveyFigureBuilder
             run.ArcFlags.Add(parsed.IsArc);
 
             if (parsed.IsEnd || parsed.IsClose)
-            {
-                Close(run, figures, spots, diagnostics, points, closed: parsed.IsClose || rule.ClosedByDefault);
-                openRuns.Remove(run);
-            }
+                Finish(run, openRuns, finishedRuns, closed: parsed.IsClose || rule.ClosedByDefault);
         }
+
+        foreach (OpenRun run in finishedRuns)
+            Materialize(run, figures, spots, diagnostics, points);
 
         // Everything still open ran off the end of the file. That is ordinary — a crew rarely closes the
         // last figure — so it is closed and reported, not failed.
         foreach (OpenRun run in openRuns)
         {
-            Close(run, figures, spots, diagnostics, points, closed: run.Rule.ClosedByDefault);
+            run.IsClosed = run.Rule.ClosedByDefault;
+            Materialize(run, figures, spots, diagnostics, points);
             if (run.PointIndices.Count >= MinimumFigurePoints)
             {
                 diagnostics.Add(new SurveyReadDiagnostic(
@@ -108,13 +137,19 @@ public static class SurveyFigureBuilder
         return new SurveyImportResult(figures, spots, unmatched, unmatchedCodes, diagnostics, ignored);
     }
 
-    private static void Close(
+    private static void Finish(OpenRun run, List<OpenRun> openRuns, List<OpenRun> finishedRuns, bool closed)
+    {
+        run.IsClosed = closed;
+        openRuns.Remove(run);
+        finishedRuns.Add(run);
+    }
+
+    private static void Materialize(
         OpenRun run,
         List<SurveyFigure> figures,
         List<int> spots,
         List<SurveyReadDiagnostic> diagnostics,
-        IReadOnlyList<SurveyPoint> points,
-        bool closed)
+        IReadOnlyList<SurveyPoint> points)
     {
         if (run.PointIndices.Count >= MinimumFigurePoints)
         {
@@ -124,7 +159,7 @@ public static class SurveyFigureBuilder
                 FieldCodeTable.ResolveLayer(run.Rule),
                 run.PointIndices,
                 run.ArcFlags,
-                closed,
+                run.IsClosed,
                 run.FigureNumber));
             return;
         }
@@ -146,6 +181,17 @@ public static class SurveyFigureBuilder
         {
             if (string.Equals(run.Key, key, StringComparison.OrdinalIgnoreCase))
                 return run;
+        }
+
+        return null;
+    }
+
+    private static OpenRun? FindLast(List<OpenRun> runs, string key)
+    {
+        for (int i = runs.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(runs[i].Key, key, StringComparison.OrdinalIgnoreCase))
+                return runs[i];
         }
 
         return null;
@@ -175,5 +221,8 @@ public static class SurveyFigureBuilder
         public List<int> PointIndices { get; } = new();
 
         public List<bool> ArcFlags { get; } = new();
+
+        /// <summary>Whether the run closes into a loop; decided when it is finished, reset if it is reopened.</summary>
+        public bool IsClosed { get; set; }
     }
 }
