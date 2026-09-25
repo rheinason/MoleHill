@@ -195,8 +195,7 @@ internal sealed class ScrubField : Panel
                 return;
 
             closed = true;
-            if (commit && double.TryParse(box.Text, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.CurrentCulture, out double parsed))
+            if (commit && TryParseLeadingNumber(box.Text, out double parsed))
                 Commit(parsed, live: false);
 
             Content = _display;
@@ -221,6 +220,26 @@ internal sealed class ScrubField : Panel
         Content = box;
         box.Focus();
         box.SelectAll();
+    }
+
+    /// <summary>
+    /// The text box is pre-filled with the formatted value, which carries whatever the formatter appends —
+    /// a unit ("25.0%", "12.0 deg") or the automatic-interval star ("2.00*"). Accept the longest leading
+    /// run that parses as a number, so committing the pre-filled text (or an edit that kept the suffix)
+    /// is not silently dropped.
+    /// </summary>
+    private static bool TryParseLeadingNumber(string? text, out double value)
+    {
+        value = 0.0;
+        string trimmed = (text ?? string.Empty).Trim();
+        for (int length = trimmed.Length; length > 0; length--)
+        {
+            if (double.TryParse(trimmed.AsSpan(0, length), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.CurrentCulture, out value) && double.IsFinite(value))
+                return true;
+        }
+
+        return false;
     }
 
     private void Commit(double value, bool live)
