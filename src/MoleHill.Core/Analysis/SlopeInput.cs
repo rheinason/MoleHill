@@ -21,7 +21,9 @@ namespace MoleHill.Core.Analysis;
 ///   <item><description><c>14°</c> / <c>14 deg</c> / <c>14 degrees</c></description></item>
 ///   <item><description><c>1:3</c> — vertical:horizontal, so 1:3 is the flat one (33.3%, 18.4°).
 ///     <c>1v:3h</c> and <c>3h:1v</c> both work and say so explicitly.</description></item>
-///   <item><description><c>0.333 ratio</c>, or a bare <c>0.333</c> when the field is showing ratios.</description></item>
+///   <item><description><c>0.333 ratio</c> — rise/run written out. A bare number while the field is
+///     showing ratios is instead the run <c>n</c> of 1:n, so a bare <c>3</c> is 1:3 — what the field
+///     displays and what a command-line slope option in Ratio units has always meant.</description></item>
 /// </list>
 ///
 /// <para>The vertical:horizontal reading of <c>a:b</c> is the plugin-wide convention: it is what
@@ -162,19 +164,24 @@ public static class SlopeInput
         if (trimmed.Contains(':'))
             return TryParseRatioPair(trimmed, out ratio);
 
-        SlopeAnalyzer.SlopeUnit unit = displayUnit;
+        SlopeAnalyzer.SlopeUnit? writtenUnit = null;
         foreach ((string token, SlopeAnalyzer.SlopeUnit tokenUnit) in UnitTokens)
         {
             if (!trimmed.EndsWith(token, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            unit = tokenUnit;
+            writtenUnit = tokenUnit;
             trimmed = trimmed[..^token.Length].TrimEnd();
             break;
         }
 
         if (!TryParseNumber(trimmed, out double value))
             return false;
+
+        // A bare number is read exactly as a command-line option reads it, so "4" under Ratio is 1:4 in
+        // both places. Only a written "ratio" suffix takes the number as rise/run.
+        if (writtenUnit is not SlopeAnalyzer.SlopeUnit unit)
+            return TryConvertDisplayNumber(value, displayUnit, out ratio);
 
         if (unit == SlopeAnalyzer.SlopeUnit.Degrees && Math.Abs(value) > MaxSlopeDegrees)
             return false;

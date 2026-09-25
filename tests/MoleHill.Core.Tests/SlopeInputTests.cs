@@ -64,6 +64,30 @@ public class SlopeInputTests
         Assert.Equal(0.045, asPromille, 9);
     }
 
+    [Theory]
+    [InlineData("4", 0.25)]
+    [InlineData("3", 1.0 / 3.0)]
+    [InlineData("0.5", 2.0)]
+    [InlineData("0", 0.0)]
+    public void TryParse_BareNumberUnderRatio_IsTheRunOfOneToN(string text, double expected)
+    {
+        // The command line has always read a Ratio-unit number as n of 1:n; the panel now agrees, so a
+        // bare 4 is the 1:4 batter in both places rather than a 76° one in the panel.
+        Assert.True(SlopeInput.TryParse(text, Ratio, out double ratio));
+        Assert.Equal(expected, ratio, 9);
+        Assert.True(SlopeInput.TryConvertDisplayNumber(double.Parse(text, CultureInfo.InvariantCulture), Ratio, out double commandLine));
+        Assert.Equal(commandLine, ratio, 9);
+    }
+
+    [Fact]
+    public void TryParse_WrittenRatioSuffix_IsRiseOverRun()
+    {
+        Assert.True(SlopeInput.TryParse("0.25 ratio", Percent, out double fromPercent));
+        Assert.Equal(0.25, fromPercent, 9);
+        Assert.True(SlopeInput.TryParse("0.25 ratio", Ratio, out double fromRatio));
+        Assert.Equal(0.25, fromRatio, 9);
+    }
+
     // 1:3 is vertical:horizontal — the flat batter, not the steep one. This is the plugin-wide reading
     // and matches OffsetVerticalMode.Ratio ("the run of 1:n") at the command line.
     [Theory]
