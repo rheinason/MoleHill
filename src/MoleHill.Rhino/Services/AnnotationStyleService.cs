@@ -8,7 +8,7 @@ namespace MoleHill.Rhino.Services;
 ///
 /// MoleHill does not own annotation styling: sizes, fonts, arrowheads, and masks live on a normal Rhino
 /// dimension style that the user edits with Rhino's own Annotation Styles editor. Generated text binds to
-/// that style rather than carrying a hardcoded <see cref="Rhino.Geometry.TextEntity.TextHeight"/>, and
+/// that style rather than carrying a hardcoded <see cref="global::Rhino.Geometry.AnnotationBase.TextHeight"/>, and
 /// marker block instances are scaled from the same style's effective text height so symbols and labels stay
 /// visually consistent.
 ///

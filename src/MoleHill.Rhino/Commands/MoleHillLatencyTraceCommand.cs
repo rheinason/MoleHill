@@ -1,4 +1,3 @@
-using System.IO;
 using MoleHill.Rhino.Services;
 using Rhino;
 using Rhino.Commands;

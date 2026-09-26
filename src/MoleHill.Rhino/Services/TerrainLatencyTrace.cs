@@ -123,7 +123,7 @@ internal static class TerrainLatencyTrace
 /// <summary>
 /// Identity for one rebuild request, so the worker can mark phases without re-threading four arguments
 /// through the build service. A scope is created per request and carried into
-/// <see cref="TerrainBuildService.Build(TerrainBuildSnapshot, TerrainRuntimeCache, TerrainBuildMode, Func{bool}?, Action{TerrainBuildProgress}?, TerrainLatencyScope?)"/>.
+/// <see cref="TerrainBuildService.Build(TerrainBuildSnapshot, TerrainRuntimeCache, TerrainBuildMode, Func{bool}?, Action{TerrainBuildProgress}?, TerrainLatencyScope?, Action{global::Rhino.Geometry.Mesh, global::Rhino.Geometry.Mesh?}?)"/>.
 /// </summary>
 internal sealed class TerrainLatencyScope
 {

@@ -1,6 +1,3 @@
-using System.Collections.Generic;
-using System.Linq;
-using MoleHill.Rhino.Model;
 using ObjectParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.TerrainObjectDefinition>;
 
 namespace MoleHill.Rhino.Registry;

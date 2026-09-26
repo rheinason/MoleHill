@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text;
 using MoleHill.Rhino.Model;
-using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;

@@ -74,7 +74,7 @@ internal static class GeometryCommandAlgorithms
     /// <para>The overload without an anchor, a transition or a falloff is the original behaviour and
     /// is kept for callers that only ever graded from the section start: it holds the first pick,
     /// absorbs nothing, and leaves the vertical step at the far end that the full overload's
-    /// <paramref name="transitionLength" /> exists to remove.</para>
+    /// <c>transitionLength</c> exists to remove.</para>
     /// </summary>
     public static bool TryCreateCurveSectionEdit(
         Curve sourceCurve,

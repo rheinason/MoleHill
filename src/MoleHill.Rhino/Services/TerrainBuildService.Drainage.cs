@@ -1,7 +1,6 @@
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using Rhino.Geometry;
-using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;
 

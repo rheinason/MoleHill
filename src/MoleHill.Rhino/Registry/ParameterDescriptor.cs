@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using MoleHill.Rhino.Model;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
 

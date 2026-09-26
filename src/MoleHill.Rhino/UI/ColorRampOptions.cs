@@ -1,4 +1,3 @@
-using System;
 using MoleHill.Core.Analysis;
 
 namespace MoleHill.Rhino.UI;

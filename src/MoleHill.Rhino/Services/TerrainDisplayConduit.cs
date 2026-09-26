@@ -1,8 +1,7 @@
 using System.Drawing;
-using System.Linq;
 using MoleHill.Rhino.Model;
-using Rhino.DocObjects;
 using Rhino.Display;
+using Rhino.DocObjects;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;

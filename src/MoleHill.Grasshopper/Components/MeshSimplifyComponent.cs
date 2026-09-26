@@ -1,4 +1,3 @@
-using Grasshopper.Kernel;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Processing;
 using MoleHill.Grasshopper.Registry;

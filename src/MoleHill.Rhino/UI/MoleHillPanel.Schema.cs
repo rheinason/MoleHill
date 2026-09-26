@@ -1,5 +1,3 @@
-using System;
-using System.Linq;
 using Eto.Forms;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;

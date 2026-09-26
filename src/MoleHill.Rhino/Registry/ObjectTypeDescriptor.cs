@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using MoleHill.Rhino.Model;
 
 namespace MoleHill.Rhino.Registry;

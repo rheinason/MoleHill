@@ -1,8 +1,7 @@
-using DialogResult = Eto.Forms.DialogResult;
-using FileFilter = Eto.Forms.FileFilter;
-using OpenFileDialog = Eto.Forms.OpenFileDialog;
-using SaveFileDialog = Eto.Forms.SaveFileDialog;
-using MoleHill.Rhino.UI;
+using System.Text;
+using MoleHill.Core.Interop;
+using MoleHill.Core.Reporting;
+using MoleHill.Rhino.Model;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.Commands;
@@ -12,11 +11,11 @@ using Rhino.Geometry;
 using Rhino.Input;
 using Rhino.Input.Custom;
 using Rhino.UI;
-using System.Text;
-using MoleHill.Core.Interop;
-using MoleHill.Core.Reporting;
-using MoleHill.Rhino.Model;
+using DialogResult = Eto.Forms.DialogResult;
+using FileFilter = Eto.Forms.FileFilter;
+using OpenFileDialog = Eto.Forms.OpenFileDialog;
 using RhinoMesh = Rhino.Geometry.Mesh;
+using SaveFileDialog = Eto.Forms.SaveFileDialog;
 
 namespace MoleHill.Rhino.Services;
 

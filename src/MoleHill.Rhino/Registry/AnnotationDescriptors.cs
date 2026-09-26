@@ -1,8 +1,7 @@
 ﻿using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
-using MoleHill.Rhino.Services;
-using RhinoObjectType = Rhino.DocObjects.ObjectType;
 using AnnotationParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.AnnotationDefinition>;
+using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
 namespace MoleHill.Rhino.Registry;
 

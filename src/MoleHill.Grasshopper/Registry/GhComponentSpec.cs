@@ -19,7 +19,7 @@ public enum GhPortType
 
 /// <summary>
 /// Declarative description of one input or output port. Maps 1:1 onto the
-/// <see cref="GH_InputParamManager"/>/<see cref="GH_OutputParamManager"/> Add* calls so a component's
+/// <see cref="GH_Component.GH_InputParamManager"/>/<see cref="GH_Component.GH_OutputParamManager"/> Add* calls so a component's
 /// parameter list is data rather than hand-written boilerplate.
 /// </summary>
 public sealed class GhPort

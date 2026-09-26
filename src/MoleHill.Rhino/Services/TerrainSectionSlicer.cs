@@ -87,7 +87,7 @@ internal static class TerrainSectionSlicer
     /// <summary>
     /// Nudges a cut plane sideways so it does not pass exactly through mesh vertices.
     ///
-    /// <see cref="Intersection.MeshPlane"/> is unreliable when vertices lie exactly on the plane: it can
+    /// <see cref="Intersection.MeshPlane(Mesh, Plane)"/> is unreliable when vertices lie exactly on the plane: it can
     /// return the section as several disjoint runs with whole spans missing, even though the mesh is
     /// continuous there. Grading makes this the normal case rather than a freak one — a pad's batter
     /// re-triangulation drops vertices on round coordinates, and section lines are drawn on round

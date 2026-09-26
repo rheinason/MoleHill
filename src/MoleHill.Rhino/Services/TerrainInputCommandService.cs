@@ -1,6 +1,6 @@
 // Rhino document workflows for terrain-input validation, draping, splitting, and wall rails.
-using DrawingColor = System.Drawing.Color;
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.UI;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.Commands;
@@ -8,8 +8,7 @@ using Rhino.DocObjects;
 using Rhino.Geometry;
 using Rhino.Input;
 using Rhino.Input.Custom;
-using Rhino.UI;
-using MoleHill.Rhino.UI;
+using DrawingColor = System.Drawing.Color;
 
 namespace MoleHill.Rhino.Services;
 

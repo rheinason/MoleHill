@@ -1,4 +1,3 @@
-using System;
 using Eto.Drawing;
 
 namespace MoleHill.Rhino.UI;

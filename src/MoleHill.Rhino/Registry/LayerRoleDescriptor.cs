@@ -8,7 +8,7 @@ namespace MoleHill.Rhino.Registry;
 /// it, and how its output looks.
 /// </summary>
 /// <param name="Role">The enum member this describes.</param>
-/// <param name="Id">Stable key persisted in <see cref="LayerTemplateEntry.Role"/>. Never rename one:
+/// <param name="Id">Stable key persisted in <see cref="LayerTemplateEntry.Roles"/>. Never rename one:
 /// every saved template and every embedded document copy refers to roles by this string.</param>
 /// <param name="DisplayName">Human label for the template editor, e.g. "Contours (Major)".</param>
 /// <param name="Parent">The role this one hangs off, or null for a root. Both the path and every

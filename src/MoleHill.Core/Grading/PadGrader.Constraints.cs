@@ -1,8 +1,3 @@
-using TriangleNet;
-using TriangleNet.Geometry;
-using TriangleNet.Meshing;
-using MoleHill.Core.Engine;
-
 namespace MoleHill.Core.Grading;
 
 public static partial class PadGrader

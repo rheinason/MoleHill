@@ -1,7 +1,4 @@
-﻿using TriangleNet;
-using TriangleNet.Geometry;
-using TriangleNet.Meshing;
-using MoleHill.Core.Engine;
+﻿using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 

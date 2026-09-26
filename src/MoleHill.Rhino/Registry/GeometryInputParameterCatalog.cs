@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using MoleHill.Rhino.Model;
 using ModifierParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.ModifierDefinition>;
 

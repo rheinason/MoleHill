@@ -1,13 +1,6 @@
-using System.Text.Json;
-using MoleHill.Core.Analysis;
-using MoleHill.Core.Engine;
-using MoleHill.Core.Grading;
-using MoleHill.Core.Processing;
 using MoleHill.Rhino.Model;
-using MoleHill.Shared;
 using Rhino;
 using Rhino.Geometry;
-using TriangleNet.Meshing;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;

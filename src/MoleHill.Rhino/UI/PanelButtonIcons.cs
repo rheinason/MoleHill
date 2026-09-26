@@ -1,4 +1,3 @@
-using System;
 using Eto.Drawing;
 using Eto.Forms;
 
@@ -32,7 +31,7 @@ internal enum PanelButtonIcon
 /// <remarks>
 /// Bold filled silhouettes rather than thin outlines — a Blender-style choice, since a hairline reads
 /// as a smudge at 16px on a high-DPI panel and a filled shape holds its identity where a thin one
-/// dissolves into noise (this bit hardest for <see cref="Duplicate"/>, <see cref="ZoneMeshes"/> and the
+/// dissolves into noise (this bit hardest for <see cref="PanelButtonIcon.Duplicate"/>, <see cref="PanelButtonIcon.ZoneMeshes"/> and the
 /// analysis-visibility pair, which used to be two same-weight outlined squares / a bare circle).
 /// </remarks>
 internal static class PanelButtonIcons

@@ -18,7 +18,7 @@ namespace MoleHill.Core.Tests;
 public class MeshAreaSplitCancellationTests
 {
     /// <summary>
-    /// A callback that stays quiet for the first <paramref name="quietConsultations"/> consultations
+    /// A callback that stays quiet for the first <c>quietConsultations</c> consultations
     /// and cancels afterwards. Set well above the number of phase-boundary checks, so a throw proves a
     /// probe *inside* a loop fired, not one at the entrance to a phase.
     /// </summary>

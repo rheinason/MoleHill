@@ -1,5 +1,3 @@
-using System;
-using System.Linq;
 using Eto.Forms;
 
 namespace MoleHill.Rhino.UI;

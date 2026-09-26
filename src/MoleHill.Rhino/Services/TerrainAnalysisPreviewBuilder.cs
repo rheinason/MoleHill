@@ -1,4 +1,3 @@
-using System.Threading.Tasks;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using Rhino;

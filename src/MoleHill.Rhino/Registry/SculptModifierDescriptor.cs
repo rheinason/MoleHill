@@ -1,9 +1,8 @@
-using System;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino;
-using RhinoObjectType = Rhino.DocObjects.ObjectType;
 using ModifierParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.ModifierDefinition>;
+using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
 namespace MoleHill.Rhino.Registry;
 

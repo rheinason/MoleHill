@@ -1,8 +1,6 @@
 using System.Diagnostics;
-using MoleHill.Core.Analysis;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
-using MoleHill.Rhino.Model;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;

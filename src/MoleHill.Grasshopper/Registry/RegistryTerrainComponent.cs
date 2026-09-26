@@ -5,7 +5,7 @@ namespace MoleHill.Grasshopper.Registry;
 /// <summary>
 /// Generic Grasshopper component driven by a <see cref="GhComponentSpec"/>. Param registration and the
 /// solve dispatch live here once; each concrete MoleHill component is a small subclass that supplies its
-/// spec, <see cref="GH_Component.ComponentGuid"/> (kept stable so existing .gh files resolve), and icon.
+/// spec, <see cref="GH_DocumentObject.ComponentGuid"/> (kept stable so existing .gh files resolve), and icon.
 /// </summary>
 public abstract class RegistryTerrainComponent : GH_Component
 {

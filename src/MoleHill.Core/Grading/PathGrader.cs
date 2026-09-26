@@ -1,7 +1,5 @@
 using System.Diagnostics;
 using MoleHill.Core.Engine;
-using TriangleNet.Geometry;
-using TriangleNet.Meshing;
 
 namespace MoleHill.Core.Grading;
 

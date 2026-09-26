@@ -1,21 +1,8 @@
-﻿using System.Diagnostics;
-using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-using Eto.Forms;
-using MoleHill.Rhino.Model;
-using MoleHill.Rhino.UI;
+﻿using MoleHill.Rhino.Model;
 using Rhino;
-using Rhino.Display;
 using Rhino.DocObjects;
-using Rhino.DocObjects.Tables;
 using Rhino.Geometry;
-using Rhino.Input.Custom;
 using Rhino.Runtime;
-using Rhino.UI;
 
 
 namespace MoleHill.Rhino.Services;

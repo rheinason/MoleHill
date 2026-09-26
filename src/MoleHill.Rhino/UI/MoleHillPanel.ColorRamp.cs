@@ -1,4 +1,3 @@
-using System;
 using System.Globalization;
 using Eto.Forms;
 using MoleHill.Core.Analysis;

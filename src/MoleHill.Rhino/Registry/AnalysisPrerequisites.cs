@@ -1,4 +1,3 @@
-using System.Linq;
 using MoleHill.Rhino.Model;
 
 namespace MoleHill.Rhino.Registry;

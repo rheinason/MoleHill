@@ -25,7 +25,7 @@ public sealed class PerfSampleRecorder
     }
 
     /// <summary>
-    /// The wall time the caller measured around <see cref="TerrainBuildService.Build"/> plus every stage row
+    /// The wall time the caller measured around <c>TerrainBuildService.Build</c> plus every stage row
     /// the build reported, including per-analysis rows such as <c>Analysis Ponding</c>.
     /// </summary>
     internal void RecordBuild(string prefix, TerrainBuildResult result, TimeSpan wall)

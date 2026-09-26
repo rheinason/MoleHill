@@ -1,9 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using MoleHill.Core.Grading;
-using TriangleNet.Geometry;
 using TriangleNet.Meshing;
-using static MoleHill.Core.Engine.MeshFlipGeometry;
 
 namespace MoleHill.Core.Engine;
 

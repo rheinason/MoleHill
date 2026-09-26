@@ -1,5 +1,4 @@
 using System.Drawing;
-using System.Linq;
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
 using MoleHill.Shared;
@@ -10,7 +9,6 @@ using Rhino.Geometry;
 using Rhino.Geometry.Intersect;
 using Rhino.Input;
 using Rhino.Input.Custom;
-using Rhino.UI;
 
 namespace MoleHill.Rhino.Services;
 

@@ -6,7 +6,7 @@ namespace MoleHill.Rhino.Services;
 
 /// <summary>
 /// Per-modifier-type build-stage bodies, dispatched from the registry instead of a central switch.
-/// Each <c>RunXStage</c> mirrors exactly one former <c>case</c> in <see cref="Build"/>'s modifier loop:
+/// Each <c>RunXStage</c> mirrors exactly one former <c>case</c> in <c>Build</c>'s modifier loop:
 /// it reads the incoming mesh/fingerprint from the <see cref="ModifierBuildContext"/> and writes back the
 /// outgoing mesh/fingerprint (and, for triangulate, the captured base mesh). The heavy lifting still
 /// lives in the private <c>ApplyX</c>/<c>BuildX</c> helpers; these are thin shims so a modifier

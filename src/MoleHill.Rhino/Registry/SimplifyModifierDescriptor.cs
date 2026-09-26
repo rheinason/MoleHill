@@ -1,6 +1,5 @@
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
-using MoleHill.Shared;
 using Rhino;
 using ModifierParam = MoleHill.Rhino.Registry.ParameterDescriptor<MoleHill.Rhino.Model.ModifierDefinition>;
 

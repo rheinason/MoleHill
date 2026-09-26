@@ -3,7 +3,6 @@ using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
 using MoleHill.Shared;
-using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
 namespace MoleHill.Rhino.Services;

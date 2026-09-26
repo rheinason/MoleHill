@@ -1,20 +1,10 @@
-using System.Globalization;
-using System.Linq;
 using Eto.Drawing;
 using Eto.Forms;
-using MoleHill.Core.Analysis;
-using MoleHill.Core.Grading;
-using MoleHill.Core.Scattering;
 using MoleHill.Rhino.Model;
-using MoleHill.Rhino.Registry;
-using MoleHill.Rhino.Services;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.UI;
-using RhinoGetPoint = Rhino.Input.Custom.GetPoint;
-using RhinoGetResult = Rhino.Input.GetResult;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
-using RhinoPoint3d = Rhino.Geometry.Point3d;
 
 namespace MoleHill.Rhino.UI;
 

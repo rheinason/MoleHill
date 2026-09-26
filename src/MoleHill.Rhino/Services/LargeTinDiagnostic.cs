@@ -2,7 +2,6 @@ using System.Diagnostics;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Processing;
 using Rhino.Geometry;
-using TriangleNet.Meshing;
 
 namespace MoleHill.Rhino.Services;
 

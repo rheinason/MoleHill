@@ -7,7 +7,7 @@ namespace MoleHill.Rhino.Services;
 /// The boundary between MoleHill's generated fills and Rhino's hatch-pattern table, mirroring
 /// <see cref="AnnotationStyleService"/>.
 ///
-/// Filled drawing regions are emitted as real <see cref="Rhino.Geometry.Hatch"/> objects rather than
+/// Filled drawing regions are emitted as real <see cref="global::Rhino.Geometry.Hatch"/> objects rather than
 /// transparent shaded meshes: a mesh is a rendering artefact that does not print sensibly and ignores
 /// <see cref="RhinoDoc.ModelSpaceHatchScale"/>, whereas a hatch is an ordinary drawing element whose
 /// pattern, scale, and print appearance the user controls with Rhino's own tools.

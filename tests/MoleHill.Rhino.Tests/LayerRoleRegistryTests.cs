@@ -63,7 +63,7 @@ public class LayerRoleRegistryTests
 
     /// <summary>
     /// Every chain terminates at a root carrying an absolute path. This is what guarantees
-    /// <see cref="LayerRoleTable.Path"/> can never return null, and therefore that no generated
+    /// <see cref="LayerRoleTable.Path(LayerRole)"/> can never return null, and therefore that no generated
     /// object can fall through to Rhino's current layer.
     /// </summary>
     [Fact]
