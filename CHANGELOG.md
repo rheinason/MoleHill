@@ -3,8 +3,9 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions are prereleases while MoleHill
 is in beta. Earlier versions are recorded only in the git history.
 
-## Unreleased
+## 0.14.7-beta — 2026-09-26
 
+- First release from the public repository.
 - Every toolbar button icon is redrawn, and the dock panel's Add, Duplicate, Delete, Clear, Show/Hide,
   Rebuild, Reset Build and Bake glyphs are redrawn from scratch.
 - Two unused macros in the toolbar file that called scripts outside MoleHill are removed. They were on no
