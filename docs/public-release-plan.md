@@ -33,6 +33,11 @@ Status key: `[ ]` open · `[~]` in progress · `[x]` done · `[-]` dropped (say 
   `120K Pointstest.csv`, `MediumSizedDataset.csv`, `GradePadTest.3dm`, `GradePadTest.3dmbak`,
   `CaseMeshResult.obj/.mtl`, and `.codex_tmp/` (a real case export, already gone from the tree).
 - [x] **D4 Commit trailers:** strip the `claude.ai/code/session_…` lines from every commit message.
+- [x] **D5 Panel glyphs:** the dock panel's Add, Duplicate, Delete, Clear, Show/Hide, Rebuild,
+  Reset Build and Bake glyphs were ported from SVGs of uncertain origin (format and names match
+  Blender's icon set). Redraw them from scratch in `PanelButtonIcons.cs`; remove the old `icons/*.svg`
+  from history. Residual: older versions of `PanelButtonIcons.cs` in history still contain the ported
+  path data; rewriting those blobs too is possible but was not asked for.
 - [x] **Also removed from history (audit of files deleted long ago):** `build.binlog` (an MSBuild binary
   log records the build environment), `.dotnet/` and `.dotnet-cli/` (SDK state, including .NET
   `MachineId` telemetry files that identify the machine), and `artifacts/` (old build/verify output).
@@ -46,33 +51,37 @@ force-push.
 
 ### 1. Tree fixes
 
-- [ ] **Office material out of the tree:** delete `Python Commands Source/` and
+- [x] **Office material out of the tree:** delete `Python Commands Source/` and
   `tools/render-toolbar-artboards.py`; remove the artboard mapping and the PNG-asset path from
   `generate-toolbar-icons.ps1`; update `CLAUDE.md`, `AGENTS.md`, `architecture.md` and `.gitignore`
   where they describe `Master.ai`.
-- [ ] **Procedural icons:** draw a `$designs` entry for every command that used an artboard; delete
+- [x] **Procedural icons:** draw a `$designs` entry for every command that used an artboard; delete
   `src/MoleHill.Rhino/Toolbars/icons/`; regenerate the `.rui` sprite strips; check the icons in Rhino.
-- [ ] **Data out of the tree:** delete the D3 files; the benchmark and forensic tests that read them
+- [x] **Panel glyphs (D5):** redraw the ported glyphs in `PanelButtonIcons.cs` from primitives; check
+  them in the panel at 16 px, light and dark.
+- [x] **Office toolbar macros:** remove the orphaned `UpdateElevationMarkers` and `SetPathWidth` macros
+  (they call office Python scripts, not MoleHill commands) and their bitmap rows from the `.rui`.
+- [x] **Data out of the tree:** delete the D3 files; the benchmark and forensic tests that read them
   must still skip cleanly; fix docs that mention them.
-- [ ] **Personal paths:** remove `C:\Users\hbxma\Dropbox\…` from `tests/perf-baselines/hosted-perf.json`
+- [x] **Personal paths:** remove `C:\Users\hbxma\Dropbox\…` from `tests/perf-baselines/hosted-perf.json`
   (the lane should record a repo-relative path), `docs/rhino-live-testing.md`, and
   `docs/terrain-scalability-review-2026-09-09.md`.
-- [ ] **Licence notices (D1):** Shewchuk's terms and the GPL section 7 exception in `LICENSE` and
+- [x] **Licence notices (D1):** Shewchuk's terms and the GPL section 7 exception in `LICENSE` and
   `LICENSES/TriangleNet.md`; BitMiracle LibTiff.NET listed beside Clipper2; the Yak package's
   `misc/licenses` in step; README licence section updated.
 
 ### 2. Public-facing files
 
-- [ ] `CONTRIBUTING.md`: prerequisites (Windows, Rhino 8, .NET 8 SDK), build and test commands, what the
+- [x] `CONTRIBUTING.md`: prerequisites (Windows, Rhino 8, .NET 8 SDK), build and test commands, what the
   validation lanes mean, native tests skip without Rhino, commit style.
-- [ ] `SECURITY.md`: report privately through GitHub's private vulnerability reporting, not issues.
-- [ ] `.github/ISSUE_TEMPLATE/` (bug report asking for Rhino/MoleHill versions and a repro case;
+- [x] `SECURITY.md`: report privately through GitHub's private vulnerability reporting, not issues.
+- [x] `.github/ISSUE_TEMPLATE/` (bug report asking for Rhino/MoleHill versions and a repro case;
   feature request) and a pull request template.
-- [ ] `CHANGELOG.md` for the Yak versions, starting from `0.14.6-beta`.
-- [ ] CI: a GitHub Actions workflow on `windows-latest` that builds Core and runs `MoleHill.Core.Tests`
+- [x] `CHANGELOG.md` for the Yak versions, starting from `0.14.6-beta`.
+- [x] CI: a GitHub Actions workflow on `windows-latest` that builds Core and runs `MoleHill.Core.Tests`
   (no Rhino needed).
-- [ ] `AGENTS.md` / `CLAUDE.md`: mark machine-specific lines as such.
-- [ ] README: status (beta), what it is, links to CONTRIBUTING and the licence notice.
+- [x] `AGENTS.md` / `CLAUDE.md`: mark machine-specific lines as such.
+- [x] README: status (beta), what it is, links to CONTRIBUTING and the licence notice.
 
 ### 3. History rewrite (one pass)
 
@@ -87,6 +96,9 @@ force-push.
 
 - [ ] Force-push `main`; delete the merged `housekeeping-2026-09` branch on GitHub; replace the local
   clone with a fresh one (an old clone must never be pushed again).
+- [ ] **Old GitHub releases (owner):** `v0.3.0` (marked Latest) and `v0.6.2-beta` are months behind Yak's
+  `0.14.6-beta`. Delete them, or keep them marked as superseded. Their tags are rewritten with the rest
+  of history. The README no longer links to GitHub releases.
 - [ ] GitHub settings: description, topics, private vulnerability reporting on, wiki off if unused.
 - [ ] Final check on a fresh clone: build, managed lane, no personal paths in the tree, nothing removed in
   `git log --all`.
@@ -95,4 +107,7 @@ force-push.
 
 ## Log
 
-- 2026-09-26: plan written from the audit; decisions D1–D4, D2a, D2b taken.
+- 2026-09-26: plan written from the audit; decisions D1–D5, D2a, D2b taken.
+- 2026-09-26: step 1 done. Local copies of every removed file are kept in the git-ignored
+  `.local-data/` (office folder, survey CSVs, scenes); `benchmark-points.csv` is the ignored benchmark input.
+- 2026-09-26: step 2 done. README command names corrected (`mhPanel`, not the class name `MoleHillPanel`).

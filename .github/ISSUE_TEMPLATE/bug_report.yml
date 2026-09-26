@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in MoleHill does not work as expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: >
+        Steps from an empty document if possible. The panel's Status card has a Copy Case button that
+        exports the terrain and its inputs; attach that if you can share it (remove any project data you
+        cannot).
+    validations:
+      required: true
+  - type: input
+    id: molehill
+    attributes:
+      label: MoleHill version
+      description: Shown in Rhino's Package Manager, e.g. 0.14.6-beta.
+    validations:
+      required: true
+  - type: input
+    id: rhino
+    attributes:
+      label: Rhino version
+      description: Help > About Rhinoceros, e.g. 8.35.26251.13001.
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Where
+      options:
+        - Rhino panel or commands
+        - Grasshopper components
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Build log
+      description: The panel's Status card has a Copy Log button. Paste it here if relevant.
+      render: text

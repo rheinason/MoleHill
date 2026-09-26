@@ -16,7 +16,7 @@ relevant folder `README.md`, and refresh these entry docs (`CLAUDE.md`/`AGENTS.m
 ## Build & Test
 
 ```bash
-# PATH required on this machine
+# Only where the .NET SDK is installed per-user (the maintainer's machine); skip otherwise
 export PATH="$HOME/.dotnet:$PATH"
 
 dotnet build MoleHill.sln           # Debug build (default)
@@ -43,7 +43,8 @@ result as evidence. Build inputs are declared — `global.json` pins the SDK flo
 
 Close Rhino before rebuilding — Rhino holds a lock on the `.gha` file in `%AppData%\Grasshopper\Libraries\`.
 
-For live Rhino testing, drive a disposable `rhino-mcp` slot (`spawn_slot` → `run_csharp`/`run_command`
+For live Rhino testing, the maintainer drives a disposable slot through a local `rhino-mcp` router (not part of this
+repository; contributors can test by hand in Rhino instead). Drive a disposable `rhino-mcp` slot (`spawn_slot` → `run_csharp`/`run_command`
 → `close_slot`) as described in `docs/rhino-live-testing.md`. Assert on document state, not on
 keystrokes: never `SendKeys` a workflow, never terminate a broad set of Rhino processes, and never
 use guessed desktop coordinates as evidence — window bounds come from `GetWindowRect` on the slot PID.
@@ -59,7 +60,7 @@ Four source projects, three test projects:
 - **TriangleNet** (`src/TriangleNet/`, net7.0) — Triangle.NET constrained Delaunay library, nullable disabled, included as source and merged into the .gha
 - **MoleHill.Core** (`src/MoleHill.Core/`, net7.0) — Pure terrain logic (no Rhino/GH dependency). Sub-namespaces: `Engine/`, `Processing/`, `Grading/`, `Analysis/`, `Scattering/`, `Sculpting/` (each has a `README.md`)
 - **MoleHill.Grasshopper** (`src/MoleHill.Grasshopper/`, net7.0-windows + net7.0) — GH components, plugin metadata (`MoleHillInfo.cs`), icon resources, `RhinoConverter.cs`. No terrain logic here.
-- **MoleHill.Rhino** (`src/MoleHill.Rhino/`, net7.0) — Native Rhino plugin (.rhp). Dockable panel UI (Eto.Forms in `UI/`), three commands (`MoleHillPanel`, `MoleHillCreateTerrain`, `MoleHillConvertToRhino`), terrain definition model (`Model/`), `TerrainController`/`TerrainBuildService` pipeline (`Services/`). Persists terrain state as JSON in .3dm via WriteDocument/ReadDocument. 16×16 PNG icons in `Resources/` loaded via `PanelIcons.Load()`. Bake is an inline toolbar button beside visibility and lock; detaching a terrain from its sources is the `mhConvertToRhino` command, not a panel action.
+- **MoleHill.Rhino** (`src/MoleHill.Rhino/`, net7.0) — Native Rhino plugin (.rhp). Dockable panel UI (Eto.Forms in `UI/`), commands in `Commands/` (`mhPanel`, `mhCreateTerrain`, `mhConvertToRhino` and the utility set), terrain definition model (`Model/`), `TerrainController`/`TerrainBuildService` pipeline (`Services/`). Persists terrain state as JSON in .3dm via WriteDocument/ReadDocument. 16×16 PNG icons in `Resources/` loaded via `PanelIcons.Load()`. Bake is an inline toolbar button beside visibility and lock; detaching a terrain from its sources is the `mhConvertToRhino` command, not a panel action.
 - **MoleHill.Core.Tests** / **MoleHill.Grasshopper.Tests** / **MoleHill.Rhino.Tests** (`tests/`, xunit 2.9.2) — Test naming: `MethodName_Scenario_ExpectedResult`. The Rhino tests link `Model/`, `Registry/` and most of `Services/` as source; tests needing Rhino's native runtime use `[RhinoNativeFact]` and skip where it is unavailable.
 
 All Rhino/Grasshopper API calls belong in `MoleHill.Grasshopper`. All reusable computation belongs in `MoleHill.Core`.

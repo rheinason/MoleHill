@@ -1,0 +1,30 @@
+name: CI
+
+# MoleHill.Core and its tests need no Rhino, so they run on every push and pull request. The Rhino and
+# Grasshopper hosts need a licensed Rhino 8 install to build and test, so they are validated locally
+# with validate.ps1 (see CONTRIBUTING.md).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Build Core tests
+        run: dotnet build tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj -c Release
+
+      - name: Run Core tests
+        run: dotnet test tests/MoleHill.Core.Tests/MoleHill.Core.Tests.csproj -c Release --no-build --logger "console;verbosity=minimal"

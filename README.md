@@ -4,6 +4,11 @@ MoleHill is a Rhino 8 terrain modeling toolkit centered on a document-backed Rhi
 
 It uses [Triangle.NET](https://github.com/wo80/Triangle.NET) for constrained Delaunay triangulation and targets .NET 7-based Rhino 8 plugins.
 
+**Status: beta.** Install it from Rhino's Package Manager; see [CHANGELOG.md](CHANGELOG.md) for what changed.
+Bug reports with a repro case are very welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). MoleHill is free,
+and because its triangulator derives from Triangle it may not be sold or bundled in a commercial product;
+see [License](#license).
+
 ## Release Scope
 
 - `MoleHill.Rhino.rhp` is the primary release artifact.
@@ -17,9 +22,9 @@ The Rhino plugin provides the panel-driven workflow for creating, editing, analy
 
 | Command | Description |
 |---------|-------------|
-| `MoleHillPanel` | Open the MoleHill panel |
-| `MoleHillCreateTerrain` | Create a terrain from the current selection and open the panel |
-| `MoleHillConvertToRhino` | Convert the selected managed terrain into standard Rhino objects |
+| `mhPanel` | Open the MoleHill panel |
+| `mhCreateTerrain` | Create a terrain from the current selection and open the panel |
+| `mhConvertToRhino` | Convert the selected managed terrain into standard Rhino objects |
 | `mhValidateTerrainInputs` | Clean selected terrain points and curves, including duplicate joined segments |
 | `mhSplitAtIntersections` | Split selected curves at their pairwise intersections |
 | `mhDrapeCurve` | Sample selected curves onto a selected mesh or surface along World Z |
@@ -81,25 +86,20 @@ are not dependencies of the MoleHill package.
 3. Install the package to get the Rhino plugin and the optional Grasshopper companion together.
 4. Enable prerelease packages when testing Yak prerelease builds.
 
-### Rhino Plugin
+After installing, run `mhPanel` to open the MoleHill panel, or `mhCreateTerrain` to start a terrain
+from the current selection.
 
-1. Download `MoleHill.Rhino.rhp` from the [latest release](https://github.com/rheinason/MoleHill/releases/latest).
-2. Install or load the plugin in Rhino 8.
-3. Run `MoleHillPanel` or `MoleHillCreateTerrain` to start the workflow.
+### From source
 
-### Optional Grasshopper Plugin
-
-1. Download `MoleHill.gha` from the same release.
-2. Copy it to:
-   ```
-   %AppData%\Grasshopper\Libraries\
-   ```
-3. In Windows file properties, unblock the file if needed.
-4. Restart Rhino and Grasshopper.
+Build it yourself (see [Build From Source](#build-from-source)) and load
+`src/MoleHill.Rhino/bin/Release/net7.0/MoleHill.Rhino.rhp` in Rhino 8 with `_PlugInManager`. Copy
+`MoleHill.gha` to `%AppData%\Grasshopper\Libraries\` for the Grasshopper components. In Windows file
+properties, unblock the files if Rhino refuses to load them.
 
 ## Build From Source
 
-Requires .NET 8 SDK or newer and access to Rhino and Grasshopper NuGet packages.
+Requires Windows, Rhino 8, and the .NET 8 SDK or newer. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+prerequisites, validation and conventions.
 
 ```bash
 dotnet build MoleHill.sln

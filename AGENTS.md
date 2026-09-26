@@ -64,6 +64,9 @@ Close Rhino before rebuilding when possible; the Grasshopper build copies `MoleH
 
 ## Rhino Live Testing
 
+This section describes the maintainer's setup: the `rhino-mcp` router is a local tool, not part of the
+repository. Without it, test by hand in Rhino 8 and describe what you checked.
+
 Follow [`docs/rhino-live-testing.md`](docs/rhino-live-testing.md) for native UI testing. The short
 version: build with Rhino closed, `spawn_slot` a disposable Rhino through the `rhino-mcp` router, load
 the exact `.rhp` with `Rhino.PlugIns.PlugIn.LoadPlugIn` and confirm it was not blocked, build the
