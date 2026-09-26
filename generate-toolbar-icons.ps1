@@ -8,11 +8,8 @@
 # repacks the three strips, and replaces ONLY the base64 inside each <bitmap> element so the rest of
 # the .rui (layout, GUIDs, indices) is left byte-for-byte intact.
 #
-# Two sources feed a tile. Where the original hand-drawn artwork covers a command, the committed PNG
-# in Toolbars/icons/<command>-<size>.png wins — it is rendered from the Illustrator vector source by
-# tools/render-toolbar-artboards.py and is both clearer and more specific than anything drawn here.
-# Everything else is drawn procedurally below, in that same flat language: ink outlines, one green
-# accent, white fills, no gradients — so the toolbar reads as a single set.
+# Every tile is drawn procedurally below in one flat language: ink outlines, one green accent, white
+# fills, no gradients, strokes heavy enough to survive 16 px, so the toolbar reads as a single set.
 #
 # Re-run after changing a design. Rhino caches opened toolbars, so reopen the .rui (or restart Rhino)
 # to see changes; ToolbarInstaller re-copies it to %AppData% when the packaged copy is newer.
@@ -20,7 +17,6 @@
 Add-Type -AssemblyName System.Drawing
 
 $ruiPath = "$PSScriptRoot\src\MoleHill.Rhino\Toolbars\MoleHill.Toolbar.rui"
-$iconDir = "$PSScriptRoot\src\MoleHill.Rhino\Toolbars\icons"
 
 function PtF { param([double]$x, [double]$y) New-Object System.Drawing.PointF($x, $y) }
 function Argb { param([int]$r, [int]$g, [int]$b, [int]$a = 255) [System.Drawing.Color]::FromArgb($a, $r, $g, $b) }
@@ -34,13 +30,12 @@ function Pen { param($color, [double]$w = 1.0)
 function Brush { param($color) New-Object System.Drawing.SolidBrush($color) }
 
 # ── Palette ──────────────────────────────────────────────────────────────────
-# Sampled from Master.ai. Procedural designs use only these, so a drawn icon sits beside a
-# hand-drawn one without looking like it came from a different set.
+# Every design uses only these three colours.
 $ink = Argb 35 31 32
 $green = Argb 25 157 73
 $paper = Argb 255 255 255
 
-# Stroke weights matched to the hand-drawn line — heavy enough to survive 16 px.
+# Stroke weights heavy enough to survive 16 px.
 function InkPen { param($s, $w = 0.085) Pen $ink ([Math]::Max(1.4, $s * $w)) }
 function AccentPen { param($s, $w = 0.095) Pen $green ([Math]::Max(1.5, $s * $w)) }
 
@@ -56,7 +51,7 @@ function Draw-Globe {
     $p.Dispose()
 }
 
-# A map pin, green like the hand-drawn set's location mark.
+# A green map pin.
 function Draw-Pin {
     param($g, $s, $cx = 0.74, $cy = 0.36, $r = 0.15)
     $x = $s * $cx; $y = $s * $cy; $rr = $s * $r
@@ -123,9 +118,66 @@ function Draw-Check {
     $g.DrawLines($p, @((PtF ($s * $ox) ($s * ($oy + 0.20))), (PtF ($s * ($ox + 0.14)) ($s * ($oy + 0.36))), (PtF ($s * ($ox + 0.46)) ($s * ($oy - 0.06))))); $p.Dispose()
 }
 
+# A filled point marker.
+function Draw-Dot {
+    param($g, $s, $cx, $cy, $r, $color)
+    $b = Brush $color; $g.FillEllipse($b, ($s * ($cx - $r)), ($s * ($cy - $r)), ($s * $r * 2), ($s * $r * 2)); $b.Dispose()
+}
+
+# A page carrying a location pin (a georeferenced file).
+function Draw-GeoPage {
+    param($g, $s)
+    $x = $s * 0.08; $y = $s * 0.08; $ww = $s * 0.52; $hh = $s * 0.76; $fold = $ww * 0.34
+    $body = @((PtF $x $y), (PtF ($x + $ww - $fold) $y), (PtF ($x + $ww) ($y + $fold)), (PtF ($x + $ww) ($y + $hh)), (PtF $x ($y + $hh)))
+    $b = Brush $paper; $g.FillPolygon($b, $body); $b.Dispose()
+    $p = InkPen $s 0.075; $g.DrawPolygon($p, $body); $p.Dispose()
+    Draw-Pin $g $s 0.34 0.40 0.13
+}
+
+# A raster tile: an ink frame with a checker of filled cells.
+function Draw-Raster {
+    param($g, $s, $ox, $oy, $size)
+    $cell = $s * $size / 3; $x0 = $s * $ox; $y0 = $s * $oy
+    $b = Brush $ink
+    for ($r = 0; $r -lt 3; $r++) { for ($c = 0; $c -lt 3; $c++) {
+        if ((($r + $c) % 2) -eq 0) { $g.FillRectangle($b, ($x0 + $c * $cell), ($y0 + $r * $cell), $cell, $cell) }
+    } }
+    $b.Dispose()
+    $p = InkPen $s 0.065; $g.DrawRectangle($p, $x0, $y0, ($s * $size), ($s * $size)); $p.Dispose()
+}
+
+# A block: a paper square with an ink frame and a green insertion corner.
+function Draw-Block {
+    param($g, $s, $ox, $oy, $size)
+    $x = $s * $ox; $y = $s * $oy; $w = $s * $size
+    $b = Brush $paper; $g.FillRectangle($b, $x, $y, $w, $w); $b.Dispose()
+    $p = InkPen $s 0.08; $g.DrawRectangle($p, $x, $y, $w, $w); $p.Dispose()
+    $bg = Brush $green; $g.FillPolygon($bg, @((PtF $x ($y + $w)), (PtF $x ($y + $w * 0.55)), (PtF ($x + $w * 0.45) ($y + $w)))); $bg.Dispose()
+}
+
+# An elevation marker (a downward ink triangle on a level line) between green brackets.
+function Draw-BracketedMarker {
+    param($g, $s)
+    $tri = @((PtF ($s * 0.30) ($s * 0.30)), (PtF ($s * 0.58) ($s * 0.30)), (PtF ($s * 0.44) ($s * 0.52)))
+    $b = Brush $ink; $g.FillPolygon($b, $tri); $b.Dispose()
+    $p = InkPen $s 0.06; $g.DrawLine($p, ($s * 0.24), ($s * 0.56), ($s * 0.64), ($s * 0.56)); $p.Dispose()
+    $pa = AccentPen $s 0.08
+    $g.DrawArc($pa, ($s * 0.06), ($s * 0.14), ($s * 0.24), ($s * 0.56), 110, 140)
+    $g.DrawArc($pa, ($s * 0.58), ($s * 0.14), ($s * 0.24), ($s * 0.56), -70, 140); $pa.Dispose()
+}
+
+# A small ink plus (add) or minus (remove) badge in the lower-right corner.
+function Draw-Badge {
+    param($g, $s, [bool]$add)
+    $cx = $s * 0.80; $cy = $s * 0.80; $h = $s * 0.14
+    $p = InkPen $s 0.11
+    $g.DrawLine($p, ($cx - $h), $cy, ($cx + $h), $cy)
+    if ($add) { $g.DrawLine($p, $cx, ($cy - $h), $cx, ($cy + $h)) }
+    $p.Dispose()
+}
+
 # ── Per-command icon designs (keyed by macro script name) ────────────────────
-# Only commands with no hand-drawn artboard appear here; the rest come from the committed PNGs
-# rendered by tools/render-toolbar-artboards.py.
+# Every toolbar button is drawn here; there is no bitmap source.
 $designs = @{
     # ── Coordinates ──────────────────────────────────────────────────────────
     # World -> project: the globe hands off to a located pin.
@@ -154,7 +206,7 @@ $designs = @{
         $g.DrawLine($pp, $cx, ($cy - $s * 0.16), $cx, ($cy + $s * 0.16))
         $g.DrawLine($pp, ($cx - $s * 0.16), $cy, ($cx + $s * 0.16), $cy); $pp.Dispose()
     }
-    # A raster resolved into a terrain — right-click sibling of the hand-drawn Import GeoTIFF.
+    # A raster resolved into a terrain — right-click sibling of Import GeoTIFF.
     'mhImportGeoTiffTerrain' = {
         param($g, $s)
         $cell = $s * 0.42 / 3; $x0 = $s * 0.06; $y0 = $s * 0.08
@@ -227,7 +279,7 @@ $designs = @{
         $b = Brush $ink; $r = $s * 0.09
         $g.FillEllipse($b, ($s * 0.50 - $r), ($s * 0.53 - $r), ($r * 2), ($r * 2)); $b.Dispose()
     }
-    # The Slope Curve mark limited to a picked stretch — right-click sibling of the hand-drawn one.
+    # The Slope Curve mark limited to a picked stretch — its right-click sibling.
     'mhSlopeCurveSection' = {
         param($g, $s)
         $p = InkPen $s 0.05; $p.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
@@ -238,7 +290,7 @@ $designs = @{
         foreach ($pt in @(@(0.30, 0.70), @(0.66, 0.40))) { $g.FillEllipse($b, ($s * $pt[0] - $r), ($s * $pt[1] - $r), ($r * 2), ($r * 2)) }
         $b.Dispose()
     }
-    # A curve through picked points — the same family as the hand-drawn 2 Point Interpolation.
+    # A curve through picked points — the same family as 2 Point Interpolation.
     'CurveThroughPt' = {
         param($g, $s)
         $p = AccentPen $s 0.10; $g.DrawBezier($p, ($s * 0.08), ($s * 0.74), ($s * 0.34), ($s * 0.14), ($s * 0.62), ($s * 0.88), ($s * 0.92), ($s * 0.28)); $p.Dispose()
@@ -283,6 +335,162 @@ $designs = @{
         $p = AccentPen $s 0.09; $g.DrawLine($p, ($s * 0.80), ($s * 0.72), ($s * 0.80), ($s * 0.26))
         Draw-Arrowhead $g $s $p ($s * 0.80) ($s * 0.26) (0) (-1); $p.Dispose()
     }
+    # A georeferenced file in (pin on the page, arrow down) and out (arrow up).
+    'mhImportWithGeoref' = {
+        param($g, $s)
+        Draw-GeoPage $g $s
+        $p = AccentPen $s 0.09; $g.DrawLine($p, ($s * 0.82), ($s * 0.24), ($s * 0.82), ($s * 0.72))
+        Draw-Arrowhead $g $s $p ($s * 0.82) ($s * 0.72) 0 1; $p.Dispose()
+    }
+    'mhExportWithGeoref' = {
+        param($g, $s)
+        Draw-GeoPage $g $s
+        $p = AccentPen $s 0.09; $g.DrawLine($p, ($s * 0.82), ($s * 0.72), ($s * 0.82), ($s * 0.24))
+        Draw-Arrowhead $g $s $p ($s * 0.82) ($s * 0.24) (0) (-1); $p.Dispose()
+    }
+    # A raster arriving: the checker tile with a green arrow dropping onto it.
+    'mhImportGeoTiff' = {
+        param($g, $s)
+        Draw-Raster $g $s 0.10 0.40 0.54
+        $p = AccentPen $s 0.10; $g.DrawLine($p, ($s * 0.80), ($s * 0.06), ($s * 0.80), ($s * 0.54))
+        Draw-Arrowhead $g $s $p ($s * 0.80) ($s * 0.54) 0 1; $p.Dispose()
+    }
+    # ── Curve elevation ──────────────────────────────────────────────────────
+    # Two fixed ends, the points between them set on the straight grade.
+    'mhTwoPointInterpolation' = {
+        param($g, $s)
+        $p = InkPen $s 0.06; $g.DrawLine($p, ($s * 0.14), ($s * 0.80), ($s * 0.86), ($s * 0.24)); $p.Dispose()
+        Draw-Dot $g $s 0.14 0.80 0.11 $ink
+        Draw-Dot $g $s 0.86 0.24 0.11 $ink
+        foreach ($t in 0.35, 0.65) { Draw-Dot $g $s (0.14 + 0.72 * $t) (0.80 - 0.56 * $t) 0.075 $green }
+    }
+    # A run held to a stated grade: the rise over run under a green grade line.
+    'mhGradientInterpolation' = {
+        param($g, $s)
+        $p = InkPen $s 0.06
+        $g.DrawLine($p, ($s * 0.12), ($s * 0.84), ($s * 0.88), ($s * 0.84))
+        $g.DrawLine($p, ($s * 0.88), ($s * 0.84), ($s * 0.88), ($s * 0.30)); $p.Dispose()
+        $pa = AccentPen $s 0.12; $g.DrawLine($pa, ($s * 0.12), ($s * 0.84), ($s * 0.88), ($s * 0.30)); $pa.Dispose()
+        Draw-Dot $g $s 0.12 0.84 0.09 $ink
+    }
+    # The slope line itself: a green grade arrow over a dashed level reference.
+    'mhSlopeCurve' = {
+        param($g, $s)
+        $p = InkPen $s 0.05; $p.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
+        $g.DrawLine($p, ($s * 0.08), ($s * 0.86), ($s * 0.92), ($s * 0.86)); $p.Dispose()
+        $pa = AccentPen $s 0.13; $g.DrawLine($pa, ($s * 0.10), ($s * 0.80), ($s * 0.82), ($s * 0.22))
+        Draw-Arrowhead $g $s $pa ($s * 0.82) ($s * 0.22) (1) (-0.8); $pa.Dispose()
+    }
+    # Stacked contours read off where one picked line crosses them.
+    'mhLiftCurvesWithLine' = {
+        param($g, $s)
+        $p = InkPen $s 0.06
+        foreach ($y in 0.26, 0.50, 0.74) {
+            $g.DrawBezier($p, ($s * 0.06), ($s * $y), ($s * 0.36), ($s * ($y - 0.10)), ($s * 0.64), ($s * ($y + 0.10)), ($s * 0.94), ($s * $y))
+        }
+        $p.Dispose()
+        $pa = AccentPen $s 0.10; $g.DrawLine($pa, ($s * 0.24), ($s * 0.92), ($s * 0.76), ($s * 0.08)); $pa.Dispose()
+        foreach ($f in @(@(0.64, 0.26), @(0.50, 0.50), @(0.36, 0.74))) { Draw-Dot $g $s $f[0] $f[1] 0.075 $ink }
+    }
+    # A stretch of an ink curve swapped for a new green run between two cut points.
+    'mhReplaceCurveSection' = {
+        param($g, $s)
+        $p = InkPen $s 0.08
+        $g.DrawLine($p, ($s * 0.06), ($s * 0.70), ($s * 0.30), ($s * 0.56))
+        $g.DrawLine($p, ($s * 0.70), ($s * 0.56), ($s * 0.94), ($s * 0.70)); $p.Dispose()
+        $pa = AccentPen $s 0.11; $g.DrawBezier($pa, ($s * 0.30), ($s * 0.56), ($s * 0.40), ($s * 0.16), ($s * 0.60), ($s * 0.16), ($s * 0.70), ($s * 0.56)); $pa.Dispose()
+        Draw-Dot $g $s 0.30 0.56 0.085 $ink
+        Draw-Dot $g $s 0.70 0.56 0.085 $ink
+    }
+    # A curve eased up in one place, the rest following smoothly.
+    'mhSoftEditCurves' = {
+        param($g, $s)
+        # The original run dashed, so the eased green curve reads as the result rather than closing
+        # into a triangle with it (a solid baseline made the whole mark read as an "A").
+        $p = InkPen $s 0.05; $p.DashStyle = [System.Drawing.Drawing2D.DashStyle]::Dash
+        $g.DrawLine($p, ($s * 0.30), ($s * 0.80), ($s * 0.70), ($s * 0.80)); $p.Dispose()
+        $pa = AccentPen $s 0.10
+        $g.DrawBezier($pa, ($s * 0.06), ($s * 0.80), ($s * 0.34), ($s * 0.80), ($s * 0.38), ($s * 0.36), ($s * 0.50), ($s * 0.36))
+        $g.DrawBezier($pa, ($s * 0.50), ($s * 0.36), ($s * 0.62), ($s * 0.36), ($s * 0.66), ($s * 0.80), ($s * 0.94), ($s * 0.80)); $pa.Dispose()
+        $pu = InkPen $s 0.07; $g.DrawLine($pu, ($s * 0.50), ($s * 0.30), ($s * 0.50), ($s * 0.06))
+        Draw-Arrowhead $g $s $pu ($s * 0.50) ($s * 0.06) 0 (-1); $pu.Dispose()
+    }
+    # A feature copied sideways: the ink original and its green offset, with the gap marked.
+    'mhOffsetFeature' = {
+        param($g, $s)
+        $p = InkPen $s 0.08; $g.DrawBezier($p, ($s * 0.06), ($s * 0.66), ($s * 0.34), ($s * 0.40), ($s * 0.62), ($s * 0.90), ($s * 0.94), ($s * 0.62)); $p.Dispose()
+        $pa = AccentPen $s 0.10; $g.DrawBezier($pa, ($s * 0.06), ($s * 0.36), ($s * 0.34), ($s * 0.10), ($s * 0.62), ($s * 0.60), ($s * 0.94), ($s * 0.32)); $pa.Dispose()
+        $pg = InkPen $s 0.05; $g.DrawLine($pg, ($s * 0.50), ($s * 0.44), ($s * 0.50), ($s * 0.70)); $pg.Dispose()
+    }
+    # The curve under a magnifier, its profile showing inside the lens.
+    'mhInspectCurve' = {
+        param($g, $s)
+        $cx = $s * 0.42; $cy = $s * 0.42; $r = $s * 0.30
+        $b = Brush $paper; $g.FillEllipse($b, ($cx - $r), ($cy - $r), ($r * 2), ($r * 2)); $b.Dispose()
+        $pa = AccentPen $s 0.08
+        $g.DrawLines($pa, @((PtF ($s * 0.20) ($s * 0.52)), (PtF ($s * 0.34) ($s * 0.34)), (PtF ($s * 0.48) ($s * 0.46)), (PtF ($s * 0.64) ($s * 0.30)))); $pa.Dispose()
+        $p = InkPen $s 0.08; $g.DrawEllipse($p, ($cx - $r), ($cy - $r), ($r * 2), ($r * 2)); $p.Dispose()
+        $ph = InkPen $s 0.15; $g.DrawLine($ph, ($s * 0.66), ($s * 0.66), ($s * 0.90), ($s * 0.90)); $ph.Dispose()
+    }
+    # ── Model placement ──────────────────────────────────────────────────────
+    # A shape carried back to the world axes.
+    'mhOrientToOrigin' = {
+        param($g, $s)
+        $p = InkPen $s 0.08
+        $g.DrawLine($p, ($s * 0.14), ($s * 0.08), ($s * 0.14), ($s * 0.86))
+        $g.DrawLine($p, ($s * 0.14), ($s * 0.86), ($s * 0.92), ($s * 0.86)); $p.Dispose()
+        $sq = @((PtF ($s * 0.58) ($s * 0.14)), (PtF ($s * 0.88) ($s * 0.20)), (PtF ($s * 0.82) ($s * 0.50)), (PtF ($s * 0.52) ($s * 0.44)))
+        $b = Brush $green; $g.FillPolygon($b, $sq); $b.Dispose()
+        $pa = InkPen $s 0.07; $g.DrawLine($pa, ($s * 0.54), ($s * 0.52), ($s * 0.28), ($s * 0.72))
+        Draw-Arrowhead $g $s $pa ($s * 0.28) ($s * 0.72) (-1) (0.8); $pa.Dispose()
+    }
+    # The sun with a north arrow beside it.
+    'mhSetSunNorth' = {
+        param($g, $s)
+        $cx = $s * 0.36; $cy = $s * 0.60; $r = $s * 0.16
+        $b = Brush $green; $g.FillEllipse($b, ($cx - $r), ($cy - $r), ($r * 2), ($r * 2)); $b.Dispose()
+        $pr = AccentPen $s 0.07
+        foreach ($k in 0..7) {
+            $a = $k * [Math]::PI / 4
+            $g.DrawLine($pr, ($cx + [Math]::Cos($a) * $r * 1.45), ($cy + [Math]::Sin($a) * $r * 1.45), ($cx + [Math]::Cos($a) * $r * 1.95), ($cy + [Math]::Sin($a) * $r * 1.95))
+        }
+        $pr.Dispose()
+        $n = @((PtF ($s * 0.80) ($s * 0.06)), (PtF ($s * 0.92) ($s * 0.44)), (PtF ($s * 0.80) ($s * 0.36)), (PtF ($s * 0.68) ($s * 0.44)))
+        $bi = Brush $ink; $g.FillPolygon($bi, $n); $bi.Dispose()
+        $p = InkPen $s 0.07; $g.DrawLine($p, ($s * 0.80), ($s * 0.36), ($s * 0.80), ($s * 0.92)); $p.Dispose()
+    }
+    # ── Layers and blocks ────────────────────────────────────────────────────
+    'mhApplyLayerTemplate' = {
+        param($g, $s)
+        Draw-Layers $g $s 0.40
+        Draw-Check $g $s 0.48 0.52
+    }
+    # A block handed out to its own file.
+    'mhExternalizeBlock' = {
+        param($g, $s)
+        Draw-Block $g $s 0.08 0.40 0.46
+        Draw-Page $g $s 0.56 0.08 0.36 0.50
+        $p = AccentPen $s 0.09; $g.DrawLine($p, ($s * 0.40), ($s * 0.52), ($s * 0.62), ($s * 0.72))
+        Draw-Arrowhead $g $s $p ($s * 0.62) ($s * 0.72) (1) (0.9); $p.Dispose()
+    }
+    # Linked blocks brought back in step with their files.
+    'mhUpdateAllLinkedBlocks' = {
+        param($g, $s)
+        Draw-Block $g $s 0.08 0.10 0.46
+        Draw-Refresh $g $s $green 0.68 0.68 0.24
+    }
+    # ── Elevation markers ────────────────────────────────────────────────────
+    # A level marker wrapped in brackets; the badge says whether they go on or come off.
+    'mhAddMarkerParentheses' = {
+        param($g, $s)
+        Draw-BracketedMarker $g $s
+        Draw-Badge $g $s $true
+    }
+    'mhRemoveMarkerParentheses' = {
+        param($g, $s)
+        Draw-BracketedMarker $g $s
+        Draw-Badge $g $s $false
+    }
 }
 
 # ── Render + repack ──────────────────────────────────────────────────────────
@@ -325,19 +533,10 @@ function Render-Tile {
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $g.Clear([System.Drawing.Color]::Transparent)
-    $asset = Join-Path $iconDir ("{0}-{1}.png" -f $command, $s)
-    if (Test-Path $asset) {
-        # Hand-drawn original, rendered from the vector source. Draw it 1:1 — never resample.
-        $src = [System.Drawing.Image]::FromFile($asset)
-        $g.DrawImage($src, 0, 0, $s, $s)
-        $src.Dispose()
-        $g.Dispose()
-        return $bmp
-    }
     $design = $designs[$command]
     if ($design) { & $design $g $s }
     else {
-        # No design and no asset for this macro. Record it and draw a plain placeholder; the run
+        # No design for this macro. Record it and draw a plain placeholder; the run
         # aborts before writing, so this never ships — a fallback icon would be indistinguishable
         # from a real one.
         $script:missingDesigns[$command] = $true

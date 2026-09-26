@@ -42,7 +42,7 @@ scratch_*.obj
 # Local Rhino documents and texture payloads used for manual testing
 /RhinoTest/
 
-# Python bytecode from the tools/ scripts (render-toolbar-artboards, rhino-live-client)
+# Python bytecode from the tools/ scripts (rhino-live-client, rhino-hosted-perf)
 __pycache__/
 *.pyc
 

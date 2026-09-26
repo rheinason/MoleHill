@@ -16,7 +16,7 @@ exercise without a host.
 | [`Services/`](Services/README.md) | `TerrainController` / `TerrainBuildService`, the runtime cache, output and layer routing |
 | [`UI/`](UI/README.md) | The Eto.Forms panel, split across partials, and its reusable card/editor primitives |
 | `Commands/` | `MoleHillPanel`, `MoleHillCreateTerrain`, `MoleHillConvertToRhino` and the command services |
-| `Toolbars/` | The `.rui` and the committed hand-drawn icon PNGs it is packed from |
+| `Toolbars/` | The `.rui` toolbar file; its button bitmaps are drawn by `generate-toolbar-icons.ps1` |
 | `Resources/` | 16x16 panel tab and modifier badge icons, loaded via `PanelIcons.Load()` |
 
 ## Before changing the build pipeline

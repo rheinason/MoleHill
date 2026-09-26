@@ -46,11 +46,8 @@ relevant folder `README.md`, and update `CLAUDE.md`/`AGENTS.md` when conventions
 - `dotnet clean MoleHill.sln`: useful before rebuilding if Rhino or Grasshopper is holding a plugin file lock.
 - `pwsh ./generate-icons.ps1`: regenerate 24x24 Grasshopper component icons.
 - `pwsh ./generate-toolbar-icons.ps1`: regenerate the Rhino toolbar button bitmaps inside
-  `src/MoleHill.Rhino/Toolbars/MoleHill.Toolbar.rui`. Prefers the committed hand-drawn PNGs in
-  `src/MoleHill.Rhino/Toolbars/icons/`, and fails if a tile has neither an asset nor a `$designs` entry.
-- `python tools/render-toolbar-artboards.py`: re-render those PNGs from the Illustrator vector source
-  (`Python Commands Source/Master.ai`). Needs PyMuPDF; run only when an artboard changes, since its
-  output is committed.
+  `src/MoleHill.Rhino/Toolbars/MoleHill.Toolbar.rui`. Every button is drawn in code (`$designs`); the
+  script fails if a tile has no design.
 - `pwsh ./build-yak-package.ps1`: build the combined Rhino + Grasshopper Yak package in `.artifacts/yak/`.
 - `pwsh ./build-yak-package.ps1 -Push`: build and publish the Yak package to the configured server.
 - `pwsh ./validate.ps1 <managed|native|perf|warnings|package|hosted-perf|all>`: run one validation lane and record
