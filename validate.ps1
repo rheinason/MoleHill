@@ -350,6 +350,9 @@ try {
         }
 
         if ($UpdateBaseline) {
+            if ($result.PSObject.Properties['Comparison'] -and $result.Comparison) {
+                throw 'This result was compared against a baseline, so it is not a clean baseline itself. Record from a run made without one (./validate.ps1 hosted-perf -UpdateBaseline, or a -HostedResult whose request had no BaselinePath).'
+            }
             # The request carried no baseline, so the result has no comparison: copy it byte for byte
             # rather than round-tripping it through ConvertTo-Json.
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $baselinePath) | Out-Null

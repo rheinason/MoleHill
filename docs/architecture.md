@@ -1215,6 +1215,33 @@ it the same size of target as Ponding. **Catchments' 1.40 s did not reproduce** 
 (at most ~220 ms), so its traced cost belonged to that fixture's basin structure or has since changed.
 The lane now gates all of them, so a fix is measured rather than argued.
 
+**Fixed 2026-09-26, and the cause was mostly not the drainage code.** Profiling the phases outside Rhino
+(`DrainageAnalysisBenchmarkTests`) put Waterflow's fixed cost almost entirely in the `SpatialHashGrid2D`
+it builds to find its start faces. The grid itself was fine; its cell dictionary was not. The packed
+cell key `(cx * 0x100000001) ^ (cy * K)` writes `cx` into both halves of the `long`, and the default
+`long` hash XORs the halves, so `cx` cancelled and 250k cells shared about 500 hash codes. The same
+flaw sat in 14 other cell-keyed dictionaries, all exempted from the edge-key guard as "already mixed".
+They now take `IndexedMeshTools.CellKeyComparer`, and the guard no longer exempts cell keys. Ponding
+was a separate problem: every sink rescanned the whole terrain three times and contoured all of it to
+draw one shoreline. It now walks its own basin's faces, with output bit-identical to the old solver
+(`PondingSolverEquivalenceTests`). Its preview also caches the solve per mesh, so a colour edit only
+recolours.
+
+Measured by the `hosted-perf` lane, median of 5, against the baseline above:
+
+| Build | Before | After |
+|---|---|---|
+| Analysis-heavy, point edit | 2,475 ms | **515 ms** |
+| -> Ponding | 971 ms | 90 ms |
+| -> Waterflow from Points | 1,126 ms | 63 ms |
+| Geometry-heavy, Grade Pad edit | 2,872 ms | **1,646 ms** |
+| -> Remesh | 1,689 ms | 891 ms |
+| -> Grade Pad / Grade Path constraints | 126 / 99 ms | 38 / 28 ms |
+| Interactive, 100k faces, warm wall edit | 465 ms | **203 ms** |
+
+The Remesh halving says the projection-grid cost recorded below was largely this hash, not the cell
+size. Re-measure before acting on the cell-size table there.
+
 ### The geometry-heavy case is a different problem
 
 A terrain with a long geometric modifier stack and **no** analyses behaves nothing like the
