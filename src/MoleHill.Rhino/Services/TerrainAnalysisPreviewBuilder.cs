@@ -58,8 +58,8 @@ internal static class TerrainAnalysisPreviewBuilder
             AspectAnalysisDefinition aspect => BuildAspectPreviewMesh(doc, state.TerrainMesh, aspect, alpha, out resolvedRange, out distribution),
             ElevationAnalysisDefinition elevation => BuildElevationPreviewMesh(state.TerrainMesh, elevation, alpha, out resolvedRange, out distribution),
             CutFillAnalysisDefinition cutFill => BuildCutFillPreviewMesh(doc, terrain, state, cutFill, alpha, resolveReferenceTerrainMesh, out resolvedRange, out distribution),
-            CatchmentAnalysisDefinition catchment => BuildCatchmentPreviewMesh(state.TerrainMesh, catchment, alpha),
-            PondingAnalysisDefinition ponding => BuildPondingPreviewMesh(state.TerrainMesh, ponding, alpha, out resolvedRange, out distribution),
+            CatchmentAnalysisDefinition catchment => BuildCatchmentPreviewMesh(state.TerrainMesh, state.DrainagePreview, catchment, alpha),
+            PondingAnalysisDefinition ponding => BuildPondingPreviewMesh(state.TerrainMesh, state.DrainagePreview, ponding, alpha, out resolvedRange, out distribution),
             _ => state.TerrainMesh
         };
 
@@ -170,12 +170,31 @@ internal static class TerrainAnalysisPreviewBuilder
     /// </remarks>
     private static RhinoMesh? BuildCatchmentPreviewMesh(
         RhinoMesh mesh,
+        DrainagePreviewCache cache,
         CatchmentAnalysisDefinition analysis,
         byte alpha)
     {
+        double flatSlopeRatio = SlopeAnalyzer.ConvertUnitToRatio(
+            analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees);
+        double mergeShare = Math.Clamp(analysis.MinimumBasinAreaPercent, 0.0, 100.0) / 100.0;
+
+        // Catchment colours are categorical and carry no palette setting, so the whole coloured result is
+        // what the solve determines; only the alpha is applied per refresh.
+        CatchmentPreviewSolve? solved = cache.GetOrCompute(
+            mesh,
+            new DrainagePreviewKey("catchments", flatSlopeRatio, mergeShare, 0.0),
+            () => SolveCatchmentPreview(mesh, flatSlopeRatio, mergeShare));
+        if (!solved.IsValid)
+            return null;
+
+        return BuildFaceColorMesh(solved.Vertices, solved.Faces, solved.FaceCount, solved.Colors, alpha);
+    }
+
+    private static CatchmentPreviewSolve SolveCatchmentPreview(RhinoMesh mesh, double flatSlopeRatio, double mergeShare)
+    {
         if (!RhinoGeometryConversions.TryExtractMeshData(
                 mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
-            return null;
+            return CatchmentPreviewSolve.Invalid;
 
         BasinGraph graph = DrainageBasinAnalyzer.Analyze(
             vertices,
@@ -184,13 +203,18 @@ internal static class TerrainAnalysisPreviewBuilder
             faceCount,
             new DrainageBasinAnalyzer.Options
             {
-                FlatSlopeRatio = SlopeAnalyzer.ConvertUnitToRatio(
-                    analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees),
-                MinimumBasinAreaShare = Math.Clamp(analysis.MinimumBasinAreaPercent, 0.0, 100.0) / 100.0
+                FlatSlopeRatio = flatSlopeRatio,
+                MinimumBasinAreaShare = mergeShare
             });
 
-        return BuildFaceColorMesh(
-            vertices, faces, faceCount, TerrainBuildService.BuildCatchmentFaceColors(graph), alpha);
+        return new CatchmentPreviewSolve(vertices, faces, faceCount, TerrainBuildService.BuildCatchmentFaceColors(graph));
+    }
+
+    private sealed record CatchmentPreviewSolve(double[] Vertices, int[] Faces, int FaceCount, byte[] Colors)
+    {
+        public static readonly CatchmentPreviewSolve Invalid = new(Array.Empty<double>(), Array.Empty<int>(), 0, Array.Empty<byte>());
+
+        public bool IsValid => FaceCount > 0;
     }
 
     /// <summary>
@@ -209,6 +233,7 @@ internal static class TerrainAnalysisPreviewBuilder
     /// </remarks>
     private static RhinoMesh? BuildPondingPreviewMesh(
         RhinoMesh mesh,
+        DrainagePreviewCache cache,
         PondingAnalysisDefinition analysis,
         byte alpha,
         out AnalysisRange? range,
@@ -216,23 +241,74 @@ internal static class TerrainAnalysisPreviewBuilder
     {
         range = null;
         distribution = null;
+        double flatSlopeRatio = SlopeAnalyzer.ConvertUnitToRatio(
+            analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees);
+        double minimumDepth = Math.Max(0.0, analysis.MinimumDepth);
+
+        // Depths are a property of the water, not of how it is drawn, so they are what gets cached. The
+        // range fit, histogram and colouring below read the palette settings and run on every refresh.
+        PondingPreviewSolve? solved = cache.GetOrCompute(
+            mesh,
+            new DrainagePreviewKey("ponding", flatSlopeRatio, 0.0, minimumDepth),
+            () => SolvePondingPreview(mesh, flatSlopeRatio, minimumDepth));
+        if (!solved.IsValid)
+            return null;
+
+        double[] vertices = solved.Vertices;
+        int[] faces = solved.Faces;
+        int faceCount = solved.FaceCount;
+        double[] depths = solved.Depths;
+        double[] areas = solved.Areas;
+        bool[] wet = solved.Wet;
+
+        AnalysisRange resolved = ResolveMaskedRange(
+            depths, areas, wet, analysis.AutoColorRange, analysis.RangeLow, analysis.RangeHigh,
+            RangeShape.FromZero);
+        range = resolved;
+        distribution = BuildMaskedDistribution(depths, areas, wet, resolved);
+
+        var palette = analysis.ResolveRamp().Stops;
+        var bands = AnalysisColorMapper.ResolveBandsFor(resolved, analysis.ColorMode, analysis.ColorInterval, palette);
+        var colors = new byte[faceCount * 3];
+        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
+        {
+            if (!wet[faceIndex])
+            {
+                WriteColor(colors, faceIndex, UnmappedColor.R, UnmappedColor.G, UnmappedColor.B);
+                continue;
+            }
+
+            var color = AnalysisColorMapper.SampleResolved(
+                depths[faceIndex], resolved, analysis.ColorMode, bands, palette);
+            WriteColor(colors, faceIndex, color.R, color.G, color.B);
+        }
+
+        return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
+    }
+
+    private sealed record PondingPreviewSolve(double[] Vertices, int[] Faces, int FaceCount, double[] Depths, double[] Areas, bool[] Wet)
+    {
+        public static readonly PondingPreviewSolve Invalid = new(
+            Array.Empty<double>(), Array.Empty<int>(), 0, Array.Empty<double>(), Array.Empty<double>(), Array.Empty<bool>());
+
+        public bool IsValid => FaceCount > 0;
+    }
+
+    private static PondingPreviewSolve SolvePondingPreview(RhinoMesh mesh, double flatSlopeRatio, double minimumDepth)
+    {
         if (!RhinoGeometryConversions.TryExtractMeshData(
                 mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
-            return null;
+            return PondingPreviewSolve.Invalid;
 
         BasinGraph graph = DrainageBasinAnalyzer.Analyze(
             vertices,
             vertexCount,
             faces,
             faceCount,
-            new DrainageBasinAnalyzer.Options
-            {
-                FlatSlopeRatio = SlopeAnalyzer.ConvertUnitToRatio(
-                    analysis.FlatSlopeThresholdDegrees, SlopeAnalyzer.SlopeUnit.Degrees)
-            });
+            new DrainageBasinAnalyzer.Options { FlatSlopeRatio = flatSlopeRatio });
         IReadOnlyList<PondingSolver.Pond> ponds = PondingSolver.Solve(
             graph, vertices, vertexCount, faces,
-            new PondingSolver.Options { MinimumDepth = Math.Max(0.0, analysis.MinimumDepth) });
+            new PondingSolver.Options { MinimumDepth = minimumDepth });
 
         var depths = new double[faceCount];
         var areas = new double[faceCount];
@@ -265,29 +341,7 @@ internal static class TerrainAnalysisPreviewBuilder
             wet[faceIndex] = true;
         }
 
-        AnalysisRange resolved = ResolveMaskedRange(
-            depths, areas, wet, analysis.AutoColorRange, analysis.RangeLow, analysis.RangeHigh,
-            RangeShape.FromZero);
-        range = resolved;
-        distribution = BuildMaskedDistribution(depths, areas, wet, resolved);
-
-        var palette = analysis.ResolveRamp().Stops;
-        var bands = AnalysisColorMapper.ResolveBandsFor(resolved, analysis.ColorMode, analysis.ColorInterval, palette);
-        var colors = new byte[faceCount * 3];
-        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
-        {
-            if (!wet[faceIndex])
-            {
-                WriteColor(colors, faceIndex, UnmappedColor.R, UnmappedColor.G, UnmappedColor.B);
-                continue;
-            }
-
-            var color = AnalysisColorMapper.SampleResolved(
-                depths[faceIndex], resolved, analysis.ColorMode, bands, palette);
-            WriteColor(colors, faceIndex, color.R, color.G, color.B);
-        }
-
-        return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
+        return new PondingPreviewSolve(vertices, faces, faceCount, depths, areas, wet);
     }
 
     internal static bool SupportsTerrainPreview(AnalysisDefinition analysis)

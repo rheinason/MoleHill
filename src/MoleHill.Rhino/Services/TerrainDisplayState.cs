@@ -72,6 +72,9 @@ internal sealed class TerrainDisplayState
 
     public Mesh? PreviewTerrainMesh { get; set; }
 
+    /// <summary>The Catchments/Ponding preview's last solve, so a colour edit only recolours.</summary>
+    internal DrainagePreviewCache DrainagePreview { get; } = new();
+
     public Guid? ActiveAnalysisId { get; set; }
 
     public string? ActiveAnalysisLabel { get; set; }
@@ -129,6 +132,8 @@ internal sealed class TerrainDisplayState
         _previewBounds = null;
         TerrainPresentationMesh.Invalidate(PreviewTerrainMesh);
         TerrainPresentationMesh.Invalidate(TerrainMesh);
+        // Same mesh instance, different heights: a drainage solve keyed on the instance is now wrong.
+        DrainagePreview.Clear();
         // The mesh changed under a state object that is otherwise immutable, so the RDK's cached
         // render primitives for this terrain are now stale too.
         InvalidateRenderContent();
