@@ -6,7 +6,7 @@
     "Processors": 24,
     "Runtime": ".NET 8.0.21",
     "RhinoVersion": "8.35.26251.13001",
-    "CoreAssembly": "C:\\Users\\hbxma\\Dropbox\\TopoTest\\tests\\MoleHill.Rhino.Tests\\bin\\Release\\net8.0\\MoleHill.Core.dll",
+    "CoreAssembly": "tests/MoleHill.Rhino.Tests/bin/Release/net8.0/MoleHill.Core.dll",
     "CoreOptimized": true,
     "TestsOptimized": true,
     "Timestamp": "2026-09-26T11:58:09.8133551\u002B01:00"

@@ -106,7 +106,7 @@ there is no loaded instance — **not** via `_PlugInManager`, which opens a moda
 
 ```csharp
 var id = new System.Guid("0c0b9e83-4959-437e-a935-4addf0d3f886");
-string expected = @"C:\Users\hbxma\Dropbox\TopoTest\src\MoleHill.Rhino\bin\Debug\net7.0\MoleHill.Rhino.rhp";
+string expected = @"C:\path\to\MoleHill\src\MoleHill.Rhino\bin\Debug\net7.0\MoleHill.Rhino.rhp"; // your clone
 var plugin = Rhino.PlugIns.PlugIn.Find(id);
 if (plugin == null)
 {

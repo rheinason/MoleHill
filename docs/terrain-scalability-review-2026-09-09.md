@@ -117,7 +117,7 @@ reuse does not inflate later results. An always-runnable key-identity test guard
 the native two-mesh test expects 0.5 and 1.5 fill volumes while one reference projector is retained.
 The native behavioral test is currently skipped when Rhino's native test runtime is unavailable.
 
-**Evidence:** [src/MoleHill.Rhino/Services/TerrainBuildService.Zones.cs:151](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainBuildService.Zones.cs:151) creates a comparison cache per zone and reuses it across that zone's meshes. [src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:667](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:667) keys statistics by reference/boundary fingerprints and reference mode, without the current mesh. A cache hit returns the previous statistics before examining the current geometry.
+**Evidence:** [src/MoleHill.Rhino/Services/TerrainBuildService.Zones.cs:151](../src/MoleHill.Rhino/Services/TerrainBuildService.Zones.cs#L151) creates a comparison cache per zone and reuses it across that zone's meshes. [src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:667](../src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs#L667) keys statistics by reference/boundary fingerprints and reference mode, without the current mesh. A cache hit returns the previous statistics before examining the current geometry.
 
 **Original concern:** For a zone with two output meshes and the same reference inputs, the second call could reuse the first mesh's volume result.
 
@@ -141,9 +141,9 @@ empty-mesh, and output-ownership cases. Not done here, deliberately: face-owned 
 the `GlobalPointLookup` per-cell vertex lists (its cell size is the tolerance, so its density needs
 measurement before its tie-break order is disturbed).
 
-**Confirmed patterns:** [src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs:15](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs:15) retains a class per face; [src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs:259](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs:259) clones input arrays before doing work; line 278 builds all face data; line 389 performs an all-pairs constraint-segment intersection sweep; line 478 maps through a terrain-face index. Output uses a twice-input-sized face list and per-cell vertex lists.
+**Confirmed patterns:** [src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs:15](../src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs#L15) retains a class per face; [src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs:259](../src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs#L259) clones input arrays before doing work; line 278 builds all face data; line 389 performs an all-pairs constraint-segment intersection sweep; line 478 maps through a terrain-face index. Output uses a twice-input-sized face list and per-cell vertex lists.
 
-This is reached by [src/MoleHill.Core/Grading/PathGrader.Patches.cs:97](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/PathGrader.Patches.cs:97) and [src/MoleHill.Rhino/Services/TerrainBuildService.RetainingWalls.cs:626](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainBuildService.RetainingWalls.cs:626). Path patches are a fallback, so measure reachability rather than assuming every path build pays this cost.
+This is reached by [src/MoleHill.Core/Grading/PathGrader.Patches.cs:97](../src/MoleHill.Core/Grading/PathGrader.Patches.cs#L97) and [src/MoleHill.Rhino/Services/TerrainBuildService.RetainingWalls.cs:626](../src/MoleHill.Rhino/Services/TerrainBuildService.RetainingWalls.cs#L626). Path patches are a fallback, so measure reachability rather than assuming every path build pays this cost.
 
 **First task:** Add phase allocation/timing counters and benchmark increasing face count independently from increasing constraint count. Port on-demand face data and indexed pair discovery first; evaluate face-owned parallel mapping separately. Audit the default packed-edge set at line 572, but it holds local triangulation segments, so do not rank it alongside whole-terrain hashing without evidence.
 
@@ -167,9 +167,9 @@ per-area `CountFaces` rescan is now the group length), `MeshCollageComponent`, a
 part of that output's contract. `FaceOwnerGroupsTests` and `SubMeshVertexRemapTests` pin the grouping
 against a linear-scan oracle and the remap against a per-sub-mesh dictionary.
 
-**Confirmed pattern:** [src/MoleHill.Rhino/Services/TerrainBuildService.Zones.cs:107](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainBuildService.Zones.cs:107) calls BuildSubMesh once per entry. [src/MoleHill.Rhino/Services/RhinoGeometryConversions.cs:160](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/RhinoGeometryConversions.cs:160) scans all result faces on every call, then builds both a vertex HashSet and remap dictionary and normalizes the mesh. This creates O(B × F) face selection work even if each face has one owner.
+**Confirmed pattern:** [src/MoleHill.Rhino/Services/TerrainBuildService.Zones.cs:107](../src/MoleHill.Rhino/Services/TerrainBuildService.Zones.cs#L107) calls BuildSubMesh once per entry. [src/MoleHill.Rhino/Services/RhinoGeometryConversions.cs:160](../src/MoleHill.Rhino/Services/RhinoGeometryConversions.cs#L160) scans all result faces on every call, then builds both a vertex HashSet and remap dictionary and normalizes the mesh. This creates O(B × F) face selection work even if each face has one owner.
 
-Related host paths: [src/MoleHill.Grasshopper/Components/MeshAreasComponent.cs:143](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Grasshopper/Components/MeshAreasComponent.cs:143), [src/MoleHill.Grasshopper/Components/MeshCollageComponent.cs:328](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Grasshopper/Components/MeshCollageComponent.cs:328), and [src/MoleHill.Grasshopper/Utilities/TerrainPartitionGeometry.cs:105](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Grasshopper/Utilities/TerrainPartitionGeometry.cs:105).
+Related host paths: [src/MoleHill.Grasshopper/Components/MeshAreasComponent.cs:143](../src/MoleHill.Grasshopper/Components/MeshAreasComponent.cs#L143), [src/MoleHill.Grasshopper/Components/MeshCollageComponent.cs:328](../src/MoleHill.Grasshopper/Components/MeshCollageComponent.cs#L328), and [src/MoleHill.Grasshopper/Utilities/TerrainPartitionGeometry.cs:105](../src/MoleHill.Grasshopper/Utilities/TerrainPartitionGeometry.cs#L105).
 
 **First task:** Count/group face indices by owner once, then extract each group. Measure native normalization separately; only use the existing validated-triangle finalizer if the splitter output meets its complete contract.
 
@@ -207,11 +207,11 @@ Not done here: replacing the flip dictionary with a flat incidence representatio
 order is its enumeration order, so that is an algorithm change needing its own validation, and the
 allocation cost it was carrying is now gone.
 
-**Confirmed patterns:** [src/MoleHill.Core/Engine/IsotropicRemesher.cs:869](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Engine/IsotropicRemesher.cs:869) copies positions and rebuilds an edge-incidence dictionary for each quality-flip sweep; the maximum is 16 sweeps per outer iteration. [src/MoleHill.Core/Engine/IsotropicRemesher.cs:596](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Engine/IsotropicRemesher.cs:596) rebuilds reusable CSR adjacency and sorts short-edge candidates per collapse round. [src/MoleHill.Core/Engine/FeaturePolylineGraph.cs:84](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Engine/FeaturePolylineGraph.cs:84) extracts boundaries, then separately counts whole-mesh edge incidence.
+**Confirmed patterns:** [src/MoleHill.Core/Engine/IsotropicRemesher.cs:869](../src/MoleHill.Core/Engine/IsotropicRemesher.cs#L869) copies positions and rebuilds an edge-incidence dictionary for each quality-flip sweep; the maximum is 16 sweeps per outer iteration. [src/MoleHill.Core/Engine/IsotropicRemesher.cs:596](../src/MoleHill.Core/Engine/IsotropicRemesher.cs#L596) rebuilds reusable CSR adjacency and sorts short-edge candidates per collapse round. [src/MoleHill.Core/Engine/FeaturePolylineGraph.cs:84](../src/MoleHill.Core/Engine/FeaturePolylineGraph.cs#L84) extracts boundaries, then separately counts whole-mesh edge incidence.
 
 The important edge comparers and CSR collapse adjacency are **already present**. This is about remaining rebuilds, sorting, capacity, and repeated passes, not the previously fixed bad hash.
 
-**First task:** Record per-round F/E, candidates, accepted operations, allocations, and elapsed time. Compare dictionary rebuilds with a reusable flat incidence representation; separately consider sharing feature-setup incidence. Inspect the analogous [src/MoleHill.Core/Engine/LocalMeshRefiner.cs:394](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Engine/LocalMeshRefiner.cs:394).
+**First task:** Record per-round F/E, candidates, accepted operations, allocations, and elapsed time. Compare dictionary rebuilds with a reusable flat incidence representation; separately consider sharing feature-setup incidence. Inspect the analogous [src/MoleHill.Core/Engine/LocalMeshRefiner.cs:394](../src/MoleHill.Core/Engine/LocalMeshRefiner.cs#L394).
 
 **Guardrails:** Sequential flip/collapse decisions affect later eligibility. Naive parallelism or reordered iteration can change topology, features, walls, and quality. Preserve deterministic tie/order behavior or explicitly validate a changed algorithm.
 
@@ -244,7 +244,7 @@ of its bounding box — the tests confirm it stays correct, and the per-membersh
 rather than a list slot, but an oversized-item tier or a hierarchy still needs the measurements this
 item asks for before it is worth its complexity.
 
-**Confirmed patterns:** [src/MoleHill.Core/Grading/TerrainFaceGrid.cs:89](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/TerrainFaceGrid.cs:89) preallocates a dictionary by face count and inserts each triangle into every cell of its bounding rectangle. [src/MoleHill.Core/Analysis/MeshHeightProjector.cs:29](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Analysis/MeshHeightProjector.cs:29) also reserves by face count. [src/MoleHill.Core/Engine/SpatialHashGrid2D.cs:170](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Engine/SpatialHashGrid2D.cs:170) fills bounding-box cells.
+**Confirmed patterns:** [src/MoleHill.Core/Grading/TerrainFaceGrid.cs:89](../src/MoleHill.Core/Grading/TerrainFaceGrid.cs#L89) preallocates a dictionary by face count and inserts each triangle into every cell of its bounding rectangle. [src/MoleHill.Core/Analysis/MeshHeightProjector.cs:29](../src/MoleHill.Core/Analysis/MeshHeightProjector.cs#L29) also reserves by face count. [src/MoleHill.Core/Engine/SpatialHashGrid2D.cs:170](../src/MoleHill.Core/Engine/SpatialHashGrid2D.cs#L170) fills bounding-box cells.
 
 A long diagonal or a large triangle among tiny faces can occupy many cells. Clamping query extents fixed empty-space traversal; it does not bound index membership growth. TerrainFaceGrid also retains a face-sized mark array in thread-static ray scratch (lines 8–43), which can outlive the build.
 
@@ -278,7 +278,7 @@ writes nothing, and that the feather divide still records the unmasked displacem
 scattered regions at three feather distances, plus the pinned-far-polygon and zero-feather boundary
 cases.
 
-**Confirmed pattern:** [src/MoleHill.Core/Sculpting/SculptFieldRasterizer.cs:35](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Sculpting/SculptFieldRasterizer.cs:35) allocates and fills XYZ delta data for every vertex and builds a fresh TerrainFaceGrid before sampling the dirty rectangle. [src/MoleHill.Rhino/Services/SculptSessionController.cs:460](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/SculptSessionController.cs:460) calls the rasterizer. [src/MoleHill.Core/Sculpting/SculptConstraintMask.cs:57](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Sculpting/SculptConstraintMask.cs:57) scans protection regions; evaluation includes polygon containment and segment distances.
+**Confirmed pattern:** [src/MoleHill.Core/Sculpting/SculptFieldRasterizer.cs:35](../src/MoleHill.Core/Sculpting/SculptFieldRasterizer.cs#L35) allocates and fills XYZ delta data for every vertex and builds a fresh TerrainFaceGrid before sampling the dirty rectangle. [src/MoleHill.Rhino/Services/SculptSessionController.cs:460](../src/MoleHill.Rhino/Services/SculptSessionController.cs#L460) calls the rasterizer. [src/MoleHill.Core/Sculpting/SculptConstraintMask.cs:57](../src/MoleHill.Core/Sculpting/SculptConstraintMask.cs#L57) scans protection regions; evaluation includes polygon containment and segment distances.
 
 **First task:** Profile mouse-up/commit separately from brush dabs. Hold the stroke rectangle fixed while growing the terrain. Investigate persistent XY topology lookup with a delta-Z accessor, or a dirty-face subset including all interpolation support. Index region bounds and relevant protection edges.
 
@@ -308,7 +308,7 @@ outside that loop, so its edges are never walked. Loop semantics (inside **any**
 occupancy there would be hundreds of terabytes), seed determinism, minimum spacing, disconnected
 regions, a narrow corridor, cancellation, and the grid pattern on a 1e9 extent.
 
-**Confirmed pattern:** [src/MoleHill.Core/Scattering/ScatterSampler.cs:208](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Scattering/ScatterSampler.cs:208) allocates an int grid with width × height derived from bounding-box dimensions and radius, independently of the requested output cap. Large extents or tiny spacing can exhaust memory; integer dimension/product limits also deserve validation. Containment at [src/MoleHill.Core/Scattering/ScatterSampler.cs:74](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Scattering/ScatterSampler.cs:74) scans polygon loops/edges for candidate samples.
+**Confirmed pattern:** [src/MoleHill.Core/Scattering/ScatterSampler.cs:208](../src/MoleHill.Core/Scattering/ScatterSampler.cs#L208) allocates an int grid with width × height derived from bounding-box dimensions and radius, independently of the requested output cap. Large extents or tiny spacing can exhaust memory; integer dimension/product limits also deserve validation. Containment at [src/MoleHill.Core/Scattering/ScatterSampler.cs:74](../src/MoleHill.Core/Scattering/ScatterSampler.cs#L74) scans polygon loops/edges for candidate samples.
 
 **First task:** Benchmark sparse/disconnected/narrow domains, small radius, and a low cap. Investigate sparse occupied-cell storage and safe dimension arithmetic; prepare polygon containment queries.
 
@@ -331,7 +331,7 @@ with reference identity, and two pieces with identical reference inputs but diff
 still get separate statistics entries. The native two-mesh test already asserts one projector with two
 distinct fill volumes; it remains skipped where Rhino's native runtime is unavailable.
 
-**Confirmed pattern:** [src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:680](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:680) constructs a projection context on a comparison-cache miss; [src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:703](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:703) builds a MeshHeightProjector over the reference. Zone comparison caches are recreated per zone. Thus a common reference can be re-indexed repeatedly.
+**Confirmed pattern:** [src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:680](../src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs#L680) constructs a projection context on a comparison-cache miss; [src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs:703](../src/MoleHill.Rhino/Services/TerrainBuildService.Analysis.cs#L703) builds a MeshHeightProjector over the reference. Zone comparison caches are recreated per zone. Thus a common reference can be re-indexed repeatedly.
 
 **First task:** After C01, count projector construction for multiple zones and analyses. Consider a build-local reference context keyed by resolved geometry identity/fingerprint, while statistics stay specific to current geometry and clipping inputs.
 
@@ -364,7 +364,7 @@ Not done here: an accelerated **exact minimum** distance. `IsWithin` is a thresh
 what both consumers need; a true nearest-distance index belongs with O13, which needs it for a
 different reason.
 
-**Confirmed patterns:** [src/MoleHill.Core/Processing/RegionInputFilter.cs:33](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Processing/RegionInputFilter.cs:33) tests every input point against polygon edges, and for outside points can also scan distance-to-polygon. [src/MoleHill.Core/Grading/GradedRegionAssembler.cs:284](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/GradedRegionAssembler.cs:284) classifies face centroids against terrain and clipped loops.
+**Confirmed patterns:** [src/MoleHill.Core/Processing/RegionInputFilter.cs:33](../src/MoleHill.Core/Processing/RegionInputFilter.cs#L33) tests every input point against polygon edges, and for outside points can also scan distance-to-polygon. [src/MoleHill.Core/Grading/GradedRegionAssembler.cs:284](../src/MoleHill.Core/Grading/GradedRegionAssembler.cs#L284) classifies face centroids against terrain and clipped loops.
 
 **First task:** Benchmark detailed boundaries with 100k/1M input points and growing loop vertex counts. Add bounding rejection and prepared containment/distance queries where useful. Establish a small-polygon fast path rather than always paying index overhead.
 
@@ -402,7 +402,7 @@ Not measured here: cancel-to-stop latency under real load, active worker counts,
 Those need the native-Rhino harness the benchmark plan describes; this item adds the mechanism the
 measurement requires.
 
-**Evidence:** [src/MoleHill.Rhino/Services/TerrainController.Build.cs:194](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainController.Build.cs:194) creates cancellation for background work, but the inspected MeshAreaTopologySplitter and IsotropicRemesher entry paths do not expose cancellation checks in their heavy loops.
+**Evidence:** [src/MoleHill.Rhino/Services/TerrainController.Build.cs:194](../src/MoleHill.Rhino/Services/TerrainController.Build.cs#L194) creates cancellation for background work, but the inspected MeshAreaTopologySplitter and IsotropicRemesher entry paths do not expose cancellation checks in their heavy loops.
 
 **Hypothesis:** Superseded builds can continue consuming CPU and holding large buffers until a stage returns. Measure this; do not infer simultaneous active computation merely from retired-task bookkeeping.
 
@@ -439,7 +439,7 @@ having measured peak memory. `TerrainDisplayState.Clone` and the stage mesh clon
 left alone: each has a live consumer with a distinct lifetime, and the review's own guardrail is that
 the deliberate mesh sharing in stage worker copies must not be "fixed" into deep copies.
 
-**Evidence:** [src/MoleHill.Rhino/Services/TerrainDisplayState.cs:307](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainDisplayState.cs:307) clones terrain/base/preview meshes and generated objects. [src/MoleHill.Rhino/Services/TerrainRuntimeCache.cs:600](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainRuntimeCache.cs:600) clones retained grading topology arrays. Existing stage worker copies deliberately share mesh outputs; that optimization must not be “fixed” back into deep copies.
+**Evidence:** [src/MoleHill.Rhino/Services/TerrainDisplayState.cs:307](../src/MoleHill.Rhino/Services/TerrainDisplayState.cs#L307) clones terrain/base/preview meshes and generated objects. [src/MoleHill.Rhino/Services/TerrainRuntimeCache.cs:600](../src/MoleHill.Rhino/Services/TerrainRuntimeCache.cs#L600) clones retained grading topology arrays. Existing stage worker copies deliberately share mesh outputs; that optimization must not be “fixed” back into deep copies.
 
 **First task:** Trace actual Clone callers and take cold-build, cache-hit, repeated-edit, undo, and retired-worker memory snapshots. Separate managed arrays from native Rhino mesh/GPU memory. Identify simultaneously live copies and ownership before changing anything.
 
@@ -471,7 +471,7 @@ of rehashing up from empty on every call.
 versus the same starts traced one per call — plus run-to-run identity, rejected starts not shifting the
 surviving paths, cancellation on the parallel path, and the empty-start case.
 
-**Confirmed patterns:** [src/MoleHill.Core/Analysis/WaterflowTracer.cs:77](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Analysis/WaterflowTracer.cs:77) builds adjacency and a spatial index per call, then traces starts serially. [src/MoleHill.Core/Analysis/WaterflowTracer.cs:226](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Analysis/WaterflowTracer.cs:226) retains an edge dictionary while constructing a flat neighbor array. Per-path visited-face sets are allocated.
+**Confirmed patterns:** [src/MoleHill.Core/Analysis/WaterflowTracer.cs:77](../src/MoleHill.Core/Analysis/WaterflowTracer.cs#L77) builds adjacency and a spatial index per call, then traces starts serially. [src/MoleHill.Core/Analysis/WaterflowTracer.cs:226](../src/MoleHill.Core/Analysis/WaterflowTracer.cs#L226) retains an edge dictionary while constructing a flat neighbor array. Per-path visited-face sets are allocated.
 
 **First task:** Separate setup from trace timing, varying faces and start count independently. Investigate reusable prepared topology and deterministic parallel starts with worker-local query scratch. Current FaceSpatialIndex has mutable candidate scratch, so it cannot simply be shared across parallel calls.
 
@@ -502,7 +502,7 @@ Not done: releasing or processing levels in bounded batches. Peak live segment b
 that trade costs extra mesh scans, which the review itself flags, and needs the measurement of emitted
 segment counts it asks for first.
 
-**Confirmed patterns:** [src/MoleHill.Core/Analysis/ContourGenerator.cs:30](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Analysis/ContourGenerator.cs:30) collects segment coordinates for levels; [src/MoleHill.Core/Analysis/ContourGenerator.cs:146](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Analysis/ContourGenerator.cs:146) allocates endpoint arrays plus a dictionary of adjacency lists. The marching pass already skips levels outside each face's Z range.
+**Confirmed patterns:** [src/MoleHill.Core/Analysis/ContourGenerator.cs:30](../src/MoleHill.Core/Analysis/ContourGenerator.cs#L30) collects segment coordinates for levels; [src/MoleHill.Core/Analysis/ContourGenerator.cs:146](../src/MoleHill.Core/Analysis/ContourGenerator.cs#L146) allocates endpoint arrays plus a dictionary of adjacency lists. The marching pass already skips levels outside each face's Z range.
 
 **First task:** Profile emitted segment count, level count, stitching time, and peak live buffers. Compare compact node adjacency and releasing/processing levels in bounded batches. Batching must account for extra mesh scans.
 
@@ -531,7 +531,7 @@ and above the threshold, a source 5,000 units away from its target, 500 mixed ne
 a 400-vertex star, a source lying exactly on its target, the closing segment specifically, and a
 degenerate target.
 
-**Confirmed pattern:** [src/MoleHill.Core/Grading/SeamValidator.cs:101](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/SeamValidator.cs:101) checks each source-loop vertex against every target-loop edge. That is O(S × T); it becomes quadratic when both loop sizes grow together.
+**Confirmed pattern:** [src/MoleHill.Core/Grading/SeamValidator.cs:101](../src/MoleHill.Core/Grading/SeamValidator.cs#L101) checks each source-loop vertex against every target-loop edge. That is O(S × T); it becomes quadratic when both loop sizes grow together.
 
 **First task:** Establish call frequency and loop sizes on real grading jobs, then compare an exact nearest-segment index against the current oracle.
 
@@ -570,7 +570,7 @@ exhausted run on a regular and an irregular mesh, the disc case running its whol
 identical output, determinism (sweeps, residual and θ all reproducible), pinned vertices unaffected, a
 low explicit iteration count still honoured as a maximum, and θ staying in [0, π/2).
 
-**Confirmed pattern:** [src/MoleHill.Core/Retopo/CrossFieldSolver.cs:99](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Retopo/CrossFieldSolver.cs:99) derives the iteration budget from vertex count, clamped to 50–2,000, and performs in-place Gauss–Seidel updates without a convergence exit in the inspected loop.
+**Confirmed pattern:** [src/MoleHill.Core/Retopo/CrossFieldSolver.cs:99](../src/MoleHill.Core/Retopo/CrossFieldSolver.cs#L99) derives the iteration budget from vertex count, clamped to 50–2,000, and performs in-place Gauss–Seidel updates without a convergence exit in the inspected loop.
 
 **First task:** Record residual/change versus iteration and downstream quad quality. Investigate a convergence criterion or accelerated solver before simply increasing threads.
 
@@ -604,7 +604,7 @@ against, so nothing here was touched.
 separately for point, shape, box and instance modes (`docs/rhino-live-testing.md`), to establish
 whether draw submission actually dominates. Do not remove the existing caps to demonstrate throughput.
 
-**Evidence:** [src/MoleHill.Rhino/Services/TerrainDisplayConduit.cs:177](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Rhino/Services/TerrainDisplayConduit.cs:177) builds frame state and iterates capped instances; shape-point mode transforms and draws individual points. Preview caps and frame helpers already exist.
+**Evidence:** [src/MoleHill.Rhino/Services/TerrainDisplayConduit.cs:177](../src/MoleHill.Rhino/Services/TerrainDisplayConduit.cs#L177) builds frame state and iterates capped instances; shape-point mode transforms and draws individual points. Preview caps and frame helpers already exist.
 
 **First task:** Native profiling of viewport frame time at increasing visible count, separately for point, shape, box, and instance modes. Evaluate batched drawing and cached immutable transformed data only if draw submission dominates.
 
@@ -665,7 +665,7 @@ order and nearest-point tie behaviour, which is what keeps welding deterministic
 observation applies to `MeshConstraintTopologyInserter`'s `GlobalPointLookup`, which O01 deliberately
 left alone pending exactly this measurement.
 
-**Evidence:** [src/MoleHill.Core/Grading/MeshAreaTopologySplitter.cs:1](C:/Users/hbxma/Dropbox/TopoTest/src/MoleHill.Core/Grading/MeshAreaTopologySplitter.cs:1) still needs mesh-sized cut slots, a global vertex lookup, vertex storage, output chunks plus a final contiguous face array, and a serial output-emission/registry pass. The on-demand FaceData change only made that setup constant-space. Indexed boundary pair discovery can still have high candidate counts for heavily overlapping boxes.
+**Evidence:** [src/MoleHill.Core/Grading/MeshAreaTopologySplitter.cs:1](../src/MoleHill.Core/Grading/MeshAreaTopologySplitter.cs#L1) still needs mesh-sized cut slots, a global vertex lookup, vertex storage, output chunks plus a final contiguous face array, and a serial output-emission/registry pass. The on-demand FaceData change only made that setup constant-space. Indexed boundary pair discovery can still have high candidate counts for heavily overlapping boxes.
 
 **First task:** Reuse its PerformanceTimings instrumentation on the actual workload and synthetic families. Measure phase allocations, peak live memory, touched-face ratio, candidates, and output growth. Evaluate sparse cut storage or more selective processing only after knowing their density and lookup cost.
 

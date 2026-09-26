@@ -189,11 +189,26 @@ public static class HostedPerformanceLane
             Processors = System.Environment.ProcessorCount,
             Runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
             RhinoVersion = TryGetRhinoVersion(),
-            CoreAssembly = core.Location,
+            CoreAssembly = RepositoryRelative(core.Location),
             CoreOptimized = IsOptimized(core),
             TestsOptimized = IsOptimized(tests),
             Timestamp = DateTimeOffset.Now.ToString("o")
         };
+    }
+
+    /// <summary>
+    /// A path relative to the checkout (the directory holding <c>MoleHill.sln</c>), so a committed baseline
+    /// names what was measured without carrying the recording machine's user or folder layout.
+    /// </summary>
+    private static string RepositoryRelative(string path)
+    {
+        for (var directory = new DirectoryInfo(Path.GetDirectoryName(path) ?? "."); directory != null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "MoleHill.sln")))
+                return Path.GetRelativePath(directory.FullName, path).Replace('\\', '/');
+        }
+
+        return Path.GetFileName(path);
     }
 
     private static bool IsOptimized(Assembly assembly)
