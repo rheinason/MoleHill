@@ -1728,7 +1728,7 @@ internal static class RetainingWallPlannerCore
         double cellSize = Math.Max(
             span / Math.Max(8.0, Math.Sqrt(segmentCount)),
             Math.Max(tolerance * 4.0, 1e-9));
-        var cells = new Dictionary<long, List<int>>();
+        var cells = new Dictionary<long, List<int>>(CellKeyComparer.Instance);
         var seenAtStamp = new int[segmentCount];
         int stamp = 0;
 
@@ -1810,6 +1810,18 @@ internal static class RetainingWallPlannerCore
     }
 
     private static long CellKey(int x, int y) => ((long)x << 32) ^ (uint)y;
+
+    /// <summary>
+    /// The default <see cref="long"/> hash of <see cref="CellKey"/> is <c>x ^ y</c>, which collapses whole
+    /// anti-diagonals of cells into one bucket. Core's <c>IndexedMeshTools.CellKeyComparer</c> is internal
+    /// to Core, and this file compiles into the Rhino and Grasshopper assemblies, so it carries its own.
+    /// </summary>
+    private sealed class CellKeyComparer : IEqualityComparer<long>
+    {
+        internal static readonly CellKeyComparer Instance = new();
+        public bool Equals(long x, long y) => x == y;
+        public int GetHashCode(long key) => HashCode.Combine((int)(key >> 32), (int)(key & 0xFFFFFFFF));
+    }
 
     private static bool TrySegmentsIntersect2D(
         Point3d a0,

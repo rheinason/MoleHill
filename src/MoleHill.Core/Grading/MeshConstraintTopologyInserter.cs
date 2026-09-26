@@ -175,7 +175,7 @@ internal static partial class MeshConstraintTopologyInserter
         private readonly List<double> _vertices;
         private readonly double _toleranceSquared;
         private readonly double _inverseCellSize;
-        private readonly Dictionary<long, List<int>> _cells = new();
+        private readonly Dictionary<long, List<int>> _cells = new(IndexedMeshTools.CellKeyComparer.Instance);
 
         public GlobalPointLookup(List<double> vertices, double tolerance)
         {

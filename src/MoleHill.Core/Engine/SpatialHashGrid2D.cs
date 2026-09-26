@@ -178,7 +178,7 @@ internal sealed class SpatialHashGrid2D
         {
             statistics = new BuildStatistics(0, 0, 0, 0, 0, 1, 0);
             return new SpatialHashGrid2D(
-                new Dictionary<long, int>(),
+                new Dictionary<long, int>(IndexedMeshTools.CellKeyComparer.Instance),
                 new int[1],
                 Array.Empty<int>(),
                 0,
@@ -224,7 +224,7 @@ internal sealed class SpatialHashGrid2D
         {
             statistics = new BuildStatistics(bounds.Length, 0, 0, 0, 0, 1, 0);
             return new SpatialHashGrid2D(
-                new Dictionary<long, int>(),
+                new Dictionary<long, int>(IndexedMeshTools.CellKeyComparer.Instance),
                 new int[1],
                 Array.Empty<int>(),
                 0,
@@ -262,7 +262,7 @@ internal sealed class SpatialHashGrid2D
         while (true)
         {
             double invCellSizeAttempt = 1.0 / cellSize;
-            cellSlots = new Dictionary<long, int>(Math.Max(16, validCount));
+            cellSlots = new Dictionary<long, int>(Math.Max(16, validCount), IndexedMeshTools.CellKeyComparer.Instance);
             counts = new List<int>(Math.Max(16, validCount));
             memberships = 0;
             bool overBudget = false;

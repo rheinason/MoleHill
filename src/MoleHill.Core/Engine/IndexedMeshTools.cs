@@ -195,6 +195,26 @@ internal static class IndexedMeshTools
     }
 
     /// <summary>
+    /// For spatial-cell keys: a grid cell's (x, y) packed into one <see cref="long"/>. Required for the
+    /// same reason as <see cref="EdgeKeyComparer"/>, and the collapse is worse. The two packings in use
+    /// both defeat the default <c>lo ^ hi</c> hash:
+    /// <list type="bullet">
+    /// <item><c>(cx * 0x100000001) ^ (cy * K)</c> writes <c>cx</c> into both halves, so XORing the
+    /// halves cancels <c>cx</c> entirely. Every cell in a column shares a hash code, which leaves about
+    /// √n distinct codes for n cells.</item>
+    /// <item><c>(cx &lt;&lt; 32) | cy</c> hashes to <c>cx ^ cy</c>, which collapses whole anti-diagonals.</item>
+    /// </list>
+    /// Measured 2026-09-26: indexing 243k faces in <see cref="SpatialHashGrid2D"/> dropped from ~1.7 s to
+    /// ~0.1 s with this comparer, which was the whole fixed cost of Waterflow from Points.
+    /// </summary>
+    internal sealed class CellKeyComparer : IEqualityComparer<long>
+    {
+        internal static readonly CellKeyComparer Instance = new();
+        public bool Equals(long x, long y) => x == y;
+        public int GetHashCode(long key) => HashCode.Combine((int)(key >> 32), (int)(key & 0xFFFFFFFF));
+    }
+
+    /// <summary>
     /// The <see cref="EdgeKeyComparer"/> counterpart for keys packed into a <see cref="ulong"/> rather
     /// than a <see cref="long"/> - edge keys built unsigned, and the 3x21-bit face keys in
     /// <c>MeshTopologyOperations</c>. The default <see cref="ulong"/> hash XORs the halves exactly as

@@ -232,7 +232,7 @@ public static class SurfaceRemesher
     private sealed class NearVertexIndex
     {
         private readonly List<double> _xyList;
-        private readonly Dictionary<long, List<int>> _cells = new();
+        private readonly Dictionary<long, List<int>> _cells = new(IndexedMeshTools.CellKeyComparer.Instance);
         private readonly double _cellSize;
         private readonly double _inverseCellSize;
 
@@ -413,7 +413,7 @@ public static class SurfaceRemesher
             double span = Math.Max(maxX - minX, maxY - minY);
             double minCellSize = tolerance * 16.0;
             double cellSize = Math.Clamp(span / 256.0, minCellSize, Math.Max(minCellSize, 4.0));
-            var cells = new Dictionary<long, List<int>>(segments.Count * 2);
+            var cells = new Dictionary<long, List<int>>(segments.Count * 2, IndexedMeshTools.CellKeyComparer.Instance);
             for (int i = 0; i < segments.Count; i++)
                 AddSegmentToCells(cells, segments[i], i, tolerance, cellSize);
 
@@ -1630,7 +1630,7 @@ public static class SurfaceRemesher
         double minSpacing = Math.Max(spacing * 0.6, reuseTolerance * 4.0);
         double minSpacingSq = minSpacing * minSpacing;
         double invCell = 1.0 / spacing;
-        var grid = new Dictionary<long, List<int>>();
+        var grid = new Dictionary<long, List<int>>(IndexedMeshTools.CellKeyComparer.Instance);
 
         void InsertSeed(int index)
         {

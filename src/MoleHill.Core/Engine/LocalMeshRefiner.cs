@@ -536,7 +536,7 @@ public static class LocalMeshRefiner
     private sealed class VertexHashGrid
     {
         private readonly double[] _vertices;
-        private readonly Dictionary<long, List<int>> _cells = new();
+        private readonly Dictionary<long, List<int>> _cells = new(IndexedMeshTools.CellKeyComparer.Instance);
         private readonly double _cellSize;
         private readonly double _inverseCellSize;
 

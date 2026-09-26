@@ -1,3 +1,4 @@
+using MoleHill.Core.Engine;
 namespace MoleHill.Core.Analysis;
 
 /// <summary>
@@ -33,7 +34,7 @@ public sealed class MeshHeightProjector
     {
         _vertices = vertices;
         _faces = faces;
-        _cellSlots = new Dictionary<long, int>(Math.Max(16, faceCount / 2));
+        _cellSlots = new Dictionary<long, int>(Math.Max(16, faceCount / 2), IndexedMeshTools.CellKeyComparer.Instance);
 
         if (vertexCount <= 0 || faceCount <= 0)
         {

@@ -35,7 +35,7 @@ public static class TinBoundaryPreparer
         private readonly List<double> _xyList;
         private readonly double _toleranceSquared;
         private readonly double _inverseCellSize;
-        private readonly Dictionary<long, List<int>> _cells = new();
+        private readonly Dictionary<long, List<int>> _cells = new(IndexedMeshTools.CellKeyComparer.Instance);
 
         public VertexReuseLookup(List<double> xyList, double tolerance)
         {

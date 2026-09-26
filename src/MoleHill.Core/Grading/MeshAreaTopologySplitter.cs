@@ -220,7 +220,7 @@ internal static class MeshAreaTopologySplitter
         private readonly List<double> _vertices;
         private readonly double _toleranceSquared;
         private readonly double _inverseCellSize;
-        private readonly Dictionary<long, (int Head, int Tail)> _cells = new();
+        private readonly Dictionary<long, (int Head, int Tail)> _cells = new(IndexedMeshTools.CellKeyComparer.Instance);
         private readonly List<int> _next;
 
         public GlobalPointLookup(List<double> vertices, double tolerance)

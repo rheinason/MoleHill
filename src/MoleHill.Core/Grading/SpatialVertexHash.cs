@@ -1,10 +1,11 @@
+using MoleHill.Core.Engine;
 namespace MoleHill.Core.Grading;
 
 internal class SpatialVertexHash
 {
     private readonly double _cellSize;
     private readonly double _invCell;
-    private readonly Dictionary<long, List<int>> _grid = new();
+    private readonly Dictionary<long, List<int>> _grid = new(IndexedMeshTools.CellKeyComparer.Instance);
 
     public SpatialVertexHash(double tolerance)
     {

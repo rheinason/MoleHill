@@ -303,7 +303,7 @@ public static class CrossFieldSolver
     private sealed class VertexHashGrid
     {
         private readonly double[] _vertices;
-        private readonly Dictionary<long, List<int>> _cells = new();
+        private readonly Dictionary<long, List<int>> _cells = new(IndexedMeshTools.CellKeyComparer.Instance);
         private readonly double _inverseCellSize;
 
         public VertexHashGrid(double[] vertices, int vertexCount, double cellSize)

@@ -89,7 +89,7 @@ internal class TerrainFaceGrid
         _invCell = 1.0 / cellSize;
 
         // Pass 1: assign a slot to every occupied cell and count its memberships.
-        _cellSlots = new Dictionary<long, int>(Math.Max(16, faceCount / 2));
+        _cellSlots = new Dictionary<long, int>(Math.Max(16, faceCount / 2), IndexedMeshTools.CellKeyComparer.Instance);
         var counts = new List<int>(Math.Max(16, faceCount / 2));
         for (int f = 0; f < faceCount; f++)
         {

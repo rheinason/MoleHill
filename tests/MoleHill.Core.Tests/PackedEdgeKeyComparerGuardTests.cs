@@ -12,30 +12,24 @@ namespace MoleHill.Core.Tests;
 /// O(n) pass into a quadratic scan — it once cost 7 s of a 10 s remesh on a 180k-face terrain.
 ///
 /// The convention is invisible at the call site, so this scans the shipped sources instead of trusting
-/// review. Spatial-cell keys use a different encoding (already-mixed or coordinate-derived) and are
-/// deliberately exempt; each exemption is named below with its reason, so adding a long-keyed
-/// collection is a decision rather than an omission.
+/// review.
+///
+/// **Spatial-cell keys are not exempt.** They once were, on the belief that their encoding was already
+/// mixed. It was not: <c>(cx * 0x100000001) ^ (cy * K)</c> writes <c>cx</c> into both halves, so the
+/// default hash cancels it, and <c>(cx &lt;&lt; 32) | cy</c> hashes to <c>cx ^ cy</c>. Both collapse, and
+/// indexing 243k faces cost ~1.7 s instead of ~0.1 s (2026-09-26). Cell keys take
+/// <c>IndexedMeshTools.CellKeyComparer</c>. The only exemption left is a key that is genuinely pre-mixed,
+/// named below with its reason.
 /// </summary>
 public class PackedEdgeKeyComparerGuardTests
 {
     /// <summary>
-    /// file (repo-relative, forward slashes) → identifiers whose long/ulong key is a spatial-cell key
-    /// or another already-mixed hash, not a packed edge key. "(inline)" covers a construction passed
+    /// file (repo-relative, forward slashes) → identifiers whose long/ulong key is already mixed by the
+    /// caller, so the default hash does not collapse it. "(inline)" covers a construction passed
     /// directly as an argument, with no variable to name.
     /// </summary>
     private static readonly Dictionary<string, string[]> CellKeyedExemptions = new()
     {
-        ["src/MoleHill.Core/Analysis/MeshHeightProjector.cs"] = new[] { "_cellSlots" },
-        ["src/MoleHill.Core/Engine/LocalMeshRefiner.cs"] = new[] { "_cells" },
-        ["src/MoleHill.Core/Engine/SpatialHashGrid2D.cs"] = new[] { "cellSlots", "(inline)" },
-        ["src/MoleHill.Core/Engine/SurfaceRemesher.cs"] = new[] { "_cells", "cells", "grid" },
-        ["src/MoleHill.Core/Engine/TinBoundaryPreparer.cs"] = new[] { "_cells" },
-        ["src/MoleHill.Core/Grading/MeshAreaTopologySplitter.cs"] = new[] { "_cells" },
-        ["src/MoleHill.Core/Grading/MeshConstraintTopologyInserter.cs"] = new[] { "_cells" },
-        ["src/MoleHill.Core/Grading/SpatialVertexHash.cs"] = new[] { "_grid" },
-        ["src/MoleHill.Core/Grading/TerrainFaceGrid.cs"] = new[] { "_cellSlots" },
-        ["src/MoleHill.Core/Retopo/CrossFieldSolver.cs"] = new[] { "_cells" },
-        ["src/MoleHill.Shared/RetainingWallPlannerCore.cs"] = new[] { "cells" },
         // Cell key is pre-mixed by the caller ((cx * 73856093) ^ (cy * 19349663)), so the default hash
         // is not the collapsing one.
         ["src/MoleHill.Rhino/Services/TerrainBuildService.Tin.cs"] = new[] { "used" },
@@ -46,7 +40,7 @@ public class PackedEdgeKeyComparerGuardTests
         RegexOptions.Compiled);
 
     private static readonly Regex TargetTypedConstruction = new(
-        @"(?:HashSet|Dictionary)\s*<\s*u?long\s*[,>][^;=()]*?=\s*new\s*\(",
+        @"(?:HashSet|Dictionary)\s*<\s*u?long\s*[,>][^;=]*?=\s*new\s*\(",
         RegexOptions.Compiled);
 
     [Fact]
@@ -71,8 +65,8 @@ public class PackedEdgeKeyComparerGuardTests
             offenders.Count == 0,
             "Packed-key collections constructed with the default comparer. Either pass " +
             "IndexedMeshTools.EdgeKeyComparer.Instance / PackedKeyComparer.Instance (or use " +
-            "IndexedMeshTools.CreateEdgeKeySet/CreateEdgeKeyMap), or — if the key is a spatial-cell " +
-            "key — add it to CellKeyedExemptions with its reason:" +
+            "IndexedMeshTools.CreateEdgeKeySet/CreateEdgeKeyMap), or IndexedMeshTools.CellKeyComparer.Instance " +
+            "for a spatial-cell key. Only a genuinely pre-mixed key may go in CellKeyedExemptions, with its reason:" +
             Environment.NewLine + string.Join(Environment.NewLine, offenders));
     }
 
