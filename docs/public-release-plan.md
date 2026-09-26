@@ -106,15 +106,15 @@ force-push.
 
 ### 5. Publish and go public
 
-- [ ] Publish `0.14.7-beta` to Yak; confirm it is listed; then `yak yank` 0.14.4, 0.14.5 and 0.14.6-beta.
-- [ ] Owner authorises: rename `rheinason/MoleHill` to `MoleHill-archive`; create a new private
+- [x] Publish `0.14.7-beta` to Yak; confirm it is listed; then `yak yank` 0.14.4, 0.14.5 and 0.14.6-beta.
+- [x] Owner authorises: rename `rheinason/MoleHill` to `MoleHill-archive`; create a new private
   `rheinason/MoleHill`; push the rewritten `main`; point the local clone at it (the old history must
   never be pushed again).
-- [ ] GitHub release `v0.14.7-beta` with the `.yak` attached.
-- [ ] GitHub settings: description, topics, private vulnerability reporting on, wiki off if unused.
+- [x] GitHub release `v0.14.7-beta` with the `.yak` attached.
+- [x] GitHub settings: description, topics, private vulnerability reporting on, wiki off if unused.
 - [ ] Final check on a fresh clone: build, managed lane, no personal paths in the tree, nothing removed in
   `git log --all`.
-- [ ] Owner flips visibility to public.
+- [x] Owner flips visibility to public.
 - [ ] Delete this plan.
 
 ## Log
@@ -129,3 +129,10 @@ force-push.
   links; all 9 toolbar versions before the procedural one fully transparent; no blob mentions the
   office name; the clone builds and passes the Core tests on its own. Residuals accepted: old versions
   of our own docs name the file `Master.ai` and contain local paths.
+- 2026-09-27: published. Yak `0.14.7-beta` built from the rewritten history (Core stamped `cb1199d`),
+  package checked (procedural toolbar, new licence text, no office names), pushed and listed; 0.14.4,
+  0.14.5 and 0.14.6-beta yanked. `rheinason/MoleHill` renamed to `MoleHill-archive` (private); new public
+  `rheinason/MoleHill` created (wiki off, private vulnerability reporting on, topics set) with only the
+  rewritten `main`, and release `v0.14.7-beta` with the `.yak`. The packaging script now restores first:
+  it failed on a fresh clone. Local clone switched: `origin` is the public repo, `archive` the old one.
+  CI did not run on the first push to the new repo; a manual trigger was added.
