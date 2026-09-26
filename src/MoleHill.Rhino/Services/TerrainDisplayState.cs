@@ -139,6 +139,18 @@ internal sealed class TerrainDisplayState
         InvalidateRenderContent();
     }
 
+    /// <summary>
+    /// Drops the cached bounds when only what is drawn <em>over</em> the terrain changed, such as which
+    /// runtime overlays are shown. The mesh is untouched, so its drainage solve and presentation mesh
+    /// stay valid; clearing them here re-solved Catchments/Ponding (~1 s on a 244k-face terrain) for an
+    /// overlay toggle.
+    /// </summary>
+    public void InvalidateOverlayBounds()
+    {
+        _previewBounds = null;
+        InvalidateRenderContent();
+    }
+
     /// <summary>True when the current visibility settings leave at least one mesh-capable render item.</summary>
     internal bool HasRenderableContent(TerrainDefinition terrain)
     {

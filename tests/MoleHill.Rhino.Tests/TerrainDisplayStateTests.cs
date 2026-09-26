@@ -29,6 +29,36 @@ public class TerrainDisplayStateTests
     }
 
     [Fact]
+    public void InvalidateOverlayBounds_OverlayToggle_KeepsDrainageSolveButAdvancesRenderHash()
+    {
+        var state = new TerrainDisplayState();
+        var source = new object();
+        var key = new DrainagePreviewKey("catchments", 0.0, 0.0, 0.0);
+        state.DrainagePreview.GetOrCompute(source, key, () => new object());
+        uint original = state.RenderHash;
+
+        state.InvalidateOverlayBounds();
+        state.DrainagePreview.GetOrCompute(source, key, () => new object());
+
+        Assert.Equal(1, state.DrainagePreview.ComputeCount);
+        Assert.NotEqual(original, state.RenderHash);
+    }
+
+    [Fact]
+    public void InvalidatePreviewBounds_MeshChangedInPlace_DropsDrainageSolve()
+    {
+        var state = new TerrainDisplayState();
+        var source = new object();
+        var key = new DrainagePreviewKey("catchments", 0.0, 0.0, 0.0);
+        state.DrainagePreview.GetOrCompute(source, key, () => new object());
+
+        state.InvalidatePreviewBounds();
+        state.DrainagePreview.GetOrCompute(source, key, () => new object());
+
+        Assert.Equal(2, state.DrainagePreview.ComputeCount);
+    }
+
+    [Fact]
     public void HasRenderableContent_CustomMarkerBlock_ReturnsTrue()
     {
         var terrain = new TerrainDefinition

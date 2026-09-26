@@ -105,7 +105,7 @@ internal sealed partial class TerrainController
         {
             runtimeCache.DisplayState.VisibleDiagnosticOwners.Clear();
             runtimeCache.DisplayState.VisibleDiagnosticOwners.UnionWith(runtimeCache.VisibleDiagnosticOwners);
-            runtimeCache.DisplayState.InvalidatePreviewBounds();
+            runtimeCache.DisplayState.InvalidateOverlayBounds();
         }
 
         doc.Views.Redraw();
