@@ -38,6 +38,13 @@ Status key: `[ ]` open · `[~]` in progress · `[x]` done · `[-]` dropped (say 
   Blender's icon set). Redraw them from scratch in `PanelButtonIcons.cs`; remove the old `icons/*.svg`
   from history. Residual: older versions of `PanelButtonIcons.cs` in history still contain the ported
   path data; rewriting those blobs too is possible but was not asked for.
+- [x] **D6 Publish via a fresh repository:** a force-push leaves old commits reachable by hash, and three
+  existing pull requests pin them. Rename the current repo to `MoleHill-archive` (stays private, keeps
+  its PRs and old releases), create a new `MoleHill`, push only the rewritten `main`.
+- [x] **D7 Release:** publish `0.14.7-beta` from the cleaned tree to Yak and as the new repo's first
+  GitHub release, with the verified `.yak` attached.
+- [x] **D8 Yank:** Yak `0.14.4`, `0.14.5` and `0.14.6-beta` (from 2026-09-17) ship toolbar icons rendered
+  from the office's `Master.ai`. After `0.14.7-beta` is live, `yak yank` all three.
 - [x] **Also removed from history (audit of files deleted long ago):** `build.binlog` (an MSBuild binary
   log records the build environment), `.dotnet/` and `.dotnet-cli/` (SDK state, including .NET
   `MachineId` telemetry files that identify the machine), and `artifacts/` (old build/verify output).
@@ -83,22 +90,27 @@ force-push.
 - [x] `AGENTS.md` / `CLAUDE.md`: mark machine-specific lines as such.
 - [x] README: status (beta), what it is, links to CONTRIBUTING and the licence notice.
 
-### 3. History rewrite (one pass)
+### 3. Release 0.14.7-beta
+
+- [ ] Bump `MoleHillVersion`; move the changelog's Unreleased notes under `0.14.7-beta`.
+- [ ] Validate: managed and warnings lanes; build the package and check its version and contents.
+
+### 4. History rewrite (one pass)
 
 - [ ] Mirror-clone to a scratch directory. With `git filter-repo`: remove the D2/D3 paths and
   `src/MoleHill.Rhino/Toolbars/icons/`; replace every `.rui` blob that embeds artboard-derived bitmaps
   with the new procedural `.rui`; strip the D4 trailer lines.
 - [ ] Verify on the clone: none of the removed paths, bitmaps or trailers in any commit; tip tree
   identical to local `main` apart from what was removed; builds; managed lane green.
-- [ ] Owner approves the force-push.
+- [ ] Owner approves the rewritten history.
 
-### 4. Go public
+### 5. Publish and go public
 
-- [ ] Force-push `main`; delete the merged `housekeeping-2026-09` branch on GitHub; replace the local
-  clone with a fresh one (an old clone must never be pushed again).
-- [ ] **Old GitHub releases (owner):** `v0.3.0` (marked Latest) and `v0.6.2-beta` are months behind Yak's
-  `0.14.6-beta`. Delete them, or keep them marked as superseded. Their tags are rewritten with the rest
-  of history. The README no longer links to GitHub releases.
+- [ ] Publish `0.14.7-beta` to Yak; confirm it is listed; then `yak yank` 0.14.4, 0.14.5 and 0.14.6-beta.
+- [ ] Owner authorises: rename `rheinason/MoleHill` to `MoleHill-archive`; create a new private
+  `rheinason/MoleHill`; push the rewritten `main`; point the local clone at it (the old history must
+  never be pushed again).
+- [ ] GitHub release `v0.14.7-beta` with the `.yak` attached.
 - [ ] GitHub settings: description, topics, private vulnerability reporting on, wiki off if unused.
 - [ ] Final check on a fresh clone: build, managed lane, no personal paths in the tree, nothing removed in
   `git log --all`.
