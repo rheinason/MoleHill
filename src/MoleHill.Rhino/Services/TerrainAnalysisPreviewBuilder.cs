@@ -371,24 +371,8 @@ internal static class TerrainAnalysisPreviewBuilder
         if (generated.Kind == GeneratedObjectKind.SlopePreview)
             return terrain.ShowAnalysisOutputs && terrain.ShowSlopePreview;
 
-        if (!generated.AnalysisId.HasValue)
-            return true;
-
-        // Each family answers for its own output. Before schema 31 both went through
-        // ShowAnalysisOutputs, so turning off slope colours also silently hid every label and section.
-        Guid ownerId = generated.AnalysisId.Value;
-
-        AnalysisDefinition? analysis = terrain.Analyses.FirstOrDefault(item => item.Id == ownerId);
-        if (analysis != null)
-            return terrain.ShowAnalysisOutputs && analysis.IsEnabled;
-
-        // Annotations carry no terrain-level visibility flag: they are the drawing, so the card's own
-        // enabled state is the whole of it.
-        AnnotationDefinition? annotation = terrain.Annotations.FirstOrDefault(item => item.Id == ownerId);
-        if (annotation != null)
-            return annotation.IsEnabled;
-
-        return false;
+        return !generated.AnalysisId.HasValue ||
+            TerrainContentVisibility.IsOwnerVisible(terrain, generated.AnalysisId.Value);
     }
 
     private static RhinoMesh? BuildElevationPreviewMesh(

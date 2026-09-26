@@ -750,26 +750,11 @@ internal sealed partial class TerrainController
         return GetGeneratedObjectKind(obj?.Attributes) == GeneratedObjectKind.SlopePreview;
     }
 
-    /// <summary>
-    /// Whether a baked output owned by an analysis or an annotation should be shown. An analysis answers
-    /// to the terrain's <c>ShowAnalysisOutputs</c> gate; an annotation has no such gate and answers only
-    /// for itself. Sharing one flag is what made hiding slope colours also hide every label and section.
-    /// </summary>
+    /// <summary>Whether a baked output owned by an analysis or an annotation should be shown.</summary>
     private static bool ShouldDisplayOwnedContentOutput(TerrainDefinition terrain, ObjectAttributes? attributes)
     {
         Guid? ownerId = GetGeneratedAnalysisId(attributes);
-        if (!ownerId.HasValue)
-            return true;
-
-        AnalysisDefinition? analysis = terrain.Analyses.FirstOrDefault(item => item.Id == ownerId.Value);
-        if (analysis != null)
-            return terrain.ShowAnalysisOutputs && analysis.IsEnabled;
-
-        AnnotationDefinition? annotation = terrain.Annotations.FirstOrDefault(item => item.Id == ownerId.Value);
-        if (annotation != null)
-            return annotation.IsEnabled;
-
-        return false;
+        return !ownerId.HasValue || TerrainContentVisibility.IsOwnerVisible(terrain, ownerId.Value);
     }
 
     private static GeneratedObjectKind GetGeneratedObjectKind(ObjectAttributes? attributes)
