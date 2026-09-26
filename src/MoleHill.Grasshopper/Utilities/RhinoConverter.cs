@@ -1,5 +1,6 @@
 using Rhino.Geometry;
 using MoleHill.Core.Engine;
+using MoleHill.Shared;
 
 namespace MoleHill.Grasshopper.Utilities;
 
@@ -37,8 +38,7 @@ public static class RhinoConverter
                 result.Faces[i * 3 + 2]);
         }
 
-        mesh.Normals.ComputeNormals();
-        mesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
         mesh.Compact();
 
         return mesh;

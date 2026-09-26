@@ -13,14 +13,13 @@ namespace MoleHill.Core.Tests;
 
 /// <summary>
 /// Ad-hoc benchmark for large CSV point datasets.
-/// Drop a CSV file (x,y,z per row, comma-separated) at the path below and run:
+/// Drop a CSV file (x,y,z per row, comma-separated) at the repository root under the name below and run:
 ///   dotnet test --filter LargeDatasetBenchmark
 /// Results print to the test output window.
 /// </summary>
 public class LargeDatasetBenchmarkTests(ITestOutputHelper output)
 {
-    // Change this to wherever you drop the CSV:
-    private const string CsvPath = @"C:\Users\hbxma\Dropbox\TopoTest\120K Pointstest.csv";
+    private static readonly string CsvPath = Path.Combine(RepositoryPaths.FindRoot(), "120K Pointstest.csv");
 
     [Fact]
     public void LargeDatasetBenchmark_BareDwyer()

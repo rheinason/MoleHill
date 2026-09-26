@@ -175,8 +175,7 @@ public class MeshCollageComponent : GH_Component
             return;
         }
 
-        combinedMesh.Normals.ComputeNormals();
-        combinedMesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(combinedMesh);
         combinedMesh.Compact();
 
         DA.SetData(0, combinedMesh);
@@ -315,8 +314,7 @@ public class MeshCollageComponent : GH_Component
             coloredMesh.VertexColors.Add(faceColor);
         }
 
-        coloredMesh.Normals.ComputeNormals();
-        coloredMesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(coloredMesh);
         coloredMesh.Compact();
 
         // Build individual area meshes for baking
@@ -365,8 +363,7 @@ public class MeshCollageComponent : GH_Component
             mesh.Faces.AddFace(a, b, c);
         }
 
-        mesh.Normals.ComputeNormals();
-        mesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
         mesh.Compact();
         return mesh;
     }
@@ -442,8 +439,7 @@ public class MeshCollageComponent : GH_Component
                     extracted.Faces[i * 3 + 2]);
             }
 
-            rhinoMesh.Normals.ComputeNormals();
-            rhinoMesh.UnifyNormals();
+            MeshNormalOrientation.UnifyAndComputeNormals(rhinoMesh);
             rhinoMesh.Compact();
             return rhinoMesh;
         }

@@ -197,8 +197,7 @@ public sealed class GhSolveContext
         for (int i = 0; i < faceCount; i++)
             mesh.Faces.AddFace(faces[i * 3], faces[i * 3 + 1], faces[i * 3 + 2]);
 
-        mesh.Normals.ComputeNormals();
-        mesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
         mesh.Compact();
         return mesh;
     }

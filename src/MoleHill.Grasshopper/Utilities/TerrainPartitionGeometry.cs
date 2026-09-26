@@ -1,10 +1,11 @@
 using System.Runtime.InteropServices;
-// Rhino mesh/curve conversions for Core's topology-preserving terrain partitioner.
 using MoleHill.Core.Grading;
+using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Utilities;
 
+// Rhino mesh/curve conversions for Core's topology-preserving terrain partitioner.
 internal static class TerrainPartitionGeometry
 {
     public static bool TryExtractTriangleMesh(
@@ -255,8 +256,7 @@ internal static class TerrainPartitionGeometry
 
         if (mesh.Faces.Count > 0)
         {
-            mesh.Normals.ComputeNormals();
-            mesh.UnifyNormals();
+            MeshNormalOrientation.UnifyAndComputeNormals(mesh);
             mesh.Compact();
         }
 

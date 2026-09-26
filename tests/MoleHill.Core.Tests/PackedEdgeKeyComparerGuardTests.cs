@@ -46,10 +46,10 @@ public class PackedEdgeKeyComparerGuardTests
     [Fact]
     public void LongKeyedCollections_UseTheEdgeKeyComparerOrAreDeclaredCellKeyed()
     {
-        string root = FindRepositoryRoot();
+        string root = RepositoryPaths.FindRoot();
         var offenders = new List<string>();
 
-        foreach (string file in EnumerateSourceFiles(root))
+        foreach (string file in RepositoryPaths.EnumerateShippedSources(root))
         {
             string relative = Path.GetRelativePath(root, file).Replace('\\', '/');
             string text = File.ReadAllText(file);
@@ -74,8 +74,8 @@ public class PackedEdgeKeyComparerGuardTests
     public void Guard_SeesTheSourcesItClaimsToScan()
     {
         // A scan that silently matches nothing would pass forever. Anchor it on a site that must exist.
-        string root = FindRepositoryRoot();
-        List<string> files = EnumerateSourceFiles(root).ToList();
+        string root = RepositoryPaths.FindRoot();
+        List<string> files = RepositoryPaths.EnumerateShippedSources(root).ToList();
 
         Assert.Contains(files, file => file.EndsWith("IndexedMeshTools.cs", StringComparison.Ordinal));
         Assert.True(files.Count > 100, $"Expected the whole src tree, scanned only {files.Count} files.");
@@ -171,32 +171,5 @@ public class PackedEdgeKeyComparerGuardTests
             i--;
 
         return end <= i ? "(inline)" : text.Substring(i + 1, end - i);
-    }
-
-    private static IEnumerable<string> EnumerateSourceFiles(string root)
-    {
-        string src = Path.Combine(root, "src");
-        foreach (string file in Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories))
-        {
-            string normalized = file.Replace('\\', '/');
-            if (normalized.Contains("/TriangleNet/", StringComparison.Ordinal) ||
-                normalized.Contains("/bin/", StringComparison.Ordinal) ||
-                normalized.Contains("/obj/", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            yield return file;
-        }
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "MoleHill.sln")))
-            directory = directory.Parent;
-
-        Assert.True(directory != null, $"MoleHill.sln not found above {AppContext.BaseDirectory}.");
-        return directory!.FullName;
     }
 }

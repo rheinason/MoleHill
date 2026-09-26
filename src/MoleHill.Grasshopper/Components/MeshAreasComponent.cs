@@ -2,6 +2,7 @@ using Grasshopper.Kernel;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Grasshopper.Registry;
+using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Components;
@@ -174,8 +175,7 @@ public sealed class MeshAreasComponent : RegistryTerrainComponent
             mesh.Faces.AddFace(a, b, c);
         }
 
-        mesh.Normals.ComputeNormals();
-        mesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
         mesh.Compact();
         return mesh;
     }

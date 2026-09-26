@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
+using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.Services;
@@ -180,8 +181,7 @@ internal static class RhinoGeometryConversions
         for (int i = 0; i < tris.Length / 3; i++)
             mesh.Faces.AddFace(tris[i * 3], tris[i * 3 + 1], tris[i * 3 + 2]);
 
-        mesh.Normals.ComputeNormals();
-        mesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
         mesh.Compact();
         CacheMeshData(mesh, BuildMeshData(mesh));
         // Retopo deliberately produces quad faces. Mark this mesh as finalized so the generic stage
@@ -237,9 +237,7 @@ internal static class RhinoGeometryConversions
         mesh.Vertices.CombineIdentical(true, true);
         mesh.Vertices.CullUnused();
         mesh.Faces.CullDegenerateFaces();
-        mesh.Normals.ComputeNormals();
-        if (!HasConsistentWinding(mesh))
-            mesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
         mesh.Compact();
         CacheMeshData(mesh, BuildMeshData(mesh));
         MarkNormalized(mesh);
@@ -251,67 +249,13 @@ internal static class RhinoGeometryConversions
     /// </summary>
     private static void FinalizeKnownTriangleMesh(Mesh mesh)
     {
-        mesh.Normals.ComputeNormals();
-        if (!HasConsistentWinding(mesh))
-            mesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
         mesh.Compact();
         CacheMeshData(mesh, BuildMeshData(mesh));
         MarkNormalized(mesh);
     }
 
     internal static bool IsNormalizedMesh(Mesh mesh) => NormalizedMeshes.TryGetValue(mesh, out _);
-
-    /// <summary>
-    /// True when no directed edge occurs twice, which is exactly the condition under which
-    /// <c>UnifyNormals</c> has nothing to flip: two faces that share an edge are consistently wound when
-    /// they traverse it in opposite directions, and an inconsistent pair (or a non-manifold edge, which
-    /// always has two uses in one direction) repeats a directed edge.
-    /// </summary>
-    /// <remarks>
-    /// <c>UnifyNormals</c> was ~40 ms of every normalization on a 111k-face terrain, and every mesh-producing
-    /// stage normalizes its output, which the grading stages have already oriented upward. This check is a
-    /// sort of three keys per face, a fraction of that. Only called on an all-triangle mesh: normalization
-    /// converts quads first.
-    /// </remarks>
-    private static bool HasConsistentWinding(Mesh mesh)
-    {
-        int faceCount = mesh.Faces.Count;
-        if (faceCount == 0)
-            return true;
-
-        // Rented, not allocated: at 111k faces the key buffer is ~2.7 MB, a large-object-heap allocation
-        // per normalization, and the full collections those provoked landed inside whatever stage ran
-        // next (measured as +40 ms on the cold build's Ponding analysis, which had not changed).
-        int keyCount = faceCount * 3;
-        long[] rented = System.Buffers.ArrayPool<long>.Shared.Rent(keyCount);
-        try
-        {
-            Span<long> directed = rented.AsSpan(0, keyCount);
-            for (int face = 0; face < faceCount; face++)
-            {
-                MeshFace meshFace = mesh.Faces[face];
-                if (meshFace.IsQuad)
-                    return false;
-
-                directed[face * 3] = ((long)meshFace.A << 32) | (uint)meshFace.B;
-                directed[(face * 3) + 1] = ((long)meshFace.B << 32) | (uint)meshFace.C;
-                directed[(face * 3) + 2] = ((long)meshFace.C << 32) | (uint)meshFace.A;
-            }
-
-            directed.Sort();
-            for (int i = 1; i < directed.Length; i++)
-            {
-                if (directed[i] == directed[i - 1])
-                    return false;
-            }
-
-            return true;
-        }
-        finally
-        {
-            System.Buffers.ArrayPool<long>.Shared.Return(rented);
-        }
-    }
 
     /// <summary>
     /// <c>DuplicateMesh</c>, keeping what is known about the source: its extracted arrays and its

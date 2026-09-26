@@ -9,7 +9,7 @@ namespace MoleHill.Core.Tests;
 // result can be eyeballed in Rhino. Not a CI assertion suite — a visual-proof harness.
 public class ExplicitVisualExportTests
 {
-    private const string OutDir = @"C:\Users\hbxma\AppData\Local\Temp\MoleHillExplicit";
+    private static readonly string OutDir = Path.Combine(Path.GetTempPath(), "MoleHillExplicit");
 
     // Undulating terrain: a tilted plane plus a couple of sine bumps so daylight reach varies.
     private static (double[] v, int vc, int[] f, int fc) UndulatingTerrain(int n, double cell)

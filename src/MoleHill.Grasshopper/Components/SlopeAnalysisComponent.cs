@@ -1,6 +1,7 @@
 using Grasshopper.Kernel;
 using MoleHill.Core.Analysis;
 using MoleHill.Grasshopper.Registry;
+using MoleHill.Shared;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Components;
@@ -108,8 +109,7 @@ public sealed class SlopeAnalysisComponent : RegistryTerrainComponent
             coloredMesh.VertexColors.Add(color);
         }
 
-        coloredMesh.Normals.ComputeNormals();
-        coloredMesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(coloredMesh);
         coloredMesh.Compact();
 
         ctx.SetData(0, coloredMesh);

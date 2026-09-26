@@ -14,12 +14,16 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
 
 - **`src/TriangleNet/`** — vendored Triangle.NET CDT engine. Do not refactor; treat as a library.
 - **`src/MoleHill.Core/`** — all reusable terrain logic, **no Rhino/GH dependency**, unit-tested.
-- **`src/MoleHill.Interop/`** — separately shipped, versioned RhinoCommon-only snapshot bridge contract.
-  Rhino and Grasshopper reference the same assembly; the GHA discovers the Rhino bridge instance by
-  type and reads snapshot fields through the interface. ILRepack leaves Interop outside the GHA.
   Sub-namespaces: `Engine/` (triangulation), `Processing/` (input prep), `Grading/` (pad/path),
   `Analysis/` (contours, slope, waterflow), `Scattering/` (object scatter sampling), `Sculpting/` (brush engine +
   displacement field).
+- **`src/MoleHill.Interop/`** — separately shipped, versioned RhinoCommon-only snapshot bridge contract.
+  Rhino and Grasshopper reference the same assembly; the GHA discovers the Rhino bridge instance by
+  type and reads snapshot fields through the interface. ILRepack leaves Interop outside the GHA.
+- **`src/MoleHill.Shared/`** — RhinoCommon-dependent source that both hosts need (retaining-wall
+  planning, stair references, model units, mesh normal orientation). It is a source folder, not an
+  assembly: each host and its test project imports `MoleHill.Shared.props`, which compiles every
+  `*.cs` in the folder, so a new shared file needs no project edits.
 - **`src/MoleHill.Grasshopper/`** — GH components; thin wrappers over Core. Merged into `MoleHill.gha`.
 - **`src/MoleHill.Rhino/`** — the Rhino plugin: dockable panel UI (`UI/`, Eto.Forms), commands
   (`Commands/`), the terrain definition model (`Model/`), and the build/persistence services

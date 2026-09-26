@@ -243,8 +243,7 @@ internal static class RetainingWallBrepBuilder
         }
 
         mesh.Vertices.CullUnused();
-        mesh.UnifyNormals();
-        mesh.Normals.ComputeNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
         mesh.Compact();
         if (!mesh.IsValid || !mesh.IsClosed)
             return null;

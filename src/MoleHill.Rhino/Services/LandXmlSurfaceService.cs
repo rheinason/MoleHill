@@ -106,8 +106,7 @@ internal static class LandXmlSurfaceService
 
         foreach (TinSurfaceTriangle face in surface.Triangles)
             mesh.Faces.AddFace(pointIndexes[face.A], pointIndexes[face.B], pointIndexes[face.C]);
-        mesh.Normals.ComputeNormals();
-        mesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
         mesh.Compact();
         if (!mesh.IsValid)
         {

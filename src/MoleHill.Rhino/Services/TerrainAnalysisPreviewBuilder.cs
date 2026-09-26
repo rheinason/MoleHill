@@ -1,5 +1,6 @@
 using MoleHill.Core.Analysis;
 using MoleHill.Rhino.Model;
+using MoleHill.Shared;
 using Rhino;
 using Rhino.Geometry;
 using RhinoMesh = Rhino.Geometry.Mesh;
@@ -719,8 +720,7 @@ internal static class TerrainAnalysisPreviewBuilder
             coloredMesh.VertexColors.Add(color);
         }
 
-        coloredMesh.Normals.ComputeNormals();
-        coloredMesh.UnifyNormals();
+        MeshNormalOrientation.UnifyAndComputeNormals(coloredMesh);
         coloredMesh.Compact();
         return coloredMesh;
     }
