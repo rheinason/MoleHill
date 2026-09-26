@@ -27,30 +27,9 @@ internal static class MeshFlipGeometry
             adjacency[key] = (e.t0, e.o0, e.t1, e.o1, e.count + 1); // >2: non-manifold, never flipped
     }
 
-    /// <summary>The triangle sharing <paramref name="key"/> that is neither excluded one, or -1.</summary>
-    internal static int OtherTriangle(
-        Dictionary<long, (int t0, int o0, int t1, int o1, int count)> adjacency, long key, int exclude0, int exclude1)
-    {
-        if (!adjacency.TryGetValue(key, out (int t0, int o0, int t1, int o1, int count) e) || e.count != 2)
-            return -1;
-        if (e.t0 != exclude0 && e.t0 != exclude1)
-            return e.t0;
-        if (e.t1 != exclude0 && e.t1 != exclude1)
-            return e.t1;
-        return -1;
-    }
-
     /// <summary>Crease (1 - normal agreement) between two triangles given by explicit vertex triples.</summary>
     internal static double Crease(double[] v, int a0, int b0, int c0, int a1, int b1, int c1) =>
         1.0 - NormalAgreement(v, a0, b0, c0, a1, b1, c1);
-
-    /// <summary>Crease between an explicit triangle and a face index (0 when the face is absent/boundary).</summary>
-    internal static double CreaseToFace(double[] v, int[] faces, int a, int b, int c, int face)
-    {
-        if (face < 0)
-            return 0.0;
-        return 1.0 - NormalAgreement(v, a, b, c, faces[face * 3], faces[face * 3 + 1], faces[face * 3 + 2]);
-    }
 
     /// <summary>Cosine of the angle between the upward normals of two triangles (1 = coplanar/flat).</summary>
     internal static double NormalAgreement(double[] v, int a0, int b0, int c0, int a1, int b1, int c1)

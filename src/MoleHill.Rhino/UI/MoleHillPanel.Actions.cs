@@ -6,7 +6,7 @@ using MoleHill.Rhino.Services;
 
 namespace MoleHill.Rhino.UI;
 
-// Terrain-level panel actions: create/copy/delete/convert/bake/rebuild/reset and bake tracking.
+// Terrain-level panel actions: create/copy/delete/bake/rebuild/reset and bake tracking.
 public sealed partial class MoleHillPanel
 {
     private void OnNewTerrain(object? sender, EventArgs e)
@@ -34,16 +34,6 @@ public sealed partial class MoleHillPanel
             return;
 
         _controller.DeleteTerrain(doc, terrain.TerrainId);
-    }
-
-    private void OnConvertTerrain(object? sender, EventArgs e)
-    {
-        var doc = RhinoDoc.ActiveDoc;
-        var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
-        if (doc == null || terrain == null)
-            return;
-
-        _controller.ConvertToRhino(doc, terrain.TerrainId);
     }
 
     private void OnBakeTerrain(object? sender, EventArgs e)

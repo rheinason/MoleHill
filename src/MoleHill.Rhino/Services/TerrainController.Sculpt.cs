@@ -35,17 +35,6 @@ internal sealed partial class TerrainController
     /// between strokes) so a background apply can't race the in-place vertex edits.</summary>
     internal void SetSculptStrokeInProgress(bool inProgress) => _sculptStrokeInProgress = inProgress;
 
-    /// <summary>Swaps the session's working mesh (DynTopo rebuilt it) while keeping the display lock.</summary>
-    internal void UpdateSculptPreviewMesh(RhinoDoc doc, Guid terrainId, Mesh workingMesh)
-    {
-        if (_sculptSessionTerrainId != terrainId)
-            return;
-
-        _sculptSessionPreviewMesh = workingMesh;
-        TerrainPresentationMesh.SetLiveEditedMesh(workingMesh);
-        ReassertSculptPreviewMesh(doc, terrainId);
-    }
-
     internal void EndSculptDisplayLock(RhinoDoc doc, Guid terrainId)
     {
         Mesh? releasedMesh = _sculptSessionTerrainId == terrainId

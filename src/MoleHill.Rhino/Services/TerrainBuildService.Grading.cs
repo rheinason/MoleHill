@@ -377,44 +377,6 @@ internal sealed partial class TerrainBuildService
             structuredDiagnostics: build.StructuredDiagnostics.Skip(structuredDiagnosticsStart));
     }
 
-    private static RhinoMesh ApplyGradePadLegacy(
-        RhinoMesh mesh,
-        double[] vertices,
-        int[] faces,
-        GradePadModifierDefinition modifier,
-        ResolvedGradePadInputs resolvedInputs,
-        PadGrader.LockCurve[] effectiveLocks,
-        double tolerance,
-        TerrainBuildResult build)
-    {
-        var result = PadGrader.Grade(
-            vertices,
-            vertices.Length / 3,
-            faces,
-            faces.Length / 3,
-            resolvedInputs.Pads,
-            effectiveLocks.Length == 0 ? null : effectiveLocks,
-            out var warning,
-            tolerance);
-
-        if (result == null)
-        {
-            build.Diagnostics.Add(warning ?? "Grade Pad failed.");
-            return mesh;
-        }
-
-        if (!string.IsNullOrWhiteSpace(warning))
-            build.Diagnostics.Add(warning);
-
-        if (result.Diagnostics.Count > 0)
-            build.AddGradingDiagnostics(result);
-
-        return FinalizeGradingMesh(
-            RhinoGeometryConversions.BuildMesh(result.Vertices, result.VertexCount, result.Faces, result.FaceCount),
-            "Grade Pad",
-            build);
-    }
-
     private static ResolvedGradePadInputs ResolveGradePadInputs(
         TerrainBuildSnapshot snapshot,
         double[] vertices,
@@ -553,38 +515,6 @@ internal sealed partial class TerrainBuildService
         planeYCoeff = -plane.Normal.Y / plane.Normal.Z;
         planeConstant = plane.Origin.Z + (plane.Normal.X * plane.Origin.X + plane.Normal.Y * plane.Origin.Y) / plane.Normal.Z;
         return true;
-    }
-
-    private static SurfaceRemesher.ConstraintPolyline[] CreateGradePadConstraints(
-        IReadOnlyList<PadGrader.PadBoundary> pads,
-        IReadOnlyList<PadGrader.LockCurve> locks)
-    {
-        if (pads.Count == 0 && locks.Count == 0)
-            return Array.Empty<SurfaceRemesher.ConstraintPolyline>();
-
-        var constraints = new List<SurfaceRemesher.ConstraintPolyline>(pads.Count + locks.Count);
-        foreach (var pad in pads)
-        {
-            constraints.Add(new SurfaceRemesher.ConstraintPolyline(
-                (double[])pad.BoundaryVertices.Clone(),
-                pad.VertexCount,
-                IsClosed: true,
-                PreserveInputElevation: false));
-        }
-
-        foreach (var lockCurve in locks)
-        {
-            var points = new double[lockCurve.VertexCount * 3];
-            for (int i = 0; i < lockCurve.VertexCount; i++)
-            {
-                points[i * 3] = lockCurve.XyVertices[i * 2];
-                points[i * 3 + 1] = lockCurve.XyVertices[i * 2 + 1];
-            }
-
-            constraints.Add(new SurfaceRemesher.ConstraintPolyline(points, lockCurve.VertexCount, IsClosed: false, PreserveInputElevation: false));
-        }
-
-        return constraints.ToArray();
     }
 
     private static PadGrader.LockCurve[] CombinePadLockCurves(
@@ -1594,5 +1524,4 @@ internal sealed partial class TerrainBuildService
             })
             .ToList();
     }
-
 }

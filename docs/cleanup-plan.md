@@ -13,6 +13,8 @@ behaviour-identical. Do not touch `src/TriangleNet/**` (vendored).
 - **Dead code:** IDE0051/IDE0052 raised for one build, repeated until clean (~1,080 lines). IDE0051 does
   not see unused *nested types*; search for those separately. The analyzer runs one target framework at
   a time, so a Grasshopper member used only under `#if WINDOWS` looks unused: move it inside the `#if`.
+  IDE0051 also missed private members of `TerrainBuildService` that a review found. Cross-check with
+  a text sweep: a private or internal method whose name occurs once across `src/` and `tests/`.
 - **Unused usings, broken XML doc `cref`s:** `MoleHill.Rhino`/`MoleHill.Grasshopper` shadow the `Rhino`/
   `Grasshopper` root namespaces, so write `global::` in a cref.
 - **One home for copied helpers:** `MeshNormalOrientation` (with a guard test), `SplitResultMeshBuilder`,

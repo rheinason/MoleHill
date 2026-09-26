@@ -390,21 +390,6 @@ internal sealed partial class TerrainBuildService
         }
     }
 
-    internal static string? GetBakedLayerPath(string? inputLayerPath)
-    {
-        if (string.IsNullOrWhiteSpace(inputLayerPath))
-            return null;
-
-        var segments = inputLayerPath
-            .Split(new[] { "::" }, StringSplitOptions.None)
-            .Where(segment => !string.IsNullOrWhiteSpace(segment))
-            .ToArray();
-        if (segments.Length == 0)
-            return "MoleHill::Zones";
-
-        return $"MoleHill::Zones::{string.Join("::", segments)}";
-    }
-
     private static double GetCurvePriorityZ(Curve curve)
     {
         var bbox = curve.GetBoundingBox(true);
@@ -426,5 +411,4 @@ internal sealed partial class TerrainBuildService
         points[^1] = points[0];
         return new PolylineCurve(points);
     }
-
 }

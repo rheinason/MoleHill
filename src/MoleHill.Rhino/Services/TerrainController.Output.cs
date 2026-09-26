@@ -646,8 +646,7 @@ internal sealed partial class TerrainController
                 Guid id = AddBakedObject(doc, terrain, new GeneratedRhinoObject
                 {
                     Role = LayerRole.Terrain,
-                    // Bake what the viewport shades, seams and all — see TerrainPresentationMesh. This is
-                    // a second bake path alongside SyncOutputs, and it is the one the picker's Bake uses.
+                    // Bake what the viewport shades, seams and all — see TerrainPresentationMesh.
                     Geometry = (TerrainPresentationMesh.CreateForDisplay(terrainMesh) ?? terrainMesh).DuplicateMesh(),
                     Name = terrain.Name,
                     LayerPath = LayerRoleService.GetTable(doc, terrain).Path(LayerRole.Terrain),

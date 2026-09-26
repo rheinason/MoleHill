@@ -1052,8 +1052,7 @@ block-instance). They reach three consumers:
   objects),
 - **rendered** by `TerrainRenderMeshProvider` (also from `TerrainDisplayState`, also no doc objects —
   see below), and
-- **materialised** as real doc objects only by `TerrainController.BakeTerrain` (or the managed
-  `SyncOutputs`). Scatter is conduit-preview + render + bake only (it can produce thousands of
+- **materialised** as real doc objects only by `TerrainController.BakeTerrain`. Scatter is conduit-preview + render + bake only (it can produce thousands of
   instances).
 
 ### Rendering without baking

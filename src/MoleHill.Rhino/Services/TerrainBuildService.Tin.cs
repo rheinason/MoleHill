@@ -1528,50 +1528,6 @@ internal sealed partial class TerrainBuildService
             .ToHashSet();
     }
 
-    private static bool TryCreateGradePathDefinition(
-        Curve curve,
-        GradePathModifierDefinition gradePath,
-        double curveTolerance,
-        out PathGrader.PathDefinition? pathDefinition)
-    {
-        pathDefinition = null;
-        if (gradePath.Width <= 0.0)
-            return false;
-
-        double requestedEdgeLength = TerrainBuildHeuristics.GetGradePathCurveSamplingLength(gradePath.Width);
-        if (!RhinoSourceResolver.TryGetPolyline(
-                curve,
-                curveTolerance,
-                requireClosed: false,
-                requestedEdgeLength,
-                maxArea: 0.0,
-                out var polyline) ||
-            polyline.Count < 2)
-        {
-            return false;
-        }
-
-        var pathXy = new double[polyline.Count * 2];
-        var pathZ = new double[polyline.Count];
-        for (int i = 0; i < polyline.Count; i++)
-        {
-            pathXy[i * 2] = polyline[i].X;
-            pathXy[(i * 2) + 1] = polyline[i].Y;
-            pathZ[i] = polyline[i].Z;
-        }
-
-        double pathCutSlope = gradePath.CutSlopeAngle > 0.0 ? gradePath.CutSlopeAngle : gradePath.SlopeAngle;
-        pathDefinition = new PathGrader.PathDefinition(
-            pathXy,
-            pathZ,
-            polyline.Count,
-            gradePath.Width,
-            pathCutSlope,
-            gradePath.MaxDistance,
-            gradePath.SlopeAngle);
-        return true;
-    }
-
     private static void AppendGradePathRoadBreaklines(
         PathGrader.PathDefinition path,
         List<MeshSmoother.BreaklinePolyline> breaklines)
@@ -1627,5 +1583,4 @@ internal sealed partial class TerrainBuildService
         tangentX = 1.0;
         tangentY = 0.0;
     }
-
 }
