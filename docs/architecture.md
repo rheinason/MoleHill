@@ -1242,6 +1242,29 @@ Measured by the `hosted-perf` lane, median of 5, against the baseline above:
 The Remesh halving says the projection-grid cost recorded below was largely this hash, not the cell
 size. Re-measure before acting on the cell-size table there.
 
+### Grade Pad after the 2026-09-26 round
+
+Profiled with `dotnet-trace` on a Core harness of the geometry-heavy pad, then verified in the lane
+against output hashes: every build phase's finished mesh stayed byte-identical. On the pad edit:
+
+| Grade Pad stage row | Before | After | What it was |
+|---|---|---|---|
+| Stage total | ~380 ms | **~195 ms** | (the old "Grade Pad" row, 503 ms, also summed the grader's own row, which shared its name; now `Grade Pad Topology`) |
+| Inputs | 110 ms | 39 ms | stage-cache clones dropped their extracted arrays, so extraction re-normalized a normalized mesh |
+| Topology (`PadGrader.Grade`) | ~160 ms | ~85-120 ms | daylight rays gathered every face in the ray's bounding box and sorted them all; now a corridor of cells and only faces the ray crosses. The welded mesh's boundary was also analysed twice. |
+| Output Mesh | 150 ms | 37 ms | `FinalizeGradingMesh` normalized `BuildMesh` output a second time; `UnifyNormals` (~40 ms) ran on meshes already consistently wound |
+
+The normalization fixes apply to every mesh-producing stage, so Grade Path (278 -> 161 ms), Smooth
+(84 -> 46 ms) and Triangulate gained too. The interactive 100k-face warm wall edit went 203 -> ~90 ms,
+and the geometry-heavy pad edit 1,645 -> ~1,320 ms, now dominated by Remesh (~880 ms).
+
+What remains in `PadGrader.Grade`, by the last profile: `SplitOutside` ~40% (the area-topology splitter
+~19%, the terrain outline ~9%, outside-region extraction ~9%), the weld ~16%, the hole fill ~10%, and
+the input terrain's boundary analysis ~8%. The input terrain's boundary is still computed twice, once
+for the outline and once for the post-weld comparison. It is left alone for now because the outline's
+loop start and direction follow the edge-dictionary insertion order, so sharing a sorted analysis
+would move them.
+
 ### The geometry-heavy case is a different problem
 
 A terrain with a long geometric modifier stack and **no** analyses behaves nothing like the

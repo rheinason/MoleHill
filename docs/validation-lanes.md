@@ -104,6 +104,17 @@ lands (lock the gain in) or when a slowdown is deliberate (say why in the commit
 detail lines (output counts such as ponds found) are saved beside the metrics and never compared. They
 tell you whether a time changed because the work changed.
 
+**The lane also checks the terrain did not change.** Each build phase records an `output mesh` detail: the
+counts plus a hash of the finished mesh's own vertex and face lists, read from Rhino rather than from
+any cached extraction. The comparison lists every phase whose hash differs from the baseline's. That is
+reported, not failed, because a deliberate geometry change lands there too. A change meant only to be
+faster must print "Finished meshes identical to the baseline", and one that does not is not a speed-up.
+
+**A regression in a stage you did not touch is usually allocation, not noise.** On 2026-09-26 a check
+that allocated two large arrays per mesh normalization added 40 ms to the unchanged Ponding analysis,
+consistently across all five samples. Its full collections were landing inside that stage. Renting the
+buffers removed it. Look at the sample spread first: a tight spread is systematic.
+
 This lane measures **worker time only**. Debounce, the marshal back to the UI thread, display
 publication and redraw happen outside `TerrainBuildService` and need `mhLatencyTrace`
 (architecture.md, "Edit-to-visible latency").
