@@ -55,6 +55,14 @@ internal static class GradedRegionAssembler
         public int[] Faces { get; init; } = Array.Empty<int>();
 
         public int FaceCount { get; init; }
+
+        /// <summary>
+        /// The weld's own boundary analysis of <see cref="Faces"/>, when the weld did not have to repair
+        /// the mesh; null when it did. Callers validating the assembly reuse it instead of sorting every
+        /// edge of the terrain a second time. Face winding does not enter it (edges are keyed min/max),
+        /// so the upward re-orientation after it leaves it exact.
+        /// </summary>
+        public MeshTopologyValidator.BoundaryGraphAnalysis? BoundaryAnalysis { get; init; }
     }
 
     /// <summary>
@@ -800,7 +808,8 @@ internal static class GradedRegionAssembler
         // outline (tight boundary notches far from any pad), turning a clean mesh non-manifold and
         // forcing the whole explicit path to defer. Skip the repair when nothing needs repairing.
         var weldAnalysis = MeshTopologyValidator.AnalyzeBoundaryGraph(faceArray, faceCount);
-        if (!weldAnalysis.HasSingleClosedBoundaryLoop)
+        bool repaired = !weldAnalysis.HasSingleClosedBoundaryLoop;
+        if (repaired)
         {
             (weldedVertices, faceArray) = MeshTopologyOperations.MakeWatertight(
                 weldedVertices, weldedVertexCount, faceArray, faceCount, weldTolerance, out _, out _);
@@ -815,7 +824,8 @@ internal static class GradedRegionAssembler
             Vertices = weldedVertices,
             VertexCount = weldedVertices.Length / 3,
             Faces = faceArray,
-            FaceCount = faceCount
+            FaceCount = faceCount,
+            BoundaryAnalysis = repaired ? null : weldAnalysis
         };
     }
 

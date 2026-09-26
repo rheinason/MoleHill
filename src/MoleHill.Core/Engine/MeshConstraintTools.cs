@@ -8,7 +8,10 @@ public static class MeshConstraintTools
         int[] faces,
         int faceCount)
     {
-        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
+        // Presized for the ~1.5 edges per face of a closed triangulation: grown from 8 it rehashed its
+        // way through ~170k entries on a 111k-face terrain. Enumeration below is insertion order either
+        // way, so the boundary segment order the outline chaining depends on is unchanged.
+        var edgeFaceCount = new Dictionary<long, int>(Math.Max(8, faceCount * 3 / 2 + 16), IndexedMeshTools.EdgeKeyComparer.Instance);
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
         {
             int a = faces[faceIndex * 3];
@@ -60,8 +63,8 @@ public static class MeshConstraintTools
 
     private static void CountEdge(Dictionary<long, int> edgeFaceCount, int a, int b)
     {
-        long edgeKey = GetEdgeKey(a, b);
-        edgeFaceCount[edgeKey] = edgeFaceCount.GetValueOrDefault(edgeKey, 0) + 1;
+        // One hash lookup instead of a read and a write.
+        System.Runtime.InteropServices.CollectionsMarshal.GetValueRefOrAddDefault(edgeFaceCount, GetEdgeKey(a, b), out _)++;
     }
 
     private static long GetEdgeKey(int a, int b)

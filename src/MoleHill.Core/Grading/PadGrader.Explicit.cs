@@ -128,7 +128,7 @@ public static partial class PadGrader
             split.Vertices, split.OutsideFaces, split.OutsideFaceCount, fills, tolerance);
 
         MeshTopologyValidator.BoundaryGraphAnalysis topology =
-            MeshTopologyValidator.AnalyzeBoundaryGraph(assembled.Faces, assembled.FaceCount);
+            assembled.BoundaryAnalysis ?? MeshTopologyValidator.AnalyzeBoundaryGraph(assembled.Faces, assembled.FaceCount);
         MeshTopologyValidator.BoundaryGraphAnalysis terrainTopology =
             MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
 
