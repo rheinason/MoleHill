@@ -3,6 +3,7 @@
 // Triangle Copyright (c) 1993, 1995, 1997, 1998, 2002, 2005 Jonathan Richard Shewchuk
 // Triangle.NET code by Christian Woltering
 // </copyright>
+// Modified for MoleHill: adds incremental editing (TryInsertPoint, CanDeletePoint, TryDeletePoint). See LICENSES/TriangleNet.md.
 // -----------------------------------------------------------------------
 
 namespace TriangleNet

@@ -3,6 +3,7 @@
 // Triangle Copyright (c) 1993, 1995, 1997, 1998, 2002, 2005 Jonathan Richard Shewchuk
 // Triangle.NET code by Christian Woltering
 // </copyright>
+// Modified for MoleHill: creates the refinement workspace lazily, only when it is needed. See LICENSES/TriangleNet.md.
 // -----------------------------------------------------------------------
 
 namespace TriangleNet.Meshing

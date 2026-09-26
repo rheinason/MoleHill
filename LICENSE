@@ -3,6 +3,11 @@ MoleHill Mixed Licensing Notice
 
 This repository contains code under multiple licenses and upstream terms.
 
+In short: MoleHill is free software under the GPL, it is distributed free of charge, and it contains a
+triangulator derived from Jonathan Richard Shewchuk's Triangle, whose terms do not allow MoleHill to be
+sold or included in a commercial product without his permission. Using MoleHill in your own work,
+including professional work, is not affected. Selling it, or shipping it inside a paid product, is.
+
 1. MoleHill-authored code
 -------------------------
 
@@ -18,18 +23,64 @@ The intent for MoleHill-authored code is reciprocal reuse: if you distribute
 modified versions of that code, you must make the corresponding source
 available under the same GPL terms.
 
+Additional permission under GNU GPL version 3 section 7
+
+If you modify this Program, or any covered work, by linking or combining it
+with the TriangleNet library in `src/TriangleNet/` (or a modified version of
+that library), containing parts covered by the terms of the Triangle license
+quoted in section 2, the licensors of this Program grant you additional
+permission to convey the resulting work. Corresponding Source for a non-source
+form of such a combination shall include the source code for the parts of
+TriangleNet used as well as that of the covered work.
+
+This permission covers the MoleHill-authored code only. It does not relax the
+Triangle terms, which continue to govern the TriangleNet parts of any combined
+work.
+
 2. TriangleNet and Triangle-derived code
 ----------------------------------------
 
 Files under `src/TriangleNet/` are not covered by the MoleHill license above.
 They retain their upstream copyright notices and original terms.
 
-This subtree includes code with notices for:
+This subtree is a vendored copy of Triangle.NET, a C# port of Triangle, and
+includes code with notices for:
 - Jonathan Richard Shewchuk (Triangle-derived code)
 - Christian Woltering (Triangle.NET code)
 - Frank Dockhorn (`TriangleQuadTree.cs`)
 
-See `LICENSES/TriangleNet.md` for details and upstream references.
+Triangle's distribution terms, quoted verbatim from its README:
+
+    These programs may be freely redistributed under the condition that the
+    copyright notices (including the copy of this notice in the code comments
+    and the copyright notice printed when the `-h' switch is selected) are not
+    removed, and no compensation is received. Private, research, and
+    institutional use is free. You may distribute modified versions of this code
+    UNDER THE CONDITION THAT THIS CODE AND ANY MODIFICATIONS MADE TO IT IN THE
+    SAME FILE REMAIN UNDER COPYRIGHT OF THE ORIGINAL AUTHOR, BOTH SOURCE AND
+    OBJECT CODE ARE MADE FREELY AVAILABLE WITHOUT CHARGE, AND CLEAR NOTICE IS
+    GIVEN OF THE MODIFICATIONS. Distribution of this code as part of a
+    commercial system is permissible ONLY BY DIRECT ARRANGEMENT WITH THE AUTHOR.
+    (If you are not directly supplying this code to a customer, and you are
+    instead telling them how they can obtain it for free, then you are not
+    required to make any arrangement with me.)
+
+Triangle's project page (https://www.cs.cmu.edu/~quake/triangle.html) states:
+"Although Triangle is freely available, it is copyrighted by the author and
+may not be sold or included in commercial products without a license."
+
+What this means for MoleHill:
+- MoleHill is distributed free of charge, as source and as binaries, which is
+  what these terms require.
+- Selling MoleHill, or distributing it as part of a commercial product or
+  system, requires a license from Jonathan Richard Shewchuk for the Triangle
+  parts. The GPL's permission to sell copies does not extend to them.
+- MoleHill has modified some TriangleNet files. The modifications are listed in
+  `LICENSES/TriangleNet.md` and marked in each changed file.
+
+Triangle.NET's own author notes that how Triangle's terms apply to a derived
+port is not entirely clear, and recommends against using the Shewchuk-derived
+files in a commercial context. See `LICENSES/TriangleNet.md`.
 
 3. Clipper2
 -----------
@@ -40,18 +91,27 @@ License, version 1.0.
 
 See `LICENSES/Clipper2-Boost-1.0.txt` for the full license text.
 
-4. Combined distributions
+4. LibTiff.Net
+--------------
+
+The Rhino plug-in references the BitMiracle.LibTiff.NET NuGet package to decode
+GeoTIFF elevation rasters. LibTiff.Net is Copyright (c) 2008-2019 Bit Miracle
+and distributed under a BSD-style license.
+
+See `LICENSES/BitMiracle-LibTiff.NET.txt` for the full license text.
+
+5. Combined distributions
 -------------------------
 
-Distributed MoleHill binaries and Yak packages include both MoleHill-authored
-code, `src/TriangleNet/` code, and the Clipper2 runtime library. They are
-therefore distributed under mixed terms, not under a single GPL license for the
-whole combined package.
+Distributed MoleHill binaries and Yak packages include MoleHill-authored code,
+`src/TriangleNet/` code, and the Clipper2 and LibTiff.Net runtime libraries.
+They are therefore distributed under mixed terms, not under a single GPL license
+for the whole combined package.
 
 You are responsible for complying with all applicable notices and upstream terms
 when using, modifying, or redistributing any combined build or package.
 
-5. No warranty
+6. No warranty
 --------------
 
 As far as the law allows, the repository contents and distributed binaries are

@@ -2,6 +2,7 @@
 // <copyright file="GenericMesher.cs">
 // Triangle.NET Copyright (c) 2012-2022 Christian Woltering
 // </copyright>
+// Modified for MoleHill: skips the quality-refinement pass when no quality or conforming option is set. See LICENSES/TriangleNet.md.
 // -----------------------------------------------------------------------
 
 namespace TriangleNet.Meshing

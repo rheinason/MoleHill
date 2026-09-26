@@ -2,6 +2,7 @@
 // <copyright file="Configuration.cs" company="">
 // Triangle.NET Copyright (c) 2012-2022 Christian Woltering
 // </copyright>
+// Modified for MoleHill: uses a fixed random seed so a given input always yields the same triangulation. See LICENSES/TriangleNet.md.
 // -----------------------------------------------------------------------
 
 namespace TriangleNet

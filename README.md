@@ -127,10 +127,15 @@ dotnet test tests/MoleHill.Grasshopper.Tests/MoleHill.Grasshopper.Tests.csproj
 
 This repository is mixed-license.
 
-- MoleHill-authored code outside `src/TriangleNet/` is licensed under `GPL-3.0-only`.
-- `src/TriangleNet/` is excluded and retains its upstream notices and original terms.
-- `BitMiracle.LibTiff.NET`, shipped with the Rhino plugin for numeric DEM decoding, retains its
-  BSD-style terms and upstream notices.
+- MoleHill-authored code outside `src/TriangleNet/` is licensed under `GPL-3.0-only`, with an
+  additional permission to combine it with the TriangleNet subtree.
+- `src/TriangleNet/` is excluded and retains its upstream notices and terms. It derives from Jonathan
+  Richard Shewchuk's Triangle, which may be freely redistributed without charge but **may not be sold or
+  included in a commercial product without his license**. Using MoleHill in your own work, professional
+  work included, is unaffected; selling MoleHill or shipping it inside a paid product is not allowed
+  without that license.
+- `Clipper2` (Boost 1.0) and `BitMiracle.LibTiff.NET` (BSD-style), shipped with the plug-ins, retain
+  their own terms and notices.
 - The MoleHill code is intended to be reciprocal: if you distribute modified versions, you need to provide the corresponding source under GPL terms.
 
 See `LICENSE` and the files under `LICENSES/` for the details that apply to each part of the repository.
