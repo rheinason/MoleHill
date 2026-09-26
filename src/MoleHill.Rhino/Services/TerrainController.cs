@@ -56,27 +56,6 @@ internal sealed partial class TerrainController
     private bool _initialized;
     private int _suppressDocEvents;
 
-    private readonly record struct OutputSyncMetrics(
-        int DeletedObjectCount,
-        int OutputCount,
-        int ZoneCount,
-        int AuxiliaryCount,
-        int MarkerCount)
-    {
-        public int AddedObjectCount => OutputCount + ZoneCount + AuxiliaryCount + MarkerCount;
-
-        public string ToDetail()
-        {
-            return $"{DeletedObjectCount:N0} old -> {AddedObjectCount:N0} new objects " +
-                   $"({OutputCount:N0} terrain, {ZoneCount:N0} zones, {AuxiliaryCount:N0} auxiliary, {MarkerCount:N0} markers)";
-        }
-    }
-
-    public readonly record struct BakedLayerEnsureResult(int CreatedCount, int RefreshedCount, int SkippedCount)
-    {
-        public int TotalChanged => CreatedCount + RefreshedCount;
-    }
-
     private readonly record struct PendingBuildRequest(DateTime DueAtUtc, long Version);
 
     private readonly record struct TerrainRenderAppearance(

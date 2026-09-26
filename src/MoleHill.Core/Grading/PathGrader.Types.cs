@@ -118,11 +118,6 @@ public static partial class PathGrader
         double MinY,
         double MaxY);
 
-    private readonly record struct ClosestClosedLoopLocation(
-        int SegmentIndex,
-        double SegmentT,
-        double Distance);
-
     public sealed class PathDefinition
     {
         public double[] XyVertices { get; }

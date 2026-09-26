@@ -259,18 +259,6 @@ public static partial class PadGrader
             structuredDiagnostics);
     }
 
-
-    private sealed class PatchMeshResult
-    {
-        public required double[] Vertices { get; init; }
-        public required int VertexCount { get; init; }
-        public required int[] Faces { get; init; }
-        public required int FaceCount { get; init; }
-        public double[]? StitchLoopXy { get; init; }
-        public int CornerConstraintCount { get; init; }
-        public bool CornerConstraintsRejected { get; set; }
-    }
-
     private readonly record struct OrderedPad(PadBoundary Pad, int OriginalIndex, double Priority);
 
     private static PadBoundary[] OrderPadsForOwnership(PadBoundary[] pads)

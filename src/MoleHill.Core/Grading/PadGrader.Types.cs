@@ -35,25 +35,6 @@ public static partial class PadGrader
         double InfluenceMinY,
         double InfluenceMaxY);
 
-    private readonly record struct ProtectedPadRegion(
-        int PadIndex,
-        PreparedPadSections Prepared,
-        double[] DaylightLoopXy,
-        double[] StitchLoopXy,
-        Bounds2D Bounds);
-
-    private enum ProtectedPadStitchCandidateKind
-    {
-        ProtectedStitch,
-        BudgetedTerrainSide,
-        ExactTerrainSide
-    }
-
-    private readonly record struct ProtectedPadStitchCandidate(
-        ProtectedPadStitchCandidateKind Kind,
-        double[] StitchLoopXy,
-        string Label);
-
     public sealed class ConstraintSet
     {
         public required SurfaceRemesher.ConstraintPolyline[] Constraints { get; init; }
