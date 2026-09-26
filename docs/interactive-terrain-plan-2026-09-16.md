@@ -555,8 +555,6 @@ change the current architecture merely by describing the destination.
   topology lookup and fingerprint.
 - `src/MoleHill.Rhino/Services/TerrainBuildService.Cache.cs`, `TerrainRuntimeCache.cs`, and
   `TerrainDisplayState.cs` — ownership, reuse, and copies.
-- `docs/performance-optimization-routes-2026-07-30.md` and
-  `docs/large-terrain-performance-review-2026-07-05.md` — historical measurements and decisions.
 - `tests/MoleHill.Grasshopper.Tests/TerrainRetainingWallPlannerLarge20260705CopiedCaseTests.cs` —
   captured planner fixture; supplement with whole-stack and live-interaction fixtures.
 

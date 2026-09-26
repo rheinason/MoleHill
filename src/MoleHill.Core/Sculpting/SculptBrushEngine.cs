@@ -247,8 +247,8 @@ public sealed class SculptBrushEngine
             new LocalMeshRefiner.Options
             {
                 TargetEdgeLength = targetEdgeLength,
-                // Split-only, everywhere: regularizing flips destroy intentional graded flow (the
-                // Remesh "iteration 16" lesson in docs/comment.md), so neither the session nor the
+                // Split-only, everywhere: regularizing flips destroy intentional graded flow (as the
+                // old Remesh showed on curved batters), so neither the session nor the
                 // build stage runs them — subdivision alone keeps the surface and topology honest.
                 DoFlips = false,
                 RegionFilter = (x, y) =>

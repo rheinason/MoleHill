@@ -2,8 +2,7 @@
 
 Spec-driven Grasshopper components: a component is declared as data + a Core-call body, and a single
 generic base turns it into a working `GH_Component`. This dedupes the param-registration boilerplate and
-the mesh/curve conversion plumbing the hand-written components each used to copy. See
-`docs/gh-parity-design.md` (approach **B2**).
+the mesh/curve conversion plumbing the hand-written components each used to copy.
 
 ## Pieces
 - `GhComponentSpec.cs` — `GhPort` (declarative input/output port: type, access, optional, default) +

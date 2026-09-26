@@ -677,7 +677,7 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   terrain's own outline, so it only ever adds detail inside it — yet it used to re-triangulate the whole
   surface from the mesh's vertices. That re-Delaunayed every edge an upstream stage chose (grading,
   remesh, walls) and merged vertices by XY alone, so a steep face narrower than `InputMergeTolerance`
-  collapsed (M15 in `docs/code-review-findings-2026-09-25.md`; reproduced live: a 5 mm, 5 m cliff lost
+  collapsed (review finding M15, 2026-09-25; reproduced live: a 5 mm, 5 m cliff lost
   all 7 top vertices). `TerrainDetailInserter` now splits only the faces the new data touches, assigns
   data elevations (new data wins, except on walls: a vertex on an existing hard constraint or on a face
   ≥ 70° keeps its Z), and runs Lawson flips from the new vertices only, so they gain the neighbourhood an
@@ -943,14 +943,14 @@ The table is per-user (`%APPDATA%\MoleHill\field-codes.json`) with **no document
 unlike layer templates: a template is re-read on every build so a document must carry one, whereas a
 code table is consumed once at import and leaves ordinary curves behind.
 
-See `docs/survey-field-codes-plan.md` and `src/MoleHill.Core/Interop/README.md`.
+See `src/MoleHill.Core/Interop/README.md`.
 
 ## Rhino: 2D drawing output (sheet readiness)
 
 Rhino owns styling and sheets. MoleHill declares where its output goes and how each destination starts
 out — see **Output layer roles** below — and then gets out of the way: layouts, details, per-detail layer
 overrides (`Layer.SetPerViewportColor/PlotColor/PlotWeight`), annotation scaling, and printing are all
-Rhino's, and a layer belongs to the user once it exists. There is no page/sheet generator. See `docs/2d-drawing-output-exploration.md` for the survey behind this.
+Rhino's, and a layer belongs to the user once it exists. There is no page/sheet generator.
 
 - **Annotation styles.** `AnnotationStyleService` is the single boundary to Rhino's dimension-style table.
   The style generated text binds to comes from its role's `AnnotationStyleName` (blank =
@@ -1143,12 +1143,18 @@ map remains the description of what the code does today.
   deferred, and the cancel-on-every-request policy that blocks continuous input. Its
   **Measured baseline — 2026-09-19** section carries the edit-to-visible findings below into that
   plan's steps, including the grading edge-index cost as a Step 1 item.
-- `docs/performance-optimization-routes-2026-07-30.md` — six measured optimization routes, implemented
-  route by route; the source of the 1.2M-point TIN and Grade Path timings.
-- `docs/large-terrain-performance-review-2026-07-05.md` — the H/M/L job list, all closed; records why
-  dirty-region crop/stitch was built (`DirtyRegionPlanner`) and then not integrated.
 - `docs/terrain-scalability-review-2026-09-09.md` — C01/O01–O16 scalability items and their open
   acceptance gaps.
+- `docs/codebase-review-and-implementation-plan-2026-09-19.md` — reliability and architecture items
+  R01–R13; `docs/cleanup-plan.md` tracks the open maintenance work and the doc lifecycle rule.
+- `docs/build-result-ownership.md` — who owns and may dispose each build mesh (R05 characterization).
+- `docs/grasshopper-redesign-plan.md` and `docs/gh-modifier-parity-matrix.md` — B7, the Grasshopper
+  terrain workflow, with its remaining acceptance gates.
+- `docs/wall-pinch-investigation.md` — terrain pinches at retaining walls: what is fixed, the rejected
+  alternatives, and the still-unreproduced live tear.
+- `docs/radial-point-reduction-plan.md` — unscheduled proposal for opt-in point reduction away from
+  the area of interest.
+- `docs/backlog.md` — agreed but unscheduled feature work.
 
 ## Rhino: edit-to-visible latency
 

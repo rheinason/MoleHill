@@ -11,8 +11,9 @@ Automated tests live in `tests/MoleHill.Core.Tests/` and `tests/MoleHill.Grassho
 
 **Start here for navigation:** `docs/architecture.md` (the high-level map — pipeline, grading tier
 cascade, preview vs bake), `docs/file-index.md` (path → one-line summary for every source file;
-regenerate with `generate-file-index.ps1`), and the `README.md` in each source folder. Completed plan
-docs are archived under `docs/archive/`.
+regenerate with `generate-file-index.ps1`), and the `README.md` in each source folder. `docs/` holds
+only reference docs, the backlog, and plans for work still open. When a plan ships, fold what a reader
+needs into `architecture.md` or the folder README and delete the plan; git history keeps it.
 
 **Keep the docs current:** any architectural change (new/removed/renamed source file, new component or
 service, changed pipeline/data flow, or a shifted convention) must update the docs in the same change —

@@ -73,8 +73,8 @@ internal sealed class TerrainRuntimeCache
             // Share the persistent TinEngine so incremental edits (single spot-point add/remove)
             // stay reachable from Rhino background builds instead of forcing a full CDT every time
             // inputs change. TinEngine.Build is internally serialized by its own gate, so concurrent
-            // old/new workers queue rather than race. Safe now that H1 (Vertex.ID re-keying after
-            // incremental edits) is fixed — see docs/release-review-2026-07-04.md P1.
+            // old/new workers queue rather than race. Safe because Vertex.ID is re-keyed to
+            // the current input index after every incremental edit.
             TinEngine = TinEngine,
             LastPreviewDuration = LastPreviewDuration,
             LastFinalDuration = LastFinalDuration,

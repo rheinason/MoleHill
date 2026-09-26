@@ -57,8 +57,8 @@ public sealed class TinResult
 
     /// <summary>
     /// Create a new TinResult with updated Z values but same topology. Maps each output vertex back
-    /// to its input Z via <see cref="SourceIds"/> — never by output position (see H1 in
-    /// docs/release-review-2026-07-04.md for why the old positional mapping was unsafe).
+    /// to its input Z via <see cref="SourceIds"/> — never by output position (an incremental edit
+    /// renumbers output vertices, so a positional mapping assigns elevations to the wrong points).
     /// </summary>
     public TinResult WithUpdatedZ(double[] zValues)
     {

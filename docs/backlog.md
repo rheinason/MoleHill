@@ -72,7 +72,7 @@ Kept here only for the four places these entries were wrong, since each cost a r
   graded pad, not a rarity. Cycles are the same phenomenon as flat regions — a connected set of faces
   with no outlet among themselves — and go through the same spill routine.
 
-See `docs/drainage-analysis-plan.md` for the full record, `docs/architecture.md` → "Analysis vs
+See `docs/architecture.md` → "Analysis vs
 annotation", and `src/MoleHill.Core/Analysis/README.md`.
 
 Not done, and deliberately: nested or merged ponds (one spill level per depression), pond volume at a
@@ -151,8 +151,7 @@ layout job, not the terrain's.
 
 **Delivered 2026-09-14.** The Rhino modifier now provides constraint-preserving maximum-deviation,
 target-count and retain-percentage modes, backed by exact surface-overlay verification and honest
-fallback diagnostics. Automated, scale and disposable-Rhino validation are recorded in the
-[implementation plan](surface-simplification-plan.md); only larger release-characterization timings
+fallback diagnostics. Automated, scale and disposable-Rhino validation were completed; only larger release-characterization timings
 remain open. The existing point reducer remains a separate Toposolid export implementation.
 
 **Reference:** Civil 3D's surface simplification (point and edge decimation, to a percentage or to a
@@ -211,8 +210,7 @@ To return, users bake the successful inputs and manually recreate the native mod
 and use **Exact TIN Mesh** as a geometry checkpoint. The latter does not restore modifier history or
 semantic constraint/zone data. Neither stack-to-graph nor graph-to-stack conversion is in scope.
 
-The earlier [parity design](gh-parity-design.md) records completed component infrastructure; this plan
-supersedes its future product direction. Begin with a complete reference → Grade Pad → volume comparison
+Begin with a complete reference → Grade Pad → volume comparison
 → chosen-input workflow, then broaden coverage. B10's swale mode provides a subsequent exploration case.
 
 B7 is an umbrella; each sub-item closes on its own evidence (see the plan's delivery sequence and
@@ -356,9 +354,7 @@ turn coded runs into breaklines, which is the step that otherwise means re-drawi
 linework by hand.
 
 **Shipped 2026-09-17** — `mhImportSurveyPoints` reads a coded survey file into figures on named layers,
-`mhEditFieldCodes` edits the per-user code table, and the two share one Document-toolbar button. See
-[the survey field codes plan](survey-field-codes-plan.md) for the design, the delivery sequence and the
-live-verification record. Still open: the two Eto dialogs and the toolbar button are unverified in a
+`mhEditFieldCodes` edits the per-user code table, and the two share one Document-toolbar button. Still open: the two Eto dialogs and the toolbar button are unverified in a
 real installed build, because a worktree copy of the plugin shares its GUID with the installed one and
 cannot be loaded alongside it.
 

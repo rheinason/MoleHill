@@ -41,8 +41,7 @@ Pipeline (`QuadRemesher.Remesh` is the entry point; returns the field too for th
 
 The parametrization pipeline that preceded this (GuidedParametrizer / QuadExtractor /
 QuadRetopoCleanup / WallQuadStripBuilder) was removed: a non-seamless parametrization structurally
-produced lattice holes at singularities and boundaries, and the weld-only wall join could gap — see
-`docs/comment.md` iteration 18.
+produced lattice holes at singularities and boundaries, and the weld-only wall join could gap.
 
 **Roadmap**: Blossom perfect matching behind the same pair scoring (the current matcher is greedy
 best-first, so parity/ordering leftovers remain), optional SubD output. The field-alignment flip

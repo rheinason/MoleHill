@@ -12,7 +12,7 @@ Pure, host-independent exchange algorithms and formats.
   line that parses cleanly and that nothing downstream can detect. Unit scaling and the per-delivery
   vertical-datum offset are applied here; the description is left whole for the field-code layer to
   split. Coordinates parse invariant-culture **without thousands separators**, so a comma-decimal
-  `512345,67` fails the row with a diagnostic instead of reading as `51234567`. See `docs/survey-field-codes-plan.md`.
+  `512345,67` fails the row with a diagnostic instead of reading as `51234567`.
 - `FieldCodeRole.cs`, `FieldCodeRule.cs`, `FieldCodeTable.cs`, `ParsedFieldCode.cs`, `FieldCodeParser.cs`,
   `SurveyFigure.cs`, `SurveyFigureBuilder.cs` and `SurveyImportResult.cs` turn those descriptions into
   linework. `FieldCodeParser` splits a description into code, figure number and markers; marker spellings

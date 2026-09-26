@@ -118,8 +118,6 @@ The [GH project README](../src/MoleHill.Grasshopper/README.md) and
   whether each downstream operation needs their distinction before promising constraint parity.
 - `Prepare Toposolid` and optional Python adapters exist. Treat these as a foundation to verify and
   improve; source code and documentation alone do not establish an end-to-end Revit workflow.
-- The [previous parity design](gh-parity-design.md) records completed component-plumbing work. Its
-  completed B2 phase is unrelated to backlog B2 (ponding), and does not complete this redesign.
 
 ### Live verification — 2026-09-16
 
