@@ -353,6 +353,16 @@ try {
             if ($result.PSObject.Properties['Comparison'] -and $result.Comparison) {
                 throw 'This result was compared against a baseline, so it is not a clean baseline itself. Record from a run made without one (./validate.ps1 hosted-perf -UpdateBaseline, or a -HostedResult whose request had no BaselinePath).'
             }
+            # A partial run must not replace a full baseline: the scenarios it skipped would vanish from
+            # the baseline, read as "New" on every later run, and a "New" metric never fails the lane.
+            if (Test-Path $baselinePath) {
+                $existing = Get-Content -Raw -Path $baselinePath | ConvertFrom-Json
+                $dropped = @($existing.Scenarios | Where-Object { @($result.Scenarios) -notcontains $_ })
+                if ($dropped.Count -gt 0) {
+                    throw "This result ran only $(@($result.Scenarios) -join ', '). Recording it would drop $($dropped -join ', ') from the baseline, and their regressions would then go unreported. Re-baseline from a run of every scenario (omit -Scenario)."
+                }
+            }
+
             # The request carried no baseline, so the result has no comparison: copy it byte for byte
             # rather than round-tripping it through ConvertTo-Json.
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $baselinePath) | Out-Null

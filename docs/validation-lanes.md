@@ -102,7 +102,9 @@ process (see "Known broken" below). So this lane runs them **inside** a disposab
 not count as a pass. Re-baseline, and commit the baseline with the change it measures, when a speed-up
 lands (lock the gain in) or when a slowdown is deliberate (say why in the commit). The per-stage
 detail lines (output counts such as ponds found) are saved beside the metrics and never compared. They
-tell you whether a time changed because the work changed.
+tell you whether a time changed because the work changed. A baseline is only ever recorded from a
+run of every scenario: `-UpdateBaseline` refuses a result that would drop a scenario, because a dropped
+scenario's metrics read as New afterwards and New never fails.
 
 **The lane also checks the terrain did not change.** Each build phase records an `output mesh` detail: the
 counts plus a hash of the finished mesh's own vertex and face lists, read from Rhino rather than from
