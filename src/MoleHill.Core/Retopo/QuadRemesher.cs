@@ -108,7 +108,7 @@ public static class QuadRemesher
 
         // Field lookups for the pairer run against the ORIGINAL mesh (the field is per-input-vertex).
         var sampler = new IsotropicRemesher.FieldSampler(
-            vertices, faces, field.Theta,
+            faces, field.Theta,
             new MoleHill.Core.Grading.TerrainFaceGrid(vertices, vertices.Length / 3, faces, faces.Length / 3, h * 0.5));
 
         TriQuadPairer.Result paired = TriQuadPairer.Pair(

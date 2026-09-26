@@ -597,26 +597,6 @@ internal static class TriangleBoundaryCuller
         return ComputeAutoThreshold(vertices, topology);
     }
 
-    private static Dictionary<long, int> BuildActiveEdgeCounts(int[] faces, int faceCount, bool[] active)
-    {
-        var edgeCounts = new Dictionary<long, int>(Math.Max(faceCount * 2, 8), IndexedMeshTools.EdgeKeyComparer.Instance);
-        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
-        {
-            if (!active[faceIndex])
-                continue;
-
-            int a = faces[faceIndex * 3];
-            int b = faces[faceIndex * 3 + 1];
-            int c = faces[faceIndex * 3 + 2];
-
-            CountEdge(edgeCounts, a, b);
-            CountEdge(edgeCounts, b, c);
-            CountEdge(edgeCounts, c, a);
-        }
-
-        return edgeCounts;
-    }
-
     private static bool HasNakedEdge(int i0, int i1, int i2, Dictionary<long, int> edgeCounts)
     {
         return edgeCounts.GetValueOrDefault(IndexedMeshTools.GetEdgeKey(i0, i1), 0) == 1 ||
@@ -629,12 +609,6 @@ internal static class TriangleBoundaryCuller
         if (!edgeToFaces.TryGetValue(key, out var pair))
             return -1;
         return pair.F0 == excludeFace ? pair.F1 : pair.F0;
-    }
-
-    private static void CountEdge(Dictionary<long, int> edgeCounts, int a, int b)
-    {
-        long edgeKey = IndexedMeshTools.GetEdgeKey(a, b);
-        edgeCounts[edgeKey] = edgeCounts.GetValueOrDefault(edgeKey, 0) + 1;
     }
 
     private static bool TriangleCrossesConstraint(double[] vertices, int i0, int i1, int i2, ConstraintSpatialIndex spatialIndex)

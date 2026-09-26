@@ -1,7 +1,7 @@
+using MoleHill.Core.Engine;
 using TriangleNet;
 using TriangleNet.Geometry;
 using TriangleNet.Meshing;
-using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
@@ -10,17 +10,6 @@ public static partial class PadGrader
     internal static bool TryBuildBoundaryLoop(double[] vertices, int[] faces, int faceCount, out double[] boundaryXy, out int boundaryVertexCount)
     {
         return MeshBoundaryLoopBuilder.TryBuildBoundaryLoop(vertices, faces, faceCount, out boundaryXy, out boundaryVertexCount);
-    }
-
-    private static void AddBoundaryNeighbor(Dictionary<int, List<int>> adjacency, int from, int to)
-    {
-        if (!adjacency.TryGetValue(from, out var list))
-        {
-            list = new List<int>(2);
-            adjacency[from] = list;
-        }
-
-        list.Add(to);
     }
 
     internal static bool AllPointsInsideOrOnBoundary(double[] xy, int vertexCount, double[] boundaryLoop, int boundaryVertexCount, double tolerance)
@@ -95,126 +84,5 @@ public static partial class PadGrader
         }
 
         return minDist;
-    }
-
-    private static GradingResult BuildResult(
-        double[] originalVertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
-        double[] gradedVertices,
-        IReadOnlyList<OutputPolyline>? outputPolylines = null,
-        IReadOnlyList<string>? diagnostics = null,
-        IReadOnlyList<GradingPatch>? patchSummaries = null)
-    {
-        return GradingResultBuilder.BuildFromXyz(
-            originalVertices,
-            gradedVertices,
-            vertexCount,
-            faces,
-            faceCount,
-            outputPolylines,
-            diagnostics,
-            patchSummaries,
-            BuildStructuredPadDiagnostics(diagnostics));
-    }
-
-    private static IReadOnlyList<GradingDiagnostic>? BuildStructuredPadDiagnostics(IReadOnlyList<string>? diagnostics)
-    {
-        if (diagnostics == null || diagnostics.Count == 0)
-            return null;
-
-        var structured = new GradingDiagnostic[diagnostics.Count];
-        for (int i = 0; i < diagnostics.Count; i++)
-        {
-            string message = diagnostics[i];
-            structured[i] = new GradingDiagnostic(
-                ClassifyPadDiagnosticSeverity(message),
-                ClassifyPadDiagnosticCode(message),
-                message,
-                Operation: "grade_pad",
-                TargetIndex: TryExtractPadDiagnosticIndex(message, out int padIndex) ? padIndex : null);
-        }
-
-        return structured;
-    }
-
-    private static GradingDiagnosticSeverity ClassifyPadDiagnosticSeverity(string message)
-    {
-        if (message.Contains("topology summary", StringComparison.OrdinalIgnoreCase))
-        {
-            if (message.Contains("topology healthy=False", StringComparison.OrdinalIgnoreCase))
-                return GradingDiagnosticSeverity.Warning;
-            if (message.Contains("topology healthy=True", StringComparison.OrdinalIgnoreCase))
-                return GradingDiagnosticSeverity.Information;
-        }
-
-        return message.Contains("warning", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("rejected", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("skipped", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("could not", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("collapsed", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("clipped", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("no measurable", StringComparison.OrdinalIgnoreCase)
-            ? GradingDiagnosticSeverity.Warning
-            : GradingDiagnosticSeverity.Information;
-    }
-
-    private static string ClassifyPadDiagnosticCode(string message)
-    {
-        if (message.Contains("batter slope warning", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.slope.deviation";
-        if (message.Contains("shoulder quality warning", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.shoulder.quality";
-        if (message.Contains("batter slope check", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.slope.check";
-        if (message.Contains("topology summary", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.topology.summary";
-        if (message.Contains("seam vertices", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch.seam_vertices";
-        if (message.Contains("seam deviation", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch.seam_deviation";
-        if (message.Contains("topology band width", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch.band_width";
-        if (message.Contains("patch boundary edges near seam", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch.patch_boundary_edges";
-        if (message.Contains("outside-mesh naked edges near seam", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch.outside_boundary_edges";
-        if (message.Contains("seam segment matches", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch.segment_matches";
-        if (message.Contains("seam-near boundary segments", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch.near_boundary_segments";
-        if (message.Contains("protected apron", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.apron.constraints";
-        if (message.Contains("interacting pad ownership", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.ownership.interacting_pads";
-        if (message.Contains("terrain-side stitch loop", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch.terrain_side_loop";
-        if (message.Contains("daylight seam reached", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.daylight.clipped_to_terrain";
-        if (message.Contains("split local patch", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.patch.split_local";
-        if (message.Contains("corner constraints", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.patch.corner_constraints";
-        if (message.Contains("stitch", StringComparison.OrdinalIgnoreCase) ||
-            message.Contains("seam", StringComparison.OrdinalIgnoreCase))
-            return "grade_pad.stitch";
-
-        return "grade_pad.diagnostic";
-    }
-
-    private static bool TryExtractPadDiagnosticIndex(string message, out int padIndex)
-    {
-        padIndex = 0;
-        const string prefix = "Grade Pad[";
-        int start = message.IndexOf(prefix, StringComparison.Ordinal);
-        if (start < 0)
-            return false;
-
-        start += prefix.Length;
-        int end = message.IndexOf(']', start);
-        return end > start &&
-               int.TryParse(message.AsSpan(start, end - start), out padIndex);
     }
 }

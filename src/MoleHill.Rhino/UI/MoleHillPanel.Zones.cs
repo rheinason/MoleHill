@@ -11,10 +11,10 @@ using MoleHill.Rhino.Services;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.UI;
-using RhinoObjectType = Rhino.DocObjects.ObjectType;
-using RhinoPoint3d = Rhino.Geometry.Point3d;
 using RhinoGetPoint = Rhino.Input.Custom.GetPoint;
 using RhinoGetResult = Rhino.Input.GetResult;
+using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using RhinoPoint3d = Rhino.Geometry.Point3d;
 
 namespace MoleHill.Rhino.UI;
 
@@ -499,108 +499,6 @@ public sealed partial class MoleHillPanel
         };
         PositionLayerPickerPopup(popup, anchor, new Size(200, 130));
         popup.Show();
-    }
-
-    private Control CreateZoneLayerEditor(TerrainDefinition terrain, CollageZoneDefinition zone)
-    {
-        string? layerPath = zone.Boundaries.LayerPaths.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path));
-        string bakedLayer = TerrainBuildService.GetBakedLayerPath(layerPath) ?? "None";
-
-        var assignedLayerLabel = new Label
-        {
-            Text = string.IsNullOrWhiteSpace(layerPath) ? "No layer" : EllipsizeText(GetLeafLayerName(layerPath), 18),
-            VerticalAlignment = VerticalAlignment.Center,
-            Wrap = WrapMode.None
-        };
-        ApplyHelp(assignedLayerLabel, layerPath ?? "No input layer assigned.");
-        var useCurrentButton = MakeInlineButton("Current", (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc == null)
-                return;
-
-            var selectedLayer = _controller.GetSelectedLayerPaths(doc).FirstOrDefault();
-            if (string.IsNullOrWhiteSpace(selectedLayer))
-                return;
-
-            MutateZone(terrain.TerrainId, zone.ZoneId, item =>
-            {
-                item.Boundaries.ObjectIds.Clear();
-                item.Boundaries.ReplaceLayers(new[] { selectedLayer });
-                item.Name = GetLeafLayerName(selectedLayer);
-            });
-        }, "Assign the first selected Rhino layer to this zone.");
-
-        var browseButton = MakeLayerPickerButton(path =>
-        {
-            if (path == null) return;
-            MutateZone(terrain.TerrainId, zone.ZoneId, item =>
-            {
-                item.Boundaries.ObjectIds.Clear();
-                item.Boundaries.ReplaceLayers(new[] { path });
-                item.Name = GetLeafLayerName(path);
-            });
-        }, "Browse and pick a layer for this zone.");
-
-        var clearButton = MakeInlineButton("Clear", (_, _) =>
-        {
-            MutateZone(terrain.TerrainId, zone.ZoneId, item =>
-            {
-                item.Boundaries.ObjectIds.Clear();
-                item.Boundaries.ReplaceLayers(Array.Empty<string>());
-            });
-        }, "Remove the assigned input layer.");
-        var bakedLayerLabel = new Label
-        {
-            Text = EllipsizeText($"Bake -> {bakedLayer}", 22),
-            VerticalAlignment = VerticalAlignment.Center,
-            TextColor = UiTheme.MutedText,
-            Wrap = WrapMode.None,
-            ToolTip = $"Bake -> {bakedLayer}"
-        };
-        ApplyHelp(bakedLayerLabel, "Generated zone meshes preview using the source layer color and bake under this output layer.");
-        var buttonRow = CreateResponsiveControlGroup(4, useCurrentButton, browseButton, clearButton);
-
-        var editor = new StackLayout
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 3,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Padding = new Padding(0, 1),
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(assignedLayerLabel, expand: true),
-                buttonRow,
-                bakedLayerLabel
-            }
-        };
-        return new PropertyRow(
-            CreateHelpLabel("Layer", "Zones are driven by Rhino layers. The baked output layer is generated automatically.", 0),
-            editor,
-            expandWidget: true);
-    }
-
-    private void MoveZone(Guid terrainId, Guid zoneId, int direction)
-    {
-        var doc = RhinoDoc.ActiveDoc;
-        if (doc == null)
-            return;
-
-        _controller.MutateTerrain(doc, terrainId, terrain =>
-        {
-            int index = terrain.Zones.FindIndex(zone => zone.ZoneId == zoneId);
-            if (index < 0)
-                return;
-
-            int targetIndex = Math.Clamp(index + direction, 0, terrain.Zones.Count - 1);
-            if (targetIndex == index)
-                return;
-
-            var zone = terrain.Zones[index];
-            terrain.Zones.RemoveAt(index);
-            terrain.Zones.Insert(targetIndex, zone);
-        });
     }
 
     private void RemoveZone(Guid terrainId, Guid zoneId)

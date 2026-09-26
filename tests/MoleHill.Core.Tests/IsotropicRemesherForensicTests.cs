@@ -125,7 +125,7 @@ public class IsotropicRemesherForensicTests
             var featureEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
             for (int i = 0; i < remesh.FeatureEdges.Length; i += 2)
                 featureEdges.Add(IndexedMeshTools.GetEdgeKey(remesh.FeatureEdges[i], remesh.FeatureEdges[i + 1]));
-            var sampler = new IsotropicRemesher.FieldSampler(vertices, faces, field.Theta,
+            var sampler = new IsotropicRemesher.FieldSampler(faces, field.Theta,
                 new MoleHill.Core.Grading.TerrainFaceGrid(vertices, vertices.Length / 3, faces, faces.Length / 3, 1.5));
 
             var paired = MoleHill.Core.Retopo.TriQuadPairer.Pair(remesh.Vertices, remesh.Faces, featureEdges, remesh.FrozenFaces,

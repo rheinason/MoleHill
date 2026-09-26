@@ -229,15 +229,4 @@ public static partial class PathGrader
 
         return MakeGeometryConstraintPath(simplifiedXy, simplifiedZ, simplifiedCount);
     }
-
-    private static bool IsInsideOrOnBoundary(
-        double x,
-        double y,
-        bool hasBoundaryLoop,
-        double[] boundaryLoop,
-        int boundaryVertexCount,
-        double tolerance)
-    {
-        return BoundaryClipper.IsInsideOrOnBoundary(x, y, hasBoundaryLoop, boundaryLoop, boundaryVertexCount, tolerance);
-    }
 }

@@ -71,44 +71,6 @@ public static partial class PadGrader
             useNearestShoulderCandidate: useNearestShoulderCandidate);
         return gradedVertices;
     }
-    private static double[] ApplyGradingZWithDefaultCornerFans(
-        double[] topologyVertices,
-        int vertexCount,
-        int[] faces,
-        int faceCount,
-        PadBoundary[] pads,
-        LockCurve[]? lockCurves,
-        int defaultCornerFanSegments)
-    {
-        lockCurves ??= Array.Empty<LockCurve>();
-        ValidateApplyGradingZInputs(topologyVertices, vertexCount, faces, faceCount, pads, lockCurves);
-
-        if (pads.Length == 0)
-            return (double[])topologyVertices.Clone();
-
-        pads = OrderPadsForOwnership(pads);
-        PreparedBarriers barriers = lockCurves.Length > 0
-            ? GradingBarriers.BuildFromLockCurves(lockCurves)
-            : PreparedBarriers.Empty;
-        bool hasBoundaryLoop = TryBuildBoundaryLoop(topologyVertices, faces, faceCount, out double[] boundaryLoop, out int boundaryVertexCount);
-        var terrainFaceGrid = new TerrainFaceGrid(topologyVertices, vertexCount, faces, faceCount);
-        var gradedVertices = (double[])topologyVertices.Clone();
-        ApplyGradingToVerticesWithSections(
-            gradedVertices,
-            topologyVertices,
-            vertexCount,
-            pads,
-            barriers,
-            terrainFaceGrid,
-            hasBoundaryLoop,
-            boundaryLoop,
-            boundaryVertexCount,
-            tolerance: 1e-3,
-            keepShoulderOnBatterPlane: false,
-            defaultCornerFanSegments,
-            useNearestShoulderCandidate: true);
-        return gradedVertices;
-    }
 
     public static ConstraintSet CreateConstraints(
         double[] vertices,

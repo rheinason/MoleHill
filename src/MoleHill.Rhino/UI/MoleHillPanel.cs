@@ -11,10 +11,10 @@ using MoleHill.Rhino.Services;
 using MoleHill.Shared;
 using Rhino;
 using Rhino.UI;
-using RhinoObjectType = Rhino.DocObjects.ObjectType;
-using RhinoPoint3d = Rhino.Geometry.Point3d;
 using RhinoGetPoint = Rhino.Input.Custom.GetPoint;
 using RhinoGetResult = Rhino.Input.GetResult;
+using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using RhinoPoint3d = Rhino.Geometry.Point3d;
 
 namespace MoleHill.Rhino.UI;
 
@@ -94,7 +94,6 @@ public sealed partial class MoleHillPanel : Panel
     private readonly HashSet<Guid> _collapsedAnalyses = new();
     private readonly HashSet<Guid> _expandedColorRamps = new();
     private readonly Dictionary<Guid, int> _selectedColorRampStops = new();
-    private readonly HashSet<Guid> _expandedGradePathAdvancedSettings = new();
     private readonly Dictionary<Guid, Panel>    _modifierCardMap      = new();
     private readonly Dictionary<Guid, Panel>    _modifierSepMap       = new();
     private readonly Dictionary<Guid, Panel>    _modifierStripMap     = new();
@@ -113,7 +112,6 @@ public sealed partial class MoleHillPanel : Panel
     private Guid? _dragOverAnalysisId;
     private Guid? _dragOverAnnotationId;
     private Guid? _dragOverZoneId;
-    private const int HeaderActionHeight = UiMetrics.CompactControlHeight;
     private const int LayerPickerMinHeight = 160;
     private const int LayerPickerMargin = 6;
     private const int LayerPickerRowHeight = 28;
@@ -1922,11 +1920,6 @@ public sealed partial class MoleHillPanel : Panel
         UiControls.StyleInput(textArea);
     }
 
-    private static Button MakeButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null)
-    {
-        return UiControls.Button(text, onClick, toolTip);
-    }
-
     private static Button MakeToolbarButton(string text, EventHandler<EventArgs> onClick, string? toolTip = null)
     {
         return UiControls.Button(text, onClick, toolTip, UiButtonRole.Toolbar);
@@ -1975,25 +1968,6 @@ public sealed partial class MoleHillPanel : Panel
         };
     }
 
-    private static Control CreateAnalysisGroup(string title, IEnumerable<(string Label, string Value)> rows)
-    {
-        var layout = new DynamicLayout { DefaultSpacing = new Size(6, 4), Padding = new Padding(6, 4) };
-        foreach (var (label, value) in rows)
-            layout.AddSeparateRow(new Label { Text = label, Width = UiMetrics.ShortLabel }, new Label { Text = value }, null);
-
-        return new StackLayout
-        {
-            Orientation = Orientation.Vertical,
-            Spacing = UiMetrics.SpaceSmall,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(CreateSectionRule(title), HorizontalAlignment.Stretch),
-                new StackLayoutItem(layout, HorizontalAlignment.Stretch)
-            }
-        };
-    }
-
     private static string FormatVolume(double value)
     {
         string prefix = value < 0 ? "-" : string.Empty;
@@ -2032,35 +2006,6 @@ public sealed partial class MoleHillPanel : Panel
     private void ApplyHelp(Control control, string help)
     {
         control.ToolTip = help;
-    }
-
-    private void MoveModifier(Guid terrainId, Guid modifierId, int direction)
-    {
-        var doc = RhinoDoc.ActiveDoc;
-        if (doc != null)
-            _controller.MoveModifier(doc, terrainId, modifierId, direction);
-    }
-
-    private void MoveAnalysis(Guid terrainId, Guid analysisId, int direction)
-    {
-        var doc = RhinoDoc.ActiveDoc;
-        if (doc == null)
-            return;
-
-        _controller.MutateTerrain(doc, terrainId, terrain =>
-        {
-            int index = terrain.Analyses.FindIndex(item => item.Id == analysisId);
-            if (index < 0)
-                return;
-
-            int targetIndex = Math.Clamp(index + direction, 0, terrain.Analyses.Count - 1);
-            if (targetIndex == index)
-                return;
-
-            var analysis = terrain.Analyses[index];
-            terrain.Analyses.RemoveAt(index);
-            terrain.Analyses.Insert(targetIndex, analysis);
-        }, scheduleRebuild: false);
     }
 
     private void RemoveAnalysis(Guid terrainId, Guid analysisId)
@@ -2389,8 +2334,6 @@ public sealed partial class MoleHillPanel : Panel
     private static string GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit unit) => AnalysisFormatting.GetSlopeUnitKey(unit);
 
     private static SlopeAnalyzer.SlopeUnit ParseSlopeUnit(string key) => AnalysisFormatting.ParseSlopeUnit(key);
-
-    private static string GetSlopeUnitSuffixLabel(SlopeAnalyzer.SlopeUnit unit) => AnalysisFormatting.GetSlopeUnitSuffixLabel(unit);
 
     private static string FormatSlopeSummaryValue(double percentValue, SlopeAnalyzer.SlopeUnit unit) =>
         AnalysisFormatting.FormatSlopeSummaryValue(percentValue, unit);
@@ -2863,74 +2806,6 @@ public sealed partial class MoleHillPanel : Panel
                     g.FillEllipse(dot, x - 1.5f, y - 1.5f, 3f, 3f);
         };
         return handle;
-    }
-
-    private void ShowTerrainPickerMenu(Button anchor)
-    {
-        var doc = RhinoDoc.ActiveDoc;
-        if (doc == null)
-            return;
-
-        var terrains = _controller.GetTerrains(doc).ToList();
-        bool dataUnreadable = _controller.IsTerrainDataUnreadable(doc);
-        if (terrains.Count == 0 && !dataUnreadable)
-            return;
-
-        var menu = new ContextMenu();
-        foreach (var terrain in terrains)
-        {
-            var item = new ButtonMenuItem { Text = terrain.Name };
-            var capturedId = terrain.TerrainId;
-            item.Click += (_, _) =>
-            {
-                _controller.SetSelectedTerrain(doc, capturedId);
-                RefreshUi();
-            };
-            menu.Items.Add(item);
-        }
-        if (doc != null && _controller.GetSelectedTerrain(doc) != null)
-        {
-            menu.Items.AddSeparator();
-            var bakeItem = new ButtonMenuItem { Text = "Bake to document" };
-            bakeItem.Click += OnBakeTerrain;
-            menu.Items.Add(bakeItem);
-            var detachItem = new ButtonMenuItem { Text = "Detach from sources" };
-            detachItem.Click += OnConvertTerrain;
-            menu.Items.Add(detachItem);
-        }
-        if (dataUnreadable)
-        {
-            RhinoDoc capturedDoc = doc!;
-            menu.Items.AddSeparator();
-            var resetItem = new ButtonMenuItem { Text = "Reset terrain data (unreadable)" };
-            resetItem.Click += (_, _) =>
-            {
-                _controller.ResetTerrainDataAfterFailedLoad(capturedDoc);
-                RefreshUi();
-            };
-            menu.Items.Add(resetItem);
-        }
-        menu.Show(anchor);
-    }
-
-    private void ShowSingleLayerPickerPopover(Button anchor, Action<string?> onPick)
-    {
-        ShowLayerPickerPopover(
-            anchor,
-            Array.Empty<string>(),
-            path => onPick(path),
-            onRemoveLayer: null,
-            onClear: () => onPick(null),
-            preferredSize: new Size(320, 360),
-            clearToolTip: "Clear the explicit layer assignment.");
-    }
-
-    private Button MakeLayerPickerButton(Action<string?> onPick, string toolTip = "Browse layers")
-    {
-        Button? btn = null;
-        btn = MakeInlineButton("Pick", (_, _) => ShowSingleLayerPickerPopover(btn!, onPick), toolTip);
-        btn.ToolTip = toolTip;
-        return btn;
     }
 
     private static int GetOpacityPercent(int argb)

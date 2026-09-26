@@ -537,13 +537,11 @@ public static class LocalMeshRefiner
     {
         private readonly double[] _vertices;
         private readonly Dictionary<long, List<int>> _cells = new(IndexedMeshTools.CellKeyComparer.Instance);
-        private readonly double _cellSize;
         private readonly double _inverseCellSize;
 
         public VertexHashGrid(double[] vertices, int vertexCount, double cellSize)
         {
             _vertices = vertices;
-            _cellSize = cellSize;
             _inverseCellSize = 1.0 / cellSize;
             for (int i = 0; i < vertexCount; i++)
             {

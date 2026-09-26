@@ -854,21 +854,6 @@ public static partial class PathGrader
         return maxZDiff / slopeRatio;
     }
 
-    private static double ComputePathShoulderDistance(double[] vertices, int vertexCount, PathDefinition path)
-    {
-        var xy = new double[vertexCount * 2];
-        var z = new double[vertexCount];
-        for (int i = 0; i < vertexCount; i++)
-        {
-            xy[i * 2] = vertices[i * 3];
-            xy[i * 2 + 1] = vertices[i * 3 + 1];
-            z[i] = vertices[i * 3 + 2];
-        }
-
-        var scratch = new SpatialHashGrid2D.QueryScratch(1);
-        return ComputePathShoulderDistance(xy, z, vertexCount, path, PreparedBarriers.Empty, scratch, new List<int>());
-    }
-
     private static double ComputePathShoulderDistance(double[] xy, double[] z, int vertexCount, PathDefinition path,
         PreparedBarriers barriers, SpatialHashGrid2D.QueryScratch barrierScratch, List<int> barrierCandidates)
     {

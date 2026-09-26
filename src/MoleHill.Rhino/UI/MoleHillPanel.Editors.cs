@@ -11,10 +11,10 @@ using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
 using Rhino;
 using Rhino.UI;
-using RhinoObjectType = Rhino.DocObjects.ObjectType;
-using RhinoPoint3d = Rhino.Geometry.Point3d;
 using RhinoGetPoint = Rhino.Input.Custom.GetPoint;
 using RhinoGetResult = Rhino.Input.GetResult;
+using RhinoObjectType = Rhino.DocObjects.ObjectType;
+using RhinoPoint3d = Rhino.Geometry.Point3d;
 
 namespace MoleHill.Rhino.UI;
 
@@ -824,40 +824,6 @@ public sealed partial class MoleHillPanel
         };
 
         return new PropertyRow(CreateHelpLabel(label, help, 0), dropDown, expandWidget: true);
-    }
-
-    private static List<(string Key, string Label)> GetValueFormatOptions(string selectedFormat) =>
-        AnalysisFormatting.GetValueFormatOptions(selectedFormat);
-
-    private Control CreateValueFormatDropDown(string selectedFormat, Action<string> onChanged, string help)
-    {
-        var options = GetValueFormatOptions(selectedFormat);
-        var dropDown = new DropDown
-        {
-            Width = UiMetrics.DropDown
-        };
-        foreach (var option in options)
-            dropDown.Items.Add(new ListItem { Text = option.Label });
-
-        int selectedIndex = options
-            .Select((option, index) => (option, index))
-            .FirstOrDefault(item => string.Equals(item.option.Key, selectedFormat, StringComparison.OrdinalIgnoreCase))
-            .index;
-        dropDown.SelectedIndex = selectedIndex >= 0 && selectedIndex < options.Count ? selectedIndex : 0;
-        ApplyHelp(dropDown, help);
-        dropDown.SelectedIndexChanged += (_, _) =>
-        {
-            if (_isRefreshing)
-                return;
-
-            int index = dropDown.SelectedIndex;
-            if (index < 0 || index >= options.Count)
-                return;
-
-            onChanged(options[index].Key);
-        };
-
-        return dropDown;
     }
 
     private Control CreateCommittedTextEditor(

@@ -193,12 +193,4 @@ public sealed class MeshAreasComponent : RegistryTerrainComponent
         remap.Set(vertexIndex, newIndex);
         return newIndex;
     }
-
-    private static int CountFaces(int[] faceAreaIndex, int faceCount, int areaIndex)
-    {
-        int count = 0;
-        for (int i = 0; i < faceCount; i++)
-            if (faceAreaIndex[i] == areaIndex) count++;
-        return count;
-    }
 }

@@ -455,6 +455,8 @@ public sealed class MoleHillTerrainSnapshotComponent : GH_Component
         return result;
     }
 
+#if WINDOWS
+    // Only the Windows context menu can ask for a refresh.
     private void RefreshFrozenTerrain()
     {
         ITerrainSnapshotBridge? bridge = FindBridge();
@@ -489,6 +491,7 @@ public sealed class MoleHillTerrainSnapshotComponent : GH_Component
         _frozenSourceDocumentSerial = sourceDoc.RuntimeSerialNumber;
         ExpireSolution(true);
     }
+#endif
 
     private RhinoDoc? FindFrozenSourceDocument(ITerrainSnapshotBridge bridge)
     {

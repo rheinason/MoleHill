@@ -146,7 +146,7 @@ public static class IsotropicRemesher
         // The sampler gets its own grid over the FULL input mesh: the projection grid excludes wall
         // faces and renumbers the survivors, so its face indices don't match the theta array's mesh.
         state.Field = options.FieldTheta != null && options.FieldTheta.Length == vertexCount
-            ? new FieldSampler(vertices, faces, options.FieldTheta,
+            ? new FieldSampler(faces, options.FieldTheta,
                 new TerrainFaceGrid(vertices, vertexCount, faces, faceCount, options.TargetEdgeLength * 0.5))
             : null;
 
@@ -266,15 +266,13 @@ public static class IsotropicRemesher
     /// </summary>
     internal sealed class FieldSampler
     {
-        private readonly double[] _vertices;
         private readonly int[] _faces;
         private readonly double[] _cos4;
         private readonly double[] _sin4;
         private readonly TerrainFaceGrid _grid;
 
-        public FieldSampler(double[] vertices, int[] faces, double[] theta, TerrainFaceGrid grid)
+        public FieldSampler(int[] faces, double[] theta, TerrainFaceGrid grid)
         {
-            _vertices = vertices;
             _faces = faces;
             _grid = grid;
             _cos4 = new double[theta.Length];

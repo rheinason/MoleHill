@@ -9,14 +9,6 @@ namespace MoleHill.Rhino.UI;
 // Status bar/log helpers: build messages, structured grading diagnostics, and copy-case actions.
 public sealed partial class MoleHillPanel
 {
-    private void RestoreStatusText()
-    {
-        var doc = RhinoDoc.ActiveDoc;
-        var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
-        var text = terrain?.LastBuildMessage ?? "Create a terrain to start.";
-        SetStatusText(text, terrain?.LastStructuredDiagnostics);
-    }
-
     private void SetStatusText(string text, IReadOnlyList<GradingDiagnostic>? structuredDiagnostics = null)
     {
         string statusText = FormatStatusText(text, structuredDiagnostics);

@@ -434,18 +434,6 @@ public static class SlopeAnalyzer
         };
     }
 
-    /// <summary>Map a slope value onto the palette gradient within the given range.</summary>
-    private static ColorStop SampleGradient(double slope, AnalysisRange range, IReadOnlyList<ColorStop> palette)
-    {
-        if (palette.Count == 0)
-            return new ColorStop(0.0, 0, 200, 0);
-
-        if (double.IsNaN(slope) || double.IsPositiveInfinity(slope))
-            return palette[^1];
-
-        return AnalysisColorMapper.SamplePalette(range.Normalize(slope), palette);
-    }
-
     private static IReadOnlyList<ColorStop> ResolvePalette(IReadOnlyList<ColorStop>? palette)
     {
         if (palette == null || palette.Count == 0)

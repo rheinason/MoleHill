@@ -160,20 +160,6 @@ internal static class IndexedMeshTools
         return flat;
     }
 
-    private static void CountEdge(Dictionary<long, int> edgeCounts, List<long> edgeOrder, int a, int b)
-    {
-        long edgeKey = GetEdgeKey(a, b);
-        if (edgeCounts.TryGetValue(edgeKey, out int count))
-        {
-            edgeCounts[edgeKey] = count + 1;
-        }
-        else
-        {
-            edgeCounts[edgeKey] = 1;
-            edgeOrder.Add(edgeKey);
-        }
-    }
-
     internal static long GetEdgeKey(int a, int b)
     {
         return a < b

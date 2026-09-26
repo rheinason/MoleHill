@@ -44,10 +44,4 @@ public static partial class PadGrader
     {
         return GradingGeometry2D.InterpolateZ(vertices, faces, faceCount, px, py);
     }
-
-    private static void IncrEdge(Dictionary<long, int> dict, int a, int b)
-    {
-        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
-        dict[key] = dict.GetValueOrDefault(key, 0) + 1;
-    }
 }

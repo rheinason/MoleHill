@@ -1,6 +1,6 @@
-﻿using System.Security.Cryptography;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -9,9 +9,9 @@ using Eto.Forms;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.UI;
 using Rhino;
+using Rhino.Display;
 using Rhino.DocObjects;
 using Rhino.DocObjects.Tables;
-using Rhino.Display;
 using Rhino.Geometry;
 using Rhino.Input.Custom;
 using Rhino.Runtime;
@@ -24,127 +24,6 @@ namespace MoleHill.Rhino.Services;
 internal sealed partial class TerrainController
 {
     private const string EmptyBlockAttributeValue = "\u200B";
-
-    private OutputSyncMetrics SyncOutputs(RhinoDoc doc, TerrainDefinition terrain, TerrainBuildResult build)
-    {
-        int deletedObjectCount = AllOwnedIds(terrain).Distinct().Count();
-        DeleteOwnedObjects(doc, terrain);
-
-        var outputIds = new List<Guid>();
-        var zoneIds = new List<Guid>();
-        var auxiliaryIds = new List<Guid>();
-        var markerIds = new List<Guid>();
-        var blockAttributeRefreshIds = new List<Guid>();
-
-        using var _ = new EventSuppression(this);
-
-        if (build.PrimaryMesh != null)
-        {
-            Guid id = AddGeneratedObject(doc, terrain, new GeneratedRhinoObject
-            {
-                Role = LayerRole.Terrain,
-                // Bake the unwelded shading copy for the same reason the conduit draws one: a welded
-                // wall crease shades flat ground as if it were near-vertical. See TerrainPresentationMesh.
-                Geometry = TerrainPresentationMesh.CreateForDisplay(build.PrimaryMesh) ?? build.PrimaryMesh,
-                Name = terrain.Name,
-                LayerPath = LayerRoleService.GetTable(doc, terrain).Path(LayerRole.Terrain)
-            }, blockAttributeRefreshIds);
-
-            if (id != Guid.Empty)
-                outputIds.Add(id);
-        }
-
-        foreach (var zoneObject in build.ZoneObjects)
-        {
-            Guid id = AddGeneratedObject(doc, terrain, zoneObject, blockAttributeRefreshIds);
-            if (id != Guid.Empty)
-                zoneIds.Add(id);
-        }
-
-        foreach (var auxiliary in build.AuxiliaryObjects)
-        {
-            if (!TerrainOutputSyncPolicy.ShouldSyncAuxiliaryOutput(auxiliary))
-                continue;
-
-            Guid id = AddGeneratedObject(doc, terrain, new GeneratedRhinoObject
-            {
-                Role = auxiliary.Role,
-                Geometry = auxiliary.Geometry,
-                Name = auxiliary.Name,
-                Kind = auxiliary.Kind,
-                AnalysisId = auxiliary.AnalysisId,
-                ColorArgb = auxiliary.ColorArgb,
-                LayerPath = auxiliary.LayerPath,
-                SourceLayerPath = auxiliary.SourceLayerPath,
-                MaterialName = auxiliary.MaterialName,
-                InstanceDefinitionName = auxiliary.InstanceDefinitionName,
-                MarkerBlockTemplate = auxiliary.MarkerBlockTemplate,
-                InstanceUserStrings = auxiliary.InstanceUserStrings,
-                InstanceTransform = auxiliary.InstanceTransform
-            }, blockAttributeRefreshIds);
-            if (id != Guid.Empty)
-                auxiliaryIds.Add(id);
-        }
-
-        foreach (var marker in build.MarkerObjects)
-        {
-            Guid id = AddGeneratedObject(doc, terrain, marker, blockAttributeRefreshIds);
-            if (id != Guid.Empty)
-                markerIds.Add(id);
-        }
-
-        QueuePendingBlockAttributeKeyRepair(doc, blockAttributeRefreshIds);
-
-        terrain.OutputObjectIds = outputIds;
-        terrain.ZoneObjectIds = zoneIds;
-        terrain.AuxiliaryObjectIds = auxiliaryIds;
-        terrain.MarkerObjectIds = markerIds;
-        return new OutputSyncMetrics(
-            deletedObjectCount,
-            outputIds.Count,
-            zoneIds.Count,
-            auxiliaryIds.Count,
-            markerIds.Count);
-    }
-
-    private Guid AddGeneratedObject(
-        RhinoDoc doc,
-        TerrainDefinition terrain,
-        GeneratedRhinoObject generated,
-        ICollection<Guid>? blockAttributeRefreshIds = null)
-    {
-        var attributes = CreateAttributes(doc, terrain, generated, trackOwnership: true);
-        ApplyInstanceUserStrings(attributes, generated.InstanceUserStrings);
-
-        if (!string.IsNullOrWhiteSpace(generated.InstanceDefinitionName))
-        {
-            int definitionIndex = EnsureBlockDefinition(doc, generated.InstanceDefinitionName!, generated.MarkerBlockTemplate);
-            if (definitionIndex >= 0)
-            {
-                var definition = doc.InstanceDefinitions[definitionIndex];
-                if (definition != null)
-                {
-                    ApplyBlockAttributeValues(attributes, definition, generated.InstanceUserStrings);
-                    Guid id = doc.Objects.AddInstanceObject(definitionIndex, generated.InstanceTransform, attributes);
-                    if (id != Guid.Empty && !EnsureBlockInstanceAttributeKeys(doc, id, definition, generated.InstanceUserStrings))
-                        blockAttributeRefreshIds?.Add(id);
-
-                    return id;
-                }
-            }
-        }
-
-        return generated.Geometry switch
-        {
-            Mesh mesh => doc.Objects.AddMesh(mesh, attributes),
-            Brep brep => doc.Objects.AddBrep(brep, attributes),
-            Curve curve => doc.Objects.AddCurve(curve, attributes),
-            Hatch hatch => doc.Objects.AddHatch(hatch, attributes),
-            TextDot textDot => doc.Objects.AddTextDot(textDot, attributes),
-            TextEntity textEntity => AddTextEntity(doc, textEntity, attributes, terrain),
-            _ => Guid.Empty
-        };
-    }
 
     /// <summary>
     /// Binds generated text to the terrain's annotation style so size, font, and mask come from a style the
@@ -231,11 +110,6 @@ internal sealed partial class TerrainController
             MaterialSource = ObjectMaterialSource.MaterialFromParent,
             LinetypeSource = ObjectLinetypeSource.LinetypeFromParent
         };
-    }
-
-    private ObjectAttributes CreateAttributes(RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject generated)
-    {
-        return CreateAttributes(doc, terrain, generated, trackOwnership: true);
     }
 
     private ObjectAttributes CreateAttributes(RhinoDoc doc, TerrainDefinition terrain, GeneratedRhinoObject generated, bool trackOwnership)
@@ -728,21 +602,4 @@ internal sealed partial class TerrainController
 
         doc.Objects.Delete(ids, quiet: true);
     }
-
-    private void ClearOwnership(RhinoDoc doc, IEnumerable<Guid> objectIds)
-    {
-        using var _ = new EventSuppression(this);
-        foreach (var objectId in objectIds)
-        {
-            var obj = doc.Objects.FindId(objectId);
-            if (obj?.Attributes == null)
-                continue;
-
-            var attributes = obj.Attributes.Duplicate();
-            attributes.DeleteUserString(OutputOwnerKey);
-            attributes.DeleteUserString(OutputBaseMaterialNameKey);
-            doc.Objects.ModifyAttributes(objectId, attributes, quiet: true);
-        }
-    }
-
 }

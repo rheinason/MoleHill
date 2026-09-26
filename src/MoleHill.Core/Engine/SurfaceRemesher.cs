@@ -339,14 +339,12 @@ public static class SurfaceRemesher
     {
         private readonly List<PreservedConstraintSegment> _segments;
         private readonly Dictionary<long, List<int>> _cells;
-        private readonly double _cellSize;
         private readonly double _inverseCellSize;
 
         public PreservedConstraintSegmentIndex(List<PreservedConstraintSegment> segments, Dictionary<long, List<int>> cells, double cellSize)
         {
             _segments = segments;
             _cells = cells;
-            _cellSize = cellSize;
             _inverseCellSize = 1.0 / cellSize;
         }
 

@@ -160,27 +160,9 @@ internal static class TerrainPartitionGeometry
         return owners;
     }
 
-    public static Mesh BuildOwnedMesh(
-        MeshAreaSplitter.SplitResult result,
-        IReadOnlyList<int> faceOwners,
-        int ownerIndex)
-    {
-        if (faceOwners.Count != result.FaceCount)
-            throw new ArgumentException("Face owner count must match the split result.", nameof(faceOwners));
-
-        var faceIndexes = new List<int>();
-        for (int faceIndex = 0; faceIndex < result.FaceCount; faceIndex++)
-        {
-            if (faceOwners[faceIndex] == ownerIndex)
-                faceIndexes.Add(faceIndex);
-        }
-
-        return BuildSubMesh(result, CollectionsMarshal.AsSpan(faceIndexes));
-    }
-
     /// <summary>
-    /// Builds one owner's mesh from a grouping the caller made once. Extracting every region through the
-    /// scanning overload above costs one full-result pass per region.
+    /// Builds one owner's mesh from a grouping the caller made once, so extracting every region costs
+    /// one pass over the split result rather than one per region.
     /// </summary>
     public static Mesh BuildOwnedMesh(
         MeshAreaSplitter.SplitResult result,
