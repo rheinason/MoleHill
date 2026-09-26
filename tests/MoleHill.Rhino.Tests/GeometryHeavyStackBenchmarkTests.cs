@@ -106,6 +106,32 @@ public static class GeometryHeavyStackBenchmark
             "(CreateConstraints 0.72 s).");
     }
 
+    /// <summary>
+    /// One hosted-lane sample: the same cold build and Grade Pad edit as <see cref="Run"/>, on a fresh
+    /// fixture and cache, recorded per stage. Fixture construction is outside the timers.
+    /// </summary>
+    public static void Sample(PerfSampleRecorder recorder)
+    {
+        StackFixture fixture = CreateFixture();
+        var cache = new TerrainRuntimeCache();
+        var service = new TerrainBuildService();
+
+        var coldTimer = Stopwatch.StartNew();
+        TerrainBuildResult cold = service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
+        coldTimer.Stop();
+        if (cold.PrimaryMesh == null)
+            throw new InvalidOperationException("The cold build produced no mesh.");
+        recorder.RecordBuild("cold", cold, coldTimer.Elapsed);
+
+        fixture.Pad.SlopeAngle = 26.5;
+        var editTimer = Stopwatch.StartNew();
+        TerrainBuildResult edited = service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
+        editTimer.Stop();
+        if (edited.PrimaryMesh == null)
+            throw new InvalidOperationException("The edited build produced no mesh.");
+        recorder.RecordBuild("pad-edit", edited, editTimer.Elapsed);
+    }
+
     private static void Report(Action<string> write, string label, TerrainBuildResult result, TimeSpan wall)
     {
         write(

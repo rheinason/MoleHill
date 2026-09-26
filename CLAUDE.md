@@ -29,7 +29,13 @@ pwsh ./generate-toolbar-icons.ps1   # Regenerate the Rhino toolbar button bitmap
 python tools/render-toolbar-artboards.py   # Re-render hand-drawn icons from Master.ai (rare)
 
 pwsh ./validate.ps1 managed         # One validation lane; also native | perf | warnings | package | all
+pwsh ./validate.ps1 hosted-perf     # Full-stack timings inside a spawned Rhino vs tests/perf-baselines/
 ```
+
+Performance claims come from the `hosted-perf` lane: it runs the geometry-heavy, analysis-heavy and
+interactive-scale builds inside a real Rhino (isolated Release Core), 5 samples each, and fails on a
+per-stage regression over 20% and 25 ms. Re-baseline (`-UpdateBaseline`) in the same commit as a
+deliberate speed change.
 
 `dotnet test` alone is not acceptance: native tests skip without Rhino and benchmarks return early
 without `MOLEHILL_PERF`. Use `validate.ps1` and read `docs/validation-lanes.md` before quoting a test

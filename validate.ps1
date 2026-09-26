@@ -15,17 +15,25 @@
       warnings  Rebuilds Core with the project-wide nullability suppressions lifted and fails on any
                 warning outside vendored src/TriangleNet. This is the owned-code warning ratchet.
       package   Builds the Yak package (never -Push) and checks the archive's contents.
+      hosted-perf
+                The full-stack benchmarks inside a disposable Rhino (rhino-mcp slot), sampled and compared
+                against tests/perf-baselines/hosted-perf.json. Fails on a regression beyond -Margin and
+                -FloorMs. -UpdateBaseline records this run as the new baseline instead of comparing.
       all       managed, warnings, then package.
 
 .EXAMPLE
     ./validate.ps1 managed
 .EXAMPLE
     ./validate.ps1 native -RhinoDir 'D:\Rhino 8'
+.EXAMPLE
+    ./validate.ps1 hosted-perf
+.EXAMPLE
+    ./validate.ps1 hosted-perf -Scenario analysis-heavy -Samples 7
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('managed', 'native', 'perf', 'warnings', 'package', 'all')]
+    [ValidateSet('managed', 'native', 'perf', 'warnings', 'package', 'hosted-perf', 'all')]
     [string]$Lane = 'managed',
 
     # Rhino install root (the folder containing System\ and Plug-ins\). Overrides the default
@@ -33,7 +41,28 @@ param(
     [string]$RhinoDir,
 
     # Where TRX logs and reports land.
-    [string]$ResultsDirectory = '.artifacts/validate'
+    [string]$ResultsDirectory = '.artifacts/validate',
+
+    # hosted-perf: measured samples per scenario (one extra warm-up sample is always discarded).
+    [ValidateRange(1, 50)]
+    [int]$Samples = 5,
+
+    # hosted-perf: run only these scenarios (geometry-heavy, analysis-heavy, interactive). Default: all.
+    [string[]]$Scenario,
+
+    # hosted-perf: a metric regresses when its median is this much slower relatively...
+    [double]$Margin = 0.20,
+
+    # hosted-perf: ...and this many milliseconds slower absolutely.
+    [double]$FloorMs = 25,
+
+    # hosted-perf: write this run to the baseline instead of comparing against it.
+    [switch]$UpdateBaseline,
+
+    # hosted-perf: judge an existing result instead of building and spawning. For a host whose shell may
+    # not spawn Rhino (breakaway denied): run `tools/rhino-hosted-perf.py --print-script` in a slot you
+    # drive, then pass the result file here.
+    [string]$HostedResult
 )
 
 $ErrorActionPreference = 'Stop'
@@ -228,6 +257,141 @@ try {
         Write-Host 'Archive contains the Rhino plugin, the merged Grasshopper assembly and Interop.' -ForegroundColor Green
     }
 
+    function Invoke-HostedPerf {
+        Write-Banner 'Lane: hosted-perf (full-stack benchmarks inside a disposable Rhino, against the baseline)'
+        # Release and from scratch. The lane measures the test build of the linked sources plus its own
+        # MoleHill.Core, loaded in isolation inside the slot; a stale incremental build would measure old
+        # code and say nothing (see the managed lane's note on 2026-09-19).
+        $baselinePath = Join-Path $repoRoot 'tests/perf-baselines/hosted-perf.json'
+        if ($HostedResult) {
+            $resultPath = (Resolve-Path $HostedResult).Path
+            Write-Host "Judging an existing result: $resultPath"
+            $commit = (Get-Content -Raw $resultPath | ConvertFrom-Json).Environment.Commit
+        }
+        else {
+            $resultPath = Invoke-HostedRun $baselinePath | Select-Object -Last 1
+            $commit = (Get-Content -Raw $resultPath | ConvertFrom-Json).Environment.Commit
+        }
+        Complete-HostedPerf $resultPath $baselinePath $commit
+    }
+
+    # Builds, spawns and runs; returns the path of the result file the slot wrote.
+    function Invoke-HostedRun([string]$baselinePath) {
+        $testProject = Join-Path $repoRoot 'tests/MoleHill.Rhino.Tests/MoleHill.Rhino.Tests.csproj'
+        $buildArguments = @('build', $testProject, '--configuration', 'Release', '--no-incremental', '-p:SkipGrasshopperLibraryCopy=True')
+        Write-Host "dotnet $($buildArguments -join ' ')"
+        & dotnet @buildArguments | Tee-Object -FilePath (Join-Path $laneResults 'build.log') | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "Release build of the Rhino tests failed (exit $LASTEXITCODE). A slot still holding the test DLL is the usual cause - see docs/rhino-live-testing.md section 2. See $laneResults."
+        }
+
+        $binDir = Join-Path $repoRoot 'tests/MoleHill.Rhino.Tests/bin/Release/net8.0'
+        $laneFull = (Resolve-Path $laneResults).Path
+        $resultPath = Join-Path $laneFull 'hosted-perf.json'
+        $requestPath = Join-Path $laneFull 'request.json'
+        $commit = (& git rev-parse --short HEAD) 2>$null
+        if ((& git status --porcelain) 2>$null) { $commit = "$commit+dirty" }
+
+        $request = [ordered]@{
+            ResultPath   = $resultPath
+            BaselinePath = $(if ($UpdateBaseline -or -not (Test-Path $baselinePath)) { $null } else { (Resolve-Path $baselinePath).Path })
+            Samples      = $Samples
+            Warmups      = 1
+            Margin       = $Margin
+            FloorMs      = $FloorMs
+            Commit       = $commit
+            Scenarios    = $(if ($Scenario) { @($Scenario) } else { $null })
+        }
+        ($request | ConvertTo-Json) | Set-Content -Encoding utf8 -Path $requestPath
+
+        $python = Get-Command py -ErrorAction SilentlyContinue
+        $pythonArgs = @()
+        if ($python) { $pythonArgs = @('-3') } else { $python = Get-Command python -ErrorAction Stop }
+        $pythonArgs += @((Join-Path $repoRoot 'tools/rhino-hosted-perf.py'), '--bin', $binDir, '--request', $requestPath)
+        Write-Host "$($python.Name) $($pythonArgs -join ' ')"
+
+        # The driver reports progress on stdout and errors on stderr. Under ErrorActionPreference=Stop,
+        # Windows PowerShell turns a native stderr line into a terminating error, so let the exit code - not
+        # a stderr line - decide.
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $python.Source @pythonArgs 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath (Join-Path $laneResults 'driver.log') | Out-Host
+            $driverExit = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousPreference
+        }
+        if ($driverExit -ne 0 -or -not (Test-Path $resultPath)) {
+            throw "The hosted run produced no result (driver exit $driverExit). See driver.log in $laneResults."
+        }
+        return $resultPath
+    }
+
+    # Reports a hosted result and judges it against the baseline, or records it as the baseline.
+    function Complete-HostedPerf([string]$resultPath, [string]$baselinePath, [string]$commit) {
+        $evidence = Join-Path (Resolve-Path $laneResults).Path 'hosted-perf.json'
+        if ($resultPath -ne $evidence) { Copy-Item -Path $resultPath -Destination $evidence -Force }
+        $result = Get-Content -Raw $resultPath | ConvertFrom-Json
+        if ($result.PSObject.Properties['Error'] -and $result.Error) {
+            throw "The hosted run failed inside Rhino: $($result.Error)"
+        }
+
+        Write-Host ''
+        Write-Host "Measured in Rhino $($result.Environment.RhinoVersion), $($result.Environment.Runtime), $($result.SamplesPerScenario) samples per scenario"
+        Write-Host "Core: $($result.Environment.CoreAssembly) (optimized: $($result.Environment.CoreOptimized))"
+        $headline = $result.Metrics.PSObject.Properties | Where-Object {
+            $_.Name -match '/wall$' -or
+            $_.Name -match '/Analysis [^/]+$' -or
+            $_.Name -match '^geometry-heavy/[^/]+/(Grade Pad|Grade Path|Remesh|Smooth|Triangulate)$'
+        }
+        foreach ($metric in $headline) {
+            Write-Host ('  {0,10:N1} ms median  {1,10:N1} ms p95  {2}' -f $metric.Value.MedianMs, $metric.Value.P95Ms, $metric.Name)
+        }
+
+        if ($UpdateBaseline) {
+            # The request carried no baseline, so the result has no comparison: copy it byte for byte
+            # rather than round-tripping it through ConvertTo-Json.
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $baselinePath) | Out-Null
+            Copy-Item -Path $resultPath -Destination $baselinePath -Force
+            Write-Host "Baseline written: $baselinePath (commit $commit). Commit it with the change it measures." -ForegroundColor Green
+            return
+        }
+
+        if (-not ($result.PSObject.Properties['Comparison'] -and $result.Comparison)) {
+            throw "No baseline at $baselinePath to compare against. Record one on this machine with: ./validate.ps1 hosted-perf -UpdateBaseline"
+        }
+
+        $comparison = $result.Comparison
+        if ($comparison.PSObject.Properties['NotComparableReason'] -and $comparison.NotComparableReason) {
+            throw "Baseline not comparable: $($comparison.NotComparableReason)"
+        }
+
+        Write-Host ''
+        Write-Host "Against baseline $($comparison.BaselineCommit): margin $([math]::Round($comparison.Margin * 100))%, floor $($comparison.FloorMs) ms"
+        foreach ($verdict in @('Regressed', 'Improved', 'Missing', 'New')) {
+            $group = @($comparison.Metrics | Where-Object { $_.Verdict -eq $verdict })
+            if ($group.Count -eq 0) { continue }
+            $colour = switch ($verdict) { 'Regressed' { 'Red' } 'Improved' { 'Green' } default { 'Yellow' } }
+            Write-Host "$verdict ($($group.Count)):" -ForegroundColor $colour
+            foreach ($m in $group) {
+                $ratio = if ($m.PSObject.Properties['Ratio'] -and $m.Ratio) { 'x{0:N2}' -f $m.Ratio } else { '' }
+                $was = if ($m.PSObject.Properties['BaselineMedianMs']) { '{0:N1}' -f $m.BaselineMedianMs } else { '-' }
+                $now = if ($m.PSObject.Properties['CurrentMedianMs']) { '{0:N1}' -f $m.CurrentMedianMs } else { '-' }
+                Write-Host ('  {0,10} -> {1,10} ms  {2,6}  {3}' -f $was, $now, $ratio, $m.Metric) -ForegroundColor $colour
+            }
+        }
+
+        $regressed = @($comparison.Metrics | Where-Object { $_.Verdict -eq 'Regressed' })
+        if ($regressed.Count -gt 0) {
+            throw "$($regressed.Count) metric(s) regressed beyond the margin. If the slowdown is intended, re-baseline with -UpdateBaseline and say why in the commit."
+        }
+        if (@($comparison.Metrics | Where-Object { $_.Verdict -eq 'Improved' }).Count -gt 0) {
+            Write-Host 'Improvements beyond the margin: re-baseline with -UpdateBaseline to lock the gain in.' -ForegroundColor Green
+        }
+        Write-Host 'No regression beyond the margin.' -ForegroundColor Green
+    }
+
     Write-Banner "MoleHill validation - lane '$Lane'"
     Get-Environment | Format-List | Out-Host
     (Get-Environment | ConvertTo-Json) | Set-Content -Encoding utf8 -Path (Join-Path $laneResults 'environment.json')
@@ -238,6 +402,7 @@ try {
         'perf'     { Invoke-Perf | Out-Null }
         'warnings' { Invoke-Warnings }
         'package'  { Invoke-Package }
+        'hosted-perf' { Invoke-HostedPerf }
         'all' {
             Invoke-Managed | Out-Null
             Invoke-Warnings

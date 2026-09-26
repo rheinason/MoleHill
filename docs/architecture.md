@@ -1197,6 +1197,24 @@ Aspect 0.01 s, Elevation and Waterflow under 0.01 s, **Catchments 1.40 s** and *
 latter two also emitting 2,449 generated objects between them. The per-face analyses handle 244k faces
 in 0.13 s combined. Whether Ponding's 3.72 s is itself reducible is open and unmeasured.
 
+**Re-measured 2026-09-26 by the `hosted-perf` lane** (`docs/validation-lanes.md`), on a reconstructed
+fixture (the traced one was not saved): 122,500 points, 243,602 faces, Release Core inside Rhino 8.35,
+median of 5. A sweep over surface roughness first showed that each drainage analysis's cost depends on
+a different property of the terrain, and not on face count alone:
+
+| Analysis | Cost driver found by the sweep | Baseline fixture (cold / point edit) |
+|---|---|---|
+| Ponding | number of ponds: ~150 ms at 11-38, ~1 s at 1,000-1,900 | **991 / 971 ms** (1,874 ponds) |
+| Waterflow from Points | **fixed** once there is a source: 1.13 s for 4 sources or 25, 0 ms for none | **1,176 / 1,126 ms** |
+| Catchments | falls as basin count rises: 219 ms for 60 basins, 69 ms for 1,621 | 65 / 79 ms |
+| Slope, Aspect, Elevation | faces | 105, 9, 0 ms |
+
+Two corrections to the reading above follow. **Waterflow is not cheap.** The trace's "under 10 ms" had
+no sources, and the ~1.1 s it costs with any source at all is fixed setup, not path tracing. That makes
+it the same size of target as Ponding. **Catchments' 1.40 s did not reproduce** on any surface swept
+(at most ~220 ms), so its traced cost belonged to that fixture's basin structure or has since changed.
+The lane now gates all of them, so a fix is measured rather than argued.
+
 ### The geometry-heavy case is a different problem
 
 A terrain with a long geometric modifier stack and **no** analyses behaves nothing like the

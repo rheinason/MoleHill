@@ -122,6 +122,43 @@ public static class InteractiveScaleBenchmark
         write("is only part of that budget - scheduling, the UI marshal and redraw are all still to come.");
     }
 
+    /// <summary>
+    /// One hosted-lane sample: per scale, the cold build and the third consecutive rail raise, recorded
+    /// per stage under the scale's label.
+    /// </summary>
+    public static void Sample(PerfSampleRecorder recorder)
+    {
+        foreach ((int side, string label) in Scales)
+        {
+            string key = label.Replace(' ', '-');
+            Fixture fixture = CreateFixture(side);
+            var cache = new TerrainRuntimeCache();
+            var service = new TerrainBuildService();
+
+            var coldTimer = Stopwatch.StartNew();
+            TerrainBuildResult cold = service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
+            coldTimer.Stop();
+            if (cold.PrimaryMesh == null)
+                throw new InvalidOperationException($"The {label} cold build produced no mesh.");
+            recorder.RecordBuild($"{key}/cold", cold, coldTimer.Elapsed);
+
+            TerrainBuildResult edited = cold;
+            TimeSpan warm = TimeSpan.Zero;
+            for (int i = 0; i < 3; i++)
+            {
+                RaiseWall(fixture, 0.15);
+                var editTimer = Stopwatch.StartNew();
+                edited = service.Build(fixture.Snapshot, cache, TerrainBuildMode.Final);
+                editTimer.Stop();
+                warm = editTimer.Elapsed;
+            }
+
+            if (edited.PrimaryMesh == null)
+                throw new InvalidOperationException($"The {label} warm build produced no mesh.");
+            recorder.RecordBuild($"{key}/warm-edit", edited, warm);
+        }
+    }
+
     private static void RaiseWall(Fixture fixture, double dz)
     {
         SourceReferenceSet set = fixture.Wall.WallCurves;

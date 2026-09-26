@@ -27,6 +27,7 @@ instead.
 | perf | `./validate.ps1 perf` | Benchmark bodies actually executed, in Release | A budget — timings need the protocol below |
 | warnings | `./validate.ps1 warnings` | Zero owned-code compiler warnings, solution-wide | Anything about vendored TriangleNet |
 | package | `./validate.ps1 package` | The Yak archive contains the plugin, the merged `.gha` and Interop | Installation into a real Rhino |
+| hosted-perf | `./validate.ps1 hosted-perf` | Full-stack build timings inside a real Rhino, per stage and per analysis, within a margin of the committed baseline | Scheduling, UI marshal and redraw (worker time only) |
 | all | `./validate.ps1 all` | managed + warnings + package | native, perf |
 
 ## managed
@@ -59,6 +60,56 @@ the measurement protocol in
 [codebase-review-and-implementation-plan-2026-09-19.md](codebase-review-and-implementation-plan-2026-09-19.md)
 ("Performance measurement and acceptance protocol") — report median and p95 over repeated samples on
 one machine and fixture, not a single best time.
+
+## hosted-perf
+
+The benchmarks that time what a user waits for — a terrain rebuild through `TerrainBuildService`, with
+its stages and analyses — need Rhino's native runtime, which Rhino 8.35 will not start outside its own
+process (see "Known broken" below). So this lane runs them **inside** a disposable Rhino instead:
+
+1. Builds `MoleHill.Rhino.Tests` in Release with `--no-incremental`.
+2. `tools/rhino-hosted-perf.py` starts the installed Rhino-MCP router over stdio and spawns a slot it
+   owns. It refuses an adopted Rhino and closes exactly its own slot afterwards, whatever happens.
+3. The slot loads the test assembly into its **own `AssemblyLoadContext`**, preloading that build's
+   `MoleHill.Core` and `MoleHill.Interop` beside it. The slot has already loaded the plug-in's **Debug**
+   Core, and a plain `Assembly.LoadFrom` binds to that silently (the 25% trap below).
+   `HostedPerformanceLane` records the Core it actually ran against, and refuses to measure unoptimized code.
+4. `HostedPerformanceLane.Start` runs on a background thread and returns at once. A `run_csharp` script
+   runs on Rhino's UI thread, and holding it would stall the process being measured. The driver polls
+   for the result file.
+5. Each scenario runs one discarded warm-up and then `-Samples` (default 5) measured samples, each on a
+   fresh fixture and cache with a GC between samples. Every `TerrainBuildTiming` row becomes a metric
+   `{scenario}/{phase}/{stage}`, alongside the measured `wall`, and gets a median and a p95.
+6. The result is compared with `tests/perf-baselines/hosted-perf.json`. A metric **regresses** when its
+   median is both more than `-Margin` (20%) slower and more than `-FloorMs` (25 ms) slower. The relative
+   test alone fails on 2 ms stages; the absolute test alone misses a 20% loss in a 100 ms stage. Any
+   regression fails the lane. Improvements, new metrics and missing metrics (a renamed stage) are reported
+   but do not fail.
+
+| Scenario | Fixture | Phases |
+|---|---|---|
+| `geometry-heavy` | 62,500-point survey, Triangulate -> Grade Pad -> Grade Path -> Smooth -> Remesh | `cold`, `pad-edit` |
+| `analysis-heavy` | 122,500-point survey (243,602 faces), Slope, Aspect, Elevation, Waterflow, Catchments, Ponding | `cold`, `point-edit` |
+| `interactive` | Triangulate + Retaining Wall at 2.5k / 25k / 50k / 100k faces | per scale: `cold`, `warm-edit` |
+
+```powershell
+./validate.ps1 hosted-perf                               # compare against the baseline
+./validate.ps1 hosted-perf -Scenario analysis-heavy      # one scenario; the others are not reported missing
+./validate.ps1 hosted-perf -UpdateBaseline               # record this run as the baseline
+```
+
+**A baseline belongs to one machine.** Comparing across machines fails as "not comparable" and does
+not count as a pass. Re-baseline, and commit the baseline with the change it measures, when a speed-up
+lands (lock the gain in) or when a slowdown is deliberate (say why in the commit). The per-stage
+detail lines (output counts such as ponds found) are saved beside the metrics and never compared. They
+tell you whether a time changed because the work changed.
+
+This lane measures **worker time only**. Debounce, the marshal back to the UI thread, display
+publication and redraw happen outside `TerrainBuildService` and need `mhLatencyTrace`
+(architecture.md, "Edit-to-visible latency").
+
+It needs the Rhino-MCP router (`docs/rhino-live-testing.md` section 2) and Python 3. It also fails if a
+slot still holds the test DLL, because the Release build cannot overwrite it.
 
 ## warnings
 
@@ -139,7 +190,9 @@ asm.GetType("MoleHill.Rhino.Tests.GeometryHeavyStackBenchmark").GetMethod("RunTo
 
 `GeometryHeavyStackBenchmark` is the worked example. The result file is the report, because
 `run_command` returns only "Done.". This is a detour, not a lane: it runs one body on demand and proves
-nothing about the other 130.
+nothing about the other 130. **For timings, use the `hosted-perf` lane above.** It automates this
+route, avoids both traps below by loading into an isolated `AssemblyLoadContext`, and compares the result
+against a baseline.
 
 **Two traps in the detour, both of which silently produce wrong numbers.**
 

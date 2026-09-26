@@ -49,10 +49,15 @@ relevant folder `README.md`, and update `CLAUDE.md`/`AGENTS.md` when conventions
   output is committed.
 - `pwsh ./build-yak-package.ps1`: build the combined Rhino + Grasshopper Yak package in `.artifacts/yak/`.
 - `pwsh ./build-yak-package.ps1 -Push`: build and publish the Yak package to the configured server.
-- `pwsh ./validate.ps1 <managed|native|perf|warnings|package|all>`: run one validation lane and record
+- `pwsh ./validate.ps1 <managed|native|perf|warnings|package|hosted-perf|all>`: run one validation lane and record
   what it actually exercised (`.artifacts/validate/`). A green managed run is **not** native, packaged,
   or measured acceptance — native tests skip without Rhino and benchmarks return early without
   `MOLEHILL_PERF`. See [`docs/validation-lanes.md`](docs/validation-lanes.md).
+- `pwsh ./validate.ps1 hosted-perf`: the full-stack benchmarks inside a disposable Rhino, per stage and
+  per analysis, against the committed `tests/perf-baselines/hosted-perf.json`. It fails on a regression
+  of more than 20% **and** more than 25 ms. **Quote a performance change from this lane, not from a
+  single trace.** Use `-UpdateBaseline` to lock in a deliberate change. Needs a shell that may spawn Rhino;
+  otherwise see `-HostedResult` in the lane doc.
 
 Close Rhino before rebuilding when possible; the Grasshopper build copies `MoleHill.gha` to `%AppData%\Grasshopper\Libraries\`, and Rhino can keep that file locked. Grasshopper builds a merged plugin at `src/MoleHill.Grasshopper/bin/Debug/net7.0/MoleHill.gha`, and the Rhino plugin output is `src/MoleHill.Rhino/bin/Debug/net7.0/MoleHill.Rhino.rhp`.
 
