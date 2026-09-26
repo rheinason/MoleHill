@@ -4,7 +4,6 @@ using Rhino.DocObjects;
 using Rhino.Geometry;
 using Rhino.Runtime;
 
-
 namespace MoleHill.Rhino.Services;
 
 // Output sync + bake: generated/baked object creation, attributes, block definitions, layers, owned-object lifecycle.
@@ -588,5 +587,159 @@ internal sealed partial class TerrainController
         }
 
         doc.Objects.Delete(ids, quiet: true);
+    }
+
+    public void BakeTerrain(RhinoDoc doc, Guid terrainId)
+    {
+        if (!ModelUnitGuard.TryGet(doc, out MoleHill.Shared.ModelUnitContext unitContext))
+            return;
+
+        var state = GetState(doc);
+        var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
+        if (terrain == null)
+            return;
+
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Bake MoleHill Terrain");
+        var runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId);
+        bool requiresCurrentFinalBuild = runtimeCache.DisplayState?.TerrainMesh == null ||
+                                         runtimeCache.DisplayState.IsPreview ||
+                                         runtimeCache.DisplayState.HasDeferredOutputs ||
+                                         HasPendingFinalBuild(doc.RuntimeSerialNumber, terrain.TerrainId);
+        if (requiresCurrentFinalBuild)
+        {
+            RemovePendingBuild(doc.RuntimeSerialNumber, terrain.TerrainId, TerrainBuildMode.Preview);
+            RemovePendingBuild(doc.RuntimeSerialNumber, terrain.TerrainId, TerrainBuildMode.Final);
+            if (_rebuildStates.TryGetValue((doc.RuntimeSerialNumber, terrain.TerrainId), out var rebuildState) &&
+                rebuildState.IsBuilding)
+            {
+                CancelRunningBuild(doc.RuntimeSerialNumber, terrain.TerrainId);
+            }
+
+            if (!BuildTerrainSynchronously(doc, state, terrain, TerrainBuildMode.Final))
+                return;
+            runtimeCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId);
+        }
+
+        var displayState = runtimeCache.DisplayState;
+        if (displayState == null || !terrain.IsVisible)
+            return;
+
+        using var _ = new EventSuppression(this);
+        // Preview instances are conduit-only. Clean up any managed live objects left by an older
+        // output-sync path before materializing the current display state for bake.
+        PurgeOrphanedOwnedObjects(doc, terrain);
+        if (terrain.ReplacePreviouslyBaked && terrain.BakedObjectIds.Count > 0)
+        {
+            DeleteObjects(doc, terrain.BakedObjectIds);
+            terrain.BakedObjectIds.Clear();
+        }
+
+        var blockAttributeRefreshIds = new List<Guid>();
+        var bakedIds = new List<Guid>();
+        if (terrain.ShowTerrainMesh)
+        {
+            Mesh? terrainMesh = displayState.ActiveAnalysisId.HasValue
+                ? displayState.PreviewTerrainMesh
+                : displayState.TerrainMesh;
+            if (terrainMesh != null)
+            {
+                Guid id = AddBakedObject(doc, terrain, new GeneratedRhinoObject
+                {
+                    Role = LayerRole.Terrain,
+                    // Bake what the viewport shades, seams and all — see TerrainPresentationMesh. This is
+                    // a second bake path alongside SyncOutputs, and it is the one the picker's Bake uses.
+                    Geometry = (TerrainPresentationMesh.CreateForDisplay(terrainMesh) ?? terrainMesh).DuplicateMesh(),
+                    Name = terrain.Name,
+                    LayerPath = LayerRoleService.GetTable(doc, terrain).Path(LayerRole.Terrain),
+                    ColorArgb = terrain.TerrainColorArgb
+                }, blockAttributeRefreshIds);
+                if (id != Guid.Empty)
+                    bakedIds.Add(id);
+            }
+        }
+
+        if (terrain.ShowZoneMeshes)
+        {
+            foreach (var zoneObject in displayState.ZoneObjects)
+            {
+                Guid id = AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(zoneObject), blockAttributeRefreshIds);
+                if (id != Guid.Empty)
+                    bakedIds.Add(id);
+            }
+        }
+
+        foreach (var auxiliary in displayState.AuxiliaryObjects)
+        {
+            if (!TerrainAnalysisPreviewBuilder.ShouldDisplayGeneratedOutput(terrain, auxiliary))
+                continue;
+
+            Guid id = AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(auxiliary), blockAttributeRefreshIds);
+            if (id != Guid.Empty)
+                bakedIds.Add(id);
+        }
+
+        foreach (var marker in displayState.MarkerObjects)
+        {
+            Guid id = AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(marker), blockAttributeRefreshIds);
+            if (id != Guid.Empty)
+                bakedIds.Add(id);
+        }
+
+        foreach (var scatter in displayState.ScatterObjects)
+        {
+            Guid id = AddBakedObject(doc, terrain, TerrainRuntimeCacheCloner.CloneGeneratedObject(scatter), blockAttributeRefreshIds);
+            if (id != Guid.Empty)
+                bakedIds.Add(id);
+        }
+
+        terrain.BakedObjectIds.AddRange(bakedIds);
+        QueuePendingBlockAttributeKeyRepair(doc, blockAttributeRefreshIds);
+        Save(doc, state, raiseStateChanged: false);
+
+        doc.Views.Redraw();
+    }
+
+    public void UntrackSelectedBakedObjects(RhinoDoc doc, Guid terrainId)
+    {
+        var state = GetState(doc);
+        var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
+        if (terrain == null || terrain.BakedObjectIds.Count == 0)
+            return;
+
+        var selectedIds = doc.Objects
+            .GetSelectedObjects(false, false)
+            .Select(obj => obj.Id)
+            .Where(id => id != Guid.Empty)
+            .ToHashSet();
+        if (selectedIds.Count == 0)
+            return;
+
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Untrack MoleHill Bakes");
+        int beforeCount = terrain.BakedObjectIds.Count;
+        terrain.BakedObjectIds = terrain.BakedObjectIds
+            .Where(id => id != Guid.Empty && doc.Objects.FindId(id) != null && !selectedIds.Contains(id))
+            .Distinct()
+            .ToList();
+        if (terrain.BakedObjectIds.Count == beforeCount)
+            return;
+
+        Save(doc, state);
+    }
+
+    public void UntrackAllBakedObjects(RhinoDoc doc, Guid terrainId)
+    {
+        var state = GetState(doc);
+        var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
+        if (terrain == null || terrain.BakedObjectIds.Count == 0)
+            return;
+
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(doc, "Untrack MoleHill Bakes");
+        terrain.BakedObjectIds.Clear();
+        Save(doc, state);
+    }
+
+    private void ClearPendingBlockAttributeKeyRepairs(uint docSerial)
+    {
+        _pendingBlockAttributeKeyRepairs.Remove(docSerial);
     }
 }

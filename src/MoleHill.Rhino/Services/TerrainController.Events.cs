@@ -4,7 +4,6 @@ using Rhino.DocObjects;
 using Rhino.DocObjects.Tables;
 using Rhino.Geometry;
 
-
 namespace MoleHill.Rhino.Services;
 
 // Rhino document event handlers, idle processing, and source-object scheduling/pruning/transform sync.
@@ -722,4 +721,20 @@ internal sealed partial class TerrainController
 
     // Modifier creation is driven by the type registry (one descriptor per modifier) so adding a
     // modifier no longer needs a case here. See MoleHill.Rhino/Registry.
+
+    private sealed class EventSuppression : IDisposable
+    {
+        private readonly TerrainController _controller;
+
+        public EventSuppression(TerrainController controller)
+        {
+            _controller = controller;
+            _controller._suppressDocEvents++;
+        }
+
+        public void Dispose()
+        {
+            _controller._suppressDocEvents--;
+        }
+    }
 }

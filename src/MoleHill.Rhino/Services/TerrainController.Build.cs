@@ -5,7 +5,6 @@ using MoleHill.Rhino.UI;
 using Rhino;
 using Rhino.Geometry;
 
-
 namespace MoleHill.Rhino.Services;
 
 // Build orchestration: scheduling, debounce, background build lifecycle, apply-result, long-build warnings.
@@ -887,4 +886,29 @@ internal sealed partial class TerrainController
     private static string BuildCommandLabel(TerrainBuildMode mode) =>
         mode == TerrainBuildMode.Preview ? "Preview" : "Build";
 
+    private readonly record struct PendingBuildRequest(DateTime DueAtUtc, long Version);
+
+    private readonly record struct BackgroundBuildResult(
+        long Version,
+        long Generation,
+        TerrainBuildMode Mode,
+        TerrainDefinition SnapshotTerrain,
+        TerrainBuildResult? Build,
+        TerrainRuntimeCache WorkerCache,
+        TimeSpan SnapshotElapsed,
+        TimeSpan WorkerCacheCloneElapsed,
+        TimeSpan BuildElapsed,
+        bool WasCanceled,
+        Exception? Error);
+
+    private sealed record QueuedBuildProgress(
+        long Version,
+        long Generation,
+        TerrainBuildMode Mode,
+        TerrainBuildProgress Progress);
+
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        return $"{elapsed.TotalSeconds:0.##} s";
+    }
 }

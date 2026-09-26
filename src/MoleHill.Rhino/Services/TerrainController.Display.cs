@@ -5,7 +5,6 @@ using Rhino;
 using Rhino.DocObjects;
 using Rhino.Geometry;
 
-
 namespace MoleHill.Rhino.Services;
 
 // Display state, terrain-object placement sync, visibility/lock, and display/base material management.
@@ -884,4 +883,46 @@ internal sealed partial class TerrainController
         return $"{OutputDisplayMaterialPrefix}{terrainId:N}_{hash[..16]}";
     }
 
+    public void SetTerrainVisible(RhinoDoc doc, Guid terrainId, bool visible)
+    {
+        var state = GetState(doc);
+        var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
+        if (terrain == null)
+            return;
+
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(
+            doc, visible ? "Show MoleHill Terrain" : "Hide MoleHill Terrain");
+        terrain.IsVisible = visible;
+        Save(doc, state);
+        // The render mesh provider gates on IsVisible, so hiding/showing changes what renders too.
+        InvalidateTerrainRenderMeshes(doc, terrainId);
+        doc.Views.Redraw();
+    }
+
+    public void SetTerrainLocked(RhinoDoc doc, Guid terrainId, bool locked)
+    {
+        var state = GetState(doc);
+        var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
+        if (terrain == null)
+            return;
+
+        using TerrainUndoTransaction? undo = BeginTerrainUndoTransaction(
+            doc, locked ? "Lock MoleHill Terrain" : "Unlock MoleHill Terrain");
+        terrain.IsLocked = locked;
+        Save(doc, state);
+        doc.Views.Redraw();
+    }
+
+    public void RefreshTerrainDisplay(RhinoDoc doc, Guid terrainId)
+    {
+        var state = GetState(doc);
+        var terrain = state.Terrains.FirstOrDefault(t => t.TerrainId == terrainId);
+        if (terrain == null)
+            return;
+
+        UpdateRuntimePreview(doc, terrain, GetRuntimeCache(doc.RuntimeSerialNumber, terrainId));
+        InvalidateTerrainRenderMeshes(doc, terrainId);
+        ApplyDisplayState(doc, terrain);
+        doc.Views.Redraw();
+    }
 }
