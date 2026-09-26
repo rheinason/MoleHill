@@ -191,44 +191,17 @@ internal static class RhinoGeometryConversions
     }
 
     /// <summary>
-    /// Builds the sub-mesh for one area. Group the faces once with <see cref="FaceOwnerGroups"/> and
-    /// reuse a single <see cref="SubMeshVertexRemap"/> across areas: rescanning every result face per
-    /// area is O(areas x faces), and a fresh hash set plus dictionary per area allocates two
-    /// whole-vertex-set structures each time.
+    /// Builds the normalized sub-mesh for one area; see <see cref="SplitResultMeshBuilder"/> for how to
+    /// group faces and reuse the remap across areas.
     /// </summary>
     public static Mesh BuildSubMesh(
         MeshAreaSplitter.SplitResult result,
         ReadOnlySpan<int> faceIndices,
         SubMeshVertexRemap remap)
     {
-        var mesh = new Mesh();
-        mesh.Faces.Capacity = faceIndices.Length;
-        remap.Begin();
-
-        foreach (int faceIndex in faceIndices)
-        {
-            int a = MapVertex(result, remap, mesh, result.Faces[faceIndex * 3]);
-            int b = MapVertex(result, remap, mesh, result.Faces[faceIndex * 3 + 1]);
-            int c = MapVertex(result, remap, mesh, result.Faces[faceIndex * 3 + 2]);
-            mesh.Faces.AddFace(a, b, c);
-        }
-
+        Mesh mesh = SplitResultMeshBuilder.CreateUnfinished(result, faceIndices, remap);
         NormalizeMeshInPlace(mesh);
         return mesh;
-    }
-
-    private static int MapVertex(MeshAreaSplitter.SplitResult result, SubMeshVertexRemap remap, Mesh mesh, int vertexIndex)
-    {
-        if (remap.TryGet(vertexIndex, out int existing))
-            return existing;
-
-        int newIndex = mesh.Vertices.Count;
-        mesh.Vertices.Add(
-            result.Vertices[vertexIndex * 3],
-            result.Vertices[vertexIndex * 3 + 1],
-            result.Vertices[vertexIndex * 3 + 2]);
-        remap.Set(vertexIndex, newIndex);
-        return newIndex;
     }
 
     internal static void NormalizeMeshInPlace(Mesh mesh)

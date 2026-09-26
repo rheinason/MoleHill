@@ -328,7 +328,7 @@ public class MeshCollageComponent : GH_Component
         for (int a = 0; a < result.AreaCount; a++)
         {
             ReadOnlySpan<int> areaFaces = groups.Faces(a);
-            areaMeshes.Add(BuildSubMesh(result, areaFaces, remap));
+            areaMeshes.Add(SplitResultMeshBuilder.Create(result, areaFaces, remap));
             faceCounts.Add(areaFaces.Length);
         }
 
@@ -344,42 +344,6 @@ public class MeshCollageComponent : GH_Component
         if (userColors.Count > 0)
             return userColors[index % userColors.Count];
         return DefaultPalette[index % DefaultPalette.Length];
-    }
-
-    private static Mesh BuildSubMesh(
-        MeshAreaSplitter.SplitResult result,
-        ReadOnlySpan<int> faceIndices,
-        SubMeshVertexRemap remap)
-    {
-        var mesh = new Mesh();
-        mesh.Faces.Capacity = faceIndices.Length;
-        remap.Begin();
-
-        foreach (int f in faceIndices)
-        {
-            int a = MapVertex(result, remap, mesh, result.Faces[f * 3]);
-            int b = MapVertex(result, remap, mesh, result.Faces[f * 3 + 1]);
-            int c = MapVertex(result, remap, mesh, result.Faces[f * 3 + 2]);
-            mesh.Faces.AddFace(a, b, c);
-        }
-
-        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
-        mesh.Compact();
-        return mesh;
-    }
-
-    private static int MapVertex(MeshAreaSplitter.SplitResult result, SubMeshVertexRemap remap, Mesh mesh, int vertexIndex)
-    {
-        if (remap.TryGet(vertexIndex, out int existing))
-            return existing;
-
-        int newIndex = mesh.Vertices.Count;
-        mesh.Vertices.Add(
-            result.Vertices[vertexIndex * 3],
-            result.Vertices[vertexIndex * 3 + 1],
-            result.Vertices[vertexIndex * 3 + 2]);
-        remap.Set(vertexIndex, newIndex);
-        return newIndex;
     }
 
     private static Hatch? CreateHatch(Curve crv)
