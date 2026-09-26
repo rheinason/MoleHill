@@ -385,6 +385,16 @@ try {
             }
         }
 
+        $outputChanges = @()
+        if ($comparison.PSObject.Properties['OutputChanges'] -and $comparison.OutputChanges) { $outputChanges = @($comparison.OutputChanges) }
+        if ($outputChanges.Count -gt 0) {
+            Write-Host "Output changed in $($outputChanges.Count) build phase(s) - a change meant only to be faster must leave the terrain identical:" -ForegroundColor Magenta
+            $outputChanges | ForEach-Object { Write-Host "  $_" -ForegroundColor Magenta }
+        }
+        else {
+            Write-Host 'Finished meshes identical to the baseline in every phase it recorded.' -ForegroundColor Green
+        }
+
         $regressed = @($comparison.Metrics | Where-Object { $_.Verdict -eq 'Regressed' })
         if ($regressed.Count -gt 0) {
             throw "$($regressed.Count) metric(s) regressed beyond the margin. If the slowdown is intended, re-baseline with -UpdateBaseline and say why in the commit."

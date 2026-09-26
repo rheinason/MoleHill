@@ -98,6 +98,32 @@ public class PerfComparisonTests
     }
 
     [Fact]
+    public void Compare_OutputMeshHashDiffers_IsReportedButDoesNotFail()
+    {
+        string key = "s/cold/" + PerfSampleRecorder.OutputDetail;
+        PerfRunResult then = Run("M", ("s/cold/wall", 100));
+        PerfRunResult now = Run("M", ("s/cold/wall", 100));
+        then.Details[key] = "10 verts, 8 faces, 00000000000000aa";
+        now.Details[key] = "10 verts, 8 faces, 00000000000000bb";
+
+        PerfComparison comparison = PerfComparison.Compare(then, now, "b.json", 0.2, 25);
+
+        Assert.Single(comparison.OutputChanges);
+        Assert.True(comparison.Passed);
+    }
+
+    [Fact]
+    public void Compare_OutputMeshHashSame_ReportsNoChange()
+    {
+        string key = "s/cold/" + PerfSampleRecorder.OutputDetail;
+        PerfRunResult then = Run("M", ("s/cold/wall", 100));
+        PerfRunResult now = Run("M", ("s/cold/wall", 100));
+        then.Details[key] = now.Details[key] = "10 verts, 8 faces, 00000000000000aa";
+
+        Assert.Empty(PerfComparison.Compare(then, now, "b.json", 0.2, 25).OutputChanges);
+    }
+
+    [Fact]
     public void Stats_FiveSamples_MedianIsMiddleAndP95IsMax()
     {
         PerfMetricStats stats = PerfMetricStats.From(new double[] { 50, 10, 40, 20, 30 });

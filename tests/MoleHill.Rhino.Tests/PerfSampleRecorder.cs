@@ -37,5 +37,28 @@ public sealed class PerfSampleRecorder
             if (!string.IsNullOrEmpty(timing.Detail))
                 Details[$"{prefix}/{timing.Stage}"] = timing.Detail;
         }
+
+        Details[$"{prefix}/{OutputDetail}"] = DescribeOutput(result.PrimaryMesh);
+    }
+
+    /// <summary>The detail key holding a hash of a build's finished mesh.</summary>
+    public const string OutputDetail = "output mesh";
+
+    /// <summary>
+    /// Counts plus a hash of the mesh's own vertex and face lists, read from Rhino rather than from
+    /// any cached extraction, so a speed change that alters the terrain shows up as a changed hash even
+    /// when the change is in the caching itself.
+    /// </summary>
+    private static string DescribeOutput(global::Rhino.Geometry.Mesh? mesh)
+    {
+        if (mesh == null)
+            return "none";
+
+        float[] vertices = mesh.Vertices.ToFloatArray();
+        int[] faces = mesh.Faces.ToIntArray(false);
+        var hash = new FingerprintBuilder();
+        hash.AddBytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(vertices.AsSpan()));
+        hash.AddBytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(faces.AsSpan()));
+        return $"{mesh.Vertices.Count} verts, {mesh.Faces.Count} faces, {hash.ToUInt64():x16}";
     }
 }

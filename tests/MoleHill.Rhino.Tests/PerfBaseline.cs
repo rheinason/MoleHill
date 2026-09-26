@@ -102,6 +102,13 @@ public sealed class PerfComparison
 
     public List<PerfMetricComparison> Metrics { get; set; } = new();
 
+    /// <summary>
+    /// Build phases whose finished mesh differs from the baseline's, as "phase: was -> now". Reported,
+    /// not failed: a deliberate geometry change legitimately lands here. A change meant only to be faster
+    /// must leave this empty.
+    /// </summary>
+    public List<string> OutputChanges { get; set; } = new();
+
     [JsonIgnore]
     public bool Passed => NotComparableReason == null && Metrics.All(static m => m.Verdict != PerfVerdict.Regressed);
 
@@ -171,6 +178,15 @@ public sealed class PerfComparison
         }
 
         comparison.Metrics.Sort(static (a, b) => string.CompareOrdinal(a.Metric, b.Metric));
+
+        foreach ((string key, string now) in current.Details)
+        {
+            if (!key.EndsWith("/" + PerfSampleRecorder.OutputDetail, StringComparison.Ordinal))
+                continue;
+            if (baseline.Details.TryGetValue(key, out string? then) && !string.Equals(then, now, StringComparison.Ordinal))
+                comparison.OutputChanges.Add($"{key}: {then} -> {now}");
+        }
+
         return comparison;
     }
 
