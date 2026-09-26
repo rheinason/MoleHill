@@ -26,8 +26,11 @@ relevant folder `README.md`, and update `CLAUDE.md`/`AGENTS.md` when conventions
 - `MoleHill.Core` is pure and unit-tested; `MoleHill.Rhino`/`MoleHill.Grasshopper` are thin hosts. Put
   reusable math in Core (with a test), Rhino/GH API calls in the host projects.
 - Large classes are decomposed into `partial class` files (`TerrainBuildService.*.cs`,
-  `MoleHillPanel.*.cs`). Moving static methods between partials is byte-identical: compile-clean ⟹
-  behavior-identical.
+  `MoleHillPanel.*.cs`, `TerrainController.*.cs`). Moving members between partials is byte-identical:
+  compile-clean ⟹ behavior-identical. The root file of `MoleHillPanel` and `TerrainController` holds only
+  shared state, construction/lifecycle and the refresh or read API, and its header names every partial.
+  Put new work in the partial that owns that concern, or in a new partial named for it. Do not add it
+  to the root file.
 - The `.gha`/`.dll`/`.rhp` is locked while Rhino is open, so the build's copy step fails (MSB3021/
   MSB3027) even after a clean compile — judge a build by `error CS`, not the copy error.
 - Grading is always watertight 2.5D (no holes/spikes); see the tier cascade in `docs/architecture.md`.

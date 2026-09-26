@@ -11,7 +11,14 @@ fields by composing them, not by copying boilerplate.
   scrubs, it never edits. It follows the existing Rhino-aware `UiTheme` rather than introducing a second
   palette.
 
-- `MoleHillPanel.cs` + `MoleHillPanel.*.cs` partials - the panel, split by concern:
+- `MoleHillPanel.cs` + `MoleHillPanel.*.cs` partials - the panel, split by concern. The main file keeps
+  only the controls and card state, construction, the controller subscription and `RefreshUi`; a new
+  section or tab is a new partial, not an addition to it. The fixed sections: `.Toolbar.cs` (terrain
+  selector, New/Copy/Delete, Rebuild/Live, Bake/visibility/lock), `.Settings.cs` (the Terrain Settings
+  card), `.Tabs.cs` (tab strip, lazy rebuild of the visible tab, scroll restore, each tab's add
+  toolbar); shared pieces: `.Controls.cs` (styling, button factories, help), `.Colors.cs` (optional
+  colour editor, ARGB/opacity packing), `.DragDrop.cs` (stack reordering), `.Mutations.cs` (the single
+  path from a card edit to the controller);
   `.Actions.cs` (terrain-level create/copy/delete/convert/bake/rebuild/reset actions),
   `.Cards.cs` (collapsible "stack card" framework), `.RuntimeDiagnostics.cs` (generic per-card issue
   counts and redraw-only **Show Issues** binding), `.Editors.cs` (form-control vocabulary -
@@ -23,8 +30,8 @@ fields by composing them, not by copying boilerplate.
   definition types - because analyses and annotations are separate content families
   (`docs/architecture.md` -> "Analysis vs annotation"). Only the Analysis tab has an eye button: it gates
   analysis output alone. Annotations are always drawn, so the Annotations tab has no such toggle and the
-  per-card checkbox is the only control. The main file holds the toolbar,
-  layout refresh, and shared helpers. Its editable terrain selector combines active-terrain selection
+  per-card checkbox is the only control. Each tab's partial also owns that tab's type labels, colours
+  and collapsed summaries. The toolbar's editable terrain selector combines active-terrain selection
   and rename in one field. Bake is grouped with the visibility/lock output actions. One
   "Output Layers" row names the layer template the terrain routes through, opens the editor, and creates
   its layers; there are no per-terrain or per-card layer pickers. Expanded Smooth/Sculpt cards show a sampled mesh-quality

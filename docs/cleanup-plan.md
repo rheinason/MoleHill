@@ -70,11 +70,12 @@ Future grading work should:
 ## 4. Break up the remaining god files
 Same partial-class decomposition already applied to `TerrainBuildService` and `MoleHillPanel`. Continue
 incrementally:
-- **`UI/MoleHillPanel.cs`** - keep extracting self-contained toolbar/status/zone/marker/card builders
-  into partials. `MoleHillPanel.Status.cs` now owns status text, copy log, copy case, and structured
-  diagnostic formatting.
-- **`Services/TerrainController.cs`** - continue splitting by concern: state, build lifecycle, output,
-  sources, display, and analysis.
+- **`UI/MoleHillPanel.cs`** - done 2026-09-26 (2,847 -> ~480 lines). `BuildContent` became four
+  section builders, and every member now lives in a partial named for its concern.
+- **`Services/TerrainController.cs`** - done 2026-09-26 (2,089 -> ~190 lines, 9 new partials).
+- Both were pure moves: the code lines across each class's files are identical before and after.
+- Next largest partials, if one grows further: `MoleHillPanel.Annotations.cs` (~900),
+  `TerrainController.Display.cs` and `.Build.cs` (~920 each).
 - Assess but do not force: `Engine/SurfaceRemesher.cs`, `TerrainBuildService.Grading.cs`, and
   `GradedRegionAssembler.cs`.
 - Verification for UI/controller splits: compile-clean + Rhino smoke load (panel opens, a build runs).

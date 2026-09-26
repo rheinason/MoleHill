@@ -133,10 +133,15 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   area scatter density), clears caches, saves, and schedules live rebuilds; dimensionless settings do not
   change. `TerrainBuildSnapshot` carries the resolved context to every stage.
 - `TerrainController.cs` + `TerrainController.*.cs` partials - owns document state (JSON in the .3dm)
-  and the terrain command surface; split by concern: `.Build` (scheduling + background-build lifecycle),
-  `.Output` (output sync + bake + attributes + owned-object lifecycle), `.Events` (Rhino doc events,
-  idle, source sync), `.Display` (display state, placement sync, materials). The root file keeps CRUD
-  commands, state/save/undo, sources/selection, and contour helpers. User-authored changes use Rhino's
+  and the terrain command surface; split by concern: `.Terrains` (create/duplicate/delete/convert),
+  `.Edits` (modifier/analysis/annotation/object stacks and `MutateTerrain`), `.Undo`, `.Document`
+  (load/save/recovery), `.Selection`, `.Build` (scheduling + background-build lifecycle),
+  `.RebuildState` (requests, cancellation, worker retirement), `.Dependencies` (runtime caches, build
+  snapshot, dependent terrains), `.Output` (output sync + bake + untrack + attributes + owned-object
+  lifecycle), `.Events` (Rhino doc events, idle, source sync), `.Display` (display state, placement
+  sync, visibility/lock, materials), `.Contours` (contour fast paths), `.Diagnostics`, `.Sculpt`,
+  `.Grasshopper` and `.Interop`. The root file keeps only shared fields, lifecycle and the read API; a
+  new concern is a new partial. User-authored changes use Rhino's
   native Undo/Redo stack: the controller stores serialized before-state snapshots, joins an existing
   command record when one is active, and coalesces live panel gestures into one record. Undo restoration
   cancels stale work, clears caches, persists the restored JSON, and schedules fresh live builds.
