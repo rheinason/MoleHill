@@ -283,6 +283,8 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   straighter than intended is a drafting matter and a failed import is a lost survey.
 
 ## Other
+- `TerrainContentVisibility.cs` - the single rule for whether analysis- or annotation-owned output is
+  shown; the analysis preview and the baked-object display both call it so they cannot disagree.
 - `GeometryCommandService.cs`, `TerrainInputCommandService.cs`, `TerrainInputCommandAlgorithms.cs`,
   `BlockCommandService.cs`, `RhinoSourceResolver.cs`,
   `RhinoGeometryConversions.cs` - command/geometry helpers. Terrain input commands are intentionally

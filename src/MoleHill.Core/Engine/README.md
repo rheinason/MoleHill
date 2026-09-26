@@ -18,8 +18,9 @@ Key files:
   and switch to a bounded vertex scan for long off-mesh runs.
 - `SpatialHashGrid2D.cs` - read-only spatial queries with caller-owned scratch; query cell ranges are
   clamped to the index extent so oversized overlapping queries do not traverse empty space outside it.
-  Cells are **flat CSR** (key -> slot, slot -> a run of item indices), built by a count pass then a fill
-  pass. The index is immutable once built, so a `List<int>` per occupied cell only bought a small object
+  Cells are **flat CSR** (key -> slot, slot -> a run of item indices), stored in `CellMembershipIndex`,
+  which `TerrainFaceGrid` and `MeshHeightProjector` share, and built by its count pass then fill pass.
+  The index is immutable once built, so a `List<int>` per occupied cell only bought a small object
   plus a backing array for each of millions of cells. Both passes visit items in index order, so a
   cell's run is ascending, exactly what the per-cell lists held. Query scratch supports dense stamps
   or a reusable sparse visited set; localized parallel waterflow queries use the latter to avoid
@@ -67,8 +68,8 @@ Key files:
   constraint edges into polylines with arc-length parameters and classifies vertices
   Free/Feature/Corner/Frozen. Short crease-only chains (fold noise in badly triangulated fans) are not
   pinned. Boundary edges (incidence 1) and non-manifold edges (incidence > 2) are read off **one**
-  whole-mesh edge-incidence pass — do not reintroduce a second one via `AddBoundarySegments`, whose
-  capacity-8 dictionary rehashes all the way up to ~1.5× the face count.
+  whole-mesh edge-incidence pass — do not reintroduce a second whole-mesh pass via
+  `AddBoundarySegments`.
 - `LocalMeshRefiner.cs` — connectivity-preserving subdivision-only refiner: Sculpt's region-gated DynTopo
   (needs the cheap region early-out and the no-vertex-motion guarantee) and the Remesh modifier's
   **Local Refine** mode (`Mode == "local"` — fastest/safest on huge terrains and delicate wall/pad
@@ -94,3 +95,6 @@ Key files:
   classification and arc-length parameters a boundary polygon has no use for. Two small correct things
   rather than one general one.
   `SpatialHashGrid2D.cs`, `IndexedMeshTools.cs`, `QualitySettings.cs` — supporting utilities.
+  `IndexedMeshTools` owns the packed edge key, its comparers, and `CountFaceEdges` (edge-use counts in
+  first-use order); use them rather than a local copy. `CellMembershipIndex.cs` — the flat CSR cell
+  store and two-pass builder behind every spatial cell index.

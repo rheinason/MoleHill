@@ -1,5 +1,9 @@
 namespace MoleHill.Core.Engine;
 
+/// <summary>
+/// Collects constraint segments for a re-triangulation: a mesh's naked boundary edges, deduplicated by
+/// packed edge key, plus the triangulation-warning helpers the remeshers share.
+/// </summary>
 public static class MeshConstraintTools
 {
     public static void AddBoundarySegments(
