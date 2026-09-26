@@ -132,7 +132,10 @@ internal static partial class MeshConstraintTopologyInserter
         public List<SegmentPiece> InternalSegments { get; } = new();
         public List<EdgePoint> EdgePoints { get; } = new();
 
-        public bool HasData => InternalSegments.Count > 0 || EdgePoints.Count > 0;
+        /// <summary>Isolated points strictly inside the face, inserted as free vertices.</summary>
+        public List<Point2D> InteriorPoints { get; } = new();
+
+        public bool HasData => InternalSegments.Count > 0 || EdgePoints.Count > 0 || InteriorPoints.Count > 0;
     }
 
     private sealed class LocalPointBuilder
@@ -275,13 +278,42 @@ internal static partial class MeshConstraintTopologyInserter
         out int outputVertexCount,
         out int[] outputFaces,
         out int outputFaceCount,
+        out string? errorMessage) =>
+        TryInsert(
+            vertices, vertexCount, faces, faceCount, constraints, Array.Empty<double>(), tolerance,
+            out outputVertices, out outputVertexCount, out outputFaces, out outputFaceCount, out _, out errorMessage);
+
+    /// <summary>What happened to the isolated points handed to the point-aware <c>TryInsert</c>.</summary>
+    internal readonly record struct PointPlacement(int Inserted, int OnExistingVertex, int OutsideMesh);
+
+    /// <summary>
+    /// Inserts constraint segments and isolated points (<paramref name="pointXy"/>, flat XY) into the
+    /// existing faces. A point within tolerance of an existing vertex is not inserted (the vertex already
+    /// carries the surface there); one on an edge splits that edge in both neighbours; one inside a face
+    /// becomes a free vertex of that face's local triangulation. New vertices take the elevation of the
+    /// face they land in — the caller assigns data elevations afterwards.
+    /// </summary>
+    internal static bool TryInsert(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        double[] pointXy,
+        double tolerance,
+        out double[] outputVertices,
+        out int outputVertexCount,
+        out int[] outputFaces,
+        out int outputFaceCount,
+        out PointPlacement pointPlacement,
         out string? errorMessage)
     {
         errorMessage = null;
         outputVertexCount = vertexCount;
         outputFaceCount = faceCount;
+        pointPlacement = default;
 
-        if (constraints.Count == 0)
+        if (constraints.Count == 0 && pointXy.Length == 0)
         {
             CloneInput(vertices, faces, out outputVertices, out outputFaces);
             return true;
@@ -296,13 +328,14 @@ internal static partial class MeshConstraintTopologyInserter
 
         double resolvedTolerance = Math.Max(tolerance, 1e-9);
         List<ConstraintSegment> segments = BuildConstraintSegments(constraints, resolvedTolerance);
-        if (segments.Count == 0)
+        if (segments.Count == 0 && pointXy.Length == 0)
         {
             CloneInput(vertices, faces, out outputVertices, out outputFaces);
             return true;
         }
 
-        FaceCutData[] faceCuts = MapConstraintSegmentsToFaces(vertices, faces, faceCount, segments, resolvedTolerance);
+        FaceCutData[] faceCuts = MapConstraintSegmentsToFaces(
+            vertices, faces, faceCount, segments, resolvedTolerance, pointXy, out pointPlacement);
         int touchedFaceCount = 0;
         for (int i = 0; i < faceCuts.Length; i++)
         {
@@ -530,13 +563,27 @@ internal static partial class MeshConstraintTopologyInserter
         int[] faces,
         int faceCount,
         List<ConstraintSegment> constraintSegments,
-        double tolerance)
+        double tolerance) =>
+        MapConstraintSegmentsToFaces(vertices, faces, faceCount, constraintSegments, tolerance, Array.Empty<double>(), out _);
+
+    private static FaceCutData[] MapConstraintSegmentsToFaces(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        List<ConstraintSegment> constraintSegments,
+        double tolerance,
+        double[] pointXy,
+        out PointPlacement pointPlacement)
     {
         Bounds2D[] faceBounds = BuildFaceBounds(vertices, faces, faceCount);
         SpatialHashGrid2D grid = SpatialHashGrid2D.Build(faceBounds);
         var scratch = new SpatialHashGrid2D.QueryScratch(faceCount);
         var candidates = new List<int>(16);
         var result = new FaceCutData[faceCount];
+
+        // Points go in before the segments' edge splits are reconciled, so a point that lands on an edge
+        // is conformed into both neighbours by the same pass that conforms segment crossings.
+        pointPlacement = PlacePoints(vertices, faces, pointXy, faceBounds, grid, scratch, candidates, result, tolerance);
 
         foreach (ConstraintSegment segment in constraintSegments)
         {
@@ -581,6 +628,73 @@ internal static partial class MeshConstraintTopologyInserter
 
         ConformSharedEdgeSplits(vertices, faces, faceCount, result, tolerance);
         return result;
+    }
+
+    /// <summary>
+    /// Registers each isolated point with the one face it lands in. The lowest-index containing face
+    /// wins, so a point on a shared edge is recorded once and conformed into the neighbour afterwards.
+    /// </summary>
+    private static PointPlacement PlacePoints(
+        double[] vertices,
+        int[] faces,
+        double[] pointXy,
+        Bounds2D[] faceBounds,
+        SpatialHashGrid2D grid,
+        SpatialHashGrid2D.QueryScratch scratch,
+        List<int> candidates,
+        FaceCutData[] result,
+        double tolerance)
+    {
+        int inserted = 0, onVertex = 0, outside = 0;
+        for (int p = 0; p < pointXy.Length / 2; p++)
+        {
+            var point = new Point2D(pointXy[p * 2], pointXy[(p * 2) + 1]);
+            var query = new Bounds2D(point.X - tolerance, point.X + tolerance, point.Y - tolerance, point.Y + tolerance);
+            grid.GatherCandidates(query, candidates, scratch);
+            candidates.Sort();
+
+            bool placed = false;
+            foreach (int faceIndex in candidates)
+            {
+                if (!faceBounds[faceIndex].Intersects(query))
+                    continue;
+
+                var face = new FaceData(vertices, faces, faceIndex);
+                if (!face.ContainsPoint(point, tolerance))
+                    continue;
+
+                placed = true;
+                if (face.IsNearVertex(point, tolerance))
+                {
+                    onVertex++;
+                    break;
+                }
+
+                result[faceIndex] ??= new FaceCutData();
+                int edgeIndex = face.GetEdgeIndex(point, tolerance);
+                if (edgeIndex >= 0)
+                {
+                    AddUniqueEdgePoint(result[faceIndex].EdgePoints, new EdgePoint(edgeIndex, point), face, tolerance);
+                }
+                else
+                {
+                    List<Point2D> interior = result[faceIndex].InteriorPoints;
+                    bool duplicate = false;
+                    foreach (Point2D existing in interior)
+                        duplicate |= DistanceSquared(existing, point) <= tolerance * tolerance;
+                    if (!duplicate)
+                        interior.Add(point);
+                }
+
+                inserted++;
+                break;
+            }
+
+            if (!placed)
+                outside++;
+        }
+
+        return new PointPlacement(inserted, onVertex, outside);
     }
 
     /// <summary>
@@ -762,6 +876,9 @@ internal static partial class MeshConstraintTopologyInserter
             double parameter = ParameterOnEdge(face.GetEdgeStart(edgePoint.EdgeIndex), face.GetEdgeEnd(edgePoint.EdgeIndex), edgePoint.Point);
             edgePointLists[edgePoint.EdgeIndex].Add((parameter, localIndex));
         }
+
+        foreach (Point2D interiorPoint in cutData.InteriorPoints)
+            localPoints.Add(interiorPoint, face.InterpolateZ(interiorPoint));
 
         var segments = new List<(int a, int b)>();
         var segmentKeys = IndexedMeshTools.CreateEdgeKeySet();

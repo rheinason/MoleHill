@@ -198,6 +198,12 @@ staying unresolved.
 - `TerrainBoundaryTrimmer.cs` - inserts Outer/Hide/Show edges in one conforming split, applies fixed
   `Outer && (!Hide || Show)` precedence, compacts every surviving island into one mesh, and rejects open
   or non-manifold output.
+- `TerrainDetailInserter.cs` - Add Geometry's local path: inserts spot points, breaklines and contours
+  into a finished terrain without re-triangulating it, gives them their data elevations, and reconnects
+  them with `LawsonFlipper.cs` (incremental-Delaunay flips that start only from the new vertices). A
+  vertex on an existing hard constraint or on a face ≥ 70° keeps its elevation, and constraint, boundary
+  and pre-existing wall edges never flip — so walls and every upstream edge survive, which a rebuild from
+  the mesh's own vertices (XY-merged) did not guarantee.
 - `MeshConstraintTopologyInserter.cs` - local constraint insertion (terrain-preserving); intersection
   results are value types in its allocation-sensitive inner loops. Face geometry is a `readonly struct`
   built on demand for candidate faces only (never an object per terrain face), constraint-segment pairs
@@ -207,7 +213,10 @@ staying unresolved.
   re-triangulated as a whole against its own perimeter, adjacent untouched triangles are bisected to stay
   conforming, and elevations are sampled from a lifted wall reference. `.WallQuality.cs` expands the
   patch ring by ring and validates achieved quality, area, perimeter and vertex retention before
-  publishing; the per-face path above is the fallback when it declines. See
+  publishing; the per-face path above is the fallback when it declines. The point-aware `TryInsert`
+  overload also takes isolated points: one on an existing vertex is left out, one on an edge splits it
+  in both neighbours, and one inside a face becomes a free vertex of that face's local triangulation.
+  See
   `docs/wall-pinch-investigation.md` for background and the rejected alternatives.
 - `FaceOwnerGroups.cs` / `SubMeshVertexRemap.cs` - sub-mesh extraction support for the hosts. Group a
   split result's faces by owner **once** (`FaceOwnerGroups`) and reuse one `SubMeshVertexRemap` across

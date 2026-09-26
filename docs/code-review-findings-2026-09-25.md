@@ -29,11 +29,13 @@ failure was reproduced.
 All findings in sections 1 and 2 were fixed on `review-plan-2026-09-19`, with a test for each fix
 where the code can be tested. There are three exceptions:
 
-- **M15 (Add Geometry after walls): not changed.** On closer reading, the mechanism does not hold
-  for Retaining Walls. The wall rails are persistent hard constraints, and breakline merging looks
-  at Z as well as XY. The remaining exposure is narrower: steep faces that sit on no constraint and
-  are thinner than the input merge tolerance. The safe fix there is local insertion rather than
-  re-triangulating everything. Open until someone reproduces it in Rhino.
+- **M15 (Add Geometry after walls): fixed 2026-09-26.** It was reproduced live first. An exact TIN
+  had a 5 mm wide, 5 m high cliff, below the 12.5 mm merge tolerance and on no constraint. The old
+  rebuild's XY merge took it from 99 vertices to 92, removing all 7 cliff-top vertices. Add Geometry
+  now inserts locally through `TerrainDetailInserter` and keeps all 12 cliff faces and 14 cliff
+  vertices. Only the new point's face changed, and the point landed at its own Z. The native suite run
+  inside Rhino is unchanged: 121 pass, the same 19 pre-existing failures. See `docs/architecture.md`
+  → "Add Geometry inserts locally".
 - **Performance and low items:** the Ponding, basin-boundary, Data Clip and Project To distance
   items were fixed without changing output. The section-slicer, reference re-mesh, catchment
   preview and Grasshopper snapshot-hash items, and the duplication and dead-code items, are still

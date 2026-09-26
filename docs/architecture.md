@@ -669,6 +669,17 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   `tolerance × 200` cap (to stop large-site contour explosions) left a sparse breakline between dense
   contours as a few hubs fanning to 100+ vertices each, which is what "the breakline can't hold the
   terrain" looked like. Voids gain no stations, because densifying there measurably worsens the fan.
+- **Add Geometry inserts locally; it does not rebuild.** Its output was always bounded by the incoming
+  terrain's own outline, so it only ever adds detail inside it — yet it used to re-triangulate the whole
+  surface from the mesh's vertices. That re-Delaunayed every edge an upstream stage chose (grading,
+  remesh, walls) and merged vertices by XY alone, so a steep face narrower than `InputMergeTolerance`
+  collapsed (M15 in `docs/code-review-findings-2026-09-25.md`; reproduced live: a 5 mm, 5 m cliff lost
+  all 7 top vertices). `TerrainDetailInserter` now splits only the faces the new data touches, assigns
+  data elevations (new data wins, except on walls: a vertex on an existing hard constraint or on a face
+  ≥ 70° keeps its Z), and runs Lawson flips from the new vertices only, so they gain the neighbourhood an
+  incremental Delaunay insertion would give them. A point on an existing vertex is still merged away and
+  one outside the terrain ignored, each with a diagnostic. The rebuild remains solely as the fallback
+  when local insertion declines, and says so in the build diagnostics.
 - Triangulate **Contour Mode** controls the large-input tradeoff: `Constrained` inserts every contour
   segment, `Vertices only` matches an exploded-points Grasshopper solve, and the default `Auto` switches
   contours to vertex samples at 250,000 source vertices. Breaklines remain constrained; boundary roles

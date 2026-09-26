@@ -441,7 +441,8 @@ internal sealed partial class TerrainBuildService
             return mesh.DuplicateMesh();
         }
 
-        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var meshVertices, out _, out var errorMessage))
+        if (!RhinoGeometryConversions.TryExtractMeshData(
+                mesh, out var meshVertices, out int meshVertexCount, out var meshFaces, out int meshFaceCount, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for add geometry.");
             return mesh;
@@ -454,6 +455,18 @@ internal sealed partial class TerrainBuildService
         double curveTolerance = modifier.Tolerance > 0
             ? modifier.Tolerance
             : toleranceProfile.CurveChordTolerance;
+
+        // Add Geometry only ever adds detail inside the terrain it is given — the rebuild below is bounded
+        // by that terrain's own outline — so insert the new data locally. A rebuild re-Delaunays the whole
+        // surface from its vertices: it discards every edge an upstream stage chose and merges vertices by
+        // XY alone, collapsing any steep face narrower than the merge tolerance. The rebuild stays only as
+        // the fallback for a local insertion that cannot complete.
+        if (TryAddGeometryLocally(
+                meshVertices, meshVertexCount, meshFaces, meshFaceCount, points, breaklineCurves, contourCurves,
+                toleranceProfile, inputTolerance, curveTolerance, build, modifier.Label, out RhinoMesh? localMesh))
+        {
+            return localMesh!;
+        }
 
         int existingPointCount = meshVertices.Length / 3;
         var spotXyz = new double[(existingPointCount + points.Count) * 3];
@@ -576,6 +589,65 @@ internal sealed partial class TerrainBuildService
         if (!string.IsNullOrWhiteSpace(cleanupMessage))
             build.Diagnostics.Add(cleanupMessage);
         return cleanedMesh!;
+    }
+
+    private static bool TryAddGeometryLocally(
+        double[] meshVertices,
+        int meshVertexCount,
+        int[] meshFaces,
+        int meshFaceCount,
+        IReadOnlyList<Point3d> points,
+        IReadOnlyList<Curve> breaklineCurves,
+        IReadOnlyList<Curve> contourCurves,
+        TerrainTolerancePolicy.Profile toleranceProfile,
+        double inputTolerance,
+        double curveTolerance,
+        TerrainBuildResult build,
+        string label,
+        out RhinoMesh? result)
+    {
+        result = null;
+        var pointXyz = new double[points.Count * 3];
+        for (int i = 0; i < points.Count; i++)
+        {
+            pointXyz[i * 3] = points[i].X;
+            pointXyz[(i * 3) + 1] = points[i].Y;
+            pointXyz[(i * 3) + 2] = points[i].Z;
+        }
+
+        var newHardConstraints = CreateConstraintPolylines(breaklineCurves, curveTolerance, preserveInputElevation: true);
+        var newElevationConstraints = CreateConstraintPolylines(contourCurves, curveTolerance, preserveInputElevation: true);
+        if (!TerrainDetailInserter.TryInsert(
+                meshVertices, meshVertexCount, meshFaces, meshFaceCount,
+                pointXyz,
+                CombineConstraints(newHardConstraints, newElevationConstraints),
+                build.PersistentHardConstraints,
+                build.PersistentElevationConstraints,
+                toleranceProfile.RemeshConstraintTolerance,
+                inputTolerance,
+                RemeshWallFaceMinSlopeDeg,
+                out TerrainDetailInserter.Result? inserted,
+                out string? error))
+        {
+            build.Diagnostics.Add($"{label}: local insertion declined ({error ?? "unknown reason"}); rebuilding the terrain instead.");
+            return false;
+        }
+
+        result = RhinoGeometryConversions.BuildMesh(inserted!.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount);
+        var persistentHard = CombineConstraints(build.PersistentHardConstraints, newHardConstraints);
+        var persistentElevation = CombineConstraints(build.PersistentElevationConstraints, newElevationConstraints);
+        build.PersistentHardConstraints.Clear();
+        build.PersistentHardConstraints.AddRange(persistentHard);
+        build.PersistentElevationConstraints.Clear();
+        build.PersistentElevationConstraints.AddRange(persistentElevation);
+
+        if (inserted.PointsOnExistingVertices > 0)
+            build.Diagnostics.Add($"{inserted.PointsOnExistingVertices} added point(s) coincide with existing terrain vertices and were merged.");
+        if (inserted.PointsOutsideTerrain > 0)
+            build.Diagnostics.Add($"{inserted.PointsOutsideTerrain} added point(s) lie outside the terrain and were ignored.");
+        if (inserted.VerticesHeldByWalls > 0)
+            build.Diagnostics.Add($"{inserted.VerticesHeldByWalls} vertex/vertices on walls kept their elevation where added data crosses them.");
+        return true;
     }
 
     private static bool TryBuildValidatedTinMesh(
