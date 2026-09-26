@@ -1,3 +1,5 @@
+using MoleHill.Core.Grading;
+
 namespace MoleHill.Core.Sculpting;
 
 /// <summary>
@@ -84,7 +86,7 @@ public sealed class SculptConstraintMask
         // A point outside the bounding box is outside the polygon; skip the ray cast for it.
         if (region.IsPolygon &&
             region.DistanceOutsideBounds(x, y) <= 0.0 &&
-            IsPointInPolygon(region.XyVertices, region.VertexCount, x, y))
+            GradingGeometry2D.PointInPolygon(x, y, region.XyVertices, region.VertexCount))
         {
             return 0.0;
         }
@@ -106,29 +108,6 @@ public sealed class SculptConstraintMask
 
         double distance = Math.Sqrt(distanceSquared) - region.HalfWidth;
         return Math.Max(0.0, distance);
-    }
-
-    private static bool IsPointInPolygon(double[] xy, int count, double x, double y)
-    {
-        bool inside = false;
-        int previous = count - 1;
-        for (int current = 0; current < count; current++)
-        {
-            double xi = xy[current * 2];
-            double yi = xy[(current * 2) + 1];
-            double xj = xy[previous * 2];
-            double yj = xy[(previous * 2) + 1];
-
-            if (((yi > y) != (yj > y)) &&
-                x < ((xj - xi) * (y - yi) / (yj - yi)) + xi)
-            {
-                inside = !inside;
-            }
-
-            previous = current;
-        }
-
-        return inside;
     }
 
     private static double DistanceToSegmentSquared(

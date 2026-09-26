@@ -649,7 +649,7 @@ internal sealed partial class TerrainBuildService
                 currentVertices[(i * 3) + 1],
                 currentVertices[(i * 3) + 2]);
 
-            if (!IsInsideBoundaries(point, boundaries, tolerance) ||
+            if (!TerrainAnalysisPreviewBuilder.IsInsideBoundaries(point, boundaries, tolerance) ||
                 !TryProjectReferencePoint(projection, point, tolerance, out Point3d basePoint))
             {
                 field[i] = double.NaN;
@@ -1117,7 +1117,7 @@ internal sealed partial class TerrainBuildService
                 (pa.Y + pb.Y + pc.Y) / 3.0,
                 (pa.Z + pb.Z + pc.Z) / 3.0);
 
-            if (!IsInsideBoundaries(centroid, boundaries, tolerance))
+            if (!TerrainAnalysisPreviewBuilder.IsInsideBoundaries(centroid, boundaries, tolerance))
                 continue;
 
             if (!TryProjectReferencePoint(projection, centroid, tolerance, out Point3d basePoint))
@@ -1201,20 +1201,4 @@ internal sealed partial class TerrainBuildService
         if (shouldCancel?.Invoke() == true)
             throw new OperationCanceledException("Terrain rebuild cancelled.");
     }
-
-    private static bool IsInsideBoundaries(Point3d point, IReadOnlyList<Curve> boundaries, double tolerance)
-    {
-        if (boundaries.Count == 0)
-            return true;
-
-        foreach (var curve in boundaries)
-        {
-            var containment = curve.Contains(new Point3d(point.X, point.Y, curve.PointAtStart.Z), Plane.WorldXY, tolerance);
-            if (containment == PointContainment.Inside || containment == PointContainment.Coincident)
-                return true;
-        }
-
-        return false;
-    }
-
 }

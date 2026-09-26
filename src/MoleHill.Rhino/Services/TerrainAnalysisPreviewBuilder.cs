@@ -659,12 +659,18 @@ internal static class TerrainAnalysisPreviewBuilder
         return combined;
     }
 
-    internal static bool IsInsideBoundaries(Point3d point, IReadOnlyList<Curve> boundaries)
+    internal static bool IsInsideBoundaries(Point3d point, IReadOnlyList<Curve> boundaries) =>
+        IsInsideBoundaries(point, boundaries, RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 1e-6);
+
+    /// <summary>
+    /// True when <paramref name="point"/> lies inside or on any boundary in plan, or when there are no
+    /// boundaries. Shared by the preview and the build so both clip an analysis to the same region.
+    /// </summary>
+    internal static bool IsInsideBoundaries(Point3d point, IReadOnlyList<Curve> boundaries, double tolerance)
     {
         if (boundaries.Count == 0)
             return true;
 
-        double tolerance = RhinoDoc.ActiveDoc?.ModelAbsoluteTolerance ?? 1e-6;
         foreach (var curve in boundaries)
         {
             var containment = curve.Contains(new Point3d(point.X, point.Y, curve.PointAtStart.Z), Plane.WorldXY, tolerance);
