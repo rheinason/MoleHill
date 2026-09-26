@@ -60,6 +60,9 @@ internal static class TerrainSectionSlicer
         if (cutPolylineVertices.Count < 2)
             return TerrainSectionResult.Empty;
 
+        // Read once: the vertices do not change between segments, and copying them per segment made a
+        // many-vertex cut line allocate the whole mesh once for every vertex of the line.
+        Point3d[] meshVertices = mesh.Vertices.ToPoint3dArray();
         var perSegmentIntersections = new List<Polyline[]?>(cutPolylineVertices.Count - 1);
         for (int i = 1; i < cutPolylineVertices.Count; i++)
         {
@@ -76,13 +79,12 @@ internal static class TerrainSectionSlicer
 
             var direction = new Vector3d(dx / segmentLength, dy / segmentLength, 0.0);
             var origin = new Point3d(a.X, a.Y, 0.0);
-            var plane = OffsetPlaneOffVertices(mesh, new Plane(origin, direction, Vector3d.ZAxis), tolerance);
+            var plane = OffsetPlaneOffVertices(meshVertices, new Plane(origin, direction, Vector3d.ZAxis), tolerance);
             perSegmentIntersections.Add(Intersection.MeshPlane(mesh, plane));
         }
 
         return SliceFromPolylineIntersections(cutPolylineVertices, perSegmentIntersections, tolerance);
     }
-
 
     /// <summary>
     /// Nudges a cut plane sideways so it does not pass exactly through mesh vertices.
@@ -98,7 +100,7 @@ internal static class TerrainSectionSlicer
     /// and the drawing is identical; only the sampled line moves, by less than half the model tolerance.
     /// It is sized to clear every coincident vertex without reaching the next one along.
     /// </summary>
-    private static Plane OffsetPlaneOffVertices(RhinoMesh mesh, Plane plane, double tolerance)
+    private static Plane OffsetPlaneOffVertices(Point3d[] meshVertices, Plane plane, double tolerance)
     {
         double limit = Math.Max(Math.Abs(tolerance), global::Rhino.RhinoMath.ZeroTolerance) * 0.5;
 
@@ -109,7 +111,7 @@ internal static class TerrainSectionSlicer
         double nearestOff = double.PositiveInfinity;
         bool anyOnPlane = false;
 
-        foreach (Point3d vertex in mesh.Vertices.ToPoint3dArray())
+        foreach (Point3d vertex in meshVertices)
         {
             double distance = Math.Abs(plane.DistanceTo(vertex));
             if (distance <= onPlane)
