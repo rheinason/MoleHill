@@ -37,9 +37,11 @@ where the code can be tested. There are three exceptions:
   inside Rhino is unchanged: 121 pass, the same 19 pre-existing failures. See `docs/architecture.md`
   → "Add Geometry inserts locally".
 - **Performance and low items:** the Ponding, basin-boundary, Data Clip and Project To distance
-  items were fixed without changing output. The section-slicer, reference re-mesh, catchment
-  preview and Grasshopper snapshot-hash items, and the duplication and dead-code items, are still
-  open.
+  items were fixed without changing output. The housekeeping pass of 2026-09-26 (branch
+  `housekeeping-2026-09`) fixed the section-slicer and reference re-mesh items, all three
+  duplication items (the two-family visibility rule, `BuildSubMesh`/`MapVertex`, the CSR cell
+  build) and both dead-code items. The catchment-preview cancellation and Grasshopper
+  snapshot-hash items are still open.
 - **Live Rhino check, 2026-09-25** (Rhino 8.35.26251.13001, router slot `aardvark`, PID 34308,
   exact build loaded from `src/MoleHill.Rhino/bin/Debug/net7.0`):
   - **Native tests run inside Rhino.** The `[RhinoNativeFact]` tests were loaded into the live Rhino

@@ -22,6 +22,26 @@ Status: active, with repository hygiene and documentation maintenance substantia
 - **Grading follow-up:** the tier cascade and copied-case coverage are in place; add a regression whenever
   a real case reaches `grade_pad.all_tiers_deferred`.
 
+## Housekeeping pass (2026-09-26, branch `housekeeping-2026-09`)
+
+- **Dead code (step 1):** done. IDE0051/IDE0052 were raised for one build and the sweep repeated until
+  it was clean, which removed about 1,080 lines. Re-run it the same way. The analyzer runs one target
+  framework at a time, so a member used only under `#if WINDOWS` in the multi-targeted Grasshopper
+  project looks unused. Such a member belongs inside the `#if`, not in the deletion list.
+- **Unused usings and broken XML doc `cref`s:** done. Most broken crefs came from `MoleHill.Rhino` and
+  `MoleHill.Grasshopper` shadowing the `Rhino`/`Grasshopper` root namespaces; write `global::` in a cref.
+- **Dedupe (step 3):** mesh normal orientation (`MoleHill.Shared.MeshNormalOrientation`, with a guard
+  test), split-result sub-meshes (`SplitResultMeshBuilder`), edge-use counting and edge keys
+  (`IndexedMeshTools.CountFaceEdges`/`GetEdgeKey`), the CSR cell index (`CellMembershipIndex`),
+  content visibility (`TerrainContentVisibility`) and two containment predicates now each have one
+  home. Two copies stay separate on purpose: the partition sub-mesh keeps a sorted vertex order as
+  part of its contract, and the annotation builder's boundary test treats "no boundaries" as outside.
+- **Build hygiene:** the `MoleHill.Shared` compile list is one glob import (`MoleHill.Shared.props`),
+  and no test names an absolute developer path (`RepositoryPaths`).
+- **Still open:** step 4 (god files), the catchment-preview cancellation and GH snapshot-hash items in
+  `code-review-findings-2026-09-25.md`, 106 file-index entries whose files have no header comment,
+  and some root clutter (`CaseMeshResult.obj/.mtl`, `GradePadTest.3dmbak`) to delete.
+
 ## 1. Delete dead code (safe, compiler-verifiable)
 - The previously listed `GradedRegionAssembler.Assemble`, `TryBuildOutsideTerrain`, and `RegionInsert`
   cleanup targets are already gone. Do not delete the remaining `GradedRegionAssembler` split/weld
