@@ -12,7 +12,7 @@ namespace MoleHill.Shared;
 /// O(areas x faces), and a fresh hash set plus dictionary per area allocates two whole-vertex-set
 /// structures each time.
 /// </remarks>
-public static class SplitResultMeshBuilder
+internal static class SplitResultMeshBuilder
 {
     /// <summary>
     /// The faces with their vertices in first-touch order, not yet oriented or compacted, for a caller

@@ -10,7 +10,8 @@ therefore needs no project edits, and a file here must compile in all four.
 
 Key files:
 - `MeshNormalOrientation.cs` - the only place an output mesh's winding is unified and its normals
-  computed. It skips `UnifyNormals` when no directed edge repeats. `MeshNormalOrientationGuardTests`
+  computed. Its `...Welded` variant skips `UnifyNormals` when no directed edge repeats, which is only
+  sound on a welded mesh. `MeshNormalOrientationGuardTests`
   fails on any other `UnifyNormals` call.
 - `SplitResultMeshBuilder.cs` - a run of `MeshAreaSplitter.SplitResult` faces as a Rhino mesh, with one
   vertex remap reused across areas. Grasshopper takes the oriented result; the Rhino host normalizes the

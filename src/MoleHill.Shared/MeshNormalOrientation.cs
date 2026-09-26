@@ -10,14 +10,29 @@ namespace MoleHill.Shared;
 /// also welds, culls and caches, which would renumber the vertices of a mesh that carries per-vertex
 /// colours, so a coloured analysis mesh calls this rather than that.
 /// </remarks>
-public static class MeshNormalOrientation
+internal static class MeshNormalOrientation
 {
     /// <summary>
-    /// Unifies face winding when it is inconsistent, then computes vertex normals. Unifying first means
-    /// the normals always describe the final winding; when nothing needs flipping this is exactly one
-    /// <c>ComputeNormals</c>.
+    /// Unifies face winding, then computes vertex normals, so the normals always describe the final
+    /// winding. Safe for any mesh, welded or not.
     /// </summary>
     public static void UnifyAndComputeNormals(Mesh mesh)
+    {
+        mesh.UnifyNormals();
+        mesh.Normals.ComputeNormals();
+    }
+
+    /// <summary>
+    /// <see cref="UnifyAndComputeNormals"/> for a mesh whose coincident vertices are already shared -
+    /// just welded, or a TIN Core built - skipping <c>UnifyNormals</c> when no directed edge repeats.
+    /// </summary>
+    /// <remarks>
+    /// Only valid on a welded mesh. <c>UnifyNormals</c> works on mesh topology, which treats vertices at
+    /// the same position as one, but <see cref="HasConsistentWinding"/> reads raw vertex indices. On an
+    /// unwelded mesh no directed edge can repeat, so the check always passes and a face wound the wrong
+    /// way across a seam of duplicate vertices would never be flipped.
+    /// </remarks>
+    public static void UnifyAndComputeNormalsWelded(Mesh mesh)
     {
         if (!HasConsistentWinding(mesh))
             mesh.UnifyNormals();
@@ -25,11 +40,11 @@ public static class MeshNormalOrientation
     }
 
     /// <summary>
-    /// True when no directed edge occurs twice, which is exactly the condition under which
-    /// <c>UnifyNormals</c> has nothing to flip: two faces that share an edge are consistently wound when
-    /// they traverse it in opposite directions, and an inconsistent pair (or a non-manifold edge, which
-    /// always has two uses in one direction) repeats a directed edge. A mesh holding any quad reports
-    /// false, so <c>UnifyNormals</c> still decides for it.
+    /// True when no directed edge occurs twice, which on a welded mesh is exactly the condition under
+    /// which <c>UnifyNormals</c> has nothing to flip: two faces that share an edge are consistently wound
+    /// when they traverse it in opposite directions, and an inconsistent pair (or a non-manifold edge,
+    /// which always has two uses in one direction) repeats a directed edge. A mesh holding any quad
+    /// reports false, so <c>UnifyNormals</c> still decides for it.
     /// </summary>
     /// <remarks>
     /// <c>UnifyNormals</c> was ~40 ms of every normalization on a 111k-face terrain, and every mesh-producing

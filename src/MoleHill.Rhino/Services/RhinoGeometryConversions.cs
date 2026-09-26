@@ -210,7 +210,7 @@ internal static class RhinoGeometryConversions
         mesh.Vertices.CombineIdentical(true, true);
         mesh.Vertices.CullUnused();
         mesh.Faces.CullDegenerateFaces();
-        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
+        MeshNormalOrientation.UnifyAndComputeNormalsWelded(mesh);
         mesh.Compact();
         CacheMeshData(mesh, BuildMeshData(mesh));
         MarkNormalized(mesh);
@@ -222,7 +222,7 @@ internal static class RhinoGeometryConversions
     /// </summary>
     private static void FinalizeKnownTriangleMesh(Mesh mesh)
     {
-        MeshNormalOrientation.UnifyAndComputeNormals(mesh);
+        MeshNormalOrientation.UnifyAndComputeNormalsWelded(mesh);
         mesh.Compact();
         CacheMeshData(mesh, BuildMeshData(mesh));
         MarkNormalized(mesh);
