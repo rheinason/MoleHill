@@ -46,13 +46,9 @@ internal class TerrainFaceGrid
 
     private readonly double[] _verts;
     private readonly int[] _faces;
-    // Flat CSR cells: key -> slot, slot -> [_cellStart[slot], _cellStart[slot + 1]) in _cellFaces.
-    // A Dictionary<long, List<int>> reserved by face count allocated a List object plus its backing
-    // array for every occupied cell - millions of small objects on a large terrain - and over-reserved
-    // the dictionary itself by ~4x, since the default cell size targets about faceCount / 4 cells.
-    private readonly Dictionary<long, int> _cellSlots;
-    private readonly int[] _cellStart;
-    private readonly int[] _cellFaces;
+    // Faces by covered cell, ascending within each cell. Reserved by half the face count: the default
+    // cell size targets about faceCount / 4 cells, so reserving by face count over-reserved by ~4x.
+    private readonly CellMembershipIndex _cells;
     private readonly double _invCell;
     private readonly int _faceCount;
 
@@ -88,9 +84,9 @@ internal class TerrainFaceGrid
         double cellSize = ScaleAwareTolerance.ResolveLength(requestedCellSize, span);
         _invCell = 1.0 / cellSize;
 
-        // Pass 1: assign a slot to every occupied cell and count its memberships.
-        _cellSlots = new Dictionary<long, int>(Math.Max(16, faceCount / 2), IndexedMeshTools.CellKeyComparer.Instance);
-        var counts = new List<int>(Math.Max(16, faceCount / 2));
+        // Pass 1: count every membership. Pass 2: fill. Faces are visited in source order, so each cell's
+        // run stays ascending - the order point location's first-match rule depends on.
+        var cells = new CellMembershipIndex.Builder(faceCount / 2);
         for (int f = 0; f < faceCount; f++)
         {
             GetFaceCellRange(vertices, faces, f, out long cMinX, out long cMaxX, out long cMinY, out long cMaxY);
@@ -98,34 +94,12 @@ internal class TerrainFaceGrid
             {
                 for (long cx = cMinX; cx <= cMaxX; cx++)
                 {
-                    long key = CellKey(cx, cy);
-                    if (!_cellSlots.TryGetValue(key, out int slot))
-                    {
-                        slot = counts.Count;
-                        _cellSlots[key] = slot;
-                        counts.Add(0);
-                    }
-
-                    counts[slot]++;
+                    cells.Count(CellKey(cx, cy));
                 }
             }
         }
 
-        _cellStart = new int[counts.Count + 1];
-        int running = 0;
-        for (int slot = 0; slot < counts.Count; slot++)
-        {
-            _cellStart[slot] = running;
-            running += counts[slot];
-        }
-
-        _cellStart[counts.Count] = running;
-
-        // Pass 2: fill. Faces are visited in source order, so each cell's run stays ascending - the
-        // order the per-cell lists had, which point location's first-match rule depends on.
-        _cellFaces = new int[running];
-        var cursor = new int[counts.Count];
-        Array.Copy(_cellStart, cursor, counts.Count);
+        cells.BeginFill();
         for (int f = 0; f < faceCount; f++)
         {
             GetFaceCellRange(vertices, faces, f, out long cMinX, out long cMaxX, out long cMinY, out long cMaxY);
@@ -133,11 +107,12 @@ internal class TerrainFaceGrid
             {
                 for (long cx = cMinX; cx <= cMaxX; cx++)
                 {
-                    int slot = _cellSlots[CellKey(cx, cy)];
-                    _cellFaces[cursor[slot]++] = f;
+                    cells.Add(CellKey(cx, cy), f);
                 }
             }
         }
+
+        _cells = cells.Build();
     }
 
     private void GetFaceCellRange(
@@ -168,14 +143,7 @@ internal class TerrainFaceGrid
     private static long CellKey(long cellX, long cellY) => (cellX * 0x100000001L) ^ (cellY * 0x27d4eb2dL);
 
     /// <summary>Faces registered in the cell containing (cellX, cellY), ascending. Empty when unoccupied.</summary>
-    private ReadOnlySpan<int> CellFaces(long cellX, long cellY)
-    {
-        if (!_cellSlots.TryGetValue(CellKey(cellX, cellY), out int slot))
-            return ReadOnlySpan<int>.Empty;
-
-        int start = _cellStart[slot];
-        return _cellFaces.AsSpan(start, _cellStart[slot + 1] - start);
-    }
+    private ReadOnlySpan<int> CellFaces(long cellX, long cellY) => _cells.Items(CellKey(cellX, cellY));
 
     public bool TryFindRayDaylightReach(
         double edgeX,
