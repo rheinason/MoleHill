@@ -263,7 +263,6 @@ internal class TerrainFaceGrid
         if (maxReach <= 1e-9)
             return false;
 
-        const double insideTolerance = 1e-8;
         const double diffTolerance = 1e-5;
         double bestAbsDiff = double.MaxValue;
         double bestReach = 0.0;
@@ -272,6 +271,9 @@ internal class TerrainFaceGrid
         for (int candidateIndex = 0; candidateIndex < candidateCount; candidateIndex++)
         {
             int f = candidates is null ? candidateIndex : candidates[candidateIndex];
+            if (!TryClipRayToFace(f, edgeX, edgeY, dirX, dirY, maxReach, out double low, out double high, out double denom))
+                continue;
+
             int i0 = _faces[f * 3];
             int i1 = _faces[f * 3 + 1];
             int i2 = _faces[f * 3 + 2];
@@ -284,25 +286,6 @@ internal class TerrainFaceGrid
             double x2 = _verts[i2 * 3];
             double y2 = _verts[i2 * 3 + 1];
             double z2 = _verts[i2 * 3 + 2];
-
-            double denom = ((y1 - y2) * (x0 - x2)) + ((x2 - x1) * (y0 - y2));
-            if (Math.Abs(denom) <= 1e-16)
-                continue;
-
-            ComputeBarycentric(edgeX, edgeY, x0, y0, x1, y1, x2, y2, denom, out double a0, out double b0, out double c0);
-            ComputeBarycentric(edgeX + (dirX * maxReach), edgeY + (dirY * maxReach), x0, y0, x1, y1, x2, y2, denom, out double a1, out double b1, out double c1);
-
-            double low = 0.0;
-            double high = maxReach;
-            if (!ClipRayInterval(a0, (a1 - a0) / maxReach, -insideTolerance, ref low, ref high) ||
-                !ClipRayInterval(b0, (b1 - b0) / maxReach, -insideTolerance, ref low, ref high) ||
-                !ClipRayInterval(c0, (c1 - c0) / maxReach, -insideTolerance, ref low, ref high))
-            {
-                continue;
-            }
-
-            if (high < 1e-8)
-                continue;
 
             low = Math.Max(low, 1e-8);
             double lowDiff = RayTerrainGradeDifference(edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, low, x0, y0, z0, x1, y1, z1, x2, y2, z2, denom);
@@ -347,6 +330,53 @@ internal class TerrainFaceGrid
 
         bestApproachReach = bestReach;
         return false;
+    }
+
+    /// <summary>
+    /// The part of the ray [0, <paramref name="maxReach"/>] inside face <paramref name="f"/>, within the
+    /// barycentric inside-tolerance; false when the ray misses it. The one definition of "the ray crosses
+    /// this face": the daylight search skips every face this rejects, and the candidate gather applies
+    /// the same test so that only crossed faces are kept and sorted.
+    /// </summary>
+    private bool TryClipRayToFace(
+        int f,
+        double edgeX,
+        double edgeY,
+        double dirX,
+        double dirY,
+        double maxReach,
+        out double low,
+        out double high,
+        out double denom)
+    {
+        const double insideTolerance = 1e-8;
+        low = 0.0;
+        high = maxReach;
+        int i0 = _faces[f * 3];
+        int i1 = _faces[f * 3 + 1];
+        int i2 = _faces[f * 3 + 2];
+        double x0 = _verts[i0 * 3];
+        double y0 = _verts[i0 * 3 + 1];
+        double x1 = _verts[i1 * 3];
+        double y1 = _verts[i1 * 3 + 1];
+        double x2 = _verts[i2 * 3];
+        double y2 = _verts[i2 * 3 + 1];
+
+        denom = ((y1 - y2) * (x0 - x2)) + ((x2 - x1) * (y0 - y2));
+        if (Math.Abs(denom) <= 1e-16)
+            return false;
+
+        ComputeBarycentric(edgeX, edgeY, x0, y0, x1, y1, x2, y2, denom, out double a0, out double b0, out double c0);
+        ComputeBarycentric(edgeX + (dirX * maxReach), edgeY + (dirY * maxReach), x0, y0, x1, y1, x2, y2, denom, out double a1, out double b1, out double c1);
+
+        if (!ClipRayInterval(a0, (a1 - a0) / maxReach, -insideTolerance, ref low, ref high) ||
+            !ClipRayInterval(b0, (b1 - b0) / maxReach, -insideTolerance, ref low, ref high) ||
+            !ClipRayInterval(c0, (c1 - c0) / maxReach, -insideTolerance, ref low, ref high))
+        {
+            return false;
+        }
+
+        return high >= 1e-8;
     }
 
     private bool TryGatherRayCandidates(
@@ -406,12 +436,51 @@ internal class TerrainFaceGrid
             return false;
         }
 
+        // Only faces the ray actually crosses are kept. The daylight search skips every other face without
+        // touching its state, so dropping them here changes nothing, and it matters: the cell box of a
+        // diagonal ray covers thousands of faces the ray never meets, and sorting all of them was a third
+        // of PadGrader.Grade on the geometry-heavy fixture. A face in several traversed cells is tested
+        // once per cell, which is cheaper than the face-sized stamp array this class deliberately gave up.
+        //
+        // Cells are walked as a corridor along the ray, not the ray's whole bounding box: per row, only
+        // the columns the ray spans across that row and the rows either side of it, plus one column each
+        // way. A face the ray crosses holds a ray point p in its bounds (to within the barycentric
+        // tolerance), so it is registered in a cell at most one row and column from p's, and that cell's
+        // row sees p's x in its span - the same one-cell margin the box padding provided. On a diagonal
+        // ray the box is mostly cells the ray never comes near.
+        double cellSize = 1.0 / _invCell;
+        double rayDx = endX - edgeX;
+        double rayDy = endY - edgeY;
         for (long cy = minCellY; cy <= maxCellY; cy++)
         {
-            for (long cx = minCellX; cx <= maxCellX; cx++)
+            double spanMinX;
+            double spanMaxX;
+            if (Math.Abs(rayDy) <= 1e-12 * Math.Max(1.0, Math.Abs(rayDx)))
+            {
+                spanMinX = Math.Min(edgeX, endX);
+                spanMaxX = Math.Max(edgeX, endX);
+            }
+            else
+            {
+                double t0 = (((cy - 1) * cellSize) - edgeY) / rayDy;
+                double t1 = (((cy + 2) * cellSize) - edgeY) / rayDy;
+                double tLow = Math.Clamp(Math.Min(t0, t1), 0.0, 1.0);
+                double tHigh = Math.Clamp(Math.Max(t0, t1), 0.0, 1.0);
+                double xa = edgeX + (rayDx * tLow);
+                double xb = edgeX + (rayDx * tHigh);
+                spanMinX = Math.Min(xa, xb);
+                spanMaxX = Math.Max(xa, xb);
+            }
+
+            long rowMinX = Math.Max(minCellX, (long)Math.Floor(spanMinX * _invCell) - 1);
+            long rowMaxX = Math.Min(maxCellX, (long)Math.Floor(spanMaxX * _invCell) + 1);
+            for (long cx = rowMinX; cx <= rowMaxX; cx++)
             {
                 foreach (int face in CellFaces(cx, cy))
-                    scratch.Add(face);
+                {
+                    if (TryClipRayToFace(face, edgeX, edgeY, dirX, dirY, maxReach, out _, out _, out _))
+                        scratch.Add(face);
+                }
             }
         }
 

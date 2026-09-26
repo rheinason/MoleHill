@@ -5,6 +5,56 @@ namespace MoleHill.Core.Tests;
 
 public class TerrainFaceGridTests
 {
+    /// <summary>
+    /// The grid ray search gathers only a corridor of cells along the ray and keeps only faces the ray
+    /// crosses. Both are claimed to leave the answer bit-identical to scanning every face in order, so
+    /// this checks exactly that, on an irregular mesh where faces straddle cells unevenly, with rays at
+    /// every angle, exactly axis-aligned, nearly axis-aligned, and starting on cell boundaries.
+    /// </summary>
+    [Fact]
+    public void TryFindRayDaylightReach_CorridorOnIrregularMesh_IsBitIdenticalToLinearScan()
+    {
+        DrainageTestTerrain.Mesh mesh = DrainageTestTerrain.Create(70, 3.0, 0.8);
+        double[] vertices = (double[])mesh.Vertices.Clone();
+        var jitter = new Random(90210);
+        for (int v = 0; v < mesh.VertexCount; v++)
+        {
+            vertices[v * 3] += (jitter.NextDouble() - 0.5) * 0.7;
+            vertices[(v * 3) + 1] += (jitter.NextDouble() - 0.5) * 0.7;
+        }
+
+        var terrain = new TerrainFaceGrid(vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount);
+        var random = new Random(4417);
+        for (int trial = 0; trial < 3000; trial++)
+        {
+            double edgeX = trial % 7 == 0 ? Math.Round(random.NextDouble() * 70.0) : -3.0 + (random.NextDouble() * 76.0);
+            double edgeY = trial % 11 == 0 ? Math.Round(random.NextDouble() * 70.0) : -3.0 + (random.NextDouble() * 76.0);
+            double angle = (trial % 5) switch
+            {
+                0 => (random.Next(4) * Math.PI) / 2.0,                              // exactly axis-aligned
+                1 => ((random.Next(4) * Math.PI) / 2.0) + ((random.NextDouble() - 0.5) * 1e-9), // nearly
+                _ => random.NextDouble() * Math.PI * 2.0
+            };
+            double dirX = Math.Cos(angle);
+            double dirY = Math.Sin(angle);
+            double edgeZ = -4.0 + (random.NextDouble() * 12.0);
+            double slopeRatio = 0.05 + (random.NextDouble() * 1.5);
+            double branchSign = random.Next(2) == 0 ? -1.0 : 1.0;
+            double maxReach = 0.1 + (random.NextDouble() * 40.0);
+
+            bool expected = terrain.TryFindRayDaylightReachLinearForDiagnostics(
+                edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, maxReach,
+                out double expectedReach, out double expectedBestApproach);
+            bool actual = terrain.TryFindRayDaylightReach(
+                edgeX, edgeY, edgeZ, dirX, dirY, slopeRatio, branchSign, maxReach,
+                out double actualReach, out double actualBestApproach);
+
+            Assert.Equal(expected, actual);
+            Assert.Equal(expectedReach, actualReach);
+            Assert.Equal(expectedBestApproach, actualBestApproach);
+        }
+    }
+
     [Fact]
     public void TryFindRayDaylightReach_GridCandidates_MatchLinearTraversal()
     {
