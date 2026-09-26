@@ -259,6 +259,29 @@ internal static class RhinoGeometryConversions
 
     internal static bool IsNormalizedMesh(Mesh mesh) => NormalizedMeshes.TryGetValue(mesh, out _);
 
+    /// <summary>
+    /// <c>DuplicateMesh</c>, keeping what is known about the source: its extracted arrays and its
+    /// normalized marker. A duplicate has the same vertex and face lists, so both stay exact.
+    /// </summary>
+    /// <remarks>
+    /// Every stage-cache store and restore goes through a duplicate. A bare <c>DuplicateMesh</c> dropped
+    /// both, so the next stage's <see cref="TryExtractMeshData(Mesh, out double[], out int, out int[], out int, out string?)"/>
+    /// missed the cache and duplicated and fully re-normalized a mesh that was already normalized:
+    /// ~60 ms on 124k faces, of which <c>UnifyNormals</c> alone is ~40 ms. The arrays are shared, not
+    /// copied. Extracted arrays are read-only by convention already (the same instance's arrays are
+    /// handed to every stage that reads it), and a consumer that needs to write clones them first, as
+    /// Sculpt does.
+    /// </remarks>
+    internal static Mesh DuplicateWithCachedData(Mesh mesh)
+    {
+        Mesh duplicate = mesh.DuplicateMesh();
+        if (MeshDataCache.TryGetValue(mesh, out ExtractedMeshData? data))
+            CacheMeshData(duplicate, data);
+        if (IsNormalizedMesh(mesh))
+            MarkNormalized(duplicate);
+        return duplicate;
+    }
+
     private static bool TryBuildMeshData(Mesh mesh, out ExtractedMeshData data, out string? errorMessage)
     {
         errorMessage = null;

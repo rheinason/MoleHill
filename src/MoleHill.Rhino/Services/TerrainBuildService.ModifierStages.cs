@@ -23,7 +23,7 @@ internal sealed partial class TerrainBuildService
         {
             var progress = new TerrainBuildProgressReporter(c.ReportProgress);
             progress.Start("Base-mesh duplicate");
-            c.BaseMesh = c.CurrentMesh.DuplicateMesh();
+            c.BaseMesh = RhinoGeometryConversions.DuplicateWithCachedData(c.CurrentMesh);
             progress.Complete("Base-mesh duplicate", $"{c.BaseMesh.Vertices.Count:N0} vertices, {c.BaseMesh.Faces.Count:N0} faces");
             c.BaseMeshFingerprint = ComputeMeshFingerprint(c.BaseMesh);
         }

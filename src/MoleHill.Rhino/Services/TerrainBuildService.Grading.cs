@@ -299,8 +299,10 @@ internal sealed partial class TerrainBuildService
             // of the upstream on the failure branch) and nothing mutates them afterwards, so the cache
             // takes it as it is rather than duplicating the whole topology a second time.
             runtimeCache.GradingTopologyEntries[topologyStageKey] = topologyEntry;
+            // Named apart from the stage row: both used to read "Grade Pad", so the stage total and the
+            // grader's own time were indistinguishable in a timing report and summed in the perf lane.
             build.RecordTiming(
-                "Grade Pad",
+                "Grade Pad Topology",
                 topologyTimer.Elapsed,
                 gradePadTopologyFailed
                     ? $"failed; upstream {topologyVertexCount:N0} verts, {topologyFaceCount:N0} faces retained"
@@ -1272,7 +1274,7 @@ internal sealed partial class TerrainBuildService
         if (mode == TerrainBuildMode.Preview)
         {
             build.Diagnostics.Add("In-Situ Stair preview deferred to full rebuild.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))

@@ -66,7 +66,7 @@ internal sealed partial class TerrainBuildService
                     build.StructuredDiagnostics.Skip(structuredDiagnosticsStart), progress);
             }
 
-            RhinoMesh exactTin = exactTinMeshes[0].DuplicateMesh();
+            RhinoMesh exactTin = exactTinMeshes[0].DuplicateMesh(); // plain: it is mutated below, so nothing cached may ride along
             if (exactTin.Faces.QuadCount > 0)
                 exactTin.Faces.ConvertQuadsToTriangles();
             if (!RhinoGeometryConversions.TryExtractMeshData(exactTin, out _, out _, out string? exactTinError))
@@ -438,7 +438,7 @@ internal sealed partial class TerrainBuildService
         if (points.Count == 0 && breaklineCurves.Count == 0 && contourCurves.Count == 0)
         {
             build.Diagnostics.Add("Add Geometry has no sources.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         if (!RhinoGeometryConversions.TryExtractMeshData(
@@ -840,7 +840,7 @@ internal sealed partial class TerrainBuildService
                 mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for remesh.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         // The isotropic remesher only PINS constraints that already run along mesh edges; it never inserts
@@ -864,7 +864,7 @@ internal sealed partial class TerrainBuildService
             else
             {
                 build.Diagnostics.Add($"Remesh skipped because its constraint curves could not be inserted: {insertError}");
-                return mesh.DuplicateMesh();
+                return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
             }
         }
 
@@ -878,7 +878,7 @@ internal sealed partial class TerrainBuildService
         if (target <= 0)
         {
             build.Diagnostics.Add("Remesh skipped: could not derive a target edge length.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         IsotropicRemesher.Result result = IsotropicRemesher.Remesh(
@@ -901,7 +901,7 @@ internal sealed partial class TerrainBuildService
         if (!result.Success)
         {
             build.Diagnostics.Add((result.Warning ?? "Remesh kept the upstream mesh unchanged.") + $" [{result.Timing}]");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         build.Diagnostics.Add(
@@ -971,7 +971,7 @@ internal sealed partial class TerrainBuildService
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for remesh.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         LocalMeshRefiner.Result result = LocalMeshRefiner.Refine(
@@ -990,7 +990,7 @@ internal sealed partial class TerrainBuildService
         if (!result.Success)
         {
             build.Diagnostics.Add(result.Warning ?? "Remesh local refine kept the upstream mesh unchanged.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         build.Diagnostics.Add(
@@ -1020,7 +1020,7 @@ internal sealed partial class TerrainBuildService
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out var faces, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for retopo.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         double edgeLength = modifier.TargetEdgeLength;
@@ -1055,13 +1055,13 @@ internal sealed partial class TerrainBuildService
         if (!result.Success || result.QuadCount == 0)
         {
             build.Diagnostics.Add(result.Warning ?? "Retopo produced no quads; kept the input mesh.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         if (!ValidateQuadDominantTopology(faces, result.Quads, result.Tris, out string? topologyWarning))
         {
             build.Diagnostics.Add(topologyWarning ?? "Retopo produced invalid topology; kept the input mesh.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         build.Diagnostics.Add(

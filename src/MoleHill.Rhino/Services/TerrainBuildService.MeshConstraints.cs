@@ -493,7 +493,10 @@ internal sealed partial class TerrainBuildService
 
     private static RhinoMesh FinalizeGradingMesh(RhinoMesh mesh, string sourceLabel, TerrainBuildResult build)
     {
-        RhinoGeometryConversions.NormalizeMeshInPlace(mesh);
+        // Every caller passes BuildMesh output, which is normalized already. Normalizing again cannot
+        // change it and cost a second UnifyNormals plus array read-back (~60 ms on 111k faces).
+        if (!RhinoGeometryConversions.IsNormalizedMesh(mesh))
+            RhinoGeometryConversions.NormalizeMeshInPlace(mesh);
         build.Diagnostics.Add($"{sourceLabel} skipped tiny-face deletion; grading output must not introduce holes.");
         return mesh;
     }

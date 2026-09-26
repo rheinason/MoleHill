@@ -144,11 +144,11 @@ internal sealed partial class TerrainBuildService
     {
         TriangulateModifierDefinition? owner = GetBoundaryOwner(terrain);
         if (owner == null || (!owner.OuterBoundaries.HasReferences && !owner.HideBoundaries.HasReferences && !owner.ShowBoundaries.HasReferences))
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out double[] vertices, out int[] faces, out string? extractionError))
         {
             build.Diagnostics.Add(extractionError ?? "Could not extract terrain mesh for boundary trimming.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
         double tolerance = GetToleranceProfile(snapshot, terrain).CurveChordTolerance;
@@ -163,7 +163,7 @@ internal sealed partial class TerrainBuildService
         if (result == null)
         {
             build.Diagnostics.Add(error ?? "Terrain boundary trim failed.");
-            return mesh.DuplicateMesh();
+            return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
         if (shows.Count > 0 && !result.ShowRestoredAnyFace)
             build.Diagnostics.Add("Show boundaries did not restore any hidden terrain area.");

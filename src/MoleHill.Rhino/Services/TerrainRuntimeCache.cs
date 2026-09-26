@@ -564,7 +564,9 @@ internal sealed class FingerprintBuilder
 
 internal static class TerrainRuntimeCacheCloner
 {
-    public static RhinoMesh? CloneMesh(RhinoMesh? mesh) => mesh?.DuplicateMesh();
+    /// <summary>Carries the extracted arrays across, so a restored stage mesh is not re-normalized downstream.</summary>
+    public static RhinoMesh? CloneMesh(RhinoMesh? mesh) =>
+        mesh == null ? null : RhinoGeometryConversions.DuplicateWithCachedData(mesh);
 
     /// <summary>
     /// Deep-copies one summary, member by member.
