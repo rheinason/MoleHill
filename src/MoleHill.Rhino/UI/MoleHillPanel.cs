@@ -148,6 +148,48 @@ public sealed partial class MoleHillPanel : Panel
     {
         _stateChangedHandler = HandleControllerStateChanged;
 
+        WireToolbarControls();
+        WireSettingsControls();
+
+        SubscribeControllerStateChanged();
+        LoadComplete += OnPanelLoadComplete;
+        UnLoad += OnPanelUnLoad;
+        RhinoApp.AppSettingsChanged += OnAppSettingsChanged;
+
+        Content = BuildContent();
+        RefreshUi();
+    }
+
+    private Control BuildContent()
+    {
+        var toolbar = BuildTerrainToolbar();
+        var settingsCard = BuildSettingsCard();
+        var statusCard = BuildStatusCard();
+
+        var top = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 0,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Items =
+            {
+                new StackLayoutItem(toolbar, HorizontalAlignment.Stretch),
+                new StackLayoutItem(settingsCard, HorizontalAlignment.Stretch),
+                new StackLayoutItem(statusCard, HorizontalAlignment.Stretch)
+            }
+        };
+
+        var tabsContainer = BuildTabs();
+
+        var layout = new DynamicLayout();
+        layout.Add(top, yscale: false);
+        layout.Add(tabsContainer, yscale: true);
+        return layout;
+    }
+
+    /// <summary>The terrain selector, Live toggle, visibility and lock buttons: their handlers and help.</summary>
+    private void WireToolbarControls()
+    {
         ApplyHelp(_terrainSelector, "Rename the active terrain, or open the list to select another terrain. Renames commit when you press Enter or leave the field.");
         StyleComboBox(_terrainSelector);
         BindTerrainSelector();
@@ -160,6 +202,33 @@ public sealed partial class MoleHillPanel : Panel
             MutateSelectedTerrain(terrain => terrain.LiveUpdateEnabled = _liveUpdate.Checked == true, scheduleRebuild: false);
         };
 
+        _visibilityButton.Click += (_, _) =>
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+            if (doc == null || terrain == null)
+                return;
+
+            _controller.SetTerrainVisible(doc, terrain.TerrainId, !terrain.IsVisible);
+        };
+
+        _lockButton.Click += (_, _) =>
+        {
+            var doc = RhinoDoc.ActiveDoc;
+            var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
+            if (doc == null || terrain == null)
+                return;
+
+            _controller.SetTerrainLocked(doc, terrain.TerrainId, !terrain.IsLocked);
+        };
+        ApplyHelp(_liveUpdate, "Automatically rebuild when referenced Rhino geometry or layers change.");
+        ApplyHelp(_visibilityButton, "Hide or show all generated terrain outputs.");
+        ApplyHelp(_lockButton, "Lock or unlock MoleHill-managed live document outputs. Source geometry and previously baked objects are unaffected.");
+    }
+
+    /// <summary>The Terrain Settings card's controls: tolerance, opacity and colour, preview line weight, and bake tracking.</summary>
+    private void WireSettingsControls()
+    {
         _toleranceStepper.DecimalPlaces = 3;
         _toleranceStepper.Increment = 0.1;
         _toleranceStepper.MinValue = 0;
@@ -322,40 +391,10 @@ public sealed partial class MoleHillPanel : Panel
         _untrackSelectedBakesButton.Click += OnUntrackSelectedBakes;
         ApplyHelp(_untrackAllBakesButton, "Forget all baked objects currently tracked by this terrain without deleting them.");
         _untrackAllBakesButton.Click += OnUntrackAllBakes;
-
-        _visibilityButton.Click += (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
-            if (doc == null || terrain == null)
-                return;
-
-            _controller.SetTerrainVisible(doc, terrain.TerrainId, !terrain.IsVisible);
-        };
-
-        _lockButton.Click += (_, _) =>
-        {
-            var doc = RhinoDoc.ActiveDoc;
-            var terrain = doc == null ? null : _controller.GetSelectedTerrain(doc);
-            if (doc == null || terrain == null)
-                return;
-
-            _controller.SetTerrainLocked(doc, terrain.TerrainId, !terrain.IsLocked);
-        };
-        ApplyHelp(_liveUpdate, "Automatically rebuild when referenced Rhino geometry or layers change.");
-        ApplyHelp(_visibilityButton, "Hide or show all generated terrain outputs.");
-        ApplyHelp(_lockButton, "Lock or unlock MoleHill-managed live document outputs. Source geometry and previously baked objects are unaffected.");
-
-        SubscribeControllerStateChanged();
-        LoadComplete += OnPanelLoadComplete;
-        UnLoad += OnPanelUnLoad;
-        RhinoApp.AppSettingsChanged += OnAppSettingsChanged;
-
-        Content = BuildContent();
-        RefreshUi();
     }
 
-    private Control BuildContent()
+    /// <summary>The two-row terrain toolbar: identity and New/Copy/Delete, then Rebuild/Live and Bake/visibility/lock.</summary>
+    private Control BuildTerrainToolbar()
     {
         _newButton = MakeIconButton(PanelButtonIcon.Add, OnNewTerrain, "Create a new terrain");
         _dupButton = MakeIconButton(PanelButtonIcon.Duplicate, OnDuplicateTerrain, "Duplicate selected terrain");
@@ -482,6 +521,12 @@ public sealed partial class MoleHillPanel : Panel
             }
         };
 
+        return toolbar;
+    }
+
+    /// <summary>The collapsible Terrain Settings card.</summary>
+    private Control BuildSettingsCard()
+    {
         // ── Settings card (collapsible, expanded by default) ─────────
         var settingsDescription = UiControls.Label("Document defaults, layers, and terrain display", UiLabelRole.Meta);
         var settingsHeader = new SectionHeader(
@@ -615,6 +660,12 @@ public sealed partial class MoleHillPanel : Panel
         var settingsStrip = new Panel { Width = UiMetrics.CardAccentWidth, BackgroundColor = UiTheme.ZoneStripColor };
         var settingsCard = WrapCardControl(settingsCardBody, settingsStrip, UiTheme.CardBackground);
 
+        return settingsCard;
+    }
+
+    /// <summary>The collapsible Status card: build log and the copy-log / copy-case actions.</summary>
+    private Control BuildStatusCard()
+    {
         // ── Status card (collapsible, collapsed by default) ───────────
         var statusHeader = new SectionHeader(
             "Status",
@@ -660,19 +711,12 @@ public sealed partial class MoleHillPanel : Panel
             }
         };
 
-        var top = new StackLayout
-        {
-            Orientation = Orientation.Vertical,
-            Spacing = 0,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Items =
-            {
-                new StackLayoutItem(toolbar, HorizontalAlignment.Stretch),
-                new StackLayoutItem(settingsCard, HorizontalAlignment.Stretch),
-                new StackLayoutItem(statusCard, HorizontalAlignment.Stretch)
-            }
-        };
+        return statusCard;
+    }
 
+    /// <summary>The five-tab strip, with eye toggles on Zones and Analysis, above the selected tab's scrollable.</summary>
+    private Control BuildTabs()
+    {
         // ── Custom tab strip with eye toggles on Zones and Analysis ──────
         var tabScrollables = new[]
         {
@@ -910,10 +954,7 @@ public sealed partial class MoleHillPanel : Panel
         tabsContainer.Add(tabStrip, yscale: false);
         tabsContainer.Add(_tabContentPanel, yscale: true);
 
-        var layout = new DynamicLayout();
-        layout.Add(top, yscale: false);
-        layout.Add(tabsContainer, yscale: true);
-        return layout;
+        return tabsContainer;
     }
 
     private static Scrollable BuildScrollable(Control content)
