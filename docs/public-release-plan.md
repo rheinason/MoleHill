@@ -92,17 +92,17 @@ force-push.
 
 ### 3. Release 0.14.7-beta
 
-- [ ] Bump `MoleHillVersion`; move the changelog's Unreleased notes under `0.14.7-beta`.
-- [ ] Validate: managed and warnings lanes; build the package and check its version and contents.
+- [x] Bump `MoleHillVersion`; move the changelog's Unreleased notes under `0.14.7-beta`.
+- [x] Validate: managed and warnings lanes; build the package and check its version and contents.
 
 ### 4. History rewrite (one pass)
 
-- [ ] Mirror-clone to a scratch directory. With `git filter-repo`: remove the D2/D3 paths and
+- [x] Mirror-clone to a scratch directory. With `git filter-repo`: remove the D2/D3 paths and
   `src/MoleHill.Rhino/Toolbars/icons/`; replace every `.rui` blob that embeds artboard-derived bitmaps
   with the new procedural `.rui`; strip the D4 trailer lines.
-- [ ] Verify on the clone: none of the removed paths, bitmaps or trailers in any commit; tip tree
+- [x] Verify on the clone: none of the removed paths, bitmaps or trailers in any commit; tip tree
   identical to local `main` apart from what was removed; builds; managed lane green.
-- [ ] Owner approves the rewritten history.
+- [x] Owner approves the rewritten history.
 
 ### 5. Publish and go public
 
@@ -123,3 +123,9 @@ force-push.
 - 2026-09-26: step 1 done. Local copies of every removed file are kept in the git-ignored
   `.local-data/` (office folder, survey CSVs, scenes); `benchmark-points.csv` is the ignored benchmark input.
 - 2026-09-26: step 2 done. README command names corrected (`mhPanel`, not the class name `MoleHillPanel`).
+- 2026-09-27: 0.14.7-beta committed; managed and warnings lanes green. The reference SVGs were still
+  tracked at `icons/` and are now removed (copy in `.local-data/`). History rewrite verified on a scratch
+  clone: tip tree identical to local `main`; no forbidden path among 1,191 ever committed; 0 session
+  links; all 9 toolbar versions before the procedural one fully transparent; no blob mentions the
+  office name; the clone builds and passes the Core tests on its own. Residuals accepted: old versions
+  of our own docs name the file `Master.ai` and contain local paths.
