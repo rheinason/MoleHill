@@ -155,6 +155,9 @@ $packageContentRoot = Join-Path $stageRoot "net7.0"
 $miscDirectory = Join-Path $packageContentRoot "misc"
 $miscLicensesDirectory = Join-Path $miscDirectory "licenses"
 
+# Restore once up front: the builds below pass --no-restore, which fails on a fresh clone.
+Invoke-Step "dotnet" @("restore", (Join-Path $repoRoot "MoleHill.sln"))
+
 Invoke-Step "dotnet" @(
     "build",
     $rhinoProject,
