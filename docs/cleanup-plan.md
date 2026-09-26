@@ -33,7 +33,6 @@ behaviour-identical. Do not touch `src/TriangleNet/**` (vendored).
 - **Catchment and ponding previews** re-run the full solvers on the UI thread with no cancellation.
 - **Grasshopper snapshot component** copies and hashes the whole mesh on every Rhino `StateChanged`.
 - **106 file-index entries** belong to files with no header comment; add one when you next touch a file.
-- **Root clutter:** `CaseMeshResult.obj/.mtl` and `GradePadTest.3dmbak` are tracked and unreferenced.
 - **Large partials to watch:** `MoleHillPanel.Annotations.cs` (~900 lines), `TerrainController.Display.cs`
   and `.Build.cs` (~920 each). Split by concern if one starts mixing unrelated work. Assess, but do not
   force, `Engine/SurfaceRemesher.cs`, `TerrainBuildService.Grading.cs` and `GradedRegionAssembler.cs`.

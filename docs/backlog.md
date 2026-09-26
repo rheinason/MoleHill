@@ -480,7 +480,7 @@ already own the problem.
   exactly like Smooth or Remesh. The open question is whether relaxation produces a surface a designer
   would keep. It moves material everywhere at once, so it may well satisfy the slope rule and still look
   soft and lumpy. Worth a throwaway prototype on a real graded scene *before* any modifier work: run it
-  over `GradePadTest.3dm`, look at the output, and only then decide whether it is a modifier, a one-shot
+  over a real graded scene, look at the output, and only then decide whether it is a modifier, a one-shot
   command, or a bad idea. If the global version disappoints, the fallback is a boundary-limited one —
   same algorithm, smaller claim.
 - **Full hydraulic erosion** is the same machinery run for naturalism rather than compliance —

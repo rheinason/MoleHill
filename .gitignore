@@ -48,3 +48,10 @@ __pycache__/
 
 # Local UI screenshots (not part of the build or docs)
 screenshots/
+
+# Survey data and scenes stay local: never commit real project data.
+/benchmark-points.csv
+*.3dm
+*.3dmbak
+*.3dm.rhl
+/.local-data/
