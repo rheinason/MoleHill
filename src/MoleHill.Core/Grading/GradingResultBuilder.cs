@@ -335,7 +335,7 @@ internal static class GradingResultBuilder
         HashSet<long> processed,
         List<double> pts)
     {
-        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+        long key = IndexedMeshTools.GetEdgeKey(a, b);
         if (!processed.Add(key))
             return;
 
@@ -371,7 +371,7 @@ internal static class GradingResultBuilder
         HashSet<long> processed,
         List<double> pts)
     {
-        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+        long key = IndexedMeshTools.GetEdgeKey(a, b);
         if (!processed.Add(key))
             return;
 

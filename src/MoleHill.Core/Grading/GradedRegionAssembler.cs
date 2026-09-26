@@ -719,7 +719,7 @@ internal static class GradedRegionAssembler
 
         void Bump(int a, int b, bool inside)
         {
-            long key = EdgeKey(a, b);
+            long key = IndexedMeshTools.GetEdgeKey(a, b);
             edgeCounts.TryGetValue(key, out (int inside, int outside) c);
             if (inside) c.inside++; else c.outside++;
             edgeCounts[key] = c;
@@ -1004,7 +1004,6 @@ internal static class GradedRegionAssembler
         return loopXy;
     }
 
-    private static long EdgeKey(int a, int b) => IndexedMeshTools.GetEdgeKey(a, b);
 
     private static void AddAdjacency(Dictionary<int, List<int>> adjacency, int from, int to)
     {
@@ -1027,13 +1026,13 @@ internal static class GradedRegionAssembler
         {
             foreach (int firstNext in adjacency[start])
             {
-                if (visited.Contains(EdgeKey(start, firstNext)))
+                if (visited.Contains(IndexedMeshTools.GetEdgeKey(start, firstNext)))
                     continue;
 
                 var loop = new List<int> { start };
                 int prev = start;
                 int current = firstNext;
-                visited.Add(EdgeKey(start, firstNext));
+                visited.Add(IndexedMeshTools.GetEdgeKey(start, firstNext));
 
                 while (current != start)
                 {
@@ -1043,7 +1042,7 @@ internal static class GradedRegionAssembler
                     {
                         if (candidate == prev)
                             continue;
-                        if (visited.Contains(EdgeKey(current, candidate)))
+                        if (visited.Contains(IndexedMeshTools.GetEdgeKey(current, candidate)))
                             continue;
                         next = candidate;
                         break;
@@ -1052,7 +1051,7 @@ internal static class GradedRegionAssembler
                     if (next < 0)
                         break; // open chain (shouldn't happen for a clean hole); abandon
 
-                    visited.Add(EdgeKey(current, next));
+                    visited.Add(IndexedMeshTools.GetEdgeKey(current, next));
                     prev = current;
                     current = next;
                 }

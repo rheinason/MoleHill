@@ -876,7 +876,6 @@ public static partial class PadGrader
         };
     }
 
-    private static long FillEdgeKey(int a, int b) => IndexedMeshTools.GetEdgeKey(a, b);
 
     /// <summary>
     /// Returns the faces inside the conformed boundary loop (input vertices [0, boundaryCount), with
@@ -918,7 +917,7 @@ public static partial class PadGrader
             if (sourceToVertex.TryGetValue(boundarySegments[i].a, out int u) &&
                 sourceToVertex.TryGetValue(boundarySegments[i].b, out int v))
             {
-                walls.Add(FillEdgeKey(u, v));
+                walls.Add(IndexedMeshTools.GetEdgeKey(u, v));
             }
         }
 
@@ -926,7 +925,7 @@ public static partial class PadGrader
         var edgeFaces = IndexedMeshTools.CreateEdgeKeyMap<List<int>>(faceCount * 3);
         void Incident(int a, int b, int f)
         {
-            long k = FillEdgeKey(a, b);
+            long k = IndexedMeshTools.GetEdgeKey(a, b);
             if (!edgeFaces.TryGetValue(k, out List<int>? list))
             {
                 list = new List<int>(2);
@@ -957,7 +956,7 @@ public static partial class PadGrader
             {
                 int u = faces[(f * 3) + e];
                 int v = faces[(f * 3) + ((e + 1) % 3)];
-                long k = FillEdgeKey(u, v);
+                long k = IndexedMeshTools.GetEdgeKey(u, v);
                 if (edgeFaces[k].Count == 1 && !walls.Contains(k))
                 {
                     exterior[f] = true;
@@ -974,7 +973,7 @@ public static partial class PadGrader
             {
                 int u = faces[(f * 3) + e];
                 int v = faces[(f * 3) + ((e + 1) % 3)];
-                long k = FillEdgeKey(u, v);
+                long k = IndexedMeshTools.GetEdgeKey(u, v);
                 if (walls.Contains(k))
                     continue;
 

@@ -829,7 +829,7 @@ public static partial class PadGrader
         var edgeCount = IndexedMeshTools.CreateEdgeKeyMap<int>(Math.Max(8, droppedFaces.Count));
         void Inc(int a, int b)
         {
-            long k = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+            long k = IndexedMeshTools.GetEdgeKey(a, b);
             edgeCount[k] = edgeCount.GetValueOrDefault(k, 0) + 1;
         }
 

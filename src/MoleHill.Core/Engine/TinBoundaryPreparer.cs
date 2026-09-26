@@ -297,7 +297,7 @@ public static class TinBoundaryPreparer
         if (a == b)
             return false;
 
-        long key = GetEdgeKey(a, b);
+        long key = IndexedMeshTools.GetEdgeKey(a, b);
         if (!segmentKeys.Add(key))
             return false;
 
@@ -316,8 +316,6 @@ public static class TinBoundaryPreparer
 
         return result;
     }
-
-    private static long GetEdgeKey(int a, int b) => IndexedMeshTools.GetEdgeKey(a, b);
 
     private static long PackCellKey(long cellX, long cellY)
     {

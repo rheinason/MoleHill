@@ -494,102 +494,6 @@ internal sealed partial class TerrainBuildService
         return mesh;
     }
 
-    private static int CountBoundaryEdgesNearLoop(
-        IReadOnlyList<double> vertices,
-        IReadOnlyList<int> faces,
-        int faceCount,
-        double[] loopXy,
-        double distanceTolerance)
-    {
-        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
-        for (int f = 0; f < faceCount; f++)
-        {
-            IncrementEdge(edgeFaceCount, faces[f * 3], faces[f * 3 + 1]);
-            IncrementEdge(edgeFaceCount, faces[f * 3 + 1], faces[f * 3 + 2]);
-            IncrementEdge(edgeFaceCount, faces[f * 3 + 2], faces[f * 3]);
-        }
-
-        int boundaryNearLoop = 0;
-        foreach (var pair in edgeFaceCount)
-        {
-            if (pair.Value != 1)
-                continue;
-
-            int a = (int)(pair.Key >> 32);
-            int b = (int)(pair.Key & 0xFFFFFFFFL);
-            double mx = (vertices[a * 3] + vertices[b * 3]) * 0.5;
-            double my = (vertices[a * 3 + 1] + vertices[b * 3 + 1]) * 0.5;
-            if (GradingGeometry2D.DistanceToPolygon(mx, my, loopXy, loopXy.Length / 2) <= distanceTolerance)
-                boundaryNearLoop++;
-        }
-
-        return boundaryNearLoop;
-    }
-
-    private static int CountBoundaryLoops(IReadOnlyList<int> faces, int faceCount)
-    {
-        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
-        for (int f = 0; f < faceCount; f++)
-        {
-            IncrementEdge(edgeFaceCount, faces[f * 3], faces[f * 3 + 1]);
-            IncrementEdge(edgeFaceCount, faces[f * 3 + 1], faces[f * 3 + 2]);
-            IncrementEdge(edgeFaceCount, faces[f * 3 + 2], faces[f * 3]);
-        }
-
-        var adjacency = new Dictionary<int, HashSet<int>>();
-        foreach (var pair in edgeFaceCount)
-        {
-            if (pair.Value != 1)
-                continue;
-
-            int a = (int)(pair.Key >> 32);
-            int b = (int)(pair.Key & 0xFFFFFFFFL);
-            AddBoundaryNeighbor(adjacency, a, b);
-            AddBoundaryNeighbor(adjacency, b, a);
-        }
-
-        int loops = 0;
-        var visited = new HashSet<int>();
-        foreach (int vertex in adjacency.Keys)
-        {
-            if (!visited.Add(vertex))
-                continue;
-
-            loops++;
-            var queue = new Queue<int>();
-            queue.Enqueue(vertex);
-            while (queue.Count > 0)
-            {
-                int current = queue.Dequeue();
-                foreach (int next in adjacency[current])
-                {
-                    if (visited.Add(next))
-                        queue.Enqueue(next);
-                }
-            }
-        }
-
-        return loops;
-    }
-
-    private static void IncrementEdge(Dictionary<long, int> edgeFaceCount, int a, int b)
-    {
-        long key = IndexedMeshTools.GetEdgeKey(a, b);
-        edgeFaceCount.TryGetValue(key, out int value);
-        edgeFaceCount[key] = value + 1;
-    }
-
-    private static void AddBoundaryNeighbor(Dictionary<int, HashSet<int>> adjacency, int from, int to)
-    {
-        if (!adjacency.TryGetValue(from, out HashSet<int>? neighbors))
-        {
-            neighbors = new HashSet<int>();
-            adjacency[from] = neighbors;
-        }
-
-        neighbors.Add(to);
-    }
-
     private static RhinoMesh CleanTinyFaces(RhinoMesh mesh, double tolerance, string sourceLabel, TerrainBuildResult build)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out _, out var faces, out int faceCount, out _))
@@ -633,7 +537,7 @@ internal sealed partial class TerrainBuildService
         double minProjectedArea = Math.Max(
             effectiveCleanupTolerance * effectiveCleanupTolerance * 2.0,
             geometryFloor * geometryFloor);
-        Dictionary<long, int> originalEdgeCounts = BuildFaceEdgeCounts(faces, faceCount);
+        Dictionary<long, int> originalEdgeCounts = IndexedMeshTools.CountFaceEdges(faces, faceCount);
 
         var candidates = new List<(int FaceIndex, double Area, double SmallestEdgeSquared, double MinProjectedAltitude)>();
         for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
@@ -795,21 +699,6 @@ internal sealed partial class TerrainBuildService
                !topology.HasOpenBoundaryChains;
     }
 
-    private static Dictionary<long, int> BuildFaceEdgeCounts(int[] faces, int faceCount)
-    {
-        var edgeCounts = new Dictionary<long, int>(Math.Max(faceCount * 3 / 2, 8), IndexedMeshTools.EdgeKeyComparer.Instance);
-        for (int faceIndex = 0; faceIndex < faceCount; faceIndex++)
-        {
-            int a = faces[faceIndex * 3];
-            int b = faces[faceIndex * 3 + 1];
-            int c = faces[faceIndex * 3 + 2];
-            IncrementEdgeCount(edgeCounts, a, b, 1);
-            IncrementEdgeCount(edgeCounts, b, c, 1);
-            IncrementEdgeCount(edgeCounts, c, a, 1);
-        }
-
-        return edgeCounts;
-    }
 
     private static bool FaceHasNoCurrentBoundaryEdges(Dictionary<long, int> edgeCounts, int[] faces, int faceIndex)
     {
@@ -950,9 +839,7 @@ internal sealed partial class TerrainBuildService
 
         void AddEdgeLength(int a, int b)
         {
-            long key = a < b
-                ? ((long)a << 32) | (uint)b
-                : ((long)b << 32) | (uint)a;
+            long key = IndexedMeshTools.GetEdgeKey(a, b);
             if (!seen.Add(key))
                 return;
 
@@ -1014,5 +901,4 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(stage, timer.Elapsed, detailFactory(result), diagnosticThresholdMs);
         return result;
     }
-
 }
