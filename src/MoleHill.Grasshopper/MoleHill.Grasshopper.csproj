@@ -38,14 +38,7 @@
     <EmbeddedResource Include="Resources\*.png" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Include="..\MoleHill.Shared\InSituStairReferenceBuilder.cs" Link="Shared\InSituStairReferenceBuilder.cs" />
-    <Compile Include="..\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
-    <Compile Include="..\MoleHill.Shared\RetainingWallPlannerCore.cs" Link="Shared\RetainingWallPlannerCore.cs" />
-    <Compile Include="..\MoleHill.Shared\RetainingWallBrepBuilder.cs" Link="Shared\RetainingWallBrepBuilder.cs" />
-    <Compile Include="..\MoleHill.Shared\RetainingWallGradePlanner.cs" Link="Shared\RetainingWallGradePlanner.cs" />
-    <Compile Include="..\MoleHill.Shared\ModelUnitContext.cs" Link="Shared\ModelUnitContext.cs" />
-  </ItemGroup>
+  <Import Project="..\MoleHill.Shared\MoleHill.Shared.props" />
 
   <ItemGroup>
     <PackageReference Include="Grasshopper" Version="8.9.24194.18121" ExcludeAssets="runtime" />

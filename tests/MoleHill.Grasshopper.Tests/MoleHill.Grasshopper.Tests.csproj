@@ -52,17 +52,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\src\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\InSituStairReferenceBuilder.cs" Link="Shared\InSituStairReferenceBuilder.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\RetainingWallBrepBuilder.cs" Link="Shared\RetainingWallBrepBuilder.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\RetainingWallGradePlanner.cs" Link="Shared\RetainingWallGradePlanner.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\RetainingWallPlannerCore.cs" Link="Shared\RetainingWallPlannerCore.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\ModelUnitContext.cs" Link="Shared\ModelUnitContext.cs" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\MoleHillInfo.cs" Link="Grasshopper\MoleHillInfo.cs" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\Components\*.cs" LinkBase="Grasshopper\Components" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\Types\*.cs" LinkBase="Grasshopper\Types" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\Utilities\*.cs" LinkBase="Grasshopper\Utilities" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\Registry\*.cs" LinkBase="Grasshopper\Registry" />
   </ItemGroup>
-</Project>
 
+  <Import Project="..\..\src\MoleHill.Shared\MoleHill.Shared.props" />
+</Project>

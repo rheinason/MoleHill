@@ -48,16 +48,11 @@
     <!-- One benchmark gate for every lane, so a performance run states what it actually executed.
          Linked rather than copied: two gates would drift and a skipped body reads as a pass. -->
     <Compile Include="..\MoleHill.Core.Tests\PerformanceLane.cs" Link="PerformanceLane.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\AdaptivePolylineBuilder.cs" Link="Shared\AdaptivePolylineBuilder.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\InSituStairReferenceBuilder.cs" Link="Shared\InSituStairReferenceBuilder.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\RetainingWallBrepBuilder.cs" Link="Shared\RetainingWallBrepBuilder.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\RetainingWallGradePlanner.cs" Link="Shared\RetainingWallGradePlanner.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\RetainingWallPlannerCore.cs" Link="Shared\RetainingWallPlannerCore.cs" />
-    <Compile Include="..\..\src\MoleHill.Shared\ModelUnitContext.cs" Link="Shared\ModelUnitContext.cs" />
     <Compile Include="..\..\src\MoleHill.Rhino\Model\*.cs" LinkBase="Model" />
     <Compile Include="..\..\src\MoleHill.Rhino\Registry\*.cs" LinkBase="Registry" />
     <Compile Include="..\..\src\MoleHill.Rhino\Services\*.cs" LinkBase="Services"
              Exclude="..\..\src\MoleHill.Rhino\Services\BlockCommandService.cs;..\..\src\MoleHill.Rhino\Services\CurveReviewService.cs;..\..\src\MoleHill.Rhino\Services\CurveReviewForm.cs;..\..\src\MoleHill.Rhino\Services\CurveReviewRuleStore.cs;..\..\src\MoleHill.Rhino\Services\CurveReviewLabeller.cs;..\..\src\MoleHill.Rhino\Services\GeometryCommandService.cs;..\..\src\MoleHill.Rhino\Services\DocumentCommandService.cs;..\..\src\MoleHill.Rhino\Services\LandXmlSurfaceService.cs;..\..\src\MoleHill.Rhino\Services\LayerTemplateCommandService.cs;..\..\src\MoleHill.Rhino\Services\SculptSessionController.cs;..\..\src\MoleHill.Rhino\Services\SurveyImportCommandService.cs;..\..\src\MoleHill.Rhino\Services\SurveyPlacement.cs;..\..\src\MoleHill.Rhino\Services\TerrainController*.cs;..\..\src\MoleHill.Rhino\Services\TerrainDisplayConduit.cs;..\..\src\MoleHill.Rhino\Services\TerrainRenderMeshProvider.cs;..\..\src\MoleHill.Rhino\Services\TerrainGrasshopperBridge.cs;..\..\src\MoleHill.Rhino\Services\TerrainInputCommandService.cs;..\..\src\MoleHill.Rhino\Services\ToolbarInstaller.cs" />
   </ItemGroup>
 
+  <Import Project="..\..\src\MoleHill.Shared\MoleHill.Shared.props" />
 </Project>

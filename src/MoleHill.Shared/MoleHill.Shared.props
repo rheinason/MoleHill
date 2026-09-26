@@ -1,0 +1,11 @@
+<Project>
+  <!--
+    MoleHill.Shared is a source folder, not a project: its files need RhinoCommon, which MoleHill.Core
+    must not reference, so each host (and its test project) compiles them in directly. Import this file
+    instead of listing them, so a new shared file reaches every consumer at once rather than only the
+    projects someone remembered to edit.
+  -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)*.cs" Link="Shared\%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
