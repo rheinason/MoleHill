@@ -876,8 +876,7 @@ public static partial class PadGrader
         };
     }
 
-    private static long FillEdgeKey(int a, int b) =>
-        a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+    private static long FillEdgeKey(int a, int b) => IndexedMeshTools.GetEdgeKey(a, b);
 
     /// <summary>
     /// Returns the faces inside the conformed boundary loop (input vertices [0, boundaryCount), with

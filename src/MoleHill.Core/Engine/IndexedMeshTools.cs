@@ -227,4 +227,30 @@ internal static class IndexedMeshTools
     /// </summary>
     internal static Dictionary<long, TValue> CreateEdgeKeyMap<TValue>(int capacity = 0) =>
         new(Math.Max(0, capacity), EdgeKeyComparer.Instance);
+
+    /// <summary>
+    /// How many faces use each undirected edge: 1 on a naked edge, 2 inside a manifold mesh.
+    /// </summary>
+    /// <remarks>
+    /// Enumerates in first-use order (face by face, edges AB, BC, CA), which outline chaining depends on.
+    /// Presized for the ~1.5 edges per face of a closed triangulation: grown from a small default it
+    /// rehashed its way through ~170k entries on a 111k-face terrain. When only the naked edges are
+    /// needed and their order does not matter, <see cref="BuildEdgeTopology"/> avoids the dictionary.
+    /// </remarks>
+    internal static Dictionary<long, int> CountFaceEdges(int[] faces, int faceCount)
+    {
+        var counts = CreateEdgeKeyMap<int>(faceCount * 3 / 2 + 16);
+        for (int face = 0; face < faceCount; face++)
+        {
+            int a = faces[face * 3];
+            int b = faces[face * 3 + 1];
+            int c = faces[face * 3 + 2];
+            // One hash lookup per edge instead of a read and a write.
+            System.Runtime.InteropServices.CollectionsMarshal.GetValueRefOrAddDefault(counts, GetEdgeKey(a, b), out _)++;
+            System.Runtime.InteropServices.CollectionsMarshal.GetValueRefOrAddDefault(counts, GetEdgeKey(b, c), out _)++;
+            System.Runtime.InteropServices.CollectionsMarshal.GetValueRefOrAddDefault(counts, GetEdgeKey(c, a), out _)++;
+        }
+
+        return counts;
+    }
 }

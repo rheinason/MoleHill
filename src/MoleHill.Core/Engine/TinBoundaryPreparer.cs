@@ -317,12 +317,7 @@ public static class TinBoundaryPreparer
         return result;
     }
 
-    private static long GetEdgeKey(int a, int b)
-    {
-        return a < b
-            ? ((long)a << 32) | (uint)b
-            : ((long)b << 32) | (uint)a;
-    }
+    private static long GetEdgeKey(int a, int b) => IndexedMeshTools.GetEdgeKey(a, b);
 
     private static long PackCellKey(long cellX, long cellY)
     {

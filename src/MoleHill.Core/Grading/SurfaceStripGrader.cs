@@ -549,16 +549,7 @@ public static class SurfaceStripGrader
 
     private static void AddBoundarySegments(int[] faces, int faceCount, List<(int a, int b)> segList)
     {
-        var edgeFaceCount = new Dictionary<long, int>(8, IndexedMeshTools.EdgeKeyComparer.Instance);
-        for (int f = 0; f < faceCount; f++)
-        {
-            int a = faces[f * 3];
-            int b = faces[f * 3 + 1];
-            int c = faces[f * 3 + 2];
-            IncrEdge(edgeFaceCount, a, b);
-            IncrEdge(edgeFaceCount, b, c);
-            IncrEdge(edgeFaceCount, c, a);
-        }
+        Dictionary<long, int> edgeFaceCount = IndexedMeshTools.CountFaceEdges(faces, faceCount);
 
         foreach (var pair in edgeFaceCount)
         {
@@ -682,11 +673,5 @@ public static class SurfaceStripGrader
             return count - 1;
 
         return count;
-    }
-
-    private static void IncrEdge(Dictionary<long, int> dict, int a, int b)
-    {
-        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
-        dict[key] = dict.GetValueOrDefault(key, 0) + 1;
     }
 }

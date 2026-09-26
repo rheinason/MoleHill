@@ -1004,7 +1004,7 @@ internal static class GradedRegionAssembler
         return loopXy;
     }
 
-    private static long EdgeKey(int a, int b) => a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+    private static long EdgeKey(int a, int b) => IndexedMeshTools.GetEdgeKey(a, b);
 
     private static void AddAdjacency(Dictionary<int, List<int>> adjacency, int from, int to)
     {

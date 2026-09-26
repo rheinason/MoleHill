@@ -578,16 +578,7 @@ public static class MeshSmoother
         out int[] neighborIndices,
         out bool[] isMeshBoundary)
     {
-        var edgeCount = new Dictionary<long, int>(faceCount * 3, IndexedMeshTools.EdgeKeyComparer.Instance);
-        for (int f = 0; f < faceCount; f++)
-        {
-            int a = faces[f * 3];
-            int b = faces[f * 3 + 1];
-            int c = faces[f * 3 + 2];
-            CountEdge(edgeCount, a, b);
-            CountEdge(edgeCount, b, c);
-            CountEdge(edgeCount, c, a);
-        }
+        Dictionary<long, int> edgeCount = IndexedMeshTools.CountFaceEdges(faces, faceCount);
 
         var neighborCounts = new int[vertexCount];
         isMeshBoundary = new bool[vertexCount];
@@ -622,11 +613,6 @@ public static class MeshSmoother
         }
     }
 
-    private static void CountEdge(Dictionary<long, int> edgeCount, int a, int b)
-    {
-        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
-        edgeCount[key] = edgeCount.GetValueOrDefault(key, 0) + 1;
-    }
 
     private static bool TryGetNeighborAverageZ(double[] current, int[] neighborIndices, int start, int end, out double targetZ)
     {
