@@ -1,3 +1,4 @@
+using System.Globalization;
 using Eto.Drawing;
 using Eto.Forms;
 using MoleHill.Core.Analysis;
@@ -478,4 +479,164 @@ public sealed partial class MoleHillPanel
         return unitContext.FormatArea(value);
     }
 
+    private void RemoveAnalysis(Guid terrainId, Guid analysisId)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        _controller.MutateTerrain(doc, terrainId, terrain =>
+        {
+            terrain.Analyses.RemoveAll(item => item.Id == analysisId);
+        }, scheduleRebuild: false);
+        RefreshUi();
+    }
+
+    private void AddAnalysis(string kind)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc == null)
+            return;
+
+        MutateSelectedTerrain(terrain =>
+        {
+            AnalysisDefinition? analysis = AnalysisTypeRegistry.Create(
+                kind,
+                MoleHill.Shared.ModelUnitContext.FromDocument(doc));
+            if (analysis != null)
+                terrain.Analyses.Insert(0, analysis);
+        }, scheduleRebuild: false);
+
+        var terrain = _controller.GetSelectedTerrain(doc);
+        if (terrain != null)
+        {
+            RefreshUi();
+            RefreshTerrainPreview(terrain.TerrainId);
+        }
+    }
+
+    private static TerrainAnalysisSummary? GetAnalysisSummary(TerrainDefinition terrain, Guid analysisId)
+    {
+        return terrain.LastAnalysisResults.FirstOrDefault(item => item.AnalysisId == analysisId);
+    }
+
+    private static string GetAnalysisTypeLabel(AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.TypeLabel ?? "Analysis";
+
+    private static string GetAnalysisKind(AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.Kind ?? string.Empty;
+
+    private static Color AnalysisTypeColor(string kind)
+    {
+        int argb = AnalysisTypeRegistry.ForKind(kind)?.AccentArgb ?? unchecked((int)0xFF787878);
+        return Color.FromArgb((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
+    }
+
+    private static string GetAnalysisIconLabel(AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.IconLabel ?? "A";
+
+    private static string? GetAnalysisIconName(AnalysisDefinition analysis) =>
+        AnalysisTypeRegistry.ForType(analysis.GetType())?.IconName;
+
+    private static string GetAnalysisSubtitle(AnalysisDefinition analysis, bool isActive)
+    {
+        var descriptor = AnalysisTypeRegistry.ForType(analysis.GetType());
+        if (descriptor == null)
+            return "Analysis";
+
+        return isActive && descriptor.ActiveSubtitle != null ? descriptor.ActiveSubtitle : descriptor.Subtitle;
+    }
+
+    private static string GetAnalysisCollapsedSummary(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        TerrainAnalysisSummary? summary = GetAnalysisSummary(terrain, analysis.Id);
+        return analysis switch
+        {
+            EarthworkAnalysisDefinition earthwork => summary != null
+                ? $"Net {FormatVolume(summary.NetVolume)} | {(summary.EarthworkIsEstimated ? "Estimated" : "Exact")}"
+                : $"{CountReferences(earthwork.Reference)} refs | {CountReferences(earthwork.Boundary)} bounds",
+            SlopeAnalysisDefinition slope => $"{FormatSlopeValue(slope.RangeLow, slope.Unit)} to {(slope.RangeHigh > slope.RangeLow ? FormatSlopeValue(slope.RangeHigh, slope.Unit) : "Auto")}",
+            ElevationAnalysisDefinition elevation => $"{elevation.RangeLow:G4} to {(elevation.RangeHigh > elevation.RangeLow ? elevation.RangeHigh.ToString("G4") : "Auto")}",
+            CutFillAnalysisDefinition cutFill => summary != null
+                ? $"{summary.CutVolume:F2} / {summary.FillVolume:F2} / {summary.NetVolume:F2}"
+                : $"{CountReferences(cutFill.Reference)} refs | {CountReferences(cutFill.Boundary)} bounds",
+            WaterflowAnalysisDefinition waterflow => summary != null
+                ? $"{summary.GeneratedOutputCount} paths | {summary.WaterflowBoundaryCount} boundary"
+                : $"{CountReferences(waterflow.Sources)} refs | downhill paths",
+            _ => string.Empty
+        };
+    }
+
+    private void DuplicateAnalysis(Guid terrainId, Guid analysisId)
+    {
+        var doc = RhinoDoc.ActiveDoc;
+        if (doc != null)
+        {
+            _controller.DuplicateAnalysis(doc, terrainId, analysisId);
+            RefreshUi();
+        }
+    }
+
+    private Control CreateSlopeUnitEditor(Guid terrainId, SlopeAnalysisDefinition slope)
+    {
+        var options = new[]
+        {
+            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Percent), "Percent"),
+            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Promille), "Promille"),
+            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Ratio), "Ratio"),
+            (GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit.Degrees), "Degrees")
+        };
+
+        return CreateDropDownEditor(
+            "Units",
+            options,
+            GetSlopeUnitKey(slope.Unit),
+            value =>
+            {
+                var nextUnit = ParseSlopeUnit(value);
+                if (nextUnit == slope.Unit)
+                    return;
+
+                double rangeLow = ConvertSlopeValue(slope.RangeLow, slope.Unit, nextUnit);
+                double rangeHigh = ConvertSlopeValue(slope.RangeHigh, slope.Unit, nextUnit);
+                double interval = ConvertSlopeValue(slope.ColorInterval, slope.Unit, nextUnit);
+                MutateAndRefreshAnalysis(terrainId, slope.Id, item =>
+                {
+                    if (item is not SlopeAnalysisDefinition target)
+                        return;
+
+                    target.Unit = nextUnit;
+                    target.RangeLow = rangeLow;
+                    target.RangeHigh = rangeHigh;
+                    target.ColorInterval = interval;
+                });
+            },
+            "Show slope values as percent, promille, rise/run ratio, or degrees.");
+    }
+
+    private static string GetSlopeUnitKey(SlopeAnalyzer.SlopeUnit unit) => AnalysisFormatting.GetSlopeUnitKey(unit);
+
+    private static SlopeAnalyzer.SlopeUnit ParseSlopeUnit(string key) => AnalysisFormatting.ParseSlopeUnit(key);
+
+    private static string FormatSlopeSummaryValue(double percentValue, SlopeAnalyzer.SlopeUnit unit) =>
+        AnalysisFormatting.FormatSlopeSummaryValue(percentValue, unit);
+
+    private static string FormatSlopeValue(double value, SlopeAnalyzer.SlopeUnit unit) =>
+        AnalysisFormatting.FormatSlopeValue(value, unit);
+
+    private static string FormatAnalysisValue(double value, string? format)
+    {
+        string effectiveFormat = string.IsNullOrWhiteSpace(format) ? "G4" : format;
+        try
+        {
+            return value.ToString(effectiveFormat, CultureInfo.CurrentCulture);
+        }
+        catch (FormatException)
+        {
+            return value.ToString("G4", CultureInfo.CurrentCulture);
+        }
+    }
+
+    private static double ConvertSlopeValue(double value, SlopeAnalyzer.SlopeUnit fromUnit, SlopeAnalyzer.SlopeUnit toUnit) =>
+        AnalysisFormatting.ConvertSlopeValue(value, fromUnit, toUnit);
 }

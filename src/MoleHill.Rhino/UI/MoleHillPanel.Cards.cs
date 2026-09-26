@@ -375,4 +375,21 @@ public sealed partial class MoleHillPanel
     /// <summary>Outline-bin "delete this card" icon button.</summary>
     private static Button MakeDeleteIconButton(Action action, string help) =>
         MakeIconButton(PanelButtonIcon.Delete, (_, _) => action(), help);
+
+    private static Drawable CreateDragHandle()
+    {
+        var handle = new Drawable { Width = 16, Height = 22, Cursor = Cursors.Move };
+        handle.Paint += (_, e) =>
+        {
+            var g = e.Graphics;
+            var ctl = SystemColors.ControlText;
+            var dot = new Color(ctl.R, ctl.G, ctl.B, 0.6f);
+            float[] xs = { 5f, 10f };
+            float[] ys = { 6f, 11f, 16f };
+            foreach (var x in xs)
+                foreach (var y in ys)
+                    g.FillEllipse(dot, x - 1.5f, y - 1.5f, 3f, 3f);
+        };
+        return handle;
+    }
 }

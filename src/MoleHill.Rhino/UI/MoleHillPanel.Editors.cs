@@ -831,4 +831,50 @@ public sealed partial class MoleHillPanel
         return new PropertyRow(CreateHelpLabel(label, help, 0), textBox, expandWidget: true);
     }
 
+    private void BindCommittedText(TextBox textBox, Func<string> getCurrentValue, Action<string> onCommit, bool trim = true)
+    {
+        void Commit()
+        {
+            if (_isRefreshing)
+                return;
+
+            string text = textBox.Text ?? string.Empty;
+            if (trim)
+                text = text.Trim();
+
+            if (string.Equals(text, getCurrentValue(), StringComparison.Ordinal))
+                return;
+
+            onCommit(text);
+        }
+
+        textBox.LostFocus += (_, _) => Commit();
+        textBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Keys.Enter)
+            {
+                Commit();
+                e.Handled = true;
+            }
+        };
+    }
+
+    private static string GetNumericHelp(string label)
+    {
+        return label switch
+        {
+            "Detail Size" => "Changes are applied after a short pause. Smaller values keep more terrain detail; larger values simplify and merge nearby geometry more aggressively.",
+            "Edge Length" => "Changes are applied after a short pause. Smaller values make denser triangles; larger values make coarser meshes.",
+            "Max Area" => "Changes are applied after a short pause. Smaller values refine the mesh; larger values keep bigger faces.",
+            "Min Angle" => "Changes are applied after a short pause. Around 20-30 is moderate; very high values can overconstrain the triangulation.",
+            "Iterations" => "Changes are applied after a short pause. 1 is light smoothing; 2-4 is moderate; higher values flatten more detail.",
+            "Strength" => "Changes are applied after a short pause. Around 0.2 is gentle, 0.5 is strong, and 1.0 is extreme.",
+            "Fixity" => "Changes are applied after a short pause. 1.0 locks breaklines hard, 0.5 softens them, 0.0 ignores them.",
+            "Slope Angle" => "Changes are applied after a short pause. Lower angles are flatter and spread farther; higher angles are steeper and tighter.",
+            "Max Distance" => "Changes are applied after a short pause. 0 means unlimited; smaller values constrain the grading reach.",
+            "Width" => "Changes are applied after a short pause. This is the controlled path width before side grading starts.",
+            "Symbol Scale" => "Changes are applied after a short pause. 1.0 is default size; below 1.0 is smaller; above 1.0 is larger.",
+            _ => $"{label}. Changes are applied after a short pause."
+        };
+    }
 }

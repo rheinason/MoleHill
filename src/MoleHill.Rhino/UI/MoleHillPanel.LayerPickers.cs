@@ -1,5 +1,6 @@
 using Eto.Drawing;
 using Eto.Forms;
+using MoleHill.Rhino.Registry;
 using Rhino;
 using Rhino.UI;
 
@@ -328,4 +329,19 @@ public sealed partial class MoleHillPanel
         popup.Location = new Point(x, y);
     }
 
+    private const int LayerPickerMinHeight = 160;
+
+    private const int LayerPickerMargin = 6;
+
+    private const int LayerPickerRowHeight = 28;
+
+    private enum LayerPickerMode
+    {
+        SingleSelect,
+        MultiSelect
+    }
+
+    private sealed record LayerPickerEntry(string Path, string DisplayText, Color DotColor);
+
+    private static string GetLeafLayerName(string layerPath) => AnalysisFormatting.GetLeafLayerName(layerPath);
 }

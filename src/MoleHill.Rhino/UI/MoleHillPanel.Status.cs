@@ -156,4 +156,55 @@ public sealed partial class MoleHillPanel
     }
 
     private static string Plural(int count) => count == 1 ? string.Empty : "s";
+
+    /// <summary>The collapsible Status card: build log and the copy-log / copy-case actions.</summary>
+    private Control BuildStatusCard()
+    {
+        // ── Status card (collapsible, collapsed by default) ───────────
+        var statusHeader = new SectionHeader(
+            "Status",
+            _statusHintLabel,
+            _statusExpanded,
+            expanded =>
+            {
+                _statusExpanded = expanded;
+                _statusContent!.Visible = expanded;
+                _statusHintLabel.Visible = !expanded;
+            });
+
+        StyleTextArea(_statusTextArea);
+        var copyStatusButton = MakeInlineButton("Copy Log", (_, _) => CopyStatusLog(), "Copy the full build log to the clipboard.");
+        var copyCaseButton = MakeInlineButton("Copy Case", (_, _) => CopyCaseBundle(), "Export a repro case bundle and copy a runnable core xUnit test source when one can be generated.");
+        _statusContent = new Panel
+        {
+            Content = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = UiMetrics.SpaceMedium,
+                Padding = new Padding(UiMetrics.CardHorizontalPadding, UiMetrics.SpaceMedium),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Items =
+                {
+                    new StackLayoutItem(_statusTextArea, HorizontalAlignment.Stretch),
+                    CreateResponsiveControlGroup(UiMetrics.SpaceSmall, copyStatusButton, copyCaseButton)
+                }
+            },
+            Visible = _statusExpanded,
+            BackgroundColor = UiTheme.CardBackground
+        };
+
+        var statusCard = new StackLayout
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 0,
+            Padding = new Padding(UiMetrics.SpaceLarge, UiMetrics.SpaceXSmall),
+            Items =
+            {
+                new StackLayoutItem(statusHeader, HorizontalAlignment.Stretch),
+                new StackLayoutItem(_statusContent, HorizontalAlignment.Stretch)
+            }
+        };
+
+        return statusCard;
+    }
 }

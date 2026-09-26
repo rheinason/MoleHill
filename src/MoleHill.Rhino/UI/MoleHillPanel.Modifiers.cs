@@ -533,4 +533,99 @@ public sealed partial class MoleHillPanel
         };
     }
 
+    private static Color ModifierTypeColor(string kind) => kind switch
+    {
+        "triangulate"    => Color.FromArgb(25, 118, 210),
+        "add-geometry"   => Color.FromArgb(2, 136, 209),
+        "remesh"         => Color.FromArgb(56, 142, 60),
+        "smooth"         => Color.FromArgb(123, 31, 162),
+        "project-to"     => Color.FromArgb(0, 121, 140),
+        "retaining-wall" => Color.FromArgb(230, 74, 25),
+        "simplify"       => Color.FromArgb(0, 137, 123),
+        "grade-pad"      => Color.FromArgb(245, 124, 0),
+        "grade-path"     => Color.FromArgb(93, 64, 55),
+        "in-situ-stair"  => Color.FromArgb(0, 121, 107),
+        _                => Color.FromArgb(120, 120, 120)
+    };
+
+    private static string GetModifierKind(ModifierDefinition modifier) =>
+        TerrainTypeRegistry.ForModifierType(modifier.GetType())?.Kind ?? string.Empty;
+
+    private static string GetModifierTypeLabel(ModifierDefinition modifier) =>
+        TerrainTypeRegistry.ForModifierType(modifier.GetType())?.DisplayName ?? "Modifier";
+
+    private static string GetModifierIconName(string kind) =>
+        TerrainTypeRegistry.ForModifierKind(kind)?.IconName ?? "ModTriangulate";
+
+    private static string GetModifierSubtitle(ModifierDefinition modifier, bool isPinnedBaseTriangulate)
+    {
+        if (isPinnedBaseTriangulate && modifier is TriangulateModifierDefinition)
+            return "Base geometry";
+
+        return TerrainTypeRegistry.ForModifierType(modifier.GetType())?.Subtitle ?? "Modifier";
+    }
+
+    private static string GetCollapsedSummary(ModifierDefinition modifier)
+    {
+        switch (modifier)
+        {
+            case TriangulateModifierDefinition t:
+                int dem = t.DemSurface.ObjectIds.Count + t.DemSurface.LayerPaths.Count;
+                int pts = t.Points.ObjectIds.Count + t.Points.LayerPaths.Count;
+                int bkl = t.Breaklines.ObjectIds.Count + t.Breaklines.LayerPaths.Count;
+                int ctr = t.Contours.ObjectIds.Count + t.Contours.LayerPaths.Count;
+                return $"{dem} DEM | {pts} pts | {bkl} breaks | {ctr} contours";
+            case AddGeometryModifierDefinition a:
+                int addPts = a.Points.ObjectIds.Count + a.Points.LayerPaths.Count;
+                int addBkl = a.Breaklines.ObjectIds.Count + a.Breaklines.LayerPaths.Count;
+                int addCtr = a.Contours.ObjectIds.Count + a.Contours.LayerPaths.Count;
+                return $"{addPts} pts | {addBkl} breaks | {addCtr} contours";
+            case RemeshModifierDefinition r:
+                var parts = new System.Collections.Generic.List<string>();
+                parts.Add(r.EdgeLength > 0 ? $"Edge: {r.EdgeLength:G4}" : "Edge: auto");
+                if (r.CreaseAngle > 0) parts.Add($"Crease: {r.CreaseAngle:G4} deg");
+                return string.Join(" | ", parts);
+            case SimplifyModifierDefinition simplify:
+                return simplify.Mode switch
+                {
+                    SimplifyModifierDefinition.TargetVertexCountMode => $"At most {simplify.TargetVertexCount:N0} vertices",
+                    SimplifyModifierDefinition.RetainPercentageMode => $"Retain {simplify.RetainPercentage:G4}%",
+                    _ => $"Max dz: {simplify.MaximumDeviation:G4}"
+                };
+            case SmoothModifierDefinition s:
+                return $"{s.Iterations} iter | Str {s.Strength:G3}";
+            case ProjectToModifierDefinition projectTo:
+                string target = projectTo.TargetMesh.HasReferences
+                    ? "mesh"
+                    : projectTo.TargetTerrainId.HasValue ? "terrain" : "no target";
+                int projectBoundaries = projectTo.Boundaries.ObjectIds.Count + projectTo.Boundaries.LayerPaths.Count;
+                return $"{target} | {projectBoundaries} boundaries | Str {projectTo.Strength:G3}";
+            case GradePadModifierDefinition p:
+                int bounds = p.Boundaries.ObjectIds.Count + p.Boundaries.LayerPaths.Count;
+                return $"{bounds} boundaries | Daylight {p.SlopeAngle:G4} deg";
+            case GradePathModifierDefinition path:
+                int paths = path.Paths.ObjectIds.Count + path.Paths.LayerPaths.Count;
+                if (!path.UseVariableWidth)
+                    return $"{paths} paths | W={path.Width:G4}";
+                int edges = path.WidthEdges.ObjectIds.Count + path.WidthEdges.LayerPaths.Count;
+                return $"{paths} paths | variable, {edges} width edges | W={path.Width:G4} fallback";
+            case GradeLineModifierDefinition line:
+                int lineCount = line.Lines.ObjectIds.Count + line.Lines.LayerPaths.Count;
+                return line.UseAsymmetricSides
+                    ? $"{lineCount} lines | asymmetric sides"
+                    : $"{lineCount} lines | Fill {line.SlopeAngle:G4} deg";
+            case RetainingWallModifierDefinition w:
+                int curves = w.WallCurves.ObjectIds.Count + w.WallCurves.LayerPaths.Count;
+                return w.GradesTerrain
+                    ? $"{curves} curves | grading {(w.UseAsymmetricSides ? "asymmetric" : $"{w.SlopeAngle:G4} deg")}"
+                    : $"{curves} curves";
+            case InSituStairModifierDefinition stair:
+                int refs = stair.ReferenceSurface.ObjectIds.Count + stair.ReferenceSurface.LayerPaths.Count;
+                return !string.IsNullOrWhiteSpace(stair.ComputedTreadDepthSummary)
+                    ? $"{stair.ComputedSurfaceCount ?? refs} surf | Tread {stair.ComputedTreadDepthSummary}"
+                    : $"{refs} refs | Riser {stair.RiserHeight:G4}";
+            default:
+                return string.Empty;
+        }
+    }
 }

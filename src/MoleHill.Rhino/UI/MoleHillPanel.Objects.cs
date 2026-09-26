@@ -553,4 +553,50 @@ public sealed partial class MoleHillPanel
         });
     }
 
+    private static string GetTerrainObjectTypeLabel(TerrainObjectDefinition definition) =>
+        ObjectTypeRegistry.ForType(definition.GetType())?.DisplayName ?? "Objects";
+
+    private static string GetTerrainObjectKind(TerrainObjectDefinition definition) =>
+        ObjectTypeRegistry.ForType(definition.GetType())?.Kind ?? string.Empty;
+
+    private static Color TerrainObjectTypeColor(string kind)
+    {
+        int argb = ObjectTypeRegistry.ForKind(kind)?.AccentArgb ?? unchecked((int)0xFF787878);
+        return Color.FromArgb((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
+    }
+
+    private static string GetTerrainObjectIconLabel(TerrainObjectDefinition definition) =>
+        ObjectTypeRegistry.ForType(definition.GetType())?.IconLabel ?? "O";
+
+    private static string? GetTerrainObjectIconName(TerrainObjectDefinition definition) =>
+        ObjectTypeRegistry.ForType(definition.GetType())?.IconName;
+
+    private static string GetTerrainObjectSubtitle(TerrainObjectDefinition definition) =>
+        ObjectTypeRegistry.ForType(definition.GetType())?.Subtitle ?? "Terrain objects";
+
+    private static string GetTerrainObjectCollapsedSummary(TerrainObjectDefinition definition)
+    {
+        var parts = new List<string>
+        {
+            $"{CountReferences(definition.Sources)} refs",
+            GetTerrainObjectTypeLabel(definition)
+        };
+
+        if (definition.RandomRotationMinDegrees > 1e-6 ||
+            definition.RandomRotationMaxDegrees > definition.RandomRotationMinDegrees + 1e-6)
+        {
+            parts.Add($"Rot {definition.RandomRotationMinDegrees:G4}-{definition.RandomRotationMaxDegrees:G4}");
+        }
+
+        if (Math.Abs(definition.RandomScaleMin - 1.0) > 1e-6 ||
+            Math.Abs(definition.RandomScaleMax - 1.0) > 1e-6)
+        {
+            parts.Add($"Scale {definition.RandomScaleMin:G4}-{definition.RandomScaleMax:G4}");
+        }
+
+        if (Math.Abs(definition.ZOffset) > 1e-6)
+            parts.Add($"Z {definition.ZOffset:G4}");
+
+        return string.Join(" | ", parts);
+    }
 }
