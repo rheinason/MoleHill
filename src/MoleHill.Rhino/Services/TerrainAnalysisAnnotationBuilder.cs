@@ -464,6 +464,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         int sourceCount = 0;
         int outputCount = 0;
         AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
+        var referenceMesh = new CutFillReferenceMesh();
 
         var sectionProfiles = new List<List<SectionTerrainProfile>>();
         var sectionCuts = new List<SectionCutGeometry>();
@@ -531,7 +532,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                 layerRoles: layerRoles,
                 sectionLabel: $"{analysis.Label} {i + 1}",
                 hatchPatterns: snapshot.HatchPatterns,
-                    baseMesh: baseMesh);
+                    baseMesh: baseMesh,
+                    referenceMesh: referenceMesh);
             outputCount += emitted.OutputCount;
             cutRegions += emitted.CutRegions;
             fillRegions += emitted.FillRegions;
@@ -567,6 +569,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         int sourceCount = 0;
         int outputCount = 0;
         AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
+        var referenceMesh = new CutFillReferenceMesh();
         int globalIndex = 0;
         int availableTerrainCount = 1;
         int cutRegions = 0;
@@ -672,7 +675,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                     layerRoles: layerRoles,
                     sectionLabel: $"Sta {alignmentStation:F2}",
                     hatchPatterns: snapshot.HatchPatterns,
-                    baseMesh: baseMesh);
+                    baseMesh: baseMesh,
+                    referenceMesh: referenceMesh);
                 outputCount += emitted.OutputCount;
                 cutRegions += emitted.CutRegions;
                 fillRegions += emitted.FillRegions;
@@ -711,6 +715,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         int cutRegions = 0;
         int fillRegions = 0;
         AddMissingSectionTerrainDiagnostics(snapshot, analysis, build);
+        var referenceMesh = new CutFillReferenceMesh();
 
         foreach (var entry in objects)
         {
@@ -750,7 +755,8 @@ internal static class TerrainAnalysisAnnotationBuilder
                 layerRoles: layerRoles,
                 sectionLabel: $"{analysis.Label} {sectionIndex}",
                 hatchPatterns: snapshot.HatchPatterns,
-                    baseMesh: baseMesh);
+                    baseMesh: baseMesh,
+                    referenceMesh: referenceMesh);
             outputCount += emitted.OutputCount;
             cutRegions += emitted.CutRegions;
             fillRegions += emitted.FillRegions;
@@ -789,7 +795,8 @@ internal static class TerrainAnalysisAnnotationBuilder
         LayerRoleTable? layerRoles,
         string sectionLabel,
         HatchPatternSnapshot hatchPatterns,
-        RhinoMesh? baseMesh)
+        RhinoMesh? baseMesh,
+        CutFillReferenceMesh referenceMesh)
     {
         if (!analysis.IsEnabled)
             return default;
@@ -810,7 +817,7 @@ internal static class TerrainAnalysisAnnotationBuilder
         if (analysis.ShowCutFillRegions)
         {
             TerrainSectionResult? referenceSlice = ResolveCutFillReferenceSlice(
-                snapshot, cutGeometry, analysis, profiles, comparisonTolerance, build, baseMesh);
+                snapshot, cutGeometry, analysis, profiles, comparisonTolerance, build, baseMesh, referenceMesh);
             referenceSliceForProfile = referenceSlice;
             if (referenceSlice != null)
             {
@@ -1023,19 +1030,19 @@ internal static class TerrainAnalysisAnnotationBuilder
         IReadOnlyList<SectionTerrainProfile> profiles,
         double tolerance,
         TerrainBuildResult build,
-        RhinoMesh? baseMesh)
+        RhinoMesh? baseMesh,
+        CutFillReferenceMesh referenceMesh)
     {
         if (analysis.CutFillReference.HasReferences)
         {
-            var meshes = TerrainBuildSnapshotResolver.ResolveMeshes(snapshot, analysis.CutFillReference);
-            if (meshes.Count == 0)
+            RhinoMesh? combined = referenceMesh.Get(snapshot, analysis);
+            if (combined == null)
             {
                 build.Diagnostics.Add(
                     $"{analysis.Label}: cut/fill reference resolved no mesh geometry; no cut or fill was shaded.");
                 return null;
             }
 
-            RhinoMesh combined = meshes.Count == 1 ? meshes[0] : CombineMeshes(meshes);
             TerrainSectionResult? slice = cutGeometry.Slice(combined, tolerance);
             if (slice == null)
             {
@@ -1082,13 +1089,41 @@ internal static class TerrainAnalysisAnnotationBuilder
         return baseSlice;
     }
 
-    private static RhinoMesh CombineMeshes(IReadOnlyList<RhinoMesh> meshes)
+    /// <summary>
+    /// An annotation's explicit cut/fill reference as one mesh, resolved on first use and then shared by
+    /// every section cell. Resolving meshes a Brep reference and welds a multi-object one, and neither
+    /// result depends on the cell, so doing it per cell repeated the whole cost for every section drawn.
+    /// </summary>
+    private sealed class CutFillReferenceMesh
     {
-        var combined = new RhinoMesh();
-        foreach (RhinoMesh mesh in meshes)
-            combined.Append(mesh);
-        RhinoGeometryConversions.NormalizeMeshInPlace(combined);
-        return combined;
+        private bool _resolved;
+        private RhinoMesh? _mesh;
+
+        /// <summary>The combined reference, or null when it resolves to no mesh geometry.</summary>
+        public RhinoMesh? Get(TerrainBuildSnapshot snapshot, TerrainSectionAnnotationDefinitionBase analysis)
+        {
+            if (_resolved)
+                return _mesh;
+
+            _resolved = true;
+            var meshes = TerrainBuildSnapshotResolver.ResolveMeshes(snapshot, analysis.CutFillReference);
+            _mesh = meshes.Count switch
+            {
+                0 => null,
+                1 => meshes[0],
+                _ => CombineMeshes(meshes),
+            };
+            return _mesh;
+        }
+
+        private static RhinoMesh CombineMeshes(IReadOnlyList<RhinoMesh> meshes)
+        {
+            var combined = new RhinoMesh();
+            foreach (RhinoMesh mesh in meshes)
+                combined.Append(mesh);
+            RhinoGeometryConversions.NormalizeMeshInPlace(combined);
+            return combined;
+        }
     }
 
     private static List<SectionTerrainProfile> SliceTerrainsAlongPolyline(
