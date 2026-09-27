@@ -140,3 +140,19 @@ Terrain analysis math. Pure, unit-tested.
   not reported: a millimetre of survey dimple is not a pond, and a check that says it is gets switched
   off.
 
+- `GradientComplianceAnalyzer.cs`: checks the built surface against accessibility gradient limits.
+  Stage one (backlog B13) covers **level areas**: landings, turning spaces and plazas. These have no
+  direction of travel, so their rule is one limit in every direction. Three things set it apart from
+  thresholding the slope analysis:
+  - **It measures over a footprint, like a level.** A face's value is the plan-area-weighted mean of
+    the face gradient vectors within `MeasurementLength` of it. For a plane that is exact; for a surface
+    it is the least-squares plane over the footprint. Face by face, one sliver triangle on a survey fails
+    a landing that a level laid across it would pass.
+  - **It averages magnitude after direction, not before.** A 1:60 fall along both axes is 1:42 on the
+    diagonal, and a level area answers for its fall line. Averaging slope magnitudes instead would make
+    opposite-facing faces add up rather than cancel.
+  - **Only inside faces are averaged.** A landing measured at its edge must not borrow slope from the
+    ramp beside it, so the footprint never reaches past the level-area boundary.
+
+  Membership is even-odd across all loops, so a nested loop is a hole (Project To reads boundaries the
+  same way). A limit hit exactly passes: a landing graded at 1:48 must not fail on floating point.

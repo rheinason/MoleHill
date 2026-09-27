@@ -423,6 +423,14 @@ be an obvious bug, so this exclusion is part of the first implementation, not a 
 
 ### B13 — Gradient compliance analysis, against a settable standard
 
+**In progress. Stage 1 landed 2026-09-27:** the level-area check, the rule set stored in full on the
+definition, the Standard dropdown with "(modified)" provenance, inheriting the document's standard on a
+new card, categorical preview, the card summary and a report section. It is covered by managed tests but
+**not yet exercised in a live Rhino**. Presets shipped: ADA 2010 and Approved Document M Vol 2, both
+checked against the published text. DIN 18040 and AS 1428.1 are paywalled, so they are not presets yet.
+Still open from stage 1: the user library in AppData (export/import JSON) and the *Edit…* rule-table
+dialog. Stage 1 does not need them, because the card shows its only limit inline.
+
 **Reference:** none of the civil packages has a real equivalent. The nearest thing in MoleHill is
 `mhInspectCurve`'s Off/Report/Warn rules, which apply the same idea to a single curve.
 

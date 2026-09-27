@@ -409,3 +409,143 @@ internal sealed class PondingAnalysisDescriptor : AnalysisTypeDescriptor
             visibleWhen: a => ((PondingAnalysisDefinition)a).ShowSpillPoints),
     };
 }
+
+/// <summary>
+/// Gradient compliance: accessibility gradient rules checked against a standard the project sets.
+/// </summary>
+/// <remarks>
+/// No <c>ColorRamp</c> row, for the reason Catchments has none: the colours are verdicts (pass, reported,
+/// failed), not positions on a continuum. The standard is a dropdown of presets that copies its limits
+/// into the card, and every limit stays editable below it; see <see cref="GradientRuleSet"/>.
+/// </remarks>
+internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescriptor
+{
+    public override string Kind => "gradient-compliance";
+    public override Type DefinitionType => typeof(GradientComplianceAnalysisDefinition);
+    public override string TypeLabel => "Gradient Compliance";
+    public override string MenuLabel => "Gradient Compliance";
+    public override string IconLabel => "GC";
+    public override int AccentArgb => unchecked((int)0xFF6A1B9A);
+    public override string Subtitle => "Accessibility gradient rules";
+    public override string? ActiveSubtitle => "Preview colors";
+    public override int SortOrder => 8;
+    public override AnalysisDefinition Create() => new GradientComplianceAnalysisDefinition();
+
+    private static GradientRuleSet Rules(AnalysisDefinition analysis) =>
+        ((GradientComplianceAnalysisDefinition)analysis).Rules;
+
+    private static readonly IReadOnlyList<(string Key, string Label)> RuleModeOptions = new[]
+    {
+        (nameof(GradientRuleMode.Off), "Off"),
+        (nameof(GradientRuleMode.Report), "Report"),
+        (nameof(GradientRuleMode.Warn), "Warn"),
+    };
+
+    public override IReadOnlyList<AnalysisParam> Parameters { get; } = new[]
+    {
+        AnalysisParam.Choice(
+            "Standard", "Standard",
+            null,
+            a => Rules(a).PresetKey ?? GradientRulePresets.CustomKey,
+            (a, key) => ((GradientComplianceAnalysisDefinition)a).Rules = ApplyStandard(Rules(a), key),
+            "The accessibility standard the limits below come from. Choosing one copies its limits into " +
+            "this card, so a later plug-in update cannot change a project's verdict. Every limit stays " +
+            "editable; an edited standard is marked as modified.",
+            rebuildAfterCommit: true,
+            optionsFor: a => StandardOptions(Rules(a))),
+        AnalysisParam.Sources(
+            "LevelAreas", "Level Areas",
+            a => ((GradientComplianceAnalysisDefinition)a).LevelAreas,
+            RhinoObjectType.Curve,
+            "Closed curves around landings, turning spaces and other areas that must be level in every " +
+            "direction. A curve inside another makes a hole."),
+        AnalysisParam.Choice(
+            "LevelAreaMode", "Level Rule",
+            RuleModeOptions,
+            a => Rules(a).LevelAreaMode.ToString(),
+            (a, key) =>
+            {
+                if (Enum.TryParse(key, out GradientRuleMode mode))
+                {
+                    Rules(a).LevelAreaMode = mode;
+                    GradientRulePresets.RefreshModified(Rules(a));
+                }
+            },
+            "Off ignores level areas. Report shows ground over the limit in amber, as information. Warn " +
+            "shows it in red, as a failure.",
+            rebuildAfterCommit: true),
+        AnalysisParam.Slope(
+            "LevelAreaMaxSlope", "Level Limit",
+            a => Rules(a).LevelAreaMaxSlopeDegrees,
+            (a, v) =>
+            {
+                Rules(a).LevelAreaMaxSlopeDegrees = v;
+                GradientRulePresets.RefreshModified(Rules(a));
+            },
+            "The steepest a level area may be in any direction. Typed in any slope unit: 1:48, 2.08% " +
+            "and 1.19deg are the same limit.",
+            rebuildAfterCommit: true,
+            visibleWhen: a => Rules(a).LevelAreaMode != GradientRuleMode.Off),
+        AnalysisParam.Number(
+            "MeasurementLength", "Measure Over",
+            a => ((GradientComplianceAnalysisDefinition)a).MeasurementLength,
+            (a, v) => ((GradientComplianceAnalysisDefinition)a).MeasurementLength = Math.Max(0.0, v),
+            "The length the gradient is averaged over, like a level laid on the ground. Zero measures " +
+            "each triangle alone, which fails survey-derived landings a level would pass. Not part of the " +
+            "standard: none states one.",
+            min: 0.0,
+            unit: ParameterUnit.ModelLength),
+    };
+
+    public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        var compliance = (GradientComplianceAnalysisDefinition)analysis;
+        if (compliance.Rules.LevelAreaMode == GradientRuleMode.Off)
+            return "Every rule is off — set “Level Rule” below.";
+
+        return compliance.LevelAreas.HasReferences
+            ? null
+            : "Needs areas to check — set “Level Areas” below.";
+    }
+
+    public override string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis)
+    {
+        GradientRuleSet rules = Rules(analysis);
+        GradientRulePresets.Preset? preset = GradientRulePresets.Find(rules.PresetKey);
+        if (preset == null)
+            return "Custom limits, not taken from a built-in standard.";
+
+        return rules.IsModified
+            ? $"Based on {preset.Source} Edited since."
+            : preset.Source;
+    }
+
+    private static IReadOnlyList<(string Key, string Label)> StandardOptions(GradientRuleSet rules)
+    {
+        var options = new List<(string Key, string Label)>(GradientRulePresets.All.Count + 1);
+        foreach (GradientRulePresets.Preset preset in GradientRulePresets.All)
+        {
+            bool edited = rules.IsModified && string.Equals(rules.PresetKey, preset.Key, StringComparison.Ordinal);
+            options.Add((preset.Key, edited ? $"{preset.Label} (modified)" : preset.Label));
+        }
+
+        options.Add((GradientRulePresets.CustomKey, "Custom"));
+        return options;
+    }
+
+    /// <summary>
+    /// Choosing a preset replaces every limit with the preset's. Choosing Custom keeps the current limits
+    /// and drops their provenance: the numbers the user sees stay put, they just stop claiming a source.
+    /// </summary>
+    internal static GradientRuleSet ApplyStandard(GradientRuleSet current, string? key)
+    {
+        GradientRulePresets.Preset? preset = GradientRulePresets.Find(key);
+        if (preset != null)
+            return preset.Create();
+
+        GradientRuleSet custom = current.Clone();
+        custom.PresetKey = null;
+        custom.IsModified = false;
+        return custom;
+    }
+}

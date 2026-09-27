@@ -118,29 +118,7 @@ internal sealed partial class TerrainBuildService
     private static List<double[]> ResolveProjectToBoundaryLoops(
         TerrainBuildSnapshot snapshot,
         ProjectToModifierDefinition modifier,
-        double tolerance)
-    {
-        var loops = new List<double[]>();
-        foreach (Curve curve in TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Boundaries))
-        {
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: true, out Polyline polyline))
-                continue;
-
-            int count = polyline.Count;
-            if (count > 1 && polyline[0].DistanceTo(polyline[^1]) <= tolerance)
-                count--;
-            if (count < 3)
-                continue;
-
-            var xy = new double[count * 2];
-            for (int i = 0; i < count; i++)
-            {
-                xy[i * 2] = polyline[i].X;
-                xy[(i * 2) + 1] = polyline[i].Y;
-            }
-            loops.Add(xy);
-        }
-
-        return loops;
-    }
+        double tolerance) =>
+        GradientComplianceEvaluator.ToXyLoops(
+            TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Boundaries), tolerance);
 }

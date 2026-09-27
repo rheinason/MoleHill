@@ -406,6 +406,47 @@ public sealed partial class MoleHillPanel
                 break;
             }
 
+            case GradientComplianceAnalysisDefinition compliance:
+            {
+                if (summary == null)
+                {
+                    layout.AddRow(CreateSelectableSummaryEditor(
+                        "Summary",
+                        "Rebuild required",
+                        "Rebuild the terrain to check the level areas.",
+                        minHeight: 42));
+                }
+                else if (summary.LevelAreaCheckedArea is { } checkedArea &&
+                         summary.LevelAreaSteepestSlopeDegrees is { } steepestDegrees)
+                {
+                    double exceeding = summary.LevelAreaExceedingArea ?? 0.0;
+                    string verdict = compliance.Rules.LevelAreaMode == GradientRuleMode.Warn ? "fails" : "over the limit";
+
+                    // Phrased as an answer, like Ponding's: "all within" is what people are looking for.
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Level areas",
+                        exceeding > 0.0
+                            ? $"{FormatArea(exceeding)} of {FormatArea(checkedArea)} {verdict}"
+                            : $"All {FormatArea(checkedArea)} within the limit",
+                        "Plan area of level-area ground checked on the last build, and how much of it is " +
+                        "steeper than the limit when measured over “Measure Over”."));
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Steepest",
+                        SlopeInput.FormatWithUnit(
+                            Math.Tan(steepestDegrees * Math.PI / 180.0), SlopeUnitPreference.Current),
+                        "The steepest averaged gradient found in any level area, in any direction."));
+                }
+                else
+                {
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Level areas",
+                        "None checked",
+                        "No terrain lies inside a closed level-area curve, or the level rule is off."));
+                }
+
+                break;
+            }
+
             case PondingAnalysisDefinition ponding:
             {
                 if (summary != null)
@@ -498,11 +539,18 @@ public sealed partial class MoleHillPanel
         if (doc == null)
             return;
 
+        IReadOnlyList<TerrainDefinition> documentTerrains = _controller.GetTerrains(doc);
         MutateSelectedTerrain(terrain =>
         {
             AnalysisDefinition? analysis = AnalysisTypeRegistry.Create(
                 kind,
                 MoleHill.Shared.ModelUnitContext.FromDocument(doc));
+            if (analysis is GradientComplianceAnalysisDefinition compliance &&
+                GradientRulePresets.FindDocumentStandard(terrain, documentTerrains) is { } standard)
+            {
+                compliance.Rules = standard;
+            }
+
             if (analysis != null)
                 terrain.Analyses.Insert(0, analysis);
         }, scheduleRebuild: false);

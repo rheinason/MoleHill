@@ -60,6 +60,7 @@ internal static class TerrainAnalysisPreviewBuilder
             CutFillAnalysisDefinition cutFill => BuildCutFillPreviewMesh(doc, terrain, state, cutFill, alpha, resolveReferenceTerrainMesh, out resolvedRange, out distribution),
             CatchmentAnalysisDefinition catchment => BuildCatchmentPreviewMesh(state.TerrainMesh, state.DrainagePreview, catchment, alpha),
             PondingAnalysisDefinition ponding => BuildPondingPreviewMesh(state.TerrainMesh, state.DrainagePreview, ponding, alpha, out resolvedRange, out distribution),
+            GradientComplianceAnalysisDefinition compliance => BuildGradientCompliancePreviewMesh(doc, state.TerrainMesh, compliance, alpha),
             _ => state.TerrainMesh
         };
 
@@ -344,10 +345,42 @@ internal static class TerrainAnalysisPreviewBuilder
         return new PondingPreviewSolve(vertices, faces, faceCount, depths, areas, wet);
     }
 
+    /// <summary>
+    /// Gradient compliance colours each face by its verdict: pass, over a Report limit, over a Warn
+    /// limit, or not checked.
+    /// </summary>
+    /// <remarks>
+    /// Categorical, like catchments, and for the same reason: a verdict is not a position on a
+    /// continuum, so it writes no range and no distribution. The build stage runs the same evaluation
+    /// through <see cref="GradientComplianceEvaluator"/>, so the colours and the card's figures agree.
+    /// </remarks>
+    private static RhinoMesh? BuildGradientCompliancePreviewMesh(
+        RhinoDoc doc,
+        RhinoMesh mesh,
+        GradientComplianceAnalysisDefinition analysis,
+        byte alpha)
+    {
+        if (!RhinoGeometryConversions.TryExtractMeshData(
+                mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
+            return null;
+
+        var result = GradientComplianceEvaluator.Evaluate(
+            vertices,
+            vertexCount,
+            faces,
+            faceCount,
+            RhinoSourceResolver.ResolveCurves(doc, analysis.LevelAreas),
+            analysis,
+            doc.ModelAbsoluteTolerance);
+        byte[] colors = GradientComplianceEvaluator.BuildFaceColors(result, analysis.Rules.LevelAreaMode);
+        return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
+    }
+
     internal static bool SupportsTerrainPreview(AnalysisDefinition analysis)
     {
         return analysis is SlopeAnalysisDefinition or AspectAnalysisDefinition or ElevationAnalysisDefinition
-            or CutFillAnalysisDefinition or CatchmentAnalysisDefinition or PondingAnalysisDefinition;
+            or CutFillAnalysisDefinition or CatchmentAnalysisDefinition or PondingAnalysisDefinition
+            or GradientComplianceAnalysisDefinition;
     }
 
     /// <summary>

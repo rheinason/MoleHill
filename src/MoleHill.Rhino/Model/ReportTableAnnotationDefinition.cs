@@ -38,6 +38,9 @@ public sealed class ReportTableAnnotationDefinition : AnnotationDefinition
     /// <summary>Basin and closed-depression counts from each Catchments analysis.</summary>
     public bool IncludeCatchments { get; set; } = true;
 
+    /// <summary>Level area checked, area over the limit and steepest slope from each Gradient Compliance analysis.</summary>
+    public bool IncludeGradientCompliance { get; set; } = true;
+
     /// <summary>
     /// Unit the drawn slope columns are written in. Stored with the terrain, because it is part of the
     /// drawing — the same reason every other annotation carries its own unit rather than following the

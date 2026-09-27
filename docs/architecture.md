@@ -566,7 +566,7 @@ fingerprint, stage cache, timing) does not care which kind of content it runs, s
 which family a type belongs to:
 
 - **Analysis** (`Model/AnalysisDefinition`, `Registry/AnalysisTypeRegistry`) — slope, aspect, elevation,
-  cut/fill, earthworks, waterflow, catchments, ponding. The result is a measurement: a number, or a colour mapped
+  cut/fill, earthworks, waterflow, catchments, ponding, gradient compliance. The result is a measurement: a number, or a colour mapped
   onto the mesh. Only these carry the colour-ramp apparatus (`PalettePreset`, `PaletteStops`, `ColorMode`,
   `ResolveRamp()`) — though carrying it is not the same as using it, see catchments below.
 - **Annotation** (`Model/AnnotationDefinition`, `Registry/AnnotationTypeRegistry`) — contours, spot heights,
@@ -623,6 +623,23 @@ Two more things about it:
   terrain are absorbed into the one they spill into. A percentage is scale-free — the same 1% is right on a
   housing plot and on a quarry — and it is also the only way to label the row, since `ParameterUnit` has no
   model-area member and this product does not show unlabelled numbers.
+
+**Gradient compliance colours by verdict, and its standard is data.** The gradient compliance analysis
+(`Model/GradientComplianceAnalysisDefinition`, Core `GradientComplianceAnalyzer`, backlog B13) is
+categorical like catchments: pass, over a Report limit (amber) or over a Warn limit (red). A verdict is not
+a position on a continuum, so the card has no ramp. `Services/GradientComplianceEvaluator` is shared by the
+build stage and the preview so the colours and the card's figures cannot disagree. Two decisions are worth
+keeping:
+
+- **The standard is copied into the definition, not referenced.** A `GradientRuleSet` holds every limit.
+  Choosing a preset from `GradientRulePresets` copies it in, and `PresetKey` / `IsModified` are provenance
+  only. Nothing reads a limit through the preset, so a plug-in update that corrects a preset cannot change
+  the verdict on an existing project. This is the opposite of `mhInspectCurve`, whose thresholds are a
+  per-user preference: which standard applies is a fact about the project. A new card copies the standard
+  already used on that terrain, or elsewhere in the document (`FindDocumentStandard`).
+- **Presets ship only when checked against the published text**, and each cites its clause. A wrong
+  built-in compliance preset looks authoritative and is the one value nobody re-checks. Standards whose
+  text was not available (DIN 18040, AS 1428.1 so far) are not presets; their users start from Custom.
 
 The two are **peer families, not a base and a subclass** — the same shape as `ModifierDefinition`,
 `MarkerDefinition`, and `TerrainObjectDefinition`, each with its own definition root, type registry,

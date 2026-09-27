@@ -136,6 +136,23 @@ public sealed class TerrainAnalysisSummary
     /// <summary>Total water-surface plan area, or null when nothing was reported.</summary>
     public double? PondTotalArea { get; set; }
 
+    /// <summary>
+    /// Plan area of level-area ground a gradient compliance card checked, or null when it checked none.
+    ///
+    /// Nullable, not zero, for the reason at <see cref="PondTotalVolume"/>: a card with no level areas set
+    /// and a card whose areas all pass are different answers, and only one is reassuring.
+    /// </summary>
+    public double? LevelAreaCheckedArea { get; set; }
+
+    /// <summary>Plan area of checked level-area ground over the limit, or null when none was checked.</summary>
+    public double? LevelAreaExceedingArea { get; set; }
+
+    /// <summary>
+    /// The steepest averaged gradient found in any level area, in degrees like every stored slope, or null
+    /// when none was checked.
+    /// </summary>
+    public double? LevelAreaSteepestSlopeDegrees { get; set; }
+
     /// <summary>Delta contour curves the cut/fill analysis drew on its last build.</summary>
     public int CutFillDeltaContourCount { get; set; }
 

@@ -162,6 +162,11 @@ internal static class TerrainUnitScaler
                 waterflow.MaxLength *= lengthScale;
                 break;
 
+            case GradientComplianceAnalysisDefinition compliance:
+                // The footprint is a length. The limits are slopes, and a slope has no length to scale.
+                compliance.MeasurementLength *= lengthScale;
+                break;
+
             case CutFillAnalysisDefinition cutFill:
                 // A depth between delta contours is a model length like any other. The range and the band
                 // interval are scaled above, with the other comparison analyses.
@@ -249,6 +254,10 @@ internal static class TerrainUnitScaler
         summary.NetVolume *= volumeScale;
         summary.ContourFirstLevel *= lengthScale;
         summary.ContourLastLevel *= lengthScale;
+        if (summary.LevelAreaCheckedArea.HasValue)
+            summary.LevelAreaCheckedArea = summary.LevelAreaCheckedArea.Value * areaScale;
+        if (summary.LevelAreaExceedingArea.HasValue)
+            summary.LevelAreaExceedingArea = summary.LevelAreaExceedingArea.Value * areaScale;
 
         // The owning definition may be in either family: summaries are build results, and both
         // analyses and annotations produce them.

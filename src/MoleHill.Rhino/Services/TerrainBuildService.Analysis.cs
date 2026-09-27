@@ -204,6 +204,14 @@ internal sealed partial class TerrainBuildService
                     waterflow,
                     build,
                     shouldCancel),
+                GradientComplianceAnalysisDefinition compliance => BuildGradientComplianceSummary(
+                    snapshot,
+                    currentVertices,
+                    currentVertexCount,
+                    currentFaces,
+                    currentFaceCount,
+                    compliance,
+                    shouldCancel),
                 CutFillAnalysisDefinition cutFill => BuildCutFillSummary(
                     snapshot,
                     fallbackBaseMesh,

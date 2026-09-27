@@ -51,6 +51,8 @@ internal static class TerrainReportBuilder
             AppendPonding(document, terrain, analysisSummaries, unitContext);
         if (sections.HasFlag(TerrainReportSections.Catchments))
             AppendCatchments(document, terrain, analysisSummaries, unitContext);
+        if (sections.HasFlag(TerrainReportSections.GradientCompliance))
+            AppendGradientCompliance(document, terrain, analysisSummaries, unitContext, slopeUnit);
         document.RemoveEmptyTables();
         return document;
     }
@@ -262,6 +264,50 @@ internal static class TerrainReportBuilder
                 summary.CatchmentSinkCount.ToString(CultureInfo.InvariantCulture),
                 Optional(summary.CatchmentLargestArea));
         }
+    }
+
+    private static void AppendGradientCompliance(
+        ReportDocument document,
+        TerrainDefinition terrain,
+        IReadOnlyList<TerrainAnalysisSummary> analysisSummaries,
+        ModelUnitContext unitContext,
+        SlopeAnalyzer.SlopeUnit slopeUnit)
+    {
+        ReportTable table = document.AddTable(
+            "Gradient Compliance",
+            new ReportColumn("Analysis"),
+            new ReportColumn("Standard"),
+            new ReportColumn("Level Area Checked", AreaUnit(unitContext), ReportAlignment.Right),
+            new ReportColumn("Over Limit", AreaUnit(unitContext), ReportAlignment.Right),
+            new ReportColumn("Steepest", SlopeInput.Suffix(slopeUnit), ReportAlignment.Right));
+
+        foreach (GradientComplianceAnalysisDefinition analysis in
+                 terrain.Analyses.OfType<GradientComplianceAnalysisDefinition>())
+        {
+            TerrainAnalysisSummary? summary = Find(analysisSummaries, analysis.Id);
+            if (summary == null)
+                continue;
+
+            // Blank, not zero, where nothing was checked: "no level areas set" must not read as "every
+            // landing passes". The standard is named so a reader knows what "over the limit" means.
+            table.AddRow(
+                analysis.Label,
+                DescribeStandard(analysis.Rules),
+                Optional(summary.LevelAreaCheckedArea),
+                Optional(summary.LevelAreaExceedingArea),
+                summary.LevelAreaSteepestSlopeDegrees is { } degrees
+                    ? SlopeInput.FormatValueForReport(Math.Tan(degrees * Math.PI / 180.0), slopeUnit)
+                    : string.Empty);
+        }
+    }
+
+    private static string DescribeStandard(GradientRuleSet rules)
+    {
+        GradientRulePresets.Preset? preset = GradientRulePresets.Find(rules.PresetKey);
+        if (preset == null)
+            return "Custom";
+
+        return rules.IsModified ? $"{preset.Label} (modified)" : preset.Label;
     }
 
     private static TerrainAnalysisSummary? Find(IReadOnlyList<TerrainAnalysisSummary> summaries, Guid analysisId)

@@ -686,6 +686,12 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
             a => ((ReportTableAnnotationDefinition)a).IncludeCatchments,
             (a, v) => ((ReportTableAnnotationDefinition)a).IncludeCatchments = v,
             "Basin and closed-depression counts from each Catchments analysis."),
+        AnnotationParam.Bool(
+            "IncludeGradientCompliance", "Gradient Compliance",
+            a => ((ReportTableAnnotationDefinition)a).IncludeGradientCompliance,
+            (a, v) => ((ReportTableAnnotationDefinition)a).IncludeGradientCompliance = v,
+            "Level area checked, the area over the limit and the steepest slope from each Gradient " +
+            "Compliance analysis, with the standard it was checked against."),
         AnnotationParameterCatalog.SlopeUnitChoice(
             "Unit the drawn slope columns are written in. This one belongs to the drawing, so it is " +
             "stored with the terrain — unlike the slope unit you type in, which is a per-user preference."),
@@ -718,7 +724,8 @@ internal sealed class ReportTableAnnotationDescriptor : AnnotationTypeDescriptor
     {
         var table = (ReportTableAnnotationDefinition)annotation;
         bool anythingSelected = table.IncludeOverview || table.IncludeZones ||
-            table.IncludeEarthworks || table.IncludePonding || table.IncludeCatchments;
+            table.IncludeEarthworks || table.IncludePonding || table.IncludeCatchments ||
+            table.IncludeGradientCompliance;
         if (!anythingSelected)
             return "Nothing is selected to report — switch on at least one section below.";
 
