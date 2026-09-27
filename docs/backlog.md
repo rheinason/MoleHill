@@ -421,6 +421,103 @@ be an obvious bug, so this exclusion is part of the first implementation, not a 
 
 ---
 
+### B13 — Gradient compliance analysis, against a settable standard
+
+**Reference:** none of the civil packages has a real equivalent. The nearest thing in MoleHill is
+`mhInspectCurve`'s Off/Report/Warn rules, which apply the same idea to a single curve.
+
+**What it is:** accessibility gradient rules checked over the built surface and reported as pass / ramp /
+fail. The rules vary by country and must be settable per project.
+
+**Why it is not a slope analysis with a threshold.** Slope analysis measures the *steepest* gradient of a
+face, in whatever direction it falls. Accessibility rules are *directional* and differ by direction:
+running slope along the line of travel, and cross slope perpendicular to it. A threshold is wrong both
+ways:
+
+- It **misses failures**. A path at 1% running and 3% cross has a fall-line gradient of about 3.2%. That
+  passes a 5% threshold, but the cross slope, which is what tips a wheelchair, fails.
+- It **flags good design**. A correct 1:12 ramp with a flat cross slope reads red against a 5% threshold.
+- **Some rules are not per-face at all.** "Too much rise without a landing" and "landing too short" exist
+  only along a route.
+- **Per-face slope overreports on a TIN.** One sliver triangle trips the threshold, whereas the rules are
+  measured over a length. The check averages over a stated footprint.
+
+Only the **level-area** case (landings, turning spaces, plazas: "this slope or less in every direction")
+really is a thresholded slope, and it is the first stage below.
+
+**Where it fits:** an **analysis**. It measures the terrain and moves nothing. Its route input only says
+which direction to measure in, so it passes the test at the top of this file.
+
+**Inputs:**
+
+- **Routes:** curves from the ordinary source picker, plus a width. Grade Path centrelines and widths
+  can be picked up automatically too, since those usually *are* the accessible routes.
+- **Level areas:** closed boundary curves, with no direction.
+
+**Core:** step along each route at a set interval. At each station, average the terrain gradient over the
+footprint and split it into running and cross components against the curve tangent. Classify each
+station into the gentlest gradient band it fits, or fail it. Then merge stations into runs, total the
+rise per run, and check run length, rise and landing length against that band.
+
+**Output:**
+
+- **Categorical preview** over the route corridors and level areas: pass / ramp / fail. Categorical like
+  Catchments rather than a colour ramp, because the classes are verdicts, not measurements.
+- **Callouts** on failing stretches, e.g. "cross 3.1%, ch 12.0–18.5".
+- **A terrain summary** for B4's report: compliant length, ramp length and failure count. Values that
+  were not measured stay nullable, and the fields must be added to `CloneAnalysis`.
+
+**The standard is data, not code.** A **rule set** carries every limit, and it is shaped for the most
+complex standard, not the simplest one. ADA has one ramp limit plus a maximum rise per run. Approved
+Document M ties the permitted going length to the gradient and interpolates between the listed values.
+DIN 18040 and AS 1428.1 split walkway and ramp tiers, each with its own cross-slope and landing rules.
+One model covers all of these:
+
+```
+RuleSet
+  Name, Source (the clause each limit comes from)
+  Gradient bands: { max running slope, max run length?, max rise?, label ("Walk", "Ramp") }
+    + interpolate between bands (on/off)
+  Cross slope: max, per band or single
+  Landings: min length, max slope in any direction
+  Level areas: max slope in any direction
+  Measurement length (averaging footprint)
+  Each rule: Off / Report / Warn
+```
+
+Nothing in the analysis is specific to any one country.
+
+**Setting it:**
+
+- **Card:** a *Standard* dropdown with built-in presets, the user's saved rule sets and "Custom", plus
+  *Edit…* for the rule table. Every slope is read and shown through `SlopeInput`. A rules table is not
+  the declined elevation-editor grid below: that one edits geometry, and this one edits settings.
+- **The definition stores a full copy of the rules**, not a preset name, with "based on ADA 2010 ·
+  modified" provenance. This departs from `mhInspectCurve`, whose thresholds are per-user, and it is
+  deliberate. Which standard applies is a fact about the project: the next person to open the file must
+  get the same verdict, and a plugin update that corrects a preset must not silently change the verdict on
+  an old project.
+- **User library** in AppData, exportable and importable as JSON so an office can share its rule sets. It
+  follows the layer-template pattern of a per-user library plus a document-embedded copy.
+- **Project default:** a new card takes the standard used last in the document, so the country is set
+  once per project.
+
+**Presets:** ADA, Approved Document M, DIN 18040 and AS 1428.1 to start, each citing its clause. **Every
+number is verified against the published text before it ships.** A wrong built-in compliance preset is
+worse than none, and for countries with no preset the user duplicates the nearest one and edits it.
+
+**Staging:** each stage is useful on its own.
+
+1. Level areas, plus the rule-set model and its storage (one level-area limit is enough at first).
+2. Routes: running and cross slope per station, then gradient bands.
+3. Runs and landings: rise and length accumulation, band-dependent going limits and interpolation.
+
+**Notes:** the rule-set storage and editor dialog are the larger part of the work, not the geometry.
+Curve inputs on an analysis card already exist (`SourceReferenceSet`, as used by the Cut / Fill boundary
+and the Waterflow sources), so routes and level areas reuse that; only the width is new.
+
+---
+
 ## Explicitly declined
 
 - **A table-based curve / feature-line elevation editor** (Civil 3D's feature-line elevation editor: a
@@ -440,15 +537,9 @@ be an obvious bug, so this exclusion is part of the first implementation, not a 
 
 Raised for consideration; none agreed. Kept here so they are not re-derived from scratch.
 
-*(Swale, Project To, boundary roles and survey field codes were promoted to Accepted — see B8–B11.
-Aspect (B5) shipped and its entry is gone; B1, B2 and B3 shipped and are kept only to record where they
-were wrong.)*
-- **Gradient compliance checking as an analysis.** Accessibility limits — running slope, cross slope,
-  landing intervals, whatever local standard applies — evaluated over the graded surface and over path
-  corridors, reported as pass/warn regions. MoleHill already has the pattern: `mhInspectCurve`'s
-  Off/Report/Warn rules with user-persistent, unit-aware thresholds. This is that idea applied to a
-  surface instead of a single curve. Landscape-specific, and a genuine differentiator — Civil 3D has no
-  real equivalent.
+*(Swale, Project To, boundary roles and survey field codes were promoted to Accepted — see B8–B11 —
+and gradient compliance checking became B13. Aspect (B5) shipped and its entry is gone; B1, B2 and B3
+shipped and are kept only to record where they were wrong.)*
 - **Solar exposure / shade-hours analysis.** Per-face insolation over a date range, ramped.
   `mhSetSunNorth` means sun is already in the vocabulary, and the analysis family's ramp apparatus is
   ready. Something the civil packages do not offer at all.
