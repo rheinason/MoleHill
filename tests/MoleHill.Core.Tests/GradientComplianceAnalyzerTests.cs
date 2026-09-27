@@ -182,4 +182,132 @@ public class GradientComplianceAnalyzerTests
         Assert.DoesNotContain(Verdict.Exceeds, result.Verdicts);
         Assert.Equal(0.0, result.MaxSlopeRatio!.Value, 12);
     }
+
+    // ---- Routes ----
+
+    /// <summary>ADA §403.3 / §405.2 / §405.3: walks 1:20, ramps 1:12, cross slope 1:48.</summary>
+    private static GradientComplianceAnalyzer.RouteResult EvaluateRoute(
+        (double[] Vertices, int VertexCount, int[] Faces, int FaceCount) mesh,
+        double[] route,
+        double width = 2.0,
+        double measurementLength = 0.0,
+        double cross = OneIn48) =>
+        GradientComplianceAnalyzer.EvaluateRoutes(
+            mesh.Vertices,
+            mesh.VertexCount,
+            mesh.Faces,
+            mesh.FaceCount,
+            new[] { route },
+            new GradientComplianceAnalyzer.RouteOptions
+            {
+                WalkMaxRunningRatio = 1.0 / 20.0,
+                RampMaxRunningRatio = 1.0 / 12.0,
+                MaxCrossRatio = cross,
+                Width = width,
+                MeasurementLength = measurementLength,
+            });
+
+    private static IEnumerable<GradientComplianceAnalyzer.RouteVerdict> Checked(GradientComplianceAnalyzer.RouteResult result) =>
+        result.Verdicts.Where(verdict => verdict != GradientComplianceAnalyzer.RouteVerdict.Unchecked);
+
+    [Fact]
+    public void EvaluateRoutes_RunningSlopeBetweenWalkAndRampLimits_IsARamp()
+    {
+        var mesh = Grid(12, (x, y) => x / 15.0);
+
+        var result = EvaluateRoute(mesh, new[] { 1.0, 6.0, 11.0, 6.0 });
+
+        Assert.All(Checked(result), verdict => Assert.Equal(GradientComplianceAnalyzer.RouteVerdict.Ramp, verdict));
+        Assert.Equal(1.0 / 15.0, result.MaxRunningRatio!.Value, 9);
+        Assert.Equal(0.0, result.MaxCrossRatio!.Value, 9);
+        Assert.Equal(result.CheckedArea, result.RampArea, 9);
+    }
+
+    [Fact]
+    public void EvaluateRoutes_SameSlopeAcrossTheRoute_IsACrossSlopeFailureNotARamp()
+    {
+        // The same 1:15 plane, walked along the contour: no running slope, all of it cross slope. A slope
+        // map cannot tell these two routes apart; this is the case the analysis exists for.
+        var mesh = Grid(12, (x, y) => x / 15.0);
+
+        var result = EvaluateRoute(mesh, new[] { 6.0, 1.0, 6.0, 11.0 });
+
+        Assert.All(Checked(result), verdict => Assert.Equal(GradientComplianceAnalyzer.RouteVerdict.CrossExceeds, verdict));
+        Assert.Equal(0.0, result.MaxRunningRatio!.Value, 9);
+        Assert.Equal(1.0 / 15.0, result.MaxCrossRatio!.Value, 9);
+    }
+
+    [Fact]
+    public void EvaluateRoutes_SteeperThanTheRampLimit_ExceedsRunning()
+    {
+        var mesh = Grid(12, (x, y) => x / 10.0);
+
+        var result = EvaluateRoute(mesh, new[] { 1.0, 6.0, 11.0, 6.0 });
+
+        Assert.All(Checked(result), verdict => Assert.Equal(GradientComplianceAnalyzer.RouteVerdict.RunningExceeds, verdict));
+        Assert.Equal(result.CheckedArea, result.RunningExceedingArea, 9);
+    }
+
+    [Fact]
+    public void EvaluateRoutes_ShallowRoute_IsAWalk()
+    {
+        var mesh = Grid(12, (x, y) => x / 40.0);
+
+        var result = EvaluateRoute(mesh, new[] { 1.0, 6.0, 11.0, 6.0 });
+
+        Assert.All(Checked(result), verdict => Assert.Equal(GradientComplianceAnalyzer.RouteVerdict.Walk, verdict));
+        Assert.Equal(0.0, result.RampArea);
+    }
+
+    [Fact]
+    public void EvaluateRoutes_DrawingDirection_DoesNotChangeTheAnswer()
+    {
+        var mesh = Grid(12, (x, y) => x / 30.0);
+
+        var forward = EvaluateRoute(mesh, new[] { 2.0, 2.0, 10.0, 10.0 });
+        var backward = EvaluateRoute(mesh, new[] { 10.0, 10.0, 2.0, 2.0 });
+
+        double component = Math.Sqrt(0.5) / 30.0;
+        Assert.Equal(component, forward.MaxRunningRatio!.Value, 9);
+        Assert.Equal(component, forward.MaxCrossRatio!.Value, 9);
+        Assert.Equal(forward.Verdicts, backward.Verdicts);
+    }
+
+    [Fact]
+    public void EvaluateRoutes_OnlyTheCorridorIsChecked()
+    {
+        var mesh = Grid(12, (x, y) => 0.0);
+
+        var result = EvaluateRoute(mesh, new[] { 0.0, 6.0, 12.0, 6.0 }, width: 2.0);
+
+        Assert.Equal(24.0, result.CheckedArea, 9);
+        for (int face = 0; face < mesh.FaceCount; face++)
+        {
+            bool isChecked = result.Verdicts[face] != GradientComplianceAnalyzer.RouteVerdict.Unchecked;
+            Assert.Equal(isChecked, !double.IsNaN(result.RunningRatios[face]));
+        }
+    }
+
+    [Fact]
+    public void EvaluateRoutes_FootprintDoesNotBorrowSlopeFromTheBankBeside()
+    {
+        // A level path 2 m wide cut into a steep bank either side. A wide footprint must still read the
+        // path's own cross slope, not the banks'.
+        var mesh = Grid(12, (x, y) => Math.Abs(y - 6.0) <= 1.0 ? 0.0 : (Math.Abs(y - 6.0) - 1.0) / 2.0);
+
+        var result = EvaluateRoute(mesh, new[] { 0.0, 6.0, 12.0, 6.0 }, width: 2.0, measurementLength: 4.0);
+
+        Assert.Equal(0.0, result.MaxCrossRatio!.Value, 12);
+        Assert.All(Checked(result), verdict => Assert.Equal(GradientComplianceAnalyzer.RouteVerdict.Walk, verdict));
+    }
+
+    [Fact]
+    public void EvaluateRoutes_CrossCheckOff_NeverFailsOnCross()
+    {
+        var mesh = Grid(12, (x, y) => x / 15.0);
+
+        var result = EvaluateRoute(mesh, new[] { 6.0, 1.0, 6.0, 11.0 }, cross: double.PositiveInfinity);
+
+        Assert.All(Checked(result), verdict => Assert.Equal(GradientComplianceAnalyzer.RouteVerdict.Walk, verdict));
+    }
 }
