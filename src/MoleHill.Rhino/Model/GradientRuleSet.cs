@@ -30,5 +30,17 @@ public sealed class GradientRuleSet
     /// <summary>The steepest a level area may be in any direction, in degrees.</summary>
     public double LevelAreaMaxSlopeDegrees { get; set; }
 
+    /// <summary>Whether routes are checked for running and cross slope, and how a breach reads.</summary>
+    public GradientRuleMode RouteMode { get; set; } = GradientRuleMode.Warn;
+
+    /// <summary>The steepest running slope that is still a walk, in degrees. Steeper is a ramp.</summary>
+    public double WalkMaxSlopeDegrees { get; set; }
+
+    /// <summary>The steepest running slope allowed at all, as a ramp, in degrees.</summary>
+    public double RampMaxSlopeDegrees { get; set; }
+
+    /// <summary>The steepest a route may fall across its direction of travel, in degrees.</summary>
+    public double CrossMaxSlopeDegrees { get; set; }
+
     public GradientRuleSet Clone() => (GradientRuleSet)MemberwiseClone();
 }

@@ -153,6 +153,24 @@ public sealed class TerrainAnalysisSummary
     /// </summary>
     public double? LevelAreaSteepestSlopeDegrees { get; set; }
 
+    /// <summary>Plan area of route corridor a gradient compliance card checked, or null when it checked none.</summary>
+    public double? RouteCheckedArea { get; set; }
+
+    /// <summary>Checked route area in the ramp band (allowed, but a ramp), or null when none was checked.</summary>
+    public double? RouteRampArea { get; set; }
+
+    /// <summary>Checked route area steeper than the ramp limit, or null when none was checked.</summary>
+    public double? RouteRunningExceedingArea { get; set; }
+
+    /// <summary>Checked route area with too much cross slope, or null when none was checked.</summary>
+    public double? RouteCrossExceedingArea { get; set; }
+
+    /// <summary>Steepest averaged running slope on any route, in degrees, or null when none was checked.</summary>
+    public double? RouteSteepestRunningDegrees { get; set; }
+
+    /// <summary>Steepest averaged cross slope on any route, in degrees, or null when none was checked.</summary>
+    public double? RouteSteepestCrossDegrees { get; set; }
+
     /// <summary>Delta contour curves the cut/fill analysis drew on its last build.</summary>
     public int CutFillDeltaContourCount { get; set; }
 

@@ -486,6 +486,45 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
             "and 1.19deg are the same limit.",
             rebuildAfterCommit: true,
             visibleWhen: a => Rules(a).LevelAreaMode != GradientRuleMode.Off),
+        AnalysisParam.Sources(
+            "Routes", "Routes",
+            a => ((GradientComplianceAnalysisDefinition)a).Routes,
+            RhinoObjectType.Curve,
+            "Curves along the centre of accessible routes. Slope along a route is its running slope and " +
+            "is allowed up to the ramp limit; slope across it is cross slope. Drawing direction does not " +
+            "matter."),
+        AnalysisParam.Number(
+            "RouteWidth", "Route Width",
+            a => ((GradientComplianceAnalysisDefinition)a).RouteWidth,
+            (a, v) => ((GradientComplianceAnalysisDefinition)a).RouteWidth = Math.Max(0.0, v),
+            "Width of the corridor checked along each route, centred on the curve.",
+            min: 0.0,
+            unit: ParameterUnit.ModelLength,
+            rebuildAfterCommit: true),
+        AnalysisParam.Choice(
+            "RouteMode", "Route Rule",
+            RuleModeOptions,
+            a => Rules(a).RouteMode.ToString(),
+            (a, key) =>
+            {
+                if (Enum.TryParse(key, out GradientRuleMode mode))
+                {
+                    Rules(a).RouteMode = mode;
+                    GradientRulePresets.RefreshModified(Rules(a));
+                }
+            },
+            "Off ignores routes. Report shows running or cross slope over the limit in amber; Warn shows " +
+            "it in red. Ramps within the limit show blue either way: allowed, but not a walk.",
+            rebuildAfterCommit: true),
+        RouteSlope("WalkMaxSlope", "Walk Limit",
+            r => r.WalkMaxSlopeDegrees, (r, v) => r.WalkMaxSlopeDegrees = v,
+            "The steepest running slope that is still a walk. Steeper, up to the ramp limit, is a ramp."),
+        RouteSlope("RampMaxSlope", "Ramp Limit",
+            r => r.RampMaxSlopeDegrees, (r, v) => r.RampMaxSlopeDegrees = v,
+            "The steepest running slope allowed at all. Steeper fails."),
+        RouteSlope("CrossMaxSlope", "Cross Limit",
+            r => r.CrossMaxSlopeDegrees, (r, v) => r.CrossMaxSlopeDegrees = v,
+            "The steepest a route may fall across its direction of travel."),
         AnalysisParam.Number(
             "MeasurementLength", "Measure Over",
             a => ((GradientComplianceAnalysisDefinition)a).MeasurementLength,
@@ -500,13 +539,34 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
     public override string? DescribeBlocker(TerrainDefinition terrain, AnalysisDefinition analysis)
     {
         var compliance = (GradientComplianceAnalysisDefinition)analysis;
-        if (compliance.Rules.LevelAreaMode == GradientRuleMode.Off)
-            return "Every rule is off — set “Level Rule” below.";
+        bool levelOn = compliance.Rules.LevelAreaMode != GradientRuleMode.Off;
+        bool routesOn = compliance.Rules.RouteMode != GradientRuleMode.Off;
+        if (!levelOn && !routesOn)
+            return "Every rule is off — set “Level Rule” or “Route Rule” below.";
 
-        return compliance.LevelAreas.HasReferences
+        return (levelOn && compliance.LevelAreas.HasReferences) || (routesOn && compliance.Routes.HasReferences)
             ? null
-            : "Needs areas to check — set “Level Areas” below.";
+            : "Needs something to check — set “Level Areas” or “Routes” below.";
     }
+
+    private static AnalysisParam RouteSlope(
+        string key,
+        string label,
+        Func<GradientRuleSet, double> get,
+        Action<GradientRuleSet, double> set,
+        string help) =>
+        AnalysisParam.Slope(
+            key, label,
+            a => get(Rules(a)),
+            (a, v) =>
+            {
+                set(Rules(a), v);
+                GradientRulePresets.RefreshModified(Rules(a));
+            },
+            help,
+            rebuildAfterCommit: true,
+            visibleWhen: a => Rules(a).RouteMode != GradientRuleMode.Off);
+
 
     public override string? DescribeBasis(TerrainDefinition terrain, AnalysisDefinition analysis)
     {

@@ -165,6 +165,7 @@ internal static class TerrainUnitScaler
             case GradientComplianceAnalysisDefinition compliance:
                 // The footprint is a length. The limits are slopes, and a slope has no length to scale.
                 compliance.MeasurementLength *= lengthScale;
+                compliance.RouteWidth *= lengthScale;
                 break;
 
             case CutFillAnalysisDefinition cutFill:
@@ -258,6 +259,14 @@ internal static class TerrainUnitScaler
             summary.LevelAreaCheckedArea = summary.LevelAreaCheckedArea.Value * areaScale;
         if (summary.LevelAreaExceedingArea.HasValue)
             summary.LevelAreaExceedingArea = summary.LevelAreaExceedingArea.Value * areaScale;
+        if (summary.RouteCheckedArea.HasValue)
+            summary.RouteCheckedArea = summary.RouteCheckedArea.Value * areaScale;
+        if (summary.RouteRampArea.HasValue)
+            summary.RouteRampArea = summary.RouteRampArea.Value * areaScale;
+        if (summary.RouteRunningExceedingArea.HasValue)
+            summary.RouteRunningExceedingArea = summary.RouteRunningExceedingArea.Value * areaScale;
+        if (summary.RouteCrossExceedingArea.HasValue)
+            summary.RouteCrossExceedingArea = summary.RouteCrossExceedingArea.Value * areaScale;
 
         // The owning definition may be in either family: summaries are build results, and both
         // analyses and annotations produce them.

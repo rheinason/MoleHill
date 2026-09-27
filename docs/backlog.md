@@ -431,7 +431,14 @@ rows, Add Analysis inheritance, save/reload, the drawn report table and rebuild-
 Presets shipped: ADA 2010 and Approved Document M Vol 2, both
 checked against the published text. DIN 18040 and AS 1428.1 are paywalled, so they are not presets yet.
 Still open from stage 1: the user library in AppData (export/import JSON) and the *Edit…* rule-table
-dialog. Stage 1 does not need them, because the card shows its only limit inline.
+dialog. Stage 1 does not need them, because the card shows its limits inline.
+
+**Stage 2 landed 2026-09-27 (managed tests only, not yet live-tested):** routes with a corridor width.
+The footprint-averaged gradient is split against the nearest route segment into running and cross slope.
+Running slope is classed walk / ramp / fail against two limits, and cross slope against its own limit.
+Where a level area overlaps a route, the level area's verdict wins. Ramps preview blue: allowed, but not
+a walk. Both presets gained verified route limits (ADA §403.3, §405.2; ADM §1.13(c), Table 1). The
+general band table (N bands with run length and rise) is deferred to stage 3, where length is measured.
 
 **Reference:** none of the civil packages has a real equivalent. The nearest thing in MoleHill is
 `mhInspectCurve`'s Off/Report/Warn rules, which apply the same idea to a single curve.

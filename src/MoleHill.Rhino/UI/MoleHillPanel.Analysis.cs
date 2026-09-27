@@ -436,12 +436,37 @@ public sealed partial class MoleHillPanel
                             Math.Tan(steepestDegrees * Math.PI / 180.0), SlopeUnitPreference.Current),
                         "The steepest averaged gradient found in any level area, in any direction."));
                 }
-                else
+                else if (summary.RouteCheckedArea == null)
                 {
                     layout.AddRow(CreateReadOnlyValueRow(
                         "Result",
                         "None checked",
-                        "No terrain lies inside a closed level-area curve, or the level rule is off."));
+                        "No terrain lies inside a closed level-area curve or a route corridor, or the rules are off."));
+                }
+
+                if (summary?.RouteCheckedArea is { } routeArea &&
+                    summary.RouteSteepestRunningDegrees is { } runningDegrees &&
+                    summary.RouteSteepestCrossDegrees is { } crossDegrees)
+                {
+                    double runningFails = summary.RouteRunningExceedingArea ?? 0.0;
+                    double crossFails = summary.RouteCrossExceedingArea ?? 0.0;
+                    string routeVerdict = compliance.Rules.RouteMode == GradientRuleMode.Warn ? "fail" : "over";
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Routes",
+                        runningFails > 0.0 || crossFails > 0.0
+                            ? $"{FormatArea(runningFails)} running, {FormatArea(crossFails)} cross {routeVerdict}, of {FormatArea(routeArea)}"
+                            : $"All {FormatArea(routeArea)} within the limits",
+                        "Route corridor checked on the last build. Running slope past the ramp limit and cross " +
+                        "slope past the cross limit are counted separately; ground failing both counts in each."));
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Ramps",
+                        FormatArea(summary.RouteRampArea ?? 0.0),
+                        "Route ground steeper than a walk but within the ramp limit. Allowed; stage three will " +
+                        "hold it to ramp rules on rise and landings."));
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Steepest",
+                        $"{FormatRouteSlope(runningDegrees)} running, {FormatRouteSlope(crossDegrees)} cross",
+                        "The steepest averaged running and cross slope found on any route."));
                 }
 
                 break;
@@ -562,6 +587,9 @@ public sealed partial class MoleHillPanel
             RefreshTerrainPreview(terrain.TerrainId);
         }
     }
+
+    private static string FormatRouteSlope(double degrees) =>
+        SlopeInput.FormatWithUnit(Math.Tan(degrees * Math.PI / 180.0), SlopeUnitPreference.Current);
 
     private static TerrainAnalysisSummary? GetAnalysisSummary(TerrainDefinition terrain, Guid analysisId)
     {

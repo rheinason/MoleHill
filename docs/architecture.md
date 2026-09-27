@@ -626,7 +626,9 @@ Two more things about it:
 
 **Gradient compliance colours by verdict, and its standard is data.** The gradient compliance analysis
 (`Model/GradientComplianceAnalysisDefinition`, Core `GradientComplianceAnalyzer`, backlog B13) is
-categorical like catchments: pass, over a Report limit (amber) or over a Warn limit (red). A verdict is not
+categorical like catchments: pass or walk (green), ramp (blue, allowed), over a Report limit (amber) or
+over a Warn limit (red). Level areas have one limit in every direction, while routes split slope into
+running and cross against the route's direction, and a level area's verdict wins where the two overlap. A verdict is not
 a position on a continuum, so the card has no ramp. `Services/GradientComplianceEvaluator` is shared by the
 build stage and the preview so the colours and the card's figures cannot disagree. Two decisions are worth
 keeping:

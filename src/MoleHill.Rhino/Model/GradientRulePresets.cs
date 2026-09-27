@@ -29,24 +29,35 @@ public static class GradientRulePresets
             "ada-2010",
             "ADA 2010 (US)",
             "2010 ADA Standards: §304.2 turning space and §405.7.1 ramp landings, slopes not steeper " +
-            "than 1:48.",
+            "than 1:48; §403.3 walking surfaces running slope 1:20 and cross slope 1:48; §405.2 ramp " +
+            "running slope 1:12.",
             () => new GradientRuleSet
             {
                 PresetKey = "ada-2010",
                 LevelAreaMode = GradientRuleMode.Warn,
                 LevelAreaMaxSlopeDegrees = RatioToDegrees(1.0, 48.0),
+                RouteMode = GradientRuleMode.Warn,
+                WalkMaxSlopeDegrees = RatioToDegrees(1.0, 20.0),
+                RampMaxSlopeDegrees = RatioToDegrees(1.0, 12.0),
+                CrossMaxSlopeDegrees = RatioToDegrees(1.0, 48.0),
             }),
         new Preset(
             "adm-vol2-2015",
             "Approved Doc M Vol 2 (England)",
             "Approved Document M Vol 2 (2015, 2024 amendments): §1.26(k) landings level, max 1:60 along " +
             "their length and 1:40 cross-fall; \"level\" is max 1:60 in the direction of travel. A level " +
-            "area has no direction of travel, so it is checked at the stricter 1:60 in every direction.",
+            "area has no direction of travel, so it is checked at the stricter 1:60 in every direction. " +
+            "§1.13(c) approaches less steep than 1:20 with cross-fall no steeper than 1:40; Table 1 " +
+            "ramps no steeper than 1:12.",
             () => new GradientRuleSet
             {
                 PresetKey = "adm-vol2-2015",
                 LevelAreaMode = GradientRuleMode.Warn,
                 LevelAreaMaxSlopeDegrees = RatioToDegrees(1.0, 60.0),
+                RouteMode = GradientRuleMode.Warn,
+                WalkMaxSlopeDegrees = RatioToDegrees(1.0, 20.0),
+                RampMaxSlopeDegrees = RatioToDegrees(1.0, 12.0),
+                CrossMaxSlopeDegrees = RatioToDegrees(1.0, 40.0),
             }),
     };
 
@@ -92,7 +103,11 @@ public static class GradientRulePresets
 
     private static bool HaveSameLimits(GradientRuleSet a, GradientRuleSet b) =>
         a.LevelAreaMode == b.LevelAreaMode &&
-        Math.Abs(a.LevelAreaMaxSlopeDegrees - b.LevelAreaMaxSlopeDegrees) <= 1e-9;
+        Math.Abs(a.LevelAreaMaxSlopeDegrees - b.LevelAreaMaxSlopeDegrees) <= 1e-9 &&
+        a.RouteMode == b.RouteMode &&
+        Math.Abs(a.WalkMaxSlopeDegrees - b.WalkMaxSlopeDegrees) <= 1e-9 &&
+        Math.Abs(a.RampMaxSlopeDegrees - b.RampMaxSlopeDegrees) <= 1e-9 &&
+        Math.Abs(a.CrossMaxSlopeDegrees - b.CrossMaxSlopeDegrees) <= 1e-9;
 
     private static double RatioToDegrees(double rise, double run) => Math.Atan2(rise, run) * 180.0 / Math.PI;
 }

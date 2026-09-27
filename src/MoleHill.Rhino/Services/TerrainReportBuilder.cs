@@ -279,7 +279,13 @@ internal static class TerrainReportBuilder
             new ReportColumn("Standard"),
             new ReportColumn("Level Area Checked", AreaUnit(unitContext), ReportAlignment.Right),
             new ReportColumn("Over Limit", AreaUnit(unitContext), ReportAlignment.Right),
-            new ReportColumn("Steepest", SlopeInput.Suffix(slopeUnit), ReportAlignment.Right));
+            new ReportColumn("Steepest", SlopeInput.Suffix(slopeUnit), ReportAlignment.Right),
+            new ReportColumn("Route Checked", AreaUnit(unitContext), ReportAlignment.Right),
+            new ReportColumn("Ramp", AreaUnit(unitContext), ReportAlignment.Right),
+            new ReportColumn("Running Over", AreaUnit(unitContext), ReportAlignment.Right),
+            new ReportColumn("Cross Over", AreaUnit(unitContext), ReportAlignment.Right),
+            new ReportColumn("Steepest Running", SlopeInput.Suffix(slopeUnit), ReportAlignment.Right),
+            new ReportColumn("Steepest Cross", SlopeInput.Suffix(slopeUnit), ReportAlignment.Right));
 
         foreach (GradientComplianceAnalysisDefinition analysis in
                  terrain.Analyses.OfType<GradientComplianceAnalysisDefinition>())
@@ -295,11 +301,18 @@ internal static class TerrainReportBuilder
                 DescribeStandard(analysis.Rules),
                 Optional(summary.LevelAreaCheckedArea),
                 Optional(summary.LevelAreaExceedingArea),
-                summary.LevelAreaSteepestSlopeDegrees is { } degrees
-                    ? SlopeInput.FormatValueForReport(Math.Tan(degrees * Math.PI / 180.0), slopeUnit)
-                    : string.Empty);
+                OptionalSlope(summary.LevelAreaSteepestSlopeDegrees, slopeUnit),
+                Optional(summary.RouteCheckedArea),
+                Optional(summary.RouteRampArea),
+                Optional(summary.RouteRunningExceedingArea),
+                Optional(summary.RouteCrossExceedingArea),
+                OptionalSlope(summary.RouteSteepestRunningDegrees, slopeUnit),
+                OptionalSlope(summary.RouteSteepestCrossDegrees, slopeUnit));
         }
     }
+
+    private static string OptionalSlope(double? degrees, SlopeAnalyzer.SlopeUnit unit) =>
+        degrees is { } value ? SlopeInput.FormatValueForReport(Math.Tan(value * Math.PI / 180.0), unit) : string.Empty;
 
     private static string DescribeStandard(GradientRuleSet rules)
     {

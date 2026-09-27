@@ -206,26 +206,97 @@ public class GradientComplianceAnalysisTests
     }
 
     [Fact]
-    public void BuildFaceColors_ReportAndWarnReadDifferently()
+    public void BuildFaceColors_ReportAndWarnReadDifferently_AndLevelAreasOverrideRoutes()
     {
-        var result = new GradientComplianceAnalyzer.Result
+        var level = new GradientComplianceAnalyzer.Result
         {
             Verdicts = new[]
             {
                 GradientComplianceAnalyzer.FaceVerdict.Unchecked,
                 GradientComplianceAnalyzer.FaceVerdict.Pass,
                 GradientComplianceAnalyzer.FaceVerdict.Exceeds,
+                GradientComplianceAnalyzer.FaceVerdict.Unchecked,
+                GradientComplianceAnalyzer.FaceVerdict.Unchecked,
             },
-            MeasuredSlopeRatios = new[] { double.NaN, 0.01, 0.05 },
+            MeasuredSlopeRatios = new[] { double.NaN, 0.01, 0.05, double.NaN, double.NaN },
         };
+        var routes = GradientComplianceAnalyzer.RouteResult.Empty(5);
+        routes.Verdicts[1] = GradientComplianceAnalyzer.RouteVerdict.RunningExceeds; // overridden by the level pass
+        routes.Verdicts[3] = GradientComplianceAnalyzer.RouteVerdict.Ramp;
+        routes.Verdicts[4] = GradientComplianceAnalyzer.RouteVerdict.CrossExceeds;
+        var evaluation = new GradientComplianceEvaluator.Evaluation(level, routes);
 
-        byte[] warn = GradientComplianceEvaluator.BuildFaceColors(result, GradientRuleMode.Warn);
-        byte[] report = GradientComplianceEvaluator.BuildFaceColors(result, GradientRuleMode.Report);
+        var rules = GradientRulePresets.Default.Create();
+        byte[] warn = GradientComplianceEvaluator.BuildFaceColors(evaluation, rules);
+        rules.LevelAreaMode = GradientRuleMode.Report;
+        rules.RouteMode = GradientRuleMode.Report;
+        byte[] report = GradientComplianceEvaluator.BuildFaceColors(evaluation, rules);
 
+        Assert.Equal(GradientComplianceEvaluator.UncheckedColor.R, warn[0]);
+        Assert.Equal(GradientComplianceEvaluator.PassColor.G, warn[4]);
         Assert.Equal(GradientComplianceEvaluator.WarnColor.R, warn[6]);
         Assert.Equal(GradientComplianceEvaluator.ReportColor.R, report[6]);
-        Assert.Equal(GradientComplianceEvaluator.PassColor.G, warn[4]);
-        Assert.Equal(GradientComplianceEvaluator.UncheckedColor.R, warn[0]);
+        Assert.Equal(GradientComplianceEvaluator.RampColor.B, warn[11]);
+        Assert.Equal(GradientComplianceEvaluator.RampColor.B, report[11]);
+        Assert.Equal(GradientComplianceEvaluator.WarnColor.R, warn[12]);
+        Assert.Equal(GradientComplianceEvaluator.ReportColor.R, report[12]);
+    }
+
+    [Theory]
+    [InlineData("ada-2010", 20.0, 12.0, 48.0)]
+    [InlineData("adm-vol2-2015", 20.0, 12.0, 40.0)]
+    public void Presets_CarryTheirPublishedRouteLimits(string key, double walkRun, double rampRun, double crossRun)
+    {
+        GradientRuleSet rules = GradientRulePresets.Find(key)!.Create();
+
+        Assert.Equal(1.0 / walkRun, DegreesToRatio(rules.WalkMaxSlopeDegrees), 12);
+        Assert.Equal(1.0 / rampRun, DegreesToRatio(rules.RampMaxSlopeDegrees), 12);
+        Assert.Equal(1.0 / crossRun, DegreesToRatio(rules.CrossMaxSlopeDegrees), 12);
+        Assert.Equal(GradientRuleMode.Warn, rules.RouteMode);
+    }
+
+    [Theory]
+    [InlineData("WalkMaxSlope")]
+    [InlineData("RampMaxSlope")]
+    [InlineData("CrossMaxSlope")]
+    public void EditingARouteLimit_MarksTheStandardModified(string key)
+    {
+        var analysis = new GradientComplianceAnalysisDefinition();
+
+        Row(key).SetNumber!(analysis, 5.0);
+
+        Assert.True(analysis.Rules.IsModified);
+        Assert.Equal(ParameterUnit.Slope, Row(key).Unit);
+    }
+
+    [Fact]
+    public void DescribeBlocker_IsSatisfiedByRoutesAlone()
+    {
+        var descriptor = AnalysisTypeRegistry.ForKind(Kind)!;
+        var analysis = new GradientComplianceAnalysisDefinition();
+        analysis.Routes.ObjectIds.Add(Guid.NewGuid());
+
+        Assert.Null(descriptor.DescribeBlocker(new TerrainDefinition(), analysis));
+
+        analysis.Rules.RouteMode = GradientRuleMode.Off;
+        Assert.NotNull(descriptor.DescribeBlocker(new TerrainDefinition(), analysis));
+    }
+
+    [Fact]
+    public void RoutesAndWidth_RoundTripAndScale()
+    {
+        var analysis = new GradientComplianceAnalysisDefinition { RouteWidth = 1.8 };
+        analysis.Routes.ObjectIds.Add(Guid.NewGuid());
+        analysis.Rules.RouteMode = GradientRuleMode.Report;
+
+        GradientComplianceAnalysisDefinition restored = RoundTrip(analysis);
+        Assert.Equal(1.8, restored.RouteWidth);
+        Assert.Single(restored.Routes.ObjectIds);
+        Assert.Equal(GradientRuleMode.Report, restored.Rules.RouteMode);
+        Assert.Contains(restored.Routes, restored.EnumerateSourceSets());
+
+        TerrainUnitScaler.Scale(restored, 1000.0);
+        Assert.Equal(1800.0, restored.RouteWidth, 9);
     }
 
     [Fact]
@@ -266,6 +337,9 @@ public class GradientComplianceAnalysisTests
         Assert.Equal(CsvWriter.Number(120.0), landings[2]);
         Assert.Equal(CsvWriter.Number(7.5), landings[3]);
         Assert.Equal(SlopeInput.FormatValueForReport(0.03, SlopeAnalyzer.SlopeUnit.Percent), landings[4]);
+
+        Assert.Equal(string.Empty, landings[5]);
+        Assert.Equal(11, table.Columns.Count);
 
         IReadOnlyList<string> plaza = table.Rows[1];
         Assert.Equal("Custom", plaza[1]);

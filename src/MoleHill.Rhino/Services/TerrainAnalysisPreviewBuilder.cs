@@ -346,8 +346,8 @@ internal static class TerrainAnalysisPreviewBuilder
     }
 
     /// <summary>
-    /// Gradient compliance colours each face by its verdict: pass, over a Report limit, over a Warn
-    /// limit, or not checked.
+    /// Gradient compliance colours each face by its verdict: pass (or walk), ramp, over a Report limit,
+    /// over a Warn limit, or not checked.
     /// </summary>
     /// <remarks>
     /// Categorical, like catchments, and for the same reason: a verdict is not a position on a
@@ -364,15 +364,16 @@ internal static class TerrainAnalysisPreviewBuilder
                 mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out _))
             return null;
 
-        var result = GradientComplianceEvaluator.Evaluate(
+        var evaluation = GradientComplianceEvaluator.Evaluate(
             vertices,
             vertexCount,
             faces,
             faceCount,
             RhinoSourceResolver.ResolveCurves(doc, analysis.LevelAreas),
+            RhinoSourceResolver.ResolveCurves(doc, analysis.Routes),
             analysis,
             doc.ModelAbsoluteTolerance);
-        byte[] colors = GradientComplianceEvaluator.BuildFaceColors(result, analysis.Rules.LevelAreaMode);
+        byte[] colors = GradientComplianceEvaluator.BuildFaceColors(evaluation, analysis.Rules);
         return BuildFaceColorMesh(vertices, faces, faceCount, colors, alpha);
     }
 

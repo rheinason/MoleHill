@@ -7,8 +7,8 @@ namespace MoleHill.Rhino.Services;
 internal sealed partial class TerrainBuildService
 {
     /// <summary>
-    /// Summarizes a gradient compliance card: how much level area was checked, how much of it is over the
-    /// limit, and the steepest ground found. Values the card did not measure stay null, so "no level areas
+    /// Summarizes a gradient compliance card: how much level area and route corridor was checked, how much
+    /// of it is over a limit, and the steepest ground found. Values the card did not measure stay null, so "no level areas
     /// set" never reads as "every landing passes".
     /// </summary>
     private static TerrainAnalysisSummary BuildGradientComplianceSummary(
@@ -21,25 +21,40 @@ internal sealed partial class TerrainBuildService
         Func<bool>? shouldCancel)
     {
         var summary = new TerrainAnalysisSummary { AnalysisId = analysis.Id };
-        if (analysis.Rules.LevelAreaMode == GradientRuleMode.Off)
+        if (analysis.Rules.LevelAreaMode == GradientRuleMode.Off && analysis.Rules.RouteMode == GradientRuleMode.Off)
             return summary;
 
-        GradientComplianceAnalyzer.Result result = GradientComplianceEvaluator.Evaluate(
+        GradientComplianceEvaluator.Evaluation evaluation = GradientComplianceEvaluator.Evaluate(
             vertices,
             vertexCount,
             faces,
             faceCount,
             TerrainBuildSnapshotResolver.ResolveCurves(snapshot, analysis.LevelAreas),
+            TerrainBuildSnapshotResolver.ResolveCurves(snapshot, analysis.Routes),
             analysis,
             snapshot.ModelAbsoluteTolerance,
             shouldCancel);
 
-        if (result.MaxSlopeRatio is not { } steepest)
-            return summary;
+        if (evaluation.LevelAreas.MaxSlopeRatio is { } steepest)
+        {
+            summary.LevelAreaCheckedArea = evaluation.LevelAreas.CheckedArea;
+            summary.LevelAreaExceedingArea = evaluation.LevelAreas.ExceedingArea;
+            summary.LevelAreaSteepestSlopeDegrees = ToDegrees(steepest);
+        }
 
-        summary.LevelAreaCheckedArea = result.CheckedArea;
-        summary.LevelAreaExceedingArea = result.ExceedingArea;
-        summary.LevelAreaSteepestSlopeDegrees = Math.Atan(steepest) * 180.0 / Math.PI;
+        GradientComplianceAnalyzer.RouteResult routes = evaluation.Routes;
+        if (routes.MaxRunningRatio is { } running && routes.MaxCrossRatio is { } cross)
+        {
+            summary.RouteCheckedArea = routes.CheckedArea;
+            summary.RouteRampArea = routes.RampArea;
+            summary.RouteRunningExceedingArea = routes.RunningExceedingArea;
+            summary.RouteCrossExceedingArea = routes.CrossExceedingArea;
+            summary.RouteSteepestRunningDegrees = ToDegrees(running);
+            summary.RouteSteepestCrossDegrees = ToDegrees(cross);
+        }
+
         return summary;
     }
+
+    private static double ToDegrees(double ratio) => Math.Atan(ratio) * 180.0 / Math.PI;
 }

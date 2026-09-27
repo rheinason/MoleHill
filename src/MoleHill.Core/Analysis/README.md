@@ -154,5 +154,12 @@ Terrain analysis math. Pure, unit-tested.
   - **Only inside faces are averaged.** A landing measured at its edge must not borrow slope from the
     ramp beside it, so the footprint never reaches past the level-area boundary.
 
+  **Routes** (stage two, `EvaluateRoutes`): a face within half the corridor width of a route takes the
+  nearest segment's plan direction. Its averaged gradient is split into running slope (along) and cross
+  slope (across), both as magnitudes, so the drawing direction does not matter. Running slope is classed
+  walk / ramp / exceeds, and cross slope is checked separately. Averaging again uses only corridor
+  faces. This is the case a slope map cannot see: one 1:15 plane is a ramp walked downhill and a
+  cross-slope failure walked along the contour.
+
   Membership is even-odd across all loops, so a nested loop is a hole (Project To reads boundaries the
   same way). A limit hit exactly passes: a landing graded at 1:48 must not fail on floating point.
