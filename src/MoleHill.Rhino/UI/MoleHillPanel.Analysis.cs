@@ -424,7 +424,7 @@ public sealed partial class MoleHillPanel
 
                     // Phrased as an answer, like Ponding's: "all within" is what people are looking for.
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Level areas",
+                        "Result",
                         exceeding > 0.0
                             ? $"{FormatArea(exceeding)} of {FormatArea(checkedArea)} {verdict}"
                             : $"All {FormatArea(checkedArea)} within the limit",
@@ -439,7 +439,7 @@ public sealed partial class MoleHillPanel
                 else
                 {
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Level areas",
+                        "Result",
                         "None checked",
                         "No terrain lies inside a closed level-area curve, or the level rule is off."));
                 }
