@@ -28,6 +28,22 @@ behaviour-identical. Do not touch `src/TriangleNet/**` (vendored).
 - **Docs:** completed plans, resolved reviews and superseded explorations were deleted rather than
   archived. Git history keeps them; a live doc should describe the code as it is or work still open.
 
+## Public release (2026-09-27)
+
+The repository went public as a fresh `rheinason/MoleHill` holding a rewritten history. The previous
+repository is the private `rheinason/MoleHill-archive` (its pull requests, old releases and the
+unrewritten history).
+
+- Removed from all history: the office toolset (`Python Commands Source/`) and every toolbar icon
+  derived from it (earlier `.rui` versions carry transparent bitmaps), survey and project data, the
+  panel glyphs' reference SVGs, SDK and build state, and the private session links in commit messages.
+- Yak `0.14.4`–`0.14.6-beta` shipped the office-derived icons and are yanked; `0.14.7-beta` replaces them.
+- Accepted residuals: old versions of `PanelButtonIcons.cs` still hold the ported glyph paths; old
+  versions of our own docs name the file `Master.ai` and contain local paths; the perf baseline records
+  the recording machine's hostname, which the lane needs; `ProjectBaseCPlaneService` still migrates the
+  legacy `FOTM` construction plane by name.
+- Never push the `archive` remote's history to `origin`.
+
 ## Open
 
 - **Catchment and ponding previews** re-run the full solvers on the UI thread with no cancellation.
