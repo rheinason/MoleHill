@@ -351,18 +351,51 @@ public static class RouteRunAnalyzer
             while (j + 1 < count && isLanding[j + 1] == isLanding[i])
                 j++;
 
-            // A run shares its end stations with the landings either side, so its rise and going span
-            // the whole climb between them.
+            // A run shares its end stations with the landings either side, so its going spans the whole
+            // climb between them.
             int start = isLanding[i] ? i : Math.Max(0, i - 1);
             int end = isLanding[i] ? j : Math.Min(count - 1, j + 1);
-            runs.Add(isLanding[i]
-                ? MakeRun(stations, slopes, start, end, routeIndex, RunKind.Landing, options)
-                : ClassifyRun(stations, slopes, start, end, routeIndex, options));
+            if (isLanding[i])
+            {
+                runs.Add(MakeRun(stations, slopes, start, end, routeIndex, RunKind.Landing, options, Array.Empty<double>()));
+            }
+            else
+            {
+                // Its rise is measured between the landings' own levels, which is how the standards state
+                // it. Measuring between the run's end stations under-reads it: a landing is detected a
+                // little way into the ramp beside it, wherever the flatter side of a station is still
+                // within the landing limit, so the run's end stations sit part-way up the climb. That
+                // under-read is the unsafe direction - it once passed a 778 mm reading of an 800 mm ramp.
+                var landingLevels = new List<double>(2);
+                if (i > 0 && isLanding[i - 1])
+                    landingLevels.Add(LandingLevel(stations, isLanding, i - 1));
+                if (j < count - 1 && isLanding[j + 1])
+                    landingLevels.Add(LandingLevel(stations, isLanding, j + 1));
+                runs.Add(ClassifyRun(stations, slopes, start, end, routeIndex, options, landingLevels));
+            }
+
             i = j + 1;
         }
     }
 
-    private static Run ClassifyRun(Station[] stations, double[] slopes, int start, int end, int routeIndex, Options options)
+    /// <summary>The mean height of the landing containing station <paramref name="index"/>.</summary>
+    private static double LandingLevel(Station[] stations, bool[] isLanding, int index)
+    {
+        int lo = index;
+        int hi = index;
+        while (lo > 0 && isLanding[lo - 1])
+            lo--;
+        while (hi < stations.Length - 1 && isLanding[hi + 1])
+            hi++;
+
+        double sum = 0.0;
+        for (int k = lo; k <= hi; k++)
+            sum += stations[k].Z;
+        return sum / (hi - lo + 1);
+    }
+
+    private static Run ClassifyRun(
+        Station[] stations, double[] slopes, int start, int end, int routeIndex, Options options, IReadOnlyList<double> landingLevels)
     {
         double steepest = 0.0;
         for (int i = start; i <= end; i++)
@@ -372,14 +405,27 @@ public static class RouteRunAnalyzer
         RunKind kind = steepest <= options.LandingMaxRatio + tolerance ? RunKind.Level
             : steepest <= options.WalkMaxRatio + tolerance ? RunKind.Walk
             : RunKind.Ramp;
-        return MakeRun(stations, slopes, start, end, routeIndex, kind, options);
+        return MakeRun(stations, slopes, start, end, routeIndex, kind, options, landingLevels);
     }
 
     private static Run MakeRun(
-        Station[] stations, double[] slopes, int start, int end, int routeIndex, RunKind kind, Options options)
+        Station[] stations,
+        double[] slopes,
+        int start,
+        int end,
+        int routeIndex,
+        RunKind kind,
+        Options options,
+        IReadOnlyList<double> landingLevels)
     {
         double minZ = double.PositiveInfinity;
         double maxZ = double.NegativeInfinity;
+        foreach (double level in landingLevels)
+        {
+            minZ = Math.Min(minZ, level);
+            maxZ = Math.Max(maxZ, level);
+        }
+
         double steepest = 0.0;
         var points = new double[(end - start + 1) * 3];
         for (int i = start; i <= end; i++)

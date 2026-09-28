@@ -170,4 +170,33 @@ public class RouteRunAnalyzerTests
         Assert.Equal(Kind.Landing, run.Kind);
         Assert.Equal(Failure.None, run.Failures);
     }
+
+    /// <summary>
+    /// Found live: at the card's default 1.5 m measuring length, the landings either side of a ramp are
+    /// detected a little way up it, and measuring rise between the run's own end stations read an 800 mm
+    /// ramp as 778 mm, under ADA's 760 mm limit for the wrong reason and close to passing. Rise is
+    /// measured between the landings' levels instead.
+    /// </summary>
+    [Fact]
+    public void Analyze_RiseIsMeasuredBetweenLandingLevels_NotShortenedByTheMeasuringWindow()
+    {
+        var strip = Strip(20, Profile((0, 0), (2, 0), (12, 0.8), (20, 0.8)));
+        var options = new RouteRunAnalyzer.Options
+        {
+            LandingMaxRatio = Ada.LandingMaxRatio,
+            WalkMaxRatio = Ada.WalkMaxRatio,
+            LandingMinLength = Ada.LandingMinLength,
+            RampMaxRise = Ada.RampMaxRise,
+            StationSpacing = 0.15,
+            SmoothingLength = 1.5,
+            Tolerance = 0.001,
+        };
+
+        var ramp = Assert.Single(Analyze(strip, 20, options), run => run.Kind == Kind.Ramp);
+
+        // Within 5 mm: a landing's level is its mean height, and its detected ends reach a few
+        // centimetres up the ramp, so a sub-millimetre difference remains. 22 mm did not.
+        Assert.InRange(ramp.Rise, 0.795, 0.805);
+        Assert.True(ramp.Failures.HasFlag(Failure.RiseExceeded));
+    }
 }
