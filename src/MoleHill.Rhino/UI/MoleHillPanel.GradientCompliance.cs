@@ -6,8 +6,8 @@ namespace MoleHill.Rhino.UI;
 
 // Gradient compliance card: the ramp going table, edited in place as rows on the card.
 // There is deliberately no separate editor dialog: every other setting in the product is edited where it
-// applies, and a standard should be no different. Rows reuse the shared slope and numeric editors, so a going row reads and
-// types exactly like every other slope and length on the card.
+// applies, and a standard should be no different. Rows reuse the shared slope and numeric editors, so a
+// going row reads and types exactly like every other slope and length on the card.
 public sealed partial class MoleHillPanel
 {
     private Control CreateGoingTableEditor(
