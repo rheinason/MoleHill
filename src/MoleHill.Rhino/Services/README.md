@@ -160,6 +160,10 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   objects and runtime overlays (no doc objects until bake). Overlay drawing has per-terrain budgets and
   severity ordering. `TerrainDisplayState.RenderHash` is the change stamp the render mesh provider
   hands the RDK cache.
+- `ScatterBlockPreview.cs` - per-definition cache the conduit draws scatter's "Real (capped)" preview
+  from: members meshed once and joined per colour, drawn under a model transform. Never use
+  `DrawInstanceDefinition` for scatter — per instance it is slow and leaks display memory until the
+  GPU driver kills Rhino.
 - `TerrainRenderMeshProvider.cs` - publishes terrain preview geometry (terrain mesh, zone/auxiliary
   meshes, renderable marker blocks, scatter instances) to render engines via the RDK custom render mesh system, without creating
   document objects. Advertises each `TerrainDefinition.TerrainId` as a non-object id. Must stay

@@ -38,8 +38,94 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         if (e.RhinoDoc == null)
             return;
 
+        bool shadowPass = IsShadowMapPass(e);
         foreach (var view in TerrainController.Instance.GetPreviewViews(e.RhinoDoc))
-            DrawTerrain(e, e.RhinoDoc, view.Terrain, view.DisplayState);
+        {
+            if (shadowPass)
+                DrawShadowCasters(e, e.RhinoDoc, view.Terrain, view.DisplayState);
+            else
+                DrawTerrain(e, e.RhinoDoc, view.Terrain, view.DisplayState);
+        }
+    }
+
+    /// <summary>
+    /// True while the pipeline renders a shadow map. A display mode that casts shadows (Shaded, Arctic,
+    /// Rendered) calls PostDrawObjects several times per frame, and during a shadow-map pass it projects
+    /// from the light while <c>e.Viewport</c> still reports the view's camera, so the only tell is the
+    /// pipeline's world-to-clip matrix disagreeing with the viewport's. Anything but a shaded surface drawn
+    /// there leaks onto the screen from the light's projection: scatter points scattered across the
+    /// terrain and floating in the air, found live.
+    /// </summary>
+    private static bool IsShadowMapPass(DrawEventArgs e)
+    {
+        float[]? pipeline = e.Display.GetOpenGLWorldToClip(true);
+        if (pipeline == null || pipeline.Length < 16)
+            return false;
+
+        Transform viewport = e.Viewport.GetTransform(CoordinateSystem.World, CoordinateSystem.Clip);
+        for (int row = 0; row < 4; row++)
+        {
+            // The depth row is negated on the view's own passes (OpenGL's depth convention), so compare
+            // only x, y and w: a shadow-map projection disagrees in all of them.
+            if (row == 2)
+                continue;
+
+            for (int column = 0; column < 4; column++)
+            {
+                // OpenGL matrices are column-major.
+                double expected = viewport[row, column];
+                double actual = pipeline[(column * 4) + row];
+                if (Math.Abs(expected - actual) > 1e-4 * Math.Max(1.0, Math.Abs(expected)))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The shadow-map pass draws only what should cast a shadow: the terrain, zone and wall surfaces, and
+    /// scatter drawn as real geometry. Never points, curves, text or overlays - see
+    /// <see cref="IsShadowMapPass"/>.
+    /// </summary>
+    private static void DrawShadowCasters(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState displayState)
+    {
+        if (!terrain.IsVisible)
+            return;
+
+        DisplayMaterial material = GetOverlayMaterial(Color.Gray, 0.0);
+        if (terrain.ShowTerrainMesh && displayState.PreviewTerrainMesh != null)
+            e.Display.DrawMeshShaded(displayState.PreviewTerrainMesh, material);
+
+        if (terrain.ShowZoneMeshes)
+        {
+            foreach (var zone in displayState.ZoneObjects)
+                DrawShadowCaster(e, doc, zone, material);
+        }
+
+        foreach (var auxiliary in displayState.AuxiliaryObjects)
+        {
+            if (TerrainAnalysisPreviewBuilder.ShouldDisplayGeneratedOutput(terrain, auxiliary))
+                DrawShadowCaster(e, doc, auxiliary, material);
+        }
+
+        if (displayState.ScatterObjects.Count > 0)
+            DrawScatterObjects(e, doc, terrain, displayState, shadowPass: true);
+    }
+
+    private static void DrawShadowCaster(DrawEventArgs e, global::Rhino.RhinoDoc doc, GeneratedRhinoObject generated, DisplayMaterial material)
+    {
+        switch (generated.Geometry)
+        {
+            case Mesh mesh:
+                e.Display.DrawMeshShaded(mesh, material);
+                break;
+            case Brep brep:
+                MeshingParameters meshingParameters = doc.GetMeshingParameters(doc.MeshingParameterStyle);
+                foreach (Mesh previewMesh in generated.GetPreviewBrepMeshes(brep, meshingParameters))
+                    e.Display.DrawMeshShaded(previewMesh, material);
+                break;
+        }
     }
 
     private static void DrawTerrain(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState displayState)
@@ -180,7 +266,12 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         }
     }
 
-    private static void DrawScatterObjects(DrawEventArgs e, global::Rhino.RhinoDoc doc, TerrainDefinition terrain, TerrainDisplayState displayState)
+    private static void DrawScatterObjects(
+        DrawEventArgs e,
+        global::Rhino.RhinoDoc doc,
+        TerrainDefinition terrain,
+        TerrainDisplayState displayState,
+        bool shadowPass = false)
     {
         if (displayState.ScatterObjectRanges.Count == 0)
             displayState.RebuildScatterObjectRanges();
@@ -198,6 +289,8 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
                 definitions.TryGetValue(key, out definition);
 
             ScatterPreviewMode mode = definition?.PreviewMode ?? ScatterPreviewMode.Instances;
+            if (shadowPass && mode != ScatterPreviewMode.Instances)
+                continue;
             ScatterObjectRange range = rangeEntry.Value;
             int drawCount = definition is { PreviewCap: > 0 }
                 ? Math.Min(range.Count, definition.PreviewCap)
@@ -207,7 +300,12 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
             int end = Math.Min(range.StartIndex + drawCount, displayState.ScatterObjects.Count);
             for (int index = range.StartIndex; index < end; index++)
-                DrawScatterObject(e, frame, displayState.ScatterObjects[index], mode);
+            {
+                if (shadowPass)
+                    DrawScatterInstanceGeometry(e, frame, displayState.ScatterObjects[index], meshesOnly: true);
+                else
+                    DrawScatterObject(e, frame, displayState.ScatterObjects[index], mode);
+            }
         }
     }
 
@@ -265,6 +363,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
     {
         private readonly global::Rhino.RhinoDoc _doc;
         private readonly Dictionary<string, InstanceDefinition?> _definitions = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, ScatterBlockPreview?> _blockPreviews = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Box?> _definitionBoxes = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Point3d[]> _definitionShapePoints = new(StringComparer.Ordinal);
         private readonly Dictionary<(string? LayerPath, string? SourceLayerPath, int? ColorArgb), Color> _colors = new();
@@ -296,6 +395,20 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             var definition = _doc.InstanceDefinitions.Find(definitionName!);
             _definitions[definitionName!] = definition;
             return definition;
+        }
+
+        public ScatterBlockPreview? FindBlockPreview(string? definitionName)
+        {
+            if (string.IsNullOrWhiteSpace(definitionName))
+                return null;
+
+            if (_blockPreviews.TryGetValue(definitionName!, out var cached))
+                return cached;
+
+            var definition = FindDefinition(definitionName);
+            var preview = definition == null ? null : ScatterBlockPreview.Get(_doc, definition);
+            _blockPreviews[definitionName!] = preview;
+            return preview;
         }
 
         public bool TryGetScatterBox(GeneratedRhinoObject scatter, out Box box)
@@ -527,13 +640,39 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         }
     }
 
-    private static bool DrawScatterInstanceGeometry(DrawEventArgs e, ScatterPreviewDrawFrame frame, GeneratedRhinoObject scatter)
+    // Not DrawInstanceDefinition: per instance it is slow and leaks display memory until the GPU driver
+    // kills Rhino. See ScatterBlockPreview.
+    private static bool DrawScatterInstanceGeometry(
+        DrawEventArgs e,
+        ScatterPreviewDrawFrame frame,
+        GeneratedRhinoObject scatter,
+        bool meshesOnly = false)
     {
-        var definition = frame.FindDefinition(scatter.InstanceDefinitionName);
-        if (definition == null)
+        ScatterBlockPreview? preview = frame.FindBlockPreview(scatter.InstanceDefinitionName);
+        if (preview == null)
             return false;
 
-        e.Display.DrawInstanceDefinition(definition, scatter.InstanceTransform);
+        Color parentColor = frame.ResolveColor(scatter.LayerPath, scatter.SourceLayerPath, scatter.ColorArgb);
+        e.Display.PushModelTransform(scatter.InstanceTransform);
+        try
+        {
+            foreach (var (mesh, material) in preview.Meshes)
+                e.Display.DrawMeshShaded(mesh, material);
+            if (meshesOnly)
+                return true;
+
+            foreach (var (curve, color) in preview.Curves)
+                e.Display.DrawCurve(curve, color ?? parentColor);
+            foreach (var (hatch, color) in preview.Hatches)
+                e.Display.DrawHatch(hatch, color ?? parentColor, color ?? parentColor);
+            foreach (var (text, color) in preview.Texts)
+                e.Display.DrawText(text, color ?? parentColor);
+        }
+        finally
+        {
+            e.Display.PopModelTransform();
+        }
+
         return true;
     }
 

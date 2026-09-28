@@ -35,6 +35,17 @@ public sealed class TerrainRenderMeshProvider : RenderMeshProvider
 
     public override string Name => "MoleHill Terrain";
 
+    /// <summary>
+    /// True for a production render or a realtime render engine (Raytraced), false for an OpenGL display
+    /// mode. Shaded, Arctic and Rendered also ask for custom render meshes and draw whatever they get,
+    /// on top of the conduit, which already draws the same terrain, walls and scatter. The result was
+    /// everything drawn twice: z-fighting, doubled shadows, and every scatter instance as real geometry
+    /// whatever its PreviewMode, uncapped. Observed live: a production render calls with null
+    /// attributes, Raytraced with its engine's RealtimeDisplayId, and the OpenGL modes with an empty one.
+    /// </summary>
+    private static bool IsRenderEngineRequest(DisplayPipelineAttributes? attrs) =>
+        attrs == null || attrs.RealtimeDisplayId != Guid.Empty;
+
     public override Guid ProviderId => ProviderIdentifier;
 
     /// <summary>
@@ -75,6 +86,9 @@ public sealed class TerrainRenderMeshProvider : RenderMeshProvider
         if (mt != MeshType.Render && mt != MeshType.Any)
             return false;
 
+        if (!IsRenderEngineRequest(attrs))
+            return false;
+
         return TryResolve(doc, objectId, out TerrainDefinition? terrain, out TerrainDisplayState? displayState) &&
                displayState!.HasRenderableContent(terrain!);
     }
@@ -90,7 +104,8 @@ public sealed class TerrainRenderMeshProvider : RenderMeshProvider
         PlugIn plugin,
         DisplayPipelineAttributes attrs)
     {
-        if (!TryResolve(doc, objectId, out TerrainDefinition? terrain, out TerrainDisplayState? displayState))
+        if (!IsRenderEngineRequest(attrs) ||
+            !TryResolve(doc, objectId, out TerrainDefinition? terrain, out TerrainDisplayState? displayState))
             return previousPrimitives;
 
         uint hash = displayState!.RenderHash;
@@ -278,6 +293,7 @@ public sealed class TerrainRenderMeshProvider : RenderMeshProvider
         InstanceDefinition? definition = doc.InstanceDefinitions.Find(definitionName);
         if (definition != null)
         {
+            MeshingParameters meshingParameters = doc.GetMeshingParameters(doc.MeshingParameterStyle);
             foreach (RhinoObject member in definition.GetObjects())
             {
                 if (member?.Geometry == null)
@@ -293,7 +309,8 @@ public sealed class TerrainRenderMeshProvider : RenderMeshProvider
                     continue;
                 }
 
-                foreach (Mesh renderMesh in member.GetMeshes(MeshType.Render))
+                // Block members are not in the viewport, so usually carry no cached render mesh.
+                foreach (Mesh renderMesh in ScatterBlockPreview.MeshMember(member, meshingParameters))
                 {
                     if (renderMesh is { Faces.Count: > 0 })
                         collected.Add(new DefinitionMeshPart(renderMesh, memberMaterial));

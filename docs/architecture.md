@@ -1093,6 +1093,18 @@ then notifies the RDK from the same build/display/sculpt lifecycle points. The n
 live on the deprecated `Rhino.Render.CustomRenderMeshProvider` class, as they were never carried over to
 the Rhino 8 API.
 
+**Render engines only, never OpenGL display modes.** Shaded, Arctic and Rendered also ask custom render
+mesh providers for meshes and draw them, on top of the conduit that already draws the same terrain,
+walls and scatter — so everything appeared twice, and every scatter instance appeared as real,
+uncapped geometry whatever its preview mode. `IsRenderEngineRequest` answers only a production render
+(null display attributes) or a realtime engine (non-empty `RealtimeDisplayId`, e.g. Raytraced).
+
+**Shadow-map passes.** A display mode that casts shadows calls the conduit's `PostDrawObjects` several
+times per frame, including passes projecting from the light while `e.Viewport` still reports the view.
+The conduit detects those (`IsShadowMapPass`: the pipeline's world-to-clip matrix disagrees with the
+viewport's in x, y or w) and draws only shaded surfaces there; points, curves and text drawn in them
+leaked onto the screen at the light's projection.
+
 **Per-renderer support is opt-in.** A render engine only sees this geometry if it walks the provider's
 non-object id list. Verified working against Rhino's own `ChangeQueue` pipeline (which Raytraced/Cycles
 consumes); V-Ray has historically honoured it; there is no evidence Enscape does — the same limitation
