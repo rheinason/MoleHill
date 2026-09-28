@@ -433,8 +433,8 @@ checked against the published text. DIN 18040 and AS 1428.1 are paywalled, so th
 Still open from stage 1: the user library in AppData (export/import JSON). **The *Edit…* rule-table
 dialog is dropped (2026-09-28):** every other setting in the product is edited in place on its card, and
 a dialog would be the one place a standard is edited out of sight of the terrain it governs. The only
-rule not yet editable inline is the ramp going table; it becomes repeating rows on the card (a gradient
-and a going per row, add and remove in place), the same shape as the colour ramp's stops.
+rule that was not editable inline, the ramp going table, is now rows on the card (2026-09-28): a gradient
+and a going per row, added and removed in place, plus Interpolate once there are two rows.
 
 **Stage 2 landed 2026-09-27, live-verified 2026-09-28** on a 1:15 plane in a disposable Rhino slot: a route straight uphill reads as ramp, one along the contour fails on cross slope, and a landing on it takes the level-area verdict, all at exact areas: routes with a corridor width.
 The footprint-averaged gradient is split against the nearest route segment into running and cross slope.
@@ -450,7 +450,7 @@ interpolated as Approved Document M allows. The presets gained verified figures:
 and §405.7.3 1525 mm landings; ADM §1.13(c) 500 mm walk rise, §1.26(c) 500 mm flight rise, Table 1
 goings and §1.26(i) 1.5 m landings. Failing runs colour their whole corridor stretch and detected
 landings show teal. Rule-set lengths carry a metres-to-model factor, so presets land correctly in any
-document unit. The going table is read-only on the card until it gets inline rows (see above). Not done:
+document unit. The going table is edited as rows on the card (see above). Not done:
 separate head/foot landing length (ADM §1.26(h), 1.2 m), and total-rise limits (ADM §1.26(d), 2 m).
 
 **Reference:** none of the civil packages has a real equivalent. The nearest thing in MoleHill is

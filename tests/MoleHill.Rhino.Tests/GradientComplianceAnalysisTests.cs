@@ -413,4 +413,43 @@ public class GradientComplianceAnalysisTests
         Assert.True(restored.Rules.InterpolateGoing);
         Assert.Equal(1.0, restored.Rules.ModelUnitsPerMeter);
     }
+
+    [Fact]
+    public void GoingTable_AddCopiesTheSteepestRow_AndRemoveDropsIt_BothMarkingModified()
+    {
+        var analysis = new GradientComplianceAnalysisDefinition { Rules = GradientRulePresets.Find("adm-vol2-2015")!.Create() };
+        GradientRuleSet rules = analysis.Rules;
+
+        rules.AddGoingLimit();
+        GradientRulePresets.RefreshModified(rules);
+
+        Assert.Equal(4, rules.RampGoingLimits.Count);
+        Assert.Equal(1.0 / 12.0, DegreesToRatio(rules.RampGoingLimits[3].SlopeDegrees), 12);
+        Assert.Equal(2.0, rules.RampGoingLimits[3].MaxGoing);
+        Assert.True(rules.IsModified);
+
+        rules.RemoveGoingLimitAt(3);
+        rules.RemoveGoingLimitAt(99);
+        GradientRulePresets.RefreshModified(rules);
+
+        Assert.Equal(3, rules.RampGoingLimits.Count);
+        Assert.False(rules.IsModified);
+    }
+
+    [Fact]
+    public void GoingTable_AddToAnEmptyTable_StartsAtOneInTwelveOverTwoMetresInModelUnits()
+    {
+        var rules = new GradientRuleSet { ModelUnitsPerMeter = 1000.0 };
+
+        rules.AddGoingLimit();
+
+        Assert.Equal(1.0 / 12.0, DegreesToRatio(Assert.Single(rules.RampGoingLimits).SlopeDegrees), 12);
+        Assert.Equal(2000.0, rules.RampGoingLimits[0].MaxGoing, 9);
+    }
+
+    [Fact]
+    public void Card_DeclaresTheGoingTableAsAnInPlaceEditor()
+    {
+        Assert.Equal(ParameterKind.GoingTable, Row("RampGoingLimits").Kind);
+    }
 }

@@ -19,6 +19,12 @@ internal enum ParameterKind
 
     /// <summary>The weighted block-mix card. Objects only — Scatter is the sole declarer.</summary>
     BlockMix,
+
+    /// <summary>
+    /// A gradient compliance card's ramp going table: one row per gradient, edited in place, rows added
+    /// and removed on the card. Analyses only — gradient compliance is the sole declarer.
+    /// </summary>
+    GoingTable,
 }
 
 /// <summary>
@@ -470,6 +476,24 @@ internal sealed class ParameterDescriptor<TDefinition>
     /// accessors — it edits the definition's own block list — and the panel renders it through the row
     /// builder's bespoke hook.
     /// </summary>
+    /// <summary>
+    /// The ramp going table, declared by gradient compliance alone. Like <see cref="ColorRamp"/> it needs
+    /// no accessors: it edits the definition's rule set directly, through the row builder's bespoke hook.
+    /// </summary>
+    public static ParameterDescriptor<TDefinition> GoingTable(
+        string key,
+        string label,
+        string? help = null,
+        Func<TDefinition, bool>? visibleWhen = null) =>
+        new()
+        {
+            Kind = ParameterKind.GoingTable,
+            Key = key,
+            Label = label,
+            Help = help,
+            VisibleWhen = visibleWhen,
+        };
+
     public static ParameterDescriptor<TDefinition> BlockMix(
         string key,
         string label,

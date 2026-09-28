@@ -538,11 +538,11 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
         RouteLength("RampMaxRise", "Ramp Max Rise",
             r => r.RampMaxRise, (r, v) => r.RampMaxRise = v,
             "The most a ramp run may climb between landings. Zero means no limit."),
-        AnalysisParam.ReadOnly(
+        AnalysisParam.GoingTable(
             "RampGoingLimits", "Ramp Goings",
-            a => DescribeGoingLimits(Rules(a)),
-            "The longest ramp run allowed at each gradient, from the standard. Not yet editable on the " +
-            "card; choose a standard to set it.",
+            "The longest ramp run allowed at each gradient: a ramp at this gradient or gentler may run up " +
+            "to this far between landings. Leave the table empty for no going limit. With Interpolate on, " +
+            "gradients between two rows get a going between theirs, as Approved Document M allows.",
             visibleWhen: a => Rules(a).RouteMode != GradientRuleMode.Off),
         AnalysisParam.Number(
             "MeasurementLength", "Measure Over",
@@ -587,17 +587,6 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
             unit: ParameterUnit.ModelLength,
             rebuildAfterCommit: true,
             visibleWhen: a => Rules(a).RouteMode != GradientRuleMode.Off);
-
-    private static string DescribeGoingLimits(GradientRuleSet rules)
-    {
-        if (rules.RampGoingLimits.Count == 0)
-            return "No limit";
-
-        var parts = rules.RampGoingLimits
-            .OrderBy(limit => limit.SlopeDegrees)
-            .Select(limit => $"{limit.MaxGoing:0.##} at {MoleHill.Core.Analysis.SlopeInput.FormatWithUnit(Math.Tan(limit.SlopeDegrees * Math.PI / 180.0), MoleHill.Core.Analysis.SlopeAnalyzer.SlopeUnit.Ratio)}");
-        return string.Join(", ", parts) + (rules.InterpolateGoing ? " (interpolated)" : "");
-    }
 
     private static AnalysisParam RouteSlope(
         string key,

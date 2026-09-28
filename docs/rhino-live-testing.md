@@ -197,13 +197,30 @@ blank, treat that as *unresolved* — confirm through a second channel (walk the
 
 ## 6. Acceptance sequence for the curve-review workflow
 
-1. `mhInspectCurve` opens the form and Rhino stays responsive (`get_context` still answers).
-2. The form window exists at sane bounds; resize and re-read the rect.
-3. Select a station range, use `Offset`/`Grade`, then `Smooth` or `Soft Move`. Confirm the profile
-   preview changes and plan XY geometry does not (compare `Curve.PointAt` X/Y before and after).
-4. Apply once, then Rhino `_Undo` once; confirm the source curve returns to its prior profile.
-5. Pick a second curve and confirm the same form retargets (the `SetObject` path, not a rebuild).
-6. Close the form; confirm the conduit, timer and provisional session are torn down.
+`mhInspectCurve` is **inspection only**: the form reports on a curve and never changes its geometry.
+Regrading, offsetting and smoothing belong to the tools that shape the design (`mhSlopeCurve`,
+`mhSlopeCurveSection`, `mhOffsetFeature`, `mhDrapeCurve`, the grading modifiers), and the form re-reads
+the curve after they run. The acceptance sequence therefore checks that it inspects correctly and that
+it leaves the curve alone:
+
+1. `mhInspectCurve` on a pre-selected curve opens the form, and Rhino stays responsive (`get_context`
+   still answers).
+2. The form window exists at sane bounds. Resize it and re-read the rect.
+3. The checks, limits, measurements, events and profile all populate for the curve. Record the curve's
+   geometry before opening (for example `Curve.PointAt` at a set of parameters, or the control points)
+   and confirm it is identical after every step below. **The form must never modify the curve.**
+4. Change a rule's mode (Off / Report / Warn) and its threshold. Confirm the check row and the warning
+   count update, and that the setting is still there after closing and reopening the form (rules are a
+   per-user preference).
+5. Edit the curve with another command while the form is open. Confirm the form refreshes to the new
+   shape on its own, without taking ownership of the edit.
+6. Toggle Ribbon, Labels, Events and Terrain. Confirm only the conduit display changes.
+7. Use **Label curve**. It is the one action that writes to the document: it *adds* annotation objects
+   in a single undo record and does not touch the curve. Confirm the labels appear, then `_Undo` once and
+   confirm they are gone and the curve is unchanged.
+8. Run `mhInspectCurve` again on a second curve and confirm the same form retargets (the `SetObject`
+   path, not a second form).
+9. Close the form. Confirm the conduit and the refresh timer are torn down.
 
 ## 7. Known failure modes
 

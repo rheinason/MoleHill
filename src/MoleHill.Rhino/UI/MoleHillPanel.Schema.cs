@@ -162,6 +162,7 @@ public sealed partial class MoleHillPanel
             // throw, which keeps the shared enum exhaustively handled.
             case ParameterKind.ColorRamp:
             case ParameterKind.BlockMix:
+            case ParameterKind.GoingTable:
                 return bespoke?.Invoke(parameter, definition) ?? new Panel();
 
             default:
@@ -295,9 +296,13 @@ public sealed partial class MoleHillPanel
             analysis,
             parameter,
             apply => CommitAnalysisMutation(parameter, terrainId, analysisId, apply),
-            (declared, item) => declared.Kind == ParameterKind.ColorRamp
-                ? CreateColorRampEditor(terrain, item)
-                : new Panel());
+            (declared, item) => declared.Kind switch
+            {
+                ParameterKind.ColorRamp => CreateColorRampEditor(terrain, item),
+                ParameterKind.GoingTable when item is GradientComplianceAnalysisDefinition compliance =>
+                    CreateGoingTableEditor(compliance, declared, apply => CommitAnalysisMutation(declared, terrainId, analysisId, apply)),
+                _ => new Panel(),
+            });
     }
 
     /// <summary>

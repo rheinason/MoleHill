@@ -68,6 +68,26 @@ public sealed class GradientRuleSet
     /// </summary>
     public double ModelUnitsPerMeter { get; set; } = 1.0;
 
+    /// <summary>
+    /// Appends a going limit. It starts as a copy of the steepest row, or 1:12 at 2 m (in these rules'
+    /// units) when the table is empty, so a new row is always a plausible limit rather than a zero that
+    /// fails every ramp until it is filled in.
+    /// </summary>
+    public void AddGoingLimit()
+    {
+        GradientGoingLimit? steepest = RampGoingLimits.OrderByDescending(limit => limit.SlopeDegrees).FirstOrDefault();
+        RampGoingLimits.Add(steepest != null
+            ? new GradientGoingLimit { SlopeDegrees = steepest.SlopeDegrees, MaxGoing = steepest.MaxGoing }
+            : new GradientGoingLimit { SlopeDegrees = Math.Atan2(1.0, 12.0) * 180.0 / Math.PI, MaxGoing = 2.0 * ModelUnitsPerMeter });
+    }
+
+    /// <summary>Removes the going limit at <paramref name="index"/>; out of range is ignored.</summary>
+    public void RemoveGoingLimitAt(int index)
+    {
+        if (index >= 0 && index < RampGoingLimits.Count)
+            RampGoingLimits.RemoveAt(index);
+    }
+
     /// <summary>Multiplies every length by <paramref name="factor"/>, as a change of model units does.</summary>
     public void ScaleLengths(double factor)
     {

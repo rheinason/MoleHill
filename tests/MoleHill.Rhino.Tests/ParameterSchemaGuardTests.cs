@@ -104,6 +104,7 @@ public class ParameterSchemaGuardTests
 
             case ParameterKind.ColorRamp:
             case ParameterKind.BlockMix:
+            case ParameterKind.GoingTable:
                 // Whole-control kinds edit the definition directly; they deliberately carry no accessors.
                 break;
 
