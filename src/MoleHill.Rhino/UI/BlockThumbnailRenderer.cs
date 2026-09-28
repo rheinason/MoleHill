@@ -1,6 +1,7 @@
-using System.Collections.Concurrent;
 using Eto.Drawing;
+using Rhino;
 using Rhino.DocObjects;
+using Rhino.DocObjects.Tables;
 using Rhino.Geometry;
 
 namespace MoleHill.Rhino.UI;
@@ -9,19 +10,79 @@ namespace MoleHill.Rhino.UI;
 /// Renders a small isometric, shaded thumbnail of a block definition's geometry for the block selector.
 /// Self-contained software projection (no Rhino render pipeline): the block's render meshes are painter-
 /// sorted and filled with simple directional shading; curves are drawn as wireframe. Thumbnails are
-/// cached per definition name. Returns null when the block has no drawable geometry.
+/// cached per document, definition id and requested size. Definition-table changes invalidate that
+/// document's entries so renamed or redefined blocks cannot reuse stale imagery. Returns null when the
+/// block has no drawable geometry.
 /// </summary>
 internal static class BlockThumbnailRenderer
 {
-    private static readonly ConcurrentDictionary<string, Bitmap?> Cache = new();
+    private readonly record struct CacheKey(uint DocumentSerial, Guid DefinitionId, int Size);
+
+    private sealed class CacheEntry
+    {
+        public CacheEntry(Bitmap? bitmap)
+        {
+            Bitmap = bitmap;
+        }
+
+        public Bitmap? Bitmap { get; }
+    }
+
+    private static readonly object CacheGate = new();
+    private static readonly Dictionary<CacheKey, CacheEntry> Cache = new();
     private const int MaxTriangles = 20000;
 
-    public static Bitmap? Get(InstanceDefinition definition, int size)
+    static BlockThumbnailRenderer()
     {
-        if (definition == null || string.IsNullOrWhiteSpace(definition.Name))
+        RhinoDoc.InstanceDefinitionTableEvent += OnInstanceDefinitionTableEvent;
+        RhinoDoc.CloseDocument += OnCloseDocument;
+    }
+
+    public static Bitmap? Get(RhinoDoc doc, InstanceDefinition definition, int size)
+    {
+        if (doc == null || definition == null || definition.Id == Guid.Empty || size <= 0)
             return null;
 
-        return Cache.GetOrAdd(definition.Name, _ => Render(definition, size));
+        var key = new CacheKey(doc.RuntimeSerialNumber, definition.Id, size);
+        lock (CacheGate)
+        {
+            if (Cache.TryGetValue(key, out CacheEntry? cached))
+                return cached.Bitmap;
+        }
+
+        Bitmap? rendered = Render(definition, size);
+        lock (CacheGate)
+        {
+            if (Cache.TryGetValue(key, out CacheEntry? cached))
+            {
+                rendered?.Dispose();
+                return cached.Bitmap;
+            }
+
+            Cache[key] = new CacheEntry(rendered);
+            return rendered;
+        }
+    }
+
+    private static void OnInstanceDefinitionTableEvent(object? sender, InstanceDefinitionTableEventArgs e) =>
+        InvalidateDocument(e.Document.RuntimeSerialNumber);
+
+    private static void OnCloseDocument(object? sender, DocumentEventArgs e) =>
+        InvalidateDocument(e.Document.RuntimeSerialNumber);
+
+    private static void InvalidateDocument(uint documentSerial)
+    {
+        lock (CacheGate)
+        {
+            CacheKey[] keys = Cache.Keys
+                .Where(key => key.DocumentSerial == documentSerial)
+                .ToArray();
+            foreach (CacheKey key in keys)
+            {
+                if (Cache.Remove(key, out CacheEntry? entry))
+                    entry.Bitmap?.Dispose();
+            }
+        }
     }
 
     private static Bitmap? Render(InstanceDefinition definition, int size)

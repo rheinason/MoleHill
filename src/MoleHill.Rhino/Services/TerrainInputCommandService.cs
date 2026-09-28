@@ -284,73 +284,6 @@ internal static class TerrainInputCommandService
         if (!ModelUnitGuard.TryGet(doc, out ModelUnitContext unitContext))
             return Result.Failure;
 
-        int sourceMode = CommandOptionCache.GetValue("MoleHill.DrapeCurve.Source", 0);
-        while (true)
-        {
-            var sourceOption = new GetPoint();
-            sourceOption.SetCommandPrompt("Choose drape source");
-            sourceOption.AcceptNothing(true);
-            int sourceListIndex = sourceOption.AddOptionList(
-                "Source",
-                new[] { "RhinoObject", "ActiveMoleHillTerrain" },
-                Math.Clamp(sourceMode, 0, 1));
-            GetResult sourceOptionResult = sourceOption.Get();
-            if (sourceOptionResult == GetResult.Option)
-            {
-                if (sourceOption.OptionIndex() == sourceListIndex)
-                    sourceMode = sourceOption.Option().CurrentListOptionIndex;
-                continue;
-            }
-
-            if (sourceOptionResult != GetResult.Nothing)
-                return sourceOption.CommandResult();
-
-            break;
-        }
-
-        CommandOptionCache.SetValue("MoleHill.DrapeCurve.Source", sourceMode);
-        List<Mesh> meshes;
-        if (sourceMode == 1)
-        {
-            TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
-            if (terrain == null)
-            {
-                RhinoApp.WriteLine("Select an active MoleHill terrain before draping.");
-                return Result.Nothing;
-            }
-
-            Mesh? finalMesh = TerrainController.Instance.DuplicateFinalTerrainMesh(doc, terrain.TerrainId);
-            if (finalMesh == null)
-            {
-                RhinoApp.WriteLine($"Active terrain '{terrain.Name}' has no current final build. Rebuild it before draping.");
-                return Result.Nothing;
-            }
-
-            meshes = new List<Mesh> { finalMesh };
-        }
-        else
-        {
-            var getSource = new GetObject();
-            getSource.SetCommandPrompt("Select one mesh or surface to drape onto");
-            getSource.GeometryFilter = ObjectType.Mesh | ObjectType.Surface | ObjectType.Brep | ObjectType.Extrusion;
-            getSource.EnablePreSelect(true, true);
-            if (getSource.Get() != GetResult.Object)
-                return getSource.CommandResult();
-
-            ObjRef sourceReference = getSource.Object(0);
-            RhinoObject? sourceObject = sourceReference.Object();
-            if (sourceObject == null)
-                return Result.Failure;
-
-            meshes = CreateProjectionMeshes(sourceObject.Geometry);
-        }
-        if (meshes.Count == 0)
-        {
-            RhinoApp.WriteLine("The selected object could not be converted into a usable mesh.");
-            return Result.Failure;
-        }
-
-        doc.Objects.UnselectAll();
         var getCurves = new GetObject();
         getCurves.SetCommandPrompt("Select curves to drape");
         getCurves.GeometryFilter = ObjectType.Curve;
@@ -358,10 +291,7 @@ internal static class TerrainInputCommandService
         getCurves.GroupSelect = true;
         getCurves.GetMultiple(1, 0);
         if (getCurves.CommandResult() != Result.Success)
-        {
-            DisposeMeshes(meshes);
             return getCurves.CommandResult();
-        }
 
         var sources = new List<(Guid ObjectId, Curve Curve, ObjectAttributes Attributes)>();
         for (int i = 0; i < getCurves.ObjectCount; i++)
@@ -377,16 +307,69 @@ internal static class TerrainInputCommandService
 
         if (sources.Count == 0)
         {
-            DisposeMeshes(meshes);
             RhinoApp.WriteLine("No curves were selected for draping.");
             return Result.Nothing;
+        }
+
+        doc.Objects.UnselectAll();
+        var getTarget = new GetObject();
+        getTarget.SetCommandPrompt("Select one mesh or surface to drape onto");
+        getTarget.GeometryFilter = ObjectType.Mesh | ObjectType.Surface | ObjectType.Brep | ObjectType.Extrusion;
+        getTarget.EnablePreSelect(true, true);
+        int activeTerrainOption = getTarget.AddOption("ActiveMoleHillTerrain");
+
+        List<Mesh> meshes;
+        GetResult targetResult = getTarget.Get();
+        if (targetResult == GetResult.Option && getTarget.OptionIndex() == activeTerrainOption)
+        {
+            TerrainDefinition? terrain = TerrainController.Instance.GetSelectedTerrain(doc);
+            if (terrain == null)
+            {
+                DisposeSourceCurves(sources);
+                RhinoApp.WriteLine("Select an active MoleHill terrain before draping.");
+                return Result.Nothing;
+            }
+
+            Mesh? finalMesh = TerrainController.Instance.DuplicateFinalTerrainMesh(doc, terrain.TerrainId);
+            if (finalMesh == null)
+            {
+                DisposeSourceCurves(sources);
+                RhinoApp.WriteLine($"Active terrain '{terrain.Name}' has no current final build. Rebuild it before draping.");
+                return Result.Nothing;
+            }
+
+            meshes = new List<Mesh> { finalMesh };
+        }
+        else if (targetResult == GetResult.Object)
+        {
+            ObjRef targetReference = getTarget.Object(0);
+            RhinoObject? targetObject = targetReference.Object();
+            if (targetObject == null)
+            {
+                DisposeSourceCurves(sources);
+                return Result.Failure;
+            }
+
+            meshes = CreateProjectionMeshes(targetObject.Geometry);
+        }
+        else
+        {
+            DisposeSourceCurves(sources);
+            return getTarget.CommandResult();
+        }
+
+        if (meshes.Count == 0)
+        {
+            DisposeSourceCurves(sources);
+            RhinoApp.WriteLine("The selected object could not be converted into a usable mesh.");
+            return Result.Failure;
         }
 
         const string spacingKey = "MoleHill.DrapeCurve.Spacing";
         double automaticSpacing = Math.Max(
             doc.ModelAbsoluteTolerance * 10.0,
             sources.Max(item => item.Curve.GetLength()) / 100.0);
-        double spacing = CommandOptionCache.GetLength(spacingKey, unitContext, automaticSpacing);
+        double spacing = CommandOptionCache.GetLengthFromModelDefault(spacingKey, unitContext, automaticSpacing);
         bool replaceInput = CommandOptionCache.GetValue("MoleHill.DrapeCurve.ReplaceInput", false);
 
         while (true)

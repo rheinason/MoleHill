@@ -69,6 +69,18 @@ public sealed class ModelUnitContextTests
     }
 
     [Fact]
+    public void CommandOptionCache_ModelDefault_DoesNotInterpretModelUnitsAsMeters()
+    {
+        string key = "test.model-length." + Guid.NewGuid();
+        ModelUnitContext millimetres = ModelUnitContext.FromUnitSystem(UnitSystem.Millimeters);
+
+        Assert.Equal(
+            100.0,
+            CommandOptionCache.GetLengthFromModelDefault(key, millimetres, defaultModelLength: 100.0),
+            10);
+    }
+
+    [Fact]
     public void Deserialize_LegacyTerrainWithCustomUnits_UsesPhysicalMigrationDefaults()
     {
         string json = $$"""

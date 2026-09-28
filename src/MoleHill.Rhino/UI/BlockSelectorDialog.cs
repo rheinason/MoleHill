@@ -1,6 +1,7 @@
 using Eto.Drawing;
 using Eto.Forms;
 using Rhino;
+using Rhino.DocObjects;
 using Rhino.UI;
 
 namespace MoleHill.Rhino.UI;
@@ -8,22 +9,38 @@ namespace MoleHill.Rhino.UI;
 /// <summary>
 /// A lightweight, Insert-style picker that lists the document's block definitions and lets the user
 /// select several at once to add to a scatter card. Returns the chosen block definition names, or null
-/// if cancelled. A first-stab selector: name list + filter + multi-select (thumbnails are a later step).
+/// if cancelled. The name list opens immediately; thumbnails are generated in small UI-idle batches only
+/// for rows Eto actually formats, so large block libraries do not stall the dialog before it appears.
 /// </summary>
 internal sealed class BlockSelectorDialog : Dialog<List<string>?>
 {
+    private const int ThumbnailSize = 40;
+    private const double ThumbnailIntervalSeconds = 0.05;
+
     private sealed class BlockRow
     {
         public required string Name { get; init; }
 
-        public Bitmap? Thumbnail { get; init; }
+        public required InstanceDefinition Definition { get; init; }
+
+        public Bitmap? Thumbnail { get; set; }
+
+        public bool ThumbnailLoaded { get; set; }
+
+        public bool ThumbnailQueued { get; set; }
     }
 
+    private readonly RhinoDoc _doc;
     private readonly GridView _grid;
     private readonly List<BlockRow> _allRows;
+    private IReadOnlyList<BlockRow> _visibleRows;
+    private readonly Queue<BlockRow> _thumbnailQueue = new();
+    private readonly UITimer _thumbnailTimer;
+    private bool _isShown;
 
-    private BlockSelectorDialog(IReadOnlyList<(string Name, Bitmap? Thumbnail)> blocks)
+    private BlockSelectorDialog(RhinoDoc doc, IReadOnlyList<InstanceDefinition> blocks)
     {
+        _doc = doc;
         Title = "Add Blocks to Scatter";
         Resizable = true;
         Padding = 12;
@@ -31,13 +48,16 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
         this.UseRhinoStyle();
 
         _allRows = blocks
-            .Where(block => !string.IsNullOrWhiteSpace(block.Name))
-            .Select(block => new BlockRow { Name = block.Name, Thumbnail = block.Thumbnail })
+            .Where(definition => definition != null && !string.IsNullOrWhiteSpace(definition.Name))
+            .Select(definition => new BlockRow { Name = definition.Name, Definition = definition })
             .ToList();
+        _visibleRows = _allRows;
+
+        _thumbnailTimer = new UITimer { Interval = ThumbnailIntervalSeconds };
+        _thumbnailTimer.Elapsed += ProcessNextThumbnail;
 
         _grid = new GridView
         {
-            DataStore = _allRows,
             AllowMultipleSelection = true,
             ShowHeader = false,
             RowHeight = 44,
@@ -54,6 +74,12 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
                 TextBinding = Binding.Property((BlockRow row) => row.Name)
             }
         });
+        _grid.CellFormatting += (_, e) =>
+        {
+            if (e.Item is BlockRow row)
+                QueueThumbnail(row);
+        };
+        _grid.DataStore = _visibleRows;
 
         var addButton = new Button { Text = "Add Selected" };
         var cancelButton = new Button { Text = "Cancel" };
@@ -85,9 +111,23 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
         filter.TextChanged += (_, _) =>
         {
             string text = filter.Text?.Trim() ?? string.Empty;
-            _grid.DataStore = string.IsNullOrEmpty(text)
+            _visibleRows = string.IsNullOrEmpty(text)
                 ? _allRows
                 : _allRows.Where(row => row.Name.Contains(text, StringComparison.OrdinalIgnoreCase)).ToList();
+            _grid.DataStore = _visibleRows;
+        };
+
+        Shown += (_, _) =>
+        {
+            _isShown = true;
+            if (_thumbnailQueue.Count > 0 && !_thumbnailTimer.Started)
+                _thumbnailTimer.Start();
+        };
+        Closed += (_, _) =>
+        {
+            _isShown = false;
+            _thumbnailTimer.Stop();
+            _thumbnailQueue.Clear();
         };
 
         var layout = new DynamicLayout { Spacing = new Size(8, 8) };
@@ -115,9 +155,59 @@ internal sealed class BlockSelectorDialog : Dialog<List<string>?>
         Content = layout;
     }
 
-    public static List<string>? Show(RhinoDoc doc, IReadOnlyList<(string Name, Bitmap? Thumbnail)> blocks)
+    private void QueueThumbnail(BlockRow row)
     {
-        var dialog = new BlockSelectorDialog(blocks);
+        if (row.ThumbnailLoaded || row.ThumbnailQueued)
+            return;
+
+        row.ThumbnailQueued = true;
+        _thumbnailQueue.Enqueue(row);
+        if (_isShown && !_thumbnailTimer.Started)
+            _thumbnailTimer.Start();
+    }
+
+    private void ProcessNextThumbnail(object? sender, EventArgs e)
+    {
+        if (IsDisposed)
+        {
+            _thumbnailTimer.Stop();
+            _thumbnailQueue.Clear();
+            return;
+        }
+
+        while (_thumbnailQueue.Count > 0)
+        {
+            BlockRow row = _thumbnailQueue.Dequeue();
+            row.ThumbnailQueued = false;
+
+            int visibleIndex = IndexOfVisibleRow(row);
+            if (visibleIndex < 0)
+                continue;
+
+            row.Thumbnail = BlockThumbnailRenderer.Get(_doc, row.Definition, ThumbnailSize);
+            row.ThumbnailLoaded = true;
+            _grid.ReloadData(visibleIndex);
+            break;
+        }
+
+        if (_thumbnailQueue.Count == 0)
+            _thumbnailTimer.Stop();
+    }
+
+    private int IndexOfVisibleRow(BlockRow row)
+    {
+        for (int index = 0; index < _visibleRows.Count; index++)
+        {
+            if (ReferenceEquals(_visibleRows[index], row))
+                return index;
+        }
+
+        return -1;
+    }
+
+    public static List<string>? Show(RhinoDoc doc, IReadOnlyList<InstanceDefinition> blocks)
+    {
+        var dialog = new BlockSelectorDialog(doc, blocks);
         return dialog.ShowModal(RhinoEtoApp.MainWindowForDocument(doc));
     }
 }

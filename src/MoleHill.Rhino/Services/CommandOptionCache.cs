@@ -27,6 +27,14 @@ internal static class CommandOptionCache
         return unitContext.FromMeters(meters);
     }
 
+    public static double GetLengthFromModelDefault(
+        string key,
+        ModelUnitContext unitContext,
+        double defaultModelLength)
+    {
+        return GetLength(key, unitContext, unitContext.ToMeters(defaultModelLength));
+    }
+
     public static void SetLength(string key, ModelUnitContext unitContext, double modelLength)
     {
         SetValue(key + ".Meters", unitContext.ToMeters(modelLength));

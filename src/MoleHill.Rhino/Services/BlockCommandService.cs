@@ -2,6 +2,7 @@ using System.Globalization;
 using Rhino;
 using Rhino.Commands;
 using Rhino.DocObjects;
+using Rhino.FileIO;
 using Rhino.Geometry;
 using Rhino.Input;
 using Rhino.Input.Custom;
@@ -33,23 +34,51 @@ internal static class BlockCommandService
             return Result.Nothing;
         }
 
-        var folderDialog = new Eto.Forms.SelectFolderDialog { Title = "Directory for linked files" };
-        if (folderDialog.ShowDialog(global::Rhino.UI.RhinoEtoApp.MainWindowForDocument(doc)) != Eto.Forms.DialogResult.Ok ||
-            string.IsNullOrWhiteSpace(folderDialog.Directory))
+        var saveDialog = new Eto.Forms.SaveFileDialog
+        {
+            Title = "Externalize Block",
+            FileName = GetSafeFileName(definition.Name) + ".3dm"
+        };
+        saveDialog.Filters.Add(new Eto.Forms.FileFilter("Rhino 3D", ".3dm"));
+        if (saveDialog.ShowDialog(global::Rhino.UI.RhinoEtoApp.MainWindowForDocument(doc)) != Eto.Forms.DialogResult.Ok ||
+            string.IsNullOrWhiteSpace(saveDialog.FileName))
             return Result.Cancel;
-        string folder = folderDialog.Directory;
 
         string blockName = definition.Name;
-        string filepath = Path.Combine(folder, $"{blockName}.3dm");
-        string exportCommand = string.Create(CultureInfo.InvariantCulture,
-            $"_-BlockManager _Export \"{blockName}\" \"{filepath}\" _Enter");
-        if (!RhinoApp.RunScript(exportCommand, false))
-            return Result.Failure;
+        string filepath = saveDialog.FileName;
 
-        string updateCommand = string.Create(CultureInfo.InvariantCulture,
-            $"_-BlockManager _Properties \"{blockName}\" _UpdateType=Linked \"{filepath}\" _UpdateType=Linked _Enter _Enter");
-        if (!RhinoApp.RunScript(updateCommand, false))
+        // The save dialog has already confirmed any overwrite. Remove the old file so a scripted export
+        // that stops at Rhino's own overwrite prompt cannot pass the File.Exists check below on stale
+        // content and link the block to it.
+        if (File.Exists(filepath))
+        {
+            try
+            {
+                File.Delete(filepath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                RhinoApp.WriteLine($"Could not replace '{filepath}': {ex.Message}");
+                return Result.Failure;
+            }
+        }
+        string exportCommand = string.Create(CultureInfo.InvariantCulture,
+            $"_-BlockManager _Export \"{EscapeScriptArgument(blockName)}\" \"{EscapeScriptArgument(filepath)}\" _Enter");
+        if (!RhinoApp.RunScript(doc.RuntimeSerialNumber, exportCommand, false) || !File.Exists(filepath))
+        {
+            RhinoApp.WriteLine("The block definition could not be exported.");
             return Result.Failure;
+        }
+
+        if (!doc.InstanceDefinitions.ModifySourceArchive(
+                definition.Index,
+                FileReference.CreateFromFullPath(filepath),
+                InstanceDefinitionUpdateType.Linked,
+                quiet: false))
+        {
+            RhinoApp.WriteLine($"The block was exported to '{filepath}', but its definition could not be linked to that file.");
+            return Result.Failure;
+        }
 
         definition = doc.InstanceDefinitions.Find(blockName);
         if (definition != null &&
@@ -63,9 +92,19 @@ internal static class BlockCommandService
         return Result.Success;
     }
 
-    public static Result RunUpdateAllLinkedBlocks()
+    private static string EscapeScriptArgument(string value) => value.Replace("\"", "\"\"");
+
+    private static string GetSafeFileName(string value)
     {
-        bool ran = RhinoApp.RunScript("_UpdateAllLinkedBlocks _Enter", false);
+        char[] invalid = Path.GetInvalidFileNameChars();
+        string safe = new(value.Select(character => invalid.Contains(character) ? '_' : character).ToArray());
+        safe = safe.Trim().TrimEnd('.');
+        return string.IsNullOrWhiteSpace(safe) ? "Block" : safe;
+    }
+
+    public static Result RunUpdateAllLinkedBlocks(RhinoDoc doc)
+    {
+        bool ran = RhinoApp.RunScript(doc.RuntimeSerialNumber, "_UpdateAllLinkedBlocks _Enter", false);
         return ran ? Result.Success : Result.Failure;
     }
 

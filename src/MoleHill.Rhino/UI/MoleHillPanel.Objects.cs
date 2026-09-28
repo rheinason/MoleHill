@@ -4,6 +4,7 @@ using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
 using MoleHill.Rhino.Services;
 using Rhino;
+using InstanceDefinition = Rhino.DocObjects.InstanceDefinition;
 using RhinoObjectType = Rhino.DocObjects.ObjectType;
 
 namespace MoleHill.Rhino.UI;
@@ -517,7 +518,7 @@ public sealed partial class MoleHillPanel
             return;
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var blocks = new List<(string Name, Eto.Drawing.Bitmap? Thumbnail)>();
+        var blocks = new List<InstanceDefinition>();
         foreach (var definition in doc.InstanceDefinitions)
         {
             if (definition == null || definition.IsDeleted || string.IsNullOrWhiteSpace(definition.Name))
@@ -525,7 +526,7 @@ public sealed partial class MoleHillPanel
             if (!seen.Add(definition.Name))
                 continue;
 
-            blocks.Add((definition.Name, BlockThumbnailRenderer.Get(definition, 40)));
+            blocks.Add(definition);
         }
 
         blocks.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
