@@ -36,11 +36,6 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
             (m, v) => ((InSituStairModifierDefinition)m).MinTreadDepth = v,
             "Minimum acceptable derived tread depth. Values greater than 0 color undersized stair solids bright red; 0 disables the warning.",
             unit: ParameterUnit.ModelLength),
-        ModifierParam.Slope(
-            "SlopeAngle", "Daylight Slope",
-            m => ((InSituStairModifierDefinition)m).SlopeAngle,
-            (m, v) => ((InSituStairModifierDefinition)m).SlopeAngle = v,
-            "Daylight slope where the graded support surface blends back into surrounding terrain."),
         ModifierParam.Number(
             "MaxDistance", "Max Distance",
             m => ((InSituStairModifierDefinition)m).MaxDistance,

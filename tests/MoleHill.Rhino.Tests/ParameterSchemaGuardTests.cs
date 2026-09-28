@@ -208,7 +208,6 @@ public class ParameterSchemaGuardTests
     [InlineData("grade-line", "LeftFillSlopeAngle")]
     [InlineData("grade-line", "RightCutSlopeAngle")]
     [InlineData("grade-line", "RightFillSlopeAngle")]
-    [InlineData("in-situ-stair", "SlopeAngle")]
     public void GradingBatters_AreSlopeRows(string kind, string key)
     {
         var descriptor = TerrainTypeRegistry.ForModifierKind(kind);
@@ -217,6 +216,15 @@ public class ParameterSchemaGuardTests
         var parameter = descriptor!.Parameters.SingleOrDefault(p => p.Key == key);
         Assert.NotNull(parameter);
         Assert.Equal(ParameterUnit.Slope, parameter!.Unit);
+    }
+
+    [Fact]
+    public void InSituStair_DoesNotExposeDaylightSlopeBeforeTerrainGradingIsSupported()
+    {
+        var descriptor = TerrainTypeRegistry.ForModifierKind("in-situ-stair");
+
+        Assert.NotNull(descriptor);
+        Assert.DoesNotContain(descriptor!.Parameters, parameter => parameter.Key == "SlopeAngle");
     }
 
     /// <summary>

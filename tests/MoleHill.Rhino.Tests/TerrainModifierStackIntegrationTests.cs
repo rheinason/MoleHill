@@ -94,8 +94,31 @@ public class TerrainModifierStackIntegrationTests
         Assert.True(result.PrimaryMesh.Faces.Count >= result.BaseMesh.Faces.Count);
         Assert.Contains(result.Diagnostics, static diagnostic =>
             diagnostic.Contains("topology insertion inserted wall breaklines", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Diagnostics, static diagnostic =>
+            diagnostic.Contains("breakline-only mode uses ordinary local breakline insertion", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Diagnostics, static diagnostic =>
+            diagnostic.Contains("Retaining Wall quality patch:", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(result.Timings, static timing => timing.Stage == "Retaining Wall Topology Insert");
         Assert.DoesNotContain(result.Timings, static timing => timing.Stage == "Retaining Wall Remesh");
+    }
+
+    [RhinoNativeFact]
+    public void Build_GradedRetainingWall_KeepsQualityPatchProtection()
+    {
+        StackFixture fixture = CreateFixture(wallBeforePad: true);
+        fixture.Pad.IsEnabled = false;
+        fixture.Wall.Mode = RetainingWallModifierDefinition.GradeMode;
+
+        TerrainBuildResult result = new TerrainBuildService().Build(
+            fixture.Snapshot,
+            new TerrainRuntimeCache(),
+            TerrainBuildMode.Preview);
+
+        Assert.NotNull(result.PrimaryMesh);
+        Assert.Contains(result.Diagnostics, static diagnostic =>
+            diagnostic.Contains("quality patch", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Diagnostics, static diagnostic =>
+            diagnostic.Contains("breakline-only mode uses ordinary local breakline insertion", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

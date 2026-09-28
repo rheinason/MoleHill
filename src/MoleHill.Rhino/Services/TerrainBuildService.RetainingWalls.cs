@@ -211,6 +211,7 @@ internal sealed partial class TerrainBuildService
             wallConstraints,
             wallTolerance,
             build,
+            useQualityPatch: modifier.GradesTerrain,
             reportFailures: true,
             afterCombinedRemeshFailed: false,
             out RhinoMesh insertedMesh);
@@ -721,6 +722,7 @@ internal sealed partial class TerrainBuildService
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> wallConstraints,
         double tolerance,
         TerrainBuildResult build,
+        bool useQualityPatch,
         bool reportFailures,
         bool afterCombinedRemeshFailed,
         out RhinoMesh insertedMesh)
@@ -733,11 +735,22 @@ internal sealed partial class TerrainBuildService
             return false;
         }
 
-        var qualityConstraints = CombineConstraints(
-            CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints), wallConstraints);
-        bool qualityInserted = MeshConstraintTopologyInserter.TryInsertQualityWallPatch(
-            vertices, faces, qualityConstraints, tolerance,
-            out double[] outputVertices, out int[] outputFaces, out string? qualityMessage);
+        double[] outputVertices = vertices;
+        int[] outputFaces = faces;
+        string? qualityMessage = null;
+        bool qualityInserted = false;
+        // Breakline-only mode is an authored terrain crease, not a graded wall band. Refining a lifted
+        // quality patch here surrounds the two rails with terrain-elevation Steiner points and turns the
+        // intended step into a bump. Graded mode still needs that protection for its batter/wall junction.
+        if (useQualityPatch)
+        {
+            var qualityConstraints = CombineConstraints(
+                CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints), wallConstraints);
+            qualityInserted = MeshConstraintTopologyInserter.TryInsertQualityWallPatch(
+                vertices, faces, qualityConstraints, tolerance,
+                out outputVertices, out outputFaces, out qualityMessage);
+        }
+
         int outputVertexCount = outputVertices.Length / 3;
         int outputFaceCount = outputFaces.Length / 3;
         if (!qualityInserted && !MeshConstraintTopologyInserter.TryInsert(
@@ -781,7 +794,10 @@ internal sealed partial class TerrainBuildService
             build.Diagnostics.Add(qualityMessage!);
             return true;
         }
-        build.Diagnostics.Add($"Retaining Wall uses per-face insertion: {qualityMessage}");
+        if (useQualityPatch)
+            build.Diagnostics.Add($"Retaining Wall uses local breakline insertion after the quality patch declined: {qualityMessage}");
+        else
+            build.Diagnostics.Add("Retaining Wall breakline-only mode uses ordinary local breakline insertion without a terrain-elevation quality patch.");
         build.Diagnostics.Add(afterCombinedRemeshFailed
             ? "Retaining Wall topology fallback inserted wall breaklines into the existing mesh after combined remesh failed."
             : "Retaining Wall topology insertion inserted wall breaklines into the existing mesh.");

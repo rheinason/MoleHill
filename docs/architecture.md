@@ -116,15 +116,16 @@ new surface if assignment fails. CRS reprojection remains out of scope.
 
 ## Two hosts, one core
 
-Retaining-wall insertion tries a quality patch first. `MeshConstraintTopologyInserter.WallQuality.cs`
+Graded retaining-wall insertion tries a quality patch first. `MeshConstraintTopologyInserter.WallQuality.cs`
 expands a patch ring by ring until the stitched result clears a 5-degree floor, verifying achieved
 quality, plan-area conservation, a single closed perimeter and no discarded input vertex before it
 publishes; `.WallPatch.cs` builds each candidate, re-triangulating the touched region against its own
 perimeter, bisecting adjacent untouched triangles so the patch stays conforming, and sampling a lifted
-wall elevation reference so points inside the band follow the wall. The per-face path in
-`MeshConstraintTopologyInserter.cs` remains the verified fallback whenever the patch declines, and the
-build log says which ran. Background and the rejected alternatives are in
-`docs/wall-pinch-investigation.md`.
+wall elevation reference so points inside the graded band follow the wall. Breakline-only walls bypass
+that terrain-elevation patch and use the ordinary local insertion in `MeshConstraintTopologyInserter.cs`,
+matching an authored breakline instead of surrounding the rails with a refined bump. The same local path
+remains the verified fallback whenever a graded wall's quality patch declines, and the build log says
+which ran. Background and the rejected alternatives are in `docs/wall-pinch-investigation.md`.
 
 Isotropic Remesh inserts the card's own constraint curves before refinement and skips the operation if
 insertion fails. `FeaturePolylineGraph` protects every existing edge whose endpoints lie on a constraint
@@ -252,7 +253,8 @@ one, the plugin separates **how a slope is stored** from **how it is written**.
 
 - **Stored** as an angle in degrees on the grading definitions (`GradePad`, `GradePath`, `InSituStair`,
   the Scatter slope filter) and as a ratio everywhere it passes through Core. Nothing about the unit
-  work changed storage, so no schema version moved.
+  work changed storage, so no schema version moved. The In-Situ Stair value remains serialization-
+  compatible but is not exposed on its card until its terrain grading workflow is ready.
 - **Displayed and typed** in the user's chosen unit. `MoleHill.Core.Analysis.SlopeInput` is the single
   parse/format point: `TryParse`/`TryParseToDegrees` read a value, `FormatValue`/`FormatWithUnit` write
   one, and `Suffix`/`Name`/`DecimalPlaces` are the one table of per-unit display facts.
@@ -326,9 +328,11 @@ unused 4,096-bucket refinement queues, while `IMesh.Refine` retains its lazy cre
 
 The Rhino **Retaining Wall** stage first uses `MeshConstraintTopologyInserter` to split only the faces
 crossed by accepted toe/top rails. Untouched terrain faces and vertices retain their existing topology,
-and inserted rails join the persistent hard-constraint stack for later modifiers. A full constrained
-`SurfaceRemesher` rebuild is used only when the local insertion cannot produce an accepted mesh. The
-stage takes the build cancellation callback and checks it at each of its phase boundaries, so a
+and inserted rails join the persistent hard-constraint stack for later modifiers. Breakline-only mode
+uses that direct local split; graded mode may refine a bounded quality patch around the wall before the
+rails are persisted. A full constrained `SurfaceRemesher` rebuild is used only when the selected local
+insertion cannot produce an accepted mesh. The stage takes the build cancellation callback and checks
+it at each of its phase boundaries, so a
 superseded build abandons the constrained rebuild instead of finishing it.
 
 Rail **planning** is cached apart from the stage, in `TerrainRuntimeCache.RetainingWallPlanEntries`.
