@@ -30,7 +30,7 @@ public static class GradientRulePresets
             "ADA 2010 (US)",
             "2010 ADA Standards: §304.2 turning space and §405.7.1 ramp landings, slopes not steeper " +
             "than 1:48; §403.3 walking surfaces running slope 1:20 and cross slope 1:48; §405.2 ramp " +
-            "running slope 1:12.",
+            "running slope 1:12; §405.6 ramp run rise 760 mm; §405.7.3 landings 1525 mm long.",
             () => new GradientRuleSet
             {
                 PresetKey = "ada-2010",
@@ -40,6 +40,8 @@ public static class GradientRulePresets
                 WalkMaxSlopeDegrees = RatioToDegrees(1.0, 20.0),
                 RampMaxSlopeDegrees = RatioToDegrees(1.0, 12.0),
                 CrossMaxSlopeDegrees = RatioToDegrees(1.0, 48.0),
+                LandingMinLength = 1.525,
+                RampMaxRise = 0.76,
             }),
         new Preset(
             "adm-vol2-2015",
@@ -47,8 +49,10 @@ public static class GradientRulePresets
             "Approved Document M Vol 2 (2015, 2024 amendments): §1.26(k) landings level, max 1:60 along " +
             "their length and 1:40 cross-fall; \"level\" is max 1:60 in the direction of travel. A level " +
             "area has no direction of travel, so it is checked at the stricter 1:60 in every direction. " +
-            "§1.13(c) approaches less steep than 1:20 with cross-fall no steeper than 1:40; Table 1 " +
-            "ramps no steeper than 1:12.",
+            "§1.13(c) approaches less steep than 1:20 with cross-fall no steeper than 1:40 and a landing " +
+            "every 500 mm of rise; §1.26(c) flights no longer than 10 m or rising more than 500 mm; Table 1 " +
+            "goings 10 m at 1:20, 5 m at 1:15, 2 m at 1:12, interpolated between; §1.26(i) intermediate " +
+            "landings 1.5 m long.",
             () => new GradientRuleSet
             {
                 PresetKey = "adm-vol2-2015",
@@ -58,6 +62,16 @@ public static class GradientRulePresets
                 WalkMaxSlopeDegrees = RatioToDegrees(1.0, 20.0),
                 RampMaxSlopeDegrees = RatioToDegrees(1.0, 12.0),
                 CrossMaxSlopeDegrees = RatioToDegrees(1.0, 40.0),
+                LandingMinLength = 1.5,
+                WalkMaxRise = 0.5,
+                RampMaxRise = 0.5,
+                RampGoingLimits = new List<GradientGoingLimit>
+                {
+                    new() { SlopeDegrees = RatioToDegrees(1.0, 20.0), MaxGoing = 10.0 },
+                    new() { SlopeDegrees = RatioToDegrees(1.0, 15.0), MaxGoing = 5.0 },
+                    new() { SlopeDegrees = RatioToDegrees(1.0, 12.0), MaxGoing = 2.0 },
+                },
+                InterpolateGoing = true,
             }),
     };
 
@@ -98,7 +112,15 @@ public static class GradientRulePresets
     public static void RefreshModified(GradientRuleSet rules)
     {
         Preset? preset = Find(rules.PresetKey);
-        rules.IsModified = preset != null && !HaveSameLimits(rules, preset.Create());
+        rules.IsModified = preset != null && !HaveSameLimits(rules, CreateScaled(preset, rules.ModelUnitsPerMeter));
+    }
+
+    /// <summary>A preset's rules in a document whose model units are <paramref name="modelUnitsPerMeter"/> per metre.</summary>
+    public static GradientRuleSet CreateScaled(Preset preset, double modelUnitsPerMeter)
+    {
+        GradientRuleSet rules = preset.Create();
+        rules.ScaleLengths(modelUnitsPerMeter);
+        return rules;
     }
 
     private static bool HaveSameLimits(GradientRuleSet a, GradientRuleSet b) =>
@@ -107,7 +129,17 @@ public static class GradientRulePresets
         a.RouteMode == b.RouteMode &&
         Math.Abs(a.WalkMaxSlopeDegrees - b.WalkMaxSlopeDegrees) <= 1e-9 &&
         Math.Abs(a.RampMaxSlopeDegrees - b.RampMaxSlopeDegrees) <= 1e-9 &&
-        Math.Abs(a.CrossMaxSlopeDegrees - b.CrossMaxSlopeDegrees) <= 1e-9;
+        Math.Abs(a.CrossMaxSlopeDegrees - b.CrossMaxSlopeDegrees) <= 1e-9 &&
+        SameLength(a.LandingMinLength, b.LandingMinLength) &&
+        SameLength(a.WalkMaxRise, b.WalkMaxRise) &&
+        SameLength(a.RampMaxRise, b.RampMaxRise) &&
+        a.InterpolateGoing == b.InterpolateGoing &&
+        a.RampGoingLimits.Count == b.RampGoingLimits.Count &&
+        a.RampGoingLimits.Zip(b.RampGoingLimits).All(pair =>
+            Math.Abs(pair.First.SlopeDegrees - pair.Second.SlopeDegrees) <= 1e-9 &&
+            SameLength(pair.First.MaxGoing, pair.Second.MaxGoing));
+
+    private static bool SameLength(double a, double b) => Math.Abs(a - b) <= 1e-9 * Math.Max(1.0, Math.Max(Math.Abs(a), Math.Abs(b)));
 
     private static double RatioToDegrees(double rise, double run) => Math.Atan2(rise, run) * 180.0 / Math.PI;
 }

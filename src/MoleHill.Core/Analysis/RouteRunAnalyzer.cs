@@ -1,8 +1,8 @@
 namespace MoleHill.Core.Analysis;
 
 /// <summary>
-/// Follows accessible routes along their length and splits them into landings and runs, then checks each
-/// run's rise and going. Stage three of the gradient compliance analysis (backlog B13).
+/// Splits accessible routes into detected landings and runs, and checks each run's rise and going.
+/// Stage three of the gradient compliance analysis (backlog B13): it follows each route along its length.
 /// </summary>
 /// <remarks>
 /// <para><b>Landings are detected, not drawn.</b> A stretch of route whose running slope is within the
@@ -178,6 +178,63 @@ public static class RouteRunAnalyzer
         }
 
         return sorted[^1].MaxGoing;
+    }
+
+    /// <summary>
+    /// For each face, the index of the run whose nearest station is within <paramref name="halfWidth"/> of
+    /// the face's plan centroid, or -1. This is how a run's verdict reaches the preview: a run is a
+    /// stretch of route, and the ground it colours is the corridor beside that stretch.
+    /// </summary>
+    public static int[] MapFacesToRuns(double[] vertices, int[] faces, int faceCount, IReadOnlyList<Run> runs, double halfWidth)
+    {
+        var owner = new int[faceCount];
+        Array.Fill(owner, -1);
+        if (runs.Count == 0 || halfWidth <= 0.0)
+            return owner;
+
+        var pointRun = new List<int>();
+        var pointX = new List<double>();
+        var pointY = new List<double>();
+        for (int r = 0; r < runs.Count; r++)
+        {
+            double[] points = runs[r].PointsXyz;
+            for (int p = 0; p + 2 < points.Length; p += 3)
+            {
+                pointRun.Add(r);
+                pointX.Add(points[p]);
+                pointY.Add(points[p + 1]);
+            }
+        }
+
+        var bounds = new Engine.Bounds2D[pointRun.Count];
+        for (int i = 0; i < bounds.Length; i++)
+            bounds[i] = Engine.Bounds2D.FromPoint(pointX[i], pointY[i], halfWidth);
+        var grid = Engine.SpatialHashGrid2D.Build(bounds);
+        var candidates = new List<int>();
+        var scratch = new Engine.SpatialHashGrid2D.QueryScratch(bounds.Length);
+        double limit = halfWidth * halfWidth;
+
+        for (int face = 0; face < faceCount; face++)
+        {
+            int a = faces[face * 3] * 3;
+            int b = faces[(face * 3) + 1] * 3;
+            int c = faces[(face * 3) + 2] * 3;
+            double cx = (vertices[a] + vertices[b] + vertices[c]) / 3.0;
+            double cy = (vertices[a + 1] + vertices[b + 1] + vertices[c + 1]) / 3.0;
+            grid.GatherCandidates(Engine.Bounds2D.FromPoint(cx, cy), candidates, scratch);
+            double best = limit;
+            foreach (int candidate in candidates)
+            {
+                double d = Sq(pointX[candidate] - cx) + Sq(pointY[candidate] - cy);
+                if (d <= best)
+                {
+                    best = d;
+                    owner[face] = pointRun[candidate];
+                }
+            }
+        }
+
+        return owner;
     }
 
     private readonly record struct Station(double X, double Y, double Z, double Distance);

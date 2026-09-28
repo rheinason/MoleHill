@@ -525,6 +525,23 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
         RouteSlope("CrossMaxSlope", "Cross Limit",
             r => r.CrossMaxSlopeDegrees, (r, v) => r.CrossMaxSlopeDegrees = v,
             "The steepest a route may fall across its direction of travel."),
+        RouteLength("LandingMinLength", "Landing Min",
+            r => r.LandingMinLength, (r, v) => r.LandingMinLength = v,
+            "The shortest level stretch of a route that counts as a landing. Landings are found along the " +
+            "routes, not drawn: a stretch within the level limit for at least this long. A shorter flat " +
+            "does not end the run it sits in."),
+        RouteLength("WalkMaxRise", "Walk Max Rise",
+            r => r.WalkMaxRise, (r, v) => r.WalkMaxRise = v,
+            "The most a walk may climb between landings. Zero means no limit, as under ADA."),
+        RouteLength("RampMaxRise", "Ramp Max Rise",
+            r => r.RampMaxRise, (r, v) => r.RampMaxRise = v,
+            "The most a ramp run may climb between landings. Zero means no limit."),
+        AnalysisParam.ReadOnly(
+            "RampGoingLimits", "Ramp Goings",
+            a => DescribeGoingLimits(Rules(a)),
+            "The longest ramp run allowed at each gradient, from the standard. Editing this table needs " +
+            "the rule-table dialog, which is still to come; choose a standard to set it.",
+            visibleWhen: a => Rules(a).RouteMode != GradientRuleMode.Off),
         AnalysisParam.Number(
             "MeasurementLength", "Measure Over",
             a => ((GradientComplianceAnalysisDefinition)a).MeasurementLength,
@@ -547,6 +564,37 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
         return (levelOn && compliance.LevelAreas.HasReferences) || (routesOn && compliance.Routes.HasReferences)
             ? null
             : "Needs something to check — set “Level Areas” or “Routes” below.";
+    }
+
+    private static AnalysisParam RouteLength(
+        string key,
+        string label,
+        Func<GradientRuleSet, double> get,
+        Action<GradientRuleSet, double> set,
+        string help) =>
+        AnalysisParam.Number(
+            key, label,
+            a => get(Rules(a)),
+            (a, v) =>
+            {
+                set(Rules(a), Math.Max(0.0, v));
+                GradientRulePresets.RefreshModified(Rules(a));
+            },
+            help,
+            min: 0.0,
+            unit: ParameterUnit.ModelLength,
+            rebuildAfterCommit: true,
+            visibleWhen: a => Rules(a).RouteMode != GradientRuleMode.Off);
+
+    private static string DescribeGoingLimits(GradientRuleSet rules)
+    {
+        if (rules.RampGoingLimits.Count == 0)
+            return "No limit";
+
+        var parts = rules.RampGoingLimits
+            .OrderBy(limit => limit.SlopeDegrees)
+            .Select(limit => $"{limit.MaxGoing:0.##} at {MoleHill.Core.Analysis.SlopeInput.FormatWithUnit(Math.Tan(limit.SlopeDegrees * Math.PI / 180.0), MoleHill.Core.Analysis.SlopeAnalyzer.SlopeUnit.Ratio)}");
+        return string.Join(", ", parts) + (rules.InterpolateGoing ? " (interpolated)" : "");
     }
 
     private static AnalysisParam RouteSlope(
@@ -601,7 +649,7 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
     {
         GradientRulePresets.Preset? preset = GradientRulePresets.Find(key);
         if (preset != null)
-            return preset.Create();
+            return GradientRulePresets.CreateScaled(preset, current.ModelUnitsPerMeter);
 
         GradientRuleSet custom = current.Clone();
         custom.PresetKey = null;

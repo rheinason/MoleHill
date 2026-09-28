@@ -285,7 +285,10 @@ internal static class TerrainReportBuilder
             new ReportColumn("Running Over", AreaUnit(unitContext), ReportAlignment.Right),
             new ReportColumn("Cross Over", AreaUnit(unitContext), ReportAlignment.Right),
             new ReportColumn("Steepest Running", SlopeInput.Suffix(slopeUnit), ReportAlignment.Right),
-            new ReportColumn("Steepest Cross", SlopeInput.Suffix(slopeUnit), ReportAlignment.Right));
+            new ReportColumn("Steepest Cross", SlopeInput.Suffix(slopeUnit), ReportAlignment.Right),
+            new ReportColumn("Runs", Alignment: ReportAlignment.Right),
+            new ReportColumn("Runs Failing", Alignment: ReportAlignment.Right),
+            new ReportColumn("Landings Found", Alignment: ReportAlignment.Right));
 
         foreach (GradientComplianceAnalysisDefinition analysis in
                  terrain.Analyses.OfType<GradientComplianceAnalysisDefinition>())
@@ -307,9 +310,15 @@ internal static class TerrainReportBuilder
                 Optional(summary.RouteRunningExceedingArea),
                 Optional(summary.RouteCrossExceedingArea),
                 OptionalSlope(summary.RouteSteepestRunningDegrees, slopeUnit),
-                OptionalSlope(summary.RouteSteepestCrossDegrees, slopeUnit));
+                OptionalSlope(summary.RouteSteepestCrossDegrees, slopeUnit),
+                OptionalCount(summary.RouteRunCount),
+                OptionalCount(summary.RouteFailedRunCount),
+                OptionalCount(summary.RouteLandingCount));
         }
     }
+
+    private static string OptionalCount(int? value) =>
+        value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : string.Empty;
 
     private static string OptionalSlope(double? degrees, SlopeAnalyzer.SlopeUnit unit) =>
         degrees is { } value ? SlopeInput.FormatValueForReport(Math.Tan(value * Math.PI / 180.0), unit) : string.Empty;

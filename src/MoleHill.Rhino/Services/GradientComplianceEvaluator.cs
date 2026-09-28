@@ -26,10 +26,24 @@ internal static class GradientComplianceEvaluator
     /// <summary>Route ground in the ramp band: allowed, so not a failure, but not a walk either.</summary>
     internal static readonly (byte R, byte G, byte B) RampColor = (30, 136, 229);
 
-    /// <summary>Both checks' results for one card on one mesh.</summary>
+    /// <summary>A detected landing on a route that passes: shown so the detection can be seen and trusted.</summary>
+    internal static readonly (byte R, byte G, byte B) LandingColor = (0, 137, 123);
+
+    /// <summary>
+    /// Every check's results for one card on one mesh. <see cref="FaceRuns"/> maps each face to the
+    /// index in <see cref="Runs"/> of the run beside it, or -1.
+    /// </summary>
     internal sealed record Evaluation(
         GradientComplianceAnalyzer.Result LevelAreas,
-        GradientComplianceAnalyzer.RouteResult Routes);
+        GradientComplianceAnalyzer.RouteResult Routes,
+        IReadOnlyList<RouteRunAnalyzer.Run> Runs,
+        int[] FaceRuns)
+    {
+        public Evaluation(GradientComplianceAnalyzer.Result levelAreas, GradientComplianceAnalyzer.RouteResult routes)
+            : this(levelAreas, routes, Array.Empty<RouteRunAnalyzer.Run>(), Enumerable.Repeat(-1, levelAreas.Verdicts.Length).ToArray())
+        {
+        }
+    }
 
     public static Evaluation Evaluate(
         double[] vertices,
@@ -60,6 +74,9 @@ internal static class GradientComplianceEvaluator
                     CancellationRequested = shouldCancel,
                 });
 
+        List<double[]> routePolylines = rules.RouteMode == GradientRuleMode.Off
+            ? new List<double[]>()
+            : ToXyPolylines(routeCurves, tolerance);
         GradientComplianceAnalyzer.RouteResult routes = rules.RouteMode == GradientRuleMode.Off
             ? GradientComplianceAnalyzer.RouteResult.Empty(faceCount)
             : GradientComplianceAnalyzer.EvaluateRoutes(
@@ -67,7 +84,7 @@ internal static class GradientComplianceEvaluator
                 vertexCount,
                 faces,
                 faceCount,
-                ToXyPolylines(routeCurves, tolerance),
+                routePolylines,
                 new GradientComplianceAnalyzer.RouteOptions
                 {
                     WalkMaxRunningRatio = ToRatio(rules.WalkMaxSlopeDegrees),
@@ -78,12 +95,41 @@ internal static class GradientComplianceEvaluator
                     CancellationRequested = shouldCancel,
                 });
 
-        return new Evaluation(levelAreas, routes);
+        if (routePolylines.Count == 0 || faceCount == 0)
+            return new Evaluation(levelAreas, routes);
+
+        // Runs follow each route along its length. Landings are detected as level stretches, level by
+        // the same limit a drawn level area is held to.
+        var projector = new MeshHeightProjector(vertices, vertexCount, faces, faceCount);
+        double spacing = Math.Max(measurementLength, analysis.RouteWidth) / 10.0;
+        IReadOnlyList<RouteRunAnalyzer.Run> runs = RouteRunAnalyzer.Analyze(
+            projector,
+            routePolylines,
+            new RouteRunAnalyzer.Options
+            {
+                LandingMaxRatio = ToRatio(rules.LevelAreaMaxSlopeDegrees),
+                WalkMaxRatio = ToRatio(rules.WalkMaxSlopeDegrees),
+                LandingMinLength = Math.Max(0.0, rules.LandingMinLength),
+                WalkMaxRise = rules.WalkMaxRise > 0.0 ? rules.WalkMaxRise : double.PositiveInfinity,
+                RampMaxRise = rules.RampMaxRise > 0.0 ? rules.RampMaxRise : double.PositiveInfinity,
+                RampGoingLimits = rules.RampGoingLimits
+                    .Select(limit => new RouteRunAnalyzer.GoingLimit(ToRatio(limit.SlopeDegrees), limit.MaxGoing))
+                    .ToArray(),
+                InterpolateGoing = rules.InterpolateGoing,
+                StationSpacing = spacing > 0.0 ? spacing : tolerance * 10.0,
+                SmoothingLength = measurementLength,
+                Tolerance = tolerance,
+                CancellationRequested = shouldCancel,
+            });
+        int[] faceRuns = RouteRunAnalyzer.MapFacesToRuns(
+            vertices, faces, faceCount, runs, Math.Max(0.0, analysis.RouteWidth) * 0.5);
+        return new Evaluation(levelAreas, routes, runs, faceRuns);
     }
 
     /// <summary>
-    /// Per-face RGB for the preview, as <c>[r0, g0, b0, r1, …]</c>. A face checked as a level area takes
-    /// that verdict over its route verdict: a landing on a route is held to the landing's stricter rule.
+    /// Per-face RGB for the preview, as <c>[r0, g0, b0, r1, …]</c>. Precedence, strongest first: a drawn
+    /// level area's verdict (a landing is held to the landing's stricter rule); a run that fails on rise
+    /// or going; the face's own running or cross slope failure; a detected landing; ramp; walk.
     /// </summary>
     public static byte[] BuildFaceColors(Evaluation evaluation, GradientRuleSet rules)
     {
@@ -92,20 +138,34 @@ internal static class GradientComplianceEvaluator
         var level = evaluation.LevelAreas.Verdicts;
         var route = evaluation.Routes.Verdicts;
         var colors = new byte[level.Length * 3];
+
+        (byte R, byte G, byte B) RouteColor(int face)
+        {
+            GradientComplianceAnalyzer.RouteVerdict verdict = route[face];
+            if (verdict == GradientComplianceAnalyzer.RouteVerdict.Unchecked)
+                return UncheckedColor;
+
+            int runIndex = face < evaluation.FaceRuns.Length ? evaluation.FaceRuns[face] : -1;
+            RouteRunAnalyzer.Run? run = runIndex >= 0 ? evaluation.Runs[runIndex] : null;
+            if (run != null && run.Failures != RouteRunAnalyzer.RunFailure.None)
+                return routeExceed;
+
+            return verdict switch
+            {
+                GradientComplianceAnalyzer.RouteVerdict.RunningExceeds => routeExceed,
+                GradientComplianceAnalyzer.RouteVerdict.CrossExceeds => routeExceed,
+                _ when run?.Kind == RouteRunAnalyzer.RunKind.Landing => LandingColor,
+                GradientComplianceAnalyzer.RouteVerdict.Ramp => RampColor,
+                _ => PassColor,
+            };
+        }
         for (int face = 0; face < level.Length; face++)
         {
             var color = level[face] switch
             {
                 GradientComplianceAnalyzer.FaceVerdict.Pass => PassColor,
                 GradientComplianceAnalyzer.FaceVerdict.Exceeds => levelExceed,
-                _ => route[face] switch
-                {
-                    GradientComplianceAnalyzer.RouteVerdict.Walk => PassColor,
-                    GradientComplianceAnalyzer.RouteVerdict.Ramp => RampColor,
-                    GradientComplianceAnalyzer.RouteVerdict.RunningExceeds => routeExceed,
-                    GradientComplianceAnalyzer.RouteVerdict.CrossExceeds => routeExceed,
-                    _ => UncheckedColor,
-                },
+                _ => RouteColor(face),
             };
             colors[face * 3] = color.R;
             colors[(face * 3) + 1] = color.G;

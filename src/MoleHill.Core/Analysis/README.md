@@ -161,5 +161,13 @@ Terrain analysis math. Pure, unit-tested.
   faces. This is the case a slope map cannot see: one 1:15 plane is a ramp walked downhill and a
   cross-slope failure walked along the contour.
 
+  **Runs** (stage three, `RouteRunAnalyzer`): each route is sampled at even stations and followed along
+  its length. Landings are **detected, not drawn**: a stretch within the level limit for at least the
+  minimum landing length. A station counts as flat when the ground is flat on *either* side of it,
+  because a centred window would shorten every landing by its own width. A shorter flat does not end
+  its run, so a too-short landing shows up as the run it failed to break being too high or too long.
+  Walk and ramp runs are checked for rise, and ramps for going against a per-gradient table,
+  interpolated linearly in the n of 1:n (this reproduces Approved Document M's own worked examples).
+
   Membership is even-odd across all loops, so a nested loop is a hole (Project To reads boundaries the
   same way). A limit hit exactly passes: a landing graded at 1:48 must not fail on floating point.

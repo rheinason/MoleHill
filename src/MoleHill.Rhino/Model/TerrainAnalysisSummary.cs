@@ -171,6 +171,18 @@ public sealed class TerrainAnalysisSummary
     /// <summary>Steepest averaged cross slope on any route, in degrees, or null when none was checked.</summary>
     public double? RouteSteepestCrossDegrees { get; set; }
 
+    /// <summary>Walk and ramp runs found between detected landings, or null when no route was followed.</summary>
+    public int? RouteRunCount { get; set; }
+
+    /// <summary>Runs that climb too far or run too long between landings, or null when none was followed.</summary>
+    public int? RouteFailedRunCount { get; set; }
+
+    /// <summary>Landings detected along the routes, or null when no route was followed.</summary>
+    public int? RouteLandingCount { get; set; }
+
+    /// <summary>The largest rise of any walk or ramp run, in model units, or null when there was none.</summary>
+    public double? RouteLargestRunRise { get; set; }
+
     /// <summary>Delta contour curves the cut/fill analysis drew on its last build.</summary>
     public int CutFillDeltaContourCount { get; set; }
 

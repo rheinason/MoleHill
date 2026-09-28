@@ -339,11 +339,78 @@ public class GradientComplianceAnalysisTests
         Assert.Equal(SlopeInput.FormatValueForReport(0.03, SlopeAnalyzer.SlopeUnit.Percent), landings[4]);
 
         Assert.Equal(string.Empty, landings[5]);
-        Assert.Equal(11, table.Columns.Count);
+        Assert.Equal(14, table.Columns.Count);
 
         IReadOnlyList<string> plaza = table.Rows[1];
         Assert.Equal("Custom", plaza[1]);
         Assert.Equal(string.Empty, plaza[2]);
         Assert.Equal(string.Empty, plaza[4]);
+    }
+
+    [Fact]
+    public void Presets_CarryTheirPublishedRunAndLandingLimits()
+    {
+        GradientRuleSet ada = GradientRulePresets.Find("ada-2010")!.Create();
+        Assert.Equal(1.525, ada.LandingMinLength, 9);   // §405.7.3
+        Assert.Equal(0.76, ada.RampMaxRise, 9);         // §405.6
+        Assert.Equal(0.0, ada.WalkMaxRise);             // no walk rise limit
+        Assert.Empty(ada.RampGoingLimits);
+
+        GradientRuleSet adm = GradientRulePresets.Find("adm-vol2-2015")!.Create();
+        Assert.Equal(1.5, adm.LandingMinLength, 9);     // §1.26(i)
+        Assert.Equal(0.5, adm.WalkMaxRise, 9);          // §1.13(c)
+        Assert.Equal(0.5, adm.RampMaxRise, 9);          // §1.26(c)
+        Assert.True(adm.InterpolateGoing);
+        Assert.Equal(
+            new[] { (20.0, 10.0), (15.0, 5.0), (12.0, 2.0) },
+            adm.RampGoingLimits.Select(limit => (Math.Round(1.0 / DegreesToRatio(limit.SlopeDegrees), 6), limit.MaxGoing)));
+    }
+
+    /// <summary>
+    /// Presets are written in metres. In a millimetre document a card is created at 1000 model units per
+    /// metre, and choosing a standard must land in millimetres too, and must not read as modified.
+    /// </summary>
+    [Fact]
+    public void ChoosingAPreset_InAMillimetreDocument_ScalesItsLengthsAndIsNotModified()
+    {
+        var analysis = new GradientComplianceAnalysisDefinition();
+        TerrainUnitScaler.Scale(analysis, 1000.0);
+        Assert.Equal(1525.0, analysis.Rules.LandingMinLength, 6);
+
+        Row("Standard").SetText!(analysis, "adm-vol2-2015");
+
+        Assert.Equal(1500.0, analysis.Rules.LandingMinLength, 6);
+        Assert.Equal(10_000.0, analysis.Rules.RampGoingLimits[0].MaxGoing, 6);
+        Assert.Equal(1000.0, analysis.Rules.ModelUnitsPerMeter, 9);
+        Assert.False(analysis.Rules.IsModified);
+
+        Row("RampMaxRise").SetNumber!(analysis, 400.0);
+        Assert.True(analysis.Rules.IsModified);
+        Row("RampMaxRise").SetNumber!(analysis, 500.0);
+        Assert.False(analysis.Rules.IsModified);
+    }
+
+    [Fact]
+    public void RuleSetClone_DoesNotShareTheGoingTable()
+    {
+        GradientRuleSet adm = GradientRulePresets.Find("adm-vol2-2015")!.Create();
+
+        GradientRuleSet clone = adm.Clone();
+        clone.RampGoingLimits[0].MaxGoing = 1.0;
+
+        Assert.Equal(10.0, adm.RampGoingLimits[0].MaxGoing);
+    }
+
+    [Fact]
+    public void RunRules_RoundTrip()
+    {
+        var analysis = new GradientComplianceAnalysisDefinition { Rules = GradientRulePresets.Find("adm-vol2-2015")!.Create() };
+
+        GradientComplianceAnalysisDefinition restored = RoundTrip(analysis);
+
+        Assert.Equal(3, restored.Rules.RampGoingLimits.Count);
+        Assert.Equal(0.5, restored.Rules.WalkMaxRise);
+        Assert.True(restored.Rules.InterpolateGoing);
+        Assert.Equal(1.0, restored.Rules.ModelUnitsPerMeter);
     }
 }

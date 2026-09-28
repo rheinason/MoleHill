@@ -166,6 +166,7 @@ internal static class TerrainUnitScaler
                 // The footprint is a length. The limits are slopes, and a slope has no length to scale.
                 compliance.MeasurementLength *= lengthScale;
                 compliance.RouteWidth *= lengthScale;
+                compliance.Rules.ScaleLengths(lengthScale);
                 break;
 
             case CutFillAnalysisDefinition cutFill:
@@ -267,6 +268,8 @@ internal static class TerrainUnitScaler
             summary.RouteRunningExceedingArea = summary.RouteRunningExceedingArea.Value * areaScale;
         if (summary.RouteCrossExceedingArea.HasValue)
             summary.RouteCrossExceedingArea = summary.RouteCrossExceedingArea.Value * areaScale;
+        if (summary.RouteLargestRunRise.HasValue)
+            summary.RouteLargestRunRise = summary.RouteLargestRunRise.Value * lengthScale;
 
         // The owning definition may be in either family: summaries are build results, and both
         // analyses and annotations produce them.

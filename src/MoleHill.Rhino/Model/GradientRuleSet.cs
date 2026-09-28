@@ -42,5 +42,49 @@ public sealed class GradientRuleSet
     /// <summary>The steepest a route may fall across its direction of travel, in degrees.</summary>
     public double CrossMaxSlopeDegrees { get; set; }
 
-    public GradientRuleSet Clone() => (GradientRuleSet)MemberwiseClone();
+    /// <summary>
+    /// The shortest level stretch of a route that counts as a landing, in model units. Landings are
+    /// detected along routes, not drawn: see <c>RouteRunAnalyzer</c>. A shorter flat does not end a run.
+    /// </summary>
+    public double LandingMinLength { get; set; }
+
+    /// <summary>Largest rise of a walk between landings, in model units. Zero means no limit.</summary>
+    public double WalkMaxRise { get; set; }
+
+    /// <summary>Largest rise of a ramp run between landings, in model units. Zero means no limit.</summary>
+    public double RampMaxRise { get; set; }
+
+    /// <summary>Longest ramp going per gradient. Empty means no going limit.</summary>
+    public List<GradientGoingLimit> RampGoingLimits { get; set; } = new();
+
+    /// <summary>Interpolate between going limits, as Approved Document M allows; otherwise the stricter applies.</summary>
+    public bool InterpolateGoing { get; set; }
+
+    /// <summary>
+    /// Model units per metre that the lengths above are written in. Presets are defined in metres, so a
+    /// preset chosen in a millimetre document must be scaled by this, and a comparison against the
+    /// preset (for <see cref="IsModified"/>) must scale the same way. <c>TerrainUnitScaler</c> keeps it
+    /// in step with the lengths when the document's units change.
+    /// </summary>
+    public double ModelUnitsPerMeter { get; set; } = 1.0;
+
+    /// <summary>Multiplies every length by <paramref name="factor"/>, as a change of model units does.</summary>
+    public void ScaleLengths(double factor)
+    {
+        LandingMinLength *= factor;
+        WalkMaxRise *= factor;
+        RampMaxRise *= factor;
+        foreach (GradientGoingLimit limit in RampGoingLimits)
+            limit.MaxGoing *= factor;
+        ModelUnitsPerMeter *= factor;
+    }
+
+    public GradientRuleSet Clone()
+    {
+        var clone = (GradientRuleSet)MemberwiseClone();
+        clone.RampGoingLimits = RampGoingLimits
+            .Select(limit => new GradientGoingLimit { SlopeDegrees = limit.SlopeDegrees, MaxGoing = limit.MaxGoing })
+            .ToList();
+        return clone;
+    }
 }

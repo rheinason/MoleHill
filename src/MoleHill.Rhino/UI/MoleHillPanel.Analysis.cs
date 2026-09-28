@@ -471,6 +471,20 @@ public sealed partial class MoleHillPanel
                         "The steepest averaged running and cross slope found on any route."));
                 }
 
+                if (summary?.RouteRunCount is { } runCount)
+                {
+                    int failed = summary.RouteFailedRunCount ?? 0;
+                    int landings = summary.RouteLandingCount ?? 0;
+                    layout.AddRow(CreateReadOnlyValueRow(
+                        "Route Runs",
+                        (failed > 0 ? $"{failed:N0} of {runCount:N0} runs too high or long" : $"All {runCount:N0} runs within limits") +
+                        $", {landings:N0} landing(s) found" +
+                        (summary.RouteLargestRunRise is { } rise ? $", largest rise {FormatZoneLength(rise)}" : string.Empty),
+                        "Each route is followed along its length and split at landings: level stretches at least " +
+                        "“Landing Min” long, shown teal. The walks and ramps between them are checked for rise " +
+                        "and going; a failing run shows in the failure colour along its whole length."));
+                }
+
                 break;
             }
 

@@ -53,6 +53,17 @@ internal sealed partial class TerrainBuildService
             summary.RouteSteepestCrossDegrees = ToDegrees(cross);
         }
 
+        if (evaluation.Runs.Count > 0)
+        {
+            var runs = evaluation.Runs
+                .Where(run => run.Kind is RouteRunAnalyzer.RunKind.Walk or RouteRunAnalyzer.RunKind.Ramp)
+                .ToList();
+            summary.RouteRunCount = runs.Count;
+            summary.RouteFailedRunCount = runs.Count(run => run.Failures != RouteRunAnalyzer.RunFailure.None);
+            summary.RouteLandingCount = evaluation.Runs.Count(run => run.Kind == RouteRunAnalyzer.RunKind.Landing);
+            summary.RouteLargestRunRise = runs.Count == 0 ? null : runs.Max(run => run.Rise);
+        }
+
         return summary;
     }
 

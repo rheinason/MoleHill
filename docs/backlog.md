@@ -440,6 +440,16 @@ Where a level area overlaps a route, the level area's verdict wins. Ramps previe
 a walk. Both presets gained verified route limits (ADA §403.3, §405.2; ADM §1.13(c), Table 1). The
 general band table (N bands with run length and rise) is deferred to stage 3, where length is measured.
 
+**Stage 3 landed 2026-09-28 (managed tests only, not yet live-tested):** runs along routes, with landings
+**detected** as level stretches of at least the minimum length (the owner chose detection over drawn
+landings). Walk and ramp runs are checked for rise, and ramps for going against a per-gradient table,
+interpolated as Approved Document M allows. The presets gained verified figures: ADA §405.6 760 mm rise
+and §405.7.3 1525 mm landings; ADM §1.13(c) 500 mm walk rise, §1.26(c) 500 mm flight rise, Table 1
+goings and §1.26(i) 1.5 m landings. Failing runs colour their whole corridor stretch and detected
+landings show teal. Rule-set lengths carry a metres-to-model factor, so presets land correctly in any
+document unit. The going table is read-only on the card until the rule-table dialog exists. Not done:
+separate head/foot landing length (ADM §1.26(h), 1.2 m), and total-rise limits (ADM §1.26(d), 2 m).
+
 **Reference:** none of the civil packages has a real equivalent. The nearest thing in MoleHill is
 `mhInspectCurve`'s Off/Report/Warn rules, which apply the same idea to a single curve.
 
