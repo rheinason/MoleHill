@@ -23,7 +23,7 @@ body:
     id: molehill
     attributes:
       label: MoleHill version
-      description: Shown in Rhino's Package Manager, e.g. 0.14.6-beta.
+      description: Shown in Rhino's Package Manager, e.g. 1.0.0.
     validations:
       required: true
   - type: input

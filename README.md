@@ -4,7 +4,7 @@ MoleHill is a Rhino 8 terrain modeling toolkit centered on a document-backed Rhi
 
 It uses [Triangle.NET](https://github.com/wo80/Triangle.NET) for constrained Delaunay triangulation and targets .NET 7-based Rhino 8 plugins.
 
-**Status: beta.** Install it from Rhino's Package Manager; see [CHANGELOG.md](CHANGELOG.md) for what changed.
+**Status: 1.0.** Install it from Rhino's Package Manager; see [CHANGELOG.md](CHANGELOG.md) for what changed.
 Bug reports with a repro case are very welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). MoleHill is free,
 and because its triangulator derives from Triangle it may not be sold or bundled in a commercial product;
 see [License](#license).
@@ -84,7 +84,6 @@ are not dependencies of the MoleHill package.
 1. In Rhino 8, run `_PackageManager`.
 2. Search for `MoleHill`.
 3. Install the package to get the Rhino plugin and the optional Grasshopper companion together.
-4. Enable prerelease packages when testing Yak prerelease builds.
 
 After installing, run `mhPanel` to open the MoleHill panel, or `mhCreateTerrain` to start a terrain
 from the current selection.

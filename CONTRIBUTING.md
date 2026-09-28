@@ -1,6 +1,6 @@
 # Contributing to MoleHill
 
-Thanks for your interest. MoleHill is a beta Rhino 8 terrain plug-in with an optional Grasshopper
+Thanks for your interest. MoleHill is a Rhino 8 terrain plug-in with an optional Grasshopper
 companion. Bug reports with a reproducible case are the most useful contribution; pull requests are
 welcome too.
 
