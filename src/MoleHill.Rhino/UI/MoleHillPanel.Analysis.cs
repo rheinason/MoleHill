@@ -424,14 +424,14 @@ public sealed partial class MoleHillPanel
 
                     // Phrased as an answer, like Ponding's: "all within" is what people are looking for.
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Result",
+                        "Level Result",
                         exceeding > 0.0
                             ? $"{FormatArea(exceeding)} of {FormatArea(checkedArea)} {verdict}"
                             : $"All {FormatArea(checkedArea)} within the limit",
                         "Plan area of level-area ground checked on the last build, and how much of it is " +
                         "steeper than the limit when measured over “Measure Over”."));
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Steepest",
+                        "Level Steepest",
                         SlopeInput.FormatWithUnit(
                             Math.Tan(steepestDegrees * Math.PI / 180.0), SlopeUnitPreference.Current),
                         "The steepest averaged gradient found in any level area, in any direction."));
@@ -452,19 +452,21 @@ public sealed partial class MoleHillPanel
                     double crossFails = summary.RouteCrossExceedingArea ?? 0.0;
                     string routeVerdict = compliance.Rules.RouteMode == GradientRuleMode.Warn ? "fail" : "over";
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Routes",
+                        "Route Result",
                         runningFails > 0.0 || crossFails > 0.0
                             ? $"{FormatArea(runningFails)} running, {FormatArea(crossFails)} cross {routeVerdict}, of {FormatArea(routeArea)}"
                             : $"All {FormatArea(routeArea)} within the limits",
                         "Route corridor checked on the last build. Running slope past the ramp limit and cross " +
-                        "slope past the cross limit are counted separately; ground failing both counts in each."));
+                        "slope past the cross limit are counted separately; ground failing both counts in each. Ground " +
+                        "that is also a level area is counted here too, though the preview colours it by the " +
+                        "level-area rule."));
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Ramps",
+                        "Route Ramps",
                         FormatArea(summary.RouteRampArea ?? 0.0),
                         "Route ground steeper than a walk but within the ramp limit. Allowed; stage three will " +
                         "hold it to ramp rules on rise and landings."));
                     layout.AddRow(CreateReadOnlyValueRow(
-                        "Steepest",
+                        "Route Steepest",
                         $"{FormatRouteSlope(runningDegrees)} running, {FormatRouteSlope(crossDegrees)} cross",
                         "The steepest averaged running and cross slope found on any route."));
                 }

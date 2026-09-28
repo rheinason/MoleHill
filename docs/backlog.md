@@ -433,7 +433,7 @@ checked against the published text. DIN 18040 and AS 1428.1 are paywalled, so th
 Still open from stage 1: the user library in AppData (export/import JSON) and the *Edit…* rule-table
 dialog. Stage 1 does not need them, because the card shows its limits inline.
 
-**Stage 2 landed 2026-09-27 (managed tests only, not yet live-tested):** routes with a corridor width.
+**Stage 2 landed 2026-09-27, live-verified 2026-09-28** on a 1:15 plane in a disposable Rhino slot: a route straight uphill reads as ramp, one along the contour fails on cross slope, and a landing on it takes the level-area verdict, all at exact areas: routes with a corridor width.
 The footprint-averaged gradient is split against the nearest route segment into running and cross slope.
 Running slope is classed walk / ramp / fail against two limits, and cross slope against its own limit.
 Where a level area overlaps a route, the level area's verdict wins. Ramps preview blue: allowed, but not
