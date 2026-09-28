@@ -434,7 +434,10 @@ Still open from stage 1: the user library in AppData (export/import JSON). **The
 dialog is dropped (2026-09-28):** every other setting in the product is edited in place on its card, and
 a dialog would be the one place a standard is edited out of sight of the terrain it governs. The only
 rule that was not editable inline, the ramp going table, is now rows on the card (2026-09-28): a gradient
-and a going per row, added and removed in place, plus Interpolate once there are two rows.
+and a going per row, added and removed in place, plus Interpolate once there are two rows. Live-verified
+the same day by clicking the card's own buttons: add copies the steepest row and marks the standard
+modified, delete removes the right stored row though rows display gentlest first and clears the mark, and
+an emptied table reads "No limit".
 
 **Stage 2 landed 2026-09-27, live-verified 2026-09-28** on a 1:15 plane in a disposable Rhino slot: a route straight uphill reads as ramp, one along the contour fails on cross slope, and a landing on it takes the level-area verdict, all at exact areas: routes with a corridor width.
 The footprint-averaged gradient is split against the nearest route segment into running and cross slope.
