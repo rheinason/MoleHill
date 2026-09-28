@@ -482,10 +482,12 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
                 Rules(a).LevelAreaMaxSlopeDegrees = v;
                 GradientRulePresets.RefreshModified(Rules(a));
             },
-            "The steepest a level area may be in any direction. Typed in any slope unit: 1:48, 2.08% " +
-            "and 1.19deg are the same limit.",
+            "The steepest a level area may be in any direction, and the slope below which a stretch of " +
+            "route counts as a landing. Typed in any slope unit: 1:48, 2.08% and 1.19deg are the same limit.",
             rebuildAfterCommit: true,
-            visibleWhen: a => Rules(a).LevelAreaMode != GradientRuleMode.Off),
+            // Shown while either rule is on: with level areas off it still decides which stretches of a
+            // route are landings, and a limit that steers the result must never be hidden.
+            visibleWhen: a => Rules(a).LevelAreaMode != GradientRuleMode.Off || Rules(a).RouteMode != GradientRuleMode.Off),
         AnalysisParam.Sources(
             "Routes", "Routes",
             a => ((GradientComplianceAnalysisDefinition)a).Routes,
@@ -539,8 +541,8 @@ internal sealed class GradientComplianceAnalysisDescriptor : AnalysisTypeDescrip
         AnalysisParam.ReadOnly(
             "RampGoingLimits", "Ramp Goings",
             a => DescribeGoingLimits(Rules(a)),
-            "The longest ramp run allowed at each gradient, from the standard. Editing this table needs " +
-            "the rule-table dialog, which is still to come; choose a standard to set it.",
+            "The longest ramp run allowed at each gradient, from the standard. Not yet editable on the " +
+            "card; choose a standard to set it.",
             visibleWhen: a => Rules(a).RouteMode != GradientRuleMode.Off),
         AnalysisParam.Number(
             "MeasurementLength", "Measure Over",

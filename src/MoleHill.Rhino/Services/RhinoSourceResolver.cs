@@ -220,6 +220,61 @@ internal static class RhinoSourceResolver
         return points;
     }
 
+    /// <summary>
+    /// Closed curves as flat, non-repeating XY loops. Open or degenerate curves are skipped: a boundary
+    /// that does not close has no inside. Shared by modifiers (Project To) and analyses (gradient
+    /// compliance), which is why it lives here: a modifier must never depend on analysis code.
+    /// </summary>
+    public static List<double[]> ToXyLoops(IReadOnlyList<Curve> curves, double tolerance)
+    {
+        var loops = new List<double[]>(curves.Count);
+        foreach (Curve curve in curves)
+        {
+            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: true, out Polyline polyline))
+                continue;
+
+            int count = polyline.Count;
+            if (count > 1 && polyline[0].DistanceTo(polyline[^1]) <= tolerance)
+                count--;
+            if (count < 3)
+                continue;
+
+            var xy = new double[count * 2];
+            for (int i = 0; i < count; i++)
+            {
+                xy[i * 2] = polyline[i].X;
+                xy[(i * 2) + 1] = polyline[i].Y;
+            }
+
+            loops.Add(xy);
+        }
+
+        return loops;
+    }
+
+    /// <summary>Curves as flat XY polylines, open or closed. Degenerate curves are skipped.</summary>
+    public static List<double[]> ToXyPolylines(IReadOnlyList<Curve> curves, double tolerance)
+    {
+        var polylines = new List<double[]>(curves.Count);
+        foreach (Curve curve in curves)
+        {
+            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out Polyline polyline) ||
+                polyline.Count < 2)
+                continue;
+
+            var xy = new double[polyline.Count * 2];
+            for (int i = 0; i < polyline.Count; i++)
+            {
+                xy[i * 2] = polyline[i].X;
+                xy[(i * 2) + 1] = polyline[i].Y;
+            }
+
+            polylines.Add(xy);
+        }
+
+        return polylines;
+    }
+
     public static bool TryGetPolyline(Curve curve, double tolerance, bool requireClosed, out Polyline polyline)
     {
         return TryGetPolyline(curve, tolerance, requireClosed, requestedEdgeLength: 0.0, maxArea: 0.0, out polyline);

@@ -66,7 +66,7 @@ internal static class GradientComplianceEvaluator
                 vertexCount,
                 faces,
                 faceCount,
-                ToXyLoops(levelAreaCurves, tolerance),
+                RhinoSourceResolver.ToXyLoops(levelAreaCurves, tolerance),
                 new GradientComplianceAnalyzer.Options
                 {
                     LevelAreaMaxSlopeRatio = ToRatio(rules.LevelAreaMaxSlopeDegrees),
@@ -76,7 +76,7 @@ internal static class GradientComplianceEvaluator
 
         List<double[]> routePolylines = rules.RouteMode == GradientRuleMode.Off
             ? new List<double[]>()
-            : ToXyPolylines(routeCurves, tolerance);
+            : RhinoSourceResolver.ToXyPolylines(routeCurves, tolerance);
         GradientComplianceAnalyzer.RouteResult routes = rules.RouteMode == GradientRuleMode.Off
             ? GradientComplianceAnalyzer.RouteResult.Empty(faceCount)
             : GradientComplianceAnalyzer.EvaluateRoutes(
@@ -177,58 +177,4 @@ internal static class GradientComplianceEvaluator
 
     private static double ToRatio(double degrees) =>
         SlopeAnalyzer.ConvertUnitToRatio(degrees, SlopeAnalyzer.SlopeUnit.Degrees);
-
-    /// <summary>Route curves as flat XY polylines, open or closed. Degenerate curves are skipped.</summary>
-    internal static List<double[]> ToXyPolylines(IReadOnlyList<Curve> curves, double tolerance)
-    {
-        var polylines = new List<double[]>(curves.Count);
-        foreach (Curve curve in curves)
-        {
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: false, out Polyline polyline) ||
-                polyline.Count < 2)
-                continue;
-
-            var xy = new double[polyline.Count * 2];
-            for (int i = 0; i < polyline.Count; i++)
-            {
-                xy[i * 2] = polyline[i].X;
-                xy[(i * 2) + 1] = polyline[i].Y;
-            }
-
-            polylines.Add(xy);
-        }
-
-        return polylines;
-    }
-
-    /// <summary>
-    /// Closed curves as flat, non-repeating XY loops. Open or degenerate curves are skipped: an area that
-    /// does not close has no inside to check.
-    /// </summary>
-    internal static List<double[]> ToXyLoops(IReadOnlyList<Curve> curves, double tolerance)
-    {
-        var loops = new List<double[]>(curves.Count);
-        foreach (Curve curve in curves)
-        {
-            if (!RhinoSourceResolver.TryGetPolyline(curve, tolerance, requireClosed: true, out Polyline polyline))
-                continue;
-
-            int count = polyline.Count;
-            if (count > 1 && polyline[0].DistanceTo(polyline[^1]) <= tolerance)
-                count--;
-            if (count < 3)
-                continue;
-
-            var xy = new double[count * 2];
-            for (int i = 0; i < count; i++)
-            {
-                xy[i * 2] = polyline[i].X;
-                xy[(i * 2) + 1] = polyline[i].Y;
-            }
-
-            loops.Add(xy);
-        }
-
-        return loops;
-    }
 }

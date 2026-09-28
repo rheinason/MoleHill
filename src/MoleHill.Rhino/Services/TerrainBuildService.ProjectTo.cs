@@ -119,6 +119,6 @@ internal sealed partial class TerrainBuildService
         TerrainBuildSnapshot snapshot,
         ProjectToModifierDefinition modifier,
         double tolerance) =>
-        GradientComplianceEvaluator.ToXyLoops(
+        RhinoSourceResolver.ToXyLoops(
             TerrainBuildSnapshotResolver.ResolveCurves(snapshot, modifier.Boundaries), tolerance);
 }

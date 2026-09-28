@@ -430,8 +430,11 @@ disposable Rhino 8 slot on a 1:100 and a 1:30 landing: the areas and colours wer
 rows, Add Analysis inheritance, save/reload, the drawn report table and rebuild-on-curve-move all worked.
 Presets shipped: ADA 2010 and Approved Document M Vol 2, both
 checked against the published text. DIN 18040 and AS 1428.1 are paywalled, so they are not presets yet.
-Still open from stage 1: the user library in AppData (export/import JSON) and the *Edit…* rule-table
-dialog. Stage 1 does not need them, because the card shows its limits inline.
+Still open from stage 1: the user library in AppData (export/import JSON). **The *Edit…* rule-table
+dialog is dropped (2026-09-28):** every other setting in the product is edited in place on its card, and
+a dialog would be the one place a standard is edited out of sight of the terrain it governs. The only
+rule not yet editable inline is the ramp going table; it becomes repeating rows on the card (a gradient
+and a going per row, add and remove in place), the same shape as the colour ramp's stops.
 
 **Stage 2 landed 2026-09-27, live-verified 2026-09-28** on a 1:15 plane in a disposable Rhino slot: a route straight uphill reads as ramp, one along the contour fails on cross slope, and a landing on it takes the level-area verdict, all at exact areas: routes with a corridor width.
 The footprint-averaged gradient is split against the nearest route segment into running and cross slope.
@@ -447,7 +450,7 @@ interpolated as Approved Document M allows. The presets gained verified figures:
 and §405.7.3 1525 mm landings; ADM §1.13(c) 500 mm walk rise, §1.26(c) 500 mm flight rise, Table 1
 goings and §1.26(i) 1.5 m landings. Failing runs colour their whole corridor stretch and detected
 landings show teal. Rule-set lengths carry a metres-to-model factor, so presets land correctly in any
-document unit. The going table is read-only on the card until the rule-table dialog exists. Not done:
+document unit. The going table is read-only on the card until it gets inline rows (see above). Not done:
 separate head/foot landing length (ADM §1.26(h), 1.2 m), and total-rise limits (ADM §1.26(d), 2 m).
 
 **Reference:** none of the civil packages has a real equivalent. The nearest thing in MoleHill is
@@ -516,9 +519,9 @@ Nothing in the analysis is specific to any one country.
 
 **Setting it:**
 
-- **Card:** a *Standard* dropdown with built-in presets, the user's saved rule sets and "Custom", plus
-  *Edit…* for the rule table. Every slope is read and shown through `SlopeInput`. A rules table is not
-  the declined elevation-editor grid below: that one edits geometry, and this one edits settings.
+- **Card:** a *Standard* dropdown with built-in presets, the user's saved rule sets and "Custom". Every
+  limit is a row on the card, edited in place; there is no separate editor dialog (see the stage 1 note
+  above). Every slope is read and shown through `SlopeInput`.
 - **The definition stores a full copy of the rules**, not a preset name, with "based on ADA 2010 ·
   modified" provenance. This departs from `mhInspectCurve`, whose thresholds are per-user, and it is
   deliberate. Which standard applies is a fact about the project: the next person to open the file must
