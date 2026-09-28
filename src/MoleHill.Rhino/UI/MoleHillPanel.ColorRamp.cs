@@ -50,6 +50,7 @@ public sealed partial class MoleHillPanel
             Histogram = summary?.DistributionBins,
             HasData = summary?.DisplayRangeLow is not null && summary.DisplayRangeHigh is not null,
             FormatValue = ResolveAnalysisValueFormatter(analysis),
+            ParseValue = ResolveAnalysisValueParser(analysis),
             Expanded = _expandedColorRamps.Contains(analysisId),
             SelectedIndex = _selectedColorRampStops.TryGetValue(analysisId, out int selected) ? selected : 0,
 
@@ -88,8 +89,28 @@ public sealed partial class MoleHillPanel
     /// </summary>
     private static Func<double, string> ResolveAnalysisValueFormatter(AnalysisDefinition analysis) => analysis switch
     {
-        SlopeAnalysisDefinition slope => value => FormatSlopeValue(value, slope.Unit),
+        SlopeAnalysisDefinition slope => value => SlopeInput.FormatWithUnit(
+            SlopeAnalyzer.ConvertUnitToRatio(value, slope.Unit), slope.Unit),
         CutFillAnalysisDefinition => value => value.ToString("+0.00;-0.00;0.00", CultureInfo.CurrentCulture),
         _ => value => value.ToString("F2", CultureInfo.CurrentCulture)
     };
+
+    private static Func<string?, double?> ResolveAnalysisValueParser(AnalysisDefinition analysis)
+    {
+        if (analysis is SlopeAnalysisDefinition slope)
+        {
+            return text => SlopeInput.TryParse(text, slope.Unit, out double ratio)
+                ? SlopeAnalyzer.ConvertRatioToUnit(ratio, slope.Unit)
+                : null;
+        }
+
+        return text => TryParseNumber(text, out double value) ? value : null;
+    }
+
+    private static bool TryParseNumber(string? text, out double value)
+    {
+        const NumberStyles styles = NumberStyles.Float;
+        return double.TryParse(text, styles, CultureInfo.CurrentCulture, out value) ||
+               double.TryParse(text, styles, CultureInfo.InvariantCulture, out value);
+    }
 }

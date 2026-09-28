@@ -34,6 +34,9 @@ internal sealed class ColorRampOptions
     /// <summary>Formats a value in the analysis's own unit — the panel already owns these.</summary>
     public required Func<double, string> FormatValue { get; init; }
 
+    /// <summary>Parses exact stop input back into the analysis's own unit; null means invalid text.</summary>
+    public required Func<string?, double?> ParseValue { get; init; }
+
     /// <summary>Whether the card starts expanded. The panel remembers this per analysis.</summary>
     public bool Expanded { get; init; }
 

@@ -86,7 +86,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   `TryGetOffsetFeaturePolyline`, the latter also backing `mhCreateWall`'s parallel rail.
 - Terrain input preparation commands are selected-geometry workflows in the Rhino host: `mhValidateTerrainInputs`
   cleans selected points/curves through a parented Eto dialog, `mhSplitAtIntersections` splits only selected
-  curves, `mhDrapeCurve` samples curves onto a selected mesh/surface along World Z, and `mhCreateWall`
+  curves, `mhDrapeCurve` selects the curves first and then samples them along World Z onto a selected
+  mesh/surface (or the active MoleHill terrain), and `mhCreateWall`
   interactively draws a rail plus a parallel plan/elevation-offset rail. These commands create ordinary
   Rhino geometry for later assignment as points, breaklines, contours, or boundaries; they do not mutate
   managed terrain definitions. Validation replaces surviving objects in place to preserve ids and complete
@@ -847,7 +848,9 @@ starts drawing its annotations — the correct reading of a flag that only ever 
   `ParameterDescriptor<AnalysisDefinition>.ColorRamp()` row, which the panel renders as `UI/ColorRampControl` — the
   histogram, the ramp, its tick labels, and the mapping controls in one card. Collapsed it reads as the
   old read-only legend; clicking the ramp grows drag handles on the same bar and reveals a stop table, so
-  a ramp is never edited against a second copy of itself. This replaced three separate pieces (a
+  a ramp is never edited against a second copy of itself. Drag identity survives coincident/crossing stops
+  and a capture-lost move cannot snap one to the left edge; double-clicking a displayed stop value opens
+  inline exact entry in the analysis's own units. This replaced three separate pieces (a
   "Coloring & intervals" group, a read-only legend, and a "Mapped" summary row between them) whose
   controls sat visually apart from the ramp they governed.
 - **An edited ramp is an override, not a new preset.** `AnalysisDefinition.PalettePreset` still names a

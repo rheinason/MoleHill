@@ -334,8 +334,19 @@ internal sealed class ColorRampControl : Panel
 
         Color textColour = selected ? UiTheme.RampAccentText : UiTheme.PrimaryText;
 
-        var value = UiControls.Label(_options.FormatValue(_range.Low + (stop.Position * _range.Span)));
+        double stopValue = _range.Low + (stop.Position * _range.Span);
+        var value = UiControls.Label(_options.FormatValue(stopValue));
         value.TextColor = textColour;
+        value.Cursor = Cursors.Pointer;
+        value.ToolTip = "Double-click to enter an exact value.";
+
+        var valueHost = new Panel { Content = value };
+        value.MouseDoubleClick += (_, e) =>
+        {
+            e.Handled = true;
+            SetSelected(index);
+            EditStopValue(valueHost, value, index, stopValue);
+        };
 
         var position = UiControls.Label(
             (stop.Position * 100.0).ToString("0", CultureInfo.CurrentCulture) + "%");
@@ -371,7 +382,7 @@ internal sealed class ColorRampControl : Panel
             Items =
             {
                 swatch,
-                new StackLayoutItem(value, expand: true),
+                new StackLayoutItem(valueHost, expand: true),
                 position,
                 delete
             }
@@ -393,6 +404,65 @@ internal sealed class ColorRampControl : Panel
         };
 
         return row;
+    }
+
+    /// <summary>Swaps a stop's readout for an inline exact-value editor until Enter, Escape, or blur.</summary>
+    private void EditStopValue(Panel host, Label readout, int index, double currentValue)
+    {
+        string initialText = _options.FormatValue(currentValue);
+        var box = new TextBox
+        {
+            Text = initialText,
+            Height = UiMetrics.CompactControlHeight
+        };
+        UiControls.StyleInput(box);
+
+        // The index names a stop in this ramp only. A bar drag, delete or preset applied while the editor
+        // is open replaces the ramp, and the rebuild that follows blurs the detached box — committing then
+        // would move whichever stop now sits at that index.
+        ColorRamp editedRamp = _ramp;
+
+        bool closed = false;
+        void Close(bool commit)
+        {
+            if (closed)
+                return;
+
+            closed = true;
+            host.Content = readout;
+
+            // The readout is rounded, so re-committing untouched text would nudge the stop off its exact
+            // position just for having opened the editor.
+            if (!ReferenceEquals(_ramp, editedRamp) || box.Text == initialText)
+                return;
+
+            double? parsed = commit ? _options.ParseValue(box.Text) : null;
+            if (!parsed.HasValue || !double.IsFinite(parsed.Value))
+                return;
+
+            double position = _range.Normalize(parsed.Value);
+            ColorRamp moved = _ramp.WithStopAt(index, position, out int movedIndex);
+            ApplyRamp(moved, movedIndex);
+        }
+
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Keys.Enter)
+            {
+                Close(true);
+                e.Handled = true;
+            }
+            else if (e.Key == Keys.Escape)
+            {
+                Close(false);
+                e.Handled = true;
+            }
+        };
+        box.LostFocus += (_, _) => Close(true);
+
+        host.Content = box;
+        box.Focus();
+        box.SelectAll();
     }
 
     private void PickStopColour(int index, Color current)

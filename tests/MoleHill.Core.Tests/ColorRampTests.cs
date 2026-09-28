@@ -162,6 +162,20 @@ public sealed class ColorRampTests
     }
 
     [Fact]
+    public void WithStopAt_CoincidentPosition_ReportsExactMovedStopIndex()
+    {
+        var ramp = BlackToWhite().Insert();
+
+        // Move the upper endpoint onto the middle stop. Nearest-position lookup resolves this tie to the
+        // middle stop, but a drag must keep hold of the white endpoint that was actually moved.
+        var moved = ramp.WithStopAt(2, 0.5, out int movedIndex);
+
+        Assert.Equal(2, movedIndex);
+        Assert.Equal(255, moved[movedIndex].R);
+        Assert.Equal(128, moved[moved.IndexNearest(0.5)].R);
+    }
+
+    [Fact]
     public void WithStopAt_PositionOutsideUnitRange_Clamps()
     {
         var ramp = BlackToWhite().Insert().WithStopAt(1, 5.0);

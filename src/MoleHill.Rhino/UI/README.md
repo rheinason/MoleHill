@@ -49,7 +49,8 @@ fields by composing them, not by copying boilerplate.
   Elevation and Cut/Fill. It replaced three separate things: the "Coloring & intervals" group, the
   read-only legend below it, and the "Mapped" summary row between them - a legend you can edit needs no
   separate editor. Collapsed it is a legend (histogram, ramp, ticks, mapping controls); clicking the ramp
-  grows handles on the *same* bar and reveals a stop table, so there is never a second gradient on screen.
+  grows handles on the *same* bar and reveals a stop table, so there is never a second gradient on screen;
+  double-clicking a stop's displayed value opens inline exact entry in the analysis's own units.
   `ColorRampBar` is the only painter and it paints through `AnalysisColorMapper`, so the strip and the
   terrain mesh cannot disagree about a colour. `ScrubField` is the drag-to-change numeric chip (alt-click
   resets, plain click opens a text box for an exact value). Edits commit through
@@ -58,7 +59,8 @@ fields by composing them, not by copying boilerplate.
   raises StateChanged, and StateChanged rebuilds the card - mid-drag that destroys the control being
   dragged, so the gesture died on its first mouse-move and edits looked like they did nothing. The bar
   also takes an explicit pointer capture, since neither Eto nor the native frameworks capture on their
-  own and the drag would otherwise end the moment the cursor left the strip. The same live/final split
+  own and the drag would otherwise end the moment the cursor left the strip. A move received without the
+  primary button closes a capture-lost gesture before its coordinates can snap a stop to an end. The same live/final split
   applies to the top toolbar's line-weight and opacity sliders (`MutateSelectedTerrainLive`), which were
   serializing the whole terrain to JSON and rebuilding every card on every slider tick. Expansion state
   is session-only, held in `_expandedColorRamps`, never written to the document.
@@ -106,8 +108,11 @@ low-priority actions into overflow while remaining pinned to the available clien
   and creation/build controls stay disabled while non-destructive inspection remains available.
 - Expanded zone cards show last-final-build quantities for the resolved zone output: plan/surface area,
   elevation, slope, mesh counts, and Earthworks cut/fill when a reference is configured.
-- `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter,
-  with Eto-drawn isometric thumbnails.
+- `BlockSelectorDialog.cs` / `BlockThumbnailRenderer.cs` - the Insert-style block picker for Scatter.
+  It opens from the lightweight definition-name list, then queues Eto-drawn isometric thumbnails only
+  for rows the grid formats; one UI-timer tick renders one thumbnail so documents with hundreds of blocks
+  do not pay the whole library's mesh/render cost before the dialog appears. Thumbnail cache keys include
+  document, definition id, and size, and definition-table changes invalidate that document's entries.
 - `SurveyImportDialog.cs` - how to read a survey point file, with a live preview of the first rows.
   **The preview grid is the point of the dialog, not decoration:** PNEZD writes northing before
   easting, so a file read as XYZ parses perfectly and yields a terrain transposed about the 45 degree

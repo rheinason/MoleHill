@@ -35,17 +35,42 @@ public sealed class ColorRamp
     public SlopeAnalyzer.ColorStop Sample(double t) => AnalysisColorMapper.SamplePalette(t, _stops);
 
     /// <summary>
-    /// Moves one stop to a new position. The result is re-sorted, so the caller cannot rely on the index
-    /// surviving — <see cref="IndexNearest"/> re-finds it, which is what a drag loop wants anyway.
+    /// Moves one stop to a new position. The result is re-sorted; callers that need to retain the exact
+    /// stop across coincident positions should use the overload that reports its new index.
     /// </summary>
     public ColorRamp WithStopAt(int index, double position)
     {
+        return WithStopAt(index, position, out _);
+    }
+
+    /// <summary>
+    /// Moves one stop and reports where that same stop landed after sorting. This is deliberately not
+    /// derived with <see cref="IndexNearest"/>: two stops may occupy the same position, and nearest would
+    /// then switch a drag onto whichever stop happens to win the tie.
+    /// </summary>
+    public ColorRamp WithStopAt(int index, double position, out int movedIndex)
+    {
+        movedIndex = index;
         if (!IsValidIndex(index))
             return this;
 
+        double clamped = Math.Clamp(position, 0.0, 1.0);
         var next = (SlopeAnalyzer.ColorStop[])_stops.Clone();
         var stop = next[index];
-        next[index] = new SlopeAnalyzer.ColorStop(Math.Clamp(position, 0.0, 1.0), stop.R, stop.G, stop.B);
+        next[index] = new SlopeAnalyzer.ColorStop(clamped, stop.R, stop.G, stop.B);
+
+        // Normalize uses a stable position sort. Count exactly the entries that will precede the moved
+        // stop, including equal-position entries that preceded it in the source array.
+        movedIndex = 0;
+        for (int i = 0; i < next.Length; i++)
+        {
+            if (i == index)
+                continue;
+
+            if (next[i].Position < clamped || (next[i].Position == clamped && i < index))
+                movedIndex++;
+        }
+
         return new ColorRamp(next);
     }
 

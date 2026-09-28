@@ -257,13 +257,24 @@ internal sealed class ColorRampBar : Drawable
             return;
         }
 
-        double position = PositionAt(e.Location.X);
-        var moved = _ramp.WithStopAt(_draggingIndex, position);
+        // Native capture can be stolen (a dock activation/focus change is enough on some Rhino hosts).
+        // If mouse-up happened elsewhere, the next move arrives with no primary button. End the stale
+        // gesture before reading its coordinates; otherwise an off-control/re-entry coordinate clamps the
+        // stop to zero and looks like the handle jumped to the far left.
+        if (!e.Buttons.HasFlag(MouseButtons.Primary))
+        {
+            EndDrag();
+            e.Handled = true;
+            return;
+        }
 
-        // Stops are re-sorted on every change, so the dragged stop's index can move out from under us as it
-        // passes a neighbour. Re-find it by position and keep dragging the same stop the user grabbed.
+        double position = PositionAt(e.Location.X);
+        var moved = _ramp.WithStopAt(_draggingIndex, position, out int movedIndex);
+
+        // Stops are re-sorted on every change, so carry forward the exact moved stop's new index. Nearest
+        // is ambiguous when two handles coincide and used to let a drag silently switch to its neighbour.
         _ramp = moved;
-        _draggingIndex = moved.IndexNearest(position);
+        _draggingIndex = movedIndex;
         _selectedIndex = _draggingIndex;
 
         Invalidate();
@@ -279,16 +290,24 @@ internal sealed class ColorRampBar : Drawable
     {
         if (_draggingIndex >= 0)
         {
-            _draggingIndex = -1;
-            SetMouseCapture(false);
-            // One real commit for the whole gesture: this is the call that saves the document and lets
-            // the card rebuild, now that there is no drag left to destroy.
-            RampChanged?.Invoke(this, (_ramp, false));
+            EndDrag();
             e.Handled = true;
             return;
         }
 
         base.OnMouseUp(e);
+    }
+
+    private void EndDrag()
+    {
+        if (_draggingIndex < 0)
+            return;
+
+        _draggingIndex = -1;
+        SetMouseCapture(false);
+        // One real commit for the whole gesture: this is the call that saves the document and lets
+        // the card rebuild, now that there is no drag left to destroy.
+        RampChanged?.Invoke(this, (_ramp, false));
     }
 
     private void Select(int index)
