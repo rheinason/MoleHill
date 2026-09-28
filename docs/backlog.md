@@ -440,7 +440,7 @@ Where a level area overlaps a route, the level area's verdict wins. Ramps previe
 a walk. Both presets gained verified route limits (ADA §403.3, §405.2; ADM §1.13(c), Table 1). The
 general band table (N bands with run length and rise) is deferred to stage 3, where length is measured.
 
-**Stage 3 landed 2026-09-28 (managed tests only, not yet live-tested):** runs along routes, with landings
+**Stage 3 landed 2026-09-28, live-verified the same day** (the live run caught detected landings creeping up the ramp and under-reading its rise by 22 mm, fixed by measuring rise between the landings' levels): runs along routes, with landings
 **detected** as level stretches of at least the minimum length (the owner chose detection over drawn
 landings). Walk and ramp runs are checked for rise, and ramps for going against a per-gradient table,
 interpolated as Approved Document M allows. The presets gained verified figures: ADA §405.6 760 mm rise
