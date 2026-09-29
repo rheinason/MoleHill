@@ -49,4 +49,15 @@ public static class CoordinatePrecision
 
     /// <summary>The single-precision rounding step at <paramref name="magnitude"/>.</summary>
     public static double RoundingStep(double magnitude) => magnitude * Float32RelativeStep;
+
+    /// <summary>
+    /// The largest plan distance from the origin the site would have if it were centred on it: half its
+    /// larger plan extent. Moving a project cannot bring it below this, so past <see cref="SafeDistance"/>
+    /// the site is simply too wide for the tolerance, wherever it sits.
+    /// </summary>
+    public static double CentredMagnitude(double minX, double maxX, double minY, double maxY) =>
+        Math.Max(maxX - minX, maxY - minY) * 0.5;
+
+    /// <summary>The smallest model tolerance at which <paramref name="magnitude"/> is not too far from the origin.</summary>
+    public static double ToleranceFor(double magnitude) => RoundingStep(magnitude) / ToleranceFraction;
 }

@@ -283,12 +283,26 @@ internal sealed partial class TerrainBuildService
             return;
 
         ModelUnitContext units = snapshot.ResolvedUnitContext;
-        string message =
+        string problem =
             $"The terrain is {units.FormatLength(magnitude, "N0")} from the world origin, where coordinates round to " +
             $"about {units.FormatLength(CoordinatePrecision.RoundingStep(magnitude), "G2")} between build stages " +
             $"(model tolerance {units.FormatLength(tolerance, "G3")}). Expect slivers, merged points and failed wall or grading " +
-            "insertions. Run mhOrientToOrigin to move the project to the origin; the saved georeference restores " +
-            "real-world coordinates on export.";
+            "insertions. ";
+
+        // Moving the project only helps when the site would fit once centred. A site wider than the tolerance
+        // allows is too wide wherever it sits - a 4 km park at 1 mm starts at the origin and still warned -
+        // and then the useful advice is the tolerance that would fit it.
+        double centred = CoordinatePrecision.CentredMagnitude(box.Min.X, box.Max.X, box.Min.Y, box.Max.Y);
+        string advice = CoordinatePrecision.IsTooFarFromOrigin(centred, tolerance)
+            ? $"The site itself is too wide for that tolerance: even centred on the origin it reaches " +
+              $"{units.FormatLength(centred, "N0")}. A model tolerance of {units.FormatLength(CoordinatePrecision.ToleranceFor(centred), "G2")} " +
+              "or coarser would fit it" +
+              (CoordinatePrecision.IsTooFarFromOrigin(magnitude, CoordinatePrecision.ToleranceFor(centred))
+                  ? ", once the project is also moved to the origin with mhOrientToOrigin."
+                  : ".")
+            : "Run mhOrientToOrigin to move the project to the origin; the saved georeference restores " +
+              "real-world coordinates on export.";
+        string message = problem + advice;
         build.Diagnostics.Add("[Warning] " + message);
         build.StructuredDiagnostics.Add(GradingDiagnostic.Warning("terrain.far_from_origin", message, "Build"));
     }
