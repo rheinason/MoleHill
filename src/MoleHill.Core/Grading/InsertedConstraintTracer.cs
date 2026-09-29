@@ -72,69 +72,110 @@ internal static class InsertedConstraintTracer
             }
         }
 
-        // Start at the vertex on the line's first point; walk to the adjacent on-line vertex that advances
-        // least, which is the next vertex of the inserted chain.
+        // Start at the vertex nearest the line's first point. On a closed line that vertex may sit just
+        // before the seam, where its arc parameter reads as nearly the whole length rather than zero; it is
+        // the start all the same. (A graded ring wall whose conform had snapped its first point a few
+        // millimetres back along the ring failed to trace for exactly that reason.)
+        double p0x = p[0], p0y = p[1];
         int start = -1;
+        double startS = 0.0;
         double bestStart = double.PositiveInfinity;
-        foreach ((int v, (double s, double d)) in along)
+        foreach ((int v, (double s, double _)) in along)
         {
-            if (s <= tolerance && d < bestStart)
+            bool atStart = s <= tolerance || (constraint.IsClosed && s >= total - tolerance);
+            if (!atStart)
+                continue;
+            double d = Sq(vertices[v * 3] - p0x) + Sq(vertices[v * 3 + 1] - p0y);
+            if (d < bestStart)
             {
                 start = v;
                 bestStart = d;
+                startS = s <= tolerance ? s : s - total;
             }
         }
 
         if (start < 0)
             return null;
 
+        // Walk forward along the line: from each vertex, to an adjacent on-line vertex further along it,
+        // nearest first. Where several walls' batters are conformed side by side, a vertex within tolerance
+        // of the line can belong to a neighbouring chain and lead nowhere, so a walk that dead-ends short of
+        // the line's end backs up and tries the next candidate. A vertex that dead-ended once always will
+        // (what lies ahead of it does not depend on how it was reached), so it is not tried again.
         var chain = new List<int> { start };
-        var visited = new HashSet<int> { start };
-        double currentS = 0.0;
-        int current = start;
-        while (true)
+        var chainS = new List<double> { startS };
+        var onChain = new HashSet<int> { start };
+        var deadEnds = new HashSet<int>();
+        var pending = new Stack<List<(int Vertex, double S)>>();
+        pending.Push(Advances(start, startS));
+        int budget = Math.Max(64, along.Count * 8);
+        while (pending.Count > 0 && budget-- > 0)
         {
-            int next = -1;
-            double nextS = double.PositiveInfinity;
-            foreach (int n in adjacency.NeighborsOf(current))
+            int current = chain[^1];
+            double currentS = chainS[^1];
+            List<(int Vertex, double S)> options = pending.Peek();
+            if (options.Count == 0)
             {
-                if (visited.Contains(n) || !along.TryGetValue(n, out var info))
-                    continue;
-                if (info.S > currentS && info.S < nextS)
-                {
-                    next = n;
-                    nextS = info.S;
-                }
+                if (IsComplete(current, currentS))
+                    return ChainPolyline(chain);
+
+                pending.Pop();
+                deadEnds.Add(current);
+                onChain.Remove(current);
+                chain.RemoveAt(chain.Count - 1);
+                chainS.RemoveAt(chainS.Count - 1);
+                continue;
             }
 
-            if (next < 0)
-                break;
+            (int next, double nextS) = options[0];
+            options.RemoveAt(0);
+            if (onChain.Contains(next) || deadEnds.Contains(next))
+                continue;
+
             chain.Add(next);
-            visited.Add(next);
-            current = next;
-            currentS = nextS;
+            chainS.Add(nextS);
+            onChain.Add(next);
+            pending.Push(Advances(next, nextS));
         }
 
-        if (constraint.IsClosed)
+        return null;
+
+        List<(int Vertex, double S)> Advances(int from, double fromS)
         {
-            // The walk ends on the last vertex before the seam; it must close back onto the start.
-            if (chain.Count < 3 || !adjacency.NeighborsContain(current, start) || total - currentS > Math.Max(tolerance, total * 0.5))
-                return null;
-        }
-        else if (total - currentS > tolerance || chain.Count < 2)
-        {
-            return null;
+            var result = new List<(int Vertex, double S)>();
+            foreach (int n in adjacency.NeighborsOf(from))
+            {
+                if (n != start && along.TryGetValue(n, out var info) && info.S > fromS)
+                    result.Add((n, info.S));
+            }
+
+            result.Sort(static (a, b) => a.S.CompareTo(b.S));
+            return result;
         }
 
-        var points = new double[chain.Count * 3];
-        for (int i = 0; i < chain.Count; i++)
+        bool IsComplete(int last, double lastS)
         {
-            points[i * 3] = vertices[chain[i] * 3];
-            points[i * 3 + 1] = vertices[chain[i] * 3 + 1];
-            points[i * 3 + 2] = vertices[chain[i] * 3 + 2];
+            if (constraint.IsClosed)
+            {
+                // The walk ends on the last vertex before the seam; it must close back onto the start.
+                return chain.Count >= 3 && adjacency.NeighborsContain(last, start) && total - lastS <= Math.Max(tolerance, total * 0.5);
+            }
+
+            return chain.Count >= 2 && total - lastS <= tolerance;
         }
 
-        return new SurfaceRemesher.ConstraintPolyline(points, chain.Count, constraint.IsClosed, constraint.PreserveInputElevation);
+        SurfaceRemesher.ConstraintPolyline ChainPolyline(List<int> vertexChain)
+        {
+            var points = new double[vertexChain.Count * 3];
+            for (int i = 0; i < vertexChain.Count; i++)
+            {
+                points[i * 3] = vertices[vertexChain[i] * 3];
+                points[i * 3 + 1] = vertices[vertexChain[i] * 3 + 1];
+                points[i * 3 + 2] = vertices[vertexChain[i] * 3 + 2];
+            }
+
+            return new SurfaceRemesher.ConstraintPolyline(points, vertexChain.Count, constraint.IsClosed, constraint.PreserveInputElevation);
+        }
     }
 
     /// <summary>Traces each constraint, keeping the drawn line where the trace does not complete.</summary>

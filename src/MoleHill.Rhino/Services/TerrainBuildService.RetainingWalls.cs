@@ -184,8 +184,10 @@ internal sealed partial class TerrainBuildService
         // measured after it starts with zero height difference at its own foot, reports Flat, and emits
         // nothing at all — the build looks clean and grades nothing. Found live on a 4 m wall.
         ThrowIfCancellationRequested(shouldCancel);
+        RhinoMesh ungraded = mesh;
         mesh = ApplyRetainingWallGrading(
             snapshot, terrain, mesh, modifier, plan.Walls, wallTolerance, build, runtimeCache, mode);
+        bool railsGraded = !ReferenceEquals(mesh, ungraded);
 
         ThrowIfCancellationRequested(shouldCancel);
         int rawConstraintCount = wallConstraints.Count;
@@ -205,6 +207,25 @@ internal sealed partial class TerrainBuildService
         }
 
         ThrowIfCancellationRequested(shouldCancel);
+        if (railsGraded)
+        {
+            var adoptTimer = Stopwatch.StartNew();
+            bool adopted = TryAdoptGradedRails(mesh, wallConstraints, wallTolerance, build, out RhinoMesh adoptedMesh, out var tracedRails);
+            adoptTimer.Stop();
+            build.RecordTiming(
+                "Retaining Wall Adopt Graded Rails",
+                adoptTimer.Elapsed,
+                adopted ? $"{tracedRails.Count:N0} rails already in the graded terrain" : "not all rails traced; inserting",
+                StageTimingDiagnosticThresholdMs);
+            if (adopted)
+            {
+                List<SurfaceRemesher.ConstraintPolyline> mergedConstraints = CombineConstraints(build.PersistentHardConstraints, tracedRails);
+                build.PersistentHardConstraints.Clear();
+                build.PersistentHardConstraints.AddRange(mergedConstraints);
+                return adoptedMesh;
+            }
+        }
+
         var topologyTimer = Stopwatch.StartNew();
         bool inserted = TryInsertWallConstraintsIntoExistingMesh(
             mesh,
@@ -309,6 +330,29 @@ internal sealed partial class TerrainBuildService
                 "retaining_wall.rebuild_discarded_detail",
                 "The constrained rebuild would have discarded terrain detail; the upstream mesh was retained.",
                 "Detail loss");
+            return mesh;
+        }
+
+        // Nor may it open the terrain. The vertex floor above only catches a rebuild that threw the interior
+        // away; one that keeps its vertices but tears holes around the rails passed it — two extra boundary
+        // loops on a ring wall beside a graded path, in both wall modes — and shipped as a success. The
+        // bar is the input's own topology, never absolute health: a terrain may carry a hole of its own.
+        if (!ReferenceEquals(remeshed, mesh) && !keptInputMesh &&
+            RhinoGeometryConversions.TryExtractMeshData(mesh, out _, out _, out int[] inputFaces, out int inputFaceCount, out _) &&
+            RhinoGeometryConversions.TryExtractMeshData(remeshed, out _, out _, out int[] outputFaces, out int outputFaceCount, out _) &&
+            !GradingTopologyDiagnostics.IsNotWorseThanInput(inputFaces, inputFaceCount, outputFaces, outputFaceCount, out string? damage))
+        {
+            build.Diagnostics.Add(
+                $"Retaining Wall constrained rebuild damaged the terrain ({damage}); the upstream mesh was kept " +
+                "and the wall breaklines were not inserted.");
+            AddRetainingWallConstraintOverlay(
+                build,
+                modifier,
+                wallConstraints,
+                RuntimeOverlaySeverity.Error,
+                "retaining_wall.rebuild_damaged_topology",
+                "The constrained rebuild would have opened the terrain; the upstream mesh was retained.",
+                "Topology damage");
             return mesh;
         }
 
@@ -717,6 +761,87 @@ internal sealed partial class TerrainBuildService
             : new SurfaceRemesher.ConstraintPolyline(Array.Empty<double>(), 0, constraint.IsClosed, constraint.PreserveInputElevation);
     }
 
+    /// <summary>
+    /// Grade mode's rails are already in the terrain: the grade conformed each one as the edge of its own
+    /// batter. Inserting them a second time is what broke graded walls. The conform snaps a line onto
+    /// nearby terrain corners and edges (up to <see cref="MeshAreaTopologySplitter.ConformSnapToleranceFactor"/>
+    /// times the tolerance), so the rail in the mesh wanders a few millimetres off the rail as drawn, and
+    /// re-inserting the drawn rail at the 1 mm wall tolerance split each of those offsets into a needle
+    /// sliver. On the wall grade probe that tore every bent and ring wall it met (up to 22 boundary loops and
+    /// 46 non-manifold edges), sent the wall to the whole-terrain rebuild, and next to a graded path — whose
+    /// elevation constraints that rebuild must also honour — either dropped the wall or kept the tear.
+    ///
+    /// So each rail is traced through the graded mesh at the conform's own snap radius. When every rail
+    /// traces as one edge chain, the graded mesh already is the walled terrain: its rails are pinned to the
+    /// drawn elevations and the traced chains are what later stages keep. When any rail does not trace, the
+    /// caller falls back to inserting them.
+    /// </summary>
+    private static bool TryAdoptGradedRails(
+        RhinoMesh mesh,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> wallConstraints,
+        double tolerance,
+        TerrainBuildResult build,
+        out RhinoMesh adoptedMesh,
+        out List<SurfaceRemesher.ConstraintPolyline> tracedRails)
+    {
+        adoptedMesh = mesh;
+        tracedRails = new List<SurfaceRemesher.ConstraintPolyline>();
+        if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount, out _))
+            return false;
+
+        // A little past the conform's own reach, so a point snapped right at the limit still traces.
+        double traceRadius = GradingTolerances.ModelToleranceOrDefault(tolerance) *
+            MeshAreaTopologySplitter.ConformSnapToleranceFactor * 1.25;
+        List<SurfaceRemesher.ConstraintPolyline> traced = InsertedConstraintTracer.TraceAll(
+            wallConstraints, vertices, vertexCount, faces, faceCount, traceRadius, out int tracedCount);
+        if (tracedCount != wallConstraints.Count)
+            return false;
+
+        // A traced point carries the graded mesh's elevation. The rail's is the drawn one, taken along the
+        // drawn line at the point's plan position.
+        for (int c = 0; c < traced.Count; c++)
+            tracedRails.Add(WithElevationsAlong(traced[c], wallConstraints[c]));
+
+        var before = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
+        ApplyPreservedConstraintElevations(vertices, tracedRails, tolerance);
+        adoptedMesh = BuildMeshFromArrays(vertices, faces);
+        build.Diagnostics.Add(
+            $"Retaining Wall rails were conformed by the grade itself ({tracedRails.Count} traced within {traceRadius * 1000.0:0.#} mm); " +
+            $"kept without re-insertion ({before.BoundaryComponentCount} boundary loop(s)).");
+        return true;
+    }
+
+    /// <summary><paramref name="traced"/>'s plan points with elevations interpolated along <paramref name="drawn"/>.</summary>
+    private static SurfaceRemesher.ConstraintPolyline WithElevationsAlong(
+        SurfaceRemesher.ConstraintPolyline traced,
+        SurfaceRemesher.ConstraintPolyline drawn)
+    {
+        double[] points = (double[])traced.Points.Clone();
+        int segments = drawn.IsClosed ? drawn.PointCount : drawn.PointCount - 1;
+        for (int i = 0; i < traced.PointCount; i++)
+        {
+            double x = points[i * 3], y = points[i * 3 + 1];
+            double best = double.MaxValue;
+            for (int s = 0; s < segments; s++)
+            {
+                int a = s, b = (s + 1) % drawn.PointCount;
+                double ax = drawn.Points[a * 3], ay = drawn.Points[a * 3 + 1];
+                double dx = drawn.Points[b * 3] - ax, dy = drawn.Points[b * 3 + 1] - ay;
+                double lengthSquared = (dx * dx) + (dy * dy);
+                double t = lengthSquared > 0 ? Math.Clamp((((x - ax) * dx) + ((y - ay) * dy)) / lengthSquared, 0.0, 1.0) : 0.0;
+                double ox = ax + (t * dx) - x, oy = ay + (t * dy) - y;
+                double distanceSquared = (ox * ox) + (oy * oy);
+                if (distanceSquared < best)
+                {
+                    best = distanceSquared;
+                    points[i * 3 + 2] = drawn.Points[a * 3 + 2] + (t * (drawn.Points[b * 3 + 2] - drawn.Points[a * 3 + 2]));
+                }
+            }
+        }
+
+        return new SurfaceRemesher.ConstraintPolyline(points, traced.PointCount, traced.IsClosed, traced.PreserveInputElevation);
+    }
+
     private static bool TryInsertWallConstraintsIntoExistingMesh(
         RhinoMesh mesh,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> wallConstraints,
@@ -753,6 +878,8 @@ internal sealed partial class TerrainBuildService
 
         int outputVertexCount = outputVertices.Length / 3;
         int outputFaceCount = outputFaces.Length / 3;
+        var inputBoundary = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
+        string? rejection = null;
         if (!qualityInserted && !MeshConstraintTopologyInserter.TryInsert(
                 vertices,
                 vertexCount,
@@ -766,25 +893,45 @@ internal sealed partial class TerrainBuildService
                 out outputFaceCount,
                 out string? topologyError))
         {
-            if (reportFailures)
-                build.Diagnostics.Add(topologyError ?? "Retaining Wall topology insertion could not insert wall constraints into the existing mesh.");
-            return false;
+            rejection = topologyError ?? "Retaining Wall topology insertion could not insert wall constraints into the existing mesh.";
         }
-
-        if (!TopologyChanged(vertices, vertexCount, faces, faceCount, outputVertices, outputVertexCount, outputFaces, outputFaceCount, tolerance))
+        else if (!TopologyChanged(vertices, vertexCount, faces, faceCount, outputVertices, outputVertexCount, outputFaces, outputFaceCount, tolerance))
         {
             if (reportFailures)
                 build.Diagnostics.Add("Retaining Wall topology insertion found no terrain faces crossed by wall constraints.");
             return false;
         }
-
-        var inputBoundary = MeshTopologyValidator.AnalyzeBoundaryGraph(faces, faceCount);
-        var outputBoundary = MeshTopologyValidator.AnalyzeBoundaryGraph(outputFaces, outputFaceCount);
-        if (!IsTopologyInsertionBoundarySafe(inputBoundary, outputBoundary, out string boundaryMessage))
+        else if (!IsTopologyInsertionBoundarySafe(
+                     inputBoundary, MeshTopologyValidator.AnalyzeBoundaryGraph(outputFaces, outputFaceCount), out string boundaryMessage))
         {
+            rejection = $"Retaining Wall topology insertion rejected: {boundaryMessage}";
+        }
+
+        if (rejection != null)
+        {
+            // Face-by-face insertion must agree with every neighbour about where a shared edge was cut, and
+            // an upstream conform that left a vertex a millimetre off an edge can make two faces disagree.
+            // Re-triangulating the rails' neighbourhood as one piece has no shared edge to disagree about,
+            // and keeps everything outside it exactly — which is why it goes before the whole-terrain rebuild
+            // rather than after it: that rebuild has to honour every persisted constraint as well, and beside
+            // a graded path it either failed or tore the terrain. Both wall modes use it.
             if (reportFailures)
-                build.Diagnostics.Add($"Retaining Wall topology insertion rejected: {boundaryMessage}");
-            return false;
+                build.Diagnostics.Add(rejection);
+            if (!MeshConstraintTopologyInserter.TryInsertByLocalTriangulation(
+                    vertices, vertexCount, faces, faceCount, wallConstraints, tolerance,
+                    out outputVertices, out outputVertexCount, out outputFaces, out outputFaceCount, out string? localError) ||
+                !IsTopologyInsertionBoundarySafe(
+                    inputBoundary, MeshTopologyValidator.AnalyzeBoundaryGraph(outputFaces, outputFaceCount), out _))
+            {
+                if (reportFailures)
+                    build.Diagnostics.Add($"Retaining Wall local re-triangulation declined: {localError ?? "it would change the terrain boundary"}.");
+                return false;
+            }
+
+            ApplyPreservedConstraintElevations(outputVertices, wallConstraints, tolerance);
+            insertedMesh = BuildMeshFromArrays(outputVertices, outputFaces);
+            build.Diagnostics.Add("Retaining Wall inserted its breaklines by re-triangulating their neighbourhood as one piece.");
+            return true;
         }
 
         ApplyPreservedConstraintElevations(outputVertices, wallConstraints, tolerance);

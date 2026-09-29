@@ -69,6 +69,38 @@ public sealed class InsertedConstraintTracerTests
         Assert.Equal(0, CountCaps(rebuilt.Vertices, rebuilt.Faces));
     }
 
+    /// <summary>
+    /// A closed line's inserted start can sit a hair before its drawn start, on the closing segment, where its
+    /// arc parameter reads as almost the whole length. Found on graded ring walls, whose conform snapped the
+    /// ring's first point a few millimetres back: the trace looked for a start near zero, found none, and the
+    /// wall stage re-inserted the ring and tore the terrain.
+    /// </summary>
+    [Fact]
+    public void TraceAll_ClosedLineWhoseInsertedStartLiesBeforeTheSeam_StillTraces()
+    {
+        (double[] vertices, int[] faces) = Grid(20, 20, 2.0);
+        double[] inserted = [20.0, 9.3, 1.0, 31.1, 9.3, 1.0, 31.1, 30.7, 1.0, 9.1, 30.7, 1.0, 9.1, 9.3, 1.0];
+        var ring = new SurfaceRemesher.ConstraintPolyline(inserted, 5, true, PreserveInputElevation: true);
+        Assert.True(TerrainDetailInserter.TryInsert(
+            vertices, vertices.Length / 3, faces, faces.Length / 3,
+            Array.Empty<double>(),
+            new[] { ring },
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Array.Empty<SurfaceRemesher.ConstraintPolyline>(),
+            Tolerance, Tolerance, 70.0,
+            out TerrainDetailInserter.Result? mesh, out string? error), error);
+
+        // The same ring, drawn starting 4 mm further along its bottom side.
+        double[] drawn = (double[])inserted.Clone();
+        drawn[0] += 0.004;
+        var drawnRing = new SurfaceRemesher.ConstraintPolyline(drawn, 5, true, PreserveInputElevation: true);
+
+        InsertedConstraintTracer.TraceAll(
+            new[] { drawnRing }, mesh!.Vertices, mesh.VertexCount, mesh.Faces, mesh.FaceCount, Tolerance, out int tracedCount);
+
+        Assert.Equal(1, tracedCount);
+    }
+
     [Fact]
     public void TraceAll_LineNotInTheMesh_KeepsTheDrawnLine()
     {

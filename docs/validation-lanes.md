@@ -166,6 +166,32 @@ absent. At 2 m they insert. Every edit, including one survey point, re-runs the 
 Triangulate, so edit time equals cold time at every scale. The far-from-origin warning fires on any site
 wider than ~1.7 km at a 1 mm model tolerance, even one that starts at the origin.
 
+## wall-grade
+
+Also a probe, not a lane. `WallGradeProbe` (`tests/MoleHill.Rhino.Tests/WallGradeProbe.cs`) builds small
+60 x 44 m sites and sweeps a Retaining Wall across survey spacing, slope, rail gap, shape (`straight`,
+`bend`, `ring`, `arc`, `straight-dense`) and stack context (`alone`, `remesh-before`, `pad-before`,
+`wall-then-pad`, `path-near`, `terrace`), in grade mode and optionally breakline mode as a control. For each
+case it reports whether the grade ran and which tier, how the rails went in (`local`, `rebuild`, `failed`),
+the finished terrain's boundary loops and non-manifold edges, and the batter **measured on the surface**
+along sections square to the wall against the slope the card asked for. Each case runs under a budget, and
+the sweep stops at one that ignores cancellation.
+
+```powershell
+py -3 tools/rhino-hosted-perf.py --bin tests/MoleHill.Rhino.Tests/bin/Release/net8.0 `
+    --request walls.json --entry WallGradeProbe
+# walls.json: { "ResultPath": "...", "Contexts": ["alone", "path-near"], "IncludeBreaklineControl": true }
+```
+
+`DumpDiagnostics` keeps every timing row and diagnostic, plus a toe-side section every 25 cm.
+`CaptureFolder` writes, instead of building, each case's upstream mesh, rail grades and the mesh and
+constraints its rail insertion receives, as JSON for a Core-level repro without Rhino.
+
+Result on 2026-09-29 after the wall fixes (architecture.md, "Retaining walls: getting the rails in"):
+1,152 cases, every wall inserted in both modes, every terrain one watertight loop. Grade-mode batter
+error: median 1.7% of wall height, 90th percentile 3.7%. The worst cases are rings at shallow slopes, where
+the far side's batter reaches across the ring and the probe's single-section model no longer applies.
+
 ## warnings
 
 `MoleHill.Core` compiles the vendored TriangleNet sources directly, and those sources predate nullable

@@ -45,8 +45,11 @@ terrain meets the line.
 
 `OutwardNormals` supplies explicit per-vertex outward directions and makes the grade **one-sided** — the
 retaining-wall case, where a rail batters away from its partner rather than along its own plan normal.
-Such a rail keeps the stationing it arrived with (the planner's), because the normals are supplied one
-per authored vertex and resampling would leave them misaligned.
+Such a rail keeps every authored vertex, because the normals are supplied one per authored vertex, and
+`BuildOneSidedRailStations` adds stations between them (a third of the batter reach apart, never finer
+than the terrain under the rail), each facing along its segment's perpendicular. A closed one-sided rail
+conforms as two rings, rail and daylight (`PathCorridor.RailLoopXy`). See architecture.md, "Retaining
+walls: getting the rails in".
 
 **One-sidedness has to be honoured in the elevation pass too, not just the carve.**
 `PathDefinition.OutwardSideSign()` derives which side (+1 left, -1 right, 0 both) from `OutwardNormals`,
@@ -207,7 +210,12 @@ staying unresolved.
 - `InsertedConstraintTracer.cs` - recovers a line as it was actually inserted: the edge-connected chain
   of mesh vertices along it, including the splits and snaps insertion made. Add Geometry persists this
   form (falling back to the drawn line when the trace does not complete), because a later constrained
-  rebuild given the drawn line leaves a zero-area cap at every split vertex.
+  rebuild given the drawn line leaves a zero-area cap at every split vertex. Retaining Wall's grade mode
+  traces its rails through the graded mesh at the conform's snap radius to adopt them. The walk starts a
+  closed line across its seam and backtracks out of dead ends.
+- `MeshConstraintTopologyInserter.LocalTriangulation.cs` - constraint insertion by re-triangulating the
+  crossed faces and their vertex ring as one CDT, keeping every existing vertex and the patch boundary; the
+  fallback when face-by-face insertion disagrees with a neighbour about a shared edge.
 - `MeshConstraintTopologyInserter.cs` - local constraint insertion (terrain-preserving); intersection
   results are value types in its allocation-sensitive inner loops. Face geometry is a `readonly struct`
   built on demand for candidate faces only (never an object per terrain face), constraint-segment pairs

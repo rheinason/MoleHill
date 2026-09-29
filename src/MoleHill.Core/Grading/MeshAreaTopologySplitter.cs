@@ -8,6 +8,14 @@ namespace MoleHill.Core.Grading;
 /// </summary>
 internal static class MeshAreaTopologySplitter
 {
+    /// <summary>
+    /// How far, in multiples of the model tolerance, a conform snaps a cut point onto a nearby terrain edge
+    /// or corner. A line conformed through the splitter can therefore sit this far off the line as drawn,
+    /// which is why a later stage looking for that line in the mesh must search at least this far
+    /// (the Retaining Wall's graded-rail trace does).
+    /// </summary>
+    internal const double ConformSnapToleranceFactor = 8.0;
+
     internal sealed class PerformanceTimings
     {
         public double FaceDataMilliseconds { get; internal set; }
@@ -878,7 +886,7 @@ internal static class MeshAreaTopologySplitter
         // Cut endpoints within this distance of a terrain edge are projected onto it so they conform
         // (see the snap rationale in the clipped-piece loop). Several times the model tolerance - large
         // enough to absorb near-edge cut points, far below terrain detail.
-        double edgeSnapToleranceSquared = (tolerance * 8.0) * (tolerance * 8.0);
+        double edgeSnapToleranceSquared = (tolerance * ConformSnapToleranceFactor) * (tolerance * ConformSnapToleranceFactor);
 
         // Each worker gets its own probe: a shared countdown is decremented by all of them at once,
         // which would consult the callback far more often than once per interval per worker.
@@ -999,7 +1007,7 @@ internal static class MeshAreaTopologySplitter
         // by construction (same global vertex), so the slivers collapse to degenerate and drop out. The
         // snap radius is several times the model tolerance but far below terrain detail, so the carve
         // boundary moves negligibly.
-        double cornerSnapTolSq = (tolerance * 8.0) * (tolerance * 8.0);
+        double cornerSnapTolSq = (tolerance * ConformSnapToleranceFactor) * (tolerance * ConformSnapToleranceFactor);
 
         var edgePointLists = new List<(double Parameter, int LocalIndex)>[3];
         for (int edgeIndex = 0; edgeIndex < 3; edgeIndex++)

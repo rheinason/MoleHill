@@ -539,6 +539,44 @@ the `DaylightStatus.Flat` a station reports when terrain already meets the line.
 graded mode is the same machinery with an explicit `OutwardNormals` array — a rail batters away from its
 partner, which is not the curve's own plan normal — via `RetainingWallGradePlanner` in `MoleHill.Shared`.
 
+### Retaining walls: getting the rails in (2026-09-29)
+
+Measured by the wall grade probe (`docs/validation-lanes.md`, "wall-grade"): 576 cases per mode across
+survey spacing, slope, rail gap, wall shape and what else is in the stack. Before this round, grade mode
+dropped or tore walls beside a graded path, near a bend and on rings; breakline mode dropped 4 and tore 4
+(ring walls around a graded path). Now every case in both modes inserts its walls and leaves the terrain
+one watertight loop. Each fix below was found by measuring the finished surface, not a diagnostic:
+
+- **The conform moves lines by millimetres, so nothing may re-insert them at 1 mm.** Split-keep snaps loop
+  points onto nearby terrain edges and corners within `MeshAreaTopologySplitter.ConformSnapToleranceFactor`
+  (8) times the tolerance. A graded rail is therefore in the mesh already, but up to 8 mm off the drawn
+  one, and inserting the drawn rail again split every offset into a needle. Grade mode now traces its rails
+  through the graded mesh at that radius (`TryAdoptGradedRails`) and keeps the mesh when every rail traces.
+- **`InsertedConstraintTracer`** starts a closed line from the vertex nearest its first point even when that
+  vertex sits just before the seam, and backtracks out of dead ends. Terraced ring walls failed on both.
+- **Local insertion falls back to one local triangulation before the whole-terrain rebuild.**
+  `MeshConstraintTopologyInserter.TryInsertByLocalTriangulation` re-triangulates the crossed faces plus
+  their vertex ring as one CDT: existing vertices kept at their indices, patch boundary as hard segments,
+  no refinement (a breakline stays a crease). Face-by-face insertion must agree with each neighbour about a
+  shared edge's cuts and could not, beside an upstream conform; a single triangulation has no shared edge
+  to disagree about. It refuses any result whose area or boundary differs from the patch.
+- **The whole-terrain rebuild may not make the topology worse than its input.** It had only a vertex-count
+  floor, so a rebuild that tore holes around the rails shipped as success. It now keeps the upstream mesh
+  and raises `retaining_wall.rebuild_damaged_topology`.
+- **A closed one-sided rail conforms as two rings.** Its batter is an annulus; the single "daylight out,
+  rail back" loop an open rail uses made a keyhole, lost the rail's closing segment, and after the Clipper
+  union kept only the rail ring (`PathCorridor.RailLoopXy`).
+- **One-sided rails get stations between their authored vertices.** Daylight is found once per station, so
+  a straight wall drawn as two points daylit only at its ends; at 15° its batter stopped 1 m short with a
+  0.24 m step. Stations are a third of the batter reach apart, never finer than the terrain under the rail
+  (finer stations snap onto the same terrain corners and fold the loop: measured flat or inverted
+  batters at 0.1-0.4 m), and an added station's normal is its segment's perpendicular, not a blend of the
+  authored normals (a mitred corner's bisector blended along the segment flattened a 60° batter to 46°).
+  30° now grades exactly on the captured three-wall case (it measured tan 1.01).
+
+Still open: batters of 20° and shallower on a small site clamp to the section search extent
+(`Grade_AtShallowAngles_DoesNotYetHonourTheRequestedSlope`).
+
 Grading search work is spatialized without changing deterministic tie order. `TerrainFaceGrid`
 collects candidate faces from the finite daylight-ray corridor, deduplicates them, and evaluates them
 in original face order. Grade Path builds one bounds grid for resampled paths with at least 64
