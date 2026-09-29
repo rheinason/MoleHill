@@ -441,8 +441,20 @@ public static partial class PathGrader
                     !ClipperGeometry.TryPickLargestLoop(cleanedLoops, out double[] envelope) ||
                     GradingGeometry2D.ClosedPolylineSelfIntersects(envelope, envelope.Length / 2))
                 {
-                    errorMessage = "Grade Path daylight loop self-intersects and could not be resolved; deferring to topology rebuild.";
-                    return null;
+                    if (railLoopXy == null)
+                    {
+                        errorMessage = "Grade Path daylight loop self-intersects and could not be resolved; deferring to topology rebuild.";
+                        return null;
+                    }
+
+                    // A closed rail whose batter turns inside out: an inward batter on a ring too small for it
+                    // to reach daylight, so the rays cross before they meet ground and the surface is a cone.
+                    // There is no daylight line to conform, but the rail still is one, and the elevation pass
+                    // grades the interior section by section without it. Deferring instead sent every rail in
+                    // the grade to the constraint-insertion tier, which does not put the rails into the mesh,
+                    // and the wall stage then had nothing to adopt (a terraced ring wall lost its walls).
+                    envelope = railLoopXy;
+                    railLoopXy = null;
                 }
 
                 daylightPolyXy = envelope;
