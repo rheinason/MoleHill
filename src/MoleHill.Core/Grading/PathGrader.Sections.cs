@@ -167,9 +167,15 @@ public static partial class PathGrader
         out int repairedRightSections,
         out double maxInfluence)
     {
+        // A single line has no width to set its section spacing, and the width-based rule gave it none: it
+        // kept only its drawn vertices, so every point between blended the sections at the two ends. On a
+        // wall rail those ends included a mitred corner, and a 20° batter stopped 1.1 m short of daylight
+        // with the surface 0.4 m above design. Its sections are spaced by its batter reach instead.
         samplePath = BuildConstraintPolyline(
             path,
-            ComputeConstraintSegmentLength(path, ComputePathSamplingDistance(path)),
+            path.IsSingleLine
+                ? ComputeSingleLineSectionSpacing(path, interpolateOriginalZ)
+                : ComputeConstraintSegmentLength(path, ComputePathSamplingDistance(path)),
             dedupTol: 1e-6);
 
         int n = samplePath.VertexCount;
@@ -577,6 +583,27 @@ public static partial class PathGrader
         return maxReach;
     }
 
+    /// <summary>
+    /// Section spacing for a single line: a third of its batter reach, and at most
+    /// <see cref="MaxSingleLineSections"/> sections along it.
+    /// </summary>
+    private static double ComputeSingleLineSectionSpacing(PathDefinition path, Func<double, double, double> interpolateOriginalZ)
+    {
+        double length = 0.0;
+        for (int i = 0; i < path.VertexCount - 1; i++)
+        {
+            double dx = path.XyVertices[(i + 1) * 2] - path.XyVertices[i * 2];
+            double dy = path.XyVertices[((i + 1) * 2) + 1] - path.XyVertices[(i * 2) + 1];
+            length += Math.Sqrt((dx * dx) + (dy * dy));
+        }
+
+        double reach = ComputePathShoulderDistance(path, interpolateOriginalZ);
+        double spacing = Math.Max(reach / 3.0, length / MaxSingleLineSections);
+        return Math.Max(spacing, MoleHill.Core.Engine.ScaleAwareTolerance.LengthFloor(length) * 1e6);
+    }
+
+    private const int MaxSingleLineSections = 512;
+
     private static double ComputePathSamplingDistance(PathDefinition path)
     {
         return path.MaxDistance > 1e-9 ? path.MaxDistance : path.Width;
@@ -841,17 +868,46 @@ public static partial class PathGrader
         if (slopeRatio <= 1e-12)
             return 100.0;
 
+        double maxZDiff = PathHeightOffGround(path, interpolateOriginalZ);
+        return maxZDiff / slopeRatio;
+    }
+
+    /// <summary>
+    /// The largest height between the path and the ground under it, sampled along each segment and not only
+    /// at the vertices: a rail can sit on the ground at both ends of a segment and well below it between.
+    /// Taken from the vertices alone, a retaining-wall rail 0.6 m below ground mid-segment gave a 0.67 m
+    /// search reach at 20°, and the batter was cut off there, 1.1 m short of daylight.
+    /// </summary>
+    private static double PathHeightOffGround(PathDefinition path, Func<double, double, double> interpolateOriginalZ)
+    {
+        const int samplesPerSegment = 8;
+        int count = path.VertexCount;
         double maxZDiff = 0.0;
-        for (int i = 0; i < path.VertexCount; i++)
+        void Sample(double x, double y, double z)
         {
-            double x = path.XyVertices[i * 2];
-            double y = path.XyVertices[i * 2 + 1];
-            double dz = Math.Abs(path.ZValues[i] - interpolateOriginalZ(x, y));
+            double dz = Math.Abs(z - interpolateOriginalZ(x, y));
             if (dz > maxZDiff)
                 maxZDiff = dz;
         }
 
-        return maxZDiff / slopeRatio;
+        for (int i = 0; i < count; i++)
+            Sample(path.XyVertices[i * 2], path.XyVertices[(i * 2) + 1], path.ZValues[i]);
+
+        int segmentCount = path.IsClosed && count > 2 ? count : count - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            int j = (i + 1) % count;
+            for (int s = 1; s < samplesPerSegment; s++)
+            {
+                double t = (double)s / samplesPerSegment;
+                Sample(
+                    path.XyVertices[i * 2] + ((path.XyVertices[j * 2] - path.XyVertices[i * 2]) * t),
+                    path.XyVertices[(i * 2) + 1] + ((path.XyVertices[(j * 2) + 1] - path.XyVertices[(i * 2) + 1]) * t),
+                    path.ZValues[i] + ((path.ZValues[j] - path.ZValues[i]) * t));
+            }
+        }
+
+        return maxZDiff;
     }
 
     private static double ComputePathShoulderDistance(double[] xy, double[] z, int vertexCount, PathDefinition path,

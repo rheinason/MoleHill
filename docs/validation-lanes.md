@@ -166,6 +166,9 @@ absent. At 2 m they insert. Every edit, including one survey point, re-runs the 
 Triangulate, so edit time equals cold time at every scale. The far-from-origin warning fires on any site
 wider than ~1.7 km at a 1 mm model tolerance, even one that starts at the origin.
 
+After the wall fixes (architecture.md, "Retaining walls: getting the rails in") the 1 m walls insert, by
+local triangulation, in 14 s instead of failing after 60 s, and one edit at 1 m takes about 130 s.
+
 ## wall-grade
 
 Also a probe, not a lane. `WallGradeProbe` (`tests/MoleHill.Rhino.Tests/WallGradeProbe.cs`) builds small

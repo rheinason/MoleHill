@@ -574,8 +574,15 @@ one watertight loop. Each fix below was found by measuring the finished surface,
   authored normals (a mitred corner's bisector blended along the segment flattened a 60° batter to 46°).
   30° now grades exactly on the captured three-wall case (it measured tan 1.01).
 
-Still open: batters of 20° and shallower on a small site clamp to the section search extent
-(`Grade_AtShallowAngles_DoesNotYetHonourTheRequestedSlope`).
+- **A single line's elevation sections are spaced by its batter reach.** The width-based spacing rule gave
+  a width-0 line none, so it kept only its drawn vertices and blended everything between from the ends — on
+  a wall rail, a mitred corner. Shallow batters stopped short of daylight: 10° and 20° measured tan .53
+  and .45 on the three-wall case. They are exact now (`Grade_AtAnyAngle_LeavesTheRailAtTheRequestedSlope`),
+  and the reach estimate reads the rail's height off the ground along each segment, not only at its ends.
+  Grade Line is the same machinery and gets the same sections.
+
+On the 1 m park (3.2M points) the walls that the whole-terrain rebuild dropped now insert, by the local
+triangulation, and the wall stage fell from 60 s to 14 s.
 
 Grading search work is spatialized without changing deterministic tie order. `TerrainFaceGrid`
 collects candidate faces from the finite daylight-ray corridor, deduplicates them, and evaluates them

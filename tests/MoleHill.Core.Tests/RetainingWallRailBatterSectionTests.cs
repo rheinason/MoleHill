@@ -58,15 +58,18 @@ public class RetainingWallRailBatterSectionTests
     }
 
     /// <summary>
-    /// At angles steep enough to reach existing ground inside the section search extent, the batter
-    /// leaves the rail at exactly the requested slope. 30 degrees joined once one-sided rails were stationed
-    /// between their authored vertices (it had measured tan 1.0116).
+    /// The batter leaves the rail at exactly the requested slope, shallow angles included. 30 degrees
+    /// joined once one-sided rails were stationed between their authored vertices (it had measured tan
+    /// 1.0116); 10 and 20 degrees once a single line's elevation sections were spaced by its batter reach
+    /// rather than left at its drawn vertices (they had measured .5330 and .4491, cut short of daylight).
     /// </summary>
     [Theory]
+    [InlineData(10.0, 0.1763)]
+    [InlineData(20.0, 0.3640)]
     [InlineData(30.0, 0.5774)]
     [InlineData(45.0, 1.0000)]
     [InlineData(60.0, 1.7321)]
-    public void Grade_AtSteepAngles_LeavesTheRailAtTheRequestedSlope(double angle, double expectedTangent)
+    public void Grade_AtAnyAngle_LeavesTheRailAtTheRequestedSlope(double angle, double expectedTangent)
     {
         var (result, graded) = GradeAt(angle);
         Assert.NotNull(result);
@@ -76,44 +79,6 @@ public class RetainingWallRailBatterSectionTests
         double measured = (z1 - z0) / 0.15;
 
         Assert.Equal(expectedTangent, measured, precision: 3);
-    }
-
-    /// <summary>
-    /// KNOWN DEFECT, pinned so it cannot change unnoticed. A shallow batter needs a longer run to reach
-    /// existing ground than the section search allows, so it is clamped and leaves the rail steeper
-    /// than asked. Grading reports it ("the slope was clamped to the search extent"), so it is declared
-    /// rather than silent -- but a batter built at the wrong angle is still wrong.
-    ///
-    /// Measured after the split-conform guard was widened (every angle now reaches split-keep):
-    ///   requested  10 deg (tan .1763) -> .5330
-    ///   requested  20 deg (tan .3640) -> .4491
-    ///   requested  30 deg (tan .5774) -> 1.0116 (exact since 2026-09-29, see the steep-angle theory)
-    /// With stations between authored rail vertices, 20 deg measures .5329. Steep angles are exact, so this
-    /// is specific to the shallow end, not a general slope error.
-    ///
-    /// The assertion deliberately states only "not the requested slope", without pinning how wrong --
-    /// the magnitude moves whenever the section solve changes, and an over-specific bound would fail
-    /// as noise rather than as signal. When the extent is fixed these will fail and should be deleted
-    /// in favour of extending the exact-slope theory above.
-    /// </summary>
-    [Theory]
-    [InlineData(10.0)]
-    [InlineData(20.0)]
-    public void Grade_AtShallowAngles_DoesNotYetHonourTheRequestedSlope(double angle)
-    {
-        var (result, graded) = GradeAt(angle);
-        Assert.NotNull(result);
-
-        double requestedTangent = Math.Tan(angle * Math.PI / 180.0);
-        double z0 = SampleZ(result!, graded, SectionX, 0.10);
-        double z1 = SampleZ(result!, graded, SectionX, 0.25);
-        double measured = (z1 - z0) / 0.15;
-
-        Assert.True(
-            Math.Abs(measured - requestedTangent) > requestedTangent * 0.10,
-            $"{angle} deg now grades at tan={measured:F4}, within 10% of the requested tan={requestedTangent:F4}. " +
-            "The shallow-angle clamp appears fixed -- delete this test and extend " +
-            nameof(Grade_AtSteepAngles_LeavesTheRailAtTheRequestedSlope) + " to cover this angle.");
     }
 
     /// <summary>The batter must actually return to existing ground, not stop in mid-air.</summary>
