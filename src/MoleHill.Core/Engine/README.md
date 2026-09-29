@@ -67,7 +67,10 @@ Key files:
 - `FeaturePolylineGraph.cs` — feature topology for the isotropic remesh: chains boundary ∪ creases ∪
   constraint edges into polylines with arc-length parameters and classifies vertices
   Free/Feature/Corner/Frozen. Short crease-only chains (fold noise in badly triangulated fans) are not
-  pinned. Boundary edges (incidence 1) and non-manifold edges (incidence > 2) are read off **one**
+  pinned. A steep face thinner than the tolerance (a zero-area cap along a straight line, whose normal
+  is rounding noise) is a wall only when edge-connected through other thin faces to a genuine wall
+  face; stray ones on open terrain froze whole breaklines and let wall bisection densify them.
+  Boundary edges (incidence 1) and non-manifold edges (incidence > 2) are read off **one**
   whole-mesh edge-incidence pass — do not reintroduce a second whole-mesh pass via
   `AddBoundarySegments`.
 - `LocalMeshRefiner.cs` — connectivity-preserving subdivision-only refiner: Sculpt's region-gated DynTopo

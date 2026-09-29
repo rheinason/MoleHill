@@ -83,7 +83,7 @@ internal sealed class FeaturePolylineGraph
             VertexKind = new byte[vertexCount],
             VertexChain = new int[vertexCount],
             VertexParam = new double[vertexCount],
-            FrozenFaces = BuildFrozenFaceMask(vertices, faces, faceCount, wallFaceMinSlopeDeg),
+            FrozenFaces = BuildFrozenFaceMask(vertices, faces, faceCount, wallFaceMinSlopeDeg, degenerateAltitude: tolerance),
             QuarantinedFaces = new bool[faceCount]
         };
         Array.Fill(graph.VertexChain, -1);
@@ -535,22 +535,101 @@ internal sealed class FeaturePolylineGraph
             creaseEdges.Remove(key);
     }
 
-    /// <summary>Per-face steep test: frozen where the 3-D normal leans further than the wall threshold.</summary>
-    internal static bool[] BuildFrozenFaceMask(double[] vertices, int[] faces, int faceCount, double wallFaceMinSlopeDeg)
+    /// <summary>
+    /// Per-face steep test: frozen where the 3-D normal leans further than the wall threshold.
+    /// <para>
+    /// A face thinner than <paramref name="degenerateAltitude"/> (the height over its longest edge) has no
+    /// meaningful normal: three nearly collinear points along a breakline read as anything from 70° to 90°
+    /// on rounding alone. Such a face stays frozen only when it is edge-connected, through other thin
+    /// faces, to a genuine wall face — a sliver inside a wall is still wall. A stray one on open terrain is
+    /// released: frozen, it pinned every vertex of the line it lay on, and wall bisection then refined that
+    /// line to a fraction of the target with vertices collapse could never remove. 0 = keep every one.
+    /// </para>
+    /// </summary>
+    internal static bool[] BuildFrozenFaceMask(
+        double[] vertices, int[] faces, int faceCount, double wallFaceMinSlopeDeg, double degenerateAltitude = 0.0)
     {
         var frozen = new bool[faceCount];
         if (wallFaceMinSlopeDeg <= 0)
             return frozen;
 
         double cosThreshold = Math.Cos(Math.Clamp(wallFaceMinSlopeDeg, 1.0, 89.0) * Math.PI / 180.0);
+        List<int>? thin = null;
         for (int f = 0; f < faceCount; f++)
         {
-            TriangleNormal(vertices, faces[f * 3], faces[f * 3 + 1], faces[f * 3 + 2], out double nx, out double ny, out double nz);
+            int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+            TriangleNormal(vertices, a, b, c, out double nx, out double ny, out double nz);
             double len = Math.Sqrt((nx * nx) + (ny * ny) + (nz * nz));
             frozen[f] = len > 1e-15 && Math.Abs(nz) / len < cosThreshold;
+            if (!frozen[f] || degenerateAltitude <= 0)
+                continue;
+
+            // |n| is twice the area, so |n| / longest edge is the altitude onto that edge.
+            double longest = Math.Max(Distance(vertices, a, b), Math.Max(Distance(vertices, b, c), Distance(vertices, c, a)));
+            if (len < degenerateAltitude * longest)
+                (thin ??= new List<int>()).Add(f);
         }
 
+        if (thin != null)
+            ReleaseStrayThinFaces(faces, faceCount, frozen, thin);
+
         return frozen;
+    }
+
+    private static void ReleaseStrayThinFaces(int[] faces, int faceCount, bool[] frozen, List<int> thin)
+    {
+        var isThin = new bool[faceCount];
+        foreach (int f in thin)
+            isThin[f] = true;
+
+        // Edge → frozen faces on it. Only frozen faces take part, so the map stays small.
+        var edgeFaces = IndexedMeshTools.CreateEdgeKeyMap<List<int>>(thin.Count * 3);
+        for (int f = 0; f < faceCount; f++)
+        {
+            if (!frozen[f])
+                continue;
+            for (int k = 0; k < 3; k++)
+            {
+                long key = EdgeKey(faces[f * 3 + k], faces[f * 3 + ((k + 1) % 3)]);
+                if (!edgeFaces.TryGetValue(key, out List<int>? list))
+                    edgeFaces[key] = list = new List<int>(2);
+                list.Add(f);
+            }
+        }
+
+        // Flood outward from every genuine wall face across thin frozen faces; what is not reached is stray.
+        var anchored = new bool[faceCount];
+        var queue = new Queue<int>();
+        for (int f = 0; f < faceCount; f++)
+        {
+            if (frozen[f] && !isThin[f])
+            {
+                anchored[f] = true;
+                queue.Enqueue(f);
+            }
+        }
+
+        while (queue.Count > 0)
+        {
+            int f = queue.Dequeue();
+            for (int k = 0; k < 3; k++)
+            {
+                long key = EdgeKey(faces[f * 3 + k], faces[f * 3 + ((k + 1) % 3)]);
+                foreach (int n in edgeFaces[key])
+                {
+                    if (anchored[n])
+                        continue;
+                    anchored[n] = true;
+                    queue.Enqueue(n);
+                }
+            }
+        }
+
+        foreach (int f in thin)
+        {
+            if (!anchored[f])
+                frozen[f] = false;
+        }
     }
 
     /// <summary>Cosine of the 3-D tangent deviation walking n0 → v → n1 (1 = straight through).</summary>
