@@ -250,7 +250,7 @@ internal sealed partial class TerrainBuildService
             if (gradeResult == null)
             {
                 if (string.IsNullOrWhiteSpace(gradeWarning))
-                    topologyDiagnostics.Add("Grade Pad protected patch failed; upstream mesh retained.");
+                    topologyDiagnostics.Add("Grade Pad protected patch failed; incoming mesh retained.");
                 build.Diagnostics.AddRange(topologyDiagnostics);
                 build.StructuredDiagnostics.AddRange(failureStructuredDiagnostics);
                 topologyVertices = (double[])vertices.Clone();
@@ -307,7 +307,7 @@ internal sealed partial class TerrainBuildService
         bool gradePadStageFailed = topologyEntry.Diagnostics.Any(
             static diagnostic => diagnostic.Contains("Grade Pad protected patch failed", StringComparison.OrdinalIgnoreCase));
         build.Diagnostics.Add(gradePadStageFailed
-            ? $"Grade Pad protected patch failed; upstream mesh retained ({DescribeTopologyCounts(vertexCount, faceCount, topologyEntry.VertexCount, topologyEntry.FaceCount)})."
+            ? $"Grade Pad protected patch failed; incoming mesh retained ({DescribeTopologyCounts(vertexCount, faceCount, topologyEntry.VertexCount, topologyEntry.FaceCount)})."
             : $"Grade Pad local patch ({DescribeTopologyCounts(vertexCount, faceCount, topologyEntry.VertexCount, topologyEntry.FaceCount)}).");
 
         ulong resolvedInputFingerprint = ComputeGradePadResolvedInputFingerprint(topologyEntry.OutputFingerprint, resolvedInputs.Pads, modifier);

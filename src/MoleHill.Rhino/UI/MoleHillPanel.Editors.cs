@@ -869,9 +869,8 @@ public sealed partial class MoleHillPanel
             "Min Angle" => "Changes are applied after a short pause. Around 20-30 is moderate; very high values can overconstrain the triangulation.",
             "Iterations" => "Changes are applied after a short pause. 1 is light smoothing; 2-4 is moderate; higher values flatten more detail.",
             "Strength" => "Changes are applied after a short pause. Around 0.2 is gentle, 0.5 is strong, and 1.0 is extreme.",
-            "Fixity" => "Changes are applied after a short pause. 1.0 locks breaklines hard, 0.5 softens them, 0.0 ignores them.",
-            "Slope Angle" => "Changes are applied after a short pause. Lower angles are flatter and spread farther; higher angles are steeper and tighter.",
-            "Max Distance" => "Changes are applied after a short pause. 0 means unlimited; smaller values constrain the grading reach.",
+            "Protect Hold" => "Changes are applied after a short pause. 1.0 keeps protected curves exactly as they are, 0.5 lets them soften, 0.0 smooths them like any other vertex.",
+            "Max Distance" => "Changes are applied after a short pause. 0 means unlimited; smaller values stop the batter sooner.",
             "Width" => "Changes are applied after a short pause. This is the controlled path width before side grading starts.",
             "Symbol Scale" => "Changes are applied after a short pause. 1.0 is default size; below 1.0 is smaller; above 1.0 is larger.",
             _ => $"{label}. Changes are applied after a short pause."

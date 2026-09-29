@@ -41,39 +41,42 @@ internal sealed class TriangulateModifierDescriptor : ModifierTypeDescriptor
         ModifierParam.Sources(
             "Points", "Points",
             m => ((TriangulateModifierDefinition)m).Points,
-            RhinoObjectType.Point | RhinoObjectType.PointSet),
+            RhinoObjectType.Point | RhinoObjectType.PointSet,
+            "Points that become terrain vertices at their own height."),
         ModifierParam.Sources(
             "Breaklines", "Breaklines",
             m => ((TriangulateModifierDefinition)m).Breaklines,
-            RhinoObjectType.Curve),
+            RhinoObjectType.Curve,
+            "Curves whose edges the mesh keeps. Each vertex sets the height along the edge."),
         ModifierParam.Sources(
             "Contours", "Contours",
             m => ((TriangulateModifierDefinition)m).Contours,
-            RhinoObjectType.Curve),
+            RhinoObjectType.Curve,
+            "Contour curves. Their vertices set terrain height. Contour Mode controls whether the edges between them are kept."),
         ModifierParam.Sources(
             "OuterBoundaries", "Outer",
             m => ((TriangulateModifierDefinition)m).OuterBoundaries,
             RhinoObjectType.Curve,
-            "Trim the finished terrain to the largest valid closed World-XY boundary."),
+            "Closed curves that trim the finished terrain to the largest valid region they enclose in plan."),
         ModifierParam.Sources(
             "HideBoundaries", "Hide",
             m => ((TriangulateModifierDefinition)m).HideBoundaries,
             RhinoObjectType.Curve,
-            "Remove regions from the finished terrain."),
+            "Closed curves whose interiors are removed from the finished terrain."),
         ModifierParam.Sources(
             "ShowBoundaries", "Show",
             m => ((TriangulateModifierDefinition)m).ShowBoundaries,
             RhinoObjectType.Curve,
-            "Restore regions inside Hide boundaries without extending beyond Outer."),
+            "Closed curves that restore regions removed by Hide, without extending beyond Outer."),
         ModifierParam.Sources(
             "DataClipBoundaries", "Data Clip",
             m => ((TriangulateModifierDefinition)m).DataClipBoundaries,
             RhinoObjectType.Curve,
-            "Exactly limit raw point, contour, and breakline inputs before triangulation."),
+            "Closed curves that clip the points, contours and breaklines before triangulation, so only data inside them is used."),
         ModifierParam.Choice(
             "ContourMode", "Contour Mode", ContourModeOptions,
             m => ((TriangulateModifierDefinition)m).ContourMode,
             (m, v) => ((TriangulateModifierDefinition)m).ContourMode = v ?? TriangulateModifierDefinition.AutoContourMode,
-            $"Auto preserves contour edges below {TriangulateModifierDefinition.AutoUnconstrainedContourVertexThreshold:N0} source vertices, then treats dense contour stations as ordinary TIN samples for Grasshopper-like performance. Constrained preserves every contour segment. Vertices only always samples contour vertices without inserting their edges. Breaklines remain constrained in every mode."),
+            $"Auto preserves contour edges below {TriangulateModifierDefinition.AutoUnconstrainedContourVertexThreshold:N0} source vertices, then treats dense contour stations as ordinary TIN samples for Grasshopper-like performance. Constrained preserves every contour segment. Vertices only always samples contour vertices without inserting their edges. Breaklines are kept in every mode."),
     }.Concat(GeometryInputParameterCatalog.BoundaryPeel).ToArray();
 }

@@ -473,7 +473,7 @@ public class SurfaceRemesherTests
         Assert.True(remesh.Profile.ReturnedInputMesh);
         Assert.Contains(remesh.Profile.Entries, entry => entry.Name == "initial.attempt_total");
         Assert.Contains(remesh.Profile.Entries, entry => entry.Name == "total");
-        Assert.Contains("kept the upstream mesh unchanged", remesh.Warning ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("kept the incoming mesh unchanged", remesh.Warning ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

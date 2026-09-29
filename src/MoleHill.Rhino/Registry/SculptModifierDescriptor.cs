@@ -13,7 +13,7 @@ internal sealed class SculptModifierDescriptor : ModifierTypeDescriptor
     public override string DisplayName => "Sculpt";
     public override string IconName => "ModSculpt";
     public override int SortOrder => 4;
-    public override string Subtitle => "Interactive Z sculpting";
+    public override string Subtitle => "Sculpt heights by hand";
 
     // Hidden detail scale retained for field cell-size and session radius defaults. DynTopo is disabled
     // and hidden until the refinement path is stable on real graded terrain.
@@ -29,18 +29,18 @@ internal sealed class SculptModifierDescriptor : ModifierTypeDescriptor
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
         ModifierParam.Sources(
-            "Constraints", "Constraints",
+            "Constraints", "Protect",
             m => ((SculptModifierDefinition)m).Constraints,
             RhinoObjectType.Curve,
-            "Terrain protected from sculpting. Closed curves lock their interior; open curves lock the breakline. Selecting the source of an earlier Grade Path protects its configured road width."),
+            "Curves that protect terrain from sculpting. A closed curve protects everything inside it; an open curve protects the terrain along it. Selecting the source of an earlier Grade Path protects that path's full width."),
         ModifierParam.Number(
             "ConstraintFeather", "Feather",
             m => ((SculptModifierDefinition)m).ConstraintFeather,
             (m, v) => ((SculptModifierDefinition)m).ConstraintFeather = v,
-            "Distance outside each protected footprint over which sculpt influence returns smoothly. Leave at 0 to use the Sculpt detail size.",
+            "Distance beyond each protected area over which sculpting fades back in. Leave at 0 to use the Sculpt detail size.",
             min: 0.0),
         ModifierParam.ReadOnly(
-            "Field", "Field",
+            "Field", "Stored Sculpt",
             m =>
             {
                 var sculpt = (SculptModifierDefinition)m;
@@ -48,6 +48,6 @@ internal sealed class SculptModifierDescriptor : ModifierTypeDescriptor
                     ? "empty"
                     : $"{sculpt.Tiles.Count} tiles, ~{SculptFieldCodec.EstimateKilobytes(sculpt):N0} KB";
             },
-            help: "Stored sculpt data: displacement tiles saved with the document."),
+            help: "The sculpt strokes stored on this modifier, saved with the document as height-offset tiles."),
     };
 }

@@ -163,3 +163,10 @@ model-length deviation, unitless integer vertex cap, or percentage row, dispatch
 `mesh-collage`). It's wired into `TerrainSerializer.SharedOptions`, used by every whole-terrain
 (de)serialization site (save/load + the clone paths). Keep each `Kind` stable — it's the on-disk
 discriminator.
+
+## Wording
+
+Labels, help and subtitles follow the glossary in `docs/architecture.md` → "Modifier vocabulary"
+(breakline, boundary, border, crease, incoming mesh, Protect, Protect Hold). A row's `Key` is its
+on-disk name and never changes for wording; only `Label`/`Help` do. `ModifierVocabularyGuardTests`
+fails on the retired words (constraint, feature, pinned, fixity, upstream).

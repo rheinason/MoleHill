@@ -201,6 +201,16 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
   converted; a fold between two faces has no rise over run. Slope-taking commands share one
   `SlopeCommandOption` (value + `Units` list) so every prompt reads alike. See
   `docs/architecture.md` → "Slope units".
+- **One vocabulary across the modifier cards.** A curve whose edges the mesh keeps is a **breakline**
+  everywhere (Triangulate, Add Geometry, Remesh, Retopo, Retaining Wall); a closed plan curve
+  that scopes a region is a **boundary**; the mesh's outer edge is its **border** (never "TIN boundary");
+  a fold detected from the mesh is a **crease**; the stage input is the **incoming mesh** (never
+  "upstream mesh"); **Protect** is a curve that shields terrain from an edit and adds no mesh edge — Sculpt's strokes, and
+  Smooth's smoothing (whose **Protect Hold** is how firmly those curves keep their height). "Constraint", "feature", "pinned" and "fixity" are
+  retired from user-facing text — storage keys (`Constraints`, `BreaklineFixity`, `ConstraintFeather`)
+  keep their names because they are JSON on disk. `ModifierVocabularyGuardTests` fails on a retired
+  word in any modifier label, help or subtitle. Panel summaries (`GetCollapsedSummary`) use the row's
+  label and full words, and show slopes in the user's unit. See `docs/architecture.md` → "Modifier vocabulary".
 - **TIN Surface component**: pure CDT only — no quality refinement. Quality lives in the Remesh component.
 - **Panel top toolbar**: 2 rows — (1) name/picker/+/⎘/👁/🔒/Rebuild/🗑, (2) Live update + status label. Tolerance, display/transparency and layer settings are not in the toolbar; output layers are named by one "Output Layers" row in the Settings card.
 - **Output layer routing goes through `LayerRole`.** Never hardcode or plumb a layer path for generated output, and never append a suffix to build one. `GeneratedRhinoObject.Role` is `required` and `LayerRoleTable.Path` is never null, so every producer names a destination and every destination resolves — that is what stops output baking onto Rhino's current layer. Appearance (colour, print width, linetype, annotation style, hatch) comes from the same role, so preview and bake cannot drift apart. See `docs/architecture.md` → "Output layer roles".

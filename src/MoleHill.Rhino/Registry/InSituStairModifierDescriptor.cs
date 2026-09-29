@@ -13,7 +13,7 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
     public override string DisplayName => "In-Situ Stair";
     public override string IconName => "ModGradePath";
     public override int SortOrder => 8;
-    public override string Subtitle => "Support surface + stair Breps";
+    public override string Subtitle => "Stair solids on a support surface";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new InSituStairModifierDefinition { RiserHeight = ModelUnits.FromMeters(0.15, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunInSituStairStage(context);
@@ -40,7 +40,7 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
             "MaxDistance", "Max Distance",
             m => ((InSituStairModifierDefinition)m).MaxDistance,
             (m, v) => ((InSituStairModifierDefinition)m).MaxDistance = v,
-            "Maximum grading reach away from the stair footprint. 0 means unlimited.",
+            "Maximum grading reach away from the stair. 0 means unlimited; smaller values stop the batter sooner.",
             unit: ParameterUnit.ModelLength),
         ModifierParam.Bool(
             "ShowTreadLabels", "Show Tread Labels",

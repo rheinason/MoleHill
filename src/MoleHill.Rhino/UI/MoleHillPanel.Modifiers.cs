@@ -1,4 +1,4 @@
-﻿using Eto.Drawing;
+﻿﻿using Eto.Drawing;
 using Eto.Forms;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
@@ -395,7 +395,7 @@ public sealed partial class MoleHillPanel
 
     private Control CreateSculptSessionRow(Guid terrainId, Guid modifierId)
     {
-        var sculptButton = MakeToolbarButton("Sculpt", (_, _) =>
+        var sculptButton = MakeToolbarButton("Start", (_, _) =>
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null)
@@ -408,7 +408,7 @@ public sealed partial class MoleHillPanel
 
                 SculptSessionController.Instance.BeginSession(doc, terrainId, modifierId);
             });
-        }, "Start sculpting in the viewport. Drag to sculpt, Ctrl inverts, Shift smooths; choose Erase to remove sculpting locally; Enter or Esc ends the session.");
+        }, "Start sculpting in the viewport. Drag to sculpt, Ctrl inverts, Shift smooths; choose Erase to remove strokes locally; Enter or Esc ends the session.");
         sculptButton.MinimumSize = new Size(0, UiMetrics.ControlHeight);
         sculptButton.BackgroundColor = UiTheme.ListSelectionBackground;
 
@@ -427,14 +427,14 @@ public sealed partial class MoleHillPanel
                 return;
 
             MutateModifier(terrainId, modifierId, item => ((SculptModifierDefinition)item).Tiles.Clear());
-        }, "Delete all stored sculpt displacement for this modifier.");
+        }, "Delete every sculpt stroke stored on this modifier.");
 
-        // A PropertyRow like the rest of the card, so Sculpt starts on the same column as Constraints
+        // A PropertyRow like the rest of the card, so Sculpt starts on the same column as Protect
         // and Feather below it instead of hanging off the end of its own caption.
         return new PropertyRow(
             CreateHelpLabel(
-                "Sculpting",
-                "Sculpt terrain elevation by hand in the viewport, or clear every stored stroke.",
+                "Sculpt",
+                "Sculpt terrain heights by hand in the viewport, or clear every stored stroke.",
                 0),
             new AdaptiveColumns(UiMetrics.SpaceSmall, UiMetrics.Chs(8), sculptButton, clearButton),
             expandWidget: true);
@@ -565,65 +565,67 @@ public sealed partial class MoleHillPanel
         return TerrainTypeRegistry.ForModifierType(modifier.GetType())?.Subtitle ?? "Modifier";
     }
 
+    private static int CountSources(SourceReferenceSet sources) =>
+        sources.ObjectIds.Count + sources.LayerPaths.Count;
+
     private static string GetCollapsedSummary(ModifierDefinition modifier)
     {
         switch (modifier)
         {
             case TriangulateModifierDefinition t:
-                int dem = t.DemSurface.ObjectIds.Count + t.DemSurface.LayerPaths.Count;
-                int pts = t.Points.ObjectIds.Count + t.Points.LayerPaths.Count;
-                int bkl = t.Breaklines.ObjectIds.Count + t.Breaklines.LayerPaths.Count;
-                int ctr = t.Contours.ObjectIds.Count + t.Contours.LayerPaths.Count;
-                return $"{dem} DEM | {pts} pts | {bkl} breaks | {ctr} contours";
+                return $"{CountSources(t.DemSurface)} DEM | {CountSources(t.Points)} points | " +
+                    $"{CountSources(t.Breaklines)} breaklines | {CountSources(t.Contours)} contours";
             case AddGeometryModifierDefinition a:
-                int addPts = a.Points.ObjectIds.Count + a.Points.LayerPaths.Count;
-                int addBkl = a.Breaklines.ObjectIds.Count + a.Breaklines.LayerPaths.Count;
-                int addCtr = a.Contours.ObjectIds.Count + a.Contours.LayerPaths.Count;
-                return $"{addPts} pts | {addBkl} breaks | {addCtr} contours";
+                return $"{CountSources(a.Points)} points | {CountSources(a.Breaklines)} breaklines | " +
+                    $"{CountSources(a.Contours)} contours";
             case RemeshModifierDefinition r:
-                var parts = new System.Collections.Generic.List<string>();
-                parts.Add(r.EdgeLength > 0 ? $"Edge: {r.EdgeLength:G4}" : "Edge: auto");
-                if (r.CreaseAngle > 0) parts.Add($"Crease: {r.CreaseAngle:G4} deg");
-                return string.Join(" | ", parts);
+                string remeshEdge = r.EdgeLength > 0 ? $"Edge Length {r.EdgeLength:G4}" : "Edge Length auto";
+                return r.CreaseAngle > 0
+                    ? $"{remeshEdge} | Crease Angle {r.CreaseAngle:G4} deg"
+                    : remeshEdge;
+            case RetopoModifierDefinition retopo:
+                string retopoEdge = retopo.TargetEdgeLength > 0 ? $"Edge Length {retopo.TargetEdgeLength:G4}" : "Edge Length auto";
+                return $"{retopoEdge} | {(retopo.Quads ? "Quads on" : "field preview")}";
             case SimplifyModifierDefinition simplify:
                 return simplify.Mode switch
                 {
                     SimplifyModifierDefinition.TargetVertexCountMode => $"At most {simplify.TargetVertexCount:N0} vertices",
                     SimplifyModifierDefinition.RetainPercentageMode => $"Retain {simplify.RetainPercentage:G4}%",
-                    _ => $"Max dz: {simplify.MaximumDeviation:G4}"
+                    _ => $"Max Deviation {simplify.MaximumDeviation:G4}"
                 };
             case SmoothModifierDefinition s:
-                return $"{s.Iterations} iter | Str {s.Strength:G3}";
+                return $"{s.Iterations} iterations | Strength {s.Strength:G3} | {CountSources(s.Breaklines)} protect curves";
+            case SculptModifierDefinition sculpt:
+                return sculpt.Tiles.Count == 0
+                    ? "no strokes"
+                    : $"{sculpt.Tiles.Count} tiles | {CountSources(sculpt.Constraints)} protect curves";
             case ProjectToModifierDefinition projectTo:
                 string target = projectTo.TargetMesh.HasReferences
-                    ? "mesh"
-                    : projectTo.TargetTerrainId.HasValue ? "terrain" : "no target";
-                int projectBoundaries = projectTo.Boundaries.ObjectIds.Count + projectTo.Boundaries.LayerPaths.Count;
-                return $"{target} | {projectBoundaries} boundaries | Str {projectTo.Strength:G3}";
+                    ? "target mesh"
+                    : projectTo.TargetTerrainId.HasValue ? "target terrain" : "no target";
+                return $"{target} | {CountSources(projectTo.Boundaries)} boundaries | Strength {projectTo.Strength:G3}";
             case GradePadModifierDefinition p:
-                int bounds = p.Boundaries.ObjectIds.Count + p.Boundaries.LayerPaths.Count;
-                return $"{bounds} boundaries | Daylight {p.SlopeAngle:G4} deg";
+                return $"{CountSources(p.Boundaries)} boundaries | Fill {FormatSlopeDegrees(p.SlopeAngle)}";
             case GradePathModifierDefinition path:
-                int paths = path.Paths.ObjectIds.Count + path.Paths.LayerPaths.Count;
+                int paths = CountSources(path.Paths);
                 if (!path.UseVariableWidth)
-                    return $"{paths} paths | W={path.Width:G4}";
-                int edges = path.WidthEdges.ObjectIds.Count + path.WidthEdges.LayerPaths.Count;
-                return $"{paths} paths | variable, {edges} width edges | W={path.Width:G4} fallback";
+                    return $"{paths} centerlines | Width {path.Width:G4}";
+                return $"{paths} centerlines | variable width, {CountSources(path.WidthEdges)} width edges | Width {path.Width:G4} fallback";
             case GradeLineModifierDefinition line:
-                int lineCount = line.Lines.ObjectIds.Count + line.Lines.LayerPaths.Count;
+                int lineCount = CountSources(line.Lines);
                 return line.UseAsymmetricSides
-                    ? $"{lineCount} lines | asymmetric sides"
-                    : $"{lineCount} lines | Fill {line.SlopeAngle:G4} deg";
+                    ? $"{lineCount} design lines | asymmetric sides"
+                    : $"{lineCount} design lines | Fill {FormatSlopeDegrees(line.SlopeAngle)}";
             case RetainingWallModifierDefinition w:
-                int curves = w.WallCurves.ObjectIds.Count + w.WallCurves.LayerPaths.Count;
+                int curves = CountSources(w.WallCurves);
                 return w.GradesTerrain
-                    ? $"{curves} curves | grading {(w.UseAsymmetricSides ? "asymmetric" : $"{w.SlopeAngle:G4} deg")}"
-                    : $"{curves} curves";
+                    ? $"{curves} wall curves | grade terrain, {(w.UseAsymmetricSides ? "asymmetric sides" : $"Fill {FormatSlopeDegrees(w.SlopeAngle)}")}"
+                    : $"{curves} wall curves | breaklines only";
             case InSituStairModifierDefinition stair:
-                int refs = stair.ReferenceSurface.ObjectIds.Count + stair.ReferenceSurface.LayerPaths.Count;
+                int refs = CountSources(stair.ReferenceSurface);
                 return !string.IsNullOrWhiteSpace(stair.ComputedTreadDepthSummary)
-                    ? $"{stair.ComputedSurfaceCount ?? refs} surf | Tread {stair.ComputedTreadDepthSummary}"
-                    : $"{refs} refs | Riser {stair.RiserHeight:G4}";
+                    ? $"{stair.ComputedSurfaceCount ?? refs} surfaces | Tread Depth {stair.ComputedTreadDepthSummary}"
+                    : $"{refs} reference surfaces | Riser Height {stair.RiserHeight:G4}";
             default:
                 return string.Empty;
         }

@@ -13,7 +13,7 @@ internal sealed class GradeLineModifierDescriptor : ModifierTypeDescriptor
     public override string DisplayName => "Grade Line";
     public override string IconName => "ModGradeLine";
     public override int SortOrder => 7;
-    public override string Subtitle => "Grade away from a line";
+    public override string Subtitle => "Batter away from a design line";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new GradeLineModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunGradeLineStage(context);
 
@@ -80,7 +80,7 @@ internal sealed class GradeLineModifierDescriptor : ModifierTypeDescriptor
             "MaxDistance", "Max Distance",
             m => ((GradeLineModifierDefinition)m).MaxDistance,
             (m, v) => ((GradeLineModifierDefinition)m).MaxDistance = v,
-            "Maximum grading reach away from the line. 0 means unlimited; lower values constrain how far the batter spreads.",
+            "Maximum grading reach away from the line. 0 means unlimited; smaller values stop the batter sooner.",
             unit: ParameterUnit.ModelLength),
     };
 }

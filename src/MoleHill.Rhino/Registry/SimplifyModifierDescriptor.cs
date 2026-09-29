@@ -13,7 +13,7 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
     public override string DisplayName => "Simplify";
     public override string IconName => "ModSimplify";
     public override int SortOrder => 1;
-    public override string Subtitle => "Certified surface reduction";
+    public override string Subtitle => "Fewer vertices, error verified";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new SimplifyModifierDefinition
     {
         MaximumDeviation = ModelUnits.FromMeters(0.05, unitSystem)
@@ -38,7 +38,7 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
             "MaximumDeviation", "Maximum Deviation",
             m => ((SimplifyModifierDefinition)m).MaximumDeviation,
             (m, value) => ((SimplifyModifierDefinition)m).MaximumDeviation = value,
-            "Largest permitted vertical difference from the terrain immediately before this modifier. The complete triangle overlay is verified; boundaries and persistent grading/wall constraints are retained. If no smaller mesh can meet the bound, the incoming mesh is kept. Later modifiers may change the surface, and Earthworks can report a small volume difference because this is not a volume-conservation constraint.",
+            "Largest permitted vertical difference from the terrain immediately before this modifier. The complete triangle overlay is verified; the mesh border and grading and wall breaklines are kept. If no smaller mesh can meet the bound, the incoming mesh is kept. Later modifiers may change the surface, and Earthworks can report a small volume difference because Simplify does not conserve volume.",
             min: 0.0,
             unit: ParameterUnit.ModelLength,
             visibleWhen: m => ((SimplifyModifierDefinition)m).Mode == SimplifyModifierDefinition.MaximumDeviationMode),
@@ -47,7 +47,7 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
             m => ((SimplifyModifierDefinition)m).TargetVertexCount,
             (m, value) => ((SimplifyModifierDefinition)m).TargetVertexCount =
                 double.IsFinite(value) ? (int)Math.Clamp(Math.Floor(value), 0, int.MaxValue) : 0,
-            "Maximum output vertex count, including boundary, constraint, and triangulator-inserted vertices. If mandatory geometry alone exceeds the cap, the incoming mesh is kept with a diagnostic.",
+            "Maximum output vertex count, including border, breakline and triangulator-inserted vertices. If mandatory geometry alone exceeds the cap, the incoming mesh is kept with a diagnostic.",
             min: 3.0,
             decimalPlaces: 0,
             step: 1.0,
@@ -57,7 +57,7 @@ internal sealed class SimplifyModifierDescriptor : ModifierTypeDescriptor
             "RetainPercentage", "Retain",
             m => ((SimplifyModifierDefinition)m).RetainPercentage,
             (m, value) => ((SimplifyModifierDefinition)m).RetainPercentage = value,
-            "Percentage of incoming used vertices to retain. The cap is floor(input vertices × percentage / 100); 100% keeps the input unchanged, and a cap below mandatory geometry fails cleanly.",
+            "Percentage of the incoming mesh's vertices to keep. The cap is floor(input vertices × percentage / 100); 100% keeps the input unchanged, and a cap below mandatory geometry fails cleanly.",
             min: 0.0,
             max: 100.0,
             decimalPlaces: 2,

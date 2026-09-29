@@ -255,7 +255,7 @@ internal sealed partial class TerrainBuildService
             if (remeshResult.ReturnedInputMesh)
             {
                 build.Diagnostics.Add(
-                    $"{label} remesh attempted constraint insertion but kept the upstream mesh unchanged; grading will continue on the existing topology.");
+                    $"{label} remesh attempted breakline insertion but kept the incoming mesh unchanged; grading will continue on the existing topology.");
             }
             build.Diagnostics.Add(remeshResult.Warning ?? $"{label} triangulation failed.");
             return mesh;

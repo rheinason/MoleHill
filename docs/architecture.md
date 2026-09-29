@@ -246,6 +246,28 @@ inputs are stored as angles for exactly this reason — they are scale-free. See
 Core remains unitless: `ScaleAwareTolerance` and scale-relative daylight convergence derive numerical
 floors from caller tolerance and geometry extent, so uniformly scaled inputs take the same topology path.
 
+## Modifier vocabulary
+
+The modifier cards share one set of words, because the same idea used to carry three names (Smooth's
+"Breaklines", Sculpt/Remesh/Retopo's "Constraints", Simplify's "boundaries and constraints").
+
+| Word | Means | Not |
+|------|-------|-----|
+| **Breakline** | A curve whose edges the mesh keeps, with its Z as the height along the edge | "constraint", "feature line" |
+| **Boundary** | A closed plan curve that scopes a region (Smooth, Project To, Grade Pad, Triangulate clips) | an edge of the mesh |
+| **Border** | The mesh's own outer edge (Peel Border, Simplify, Retopo) | "TIN boundary" |
+| **Crease** | A fold detected from the mesh (Remesh/Retopo Crease Angle); kept, never saved as a breakline | "feature edge" |
+| **Incoming mesh** | The stage's input — what Simplify measures against and what a failed stage keeps | "upstream mesh", "original mesh" |
+| **Protect** | Sculpt and Smooth: curves that shield terrain from the edit and add no mesh edge (Sculpt: closed = interior, open = the line; Smooth: the line's own vertices) | breakline |
+| **Protect Hold** | Smooth only: how firmly protected curves keep their height (`BreaklineFixity` on disk) | "fixity" |
+| **Batter** | The graded slope surface between a rail/edge and daylight; a *slope* is the angle that shapes it | "shoulder" |
+
+Rules: storage keys and JSON discriminators never change for wording (documents are on disk), so a
+descriptor may declare `Key = "Constraints"` with `Label = "Breaklines"`. Diagnostic messages follow the
+glossary; **timing stage names and details are not messages** — they feed `tests/perf-baselines/` and the
+wall-grade probe, so they keep their spelling. `ModifierVocabularyGuardTests` pins the retired words and
+the labels of the rows that used to disagree.
+
 ## Slope units
 
 Slope is the one quantity in MoleHill that every discipline writes differently: a landscape architect in

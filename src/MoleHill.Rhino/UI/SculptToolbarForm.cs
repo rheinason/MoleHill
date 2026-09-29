@@ -52,11 +52,11 @@ internal sealed class SculptToolbarForm : Form
             Spacing = 2,
             VerticalContentAlignment = VerticalAlignment.Center,
         };
-        AddBrushButton(brushRow, SculptBrushKind.Draw, "Draw", "Raise terrain (Ctrl lowers). Shortcut: hold Shift for temporary Smooth.");
-        AddBrushButton(brushRow, SculptBrushKind.Subtract, "Sub", "Lower terrain (Ctrl raises).");
-        AddBrushButton(brushRow, SculptBrushKind.Erase, "Erase", "Remove sculpt displacement and restore the incoming terrain locally.");
-        AddBrushButton(brushRow, SculptBrushKind.Smooth, "Smooth", "Relax terrain toward its neighbors.");
-        AddBrushButton(brushRow, SculptBrushKind.Flatten, "Flat", "Move terrain toward the height under the brush at stroke start.");
+        AddBrushButton(brushRow, SculptBrushKind.Draw, "Raise", "Raise terrain (Ctrl lowers). Shortcut: hold Shift for temporary Smooth.");
+        AddBrushButton(brushRow, SculptBrushKind.Subtract, "Lower", "Lower terrain (Ctrl raises).");
+        AddBrushButton(brushRow, SculptBrushKind.Erase, "Erase", "Remove sculpt strokes under the brush, restoring the incoming mesh heights.");
+        AddBrushButton(brushRow, SculptBrushKind.Smooth, "Smooth", "Smooth terrain heights toward the neighbouring terrain.");
+        AddBrushButton(brushRow, SculptBrushKind.Flatten, "Flatten", "Level terrain toward the height under the brush at the start of the stroke.");
         AddBrushButton(brushRow, SculptBrushKind.Grab, "Grab", "Drag the terrain under the brush up or down rigidly.");
         AddBrushButton(brushRow, SculptBrushKind.Clay, "Clay", "Build up terrain toward a plane just above the surface.");
         AddBrushButton(brushRow, SculptBrushKind.Noise, "Noise", "Add natural height variation.");

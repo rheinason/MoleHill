@@ -13,7 +13,7 @@ internal sealed class ProjectToModifierDescriptor : ModifierTypeDescriptor
     public override string DisplayName => "Project To";
     public override string IconName => "ModProjectTo";
     public override int SortOrder => 9;
-    public override string Subtitle => "Blend vertically to a target";
+    public override string Subtitle => "Blend heights toward a target mesh";
 
     public override ModifierDefinition Create(UnitSystem unitSystem) => new ProjectToModifierDefinition
     {
@@ -33,7 +33,7 @@ internal sealed class ProjectToModifierDescriptor : ModifierTypeDescriptor
             "Boundaries", "Boundaries",
             m => ((ProjectToModifierDefinition)m).Boundaries,
             RhinoObjectType.Curve,
-            "Optional closed plan curves. Nested loops alternate included and excluded regions, so inner loops make donut holes."),
+            "Closed curves that limit the effect to the terrain inside them. Nested loops alternate included and excluded regions, so inner loops make donut holes. Leave empty to affect the whole terrain."),
         ModifierParam.Slider(
             "Strength", "Strength",
             m => ((ProjectToModifierDefinition)m).Strength,

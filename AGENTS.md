@@ -130,6 +130,17 @@ Use C# with 4-space indentation, file-scoped namespaces, and one type per file. 
   converted; a fold between two faces has no rise over run. Slope-taking commands share one
   `SlopeCommandOption` (value + `Units` list) so every prompt reads alike. See
   `docs/architecture.md` → "Slope units".
+- **One vocabulary across the modifier cards.** A curve whose edges the mesh keeps is a **breakline**
+  everywhere (Triangulate, Add Geometry, Remesh, Retopo, Retaining Wall); a closed plan curve
+  that scopes a region is a **boundary**; the mesh's outer edge is its **border** (never "TIN boundary");
+  a fold detected from the mesh is a **crease**; the stage input is the **incoming mesh** (never
+  "upstream mesh"); **Protect** is a curve that shields terrain from an edit and adds no mesh edge — Sculpt's strokes, and
+  Smooth's smoothing (whose **Protect Hold** is how firmly those curves keep their height).
+  "Constraint", "feature", "pinned" and "fixity" are
+  retired from user-facing text — storage keys (`Constraints`, `BreaklineFixity`, `ConstraintFeather`)
+  keep their names because they are JSON on disk. `ModifierVocabularyGuardTests` fails on a retired
+  word in any modifier label, help or subtitle. Panel summaries (`GetCollapsedSummary`) use the row's
+  label and full words, and show slopes in the user's unit. See `docs/architecture.md` → "Modifier vocabulary".
 - **Generated text is sized and aligned by the annotation style — so author it accordingly.** Baking
   stamps the terrain's dimension style onto every generated `TextEntity`, and a dimension style owns
   *both* size and justification: the stamp resets the entity's own values to the style's. Height following

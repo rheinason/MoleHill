@@ -320,7 +320,7 @@ internal sealed partial class TerrainBuildService
         {
             build.Diagnostics.Add(
                 $"Retaining Wall constrained rebuild discarded terrain detail " +
-                $"({mesh.Vertices.Count:N0} -> {remeshed.Vertices.Count:N0} verts); the upstream mesh was kept " +
+                $"({mesh.Vertices.Count:N0} -> {remeshed.Vertices.Count:N0} verts); the incoming mesh was kept " +
                 "and the wall breaklines were not inserted.");
             AddRetainingWallConstraintOverlay(
                 build,
@@ -328,7 +328,7 @@ internal sealed partial class TerrainBuildService
                 wallConstraints,
                 RuntimeOverlaySeverity.Error,
                 "retaining_wall.rebuild_discarded_detail",
-                "The constrained rebuild would have discarded terrain detail; the upstream mesh was retained.",
+                "The constrained rebuild would have discarded terrain detail; the incoming mesh was retained.",
                 "Detail loss");
             return mesh;
         }
@@ -343,7 +343,7 @@ internal sealed partial class TerrainBuildService
             !GradingTopologyDiagnostics.IsNotWorseThanInput(inputFaces, inputFaceCount, outputFaces, outputFaceCount, out string? damage))
         {
             build.Diagnostics.Add(
-                $"Retaining Wall constrained rebuild damaged the terrain ({damage}); the upstream mesh was kept " +
+                $"Retaining Wall constrained rebuild damaged the terrain ({damage}); the incoming mesh was kept " +
                 "and the wall breaklines were not inserted.");
             AddRetainingWallConstraintOverlay(
                 build,
@@ -351,7 +351,7 @@ internal sealed partial class TerrainBuildService
                 wallConstraints,
                 RuntimeOverlaySeverity.Error,
                 "retaining_wall.rebuild_damaged_topology",
-                "The constrained rebuild would have opened the terrain; the upstream mesh was retained.",
+                "The constrained rebuild would have opened the terrain; the incoming mesh was retained.",
                 "Topology damage");
             return mesh;
         }
@@ -377,7 +377,7 @@ internal sealed partial class TerrainBuildService
             wallConstraints,
             RuntimeOverlaySeverity.Error,
             "retaining_wall.constraint_insertion_failed",
-            "Wall breaklines could not be inserted without damaging terrain topology; the upstream mesh was retained.",
+            "Wall breaklines could not be inserted without damaging terrain topology; the incoming mesh was retained.",
             "Breaklines failed");
 
         return remeshed;
@@ -856,7 +856,7 @@ internal sealed partial class TerrainBuildService
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
         {
             if (reportFailures)
-                build.Diagnostics.Add(errorMessage ?? "Retaining Wall topology insertion could not extract the upstream mesh.");
+                build.Diagnostics.Add(errorMessage ?? "Retaining Wall topology insertion could not extract the incoming mesh.");
             return false;
         }
 
@@ -893,12 +893,12 @@ internal sealed partial class TerrainBuildService
                 out outputFaceCount,
                 out string? topologyError))
         {
-            rejection = topologyError ?? "Retaining Wall topology insertion could not insert wall constraints into the existing mesh.";
+            rejection = topologyError ?? "Retaining Wall topology insertion could not insert wall breaklines into the existing mesh.";
         }
         else if (!TopologyChanged(vertices, vertexCount, faces, faceCount, outputVertices, outputVertexCount, outputFaces, outputFaceCount, tolerance))
         {
             if (reportFailures)
-                build.Diagnostics.Add("Retaining Wall topology insertion found no terrain faces crossed by wall constraints.");
+                build.Diagnostics.Add("Retaining Wall topology insertion found no terrain faces crossed by wall breaklines.");
             return false;
         }
         else if (!IsTopologyInsertionBoundarySafe(

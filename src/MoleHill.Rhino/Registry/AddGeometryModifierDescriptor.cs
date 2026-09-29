@@ -13,7 +13,7 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
     public override string DisplayName => "Add Geometry";
     public override string IconName => "ModAddGeometry";
     public override int SortOrder => 1;
-    public override string Subtitle => "Add source geometry";
+    public override string Subtitle => "Add points, breaklines and contours";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new AddGeometryModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunAddGeometryStage(context);
 
@@ -24,14 +24,17 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
         ModifierParam.Sources(
             "Points", "Points",
             m => ((AddGeometryModifierDefinition)m).Points,
-            RhinoObjectType.Point | RhinoObjectType.PointSet),
+            RhinoObjectType.Point | RhinoObjectType.PointSet,
+            "Points that become terrain vertices at their own height."),
         ModifierParam.Sources(
             "Breaklines", "Breaklines",
             m => ((AddGeometryModifierDefinition)m).Breaklines,
-            RhinoObjectType.Curve),
+            RhinoObjectType.Curve,
+            "Curves whose edges the mesh keeps. Each vertex sets the height along the edge."),
         ModifierParam.Sources(
             "Contours", "Contours",
             m => ((AddGeometryModifierDefinition)m).Contours,
-            RhinoObjectType.Curve),
+            RhinoObjectType.Curve,
+            "Contour curves. Their vertices set terrain height."),
     }.Concat(GeometryInputParameterCatalog.BoundaryPeel).ToArray();
 }

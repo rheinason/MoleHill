@@ -172,7 +172,7 @@ public static partial class PathGrader
         {
             errorMessage =
                 $"Grade Path constraint-insertion topology damaged the terrain ({topologyDamage}); " +
-                "the upstream mesh was kept.";
+                "the incoming mesh was kept.";
             return null;
         }
 

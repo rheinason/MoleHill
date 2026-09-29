@@ -467,7 +467,7 @@ public sealed partial class MoleHillPanel
                         "hold it to ramp rules on rise and landings."));
                     layout.AddRow(CreateReadOnlyValueRow(
                         "Route Steepest",
-                        $"{FormatRouteSlope(runningDegrees)} running, {FormatRouteSlope(crossDegrees)} cross",
+                        $"{FormatSlopeDegrees(runningDegrees)} running, {FormatSlopeDegrees(crossDegrees)} cross",
                         "The steepest averaged running and cross slope found on any route."));
                 }
 
@@ -604,7 +604,7 @@ public sealed partial class MoleHillPanel
         }
     }
 
-    private static string FormatRouteSlope(double degrees) =>
+    private static string FormatSlopeDegrees(double degrees) =>
         SlopeInput.FormatWithUnit(Math.Tan(degrees * Math.PI / 180.0), SlopeUnitPreference.Current);
 
     private static TerrainAnalysisSummary? GetAnalysisSummary(TerrainDefinition terrain, Guid analysisId)

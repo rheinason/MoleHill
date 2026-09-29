@@ -13,7 +13,7 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
     public override string DisplayName => "Grade Path";
     public override string IconName => "ModGradePath";
     public override int SortOrder => 6;
-    public override string Subtitle => "Path corridor grading";
+    public override string Subtitle => "Road corridor, batter to daylight";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new GradePathModifierDefinition { Width = ModelUnits.FromMeters(2.0, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunGradePathStage(context);
@@ -53,7 +53,7 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
             "SlopeAngle", "Fill Slope",
             m => ((GradePathModifierDefinition)m).SlopeAngle,
             (m, v) => ((GradePathModifierDefinition)m).SlopeAngle = v,
-            "Fill slope, used where terrain sits below the road. This is the main slope; the cut slope inherits it unless overridden. Flatter slopes spread the shoulder farther."),
+            "Fill slope, used where terrain sits below the road. This is the main slope; the cut slope inherits it unless overridden. Flatter slopes spread the batter farther."),
         ModifierParam.OptionalSlope(
             "CutSlopeAngle", "Cut Slope",
             m => ((GradePathModifierDefinition)m).CutSlopeAngle,
@@ -64,7 +64,7 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
             "MaxDistance", "Max Distance",
             m => ((GradePathModifierDefinition)m).MaxDistance,
             (m, v) => ((GradePathModifierDefinition)m).MaxDistance = v,
-            "Maximum grading reach away from the path. 0 means unlimited; lower values constrain the shoulder length.",
+            "Maximum grading reach away from the path. 0 means unlimited; smaller values stop the batter sooner.",
             unit: ParameterUnit.ModelLength),
     };
 }

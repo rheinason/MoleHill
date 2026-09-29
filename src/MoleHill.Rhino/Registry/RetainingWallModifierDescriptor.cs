@@ -13,7 +13,7 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
     public override string DisplayName => "Retaining Wall";
     public override string IconName => "ModRetainingWall";
     public override int SortOrder => 4;
-    public override string Subtitle => "Wall breaklines";
+    public override string Subtitle => "Wall breaklines, optional batter";
     public override ModifierDefinition Create(UnitSystem unitSystem) =>
         new RetainingWallModifierDefinition { MaxWallWidth = ModelUnits.FromMeters(1.0, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetainingWallStage(context);
@@ -105,7 +105,7 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
             "MaxDistance", "Max Distance",
             m => ((RetainingWallModifierDefinition)m).MaxDistance,
             (m, v) => ((RetainingWallModifierDefinition)m).MaxDistance = v,
-            "Maximum grading reach away from a rail. 0 means unlimited.",
+            "Maximum grading reach away from a rail. 0 means unlimited; smaller values stop the batter sooner.",
             unit: ParameterUnit.ModelLength,
             visibleWhen: Grades),
     };

@@ -63,7 +63,7 @@ internal sealed partial class TerrainBuildService
 
         if (conformed.Any(value => !double.IsFinite(value)))
         {
-            build.Diagnostics.Add($"{modifier.Label}: projection produced invalid mesh data. Original mesh kept.");
+            build.Diagnostics.Add($"{modifier.Label}: projection produced invalid mesh data. Incoming mesh kept.");
             return mesh;
         }
 
@@ -71,7 +71,7 @@ internal sealed partial class TerrainBuildService
         if (result.Vertices.Count == 0 || result.Faces.Count == 0 || !result.IsValid)
         {
             result.Dispose();
-            build.Diagnostics.Add($"{modifier.Label}: projection produced an invalid mesh. Original mesh kept.");
+            build.Diagnostics.Add($"{modifier.Label}: projection produced an invalid mesh. Incoming mesh kept.");
             return mesh;
         }
 

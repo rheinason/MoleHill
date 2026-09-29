@@ -35,25 +35,25 @@ internal static class GeometryInputParameterCatalog
             "PeelBoundaryTriangles", "Enabled",
             m => ((GeometryInputModifierDefinition)m).PeelBoundaryTriangles,
             (m, v) => ((GeometryInputModifierDefinition)m).PeelBoundaryTriangles = v,
-            "Remove unwanted triangles only from the current TIN boundary. Interior faces are not candidates."),
+            "Remove unwanted triangles from the mesh border only. Interior faces are never candidates."),
         ModifierParam.Number(
             "MaxBoundaryEdgeLength", "Max Edge",
             m => ((GeometryInputModifierDefinition)m).MaxBoundaryEdgeLength,
             (m, v) => ((GeometryInputModifierDefinition)m).MaxBoundaryEdgeLength = v,
-            "Boundary peeling edge threshold. 0 chooses an automatic threshold from mesh edge lengths.",
+            "Edge length above which a border triangle may be peeled. 0 chooses an automatic threshold from the mesh edge lengths.",
             unit: ParameterUnit.ModelLength),
         ModifierParam.Number(
             "MaxBoundaryAngleDegrees", "Max Angle",
             m => ((GeometryInputModifierDefinition)m).MaxBoundaryAngleDegrees,
             (m, v) => ((GeometryInputModifierDefinition)m).MaxBoundaryAngleDegrees = v,
             // A true interior angle of a triangle, not a slope: it runs to 180 and has no rise over run.
-            "Boundary triangles with a longer-than-threshold edge and an interior angle at or above this value are peeled.",
+            "Border triangles with an edge longer than Max Edge and an interior angle at or above this value are peeled.",
             max: 180.0,
             unit: ParameterUnit.Degrees),
         ModifierParam.Slope(
             "MaxBoundarySlopeDegrees", "Slope Limit",
             m => ((GeometryInputModifierDefinition)m).MaxBoundarySlopeDegrees,
             (m, v) => ((GeometryInputModifierDefinition)m).MaxBoundarySlopeDegrees = v,
-            "Boundary triangles at or above this slope are peeled. 0 disables slope-based peeling."),
+            "Border triangles at or above this slope are peeled. 0 disables slope-based peeling."),
     };
 }

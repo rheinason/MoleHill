@@ -1188,7 +1188,7 @@ public static class SurfaceRemesher
     {
         var parts = new List<string>
         {
-            "Remesh kept the upstream mesh unchanged."
+            "Remesh kept the incoming mesh unchanged."
         };
 
         parts.Add($"Initial pass failed: {DescribeAttemptFailure(firstAttempt)}.");

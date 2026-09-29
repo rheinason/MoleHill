@@ -881,7 +881,7 @@ internal sealed partial class TerrainBuildService
             }
             else
             {
-                build.Diagnostics.Add($"Remesh skipped because its constraint curves could not be inserted: {insertError}");
+                build.Diagnostics.Add($"Remesh skipped because its breaklines could not be inserted: {insertError}");
                 return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
             }
         }
@@ -918,7 +918,7 @@ internal sealed partial class TerrainBuildService
 
         if (!result.Success)
         {
-            build.Diagnostics.Add((result.Warning ?? "Remesh kept the upstream mesh unchanged.") + $" [{result.Timing}]");
+            build.Diagnostics.Add((result.Warning ?? "Remesh kept the incoming mesh unchanged.") + $" [{result.Timing}]");
             return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
@@ -1007,7 +1007,7 @@ internal sealed partial class TerrainBuildService
 
         if (!result.Success)
         {
-            build.Diagnostics.Add(result.Warning ?? "Remesh local refine kept the upstream mesh unchanged.");
+            build.Diagnostics.Add(result.Warning ?? "Remesh local refine kept the incoming mesh unchanged.");
             return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
@@ -1431,14 +1431,14 @@ internal sealed partial class TerrainBuildService
 
         if (smoothed.Any(value => double.IsNaN(value) || double.IsInfinity(value)))
         {
-            build.Diagnostics.Add("Smooth produced invalid mesh data. Original mesh kept.");
+            build.Diagnostics.Add("Smooth produced invalid mesh data. Incoming mesh kept.");
             return mesh;
         }
 
         var smoothedMesh = RhinoGeometryConversions.BuildMesh(smoothed, vertexCount, faces, faceCount);
         if (smoothedMesh.Faces.Count == 0 || smoothedMesh.Vertices.Count == 0 || !smoothedMesh.IsValid)
         {
-            build.Diagnostics.Add("Smooth produced an invalid mesh. Original mesh kept.");
+            build.Diagnostics.Add("Smooth produced an invalid mesh. Incoming mesh kept.");
             return mesh;
         }
 

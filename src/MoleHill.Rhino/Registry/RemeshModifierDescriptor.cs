@@ -13,7 +13,7 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
     public override string DisplayName => "Remesh";
     public override string IconName => "ModRemesh";
     public override int SortOrder => 2;
-    public override string Subtitle => "Isotropic remesh (feature-preserving)";
+    public override string Subtitle => "Even triangles, creases kept";
     public override ModifierDefinition Create(UnitSystem unitSystem) => new RemeshModifierDefinition
     {
         Mode = "isotropic",
@@ -31,14 +31,15 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
         ModifierParam.Sources(
-            "Constraints", "Constraints",
+            "Constraints", "Breaklines",
             m => ((RemeshModifierDefinition)m).Constraints,
-            RhinoObjectType.Curve),
+            RhinoObjectType.Curve,
+            "Curves whose edges the remesh keeps. Creases detected from the mesh are kept as well (see Crease Angle)."),
         ModifierParam.Choice(
-            "Mode", "Algorithm", ModeOptions,
+            "Mode", "Mode", ModeOptions,
             m => ((RemeshModifierDefinition)m).Mode,
             (m, v) => ((RemeshModifierDefinition)m).Mode = v ?? "isotropic",
-            "Isotropic regularizes the whole terrain to even triangles (best overall quality, can be slow on very large terrains and may occasionally cross retaining walls on shallow wall angles). Full Rebuild is the classic constrained-Delaunay re-triangulation — never crosses a wall or constraint, coarser triangle shapes. Local Refine only splits/flips triangles in place, preserving existing topology exactly — fastest and safest on huge terrains, coarsest quality."),
+            "Isotropic regularizes the whole terrain to even triangles (best overall quality, can be slow on very large terrains and may occasionally cross retaining walls on shallow wall angles). Full Rebuild is the classic constrained-Delaunay re-triangulation — never crosses a wall or breakline, coarser triangle shapes. Local Refine only splits/flips triangles in place, preserving existing topology exactly — fastest and safest on huge terrains, coarsest quality."),
         ModifierParam.Number(
             "EdgeLength", "Edge Length",
             m => ((RemeshModifierDefinition)m).EdgeLength,
@@ -49,13 +50,13 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
             "CreaseAngle", "Crease Angle",
             m => ((RemeshModifierDefinition)m).CreaseAngle,
             (m, v) => ((RemeshModifierDefinition)m).CreaseAngle = v,
-            "Preserve creases: feature edges (batter toes, slope breaks) folding at least this many degrees are pinned — vertices slide only along them and no edge flips across. Detected from the mesh each pass and never persisted as breaklines. Around 20-35 catches toe lines; leave at 0 to disable.",
+            "Keep creases: edges where the mesh folds at least this many degrees (batter toes, slope breaks) are kept — vertices slide only along them and no edge flips across. Detected from the mesh each pass and never saved as breaklines. Around 20-35 catches toe lines; leave at 0 to disable.",
             unit: ParameterUnit.Degrees),
         ModifierParam.Number(
             "MinAngle", "Min Angle",
             m => ((RemeshModifierDefinition)m).MinAngle,
             (m, v) => ((RemeshModifierDefinition)m).MinAngle = v,
-            "Full Rebuild only: minimum triangle angle in degrees. The constrained-Delaunay refinement splits skinny triangles until none is sharper than this. Around 20-30 gives well-shaped triangles; above ~34 the refinement may not terminate. Leave at 0 for no angle constraint.",
+            "Full Rebuild only: minimum triangle angle in degrees. The constrained-Delaunay refinement splits skinny triangles until none is sharper than this. Around 20-30 gives well-shaped triangles; above ~34 the refinement may not terminate. Leave at 0 for no angle limit.",
             max: 34.0,
             unit: ParameterUnit.Degrees,
             visibleWhen: IsRebuild),
@@ -63,7 +64,7 @@ internal sealed class RemeshModifierDescriptor : ModifierTypeDescriptor
             "MaxArea", "Max Area",
             m => ((RemeshModifierDefinition)m).MaxArea,
             (m, v) => ((RemeshModifierDefinition)m).MaxArea = v,
-            "Full Rebuild only: maximum triangle area. The refinement inserts points until every triangle is under this area, capping triangle size independently of Edge Length. Leave at 0 for no area constraint.",
+            "Full Rebuild only: maximum triangle area. The refinement inserts points until every triangle is under this area, capping triangle size independently of Edge Length. Leave at 0 for no area limit.",
             visibleWhen: IsRebuild),
     };
 
