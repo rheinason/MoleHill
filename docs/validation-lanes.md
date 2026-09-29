@@ -171,6 +171,11 @@ the tolerance that would fit, rather than advising a move to the origin.)
 After the wall fixes (architecture.md, "Retaining walls: getting the rails in") the 1 m walls insert, by
 local triangulation, in 14 s instead of failing after 60 s, and one edit at 1 m takes about 130 s.
 
+After the collapse-phase work and with `PathsCrossConstraints` on (architecture.md, "Remesh collapse
+phase" and "Grade Path meets a hard constraint"), the 1 m cold stack grades its paths up to the lawns. Remesh
+takes 36.5 s and one edit about 120-124 s. An edit still costs as much as a cold build, because every stage
+downstream of the edit re-runs on the whole mesh.
+
 ## wall-grade
 
 Also a probe, not a lane. `WallGradeProbe` (`tests/MoleHill.Rhino.Tests/WallGradeProbe.cs`) builds small
