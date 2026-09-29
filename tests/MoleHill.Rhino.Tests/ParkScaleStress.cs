@@ -237,6 +237,30 @@ public static class ParkScaleStress
             return "the survey-point edit did not honour cancellation";
         anyOverBudget |= pointEdit.Status == "over-budget";
 
+        // Edits that should cost nothing, because they cannot change the terrain: the price of the cache
+        // itself, of a card that has no inputs yet, and of a card's name.
+        var structural = new List<(string Name, Action Change)>
+        {
+            ("rebuild: no change", static () => { }),
+            ("add: empty grade pad", () => terrain.Modifiers.Insert(1, new GradePadModifierDefinition
+            {
+                Id = Guid.Parse("66666666-6666-6666-6666-666666666666"),
+                Label = "Empty Grade Pad"
+            })),
+        };
+        if (terrain.Modifiers.Contains(fixture.Remesh))
+            structural.Add(("rename: remesh card", () => fixture.Remesh.Label = "Remesh (renamed)"));
+
+        foreach ((string name, Action change) in structural)
+        {
+            change();
+            StepResult step = RunStep(request, name, service, fixture.Snapshot, cache, progress);
+            rung.Steps.Add(step);
+            if (step.Status == "hung")
+                return $"'{name}' did not honour cancellation";
+            anyOverBudget |= step.Status == "over-budget";
+        }
+
         return anyOverBudget ? $"a step exceeded the {request.StepBudgetSeconds:N0} s budget" : null;
     }
 

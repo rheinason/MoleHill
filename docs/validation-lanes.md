@@ -176,6 +176,11 @@ phase" and "Grade Path meets a hard constraint"), the 1 m cold stack grades its 
 takes 36.5 s and one edit about 120-124 s. An edit still costs as much as a cold build, because every stage
 downstream of the edit re-runs on the whole mesh.
 
+The probe also times three edits that cannot change the terrain, after the survey-point edit: a rebuild
+with nothing changed, an empty Grade Pad card inserted below Triangulate, and a renamed Remesh card. At 1 m
+they take 0.5 s, 92 s and 37 s. The last two should cost nothing; see
+`incremental-rebuild-design-2026-09-29.md`.
+
 ## wall-grade
 
 Also a probe, not a lane. `WallGradeProbe` (`tests/MoleHill.Rhino.Tests/WallGradeProbe.cs`) builds small

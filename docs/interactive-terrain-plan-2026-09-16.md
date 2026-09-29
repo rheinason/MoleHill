@@ -491,6 +491,9 @@ visible change on release; final equivalence alone does not establish preview qu
   buffer reuse is an experimental question, not an assumed guarantee.
 - Extend local evaluation and incremental analyses only where dependency locality is proven. Global
   effects such as waterflow must not inherit local invalidation by assumption.
+- The authoritative-build side of this step is designed in `incremental-rebuild-design-2026-09-29.md`:
+  stable stage keys and inert cards, canonical flat stage data, dirty-region splicing under per-stage
+  locality contracts, and the Remesh decision.
 
 ## Validation and release gates
 
