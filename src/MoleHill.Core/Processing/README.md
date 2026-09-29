@@ -15,6 +15,10 @@ Pure, unit-tested.
   **clearance** — the plan distance to the nearest contour, spot sample or other breakline vertex — so a
   sparse breakline between dense contours no longer becomes a few hub vertices fanning into slivers
   under 1°, while a breakline in a void (large clearance) gains nothing. Contours are never restationed.
+  `ProcessSeparately` returns the two classes aligned with their inputs, and **whatever persists a line
+  as a constraint must persist this processed form**, not the raw one: a later constrained rebuild seeds
+  every mesh vertex, and a raw long segment passing within rounding of the stations leaves a zero-area
+  cap at each one (~11,000 on one terrain, which downstream cleanup then deleted into holes).
 - `TinInputCleaner.cs` — removes degenerate/duplicate input geometry.
 - `RegionInputClipper.cs` — exact union clipping for Data Clip: keeps points inside/on closed World-XY
   loops and splits crossing polylines while linearly interpolating Z. The Rhino host applies it to raw

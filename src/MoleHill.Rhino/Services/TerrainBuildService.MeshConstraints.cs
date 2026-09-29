@@ -397,6 +397,32 @@ internal sealed partial class TerrainBuildService
         return result;
     }
 
+    /// <summary>
+    /// Constraints from preprocessed points, keeping each source polyline's closed flag.
+    /// <paramref name="processed"/> is aligned with <paramref name="sources"/>; a null entry was dropped.
+    /// </summary>
+    private static List<SurfaceRemesher.ConstraintPolyline> CreateConstraintPolylines(
+        IReadOnlyList<TerrainTriangulationInputBuilder.FlattenedPolyline> sources,
+        IReadOnlyList<double[]?> processed,
+        bool preserveInputElevation)
+    {
+        var result = new List<SurfaceRemesher.ConstraintPolyline>(processed.Count);
+        for (int i = 0; i < processed.Count && i < sources.Count; i++)
+        {
+            double[]? points = processed[i];
+            if (points == null || points.Length < 6)
+                continue;
+
+            result.Add(new SurfaceRemesher.ConstraintPolyline(
+                points,
+                points.Length / 3,
+                sources[i].IsClosed,
+                preserveInputElevation));
+        }
+
+        return result;
+    }
+
     private static List<double[]> CreateFlatPolylines(IReadOnlyList<Curve> curves, double tolerance)
     {
         return TerrainTriangulationInputBuilder.CreateFlatPolylines(curves, tolerance);

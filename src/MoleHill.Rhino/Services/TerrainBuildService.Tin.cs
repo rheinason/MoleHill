@@ -174,21 +174,30 @@ internal sealed partial class TerrainBuildService
                 "Breaklines and the terrain boundary remain constrained.");
         }
 
-        var persistentHardConstraints = CreateConstraintPolylines(
-            flattenedBreaklines,
-            preserveInputElevation: true);
-        var persistentElevationConstraints = constrainContours
-            ? CreateConstraintPolylines(flattenedContours, preserveInputElevation: true)
-            : new List<SurfaceRemesher.ConstraintPolyline>();
-
         ThrowIfCancellationRequested(shouldCancel);
-        List<double[]> polylines = TerrainConstraintPreprocessor.Process(
+        TerrainConstraintPreprocessor.Result processed = TerrainConstraintPreprocessor.ProcessSeparately(
             flattenedBreaklines.Select(static polyline => polyline.Points).ToList(),
             constrainContours
                 ? flattenedContours.Select(static polyline => polyline.Points).ToList()
                 : Array.Empty<double[]>(),
             curveTolerance,
             spotXyz);
+        List<double[]> polylines = processed.Breaklines.Concat(processed.Contours)
+            .Where(static polyline => polyline != null)
+            .Select(static polyline => polyline!)
+            .ToList();
+
+        // Persist the lines as TRIANGULATED, not as drawn. The preprocessor stations long straight runs;
+        // a later constrained rebuild (Retaining Wall, Grade) seeds every mesh vertex, so inserting the raw
+        // line passes each long segment within rounding of those stations and leaves a zero-area cap at
+        // each one — 784 -> ~11,000 thin faces on the Glyvra terrain.
+        var persistentHardConstraints = CreateConstraintPolylines(
+            flattenedBreaklines,
+            processed.Breaklines,
+            preserveInputElevation: true);
+        var persistentElevationConstraints = constrainContours
+            ? CreateConstraintPolylines(flattenedContours, processed.Contours, preserveInputElevation: true)
+            : new List<SurfaceRemesher.ConstraintPolyline>();
         var boundaryPolylines = Array.Empty<TinBoundaryPreparer.BoundaryPolyline>();
         int constraintVertexCount = polylines.Sum(static polyline => polyline.Length / 3);
         int boundaryVertexCount = boundaryPolylines.Sum(static polyline => polyline.PointCount);
@@ -473,24 +482,26 @@ internal sealed partial class TerrainBuildService
             spotXyz[targetIndex + 2] = points[i].Z;
         }
 
-        var newHardConstraints = CreateConstraintPolylines(
-            breaklineCurves,
+        // Persist the new lines as triangulated (stationed), never as drawn — see the Triangulate stage.
+        List<TerrainTriangulationInputBuilder.FlattenedPolyline> flattenedBreaklines =
+            TerrainTriangulationInputBuilder.CreateFlattenedPolylines(breaklineCurves, curveTolerance);
+        List<TerrainTriangulationInputBuilder.FlattenedPolyline> flattenedContours =
+            TerrainTriangulationInputBuilder.CreateFlattenedPolylines(contourCurves, curveTolerance);
+        TerrainConstraintPreprocessor.Result processed = TerrainConstraintPreprocessor.ProcessSeparately(
+            flattenedBreaklines.Select(static polyline => polyline.Points).ToList(),
+            flattenedContours.Select(static polyline => polyline.Points).ToList(),
             curveTolerance,
-            preserveInputElevation: true);
+            spotXyz);
+        var newHardConstraints = CreateConstraintPolylines(flattenedBreaklines, processed.Breaklines, preserveInputElevation: true);
         var persistentHardConstraints = CombineConstraints(build.PersistentHardConstraints, newHardConstraints);
-        var newElevationConstraints = CreateConstraintPolylines(
-            contourCurves,
-            curveTolerance,
-            preserveInputElevation: true);
+        var newElevationConstraints = CreateConstraintPolylines(flattenedContours, processed.Contours, preserveInputElevation: true);
         var persistentElevationConstraints = CombineConstraints(build.PersistentElevationConstraints, newElevationConstraints);
 
         ThrowIfCancellationRequested(shouldCancel);
         var polylines = CreateFlatPolylines(CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints));
-        polylines.AddRange(TerrainTriangulationInputBuilder.CreateTriangulationPolylines(
-            breaklineCurves,
-            contourCurves,
-            curveTolerance,
-            spotXyz));
+        polylines.AddRange(processed.Breaklines.Concat(processed.Contours)
+            .Where(static polyline => polyline != null)
+            .Select(static polyline => polyline!));
 
         var boundaryPolylines = CombineBoundaryPolylines(
             CreateBoundaryPolylines(mesh, curveTolerance),
@@ -628,6 +639,19 @@ internal sealed partial class TerrainBuildService
         }
 
         result = RhinoGeometryConversions.BuildMesh(inserted!.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount);
+
+        // Persist the lines as inserted, not as drawn: insertion split them at every edge they crossed and
+        // snapped them through nearby vertices. Traced on the inserter's double-precision output, before
+        // the Rhino mesh rounds it. A line that does not trace keeps its drawn form, as before.
+        double traceTolerance = toleranceProfile.RemeshConstraintTolerance;
+        newHardConstraints = InsertedConstraintTracer.TraceAll(
+            newHardConstraints, inserted.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount, traceTolerance, out int tracedHard);
+        newElevationConstraints = InsertedConstraintTracer.TraceAll(
+            newElevationConstraints, inserted.Vertices, inserted.VertexCount, inserted.Faces, inserted.FaceCount, traceTolerance, out int tracedElevation);
+        int untraced = (newHardConstraints.Count + newElevationConstraints.Count) - (tracedHard + tracedElevation);
+        if (untraced > 0)
+            build.Diagnostics.Add($"{label}: {untraced} inserted line(s) could not be traced through the terrain and were kept as drawn.");
+
         var persistentHard = CombineConstraints(build.PersistentHardConstraints, newHardConstraints);
         var persistentElevation = CombineConstraints(build.PersistentElevationConstraints, newElevationConstraints);
         build.PersistentHardConstraints.Clear();

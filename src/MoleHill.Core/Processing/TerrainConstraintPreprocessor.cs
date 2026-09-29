@@ -19,6 +19,32 @@ public static class TerrainConstraintPreprocessor
         double tolerance,
         double[]? samplePoints = null)
     {
+        Result processed = ProcessSeparately(breaklinePolylines, contourPolylines, tolerance, samplePoints);
+        var result = new List<double[]>(processed.Breaklines.Count + processed.Contours.Count);
+        result.AddRange(processed.Breaklines.Where(static polyline => polyline != null)!);
+        result.AddRange(processed.Contours.Where(static polyline => polyline != null)!);
+        return result;
+    }
+
+    /// <summary>
+    /// Processed polylines by source class, each list aligned with its input: entry <c>i</c> is input
+    /// <c>i</c> as stationed, or null when it was dropped (fewer than two usable points).
+    /// </summary>
+    public sealed record Result(IReadOnlyList<double[]?> Breaklines, IReadOnlyList<double[]?> Contours);
+
+    /// <summary>
+    /// <see cref="Process"/> keeping the source classes apart and aligned with the inputs. Whatever persists
+    /// a line as a constraint for a later stage must persist THIS form: it is what the TIN was built from.
+    /// A later constrained rebuild inserting the raw line instead passes each long straight segment within
+    /// rounding of the stations the mesh already carries, and the triangulator fills every gap with a
+    /// zero-area cap — ~11,000 of them on one terrain.
+    /// </summary>
+    public static Result ProcessSeparately(
+        IReadOnlyList<double[]> breaklinePolylines,
+        IReadOnlyList<double[]> contourPolylines,
+        double tolerance,
+        double[]? samplePoints = null)
+    {
         // Collect and sort each source class once. Multi-million-station surveys used to scan and sort
         // the populated class twice while deriving the combined and class-specific spacing values.
         List<double> breaklineLengths = CollectSegmentLengths(breaklinePolylines, tolerance);
@@ -43,18 +69,25 @@ public static class TerrainConstraintPreprocessor
         double breaklineSpacing = measuredBreaklineSpacing ??
             (hasNeighbourData ? double.PositiveInfinity : combinedSpacing);
 
-        var processedBreaklines = ProcessPolylines(breaklinePolylines, breaklineSpacing, tolerance).ToList();
-        var processedContours = ProcessPolylines(contourPolylines, contourSpacing, tolerance).ToList();
+        double[]?[] alignedBreaklines = ProcessPolylines(breaklinePolylines, breaklineSpacing, tolerance);
+        double[]?[] alignedContours = ProcessPolylines(contourPolylines, contourSpacing, tolerance);
+        var processedBreaklines = alignedBreaklines.Where(static polyline => polyline != null).Select(static polyline => polyline!).ToList();
+        var processedContours = alignedContours.Where(static polyline => polyline != null).Select(static polyline => polyline!).ToList();
         if (processedBreaklines.Count > 0)
         {
             double floor = Math.Max(tolerance * 8.0, (measuredContourSpacing ?? 0.0) * 0.5);
             StationBreaklinesToNeighbours(processedBreaklines, processedContours, samplePoints, sampleCount, floor, tolerance);
+
+            // Stationing replaces list entries; write them back into their aligned slots.
+            int next = 0;
+            for (int i = 0; i < alignedBreaklines.Length; i++)
+            {
+                if (alignedBreaklines[i] != null)
+                    alignedBreaklines[i] = processedBreaklines[next++];
+            }
         }
 
-        var result = new List<double[]>(processedBreaklines.Count + processedContours.Count);
-        result.AddRange(processedBreaklines);
-        result.AddRange(processedContours);
-        return result;
+        return new Result(alignedBreaklines, alignedContours);
     }
 
     /// <summary>
@@ -254,11 +287,12 @@ public static class TerrainConstraintPreprocessor
             ((long)Math.Floor(x / _cellSize), (long)Math.Floor(y / _cellSize));
     }
 
-    private static IEnumerable<double[]> ProcessPolylines(
+    private static double[]?[] ProcessPolylines(
         IReadOnlyList<double[]> polylines,
         double targetSpacing,
         double tolerance)
     {
+        var result = new double[]?[polylines.Count];
         for (int i = 0; i < polylines.Count; i++)
         {
             double[] polyline = polylines[i];
@@ -267,8 +301,10 @@ public static class TerrainConstraintPreprocessor
 
             double[] processed = ResamplePolyline(vertices, targetSpacing, tolerance);
             if (processed.Length >= 6)
-                yield return processed;
+                result[i] = processed;
         }
+
+        return result;
     }
 
     private static bool TryExtractVertices(double[] polyline, double tolerance, out List<Vertex> vertices)

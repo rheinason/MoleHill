@@ -204,6 +204,10 @@ staying unresolved.
   vertex on an existing hard constraint or on a face ≥ 70° keeps its elevation, and constraint, boundary
   and pre-existing wall edges never flip — so walls and every upstream edge survive, which a rebuild from
   the mesh's own vertices (XY-merged) did not guarantee.
+- `InsertedConstraintTracer.cs` - recovers a line as it was actually inserted: the edge-connected chain
+  of mesh vertices along it, including the splits and snaps insertion made. Add Geometry persists this
+  form (falling back to the drawn line when the trace does not complete), because a later constrained
+  rebuild given the drawn line leaves a zero-area cap at every split vertex.
 - `MeshConstraintTopologyInserter.cs` - local constraint insertion (terrain-preserving); intersection
   results are value types in its allocation-sensitive inner loops. Face geometry is a `readonly struct`
   built on demand for candidate faces only (never an object per terrain face), constraint-segment pairs
