@@ -90,7 +90,7 @@ def csharp_literal(path: Path) -> str:
     return '@"' + str(path).replace('"', '""') + '"'
 
 
-def hosting_script(bin_dir: Path, request_path: Path) -> str:
+def hosting_script(bin_dir: Path, request_path: Path, entry: str = "HostedPerformanceLane") -> str:
     # The script host has a minimal using set: everything is fully qualified. RhinoCommon is never
     # preloaded here - it must resolve to the host's copy in the default context.
     return f"""
@@ -103,7 +103,7 @@ alc.Resolving += (ctx, name) => {{
 alc.LoadFromAssemblyPath(System.IO.Path.Combine(dir, "MoleHill.Core.dll"));
 alc.LoadFromAssemblyPath(System.IO.Path.Combine(dir, "MoleHill.Interop.dll"));
 var asm = alc.LoadFromAssemblyPath(System.IO.Path.Combine(dir, "MoleHill.Rhino.Tests.dll"));
-asm.GetType("MoleHill.Rhino.Tests.HostedPerformanceLane").GetMethod("Start").Invoke(null, new object[] {{ {csharp_literal(request_path)} }});
+asm.GetType("MoleHill.Rhino.Tests.{entry}").GetMethod("Start").Invoke(null, new object[] {{ {csharp_literal(request_path)} }});
 Console.WriteLine("HOSTED_PERF_STARTED");
 """
 
@@ -113,13 +113,16 @@ def main() -> int:
     parser.add_argument("--bin", required=True, type=Path, help="Release output dir of MoleHill.Rhino.Tests")
     parser.add_argument("--request", required=True, type=Path, help="HostedPerformanceLane request JSON")
     parser.add_argument("--timeout-minutes", type=float, default=45.0)
+    parser.add_argument("--entry", default="HostedPerformanceLane",
+                        help="The static class whose Start(requestPath) runs the probe: HostedPerformanceLane "
+                             "(the gated lane) or ParkScaleStress (the park-scale stress probe).")
     parser.add_argument("--print-script", action="store_true",
                         help="Print the C# hosting script and exit, for a host that drives its own slot "
                              "(for example an agent whose shell may not spawn Rhino - see BREAKAWAY_HINT).")
     args = parser.parse_args()
 
     if args.print_script:
-        print(hosting_script(args.bin.resolve(), args.request.resolve()))
+        print(hosting_script(args.bin.resolve(), args.request.resolve(), args.entry))
         return 0
 
     request = json.loads(args.request.read_text(encoding="utf-8-sig"))
@@ -143,7 +146,7 @@ def main() -> int:
             raise RuntimeError("spawn_slot returned an adopted Rhino; refusing to run the lane in it.")
         print(f"Spawned slot {slot} (pid {live.find_value(spawned, 'pid')})", flush=True)
 
-        started = router.call("run_csharp", slot=slot, script=hosting_script(args.bin.resolve(), args.request.resolve()))
+        started = router.call("run_csharp", slot=slot, script=hosting_script(args.bin.resolve(), args.request.resolve(), args.entry))
         if "HOSTED_PERF_STARTED" not in json.dumps(started):
             raise RuntimeError(f"The hosting script did not start the run: {json.dumps(started)[:2000]}")
 

@@ -124,6 +124,45 @@ publication and redraw happen outside `TerrainBuildService` and need `mhLatencyT
 It needs the Rhino-MCP router (`docs/rhino-live-testing.md` section 2) and Python 3. It also fails if a
 slot still holds the test DLL, because the Release build cannot overwrite it.
 
+## park-stress
+
+Not a lane, and never gated: a probe for where one terrain stops scaling. `ParkScaleStress`
+(`tests/MoleHill.Rhino.Tests/ParkScaleStress.cs`) builds a synthetic park the size of Central Park
+(4.0 x 0.8 km, ~40 m relief, rock outcrops, a reservoir, three graded lawns, 24 roads and paths, three
+retaining walls) from a jittered LiDAR-style point cloud, at spacings from 8 m (50k points) to 1 m (3.2M).
+Each rung adds the stack **one stage at a time** on one cache, so each step's time is that stage's own and
+a hang names the stage that hung. It then makes a pad edit and a single survey-point edit. Every step runs
+under a budget through the build's `shouldCancel`, and the ladder stops at a stage that ignores it.
+
+It uses the hosted lane's route, with `--entry ParkScaleStress`:
+
+```powershell
+dotnet build tests/MoleHill.Rhino.Tests/MoleHill.Rhino.Tests.csproj -c Release --no-incremental -p:SkipGrasshopperLibraryCopy=True
+py -3 tools/rhino-hosted-perf.py --bin tests/MoleHill.Rhino.Tests/bin/Release/net8.0 `
+    --request park.json --entry ParkScaleStress --timeout-minutes 120
+# park.json: { "ResultPath": "...", "StepBudgetSeconds": 300, "Spacings": [8, 4, 2, 1] }
+```
+
+A step whose stage failed inside the build (the build still succeeds, handing the input mesh on) reports
+`stage-failed`, not `ok`. `PathsCrossConstraints` lays paths across the lawns. Grade Path then refuses
+the whole modifier ("Road edge crosses a hard constraint"), so leave it off to measure path grading.
+
+First results, 2026-09-29, on a 24-thread machine with 32 GB (full stack, cold, then one edit):
+
+| Spacing | Points | Cold stack | One edit | Peak working set | Largest stage |
+|---|---|---|---|---|---|
+| 8 m | 50k | 8 s | 6 s | 1.2 GB | Remesh 3.3 s |
+| 4 m | 200k | 14 s | 15 s | 2.2 GB | Remesh 8.7 s |
+| 2 m | 800k | 54 s | 55 s | 6.2 GB | Remesh 35 s |
+| 1 m | 3.2M | 300 s | 298 s | 15.2 GB | Remesh 167 s (flip phase 74%) |
+
+What broke, and where: at 1 m the Retaining Wall's local insert is rejected (it would open the terrain
+boundary), and its whole-mesh constrained rebuild, now also carrying 2,346 path elevation constraints,
+fails after 53 s. The terrain keeps the upstream mesh, so it stays hole-free, but the walls are silently
+absent. At 2 m they insert. Every edit, including one survey point, re-runs the whole stack downstream of
+Triangulate, so edit time equals cold time at every scale. The far-from-origin warning fires on any site
+wider than ~1.7 km at a 1 mm model tolerance, even one that starts at the origin.
+
 ## warnings
 
 `MoleHill.Core` compiles the vendored TriangleNet sources directly, and those sources predate nullable

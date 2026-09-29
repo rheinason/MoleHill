@@ -178,6 +178,9 @@ public static class HostedPerformanceLane
         GC.Collect();
     }
 
+    /// <summary>The same environment record, for the other hosted probes (<see cref="ParkScaleStress"/>).</summary>
+    internal static PerfEnvironment CaptureEnvironmentFor(string? commit) => CaptureEnvironment(commit);
+
     private static PerfEnvironment CaptureEnvironment(string? commit)
     {
         Assembly core = typeof(TinEngine).Assembly;
