@@ -299,9 +299,13 @@ public static partial class PathGrader
 
             if (resamplePrimaryRails)
             {
+                // The rows are aligned one-to-one with the centerline as it was, so they are resampled against
+                // that one. Measured against the already-resampled centerline, a row was read from its first few
+                // vertices only, so on a curved path each road edge covered 28% of the road.
+                double[] alignedCenterline = constraintPath.XyVertices;
                 constraintPath = ResampleConstraintPath(constraintPath, segmentLength, dedupTol);
-                leftRoadXy = ResampleConstraintRow(leftRoadXy, constraintPath.XyVertices, segmentLength, dedupTol);
-                rightRoadXy = ResampleConstraintRow(rightRoadXy, constraintPath.XyVertices, segmentLength, dedupTol);
+                leftRoadXy = ResampleConstraintRow(leftRoadXy, alignedCenterline, segmentLength, dedupTol);
+                rightRoadXy = ResampleConstraintRow(rightRoadXy, alignedCenterline, segmentLength, dedupTol);
             }
 
             AddBoundaryClippedConstraintRuns(

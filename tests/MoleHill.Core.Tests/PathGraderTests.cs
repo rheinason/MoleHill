@@ -952,6 +952,54 @@ public class PathGraderTests
                 $"Expected fallback rail resampling to reduce point count below {sampleCount}, got {constraint.PointCount}."));
     }
 
+    /// <summary>
+    /// On a curved path the resampled road edges must still be the road edges, along the whole path.
+    /// Resampling the rows against the already-resampled centerline read only their first few vertices, so
+    /// each edge covered 0.17π of a 0.60π arc. A straight path hides that, and so does checking only that
+    /// the points lie on the offset curve: every misplaced sample still does.
+    /// </summary>
+    [Fact]
+    public void CreateRoadEdgeRemeshFallbackConstraints_CurvedPath_RoadEdgesRunTheWholePath()
+    {
+        const int sampleCount = 81;
+        const double width = 10.0, radius = 60.0;
+        var pathXy = new double[sampleCount * 2];
+        var pathZ = new double[sampleCount];
+        for (int i = 0; i < sampleCount; i++)
+        {
+            double a = Math.PI * 0.6 * i / (sampleCount - 1);
+            pathXy[i * 2] = 100.0 + (radius * Math.Cos(a));
+            pathXy[(i * 2) + 1] = 20.0 + (radius * Math.Sin(a));
+        }
+
+        var path = new PathGrader.PathDefinition(pathXy, pathZ, sampleCount, width: width, slopeAngleDeg: 33.0, maxDistance: 0.0);
+        var square = new double[] { 0, 0, 0, 200, 0, 0, 200, 200, 0, 0, 200, 0 };
+        PathGrader.ConstraintSet constraints = PathGrader.CreateRoadEdgeRemeshFallbackConstraints(
+            square, 4, new[] { 0, 1, 2, 0, 2, 3 }, 2, new[] { path }, tolerance: 1e-3);
+
+        // Each of the three rails (centerline, both road edges) must lie on its own arc and run the whole path.
+        foreach (double railRadius in new[] { radius, radius - (width / 2), radius + (width / 2) })
+        {
+            double minAngle = double.MaxValue, maxAngle = double.MinValue;
+            foreach (SurfaceRemesher.ConstraintPolyline constraint in constraints.Constraints)
+            {
+                for (int i = 0; i < constraint.PointCount; i++)
+                {
+                    double dx = constraint.Points[i * 3] - 100.0, dy = constraint.Points[(i * 3) + 1] - 20.0;
+                    if (Math.Abs(Math.Sqrt((dx * dx) + (dy * dy)) - railRadius) > 0.05)
+                        continue;
+                    double angle = Math.Atan2(dy, dx);
+                    minAngle = Math.Min(minAngle, angle);
+                    maxAngle = Math.Max(maxAngle, angle);
+                }
+            }
+
+            Assert.True(
+                maxAngle - minAngle > Math.PI * 0.6 * 0.95,
+                $"the rail at radius {railRadius} spans {(maxAngle - minAngle) / Math.PI:0.00}π of the path's 0.60π");
+        }
+    }
+
     private static IEnumerable<(double x, double y, double z)> EnumerateVertices(GradingResult result)
     {
         for (int i = 0; i < result.VertexCount; i++)
