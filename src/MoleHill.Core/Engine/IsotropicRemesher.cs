@@ -1033,107 +1033,99 @@ public static class IsotropicRemesher
         int totalFlips = 0;
         double[] vertices = state.Verts.ToArray(); // positions don't change during the flip phase
 
-        // Flips rewrite faces but never add or remove them, so the sweep structures are sized once and
-        // cleared between sweeps. Reallocating an edge-incidence dictionary of ~1.5x the face count for
-        // each of up to MaxFlipSweeps sweeps per outer iteration is pure GC churn. Clearing a dictionary
-        // keeps its buckets and resets its entry list, so refilling it in the same face order yields the
-        // same enumeration order a fresh dictionary would - the order flips are considered in.
-        int sweepFaceCount = state.FaceCount;
-        var adjacency = new Dictionary<long, (int t0, int o0, int t1, int o1, int count)>(sweepFaceCount * 2, IndexedMeshTools.EdgeKeyComparer.Instance);
-        var touched = new bool[sweepFaceCount];
+        // Flips rewrite faces but never add or remove them, so everything is sized once for the phase.
+        // Edges are visited in the order the edge-incidence dictionary this replaced enumerated them
+        // (FlipEdgeIndex explains why that order is each edge's first half-edge in face order), and every
+        // test below is the one it made, in the same order. The output is flip-for-flip identical; that is
+        // the contract IsotropicRemesherFlipEquivalenceTests holds it to.
+        int faceCount = state.FaceCount;
+        int halfEdgeCount = faceCount * 3;
+        var index = new FlipEdgeIndex();
+        var touched = new bool[faceCount];
         var createdEdges = new HashSet<long>(IndexedMeshTools.EdgeKeyComparer.Instance);
 
-        for (int sweep = 0; sweep < MaxFlipSweeps; sweep++)
+        // A quad the geometry test rejected stays rejected while both of its faces are unchanged, because no
+        // vertex moves in this phase: the verdict is a function of the four corners alone. Late sweeps flip a
+        // few thousand edges out of millions, so re-deriving every angle of an unchanged mesh was most of their
+        // cost. rejectedInSweep[h] is the sweep (1-based) in which the edge whose first half-edge is h was last
+        // rejected on geometry; rewrittenInSweep[t] is the last sweep that rewrote face t. A face rewritten in
+        // or after the rejecting sweep invalidates the verdict - and changes which edge h even denotes.
+        var rejectedInSweep = new int[halfEdgeCount];
+        var rewrittenInSweep = new int[faceCount];
+
+        // The geometry verdict of every candidate is taken up front, in parallel, from the faces the sweep
+        // starts with. The sequential pass below still decides every flip in order; it only reads the verdict
+        // of a quad whose faces are untouched, which are then exactly the faces the verdict was taken from.
+        // The field sampler of the retopo path is not known to be thread-safe, so that path stays serial.
+        byte[]? verdicts = state.Field == null ? new byte[halfEdgeCount] : null;
+
+        for (int sweep = 1; sweep <= MaxFlipSweeps; sweep++)
         {
             cancellation.ThrowIfCancelled();
-            int faceCount = state.FaceCount;
-            adjacency.Clear();
+            index.Build(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(state.Tris), faceCount, state.VertexCount);
             createdEdges.Clear();
-            if (touched.Length < faceCount)
-                touched = new bool[faceCount];
-            else
-                Array.Clear(touched, 0, faceCount);
-
-            for (int t = 0; t < faceCount; t++)
-            {
-                if (!state.IsLive(t))
-                    continue;
-                int a = state.Tris[t * 3], b = state.Tris[t * 3 + 1], c = state.Tris[t * 3 + 2];
-                AddIncidence(adjacency, a, b, t, c);
-                AddIncidence(adjacency, b, c, t, a);
-                AddIncidence(adjacency, c, a, t, b);
-            }
+            Array.Clear(touched);
+            if (verdicts != null)
+                PrecomputeFlipVerdicts(state, vertices, index, rejectedInSweep, rewrittenInSweep, verdicts);
 
             int flips = 0;
-            foreach (KeyValuePair<long, (int t0, int o0, int t1, int o1, int count)> entry in adjacency)
+            for (int h = 0; h < halfEdgeCount; h++)
             {
+                int count = index.FirstIncidenceCount(h);
+                if (count == 0)
+                    continue; // not this edge's first half-edge, or a dead face
                 cancellation.ThrowIfCancelledOften();
-                (int t0, int o0, int t1, int o1, int count) e = entry.Value;
-                if (e.count != 2)
-                    continue;
-                if (state.FeatureEdges.ContainsKey(entry.Key))
-                    continue;
-                if (state.FaceFrozen[e.t0] || state.FaceFrozen[e.t1])
-                    continue;
-                if (touched[e.t0] || touched[e.t1])
+                if (count != 2)
                     continue;
 
-                int p = (int)(entry.Key >> 32);
-                int q = (int)(entry.Key & 0xFFFFFFFFL);
-                int c = e.o0;
-                int d = e.o1;
+                int h1 = index.SecondHalfEdge(h);
+                int t0 = h / 3;
+                int t1 = h1 / 3;
+
+                // Every test up to the flip itself is a pure filter, so their order decides nothing; the cheap
+                // array reads go first.
+                if (touched[t0] || touched[t1])
+                    continue;
+                if (state.FaceFrozen[t0] || state.FaceFrozen[t1])
+                    continue;
+                int rejected = rejectedInSweep[h];
+                if (rejected != 0 && rewrittenInSweep[t0] < rejected && rewrittenInSweep[t1] < rejected)
+                    continue;
+
+                // Neither face has been rewritten this sweep (touched), so the live faces still hold the
+                // corners the sweep started with.
+                int corner0 = h - (t0 * 3);
+                int u = state.Tris[h];
+                int v = state.Tris[(t0 * 3) + ((corner0 + 1) % 3)];
+                int c = state.Tris[(t0 * 3) + ((corner0 + 2) % 3)];
+                int d = state.Tris[(t1 * 3) + ((h1 - (t1 * 3) + 2) % 3)];
+                int p = Math.Min(u, v);
+                int q = Math.Max(u, v);
+                if (state.FeatureEdges.ContainsKey(EdgeKey(p, q)))
+                    continue;
 
                 // The new diagonal must not duplicate a pre-existing edge NOR one another flip created
                 // this sweep (two disjoint quads can propose the same diagonal — that would be a
                 // non-manifold double edge).
                 long newKey = EdgeKey(c, d);
-                if (adjacency.ContainsKey(newKey) || createdEdges.Contains(newKey))
+                if (index.ContainsEdge(c, d) || createdEdges.Contains(newKey))
                     continue;
-                if (!QuadIsConvexForFlip(vertices, p, q, c, d))
+                bool improves = verdicts != null
+                    ? verdicts[h] == FlipVerdictImproves
+                    : FlipImprovesQuad(state, vertices, p, q, c, d);
+                if (!improves)
+                {
+                    rejectedInSweep[h] = sweep;
                     continue;
-
-                double minAfter = Math.Min(MinTriangleAngle(vertices, p, c, d), MinTriangleAngle(vertices, c, q, d));
-                if (state.Field == null)
-                {
-                    // Plain Remesh path: pure Lawson max-min-angle — flip only when it raises the
-                    // minimum angle. Unchanged from the original behaviour.
-                    double minBefore = Math.Min(MinTriangleAngle(vertices, p, q, c), MinTriangleAngle(vertices, p, q, d));
-                    if (minAfter <= minBefore + FlipAngleImproveEps)
-                        continue;
-                }
-                else
-                {
-                    // Retopo path: pick the diagonal that best serves as the ~45° hypotenuse of a
-                    // field-aligned quad, so tri-to-quad pairing (which removes the shared diagonal)
-                    // yields axis-aligned quads instead of 60/120° rhombi. Hard min-angle floor first
-                    // so a noisy/singular field can never carve a sliver.
-                    if (minAfter < FlipMinAngleFloorRad)
-                        continue;
-
-                    double cx = 0.25 * (vertices[p * 3]     + vertices[c * 3]     + vertices[q * 3]     + vertices[d * 3]);
-                    double cy = 0.25 * (vertices[p * 3 + 1] + vertices[c * 3 + 1] + vertices[q * 3 + 1] + vertices[d * 3 + 1]);
-                    double theta = state.Field.SampleTheta(cx, cy, double.NaN);
-                    if (double.IsNaN(theta))
-                    {
-                        // Singular field here → fall back to Lawson so we never do worse than isotropic.
-                        double minBefore = Math.Min(MinTriangleAngle(vertices, p, q, c), MinTriangleAngle(vertices, p, q, d));
-                        if (minAfter <= minBefore + FlipAngleImproveEps)
-                            continue;
-                    }
-                    else
-                    {
-                        double sPQ = DiagonalFieldScore(vertices[q * 3] - vertices[p * 3], vertices[q * 3 + 1] - vertices[p * 3 + 1], theta); // current diagonal p-q
-                        double sCD = DiagonalFieldScore(vertices[d * 3] - vertices[c * 3], vertices[d * 3 + 1] - vertices[c * 3 + 1], theta); // flipped diagonal c-d
-                        if (sCD <= sPQ + FlipFieldImproveEps)
-                            continue; // hysteresis: only flip toward a strictly better hypotenuse
-                    }
                 }
 
-                WriteOrientedFaceToList(vertices, state.Tris, e.t0, p, c, d);
-                WriteOrientedFaceToList(vertices, state.Tris, e.t1, c, q, d);
+                WriteOrientedFaceToList(vertices, state.Tris, t0, p, c, d);
+                WriteOrientedFaceToList(vertices, state.Tris, t1, c, q, d);
+                rewrittenInSweep[t0] = sweep;
+                rewrittenInSweep[t1] = sweep;
                 createdEdges.Add(newKey);
-                touched[e.t0] = true;
-                touched[e.t1] = true;
+                touched[t0] = true;
+                touched[t1] = true;
                 flips++;
             }
 
@@ -1143,6 +1135,104 @@ public static class IsotropicRemesher
         }
 
         return totalFlips;
+    }
+
+    private const byte FlipVerdictImproves = 1;
+    private const byte FlipVerdictRejected = 2;
+
+    /// <summary>
+    /// Takes <see cref="FlipImprovesQuad"/> for every edge the coming sweep could reach its geometry test
+    /// with — first half-edge of a two-face edge, neither face frozen, not a feature, no still-valid
+    /// rejection — from the faces as they stand. Pure reads of state nothing writes during the sweep, so
+    /// the result does not depend on scheduling.
+    /// </summary>
+    private static void PrecomputeFlipVerdicts(
+        MeshState state,
+        double[] vertices,
+        FlipEdgeIndex index,
+        int[] rejectedInSweep,
+        int[] rewrittenInSweep,
+        byte[] verdicts)
+    {
+        int halfEdgeCount = verdicts.Length;
+        List<int> tris = state.Tris;
+        List<bool> frozen = state.FaceFrozen;
+        Dictionary<long, int> featureEdges = state.FeatureEdges;
+        const int chunk = 16_384;
+        int chunkCount = (halfEdgeCount + chunk - 1) / chunk;
+
+        System.Threading.Tasks.Parallel.For(0, chunkCount, block =>
+        {
+            int end = Math.Min(halfEdgeCount, (block + 1) * chunk);
+            for (int h = block * chunk; h < end; h++)
+            {
+                verdicts[h] = 0;
+                if (index.FirstIncidenceCount(h) != 2)
+                    continue;
+
+                int h1 = index.SecondHalfEdge(h);
+                int t0 = h / 3;
+                int t1 = h1 / 3;
+                if (frozen[t0] || frozen[t1])
+                    continue;
+                int rejected = rejectedInSweep[h];
+                if (rejected != 0 && rewrittenInSweep[t0] < rejected && rewrittenInSweep[t1] < rejected)
+                    continue;
+
+                int corner0 = h - (t0 * 3);
+                int u = tris[h];
+                int v = tris[(t0 * 3) + ((corner0 + 1) % 3)];
+                int c = tris[(t0 * 3) + ((corner0 + 2) % 3)];
+                int d = tris[(t1 * 3) + ((h1 - (t1 * 3) + 2) % 3)];
+                int p = Math.Min(u, v);
+                int q = Math.Max(u, v);
+                if (featureEdges.ContainsKey(EdgeKey(p, q)))
+                    continue;
+
+                verdicts[h] = FlipImprovesQuad(state, vertices, p, q, c, d) ? FlipVerdictImproves : FlipVerdictRejected;
+            }
+        });
+    }
+
+    /// <summary>
+    /// The flip's geometry test for quad p-c-q-d with diagonal p–q: convex, and swapping to c–d improves it.
+    /// A function of the four corners alone, which is what lets <see cref="FlipForQuality(MeshState, CancellationProbe)"/>
+    /// remember a rejection.
+    /// </summary>
+    private static bool FlipImprovesQuad(MeshState state, double[] vertices, int p, int q, int c, int d)
+    {
+        if (!QuadIsConvexForFlip(vertices, p, q, c, d))
+            return false;
+
+        double minAfter = Math.Min(MinTriangleAngle(vertices, p, c, d), MinTriangleAngle(vertices, c, q, d));
+        if (state.Field == null)
+        {
+            // Plain Remesh path: pure Lawson max-min-angle — flip only when it raises the
+            // minimum angle. Unchanged from the original behaviour.
+            double minBefore = Math.Min(MinTriangleAngle(vertices, p, q, c), MinTriangleAngle(vertices, p, q, d));
+            return minAfter > minBefore + FlipAngleImproveEps;
+        }
+
+        // Retopo path: pick the diagonal that best serves as the ~45° hypotenuse of a
+        // field-aligned quad, so tri-to-quad pairing (which removes the shared diagonal)
+        // yields axis-aligned quads instead of 60/120° rhombi. Hard min-angle floor first
+        // so a noisy/singular field can never carve a sliver.
+        if (minAfter < FlipMinAngleFloorRad)
+            return false;
+
+        double cx = 0.25 * (vertices[p * 3]     + vertices[c * 3]     + vertices[q * 3]     + vertices[d * 3]);
+        double cy = 0.25 * (vertices[p * 3 + 1] + vertices[c * 3 + 1] + vertices[q * 3 + 1] + vertices[d * 3 + 1]);
+        double theta = state.Field.SampleTheta(cx, cy, double.NaN);
+        if (double.IsNaN(theta))
+        {
+            // Singular field here → fall back to Lawson so we never do worse than isotropic.
+            double minBefore = Math.Min(MinTriangleAngle(vertices, p, q, c), MinTriangleAngle(vertices, p, q, d));
+            return minAfter > minBefore + FlipAngleImproveEps;
+        }
+
+        double sPQ = DiagonalFieldScore(vertices[q * 3] - vertices[p * 3], vertices[q * 3 + 1] - vertices[p * 3 + 1], theta); // current diagonal p-q
+        double sCD = DiagonalFieldScore(vertices[d * 3] - vertices[c * 3], vertices[d * 3 + 1] - vertices[c * 3 + 1], theta); // flipped diagonal c-d
+        return sCD > sPQ + FlipFieldImproveEps; // hysteresis: only flip toward a strictly better hypotenuse
     }
 
     private static void WriteOrientedFaceToList(double[] vertices, List<int> tris, int triangle, int p, int q, int r)

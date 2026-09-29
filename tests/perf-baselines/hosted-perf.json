@@ -1,7 +1,7 @@
 {
   "Schema": 1,
   "Environment": {
-    "Commit": "d825abc",
+    "Commit": "b74e747\u002Bdirty",
     "Machine": "NV14-4070",
     "Processors": 24,
     "Runtime": ".NET 8.0.21",
@@ -9,7 +9,7 @@
     "CoreAssembly": "tests/MoleHill.Rhino.Tests/bin/Release/net8.0/MoleHill.Core.dll",
     "CoreOptimized": true,
     "TestsOptimized": true,
-    "Timestamp": "2026-09-26T11:58:09.8133551\u002B01:00"
+    "Timestamp": "2026-09-29T18:48:48.8627399\u002B01:00"
   },
   "Scenarios": [
     "geometry-heavy",
@@ -20,955 +20,955 @@
   "WarmupsDiscarded": 1,
   "Metrics": {
     "analysis-heavy/cold/Analysis": {
-      "MedianMs": 369.0292,
-      "P95Ms": 386.0927,
-      "MinMs": 366.0893,
-      "MaxMs": 386.0927,
+      "MedianMs": 366.3921,
+      "P95Ms": 376.6234,
+      "MinMs": 364.4616,
+      "MaxMs": 376.6234,
       "Samples": 5
     },
     "analysis-heavy/cold/Analysis Aspect": {
-      "MedianMs": 9.0962,
-      "P95Ms": 9.1565,
-      "MinMs": 8.8836,
-      "MaxMs": 9.1565,
+      "MedianMs": 8.8736,
+      "P95Ms": 9.3359,
+      "MinMs": 8.8456,
+      "MaxMs": 9.3359,
       "Samples": 5
     },
     "analysis-heavy/cold/Analysis Catchments": {
-      "MedianMs": 66.4367,
-      "P95Ms": 67.1075,
-      "MinMs": 64.4528,
-      "MaxMs": 67.1075,
+      "MedianMs": 66.2644,
+      "P95Ms": 67.0845,
+      "MinMs": 64.9937,
+      "MaxMs": 67.0845,
       "Samples": 5
     },
     "analysis-heavy/cold/Analysis Elevation": {
-      "MedianMs": 0.0008,
-      "P95Ms": 0.0009,
-      "MinMs": 0.0005,
-      "MaxMs": 0.0009,
+      "MedianMs": 0.0018,
+      "P95Ms": 0.0029,
+      "MinMs": 0.0016,
+      "MaxMs": 0.0029,
       "Samples": 5
     },
     "analysis-heavy/cold/Analysis Ponding": {
-      "MedianMs": 71.7722,
-      "P95Ms": 74.5564,
-      "MinMs": 70.4829,
-      "MaxMs": 74.5564,
+      "MedianMs": 70.5959,
+      "P95Ms": 74.1,
+      "MinMs": 70.232,
+      "MaxMs": 74.1,
       "Samples": 5
     },
     "analysis-heavy/cold/Analysis Slope": {
-      "MedianMs": 105.7698,
-      "P95Ms": 116.4462,
-      "MinMs": 105.2593,
-      "MaxMs": 116.4462,
+      "MedianMs": 105.5649,
+      "P95Ms": 106.6689,
+      "MinMs": 105.5145,
+      "MaxMs": 106.6689,
       "Samples": 5
     },
     "analysis-heavy/cold/Analysis Waterflow from Points": {
-      "MedianMs": 112.4068,
-      "P95Ms": 113.3761,
-      "MinMs": 108.9976,
-      "MaxMs": 113.3761,
+      "MedianMs": 109.3582,
+      "P95Ms": 116.9317,
+      "MinMs": 108.4984,
+      "MaxMs": 116.9317,
       "Samples": 5
     },
     "analysis-heavy/cold/Build pipeline": {
-      "MedianMs": 696.5859,
-      "P95Ms": 714.7477,
-      "MinMs": 689.6573,
-      "MaxMs": 714.7477,
+      "MedianMs": 695.4412,
+      "P95Ms": 730.1196,
+      "MinMs": 681.0354,
+      "MaxMs": 730.1196,
       "Samples": 5
     },
     "analysis-heavy/cold/Markers": {
-      "MedianMs": 0.0025,
-      "P95Ms": 0.003,
-      "MinMs": 0.0021,
-      "MaxMs": 0.003,
+      "MedianMs": 0.0023,
+      "P95Ms": 0.0027,
+      "MinMs": 0.0022,
+      "MaxMs": 0.0027,
       "Samples": 5
     },
     "analysis-heavy/cold/Objects": {
-      "MedianMs": 0.0024,
-      "P95Ms": 0.0033,
-      "MinMs": 0.0023,
-      "MaxMs": 0.0033,
+      "MedianMs": 0.0025,
+      "P95Ms": 0.0037,
+      "MinMs": 0.0024,
+      "MaxMs": 0.0037,
       "Samples": 5
     },
     "analysis-heavy/cold/Scatter": {
       "MedianMs": 0.0012,
-      "P95Ms": 0.0012,
+      "P95Ms": 0.0013,
       "MinMs": 0.0011,
-      "MaxMs": 0.0012,
+      "MaxMs": 0.0013,
       "Samples": 5
     },
     "analysis-heavy/cold/Triangulate": {
-      "MedianMs": 319.8302,
-      "P95Ms": 321.5887,
-      "MinMs": 315.5773,
-      "MaxMs": 321.5887,
+      "MedianMs": 322.4144,
+      "P95Ms": 355.4391,
+      "MinMs": 307.118,
+      "MaxMs": 355.4391,
       "Samples": 5
     },
     "analysis-heavy/cold/Zones": {
-      "MedianMs": 0.0015,
-      "P95Ms": 0.0017,
-      "MinMs": 0.0012,
-      "MaxMs": 0.0017,
+      "MedianMs": 0.0011,
+      "P95Ms": 0.0064,
+      "MinMs": 0.001,
+      "MaxMs": 0.0064,
       "Samples": 5
     },
     "analysis-heavy/cold/wall": {
-      "MedianMs": 696.5903,
-      "P95Ms": 714.7518,
-      "MinMs": 689.6617,
-      "MaxMs": 714.7518,
+      "MedianMs": 695.447,
+      "P95Ms": 730.131,
+      "MinMs": 681.0427,
+      "MaxMs": 730.131,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Analysis": {
-      "MedianMs": 336.2214,
-      "P95Ms": 346.9431,
-      "MinMs": 334.6036,
-      "MaxMs": 346.9431,
+      "MedianMs": 335.5524,
+      "P95Ms": 341.2417,
+      "MinMs": 328.8963,
+      "MaxMs": 341.2417,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Analysis Aspect": {
-      "MedianMs": 9.0499,
-      "P95Ms": 9.1223,
-      "MinMs": 8.9402,
-      "MaxMs": 9.1223,
+      "MedianMs": 8.8951,
+      "P95Ms": 9.029,
+      "MinMs": 8.8467,
+      "MaxMs": 9.029,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Analysis Catchments": {
-      "MedianMs": 66.2517,
-      "P95Ms": 66.6823,
-      "MinMs": 64.7776,
-      "MaxMs": 66.6823,
+      "MedianMs": 66.1224,
+      "P95Ms": 69.2215,
+      "MinMs": 65.9675,
+      "MaxMs": 69.2215,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Analysis Elevation": {
-      "MedianMs": 0.0009,
-      "P95Ms": 0.0016,
-      "MinMs": 0.0006,
-      "MaxMs": 0.0016,
+      "MedianMs": 0.002,
+      "P95Ms": 0.0029,
+      "MinMs": 0.0013,
+      "MaxMs": 0.0029,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Analysis Ponding": {
-      "MedianMs": 90.4825,
-      "P95Ms": 99.9802,
-      "MinMs": 83.4241,
-      "MaxMs": 99.9802,
+      "MedianMs": 89.0637,
+      "P95Ms": 94.1554,
+      "MinMs": 82.9172,
+      "MaxMs": 94.1554,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Analysis Slope": {
-      "MedianMs": 106.198,
-      "P95Ms": 113.2087,
-      "MinMs": 105.4736,
-      "MaxMs": 113.2087,
+      "MedianMs": 106.1629,
+      "P95Ms": 106.6554,
+      "MinMs": 104.2404,
+      "MaxMs": 106.6554,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Analysis Waterflow from Points": {
-      "MedianMs": 62.2337,
-      "P95Ms": 65.4053,
-      "MinMs": 61.6785,
-      "MaxMs": 65.4053,
+      "MedianMs": 63.0471,
+      "P95Ms": 65.5261,
+      "MinMs": 62.6424,
+      "MaxMs": 65.5261,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Build pipeline": {
-      "MedianMs": 429.3556,
-      "P95Ms": 440.6448,
-      "MinMs": 426.2639,
-      "MaxMs": 440.6448,
+      "MedianMs": 430.3614,
+      "P95Ms": 433.9919,
+      "MinMs": 418.9509,
+      "MaxMs": 433.9919,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Markers": {
       "MedianMs": 0.0026,
-      "P95Ms": 0.003,
-      "MinMs": 0.0024,
-      "MaxMs": 0.003,
+      "P95Ms": 0.0034,
+      "MinMs": 0.0021,
+      "MaxMs": 0.0034,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Objects": {
-      "MedianMs": 0.0025,
-      "P95Ms": 0.0026,
-      "MinMs": 0.0024,
-      "MaxMs": 0.0026,
+      "MedianMs": 0.0027,
+      "P95Ms": 0.0031,
+      "MinMs": 0.0027,
+      "MaxMs": 0.0031,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Scatter": {
       "MedianMs": 0.0013,
-      "P95Ms": 0.0015,
-      "MinMs": 0.0011,
-      "MaxMs": 0.0015,
+      "P95Ms": 0.0014,
+      "MinMs": 0.0012,
+      "MaxMs": 0.0014,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Triangulate": {
-      "MedianMs": 85.8682,
-      "P95Ms": 92.1859,
-      "MinMs": 84.5436,
-      "MaxMs": 92.1859,
+      "MedianMs": 86.5409,
+      "P95Ms": 90.3309,
+      "MinMs": 83.3089,
+      "MaxMs": 90.3309,
       "Samples": 5
     },
     "analysis-heavy/point-edit/Zones": {
-      "MedianMs": 0.0016,
-      "P95Ms": 0.0057,
-      "MinMs": 0.0013,
-      "MaxMs": 0.0057,
+      "MedianMs": 0.0017,
+      "P95Ms": 0.0023,
+      "MinMs": 0.0011,
+      "MaxMs": 0.0023,
       "Samples": 5
     },
     "analysis-heavy/point-edit/wall": {
-      "MedianMs": 429.3597,
-      "P95Ms": 440.6549,
-      "MinMs": 426.2684,
-      "MaxMs": 440.6549,
+      "MedianMs": 430.3692,
+      "P95Ms": 434.0045,
+      "MinMs": 418.9656,
+      "MaxMs": 434.0045,
       "Samples": 5
     },
     "geometry-heavy/cold/Analysis": {
-      "MedianMs": 0.0014,
-      "P95Ms": 0.0016,
-      "MinMs": 0.0012,
-      "MaxMs": 0.0016,
+      "MedianMs": 0.0019,
+      "P95Ms": 0.0023,
+      "MinMs": 0.0015,
+      "MaxMs": 0.0023,
       "Samples": 5
     },
     "geometry-heavy/cold/Build pipeline": {
-      "MedianMs": 1543.8188,
-      "P95Ms": 1681.4063,
-      "MinMs": 1521.9472,
-      "MaxMs": 1681.4063,
+      "MedianMs": 1158.56,
+      "P95Ms": 1312.4457,
+      "MinMs": 1131.8562,
+      "MaxMs": 1312.4457,
       "Samples": 5
     },
     "geometry-heavy/cold/Grade Pad": {
-      "MedianMs": 227.7214,
-      "P95Ms": 301.6997,
-      "MinMs": 216.0817,
-      "MaxMs": 301.6997,
+      "MedianMs": 220.0909,
+      "P95Ms": 307.9442,
+      "MinMs": 214.903,
+      "MaxMs": 307.9442,
       "Samples": 5
     },
     "geometry-heavy/cold/Grade Pad Constraints": {
-      "MedianMs": 42.2949,
-      "P95Ms": 54.6135,
-      "MinMs": 41.6925,
-      "MaxMs": 54.6135,
+      "MedianMs": 42.0097,
+      "P95Ms": 54.8597,
+      "MinMs": 41.4956,
+      "MaxMs": 54.8597,
       "Samples": 5
     },
     "geometry-heavy/cold/Grade Pad Dirty Scan \u002B Fingerprint": {
-      "MedianMs": 0.0131,
-      "P95Ms": 0.0205,
-      "MinMs": 0.0129,
-      "MaxMs": 0.0205,
+      "MedianMs": 0.0145,
+      "P95Ms": 0.018,
+      "MinMs": 0.0121,
+      "MaxMs": 0.018,
       "Samples": 5
     },
     "geometry-heavy/cold/Grade Pad Filter": {
+      "MedianMs": 0,
+      "P95Ms": 0.0001,
+      "MinMs": 0,
+      "MaxMs": 0.0001,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Grade Pad Inputs": {
+      "MedianMs": 42.0865,
+      "P95Ms": 54.9445,
+      "MinMs": 41.5664,
+      "MaxMs": 54.9445,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Grade Pad Locks": {
+      "MedianMs": 0.0017,
+      "P95Ms": 0.0021,
+      "MinMs": 0.0015,
+      "MaxMs": 0.0021,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Grade Pad Output Mesh": {
+      "MedianMs": 37.2329,
+      "P95Ms": 41.387,
+      "MinMs": 37.1663,
+      "MaxMs": 41.387,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Grade Pad Resolve": {
+      "MedianMs": 42.0512,
+      "P95Ms": 54.9053,
+      "MinMs": 41.5394,
+      "MaxMs": 54.9053,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Grade Pad Topology": {
+      "MedianMs": 135.8712,
+      "P95Ms": 210.905,
+      "MinMs": 131.2939,
+      "MaxMs": 210.905,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Grade Path": {
+      "MedianMs": 202.2772,
+      "P95Ms": 205.5693,
+      "MinMs": 197.6005,
+      "MaxMs": 205.5693,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Grade Path Constraints": {
+      "MedianMs": 29.1595,
+      "P95Ms": 32.5388,
+      "MinMs": 28.3072,
+      "MaxMs": 32.5388,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Grade Path Core": {
+      "MedianMs": 134.0396,
+      "P95Ms": 135.9866,
+      "MinMs": 130.9601,
+      "MaxMs": 135.9866,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Grade Path Resolve": {
+      "MedianMs": 29.1837,
+      "P95Ms": 32.5835,
+      "MinMs": 28.3331,
+      "MaxMs": 32.5835,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Markers": {
+      "MedianMs": 0.0025,
+      "P95Ms": 0.0039,
+      "MinMs": 0.002,
+      "MaxMs": 0.0039,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Objects": {
+      "MedianMs": 0.0023,
+      "P95Ms": 0.0032,
+      "MinMs": 0.0018,
+      "MaxMs": 0.0032,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Remesh": {
+      "MedianMs": 499.9147,
+      "P95Ms": 507.8571,
+      "MinMs": 486.6672,
+      "MaxMs": 507.8571,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Scatter": {
+      "MedianMs": 0.0019,
+      "P95Ms": 0.0696,
+      "MinMs": 0.0014,
+      "MaxMs": 0.0696,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Smooth": {
+      "MedianMs": 44.3599,
+      "P95Ms": 44.6448,
+      "MinMs": 43.3178,
+      "MaxMs": 44.6448,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Triangulate": {
+      "MedianMs": 173.1941,
+      "P95Ms": 243.9982,
+      "MinMs": 165.7334,
+      "MaxMs": 243.9982,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/Zones": {
+      "MedianMs": 0.0011,
+      "P95Ms": 0.0021,
+      "MinMs": 0.0007,
+      "MaxMs": 0.0021,
+      "Samples": 5
+    },
+    "geometry-heavy/cold/wall": {
+      "MedianMs": 1158.5636,
+      "P95Ms": 1312.4501,
+      "MinMs": 1131.8603,
+      "MaxMs": 1312.4501,
+      "Samples": 5
+    },
+    "geometry-heavy/pad-edit/Analysis": {
+      "MedianMs": 0.0019,
+      "P95Ms": 0.0023,
+      "MinMs": 0.0015,
+      "MaxMs": 0.0023,
+      "Samples": 5
+    },
+    "geometry-heavy/pad-edit/Build pipeline": {
+      "MedianMs": 932.5604,
+      "P95Ms": 942.8838,
+      "MinMs": 903.5958,
+      "MaxMs": 942.8838,
+      "Samples": 5
+    },
+    "geometry-heavy/pad-edit/Grade Pad": {
+      "MedianMs": 214.7261,
+      "P95Ms": 220.651,
+      "MinMs": 195.1309,
+      "MaxMs": 220.651,
+      "Samples": 5
+    },
+    "geometry-heavy/pad-edit/Grade Pad Constraints": {
+      "MedianMs": 38.2712,
+      "P95Ms": 44.7123,
+      "MinMs": 37.9187,
+      "MaxMs": 44.7123,
+      "Samples": 5
+    },
+    "geometry-heavy/pad-edit/Grade Pad Dirty Scan \u002B Fingerprint": {
+      "MedianMs": 0.0209,
+      "P95Ms": 0.0256,
+      "MinMs": 0.0198,
+      "MaxMs": 0.0256,
+      "Samples": 5
+    },
+    "geometry-heavy/pad-edit/Grade Pad Filter": {
       "MedianMs": 0.0001,
       "P95Ms": 0.0002,
       "MinMs": 0,
       "MaxMs": 0.0002,
       "Samples": 5
     },
-    "geometry-heavy/cold/Grade Pad Inputs": {
-      "MedianMs": 42.3727,
-      "P95Ms": 54.6924,
-      "MinMs": 41.8084,
-      "MaxMs": 54.6924,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Grade Pad Locks": {
-      "MedianMs": 0.0018,
-      "P95Ms": 0.002,
-      "MinMs": 0.0014,
-      "MaxMs": 0.002,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Grade Pad Output Mesh": {
-      "MedianMs": 37.0692,
-      "P95Ms": 37.9438,
-      "MinMs": 36.9609,
-      "MaxMs": 37.9438,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Grade Pad Resolve": {
-      "MedianMs": 42.344,
-      "P95Ms": 54.6576,
-      "MinMs": 41.7709,
-      "MaxMs": 54.6576,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Grade Pad Topology": {
-      "MedianMs": 144.813,
-      "P95Ms": 205.4608,
-      "MinMs": 132.9839,
-      "MaxMs": 205.4608,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Grade Path": {
-      "MedianMs": 203.1185,
-      "P95Ms": 211.4435,
-      "MinMs": 196.8014,
-      "MaxMs": 211.4435,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Grade Path Constraints": {
-      "MedianMs": 28.749,
-      "P95Ms": 32.925,
-      "MinMs": 28.1543,
-      "MaxMs": 32.925,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Grade Path Core": {
-      "MedianMs": 134.552,
-      "P95Ms": 144.4602,
-      "MinMs": 128.7402,
-      "MaxMs": 144.4602,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Grade Path Resolve": {
-      "MedianMs": 28.7742,
-      "P95Ms": 32.9473,
-      "MinMs": 28.1839,
-      "MaxMs": 32.9473,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Markers": {
-      "MedianMs": 0.002,
-      "P95Ms": 0.0024,
-      "MinMs": 0.0018,
-      "MaxMs": 0.0024,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Objects": {
-      "MedianMs": 0.0024,
-      "P95Ms": 0.0032,
-      "MinMs": 0.0021,
-      "MaxMs": 0.0032,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Remesh": {
-      "MedianMs": 882.636,
-      "P95Ms": 917.2653,
-      "MinMs": 867.9297,
-      "MaxMs": 917.2653,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Scatter": {
-      "MedianMs": 0.0018,
-      "P95Ms": 0.0403,
-      "MinMs": 0.0012,
-      "MaxMs": 0.0403,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Smooth": {
-      "MedianMs": 46.84,
-      "P95Ms": 47.0855,
-      "MinMs": 46.3034,
-      "MaxMs": 47.0855,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Triangulate": {
-      "MedianMs": 170.8241,
-      "P95Ms": 202.1694,
-      "MinMs": 164.7672,
-      "MaxMs": 202.1694,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/Zones": {
-      "MedianMs": 0.0012,
-      "P95Ms": 0.0025,
-      "MinMs": 0.0006,
-      "MaxMs": 0.0025,
-      "Samples": 5
-    },
-    "geometry-heavy/cold/wall": {
-      "MedianMs": 1543.8232,
-      "P95Ms": 1681.4176,
-      "MinMs": 1521.9514,
-      "MaxMs": 1681.4176,
-      "Samples": 5
-    },
-    "geometry-heavy/pad-edit/Analysis": {
-      "MedianMs": 0.0014,
-      "P95Ms": 0.0021,
-      "MinMs": 0.0013,
-      "MaxMs": 0.0021,
-      "Samples": 5
-    },
-    "geometry-heavy/pad-edit/Build pipeline": {
-      "MedianMs": 1317.2645,
-      "P95Ms": 1330.8726,
-      "MinMs": 1296.2569,
-      "MaxMs": 1330.8726,
-      "Samples": 5
-    },
-    "geometry-heavy/pad-edit/Grade Pad": {
-      "MedianMs": 201.2437,
-      "P95Ms": 204.2074,
-      "MinMs": 193.6126,
-      "MaxMs": 204.2074,
-      "Samples": 5
-    },
-    "geometry-heavy/pad-edit/Grade Pad Constraints": {
-      "MedianMs": 39.124,
-      "P95Ms": 44.5806,
-      "MinMs": 38.3627,
-      "MaxMs": 44.5806,
-      "Samples": 5
-    },
-    "geometry-heavy/pad-edit/Grade Pad Dirty Scan \u002B Fingerprint": {
-      "MedianMs": 0.0212,
-      "P95Ms": 0.0217,
-      "MinMs": 0.0203,
-      "MaxMs": 0.0217,
-      "Samples": 5
-    },
-    "geometry-heavy/pad-edit/Grade Pad Filter": {
-      "MedianMs": 0.0001,
-      "P95Ms": 0.0001,
-      "MinMs": 0,
-      "MaxMs": 0.0001,
-      "Samples": 5
-    },
     "geometry-heavy/pad-edit/Grade Pad Inputs": {
-      "MedianMs": 39.1992,
-      "P95Ms": 44.6628,
-      "MinMs": 38.4378,
-      "MaxMs": 44.6628,
+      "MedianMs": 38.3545,
+      "P95Ms": 44.7966,
+      "MinMs": 37.9998,
+      "MaxMs": 44.7966,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Grade Pad Locks": {
-      "MedianMs": 0.0016,
-      "P95Ms": 0.0019,
-      "MinMs": 0.0012,
-      "MaxMs": 0.0019,
+      "MedianMs": 0.0018,
+      "P95Ms": 0.002,
+      "MinMs": 0.0013,
+      "MaxMs": 0.002,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Grade Pad Output Mesh": {
-      "MedianMs": 37.4227,
-      "P95Ms": 37.6791,
-      "MinMs": 36.6071,
-      "MaxMs": 37.6791,
+      "MedianMs": 36.8274,
+      "P95Ms": 37.298,
+      "MinMs": 36.4288,
+      "MaxMs": 37.298,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Grade Pad Resolve": {
-      "MedianMs": 39.1594,
-      "P95Ms": 44.6196,
-      "MinMs": 38.3988,
-      "MaxMs": 44.6196,
+      "MedianMs": 38.3138,
+      "P95Ms": 44.7556,
+      "MinMs": 37.9572,
+      "MaxMs": 44.7556,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Grade Pad Topology": {
-      "MedianMs": 120.1914,
-      "P95Ms": 124.5629,
-      "MinMs": 112.7995,
-      "MaxMs": 124.5629,
+      "MedianMs": 134.9389,
+      "P95Ms": 140.0605,
+      "MinMs": 116.1076,
+      "MaxMs": 140.0605,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Grade Path": {
-      "MedianMs": 173.4367,
-      "P95Ms": 194.5269,
-      "MinMs": 172.2365,
-      "MaxMs": 194.5269,
+      "MedianMs": 188.3692,
+      "P95Ms": 194.3185,
+      "MinMs": 183.8523,
+      "MaxMs": 194.3185,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Grade Path Constraints": {
-      "MedianMs": 28.8876,
-      "P95Ms": 29.9823,
-      "MinMs": 28.3519,
-      "MaxMs": 29.9823,
+      "MedianMs": 28.3916,
+      "P95Ms": 28.5573,
+      "MinMs": 28.1707,
+      "MaxMs": 28.5573,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Grade Path Core": {
-      "MedianMs": 105.4867,
-      "P95Ms": 128.3227,
-      "MinMs": 104.2647,
-      "MaxMs": 128.3227,
+      "MedianMs": 121.2986,
+      "P95Ms": 126.3232,
+      "MinMs": 117.5236,
+      "MaxMs": 126.3232,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Grade Path Resolve": {
-      "MedianMs": 28.9137,
-      "P95Ms": 30.0114,
-      "MinMs": 28.385,
-      "MaxMs": 30.0114,
+      "MedianMs": 28.4145,
+      "P95Ms": 28.5834,
+      "MinMs": 28.2212,
+      "MaxMs": 28.5834,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Markers": {
       "MedianMs": 0.0021,
-      "P95Ms": 0.0025,
-      "MinMs": 0.0018,
-      "MaxMs": 0.0025,
+      "P95Ms": 0.0024,
+      "MinMs": 0.0019,
+      "MaxMs": 0.0024,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Objects": {
-      "MedianMs": 0.0024,
-      "P95Ms": 0.0027,
-      "MinMs": 0.0022,
-      "MaxMs": 0.0027,
+      "MedianMs": 0.0025,
+      "P95Ms": 0.0028,
+      "MinMs": 0.002,
+      "MaxMs": 0.0028,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Remesh": {
-      "MedianMs": 881.0424,
-      "P95Ms": 889.047,
-      "MinMs": 869.5289,
-      "MaxMs": 889.047,
+      "MedianMs": 477.5016,
+      "P95Ms": 481.9462,
+      "MinMs": 466.8076,
+      "MaxMs": 481.9462,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Scatter": {
-      "MedianMs": 0.002,
-      "P95Ms": 0.005,
-      "MinMs": 0.0013,
-      "MaxMs": 0.005,
+      "MedianMs": 0.0018,
+      "P95Ms": 0.0033,
+      "MinMs": 0.0012,
+      "MaxMs": 0.0033,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Smooth": {
-      "MedianMs": 45.7503,
-      "P95Ms": 47.4612,
-      "MinMs": 44.5629,
-      "MaxMs": 47.4612,
+      "MedianMs": 43.6989,
+      "P95Ms": 44.6273,
+      "MinMs": 43.1852,
+      "MaxMs": 44.6273,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Triangulate": {
-      "MedianMs": 1.2704,
-      "P95Ms": 1.3853,
-      "MinMs": 1.226,
-      "MaxMs": 1.3853,
+      "MedianMs": 1.3705,
+      "P95Ms": 1.4718,
+      "MinMs": 1.2609,
+      "MaxMs": 1.4718,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/Zones": {
-      "MedianMs": 0.0015,
-      "P95Ms": 0.0017,
-      "MinMs": 0.0014,
-      "MaxMs": 0.0017,
+      "MedianMs": 0.0013,
+      "P95Ms": 0.0016,
+      "MinMs": 0.0012,
+      "MaxMs": 0.0016,
       "Samples": 5
     },
     "geometry-heavy/pad-edit/wall": {
-      "MedianMs": 1317.2679,
-      "P95Ms": 1330.8764,
-      "MinMs": 1296.2601,
-      "MaxMs": 1330.8764,
+      "MedianMs": 932.5659,
+      "P95Ms": 942.8889,
+      "MinMs": 903.6008,
+      "MaxMs": 942.8889,
       "Samples": 5
     },
     "interactive/large/cold/Analysis": {
-      "MedianMs": 0.0006,
-      "P95Ms": 0.0017,
+      "MedianMs": 0.0005,
+      "P95Ms": 0.0016,
       "MinMs": 0.0004,
-      "MaxMs": 0.0017,
+      "MaxMs": 0.0016,
       "Samples": 5
     },
     "interactive/large/cold/Build pipeline": {
-      "MedianMs": 133.9809,
-      "P95Ms": 141.1443,
-      "MinMs": 108.4509,
-      "MaxMs": 141.1443,
+      "MedianMs": 133.2572,
+      "P95Ms": 137.1562,
+      "MinMs": 131.772,
+      "MaxMs": 137.1562,
       "Samples": 5
     },
     "interactive/large/cold/Markers": {
       "MedianMs": 0.0011,
-      "P95Ms": 0.0016,
-      "MinMs": 0.001,
-      "MaxMs": 0.0016,
+      "P95Ms": 0.0014,
+      "MinMs": 0.0011,
+      "MaxMs": 0.0014,
       "Samples": 5
     },
     "interactive/large/cold/Objects": {
-      "MedianMs": 0.0007,
-      "P95Ms": 0.0018,
-      "MinMs": 0.0005,
-      "MaxMs": 0.0018,
+      "MedianMs": 0.0009,
+      "P95Ms": 0.0014,
+      "MinMs": 0.0007,
+      "MaxMs": 0.0014,
       "Samples": 5
     },
     "interactive/large/cold/Retaining Wall": {
-      "MedianMs": 68.5856,
-      "P95Ms": 76.3853,
-      "MinMs": 44.2896,
-      "MaxMs": 76.3853,
+      "MedianMs": 68.0481,
+      "P95Ms": 73.2804,
+      "MinMs": 65.6107,
+      "MaxMs": 73.2804,
       "Samples": 5
     },
     "interactive/large/cold/Retaining Wall Constraint Curves": {
-      "MedianMs": 0.0011,
-      "P95Ms": 0.0025,
-      "MinMs": 0.0002,
-      "MaxMs": 0.0025,
+      "MedianMs": 0.0013,
+      "P95Ms": 0.0026,
+      "MinMs": 0.0004,
+      "MaxMs": 0.0026,
       "Samples": 5
     },
     "interactive/large/cold/Retaining Wall Constraint Prep": {
-      "MedianMs": 0.6899,
-      "P95Ms": 0.7759,
-      "MinMs": 0.6606,
-      "MaxMs": 0.7759,
+      "MedianMs": 0.729,
+      "P95Ms": 0.7878,
+      "MinMs": 0.683,
+      "MaxMs": 0.7878,
       "Samples": 5
     },
     "interactive/large/cold/Retaining Wall Outputs": {
-      "MedianMs": 0.0039,
-      "P95Ms": 0.0045,
-      "MinMs": 0.0037,
-      "MaxMs": 0.0045,
+      "MedianMs": 0.0051,
+      "P95Ms": 0.0054,
+      "MinMs": 0.0041,
+      "MaxMs": 0.0054,
       "Samples": 5
     },
     "interactive/large/cold/Retaining Wall Persist Constraints": {
-      "MedianMs": 0.0048,
+      "MedianMs": 0.005,
       "P95Ms": 0.0054,
-      "MinMs": 0.004,
+      "MinMs": 0.0042,
       "MaxMs": 0.0054,
       "Samples": 5
     },
     "interactive/large/cold/Retaining Wall Plan": {
-      "MedianMs": 0.6402,
-      "P95Ms": 0.6716,
-      "MinMs": 0.6234,
-      "MaxMs": 0.6716,
+      "MedianMs": 0.6457,
+      "P95Ms": 0.7421,
+      "MinMs": 0.6249,
+      "MaxMs": 0.7421,
       "Samples": 5
     },
     "interactive/large/cold/Retaining Wall Resolve": {
-      "MedianMs": 0.003,
-      "P95Ms": 0.0036,
-      "MinMs": 0.0027,
-      "MaxMs": 0.0036,
+      "MedianMs": 0.0035,
+      "P95Ms": 0.0038,
+      "MinMs": 0.0026,
+      "MaxMs": 0.0038,
       "Samples": 5
     },
     "interactive/large/cold/Retaining Wall Topology Insert": {
-      "MedianMs": 67.0772,
-      "P95Ms": 75.0239,
-      "MinMs": 42.9606,
-      "MaxMs": 75.0239,
+      "MedianMs": 66.4606,
+      "P95Ms": 71.8837,
+      "MinMs": 64.2071,
+      "MaxMs": 71.8837,
       "Samples": 5
     },
     "interactive/large/cold/Scatter": {
-      "MedianMs": 0.0011,
-      "P95Ms": 0.0012,
-      "MinMs": 0.0009,
-      "MaxMs": 0.0012,
+      "MedianMs": 0.0012,
+      "P95Ms": 0.002,
+      "MinMs": 0.001,
+      "MaxMs": 0.002,
       "Samples": 5
     },
     "interactive/large/cold/Triangulate": {
-      "MedianMs": 63.2334,
-      "P95Ms": 67.5497,
-      "MinMs": 62.2027,
-      "MaxMs": 67.5497,
+      "MedianMs": 64.0901,
+      "P95Ms": 66.0715,
+      "MinMs": 62.0551,
+      "MaxMs": 66.0715,
       "Samples": 5
     },
     "interactive/large/cold/Zones": {
-      "MedianMs": 0.0004,
+      "MedianMs": 0.0005,
+      "P95Ms": 0.0014,
+      "MinMs": 0.0004,
+      "MaxMs": 0.0014,
+      "Samples": 5
+    },
+    "interactive/large/cold/wall": {
+      "MedianMs": 133.2603,
+      "P95Ms": 137.1589,
+      "MinMs": 131.7753,
+      "MaxMs": 137.1589,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Analysis": {
+      "MedianMs": 0.0005,
       "P95Ms": 0.0019,
       "MinMs": 0.0004,
       "MaxMs": 0.0019,
       "Samples": 5
     },
-    "interactive/large/cold/wall": {
-      "MedianMs": 133.9836,
-      "P95Ms": 141.1477,
-      "MinMs": 108.4536,
-      "MaxMs": 141.1477,
-      "Samples": 5
-    },
-    "interactive/large/warm-edit/Analysis": {
-      "MedianMs": 0.0005,
-      "P95Ms": 0.0017,
-      "MinMs": 0.0004,
-      "MaxMs": 0.0017,
-      "Samples": 5
-    },
     "interactive/large/warm-edit/Build pipeline": {
-      "MedianMs": 45.6378,
-      "P95Ms": 56.4367,
-      "MinMs": 45.1778,
-      "MaxMs": 56.4367,
+      "MedianMs": 54.2107,
+      "P95Ms": 69.5938,
+      "MinMs": 53.674,
+      "MaxMs": 69.5938,
       "Samples": 5
     },
     "interactive/large/warm-edit/Markers": {
-      "MedianMs": 0.0011,
+      "MedianMs": 0.0012,
+      "P95Ms": 0.0015,
+      "MinMs": 0.0012,
+      "MaxMs": 0.0015,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Objects": {
+      "MedianMs": 0.0009,
+      "P95Ms": 0.0018,
+      "MinMs": 0.0007,
+      "MaxMs": 0.0018,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Retaining Wall": {
+      "MedianMs": 52.1046,
+      "P95Ms": 67.3045,
+      "MinMs": 51.4669,
+      "MaxMs": 67.3045,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Retaining Wall Constraint Curves": {
+      "MedianMs": 0.001,
+      "P95Ms": 0.002,
+      "MinMs": 0.0004,
+      "MaxMs": 0.002,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Retaining Wall Constraint Prep": {
+      "MedianMs": 0.696,
+      "P95Ms": 0.8003,
+      "MinMs": 0.6786,
+      "MaxMs": 0.8003,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Retaining Wall Outputs": {
+      "MedianMs": 0.0039,
+      "P95Ms": 0.0057,
+      "MinMs": 0.0037,
+      "MaxMs": 0.0057,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Retaining Wall Persist Constraints": {
+      "MedianMs": 0.0049,
+      "P95Ms": 0.0053,
+      "MinMs": 0.0046,
+      "MaxMs": 0.0053,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Retaining Wall Plan": {
+      "MedianMs": 0.6827,
+      "P95Ms": 0.7386,
+      "MinMs": 0.6758,
+      "MaxMs": 0.7386,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Retaining Wall Resolve": {
+      "MedianMs": 0.0023,
+      "P95Ms": 0.003,
+      "MinMs": 0.0017,
+      "MaxMs": 0.003,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Retaining Wall Topology Insert": {
+      "MedianMs": 50.645,
+      "P95Ms": 65.7005,
+      "MinMs": 50.0493,
+      "MaxMs": 65.7005,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Scatter": {
+      "MedianMs": 0.001,
       "P95Ms": 0.0012,
       "MinMs": 0.001,
       "MaxMs": 0.0012,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Objects": {
+    "interactive/large/warm-edit/Triangulate": {
+      "MedianMs": 0.6039,
+      "P95Ms": 0.6407,
+      "MinMs": 0.4862,
+      "MaxMs": 0.6407,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/Zones": {
+      "MedianMs": 0.0006,
+      "P95Ms": 0.0021,
+      "MinMs": 0.0005,
+      "MaxMs": 0.0021,
+      "Samples": 5
+    },
+    "interactive/large/warm-edit/wall": {
+      "MedianMs": 54.213,
+      "P95Ms": 69.5973,
+      "MinMs": 53.677,
+      "MaxMs": 69.5973,
+      "Samples": 5
+    },
+    "interactive/medium/cold/Analysis": {
+      "MedianMs": 0.0006,
+      "P95Ms": 0.0042,
+      "MinMs": 0.0004,
+      "MaxMs": 0.0042,
+      "Samples": 5
+    },
+    "interactive/medium/cold/Build pipeline": {
+      "MedianMs": 55.7944,
+      "P95Ms": 58.3969,
+      "MinMs": 54.8773,
+      "MaxMs": 58.3969,
+      "Samples": 5
+    },
+    "interactive/medium/cold/Markers": {
+      "MedianMs": 0.0013,
+      "P95Ms": 0.0038,
+      "MinMs": 0.0012,
+      "MaxMs": 0.0038,
+      "Samples": 5
+    },
+    "interactive/medium/cold/Objects": {
       "MedianMs": 0.0008,
-      "P95Ms": 0.0017,
-      "MinMs": 0.0005,
-      "MaxMs": 0.0017,
+      "P95Ms": 0.0036,
+      "MinMs": 0.0007,
+      "MaxMs": 0.0036,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Retaining Wall": {
-      "MedianMs": 43.8046,
-      "P95Ms": 54.3631,
-      "MinMs": 43.1889,
-      "MaxMs": 54.3631,
+    "interactive/medium/cold/Retaining Wall": {
+      "MedianMs": 23.5132,
+      "P95Ms": 24.9031,
+      "MinMs": 23.3814,
+      "MaxMs": 24.9031,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Retaining Wall Constraint Curves": {
-      "MedianMs": 0.0009,
-      "P95Ms": 0.0019,
-      "MinMs": 0.0005,
-      "MaxMs": 0.0019,
+    "interactive/medium/cold/Retaining Wall Constraint Curves": {
+      "MedianMs": 0.0012,
+      "P95Ms": 0.0023,
+      "MinMs": 0.0004,
+      "MaxMs": 0.0023,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Retaining Wall Constraint Prep": {
-      "MedianMs": 0.676,
-      "P95Ms": 0.7943,
-      "MinMs": 0.6687,
-      "MaxMs": 0.7943,
+    "interactive/medium/cold/Retaining Wall Constraint Prep": {
+      "MedianMs": 0.3707,
+      "P95Ms": 0.4286,
+      "MinMs": 0.3558,
+      "MaxMs": 0.4286,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Retaining Wall Outputs": {
-      "MedianMs": 0.0039,
-      "P95Ms": 0.0325,
-      "MinMs": 0.0033,
-      "MaxMs": 0.0325,
+    "interactive/medium/cold/Retaining Wall Outputs": {
+      "MedianMs": 0.0051,
+      "P95Ms": 0.0063,
+      "MinMs": 0.0038,
+      "MaxMs": 0.0063,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Retaining Wall Persist Constraints": {
-      "MedianMs": 0.0047,
-      "P95Ms": 0.0057,
-      "MinMs": 0.004,
-      "MaxMs": 0.0057,
+    "interactive/medium/cold/Retaining Wall Persist Constraints": {
+      "MedianMs": 0.0053,
+      "P95Ms": 0.006,
+      "MinMs": 0.0038,
+      "MaxMs": 0.006,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Retaining Wall Plan": {
-      "MedianMs": 0.7274,
-      "P95Ms": 0.7432,
-      "MinMs": 0.6898,
-      "MaxMs": 0.7432,
+    "interactive/medium/cold/Retaining Wall Plan": {
+      "MedianMs": 0.8099,
+      "P95Ms": 0.8919,
+      "MinMs": 0.7657,
+      "MaxMs": 0.8919,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Retaining Wall Resolve": {
-      "MedianMs": 0.002,
-      "P95Ms": 0.0024,
-      "MinMs": 0.0017,
-      "MaxMs": 0.0024,
+    "interactive/medium/cold/Retaining Wall Resolve": {
+      "MedianMs": 0.0029,
+      "P95Ms": 0.0036,
+      "MinMs": 0.0029,
+      "MaxMs": 0.0036,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Retaining Wall Topology Insert": {
-      "MedianMs": 42.3042,
-      "P95Ms": 52.7715,
-      "MinMs": 41.7207,
-      "MaxMs": 52.7715,
+    "interactive/medium/cold/Retaining Wall Topology Insert": {
+      "MedianMs": 22.3254,
+      "P95Ms": 23.6199,
+      "MinMs": 22.0904,
+      "MaxMs": 23.6199,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Scatter": {
-      "MedianMs": 0.001,
+    "interactive/medium/cold/Scatter": {
+      "MedianMs": 0.0013,
+      "P95Ms": 0.0021,
+      "MinMs": 0.0012,
+      "MaxMs": 0.0021,
+      "Samples": 5
+    },
+    "interactive/medium/cold/Triangulate": {
+      "MedianMs": 30.3796,
+      "P95Ms": 33.6786,
+      "MinMs": 29.7186,
+      "MaxMs": 33.6786,
+      "Samples": 5
+    },
+    "interactive/medium/cold/Zones": {
+      "MedianMs": 0.0005,
+      "P95Ms": 0.0034,
+      "MinMs": 0.0004,
+      "MaxMs": 0.0034,
+      "Samples": 5
+    },
+    "interactive/medium/cold/wall": {
+      "MedianMs": 55.7974,
+      "P95Ms": 58.3995,
+      "MinMs": 54.8799,
+      "MaxMs": 58.3995,
+      "Samples": 5
+    },
+    "interactive/medium/warm-edit/Analysis": {
+      "MedianMs": 0.0004,
+      "P95Ms": 0.0018,
+      "MinMs": 0.0004,
+      "MaxMs": 0.0018,
+      "Samples": 5
+    },
+    "interactive/medium/warm-edit/Build pipeline": {
+      "MedianMs": 24.7037,
+      "P95Ms": 31.5651,
+      "MinMs": 24.2338,
+      "MaxMs": 31.5651,
+      "Samples": 5
+    },
+    "interactive/medium/warm-edit/Markers": {
+      "MedianMs": 0.0011,
       "P95Ms": 0.0013,
       "MinMs": 0.0009,
       "MaxMs": 0.0013,
       "Samples": 5
     },
-    "interactive/large/warm-edit/Triangulate": {
-      "MedianMs": 0.6039,
-      "P95Ms": 0.6409,
-      "MinMs": 0.4638,
-      "MaxMs": 0.6409,
-      "Samples": 5
-    },
-    "interactive/large/warm-edit/Zones": {
-      "MedianMs": 0.0006,
-      "P95Ms": 0.0019,
-      "MinMs": 0.0006,
-      "MaxMs": 0.0019,
-      "Samples": 5
-    },
-    "interactive/large/warm-edit/wall": {
-      "MedianMs": 45.6403,
-      "P95Ms": 56.4392,
-      "MinMs": 45.1806,
-      "MaxMs": 56.4392,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Analysis": {
-      "MedianMs": 0.0006,
-      "P95Ms": 0.0031,
-      "MinMs": 0.0004,
-      "MaxMs": 0.0031,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Build pipeline": {
-      "MedianMs": 57.2676,
-      "P95Ms": 60.3721,
-      "MinMs": 54.6763,
-      "MaxMs": 60.3721,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Markers": {
-      "MedianMs": 0.0011,
-      "P95Ms": 0.0018,
-      "MinMs": 0.001,
-      "MaxMs": 0.0018,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Objects": {
-      "MedianMs": 0.0006,
-      "P95Ms": 0.0019,
-      "MinMs": 0.0005,
-      "MaxMs": 0.0019,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Retaining Wall": {
-      "MedianMs": 23.8503,
-      "P95Ms": 24.2521,
-      "MinMs": 22.9884,
-      "MaxMs": 24.2521,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Retaining Wall Constraint Curves": {
-      "MedianMs": 0.0013,
-      "P95Ms": 0.0029,
-      "MinMs": 0.0003,
-      "MaxMs": 0.0029,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Retaining Wall Constraint Prep": {
-      "MedianMs": 0.3766,
-      "P95Ms": 0.4253,
-      "MinMs": 0.3493,
-      "MaxMs": 0.4253,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Retaining Wall Outputs": {
-      "MedianMs": 0.0046,
-      "P95Ms": 0.0069,
-      "MinMs": 0.0036,
-      "MaxMs": 0.0069,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Retaining Wall Persist Constraints": {
-      "MedianMs": 0.004,
-      "P95Ms": 0.0052,
-      "MinMs": 0.0038,
-      "MaxMs": 0.0052,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Retaining Wall Plan": {
-      "MedianMs": 0.7875,
-      "P95Ms": 1.0426,
-      "MinMs": 0.7713,
-      "MaxMs": 1.0426,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Retaining Wall Resolve": {
-      "MedianMs": 0.0032,
-      "P95Ms": 0.0039,
-      "MinMs": 0.0029,
-      "MaxMs": 0.0039,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Retaining Wall Topology Insert": {
-      "MedianMs": 22.5553,
-      "P95Ms": 22.7069,
-      "MinMs": 21.7688,
-      "MaxMs": 22.7069,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Scatter": {
-      "MedianMs": 0.0011,
-      "P95Ms": 0.0019,
-      "MinMs": 0.0007,
-      "MaxMs": 0.0019,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Triangulate": {
-      "MedianMs": 31.9726,
-      "P95Ms": 36.312,
-      "MinMs": 30.507,
-      "MaxMs": 36.312,
-      "Samples": 5
-    },
-    "interactive/medium/cold/Zones": {
-      "MedianMs": 0.0006,
-      "P95Ms": 0.0022,
-      "MinMs": 0.0006,
-      "MaxMs": 0.0022,
-      "Samples": 5
-    },
-    "interactive/medium/cold/wall": {
-      "MedianMs": 57.2754,
-      "P95Ms": 60.3744,
-      "MinMs": 54.679,
-      "MaxMs": 60.3744,
-      "Samples": 5
-    },
-    "interactive/medium/warm-edit/Analysis": {
-      "MedianMs": 0.0005,
-      "P95Ms": 0.0015,
-      "MinMs": 0.0005,
-      "MaxMs": 0.0015,
-      "Samples": 5
-    },
-    "interactive/medium/warm-edit/Build pipeline": {
-      "MedianMs": 21.8834,
-      "P95Ms": 29.0405,
-      "MinMs": 21.3659,
-      "MaxMs": 29.0405,
-      "Samples": 5
-    },
-    "interactive/medium/warm-edit/Markers": {
-      "MedianMs": 0.0012,
-      "P95Ms": 0.0017,
-      "MinMs": 0.001,
-      "MaxMs": 0.0017,
-      "Samples": 5
-    },
     "interactive/medium/warm-edit/Objects": {
-      "MedianMs": 0.0006,
-      "P95Ms": 0.0018,
-      "MinMs": 0.0005,
-      "MaxMs": 0.0018,
+      "MedianMs": 0.0008,
+      "P95Ms": 0.0016,
+      "MinMs": 0.0007,
+      "MaxMs": 0.0016,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Retaining Wall": {
-      "MedianMs": 20.7754,
-      "P95Ms": 27.779,
-      "MinMs": 20.1347,
-      "MaxMs": 27.779,
+      "MedianMs": 23.4221,
+      "P95Ms": 30.4144,
+      "MinMs": 23.0814,
+      "MaxMs": 30.4144,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Retaining Wall Constraint Curves": {
-      "MedianMs": 0.0009,
-      "P95Ms": 0.0022,
-      "MinMs": 0.0002,
-      "MaxMs": 0.0022,
+      "MedianMs": 0.0012,
+      "P95Ms": 0.002,
+      "MinMs": 0.0004,
+      "MaxMs": 0.002,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Retaining Wall Constraint Prep": {
-      "MedianMs": 0.413,
-      "P95Ms": 0.4213,
-      "MinMs": 0.3467,
-      "MaxMs": 0.4213,
+      "MedianMs": 0.3916,
+      "P95Ms": 0.4223,
+      "MinMs": 0.3567,
+      "MaxMs": 0.4223,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Retaining Wall Outputs": {
-      "MedianMs": 0.0035,
-      "P95Ms": 0.0037,
+      "MedianMs": 0.004,
+      "P95Ms": 0.0043,
       "MinMs": 0.0035,
-      "MaxMs": 0.0037,
+      "MaxMs": 0.0043,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Retaining Wall Persist Constraints": {
-      "MedianMs": 0.0032,
-      "P95Ms": 0.0051,
-      "MinMs": 0.0027,
-      "MaxMs": 0.0051,
+      "MedianMs": 0.0046,
+      "P95Ms": 0.0049,
+      "MinMs": 0.0041,
+      "MaxMs": 0.0049,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Retaining Wall Plan": {
-      "MedianMs": 0.7838,
-      "P95Ms": 0.8668,
-      "MinMs": 0.7618,
-      "MaxMs": 0.8668,
+      "MedianMs": 0.785,
+      "P95Ms": 0.8952,
+      "MinMs": 0.7799,
+      "MaxMs": 0.8952,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Retaining Wall Resolve": {
-      "MedianMs": 0.0018,
-      "P95Ms": 0.0021,
-      "MinMs": 0.0017,
-      "MaxMs": 0.0021,
+      "MedianMs": 0.0023,
+      "P95Ms": 0.0028,
+      "MinMs": 0.0016,
+      "MaxMs": 0.0028,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Retaining Wall Topology Insert": {
-      "MedianMs": 19.5485,
-      "P95Ms": 26.4425,
-      "MinMs": 18.9863,
-      "MaxMs": 26.4425,
+      "MedianMs": 22.1546,
+      "P95Ms": 29.0392,
+      "MinMs": 21.872,
+      "MaxMs": 29.0392,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Scatter": {
       "MedianMs": 0.001,
-      "P95Ms": 0.0012,
-      "MinMs": 0.0008,
-      "MaxMs": 0.0012,
+      "P95Ms": 0.0014,
+      "MinMs": 0.0009,
+      "MaxMs": 0.0014,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Triangulate": {
-      "MedianMs": 0.332,
-      "P95Ms": 0.4623,
-      "MinMs": 0.2932,
-      "MaxMs": 0.4623,
+      "MedianMs": 0.3054,
+      "P95Ms": 0.3442,
+      "MinMs": 0.2988,
+      "MaxMs": 0.3442,
       "Samples": 5
     },
     "interactive/medium/warm-edit/Zones": {
@@ -979,108 +979,108 @@
       "Samples": 5
     },
     "interactive/medium/warm-edit/wall": {
-      "MedianMs": 21.8853,
-      "P95Ms": 29.0431,
-      "MinMs": 21.3683,
-      "MaxMs": 29.0431,
+      "MedianMs": 24.7062,
+      "P95Ms": 31.5678,
+      "MinMs": 24.2364,
+      "MaxMs": 31.5678,
       "Samples": 5
     },
     "interactive/plan-target/cold/Analysis": {
-      "MedianMs": 0.0005,
-      "P95Ms": 0.0017,
+      "MedianMs": 0.0004,
+      "P95Ms": 0.0016,
       "MinMs": 0.0004,
-      "MaxMs": 0.0017,
+      "MaxMs": 0.0016,
       "Samples": 5
     },
     "interactive/plan-target/cold/Build pipeline": {
-      "MedianMs": 256.636,
-      "P95Ms": 259.6052,
-      "MinMs": 231.6496,
-      "MaxMs": 259.6052,
+      "MedianMs": 254.2379,
+      "P95Ms": 260.6724,
+      "MinMs": 253.7111,
+      "MaxMs": 260.6724,
       "Samples": 5
     },
     "interactive/plan-target/cold/Markers": {
-      "MedianMs": 0.0011,
-      "P95Ms": 0.0011,
-      "MinMs": 0.0009,
-      "MaxMs": 0.0011,
+      "MedianMs": 0.0013,
+      "P95Ms": 0.0016,
+      "MinMs": 0.0011,
+      "MaxMs": 0.0016,
       "Samples": 5
     },
     "interactive/plan-target/cold/Objects": {
-      "MedianMs": 0.0007,
-      "P95Ms": 0.0015,
-      "MinMs": 0.0006,
-      "MaxMs": 0.0015,
-      "Samples": 5
-    },
-    "interactive/plan-target/cold/Retaining Wall": {
-      "MedianMs": 114.6049,
-      "P95Ms": 122.9897,
-      "MinMs": 86.2062,
-      "MaxMs": 122.9897,
-      "Samples": 5
-    },
-    "interactive/plan-target/cold/Retaining Wall Constraint Curves": {
-      "MedianMs": 0.0015,
-      "P95Ms": 0.0023,
-      "MinMs": 0.0003,
-      "MaxMs": 0.0023,
-      "Samples": 5
-    },
-    "interactive/plan-target/cold/Retaining Wall Constraint Prep": {
-      "MedianMs": 1.2772,
-      "P95Ms": 1.4941,
-      "MinMs": 1.2641,
-      "MaxMs": 1.4941,
-      "Samples": 5
-    },
-    "interactive/plan-target/cold/Retaining Wall Outputs": {
-      "MedianMs": 0.0043,
-      "P95Ms": 0.005,
-      "MinMs": 0.0036,
-      "MaxMs": 0.005,
-      "Samples": 5
-    },
-    "interactive/plan-target/cold/Retaining Wall Persist Constraints": {
-      "MedianMs": 0.0049,
-      "P95Ms": 0.0052,
-      "MinMs": 0.0044,
-      "MaxMs": 0.0052,
-      "Samples": 5
-    },
-    "interactive/plan-target/cold/Retaining Wall Plan": {
-      "MedianMs": 0.79,
-      "P95Ms": 0.8202,
-      "MinMs": 0.778,
-      "MaxMs": 0.8202,
-      "Samples": 5
-    },
-    "interactive/plan-target/cold/Retaining Wall Resolve": {
-      "MedianMs": 0.0031,
-      "P95Ms": 0.0033,
-      "MinMs": 0.0028,
-      "MaxMs": 0.0033,
-      "Samples": 5
-    },
-    "interactive/plan-target/cold/Retaining Wall Topology Insert": {
-      "MedianMs": 112.2271,
-      "P95Ms": 120.878,
-      "MinMs": 84.0771,
-      "MaxMs": 120.878,
-      "Samples": 5
-    },
-    "interactive/plan-target/cold/Scatter": {
-      "MedianMs": 0.0009,
+      "MedianMs": 0.001,
       "P95Ms": 0.0013,
-      "MinMs": 0.0008,
+      "MinMs": 0.0007,
       "MaxMs": 0.0013,
       "Samples": 5
     },
+    "interactive/plan-target/cold/Retaining Wall": {
+      "MedianMs": 115.2404,
+      "P95Ms": 120.3632,
+      "MinMs": 110.5561,
+      "MaxMs": 120.3632,
+      "Samples": 5
+    },
+    "interactive/plan-target/cold/Retaining Wall Constraint Curves": {
+      "MedianMs": 0.001,
+      "P95Ms": 0.002,
+      "MinMs": 0.0004,
+      "MaxMs": 0.002,
+      "Samples": 5
+    },
+    "interactive/plan-target/cold/Retaining Wall Constraint Prep": {
+      "MedianMs": 1.2992,
+      "P95Ms": 1.5116,
+      "MinMs": 1.2784,
+      "MaxMs": 1.5116,
+      "Samples": 5
+    },
+    "interactive/plan-target/cold/Retaining Wall Outputs": {
+      "MedianMs": 0.0045,
+      "P95Ms": 0.0051,
+      "MinMs": 0.0043,
+      "MaxMs": 0.0051,
+      "Samples": 5
+    },
+    "interactive/plan-target/cold/Retaining Wall Persist Constraints": {
+      "MedianMs": 0.0057,
+      "P95Ms": 0.0062,
+      "MinMs": 0.0055,
+      "MaxMs": 0.0062,
+      "Samples": 5
+    },
+    "interactive/plan-target/cold/Retaining Wall Plan": {
+      "MedianMs": 0.7928,
+      "P95Ms": 0.8136,
+      "MinMs": 0.767,
+      "MaxMs": 0.8136,
+      "Samples": 5
+    },
+    "interactive/plan-target/cold/Retaining Wall Resolve": {
+      "MedianMs": 0.0033,
+      "P95Ms": 0.0042,
+      "MinMs": 0.0029,
+      "MaxMs": 0.0042,
+      "Samples": 5
+    },
+    "interactive/plan-target/cold/Retaining Wall Topology Insert": {
+      "MedianMs": 113.0836,
+      "P95Ms": 118.1697,
+      "MinMs": 108.1684,
+      "MaxMs": 118.1697,
+      "Samples": 5
+    },
+    "interactive/plan-target/cold/Scatter": {
+      "MedianMs": 0.0013,
+      "P95Ms": 0.0015,
+      "MinMs": 0.001,
+      "MaxMs": 0.0015,
+      "Samples": 5
+    },
     "interactive/plan-target/cold/Triangulate": {
-      "MedianMs": 137.6991,
-      "P95Ms": 146.9302,
-      "MinMs": 132.3986,
-      "MaxMs": 146.9302,
+      "MedianMs": 136.553,
+      "P95Ms": 138.6526,
+      "MinMs": 134.6515,
+      "MaxMs": 138.6526,
       "Samples": 5
     },
     "interactive/plan-target/cold/Zones": {
@@ -1091,346 +1091,346 @@
       "Samples": 5
     },
     "interactive/plan-target/cold/wall": {
-      "MedianMs": 256.6388,
-      "P95Ms": 259.6083,
-      "MinMs": 231.6534,
-      "MaxMs": 259.6083,
+      "MedianMs": 254.2412,
+      "P95Ms": 260.6761,
+      "MinMs": 253.7154,
+      "MaxMs": 260.6761,
       "Samples": 5
     },
     "interactive/plan-target/warm-edit/Analysis": {
-      "MedianMs": 0.0006,
-      "P95Ms": 0.0083,
+      "MedianMs": 0.0005,
+      "P95Ms": 0.0016,
       "MinMs": 0.0005,
-      "MaxMs": 0.0083,
+      "MaxMs": 0.0016,
       "Samples": 5
     },
     "interactive/plan-target/warm-edit/Build pipeline": {
-      "MedianMs": 90.7233,
-      "P95Ms": 125.9661,
-      "MinMs": 86.4267,
-      "MaxMs": 125.9661,
+      "MedianMs": 91.0968,
+      "P95Ms": 95.0815,
+      "MinMs": 89.9071,
+      "MaxMs": 95.0815,
       "Samples": 5
     },
     "interactive/plan-target/warm-edit/Markers": {
-      "MedianMs": 0.0011,
-      "P95Ms": 0.0013,
-      "MinMs": 0.0009,
-      "MaxMs": 0.0013,
+      "MedianMs": 0.0014,
+      "P95Ms": 0.0015,
+      "MinMs": 0.0011,
+      "MaxMs": 0.0015,
       "Samples": 5
     },
     "interactive/plan-target/warm-edit/Objects": {
+      "MedianMs": 0.0009,
+      "P95Ms": 0.002,
+      "MinMs": 0.0007,
+      "MaxMs": 0.002,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Retaining Wall": {
+      "MedianMs": 86.7747,
+      "P95Ms": 91.0222,
+      "MinMs": 85.8507,
+      "MaxMs": 91.0222,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Retaining Wall Constraint Curves": {
+      "MedianMs": 0.0011,
+      "P95Ms": 0.0025,
+      "MinMs": 0.0004,
+      "MaxMs": 0.0025,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Retaining Wall Constraint Prep": {
+      "MedianMs": 1.3169,
+      "P95Ms": 1.5025,
+      "MinMs": 1.3052,
+      "MaxMs": 1.5025,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Retaining Wall Outputs": {
+      "MedianMs": 0.0048,
+      "P95Ms": 0.0057,
+      "MinMs": 0.004,
+      "MaxMs": 0.0057,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Retaining Wall Persist Constraints": {
+      "MedianMs": 0.0061,
+      "P95Ms": 0.0066,
+      "MinMs": 0.005,
+      "MaxMs": 0.0066,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Retaining Wall Plan": {
+      "MedianMs": 0.8054,
+      "P95Ms": 0.9313,
+      "MinMs": 0.7768,
+      "MaxMs": 0.9313,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Retaining Wall Resolve": {
+      "MedianMs": 0.0023,
+      "P95Ms": 0.0031,
+      "MinMs": 0.0021,
+      "MaxMs": 0.0031,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Retaining Wall Topology Insert": {
+      "MedianMs": 84.4618,
+      "P95Ms": 88.7269,
+      "MinMs": 83.6864,
+      "MaxMs": 88.7269,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Scatter": {
+      "MedianMs": 0.001,
+      "P95Ms": 0.0014,
+      "MinMs": 0.0009,
+      "MaxMs": 0.0014,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Triangulate": {
+      "MedianMs": 1.1603,
+      "P95Ms": 1.189,
+      "MinMs": 1.0888,
+      "MaxMs": 1.189,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/Zones": {
       "MedianMs": 0.0006,
+      "P95Ms": 0.0024,
+      "MinMs": 0.0005,
+      "MaxMs": 0.0024,
+      "Samples": 5
+    },
+    "interactive/plan-target/warm-edit/wall": {
+      "MedianMs": 91.1008,
+      "P95Ms": 95.0841,
+      "MinMs": 89.9099,
+      "MaxMs": 95.0841,
+      "Samples": 5
+    },
+    "interactive/small/cold/Analysis": {
+      "MedianMs": 0.0007,
+      "P95Ms": 0.0013,
+      "MinMs": 0.0004,
+      "MaxMs": 0.0013,
+      "Samples": 5
+    },
+    "interactive/small/cold/Build pipeline": {
+      "MedianMs": 5.7767,
+      "P95Ms": 6.0581,
+      "MinMs": 5.5326,
+      "MaxMs": 6.0581,
+      "Samples": 5
+    },
+    "interactive/small/cold/Markers": {
+      "MedianMs": 0.0012,
+      "P95Ms": 0.0012,
+      "MinMs": 0.0009,
+      "MaxMs": 0.0012,
+      "Samples": 5
+    },
+    "interactive/small/cold/Objects": {
+      "MedianMs": 0.0011,
       "P95Ms": 0.002,
       "MinMs": 0.0006,
       "MaxMs": 0.002,
       "Samples": 5
     },
-    "interactive/plan-target/warm-edit/Retaining Wall": {
-      "MedianMs": 86.5888,
-      "P95Ms": 122.0568,
-      "MinMs": 82.5827,
-      "MaxMs": 122.0568,
+    "interactive/small/cold/Retaining Wall": {
+      "MedianMs": 3.2639,
+      "P95Ms": 3.3495,
+      "MinMs": 3.1025,
+      "MaxMs": 3.3495,
       "Samples": 5
     },
-    "interactive/plan-target/warm-edit/Retaining Wall Constraint Curves": {
-      "MedianMs": 0.0009,
-      "P95Ms": 0.0014,
-      "MinMs": 0.0003,
-      "MaxMs": 0.0014,
+    "interactive/small/cold/Retaining Wall Constraint Curves": {
+      "MedianMs": 0.0012,
+      "P95Ms": 0.0024,
+      "MinMs": 0.0002,
+      "MaxMs": 0.0024,
       "Samples": 5
     },
-    "interactive/plan-target/warm-edit/Retaining Wall Constraint Prep": {
-      "MedianMs": 1.2826,
-      "P95Ms": 1.4874,
-      "MinMs": 1.27,
-      "MaxMs": 1.4874,
+    "interactive/small/cold/Retaining Wall Constraint Prep": {
+      "MedianMs": 0.0749,
+      "P95Ms": 0.0979,
+      "MinMs": 0.0739,
+      "MaxMs": 0.0979,
       "Samples": 5
     },
-    "interactive/plan-target/warm-edit/Retaining Wall Outputs": {
-      "MedianMs": 0.004,
+    "interactive/small/cold/Retaining Wall Outputs": {
+      "MedianMs": 0.0041,
       "P95Ms": 0.0043,
-      "MinMs": 0.0038,
+      "MinMs": 0.0034,
       "MaxMs": 0.0043,
       "Samples": 5
     },
-    "interactive/plan-target/warm-edit/Retaining Wall Persist Constraints": {
-      "MedianMs": 0.0051,
-      "P95Ms": 0.0055,
-      "MinMs": 0.0044,
-      "MaxMs": 0.0055,
-      "Samples": 5
-    },
-    "interactive/plan-target/warm-edit/Retaining Wall Plan": {
-      "MedianMs": 0.7954,
-      "P95Ms": 0.8075,
-      "MinMs": 0.7784,
-      "MaxMs": 0.8075,
-      "Samples": 5
-    },
-    "interactive/plan-target/warm-edit/Retaining Wall Resolve": {
-      "MedianMs": 0.0022,
+    "interactive/small/cold/Retaining Wall Persist Constraints": {
+      "MedianMs": 0.0026,
       "P95Ms": 0.0028,
       "MinMs": 0.002,
       "MaxMs": 0.0028,
       "Samples": 5
     },
-    "interactive/plan-target/warm-edit/Retaining Wall Topology Insert": {
-      "MedianMs": 84.2448,
-      "P95Ms": 119.9269,
-      "MinMs": 80.4782,
-      "MaxMs": 119.9269,
+    "interactive/small/cold/Retaining Wall Plan": {
+      "MedianMs": 0.6308,
+      "P95Ms": 0.6781,
+      "MinMs": 0.6154,
+      "MaxMs": 0.6781,
       "Samples": 5
     },
-    "interactive/plan-target/warm-edit/Scatter": {
-      "MedianMs": 0.001,
-      "P95Ms": 0.0011,
-      "MinMs": 0.0009,
-      "MaxMs": 0.0011,
+    "interactive/small/cold/Retaining Wall Resolve": {
+      "MedianMs": 0.0022,
+      "P95Ms": 0.0023,
+      "MinMs": 0.0015,
+      "MaxMs": 0.0023,
       "Samples": 5
     },
-    "interactive/plan-target/warm-edit/Triangulate": {
-      "MedianMs": 1.166,
-      "P95Ms": 1.198,
-      "MinMs": 1.0773,
-      "MaxMs": 1.198,
+    "interactive/small/cold/Retaining Wall Topology Insert": {
+      "MedianMs": 2.4609,
+      "P95Ms": 2.6002,
+      "MinMs": 2.3749,
+      "MaxMs": 2.6002,
       "Samples": 5
     },
-    "interactive/plan-target/warm-edit/Zones": {
-      "MedianMs": 0.0006,
-      "P95Ms": 0.0025,
-      "MinMs": 0.0005,
-      "MaxMs": 0.0025,
-      "Samples": 5
-    },
-    "interactive/plan-target/warm-edit/wall": {
-      "MedianMs": 90.7264,
-      "P95Ms": 125.9686,
-      "MinMs": 86.4291,
-      "MaxMs": 125.9686,
-      "Samples": 5
-    },
-    "interactive/small/cold/Analysis": {
-      "MedianMs": 0.0005,
-      "P95Ms": 0.0014,
-      "MinMs": 0.0004,
-      "MaxMs": 0.0014,
-      "Samples": 5
-    },
-    "interactive/small/cold/Build pipeline": {
-      "MedianMs": 10.0124,
-      "P95Ms": 12.932,
-      "MinMs": 9.2269,
-      "MaxMs": 12.932,
-      "Samples": 5
-    },
-    "interactive/small/cold/Markers": {
-      "MedianMs": 0.0009,
+    "interactive/small/cold/Scatter": {
+      "MedianMs": 0.0011,
       "P95Ms": 0.0012,
       "MinMs": 0.0008,
       "MaxMs": 0.0012,
       "Samples": 5
     },
-    "interactive/small/cold/Objects": {
-      "MedianMs": 0.0006,
-      "P95Ms": 0.0015,
-      "MinMs": 0.0006,
-      "MaxMs": 0.0015,
-      "Samples": 5
-    },
-    "interactive/small/cold/Retaining Wall": {
-      "MedianMs": 7.5038,
-      "P95Ms": 9.3666,
-      "MinMs": 6.8251,
-      "MaxMs": 9.3666,
-      "Samples": 5
-    },
-    "interactive/small/cold/Retaining Wall Constraint Curves": {
-      "MedianMs": 0.0014,
-      "P95Ms": 0.0034,
-      "MinMs": 0.0007,
-      "MaxMs": 0.0034,
-      "Samples": 5
-    },
-    "interactive/small/cold/Retaining Wall Constraint Prep": {
-      "MedianMs": 0.084,
-      "P95Ms": 0.0968,
-      "MinMs": 0.0736,
-      "MaxMs": 0.0968,
-      "Samples": 5
-    },
-    "interactive/small/cold/Retaining Wall Outputs": {
-      "MedianMs": 0.0044,
-      "P95Ms": 0.0067,
-      "MinMs": 0.0032,
-      "MaxMs": 0.0067,
-      "Samples": 5
-    },
-    "interactive/small/cold/Retaining Wall Persist Constraints": {
-      "MedianMs": 0.0023,
-      "P95Ms": 0.0029,
-      "MinMs": 0.0018,
-      "MaxMs": 0.0029,
-      "Samples": 5
-    },
-    "interactive/small/cold/Retaining Wall Plan": {
-      "MedianMs": 0.6559,
-      "P95Ms": 0.81,
-      "MinMs": 0.6241,
-      "MaxMs": 0.81,
-      "Samples": 5
-    },
-    "interactive/small/cold/Retaining Wall Resolve": {
-      "MedianMs": 0.0019,
-      "P95Ms": 0.0021,
-      "MinMs": 0.0015,
-      "MaxMs": 0.0021,
-      "Samples": 5
-    },
-    "interactive/small/cold/Retaining Wall Topology Insert": {
-      "MedianMs": 6.7366,
-      "P95Ms": 8.4086,
-      "MinMs": 6.079,
-      "MaxMs": 8.4086,
-      "Samples": 5
-    },
-    "interactive/small/cold/Scatter": {
-      "MedianMs": 0.001,
-      "P95Ms": 0.0014,
-      "MinMs": 0.0009,
-      "MaxMs": 0.0014,
-      "Samples": 5
-    },
     "interactive/small/cold/Triangulate": {
-      "MedianMs": 2.2728,
-      "P95Ms": 3.2905,
-      "MinMs": 2.1625,
-      "MaxMs": 3.2905,
+      "MedianMs": 2.1949,
+      "P95Ms": 2.4298,
+      "MinMs": 2.1888,
+      "MaxMs": 2.4298,
       "Samples": 5
     },
     "interactive/small/cold/Zones": {
-      "MedianMs": 0.0004,
-      "P95Ms": 0.0013,
-      "MinMs": 0.0003,
-      "MaxMs": 0.0013,
+      "MedianMs": 0.0006,
+      "P95Ms": 0.0015,
+      "MinMs": 0.0004,
+      "MaxMs": 0.0015,
       "Samples": 5
     },
     "interactive/small/cold/wall": {
-      "MedianMs": 10.0144,
-      "P95Ms": 12.9349,
-      "MinMs": 9.2287,
-      "MaxMs": 12.9349,
+      "MedianMs": 5.7796,
+      "P95Ms": 6.0612,
+      "MinMs": 5.5349,
+      "MaxMs": 6.0612,
       "Samples": 5
     },
     "interactive/small/warm-edit/Analysis": {
-      "MedianMs": 0.0004,
-      "P95Ms": 0.0014,
-      "MinMs": 0.0003,
-      "MaxMs": 0.0014,
+      "MedianMs": 0.0002,
+      "P95Ms": 0.0009,
+      "MinMs": 0.0002,
+      "MaxMs": 0.0009,
       "Samples": 5
     },
     "interactive/small/warm-edit/Build pipeline": {
-      "MedianMs": 9.0154,
-      "P95Ms": 10.4991,
-      "MinMs": 8.8861,
-      "MaxMs": 10.4991,
+      "MedianMs": 3.2759,
+      "P95Ms": 3.4175,
+      "MinMs": 3.2297,
+      "MaxMs": 3.4175,
       "Samples": 5
     },
     "interactive/small/warm-edit/Markers": {
-      "MedianMs": 0.0007,
-      "P95Ms": 0.0016,
-      "MinMs": 0.0005,
-      "MaxMs": 0.0016,
+      "MedianMs": 0.0004,
+      "P95Ms": 0.0008,
+      "MinMs": 0.0003,
+      "MaxMs": 0.0008,
       "Samples": 5
     },
     "interactive/small/warm-edit/Objects": {
-      "MedianMs": 0.0005,
-      "P95Ms": 0.0025,
-      "MinMs": 0.0003,
-      "MaxMs": 0.0025,
-      "Samples": 5
-    },
-    "interactive/small/warm-edit/Retaining Wall": {
-      "MedianMs": 8.8244,
-      "P95Ms": 10.2677,
-      "MinMs": 8.699,
-      "MaxMs": 10.2677,
-      "Samples": 5
-    },
-    "interactive/small/warm-edit/Retaining Wall Constraint Curves": {
-      "MedianMs": 0.0016,
-      "P95Ms": 0.0016,
-      "MinMs": 0.0002,
-      "MaxMs": 0.0016,
-      "Samples": 5
-    },
-    "interactive/small/warm-edit/Retaining Wall Constraint Prep": {
-      "MedianMs": 0.0704,
-      "P95Ms": 0.091,
-      "MinMs": 0.0689,
-      "MaxMs": 0.091,
-      "Samples": 5
-    },
-    "interactive/small/warm-edit/Retaining Wall Outputs": {
-      "MedianMs": 0.0026,
-      "P95Ms": 0.0041,
-      "MinMs": 0.0021,
-      "MaxMs": 0.0041,
-      "Samples": 5
-    },
-    "interactive/small/warm-edit/Retaining Wall Persist Constraints": {
-      "MedianMs": 0.0022,
-      "P95Ms": 0.0025,
-      "MinMs": 0.0017,
-      "MaxMs": 0.0025,
-      "Samples": 5
-    },
-    "interactive/small/warm-edit/Retaining Wall Plan": {
-      "MedianMs": 0.6502,
-      "P95Ms": 0.6835,
-      "MinMs": 0.6337,
-      "MaxMs": 0.6835,
-      "Samples": 5
-    },
-    "interactive/small/warm-edit/Retaining Wall Resolve": {
-      "MedianMs": 0.0009,
+      "MedianMs": 0.0003,
       "P95Ms": 0.001,
-      "MinMs": 0.0008,
+      "MinMs": 0.0003,
       "MaxMs": 0.001,
       "Samples": 5
     },
+    "interactive/small/warm-edit/Retaining Wall": {
+      "MedianMs": 3.099,
+      "P95Ms": 3.2075,
+      "MinMs": 3.0471,
+      "MaxMs": 3.2075,
+      "Samples": 5
+    },
+    "interactive/small/warm-edit/Retaining Wall Constraint Curves": {
+      "MedianMs": 0.001,
+      "P95Ms": 0.0017,
+      "MinMs": 0.0002,
+      "MaxMs": 0.0017,
+      "Samples": 5
+    },
+    "interactive/small/warm-edit/Retaining Wall Constraint Prep": {
+      "MedianMs": 0.0692,
+      "P95Ms": 0.0918,
+      "MinMs": 0.0668,
+      "MaxMs": 0.0918,
+      "Samples": 5
+    },
+    "interactive/small/warm-edit/Retaining Wall Outputs": {
+      "MedianMs": 0.0029,
+      "P95Ms": 0.0034,
+      "MinMs": 0.0025,
+      "MaxMs": 0.0034,
+      "Samples": 5
+    },
+    "interactive/small/warm-edit/Retaining Wall Persist Constraints": {
+      "MedianMs": 0.0016,
+      "P95Ms": 0.0018,
+      "MinMs": 0.0016,
+      "MaxMs": 0.0018,
+      "Samples": 5
+    },
+    "interactive/small/warm-edit/Retaining Wall Plan": {
+      "MedianMs": 0.6213,
+      "P95Ms": 0.6657,
+      "MinMs": 0.6128,
+      "MaxMs": 0.6657,
+      "Samples": 5
+    },
+    "interactive/small/warm-edit/Retaining Wall Resolve": {
+      "MedianMs": 0.0006,
+      "P95Ms": 0.0011,
+      "MinMs": 0.0006,
+      "MaxMs": 0.0011,
+      "Samples": 5
+    },
     "interactive/small/warm-edit/Retaining Wall Topology Insert": {
-      "MedianMs": 8.1021,
-      "P95Ms": 9.4784,
-      "MinMs": 7.9394,
-      "MaxMs": 9.4784,
+      "MedianMs": 2.3924,
+      "P95Ms": 2.421,
+      "MinMs": 2.3373,
+      "MaxMs": 2.421,
       "Samples": 5
     },
     "interactive/small/warm-edit/Scatter": {
       "MedianMs": 0.0006,
-      "P95Ms": 0.0015,
+      "P95Ms": 0.0008,
       "MinMs": 0.0005,
-      "MaxMs": 0.0015,
+      "MaxMs": 0.0008,
       "Samples": 5
     },
     "interactive/small/warm-edit/Triangulate": {
-      "MedianMs": 0.0478,
-      "P95Ms": 0.0665,
-      "MinMs": 0.0431,
-      "MaxMs": 0.0665,
+      "MedianMs": 0.0234,
+      "P95Ms": 0.0319,
+      "MinMs": 0.0158,
+      "MaxMs": 0.0319,
       "Samples": 5
     },
     "interactive/small/warm-edit/Zones": {
-      "MedianMs": 0.0005,
-      "P95Ms": 0.0016,
-      "MinMs": 0.0004,
-      "MaxMs": 0.0016,
+      "MedianMs": 0.0002,
+      "P95Ms": 0.0011,
+      "MinMs": 0.0002,
+      "MaxMs": 0.0011,
       "Samples": 5
     },
     "interactive/small/warm-edit/wall": {
-      "MedianMs": 9.0168,
-      "P95Ms": 10.5009,
-      "MinMs": 8.8875,
-      "MaxMs": 10.5009,
+      "MedianMs": 3.2773,
+      "P95Ms": 3.4193,
+      "MinMs": 3.231,
+      "MaxMs": 3.4193,
       "Samples": 5
     }
   },
@@ -1516,7 +1516,7 @@
     "interactive/large/cold/Retaining Wall Constraint Prep": "2 raw -\u003E 2 prepared constraints",
     "interactive/large/cold/Retaining Wall Outputs": "1 Brep outputs from 1 usable walls",
     "interactive/large/cold/Retaining Wall Persist Constraints": "2 hard constraints",
-    "interactive/large/cold/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.021 ms, interactions 0.004 ms, wall geometry 0.596 ms",
+    "interactive/large/cold/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.022 ms, interactions 0.003 ms, wall geometry 0.598 ms",
     "interactive/large/cold/Retaining Wall Resolve": "2 curve inputs",
     "interactive/large/cold/Retaining Wall Topology Insert": "25,986 verts, 51,334 faces",
     "interactive/large/cold/Scatter": "0 scatter outputs",
@@ -1532,7 +1532,7 @@
     "interactive/large/warm-edit/Retaining Wall Constraint Prep": "2 raw -\u003E 2 prepared constraints",
     "interactive/large/warm-edit/Retaining Wall Outputs": "1 Brep outputs from 1 usable walls",
     "interactive/large/warm-edit/Retaining Wall Persist Constraints": "2 hard constraints",
-    "interactive/large/warm-edit/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.021 ms, interactions 0.004 ms, wall geometry 0.668 ms",
+    "interactive/large/warm-edit/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.02 ms, interactions 0.004 ms, wall geometry 0.656 ms",
     "interactive/large/warm-edit/Retaining Wall Resolve": "2 curve inputs",
     "interactive/large/warm-edit/Retaining Wall Topology Insert": "25,986 verts, 51,334 faces",
     "interactive/large/warm-edit/Scatter": "0 scatter outputs",
@@ -1548,7 +1548,7 @@
     "interactive/medium/cold/Retaining Wall Constraint Prep": "2 raw -\u003E 2 prepared constraints",
     "interactive/medium/cold/Retaining Wall Outputs": "1 Brep outputs from 1 usable walls",
     "interactive/medium/cold/Retaining Wall Persist Constraints": "2 hard constraints",
-    "interactive/medium/cold/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.02 ms, interactions 0.003 ms, wall geometry 0.746 ms",
+    "interactive/medium/cold/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.021 ms, interactions 0.003 ms, wall geometry 0.818 ms",
     "interactive/medium/cold/Retaining Wall Resolve": "2 curve inputs",
     "interactive/medium/cold/Retaining Wall Topology Insert": "12,816 verts, 25,186 faces",
     "interactive/medium/cold/Scatter": "0 scatter outputs",
@@ -1564,7 +1564,7 @@
     "interactive/medium/warm-edit/Retaining Wall Constraint Prep": "2 raw -\u003E 2 prepared constraints",
     "interactive/medium/warm-edit/Retaining Wall Outputs": "1 Brep outputs from 1 usable walls",
     "interactive/medium/warm-edit/Retaining Wall Persist Constraints": "2 hard constraints",
-    "interactive/medium/warm-edit/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.019 ms, interactions 0.003 ms, wall geometry 0.74 ms",
+    "interactive/medium/warm-edit/Retaining Wall Plan": "1 accepted walls; preprocess 0.001 ms, pairing 0.02 ms, interactions 0.004 ms, wall geometry 0.754 ms",
     "interactive/medium/warm-edit/Retaining Wall Resolve": "2 curve inputs",
     "interactive/medium/warm-edit/Retaining Wall Topology Insert": "12,816 verts, 25,186 faces",
     "interactive/medium/warm-edit/Scatter": "0 scatter outputs",
@@ -1580,7 +1580,7 @@
     "interactive/plan-target/cold/Retaining Wall Constraint Prep": "2 raw -\u003E 2 prepared constraints",
     "interactive/plan-target/cold/Retaining Wall Outputs": "1 Brep outputs from 1 usable walls",
     "interactive/plan-target/cold/Retaining Wall Persist Constraints": "2 hard constraints",
-    "interactive/plan-target/cold/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.028 ms, interactions 0.003 ms, wall geometry 0.757 ms",
+    "interactive/plan-target/cold/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.023 ms, interactions 0.003 ms, wall geometry 0.739 ms",
     "interactive/plan-target/cold/Retaining Wall Resolve": "2 curve inputs",
     "interactive/plan-target/cold/Retaining Wall Topology Insert": "50,718 verts, 100,542 faces",
     "interactive/plan-target/cold/Scatter": "0 scatter outputs",
@@ -1596,7 +1596,7 @@
     "interactive/plan-target/warm-edit/Retaining Wall Constraint Prep": "2 raw -\u003E 2 prepared constraints",
     "interactive/plan-target/warm-edit/Retaining Wall Outputs": "1 Brep outputs from 1 usable walls",
     "interactive/plan-target/warm-edit/Retaining Wall Persist Constraints": "2 hard constraints",
-    "interactive/plan-target/warm-edit/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.022 ms, interactions 0.003 ms, wall geometry 0.758 ms",
+    "interactive/plan-target/warm-edit/Retaining Wall Plan": "1 accepted walls; preprocess 0.003 ms, pairing 0.021 ms, interactions 0.003 ms, wall geometry 0.825 ms",
     "interactive/plan-target/warm-edit/Retaining Wall Resolve": "2 curve inputs",
     "interactive/plan-target/warm-edit/Retaining Wall Topology Insert": "50,718 verts, 100,542 faces",
     "interactive/plan-target/warm-edit/Scatter": "0 scatter outputs",
@@ -1604,36 +1604,36 @@
     "interactive/plan-target/warm-edit/Zones": "0 zone outputs",
     "interactive/plan-target/warm-edit/output mesh": "50718 verts, 100542 faces, eb4a83a40650ae85",
     "interactive/small/cold/Analysis": "0 enabled analyses and annotations",
-    "interactive/small/cold/Build pipeline": "1,418 verts, 2,694 faces; 0 zone outputs, 3 auxiliary outputs, 0 marker outputs, 0 object placements, 0 scatter outputs",
+    "interactive/small/cold/Build pipeline": "1,386 verts, 2,630 faces; 0 zone outputs, 3 auxiliary outputs, 0 marker outputs, 0 object placements, 0 scatter outputs",
     "interactive/small/cold/Markers": "0 marker outputs",
     "interactive/small/cold/Objects": "0 object placements",
-    "interactive/small/cold/Retaining Wall": "modifier \u0027Retaining Wall\u0027, 1,418 verts, 2,694 faces",
+    "interactive/small/cold/Retaining Wall": "modifier \u0027Retaining Wall\u0027, 1,386 verts, 2,630 faces",
     "interactive/small/cold/Retaining Wall Constraint Curves": "2 raw rail constraints from 1 usable walls",
     "interactive/small/cold/Retaining Wall Constraint Prep": "2 raw -\u003E 2 prepared constraints",
     "interactive/small/cold/Retaining Wall Outputs": "1 Brep outputs from 1 usable walls",
     "interactive/small/cold/Retaining Wall Persist Constraints": "2 hard constraints",
-    "interactive/small/cold/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.017 ms, interactions 0.003 ms, wall geometry 0.634 ms",
+    "interactive/small/cold/Retaining Wall Plan": "1 accepted walls; preprocess 0.002 ms, pairing 0.018 ms, interactions 0.003 ms, wall geometry 0.593 ms",
     "interactive/small/cold/Retaining Wall Resolve": "2 curve inputs",
-    "interactive/small/cold/Retaining Wall Topology Insert": "1,418 verts, 2,694 faces",
+    "interactive/small/cold/Retaining Wall Topology Insert": "1,386 verts, 2,630 faces",
     "interactive/small/cold/Scatter": "0 scatter outputs",
     "interactive/small/cold/Triangulate": "modifier \u0027Triangulate\u0027, 1,296 verts, 2,450 faces",
     "interactive/small/cold/Zones": "0 zone outputs",
-    "interactive/small/cold/output mesh": "1418 verts, 2694 faces, b3f3b79d03170c06",
+    "interactive/small/cold/output mesh": "1386 verts, 2630 faces, 6deab7d70ca68802",
     "interactive/small/warm-edit/Analysis": "0 enabled analyses and annotations",
-    "interactive/small/warm-edit/Build pipeline": "1,418 verts, 2,694 faces; 0 zone outputs, 3 auxiliary outputs, 0 marker outputs, 0 object placements, 0 scatter outputs",
+    "interactive/small/warm-edit/Build pipeline": "1,386 verts, 2,630 faces; 0 zone outputs, 3 auxiliary outputs, 0 marker outputs, 0 object placements, 0 scatter outputs",
     "interactive/small/warm-edit/Markers": "0 marker outputs",
     "interactive/small/warm-edit/Objects": "0 object placements",
-    "interactive/small/warm-edit/Retaining Wall": "modifier \u0027Retaining Wall\u0027, 1,418 verts, 2,694 faces",
+    "interactive/small/warm-edit/Retaining Wall": "modifier \u0027Retaining Wall\u0027, 1,386 verts, 2,630 faces",
     "interactive/small/warm-edit/Retaining Wall Constraint Curves": "2 raw rail constraints from 1 usable walls",
     "interactive/small/warm-edit/Retaining Wall Constraint Prep": "2 raw -\u003E 2 prepared constraints",
     "interactive/small/warm-edit/Retaining Wall Outputs": "1 Brep outputs from 1 usable walls",
     "interactive/small/warm-edit/Retaining Wall Persist Constraints": "2 hard constraints",
-    "interactive/small/warm-edit/Retaining Wall Plan": "1 accepted walls; preprocess 0.001 ms, pairing 0.01 ms, interactions 0.002 ms, wall geometry 0.622 ms",
+    "interactive/small/warm-edit/Retaining Wall Plan": "1 accepted walls; preprocess 0.001 ms, pairing 0.01 ms, interactions 0.002 ms, wall geometry 0.609 ms",
     "interactive/small/warm-edit/Retaining Wall Resolve": "2 curve inputs",
-    "interactive/small/warm-edit/Retaining Wall Topology Insert": "1,418 verts, 2,694 faces",
+    "interactive/small/warm-edit/Retaining Wall Topology Insert": "1,386 verts, 2,630 faces",
     "interactive/small/warm-edit/Scatter": "0 scatter outputs",
     "interactive/small/warm-edit/Triangulate": "modifier \u0027Triangulate\u0027, 1,296 verts, 2,450 faces; cache hit",
     "interactive/small/warm-edit/Zones": "0 zone outputs",
-    "interactive/small/warm-edit/output mesh": "1418 verts, 2694 faces, 1e7fc08787ea33ff"
+    "interactive/small/warm-edit/output mesh": "1386 verts, 2630 faces, adb23eaeb7213a37"
   }
 }

@@ -89,6 +89,9 @@ Key files:
   allocations dominated the operator loop on large terrains.
 - `MeshFlipGeometry.cs` — shared edge-flip / triangle-adjacency primitives (convexity, oriented-face write,
   min-angle, normal agreement, adjacency incidence) used by the remeshers and refiner.
+- `FlipEdgeIndex.cs` — the isotropic remesh's per-sweep edge → faces index, a counting sort over
+  half-edges that visits edges in exactly the order the edge dictionary it replaced enumerated them, so
+  the flip phase makes identical flips (architecture.md, "Remesh flip phase").
 - `MeshTopologyValidator.cs` — low-allocation sorted-edge boundary analysis (non-manifold edges, open
   chains, loop count) and compressed flat adjacency for ordered boundary extraction. Storage scales
   with edge/boundary counts rather than maximum vertex id; it is the watertight gate used everywhere.

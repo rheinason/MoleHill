@@ -156,6 +156,9 @@ First results, 2026-09-29, on a 24-thread machine with 32 GB (full stack, cold, 
 | 2 m | 800k | 54 s | 55 s | 6.2 GB | Remesh 35 s |
 | 1 m | 3.2M | 300 s | 298 s | 15.2 GB | Remesh 167 s (flip phase 74%) |
 
+After the flip-phase index (same day, architecture.md "Remesh flip phase"), Remesh fell to 13.9 s at 2 m
+and 57 s at 1 m, the 2 m edit to 32 s and the 1 m edit to about 175 s, with identical meshes.
+
 What broke, and where: at 1 m the Retaining Wall's local insert is rejected (it would open the terrain
 boundary), and its whole-mesh constrained rebuild, now also carrying 2,346 path elevation constraints,
 fails after 53 s. The terrain keeps the upstream mesh, so it stays hole-free, but the walls are silently

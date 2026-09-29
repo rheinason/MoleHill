@@ -1463,6 +1463,31 @@ Two other explanations were measured and **disproved** first, and are recorded s
 re-investigated: `TryExtractMeshData` is 67 ms on a 124k-face mesh, and the whole per-stage mesh
 marshalling round trip (extract, `BuildMesh`, normalize, cache clone) is ~113 ms on 110k faces.
 
+### Remesh flip phase: an index, not a dictionary (2026-09-29)
+
+At park scale the flip phase was most of Remesh: 122 s of a 164 s Remesh on a 5.2M-face terrain (the
+park-scale stress probe, `docs/validation-lanes.md`). Each of up to 16 Lawson sweeps per iteration
+rebuilt an edge → faces `Dictionary` over the whole mesh and re-derived every quad's angles, although
+late sweeps flip a few thousand edges out of millions. Three changes, **none of which changes a flip**:
+
+- `FlipEdgeIndex` replaces the dictionary with a counting sort over half-edges. The dictionary visited
+  edges in first-insertion order, which is each edge's first half-edge in face order. The index visits
+  them in that order too, so the sweep is the same sequence of decisions.
+- A geometry rejection is remembered while both faces of the quad are unchanged. No vertex moves during
+  the flip phase, so the verdict cannot change until a face does.
+- Each sweep takes every candidate's geometry verdict up front with `Parallel.For`, from the faces it
+  starts with. The sequential pass still makes every flip in order and reads a verdict only for a quad
+  whose faces are untouched. The retopo field path stays serial (its sampler is not known to be
+  thread-safe).
+
+`IsotropicRemesherFlipReference` (tests) keeps the dictionary version as the oracle, and
+`IsotropicRemesherFlipEquivalenceTests` compare every face index after each phase and through the whole
+loop. Breaking the memo's invalidation fails two of them. The hosted lane's finished-mesh hashes are
+identical to an untouched HEAD in every scenario. Measured: flip phase 7.2x on a 350k-face loop, and
+`geometry-heavy` Remesh 883 → 485 ms cold, 881 → 459 ms on the pad edit. On the 1 m park (5.2M faces)
+the flip phase fell from 121.9 s to 11.7 s and Remesh from 167 s to 57 s, with the split, collapse and
+flip counts unchanged. `CollapseShortEdges` (21 s there) is now the largest phase.
+
 ### Interactive scale: what a warm edit costs as the terrain grows
 
 The realtime targets are stated as input-to-visible budgets, but nothing had measured how much of one
