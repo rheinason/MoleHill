@@ -25,6 +25,10 @@ Key files:
   cell's run is ascending, exactly what the per-cell lists held. Query scratch supports dense stamps
   or a reusable sparse visited set; localized parallel waterflow queries use the latter to avoid
   allocating a whole-index stamp array per worker. Both modes preserve candidate visitation order.
+- `CoordinatePrecision.cs` - how far from the origin a terrain can sit before single-precision rounding
+  (every stage hands its mesh on as a Rhino mesh) reaches a tenth of the model tolerance: ~8 km at
+  0.01 m. The build warns beyond it and points at `mhOrientToOrigin`; measured at +500 km, the Glyvra
+  terrain went from 1 boundary to 1,018 holes.
 - `CancellationProbe.cs` - cooperative cancellation for the heavy Core stages. `ThrowIfCancelled` at
   phase and round boundaries; `ThrowIfCancelledOften` inside per-face / per-vertex loops, which
   consults the callback only every `DefaultInterval` iterations (its counter is deliberately

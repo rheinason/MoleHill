@@ -3,6 +3,7 @@ using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Registry;
+using MoleHill.Shared;
 using Rhino;
 using RhinoMesh = Rhino.Geometry.Mesh;
 
@@ -256,9 +257,40 @@ internal sealed partial class TerrainBuildService
         dependentOutputsTimer.Stop();
         build.DependentOutputsElapsed = dependentOutputsTimer.Elapsed;
         runtimeCache.PruneUnused(usedStageKeys, mode);
+        AddFarFromOriginWarning(snapshot, build);
         totalTimer.Stop();
         build.RecordTiming("Build pipeline", totalTimer.Elapsed, DescribeBuildOutputs(build));
         return build;
+    }
+
+    /// <summary>
+    /// Warns when the terrain lies so far from the world origin that single-precision rounding — every
+    /// stage hands its mesh on as a Rhino mesh — approaches the model tolerance. Raised per build from the
+    /// finished terrain's extent, outside every stage cache, so a cache hit can neither drop nor repeat it.
+    /// </summary>
+    private static void AddFarFromOriginWarning(TerrainBuildSnapshot snapshot, TerrainBuildResult build)
+    {
+        RhinoMesh? mesh = build.PrimaryMesh ?? build.BaseMesh;
+        if (mesh == null || mesh.Vertices.Count == 0)
+            return;
+
+        global::Rhino.Geometry.BoundingBox box = mesh.GetBoundingBox(accurate: false);
+        double magnitude = Math.Max(
+            Math.Max(Math.Abs(box.Min.X), Math.Abs(box.Max.X)),
+            Math.Max(Math.Abs(box.Min.Y), Math.Abs(box.Max.Y)));
+        double tolerance = snapshot.ModelAbsoluteTolerance;
+        if (!CoordinatePrecision.IsTooFarFromOrigin(magnitude, tolerance))
+            return;
+
+        ModelUnitContext units = snapshot.ResolvedUnitContext;
+        string message =
+            $"The terrain is {units.FormatLength(magnitude, "N0")} from the world origin, where coordinates round to " +
+            $"about {units.FormatLength(CoordinatePrecision.RoundingStep(magnitude), "G2")} between build stages " +
+            $"(model tolerance {units.FormatLength(tolerance, "G3")}). Expect slivers, merged points and failed wall or grading " +
+            "insertions. Run mhOrientToOrigin to move the project to the origin; the saved georeference restores " +
+            "real-world coordinates on export.";
+        build.Diagnostics.Add("[Warning] " + message);
+        build.StructuredDiagnostics.Add(GradingDiagnostic.Warning("terrain.far_from_origin", message, "Build"));
     }
 
     private static RhinoMesh? ExecuteCachedMeshStage(
