@@ -86,7 +86,10 @@ Key files:
 - `MeshVertexAdjacency.cs` — vertex → incident faces and vertex → neighbor vertices as flat CSR arrays,
   rebuilt (with buffer reuse) once per collapse round and relax sweep of the isotropic remesh. It
   replaced a `Dictionary<int, List<int>>` + `Dictionary<int, HashSet<int>>` pair whose per-vertex
-  allocations dominated the operator loop on large terrains.
+  allocations dominated the operator loop on large terrains. Faces a collapse survivor inherits go to flat
+  per-vertex chains, not a dictionary, and neighbour slices sort in parallel on a large mesh. The
+  collapse phase plans its candidates in parallel and commits them in order (architecture.md, "Remesh
+  collapse phase").
 - `MeshFlipGeometry.cs` — shared edge-flip / triangle-adjacency primitives (convexity, oriented-face write,
   min-angle, normal agreement, adjacency incidence) used by the remeshers and refiner.
 - `FlipEdgeIndex.cs` — the isotropic remesh's per-sweep edge → faces index, a counting sort over

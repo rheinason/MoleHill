@@ -1556,6 +1556,29 @@ identical to an untouched HEAD in every scenario. Measured: flip phase 7.2x on a
 the flip phase fell from 121.9 s to 11.7 s and Remesh from 167 s to 57 s, with the split, collapse and
 flip counts unchanged. `CollapseShortEdges` (21 s there) is now the largest phase.
 
+### Remesh collapse phase: plan in parallel, commit in order (2026-09-29)
+
+Each collapse round visits candidate edges shortest first, so it walks the mesh in no spatial order,
+and most of its time was memory latency rather than arithmetic. Four changes, **none of which changes a
+collapse** (face hash identical on a 1.7M-face loop, and the hosted lane's finished meshes identical):
+
+- **Plans are taken in parallel, a chunk at a time, and committed in order.** A collapse's plan (the
+  survivor, the merged position, the link and fold checks) reads only the one-rings of the edge's two
+  endpoints, and every commit locks the one-rings it changes. So a candidate still unlocked at its turn
+  plans the same on the chunk-start state as it would at its turn. `CollapsePlan` / `CommitCollapse`.
+- **The candidate scan runs in parallel and sorts with a struct comparer.** Edge keys are unique, so the
+  sorted list does not depend on the order the scan found them in.
+- **`MeshVertexAdjacency`** keeps collapse survivors' inherited faces in flat per-vertex chains instead of
+  a dictionary, and sorts its neighbour slices in parallel on a large mesh.
+- **`TerrainFaceGrid` locates points through a dense slot table** when the cell range is compact. Each
+  query probes nine cells, and on a terrain with millions of cells every hashed probe was a cache miss.
+  The table maps to the same cell runs, so every query sees the same faces in the same order.
+
+Measured: the collapse phase 7.4 → 3.4 s over five iterations on a 1M-vertex jittered grid, and
+`geometry-heavy` Remesh 500 → 426 ms cold, 478 → 391 ms on the pad edit. On the 1 m park the collapse
+phase fell from 21.6 s to 6.3 s and Remesh from 55.6 s to 36.5 s, with the same output counts. Flip
+(10–12 s) is the largest phase again.
+
 ### Interactive scale: what a warm edit costs as the terrain grows
 
 The realtime targets are stated as input-to-visible budgets, but nothing had measured how much of one

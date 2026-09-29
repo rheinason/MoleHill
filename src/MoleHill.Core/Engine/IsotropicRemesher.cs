@@ -756,42 +756,77 @@ public static class IsotropicRemesher
         adjacency = MeshVertexAdjacency.Build(state.Tris, faceCount, state.VertexCount, adjacency);
 
         // Each undirected edge is visited once, from its lower-indexed endpoint only — that replaces
-        // the per-round HashSet<long> of already-seen edge keys.
+        // the per-round HashSet<long> of already-seen edge keys. Edge keys are unique, so the sorted list
+        // does not depend on the order the scan found them in, and a large mesh scans in parallel.
         candidates.Clear();
-        for (int u = 0; u < adjacency.VertexCount; u++)
+        MeshVertexAdjacency scanAdjacency = adjacency;
+        int scanVertexCount = scanAdjacency.VertexCount;
+        if (scanVertexCount >= CollapseScanParallelMinimum)
         {
-            cancellation.ThrowIfCancelledOften();
-            foreach (int v in adjacency.NeighborsOf(u))
+            int blockCount = (scanVertexCount + CollapseScanBlock - 1) / CollapseScanBlock;
+            var found = new List<(double lengthSquared, long key)>?[blockCount];
+            System.Threading.Tasks.Parallel.For(0, blockCount, block =>
             {
-                if (v < u)
-                    continue;
-                double lengthSquared = DistanceSquared(state.Verts, u, v);
-                if (lengthSquared < collapseSquared)
-                    candidates.Add((lengthSquared, EdgeKey(u, v)));
-            }
+                var local = new List<(double lengthSquared, long key)>();
+                CollectCollapseCandidates(state, scanAdjacency, block * CollapseScanBlock,
+                    Math.Min(scanVertexCount, (block + 1) * CollapseScanBlock), collapseSquared, local);
+                found[block] = local;
+            });
+            cancellation.ThrowIfCancelled();
+            foreach (List<(double lengthSquared, long key)>? local in found)
+                candidates.AddRange(local!);
+        }
+        else
+        {
+            CollectCollapseCandidates(state, scanAdjacency, 0, scanVertexCount, collapseSquared, candidates);
         }
 
-        candidates.Sort((x, y) => x.lengthSquared != y.lengthSquared
-            ? x.lengthSquared.CompareTo(y.lengthSquared)
-            : x.key.CompareTo(y.key));
+        System.Runtime.InteropServices.CollectionsMarshal.AsSpan(candidates).Sort(default(CollapseCandidateOrder));
 
+        // Candidates are planned a chunk at a time, in parallel, then committed in order. A plan reads only
+        // the one-rings of the edge's endpoints, and every collapse locks the one-rings it changes, so a
+        // candidate still unlocked when its turn comes plans the same on the chunk-start state as it would
+        // at its turn: the result is the sequential one. Planning was most of the phase, and it is mostly
+        // memory latency (shortest-first visits the mesh in no spatial order), so it parallelizes well.
         locked.BeginRound(state.VertexCount);
         int collapses = 0;
-        foreach ((double _, long key) in candidates)
+        MeshVertexAdjacency roundAdjacency = adjacency;
+        int candidateCount = candidates.Count;
+        CollapsePlan[] plans = RentCollapsePlans(Math.Min(candidateCount, CollapsePlanChunk));
+        for (int chunkStart = 0; chunkStart < candidateCount; chunkStart += CollapsePlanChunk)
         {
-            cancellation.ThrowIfCancelledOften();
-            int a = (int)(key >> 32);
-            int b = (int)(key & 0xFFFFFFFFL);
-            if (locked.IsLocked(a) || locked.IsLocked(b))
-                continue;
-            if (TryCollapse(state, projection, adjacency, a, b, maxResultSquared, out int survivor, out int removed))
+            cancellation.ThrowIfCancelled();
+            int chunkEnd = Math.Min(candidateCount, chunkStart + CollapsePlanChunk);
+            int chunkLength = chunkEnd - chunkStart;
+            if (chunkLength >= CollapsePlanParallelMinimum)
             {
+                int blockCount = (chunkLength + CollapsePlanBlock - 1) / CollapsePlanBlock;
+                System.Threading.Tasks.Parallel.For(0, blockCount, block =>
+                {
+                    int blockEnd = Math.Min(chunkEnd, chunkStart + ((block + 1) * CollapsePlanBlock));
+                    for (int i = chunkStart + (block * CollapsePlanBlock); i < blockEnd; i++)
+                        PlanCandidate(state, projection, roundAdjacency, candidates[i].key, locked, maxResultSquared, out plans[i - chunkStart]);
+                });
+            }
+            else
+            {
+                for (int i = chunkStart; i < chunkEnd; i++)
+                    PlanCandidate(state, projection, roundAdjacency, candidates[i].key, locked, maxResultSquared, out plans[i - chunkStart]);
+            }
+
+            for (int i = 0; i < chunkLength; i++)
+            {
+                ref CollapsePlan plan = ref plans[i];
+                if (!plan.Accepted || locked.IsLocked(plan.Survivor) || locked.IsLocked(plan.Removed))
+                    continue;
+
+                CommitCollapse(state, roundAdjacency, in plan);
                 collapses++;
-                locked.Lock(survivor);
-                locked.Lock(removed);
-                foreach (int n in adjacency.NeighborsOf(removed))
+                locked.Lock(plan.Survivor);
+                locked.Lock(plan.Removed);
+                foreach (int n in roundAdjacency.NeighborsOf(plan.Removed))
                     locked.Lock(n);
-                foreach (int n in adjacency.NeighborsOf(survivor))
+                foreach (int n in roundAdjacency.NeighborsOf(plan.Survivor))
                     locked.Lock(n);
             }
         }
@@ -802,18 +837,101 @@ public static class IsotropicRemesher
         return collapses;
     }
 
-    private static bool TryCollapse(
+    private const int CollapseScanParallelMinimum = 65_536;
+    private const int CollapseScanBlock = 16_384;
+
+    private static void CollectCollapseCandidates(
+        MeshState state,
+        MeshVertexAdjacency adjacency,
+        int fromVertex,
+        int toVertex,
+        double collapseSquared,
+        List<(double lengthSquared, long key)> candidates)
+    {
+        for (int u = fromVertex; u < toVertex; u++)
+        {
+            foreach (int v in adjacency.NeighborsOf(u))
+            {
+                if (v < u)
+                    continue;
+                double lengthSquared = DistanceSquared(state.Verts, u, v);
+                if (lengthSquared < collapseSquared)
+                    candidates.Add((lengthSquared, EdgeKey(u, v)));
+            }
+        }
+    }
+
+    /// <summary>Shortest first, ties by edge key: a total order, since keys are unique.</summary>
+    private readonly struct CollapseCandidateOrder : IComparer<(double lengthSquared, long key)>
+    {
+        public int Compare((double lengthSquared, long key) x, (double lengthSquared, long key) y) =>
+            x.lengthSquared != y.lengthSquared
+                ? x.lengthSquared.CompareTo(y.lengthSquared)
+                : x.key.CompareTo(y.key);
+    }
+
+    private const int CollapsePlanChunk = 65_536;
+    private const int CollapsePlanBlock = 2_048;
+    private const int CollapsePlanParallelMinimum = 8_192;
+
+    [ThreadStatic]
+    private static CollapsePlan[]? t_collapsePlans;
+
+    private static CollapsePlan[] RentCollapsePlans(int length)
+    {
+        CollapsePlan[]? plans = t_collapsePlans;
+        if (plans == null || plans.Length < length)
+            t_collapsePlans = plans = new CollapsePlan[Math.Max(length, 16)];
+        return plans;
+    }
+
+    /// <summary>What committing one collapse writes, decided before anything is written.</summary>
+    private struct CollapsePlan
+    {
+        public bool Accepted;
+        public int Survivor;
+        public int Removed;
+        public long EdgeKey;
+        public double X;
+        public double Y;
+        public double Z;
+        public double Param;
+        public int Chain;
+        public byte Kind;
+    }
+
+    private static void PlanCandidate(
+        MeshState state,
+        TerrainFaceGrid projection,
+        MeshVertexAdjacency adjacency,
+        long key,
+        CollapseRoundLocks locked,
+        double maxResultSquared,
+        out CollapsePlan plan)
+    {
+        int a = (int)(key >> 32);
+        int b = (int)(key & 0xFFFFFFFFL);
+        if (locked.IsLocked(a) || locked.IsLocked(b))
+        {
+            plan = default;
+            return;
+        }
+
+        plan.Accepted = TryPlanCollapse(state, projection, adjacency, a, b, maxResultSquared, out plan);
+    }
+
+    private static bool TryPlanCollapse(
         MeshState state,
         TerrainFaceGrid projection,
         MeshVertexAdjacency adjacency,
         int a,
         int b,
         double maxResultSquared,
-        out int survivor,
-        out int removed)
+        out CollapsePlan plan)
     {
-        survivor = -1;
-        removed = -1;
+        plan = default;
+        int survivor;
+        int removed;
 
         int rankA = ConstraintRank(state.Kind[a]);
         int rankB = ConstraintRank(state.Kind[b]);
@@ -941,15 +1059,30 @@ public static class IsotropicRemesher
                 return false;
         }
 
-        // --- Commit -----------------------------------------------------------------------------------
-        state.Verts[survivor * 3] = newX;
-        state.Verts[survivor * 3 + 1] = newY;
-        state.Verts[survivor * 3 + 2] = newZ;
-        state.Kind[survivor] = newKind;
-        state.Chain[survivor] = newChain;
-        state.Param[survivor] = newParam;
+        plan.Survivor = survivor;
+        plan.Removed = removed;
+        plan.EdgeKey = edgeKey;
+        plan.X = newX;
+        plan.Y = newY;
+        plan.Z = newZ;
+        plan.Kind = newKind;
+        plan.Chain = newChain;
+        plan.Param = newParam;
+        return true;
+    }
 
-        foreach (int t in facesOfRemoved)
+    private static void CommitCollapse(MeshState state, MeshVertexAdjacency adjacency, in CollapsePlan plan)
+    {
+        int survivor = plan.Survivor;
+        int removed = plan.Removed;
+        state.Verts[survivor * 3] = plan.X;
+        state.Verts[survivor * 3 + 1] = plan.Y;
+        state.Verts[survivor * 3 + 2] = plan.Z;
+        state.Kind[survivor] = plan.Kind;
+        state.Chain[survivor] = plan.Chain;
+        state.Param[survivor] = plan.Param;
+
+        foreach (int t in adjacency.FacesOf(removed))
         {
             if (!state.IsLive(t))
                 continue;
@@ -969,7 +1102,7 @@ public static class IsotropicRemesher
         }
 
         // Re-key feature edges that touched the removed vertex.
-        state.FeatureEdges.Remove(edgeKey);
+        state.FeatureEdges.Remove(plan.EdgeKey);
         foreach (int n in adjacency.NeighborsOf(removed))
         {
             if (n == survivor)
@@ -981,8 +1114,6 @@ public static class IsotropicRemesher
                 state.FeatureEdges[EdgeKey(survivor, n)] = chain;
             }
         }
-
-        return true;
     }
 
     private static bool SimulatedFaceValid(MeshState state, int face, int movedVertex, double newX, double newY, double areaEps)
