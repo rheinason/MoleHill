@@ -768,7 +768,7 @@ internal sealed partial class TerrainBuildService
         double curveTolerance = toleranceProfile.CurveChordTolerance;
         double gradePathTolerance = toleranceProfile.GradePathTolerance;
         var pathResolveTimer = Stopwatch.StartNew();
-        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, vertexCount, faces, faceCount, modifier, curveTolerance, gradePathTolerance);
+        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, vertexCount, faces, faceCount, modifier, build.PersistentHardConstraints, curveTolerance, gradePathTolerance);
         pathResolveTimer.Stop();
         build.RecordTiming(
             "Grade Path Resolve",
@@ -782,6 +782,14 @@ internal sealed partial class TerrainBuildService
             StageTimingDiagnosticThresholdMs);
         foreach (VariablePathWidthResolver.Diagnostic diagnostic in resolvedInputs.WidthDiagnostics)
             build.Diagnostics.Add(diagnostic.Message);
+        if (resolvedInputs.BarrierStops > 0)
+        {
+            build.Diagnostics.Add(
+                $"Grade Path stopped at {resolvedInputs.BarrierStops:N0} crossing(s) of a hard constraint" +
+                (resolvedInputs.PiecesLeftToConstraints > 0
+                    ? $"; {resolvedInputs.PiecesLeftToConstraints:N0} piece(s) inside a graded area were left to it."
+                    : "."));
+        }
         AddGradePathWidthDiagnosticOverlays(mesh, modifier, resolvedInputs.WidthDiagnostics, gradePathTolerance, build);
         if (resolvedInputs.Paths.Length == 0)
         {
@@ -1062,12 +1070,20 @@ internal sealed partial class TerrainBuildService
         int[] faces,
         int faceCount,
         GradePathModifierDefinition modifier,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> hardConstraints,
         double curveTolerance,
         double gradePathTolerance)
     {
         (ResolvedGradePathDefinition[] resolvedDefinitions, IReadOnlyList<VariablePathWidthResolver.Diagnostic> widthDiagnostics) =
             ResolveGradePathDefinitions(snapshot, modifier, curveTolerance, gradePathTolerance);
-        PathGrader.PathDefinition[] pathArray = resolvedDefinitions.Select(static item => item.Definition).ToArray();
+        // Stop the paths at hard constraints here rather than leave it to the grader, so the elevation
+        // constraints persisted for later stages describe the paths that were graded, not ones crossing a pad.
+        PathGrader.PathDefinition[] pathArray = PathGrader.StopPathsAtHardConstraints(
+            resolvedDefinitions.Select(static item => item.Definition).ToArray(),
+            hardConstraints,
+            gradePathTolerance,
+            out int barrierStops,
+            out int piecesLeftToConstraints);
         var constraintTimer = Stopwatch.StartNew();
         var constraintSet = pathArray.Length == 0
             ? new PathGrader.ConstraintSet
@@ -1084,6 +1100,8 @@ internal sealed partial class TerrainBuildService
             Constraints = constraintSet.Constraints,
             SuggestedEdgeLength = constraintSet.SuggestedEdgeLength,
             WidthDiagnostics = widthDiagnostics,
+            BarrierStops = barrierStops,
+            PiecesLeftToConstraints = piecesLeftToConstraints,
             ConstraintElapsed = constraintTimer.Elapsed
         };
     }

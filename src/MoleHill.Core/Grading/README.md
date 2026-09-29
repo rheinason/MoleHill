@@ -119,6 +119,22 @@ corridor's own constraints; the default Core contract remains explicit-first. A 
 graded it as a near-vertical wall where explicit assembly succeeds
 (`GradePathDistantHardConstraintCopiedCaseTests`).
 
+**Paths stop at hard constraints; they are not refused for crossing one.** Before the cascade,
+`PathGrader.StopPathsAtHardConstraints` (`PathGrader.BarrierStops.cs`) splits each centerline where it
+crosses a preserved-elevation hard constraint. A piece inside a closed one (a graded pad or lawn) is
+left to it, and every other piece is graded, ending short of the constraint by as much as its road edges
+need at that crossing angle. A crossing used to be refused, and the refusal took every path in the
+modifier with it: on the park-scale probe, 22 crossings among 24 paths left nothing graded while the build
+reported success. Variable-width and one-sided paths are passed through unchanged. The Rhino stage
+applies the same stop before it makes the path's elevation constraints, so the constraints it persists
+describe the pieces that were graded.
+
+**A closed rail whose inward batter cannot reach daylight grades without a daylight ring.** On a ring too
+small for its batter the daylight rays cross before they meet ground, and the envelope self-intersects.
+The explicit tier used to defer the whole grade to constraint insertion, which does not put the rails in
+the mesh, so a terraced ring wall lost its walls. It now conforms the rail ring alone and lets the section
+pass grade the interior (`OneSidedRailRingTests`, on a captured terrace case).
+
 **`SplitConform` accepts the hand-rolled split only when it leaves topology no worse than the input.**
 It used to accept anything that was not non-manifold, but the same "cut point a hair off an existing
 vertex" situation also yields a plainly NON-CONFORMING edge -- one face split, its neighbour not, a

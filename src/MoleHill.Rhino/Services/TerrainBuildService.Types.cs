@@ -92,6 +92,12 @@ internal sealed partial class TerrainBuildService
         public IReadOnlyList<VariablePathWidthResolver.Diagnostic> WidthDiagnostics { get; init; } =
             Array.Empty<VariablePathWidthResolver.Diagnostic>();
 
+        /// <summary>Crossings of a hard constraint the paths were stopped at before their constraints were made.</summary>
+        public int BarrierStops { get; init; }
+
+        /// <summary>Path pieces inside a closed hard constraint (a graded pad), left to it.</summary>
+        public int PiecesLeftToConstraints { get; init; }
+
         /// <summary>How long <c>PathGrader.CreateConstraints</c> took; see the Pad equivalent.</summary>
         public TimeSpan ConstraintElapsed { get; init; }
     }

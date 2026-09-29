@@ -581,8 +581,31 @@ one watertight loop. Each fix below was found by measuring the finished surface,
   and the reach estimate reads the rail's height off the ground along each segment, not only at its ends.
   Grade Line is the same machinery and gets the same sections.
 
+- **A ring too small for its inward batter keeps its rail.** The batter's daylight rays cross before they
+  reach ground, so the daylight envelope self-intersects. The explicit tier deferred the whole grade to
+  constraint insertion, which does not put rails in the mesh, and a terraced ring wall lost its walls (the
+  one case the sweep still failed). The tier now conforms the rail ring alone and leaves the interior to
+  the section pass.
+
 On the 1 m park (3.2M points) the walls that the whole-terrain rebuild dropped now insert, by the local
 triangulation, and the wall stage fell from 60 s to 14 s.
+
+### Grade Path meets a hard constraint (2026-09-29)
+
+A path whose road edge crossed a hard constraint was refused, and so was every other path in the
+modifier. On a park with paths across graded lawns nothing was graded, and the build still reported
+success. `PathGrader.StopPathsAtHardConstraints` now stops each path where it meets one: a piece inside a
+closed constraint is left to it, and the rest are graded, set back far enough that neither road edge crosses
+at that angle. The Rhino stage applies the stop before it creates the path's elevation constraints, so the
+constraints it persists never cross a pad. The build reports the count as `grade_path.barrier_stops`.
+
+### Far-from-origin advice
+
+`AddFarFromOriginWarning` (`TerrainBuildService.cs`) warns once float32 rounding (the Rhino mesh vertex
+type) approaches the model tolerance. Its advice depends on the site's size. When the site would fit once
+centred, it points to `mhOrientToOrigin`. When even the centred site is too wide (a 4 km park at 1 mm,
+already at the origin), moving it does not help. The warning then names the tolerance that would fit
+(`CoordinatePrecision.CentredMagnitude` / `ToleranceFor`).
 
 Grading search work is spatialized without changing deterministic tie order. `TerrainFaceGrid`
 collects candidate faces from the finite daylight-ray corridor, deduplicates them, and evaluates them

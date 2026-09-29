@@ -133,11 +133,15 @@ public class PathGraderBarrierClippingTests
         }
     }
 
+    /// <summary>
+    /// A road meeting a hard constraint stops at it and is graded on both sides. It used to be refused, and
+    /// the refusal took every path in the grade with it.
+    /// </summary>
     [Fact]
-    public void Grade_RoadEdgeCrossesBarrier_ReturnsNullWithError()
+    public void Grade_RoadCrossesBarrier_StopsAtItAndGradesBothSides()
     {
         // Barrier runs N-S at x=50, crossing the horizontal road.
-        var path = MakeHorizontalPath(y: 50.0, width: 4.0, maxDist: 5.0);
+        var path = MakeHorizontalPath(y: 50.0, width: 4.0, maxDist: 5.0, z: 2.0);
         var barrier = MakeBarrier(50.0, 0.0, 50.0, 100.0);
 
         GradingResult? result = PathGrader.Grade(
@@ -147,9 +151,40 @@ public class PathGraderBarrierClippingTests
             new[] { barrier },
             out string? errorMessage);
 
-        Assert.Null(result);
-        Assert.NotNull(errorMessage);
-        Assert.False(string.IsNullOrWhiteSpace(errorMessage));
+        Assert.True(result != null, errorMessage);
+        Assert.Contains(result!.Diagnostics, d => d.Contains("stopped at 1", StringComparison.Ordinal));
+        var graded = new TerrainFaceGrid(result.Vertices, result.VertexCount, result.Faces, result.FaceCount);
+        double roadZ = path.ZValues[0];
+        Assert.Equal(roadZ, graded.InterpolateZ(30.0, 50.0), 3);
+        Assert.Equal(roadZ, graded.InterpolateZ(70.0, 50.0), 3);
+    }
+
+    /// <summary>A road through a graded pad is graded outside it and leaves the pad's interior to the pad.</summary>
+    [Fact]
+    public void Grade_RoadThroughClosedBarrier_LeavesTheInsideToIt()
+    {
+        var path = MakeHorizontalPath(y: 50.0, width: 4.0, maxDist: 5.0, z: 2.0);
+        var pad = new SurfaceRemesher.ConstraintPolyline(
+            new[] { 40.0, 40.0, 0.0, 60.0, 40.0, 0.0, 60.0, 60.0, 0.0, 40.0, 60.0, 0.0 },
+            PointCount: 4,
+            IsClosed: true,
+            PreserveInputElevation: true);
+        double insideBefore = new TerrainFaceGrid(CoarseVertices, CoarseVertices.Length / 3, CoarseFaces, CoarseFaces.Length / 3)
+            .InterpolateZ(50.0, 50.0);
+
+        GradingResult? result = PathGrader.Grade(
+            CoarseVertices, CoarseVertices.Length / 3,
+            CoarseFaces, CoarseFaces.Length / 3,
+            new[] { path },
+            new[] { pad },
+            out string? errorMessage);
+
+        Assert.True(result != null, errorMessage);
+        Assert.Contains(result!.Diagnostics, d => d.Contains("left to it", StringComparison.Ordinal));
+        var graded = new TerrainFaceGrid(result.Vertices, result.VertexCount, result.Faces, result.FaceCount);
+        Assert.Equal(insideBefore, graded.InterpolateZ(50.0, 50.0), 6);
+        Assert.Equal(path.ZValues[0], graded.InterpolateZ(20.0, 50.0), 3);
+        Assert.Equal(path.ZValues[0], graded.InterpolateZ(80.0, 50.0), 3);
     }
 
     [Fact]

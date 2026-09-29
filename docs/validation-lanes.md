@@ -144,8 +144,9 @@ py -3 tools/rhino-hosted-perf.py --bin tests/MoleHill.Rhino.Tests/bin/Release/ne
 ```
 
 A step whose stage failed inside the build (the build still succeeds, handing the input mesh on) reports
-`stage-failed`, not `ok`. `PathsCrossConstraints` lays paths across the lawns. Grade Path then refuses
-the whole modifier ("Road edge crosses a hard constraint"), so leave it off to measure path grading.
+`stage-failed`, not `ok`. `PathsCrossConstraints` lays paths across the lawns. Grade Path used to refuse
+the whole modifier on it ("Road edge crosses a hard constraint"). It now stops each path at the lawn edge
+and reports `grade_path.barrier_stops`.
 
 First results, 2026-09-29, on a 24-thread machine with 32 GB (full stack, cold, then one edit):
 
@@ -164,7 +165,8 @@ boundary), and its whole-mesh constrained rebuild, now also carrying 2,346 path 
 fails after 53 s. The terrain keeps the upstream mesh, so it stays hole-free, but the walls are silently
 absent. At 2 m they insert. Every edit, including one survey point, re-runs the whole stack downstream of
 Triangulate, so edit time equals cold time at every scale. The far-from-origin warning fires on any site
-wider than ~1.7 km at a 1 mm model tolerance, even one that starts at the origin.
+wider than ~1.7 km at a 1 mm model tolerance, even one that starts at the origin. (It now says so, and names
+the tolerance that would fit, rather than advising a move to the origin.)
 
 After the wall fixes (architecture.md, "Retaining walls: getting the rails in") the 1 m walls insert, by
 local triangulation, in 14 s instead of failing after 60 s, and one edit at 1 m takes about 130 s.
