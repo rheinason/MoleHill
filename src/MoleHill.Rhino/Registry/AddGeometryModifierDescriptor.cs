@@ -17,6 +17,9 @@ internal sealed class AddGeometryModifierDescriptor : ModifierTypeDescriptor
     public override ModifierDefinition Create(UnitSystem unitSystem) => new AddGeometryModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunAddGeometryStage(context);
 
+    public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
+        modifier is AddGeometryModifierDefinition m && NoneResolve(snapshot, m.EnumerateSourceSets().ToArray()) ? "Not applied — no geometry selected." : null;
+
     // Source rows, then the shared boundary-peel rows. The panel positions the peel rows itself, inside
     // its "Peel Border" group.
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new ModifierParam[]

@@ -61,6 +61,9 @@ internal sealed partial class TerrainBuildService
     {
         timer.Stop();
         ThrowIfCancellationRequested(shouldCancel);
+        // Normalizing, hashing and cloning the output are real per-stage costs (hundreds of ms at 6M faces)
+        // that the stage row, stopped above, does not include; they get their own row.
+        var storeTimer = Stopwatch.StartNew();
         reportProgress?.Start("Stage mesh normalization");
         mesh = NormalizeTerrainMesh(mesh);
         reportProgress?.Complete(
@@ -89,7 +92,9 @@ internal sealed partial class TerrainBuildService
             RuntimeOverlays = TerrainRuntimeCacheCloner.CloneRuntimeOverlays(runtimeOverlays ?? Array.Empty<RuntimeOverlayItem>())
         };
 
+        storeTimer.Stop();
         build.RecordTiming(stageName, timer.Elapsed, detail);
+        build.RecordTiming($"{stageName} Cache Store", storeTimer.Elapsed, null, StageTimingDiagnosticThresholdMs);
         return mesh;
     }
 

@@ -211,6 +211,12 @@ When Triangle.NET inserts Steiner points, their Z must be interpolated. Check in
   keep their names because they are JSON on disk. `ModifierVocabularyGuardTests` fails on a retired
   word in any modifier label, help or subtitle. Panel summaries (`GetCollapsedSummary`) use the row's
   label and full words, and show slopes in the user's unit. See `docs/architecture.md` → "Modifier vocabulary".
+- **Stage cache keys carry no position, and only build inputs are fingerprinted.** A modifier stage is keyed
+  `modifier:{type}:{id}`; never put a card's index into a key or a fingerprint, or inserting a card above it
+  re-runs everything below. A definition property no build reads (a label, a preview-only toggle, a result
+  written back) is `[NotBuildInput]`. A card that cannot change the terrain yet says why through its
+  descriptor's `InertReason` and is skipped. See `docs/architecture.md` → "An edit that cannot change the
+  terrain rebuilds nothing".
 - **TIN Surface component**: pure CDT only — no quality refinement. Quality lives in the Remesh component.
 - **Panel top toolbar**: 2 rows — (1) name/picker/+/⎘/👁/🔒/Rebuild/🗑, (2) Live update + status label. Tolerance, display/transparency and layer settings are not in the toolbar; output layers are named by one "Output Layers" row in the Settings card.
 - **Output layer routing goes through `LayerRole`.** Never hardcode or plumb a layer path for generated output, and never append a suffix to build one. `GeneratedRhinoObject.Role` is `required` and `LayerRoleTable.Path` is never null, so every producer names a destination and every destination resolves — that is what stops output baking onto Rhino's current layer. Appearance (colour, print width, linetype, annotation style, hatch) comes from the same role, so preview and bake cannot drift apart. See `docs/architecture.md` → "Output layer roles".

@@ -276,7 +276,24 @@ maximum deviation from the input surface, and a visual check of the tile lines, 
 Each phase is shippable alone, measured on the park probe and hosted-perf, and carries its own oracle
 tests.
 
-## 11. Decisions for the owner
+## 11. Decisions (answered 2026-09-29)
+
+- **D1:** exact. An incremental result must equal a cold build.
+- **D2:** prototype the tiled Remesh, but its topology must be very good: Remesh is the intermediate step
+  before sculpting and smoothing. Straight pinned tile lines are therefore out. The prototype uses two
+  passes on grids offset by half a tile, so every region is remeshed freely in one pass and the second pass
+  holds only edges the first already remeshed.
+- **D3:** canonical vertex order, as recommended.
+- **D4:** accepted ("Not applied — no boundaries selected").
+
+## 12. Progress
+
+- **P0 done** (2026-09-29): stable keys, inert cards, `[NotBuildInput]`, and a `{stage} Cache Store`
+  timing row. At 1 m an empty card below Triangulate takes 1.2 s (was 92 s), and renaming Remesh 0.5 s
+  (was 37 s); every stage below reports a cache hit. The stair's `Computed*` fields were found to be
+  fingerprinted outputs, which cost one spurious re-run after every build; they are no longer.
+
+## Original questions for the owner
 
 - **D1 — History independence.** Incremental results must equal a cold build exactly (recommended), or may
   differ within tolerance. The second ships sooner, but a reopened file can then report different volumes.

@@ -18,6 +18,9 @@ internal sealed class RetainingWallModifierDescriptor : ModifierTypeDescriptor
         new RetainingWallModifierDefinition { MaxWallWidth = ModelUnits.FromMeters(1.0, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunRetainingWallStage(context);
 
+    public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
+        modifier is RetainingWallModifierDefinition m && NoneResolve(snapshot, m.WallCurves) ? "Not applied — no wall curves selected." : null;
+
     private static readonly IReadOnlyList<(string Key, string Label)> ModeOptions = new[]
     {
         (RetainingWallModifierDefinition.BreaklineOnlyMode, "Breaklines only"),

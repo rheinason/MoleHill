@@ -150,6 +150,7 @@ internal sealed partial class TerrainBuildService
         List<GradingPatch> patchSummaries = BuildPadPatchSummaries(resolvedInputs.Pads);
         List<string> dirtyStageKeys = runtimeCache.FindIntersectingGradingStageKeys(
             TerrainRuntimeCache.GetStagePrefix(mode),
+            terrain.Modifiers,
             modifierIndex,
             patchSummaries,
             topologyStageKey);
@@ -809,6 +810,7 @@ internal sealed partial class TerrainBuildService
         List<GradingPatch> patchSummaries = BuildPathPatchSummaries(resolvedInputs.Paths);
         List<string> dirtyStageKeys = runtimeCache.FindIntersectingGradingStageKeys(
             TerrainRuntimeCache.GetStagePrefix(mode),
+            terrain.Modifiers,
             modifierIndex,
             patchSummaries);
         if (dirtyStageKeys.Count > 0)

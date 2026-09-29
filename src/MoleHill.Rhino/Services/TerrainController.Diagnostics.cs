@@ -164,7 +164,7 @@ internal sealed partial class TerrainController
                 if (!previous.IsEnabled)
                     continue;
 
-                string stageKey = TerrainStageKey.ForMode(mode, TerrainStageKey.CreateModifier(index, previous));
+                string stageKey = TerrainStageKey.ForMode(mode, TerrainStageKey.CreateModifier(previous));
                 if (runtimeCache.StageEntries.TryGetValue(stageKey, out StageCacheEntry? entry) && entry.MeshOutput != null)
                     return entry.MeshOutput;
             }

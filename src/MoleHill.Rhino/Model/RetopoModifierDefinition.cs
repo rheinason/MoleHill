@@ -18,6 +18,7 @@ public sealed class RetopoModifierDefinition : ModifierDefinition
     public double TargetEdgeLength { get; set; }
 
     /// <summary>Draw the cross-field as a flow-cross overlay to preview the flow. Off = no overlay.</summary>
+    [NotBuildInput]
     public bool ShowField { get; set; } = false;
 
     /// <summary>

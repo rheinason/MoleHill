@@ -654,6 +654,25 @@ run through one `RunStage` local function in `.Analysis.cs` — the stage scaffo
 fingerprint, stage cache, timing) does not care which kind of content it runs, so it takes an
 `ITerrainContentItem`, while the switch that decides *what to compute* stays separate per family.
 
+**An edit that cannot change the terrain rebuilds nothing** (2026-09-29, Layer 0 of
+`incremental-rebuild-design-2026-09-29.md`). Three rules keep it so:
+- **Keys carry no position.** A modifier stage's key is `modifier:{type}:{id}`
+  (`TerrainStageKey.CreateModifier`). It used to include the card's index, so inserting or moving a card
+  above others re-ran every card below it on unchanged input. Order needs no place in the key, because it
+  reaches each stage through its upstream fingerprint. Anything that needs a stage's position
+  (`FindIntersectingGradingStageKeys`) looks it up in the current stack by the id parsed from the key.
+- **Inert cards pass through.** `ModifierTypeDescriptor.InertReason` names why a card cannot change the
+  terrain yet: a grader, wall, stair, Add Geometry or Project To with no resolved inputs. Such a card is
+  skipped outright; the mesh and fingerprint pass through, and the card shows the reason (`modifier.inert`).
+  Sculpt is never inert, because its session reads its own cached stage mesh.
+- **Only build inputs are fingerprinted.** Definitions are hashed through
+  `TerrainBuildService.FingerprintJsonOptions`, which drops `[NotBuildInput]` properties: a card's label, a
+  preview toggle whose overlay is rebuilt every build anyway, and results a stage writes back onto its own
+  definition.
+
+Measured at the 1 m park: an empty card inserted below Triangulate went from 92 s to 1.2 s, renaming the
+Remesh card from 37 s to 0.5 s.
+
 
 ### Analysis vs annotation
 

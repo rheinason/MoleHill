@@ -22,6 +22,9 @@ internal sealed class ProjectToModifierDescriptor : ModifierTypeDescriptor
 
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunProjectToStage(context);
 
+    public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
+        modifier is ProjectToModifierDefinition m && NoneResolve(snapshot, m.TargetMesh) && m.TargetTerrainId == null ? "Not applied — no target selected." : null;
+
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
         ModifierParam.Sources(

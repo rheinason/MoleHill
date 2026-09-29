@@ -17,6 +17,9 @@ internal sealed class GradeLineModifierDescriptor : ModifierTypeDescriptor
     public override ModifierDefinition Create(UnitSystem unitSystem) => new GradeLineModifierDefinition();
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunGradeLineStage(context);
 
+    public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
+        modifier is GradeLineModifierDefinition m && NoneResolve(snapshot, m.Lines) ? "Not applied — no lines selected." : null;
+
     private static bool IsAsymmetric(ModifierDefinition m) =>
         ((GradeLineModifierDefinition)m).UseAsymmetricSides;
 

@@ -186,7 +186,7 @@ internal sealed class SculptSessionController
             return null;
 
         var cache = _controller.GetSculptRuntimeCache(doc, terrain.TerrainId);
-        string stageKey = TerrainStageKey.ForMode(TerrainBuildMode.Final, TerrainStageKey.CreateModifier(index, sculpt));
+        string stageKey = TerrainStageKey.ForMode(TerrainBuildMode.Final, TerrainStageKey.CreateModifier(sculpt));
         return cache.StageEntries.TryGetValue(stageKey, out var entry) ? entry.MeshOutput : null;
     }
 

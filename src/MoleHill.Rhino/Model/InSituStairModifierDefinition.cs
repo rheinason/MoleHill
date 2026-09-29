@@ -14,10 +14,13 @@ public sealed class InSituStairModifierDefinition : ModifierDefinition
 
     public bool ShowTreadLabels { get; set; }
 
+    [NotBuildInput]
     public int? ComputedSurfaceCount { get; set; }
 
+    [NotBuildInput]
     public string? ComputedTreadDepthSummary { get; set; }
 
+    [NotBuildInput]
     public string? ComputedStepCountSummary { get; set; }
 
     public InSituStairModifierDefinition()

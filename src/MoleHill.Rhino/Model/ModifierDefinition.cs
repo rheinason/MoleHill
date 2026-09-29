@@ -7,6 +7,7 @@ public abstract class ModifierDefinition
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
+    [NotBuildInput]
     public string Label { get; set; } = "Modifier";
 
     public bool IsEnabled { get; set; } = true;

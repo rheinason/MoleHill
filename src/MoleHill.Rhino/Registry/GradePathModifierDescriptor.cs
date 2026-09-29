@@ -18,6 +18,9 @@ internal sealed class GradePathModifierDescriptor : ModifierTypeDescriptor
         new GradePathModifierDefinition { Width = ModelUnits.FromMeters(2.0, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunGradePathStage(context);
 
+    public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
+        modifier is GradePathModifierDefinition m && NoneResolve(snapshot, m.Paths) ? "Not applied — no paths selected." : null;
+
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
         ModifierParam.Sources(

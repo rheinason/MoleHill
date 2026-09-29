@@ -199,8 +199,14 @@ internal sealed class TerrainRuntimeCache
             RetainingWallPlanEntries.Remove(stageKey);
     }
 
+    /// <summary>
+    /// Stage keys of grading stages after <paramref name="currentModifierIndex"/> in
+    /// <paramref name="modifiers"/> whose patches overlap the candidates, directly or through each other.
+    /// Positions come from the current stack, not from the keys, which carry only the modifier's id.
+    /// </summary>
     public List<string> FindIntersectingGradingStageKeys(
         string stagePrefix,
+        IReadOnlyList<ModifierDefinition> modifiers,
         int currentModifierIndex,
         IReadOnlyList<GradingPatch> candidatePatches,
         string? excludeTopologyStageKey = null)
@@ -217,7 +223,11 @@ internal sealed class TerrainRuntimeCache
             if (excludeTopologyStageKey != null && string.Equals(entry.Key, excludeTopologyStageKey, StringComparison.Ordinal))
                 continue;
 
-            if (!TerrainStageKey.TryParseModifierIndex(entry.Key, out int modifierIndex) || modifierIndex <= currentModifierIndex)
+            if (!TerrainStageKey.TryParseModifierId(entry.Key, out Guid modifierId))
+                continue;
+
+            int modifierIndex = IndexOfModifier(modifiers, modifierId);
+            if (modifierIndex <= currentModifierIndex)
                 continue;
 
             topologyEntries.Add((entry.Key, TerrainStageKey.GetBase(entry.Key), modifierIndex, entry.Value.PatchSummaries));
@@ -261,6 +271,17 @@ internal sealed class TerrainRuntimeCache
             results.Add(topologyEntries[index].BaseStageKey);
 
         return results.ToList();
+    }
+
+    private static int IndexOfModifier(IReadOnlyList<ModifierDefinition> modifiers, Guid modifierId)
+    {
+        for (int i = 0; i < modifiers.Count; i++)
+        {
+            if (modifiers[i].Id == modifierId)
+                return i;
+        }
+
+        return -1;
     }
 
     public void InvalidateStages(IEnumerable<string> stageKeys)

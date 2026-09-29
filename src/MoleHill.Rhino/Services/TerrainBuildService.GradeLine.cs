@@ -63,6 +63,7 @@ internal sealed partial class TerrainBuildService
         List<GradingPatch> patchSummaries = BuildPathPatchSummaries(lines);
         List<string> dirtyStageKeys = runtimeCache.FindIntersectingGradingStageKeys(
             TerrainRuntimeCache.GetStagePrefix(mode),
+            terrain.Modifiers,
             modifierIndex,
             patchSummaries);
         if (dirtyStageKeys.Count > 0)

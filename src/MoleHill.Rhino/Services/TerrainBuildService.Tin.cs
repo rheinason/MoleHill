@@ -1494,7 +1494,7 @@ internal sealed partial class TerrainBuildService
         var builder = new FingerprintBuilder();
         builder.Add("SmoothSelectedGradePathRoadBreaklinesV1");
         int matchedModifierCount = 0;
-        foreach ((int index, GradePathModifierDefinition gradePath) in EnumeratePriorEnabledGradePathModifiersWithIndex(terrain, smoothModifierIndex))
+        foreach ((int _, GradePathModifierDefinition gradePath) in EnumeratePriorEnabledGradePathModifiersWithIndex(terrain, smoothModifierIndex))
         {
             var matchingIds = TerrainBuildSnapshotResolver
                 .ResolveObjects(snapshot, gradePath.Paths)
@@ -1507,7 +1507,7 @@ internal sealed partial class TerrainBuildService
                 continue;
 
             matchedModifierCount++;
-            builder.Add(index);
+            builder.Add(gradePath.Id);
             builder.Add(gradePath.Width);
             builder.Add(gradePath.SlopeAngle);
             builder.Add(gradePath.CutSlopeAngle);

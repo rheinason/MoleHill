@@ -65,8 +65,6 @@ internal sealed partial class TerrainBuildService
         {
             ThrowIfCancellationRequested(shouldCancel);
             ModifierDefinition modifier = indexedModifier.modifier;
-            string stageKey = TerrainStageKey.ForMode(mode, TerrainStageKey.CreateModifier(indexedModifier.index, modifier));
-            usedStageKeys.Add(stageKey);
 
             // Registry dispatch (Blender-style): the type's descriptor owns its build step. A null
             // descriptor means an unregistered modifier type — skip it, exactly as the old switch's
@@ -76,6 +74,17 @@ internal sealed partial class TerrainBuildService
             {
                 continue;
             }
+
+            // A card that cannot change the terrain yet passes it through untouched, fingerprint and all,
+            // so every stage below still hits its cache.
+            if (descriptor.InertReason(modifier, snapshot) is { } inertReason)
+            {
+                ReportInertModifier(build, modifier, inertReason);
+                continue;
+            }
+
+            string stageKey = TerrainStageKey.ForMode(mode, TerrainStageKey.CreateModifier(modifier));
+            usedStageKeys.Add(stageKey);
 
             var context = new ModifierBuildContext
             {
@@ -305,6 +314,20 @@ internal sealed partial class TerrainBuildService
         string message = problem + advice;
         build.Diagnostics.Add("[Warning] " + message);
         build.StructuredDiagnostics.Add(GradingDiagnostic.Warning("terrain.far_from_origin", message, "Build"));
+    }
+
+    private static void ReportInertModifier(TerrainBuildResult build, ModifierDefinition modifier, string reason)
+    {
+        build.RecordTiming(modifier.Label, TimeSpan.Zero, reason);
+        build.RuntimeOverlays.Add(new RuntimeOverlayItem
+        {
+            StableId = $"modifier-inert:{modifier.Id:N}",
+            Owner = new RuntimeOverlayOwner(RuntimeOverlayOwnerKind.Modifier, modifier.Id),
+            Severity = RuntimeOverlaySeverity.Information,
+            Code = "modifier.inert",
+            Message = reason,
+            ShortLabel = "Not applied"
+        });
     }
 
     private static RhinoMesh? ExecuteCachedMeshStage(

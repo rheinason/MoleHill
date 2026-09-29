@@ -1,4 +1,5 @@
 using MoleHill.Rhino.Model;
+using MoleHill.Rhino.Services;
 using Rhino;
 
 namespace MoleHill.Rhino.Registry;
@@ -48,4 +49,16 @@ internal abstract class ModifierTypeDescriptor
     /// back the outgoing mesh/fingerprint. Replaces the central modifier switch in the build service.
     /// </summary>
     public abstract void RunBuildStage(ModifierBuildContext context);
+
+    /// <summary>
+    /// Why this instance cannot change the terrain yet (a Grade Pad with no boundaries), or null when it can.
+    /// An inert stage is skipped outright: the terrain and its fingerprint pass through untouched, nothing is
+    /// cached, and the card shows the reason. Judged on resolved sources, so a set whose objects were
+    /// deleted counts as empty. Types that act on the whole mesh without sources are never inert.
+    /// </summary>
+    public virtual string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) => null;
+
+    /// <summary>True when every one of <paramref name="sets"/> resolves to no objects.</summary>
+    protected static bool NoneResolve(TerrainBuildSnapshot snapshot, params SourceReferenceSet[] sets) =>
+        sets.All(set => TerrainBuildSnapshotResolver.ResolveObjects(snapshot, set).Count == 0);
 }

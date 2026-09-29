@@ -4,9 +4,15 @@ namespace MoleHill.Rhino.Services;
 
 internal static class TerrainStageKey
 {
-    public static string CreateModifier(int modifierIndex, ModifierDefinition modifier)
+    /// <summary>
+    /// A modifier stage's cache key: its type and id, never its position. Position used to be part of it, so
+    /// inserting or moving a card changed the key of every card below and they all rebuilt on unchanged
+    /// input (92 s at the 1 m park for an empty card). Order needs no place in the key: it already reaches
+    /// every stage through its upstream fingerprint.
+    /// </summary>
+    public static string CreateModifier(ModifierDefinition modifier)
     {
-        return $"modifier:{modifierIndex}:{modifier.GetType().Name}:{modifier.Id:N}";
+        return $"modifier:{modifier.GetType().Name}:{modifier.Id:N}";
     }
 
     public static string ForMode(TerrainBuildMode mode, string stageKey)
@@ -37,19 +43,22 @@ internal static class TerrainStageKey
         return stageKey;
     }
 
-    public static bool TryParseModifierIndex(string stageKey, out int modifierIndex)
+    /// <summary>The id of the modifier a (possibly suffixed) modifier stage key belongs to.</summary>
+    public static bool TryParseModifierId(string stageKey, out Guid modifierId)
     {
-        modifierIndex = -1;
+        modifierId = Guid.Empty;
         const string token = "modifier:";
         int modifierOffset = stageKey.IndexOf(token, StringComparison.Ordinal);
         if (modifierOffset < 0)
             return false;
 
-        int start = modifierOffset + token.Length;
-        int end = stageKey.IndexOf(':', start);
-        if (end <= start)
+        int typeEnd = stageKey.IndexOf(':', modifierOffset + token.Length);
+        if (typeEnd < 0)
             return false;
 
-        return int.TryParse(stageKey[start..end], out modifierIndex);
+        int idStart = typeEnd + 1;
+        int idEnd = stageKey.IndexOf(':', idStart);
+        string id = idEnd < 0 ? stageKey[idStart..] : stageKey[idStart..idEnd];
+        return Guid.TryParseExact(id, "N", out modifierId);
     }
 }

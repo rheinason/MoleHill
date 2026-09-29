@@ -33,6 +33,10 @@ data (no Rhino API beyond geometry refs). `TerrainSerializer` (in `Services/`) r
   `ReferenceComparisonAnalysisDefinition` base; nothing should compute the delta twice.
 
 ## Definition hierarchies (JSON-polymorphic base → subtypes)
+- **`[NotBuildInput]`** marks a property no build reads: presentation (a card's `Label`, Retopo's
+  `ShowField`) or a result the build writes back (the stair's `Computed*`). Stage fingerprints leave these
+  out, so changing one re-runs nothing. Every new property is a build input unless it is marked;
+  `StructuralEditCacheTests` fails on an unmarked `Computed*` property.
 - **Modifiers** — polymorphism is registry-driven (`Services/TerrainJsonTypeResolver` reads each
   descriptor's `Kind`), **not** `[JsonDerivedType]` attributes. `ModifierDefinition` →
   `GeometryInputModifierDefinition`

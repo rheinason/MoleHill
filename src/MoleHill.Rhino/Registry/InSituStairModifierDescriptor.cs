@@ -18,6 +18,9 @@ internal sealed class InSituStairModifierDescriptor : ModifierTypeDescriptor
         new InSituStairModifierDefinition { RiserHeight = ModelUnits.FromMeters(0.15, unitSystem) };
     public override void RunBuildStage(ModifierBuildContext context) => TerrainBuildService.RunInSituStairStage(context);
 
+    public override string? InertReason(ModifierDefinition modifier, TerrainBuildSnapshot snapshot) =>
+        modifier is InSituStairModifierDefinition m && NoneResolve(snapshot, m.ReferenceSurface) ? "Not applied — no reference surface selected." : null;
+
     public override IReadOnlyList<ModifierParam> Parameters { get; } = new[]
     {
         ModifierParam.Sources(

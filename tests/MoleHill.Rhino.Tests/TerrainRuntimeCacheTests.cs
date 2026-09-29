@@ -1,5 +1,6 @@
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
+using MoleHill.Rhino.Model;
 using MoleHill.Rhino.Services;
 using Rhino.Geometry;
 using Xunit;
@@ -32,13 +33,14 @@ public class TerrainRuntimeCacheTests
     public void FindIntersectingGradingStageKeys_ReturnsOnlyLaterOverlappingStages()
     {
         var cache = new TerrainRuntimeCache();
-        cache.GradingTopologyEntries["final:modifier:2:GradePadModifierDefinition:a:topology:Pad"] = CreateEntry(
+        List<ModifierDefinition> stack = CreatePadStack(5);
+        cache.GradingTopologyEntries[PadTopologyKey(stack[2])] = CreateEntry(
             "Pad",
             CreatePatch("pad:2", 2.0, 2.0, 4.0, 4.0));
-        cache.GradingTopologyEntries["final:modifier:3:GradePadModifierDefinition:b:topology:Pad"] = CreateEntry(
+        cache.GradingTopologyEntries[PadTopologyKey(stack[3])] = CreateEntry(
             "Pad",
             CreatePatch("pad:3", 10.0, 10.0, 12.0, 12.0));
-        cache.GradingTopologyEntries["final:modifier:0:GradePadModifierDefinition:c:topology:Pad"] = CreateEntry(
+        cache.GradingTopologyEntries[PadTopologyKey(stack[0])] = CreateEntry(
             "Pad",
             CreatePatch("pad:0", 1.0, 1.0, 3.0, 3.0));
 
@@ -47,23 +49,24 @@ public class TerrainRuntimeCacheTests
             CreatePatch("pad:new", 1.5, 1.5, 3.5, 3.5)
         };
 
-        List<string> stageKeys = cache.FindIntersectingGradingStageKeys("final:", 1, candidates);
+        List<string> stageKeys = cache.FindIntersectingGradingStageKeys("final:", stack, 1, candidates);
 
         Assert.Single(stageKeys);
-        Assert.Equal("final:modifier:2:GradePadModifierDefinition:a", stageKeys[0]);
+        Assert.Equal(PadStageKey(stack[2]), stageKeys[0]);
     }
 
     [Fact]
     public void FindIntersectingGradingStageKeys_ReturnsTransitiveConnectedStages()
     {
         var cache = new TerrainRuntimeCache();
-        cache.GradingTopologyEntries["final:modifier:2:GradePadModifierDefinition:a:topology:Pad"] = CreateEntry(
+        List<ModifierDefinition> stack = CreatePadStack(5);
+        cache.GradingTopologyEntries[PadTopologyKey(stack[2])] = CreateEntry(
             "Pad",
             CreatePatch("pad:2", 2.0, 2.0, 4.0, 4.0));
-        cache.GradingTopologyEntries["final:modifier:3:GradePadModifierDefinition:b:topology:Pad"] = CreateEntry(
+        cache.GradingTopologyEntries[PadTopologyKey(stack[3])] = CreateEntry(
             "Pad",
             CreatePatch("pad:3", 3.5, 3.5, 5.5, 5.5));
-        cache.GradingTopologyEntries["final:modifier:4:GradePadModifierDefinition:c:topology:Pad"] = CreateEntry(
+        cache.GradingTopologyEntries[PadTopologyKey(stack[4])] = CreateEntry(
             "Pad",
             CreatePatch("pad:4", 5.0, 5.0, 7.0, 7.0));
 
@@ -72,15 +75,10 @@ public class TerrainRuntimeCacheTests
             CreatePatch("pad:new", 1.5, 1.5, 3.0, 3.0)
         };
 
-        List<string> stageKeys = cache.FindIntersectingGradingStageKeys("final:", 1, candidates);
+        List<string> stageKeys = cache.FindIntersectingGradingStageKeys("final:", stack, 1, candidates);
 
         Assert.Equal(
-            new[]
-            {
-                "final:modifier:2:GradePadModifierDefinition:a",
-                "final:modifier:3:GradePadModifierDefinition:b",
-                "final:modifier:4:GradePadModifierDefinition:c"
-            },
+            new[] { PadStageKey(stack[2]), PadStageKey(stack[3]), PadStageKey(stack[4]) }.OrderBy(static key => key).ToArray(),
             stageKeys.OrderBy(static key => key).ToArray());
     }
 
@@ -347,15 +345,32 @@ public class TerrainRuntimeCacheTests
     }
 
     [Theory]
-    [InlineData("final:modifier:2:GradePadModifierDefinition:a:topology:Pad", 2)]
-    [InlineData("preview:modifier:7:GradePathModifierDefinition:b", 7)]
-    public void TryParseModifierIndex_ParsesModifierIndex(string stageKey, int expected)
+    [InlineData("final:modifier:GradePadModifierDefinition:0123456789abcdef0123456789abcdef:topology:Pad")]
+    [InlineData("preview:modifier:GradePathModifierDefinition:0123456789abcdef0123456789abcdef")]
+    public void TryParseModifierId_ParsesTheIdWithOrWithoutASuffix(string stageKey)
     {
-        bool parsed = TerrainStageKey.TryParseModifierIndex(stageKey, out int modifierIndex);
+        bool parsed = TerrainStageKey.TryParseModifierId(stageKey, out Guid modifierId);
 
         Assert.True(parsed);
-        Assert.Equal(expected, modifierIndex);
+        Assert.Equal(Guid.ParseExact("0123456789abcdef0123456789abcdef", "N"), modifierId);
     }
+
+    [Fact]
+    public void CreateModifier_KeyDoesNotDependOnPosition()
+    {
+        var pad = new GradePadModifierDefinition();
+
+        Assert.DoesNotContain(":0:", TerrainStageKey.CreateModifier(pad), StringComparison.Ordinal);
+        Assert.Equal(TerrainStageKey.CreateModifier(pad), TerrainStageKey.CreateModifier(pad));
+    }
+
+    private static List<ModifierDefinition> CreatePadStack(int count) =>
+        Enumerable.Range(0, count).Select(_ => (ModifierDefinition)new GradePadModifierDefinition()).ToList();
+
+    private static string PadStageKey(ModifierDefinition modifier) => "final:" + TerrainStageKey.CreateModifier(modifier);
+
+    private static string PadTopologyKey(ModifierDefinition modifier) =>
+        TerrainStageKey.CreateGradingTopology(PadStageKey(modifier), "Pad");
 
     private static GradingTopologyCacheEntry CreateEntry(string graderKind, params GradingPatch[] patches)
     {

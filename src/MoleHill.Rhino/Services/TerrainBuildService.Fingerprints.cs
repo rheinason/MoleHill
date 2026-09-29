@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using MoleHill.Core.Engine;
 using MoleHill.Rhino.Model;
 using RhinoMesh = Rhino.Geometry.Mesh;
@@ -133,7 +134,7 @@ internal sealed partial class TerrainBuildService
         var builder = new FingerprintBuilder();
         builder.Add("ZoneGradePathV1");
         int matchedModifierCount = 0;
-        foreach ((int index, GradePathModifierDefinition gradePath) in EnumeratePriorEnabledGradePathModifiersWithIndex(terrain, terrain.Modifiers.Count))
+        foreach ((int _, GradePathModifierDefinition gradePath) in EnumeratePriorEnabledGradePathModifiersWithIndex(terrain, terrain.Modifiers.Count))
         {
             var matchingIds = TerrainBuildSnapshotResolver
                 .ResolveObjects(snapshot, gradePath.Paths)
@@ -146,7 +147,8 @@ internal sealed partial class TerrainBuildService
                 continue;
 
             matchedModifierCount++;
-            builder.Add(index);
+            // The path's identity, not its position: a card inserted above it must not invalidate zones.
+            builder.Add(gradePath.Id);
             builder.Add(gradePath.UseVariableWidth);
             builder.Add(gradePath.Width);
             builder.Add(gradePath.SlopeAngle);
@@ -317,7 +319,28 @@ internal sealed partial class TerrainBuildService
 
     private static void AddSerializedFingerprint(ref FingerprintBuilder builder, object value, Type type)
     {
-        builder.AddBytes(JsonSerializer.SerializeToUtf8Bytes(value, type));
+        builder.AddBytes(JsonSerializer.SerializeToUtf8Bytes(value, type, FingerprintJsonOptions));
+    }
+
+    /// <summary>The serializer contract for fingerprints: the saved form minus <see cref="NotBuildInputAttribute"/> properties.</summary>
+    internal static readonly JsonSerializerOptions FingerprintJsonOptions = new()
+    {
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver
+        {
+            Modifiers = { RemoveNotBuildInputProperties }
+        }
+    };
+
+    private static void RemoveNotBuildInputProperties(JsonTypeInfo typeInfo)
+    {
+        if (typeInfo.Kind != JsonTypeInfoKind.Object)
+            return;
+
+        for (int i = typeInfo.Properties.Count - 1; i >= 0; i--)
+        {
+            if (typeInfo.Properties[i].AttributeProvider?.IsDefined(typeof(NotBuildInputAttribute), inherit: true) == true)
+                typeInfo.Properties.RemoveAt(i);
+        }
     }
 
     private static void AddDoubleArrayFingerprint(ref FingerprintBuilder builder, IReadOnlyList<double> values)
