@@ -92,6 +92,8 @@ public static partial class PathGrader
         foreach (PathCorridor corridor in corridors)
         {
             conformLoops.Add(corridor.DaylightXy);
+            if (corridor.RailLoopXy != null)
+                conformLoops.Add(corridor.RailLoopXy);
 
             double[]? footprint = BuildCorridorFootprintLoop(corridor, tolerance);
             if (footprint != null)
@@ -239,8 +241,8 @@ public static partial class PathGrader
             return null;
 
         // A single line has no footprint area — its rails coincide — so there is no loop to conform
-        // to. The corridor conforms to its daylight envelope alone, and the line itself goes in as an
-        // interior constraint.
+        // to. An open one-sided rail is one side of its own daylight envelope; a closed one conforms as
+        // its own ring (PathCorridor.RailLoopXy).
         if (corridor.IsSingleLine)
             return null;
 

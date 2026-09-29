@@ -3477,7 +3477,7 @@ public class Terrain_1_Retaining_Wall_Rails_CopiedCaseTests
 
         Assert.NotNull(result);
         Assert.True(string.IsNullOrWhiteSpace(errorMessage) || !errorMessage.Contains("failed", StringComparison.OrdinalIgnoreCase), errorMessage);
-        Assert.Equal(1284, result!.VertexCount);
-        Assert.Equal(2425, result!.FaceCount);
+        Assert.Equal(1351, result!.VertexCount);
+        Assert.Equal(2555, result!.FaceCount);
     }
 }

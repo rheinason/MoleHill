@@ -59,9 +59,11 @@ public class RetainingWallRailBatterSectionTests
 
     /// <summary>
     /// At angles steep enough to reach existing ground inside the section search extent, the batter
-    /// leaves the rail at exactly the requested slope.
+    /// leaves the rail at exactly the requested slope. 30 degrees joined once one-sided rails were stationed
+    /// between their authored vertices (it had measured tan 1.0116).
     /// </summary>
     [Theory]
+    [InlineData(30.0, 0.5774)]
     [InlineData(45.0, 1.0000)]
     [InlineData(60.0, 1.7321)]
     public void Grade_AtSteepAngles_LeavesTheRailAtTheRequestedSlope(double angle, double expectedTangent)
@@ -85,8 +87,9 @@ public class RetainingWallRailBatterSectionTests
     /// Measured after the split-conform guard was widened (every angle now reaches split-keep):
     ///   requested  10 deg (tan .1763) -> .5330
     ///   requested  20 deg (tan .3640) -> .4491
-    ///   requested  30 deg (tan .5774) -> 1.0116
-    /// Steep angles are exact, so this is specific to the shallow end, not a general slope error.
+    ///   requested  30 deg (tan .5774) -> 1.0116 (exact since 2026-09-29, see the steep-angle theory)
+    /// With stations between authored rail vertices, 20 deg measures .5329. Steep angles are exact, so this
+    /// is specific to the shallow end, not a general slope error.
     ///
     /// The assertion deliberately states only "not the requested slope", without pinning how wrong --
     /// the magnitude moves whenever the section solve changes, and an over-specific bound would fail
@@ -96,7 +99,6 @@ public class RetainingWallRailBatterSectionTests
     [Theory]
     [InlineData(10.0)]
     [InlineData(20.0)]
-    [InlineData(30.0)]
     public void Grade_AtShallowAngles_DoesNotYetHonourTheRequestedSlope(double angle)
     {
         var (result, graded) = GradeAt(angle);

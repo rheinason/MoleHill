@@ -512,6 +512,28 @@ internal class TerrainFaceGrid
         return false;
     }
 
+    /// <summary>
+    /// The longest plan edge of the face under (px, py), or 0 when the point lies outside the mesh: the
+    /// terrain's own resolution there, which is as finely as anything sampled against it can be resolved.
+    /// </summary>
+    internal double FaceEdgeLengthAt(double px, double py)
+    {
+        if (!TryFindFace(px, py, out int face, out _, out _, out _))
+            return 0.0;
+
+        double longest = 0.0;
+        for (int k = 0; k < 3; k++)
+        {
+            int a = _faces[face * 3 + k];
+            int b = _faces[face * 3 + ((k + 1) % 3)];
+            double dx = _verts[b * 3] - _verts[a * 3];
+            double dy = _verts[b * 3 + 1] - _verts[a * 3 + 1];
+            longest = Math.Max(longest, Math.Sqrt((dx * dx) + (dy * dy)));
+        }
+
+        return longest;
+    }
+
     /// <summary>Barycentric Z at (px, py) when a containing face exists; false when the point lies
     /// outside the mesh (no nearest-vertex fallback — callers that must not extrapolate use this).</summary>
     public bool TryInterpolateZ(double px, double py, out double z)

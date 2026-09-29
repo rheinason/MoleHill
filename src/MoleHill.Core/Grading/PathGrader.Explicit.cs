@@ -62,6 +62,11 @@ public static partial class PathGrader
         return false;
     }
 
+    /// <param name="RailLoopXy">
+    /// A closed one-sided rail's own ring. Its batter is an annulus — rail ring on one side, daylight ring
+    /// on the other — which no single simple loop can describe, so the two rings are conformed separately
+    /// and <see cref="DaylightXy"/> holds the daylight ring alone. Null for every other corridor.
+    /// </param>
     private readonly record struct PathCorridor(
         double[] LeftXyz,
         double[] RightXyz,
@@ -69,7 +74,8 @@ public static partial class PathGrader
         double[] DaylightXy,
         double Spacing,
         BatterStripBuilder.DaylightLoop Loop,
-        bool IsSingleLine = false);
+        bool IsSingleLine = false,
+        double[]? RailLoopXy = null);
 
     private static GradingResult? GradeWithExplicitCorridor(
         double[] vertices,
@@ -263,11 +269,15 @@ public static partial class PathGrader
                 ? ComputeSingleLineSegmentLength(path, terrain, tolerance)
                 : ComputeConstraintSegmentLength(path, shoulderDistance: 0.0);
 
-            // Those normals are supplied one per authored vertex, so a one-sided rail must keep the
-            // stationing it arrived with — resampling it would leave the directions misaligned with
-            // the stations they belong to. Its stationing is the planner's, not ours to second-guess.
+            // Those normals are supplied one per authored vertex, so a one-sided rail keeps every vertex it
+            // arrived with. It still needs stations between them: daylight is found once per station, so a
+            // straight wall drawn as two points daylit only at its ends, and between them its batter
+            // ignored the ground it actually crossed — measured on a 36 m wall at 15°: exact out to 2.5 m,
+            // then a 0.24 m step down to ground a metre short of daylight. Stations are added along each
+            // segment with the normals interpolated between the authored ones, so none is misaligned.
+            double[]? stationNormals = null;
             ConstraintPath center = oneSided
-                ? BuildConstraintPolyline(path, maxSegmentLength: 0.0, tolerance)
+                ? BuildOneSidedRailStations(path, terrain, spacing, tolerance, out stationNormals)
                 : BuildConstraintPolyline(path, spacing, tolerance);
             int n = center.VertexCount;
             if (n < 2)
@@ -318,7 +328,7 @@ public static partial class PathGrader
                 if (oneSided)
                 {
                     NormalizeOrFallback(
-                        path.OutwardNormals![i * 2], path.OutwardNormals[(i * 2) + 1],
+                        stationNormals![i * 2], stationNormals[(i * 2) + 1],
                         -center.TangentY[i], center.TangentX[i],
                         out normals[i * 2], out normals[(i * 2) + 1]);
                 }
@@ -378,7 +388,19 @@ public static partial class PathGrader
                 polyXy.Add(dayXy[i * 2 + 1]);
             }
 
-            if (oneSided)
+            double[]? railLoopXy = null;
+            if (oneSided && path.IsClosed)
+            {
+                // A closed rail's batter is the band between two rings. Closing the envelope back along
+                // the rail, as an open rail does, makes a keyhole: it drops the rail's closing segment and
+                // folds at the seam, and the Clipper union that then resolves the fold keeps only the
+                // outer ring. Measured on a ring wall: the inner rail lost all 32 of its vertices to
+                // rounding (up to 7.7 mm) and its batter band was never conformed at all. So the rings go
+                // in separately and the daylight polygon is the daylight ring alone.
+                railLoopXy = new double[n * 2];
+                Array.Copy(center.XyVertices, railLoopXy, n * 2);
+            }
+            else if (oneSided)
             {
                 // Only one side daylights, so the envelope closes along the rail itself rather than
                 // sweeping an arc past the ends — a wall's batter must not wrap around its end.
@@ -426,7 +448,7 @@ public static partial class PathGrader
                 daylightPolyXy = envelope;
             }
 
-            corridors.Add(new PathCorridor(leftXyz, rightXyz, n, daylightPolyXy, spacing, loop, path.IsSingleLine));
+            corridors.Add(new PathCorridor(leftXyz, rightXyz, n, daylightPolyXy, spacing, loop, path.IsSingleLine, railLoopXy));
             if (outputPolylines != null)
             {
                 // The two rails coincide on a single line, so publish the design line once — emitting
@@ -439,6 +461,128 @@ public static partial class PathGrader
 
         return corridors;
     }
+
+    /// <summary>
+    /// A one-sided rail's stations: every authored vertex, plus evenly spaced stations along each segment
+    /// (the closing segment too, for a closed rail), with elevation interpolated along the segment and the
+    /// outward normal interpolated between the segment's two authored normals.
+    /// </summary>
+    /// <remarks>
+    /// Station spacing is a third of the rail's largest expected batter reach — its height off the terrain
+    /// over the shallowest slope it grades at — so a short, high wall and a long, low one both get a few
+    /// stations across each batter. It never exceeds the single-line spacing, and a rail gets at most
+    /// <see cref="MaxOneSidedStations"/> stations, so a rail sitting on the ground is not sliced to nothing.
+    /// </remarks>
+    private static ConstraintPath BuildOneSidedRailStations(
+        PathDefinition path,
+        TerrainFaceGrid terrain,
+        double maxSpacing,
+        double tolerance,
+        out double[] stationNormals)
+    {
+        int count = path.VertexCount;
+        double[] xy = path.XyVertices;
+        double[] z = path.ZValues;
+        double[] authoredNormals = path.OutwardNormals!;
+
+        // A closed rail may arrive with its first point repeated at the end; the ring closes implicitly.
+        if (path.IsClosed && count > 3 &&
+            Math.Abs(xy[0] - xy[(count - 1) * 2]) <= tolerance && Math.Abs(xy[1] - xy[((count - 1) * 2) + 1]) <= tolerance)
+        {
+            count--;
+        }
+
+        int segmentCount = path.IsClosed && count > 2 ? count : count - 1;
+
+        double length = 0.0, maxHeight = 0.0, terrainEdge = 0.0;
+        for (int i = 0; i < count; i++)
+        {
+            double x = xy[i * 2], y = xy[(i * 2) + 1];
+            if (terrain.TryInterpolateZ(x, y, out double ground))
+                maxHeight = Math.Max(maxHeight, Math.Abs(z[i] - ground));
+            terrainEdge = Math.Max(terrainEdge, terrain.FaceEdgeLengthAt(x, y));
+        }
+
+        for (int s = 0; s < segmentCount; s++)
+        {
+            int j = (s + 1) % count;
+            length += Math.Sqrt(Sq(xy[j * 2] - xy[s * 2]) + Sq(xy[(j * 2) + 1] - xy[(s * 2) + 1]));
+            terrainEdge = Math.Max(terrainEdge, terrain.FaceEdgeLengthAt((xy[s * 2] + xy[j * 2]) * 0.5, (xy[(s * 2) + 1] + xy[(j * 2) + 1]) * 0.5));
+        }
+
+        double shallowest = Math.Min(
+            Math.Min(path.SlopeAngleDeg, path.FillSlopeAngleDeg),
+            Math.Min(Math.Min(path.LeftCutSlopeAngleDeg, path.LeftFillSlopeAngleDeg), Math.Min(path.RightCutSlopeAngleDeg, path.RightFillSlopeAngleDeg)));
+        double reach = maxHeight / Math.Tan(Math.Clamp(shallowest, 0.1, 89.9) * Math.PI / 180.0);
+
+        // Never finer than the terrain under the rail. Daylight is found against the terrain's triangles, so
+        // closer stations resolve nothing more, and they cost correctness: the conform snaps loop points onto
+        // nearby terrain corners, and stations closer together than the terrain's edges snap onto the same
+        // ones and fold the loop. Measured on the three-wall rail case: 0.1-0.4 m stations graded the rail
+        // flat or inverted; 0.8 m and coarser graded it exactly.
+        double spacing = Math.Max(
+            Math.Min(maxSpacing, reach / 3.0),
+            Math.Max(terrainEdge, length / MaxOneSidedStations));
+        spacing = Math.Max(spacing, Math.Max(tolerance * 10.0, ScaleAwareTolerance.LengthFloor(length)));
+
+        var outXy = new List<double>(count * 4);
+        var outZ = new List<double>(count * 2);
+        var outNormals = new List<double>(count * 4);
+        for (int s = 0; s < segmentCount; s++)
+        {
+            int j = (s + 1) % count;
+            double ax = xy[s * 2], ay = xy[(s * 2) + 1], bx = xy[j * 2], by = xy[(j * 2) + 1];
+            double segmentLength = Math.Sqrt(Sq(bx - ax) + Sq(by - ay));
+            int divisions = Math.Max(1, (int)Math.Ceiling(segmentLength / spacing));
+
+            // An added station's outward direction is its segment's own perpendicular, on the side the
+            // authored normals point to. Not a blend of the two authored normals: an authored normal is only
+            // right at its own vertex — at a mitred corner it is the bisector — and blending it along the
+            // segment skews every ray between. Measured at 60° on the three-wall case: one skewed mid-segment
+            // station moved its daylight point and flattened the batter to tan 1.03 where 1.73 was asked.
+            double sideX = authoredNormals[s * 2] + authoredNormals[j * 2];
+            double sideY = authoredNormals[(s * 2) + 1] + authoredNormals[(j * 2) + 1];
+            double perpendicularX = segmentLength > 0 ? -(by - ay) / segmentLength : authoredNormals[s * 2];
+            double perpendicularY = segmentLength > 0 ? (bx - ax) / segmentLength : authoredNormals[(s * 2) + 1];
+            if ((perpendicularX * sideX) + (perpendicularY * sideY) < 0.0)
+            {
+                perpendicularX = -perpendicularX;
+                perpendicularY = -perpendicularY;
+            }
+
+            for (int step = 0; step < divisions; step++)
+            {
+                double t = (double)step / divisions;
+                double nx = step == 0 ? authoredNormals[s * 2] : perpendicularX;
+                double ny = step == 0 ? authoredNormals[(s * 2) + 1] : perpendicularY;
+
+                outXy.Add(ax + ((bx - ax) * t));
+                outXy.Add(ay + ((by - ay) * t));
+                outZ.Add(z[s] + ((z[j] - z[s]) * t));
+                outNormals.Add(nx);
+                outNormals.Add(ny);
+            }
+        }
+
+        if (!(path.IsClosed && count > 2))
+        {
+            outXy.Add(xy[(count - 1) * 2]);
+            outXy.Add(xy[((count - 1) * 2) + 1]);
+            outZ.Add(z[count - 1]);
+            outNormals.Add(authoredNormals[(count - 1) * 2]);
+            outNormals.Add(authoredNormals[((count - 1) * 2) + 1]);
+        }
+
+        double[] stations = outXy.ToArray();
+        int stationCount = stations.Length / 2;
+        ComputeSmoothedTangents(stations, stationCount, out double[] tangentX, out double[] tangentY);
+        stationNormals = outNormals.ToArray();
+        return new ConstraintPath(stations, outZ.ToArray(), stationCount, tangentX, tangentY);
+
+        static double Sq(double value) => value * value;
+    }
+
+    private const int MaxOneSidedStations = 512;
 
     private static void NormalizeOrFallback(
         double x,

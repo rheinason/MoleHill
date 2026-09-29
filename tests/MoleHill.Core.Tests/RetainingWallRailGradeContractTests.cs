@@ -3534,11 +3534,13 @@ public class RetainingWallRailGradeContractTests
     /// <summary>
     /// The angles that worked before the contract gate must still work, and produce the same mesh. A
     /// gate that quietly widened into the passing band would trade one silent failure for another.
+    /// Re-pinned 2026-09-29 when one-sided rails gained stations between their authored vertices (more
+    /// daylight points, so more vertices); RetainingWallRailBatterSectionTests measured the new surfaces.
     /// </summary>
     [Theory]
-    [InlineData(21.0, 1285, 2427)]
-    [InlineData(45.0, 1284, 2425)]
-    [InlineData(80.0, 1283, 2423)]
+    [InlineData(21.0, 1418, 2689)]
+    [InlineData(45.0, 1351, 2555)]
+    [InlineData(80.0, 1334, 2521)]
     public void Grade_AtKnownGoodAngles_StillProducesTheSameMesh(double angle, int expectedVertices, int expectedFaces)
     {
         var (result, message, _, _) = Grade(angle);
