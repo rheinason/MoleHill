@@ -134,7 +134,73 @@ internal static class RhinoGeometryConversions
         return data;
     }
 
+    /// <summary>
+    /// A normalized Rhino mesh from triangle arrays. The arrays are normalized in managed code
+    /// (<see cref="MeshArrayNormalizer"/> reproduces <see cref="NormalizeMeshInPlace"/>), so Rhino only fills the
+    /// mesh and computes normals; its combine, cull and read-back passes, about 300 ms of every 1.6 million
+    /// faces a stage hands on, are skipped. When face windings need unifying, Rhino normalizes as before.
+    /// </summary>
     public static Mesh BuildMesh(double[] vertices, int vertexCount, int[] faces, int faceCount)
+    {
+        if (!MeshArrayNormalizer.TryNormalize(
+                vertices, vertexCount, faces, faceCount,
+                out double[] normalized, out int normalizedVertexCount, out int[] normalizedFaces, out int normalizedFaceCount) ||
+            normalizedFaceCount == 0)
+        {
+            return BuildMeshThroughRhino(vertices, vertexCount, faces, faceCount);
+        }
+
+        var mesh = new Mesh();
+        mesh.Vertices.Capacity = normalizedVertexCount;
+        mesh.Faces.Capacity = normalizedFaceCount;
+        for (int i = 0; i < normalizedVertexCount; i++)
+            mesh.Vertices.Add(normalized[i * 3], normalized[i * 3 + 1], normalized[i * 3 + 2]);
+        for (int i = 0; i < normalizedFaceCount; i++)
+            mesh.Faces.AddFace(normalizedFaces[i * 3], normalizedFaces[i * 3 + 1], normalizedFaces[i * 3 + 2]);
+        MeshNormalOrientation.ComputeNormalsConsistentlyWound(mesh);
+
+        // What a read-back gives: the vertex list's indexer is single precision, so the arrays every stage has
+        // always received are float-rounded. Kept that way so no stage sees different numbers.
+        var rounded = new double[normalizedVertexCount * 3];
+        for (int i = 0; i < rounded.Length; i++)
+            rounded[i] = (float)normalized[i];
+        var data = new ExtractedMeshData
+        {
+            Vertices = rounded,
+            VertexCount = normalizedVertexCount,
+            Faces = normalizedFaces,
+            FaceCount = normalizedFaceCount
+        };
+        CacheMeshData(mesh, data);
+        MarkNormalized(mesh);
+
+        if (Environment.GetEnvironmentVariable("MOLEHILL_VERIFY_NORMALIZE") is { Length: > 0 } verifyLog)
+            VerifyAgainstRhino(vertices, vertexCount, faces, faceCount, data, verifyLog);
+        return mesh;
+    }
+
+    /// <summary>
+    /// Checks the managed normalization against Rhino's on the same input and appends the outcome to
+    /// <paramref name="logPath"/>: the evidence that stages still receive exactly the arrays they did.
+    /// </summary>
+    private static void VerifyAgainstRhino(double[] vertices, int vertexCount, int[] faces, int faceCount, ExtractedMeshData managed, string logPath)
+    {
+        Mesh reference = BuildMeshThroughRhino(vertices, vertexCount, faces, faceCount);
+        ExtractedMeshData expected = GetNormalizedMeshData(reference);
+        string verdict;
+        if (expected.VertexCount != managed.VertexCount || expected.FaceCount != managed.FaceCount)
+            verdict = $"MISMATCH counts rhino {expected.VertexCount}/{expected.FaceCount} managed {managed.VertexCount}/{managed.FaceCount}";
+        else if (!expected.Faces.AsSpan(0, expected.FaceCount * 3).SequenceEqual(managed.Faces.AsSpan(0, managed.FaceCount * 3)))
+            verdict = "MISMATCH faces";
+        else if (!expected.Vertices.AsSpan(0, expected.VertexCount * 3).SequenceEqual(managed.Vertices.AsSpan(0, managed.VertexCount * 3)))
+            verdict = "MISMATCH vertices";
+        else
+            verdict = "equal";
+        lock (MeshDataCache)
+            File.AppendAllText(logPath, $"{DateTime.Now:HH:mm:ss.fff} {vertexCount} verts {faceCount} faces -> {managed.VertexCount}/{managed.FaceCount}: {verdict}{Environment.NewLine}");
+    }
+
+    private static Mesh BuildMeshThroughRhino(double[] vertices, int vertexCount, int[] faces, int faceCount)
     {
         var mesh = new Mesh();
         mesh.Vertices.Capacity = vertexCount;

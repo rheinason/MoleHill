@@ -494,21 +494,8 @@ internal sealed partial class TerrainBuildService
         return result;
     }
 
-    private static RhinoMesh BuildMeshFromArrays(double[] vertices, int[] faces)
-    {
-        var mesh = new RhinoMesh();
-        mesh.Vertices.Capacity = vertices.Length / 3;
-        mesh.Faces.Capacity = faces.Length / 3;
-
-        for (int i = 0; i < vertices.Length / 3; i++)
-            mesh.Vertices.Add(vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]);
-
-        for (int i = 0; i < faces.Length / 3; i++)
-            mesh.Faces.AddFace(faces[i * 3], faces[i * 3 + 1], faces[i * 3 + 2]);
-
-        RhinoGeometryConversions.NormalizeMeshInPlace(mesh);
-        return mesh;
-    }
+    private static RhinoMesh BuildMeshFromArrays(double[] vertices, int[] faces) =>
+        RhinoGeometryConversions.BuildMesh(vertices, vertices.Length / 3, faces, faces.Length / 3);
 
     private static RhinoMesh FinalizeGradingMesh(RhinoMesh mesh, string sourceLabel, TerrainBuildResult build)
     {

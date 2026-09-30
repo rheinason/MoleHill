@@ -13,6 +13,10 @@ Incremental-edit dictionaries are retained only through 250,000 vertices; larger
 caching without their memory cost.
 
 Key files:
+- `MeshArrayNormalizer.cs` - Rhino's mesh normalization (float-precision vertex merge with its descending
+  re-sort, unused and degenerate culls, winding check) reproduced on flat arrays. The Rhino host builds
+  stage meshes through it and hands on the exact arrays Rhino would have produced. Verified against
+  RhinoCommon by `NormalizeEquivalenceProbe`; see `docs/architecture.md`, "Stage meshes without Rhino's normalization".
 - `FeaturePolylineGraph.cs` protects full subdivided constraint chains through actual CSR mesh adjacency,
   not consecutive vertices in a proximity-sorted list. Constraint queries use mesh-sized spatial cells
   and switch to a bounded vertex scan for long off-mesh runs.

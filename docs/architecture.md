@@ -1792,6 +1792,29 @@ chunk order. A boundary's containment test is a Rhino curve call, so that case s
 pass went from 2,636 ms to 138 ms. The earthwork is unchanged: cut agrees to 12 significant figures (only the
 summation order moved), fill differs by 0.00001 m³ out of 62,787 m³, and the largest depth is identical.
 
+### Stage meshes without Rhino's normalization (2026-09-30)
+
+Every grading stage ends by building a Rhino mesh from its arrays (`RhinoGeometryConversions.BuildMesh`),
+and building it meant Rhino normalizing it: combining identical vertices, culling unused vertices and
+degenerate faces, unifying normals and reading the arrays back. At 6 million faces that was about 2.4 s per
+stage. `MeshArrayNormalizer` (Core) now does the same on the arrays, and Rhino only fills the mesh and
+computes normals. The rules were measured against RhinoCommon 8.35, not assumed:
+- `CombineIdentical` merges **float**-equal positions. When it merges anything, it re-sorts every vertex
+  descending by float x, then y, then z, and each group keeps its last-added member.
+- `CullDegenerateFaces` drops repeated indices and exactly collinear corners, computed in doubles.
+- The arrays every stage has always received were read through the single-precision vertex indexer, so they
+  are float-rounded. The managed path rounds them the same way.
+- When windings would need unifying, Rhino still normalizes.
+
+The evidence that stages receive exactly what they did: with `MOLEHILL_VERIFY_NORMALIZE` set, every build is
+normalized both ways and compared bit for bit. That covers 2,496 builds in the wall sweep and every park step,
+plus 96 deliberately messy meshes (`NormalizeEquivalenceProbe`: duplicated seams, float-equal vertices up to
+250 km from the origin, unused vertices, collinear and repeated-index faces), and all were equal. The
+wall sweep and hosted-lane stage counts are unchanged, and the park's earthwork figures agree to the last
+digit. The normalizer takes 165 ms at 6.4 million faces (winding by a start-vertex bucket sort, duplicates by
+parallel hash partitions). Grade Pad's output mesh at 1 m fell from 2.4 s to about 0.7 s. What remains is Rhino
+filling the mesh and computing normals, which only lazy Rhino meshes between stages would remove.
+
 ### Interactive scale: what a warm edit costs as the terrain grows
 
 The realtime targets are stated as input-to-visible budgets, but nothing had measured how much of one

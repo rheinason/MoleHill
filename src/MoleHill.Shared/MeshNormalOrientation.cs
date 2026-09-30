@@ -40,6 +40,12 @@ internal static class MeshNormalOrientation
     }
 
     /// <summary>
+    /// Computes vertex normals for a mesh whose winding the caller has already proven consistent on its welded
+    /// arrays (<c>MeshArrayNormalizer.TryNormalize</c> returned true), so <c>UnifyNormals</c> has nothing to do.
+    /// </summary>
+    public static void ComputeNormalsConsistentlyWound(Mesh mesh) => mesh.Normals.ComputeNormals();
+
+    /// <summary>
     /// True when no directed edge occurs twice, which on a welded mesh is exactly the condition under
     /// which <c>UnifyNormals</c> has nothing to flip: two faces that share an edge are consistently wound
     /// when they traverse it in opposite directions, and an inconsistent pair (or a non-manifold edge,
