@@ -176,6 +176,10 @@ phase" and "Grade Path meets a hard constraint"), the 1 m cold stack grades its 
 takes 36.5 s and one edit about 120-124 s. An edit still costs as much as a cold build, because every stage
 downstream of the edit re-runs on the whole mesh.
 
+Two request fields help Remesh work: `RemeshMode` sets the Remesh card's mode (`"tiled"` for the prototype),
+and `ExportRemeshInputFolder` writes the mesh and hard constraints the Remesh stage receives as
+`remesh-input-{spacing}.bin`, for a Core-level replay.
+
 The probe also times three edits that cannot change the terrain, after the survey-point edit: a rebuild
 with nothing changed, an empty Grade Pad card inserted below Triangulate, and a renamed Remesh card. At 1 m
 they take 0.5 s, 92 s and 37 s. The last two should cost nothing; see

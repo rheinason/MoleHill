@@ -1620,6 +1620,36 @@ Measured: the collapse phase 7.4 → 3.4 s over five iterations on a 1M-vertex j
 phase fell from 21.6 s to 6.3 s and Remesh from 55.6 s to 36.5 s, with the same output counts. Flip
 (10–12 s) is the largest phase again.
 
+### Remesh: tiled prototype (2026-09-30)
+
+`TiledIsotropicRemesher` makes Remesh a function of local input, so an incremental rebuild can reproduce a
+cold one exactly (`incremental-rebuild-design-2026-09-29.md`, D2). It is reached only through the Remesh
+card's hidden `"tiled"` mode; the card still offers the global remesh. The design, and what each part fixed:
+
+- **Three passes on offset grids.** Tiles are world-anchored squares of 64 × the target edge. Each tile is
+  remeshed on its own, in parallel, and the passes run on grids offset by 0, 1/2 and 1/4 of a tile. Every
+  region is interior to a tile in some pass. Two passes were not enough: the first pass holds raw input along
+  its cuts, and where the second grid's lines cross the first's, its held edges were too short to fix. The
+  third grid puts every such crossing inside a tile.
+- **Hold edges, not faces.** A tile keeps only its cut edges (ends frozen, never split or collapsed away);
+  both tiles hold them, so the stitch welds exactly. Holding whole faces left faces held in two passes where
+  cuts cross, and a long graded sliver there was never remeshed.
+- **Refine along the lines first.** A tile cannot split a cut edge alone, so faces straddling a line are
+  refined by longest-edge bisection until short. Splitting only the cut edges fanned big pad triangles into
+  slivers (one tile of the 1 m park went from 654 faces to 40,692).
+- **One surface, one wall classification.** Every pass projects onto the ORIGINAL terrain, and wall faces
+  are classified once on it and carried through the passes by flag. Feature vertices take the original
+  surface's height except over a wall: a chain rebuilt from a remeshed mesh is a chord, and after the first
+  pass it can cross a real crease diagonally (up to 0.8 m off the terrain on the park before this).
+
+Measured on the 1 m park's real Remesh input (6.2M faces): 15.3 s against 35.2 s for the global remesh, better
+on every quality measure (min angle p1 10.2° vs 9.2°, faces under 20° 3.09 % vs 3.27 %, valence-6 53.0 % vs
+50.3 %), no vertex off the terrain, walls kept, one boundary loop. On the graded-road fixture it is also better
+on every measure and shows no seam near any tile line. An edit to one vertex changes faces only within one tile
+of it, and the result does not depend on scheduling (`TiledIsotropicRemesherLocalityTests`);
+`TiledIsotropicRemesherWallTests` pins walls and a curved crease; the global remesh is unchanged (hosted-perf
+hashes identical).
+
 ### Interactive scale: what a warm edit costs as the terrain grows
 
 The realtime targets are stated as input-to-visible budgets, but nothing had measured how much of one

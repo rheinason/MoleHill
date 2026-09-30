@@ -75,7 +75,9 @@ internal sealed class FeaturePolylineGraph
         double creaseAngleDeg,
         double wallFaceMinSlopeDeg,
         double tolerance,
-        double minCreaseChainLength = 0.0)
+        double minCreaseChainLength = 0.0,
+        bool[]? heldVertices = null,
+        bool[]? frozenFaces = null)
     {
         int vertexCount = vertices.Length / 3;
         var graph = new FeaturePolylineGraph
@@ -83,7 +85,12 @@ internal sealed class FeaturePolylineGraph
             VertexKind = new byte[vertexCount],
             VertexChain = new int[vertexCount],
             VertexParam = new double[vertexCount],
-            FrozenFaces = BuildFrozenFaceMask(vertices, faces, faceCount, wallFaceMinSlopeDeg, degenerateAltitude: tolerance),
+            // Given, the wall classification is the caller's: the tiled remesher decides it once on the
+            // original terrain and carries it through its passes, rather than re-deciding by slope on a mesh
+            // that has already been remeshed and has a few steep artifacts of its own.
+            FrozenFaces = frozenFaces is { } given && given.Length == faceCount
+                ? (bool[])given.Clone()
+                : BuildFrozenFaceMask(vertices, faces, faceCount, wallFaceMinSlopeDeg, degenerateAltitude: tolerance),
             QuarantinedFaces = new bool[faceCount]
         };
         Array.Fill(graph.VertexChain, -1);
@@ -175,6 +182,17 @@ internal sealed class FeaturePolylineGraph
             graph.VertexKind[faces[f * 3]] = KindFrozen;
             graph.VertexKind[faces[f * 3 + 1]] = KindFrozen;
             graph.VertexKind[faces[f * 3 + 2]] = KindFrozen;
+        }
+
+        // Held vertices (the ends of a tile's cut edges) are pinned the same way, and before the chains are
+        // walked, so a chain through one records it as a fixed point with a parameter.
+        if (heldVertices is { } held && held.Length == vertexCount)
+        {
+            for (int v = 0; v < vertexCount; v++)
+            {
+                if (held[v])
+                    graph.VertexKind[v] = KindFrozen;
+            }
         }
 
         // --- Feature-vertex adjacency and corner detection --------------------------------------------

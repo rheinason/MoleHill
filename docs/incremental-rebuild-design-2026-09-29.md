@@ -292,6 +292,11 @@ tests.
   timing row. At 1 m an empty card below Triangulate takes 1.2 s (was 92 s), and renaming Remesh 0.5 s
   (was 37 s); every stage below reports a cache hit. The stair's `Computed*` fields were found to be
   fingerprinted outputs, which cost one spurious re-run after every build; they are no longer.
+- **P4 prototype done** (2026-09-30): `TiledIsotropicRemesher`, behind the Remesh card's hidden `"tiled"`
+  mode (architecture.md, "Remesh: tiled prototype"). On the 1 m park it is 2.3× faster than the global
+  remesh and better on every quality measure, with no vertex off the terrain and no seam; an edit changes
+  output within one tile. Still to do before it can be the default: the incremental path itself (re-run only
+  the tiles an edit touches, which needs P1's canonical data), and your review of the topology.
 
 ## Original questions for the owner
 

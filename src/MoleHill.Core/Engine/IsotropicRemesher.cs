@@ -55,6 +55,37 @@ public static class IsotropicRemesher
         /// and throwing keeps a caller from publishing one. Null never cancels.
         /// </summary>
         public Func<bool>? ShouldCancel { get; init; }
+
+        /// <summary>
+        /// Optional input edges to keep exactly, as vertex-index pairs: their endpoints never move and the
+        /// edges are never split or collapsed away, while everything around them is remeshed normally. A
+        /// tile of <see cref="TiledIsotropicRemesher"/> holds its cut so neighbouring tiles still meet vertex
+        /// for vertex. Holding whole faces instead left faces held in both passes wherever the two grids'
+        /// cuts cross, and a long graded sliver there was never remeshed.
+        /// </summary>
+        public int[]? HoldEdges { get; init; }
+
+        /// <summary>
+        /// Optional surface to project onto instead of the input's own. The tiled remesher projects every
+        /// tile of both passes onto the ORIGINAL terrain; projecting the second pass onto the first pass's
+        /// output compounded the two approximations (9.6 cm off the input on a graded road).
+        /// </summary>
+        internal TerrainFaceGrid? Projection { get; init; }
+
+        /// <summary>
+        /// Optional per-input-face wall flags, in place of classifying walls by slope. The tiled remesher
+        /// classifies once on the original terrain: re-classifying a remeshed mesh froze its steep artifacts
+        /// as walls, kept them, and split their edges at chord points off the terrain (up to 0.86 m on the
+        /// 1 m park).
+        /// </summary>
+        internal bool[]? FrozenFaces { get; init; }
+
+        /// <summary>
+        /// Optional grid of the original wall faces, used with <see cref="Projection"/>: a feature vertex whose
+        /// plan position lies on a wall keeps its chain height, since the terrain surface there is the wall's
+        /// top or foot; every other feature vertex takes the original surface's height.
+        /// </summary>
+        internal TerrainFaceGrid? WallFaces { get; init; }
     }
 
     public sealed class Result
@@ -128,14 +159,16 @@ public static class IsotropicRemesher
         long tsStart = tsMethod;
         var graph = FeaturePolylineGraph.Build(
             vertices, faces, faceCount, constraints, options.CreaseAngleDeg, options.WallFaceMinSlopeDeg, options.Tolerance,
-            minCreaseChainLength: options.TargetEdgeLength * 3.0);
+            minCreaseChainLength: options.TargetEdgeLength * 3.0,
+            heldVertices: HeldVertexMask(options.HoldEdges, vertexCount),
+            frozenFaces: options.FrozenFaces);
         double msGraph = System.Diagnostics.Stopwatch.GetElapsedTime(tsStart).TotalMilliseconds;
 
         // Back-projection grid over the ORIGINAL mesh with wall faces excluded: a near-vertical wall is
         // an XY sliver, so sampling it would return a mid-wall Z and smear the wall onto the terrain.
         // Cell size = half the target so queries in dense graded corridors stay near-constant time.
         long tsSetup = System.Diagnostics.Stopwatch.GetTimestamp();
-        TerrainFaceGrid? projection = BuildProjectionGrid(
+        TerrainFaceGrid? projection = options.Projection ?? BuildProjectionGrid(
             vertices, faces, faceCount, graph.FrozenFaces, options.TargetEdgeLength * 0.5);
         if (projection is null)
             return new Result { Success = true, Vertices = vertices, Faces = faces, Warning = "All faces are steep (frozen); nothing to remesh." };
@@ -143,6 +176,17 @@ public static class IsotropicRemesher
 
         long tsState = System.Diagnostics.Stopwatch.GetTimestamp();
         var state = new MeshState(vertices, faces, graph);
+        if (options.Projection != null)
+        {
+            state.FeatureSurface = projection;
+            state.FeatureWalls = options.WallFaces;
+        }
+
+        if (options.HoldEdges is { Length: > 1 } holdEdges)
+        {
+            for (int i = 0; i + 1 < holdEdges.Length; i += 2)
+                state.HeldEdges.Add(EdgeKey(holdEdges[i], holdEdges[i + 1]));
+        }
         // The sampler gets its own grid over the FULL input mesh: the projection grid excludes wall
         // faces and renumbers the survivors, so its face indices don't match the theta array's mesh.
         state.Field = options.FieldTheta != null && options.FieldTheta.Length == vertexCount
@@ -302,7 +346,7 @@ public static class IsotropicRemesher
         }
     }
 
-    private static TerrainFaceGrid? BuildProjectionGrid(double[] vertices, int[] faces, int faceCount, bool[] frozenFaces, double cellSizeHint)
+    internal static TerrainFaceGrid? BuildProjectionGrid(double[] vertices, int[] faces, int faceCount, bool[] frozenFaces, double cellSizeHint)
     {
         int activeCount = 0;
         for (int f = 0; f < faceCount; f++)
@@ -351,6 +395,31 @@ public static class IsotropicRemesher
         public readonly List<double> Param;
         public readonly Dictionary<long, int> FeatureEdges;
         public readonly FeaturePolylineGraph Graph;
+
+        /// <summary>Edges no operator may split or collapse away (<see cref="Options.HoldEdges"/>). Their endpoints are frozen.</summary>
+        public readonly HashSet<long> HeldEdges = IndexedMeshTools.CreateEdgeKeySet(0);
+
+        /// <summary>
+        /// The original surface, when this mesh is not it (<see cref="Options.Projection"/>). A chain built
+        /// from an already-remeshed mesh is a chord of the original feature, and after the first tiled pass it
+        /// can be a remeshed edge that crosses a real crease diagonally, so a vertex placed on it can sit well
+        /// off the terrain (0.8 m on the 1 m park). Its height is taken from this surface instead, except over
+        /// a wall (<see cref="FeatureWalls"/>), where the surface's height is the wall's top or foot.
+        /// </summary>
+        public TerrainFaceGrid? FeatureSurface;
+
+        public TerrainFaceGrid? FeatureWalls;
+
+        public void EvaluateFeature(int chain, double t, out double x, out double y, out double z)
+        {
+            Graph.Evaluate(chain, t, out x, out y, out z);
+            if (FeatureSurface != null &&
+                (FeatureWalls == null || !FeatureWalls.TryFindFace(x, y, out _, out _, out _, out _)) &&
+                FeatureSurface.TryInterpolateZ(x, y, out double surfaceZ))
+            {
+                z = surfaceZ;
+            }
+        }
 
         /// <summary>Cross-field sampler over the ORIGINAL mesh; null = plain isotropic relaxation.</summary>
         public FieldSampler? Field;
@@ -513,7 +582,9 @@ public static class IsotropicRemesher
                     continue;
                 int v0 = state.Tris[t * 3], v1 = state.Tris[t * 3 + 1], v2 = state.Tris[t * 3 + 2];
                 long longest = LongestEdgeKey(state.Verts, v0, v1, v2, out double longestSquared);
-                if (longestSquared <= thresholdSquared || quarantinedEdges.Contains(longest))
+                if (state.HeldEdges.Count > 0 && state.HeldEdges.Contains(longest))
+                    longest = LongestUnheldEdgeKey(state, v0, v1, v2, out longestSquared);
+                if (longest < 0 || longestSquared <= thresholdSquared || quarantinedEdges.Contains(longest))
                     continue;
                 // Chainless pinned features are contained sickness (non-manifold edges from imperfect
                 // upstream welds): splitting one would double its non-manifold count. Leave it alone.
@@ -592,7 +663,7 @@ public static class IsotropicRemesher
                 state.TryGetParam(b, chain, out double tb))
             {
                 double tm = state.Graph.MidParam(chain, ta, tb);
-                state.Graph.Evaluate(chain, tm, out double px, out double py, out double pz);
+                state.EvaluateFeature(chain, tm, out double px, out double py, out double pz);
                 int mid = state.AddVertex(px, py, pz, FeaturePolylineGraph.KindFeature, chain, tm);
                 InheritFeatureEdge(state, a, b, mid, chain);
                 return mid;
@@ -954,7 +1025,7 @@ public static class IsotropicRemesher
                 return false;
 
             double tm = state.Graph.MidParam(edgeChain, state.Param[a], state.Param[b]);
-            state.Graph.Evaluate(edgeChain, tm, out newX, out newY, out newZ);
+            state.EvaluateFeature(edgeChain, tm, out newX, out newY, out newZ);
             survivor = Math.Min(a, b);
             removed = Math.Max(a, b);
             newKind = FeaturePolylineGraph.KindFeature;
@@ -1015,6 +1086,16 @@ public static class IsotropicRemesher
 
         if (facesOnEdge < 1 || facesOnEdge > 2)
             return false;
+
+        // A face this collapse would remove must not carry a held edge: the edge would go with it.
+        if (state.HeldEdges.Count > 0)
+        {
+            foreach (int t in facesOfRemoved)
+            {
+                if (state.IsLive(t) && FaceContains(state.Tris, t, survivor) && FaceHasHeldEdge(state, t))
+                    return false;
+            }
+        }
 
         int sharedNeighbors = 0;
         foreach (int n in adjacency.NeighborsOf(a))
@@ -1114,6 +1195,52 @@ public static class IsotropicRemesher
                 state.FeatureEdges[EdgeKey(survivor, n)] = chain;
             }
         }
+    }
+
+    /// <summary>The longest edge of a face that is not held, or -1 when all three are.</summary>
+    private static long LongestUnheldEdgeKey(MeshState state, int v0, int v1, int v2, out double lengthSquared)
+    {
+        long best = -1;
+        lengthSquared = 0.0;
+        Span<int> ends = stackalloc int[] { v0, v1, v1, v2, v2, v0 };
+        for (int k = 0; k < 3; k++)
+        {
+            int a = ends[k * 2], b = ends[(k * 2) + 1];
+            long key = EdgeKey(a, b);
+            if (state.HeldEdges.Contains(key))
+                continue;
+            double squared = DistanceSquared(state.Verts, a, b);
+            if (squared > lengthSquared)
+            {
+                lengthSquared = squared;
+                best = key;
+            }
+        }
+
+        return best;
+    }
+
+        private static bool FaceHasHeldEdge(MeshState state, int face)
+    {
+        int v0 = state.Tris[face * 3], v1 = state.Tris[face * 3 + 1], v2 = state.Tris[face * 3 + 2];
+        return state.HeldEdges.Contains(EdgeKey(v0, v1)) ||
+               state.HeldEdges.Contains(EdgeKey(v1, v2)) ||
+               state.HeldEdges.Contains(EdgeKey(v2, v0));
+    }
+
+    private static bool[]? HeldVertexMask(int[]? holdEdges, int vertexCount)
+    {
+        if (holdEdges is not { Length: > 1 })
+            return null;
+
+        var mask = new bool[vertexCount];
+        foreach (int v in holdEdges)
+        {
+            if ((uint)v < (uint)vertexCount)
+                mask[v] = true;
+        }
+
+        return mask;
     }
 
     private static bool SimulatedFaceValid(MeshState state, int face, int movedVertex, double newX, double newY, double areaEps)
@@ -1545,7 +1672,7 @@ public static class IsotropicRemesher
         if (Math.Abs(tNew - t) < 1e-12)
             return false;
 
-        state.Graph.Evaluate(chain, tNew, out double newX, out double newY, out double newZ);
+        state.EvaluateFeature(chain, tNew, out double newX, out double newY, out double newZ);
         if (!AllIncidentFacesValid(state, adjacency.FacesOf(v), v, newX, newY, areaEps))
             return false;
 
@@ -1577,7 +1704,7 @@ public static class IsotropicRemesher
 
     // === Shared helpers ================================================================================
 
-    private static void EmitRefinedTriangle(List<double> verts, List<int> outTris, int v0, int v1, int v2, int m0, int m1, int m2)
+    internal static void EmitRefinedTriangle(List<double> verts, List<int> outTris, int v0, int v1, int v2, int m0, int m1, int m2)
     {
         int count = (m0 >= 0 ? 1 : 0) + (m1 >= 0 ? 1 : 0) + (m2 >= 0 ? 1 : 0);
         switch (count)

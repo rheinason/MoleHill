@@ -833,6 +833,9 @@ internal sealed partial class TerrainBuildService
         {
             "rebuild" => ApplyRemeshRebuild(snapshot, terrain, mesh, constraints, edgeLength, modifier, build, toleranceProfile),
             "local" => ApplyRemeshLocalRefine(mesh, constraints, edgeLength, modifier.CreaseAngle, toleranceProfile.RemeshConstraintTolerance, build),
+            // Prototype, not offered on the card: TiledIsotropicRemesher, the locality-exact remesh the
+            // incremental-rebuild design needs (docs/incremental-rebuild-design-2026-09-29.md, D2).
+            "tiled" => ApplyRemeshIsotropic(mesh, constraints, localConstraints, edgeLength, modifier, build, mode, toleranceProfile, shouldCancel, tiled: true),
             _ => ApplyRemeshIsotropic(mesh, constraints, localConstraints, edgeLength, modifier, build, mode, toleranceProfile, shouldCancel),
         };
     }
@@ -852,7 +855,8 @@ internal sealed partial class TerrainBuildService
         TerrainBuildResult build,
         TerrainBuildMode mode,
         TerrainTolerancePolicy.Profile toleranceProfile,
-        Func<bool>? shouldCancel)
+        Func<bool>? shouldCancel,
+        bool tiled = false)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(
                 mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
@@ -899,11 +903,7 @@ internal sealed partial class TerrainBuildService
             return RhinoGeometryConversions.DuplicateWithCachedData(mesh);
         }
 
-        IsotropicRemesher.Result result = IsotropicRemesher.Remesh(
-            vertices,
-            faces,
-            constraints,
-            new IsotropicRemesher.Options
+        var remeshOptions = new IsotropicRemesher.Options
             {
                 TargetEdgeLength = target,
                 CreaseAngleDeg = modifier.CreaseAngle,
@@ -914,7 +914,10 @@ internal sealed partial class TerrainBuildService
                 // A rebuild the user has already superseded should stop inside the remesh, not after
                 // it: this is the longest-running Core stage in the pipeline.
                 ShouldCancel = shouldCancel
-            });
+            };
+        IsotropicRemesher.Result result = tiled
+            ? TiledIsotropicRemesher.Remesh(vertices, faces, constraints, remeshOptions)
+            : IsotropicRemesher.Remesh(vertices, faces, constraints, remeshOptions);
 
         if (!result.Success)
         {
@@ -923,7 +926,7 @@ internal sealed partial class TerrainBuildService
         }
 
         build.Diagnostics.Add(
-            $"Remesh isotropic: {result.Splits:N0} splits, {result.Collapses:N0} collapses, " +
+            $"Remesh {(tiled ? "tiled" : "isotropic")}: {result.Splits:N0} splits, {result.Collapses:N0} collapses, " +
             $"{result.Flips:N0} flips at target {target:0.###} " +
             $"({result.Faces.Length / 3:N0} faces; features and walls pinned) [{result.Timing}].");
 

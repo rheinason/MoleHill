@@ -68,6 +68,14 @@ Key files:
   remove them) and clear them between sweeps, and the collapse phase reuses one candidate list and a
   stamped one-ring lock array across its rounds. Clearing preserves refill order, so the sweep considers
   edges in the same order — remesh output is byte-identical to the per-sweep-allocation form.
+- `TiledIsotropicRemesher.cs` — prototype (the Remesh card's hidden `"tiled"` mode): the isotropic remesh as a
+  function of local input, for exact incremental rebuilds. Three passes over world-anchored tile grids offset by
+  0, 1/2 and 1/4 of a tile; each tile is remeshed on its own with its cut edges held, in parallel. Before tiling,
+  faces straddling a grid line are refined by longest-edge bisection so cut edges are short; wall faces are
+  classified once on the original and carried through the passes; every pass projects onto the original
+  surface, and feature vertices take the original surface's height except over a wall. Supporting hooks in
+  `IsotropicRemesher.Options` (internal): `HoldEdges`, `Projection`, `FrozenFaces`, `WallFaces`. See
+  architecture.md, "Remesh: tiled prototype".
 - `FeaturePolylineGraph.cs` — feature topology for the isotropic remesh: chains boundary ∪ creases ∪
   constraint edges into polylines with arc-length parameters and classifies vertices
   Free/Feature/Corner/Frozen. Short crease-only chains (fold noise in badly triangulated fans) are not

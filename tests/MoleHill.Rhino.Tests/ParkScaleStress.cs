@@ -51,6 +51,15 @@ public static class ParkScaleStress
         /// grading. Off by default, which keeps every path clear of the lawns and walls.
         /// </summary>
         public bool PathsCrossConstraints { get; set; }
+
+        /// <summary>The Remesh card's mode: "isotropic" (default) or the "tiled" prototype.</summary>
+        public string? RemeshMode { get; set; }
+
+        /// <summary>
+        /// When set, the mesh and hard constraints the Remesh stage receives are written here as
+        /// <c>remesh-input-{spacing}.bin</c>, for a Core-level replay (<c>RemeshInputFile</c>).
+        /// </summary>
+        public string? ExportRemeshInputFolder { get; set; }
     }
 
     public sealed class StressResult
@@ -137,6 +146,8 @@ public static class ParkScaleStress
             Settle();
             var fixtureTimer = Stopwatch.StartNew();
             ParkFixture fixture = ParkFixture.Create(spacing, request.PathsCrossConstraints);
+            if (!string.IsNullOrWhiteSpace(request.RemeshMode))
+                fixture.Remesh.Mode = request.RemeshMode;
             fixtureTimer.Stop();
             var rung = new RungResult
             {
@@ -200,6 +211,8 @@ public static class ParkScaleStress
 
             StepResult step = RunStep(request, name, service, fixture.Snapshot, cache, progress);
             rung.Steps.Add(step);
+            if (item == fixture.Wall && !string.IsNullOrWhiteSpace(request.ExportRemeshInputFolder))
+                ExportRemeshInput(request.ExportRemeshInputFolder!, rung.Spacing, fixture, cache, progress);
             if (step.Status == "hung")
                 return $"'{name}' did not honour cancellation within {request.CancelGraceSeconds:N0} s";
             if (step.Status == "over-budget")
@@ -262,6 +275,41 @@ public static class ParkScaleStress
         }
 
         return anyOverBudget ? $"a step exceeded the {request.StepBudgetSeconds:N0} s budget" : null;
+    }
+
+    /// <summary>Writes the Retaining Wall stage's output — the Remesh stage's input — for a Core replay.</summary>
+    private static void ExportRemeshInput(string folder, double spacing, ParkFixture fixture, TerrainRuntimeCache cache, Action<string> progress)
+    {
+        string key = TerrainStageKey.ForMode(TerrainBuildMode.Final, TerrainStageKey.CreateModifier(fixture.Wall));
+        if (!cache.StageEntries.TryGetValue(key, out StageCacheEntry? entry) || entry.MeshOutput == null ||
+            !RhinoGeometryConversions.TryExtractMeshData(entry.MeshOutput, out double[] vertices, out int vertexCount, out int[] faces, out int faceCount, out _))
+        {
+            progress("export: no Retaining Wall stage output to write");
+            return;
+        }
+
+        Directory.CreateDirectory(folder);
+        string path = Path.Combine(folder, $"remesh-input-{spacing:0.###}.bin");
+        using (var writer = new BinaryWriter(File.Create(path)))
+        {
+            writer.Write(vertexCount);
+            for (int i = 0; i < vertexCount * 3; i++)
+                writer.Write(vertices[i]);
+            writer.Write(faceCount);
+            for (int i = 0; i < faceCount * 3; i++)
+                writer.Write(faces[i]);
+            writer.Write(entry.PersistentHardConstraints.Count);
+            foreach (var constraint in entry.PersistentHardConstraints)
+            {
+                writer.Write(constraint.PointCount);
+                writer.Write(constraint.IsClosed);
+                writer.Write(constraint.PreserveInputElevation);
+                for (int i = 0; i < constraint.PointCount * 3; i++)
+                    writer.Write(constraint.Points[i]);
+            }
+        }
+
+        progress($"export: {vertexCount:N0} vertices, {faceCount:N0} faces, {entry.PersistentHardConstraints.Count:N0} constraints -> {path}");
     }
 
     private static StepResult RunStep(
