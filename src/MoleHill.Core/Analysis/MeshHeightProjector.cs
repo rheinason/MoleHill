@@ -191,6 +191,30 @@ public sealed class MeshHeightProjector
         return true;
     }
 
+    /// <summary>
+    /// Every face whose plan bounding box covers the grid cell holding (<paramref name="x"/>, <paramref name="y"/>),
+    /// ascending, as flat XYZ corner triples. Any face a vertical line through that point can meet is among
+    /// them, so a caller that must intersect the line exactly (a point over a wall) can test these alone
+    /// instead of every face of the mesh.
+    /// </summary>
+    internal double[] CandidateTrianglesAt(double x, double y)
+    {
+        ReadOnlySpan<int> faces = CellFaces((long)Math.Floor(x * _invCell), (long)Math.Floor(y * _invCell));
+        var corners = new double[faces.Length * 9];
+        for (int k = 0; k < faces.Length; k++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                int vertex = _faces[faces[k] * 3 + c];
+                corners[k * 9 + c * 3] = _vertices[vertex * 3];
+                corners[k * 9 + c * 3 + 1] = _vertices[vertex * 3 + 1];
+                corners[k * 9 + c * 3 + 2] = _vertices[vertex * 3 + 2];
+            }
+        }
+
+        return corners;
+    }
+
     /// <summary>Faces registered in cell (cellX, cellY), ascending. Empty when unoccupied.</summary>
     private ReadOnlySpan<int> CellFaces(long cellX, long cellY) => _cells.Items(HashCell(cellX, cellY));
 

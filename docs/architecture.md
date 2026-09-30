@@ -1721,6 +1721,19 @@ changed") and where the time went, phase by phase. What remains is whole-mesh pl
 resolving constraints over every vertex (Grade Path 4.3 s, Grade Pad 1.7 s), extraction and stitching,
 and building the Rhino mesh (2.4 s for Grade Pad). That is the floor the design's flat stage data removes.
 
+### Cut / Fill: the few points over a wall were most of it (2026-09-30)
+
+A Cut / Fill analysis projects every face's centroid onto the reference through `MeshHeightProjector`, a
+plan grid. Where the grid cannot answer (the point is over a vertical wall, or over a fold with two heights)
+it fell back to Rhino's line intersection with the whole reference mesh, and Rhino scans every face for that.
+On the 2 m park those 59 points of 1.2 million took 2.5 s of the 2.7 s volume pass, and at 1 m the analysis took
+11 s. The fallback now builds a mesh of the grid cell's own triangles (`MeshHeightProjector.CandidateTrianglesAt`:
+every face a vertical line through the point can meet is registered in that cell) and asks Rhino the same
+question of those. With no clipping boundary, the grid lookups also run in parallel, in fixed chunks summed in
+chunk order. A boundary's containment test is a Rhino curve call, so that case still runs on one thread. At 2 m the
+pass went from 2,636 ms to 138 ms. The earthwork is unchanged: cut agrees to 12 significant figures (only the
+summation order moved), fill differs by 0.00001 m³ out of 62,787 m³, and the largest depth is identical.
+
 ### Interactive scale: what a warm edit costs as the terrain grows
 
 The realtime targets are stated as input-to-visible budgets, but nothing had measured how much of one

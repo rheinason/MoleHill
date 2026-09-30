@@ -977,9 +977,12 @@ internal sealed partial class TerrainBuildService
 
         bool isEstimated = !referenceSet.HasReferences && referenceTerrain == null;
         var boundaries = TerrainBuildSnapshotResolver.ResolveCurves(snapshot, boundarySet);
+        var setupTimer = Stopwatch.StartNew();
         ReferenceProjectionContext projection = ResolveReferenceProjection(
             snapshot, fallbackBaseMesh, referenceSet, referenceTerrainId, referenceProjectionCache);
+        build.RecordTiming("Reference Projection Setup", setupTimer.Elapsed, $"{currentFaces.Length / 3:N0} faces to compare", StageTimingDiagnosticThresholdMs);
 
+        var volumeTimer = Stopwatch.StartNew();
         ReferenceComparisonStats stats = EstimateReferenceComparison(
             projection,
             currentVertices,
@@ -990,6 +993,7 @@ internal sealed partial class TerrainBuildService
             isEstimated,
             shouldCancel);
 
+        build.RecordTiming("Reference Comparison Volumes", volumeTimer.Elapsed, $"{currentFaces.Length / 3:N0} faces", StageTimingDiagnosticThresholdMs);
         referenceComparisonCache[cacheKey] = stats;
         if (stats.FallbackProjectionCount > 0)
         {
@@ -1091,6 +1095,8 @@ internal sealed partial class TerrainBuildService
         return SlopeAnalyzer.ConvertUnitToRatio(slopeValue, unit) * 100.0;
     }
 
+    private const int ReferenceComparisonChunk = 16384;
+
     private static ReferenceComparisonStats EstimateReferenceComparison(
         ReferenceProjectionContext projection,
         double[] currentVertices,
@@ -1101,6 +1107,13 @@ internal sealed partial class TerrainBuildService
         bool isEstimated,
         Func<bool>? shouldCancel)
     {
+        // Without a clipping boundary every face is one grid lookup, so the faces go in parallel, in fixed
+        // chunks summed in chunk order (the result does not depend on scheduling). Faces the grid cannot
+        // answer (a wall, a fold) are collected and projected through Rhino afterwards, one at a time. A
+        // boundary's containment test is a Rhino curve call, so that case stays on this thread.
+        if (boundaries.Count == 0 && projection.Projector != null)
+            return EstimateReferenceComparisonParallel(projection, currentVertices, currentFaces, faceCount, tolerance, isEstimated, shouldCancel);
+
         int gridProjectionCountBefore = projection.GridProjectionCount;
         int fallbackProjectionCountBefore = projection.FallbackProjectionCount;
         double cutVolume = 0.0;
@@ -1154,6 +1167,100 @@ internal sealed partial class TerrainBuildService
             projection.FallbackProjectionCount - fallbackProjectionCountBefore);
     }
 
+    private static ReferenceComparisonStats EstimateReferenceComparisonParallel(
+        ReferenceProjectionContext projection,
+        double[] v,
+        int[] f,
+        int faceCount,
+        double tolerance,
+        bool isEstimated,
+        Func<bool>? shouldCancel)
+    {
+        MeshHeightProjector projector = projection.Projector!;
+        int chunks = (faceCount + ReferenceComparisonChunk - 1) / ReferenceComparisonChunk;
+        var partial = new (double Cut, double Fill, double AbsMax, int Grid)[chunks];
+        var deferred = new List<int>?[chunks];
+        bool cancelled = false;
+        Parallel.For(0, chunks, (chunk, state) =>
+        {
+            // A cancellation thrown inside the loop would surface wrapped in an AggregateException.
+            if (shouldCancel?.Invoke() == true)
+            {
+                cancelled = true;
+                state.Stop();
+                return;
+            }
+
+            double cut = 0.0, fill = 0.0, absMax = 0.0;
+            int grid = 0;
+            int end = Math.Min(faceCount, (chunk + 1) * ReferenceComparisonChunk);
+            for (int face = chunk * ReferenceComparisonChunk; face < end; face++)
+            {
+                int a = f[face * 3], b = f[face * 3 + 1], c = f[face * 3 + 2];
+                double cx = (v[a * 3] + v[b * 3] + v[c * 3]) / 3.0;
+                double cy = (v[a * 3 + 1] + v[b * 3 + 1] + v[c * 3 + 1]) / 3.0;
+                double cz = (v[a * 3 + 2] + v[b * 3 + 2] + v[c * 3 + 2]) / 3.0;
+                if (!projector.TryProjectZ(cx, cy, cz, tolerance, out double baseZ, out MeshHeightProjector.ProjectionStatus status))
+                {
+                    if (status == MeshHeightProjector.ProjectionStatus.RequiresFallback)
+                        (deferred[chunk] ??= new List<int>()).Add(face);
+                    continue;
+                }
+
+                grid++;
+                AccumulateCutFill(v, a, b, c, cz - baseZ, ref cut, ref fill, ref absMax);
+            }
+
+            partial[chunk] = (cut, fill, absMax, grid);
+        });
+        if (cancelled)
+            ThrowIfCancellationRequested(() => true);
+
+        double cutVolume = 0.0, fillVolume = 0.0, cutFillAbsMax = 0.0;
+        int gridCount = 0, fallbackCount = 0;
+        for (int chunk = 0; chunk < chunks; chunk++)
+        {
+            cutVolume += partial[chunk].Cut;
+            fillVolume += partial[chunk].Fill;
+            cutFillAbsMax = Math.Max(cutFillAbsMax, partial[chunk].AbsMax);
+            gridCount += partial[chunk].Grid;
+            if (deferred[chunk] is not { } faces)
+                continue;
+
+            foreach (int face in faces)
+            {
+                ThrowIfCancellationRequested(shouldCancel);
+                int a = f[face * 3], b = f[face * 3 + 1], c = f[face * 3 + 2];
+                var centroid = new Point3d(
+                    (v[a * 3] + v[b * 3] + v[c * 3]) / 3.0,
+                    (v[a * 3 + 1] + v[b * 3 + 1] + v[c * 3 + 1]) / 3.0,
+                    (v[a * 3 + 2] + v[b * 3 + 2] + v[c * 3 + 2]) / 3.0);
+                fallbackCount++;
+                if (!projection.TryFallbackProject(centroid, tolerance, out Point3d basePoint))
+                    continue;
+
+                AccumulateCutFill(v, a, b, c, centroid.Z - basePoint.Z, ref cutVolume, ref fillVolume, ref cutFillAbsMax);
+            }
+        }
+
+        projection.GridProjectionCount += gridCount;
+        projection.FallbackProjectionCount += fallbackCount;
+        return new ReferenceComparisonStats(cutVolume, fillVolume, cutFillAbsMax, isEstimated, gridCount, fallbackCount);
+    }
+
+    private static void AccumulateCutFill(double[] v, int a, int b, int c, double deltaZ, ref double cut, ref double fill, ref double absMax)
+    {
+        absMax = Math.Max(absMax, Math.Abs(deltaZ));
+        double projectedArea = Math.Abs(
+            (v[b * 3] - v[a * 3]) * (v[c * 3 + 1] - v[a * 3 + 1]) -
+            (v[b * 3 + 1] - v[a * 3 + 1]) * (v[c * 3] - v[a * 3])) * 0.5;
+        double volume = projectedArea * deltaZ;
+        if (volume >= 0)
+            fill += volume;
+        else
+            cut += -volume;
+    }
+
     private static bool TryProjectReferencePoint(
         ReferenceProjectionContext projection,
         Point3d point,
@@ -1180,7 +1287,7 @@ internal sealed partial class TerrainBuildService
         if (projection.Projector == null || status == MeshHeightProjector.ProjectionStatus.RequiresFallback)
         {
             projection.FallbackProjectionCount++;
-            return TerrainMeshProjection.TryProjectPointAlongWorldZ(projection.Mesh, point, tolerance, out projectedPoint);
+            return projection.TryFallbackProject(point, tolerance, out projectedPoint);
         }
 
         projectedPoint = Point3d.Unset;

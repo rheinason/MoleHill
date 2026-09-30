@@ -394,6 +394,9 @@ public static class ParkScaleStress
 
             step.DiagnosticsTotal = result.Diagnostics.Count;
             step.Diagnostics.AddRange(result.Diagnostics.Take(MaxDiagnosticsPerStep));
+            // The earthwork figures, to the last digit, so a speed change can be shown not to move them.
+            foreach (TerrainAnalysisSummary summary in result.AnalysisResults.Where(s => s.CutVolume != 0 || s.FillVolume != 0))
+                step.Diagnostics.Add(FormattableString.Invariant($"earthwork: cut {summary.CutVolume:R} fill {summary.FillVolume:R} abs max {summary.CutFillDisplayAbsMax:R}"));
         }
 
         progress(

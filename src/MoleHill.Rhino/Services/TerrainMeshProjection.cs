@@ -31,8 +31,45 @@ internal static class TerrainMeshProjection
         return true;
     }
 
+    /// <summary>
+    /// <see cref="TryProjectPointAlongWorldZ(RhinoMesh, Point3d, double)"/> against the few triangles that can
+    /// meet the vertical line (<paramref name="candidateTriangles"/>, flat XYZ corner triples, from
+    /// <c>MeshHeightProjector.CandidateTrianglesAt</c>), with the line spanning <paramref name="meshBounds"/> as
+    /// before. Rhino intersects a line with every face of a mesh, so over a million-face reference each call
+    /// cost tens of milliseconds, and the few hundred points over walls were most of a Cut / Fill analysis.
+    /// </summary>
+    public static bool TryProjectPointAlongWorldZ(
+        double[] candidateTriangles,
+        BoundingBox meshBounds,
+        Point3d point,
+        double tolerance,
+        out Point3d projectedPoint)
+    {
+        var local = new RhinoMesh();
+        int triangles = candidateTriangles.Length / 9;
+        for (int t = 0; t < triangles; t++)
+        {
+            for (int c = 0; c < 3; c++)
+                local.Vertices.Add(candidateTriangles[t * 9 + c * 3], candidateTriangles[t * 9 + c * 3 + 1], candidateTriangles[t * 9 + c * 3 + 2]);
+            local.Faces.AddFace(t * 3, t * 3 + 1, t * 3 + 2);
+        }
+
+        return TryProjectPointAlongWorldZ(local, meshBounds, point, tolerance, out projectedPoint, out _);
+    }
+
     public static bool TryProjectPointAlongWorldZ(
         RhinoMesh mesh,
+        Point3d point,
+        double tolerance,
+        out Point3d projectedPoint,
+        out int faceIndex)
+    {
+        return TryProjectPointAlongWorldZ(mesh, mesh.GetBoundingBox(true), point, tolerance, out projectedPoint, out faceIndex);
+    }
+
+    private static bool TryProjectPointAlongWorldZ(
+        RhinoMesh mesh,
+        BoundingBox bounds,
         Point3d point,
         double tolerance,
         out Point3d projectedPoint,
@@ -41,7 +78,6 @@ internal static class TerrainMeshProjection
         projectedPoint = Point3d.Unset;
         faceIndex = -1;
 
-        BoundingBox bounds = mesh.GetBoundingBox(true);
         if (!bounds.IsValid)
             return false;
 

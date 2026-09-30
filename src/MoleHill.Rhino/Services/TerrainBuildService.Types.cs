@@ -57,6 +57,27 @@ internal sealed partial class TerrainBuildService
         public int GridProjectionCount { get; set; }
 
         public int FallbackProjectionCount { get; set; }
+
+        private global::Rhino.Geometry.BoundingBox? _bounds;
+
+        /// <summary>The reference mesh's bounds, read once: a fallback projection spans them.</summary>
+        public global::Rhino.Geometry.BoundingBox Bounds => _bounds ??= Mesh.GetBoundingBox(true);
+
+        /// <summary>
+        /// Projects straight down or up onto the reference where the height grid cannot (over a wall): through
+        /// the grid cell's own triangles when there is a grid, else through the whole reference mesh.
+        /// </summary>
+        public bool TryFallbackProject(global::Rhino.Geometry.Point3d point, double tolerance, out global::Rhino.Geometry.Point3d projected)
+        {
+            if (Projector != null)
+            {
+                double[] candidates = Projector.CandidateTrianglesAt(point.X, point.Y);
+                if (candidates.Length > 0)
+                    return TerrainMeshProjection.TryProjectPointAlongWorldZ(candidates, Bounds, point, tolerance, out projected);
+            }
+
+            return TerrainMeshProjection.TryProjectPointAlongWorldZ(Mesh, point, tolerance, out projected);
+        }
     }
 
     private sealed class ResolvedGradePadInputs
