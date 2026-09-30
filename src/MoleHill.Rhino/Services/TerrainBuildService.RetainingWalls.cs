@@ -227,15 +227,24 @@ internal sealed partial class TerrainBuildService
         }
 
         var topologyTimer = Stopwatch.StartNew();
-        bool inserted = TryInsertWallConstraintsIntoExistingMesh(
-            mesh,
-            wallConstraints,
-            wallTolerance,
-            build,
-            useQualityPatch: modifier.GradesTerrain,
-            reportFailures: true,
-            afterCombinedRemeshFailed: false,
-            out RhinoMesh insertedMesh);
+        bool inserted = TryInsertWallConstraintsWindowed(
+                            mesh,
+                            wallConstraints,
+                            wallTolerance,
+                            build,
+                            useQualityPatch: modifier.GradesTerrain,
+                            runtimeCache,
+                            stageKey + ":insert",
+                            out RhinoMesh insertedMesh) ||
+                        TryInsertWallConstraintsIntoExistingMesh(
+                            mesh,
+                            wallConstraints,
+                            wallTolerance,
+                            build,
+                            useQualityPatch: modifier.GradesTerrain,
+                            reportFailures: true,
+                            afterCombinedRemeshFailed: false,
+                            out insertedMesh);
         topologyTimer.Stop();
         build.RecordTiming(
             "Retaining Wall Topology Insert",
@@ -860,17 +869,50 @@ internal sealed partial class TerrainBuildService
             return false;
         }
 
-        double[] outputVertices = vertices;
-        int[] outputFaces = faces;
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? qualityConstraints = useQualityPatch
+            ? CombineConstraints(CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints), wallConstraints)
+            : null;
+        var messages = new List<string>();
+        bool inserted = InsertWallConstraintsCore(
+            vertices, vertexCount, faces, faceCount, wallConstraints, qualityConstraints, tolerance, afterCombinedRemeshFailed,
+            messages, out double[] outputVertices, out int[] outputFaces);
+        if (inserted || reportFailures)
+            build.Diagnostics.AddRange(messages);
+        if (!inserted)
+            return false;
+
+        insertedMesh = BuildMeshFromArrays(outputVertices, outputFaces);
+        return true;
+    }
+
+    /// <summary>
+    /// Inserts the wall breaklines into a mesh given as arrays: the quality patch (graded walls, when
+    /// <paramref name="qualityConstraints"/> is set), else face-by-face insertion, else one re-triangulation of
+    /// the rails' neighbourhood. Every step is local to the rails, so this runs as well on a window of the
+    /// terrain as on the whole of it. What it did, or why it declined, goes to <paramref name="messages"/>.
+    /// </summary>
+    internal static bool InsertWallConstraintsCore(
+        double[] vertices,
+        int vertexCount,
+        int[] faces,
+        int faceCount,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> wallConstraints,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? qualityConstraints,
+        double tolerance,
+        bool afterCombinedRemeshFailed,
+        List<string> messages,
+        out double[] outputVertices,
+        out int[] outputFaces)
+    {
+        outputVertices = vertices;
+        outputFaces = faces;
         string? qualityMessage = null;
         bool qualityInserted = false;
         // Breakline-only mode is an authored terrain crease, not a graded wall band. Refining a lifted
         // quality patch here surrounds the two rails with terrain-elevation Steiner points and turns the
         // intended step into a bump. Graded mode still needs that protection for its batter/wall junction.
-        if (useQualityPatch)
+        if (qualityConstraints != null)
         {
-            var qualityConstraints = CombineConstraints(
-                CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints), wallConstraints);
             qualityInserted = MeshConstraintTopologyInserter.TryInsertQualityWallPatch(
                 vertices, faces, qualityConstraints, tolerance,
                 out outputVertices, out outputFaces, out qualityMessage);
@@ -897,8 +939,7 @@ internal sealed partial class TerrainBuildService
         }
         else if (!TopologyChanged(vertices, vertexCount, faces, faceCount, outputVertices, outputVertexCount, outputFaces, outputFaceCount, tolerance))
         {
-            if (reportFailures)
-                build.Diagnostics.Add("Retaining Wall topology insertion found no terrain faces crossed by wall breaklines.");
+            messages.Add("Retaining Wall topology insertion found no terrain faces crossed by wall breaklines.");
             return false;
         }
         else if (!IsTopologyInsertionBoundarySafe(
@@ -915,37 +956,34 @@ internal sealed partial class TerrainBuildService
             // and keeps everything outside it exactly — which is why it goes before the whole-terrain rebuild
             // rather than after it: that rebuild has to honour every persisted constraint as well, and beside
             // a graded path it either failed or tore the terrain. Both wall modes use it.
-            if (reportFailures)
-                build.Diagnostics.Add(rejection);
+            messages.Add(rejection);
             if (!MeshConstraintTopologyInserter.TryInsertByLocalTriangulation(
                     vertices, vertexCount, faces, faceCount, wallConstraints, tolerance,
                     out outputVertices, out outputVertexCount, out outputFaces, out outputFaceCount, out string? localError) ||
                 !IsTopologyInsertionBoundarySafe(
                     inputBoundary, MeshTopologyValidator.AnalyzeBoundaryGraph(outputFaces, outputFaceCount), out _))
             {
-                if (reportFailures)
-                    build.Diagnostics.Add($"Retaining Wall local re-triangulation declined: {localError ?? "it would change the terrain boundary"}.");
+                messages.Add($"Retaining Wall local re-triangulation declined: {localError ?? "it would change the terrain boundary"}.");
                 return false;
             }
 
             ApplyPreservedConstraintElevations(outputVertices, wallConstraints, tolerance);
-            insertedMesh = BuildMeshFromArrays(outputVertices, outputFaces);
-            build.Diagnostics.Add("Retaining Wall inserted its breaklines by re-triangulating their neighbourhood as one piece.");
+            messages.Add("Retaining Wall inserted its breaklines by re-triangulating their neighbourhood as one piece.");
             return true;
         }
 
         ApplyPreservedConstraintElevations(outputVertices, wallConstraints, tolerance);
-        insertedMesh = BuildMeshFromArrays(outputVertices, outputFaces);
         if (qualityInserted)
         {
-            build.Diagnostics.Add(qualityMessage!);
+            messages.Add(qualityMessage!);
             return true;
         }
-        if (useQualityPatch)
-            build.Diagnostics.Add($"Retaining Wall uses local breakline insertion after the quality patch declined: {qualityMessage}");
+
+        if (qualityConstraints != null)
+            messages.Add($"Retaining Wall uses local breakline insertion after the quality patch declined: {qualityMessage}");
         else
-            build.Diagnostics.Add("Retaining Wall breakline-only mode uses ordinary local breakline insertion without a terrain-elevation quality patch.");
-        build.Diagnostics.Add(afterCombinedRemeshFailed
+            messages.Add("Retaining Wall breakline-only mode uses ordinary local breakline insertion without a terrain-elevation quality patch.");
+        messages.Add(afterCombinedRemeshFailed
             ? "Retaining Wall topology fallback inserted wall breaklines into the existing mesh after combined remesh failed."
             : "Retaining Wall topology insertion inserted wall breaklines into the existing mesh.");
         return true;

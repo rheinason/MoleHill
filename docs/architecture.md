@@ -1713,6 +1713,18 @@ graders themselves are unchanged and simply see a smaller mesh.
   needs no argument about what a grader reads globally (its tier choice by face count, its grid sized by
   the mesh's extent).
 
+**The Retaining Wall's rail insertion runs in windows too** (`TryInsertWallConstraintsWindowed`). The insertion
+(quality patch, face-by-face insert, or one re-triangulation of the rails' neighbourhood,
+`InsertWallConstraintsCore`) is local to the rails, so each rail's window is the faces within eight of its
+local face sizes: the quality patch grows up to six rings of faces around the faces a rail crosses. A window
+that declines, or that would not weld back, sends the stage to the whole-mesh insertion as before, so the
+windowed path can only stand in for it exactly. The wall sweep gives the same mesh, face for face, in all
+1,152 cases. At 2 m the insertion itself fell from 1.5 s to 20 ms; what remains of the stage is building the
+Rhino mesh. The interactive plan's warm rail edit at 100k faces fell from 114 ms to 60 ms, inside the 66 ms
+input-to-visible target on evaluation time. The reach index sizes its grid to at most about one cell per face.
+Sized by reach alone, a narrow rail over a small terrain asked for millions of empty cells: 17 ms on 2,700
+faces, where the whole insertion had taken 2.
+
 On the 1 m park, Grade Pad goes from about 19 s to 8 s cold, and Grade Path from 27 s to 17 s cold, with
 the road network split into 7 windows. A survey edit away from the roads and pads reuses every window,
 and the whole edit takes 54 s instead of 76 s. A pad slope edit re-grades the pads and only the road

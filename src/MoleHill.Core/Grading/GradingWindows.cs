@@ -260,7 +260,23 @@ public static class GradingWindows
     /// </summary>
     public static List<Reach> WithMargins(double[] v, int[] faces, int faceCount, IReadOnlyList<Reach> reach, double floor)
     {
-        ReachIndex index = ReachIndex.Build(reach, 0.0);
+        double[] longest = LongestFaceWithin(v, faces, faceCount, reach);
+        var grown = new List<Reach>(reach.Count);
+        for (int i = 0; i < reach.Count; i++)
+        {
+            double margin = Math.Max(floor, 2.0 * longest[i]);
+            if (reach[i].Radius > 0)
+                margin = Math.Min(margin, Math.Max(floor, 0.5 * reach[i].Radius));
+            grown.Add(reach[i] with { Radius = reach[i].Radius + margin });
+        }
+
+        return grown;
+    }
+
+    /// <summary>Per item, the longest plan extent of the faces within its reach (0 when it reaches none).</summary>
+    public static double[] LongestFaceWithin(double[] v, int[] faces, int faceCount, IReadOnlyList<Reach> reach)
+    {
+        ReachIndex index = ReachIndex.Build(reach, 0.0, faceCount);
         var longest = new double[reach.Count];
         if (!index.IsEmpty)
         {
@@ -293,16 +309,7 @@ public static class GradingWindows
             });
         }
 
-        var grown = new List<Reach>(reach.Count);
-        for (int i = 0; i < reach.Count; i++)
-        {
-            double margin = Math.Max(floor, 2.0 * longest[i]);
-            if (reach[i].Radius > 0)
-                margin = Math.Min(margin, Math.Max(floor, 0.5 * reach[i].Radius));
-            grown.Add(reach[i] with { Radius = reach[i].Radius + margin });
-        }
-
-        return grown;
+        return longest;
     }
 
     /// <summary>True when the XY polyline's bounding box meets <paramref name="box"/>.</summary>
@@ -367,7 +374,7 @@ public static class GradingWindows
                 parent[Math.Max(a, b)] = Math.Min(a, b);
         }
 
-        ReachIndex index = ReachIndex.Build(reach, margin);
+        ReachIndex index = ReachIndex.Build(reach, margin, faceCount);
         if (!index.IsEmpty)
         {
             var pairs = new List<long>();
@@ -662,6 +669,7 @@ public static class GradingWindows
     private sealed class ReachIndex
     {
         private const int MaxCells = 1 << 22;
+        private const int MinCells = 1 << 12;
 
         private readonly double[] _segments;   // x0, y0, x1, y1, r per segment
         private readonly int[] _segmentItem;
@@ -697,7 +705,12 @@ public static class GradingWindows
             (_fillStart, _fillItems) = Bucket(filled.Length, k => (filled[k].Item3, filled[k].Item4, filled[k].Item5, filled[k].Item6));
         }
 
-        public static ReachIndex Build(IReadOnlyList<Reach> reach, double margin)
+        /// <summary>
+        /// The grid has at most about one cell per face (and never more than <see cref="MaxCells"/>): its cells are
+        /// allocated and swept whole, and a narrow reach over a small terrain otherwise asked for millions of
+        /// empty ones, which cost a 2,700-face terrain 17 ms per rail insertion.
+        /// </summary>
+        public static ReachIndex Build(IReadOnlyList<Reach> reach, double margin, int faceCount)
         {
             var segments = new List<double>();
             var segmentItem = new List<int>();
@@ -740,7 +753,7 @@ public static class GradingWindows
             {
                 nx = Math.Max(1, (int)Math.Ceiling((maxX - minX) / cell));
                 ny = Math.Max(1, (int)Math.Ceiling((maxY - minY) / cell));
-                if ((long)nx * ny <= MaxCells)
+                if ((long)nx * ny <= Math.Clamp(faceCount, MinCells, MaxCells))
                     break;
                 cell *= 2.0;
             }
