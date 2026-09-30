@@ -621,6 +621,25 @@ closed constraint is left to it, and the rest are graded, set back far enough th
 at that angle. The Rhino stage applies the stop before it creates the path's elevation constraints, so the
 constraints it persists never cross a pad. The build reports the count as `grade_path.barrier_stops`.
 
+### Breaklines are hard, unless a card grades through them (2026-09-30)
+
+A breakline stays hard: a grading card may not cross a breakline or graded edge from a card above it,
+which keeps the terrain what was drawn. The intended workflow is one existing-conditions terrain, copied for
+design, with the redesigned areas' survey lines removed. **Grade Through Breaklines**, a checkbox on Grade
+Pad, Grade Path and Grade Line, is the exception, for when that clean-up is not worth it. The card then gets
+no upstream lines as barriers (`UpstreamBreaklines`). After a successful grade,
+`RegradedConstraintTrimmer` cuts the persisted breaklines and contours down to where they still lie on the
+graded surface (`DropRegradedBreaklines`), so a Remesh or wall below does not pull the old ground back into
+the new grade. The card reports what it regraded. On the contour park at 1 m, the paths graded through 4
+breaklines and 69 contours; without the option Grade Path failed at every scale, because the roads cross
+the outcrop rings. A retaining wall in grade mode always grades through, as its batter is authoritative.
+
+A retaining wall in **breakline mode** also keeps both inputs as drawn. Where local insertion fails and a rail
+crosses an existing breakline or contour at another height (`BreaklineHeightConflicts`), no terrain can honour
+both. The stage then stops with a card error naming the crossings and their heights
+(`retaining_wall.rails_cross_breaklines`), rather than running the constrained rebuild. On the contour park
+that rebuild took 11 s on every edit, opened the terrain and was discarded.
+
 ### Far-from-origin advice
 
 `AddFarFromOriginWarning` (`TerrainBuildService.cs`) warns once float32 rounding (the Rhino mesh vertex

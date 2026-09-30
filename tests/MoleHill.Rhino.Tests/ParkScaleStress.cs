@@ -66,6 +66,12 @@ public static class ParkScaleStress
         /// <summary>Triangulate's contour mode ("auto", "constrained", "vertices"); null keeps the card's default.</summary>
         public string? ContourMode { get; set; }
 
+        /// <summary>The Retaining Wall card's mode ("breaklines" or "grade"); null keeps the card's default.</summary>
+        public string? WallMode { get; set; }
+
+        /// <summary>Ticks "Grade Through Breaklines" on the Grade Pad and Grade Path cards.</summary>
+        public bool GradeThroughBreaklines { get; set; }
+
         /// <summary>The Remesh card's mode: "isotropic" (default, tiled) or "global" (the whole-mesh remesher).</summary>
         public string? RemeshMode { get; set; }
 
@@ -163,6 +169,10 @@ public static class ParkScaleStress
             ParkFixture fixture = ParkFixture.Create(spacing, request.PathsCrossConstraints, contourSurvey ? request.ContourInterval : 0.0);
             if (!string.IsNullOrWhiteSpace(request.ContourMode))
                 fixture.Triangulate.ContourMode = request.ContourMode;
+            if (!string.IsNullOrWhiteSpace(request.WallMode))
+                fixture.Wall.Mode = request.WallMode;
+            fixture.Pad.GradeThroughBreaklines = request.GradeThroughBreaklines;
+            fixture.Path.GradeThroughBreaklines = request.GradeThroughBreaklines;
             if (!string.IsNullOrWhiteSpace(request.RemeshMode))
                 fixture.Remesh.Mode = request.RemeshMode;
             fixtureTimer.Stop();

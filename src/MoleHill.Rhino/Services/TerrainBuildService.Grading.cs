@@ -132,7 +132,7 @@ internal sealed partial class TerrainBuildService
         var locksTimer = Stopwatch.StartNew();
         var effectiveLocks = CombinePadLockCurves(
             resolvedInputs.Locks,
-            build.PersistentHardConstraints,
+            UpstreamBreaklines(build, modifier.GradeThroughBreaklines),
             resolvedInputs.Pads,
             vertices,
             vertexCount,
@@ -217,7 +217,7 @@ internal sealed partial class TerrainBuildService
                 faceCount,
                 resolvedInputs.Pads,
                 effectiveLocks,
-                build.PersistentHardConstraints,
+                UpstreamBreaklines(build, modifier.GradeThroughBreaklines),
                 gradePadTolerance,
                 toleranceProfile.DetailSize,
                 runtimeCache,
@@ -357,6 +357,12 @@ internal sealed partial class TerrainBuildService
             outputMeshTimer.Elapsed,
             $"{topologyEntry.VertexCount:N0} verts, {topologyEntry.FaceCount:N0} faces",
             StageTimingDiagnosticThresholdMs);
+        if (modifier.GradeThroughBreaklines && !gradePadStageFailed)
+        {
+            DropRegradedBreaklines(
+                build, gradedVertices, topologyEntry.VertexCount, topologyEntry.Faces, topologyEntry.FaceCount,
+                snapshot.ModelAbsoluteTolerance, snapshot.ModelUnitSystem, "Grade Pad");
+        }
         // PadGrader's constraint set contains temporary XY construction loops for the pad, shoulder,
         // and stitch apron. Their Z values are placeholders and some loops are deliberately softened
         // or replaced while assembling the final patch, so they are not durable elevation constraints
@@ -772,7 +778,8 @@ internal sealed partial class TerrainBuildService
         double curveTolerance = toleranceProfile.CurveChordTolerance;
         double gradePathTolerance = toleranceProfile.GradePathTolerance;
         var pathResolveTimer = Stopwatch.StartNew();
-        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, vertexCount, faces, faceCount, modifier, build.PersistentHardConstraints, curveTolerance, gradePathTolerance);
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> pathBarriers = UpstreamBreaklines(build, modifier.GradeThroughBreaklines);
+        ResolvedGradePathInputs resolvedInputs = ResolveGradePathInputs(snapshot, vertices, vertexCount, faces, faceCount, modifier, pathBarriers, curveTolerance, gradePathTolerance);
         pathResolveTimer.Stop();
         build.RecordTiming(
             "Grade Path Resolve",
@@ -827,9 +834,9 @@ internal sealed partial class TerrainBuildService
         // whether this corridor's explicit assembly will be rejected, so only one that crosses or
         // overlaps the path's own constraints may reorder the tiers.
         bool hasInteractingHardConstraints = false;
-        if (build.PersistentHardConstraints.Count > 0 && resolvedInputs.Constraints.Length > 0)
+        if (pathBarriers.Count > 0 && resolvedInputs.Constraints.Length > 0)
         {
-            var conflictSummary = AnalyzeHardConstraintConflicts(resolvedInputs.Constraints, build.PersistentHardConstraints, gradePathTolerance);
+            var conflictSummary = AnalyzeHardConstraintConflicts(resolvedInputs.Constraints, pathBarriers, gradePathTolerance);
             hasInteractingHardConstraints = conflictSummary.HasConflicts;
             build.Diagnostics.Add(conflictSummary.CreateSummaryMessage());
             if (conflictSummary.CreateSampleMessage() is string sampleMessage)
@@ -848,7 +855,7 @@ internal sealed partial class TerrainBuildService
             faces,
             faceCount,
             resolvedInputs.Paths,
-            build.PersistentHardConstraints,
+            pathBarriers,
             gradePathTolerance,
             preferSplitKeep,
             runtimeCache,
@@ -863,7 +870,7 @@ internal sealed partial class TerrainBuildService
             faces,
             faceCount,
             resolvedInputs.Paths,
-            build.PersistentHardConstraints,
+            pathBarriers,
             gradePathTolerance,
             preferSplitKeep,
             gradingResult != null,
@@ -894,6 +901,13 @@ internal sealed partial class TerrainBuildService
         if (!string.IsNullOrWhiteSpace(warning))
             build.Diagnostics.Add(warning);
         build.AddGradingDiagnostics(gradingResult);
+
+        if (modifier.GradeThroughBreaklines)
+        {
+            DropRegradedBreaklines(
+                build, gradingResult.Vertices, gradingResult.VertexCount, gradingResult.Faces, gradingResult.FaceCount,
+                snapshot.ModelAbsoluteTolerance, snapshot.ModelUnitSystem, "Grade Path");
+        }
 
         AddOutputPolylinesAsBreaklines(gradingResult.OutputPolylines, build);
         AddPersistentElevationConstraints(build, resolvedInputs.Constraints);

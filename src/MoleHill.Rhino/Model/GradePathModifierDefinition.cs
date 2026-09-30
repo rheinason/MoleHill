@@ -24,6 +24,13 @@ public sealed class GradePathModifierDefinition : ModifierDefinition
 
     public double MaxDistance { get; set; }
 
+    /// <summary>
+    /// Grade through earlier breaklines instead of stopping at them. Off, every breakline and graded edge
+    /// upstream is a hard line this modifier may not cross. On, it regrades across them, and the parts of
+    /// them it regraded are dropped, so later stages do not pull the old ground back.
+    /// </summary>
+    public bool GradeThroughBreaklines { get; set; }
+
     /// <summary>Maximum plan distance used to match width edges. Zero uses four times Width.</summary>
     public double MaxEdgeDistance { get; set; }
 

@@ -43,5 +43,10 @@ internal sealed class GradePadModifierDescriptor : ModifierTypeDescriptor
             (m, v) => ((GradePadModifierDefinition)m).MaxDistance = v,
             "Maximum grading reach away from the pad. 0 means unlimited; smaller values stop the batter sooner.",
             unit: ParameterUnit.ModelLength),
+        ModifierParam.Bool(
+            "GradeThroughBreaklines", "Grade Through Breaklines",
+            m => ((GradePadModifierDefinition)m).GradeThroughBreaklines,
+            (m, v) => ((GradePadModifierDefinition)m).GradeThroughBreaklines = v,
+            "Off: breaklines and graded edges from cards above are lines this pad may not cross. On: the pad regrades across them, and the parts it regraded are dropped."),
     };
 }

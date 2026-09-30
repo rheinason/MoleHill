@@ -75,12 +75,13 @@ internal sealed partial class TerrainBuildService
 
         // Same rule as Grade Path: only a hard constraint that meets this line's corridor may reorder
         // the tiers. The corridor constraints are built only when the answer could change.
+        IReadOnlyList<MoleHill.Core.Engine.SurfaceRemesher.ConstraintPolyline> lineBarriers = UpstreamBreaklines(build, modifier.GradeThroughBreaklines);
         bool hasInteractingHardConstraints =
             TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(mode, hasInteractingHardConstraints: true, faceCount) &&
-            build.PersistentHardConstraints.Count > 0 &&
+            lineBarriers.Count > 0 &&
             AnalyzeHardConstraintConflicts(
                 PathGrader.CreateConstraints(vertices, vertexCount, faces, faceCount, lines, gradeLineTolerance).Constraints,
-                build.PersistentHardConstraints,
+                lineBarriers,
                 gradeLineTolerance).HasConflicts;
 
         var coreTimer = Stopwatch.StartNew();
@@ -90,7 +91,7 @@ internal sealed partial class TerrainBuildService
             faces,
             faceCount,
             lines,
-            build.PersistentHardConstraints,
+            lineBarriers,
             out string? warning,
             gradeLineTolerance,
             preferSplitKeep: TerrainBuildHeuristics.ShouldPreferSplitKeepGradePath(
@@ -122,6 +123,13 @@ internal sealed partial class TerrainBuildService
         if (!string.IsNullOrWhiteSpace(warning))
             build.Diagnostics.Add(warning);
         build.AddGradingDiagnostics(gradingResult);
+
+        if (modifier.GradeThroughBreaklines)
+        {
+            DropRegradedBreaklines(
+                build, gradingResult.Vertices, gradingResult.VertexCount, gradingResult.Faces, gradingResult.FaceCount,
+                snapshot.ModelAbsoluteTolerance, snapshot.ModelUnitSystem, "Grade Line");
+        }
 
         // The design line becomes a hard constraint so later modifiers respect it — which is what
         // lets stacked Grade Lines on offset feature lines build a compound cross-section.

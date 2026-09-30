@@ -267,6 +267,36 @@ internal sealed partial class TerrainBuildService
             return insertedMesh;
         }
 
+        // Breakline mode keeps the rails and every existing breakline and contour exactly as drawn. Where a rail
+        // crosses one of them at another height no terrain can honour both, and the constrained rebuild could
+        // only fail or tear the terrain trying (11 s, then discarded, on every edit of the contour park). Say
+        // where the conflict is instead; the user edits the lines or grades the wall.
+        if (!modifier.GradesTerrain)
+        {
+            List<BreaklineHeightConflicts.Conflict> conflicts = BreaklineHeightConflicts.Find(
+                wallConstraints,
+                CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints),
+                wallTolerance);
+            if (conflicts.Count > 0)
+            {
+                string where = string.Join("; ", conflicts.Take(3).Select(c =>
+                    FormattableString.Invariant($"({c.X:0.##}, {c.Y:0.##}) rail at {c.ZA:0.###}, existing line at {c.ZB:0.###}")));
+                string message =
+                    $"Wall rails cross {conflicts.Count:N0} existing breakline or contour segment(s) at a different height, e.g. {where}. " +
+                    "Breakline mode keeps both as drawn, so the walls were not inserted: edit the conflicting lines, or switch the wall to Grade.";
+                build.Diagnostics.Add("Retaining Wall: " + message);
+                AddRetainingWallConstraintOverlay(
+                    build,
+                    modifier,
+                    wallConstraints,
+                    RuntimeOverlaySeverity.Error,
+                    "retaining_wall.rails_cross_breaklines",
+                    message,
+                    "Breakline conflict");
+                return mesh;
+            }
+        }
+
         AddRetainingWallConstraintOverlay(
             build,
             modifier,

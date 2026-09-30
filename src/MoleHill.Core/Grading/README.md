@@ -168,6 +168,11 @@ staying unresolved.
 `.Daylighting`, `.Spatial`, `.Support`, `.Types`, ...). `PathGrader.*.cs` is the corridor analogue.
 
 ## Shared building blocks
+- `BreaklineHeightConflicts` - where two sets of breaklines cross in plan at different heights (a breakline-mode
+  wall rail over a constrained contour). No 2.5D terrain can honour both lines, so the Retaining Wall stage
+  reports these crossings instead of attempting a rebuild.
+- `RegradedConstraintTrimmer` - cuts persisted breaklines and contours down to the runs that still lie on a
+  graded surface. A card with "Grade Through Breaklines" on uses it so later stages do not restore the old ground.
 - `MeshAreaTopologySplitter` supplies face geometry on demand and maps indexed boundary segments in
   parallel with face-local scratch and stable segment order. Grid queries clamp to the indexed extent,
   including when a large terrain face encloses a tiny zone. The shared-edge registry conforms neighbors;
