@@ -1668,36 +1668,58 @@ of it, and the result does not depend on scheduling (`TiledIsotropicRemesherLoca
 `TiledIsotropicRemesherWallTests` pins walls and a curved crease; the global remesh is unchanged (hosted-perf
 hashes identical).
 
-### Grade Pad: windowed, and incremental (2026-09-30)
+### Grading windows: Grade Pad and Grade Path, windowed and incremental (2026-09-30)
 
-`GradingWindows` grades each group of pads on the faces under its reach instead of on the whole terrain,
-so an edit away from the pads, or to one pad, re-grades only what it touches (the design doc's "windowed
-graders", which replace P2's splice). The Grade Pad stage calls `PadGrader.GradeWindowed`
-(`TerrainBuildService.GradingWindows.cs`); the grader itself is unchanged and simply sees a smaller mesh.
+`GradingWindows` grades each group of pads or paths on the faces within their reach instead of on the whole
+terrain, so an edit away from them, or to one of them, re-grades only what it touches (the design doc's
+"windowed graders", which replace P2's splice). The Grade Pad and Grade Path stages call
+`PadGrader.GradeWindowed` and `PathGrader.GradeWindowed` (`TerrainBuildService.GradingWindows.cs`); the
+graders themselves are unchanged and simply see a smaller mesh.
 
-- **Windows.** A pad's reach is its outline grown by its Max Distance, or, when that is 0, by
-  `GradingWindows.DaylightReach` (the distance its steepest height difference needs at its slopes), plus
-  a margin of twice the longest nearby edge. Pads whose reaches overlap share a window; faces are assigned
-  by bounding-box overlap, and a face two windows want merges them.
-- **No holes.** A window owns every face it encloses: a face whose three edges are all on the window's
-  rim, and every face inside an inner loop. A pocket one face wide, pinched to the rim at a vertex, was
-  otherwise re-filled by the grader with a face the terrain still had (three non-manifold edges behind a
-  Retaining Wall ring; `GradeWindowed_PocketPinchedToTheWindowRim_WeldsLikeTheWholeMesh`).
+- **Reach, by shape.** An item hands over its plan shape and a radius (`GradingWindows.Reach`). A pad is
+  its filled outline, with a radius of its Max Distance, or, when that is 0, `GradingWindows.DaylightReach`
+  (the distance its largest height difference needs at its slopes), plus its stitch apron. A path is its
+  centreline, with a radius of its widest half-width plus its Max Distance (or daylight reach). A face is the
+  item's when it comes within the radius plus a margin of the shape, or lies inside a filled one, so a road
+  network's window is a band and the land between the roads stays out. Items that share a face share a
+  window.
+- **A margin of its own** (`GradingWindows.WithMargins`): twice the longest face within the item's reach,
+  capped at half the reach, so the faces along a window's edge lie clear of what the grader touches. It reads
+  only faces within the reach. It was first read from every face in the item's bounding box, and the park's
+  drives run its whole length: one long face anywhere widened the band to the whole park (all 1.58 million faces
+  at 2 m), so a survey edit 93 m from any road re-graded every road.
+- **A window is a terrain.** A grader expects its input to have one boundary loop and no pinched
+  vertex, and a window that differs makes it defer to a softer tier. Three rules make that hold:
+  - The reach test uses the triangle's own distance, not its bounding circle's. A long sliver along the
+    border, 19 m from a road, was taken in by its circle and became a separate window piece with a loop of
+    its own.
+  - A pocket of unreached faces beside a window (at most `PocketFaceLimit`, 64, border slivers included)
+    joins that window. Otherwise the grader fills the gap with faces the terrain still has: a one-face pocket
+    pinched to the rim behind a Retaining Wall ring gave three non-manifold edges
+    (`GradeWindowed_PocketPinchedToTheWindowRim_WeldsLikeTheWholeMesh`).
+  - A rim vertex where a window's faces touch only at a corner (a pinch) gets its whole fan claimed.
+
+  Before these rules, the explicit Grade Path batter next to a wall deferred to terrain conform and missed
+  its slope by up to 93 % (`Grade_DiagonalRoad_WindowIsOneLoopWithNoPinchedVertex`,
+  `Grade_LongBorderSliverOutOfReach_StaysOutOfTheWindow`). Larger unreached regions, such as the land
+  between roads, stay out.
 - **Weld check, whole-mesh fallback.** A graded patch must keep, as boundary edges, every edge its window
   shares with faces it does not own (edges on the terrain's own border are free to move, as in a whole
   grade). If one does not, the stage grades the whole mesh and says so in the diagnostics. Patches are
   stitched back by coordinates.
-- **Keyed like tiles.** Each window is extracted in canonical order and keyed by its faces, its pads, the
-  locks and hard constraints over it, and the settings; `TerrainRuntimeCache.GradingWindowMemos` reuses
-  an unchanged window exactly. Cold and incremental run the same windowed computation, so exactness needs
-  no argument about what a grader reads globally (its tier choice by face count, its grid sized by the
-  mesh's extent).
+- **Keyed like tiles.** Each window is extracted in canonical order and keyed by its faces, its items'
+  definitions, the locks and hard constraints over it, and the settings; `TerrainRuntimeCache.GradingWindowMemos`
+  reuses an unchanged window exactly. Cold and incremental run the same windowed computation, so exactness
+  needs no argument about what a grader reads globally (its tier choice by face count, its grid sized by
+  the mesh's extent).
 
-On the 1 m park Grade Pad goes from about 19 s to 7.4 s cold, and a survey edit away from the pads reuses
-every window. What remains is whole-mesh plumbing around the windows (resolving constraints over every
-vertex, extraction and stitch, building the Rhino mesh), the floor the design's flat stage data removes.
-The park's paths form one connected group, so a bounding-box window for Grade Path would cover the whole
-park: windows there need a reach region shaped by distance to the centrelines, not a box.
+On the 1 m park, Grade Pad goes from about 19 s to 8 s cold, and Grade Path from 27 s to 17 s cold, with
+the road network split into 7 windows. A survey edit away from the roads and pads reuses every window,
+and the whole edit takes 54 s instead of 76 s. A pad slope edit re-grades the pads and only the road
+windows next to them. Each stage reports why a window was re-graded ("its faces changed", "its context
+changed") and where the time went, phase by phase. What remains is whole-mesh plumbing around the windows:
+resolving constraints over every vertex (Grade Path 4.3 s, Grade Pad 1.7 s), extraction and stitching,
+and building the Rhino mesh (2.4 s for Grade Pad). That is the floor the design's flat stage data removes.
 
 ### Interactive scale: what a warm edit costs as the terrain grows
 

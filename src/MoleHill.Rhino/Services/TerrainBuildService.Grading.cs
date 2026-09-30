@@ -842,16 +842,19 @@ internal sealed partial class TerrainBuildService
             faceCount);
         string topologyStageKey = TerrainStageKey.CreateGradingTopology(stageKey, "Path");
         var coreTimer = Stopwatch.StartNew();
-        GradingResult? gradingResult = PathGrader.Grade(
+        GradingResult? gradingResult = GradePathsWindowed(
             vertices,
             vertexCount,
             faces,
             faceCount,
             resolvedInputs.Paths,
             build.PersistentHardConstraints,
-            out string? warning,
             gradePathTolerance,
-            preferSplitKeep: preferSplitKeep);
+            preferSplitKeep,
+            runtimeCache,
+            stageKey,
+            build.Diagnostics,
+            out string? warning);
         coreTimer.Stop();
         runtimeCache.CoreCaseRecorder?.RecordPath(
             modifier.Label,

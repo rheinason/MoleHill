@@ -29,7 +29,7 @@ public static partial class PadGrader
         out IReadOnlyList<OutputPolyline> failureOutputPolylines,
         out IReadOnlyList<GradingDiagnostic> failureDiagnostics)
     {
-        var reach = new List<(double MinX, double MinY, double MaxX, double MaxY)>(pads.Length);
+        var reach = new List<GradingWindows.Reach>(pads.Length);
         foreach (PadBoundary pad in pads)
         {
             double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
@@ -46,19 +46,19 @@ public static partial class PadGrader
                 ? pad.MaxDistance
                 : GradingWindows.DaylightReach(vertices, vertexCount, (minX, minY, maxX, maxY), lowZ, highZ, Math.Min(pad.SlopeAngleDeg, pad.FillSlopeAngleDeg));
             double grow = distance + pad.StitchApronDistance;
-            reach.Add((minX - grow, minY - grow, maxX + grow, maxY + grow));
+            reach.Add(new GradingWindows.Reach(pad.XyVertices, pad.VertexCount, Closed: true, Filled: true, Radius: grow));
         }
 
-        // Beyond an item's reach, room for the faces along the window edge: twice the longest face near it.
-        double margin = Math.Max(modelTolerance * 100.0, 2.0 * GradingWindows.LongestPlanEdgeNear(vertices, faces, faceCount, reach));
+        // Beyond an item's reach, room for the faces along the window edge.
+        List<GradingWindows.Reach> grown = GradingWindows.WithMargins(vertices, faces, faceCount, reach, modelTolerance * 100.0);
 
         GradingWindows.Outcome outcome = GradingWindows.Grade(
             vertices,
             vertexCount,
             faces,
             faceCount,
-            reach,
-            margin,
+            grown,
+            margin: 0.0,
             (double[] wv, int wvc, int[] wf, int wfc, int[] items, (double MinX, double MinY, double MaxX, double MaxY) box,
                 out string? error, out IReadOnlyList<OutputPolyline> failurePolylines, out IReadOnlyList<GradingDiagnostic> failureStructured) =>
             {
@@ -123,7 +123,7 @@ public static partial class PadGrader
                 out errorMessage, out failureOutputPolylines, out failureDiagnostics, modelTolerance, terrainDetailSize, hardConstraints);
         }
 
-        notes.Add($"Grade Pad graded {outcome.WindowCount:N0} window(s); {outcome.ReusedWindows:N0} unchanged since the last build.");
+        notes.Add($"Grade Pad graded {outcome.WindowCount:N0} window(s); {outcome.ReusedWindows:N0} unchanged since the last build ({outcome.Timings}).");
         errorMessage = outcome.Errors.Count > 0 ? string.Join(" ", outcome.Errors) : null;
         failureOutputPolylines = outcome.FailureOutputPolylines;
         failureDiagnostics = outcome.FailureDiagnostics;

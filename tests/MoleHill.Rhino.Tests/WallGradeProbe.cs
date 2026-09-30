@@ -50,6 +50,9 @@ public static class WallGradeProbe
 
         /// <summary>When set, capture each case's rail insertion to this folder instead of running the sweep.</summary>
         public string? CaptureFolder { get; set; }
+
+        /// <summary>When set, also write every grading call of each case as a Core regression test to this folder.</summary>
+        public string? CoreCaseFolder { get; set; }
     }
 
     public sealed class CaseResult
@@ -125,6 +128,7 @@ public static class WallGradeProbe
                     continue;
                 }
 
+                s_coreCaseFolder = request.CoreCaseFolder;
                 CaseResult result = RunCaseWithBudget(context, shape, spacing, slope, gap, mode, request.CaseBudgetSeconds, request.DumpDiagnostics);
                 results.Add(result);
                 Progress(Describe(result));
@@ -157,6 +161,8 @@ public static class WallGradeProbe
     /// Runs a case on its own thread under the build's cancellation. A case that still has not returned a
     /// minute past its budget is reported as hung: its thread cannot be stopped, so the sweep must end there.
     /// </summary>
+    private static string? s_coreCaseFolder;
+
     private static CaseResult RunCaseWithBudget(
         string context, string shape, double spacing, double slope, double gap, string mode, double budgetSeconds, bool dump)
     {
@@ -224,6 +230,14 @@ public static class WallGradeProbe
             TerrainBuildResult build = new TerrainBuildService().Build(
                 snapshot, new TerrainRuntimeCache(), TerrainBuildMode.Final, shouldCancel);
             result.BuildMs = timer.Elapsed.TotalMilliseconds;
+            if (s_coreCaseFolder != null)
+            {
+                string folder = Path.Combine(s_coreCaseFolder, $"{mode}-{context}-{shape}-g{gap}-s{spacing}-a{slope}");
+                Directory.CreateDirectory(folder);
+                foreach (TerrainCoreCaseTestExport export in TerrainCoreCaseTestExporter.CreateAll(snapshot))
+                    File.WriteAllText(Path.Combine(folder, export.FileName), export.SourceCode);
+            }
+
             Mesh? mesh = build.PrimaryMesh;
             if (mesh == null)
             {

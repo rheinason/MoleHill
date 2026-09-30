@@ -10,10 +10,11 @@ an unbracketed target returns the nearer end, and bisection records every sample
 `PadGrader.Grade`, returning the actual best graded mesh and adjusted input boundary. GH integration
 and the first example graph remain B7 work.
 
-`GradingWindows` + `PadGrader.Windowed.cs` (`PadGrader.GradeWindowed`) grade each group of pads on the
-faces under its reach and stitch the patches back, memoizing each window by a key of its canonical input.
-A window owns every face it encloses and must keep the edges it shares with the rest of the terrain, or the
-call grades the whole mesh instead. See `docs/architecture.md` -> "Grade Pad: windowed, and incremental".
+`GradingWindows` + `PadGrader.Windowed.cs` / `PathGrader.Windowed.cs` (`GradeWindowed`) grade each group
+of pads or paths on the faces within their reach (a pad's filled outline, a path's centreline, grown by how
+far it can change the terrain) and stitch the patches back, memoizing each window by a key of its canonical
+input. Small enclosed pockets join their window, and a patch must keep the edges it shares with the rest of the terrain,
+or the call grades the whole mesh instead. See `docs/architecture.md` -> "Grading windows".
 
 ## Tier cascade (Pad - `PadGrader.Grade`, takes the first watertight result)
 1. **explicit batter** - `PadGrader.Explicit.cs` (exact ruled side-slopes; crispest).

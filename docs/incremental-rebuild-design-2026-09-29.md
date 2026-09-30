@@ -304,10 +304,14 @@ tests.
   is graded on the sub-mesh inside its window and stitched back, keyed and memoized like tiles. Cold and
   incremental run the same windowed computation, so exactness needs no proof about what a grader reads
   globally. On the 1 m park Grade Pad is 7.4 s cold (was ~19 s) and a survey edit reuses every window. A
-  window that cannot weld falls back to grading the whole mesh (architecture.md, "Grade Pad: windowed").
-- **Next:** windows shaped by distance to the item (a path network is one connected group, so its bounding
-  box is the whole park), then windowed Grade Path, the Retaining Wall stage, per-tile analyses (P3), and
-  flat data between stages (P1) for the per-stage O(n) plumbing that remains.
+  window that cannot weld falls back to grading the whole mesh (architecture.md, "Grading windows").
+- **Windows by shape, and windowed Grade Path** (2026-09-30). A window is the faces within an item's reach of its
+  plan shape (a pad's filled outline, a path's centreline), not its bounding box: the park's path network is
+  one connected group, whose box is the whole park, but whose band leaves the land between the roads out.
+  With a margin read only from faces within each item's reach, the network splits into 7 windows at 1 m;
+  a survey edit away from roads and pads reuses them all and costs 54 s (was 76 s). Grade Path is 17 s cold (was 27 s).
+- **Next:** the Retaining Wall stage, per-tile analyses (P3), and flat data between stages (P1) for the
+  per-stage O(n) plumbing that remains.
 
 ## Original questions for the owner
 

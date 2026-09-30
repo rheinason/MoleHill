@@ -207,6 +207,8 @@ py -3 tools/rhino-hosted-perf.py --bin tests/MoleHill.Rhino.Tests/bin/Release/ne
 `DumpDiagnostics` keeps every timing row and diagnostic, plus a toe-side section every 25 cm.
 `CaptureFolder` writes, instead of building, each case's upstream mesh, rail grades and the mesh and
 constraints its rail insertion receives, as JSON for a Core-level repro without Rhino.
+`CoreCaseFolder` builds as usual and also writes every grading call of each case (Triangulate, Grade Path,
+the wall's rails) as a copied Core test, the same export as the panel's Copy Case, in one folder per case.
 
 Result on 2026-09-29 after the wall fixes (architecture.md, "Retaining walls: getting the rails in"):
 1,152 cases, every wall inserted in both modes, every terrain one watertight loop. Grade-mode batter
