@@ -52,6 +52,20 @@ public static class ParkScaleStress
         /// </summary>
         public bool PathsCrossConstraints { get; set; }
 
+        /// <summary>
+        /// "points" (default): a jittered LiDAR-style point survey at the rung's spacing. "contours": the same
+        /// ground as contour lines every <see cref="ContourInterval"/>, traced over a grid at the rung's spacing,
+        /// plus breaklines along the real breaks in slope (each outcrop's toe and rim, each basin's shore and
+        /// bank foot), the way a surveyed or digitised topo arrives.
+        /// </summary>
+        public string? SurveyMode { get; set; }
+
+        /// <summary>Contour interval in metres for <see cref="SurveyMode"/> "contours".</summary>
+        public double ContourInterval { get; set; } = 0.5;
+
+        /// <summary>Triangulate's contour mode ("auto", "constrained", "vertices"); null keeps the card's default.</summary>
+        public string? ContourMode { get; set; }
+
         /// <summary>The Remesh card's mode: "isotropic" (default, tiled) or "global" (the whole-mesh remesher).</summary>
         public string? RemeshMode { get; set; }
 
@@ -145,7 +159,10 @@ public static class ParkScaleStress
         {
             Settle();
             var fixtureTimer = Stopwatch.StartNew();
-            ParkFixture fixture = ParkFixture.Create(spacing, request.PathsCrossConstraints);
+            bool contourSurvey = string.Equals(request.SurveyMode, "contours", StringComparison.OrdinalIgnoreCase);
+            ParkFixture fixture = ParkFixture.Create(spacing, request.PathsCrossConstraints, contourSurvey ? request.ContourInterval : 0.0);
+            if (!string.IsNullOrWhiteSpace(request.ContourMode))
+                fixture.Triangulate.ContourMode = request.ContourMode;
             if (!string.IsNullOrWhiteSpace(request.RemeshMode))
                 fixture.Remesh.Mode = request.RemeshMode;
             fixtureTimer.Stop();
@@ -156,7 +173,9 @@ public static class ParkScaleStress
                 FixtureSeconds = fixtureTimer.Elapsed.TotalSeconds
             };
             result.Rungs.Add(rung);
-            progress($"=== rung {spacing:0.##} m: {fixture.SurveyPointCount:N0} survey points (fixture {rung.FixtureSeconds:N1} s)");
+            progress(fixture.ContourCurves.Count > 0
+                ? $"=== rung {spacing:0.##} m: {fixture.ContourCurves.Count:N0} contours ({fixture.SurveyPointCount:N0} vertices) every {request.ContourInterval:0.##} m, {fixture.BreaklineCount:N0} breaklines, contour mode {fixture.Triangulate.ContourMode} (fixture {rung.FixtureSeconds:N1} s)"
+                : $"=== rung {spacing:0.##} m: {fixture.SurveyPointCount:N0} survey points (fixture {rung.FixtureSeconds:N1} s)");
 
             string? stop = RunRung(request, fixture, rung, progress);
             if (stop != null)
@@ -244,7 +263,7 @@ public static class ParkScaleStress
         }
 
         fixture.NudgeSurveyPoint();
-        StepResult pointEdit = RunStep(request, "edit: survey point", service, fixture.Snapshot, cache, progress);
+        StepResult pointEdit = RunStep(request, fixture.ContourCurves.Count > 0 ? "edit: contour vertex" : "edit: survey point", service, fixture.Snapshot, cache, progress);
         rung.Steps.Add(pointEdit);
         if (pointEdit.Status == "hung")
             return "the survey-point edit did not honour cancellation";
@@ -443,7 +462,15 @@ public static class ParkScaleStress
         public required List<AnalysisDefinition> Analyses { get; init; }
         public required ContourAnnotationDefinition Contours { get; init; }
         public required Point3d[] Survey { get; init; }
-        public int SurveyPointCount => Survey.Length;
+
+        /// <summary>The contour survey, when the fixture was built from contours (empty for a point survey).</summary>
+        public List<Curve> ContourCurves { get; init; } = new();
+
+        public int BreaklineCount { get; init; }
+
+        public int SurveyPointCount => ContourCurves.Count > 0
+            ? ContourCurves.Sum(static c => c is PolylineCurve p ? p.PointCount : 0)
+            : Survey.Length;
 
         /// <summary>A sheep meadow, a great lawn and a terrace plaza, as plan rectangles.</summary>
         private static readonly (double X0, double Y0, double X1, double Y1)[] Lawns =
@@ -461,7 +488,7 @@ public static class ParkScaleStress
             (3500, 200, 3620, 230)
         ];
 
-        public static ParkFixture Create(double spacing, bool pathsCrossConstraints)
+        public static ParkFixture Create(double spacing, bool pathsCrossConstraints, double contourInterval = 0.0)
         {
             var triangulate = new TriangulateModifierDefinition
             {
@@ -522,8 +549,22 @@ public static class ParkScaleStress
                 ModelUnitSystem = UnitSystem.Meters
             };
 
-            Point3d[] survey = CreateSurvey(spacing);
-            SetSurvey(snapshot, triangulate.Points, survey, 101);
+            Point3d[] survey = Array.Empty<Point3d>();
+            var contourCurves = new List<Curve>();
+            int breaklineCount = 0;
+            if (contourInterval > 0.0)
+            {
+                contourCurves = CreateContours(spacing, contourInterval);
+                SetCurves(snapshot, triangulate.Contours, 111, contourCurves.ToArray());
+                Curve[] breaklines = CreateBreaklines(spacing);
+                breaklineCount = breaklines.Length;
+                SetCurves(snapshot, triangulate.Breaklines, 121, breaklines);
+            }
+            else
+            {
+                survey = CreateSurvey(spacing);
+                SetSurvey(snapshot, triangulate.Points, survey, 101);
+            }
 
             SetCurves(snapshot, pad.Boundaries, 211, Lawns.Select(l => Lawn(l.X0, l.Y0, l.X1, l.Y1)).ToArray());
             SetCurves(snapshot, path.Paths, 307, CreatePaths(pathsCrossConstraints));
@@ -556,16 +597,157 @@ public static class ParkScaleStress
                 Remesh = remesh,
                 Analyses = analyses,
                 Contours = contours,
-                Survey = survey
+                Survey = survey,
+                ContourCurves = contourCurves,
+                BreaklineCount = breaklineCount
             };
         }
 
-        /// <summary>Raise one survey point near the park centre by 5 cm: the smallest edit a survey can take.</summary>
+        /// <summary>
+        /// Raise one survey point near the park centre by 5 cm: the smallest edit a survey can take. For a contour
+        /// survey, move the contour vertex nearest the centre 30 cm east, as redrawing one kink of a contour would.
+        /// </summary>
         public void NudgeSurveyPoint()
         {
+            if (ContourCurves.Count > 0)
+            {
+                int bestCurve = -1, bestVertex = -1;
+                double best = double.MaxValue;
+                for (int c = 0; c < ContourCurves.Count; c++)
+                {
+                    if (ContourCurves[c] is not PolylineCurve polyline)
+                        continue;
+                    for (int k = 1; k < polyline.PointCount - 1; k++)
+                    {
+                        Point3d q = polyline.Point(k);
+                        double d = ((q.X - ParkLength / 2) * (q.X - ParkLength / 2)) + ((q.Y - ParkWidth / 2) * (q.Y - ParkWidth / 2));
+                        if (d < best)
+                        {
+                            best = d;
+                            bestCurve = c;
+                            bestVertex = k;
+                        }
+                    }
+                }
+
+                if (bestCurve >= 0)
+                {
+                    var edited = (PolylineCurve)ContourCurves[bestCurve].Duplicate();
+                    edited.SetPoint(bestVertex, edited.Point(bestVertex) + new Vector3d(0.3, 0, 0));
+                    ContourCurves[bestCurve] = edited;
+                    SetCurves(Snapshot, Triangulate.Contours, 112, ContourCurves.ToArray());
+                }
+
+                return;
+            }
+
             int index = Survey.Length / 2;
             Survey[index] = Survey[index] + new Vector3d(0, 0, 0.05);
             SetSurvey(Snapshot, Triangulate.Points, Survey, 102);
+        }
+
+        /// <summary>
+        /// Contours of the park's ground every <paramref name="interval"/> metres, traced over a lattice at
+        /// <paramref name="spacing"/> by the same marching pass the Contours annotation uses, so a contour carries
+        /// one vertex per lattice cell it crosses.
+        /// </summary>
+        private static List<Curve> CreateContours(double spacing, double interval)
+        {
+            int nx = (int)(ParkLength / spacing) + 1;
+            int ny = (int)(ParkWidth / spacing) + 1;
+            var vertices = new double[nx * ny * 3];
+            double minZ = double.MaxValue, maxZ = double.MinValue;
+            for (int i = 0; i < nx; i++)
+            {
+                for (int j = 0; j < ny; j++)
+                {
+                    double x = Math.Min(i * spacing, ParkLength), y = Math.Min(j * spacing, ParkWidth);
+                    double z = Elevation(x, y);
+                    int k = (i * ny) + j;
+                    vertices[k * 3] = x;
+                    vertices[k * 3 + 1] = y;
+                    vertices[k * 3 + 2] = z;
+                    minZ = Math.Min(minZ, z);
+                    maxZ = Math.Max(maxZ, z);
+                }
+            }
+
+            var faces = new int[(nx - 1) * (ny - 1) * 6];
+            int n = 0;
+            for (int i = 0; i < nx - 1; i++)
+            {
+                for (int j = 0; j < ny - 1; j++)
+                {
+                    int a = (i * ny) + j, b = a + ny;
+                    faces[n++] = a; faces[n++] = b; faces[n++] = b + 1;
+                    faces[n++] = a; faces[n++] = b + 1; faces[n++] = a + 1;
+                }
+            }
+
+            var levels = new List<double>();
+            for (long step = (long)Math.Ceiling(minZ / interval); step * interval <= maxZ; step++)
+                levels.Add(step * interval);
+
+            var curves = new List<Curve>();
+            foreach (MoleHill.Core.Analysis.ContourLevel contourLevel in MoleHill.Core.Analysis.ContourGenerator.Generate(
+                         vertices, nx * ny, faces, faces.Length / 3, levels, 1e-6))
+            {
+                foreach (MoleHill.Core.Analysis.ContourPolyline polyline in contourLevel.Polylines)
+                {
+                    if (polyline.PointCount < 3)
+                        continue;
+                    var points = new List<Point3d>(polyline.PointCount + 1);
+                    for (int k = 0; k < polyline.PointCount; k++)
+                        points.Add(new Point3d(polyline.PointsXyz[k * 3], polyline.PointsXyz[(k * 3) + 1], contourLevel.Z));
+                    if (polyline.IsClosed && points[0].DistanceTo(points[^1]) > 1e-9)
+                        points.Add(points[0]);
+                    curves.Add(new PolylineCurve(points));
+                }
+            }
+
+            return curves;
+        }
+
+        /// <summary>
+        /// The ground's real breaks in slope: each outcrop's toe and rim (the 2 m rock wall of
+        /// <see cref="Elevation"/>), and each basin's shore and bank foot, stationed at the rung's spacing.
+        /// </summary>
+        private static Curve[] CreateBreaklines(double spacing)
+        {
+            var curves = new List<Curve>();
+            Curve Ring(double cx, double cy, double rx, double ry)
+            {
+                int segments = Math.Max(12, (int)Math.Ceiling(2 * Math.PI * Math.Max(rx, ry) / spacing));
+                var points = new List<Point3d>(segments + 1);
+                for (int s = 0; s < segments; s++)
+                {
+                    double t = 2 * Math.PI * s / segments;
+                    double x = Math.Clamp(cx + (rx * Math.Cos(t)), 0, ParkLength);
+                    double y = Math.Clamp(cy + (ry * Math.Sin(t)), 0, ParkWidth);
+                    points.Add(new Point3d(x, y, Elevation(x, y)));
+                }
+
+                points.Add(points[0]);
+                return new PolylineCurve(points);
+            }
+
+            for (int k = 0; k < 40; k++)
+            {
+                double cx = 100 + (Lattice(k, 0, 5) + 1) * 0.5 * (ParkLength - 200);
+                double cy = 60 + (Lattice(k, 1, 5) + 1) * 0.5 * (ParkWidth - 120);
+                double radius = 12 + (Lattice(k, 2, 5) + 1) * 0.5 * 30;
+                curves.Add(Ring(cx, cy, radius + 1.0, radius + 1.0));
+                curves.Add(Ring(cx, cy, radius - 1.0, radius - 1.0));
+            }
+
+            foreach ((double cx, double cy, double rx, double ry, double bank) in new[] { (2900.0, 420.0, 330.0, 230.0, 12.0), (1250.0, 250.0, 180.0, 90.0, 6.0) })
+            {
+                double foot = 1.0 - (bank / Math.Min(rx, ry));
+                curves.Add(Ring(cx, cy, rx, ry));
+                curves.Add(Ring(cx, cy, rx * foot, ry * foot));
+            }
+
+            return curves.ToArray();
         }
 
         private static Point3d[] CreateSurvey(double spacing)

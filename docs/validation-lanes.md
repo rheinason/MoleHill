@@ -187,6 +187,20 @@ with nothing changed, an empty Grade Pad card inserted below Triangulate, and a 
 they take 0.5 s, 92 s and 37 s. The last two should cost nothing; see
 `incremental-rebuild-design-2026-09-29.md`.
 
+`SurveyMode: "contours"` builds the same ground as a digitised topo, not a point survey. It has contours every
+`ContourInterval` metres (default 0.5), traced over a lattice at the rung's spacing, plus breaklines at each
+outcrop's toe and rim and each basin's shore and bank foot. The edit step then moves one contour vertex
+near the centre by 30 cm. `ContourMode` sets Triangulate's contour mode: under `"auto"`, the park's
+contours (257k vertices at 4 m) are always read as unconstrained points, so use `"constrained"` to test
+contours as edges.
+
+First run, 2026-09-30, at e5c7c6c (4 m, 2 m and 1 m; 3,011 contours, 1.04 million vertices at 1 m):
+- Every step completed. Grade Path fails at every scale: the survey breaklines persist as hard constraints,
+  and roads crossing the outcrop rings are refused ("Road edge crosses a hard constraint").
+- With constrained contours at 2 m and 1 m, the retaining walls are not inserted. Local insertion declines,
+  and the constrained rebuild, which has to honour 3,011 contours, takes 11 s. It opens the terrain (1 to 7
+  boundary loops), so it is discarded.
+
 ## wall-grade
 
 Also a probe, not a lane. `WallGradeProbe` (`tests/MoleHill.Rhino.Tests/WallGradeProbe.cs`) builds small
