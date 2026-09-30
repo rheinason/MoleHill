@@ -14,10 +14,11 @@ namespace MoleHill.Rhino.Services;
 /// <summary>
 /// Command entry points for survey point import and its field code table.
 ///
-/// The import creates ordinary Rhino curves and points on named layers and **never touches a
-/// <c>TerrainDefinition</c>** — the user assigns those layers through the normal source editor, exactly
-/// as with <c>mhDrapeCurve</c>. That is what makes a revised survey a re-import rather than a
-/// reassignment.
+/// The import creates ordinary Rhino curves and points on a layer tree named after the file, outside
+/// every terrain's own layers, and **never touches a <c>TerrainDefinition</c>** — the user assigns those
+/// layers through the normal source editor, exactly as with <c>mhDrapeCurve</c>. Importing a file whose
+/// tree already exists either replaces what the earlier import made or starts a new tree beside it, so
+/// a revised survey is a re-import rather than a reassignment.
 /// </summary>
 internal static class SurveyImportCommandService
 {
@@ -45,6 +46,9 @@ internal static class SurveyImportCommandService
             return Result.Nothing;
         }
 
+        if (!TryChooseDestination(doc, path, out string rootName, out List<Guid> replaceIds))
+            return Result.Cancel;
+
         Result placement = SurveyPlacement.Resolve(
             doc,
             file.Points,
@@ -59,7 +63,63 @@ internal static class SurveyImportCommandService
             RhinoApp.WriteLine(tableWarning);
         SurveyImportResult parsed = SurveyFigureBuilder.Build(file.Points, table);
 
-        return Create(doc, file, parsed, table, toDocument, choice, units);
+        return Create(doc, file, parsed, table, toDocument, choice, units, rootName, replaceIds);
+    }
+
+    /// <summary>
+    /// Picks the layer tree this import writes to. A file imported before leaves tagged objects behind;
+    /// the user then chooses between replacing exactly those and starting a new tree beside them.
+    /// Anything the user added to the tree by hand is never tagged, so replacing never touches it.
+    /// Replacing keeps the layers, so sources wired by layer keep working; sources wired by object
+    /// ID go stale, which the prompt says.
+    /// </summary>
+    private static bool TryChooseDestination(RhinoDoc doc, string filePath, out string rootName, out List<Guid> replaceIds)
+    {
+        rootName = SurveyLayerNaming.RootName(filePath);
+        replaceIds = new List<Guid>();
+
+        List<Guid> previous = FindImportedObjects(doc, rootName);
+        if (previous.Count == 0)
+            return true;
+
+        var getOption = new global::Rhino.Input.Custom.GetOption();
+        getOption.SetCommandPrompt(
+            $"\"{rootName}\" was imported before ({previous.Count:N0} objects). Replace them (terrains wired to those objects by ID lose them), or add a new survey beside them");
+        getOption.AcceptNothing(false);
+        int replace = getOption.AddOption("Replace");
+        int addNew = getOption.AddOption("AddAsNew");
+        if (getOption.Get() != global::Rhino.Input.GetResult.Option)
+            return false;
+
+        int chosen = getOption.Option()!.Index;
+        if (chosen == replace)
+        {
+            replaceIds = previous;
+            return true;
+        }
+
+        if (chosen == addNew)
+        {
+            rootName = SurveyLayerNaming.NextFreeRootName(
+                rootName,
+                candidate => doc.Layers.FindByFullPath(candidate, -1) >= 0 || FindImportedObjects(doc, candidate).Count > 0);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static List<Guid> FindImportedObjects(RhinoDoc doc, string rootName)
+    {
+        RhinoObject[]? tagged = doc.Objects.FindByUserString(
+            SurveyLayerNaming.ImportUserStringKey, rootName, caseSensitive: false);
+        if (tagged == null)
+            return new List<Guid>();
+
+        return tagged
+            .Where(static obj => obj != null && !obj.IsDeleted)
+            .Select(static obj => obj.Id)
+            .ToList();
     }
 
     private static bool TryChooseFile(RhinoDoc doc, out string path, out string content)
@@ -104,7 +164,9 @@ internal static class SurveyImportCommandService
         FieldCodeTable table,
         Transform toDocument,
         SurveyPlacementChoice choice,
-        ModelUnitContext units)
+        ModelUnitContext units,
+        string rootName,
+        IReadOnlyList<Guid> replaceIds)
     {
         List<Point3d> points = file.Points
             .Select(point =>
@@ -130,8 +192,10 @@ internal static class SurveyImportCommandService
 
                 var attributes = new ObjectAttributes
                 {
-                    LayerIndex = EnsureLayer(doc, figure.Layer, FieldCodeTable.DefaultLayerFor(figure.Role), reportedLayers)
+                    LayerIndex = EnsureLayer(
+                        doc, rootName, figure.Layer, FieldCodeTable.DefaultLayerFor(figure.Role), figure.Role, reportedLayers)
                 };
+                attributes.SetUserString(SurveyLayerNaming.ImportUserStringKey, rootName);
 
                 Guid id = doc.Objects.AddCurve(curve, attributes);
                 if (id == Guid.Empty)
@@ -144,15 +208,31 @@ internal static class SurveyImportCommandService
                 figuresDrawn++;
             }
 
-            int spotsDrawn = AddSpots(doc, points, parsed, created, reportedLayers);
-            int unmatchedDrawn = AddPoints(
-                doc,
-                points,
-                parsed.UnmatchedPointIndices,
-                EnsureLayer(doc, table.UnmatchedLayer, FieldCodeTable.DefaultUnmatchedLayer, reportedLayers),
-                created);
+            int spotsDrawn = AddSpots(doc, rootName, points, parsed, created, reportedLayers);
+            int unmatchedDrawn = parsed.UnmatchedPointIndices.Count == 0
+                ? 0
+                : AddPoints(
+                    doc,
+                    points,
+                    parsed.UnmatchedPointIndices,
+                    EnsureLayer(
+                        doc, rootName, table.UnmatchedLayer, FieldCodeTable.DefaultUnmatchedLayer, FieldCodeRole.Ignore, reportedLayers),
+                    rootName,
+                    created);
+
+            // The earlier import goes only once everything new exists, so a failure part-way leaves the
+            // survey the user already had rather than half of each.
+            int replaced = 0;
+            foreach (Guid id in replaceIds)
+            {
+                if (doc.Objects.Delete(id, quiet: true))
+                    replaced++;
+            }
 
             doc.Views.Redraw();
+            RhinoApp.WriteLine(replaced > 0
+                ? $"MoleHill: survey layers are under \"{rootName}\"; {replaced:N0} objects from the earlier import were replaced."
+                : $"MoleHill: survey layers are under \"{rootName}\".");
             Report(file, parsed, choice, units, figuresDrawn, spotsDrawn, unmatchedDrawn);
             if (choice == SurveyPlacementChoice.ProjectBaseCreated)
                 SurveyPlacement.RegisterCreatedProjectBaseUndo(doc);
@@ -184,12 +264,14 @@ internal static class SurveyImportCommandService
         IReadOnlyList<Point3d> points,
         IReadOnlyList<int> indices,
         int layerIndex,
+        string rootName,
         List<Guid> created)
     {
         if (indices.Count == 0)
             return 0;
 
         var attributes = new ObjectAttributes { LayerIndex = layerIndex };
+        attributes.SetUserString(SurveyLayerNaming.ImportUserStringKey, rootName);
         int drawn = 0;
         foreach (int index in indices)
         {
@@ -213,6 +295,7 @@ internal static class SurveyImportCommandService
     /// </summary>
     private static int AddSpots(
         RhinoDoc doc,
+        string rootName,
         IReadOnlyList<Point3d> points,
         SurveyImportResult parsed,
         List<Guid> created,
@@ -223,42 +306,87 @@ internal static class SurveyImportCommandService
                      .GroupBy(i => parsed.SpotLayers[i], StringComparer.OrdinalIgnoreCase))
         {
             List<int> indices = group.Select(i => parsed.SpotPointIndices[i]).ToList();
-            int layerIndex = EnsureLayer(doc, group.Key, FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot), reportedLayers);
-            drawn += AddPoints(doc, points, indices, layerIndex, created);
+            int layerIndex = EnsureLayer(
+                doc, rootName, group.Key, FieldCodeTable.DefaultLayerFor(FieldCodeRole.Spot), FieldCodeRole.Spot, reportedLayers);
+            drawn += AddPoints(doc, points, indices, layerIndex, rootName, created);
         }
 
         return drawn;
     }
 
     /// <summary>
-    /// The layer for a typed path, or for <paramref name="fallbackPath"/> when the typed one is unusable.
+    /// The layer under the survey root for a typed relative path, or for <paramref name="fallbackPath"/>
+    /// when the typed one is unusable.
     ///
-    /// <see cref="LayerCreationService.EnsureLayerPath"/> answers a blank or rejected path with the
-    /// <i>current</i> layer, so an unvalidated path would scatter survey linework onto whatever the user
-    /// last clicked. The fallback is always one of this command's own role layers, and the substitution
-    /// is reported once per path so the user can correct the rule.
+    /// An unusable path must never reach layer creation: a blank or rejected name would fall back to
+    /// the <i>current</i> layer, scattering survey linework onto whatever the user last clicked. The
+    /// fallback is always one of this command's own sublayers, and the substitution is reported once
+    /// per path so the user can correct the rule.
     /// </summary>
-    private static int EnsureLayer(RhinoDoc doc, string layerPath, string fallbackPath, HashSet<string> reportedLayers)
+    private static int EnsureLayer(
+        RhinoDoc doc,
+        string rootName,
+        string relativePath,
+        string fallbackPath,
+        FieldCodeRole role,
+        HashSet<string> reportedLayers)
     {
-        LayerRoleTable roles = LayerRoleService.GetTable(doc);
-        if (IsUsableLayerPath(layerPath))
+        if (IsUsableLayerPath(relativePath))
         {
-            int index = LayerCreationService.EnsureLayerPath(doc, layerPath, roles);
+            string fullPath = SurveyLayerNaming.FullPath(rootName, relativePath);
+            int index = EnsureSurveyLayerPath(doc, fullPath, role);
             if (index >= 0 && index < doc.Layers.Count &&
-                string.Equals(doc.Layers[index].FullPath, layerPath, StringComparison.OrdinalIgnoreCase))
+                string.Equals(doc.Layers[index].FullPath, fullPath, StringComparison.OrdinalIgnoreCase))
             {
                 return index;
             }
         }
 
-        if (reportedLayers.Add(layerPath ?? string.Empty))
+        if (reportedLayers.Add(relativePath ?? string.Empty))
         {
             RhinoApp.WriteLine(
-                $"MoleHill: \"{layerPath}\" is not a usable layer path; that output went to {fallbackPath} instead. " +
+                $"MoleHill: \"{relativePath}\" is not a usable layer path; that output went to {fallbackPath} instead. " +
                 "Correct it with mhEditFieldCodes.");
         }
 
-        return LayerCreationService.EnsureLayerPath(doc, fallbackPath, roles);
+        return EnsureSurveyLayerPath(doc, SurveyLayerNaming.FullPath(rootName, fallbackPath), role);
+    }
+
+    /// <summary>
+    /// Creates a survey layer path segment by segment. Only a layer created here takes the role's
+    /// starting colour, and only the leaf does; a layer that already exists stays as the user has it.
+    /// </summary>
+    private static int EnsureSurveyLayerPath(RhinoDoc doc, string fullPath, FieldCodeRole role)
+    {
+        int parentIndex = -1;
+        string currentPath = string.Empty;
+
+        foreach (string segment in fullPath.Split("::"))
+        {
+            currentPath = currentPath.Length == 0 ? segment : $"{currentPath}::{segment}";
+            int index = doc.Layers.FindByFullPath(currentPath, -1);
+            if (index >= 0)
+            {
+                parentIndex = index;
+                continue;
+            }
+
+            var layer = new Layer { Name = segment };
+            if (parentIndex >= 0)
+                layer.ParentLayerId = doc.Layers[parentIndex].Id;
+
+            bool isLeaf = string.Equals(currentPath, fullPath, StringComparison.OrdinalIgnoreCase);
+            int? color = isLeaf ? SurveyLayerNaming.DefaultColorArgb(role) : null;
+            if (color.HasValue)
+            {
+                layer.Color = System.Drawing.Color.FromArgb(color.Value);
+                layer.PlotColor = layer.Color;
+            }
+
+            parentIndex = doc.Layers.Add(layer);
+        }
+
+        return parentIndex;
     }
 
     /// <summary>

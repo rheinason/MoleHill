@@ -136,7 +136,12 @@ internal sealed class LayerRoleTable
     /// <summary>Registry defaults only — the table a document gets before it has a template.</summary>
     public static LayerRoleTable Default { get; } = Build(null);
 
-    public static LayerRoleTable Build(LayerTemplateDefinition? template)
+    /// <summary>
+    /// Flattens a template for one terrain. <see cref="TerrainLayerNaming.Token"/> in any path becomes
+    /// the terrain's name, which is what gives each terrain a layer root of its own; with no name the
+    /// token stays in place, as the template editor and the registry defaults show it.
+    /// </summary>
+    public static LayerRoleTable Build(LayerTemplateDefinition? template, string? terrainName = null)
     {
         var entriesByRole = new Dictionary<LayerRole, LayerTemplateEntry>();
         if (template?.Entries != null)
@@ -156,9 +161,9 @@ internal sealed class LayerRoleTable
 
         var resolved = new Dictionary<LayerRole, ResolvedLayerRole>();
         foreach (var descriptor in LayerRoleRegistry.All)
-            Resolve(descriptor.Role, entriesByRole, resolved);
+            Resolve(descriptor.Role, entriesByRole, resolved, terrainName);
 
-        var allLayers = BuildAllLayers(template, resolved);
+        var allLayers = BuildAllLayers(template, resolved, terrainName);
         return new LayerRoleTable(
             template?.Name ?? "MoleHill defaults",
             resolved,
@@ -169,7 +174,8 @@ internal sealed class LayerRoleTable
     private static ResolvedLayerRole Resolve(
         LayerRole role,
         Dictionary<LayerRole, LayerTemplateEntry> entriesByRole,
-        Dictionary<LayerRole, ResolvedLayerRole> resolved)
+        Dictionary<LayerRole, ResolvedLayerRole> resolved,
+        string? terrainName)
     {
         if (resolved.TryGetValue(role, out var existing))
             return existing;
@@ -178,7 +184,7 @@ internal sealed class LayerRoleTable
         entriesByRole.TryGetValue(role, out LayerTemplateEntry? entry);
 
         ResolvedLayerRole? parent = descriptor.Parent.HasValue
-            ? Resolve(descriptor.Parent.Value, entriesByRole, resolved)
+            ? Resolve(descriptor.Parent.Value, entriesByRole, resolved, terrainName)
             : null;
 
         // An explicit binding is an absolute path and wins outright. Otherwise the path is built
@@ -188,6 +194,7 @@ internal sealed class LayerRoleTable
             : parent != null
                 ? parent.LayerPath + descriptor.RelativeSuffix
                 : descriptor.AbsoluteDefaultPath!;
+        path = TerrainLayerNaming.Resolve(path, terrainName);
 
         var appearance = ResolveAppearance(descriptor, entry, parent?.Appearance);
         var result = new ResolvedLayerRole(role, path, appearance);
@@ -243,7 +250,8 @@ internal sealed class LayerRoleTable
     /// </summary>
     private static (string Path, LayerAppearance Appearance)[] BuildAllLayers(
         LayerTemplateDefinition? template,
-        Dictionary<LayerRole, ResolvedLayerRole> resolved)
+        Dictionary<LayerRole, ResolvedLayerRole> resolved,
+        string? terrainName)
     {
         var byPath = new Dictionary<string, LayerAppearance>(StringComparer.OrdinalIgnoreCase);
 
@@ -260,7 +268,7 @@ internal sealed class LayerRoleTable
                     continue;
                 }
 
-                string path = entry.Path.Trim();
+                string path = TerrainLayerNaming.Resolve(entry.Path.Trim(), terrainName);
                 if (byPath.ContainsKey(path))
                     continue;
 

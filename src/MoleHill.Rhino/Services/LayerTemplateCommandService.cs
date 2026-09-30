@@ -16,11 +16,26 @@ internal static class LayerTemplateCommandService
         // Create-only. Applying a template must never restyle layers that already exist: the user's
         // Layers-panel edits and per-detail print overrides are theirs, and this command used to
         // discard them silently on every run. Re-stamping is mhResetLayerStyles, which asks first.
-        var counts = LayerCreationService.ApplyTemplate(doc, LayerRoleTable.Build(template!));
+        var tables = TablesFor(doc, template!);
+        if (tables.Count == 0)
+        {
+            RhinoApp.WriteLine(
+                $"Layer template '{template!.Name}' has a layer root per terrain, and this document has no terrain yet. Create one first.");
+            return Result.Nothing;
+        }
+
+        int created = 0;
+        int existing = 0;
+        foreach (var table in tables)
+        {
+            var counts = LayerCreationService.ApplyTemplate(doc, table);
+            created += counts.Created;
+            existing += counts.Existing;
+        }
 
         doc.Views.Redraw();
         RhinoApp.WriteLine(
-            $"Applied layer template '{template!.Name}' ({counts.Created} created, {counts.Existing} already present).");
+            $"Applied layer template '{template!.Name}' to {tables.Count} terrain(s) ({created} created, {existing} already present).");
         return Result.Success;
     }
 
@@ -41,8 +56,9 @@ internal static class LayerTemplateCommandService
             return result;
         }
 
-        var table = LayerRoleTable.Build(template!);
-        int affected = table.AllLayers.Count(layer => doc.Layers.FindByFullPath(layer.Path, -1) >= 0);
+        var tables = TablesFor(doc, template!);
+        int affected = tables.Sum(table =>
+            table.AllLayers.Count(layer => doc.Layers.FindByFullPath(layer.Path, -1) >= 0));
         if (affected == 0)
         {
             RhinoApp.WriteLine($"No layers from '{template!.Name}' exist in this document yet — nothing to reset.");
@@ -60,9 +76,17 @@ internal static class LayerTemplateCommandService
         if (confirm.OptionIndex() == noIndex)
             return Result.Cancel;
 
-        var counts = LayerCreationService.ApplyTemplate(doc, table, restyleExisting: true);
+        int restyled = 0;
+        int created = 0;
+        foreach (var table in tables)
+        {
+            var counts = LayerCreationService.ApplyTemplate(doc, table, restyleExisting: true);
+            restyled += counts.Existing;
+            created += counts.Created;
+        }
+
         doc.Views.Redraw();
-        RhinoApp.WriteLine($"Reset {counts.Existing} layer style(s) from '{template.Name}' ({counts.Created} created).");
+        RhinoApp.WriteLine($"Reset {restyled} layer style(s) from '{template.Name}' ({created} created).");
         return Result.Success;
     }
 
@@ -70,6 +94,23 @@ internal static class LayerTemplateCommandService
     {
         bool saved = LayerTemplateEditorDialog.ShowDialog(doc, MoleHillRhinoPlugin.Instance.LayerTemplateStore);
         return saved ? Result.Success : Result.Cancel;
+    }
+
+    /// <summary>
+    /// One table per terrain: a template's paths carry the terrain's name, so applying it means
+    /// applying it once for each terrain in the document.
+    /// </summary>
+    private static List<LayerRoleTable> TablesFor(RhinoDoc doc, LayerTemplateDefinition template)
+    {
+        var tables = TerrainController.Instance.GetTerrains(doc)
+            .Select(terrain => LayerRoleTable.Build(template, terrain.Name))
+            .ToList();
+
+        // A template with its own literal layout has no token to fill, so it applies without terrains.
+        if (tables.Count == 0 && !template.Entries.Any(entry => TerrainLayerNaming.ContainsToken(entry.Path)))
+            tables.Add(LayerRoleTable.Build(template));
+
+        return tables;
     }
 
     private static bool TryChooseTemplate(

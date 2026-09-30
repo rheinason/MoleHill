@@ -24,7 +24,9 @@ Pure, host-independent exchange algorithms and formats.
   point number**, because a merged file renumbers and sorting would zigzag a kerb line. Nothing is
   dropped: an unrecognised code is counted in `SurveyImportResult.UnmatchedCodes` and its points kept, a
   one-point run degrades to a spot level (on the Spot role's layer; each Spot rule's points go to that
-  rule's own layer, in `SurveyImportResult.SpotLayers`), and `FieldCodeRole.Ignore` is a decision distinct from an
+  rule's own layer, in `SurveyImportResult.SpotLayers`). Every layer on the table is **relative to the survey's
+  own layer**, which the host names after the imported file (table version 2 strips the legacy
+  `MoleHill::Inputs::` prefix), and `FieldCodeRole.Ignore` is a decision distinct from an
   absent rule. Figures hold indices into the point list plus parallel arc flags; fitting the arcs is the
   Rhino host's job.
 - `ToposolidPointReducer.cs` performs deterministic, adaptive Toposolid elevation-point reduction. It

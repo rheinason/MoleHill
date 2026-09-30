@@ -10,7 +10,7 @@ internal sealed class LayerTemplateStore
     private const string TemplatesFileName = "layer-templates.json";
 
     /// <summary>Current template schema. 0 is a pre-role file — see <see cref="UpgradeTemplate"/>.</summary>
-    private const int CurrentTemplateVersion = 2;
+    private const int CurrentTemplateVersion = 3;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -112,6 +112,43 @@ internal sealed class LayerTemplateStore
         if (template.Version >= CurrentTemplateVersion)
             return;
 
+        if (template.Version < 2)
+            RecoverRoleBindings(template);
+
+        if (template.Version < 3)
+            MakeRootPerTerrain(template);
+
+        template.Version = CurrentTemplateVersion;
+    }
+
+    /// <summary>
+    /// Version 3: the layer root is per terrain. A template whose role-bound layers all hang from the
+    /// literal <c>MoleHill</c> root (the shipped layout, and every file from before this) has that
+    /// segment rewritten to <c>MoleHill {terrain}</c>, so each terrain gets a tree of its own.
+    ///
+    /// A template that routes anywhere else, or only partly under <c>MoleHill</c>, is the user's own
+    /// layout and is left exactly as written: rewriting half of it would split a structure they chose,
+    /// and a literal root keeps every terrain sharing it, which is what they asked for.
+    /// </summary>
+    private static void MakeRootPerTerrain(LayerTemplateDefinition template)
+    {
+        var bound = template.Entries.Where(entry => entry.Roles.Count > 0).ToList();
+        if (bound.Count == 0 || bound.Any(entry => TerrainLayerNaming.ContainsToken(entry.Path)))
+            return;
+
+        if (!bound.All(entry => TerrainLayerNaming.TryRewriteLegacyRoot(entry.Path, out _)))
+            return;
+
+        foreach (var entry in template.Entries)
+        {
+            if (TerrainLayerNaming.TryRewriteLegacyRoot(entry.Path, out string rewritten))
+                entry.Path = rewritten;
+        }
+    }
+
+    private static void RecoverRoleBindings(LayerTemplateDefinition template)
+    {
+
         // Several roles can default to one layer — retaining walls and grading output both sit on
         // the auxiliary layer until someone splits them out. The layer belongs to the role that
         // names it, so recovering a binding from a path must pick that one and not a role that is
@@ -122,7 +159,10 @@ internal sealed class LayerTemplateStore
             if (descriptor.Parent.HasValue && descriptor.RelativeSuffix.Length == 0)
                 continue;
 
-            rolesByDefaultPath[LayerRoleRegistry.DefaultPath(descriptor.Role)] = descriptor.Id;
+            string defaultPath = LayerRoleRegistry.DefaultPath(descriptor.Role);
+            rolesByDefaultPath[defaultPath] = descriptor.Id;
+            // A file from before roots were per terrain spells the same default without the token.
+            rolesByDefaultPath[TerrainLayerNaming.ToLegacyLiteral(defaultPath)] = descriptor.Id;
         }
 
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -146,8 +186,6 @@ internal sealed class LayerTemplateStore
             if (rolesByDefaultPath.TryGetValue(entry.Path, out string? roleId) && claimed.Add(roleId))
                 entry.Roles.Add(roleId);
         }
-
-        template.Version = CurrentTemplateVersion;
     }
 
     /// <summary>
@@ -172,18 +210,19 @@ internal sealed class LayerTemplateStore
     /// </summary>
     private static List<LayerTemplateDefinition> CreateDefaultTemplates()
     {
+        const string R = TerrainLayerNaming.DefaultRoot;
         var entries = new List<LayerTemplateEntry>
         {
-            CreateEntry("MoleHill", unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.25),
-            CreateEntry("MoleHill::Inputs", unchecked((int)0xFF808080), unchecked((int)0xFF808080), 0.25),
-            CreateEntry("MoleHill::Inputs::Spots", unchecked((int)0xFF008900), unchecked((int)0xFF008900), 0.18),
-            CreateEntry("MoleHill::Inputs::Contours", unchecked((int)0xFF8C8C8C), unchecked((int)0xFF8C8C8C), 0.13),
-            CreateEntry("MoleHill::Inputs::Breaklines", unchecked((int)0xFFFFC000), unchecked((int)0xFFFFC000), 0.25),
-            CreateEntry("MoleHill::Inputs::Boundary", unchecked((int)0xFF1E64FF), unchecked((int)0xFF1E64FF), 0.35),
-            CreateEntry("MoleHill::Features", unchecked((int)0xFF7D26CD), unchecked((int)0xFF7D26CD), 0.25),
-            CreateEntry("MoleHill::Features::Walls", unchecked((int)0xFFC00000), unchecked((int)0xFFC00000), 0.25),
-            CreateEntry("MoleHill::Features::Pads", unchecked((int)0xFF00B0F0), unchecked((int)0xFF00B0F0), 0.25),
-            CreateEntry("MoleHill::Features::Paths", unchecked((int)0xFFFFBF00), unchecked((int)0xFFFFBF00), 0.25)
+            CreateEntry(R, unchecked((int)0xFF000000), unchecked((int)0xFF000000), 0.25),
+            CreateEntry(R + "::Inputs", unchecked((int)0xFF808080), unchecked((int)0xFF808080), 0.25),
+            CreateEntry(R + "::Inputs::Spots", unchecked((int)0xFF008900), unchecked((int)0xFF008900), 0.18),
+            CreateEntry(R + "::Inputs::Contours", unchecked((int)0xFF8C8C8C), unchecked((int)0xFF8C8C8C), 0.13),
+            CreateEntry(R + "::Inputs::Breaklines", unchecked((int)0xFFFFC000), unchecked((int)0xFFFFC000), 0.25),
+            CreateEntry(R + "::Inputs::Boundary", unchecked((int)0xFF1E64FF), unchecked((int)0xFF1E64FF), 0.35),
+            CreateEntry(R + "::Features", unchecked((int)0xFF7D26CD), unchecked((int)0xFF7D26CD), 0.25),
+            CreateEntry(R + "::Features::Walls", unchecked((int)0xFFC00000), unchecked((int)0xFFC00000), 0.25),
+            CreateEntry(R + "::Features::Pads", unchecked((int)0xFF00B0F0), unchecked((int)0xFF00B0F0), 0.25),
+            CreateEntry(R + "::Features::Paths", unchecked((int)0xFFFFBF00), unchecked((int)0xFFFFBF00), 0.25)
         };
 
         entries.AddRange(CreateRoleEntries());

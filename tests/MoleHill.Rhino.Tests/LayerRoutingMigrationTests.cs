@@ -20,9 +20,9 @@ public class LayerRoutingMigrationTests
     {
         var terrain = new TerrainDefinition
         {
-            LegacyTerrainLayerPath = TerrainDefinition.DefaultTerrainLayerPath,
-            LegacyAuxiliaryLayerPath = TerrainDefinition.DefaultAuxiliaryLayerPath,
-            LegacyAnnotationLayerPath = TerrainDefinition.DefaultAnnotationLayerPath
+            LegacyTerrainLayerPath = "MoleHill::Terrain",
+            LegacyAuxiliaryLayerPath = "MoleHill::Auxiliary",
+            LegacyAnnotationLayerPath = "MoleHill::Annotation"
         };
 
         Assert.False(LayerRoutingMigration.Plan(new[] { terrain }, "Site").HasTemplate);
@@ -39,7 +39,7 @@ public class LayerRoutingMigrationTests
         var terrain = new TerrainDefinition();
         terrain.Modifiers.Add(new RetainingWallModifierDefinition
         {
-            LegacyOutputLayerPath = TerrainDefinition.DefaultAuxiliaryLayerPath
+            LegacyOutputLayerPath = "MoleHill::Auxiliary"
         });
 
         Assert.False(LayerRoutingMigration.Plan(new[] { terrain }, "Site").HasTemplate);

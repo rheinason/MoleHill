@@ -1005,6 +1005,9 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
             if (_templates.Count == 0 || _templates.All(t => t.Entries.Count == 0))
                 throw new InvalidOperationException("At least one template with one layer is required.");
 
+            if (!ConfirmSharedRoots())
+                return;
+
             _store.SaveTemplates(_templates);
 
             // The document's embedded copy is what it renders by, so the edit has to reach it too or
@@ -1017,6 +1020,31 @@ internal sealed class LayerTemplateEditorDialog : Dialog<bool>
         {
             MessageBox.Show(this, ex.Message, "Save Failed", MessageBoxButtons.OK, MessageBoxType.Error);
         }
+    }
+
+    /// <summary>
+    /// A template with no <see cref="TerrainLayerNaming.Token"/> in any path gives every terrain the
+    /// same layers. That is legitimate for one terrain and the cause of fighting over layers for
+    /// several, so when the document has more than one it is worth a confirmation.
+    /// </summary>
+    private bool ConfirmSharedRoots()
+    {
+        if (TerrainController.Instance.GetTerrains(_doc).Count < 2)
+            return true;
+
+        var shared = _templates
+            .Where(template => !template.Entries.Any(entry => TerrainLayerNaming.ContainsToken(entry.Path)))
+            .Select(template => template.Name)
+            .ToList();
+        if (shared.Count == 0)
+            return true;
+
+        var result = MessageBox.Show(this,
+            $"{string.Join(", ", shared)} has no {TerrainLayerNaming.Token} in any layer path, so every terrain that " +
+            "uses it shares one set of layers. Put " + TerrainLayerNaming.Token + " in the root " +
+            $"(for example \"{TerrainLayerNaming.DefaultRoot}\") to give each terrain its own.\n\nSave anyway?",
+            "Terrains Share Layers", MessageBoxButtons.YesNo, MessageBoxType.Warning);
+        return result == DialogResult.Yes;
     }
 
     private void OnReset()

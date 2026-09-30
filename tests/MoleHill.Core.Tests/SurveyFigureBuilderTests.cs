@@ -275,10 +275,10 @@ public sealed class SurveyFigureBuilderTests
     [Fact]
     public void Build_RuleWithNoLayer_FallsBackToTheRoleLayer()
     {
-        // The shipped rules name no layer, so one "Layers" assignment picks up every breakline code.
+        // The shipped rules name no layer, so every breakline code lands on one sublayer of the survey.
         SurveyFigure figure = Assert.Single(SurveyFigureBuilder.Build(Points("TC", "TC"), Table()).Figures);
 
-        Assert.Equal("MoleHill::Inputs::Breaklines", figure.Layer);
+        Assert.Equal("Breaklines", figure.Layer);
     }
 
     [Fact]
@@ -297,8 +297,8 @@ public sealed class SurveyFigureBuilderTests
     {
         SurveyImportResult result = SurveyFigureBuilder.Build(Points("EP", "EP", "BDY", "BDY"), Table());
 
-        Assert.Equal("MoleHill::Inputs::Breaklines", result.Figures.Single(f => f.Code == "EP").Layer);
-        Assert.Equal("MoleHill::Inputs::Boundary", result.Figures.Single(f => f.Code == "BDY").Layer);
+        Assert.Equal("Breaklines", result.Figures.Single(f => f.Code == "EP").Layer);
+        Assert.Equal("Boundary", result.Figures.Single(f => f.Code == "BDY").Layer);
     }
 
     [Fact]

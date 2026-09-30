@@ -54,7 +54,7 @@ internal static class LayerRoutingMigration
                 if (modifier is RetainingWallModifierDefinition wall)
                 {
                     Bind(bindings, conflicts, LayerRole.Walls, wall.LegacyOutputLayerPath, wall.Label,
-                        legacyDefaultPath: TerrainDefinition.DefaultAuxiliaryLayerPath);
+                        legacyDefaultPath: TerrainLayerNaming.ToLegacyLiteral(TerrainDefinition.DefaultAuxiliaryLayerPath));
                 }
             }
 
@@ -139,7 +139,11 @@ internal static class LayerRoutingMigration
     {
         string? path = NullIfBlank(layerPath);
         if (path == null
-            || string.Equals(path, LayerRoleRegistry.DefaultPath(role), StringComparison.OrdinalIgnoreCase)
+            // Stored paths predate per-terrain roots, so the untouched default is the literal one.
+            || string.Equals(
+                path,
+                TerrainLayerNaming.ToLegacyLiteral(LayerRoleRegistry.DefaultPath(role)),
+                StringComparison.OrdinalIgnoreCase)
             || (legacyDefaultPath != null && string.Equals(path, legacyDefaultPath, StringComparison.OrdinalIgnoreCase)))
         {
             return;

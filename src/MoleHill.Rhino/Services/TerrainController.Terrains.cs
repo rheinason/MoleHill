@@ -52,7 +52,7 @@ internal sealed partial class TerrainController
             return null;
 
         if (!string.IsNullOrWhiteSpace(name))
-            terrain.Name = name.Trim();
+            terrain.Name = UniqueTerrainName(GetState(doc), terrain, name);
         if (terrain.Modifiers[0] is TriangulateModifierDefinition triangulate)
             triangulate.Points.ReplaceObjects(pointIds);
 
@@ -76,7 +76,7 @@ internal sealed partial class TerrainController
             return null;
 
         if (!string.IsNullOrWhiteSpace(name))
-            terrain.Name = name.Trim();
+            terrain.Name = UniqueTerrainName(GetState(doc), terrain, name);
         if (terrain.Modifiers[0] is TriangulateModifierDefinition triangulate)
             triangulate.TinMesh.ReplaceObjects([meshId]);
 
@@ -100,6 +100,7 @@ internal sealed partial class TerrainController
         RestoreTerrainObjectPlacements(doc, terrain);
         DeleteOwnedObjects(doc, terrain);
         PurgeOrphanedOwnedObjects(doc, terrain);
+        TerrainLayerCleanup.RemoveEmptyLayers(doc, terrain.Name, LayerRoleService.GetTable(doc, terrain));
         RemoveRuntimeCache(doc.RuntimeSerialNumber, terrainId);
         RemoveRebuildState(doc.RuntimeSerialNumber, terrainId);
         state.Terrains.Remove(terrain);
@@ -152,7 +153,7 @@ internal sealed partial class TerrainController
         var json = System.Text.Json.JsonSerializer.Serialize(terrain, TerrainSerializer.SharedOptions);
         var clone = System.Text.Json.JsonSerializer.Deserialize<TerrainDefinition>(json, TerrainSerializer.SharedOptions)!;
         clone.TerrainId = Guid.NewGuid();
-        clone.Name = terrain.Name + " Copy";
+        clone.Name = UniqueTerrainName(state, clone, terrain.Name + " Copy");
         clone.OutputObjectIds.Clear();
         clone.ZoneObjectIds.Clear();
         clone.AuxiliaryObjectIds.Clear();
@@ -178,6 +179,13 @@ internal sealed partial class TerrainController
         foreach (var annotation in clone.Annotations)
             annotation.Id = Guid.NewGuid();
 
+        string templateName = terrain.LayerTemplateName ?? string.Empty;
+        LayerRoleTable oldTable = LayerRoleService.GetTable(doc, templateName, terrain.Name);
+        LayerRoleService.EnsureTemplateLayers(doc, clone);
+        LayerRoleTable newTable = LayerRoleService.GetTable(doc, clone);
+        Dictionary<Guid, Guid> copies = CopyOwnedInputs(doc, terrain, clone, oldTable, newTable);
+        TerrainOwnership.Remap(clone, terrain.Name, oldTable, copies);
+
         state.Terrains.Add(clone);
         state.SelectedTerrainId = clone.TerrainId;
         Save(doc, state);
@@ -187,6 +195,12 @@ internal sealed partial class TerrainController
 
         return clone;
     }
+
+    private static string UniqueTerrainName(DocumentState state, TerrainDefinition terrain, string desired) =>
+        TerrainLayerNaming.NextFreeName(
+            desired,
+            candidate => state.Terrains.Any(other =>
+                other.TerrainId != terrain.TerrainId && TerrainLayerNaming.SameRoot(other.Name, candidate)));
 
     private static string NextTerrainName(IEnumerable<TerrainDefinition> terrains)
     {

@@ -37,7 +37,9 @@ public sealed class FieldCodeTable
     public string ContinuationSuffix { get; set; } = "-";
 
     /// <summary>
-    /// Layer that points whose code has no rule are created on, so nothing is ever dropped.
+    /// Layer that points whose code has no rule are created on, so nothing is ever dropped. Like every
+    /// layer on this table it is a path <i>relative to the survey's own layer</i>, which the import
+    /// names after the file.
     ///
     /// Deliberately not one of the role layers below. An unmatched point's meaning is unknown, and
     /// dropping it onto the breakline or spot layer would feed it to the terrain as though it had been
@@ -45,14 +47,31 @@ public sealed class FieldCodeTable
     /// </summary>
     public string UnmatchedLayer { get; set; } = DefaultUnmatchedLayer;
 
-    public const string DefaultUnmatchedLayer = "MoleHill::Inputs::Unmatched Codes";
+    public const string DefaultUnmatchedLayer = "Unmatched Codes";
 
     /// <summary>
-    /// Where a role's output goes when a rule does not name its own layer.
+    /// Where tables saved before survey layers were file-scoped pointed their layers. Survey linework
+    /// used to share the terrain's input layers; it now gets a layer tree of its own, so the prefix is
+    /// stripped on load and what remains is read relative to that tree.
+    /// </summary>
+    public const string LegacyLayerPrefix = "MoleHill::Inputs::";
+
+    /// <summary>Drops <see cref="LegacyLayerPrefix"/> from a saved layer path; any other path is returned as it was.</summary>
+    public static string StripLegacyLayerPrefix(string? layer)
+    {
+        string trimmed = layer?.Trim() ?? string.Empty;
+        return trimmed.StartsWith(LegacyLayerPrefix, StringComparison.OrdinalIgnoreCase)
+            ? trimmed.Substring(LegacyLayerPrefix.Length).Trim()
+            : trimmed;
+    }
+
+    /// <summary>
+    /// Where a role's output goes when a rule does not name its own layer, relative to the survey's
+    /// own layer (named after the imported file).
     ///
-    /// These are the input layers the layer template already ships — the ones it describes as "the plain
-    /// layers a user draws their own inputs and feature curves on, which nothing routes to". Survey
-    /// linework is exactly that, so it belongs there rather than in a parallel tree of its own.
+    /// A survey is plain Rhino geometry that belongs to no terrain, so it gets a tree of its own rather
+    /// than the terrain's input layers: the user decides which terrains read it, and a revised survey
+    /// is an import into the same tree rather than a reassignment.
     ///
     /// <b>One layer per role, not per code, and that is forced rather than chosen.</b> A layer source
     /// resolves objects whose layer index matches exactly — sublayers of an assigned layer are not
@@ -62,14 +81,14 @@ public sealed class FieldCodeTable
     /// </summary>
     public static string DefaultLayerFor(FieldCodeRole role) => role switch
     {
-        FieldCodeRole.Breakline => "MoleHill::Inputs::Breaklines",
-        FieldCodeRole.Contour => "MoleHill::Inputs::Contours",
-        FieldCodeRole.Boundary => "MoleHill::Inputs::Boundary",
-        FieldCodeRole.Spot => "MoleHill::Inputs::Spots",
+        FieldCodeRole.Breakline => "Breaklines",
+        FieldCodeRole.Contour => "Contours",
+        FieldCodeRole.Boundary => "Boundary",
+        FieldCodeRole.Spot => "Spots",
         _ => string.Empty
     };
 
-    /// <summary>The layer a rule's output lands on: its own when set, otherwise the role's default.</summary>
+    /// <summary>The layer a rule's output lands on, relative to the survey's layer: its own when set, otherwise the role's default.</summary>
     public static string ResolveLayer(FieldCodeRule rule)
     {
         ArgumentNullException.ThrowIfNull(rule);
@@ -173,7 +192,7 @@ public sealed class FieldCodeTable
     };
 
     /// <summary>Current schema version written by <see cref="CreateDefault"/> and the store.</summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     public FieldCodeTable Clone() => new()
     {

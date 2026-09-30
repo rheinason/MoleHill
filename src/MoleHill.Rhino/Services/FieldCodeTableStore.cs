@@ -198,6 +198,7 @@ internal sealed class FieldCodeTableStore
         table.CloseTokens = CleanTokens(table.CloseTokens);
         table.ContinuationSuffix = table.ContinuationSuffix?.Trim() ?? string.Empty;
 
+        table.UnmatchedLayer = FieldCodeTable.StripLegacyLayerPrefix(table.UnmatchedLayer);
         if (string.IsNullOrWhiteSpace(table.UnmatchedLayer))
             table.UnmatchedLayer = FieldCodeTable.DefaultUnmatchedLayer;
 
@@ -209,7 +210,7 @@ internal sealed class FieldCodeTableStore
                 continue;
 
             rule.Code = rule.Code.Trim().ToUpperInvariant();
-            rule.Layer = rule.Layer?.Trim() ?? string.Empty;
+            rule.Layer = FieldCodeTable.StripLegacyLayerPrefix(rule.Layer);
             rule.Description = rule.Description?.Trim() ?? string.Empty;
             if (!Enum.IsDefined(rule.Role))
                 rule.Role = FieldCodeRole.Breakline;

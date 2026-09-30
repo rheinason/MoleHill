@@ -95,8 +95,9 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
 
         layout.AddRow(new Label
         {
-            Text = "A rule says what a surveyed code means. Leave Layer blank to follow the role's own "
-                + "input layer, which is what lets one layer assignment pick up the whole survey.",
+            Text = "A rule says what a surveyed code means. Layer is relative to the survey's own "
+                + "layer tree, which is named after the imported file. Leave it blank to use the role's sublayer "
+                + "(Breaklines, Contours, Boundary, Spots), so one layer assignment picks up every code of that kind.",
             Wrap = WrapMode.Word
         });
 
@@ -350,7 +351,7 @@ internal sealed class FieldCodeTableEditorDialog : Dialog<bool>
         if (badLayers.Count > 0)
         {
             _status.Text = $"Not a usable layer path: {string.Join(", ", badLayers.Select(static layer => $"\"{layer}\""))}. " +
-                           "Use names separated by :: with no blank parts, or leave Layer blank to follow the role.";
+                           "Use names separated by :: with no blank parts, or leave Layer blank to use the role's sublayer of the survey.";
             return;
         }
 

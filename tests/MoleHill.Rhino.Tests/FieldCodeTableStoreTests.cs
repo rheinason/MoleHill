@@ -251,6 +251,26 @@ public sealed class FieldCodeTableStoreTests : IDisposable
     }
 
     [Fact]
+    public void Normalize_LegacyTerrainInputLayers_AreMadeRelativeToTheSurvey()
+    {
+        var table = new FieldCodeTable
+        {
+            UnmatchedLayer = "MoleHill::Inputs::Unmatched Codes",
+            Rules =
+            {
+                new FieldCodeRule { Code = "EP", Layer = "MoleHill::Inputs::Breaklines" },
+                new FieldCodeRule { Code = "TC", Layer = "Survey::Top of Kerb" }
+            }
+        };
+
+        FieldCodeTable normalized = FieldCodeTableStore.Normalize(table);
+
+        Assert.Equal("Unmatched Codes", normalized.UnmatchedLayer);
+        Assert.Equal("Breaklines", normalized.Rules[0].Layer);
+        Assert.Equal("Survey::Top of Kerb", normalized.Rules[1].Layer);
+    }
+
+    [Fact]
     public void Normalize_UnknownRoleValue_FallsBackToBreakline()
     {
         var table = new FieldCodeTable { Rules = { new FieldCodeRule { Code = "EP", Role = (FieldCodeRole)99 } } };

@@ -1056,10 +1056,16 @@ fingerprint every stage's results, which costs more than laying out a few hundre
 ## Rhino: survey field codes
 
 Reading a coded survey file is **input preparation**, not a modifier. `mhImportSurveyPoints` produces
-ordinary Rhino curves and points on named layers and never touches a `TerrainDefinition`; the user then
-assigns those layers through the normal source editor, exactly as with `mhDrapeCurve`. A revised survey
-is therefore a re-import, not a reassignment. `mhEditFieldCodes` is the table editor, and the
-right-click variant of the same toolbar button.
+ordinary Rhino curves and points and never touches a `TerrainDefinition` or a layer template. They land
+in a layer tree **named after the imported file** (`Survey::Spots`, `Survey::Breaklines`, ...), entirely
+outside every terrain's own `MoleHill {terrain}` root: a survey is plain Rhino geometry that belongs to
+no terrain, and the user decides which terrains read it by assigning its layers through the normal source
+editor, exactly as with `mhDrapeCurve`. Importing a file whose tree already exists asks whether to
+**replace** what the earlier import made (found by a `MoleHill.SurveyImport` user string on each object)
+or **add** a new tree beside it (`Survey 2`). A revised survey is therefore a re-import, not a
+reassignment. `mhEditFieldCodes` is the table editor, and the right-click variant of the same toolbar
+button. `Services/SurveyLayerNaming` is the pure naming logic; every layer on the code table is a path
+*relative to* the survey's layer (table version 2 strips the old `MoleHill::Inputs::` prefix on load).
 
 Core (`Interop/`) does all of it except the geometry. `SurveyPointFileReader` maps columns; then
 `FieldCodeParser` splits each description into code, figure number and markers, and
@@ -1084,8 +1090,8 @@ Four things are settled here and are easy to get wrong:
   `Ignore` is a rule distinct from a missing one, because the two want opposite treatment — silence
   versus a prompt to write the rule.
 
-A rule that names no layer follows its **role**, onto the input layers the layer template already ships
-(`MoleHill::Inputs::Breaklines`, `::Contours`, `::Boundary`, `::Spots`). That is forced rather than
+A rule that names no layer follows its **role**, onto one sublayer of the survey's tree per role
+(`Breaklines`, `Contours`, `Boundary`, `Spots`). That is forced rather than
 chosen: a layer source resolves only objects whose layer index matches exactly, so sublayers of an
 assigned layer are never collected, and a layer per code would need assigning one at a time. The
 unmatched layer is deliberately *not* one of the role layers — an unmatched point's meaning is unknown,
@@ -1146,8 +1152,8 @@ Where each kind of generated output lands, and what it looks like, is one questi
 one's stable id, parent, default path and appearance; the active layer template binds roles to real
 layers. Nothing in the pipeline hardcodes or plumbs a layer path.
 
-- **The layer tree is the grouping the Layers pane works with.** Everything hangs off one `MoleHill`
-  root; drawing output is grouped under `Annotation` by what it is — including `Cut Fill Contours` and
+- **The layer tree is the grouping the Layers pane works with.** Everything hangs off one `MoleHill {terrain}`
+  root per terrain; drawing output is grouped under `Annotation` by what it is — including `Cut Fill Contours` and
   `Balance Line`, which are depths rather than elevations and so must not read as terrain contours,
   `Catchments`, which is a divide rather than a flow and so must not read as waterflow, and `Ponding`,
   which reports a fault rather than describing the design and is the loudest thing on the sheet — and a
@@ -1157,6 +1163,27 @@ layers. Nothing in the pipeline hardcodes or plumbs a layer path.
   (`Terrain`, `Auxiliary`, `Zones`, `Scatter`) is deliberately *not* under `Annotation`, so turning a
   drawing off does not turn the terrain off. Every role layer is one output actually lands on, or a parent
   of one — `ShippedDefaultsTests` pins that, because a permanently empty layer is just clutter.
+- **Every terrain has its own root, `MoleHill {terrain}`.** The shipped template's root is the token
+  `{terrain}` (`Services/TerrainLayerNaming`), which `LayerRoleTable.Build(template, terrainName)` resolves
+  per terrain, so several terrains in one document never share or fight over a layer. The table is cached
+  per `(document, template, terrain name)` and its fingerprint includes the resolved paths, so a rename
+  re-routes cached output. A template whose root is a literal (every customised pre-version-3 template —
+  the version 3 upgrade only rewrites the shipped `MoleHill` root) keeps sharing it across terrains.
+  The template editor warns when a saved template has a shared root. Terrain names are unique by layer
+  root (`TerrainLayerNaming.SameRoot`): a clash is suffixed (`Hill 2`) rather than silently merging trees.
+- **A terrain's layers follow its life.** *Rename* (`TerrainLayerRenamer`, inside the same undo transaction
+  as the rename) plans the layer renames by comparing the role table under the old and new names, refuses
+  if a destination already exists, renames the layers in place so their objects and appearance come along,
+  and rewrites the terrain's owned source layer paths. *Duplicate* (`TerrainController.Duplicate.cs`)
+  copies **owned inputs only** — a source is owned when its layer sits under the terrain's own root and is
+  not a role layer (`TerrainOwnership`); owned layers and their objects are copied under the clone's root
+  and the clone's sources are re-pointed, while anything outside the root (a survey, a shared layer)
+  stays shared by reference. Objects-card objects are always copied, from their un-placed pose (the
+  inverse of the last applied placement transform). *Delete* (`TerrainLayerCleanup`) removes the terrain's
+  layers that hold no objects and have no live children — geometry the user drew or baked keeps its layer.
+  *Convert to Rhino* leaves layers alone. Documents from before per-terrain roots move their output to the
+  per-terrain layers on the next rebuild; the old `MoleHill::…` layers linger for the user to delete and
+  legacy inputs stay shared by path.
 - **A layer can receive several roles; a role lands on exactly one layer.** `LayerTemplateEntry.Roles`
   is a list, so an office can put all the section furniture on a single layer rather than the
   sublayer-per-kind the defaults ship with. The reverse would duplicate output, so a role claimed by two

@@ -13,7 +13,8 @@ public sealed class FieldCodeRule
     public FieldCodeRole Role { get; set; } = FieldCodeRole.Breakline;
 
     /// <summary>
-    /// Full path of the layer this code's output is created on, e.g. "Survey::Edge of Pavement".
+    /// Layer this code's output is created on, relative to the survey's own layer (named after the
+    /// imported file), e.g. "Edge of Pavement". Blank follows the role's default sublayer.
     ///
     /// A layer and not a <c>LayerRole</c>: layer roles route <i>generated terrain output</i>, whose
     /// appearance the terrain owns so preview and bake cannot drift. Survey linework is a user-owned

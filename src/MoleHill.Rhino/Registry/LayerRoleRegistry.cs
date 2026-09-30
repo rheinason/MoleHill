@@ -51,13 +51,13 @@ internal static class LayerRoleRegistry
 
         // Zone meshes hang under one branch with the zone's own input layer path appended, so a
         // document's zone layers mirror the layers the zones were read from.
-        new(LayerRole.Zones, "zones", "Zones", null, "", "MoleHill::Zones",
+        new(LayerRole.Zones, "zones", "Zones", null, "", TerrainLayerNaming.DefaultRoot + "::Zones",
             new LayerAppearanceDefaults(PlotWeight: 0.13),
             LayerRoleFacets.Mesh,
             // A zone's colour identifies the zone: it comes from the source layer or an override.
             ColorFromObject: true),
 
-        new(LayerRole.Scatter, "scatter", "Scatter", null, "", "MoleHill::Scatter",
+        new(LayerRole.Scatter, "scatter", "Scatter", null, "", TerrainLayerNaming.DefaultRoot + "::Scatter",
             new LayerAppearanceDefaults(PlotWeight: 0.13),
             LayerRoleFacets.Block | LayerRoleFacets.Mesh,
             ColorFromObject: true),

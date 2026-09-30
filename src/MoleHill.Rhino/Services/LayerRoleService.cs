@@ -12,13 +12,14 @@ namespace MoleHill.Rhino.Services;
 /// standard new documents are seeded from, and the two are reconciled only by an explicit action.
 ///
 /// Building a table walks every role and every entry, and the conduit asks for one on every redraw,
-/// so it is cached per document and template name and dropped when either changes.
+/// so it is cached per document, template and terrain name — the template's {terrain} token
+/// resolves to the name — and dropped when any of them changes.
 /// </summary>
 internal static class LayerRoleService
 {
     private static readonly object Gate = new();
-    private static readonly Dictionary<(uint Document, string Template), LayerRoleTable> Cache = new();
-    private static readonly HashSet<(uint Document, string Template)> LayersEnsured = new();
+    private static readonly Dictionary<(uint Document, string Template, string? Terrain), LayerRoleTable> Cache = new();
+    private static readonly HashSet<(uint Document, string Template, string? Terrain)> LayersEnsured = new();
 
     /// <summary>
     /// Where the machine-local templates come from. The plugin points this at its
@@ -40,15 +41,22 @@ internal static class LayerRoleService
         if (doc == null)
             return LayerRoleTable.Default;
 
-        string templateName = terrain?.LayerTemplateName ?? string.Empty;
+        return GetTable(doc, terrain?.LayerTemplateName ?? string.Empty, terrain?.Name);
+    }
 
+    /// <summary>
+    /// The table a template gives a terrain of the given name, without needing the terrain itself.
+    /// A rename asks for both the old name's table and the new one's to work out which layers move.
+    /// </summary>
+    public static LayerRoleTable GetTable(RhinoDoc doc, string templateName, string? terrainName)
+    {
         lock (Gate)
         {
-            var key = (doc.RuntimeSerialNumber, templateName);
+            var key = (doc.RuntimeSerialNumber, templateName, terrainName);
             if (Cache.TryGetValue(key, out LayerRoleTable? cached))
                 return cached;
 
-            LayerRoleTable table = Build(doc, templateName);
+            LayerRoleTable table = Build(doc, templateName, terrainName);
             Cache[key] = table;
             return table;
         }
@@ -90,7 +98,7 @@ internal static class LayerRoleService
             // Once per document and template per session. The work is idempotent, but a build should
             // not walk the whole layer table every time it runs. Keyed by template too, so a second
             // terrain naming a different template still gets its layers before it previews.
-            if (!LayersEnsured.Add((doc.RuntimeSerialNumber, terrain?.LayerTemplateName ?? string.Empty)))
+            if (!LayersEnsured.Add((doc.RuntimeSerialNumber, terrain?.LayerTemplateName ?? string.Empty, terrain?.Name)))
                 return;
         }
 
@@ -228,7 +236,7 @@ internal static class LayerRoleService
         }
     }
 
-    private static LayerRoleTable Build(RhinoDoc doc, string templateName)
+    private static LayerRoleTable Build(RhinoDoc doc, string templateName, string? terrainName)
     {
         // The document's own copy wins, so a drawing renders the same wherever it is opened.
         EmbeddedLayerTemplateState? state = LayerTemplateDocumentStore.Load(doc);
@@ -236,6 +244,6 @@ internal static class LayerRoleService
 
         template ??= FindLocalTemplate(string.IsNullOrWhiteSpace(templateName) ? null : templateName);
 
-        return template == null ? LayerRoleTable.Default : LayerRoleTable.Build(template);
+        return LayerRoleTable.Build(template, terrainName);
     }
 }

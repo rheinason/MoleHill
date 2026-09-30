@@ -29,9 +29,9 @@ public class ShippedDefaultsTests
         // Plus the layers nothing routes to, which exist for the user's own geometry.
         foreach (string path in new[]
                  {
-                     "MoleHill::Inputs::Spots", "MoleHill::Inputs::Contours",
-                     "MoleHill::Inputs::Breaklines", "MoleHill::Inputs::Boundary",
-                     "MoleHill::Features::Walls", "MoleHill::Features::Pads", "MoleHill::Features::Paths"
+                     TerrainLayerNaming.DefaultRoot + "::Inputs::Spots", TerrainLayerNaming.DefaultRoot + "::Inputs::Contours",
+                     TerrainLayerNaming.DefaultRoot + "::Inputs::Breaklines", TerrainLayerNaming.DefaultRoot + "::Inputs::Boundary",
+                     TerrainLayerNaming.DefaultRoot + "::Features::Walls", TerrainLayerNaming.DefaultRoot + "::Features::Pads", TerrainLayerNaming.DefaultRoot + "::Features::Paths"
                  })
         {
             Assert.Contains(shipped.Entries, entry =>
@@ -137,7 +137,7 @@ public class ShippedDefaultsTests
         var table = LayerRoleTable.Default;
 
         foreach (LayerRole role in Enum.GetValues<LayerRole>())
-            Assert.StartsWith("MoleHill::", table.Path(role), StringComparison.OrdinalIgnoreCase);
+            Assert.StartsWith(TerrainLayerNaming.DefaultRoot + "::", table.Path(role), StringComparison.OrdinalIgnoreCase);
 
         string sections = table.Path(LayerRole.Sections);
         foreach (var role in new[]

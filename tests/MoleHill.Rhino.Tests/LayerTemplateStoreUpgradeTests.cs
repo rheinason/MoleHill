@@ -26,22 +26,22 @@ public class LayerTemplateStoreUpgradeTests
             Name = "MoleHill Terrain",
             Entries = new List<LayerTemplateEntry>
             {
-                new() { Path = TerrainDefinition.DefaultTerrainLayerPath, ColorArgb = 1, PlotWeight = 0.18 },
-                new() { Path = TerrainDefinition.DefaultAnnotationLayerPath + "::Contours::Major", PlotWeight = 0.35 },
+                new() { Path = "MoleHill::Terrain", ColorArgb = 1, PlotWeight = 0.18 },
+                new() { Path = "MoleHill::Annotation::Contours::Major", PlotWeight = 0.35 },
                 new() { Path = "MoleHill::Inputs::Spots", PlotWeight = 0.18 }
             }
         };
 
         var upgraded = Normalize(legacy).Single();
 
-        Assert.Equal(2, upgraded.Version);
+        Assert.Equal(3, upgraded.Version);
         Assert.Equal(new[] { "terrain" }, Find(upgraded, TerrainDefinition.DefaultTerrainLayerPath).Roles);
         Assert.Equal(
             new[] { "contours-major" },
             Find(upgraded, TerrainDefinition.DefaultAnnotationLayerPath + "::Contours::Major").Roles);
 
         // A layer the user draws on is not an output destination and must stay unbound.
-        Assert.Empty(Find(upgraded, "MoleHill::Inputs::Spots").Roles);
+        Assert.Empty(Find(upgraded, TerrainLayerNaming.DefaultRoot + "::Inputs::Spots").Roles);
     }
 
     /// <summary>

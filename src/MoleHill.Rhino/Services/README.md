@@ -255,6 +255,14 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   office standard new documents are seeded from. Generates the shipped template from `LayerRoleRegistry`
   rather than restating it, and upgrades a pre-role file by recovering its bindings from the layer paths
   it already has.
+- `TerrainLayerNaming.cs` (Model/) - the `{terrain}` token and everything that reasons about a terrain's
+  root layer: resolve, sanitise, `SameRoot`, `IsUnderRoot`, `Rebase`, `NextFreeName`. Pure string logic.
+- `TerrainLayerRenamer.cs` - rename moves a terrain's layers: `Plan` diffs the role table under the old and
+  new names, `FindCollision` refuses a taken destination, `Apply` renames in place, `RewriteSources`
+  re-points owned source layers. Runs inside the rename's undo transaction (`ApplyTerrainRename`).
+- `TerrainOwnership.cs` - which source layers a terrain owns (under its root, not a role layer) and the
+  remap applied to a duplicate's sources. `TerrainController.Duplicate.cs` copies owned layers/objects.
+- `TerrainLayerCleanup.cs` - on delete, removes the terrain's layers that hold no objects and no live children.
 - `LayerTemplateCommandService.cs` - `mhApplyLayerTemplate` (create-only) and `mhResetLayerStyles`, which
   re-stamps appearance onto existing layers and asks first, since that discards the user's edits.
 
@@ -271,7 +279,8 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   would otherwise make the winner depend on invisible list order; the editor refuses to save duplicates
   (`FindDuplicateCodes`) rather than let Normalize drop the row just edited.
 - `SurveyImportCommandService.cs` - `mhImportSurveyPoints` and `mhEditFieldCodes`. The import creates
-  ordinary curves and points on named layers and **never touches a `TerrainDefinition`** - the user
+  ordinary curves and points on a layer tree named after the file (`SurveyLayerNaming.cs`; replace-or-add on
+  re-import) and **never touches a `TerrainDefinition`** or a layer template - the user
   assigns those layers through the normal source editor, which is what makes a revised survey a
   re-import rather than a reassignment. One undo record, with full rollback: a half-imported survey
   is worse than none, because the user cannot tell which half is missing. The summary names the

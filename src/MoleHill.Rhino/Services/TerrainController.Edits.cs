@@ -217,6 +217,8 @@ internal sealed partial class TerrainController
             int previousColorArgb = terrain.TerrainColorArgb;
             TerrainRenderAppearance previousRenderAppearance = TerrainRenderAppearance.Capture(terrain);
             mutator(terrain);
+            if (!string.Equals(previousName, terrain.Name, StringComparison.Ordinal))
+                ApplyTerrainRename(doc, state, terrain, previousName);
             terrain.EnsureBaseModifier();
             bool shouldScheduleRebuild = scheduleRebuild && terrain.LiveUpdateEnabled;
             if (deferDocumentSave)
@@ -249,6 +251,45 @@ internal sealed partial class TerrainController
                 CommitPendingTerrainEdit(doc);
             }
         }
+    }
+
+    /// <summary>
+    /// Runs inside the edit that changed a terrain's name, before it is saved. Keeps names unique by
+    /// layer root, then moves the terrain's layer tree to the new name and repoints the source layers
+    /// that went with it, so one undo reverts the name, the layers and the sources together. A name
+    /// that would land on a layer the terrain does not own is refused and the old name restored.
+    /// </summary>
+    private void ApplyTerrainRename(RhinoDoc doc, DocumentState state, TerrainDefinition terrain, string previousName)
+    {
+        string requested = terrain.Name;
+        string unique = UniqueTerrainName(state, terrain, requested);
+        if (!string.Equals(unique, requested.Trim(), StringComparison.Ordinal))
+            RhinoApp.WriteLine($"MoleHill: \"{requested.Trim()}\" is already a terrain name; using \"{unique}\".");
+        terrain.Name = unique;
+
+        if (TerrainLayerNaming.SameRoot(previousName, terrain.Name))
+            return;
+
+        string templateName = terrain.LayerTemplateName ?? string.Empty;
+        var moves = TerrainLayerRenamer.Plan(
+            LayerRoleService.GetTable(doc, templateName, previousName),
+            LayerRoleService.GetTable(doc, templateName, terrain.Name));
+        if (moves.Count == 0)
+            return;
+
+        string? collision = TerrainLayerRenamer.FindCollision(doc, moves);
+        if (collision != null)
+        {
+            RhinoApp.WriteLine(
+                $"MoleHill: cannot rename to \"{terrain.Name}\" because the layer \"{collision}\" already exists. " +
+                "Delete or rename that layer first.");
+            terrain.Name = previousName;
+            return;
+        }
+
+        TerrainLayerRenamer.Apply(doc, moves);
+        TerrainLayerRenamer.RewriteSources(terrain, moves);
+        LayerRoleService.Invalidate(doc);
     }
 
     /// <summary>
