@@ -52,7 +52,7 @@ public static class ParkScaleStress
         /// </summary>
         public bool PathsCrossConstraints { get; set; }
 
-        /// <summary>The Remesh card's mode: "isotropic" (default) or the "tiled" prototype.</summary>
+        /// <summary>The Remesh card's mode: "isotropic" (default, tiled) or "global" (the whole-mesh remesher).</summary>
         public string? RemeshMode { get; set; }
 
         /// <summary>

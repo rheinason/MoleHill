@@ -1620,11 +1620,12 @@ Measured: the collapse phase 7.4 → 3.4 s over five iterations on a 1M-vertex j
 phase fell from 21.6 s to 6.3 s and Remesh from 55.6 s to 36.5 s, with the same output counts. Flip
 (10–12 s) is the largest phase again.
 
-### Remesh: tiled prototype (2026-09-30)
+### Remesh: tiled, and incremental (2026-09-30)
 
 `TiledIsotropicRemesher` makes Remesh a function of local input, so an incremental rebuild can reproduce a
-cold one exactly (`incremental-rebuild-design-2026-09-29.md`, D2). It is reached only through the Remesh
-card's hidden `"tiled"` mode; the card still offers the global remesh. The design, and what each part fixed:
+cold one exactly (`incremental-rebuild-design-2026-09-29.md`, D2). It is the Remesh card's `"isotropic"`
+mode; the whole-mesh `IsotropicRemesher` stays reachable, not offered on the card, as `"global"`. The design,
+and what each part fixed:
 
 - **Three passes on offset grids.** Tiles are world-anchored squares of 64 × the target edge. Each tile is
   remeshed on its own, in parallel, and the passes run on grids offset by 0, 1/2 and 1/4 of a tile. Every
@@ -1641,6 +1642,23 @@ card's hidden `"tiled"` mode; the card still offers the global remesh. The desig
   are classified once on it and carried through the passes by flag. Feature vertices take the original
   surface's height except over a wall: a chain rebuilt from a remeshed mesh is a chord, and after the first
   pass it can cross a real crease diagonally (up to 0.8 m off the terrain on the park before this).
+
+**Incremental.** A tile's output is a pure function of its key: its faces in canonical order (each face
+starting at its smallest corner, faces sorted by corners, so upstream numbering does not matter), its held
+edges and wall flags, the breaklines over it, the original surface under it (an order-free hash of the faces
+in the region, since the tile projects onto them) and the settings. `TiledRemeshMemo` keeps every tile's
+output by key, per pass, in `TerrainRuntimeCache.RemeshMemos`; the next run reuses every tile whose key is
+unchanged. Reuse is exact by construction, and `Remesh_WithTheMemoOfTheRunBefore_EqualsAColdRemeshOfTheEdit`
+and the park replay (`TiledRemeshReplayBenchmarkTests`) assert the incremental result equals a cold remesh of
+the edit, bit for bit. The memo is replaced, never modified, so a cancelled build cannot leave it half written.
+An automatic target edge length (Edge Length 0) is snapped to 2.5 % steps on a log scale
+(`RoundedTarget`): it is estimated from the whole terrain, so every edit nudged it, and a new target is a new
+remesh everywhere.
+
+On the 1 m park replay a one-vertex edit remeshes 10 of 2,134 tiles and takes 3.5 s against 11.7 s cold.
+Building the projection grid had been 3.9 s of it: `TerrainFaceGrid` now counts and fills a dense CSR table
+over its cell range instead of a hashed index when the range is compact (every query sees the same faces in
+the same order; the hosted lane's graded meshes are unchanged), which also sped up every grader.
 
 Measured on the 1 m park's real Remesh input (6.2M faces): 15.3 s against 35.2 s for the global remesh, better
 on every quality measure (min angle p1 10.2° vs 9.2°, faces under 20° 3.09 % vs 3.27 %, valence-6 53.0 % vs

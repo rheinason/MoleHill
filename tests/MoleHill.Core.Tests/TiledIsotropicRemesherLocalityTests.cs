@@ -64,6 +64,63 @@ public class TiledIsotropicRemesherLocalityTests(ITestOutputHelper output)
         Assert.True(changed.Count < (beforeFaces.Count + afterFaces.Count) / 2, "most of the terrain changed");
     }
 
+    /// <summary>
+    /// The incremental remesh is the cold one: reusing the unchanged tiles of the previous run gives the
+    /// same arrays, bit for bit, as remeshing the edited terrain from scratch, and most tiles are reused.
+    /// </summary>
+    [Fact]
+    public void Remesh_WithTheMemoOfTheRunBefore_EqualsAColdRemeshOfTheEdit()
+    {
+        TiledIsotropicRemesherQualityTests.GradedTerrain(96, out double[] vertices, out int[] faces);
+        IsotropicRemesher.Options options = OptionsFor(vertices, faces);
+        var none = Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        TiledIsotropicRemesher.Remesh(vertices, faces, none, options, Tile, previous: null, out TiledIsotropicRemesher.TiledRemeshMemo memo);
+
+        var raised = (double[])vertices.Clone();
+        int edited = NearestVertex(vertices, 80.0, 12.0);
+        raised[edited * 3 + 2] += 0.5;
+        IsotropicRemesher.Result incremental = TiledIsotropicRemesher.Remesh(raised, faces, none, options, Tile, memo, out TiledIsotropicRemesher.TiledRemeshMemo after);
+        IsotropicRemesher.Result cold = TiledIsotropicRemesher.Remesh(raised, faces, none, options, Tile);
+
+        output.WriteLine($"{after.ReusedTiles} tiles reused, {after.RemeshedTiles} remeshed");
+        Assert.Equal(cold.Vertices, incremental.Vertices);
+        Assert.Equal(cold.Faces, incremental.Faces);
+        Assert.True(after.ReusedTiles > after.RemeshedTiles, $"only {after.ReusedTiles} of {after.ReusedTiles + after.RemeshedTiles} tiles were reused");
+    }
+
+    /// <summary>Nothing changed: every tile comes from the memo, and the result is the one before.</summary>
+    [Fact]
+    public void Remesh_UnchangedInputWithMemo_ReusesEveryTile()
+    {
+        TiledIsotropicRemesherQualityTests.GradedTerrain(96, out double[] vertices, out int[] faces);
+        IsotropicRemesher.Options options = OptionsFor(vertices, faces);
+        var none = Array.Empty<SurfaceRemesher.ConstraintPolyline>();
+        IsotropicRemesher.Result first = TiledIsotropicRemesher.Remesh(vertices, faces, none, options, Tile, previous: null, out TiledIsotropicRemesher.TiledRemeshMemo memo);
+
+        IsotropicRemesher.Result again = TiledIsotropicRemesher.Remesh(vertices, faces, none, options, Tile, memo, out TiledIsotropicRemesher.TiledRemeshMemo after);
+
+        Assert.Equal(0, after.RemeshedTiles);
+        Assert.Equal(first.Faces, again.Faces);
+        Assert.Equal(first.Vertices, again.Vertices);
+    }
+
+    private static int NearestVertex(double[] vertices, double x, double y)
+    {
+        int best = 0;
+        double bestDistance = double.MaxValue;
+        for (int i = 0; i < vertices.Length / 3; i++)
+        {
+            double d = Math.Pow(vertices[i * 3] - x, 2) + Math.Pow(vertices[i * 3 + 1] - y, 2);
+            if (d < bestDistance)
+            {
+                bestDistance = d;
+                best = i;
+            }
+        }
+
+        return best;
+    }
+
     private static IsotropicRemesher.Options OptionsFor(double[] vertices, int[] faces) => new()
     {
         TargetEdgeLength = IsotropicRemesher.EstimateFaceCountPreservingTarget(vertices, faces),

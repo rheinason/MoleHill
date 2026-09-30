@@ -45,14 +45,6 @@ internal sealed class CellMembershipIndex
         return _items.AsSpan(start, _start[slot + 1] - start);
     }
 
-    /// <summary>The items of the cell in <paramref name="slot"/>, as <see cref="Items"/> returns them.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ReadOnlySpan<int> ItemsAt(int slot)
-    {
-        int start = _start[slot];
-        return _items.AsSpan(start, _start[slot + 1] - start);
-    }
-
     /// <summary>Two-pass builder: <see cref="Count"/> everything, <see cref="BeginFill"/>, then <see cref="Add"/>.</summary>
     internal sealed class Builder
     {
@@ -75,12 +67,9 @@ internal sealed class CellMembershipIndex
         /// <summary>Largest membership count of any one cell. Valid after <see cref="BeginFill"/>.</summary>
         public int MaxOccupancy { get; private set; }
 
-        /// <summary>
-        /// Pass 1: records one membership of <paramref name="cellKey"/> and returns the cell's slot, for
-        /// <see cref="ItemsAt"/> on the built index.
-        /// </summary>
+        /// <summary>Pass 1: records one membership of <paramref name="cellKey"/>.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int Count(long cellKey)
+        public void Count(long cellKey)
         {
             if (!_slots.TryGetValue(cellKey, out int slot))
             {
@@ -90,7 +79,6 @@ internal sealed class CellMembershipIndex
             }
 
             _counts[slot]++;
-            return slot;
         }
 
         /// <summary>

@@ -295,8 +295,16 @@ tests.
 - **P4 prototype done** (2026-09-30): `TiledIsotropicRemesher`, behind the Remesh card's hidden `"tiled"`
   mode (architecture.md, "Remesh: tiled prototype"). On the 1 m park it is 2.3× faster than the global
   remesh and better on every quality measure, with no vertex off the terrain and no seam; an edit changes
-  output within one tile. Still to do before it can be the default: the incremental path itself (re-run only
-  the tiles an edit touches, which needs P1's canonical data), and your review of the topology.
+  output within one tile.
+- **P4 done** (2026-09-30): the tiled remesh is the default, and incremental. Tiles are canonically ordered
+  and keyed by content, so the incremental path needed no global canonical order (P1) after all: an unchanged
+  tile is found by its key whatever the upstream numbering. On the 1 m park a one-vertex edit remeshes 10 of
+  2,134 tiles (3.5 s against 11.7 s cold), bit-identical to a cold remesh of the edit.
+- **Next: windowed graders** (replaces P2's splice). Each group of overlapping pads or paths is graded on the
+  sub-mesh inside its influence window and stitched back, keyed and memoized like tiles. Cold and incremental
+  run the same windowed computation, so exactness needs no proof about what a grader reads globally (Grade
+  Path picks its tier by face count; point location sizes its grid by the mesh's extent), and a definition
+  edit to one pad re-grades only that pad's window.
 
 ## Original questions for the owner
 

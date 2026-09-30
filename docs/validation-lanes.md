@@ -178,7 +178,9 @@ downstream of the edit re-runs on the whole mesh.
 
 Two request fields help Remesh work: `RemeshMode` sets the Remesh card's mode (`"tiled"` for the prototype),
 and `ExportRemeshInputFolder` writes the mesh and hard constraints the Remesh stage receives as
-`remesh-input-{spacing}.bin`, for a Core-level replay.
+`remesh-input-{spacing}.bin`, for a Core-level replay: `TiledRemeshReplayBenchmarkTests` (set
+`MOLEHILL_REMESH_INPUT` to the file) remeshes it cold, then after a one-vertex edit with the memo, reports both
+costs and asserts the incremental result equals a cold remesh of the edit.
 
 The probe also times three edits that cannot change the terrain, after the survey-point edit: a rebuild
 with nothing changed, an empty Grade Pad card inserted below Triangulate, and a renamed Remesh card. At 1 m

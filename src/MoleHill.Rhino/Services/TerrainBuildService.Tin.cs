@@ -812,7 +812,9 @@ internal sealed partial class TerrainBuildService
         RemeshModifierDefinition modifier,
         TerrainBuildResult build,
         TerrainBuildMode mode,
-        Func<bool>? shouldCancel)
+        Func<bool>? shouldCancel,
+        TerrainRuntimeCache? runtimeCache = null,
+        string? stageKey = null)
     {
         TerrainTolerancePolicy.Profile toleranceProfile = GetToleranceProfile(snapshot, terrain);
         double tolerance = toleranceProfile.CurveChordTolerance;
@@ -833,10 +835,12 @@ internal sealed partial class TerrainBuildService
         {
             "rebuild" => ApplyRemeshRebuild(snapshot, terrain, mesh, constraints, edgeLength, modifier, build, toleranceProfile),
             "local" => ApplyRemeshLocalRefine(mesh, constraints, edgeLength, modifier.CreaseAngle, toleranceProfile.RemeshConstraintTolerance, build),
-            // Prototype, not offered on the card: TiledIsotropicRemesher, the locality-exact remesh the
-            // incremental-rebuild design needs (docs/incremental-rebuild-design-2026-09-29.md, D2).
-            "tiled" => ApplyRemeshIsotropic(mesh, constraints, localConstraints, edgeLength, modifier, build, mode, toleranceProfile, shouldCancel, tiled: true),
-            _ => ApplyRemeshIsotropic(mesh, constraints, localConstraints, edgeLength, modifier, build, mode, toleranceProfile, shouldCancel),
+            // "isotropic" runs TiledIsotropicRemesher: the same operators over world-anchored tiles, so the
+            // output depends only on local input and an incremental rebuild can match a cold one exactly
+            // (docs/incremental-rebuild-design-2026-09-29.md, D2). Not offered on the card, "global" keeps the
+            // whole-mesh remesher for comparison.
+            "global" => ApplyRemeshIsotropic(mesh, constraints, localConstraints, edgeLength, modifier, build, mode, toleranceProfile, shouldCancel, tiled: false),
+            _ => ApplyRemeshIsotropic(mesh, constraints, localConstraints, edgeLength, modifier, build, mode, toleranceProfile, shouldCancel, tiled: true, runtimeCache, stageKey),
         };
     }
 
@@ -856,7 +860,9 @@ internal sealed partial class TerrainBuildService
         TerrainBuildMode mode,
         TerrainTolerancePolicy.Profile toleranceProfile,
         Func<bool>? shouldCancel,
-        bool tiled = false)
+        bool tiled = false,
+        TerrainRuntimeCache? runtimeCache = null,
+        string? stageKey = null)
     {
         if (!RhinoGeometryConversions.TryExtractMeshData(
                 mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
@@ -897,6 +903,8 @@ internal sealed partial class TerrainBuildService
             : IsotropicRemesher.EstimateFaceCountPreservingTarget(vertices, faces);
         if (mode == TerrainBuildMode.Preview && modifier.EdgeLength <= 0)
             target *= 2.0;
+        if (tiled && edgeLength <= 0)
+            target = TiledIsotropicRemesher.RoundedTarget(target);
         if (target <= 0)
         {
             build.Diagnostics.Add("Remesh skipped: could not derive a target edge length.");
@@ -915,9 +923,22 @@ internal sealed partial class TerrainBuildService
                 // it: this is the longest-running Core stage in the pipeline.
                 ShouldCancel = shouldCancel
             };
-        IsotropicRemesher.Result result = tiled
-            ? TiledIsotropicRemesher.Remesh(vertices, faces, constraints, remeshOptions)
-            : IsotropicRemesher.Remesh(vertices, faces, constraints, remeshOptions);
+        IsotropicRemesher.Result result;
+        if (tiled)
+        {
+            // Tiles whose input is unchanged since the last run come from its memo, exactly as a cold run
+            // would make them; only the tiles an edit touched are remeshed.
+            TiledIsotropicRemesher.TiledRemeshMemo? previousMemo = null;
+            if (runtimeCache != null && stageKey != null)
+                runtimeCache.RemeshMemos.TryGetValue(stageKey, out previousMemo);
+            result = TiledIsotropicRemesher.Remesh(vertices, faces, constraints, remeshOptions, 0.0, previousMemo, out TiledIsotropicRemesher.TiledRemeshMemo memo);
+            if (runtimeCache != null && stageKey != null)
+                runtimeCache.RemeshMemos[stageKey] = memo;
+        }
+        else
+        {
+            result = IsotropicRemesher.Remesh(vertices, faces, constraints, remeshOptions);
+        }
 
         if (!result.Success)
         {

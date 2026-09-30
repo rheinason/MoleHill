@@ -23,6 +23,21 @@ public static class TiledIsotropicRemesher
     public const double DefaultTileEdgeMultiple = 64.0;
 
     /// <summary>
+    /// An automatic target edge length, snapped to steps of 2.5 % on a log scale. The automatic target is
+    /// estimated from the whole terrain's face density, so any edit nudges it, and a different target is a
+    /// different remesh everywhere: on the 1 m park a pad edit moved it from 1.0895 to 1.0880 and not one tile
+    /// could be reused. Snapped, a small edit rarely moves it, and when it does the remesh is simply cold.
+    /// Two significant figures were too coarse: up to 5 % on the edge length, 14 % fewer faces on one test.
+    /// </summary>
+    public static double RoundedTarget(double target)
+    {
+        if (!(target > 0) || double.IsInfinity(target))
+            return target;
+        double step = Math.Log(1.025);
+        return Math.Exp(Math.Round(Math.Log(target) / step) * step);
+    }
+
+    /// <summary>
     /// Grid offsets of the passes, as fractions of the tile side. The first pass holds raw input vertices
     /// along its cuts, and the second pass's cuts run over them where the two grids cross; the third grid
     /// puts every one of those crossings inside a tile, and its own cuts hold only remeshed edges.
@@ -35,7 +50,24 @@ public static class TiledIsotropicRemesher
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
         IsotropicRemesher.Options options,
         double tileSize = 0.0)
+        => Remesh(vertices, faces, constraints, options, tileSize, previous: null, out _);
+
+    /// <summary>
+    /// The tiled remesh, reusing every tile of <paramref name="previous"/> whose input is unchanged. A tile's
+    /// output is a pure function of its key (its faces in canonical order, its held edges and wall flags, the
+    /// breaklines over it, the original surface under it and the settings), so reusing it is exact: the
+    /// result is the cold build's, bit for bit. <paramref name="memo"/> holds this run's tiles for the next.
+    /// </summary>
+    public static IsotropicRemesher.Result Remesh(
+        double[] vertices,
+        int[] faces,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IsotropicRemesher.Options options,
+        double tileSize,
+        TiledRemeshMemo? previous,
+        out TiledRemeshMemo memo)
     {
+        memo = new TiledRemeshMemo(PassOffsets.Length);
         if (options.TargetEdgeLength <= 0)
             return new IsotropicRemesher.Result { Success = false, Vertices = vertices, Faces = faces, Warning = "Tiled remesh requires a positive target edge length." };
 
@@ -43,38 +75,89 @@ public static class TiledIsotropicRemesher
         var timer = System.Diagnostics.Stopwatch.StartNew();
         int faceCount = faces.Length / 3;
         bool[] walls = FeaturePolylineGraph.BuildFrozenFaceMask(vertices, faces, faceCount, options.WallFaceMinSlopeDeg, degenerateAltitude: options.Tolerance);
+        double msWalls = timer.Elapsed.TotalMilliseconds;
         TerrainFaceGrid? surface = IsotropicRemesher.BuildProjectionGrid(vertices, faces, faceCount, walls, options.TargetEdgeLength * 0.5);
         if (surface is null)
             return new IsotropicRemesher.Result { Success = true, Vertices = vertices, Faces = faces, Warning = "All faces are steep (frozen); nothing to remesh." };
+        double msGrid = timer.Elapsed.TotalMilliseconds - msWalls;
         TerrainFaceGrid? wallFaces = BuildWallGrid(vertices, faces, walls, options.TargetEdgeLength);
-        double msSurface = timer.Elapsed.TotalMilliseconds;
         options = WithWalls(options, wallFaces);
+        var surfaceHash = new SurfaceHasher(vertices, faces, walls, size * 0.25);
+        double msSurface = timer.Elapsed.TotalMilliseconds;
+        double msHash = msSurface - msWalls - msGrid;
 
         double[] outV = vertices;
         int[] outF = faces;
         bool[] outFrozen = walls;
-        int failed = 0;
+        var counts = new OperatorCounts();
         var passTimes = new List<string>(PassOffsets.Length);
-        double previous = msSurface;
-        foreach (double offset in PassOffsets)
+        double previousMs = msSurface;
+        for (int pass = 0; pass < PassOffsets.Length; pass++)
         {
-            (outV, outF, outFrozen, int passFailed) = Pass(outV, outF, outFrozen, constraints, options, size, size * offset, surface, out string passTiming);
-            failed += passFailed;
+            var context = new PassContext(pass, surfaceHash, previous?.Passes[pass], memo.Passes[pass], counts);
+            (outV, outF, outFrozen, _) = Pass(outV, outF, outFrozen, constraints, options, size, size * PassOffsets[pass], surface, context, out string passTiming);
             double now = timer.Elapsed.TotalMilliseconds;
-            passTimes.Add($"{now - previous:0} ({passTiming})");
-            previous = now;
+            passTimes.Add($"{now - previousMs:0} ({passTiming})");
+            previousMs = now;
         }
 
+        memo.ReusedTiles = counts.Reused;
+        memo.RemeshedTiles = counts.Remeshed;
         var result = new IsotropicRemesher.Result
         {
             Success = true,
             Vertices = outV,
             Faces = outF,
             FrozenFaces = outFrozen,
-            Warning = failed > 0 ? $"{failed:N0} tile(s) kept their input: the remesh of that tile was rejected." : null
+            Splits = (int)counts.Splits,
+            Collapses = (int)counts.Collapses,
+            Flips = (int)counts.Flips,
+            RelaxedVertices = (int)counts.Relaxed,
+            Warning = counts.Failed > 0 ? $"{counts.Failed:N0} tile(s) kept their input: the remesh of that tile was rejected." : null
         };
-        result.Timing = $"tiled: surface {msSurface:0} ms, passes {string.Join(" / ", passTimes)} ms, tile {size:0.###}";
+        result.Timing = $"tiled: surface {msSurface:0} ms (walls {msWalls:0}, grid {msGrid:0}, walls grid + hash {msHash:0}), passes {string.Join(" / ", passTimes)} ms, tile {size:0.###}, " +
+                        $"{counts.Reused:N0} tiles reused, {counts.Remeshed:N0} remeshed";
         return result;
+    }
+
+    /// <summary>Tile outputs from one run, by tile key, per pass; handed to the next run.</summary>
+    public sealed class TiledRemeshMemo
+    {
+        internal TiledRemeshMemo(int passes)
+        {
+            Passes = new Dictionary<UInt128, TileOutput>[passes];
+            for (int i = 0; i < passes; i++)
+                Passes[i] = new Dictionary<UInt128, TileOutput>();
+        }
+
+        internal Dictionary<UInt128, TileOutput>[] Passes { get; }
+
+        public int ReusedTiles { get; internal set; }
+
+        public int RemeshedTiles { get; internal set; }
+    }
+
+    internal sealed record TileOutput(double[] V, int[] F, bool[] Frozen, int Splits, int Collapses, int Flips, int Relaxed, bool Failed);
+
+    private sealed class OperatorCounts
+    {
+        public long Splits;
+        public long Collapses;
+        public long Flips;
+        public long Relaxed;
+        public int Failed;
+        public int Reused;
+        public int Remeshed;
+    }
+
+    /// <summary>What a pass needs beyond its mesh: the memo it reads and writes, and where to count.</summary>
+    private sealed class PassContext(int pass, SurfaceHasher surface, Dictionary<UInt128, TileOutput>? previous, Dictionary<UInt128, TileOutput> next, OperatorCounts counts)
+    {
+        public int Pass { get; } = pass;
+        public SurfaceHasher Surface { get; } = surface;
+        public Dictionary<UInt128, TileOutput>? Previous { get; } = previous;
+        public Dictionary<UInt128, TileOutput> Next { get; } = next;
+        public OperatorCounts Counts { get; } = counts;
     }
 
     /// <summary>One pass over a grid of <paramref name="size"/> offset by <paramref name="offset"/> in X and Y.</summary>
@@ -87,9 +170,13 @@ public static class TiledIsotropicRemesher
         double size,
         double offset,
         TerrainFaceGrid surface)
-        => Pass(vertices, faces, frozen, constraints, options, size, offset, surface, out _);
+    {
+        var counts = new OperatorCounts();
+        var context = new PassContext(0, new SurfaceHasher(Array.Empty<double>(), Array.Empty<int>(), Array.Empty<bool>(), size), null, new Dictionary<UInt128, TileOutput>(), counts);
+        return Pass(vertices, faces, frozen, constraints, options, size, offset, surface, context, out _);
+    }
 
-    internal static (double[] Vertices, int[] Faces, bool[] Frozen, int FailedTiles) Pass(
+    private static (double[] Vertices, int[] Faces, bool[] Frozen, int FailedTiles) Pass(
         double[] vertices,
         int[] faces,
         bool[] frozen,
@@ -98,31 +185,57 @@ public static class TiledIsotropicRemesher
         double size,
         double offset,
         TerrainFaceGrid surface,
+        PassContext context,
         out string timing)
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
         TileInput[] tiles = PrepareTiles(vertices, faces, frozen, options, size, offset, surface, out double msSplit, out double msCuts);
-        var outputs = new (double[] V, int[] F, bool[] Frozen)[tiles.Length];
-        var tileStats = new (int X, int Y, int FacesIn, int FacesOut, double Ms)[tiles.Length];
-        int failed = 0;
+        var outputs = new TileOutput[tiles.Length];
+        var keys = new UInt128[tiles.Length];
+        var tileMs = new double[tiles.Length];
+        int failed = 0, reused = 0;
         double msPrepared = clock.Elapsed.TotalMilliseconds;
         Parallel.For(0, tiles.Length, i =>
         {
             var tileClock = System.Diagnostics.Stopwatch.StartNew();
             TileInput tile = tiles[i];
-            if (!RemeshTile(tile, constraints, options, surface, out outputs[i]))
+            keys[i] = TileKey(tile, constraints, options, size, offset, context.Surface);
+            if (context.Previous != null && context.Previous.TryGetValue(keys[i], out TileOutput? cached))
+            {
+                outputs[i] = cached;
+                Interlocked.Increment(ref reused);
+            }
+            else
+            {
+                outputs[i] = RemeshTile(tile, constraints, options, surface);
+            }
+
+            if (outputs[i].Failed)
                 Interlocked.Increment(ref failed);
-            tileStats[i] = (UnpackX(tile.Key), UnpackY(tile.Key), tile.Faces.Length / 3, outputs[i].F.Length / 3, tileClock.Elapsed.TotalMilliseconds);
+            tileMs[i] = tileClock.Elapsed.TotalMilliseconds;
         });
+
+        for (int i = 0; i < tiles.Length; i++)
+        {
+            context.Next[keys[i]] = outputs[i];
+            context.Counts.Splits += outputs[i].Splits;
+            context.Counts.Collapses += outputs[i].Collapses;
+            context.Counts.Flips += outputs[i].Flips;
+            context.Counts.Relaxed += outputs[i].Relaxed;
+        }
+
+        context.Counts.Failed += failed;
+        context.Counts.Reused += reused;
+        context.Counts.Remeshed += tiles.Length - reused;
 
         double msTiles = clock.Elapsed.TotalMilliseconds - msPrepared;
         var stitched = Stitch(outputs, failed);
         double msStitch = clock.Elapsed.TotalMilliseconds - msPrepared - msTiles;
-        timing = $"split {msSplit:0}, cuts {msCuts:0}, tiles {msTiles:0} [{tiles.Length} tiles, sum {tileStats.Sum(t => t.Ms):0}, max {tileStats.Select(t => t.Ms).DefaultIfEmpty().Max():0}], stitch {msStitch:0}";
+        timing = $"split {msSplit:0}, cuts {msCuts:0}, tiles {msTiles:0} [{tiles.Length} tiles, {reused} reused, sum {tileMs.Sum():0}, max {tileMs.DefaultIfEmpty().Max():0}], stitch {msStitch:0}";
         return stitched;
     }
 
-    /// <summary>One tile of one pass: its faces, compacted, and its cut edges as local vertex pairs.</summary>
+    /// <summary>One tile of one pass: its faces in canonical order, and its cut edges as sorted local vertex pairs.</summary>
     internal sealed class TileInput
     {
         public required long Key { get; init; }
@@ -167,7 +280,6 @@ public static class TiledIsotropicRemesher
             AddCut(tileCuts, faceTile[f1], u, v);
         }
 
-        // Faces per tile in face order; tiles in a fixed order, so the output does not depend on scheduling.
         var tileFaces = new Dictionary<long, List<int>>(IndexedMeshTools.CellKeyComparer.Instance);
         for (int f = 0; f < faceCount; f++)
         {
@@ -186,19 +298,33 @@ public static class TiledIsotropicRemesher
         var tiles = new TileInput[keys.Length];
         Parallel.For(0, keys.Length, i =>
         {
+            // Canonical order: each face starts at its lexicographically smallest corner (winding kept) and the
+            // faces are sorted by their corners, so a tile's input depends on its geometry alone, not on how
+            // the stages upstream happened to number the mesh. That is what lets an unchanged tile be found
+            // in the memo after an edit elsewhere.
             List<int> members = tileFaces[keys[i]];
-            var localOf = new Dictionary<int, int>(members.Count);
-            var localV = new List<double>(members.Count * 2);
-            var localF = new int[members.Count * 3];
-            var localFrozen = new bool[members.Count];
+            int count = members.Count;
+            var start = new int[count];
+            for (int m = 0; m < count; m++)
+                start[m] = SmallestCorner(vertices, faces, members[m]);
+            var order = new int[count];
+            for (int m = 0; m < count; m++)
+                order[m] = m;
+            Array.Sort(order, (p, q) => CompareFaces(vertices, faces, members[p], start[p], members[q], start[q]));
+
+            var localOf = new Dictionary<int, int>(count);
+            var localV = new List<double>(count * 2);
+            var localF = new int[count * 3];
+            var localFrozen = new bool[count];
             double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
-            for (int m = 0; m < members.Count; m++)
+            for (int m = 0; m < count; m++)
             {
-                int f = members[m];
+                int f = members[order[m]];
+                int s = start[order[m]];
                 localFrozen[m] = frozen[f];
                 for (int k = 0; k < 3; k++)
                 {
-                    int g = faces[f * 3 + k];
+                    int g = faces[f * 3 + ((s + k) % 3)];
                     if (!localOf.TryGetValue(g, out int local))
                     {
                         local = localV.Count / 3;
@@ -218,9 +344,20 @@ public static class TiledIsotropicRemesher
             int[] holdEdges = Array.Empty<int>();
             if (tileCuts.TryGetValue(keys[i], out List<int>? cuts))
             {
-                holdEdges = new int[cuts.Count];
-                for (int c = 0; c < cuts.Count; c++)
-                    holdEdges[c] = localOf[cuts[c]];
+                var pairs = new (int A, int B)[cuts.Count / 2];
+                for (int c = 0; c < pairs.Length; c++)
+                {
+                    int a = localOf[cuts[c * 2]], b = localOf[cuts[(c * 2) + 1]];
+                    pairs[c] = a < b ? (a, b) : (b, a);
+                }
+
+                Array.Sort(pairs);
+                holdEdges = new int[pairs.Length * 2];
+                for (int c = 0; c < pairs.Length; c++)
+                {
+                    holdEdges[c * 2] = pairs[c].A;
+                    holdEdges[(c * 2) + 1] = pairs[c].B;
+                }
             }
 
             tiles[i] = new TileInput
@@ -241,13 +378,188 @@ public static class TiledIsotropicRemesher
         return tiles;
     }
 
-    /// <summary>Remeshes one tile; on a rejected remesh the tile keeps its input and this returns false.</summary>
-    internal static bool RemeshTile(
+    private static int SmallestCorner(double[] v, int[] faces, int f)
+    {
+        int best = 0;
+        for (int k = 1; k < 3; k++)
+        {
+            if (ComparePoints(v, faces[f * 3 + k], faces[f * 3 + best]) < 0)
+                best = k;
+        }
+
+        return best;
+    }
+
+    private static int CompareFaces(double[] v, int[] faces, int f, int sf, int g, int sg)
+    {
+        for (int k = 0; k < 3; k++)
+        {
+            int c = ComparePoints(v, faces[f * 3 + ((sf + k) % 3)], faces[g * 3 + ((sg + k) % 3)]);
+            if (c != 0)
+                return c;
+        }
+
+        return 0;
+    }
+
+    private static int ComparePoints(double[] v, int a, int b)
+    {
+        int c = v[a * 3].CompareTo(v[b * 3]);
+        if (c != 0)
+            return c;
+        c = v[a * 3 + 1].CompareTo(v[b * 3 + 1]);
+        return c != 0 ? c : v[a * 3 + 2].CompareTo(v[b * 3 + 2]);
+    }
+
+    /// <summary>
+    /// Everything a tile's output depends on, hashed to 128 bits: its canonical input, the settings and its
+    /// place in the passes, the breaklines over it (order-free), and the original surface under it, which it
+    /// projects onto.
+    /// </summary>
+    private static UInt128 TileKey(
         TileInput tile,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
         IsotropicRemesher.Options options,
-        TerrainFaceGrid surface,
-        out (double[] V, int[] F, bool[] Frozen) output)
+        double size,
+        double offset,
+        SurfaceHasher surface)
+    {
+        var low = new XxHash64Builder(0x5eed0001UL);
+        var high = new XxHash64Builder(0x5eed0002UL);
+        void AddDouble(double value)
+        {
+            low.Add(BitConverter.DoubleToInt64Bits(value));
+            high.Add(BitConverter.DoubleToInt64Bits(value));
+        }
+
+        AddDouble(options.TargetEdgeLength);
+        AddDouble(options.CreaseAngleDeg);
+        AddDouble(options.Tolerance);
+        AddDouble(options.WallFaceMinSlopeDeg);
+        low.Add(options.Iterations);
+        high.Add(options.Iterations);
+        AddDouble(size);
+        AddDouble(offset);
+
+        ReadOnlySpan<byte> v = System.Runtime.InteropServices.MemoryMarshal.AsBytes(tile.Vertices.AsSpan());
+        ReadOnlySpan<byte> f = System.Runtime.InteropServices.MemoryMarshal.AsBytes(tile.Faces.AsSpan());
+        ReadOnlySpan<byte> h = System.Runtime.InteropServices.MemoryMarshal.AsBytes(tile.HoldEdges.AsSpan());
+        ReadOnlySpan<byte> z = System.Runtime.InteropServices.MemoryMarshal.AsBytes(tile.Frozen.AsSpan());
+        low.AddBytes(v); high.AddBytes(v);
+        low.AddBytes(f); high.AddBytes(f);
+        low.AddBytes(h); high.AddBytes(h);
+        low.AddBytes(z); high.AddBytes(z);
+
+        ulong constraintSum = 0;
+        foreach (SurfaceRemesher.ConstraintPolyline c in constraints)
+        {
+            if (!Overlaps(c, tile.MinX, tile.MinY, tile.MaxX, tile.MaxY))
+                continue;
+            var one = new XxHash64Builder(0x5eed0003UL);
+            one.AddBytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(c.Points.AsSpan(0, c.PointCount * 3)));
+            one.Add(c.IsClosed);
+            one.Add(c.PreserveInputElevation);
+            constraintSum += one.ToUInt64();
+        }
+
+        low.Add(constraintSum);
+        high.Add(constraintSum);
+        double margin = options.TargetEdgeLength * 2.0;
+        (ulong s0, ulong s1) = surface.Hash(tile.MinX - margin, tile.MinY - margin, tile.MaxX + margin, tile.MaxY + margin);
+        low.Add(s0);
+        high.Add(s1);
+        return new UInt128(high.ToUInt64(), low.ToUInt64());
+    }
+
+    /// <summary>
+    /// Order-free hashes of the original faces (with their wall flag) under a region: a tile projects onto the
+    /// original surface, so an edit there must change its key even when its own input did not change.
+    /// </summary>
+    internal sealed class SurfaceHasher
+    {
+        private readonly double _cell;
+        private readonly Dictionary<long, (ulong A, ulong B)> _cells = new(IndexedMeshTools.CellKeyComparer.Instance);
+
+        public SurfaceHasher(double[] vertices, int[] faces, bool[] walls, double cell)
+        {
+            _cell = cell;
+            int faceCount = faces.Length / 3;
+            var cellOf = new long[faceCount];
+            var hashA = new ulong[faceCount];
+            var hashB = new ulong[faceCount];
+            ForBlocks(faceCount, (from, to) =>
+            {
+                for (int f = from; f < to; f++)
+                {
+                    int a = faces[f * 3], b = faces[f * 3 + 1], c = faces[f * 3 + 2];
+                    ulong ha = 0x9E3779B97F4A7C15UL, hb = 0xC2B2AE3D27D4EB4FUL;
+                    foreach (int q in stackalloc[] { a, b, c })
+                    {
+                        for (int k = 0; k < 3; k++)
+                        {
+                            ulong bits = (ulong)BitConverter.DoubleToInt64Bits(vertices[q * 3 + k]);
+                            ha = Mix(ha ^ bits);
+                            hb = Mix(hb + bits);
+                        }
+                    }
+
+                    if (walls.Length == faceCount && walls[f])
+                    {
+                        ha = Mix(ha ^ 0xA5A5A5A5UL);
+                        hb = Mix(hb + 0x5A5A5A5AUL);
+                    }
+
+                    hashA[f] = ha;
+                    hashB[f] = hb;
+                    // Each face counts in the cell holding its centroid; a region's hash covers the cells it touches.
+                    double cx = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3.0;
+                    double cy = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3.0;
+                    cellOf[f] = PackTile((long)Math.Floor(cx / cell), (long)Math.Floor(cy / cell));
+                }
+            });
+
+            for (int f = 0; f < faceCount; f++)
+            {
+                _cells.TryGetValue(cellOf[f], out (ulong A, ulong B) sum);
+                _cells[cellOf[f]] = (unchecked(sum.A + hashA[f]), unchecked(sum.B + hashB[f]));
+            }
+        }
+
+        // SplitMix64 finalizer: a strong 64-bit mix, far cheaper than a streaming hash per face.
+        private static ulong Mix(ulong z)
+        {
+            z = unchecked((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL);
+            z = unchecked((z ^ (z >> 27)) * 0x94D049BB133111EBUL);
+            return z ^ (z >> 31);
+        }
+
+        public (ulong A, ulong B) Hash(double minX, double minY, double maxX, double maxY)
+        {
+            ulong a = 0, b = 0;
+            long x0 = (long)Math.Floor(minX / _cell) - 1, x1 = (long)Math.Floor(maxX / _cell) + 1;
+            long y0 = (long)Math.Floor(minY / _cell) - 1, y1 = (long)Math.Floor(maxY / _cell) + 1;
+            for (long x = x0; x <= x1; x++)
+            {
+                for (long y = y0; y <= y1; y++)
+                {
+                    if (_cells.TryGetValue(PackTile(x, y), out (ulong A, ulong B) sum))
+                    {
+                        a = unchecked(a + (sum.A * (ulong)((x * 31) + y + 1)));
+                        b = unchecked(b + (sum.B * (ulong)((y * 37) + x + 3)));
+                    }
+                }
+            }
+
+            return (a, b);
+        }
+    }
+
+    /// <summary>Remeshes one tile; a rejected remesh keeps its input and is marked failed.</summary>
+    internal static TileOutput RemeshTile(
+        TileInput tile,
+        IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
+        IsotropicRemesher.Options options,
+        TerrainFaceGrid surface)
     {
         var tileConstraints = constraints.Where(c => Overlaps(c, tile.MinX, tile.MinY, tile.MaxX, tile.MaxY)).ToList();
         var tileOptions = new IsotropicRemesher.Options
@@ -265,10 +577,9 @@ public static class TiledIsotropicRemesher
         };
 
         IsotropicRemesher.Result result = IsotropicRemesher.Remesh(tile.Vertices, tile.Faces, tileConstraints, tileOptions);
-        output = result.Success && result.FrozenFaces.Length == result.Faces.Length / 3
-            ? (result.Vertices, result.Faces, result.FrozenFaces)
-            : (tile.Vertices, tile.Faces, tile.Frozen);
-        return result.Success;
+        return result.Success && result.FrozenFaces.Length == result.Faces.Length / 3
+            ? new TileOutput(result.Vertices, result.Faces, result.FrozenFaces, result.Splits, result.Collapses, result.Flips, result.RelaxedVertices, false)
+            : new TileOutput(tile.Vertices, tile.Faces, tile.Frozen, 0, 0, 0, 0, true);
     }
 
     /// <summary>A grid over the original wall faces alone, or null when there are none.</summary>
@@ -564,7 +875,7 @@ public static class TiledIsotropicRemesher
     /// Concatenates the tiles and welds vertices at identical coordinates. Held vertices keep their input
     /// coordinates bit for bit in every tile that holds them, so the cut welds exactly.
     /// </summary>
-    private static (double[] Vertices, int[] Faces, bool[] Frozen, int FailedTiles) Stitch((double[] V, int[] F, bool[] Frozen)[] outputs, int failed)
+    private static (double[] Vertices, int[] Faces, bool[] Frozen, int FailedTiles) Stitch(TileOutput[] outputs, int failed)
     {
         int totalVertices = outputs.Sum(static o => o.V.Length / 3);
         int totalFaces = outputs.Sum(static o => o.F.Length / 3);
@@ -574,8 +885,11 @@ public static class TiledIsotropicRemesher
         var frozen = new bool[totalFaces];
         int write = 0;
         int writeFace = 0;
-        foreach ((double[] v, int[] f, bool[] fz) in outputs)
+        foreach (TileOutput output in outputs)
         {
+            double[] v = output.V;
+            int[] f = output.F;
+            bool[] fz = output.Frozen;
             int count = v.Length / 3;
             var remap = new int[count];
             for (int i = 0; i < count; i++)

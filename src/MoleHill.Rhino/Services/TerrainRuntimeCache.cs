@@ -34,6 +34,13 @@ internal sealed class TerrainRuntimeCache
     /// </summary>
     public Dictionary<string, RetainingWallPlanCacheEntry> RetainingWallPlanEntries { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The tiled Remesh's tile outputs from its last run, by stage key. When the Remesh stage has to run again,
+    /// every tile whose input is unchanged comes from here, exactly as a cold build would make it. A memo is
+    /// replaced, never modified, so a cancelled build cannot leave one half written.
+    /// </summary>
+    public Dictionary<string, MoleHill.Core.Engine.TiledIsotropicRemesher.TiledRemeshMemo> RemeshMemos { get; } = new(StringComparer.Ordinal);
+
     public TerrainDisplayState? DisplayState { get; set; }
 
     /// <summary>
@@ -93,6 +100,9 @@ internal sealed class TerrainRuntimeCache
         foreach (var entry in RetainingWallPlanEntries)
             copy.RetainingWallPlanEntries[entry.Key] = entry.Value;
 
+        foreach (var entry in RemeshMemos)
+            copy.RemeshMemos[entry.Key] = entry.Value;
+
         return copy;
     }
 
@@ -130,6 +140,11 @@ internal sealed class TerrainRuntimeCache
             RetainingWallPlanEntries[entry.Key] = entry.Value;
         source.RetainingWallPlanEntries.Clear();
 
+        RemeshMemos.Clear();
+        foreach (var entry in source.RemeshMemos)
+            RemeshMemos[entry.Key] = entry.Value;
+        source.RemeshMemos.Clear();
+
         return displacedMeshes;
     }
 
@@ -150,6 +165,7 @@ internal sealed class TerrainRuntimeCache
         GradingTopologyEntries.Clear();
         SmoothEntries.Clear();
         RetainingWallPlanEntries.Clear();
+        RemeshMemos.Clear();
         DisplayState = null;
         LastPreviewDuration = null;
         LastFinalDuration = null;
@@ -178,6 +194,9 @@ internal sealed class TerrainRuntimeCache
 
             foreach (string stageKey in RetainingWallPlanEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
                 RetainingWallPlanEntries.Remove(stageKey);
+
+            foreach (string stageKey in RemeshMemos.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
+                RemeshMemos.Remove(stageKey);
             return;
         }
 
@@ -197,6 +216,9 @@ internal sealed class TerrainRuntimeCache
 
         foreach (string stageKey in RetainingWallPlanEntries.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
             RetainingWallPlanEntries.Remove(stageKey);
+
+        foreach (string stageKey in RemeshMemos.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
+            RemeshMemos.Remove(stageKey);
     }
 
     /// <summary>

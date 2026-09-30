@@ -46,16 +46,14 @@ internal class TerrainFaceGrid
 
     private readonly double[] _verts;
     private readonly int[] _faces;
-    // Faces by covered cell, ascending within each cell. Reserved by half the face count: the default
-    // cell size targets about faceCount / 4 cells, so reserving by face count over-reserved by ~4x.
-    private readonly CellMembershipIndex _cells;
-
-    // Occupied cells as a dense row-major slot table over the mesh's cell range, when that range is
-    // compact. Point location probes nine cells per query, and on a terrain with millions of cells each
-    // hashed probe is a cache miss: the 1 m park's Remesh spent half its collapse phase here. The table
-    // maps to the same runs, so every query sees the same faces in the same order. Entries hold slot + 1,
-    // so a fresh zeroed array already reads as all-empty.
-    private readonly int[]? _denseSlots;
+    // Faces by covered cell, ascending within each cell, in one of two layouts. When every face's cells lie
+    // within the vertex bounds (the normal case) they are a dense row-major CSR table over that range:
+    // counting and filling plain arrays, where the hashed index took ~40M dictionary operations to build
+    // over the 1 m park (3.9 s of a 6.9 s incremental Remesh), and every query probe is an array read. Otherwise
+    // the hashed index. Both hold the same runs, so every query sees the same faces in the same order.
+    private readonly CellMembershipIndex? _cells;
+    private readonly int[]? _denseStart;
+    private readonly int[]? _denseItems;
     private readonly long _denseMinX;
     private readonly long _denseMinY;
     private readonly long _denseWidth;
@@ -97,49 +95,22 @@ internal class TerrainFaceGrid
 
         // Pass 1: count every membership. Pass 2: fill. Faces are visited in source order, so each cell's
         // run stays ascending - the order point location's first-match rule depends on.
-        var cells = new CellMembershipIndex.Builder(faceCount / 2);
-        int[]? denseSlots = null;
-        if (vertexCount > 0)
+        if (vertexCount > 0 && TryBuildDense(vertices, faces, faceCount, minX, minY, maxX, maxY,
+                out _denseStart, out _denseItems, out _denseMinX, out _denseMinY, out _denseWidth, out _denseHeight))
         {
-            long minCellX = (long)Math.Floor(minX * _invCell);
-            long minCellY = (long)Math.Floor(minY * _invCell);
-            long width = (long)Math.Floor(maxX * _invCell) - minCellX + 1;
-            long height = (long)Math.Floor(maxY * _invCell) - minCellY + 1;
-            // Every face occupies at least one cell, so this bounds the table by a few entries per face.
-            if (width > 0 && height > 0 && width * height <= Math.Max(1024L, 4L * faceCount))
-            {
-                denseSlots = new int[width * height];
-                _denseMinX = minCellX;
-                _denseMinY = minCellY;
-                _denseWidth = width;
-                _denseHeight = height;
-            }
+            return;
         }
 
+        var cells = new CellMembershipIndex.Builder(faceCount / 2);
         for (int f = 0; f < faceCount; f++)
         {
             GetFaceCellRange(vertices, faces, f, out long cMinX, out long cMaxX, out long cMinY, out long cMaxY);
             for (long cy = cMinY; cy <= cMaxY; cy++)
             {
                 for (long cx = cMinX; cx <= cMaxX; cx++)
-                {
-                    int slot = cells.Count(CellKey(cx, cy));
-                    if (denseSlots == null)
-                        continue;
-
-                    // A cell off the vertex bounds (a non-finite coordinate, a face on an uncounted
-                    // vertex) cannot be tabled; the hashed index still answers every query.
-                    long x = cx - _denseMinX;
-                    long y = cy - _denseMinY;
-                    if ((ulong)x >= (ulong)_denseWidth || (ulong)y >= (ulong)_denseHeight)
-                        denseSlots = null;
-                    else
-                        denseSlots[(y * _denseWidth) + x] = slot + 1;
-                }
+                    cells.Count(CellKey(cx, cy));
             }
         }
-
-        _denseSlots = denseSlots;
 
         cells.BeginFill();
         for (int f = 0; f < faceCount; f++)
@@ -148,13 +119,74 @@ internal class TerrainFaceGrid
             for (long cy = cMinY; cy <= cMaxY; cy++)
             {
                 for (long cx = cMinX; cx <= cMaxX; cx++)
-                {
                     cells.Add(CellKey(cx, cy), f);
-                }
             }
         }
 
         _cells = cells.Build();
+    }
+
+    /// <summary>
+    /// The dense layout, when the cell range is compact (a few table entries per face) and every face's cells
+    /// lie inside it; false otherwise (a non-finite coordinate, a face on an uncounted vertex).
+    /// </summary>
+    private bool TryBuildDense(
+        double[] vertices,
+        int[] faces,
+        int faceCount,
+        double minX,
+        double minY,
+        double maxX,
+        double maxY,
+        out int[]? start,
+        out int[]? items,
+        out long minCellX,
+        out long minCellY,
+        out long width,
+        out long height)
+    {
+        start = null;
+        items = null;
+        minCellX = (long)Math.Floor(minX * _invCell);
+        minCellY = (long)Math.Floor(minY * _invCell);
+        width = (long)Math.Floor(maxX * _invCell) - minCellX + 1;
+        height = (long)Math.Floor(maxY * _invCell) - minCellY + 1;
+        if (width <= 0 || height <= 0 || width * height > Math.Max(1024L, 4L * faceCount) || width * height >= int.MaxValue)
+            return false;
+
+        var counts = new int[(width * height) + 1];
+        for (int f = 0; f < faceCount; f++)
+        {
+            GetFaceCellRange(vertices, faces, f, out long cMinX, out long cMaxX, out long cMinY, out long cMaxY);
+            if (cMinX < minCellX || cMinY < minCellY || cMaxX - minCellX >= width || cMaxY - minCellY >= height)
+                return false;
+            for (long cy = cMinY; cy <= cMaxY; cy++)
+            {
+                long row = (cy - minCellY) * width;
+                for (long cx = cMinX; cx <= cMaxX; cx++)
+                    counts[row + (cx - minCellX) + 1]++;
+            }
+        }
+
+        for (long i = 1; i < counts.LongLength; i++)
+            counts[i] += counts[i - 1];
+
+        var cursor = (int[])counts.Clone();
+        var filled = new int[counts[^1]];
+        for (int f = 0; f < faceCount; f++)
+        {
+            GetFaceCellRange(vertices, faces, f, out long cMinX, out long cMaxX, out long cMinY, out long cMaxY);
+            for (long cy = cMinY; cy <= cMaxY; cy++)
+            {
+                long row = (cy - minCellY) * width;
+                for (long cx = cMinX; cx <= cMaxX; cx++)
+                    filled[cursor[row + (cx - minCellX)]++] = f;
+            }
+        }
+
+        start = counts;
+        items = filled;
+        return true;
     }
 
     private void GetFaceCellRange(
@@ -187,16 +219,17 @@ internal class TerrainFaceGrid
     /// <summary>Faces registered in the cell containing (cellX, cellY), ascending. Empty when unoccupied.</summary>
     private ReadOnlySpan<int> CellFaces(long cellX, long cellY)
     {
-        if (_denseSlots == null)
-            return _cells.Items(CellKey(cellX, cellY));
+        if (_denseStart == null)
+            return _cells!.Items(CellKey(cellX, cellY));
 
         long x = cellX - _denseMinX;
         long y = cellY - _denseMinY;
         if ((ulong)x >= (ulong)_denseWidth || (ulong)y >= (ulong)_denseHeight)
             return ReadOnlySpan<int>.Empty;
 
-        int slot = _denseSlots[(y * _denseWidth) + x] - 1;
-        return slot < 0 ? ReadOnlySpan<int>.Empty : _cells.ItemsAt(slot);
+        long cell = (y * _denseWidth) + x;
+        int from = _denseStart[cell];
+        return _denseItems.AsSpan(from, _denseStart[cell + 1] - from);
     }
 
     public bool TryFindRayDaylightReach(
