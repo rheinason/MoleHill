@@ -310,8 +310,10 @@ tests.
   one connected group, whose box is the whole park, but whose band leaves the land between the roads out.
   With a margin read only from faces within each item's reach, the network splits into 7 windows at 1 m;
   a survey edit away from roads and pads reuses them all and costs 54 s (was 76 s). Grade Path is 17 s cold (was 27 s).
-- **Next:** the Retaining Wall stage, per-tile analyses (P3), and flat data between stages (P1) for the
-  per-stage O(n) plumbing that remains.
+- **Retaining Wall rail insertion windowed** (e5c7c6c). **Stage meshes normalized in managed code** (bdc2842),
+  the cheap half of P1. The survey-point edit at 1 m is 30.6 s (was 144 s).
+- **Parked (2026-10-01).** The remaining levers (tiled analyses, per-window constraint setup, lazy Rhino meshes,
+  incremental Triangulate) are measured and ranked in `performance-roadmap-2026-10-01.md`.
 
 ## Original questions for the owner
 
