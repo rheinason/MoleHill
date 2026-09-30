@@ -300,11 +300,14 @@ tests.
   and keyed by content, so the incremental path needed no global canonical order (P1) after all: an unchanged
   tile is found by its key whatever the upstream numbering. On the 1 m park a one-vertex edit remeshes 10 of
   2,134 tiles (3.5 s against 11.7 s cold), bit-identical to a cold remesh of the edit.
-- **Next: windowed graders** (replaces P2's splice). Each group of overlapping pads or paths is graded on the
-  sub-mesh inside its influence window and stitched back, keyed and memoized like tiles. Cold and incremental
-  run the same windowed computation, so exactness needs no proof about what a grader reads globally (Grade
-  Path picks its tier by face count; point location sizes its grid by the mesh's extent), and a definition
-  edit to one pad re-grades only that pad's window.
+- **Windowed Grade Pad done** (2026-09-30; replaces P2's splice for pads). Each group of overlapping pads
+  is graded on the sub-mesh inside its window and stitched back, keyed and memoized like tiles. Cold and
+  incremental run the same windowed computation, so exactness needs no proof about what a grader reads
+  globally. On the 1 m park Grade Pad is 7.4 s cold (was ~19 s) and a survey edit reuses every window. A
+  window that cannot weld falls back to grading the whole mesh (architecture.md, "Grade Pad: windowed").
+- **Next:** windows shaped by distance to the item (a path network is one connected group, so its bounding
+  box is the whole park), then windowed Grade Path, the Retaining Wall stage, per-tile analyses (P3), and
+  flat data between stages (P1) for the per-stage O(n) plumbing that remains.
 
 ## Original questions for the owner
 

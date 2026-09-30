@@ -41,6 +41,12 @@ internal sealed class TerrainRuntimeCache
     /// </summary>
     public Dictionary<string, MoleHill.Core.Engine.TiledIsotropicRemesher.TiledRemeshMemo> RemeshMemos { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The windowed graders' window results from their last run, by stage key (<c>GradingWindows.Memo</c>).
+    /// Like <see cref="RemeshMemos"/>: replaced, never modified, and reused only by an identical window key.
+    /// </summary>
+    public Dictionary<string, MoleHill.Core.Grading.GradingWindows.Memo> GradingWindowMemos { get; } = new(StringComparer.Ordinal);
+
     public TerrainDisplayState? DisplayState { get; set; }
 
     /// <summary>
@@ -103,6 +109,9 @@ internal sealed class TerrainRuntimeCache
         foreach (var entry in RemeshMemos)
             copy.RemeshMemos[entry.Key] = entry.Value;
 
+        foreach (var entry in GradingWindowMemos)
+            copy.GradingWindowMemos[entry.Key] = entry.Value;
+
         return copy;
     }
 
@@ -145,6 +154,11 @@ internal sealed class TerrainRuntimeCache
             RemeshMemos[entry.Key] = entry.Value;
         source.RemeshMemos.Clear();
 
+        GradingWindowMemos.Clear();
+        foreach (var entry in source.GradingWindowMemos)
+            GradingWindowMemos[entry.Key] = entry.Value;
+        source.GradingWindowMemos.Clear();
+
         return displacedMeshes;
     }
 
@@ -166,6 +180,7 @@ internal sealed class TerrainRuntimeCache
         SmoothEntries.Clear();
         RetainingWallPlanEntries.Clear();
         RemeshMemos.Clear();
+        GradingWindowMemos.Clear();
         DisplayState = null;
         LastPreviewDuration = null;
         LastFinalDuration = null;
@@ -197,6 +212,9 @@ internal sealed class TerrainRuntimeCache
 
             foreach (string stageKey in RemeshMemos.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
                 RemeshMemos.Remove(stageKey);
+
+            foreach (string stageKey in GradingWindowMemos.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal)).ToList())
+                GradingWindowMemos.Remove(stageKey);
             return;
         }
 
@@ -219,6 +237,9 @@ internal sealed class TerrainRuntimeCache
 
         foreach (string stageKey in RemeshMemos.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
             RemeshMemos.Remove(stageKey);
+
+        foreach (string stageKey in GradingWindowMemos.Keys.Where(key => key.StartsWith(stagePrefix, StringComparison.Ordinal) && !usedStageKeys.Contains(key)).ToList())
+            GradingWindowMemos.Remove(stageKey);
     }
 
     /// <summary>

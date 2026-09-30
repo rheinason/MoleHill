@@ -210,19 +210,22 @@ internal sealed partial class TerrainBuildService
         {
             ThrowIfCancellationRequested(shouldCancel);
             var topologyDiagnostics = new List<string>();
-            var gradeResult = PadGrader.Grade(
+            var gradeResult = GradePadsWindowed(
                 vertices,
                 vertexCount,
                 faces,
                 faceCount,
                 resolvedInputs.Pads,
-                effectiveLocks.Length > 0 ? effectiveLocks : null,
-                out var gradeWarning,
-                out IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> failureOutputPolylines,
-                out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics,
+                effectiveLocks,
+                build.PersistentHardConstraints,
                 gradePadTolerance,
                 toleranceProfile.DetailSize,
-                build.PersistentHardConstraints);
+                runtimeCache,
+                stageKey,
+                topologyDiagnostics,
+                out var gradeWarning,
+                out IReadOnlyList<MoleHill.Core.Grading.OutputPolyline> failureOutputPolylines,
+                out IReadOnlyList<GradingDiagnostic> failureStructuredDiagnostics);
             ThrowIfCancellationRequested(shouldCancel);
             runtimeCache.CoreCaseRecorder?.RecordPad(
                 modifier.Label,

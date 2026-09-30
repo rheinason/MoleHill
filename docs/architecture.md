@@ -1668,6 +1668,37 @@ of it, and the result does not depend on scheduling (`TiledIsotropicRemesherLoca
 `TiledIsotropicRemesherWallTests` pins walls and a curved crease; the global remesh is unchanged (hosted-perf
 hashes identical).
 
+### Grade Pad: windowed, and incremental (2026-09-30)
+
+`GradingWindows` grades each group of pads on the faces under its reach instead of on the whole terrain,
+so an edit away from the pads, or to one pad, re-grades only what it touches (the design doc's "windowed
+graders", which replace P2's splice). The Grade Pad stage calls `PadGrader.GradeWindowed`
+(`TerrainBuildService.GradingWindows.cs`); the grader itself is unchanged and simply sees a smaller mesh.
+
+- **Windows.** A pad's reach is its outline grown by its Max Distance, or, when that is 0, by
+  `GradingWindows.DaylightReach` (the distance its steepest height difference needs at its slopes), plus
+  a margin of twice the longest nearby edge. Pads whose reaches overlap share a window; faces are assigned
+  by bounding-box overlap, and a face two windows want merges them.
+- **No holes.** A window owns every face it encloses: a face whose three edges are all on the window's
+  rim, and every face inside an inner loop. A pocket one face wide, pinched to the rim at a vertex, was
+  otherwise re-filled by the grader with a face the terrain still had (three non-manifold edges behind a
+  Retaining Wall ring; `GradeWindowed_PocketPinchedToTheWindowRim_WeldsLikeTheWholeMesh`).
+- **Weld check, whole-mesh fallback.** A graded patch must keep, as boundary edges, every edge its window
+  shares with faces it does not own (edges on the terrain's own border are free to move, as in a whole
+  grade). If one does not, the stage grades the whole mesh and says so in the diagnostics. Patches are
+  stitched back by coordinates.
+- **Keyed like tiles.** Each window is extracted in canonical order and keyed by its faces, its pads, the
+  locks and hard constraints over it, and the settings; `TerrainRuntimeCache.GradingWindowMemos` reuses
+  an unchanged window exactly. Cold and incremental run the same windowed computation, so exactness needs
+  no argument about what a grader reads globally (its tier choice by face count, its grid sized by the
+  mesh's extent).
+
+On the 1 m park Grade Pad goes from about 19 s to 7.4 s cold, and a survey edit away from the pads reuses
+every window. What remains is whole-mesh plumbing around the windows (resolving constraints over every
+vertex, extraction and stitch, building the Rhino mesh), the floor the design's flat stage data removes.
+The park's paths form one connected group, so a bounding-box window for Grade Path would cover the whole
+park: windows there need a reach region shaped by distance to the centrelines, not a box.
+
 ### Interactive scale: what a warm edit costs as the terrain grows
 
 The realtime targets are stated as input-to-visible budgets, but nothing had measured how much of one

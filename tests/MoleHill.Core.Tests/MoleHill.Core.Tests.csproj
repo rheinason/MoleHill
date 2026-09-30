@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="TestData\*.json" />
+    <EmbeddedResource Include="TestData\*.bin" />
   </ItemGroup>
 </Project>
 
