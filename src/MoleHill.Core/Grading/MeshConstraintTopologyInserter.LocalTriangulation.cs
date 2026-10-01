@@ -223,9 +223,13 @@ internal static partial class MeshConstraintTopologyInserter
         TriangleNetExtractor.Result extracted;
         try
         {
+            // Not Convex: Triangle carves away everything outside the patch boundary segments itself. Keeping the
+            // convex hull and locating centroids let micrometre-wide fillers between near-collinear boundary
+            // edges through (the face grid's barycentric slop is millimetres on a 48 m sliver), and the area
+            // check then refused every rail beside a plain-Delaunay hull fan.
             extracted = TriangleNetExtractor.Extract(TriangulationHelper.TriangulatePolygon(
                 polygon,
-                new TriangleNet.Meshing.ConstraintOptions { Convex = true, ConformingDelaunay = false }));
+                new TriangleNet.Meshing.ConstraintOptions { Convex = false, ConformingDelaunay = false }));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException && ex is not OperationCanceledException)
         {
@@ -233,7 +237,8 @@ internal static partial class MeshConstraintTopologyInserter
             return false;
         }
 
-        // Keep the triangles inside the patch; the convex hull fills its concavities too.
+        // Keep the triangles inside the patch: carving only reaches in from the outside, so a hole in the patch
+        // (a face it surrounds but does not contain) is still filled and must be dropped here.
         var patchFaces = new int[patch.Count * 3];
         for (int i = 0; i < patch.Count; i++)
         {

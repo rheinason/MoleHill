@@ -202,6 +202,14 @@ internal static partial class MeshConstraintTopologyInserter
             return index;
         }
 
+        /// <summary>Twice the plan area of the triangle on three resolved vertices.</summary>
+        public double ProjectedCross(int a, int b, int c)
+        {
+            double ax = _vertices[a * 3], ay = _vertices[(a * 3) + 1];
+            return Math.Abs(((_vertices[b * 3] - ax) * (_vertices[(c * 3) + 1] - ay)) -
+                            ((_vertices[(b * 3) + 1] - ay) * (_vertices[c * 3] - ax)));
+        }
+
         private bool TryFind(Point2D point, out int index)
         {
             long cellX = ToCell(point.X);
@@ -960,6 +968,13 @@ internal static partial class MeshConstraintTopologyInserter
             if (cross < tolerance * tolerance * 1e-3)
                 continue;
 
+            // Test again where the vertices actually land. A local point merged into a neighbour's vertex
+            // can move onto this face's own edge: in a sliver whose two edges pass within tolerance of one
+            // crossing, the triangle between the unsplit edge and that point has area here but none once
+            // resolved, and keeping it keeps an edge the neighbour split.
+            if (pointLookup.ProjectedCross(g0, g1, g2) < tolerance * tolerance * 1e-3)
+                continue;
+
             globalFaces.Add(g0);
             globalFaces.Add(g1);
             globalFaces.Add(g2);
@@ -1090,27 +1105,23 @@ internal static partial class MeshConstraintTopologyInserter
         AddUniqueEdgePoint(destination, new EdgePoint(edgeIndex, snapped), face, tolerance);
     }
 
+    /// <summary>
+    /// Records a split point on one edge of a face, once per edge. A point within tolerance of a split on a
+    /// <em>different</em> edge is still recorded: in a sliver face two edges can pass within tolerance of
+    /// one crossing, and the neighbour across each edge splits it there. Dropping either one leaves that
+    /// edge unsplit here and split next door, which is a non-conforming edge (used once on one side, three
+    /// times on the other) that rejects the whole insertion. Both records resolve to one local vertex.
+    /// </summary>
     private static void AddUniqueEdgePoint(List<EdgePoint> destination, EdgePoint candidate, FaceData face, double tolerance)
     {
         double toleranceSquared = tolerance * tolerance;
-        double vertexToleranceSquared = 4.0 * toleranceSquared;
         for (int i = 0; i < destination.Count; i++)
         {
             EdgePoint existing = destination[i];
-            if (DistanceSquared(existing.Point, candidate.Point) > toleranceSquared)
-                continue;
-
-            if (existing.EdgeIndex == candidate.EdgeIndex)
-                return;
-
-            for (int vertexIndex = 0; vertexIndex < 3; vertexIndex++)
+            if (existing.EdgeIndex == candidate.EdgeIndex &&
+                DistanceSquared(existing.Point, candidate.Point) <= toleranceSquared)
             {
-                Point2D vertex = face.GetVertex(vertexIndex);
-                if (DistanceSquared(existing.Point, vertex) <= vertexToleranceSquared &&
-                    DistanceSquared(candidate.Point, vertex) <= vertexToleranceSquared)
-                {
-                    return;
-                }
+                return;
             }
         }
 

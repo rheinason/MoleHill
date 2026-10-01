@@ -71,7 +71,7 @@ internal sealed partial class TerrainBuildService
         return false;
     }
 
-    private static void ApplyPreservedConstraintElevations(
+    internal static void ApplyPreservedConstraintElevations(
         double[] vertices,
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline> constraints,
         double tolerance)
@@ -103,12 +103,15 @@ internal sealed partial class TerrainBuildService
             if (!constraint.PreserveInputElevation || constraint.PointCount < 2)
                 continue;
 
-            for (int pointIndex = 1; pointIndex < constraint.PointCount; pointIndex++)
+            // A closed constraint's last segment runs back to its first point; without it, every vertex
+            // on that side of a closed wall rail kept the terrain's height instead of the rail's.
+            int segmentCount = constraint.IsClosed && constraint.PointCount > 2 ? constraint.PointCount : constraint.PointCount - 1;
+            for (int segment = 0; segment < segmentCount; segment++)
             {
                 if (!TryProjectToConstraintSegment(
                         constraint,
-                        pointIndex - 1,
-                        pointIndex,
+                        segment,
+                        (segment + 1) % constraint.PointCount,
                         x,
                         y,
                         bestDistanceSquared,
