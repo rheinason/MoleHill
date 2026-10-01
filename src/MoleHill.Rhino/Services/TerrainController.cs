@@ -23,10 +23,6 @@ internal sealed partial class TerrainController
     private const int MinorTimingDiagnosticThresholdMs = 100;
     private const int TotalTimingDiagnosticThresholdMs = 750;
     private const int LiveEditSaveDebounceMs = 400;
-    private const double PreviewWarningThresholdSeconds = 1.5;
-    private const double FinalWarningThresholdSeconds = 5.0;
-    private const int PreviewWarningFaceThreshold = 20_000;
-    private const int FinalWarningFaceThreshold = 40_000;
     private static readonly TimeSpan ShutdownWorkerDrainTimeout = TimeSpan.FromSeconds(2);
     private const string AddMissingBlockAttributeKeysCommand = "_AddMissingBlockAttributeKeys _Enter";
     private const string AddMissingBlockAttributeKeysAllInstancesCommand = "_AddMissingBlockAttributeKeys _AllBlockInstances=_Yes _Enter";

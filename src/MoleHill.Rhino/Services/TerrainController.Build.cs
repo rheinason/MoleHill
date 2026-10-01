@@ -228,39 +228,18 @@ internal sealed partial class TerrainController
         TerrainBuildMode mode,
         out string? warning)
     {
-        warning = null;
-        if (!terrain.ShowSlowBuildWarning)
-            return false;
-
-        TimeSpan? priorDuration = mode == TerrainBuildMode.Preview
-            ? runtimeCache.LastPreviewDuration
-            : runtimeCache.LastFinalDuration;
-        double thresholdSeconds = mode == TerrainBuildMode.Preview
-            ? PreviewWarningThresholdSeconds
-            : FinalWarningThresholdSeconds;
-        if (priorDuration.HasValue && priorDuration.Value.TotalSeconds >= thresholdSeconds)
-        {
-            warning = mode == TerrainBuildMode.Preview
-                ? $"The last preview for this terrain took {priorDuration.Value.TotalSeconds:0.##} s. Continue with another live preview?"
-                : $"The last exact rebuild for this terrain took {priorDuration.Value.TotalSeconds:0.##} s. Continue with another full rebuild?";
-            return true;
-        }
-
         Mesh? mesh = runtimeCache.DisplayState?.TerrainMesh;
-        if (mesh == null)
-            return false;
-
         bool hasExpensiveModifier = terrain.Modifiers.Any(static modifier =>
             modifier.IsEnabled &&
             modifier is RemeshModifierDefinition or GradePadModifierDefinition or GradePathModifierDefinition or RetainingWallModifierDefinition or InSituStairModifierDefinition);
-        int faceThreshold = mode == TerrainBuildMode.Preview ? PreviewWarningFaceThreshold : FinalWarningFaceThreshold;
-        if (!hasExpensiveModifier || mesh.Faces.Count < faceThreshold)
-            return false;
-
-        warning = mode == TerrainBuildMode.Preview
-            ? $"This terrain currently has {mesh.Vertices.Count:N0} verts and {mesh.Faces.Count:N0} faces with expensive live modifiers enabled. Preview may take a while. Continue?"
-            : $"This terrain currently has {mesh.Vertices.Count:N0} verts and {mesh.Faces.Count:N0} faces with expensive modifiers enabled. The exact rebuild may take a while. Continue?";
-        return true;
+        return TerrainSlowBuildWarningPolicy.ShouldWarn(
+            terrain.ShowSlowBuildWarning,
+            mode,
+            mode == TerrainBuildMode.Preview ? runtimeCache.LastPreviewDuration : runtimeCache.LastFinalDuration,
+            mesh?.Faces.Count,
+            mesh?.Vertices.Count ?? 0,
+            hasExpensiveModifier,
+            out warning);
     }
 
     private void StartBackgroundBuild(
