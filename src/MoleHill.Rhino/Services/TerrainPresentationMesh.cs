@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using MoleHill.Core.Engine;
 using Rhino;
 using Rhino.Geometry;
 
@@ -87,6 +88,12 @@ internal static class TerrainPresentationMesh
             Mesh? copy = null;
             try
             {
+                if (TryCreateFromArrays(mesh, out Mesh? fromArrays))
+                {
+                    ShadingCopies.Add(mesh, fromArrays);
+                    return fromArrays;
+                }
+
                 copy = mesh.DuplicateMesh();
                 if (copy == null) return mesh;
                 if (!TryUnweldWallSeams(copy))
@@ -106,6 +113,58 @@ internal static class TerrainPresentationMesh
                 return mesh;
             }
         }
+    }
+
+    /// <summary>
+    /// The shading copy built from the mesh's flat arrays by <see cref="ShadingSeamSplitter"/>, without
+    /// Rhino's edge topology: that cost 33 of 44 ms on a 100,911-face terrain, on the UI thread at the first
+    /// draw after every edit, and usually found no seam. Returns false (the caller falls back to the Rhino
+    /// route) for a mesh the arrays do not describe one-to-one: quads, or no vertex normals.
+    /// </summary>
+    private static bool TryCreateFromArrays(Mesh mesh, out Mesh result)
+    {
+        result = mesh;
+        if (mesh.Faces.QuadCount > 0 || mesh.Normals.Count != mesh.Vertices.Count)
+            return false;
+
+        ExtractedMeshData data = RhinoGeometryConversions.GetNormalizedMeshData(mesh);
+        if (data.VertexCount != mesh.Vertices.Count || data.FaceCount != mesh.Faces.Count)
+            return false;
+
+        ShadingSeamSplitter.Result? split = ShadingSeamSplitter.Split(
+            data.Vertices,
+            data.VertexCount,
+            data.Faces,
+            data.FaceCount,
+            mesh.Normals.ToFloatArray(),
+            WallFaceMinSlopeDegrees,
+            MitreCreaseAngleDegrees);
+        if (split == null)
+            return true;
+
+        Mesh copy = mesh.DuplicateMesh();
+        bool colored = copy.VertexColors.Count == copy.Vertices.Count;
+        foreach (int source in split.SourceVertexOfCopy)
+        {
+            copy.Vertices.Add(mesh.Vertices.Point3dAt(source));
+            if (colored)
+                copy.VertexColors.Add(mesh.VertexColors[source]);
+        }
+
+        for (int t = 0; t < data.FaceCount; t++)
+        {
+            int a = split.Faces[t * 3], b = split.Faces[t * 3 + 1], c = split.Faces[t * 3 + 2];
+            if (a != data.Faces[t * 3] || b != data.Faces[t * 3 + 1] || c != data.Faces[t * 3 + 2])
+                copy.Faces.SetFace(t, a, b, c);
+        }
+
+        copy.Normals.Clear();
+        var normals = new Vector3f[split.Normals.Length / 3];
+        for (int i = 0; i < normals.Length; i++)
+            normals[i] = new Vector3f(split.Normals[i * 3], split.Normals[i * 3 + 1], split.Normals[i * 3 + 2]);
+        copy.Normals.AddRange(normals);
+        result = copy;
+        return true;
     }
 
     /// <summary>

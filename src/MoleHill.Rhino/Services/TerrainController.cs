@@ -56,6 +56,14 @@ internal sealed partial class TerrainController
 
     public event EventHandler? StateChanged;
 
+    /// <summary>
+    /// Only the build status changed (a rebuild was scheduled for an unchanged definition, or one started):
+    /// nothing a card shows. A listener refreshes its status line, not its cards. Measured 2026-10-01, the
+    /// panel's full refresh on build start relaid out the card stack for 45 ms on the UI thread while a
+    /// 10 ms rebuild finished behind it, and the finished terrain waited for it.
+    /// </summary>
+    public event EventHandler? StatusChanged;
+
     public void Initialize()
     {
         if (_initialized)

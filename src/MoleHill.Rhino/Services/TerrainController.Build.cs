@@ -17,7 +17,9 @@ internal sealed partial class TerrainController
     /// </summary>
     private const double BuildWakeIntervalSeconds = 0.015;
 
-    private void ScheduleRebuild(RhinoDoc doc, Guid terrainId, bool notify = true)
+    /// <param name="statusOnly">The definition did not change, only that a rebuild is coming: tell listeners
+    /// through <see cref="StatusChanged"/>, so the panel does not relay its cards out for it.</param>
+    private void ScheduleRebuild(RhinoDoc doc, Guid terrainId, bool notify = true, bool statusOnly = false)
     {
         if (!ModelUnitGuard.TryGet(doc, out _, report: false))
             return;
@@ -42,7 +44,9 @@ internal sealed partial class TerrainController
             terrain.LastBuildMessage = GetRebuildState(doc.RuntimeSerialNumber, terrainId).IsBuilding
                 ? $"Queued rebuild #{requestedVersion:N0}; current build will stop at the next safe checkpoint."
                 : $"Scheduled rebuild #{requestedVersion:N0}.";
-        if (notify)
+        if (notify && statusOnly)
+            RaiseStatusChanged();
+        else if (notify)
             RaiseStateChanged();
     }
 
@@ -264,7 +268,7 @@ internal sealed partial class TerrainController
         }
         terrain.LastBuildMessage = $"{(mode == TerrainBuildMode.Preview ? "Preview" : "Build")} #{buildVersion:N0}: snapshot starting...";
         WriteBuildStarted(terrain, mode, buildVersion);
-        RaiseStateChanged();
+        RaiseStatusChanged();
         var latency = new TerrainLatencyScope(
             doc.RuntimeSerialNumber,
             terrain.TerrainId,
@@ -381,7 +385,7 @@ internal sealed partial class TerrainController
         terrain.LastBuildMessage = mode == TerrainBuildMode.Preview
             ? $"Previewing terrain #{buildVersion:N0}..."
             : $"Building terrain #{buildVersion:N0}...";
-        RaiseStateChanged();
+        RaiseStatusChanged();
     }
 
     private bool BuildTerrainSynchronously(

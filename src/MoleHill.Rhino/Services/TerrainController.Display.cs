@@ -646,6 +646,8 @@ internal sealed partial class TerrainController
 
     private void RaiseStateChanged() => StateChanged?.Invoke(this, EventArgs.Empty);
 
+    private void RaiseStatusChanged() => StatusChanged?.Invoke(this, EventArgs.Empty);
+
     private void ApplyOwnedDisplayMaterials(RhinoDoc doc, TerrainDefinition terrain)
     {
         foreach (var objectId in AllOwnedIds(terrain).Distinct())
