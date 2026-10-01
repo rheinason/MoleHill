@@ -176,7 +176,7 @@ internal static class UiControls
 
     public static Label HelpLabel(string text, string help, int width = 0)
     {
-        var label = Label(text);
+        var label = Label(text, wrap: WrapMode.Word);
         if (width > 0)
             label.Width = width;
         label.ToolTip = help;
