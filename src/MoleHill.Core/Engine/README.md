@@ -1,4 +1,4 @@
-# MoleHill.Core/Engine
+﻿# MoleHill.Core/Engine
 
 Triangulation core — turning a point cloud + constraints into a TIN mesh. Pure (no Rhino), unit-tested.
 See `docs/architecture.md` for how this fits the pipeline; `docs/file-index.md` for every file.
@@ -17,6 +17,10 @@ Key files:
   re-sort, unused and degenerate culls, winding check) reproduced on flat arrays. The Rhino host builds
   stage meshes through it and hands on the exact arrays Rhino would have produced. Verified against
   RhinoCommon by `NormalizeEquivalenceProbe`; see `docs/architecture.md`, "Stage meshes without Rhino's normalization".
+- `ShadingSeamSplitter.cs` - finds wall shading seams (wall face against non-wall, or a sharp mitre
+  between walls) on flat arrays and gives each side of a seam vertex its own copy and normal (the
+  unweighted mean of its unit face normals, as Rhino computes one). Used by the Rhino host's
+  `TerrainPresentationMesh` instead of Rhino's edge topology.
 - `FeaturePolylineGraph.cs` protects full subdivided constraint chains through actual CSR mesh adjacency,
   not consecutive vertices in a proximity-sorted list. Constraint queries use mesh-sized spatial cells
   and switch to a bounded vertex scan for long off-mesh runs.

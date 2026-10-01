@@ -655,6 +655,8 @@ internal sealed partial class TerrainController
     {
         TerrainBuildResult build = result.Build!;
         TerrainLatencyScope latency = LatencyScopeFor(doc, terrain, result);
+        // The first final mesh enables cards elsewhere that compare against this terrain.
+        bool firstFinal = result.Mode == TerrainBuildMode.Final && rebuildState.AppliedVersion == 0;
         build.RecordTiming("Snapshot build", result.SnapshotElapsed, $"{result.SnapshotTerrain.Modifiers.Count:N0} modifiers", MinorTimingDiagnosticThresholdMs);
         build.RecordTiming("Worker cache clone", result.WorkerCacheCloneElapsed, null, MinorTimingDiagnosticThresholdMs);
 
@@ -714,7 +716,7 @@ internal sealed partial class TerrainController
                 : string.Join(System.Environment.NewLine, build.Diagnostics.Take(8));
 
             var saveTimer = Stopwatch.StartNew();
-            Save(doc, state);
+            Save(doc, state, raiseStateChanged: false);
             saveTimer.Stop();
             latency.Mark(TerrainLatencyPhase.SaveEnd);
             build.RecordTiming("Document save", saveTimer.Elapsed, $"{state.Terrains.Count:N0} terrains", MinorTimingDiagnosticThresholdMs);
@@ -781,7 +783,41 @@ internal sealed partial class TerrainController
 
         latency.Mark(TerrainLatencyPhase.Closed, "applied");
         WriteBuildFinished(terrain, result.Mode, result.Version, commandElapsed);
-        RaiseStateChanged();
+        string? cardResults = TryComputeCardResultSignature(doc, terrain);
+        bool cardsUnchanged = !firstFinal && cardResults != null && cardResults == runtimeCache.LastCardResultSignature;
+        runtimeCache.LastCardResultSignature = cardResults;
+        if (cardsUnchanged)
+            RaiseStatusChanged();
+        else
+            RaiseStateChanged();
+    }
+
+    /// <summary>
+    /// What the cards show of this terrain's build results (see <see cref="TerrainCardResultSignature"/>);
+    /// null when it cannot be computed, which callers treat as changed.
+    /// </summary>
+    private string? TryComputeCardResultSignature(RhinoDoc doc, TerrainDefinition terrain)
+    {
+        try
+        {
+            TerrainDisplayState? displayState = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).DisplayState;
+            var diagnostics = displayState?.RuntimeOverlays
+                .Where(item => item.Channel == RuntimeOverlayChannel.Diagnostic)
+                .Select(item => (item.Owner, item.Severity))
+                ?? Enumerable.Empty<(RuntimeOverlayOwner, RuntimeOverlaySeverity)>();
+            var warnings = terrain.Modifiers
+                .Where(modifier => modifier is SmoothModifierDefinition or SculptModifierDefinition)
+                .Select(modifier => (modifier.Id, GetModifierMeshQualityWarning(doc, terrain.TerrainId, modifier.Id)));
+            return TerrainCardResultSignature.Compute(
+                terrain,
+                GetZoneAnalysisResults(doc, terrain.TerrainId),
+                diagnostics,
+                warnings);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     private static string FormatBuildMessage(

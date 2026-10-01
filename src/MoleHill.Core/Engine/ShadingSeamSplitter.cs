@@ -1,4 +1,4 @@
-namespace MoleHill.Core.Engine;
+﻿namespace MoleHill.Core.Engine;
 
 /// <summary>
 /// Splits a terrain's vertices along wall seams so each side shades with its own normal (the Rhino host's
@@ -31,8 +31,13 @@ public static class ShadingSeamSplitter
     /// <paramref name="wallMinSlopeDegrees"/> is a wall; a seam is an edge between a wall and a non-wall face,
     /// or between two walls creased beyond <paramref name="mitreCreaseDegrees"/>. Normals of vertices not on a
     /// seam are taken from <paramref name="vertexNormals"/>; each shading group of a seam vertex gets the
-    /// area-weighted normal of its own faces.
+    /// mean of its own faces' unit normals.
     /// </summary>
+    /// <remarks>
+    /// Unweighted, as Rhino computes a vertex normal. Weighting by area was measured live to tilt the flat
+    /// ground beside a wall by 30–37°: one large face just under the wall slope shares the ground's group
+    /// and outweighed the small flat faces around it.
+    /// </remarks>
     public static Result? Split(
         double[] vertices,
         int vertexCount,
@@ -45,7 +50,7 @@ public static class ShadingSeamSplitter
         if (faceCount == 0)
             return null;
 
-        // Face normals (area-weighted, i.e. unnormalized) and the wall flag.
+        // Face normals (unnormalized, so their length is twice the area) and the wall flag.
         var areaNormals = new double[faceCount * 3];
         var isWall = new bool[faceCount];
         double wallLimit = Math.Cos(wallMinSlopeDegrees * Math.PI / 180.0);
@@ -161,9 +166,13 @@ public static class ShadingSeamSplitter
             var sums = new double[groupCount * 3];
             foreach ((int t, int g) in groupOf)
             {
-                sums[g * 3] += areaNormals[t * 3];
-                sums[g * 3 + 1] += areaNormals[t * 3 + 1];
-                sums[g * 3 + 2] += areaNormals[t * 3 + 2];
+                double nx = areaNormals[t * 3], ny = areaNormals[t * 3 + 1], nz = areaNormals[t * 3 + 2];
+                double length = Math.Sqrt((nx * nx) + (ny * ny) + (nz * nz));
+                if (length <= 0)
+                    continue;
+                sums[g * 3] += nx / length;
+                sums[g * 3 + 1] += ny / length;
+                sums[g * 3 + 2] += nz / length;
             }
 
             var indexOfGroup = new int[groupCount];

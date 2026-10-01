@@ -1,4 +1,4 @@
-# MoleHill.Rhino/UI
+﻿# MoleHill.Rhino/UI
 
 The dockable terrain panel (Eto.Forms) and its dialogs. Composes reusable card/editor primitives - add
 fields by composing them, not by copying boilerplate.
@@ -81,6 +81,10 @@ fields by composing them, not by copying boilerplate.
   Rebuilding all of them on every mutation was four fifths wasted work, and card rebuilds are the
   expensive part of a refresh. The rebuild also restores the scrollable's position, so editing something
   below the fold no longer throws you back to the top of the list.
+- **Status changes do not rebuild cards.** The controller raises `StatusChanged` when only the build
+  status moved (an object edit scheduling a rebuild, build start, progress, mid-edit frames, and a
+  finished build whose card results are unchanged); `HandleControllerStatusChanged` updates the status
+  line alone. A full relayout cost 45-66 ms on a 100k-face terrain's wall edit, on the UI thread.
 - `UiMetrics.cs` and `UiControls.cs` - the panel design-system foundation. `UiMetrics` combines
   active-font measurement with semantic spacing, height, icon, card, and breakpoint tokens;
   `UiControls` owns the native-first button/label/input roles and standard card/form layouts. Choose a

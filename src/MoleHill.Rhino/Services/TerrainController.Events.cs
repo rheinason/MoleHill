@@ -1,4 +1,4 @@
-using MoleHill.Rhino.Model;
+﻿using MoleHill.Rhino.Model;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.DocObjects.Tables;
@@ -372,8 +372,9 @@ internal sealed partial class TerrainController
             changed = true;
         }
 
+        // A progress message is status text: the cards show nothing that moves with it.
         if (changed)
-            RaiseStateChanged();
+            RaiseStatusChanged();
     }
 
     private void ProcessPendingBlockAttributeKeyRepairs()

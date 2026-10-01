@@ -1,4 +1,4 @@
-using MoleHill.Rhino.Model;
+﻿using MoleHill.Rhino.Model;
 using Rhino;
 
 namespace MoleHill.Rhino.Services;
@@ -54,7 +54,10 @@ internal sealed partial class TerrainController
         }
 
         RemovePendingDocumentSave(doc.RuntimeSerialNumber);
-        _documentStore.Save(doc, state.Terrains);
+        // Writing the document strings raises DocumentPropertiesChanged, which would echo back as a full
+        // panel refresh (twice: the backup entry and the terrain entry). The caller already decides that.
+        using (new EventSuppression(this))
+            _documentStore.Save(doc, state.Terrains);
         if (raiseStateChanged)
             RaiseStateChanged();
     }

@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Rhino.Model;
@@ -60,6 +60,13 @@ internal sealed class TerrainRuntimeCache
     public TimeSpan? LastPreviewDuration { get; set; }
 
     public TimeSpan? LastFinalDuration { get; set; }
+
+    /// <summary>
+    /// What the cards showed of this terrain's results after the last applied build
+    /// (<see cref="TerrainCardResultSignature"/>); null until a build is applied. Mid-edit frames do not
+    /// touch the cards, so a finished build compares against this rather than against them.
+    /// </summary>
+    public string? LastCardResultSignature { get; set; }
 
     /// <summary>
     /// The longest any final build in this session has spent on dependent outputs after its mesh was
@@ -184,6 +191,7 @@ internal sealed class TerrainRuntimeCache
         DisplayState = null;
         LastPreviewDuration = null;
         LastFinalDuration = null;
+        LastCardResultSignature = null;
         PeakDependentOutputsDuration = null;
         LastFinalMeshFingerprint = 0;
         TinEngine.InvalidateCache();

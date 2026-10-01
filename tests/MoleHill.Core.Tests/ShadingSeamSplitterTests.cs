@@ -1,4 +1,4 @@
-using MoleHill.Core.Engine;
+﻿using MoleHill.Core.Engine;
 using Xunit;
 
 namespace MoleHill.Core.Tests;
@@ -60,7 +60,47 @@ public class ShadingSeamSplitterTests
         }
 
         // Every ground face corner on a rail keeps an upward normal.
-        foreach (int t in new[] { 0, 1, 4, 5 })
+        AssertGroundCornersUp(split, new[] { 0, 1, 4, 5 });
+    }
+
+    /// <summary>
+    /// A seam vertex's ground group holds a tiny flat face and a large 40° face. Its normal is the mean of
+    /// the two unit normals, as Rhino computes it, not an area-weighted mean that the large face would
+    /// dominate: found live, where that tilted flat ground beside a wall by 30–37°.
+    /// </summary>
+    [Fact]
+    public void Split_GroupNormal_IsTheUnweightedMeanOfItsFaces()
+    {
+        double[] v =
+        {
+            0, 0, 0,          // 0: seam vertex on the wall toe
+            0, 1, 0,          // 1: toe
+            0, 0, 1,          // 2: wall top
+            0, 1, 1,          // 3: wall top
+            -0.1, 0.5, 0,     // 4: tiny flat ground face
+            -5, -5, 5         // 5: large 40° ground face
+        };
+        int[] f =
+        {
+            0, 1, 4,          // flat ground (area 0.05), first so the ground keeps vertex 0
+            0, 4, 5,          // 40° ground (area ~2)
+            0, 1, 3,          // wall
+            0, 3, 2           // wall
+        };
+
+        ShadingSeamSplitter.Result? split = ShadingSeamSplitter.Split(v, 6, f, 4, UpNormals(6), 70, 70);
+
+        Assert.NotNull(split);
+        double ex = 2.5 / Math.Sqrt(15.5), ey = 0.5 / Math.Sqrt(15.5), ez = (3.0 / Math.Sqrt(15.5)) + 1.0;
+        double el = Math.Sqrt((ex * ex) + (ey * ey) + (ez * ez));
+        Assert.Equal(ex / el, split!.Normals[0], 4);
+        Assert.Equal(ey / el, split.Normals[1], 4);
+        Assert.Equal(ez / el, split.Normals[2], 4);
+    }
+
+    private static void AssertGroundCornersUp(ShadingSeamSplitter.Result split, int[] groundFaces)
+    {
+        foreach (int t in groundFaces)
         {
             for (int k = 0; k < 3; k++)
             {
