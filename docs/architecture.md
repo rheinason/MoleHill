@@ -1782,6 +1782,11 @@ input-to-visible target on evaluation time. The reach index sizes its grid to at
 Sized by reach alone, a narrow rail over a small terrain asked for millions of empty cells: 17 ms on 2,700
 faces, where the whole insertion had taken 2.
 
+When one rail's reach already covers the whole terrain (`GradingWindows.AnyReachCoversAll`), windowing can
+only make one window of everything, so the stage goes straight to the whole-mesh insertion. On a contour TIN
+whose faces are tens of metres long, even two vertex rings around a wall reach 20 to 225 m, and a 24-wall
+edit spent about 150 ms of 400 assigning, keying and stitching that single window (2026-10-02).
+
 On the 1 m park, Grade Pad goes from about 19 s to 8 s cold, and Grade Path from 27 s to 17 s cold, with
 the road network split into 7 windows. A survey edit away from the roads and pads reuses every window,
 and the whole edit takes 54 s instead of 76 s. A pad slope edit re-grades the pads and only the road

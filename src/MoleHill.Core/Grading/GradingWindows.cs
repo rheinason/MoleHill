@@ -273,6 +273,50 @@ public static class GradingWindows
         return grown;
     }
 
+    /// <summary>
+    /// True when some item's reach contains every vertex, so windowing would make one window of the whole
+    /// mesh. Exact but conservative: the distance to an item is at most the distance to its first segment,
+    /// which is convex, so a reach covering the bounding box's corners from that segment covers the box.
+    /// </summary>
+    public static bool AnyReachCoversAll(double[] v, int vertexCount, IReadOnlyList<Reach> reach)
+    {
+        if (vertexCount == 0)
+            return false;
+
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        for (int i = 0; i < vertexCount; i++)
+        {
+            minX = Math.Min(minX, v[i * 3]);
+            maxX = Math.Max(maxX, v[i * 3]);
+            minY = Math.Min(minY, v[i * 3 + 1]);
+            maxY = Math.Max(maxY, v[i * 3 + 1]);
+        }
+
+        foreach (Reach item in reach)
+        {
+            if (item.Count == 0 || item.Radius <= 0)
+                continue;
+
+            double ax = item.Xy[0], ay = item.Xy[1];
+            double bx = item.Count > 1 ? item.Xy[2] : ax, by = item.Count > 1 ? item.Xy[3] : ay;
+            double worst = Math.Max(
+                Math.Max(PointSegment(minX, minY), PointSegment(maxX, minY)),
+                Math.Max(PointSegment(maxX, maxY), PointSegment(minX, maxY)));
+            if (worst <= item.Radius)
+                return true;
+
+            double PointSegment(double px, double py)
+            {
+                double dx = bx - ax, dy = by - ay;
+                double lengthSquared = (dx * dx) + (dy * dy);
+                double t = lengthSquared <= 0 ? 0 : Math.Clamp((((px - ax) * dx) + ((py - ay) * dy)) / lengthSquared, 0.0, 1.0);
+                return Math.Sqrt(Dist2(px, py, ax + (dx * t), ay + (dy * t)));
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Per item, the longest plan extent of the faces within its reach (0 when it reaches none).</summary>
     public static double[] LongestFaceWithin(double[] v, int[] faces, int faceCount, IReadOnlyList<Reach> reach)
     {

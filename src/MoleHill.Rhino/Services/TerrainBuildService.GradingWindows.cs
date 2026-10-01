@@ -104,6 +104,12 @@ internal sealed partial class TerrainBuildService
             rails[i] = rails[i] with { Radius = Math.Max(tolerance * 100.0, WallInsertRings * local[i]) };
         List<GradingWindows.Reach> reach = GradingWindows.WithMargins(vertices, faces, faceCount, rails, tolerance * 100.0);
 
+        // A rail whose reach covers the whole terrain makes one window of everything, and windowing it only
+        // adds assignment, keys and stitching: about 150 ms of a 400 ms wall edit on a contour TIN whose faces
+        // are tens of metres long. The whole-mesh insertion gives the same result, so hand over to it.
+        if (GradingWindows.AnyReachCoversAll(vertices, vertexCount, reach))
+            return false;
+
         IReadOnlyList<SurfaceRemesher.ConstraintPolyline>? qualityConstraints = useQualityPatch
             ? CombineConstraints(CombineConstraints(build.PersistentHardConstraints, build.PersistentElevationConstraints), wallConstraints)
             : null;
