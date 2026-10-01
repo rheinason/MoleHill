@@ -3,6 +3,28 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.2.0-beta — 2026-10-02
+
+A beta that makes terrains built from contours and snapped breaklines hold their lines, and makes retaining
+walls insert into them reliably.
+
+**Terrain**
+- A breakline drawn to end on another no longer drops the whole terrain to plain Delaunay. One such junction
+  used to make Triangulate ignore every breakline and contour and fill the site with long slivers; the
+  junction is now split exactly. When Triangulate does have to fall back, its message says why.
+
+**Retaining walls**
+- Walls insert into terrains with long, thin triangles. A 24-wall case that inserted none of its walls, and
+  so left them standing on unchanged ground, now inserts all of them.
+- A closed ring wall follows its rail height on every side; the side closing the ring kept the ground's height.
+- Wall edits on coarse contour terrains are about a quarter faster.
+
+**Editing**
+- The panel refreshes only when a finished build changed what the cards show, and only the status line
+  updates while a rebuild is pending. A 100k-face wall edit evaluates in 27 ms instead of 40.
+- The rebuild prompt for slow terrains appears only once a terrain has been measured slow.
+- Long property labels wrap instead of being clipped.
+
 ## 1.1.0-beta — 2026-10-01
 
 A beta for large terrains: edits now cost in proportion to what they change, not to the size of the site.
