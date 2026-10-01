@@ -2216,6 +2216,32 @@ maximum wall width, so the wall card rejected the pair and the "10 ms geometry" 
 triangulation. With rails 0.8 apart the wall inserts and geometry is 73-76 ms. That is the windowed rail
 insertion, and it is now nearly all of what is left on this terrain.
 
+### A wall edit on 100k faces: 40 -> 27 ms (2026-10-01)
+
+With the panel and the modal out of the way, a rail edit on the interactive lane's 100k-face fixture was
+40 ms of worker time, 33 of it `Retaining Wall Topology Insert`. `WallInsertProbe` (validation-lanes.md)
+plus `dotnet-trace` on the slot split it: the window's own rail insertion ~12 ms, building the result's
+Rhino mesh ~11 ms, and three whole-terrain passes in `GradingWindows` (stitch 7 ms, interface edges 5 ms,
+face assignment 3 ms). Three changes, every lane output mesh hash unchanged:
+
+- **`RhinoGeometryConversions.BuildMesh` fills the mesh through `MeshUnsafeLock`** instead of one native call
+  per vertex and per face: 0.8 ms against 6.7 ms per 100k faces, in every stage that builds a mesh. It writes
+  both the float and the double-precision vertex arrays, because `Vertices.Add(double, double, double)` had
+  always switched double precision on; the probe's first comparison caught a float-only version dropping it.
+  `UseDoublePrecisionVertices` only takes once the list has vertices, so it is set after the resize. This is
+  the one `unsafe` block in the plug-in (`AllowUnsafeBlocks` on `MoleHill.Rhino` and its test project).
+- **`GradingWindows.Stitch` welds by coordinates only near the windows.** The input is normalized, so every
+  coordinate has one index, and a patch can only weld onto a vertex of a window face. Every other vertex maps
+  by index in first-use order, the order the dictionary gave it. `GradingWindowsStitchTests` holds the old
+  weld-everything stitch as the reference.
+- **`InterfaceEdges` skips faces without two corners on a window boundary** with array reads, rather than a
+  dictionary lookup per edge of the terrain.
+
+Hosted lane, plan-target warm edit: **39.6 -> 26.8 ms** (insert 33.0 -> 20.6 ms); large warm edit 24.1 ->
+17.4 ms; geometry-heavy pad edit 396 -> 367 ms. Left, per edit: Triangle.NET triangulating each face a rail
+crosses (~6-8 ms, one small polygon at a time), managed normalization of the stitched mesh (~2.5 ms) and
+`ComputeNormals`, and 2-3 ms each for face assignment, stitch and reach setup.
+
 ## Rhino: build-result ownership
 
 A background build runs against a *worker copy* of the terrain's runtime cache. The copy is shallow

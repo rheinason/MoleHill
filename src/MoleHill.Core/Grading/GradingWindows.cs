@@ -1,4 +1,4 @@
-using MoleHill.Core.Engine;
+﻿using MoleHill.Core.Engine;
 
 namespace MoleHill.Core.Grading;
 
@@ -1047,12 +1047,26 @@ public static class GradingWindows
         var result = new HashSet<EdgeKey>[memberFaces.Length];
         for (int w = 0; w < result.Length; w++)
             result[w] = new HashSet<EdgeKey>();
+
+        // Only a face with two corners on some window's boundary can hold one of its edges, so the scan
+        // over the whole terrain is three array reads per face rather than three dictionary lookups (5 of a
+        // 33 ms wall insertion on 100k faces).
+        var onBoundary = new bool[v.Length / 3];
+        foreach (long edge in boundaryOwner.Keys)
+        {
+            onBoundary[(int)(edge >> 32)] = true;
+            onBoundary[(int)(edge & 0xFFFFFFFFL)] = true;
+        }
+
         for (int f = 0; f < faceCount; f++)
         {
+            int c0 = faces[f * 3], c1 = faces[f * 3 + 1], c2 = faces[f * 3 + 2];
+            if ((onBoundary[c0] ? 1 : 0) + (onBoundary[c1] ? 1 : 0) + (onBoundary[c2] ? 1 : 0) < 2)
+                continue;
             for (int k = 0; k < 3; k++)
             {
                 int a = faces[f * 3 + k], b = faces[f * 3 + ((k + 1) % 3)];
-                if (boundaryOwner.TryGetValue(PackEdge(a, b), out int w) && owner[f] != w)
+                if (onBoundary[a] && onBoundary[b] && boundaryOwner.TryGetValue(PackEdge(a, b), out int w) && owner[f] != w)
                     result[w].Add(EdgeByCoordinates(v, a, b));
             }
         }
@@ -1104,7 +1118,14 @@ public static class GradingWindows
     /// The terrain with every window's faces replaced by its graded patch: the untouched faces in their
     /// order, then each window's patch in window order, welded at identical coordinates.
     /// </summary>
-    private static Outcome Stitch(
+    /// <remarks>
+    /// The input is a normalized mesh, so each coordinate has one index, and a patch can only weld onto a
+    /// vertex of a window face (its boundary is the window's). So only those vertices, and the patches' own,
+    /// are welded through the coordinate dictionary; every other vertex keeps its index in first-use order,
+    /// which is the order the dictionary would have given it. Welding every corner of the terrain through the
+    /// dictionary was 7 of a 33 ms wall insertion on 100k faces.
+    /// </remarks>
+    internal static Outcome Stitch(
         double[] vertices,
         int vertexCount,
         int[] faces,
@@ -1115,7 +1136,7 @@ public static class GradingWindows
     {
         var outV = new List<double>(vertexCount * 3);
         var outF = new List<int>(faceCount * 3);
-        var index = new Dictionary<(double, double, double), int>(vertexCount);
+        var index = new Dictionary<(double, double, double), int>();
         int Vertex(double x, double y, double z)
         {
             if (!index.TryGetValue((x, y, z), out int i))
@@ -1130,15 +1151,49 @@ public static class GradingWindows
             return i;
         }
 
+        var nearWindow = new bool[vertexCount];
+        foreach ((_, int[] windowFaces, _) in outputs)
+        {
+            if (windowFaces == null)
+                continue;
+            foreach (int f in windowFaces)
+            {
+                nearWindow[faces[f * 3]] = true;
+                nearWindow[faces[f * 3 + 1]] = true;
+                nearWindow[faces[f * 3 + 2]] = true;
+            }
+        }
+
+        var remap = new int[vertexCount];
+        Array.Fill(remap, -1);
+        int Input(int g)
+        {
+            int i = remap[g];
+            if (i >= 0)
+                return i;
+            if (nearWindow[g])
+            {
+                i = Vertex(vertices[g * 3], vertices[g * 3 + 1], vertices[g * 3 + 2]);
+            }
+            else
+            {
+                i = outV.Count / 3;
+                outV.Add(vertices[g * 3]);
+                outV.Add(vertices[g * 3 + 1]);
+                outV.Add(vertices[g * 3 + 2]);
+            }
+
+            remap[g] = i;
+            return i;
+        }
+
         for (int f = 0; f < faceCount; f++)
         {
             if (owner[f] >= 0)
                 continue;
-            for (int k = 0; k < 3; k++)
-            {
-                int g = faces[f * 3 + k];
-                outF.Add(Vertex(vertices[g * 3], vertices[g * 3 + 1], vertices[g * 3 + 2]));
-            }
+            outF.Add(Input(faces[f * 3]));
+            outF.Add(Input(faces[f * 3 + 1]));
+            outF.Add(Input(faces[f * 3 + 2]));
         }
 
         double cut = 0, fill = 0;
@@ -1163,11 +1218,9 @@ public static class GradingWindows
                 failureDiagnostics.AddRange(graded.FailureDiagnostics);
                 foreach (int f in windowFaces)
                 {
-                    for (int k = 0; k < 3; k++)
-                    {
-                        int g = faces[f * 3 + k];
-                        outF.Add(Vertex(vertices[g * 3], vertices[g * 3 + 1], vertices[g * 3 + 2]));
-                    }
+                    outF.Add(Input(faces[f * 3]));
+                    outF.Add(Input(faces[f * 3 + 1]));
+                    outF.Add(Input(faces[f * 3 + 2]));
                 }
 
                 continue;

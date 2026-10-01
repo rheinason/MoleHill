@@ -159,7 +159,7 @@ public static class InteractiveScaleBenchmark
         }
     }
 
-    private static void RaiseWall(Fixture fixture, double dz)
+    internal static void RaiseWall(Fixture fixture, double dz)
     {
         SourceReferenceSet set = fixture.Wall.WallCurves;
         List<ResolvedSourceObject> existing = fixture.Snapshot.SourceObjects[set];
@@ -177,7 +177,7 @@ public static class InteractiveScaleBenchmark
         fixture.Snapshot.SourceFingerprints[set] = fingerprint;
     }
 
-    private static Fixture CreateFixture(int side)
+    internal static Fixture CreateFixture(int side)
     {
         var triangulate = new TriangulateModifierDefinition
         {
@@ -257,7 +257,7 @@ public static class InteractiveScaleBenchmark
         };
     }
 
-    private sealed record Fixture(
+    internal sealed record Fixture(
         TerrainDefinition Terrain,
         TerrainBuildSnapshot Snapshot,
         RetainingWallModifierDefinition Wall);

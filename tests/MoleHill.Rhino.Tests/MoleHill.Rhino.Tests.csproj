@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+      <!-- One pointer write in RhinoGeometryConversions.FillMesh: adding faces one call at a time cost
+         ~5 ms per 100k-face mesh, in every stage that builds one. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

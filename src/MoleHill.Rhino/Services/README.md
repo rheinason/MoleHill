@@ -9,6 +9,8 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
   leaving computational topology welded. Wall classification uses `abs(normal.Z) <= cos(70°)`.
   Weak-key caching retains one copy per source; sculpt's `InvalidatePreviewBounds` invalidates stale copies.
   Seams are split on flat arrays by Core's `ShadingSeamSplitter`; `UnweldEdge` is the fallback.
+- `RhinoGeometryConversions.BuildMesh` writes vertex (float and double) and face arrays through
+  `MeshUnsafeLock` — the plug-in's only `unsafe` code — rather than one native call per element.
 - `TerrainSlowBuildWarningPolicy` decides whether to ask before a rebuild: a measured duration decides,
   and only an unmeasured terrain of 1,000,000+ faces with an expensive card is warned on size.
 - `TerrainCardResultSignature` fingerprints the build results the panel's cards show. A finished build
