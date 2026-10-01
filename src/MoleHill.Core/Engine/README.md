@@ -47,6 +47,8 @@ Key files:
   never an assumed metre/mm model. Spatial grids and projection use it so uniform unit scaling does not
   change lookup topology.
 - `TinEngine.cs` — the caching triangulation engine; `TinResult.cs` its output (flat XYZ + faces + edges).
+- `BreaklineTJunctions.cs` — splits a constraint segment at every vertex lying on it (a breakline ending
+  on another), which Triangle cannot insert and which otherwise drops the whole build to plain Delaunay.
 - `XxHash64Builder.cs` — deterministic 64-bit streaming fingerprints for `InputSnapshot` and staged
   Rhino cache keys.
 - `TriangulationHelper.cs` — shared 5-tier CDT fallback chain (used here, PadGrader, Remesh, splitters).

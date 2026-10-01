@@ -347,6 +347,15 @@ The Rhino host now lets the TIN use its ordinary convex hull and applies terrain
 the modifier stack. `TinBoundaryPreparer` remains available to compiled callers that explicitly need a
 constraint perimeter; open contour/breakline endpoints never infer one.
 `ConformingDelaunay=true` is avoided (fails on tight parallel segments).
+
+**Breaklines that end on another are split there first** (`BreaklineTJunctions`, 2026-10-02). A line drawn to
+end on another (snapped in CAD) leaves its end vertex on the other's segment to the last bit, but a few ulps to
+one side for Triangle's exact predicates. Triangle then fails the constrained build ("Topological inconsistency
+after splitting a segment"), and one such junction among 282 in a real terrain dropped every breakline and
+contour to plain Delaunay: the terrain ignored its inputs and grew 48 m slivers, which in turn defeated wall
+insertion. `FullRebuild` splits each segment at any vertex within floating-point noise of its interior
+(1e-9 of the coordinate magnitude) before triangulating; a real gap is left for the CDT. The fallback
+message now carries Triangle's reason.
 Triangle.NET's large quality-refinement state is created only when quality, conforming Delaunay, or an
 incremental mesh mutation requests it. Plain and per-face conform triangulations avoid the otherwise
 unused 4,096-bucket refinement queues, while `IMesh.Refine` retains its lazy creation path.

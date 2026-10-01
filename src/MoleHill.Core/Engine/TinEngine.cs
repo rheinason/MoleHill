@@ -521,6 +521,14 @@ public class TinEngine
         return true;
     }
 
+    private static double TJunctionTolerance(double[] xyCoords)
+    {
+        double magnitude = 1.0;
+        foreach (double value in xyCoords)
+            magnitude = Math.Max(magnitude, Math.Abs(value));
+        return magnitude * 1e-9;
+    }
+
     private static TinResult? FullRebuild(double[] xyCoords, double[] zValues,
                                            int[] segments, QualitySettings quality,
                                            out string? errorMessage, out IMesh? builtMesh,
@@ -537,6 +545,11 @@ public class TinEngine
             errorMessage = $"Only {vertexCount} vertices provided.";
             return null;
         }
+
+        // A breakline ending on another leaves a vertex on its segment, which Triangle cannot insert; see
+        // BreaklineTJunctions. The tolerance is floating-point noise at the coordinates' magnitude, not a
+        // drawing tolerance: anything coarser is a real gap that the CDT handles on its own.
+        segments = BreaklineTJunctions.SplitAtVertices(xyCoords, segments, TJunctionTolerance(xyCoords), out _);
 
         var polygon = new Polygon(vertexCount);
         var vertices = new Vertex[vertexCount];
@@ -643,7 +656,7 @@ public class TinEngine
                 {
                     builtMesh = mesh;
                     errorMessage = segCount > 0
-                        ? "Breakline constraints could not be enforced. Falling back to plain Delaunay."
+                        ? $"Breakline constraints could not be enforced ({errorMessage?.TrimEnd('.') ?? "unknown reason"}). Falling back to plain Delaunay."
                         : null;
                     return BuildResult(mesh, xyCoords, zValues, Array.Empty<int>(), boundaryPeelSettings, includeEdgeTopology);
                 }
