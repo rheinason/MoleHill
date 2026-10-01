@@ -1,4 +1,4 @@
-# MoleHill.Rhino/Services
+﻿# MoleHill.Rhino/Services
 
 The Rhino-side engine: builds terrain from the saved definition, manages document state, previews, and
 bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/architecture.md`.
@@ -8,6 +8,14 @@ bakes. Rhino API lives here; reusable math is in `MoleHill.Core`. See `docs/arch
 - `TerrainPresentationMesh` provides a wall-seam shading copy for preview, RDK rendering and bake while
   leaving computational topology welded. Wall classification uses `abs(normal.Z) <= cos(70°)`.
   Weak-key caching retains one copy per source; sculpt's `InvalidatePreviewBounds` invalidates stale copies.
+  Seams are split on flat arrays by Core's `ShadingSeamSplitter`; `UnweldEdge` is the fallback.
+- `RhinoGeometryConversions.BuildMesh` writes vertex (float and double) and face arrays through
+  `MeshUnsafeLock` — the plug-in's only `unsafe` code — rather than one native call per element.
+- `TerrainSlowBuildWarningPolicy` decides whether to ask before a rebuild: a measured duration decides,
+  and only an unmeasured terrain of 1,000,000+ faces with an expensive card is warned on size.
+- `TerrainCardResultSignature` fingerprints the build results the panel's cards show. A finished build
+  whose fingerprint matches the last applied one raises `StatusChanged` (status line only) instead of
+  `StateChanged` (full panel refresh). Anything new a card reads from a build belongs in it.
 - `TerrainBuildService.cs` + `TerrainBuildService.*.cs` partials - the staged build orchestrator. Each
   partial owns a stage: `.Tin`, `.MeshConstraints`, `.Grading`, `.Zones`, `.Analysis`, `.Objects`,
   `.Scatter`, `.Sculpt` (replays the sculpt displacement field as displacement-only), `.ProjectTo`

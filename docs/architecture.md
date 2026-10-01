@@ -1,4 +1,4 @@
-# MoleHill architecture map
+﻿# MoleHill architecture map
 
 The one-page map to read first. For per-file detail see `docs/file-index.md` and the `README.md` in
 each source folder. Build/test commands live in `AGENTS.md`.
@@ -135,7 +135,9 @@ lookup falls back to a vertex scan when a segment walk would cost more than the 
 
 `TerrainPresentationMesh` splits wall shading seams on a presentation copy for the conduit, RDK render
 provider and bake. The computational mesh stays welded. Walls are faces at least 70° from horizontal
-(`abs(normal.Z) <= cos(70°)`). Copies are cached per source mesh with weak keys; sculpt invalidates them
+(`abs(normal.Z) <= cos(70°)`). The seams are found and split on flat arrays by Core's
+`ShadingSeamSplitter`; Rhino's `UnweldEdge` remains only as the fallback for a mesh with quads or without
+vertex normals. Copies are cached per source mesh with weak keys; sculpt invalidates them
 through `TerrainDisplayState.InvalidatePreviewBounds` when it edits a preview in place.
 
 Area/zone topology splitting stays in Core (`MeshAreaTopologySplitter`): face geometry is constructed
@@ -2164,6 +2166,81 @@ Small fixture (2.6k faces), edit to visible: **1,087 ms -> 385 ms**, of which 96
 and 275 ms is the marshal from the finished worker back to the UI thread. That marshal is the last
 significant unknown: it measures 0.1 ms when Rhino's loop is busy and ~275 ms when it is quiescent, and
 only a trace from a genuinely interactive session will say which an ordinary edit resembles.
+
+### Editing a 100k-face terrain (2026-10-01)
+
+Measured live on a 100,911-face terrain carrying one retaining wall (Debug build, panel open), the same
+edit-to-visible trace on every rail edit. Three costs sat around a build whose geometry was already fast.
+
+- **A modal warning before every edit.** The slow-build warning asked before each rebuild of any terrain
+  over 250,000 vertices *or* 100,000 faces carrying an expensive card, although this one's last rebuild
+  had taken 0.07 s. [`TerrainSlowBuildWarningPolicy`](../src/MoleHill.Rhino/Services/TerrainSlowBuildWarningPolicy.cs)
+  now trusts a measured duration (warn from 5 s final, 1.5 s preview) and falls back to size only before
+  the first build, at 1,000,000 faces.
+- **Full panel refreshes on the UI thread, in front of the next result.** Rebuilding the visible tab
+  costs 45-66 ms here, and an edit raised it at schedule, at start, for each progress message, twice more
+  for the save's own `DocumentPropertiesChanged` echo, and at completion. Now:
+  - `StatusChanged`, a second event, refreshes only the status line. Scheduling for an object edit,
+    build start, progress messages and mid-edit frames (interim and superseded publications, whose
+    outputs are carried forward) raise it instead of `StateChanged`.
+  - `Save` suppresses document events around its string writes; the caller already decides whether to
+    refresh.
+  - A completed build refreshes the cards only when something they show changed.
+    [`TerrainCardResultSignature`](../src/MoleHill.Rhino/Services/TerrainCardResultSignature.cs)
+    fingerprints those results (analysis and zone summaries, In-situ Stair's computed fields, diagnostic
+    counts per card, mesh quality warnings), and the controller compares it with the one stored at the
+    last applied build (`TerrainRuntimeCache.LastCardResultSignature`), not with the display state
+    before the apply: a mid-edit frame does not carry the diagnostic overlays, so that comparison
+    always differed. The first final build always refreshes, because it enables cards on other
+    terrains that compare against this one. **A new build result that a card reads must be added to the
+    signature**, or that card goes stale until something else refreshes it.
+- **Rhino edge topology on every first draw.** `TerrainPresentationMesh` built `TopologyEdges` to find
+  wall seams: 33 of 44 ms with no wall at all, 108 ms with one. [`ShadingSeamSplitter`](../src/MoleHill.Core/Engine/ShadingSeamSplitter.cs)
+  (Core) finds and splits them on the flat arrays: 14 ms with the wall, and none of the CSR work when no
+  face is a wall. Its group normal is the **unweighted** mean of unit face normals, which is how Rhino
+  computes a vertex normal. An area-weighted first version tilted flat ground beside the wall by 30-37°,
+  because one large face just under the wall slope shared the ground's group; the unweighted one
+  matches Rhino's unweld within 0.03° on every face corner.
+
+Result, rail edits spaced so none is superseded:
+
+| | Before | After |
+|---|---|---|
+| Wall-free build, edit to visible | 80-105 ms | **25-44 ms** |
+| Wall build, edit to visible | not measured (see below) | **91-110 ms**, of which geometry 73-76 ms |
+| Panel relayouts per edit | 1 (45-66 ms) | **0** unless a card's content changed |
+| Modal prompts | every edit | none |
+
+**The earlier baseline had no wall in it.** The fixture's rails were 1.2 apart against the card's 1.0
+maximum wall width, so the wall card rejected the pair and the "10 ms geometry" was a plain
+triangulation. With rails 0.8 apart the wall inserts and geometry is 73-76 ms. That is the windowed rail
+insertion, and it is now nearly all of what is left on this terrain.
+
+### A wall edit on 100k faces: 40 -> 27 ms (2026-10-01)
+
+With the panel and the modal out of the way, a rail edit on the interactive lane's 100k-face fixture was
+40 ms of worker time, 33 of it `Retaining Wall Topology Insert`. `WallInsertProbe` (validation-lanes.md)
+plus `dotnet-trace` on the slot split it: the window's own rail insertion ~12 ms, building the result's
+Rhino mesh ~11 ms, and three whole-terrain passes in `GradingWindows` (stitch 7 ms, interface edges 5 ms,
+face assignment 3 ms). Three changes, every lane output mesh hash unchanged:
+
+- **`RhinoGeometryConversions.BuildMesh` fills the mesh through `MeshUnsafeLock`** instead of one native call
+  per vertex and per face: 0.8 ms against 6.7 ms per 100k faces, in every stage that builds a mesh. It writes
+  both the float and the double-precision vertex arrays, because `Vertices.Add(double, double, double)` had
+  always switched double precision on; the probe's first comparison caught a float-only version dropping it.
+  `UseDoublePrecisionVertices` only takes once the list has vertices, so it is set after the resize. This is
+  the one `unsafe` block in the plug-in (`AllowUnsafeBlocks` on `MoleHill.Rhino` and its test project).
+- **`GradingWindows.Stitch` welds by coordinates only near the windows.** The input is normalized, so every
+  coordinate has one index, and a patch can only weld onto a vertex of a window face. Every other vertex maps
+  by index in first-use order, the order the dictionary gave it. `GradingWindowsStitchTests` holds the old
+  weld-everything stitch as the reference.
+- **`InterfaceEdges` skips faces without two corners on a window boundary** with array reads, rather than a
+  dictionary lookup per edge of the terrain.
+
+Hosted lane, plan-target warm edit: **39.6 -> 26.8 ms** (insert 33.0 -> 20.6 ms); large warm edit 24.1 ->
+17.4 ms; geometry-heavy pad edit 396 -> 367 ms. Left, per edit: Triangle.NET triangulating each face a rail
+crosses (~6-8 ms, one small polygon at a time), managed normalization of the stitched mesh (~2.5 ms) and
+`ComputeNormals`, and 2-3 ms each for face assignment, stitch and reach setup.
 
 ## Rhino: build-result ownership
 

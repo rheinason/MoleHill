@@ -23,10 +23,6 @@ internal sealed partial class TerrainController
     private const int MinorTimingDiagnosticThresholdMs = 100;
     private const int TotalTimingDiagnosticThresholdMs = 750;
     private const int LiveEditSaveDebounceMs = 400;
-    private const double PreviewWarningThresholdSeconds = 1.5;
-    private const double FinalWarningThresholdSeconds = 5.0;
-    private const int PreviewWarningFaceThreshold = 20_000;
-    private const int FinalWarningFaceThreshold = 40_000;
     private static readonly TimeSpan ShutdownWorkerDrainTimeout = TimeSpan.FromSeconds(2);
     private const string AddMissingBlockAttributeKeysCommand = "_AddMissingBlockAttributeKeys _Enter";
     private const string AddMissingBlockAttributeKeysAllInstancesCommand = "_AddMissingBlockAttributeKeys _AllBlockInstances=_Yes _Enter";
@@ -59,6 +55,14 @@ internal sealed partial class TerrainController
     public static TerrainController Instance { get; } = new();
 
     public event EventHandler? StateChanged;
+
+    /// <summary>
+    /// Only the build status changed (a rebuild was scheduled for an unchanged definition, or one started):
+    /// nothing a card shows. A listener refreshes its status line, not its cards. Measured 2026-10-01, the
+    /// panel's full refresh on build start relaid out the card stack for 45 ms on the UI thread while a
+    /// 10 ms rebuild finished behind it, and the finished terrain waited for it.
+    /// </summary>
+    public event EventHandler? StatusChanged;
 
     public void Initialize()
     {

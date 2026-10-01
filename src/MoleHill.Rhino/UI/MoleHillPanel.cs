@@ -107,6 +107,8 @@ public sealed partial class MoleHillPanel : Panel
     private Guid? _dragOverAnnotationId;
     private Guid? _dragOverZoneId;
     private readonly EventHandler _stateChangedHandler;
+    private readonly EventHandler _statusChangedHandler;
+    private bool _statusRefreshPosted;
     private bool _isRefreshing;
     private bool _isPanelLoaded;
     private bool _isStateChangedSubscribed;
@@ -137,6 +139,7 @@ public sealed partial class MoleHillPanel : Panel
     public MoleHillPanel()
     {
         _stateChangedHandler = HandleControllerStateChanged;
+        _statusChangedHandler = HandleControllerStatusChanged;
 
         WireToolbarControls();
         WireSettingsControls();
@@ -183,6 +186,7 @@ public sealed partial class MoleHillPanel : Panel
             return;
 
         _controller.StateChanged += _stateChangedHandler;
+        _controller.StatusChanged += _statusChangedHandler;
         _isStateChangedSubscribed = true;
     }
 
@@ -192,6 +196,7 @@ public sealed partial class MoleHillPanel : Panel
             return;
 
         _controller.StateChanged -= _stateChangedHandler;
+        _controller.StatusChanged -= _statusChangedHandler;
         _isStateChangedSubscribed = false;
     }
 
@@ -227,6 +232,30 @@ public sealed partial class MoleHillPanel : Panel
             }
 
             RefreshUi();
+        });
+    }
+
+    /// <summary>
+    /// Only the build status changed, so only the status line is updated: the cards show nothing that
+    /// changes when a rebuild is scheduled or starts. A full refresh relaid the visible card stack out
+    /// (45 ms on a 100k-face terrain's wall edit) on the UI thread while the rebuild finished behind it.
+    /// Skipped when a full refresh is already on its way, which updates the status too.
+    /// </summary>
+    private void HandleControllerStatusChanged(object? sender, EventArgs e)
+    {
+        if (IsDisposed || !_isPanelLoaded || _statusRefreshPosted || _controllerRefreshPosted)
+            return;
+
+        _statusRefreshPosted = true;
+        Application.Instance?.AsyncInvoke(() =>
+        {
+            _statusRefreshPosted = false;
+            if (IsDisposed || !_isPanelLoaded || _controllerRefreshPosted || RhinoDoc.ActiveDoc is not { } doc)
+                return;
+
+            TerrainDefinition? selected = _controller.GetSelectedTerrain(doc);
+            if (selected != null && MoleHill.Shared.ModelUnitContext.FromDocument(doc).IsSupported)
+                SetStatusText(selected.LastBuildMessage ?? string.Empty, selected.LastStructuredDiagnostics);
         });
     }
 

@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using MoleHill.Core.Engine;
 using MoleHill.Core.Grading;
 using MoleHill.Shared;
@@ -151,12 +151,7 @@ internal static class RhinoGeometryConversions
         }
 
         var mesh = new Mesh();
-        mesh.Vertices.Capacity = normalizedVertexCount;
-        mesh.Faces.Capacity = normalizedFaceCount;
-        for (int i = 0; i < normalizedVertexCount; i++)
-            mesh.Vertices.Add(normalized[i * 3], normalized[i * 3 + 1], normalized[i * 3 + 2]);
-        for (int i = 0; i < normalizedFaceCount; i++)
-            mesh.Faces.AddFace(normalizedFaces[i * 3], normalizedFaces[i * 3 + 1], normalizedFaces[i * 3 + 2]);
+        FillMesh(mesh, normalized, normalizedVertexCount, normalizedFaces, normalizedFaceCount);
         MeshNormalOrientation.ComputeNormalsConsistentlyWound(mesh);
 
         // What a read-back gives: the vertex list's indexer is single precision, so the arrays every stage has
@@ -177,6 +172,42 @@ internal static class RhinoGeometryConversions
         if (Environment.GetEnvironmentVariable("MOLEHILL_VERIFY_NORMALIZE") is { Length: > 0 } verifyLog)
             VerifyAgainstRhino(vertices, vertexCount, faces, faceCount, data, verifyLog);
         return mesh;
+    }
+
+    /// <summary>
+    /// Writes vertices and triangles straight into an empty mesh's arrays: what
+    /// <c>Vertices.Add(double, double, double)</c> and <c>Faces.AddFace</c> store, double-precision vertices
+    /// included (adding a double turns them on), without a native call per element (~7 ms per 100k-face
+    /// mesh, in every stage that builds one).
+    /// </summary>
+    private static unsafe void FillMesh(Mesh mesh, double[] vertices, int vertexCount, int[] faces, int faceCount)
+    {
+        mesh.Vertices.Count = vertexCount;
+        // Only takes once the list has vertices; on an empty mesh it reads back false.
+        mesh.Vertices.UseDoublePrecisionVertices = true;
+        mesh.Faces.Count = faceCount;
+        MeshUnsafeLock access = mesh.GetUnsafeLock(true);
+        try
+        {
+            Point3f* points = access.VertexPoint3fArray(out int pointCount);
+            Point3d* exact = access.VertexPoint3dArray(out int exactCount);
+            MeshFace* triangles = access.FacesArray(out int triangleCount);
+            if (pointCount != vertexCount || exactCount != vertexCount || triangleCount != faceCount)
+                throw new InvalidOperationException(
+                    $"Mesh arrays did not resize: {pointCount}/{exactCount}/{vertexCount} vertices, {triangleCount}/{faceCount} faces.");
+            for (int i = 0; i < vertexCount; i++)
+            {
+                double x = vertices[i * 3], y = vertices[i * 3 + 1], z = vertices[i * 3 + 2];
+                exact[i] = new Point3d(x, y, z);
+                points[i] = new Point3f((float)x, (float)y, (float)z);
+            }
+            for (int i = 0; i < faceCount; i++)
+                triangles[i] = new MeshFace(faces[i * 3], faces[i * 3 + 1], faces[i * 3 + 2]);
+        }
+        finally
+        {
+            mesh.ReleaseUnsafeLock(access);
+        }
     }
 
     /// <summary>

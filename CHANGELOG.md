@@ -3,6 +3,49 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.1.0-beta — 2026-10-01
+
+A beta for large terrains: edits now cost in proportion to what they change, not to the size of the site.
+Graded surfaces can differ slightly from 1.0.0 where grading and Remesh now work in windows and tiles.
+
+**Faster edits on large terrains**
+- Editing no longer rebuilds everything below the change. Adding, moving or renaming a card, or a card with
+  nothing selected yet, rebuilds nothing; such a card says why it has no effect.
+- Remesh works in tiles and reuses every tile an edit did not touch. On a 3.2 million point park it is 2 to 3
+  times faster cold, with better triangles, and a small survey edit re-meshes only its neighbourhood.
+- Grade Pad, Grade Path and retaining-wall insertion work in windows around what they grade. An edit away
+  from them reuses their earlier result.
+- Cut / Fill is about ten times faster: the few points over a wall no longer scan the whole reference.
+- Every stage hands its mesh on faster; the result is unchanged, verified bit for bit against Rhino.
+- On the 1 m park, one survey-point edit went from 144 s to 31 s. On a 100k-face terrain a wall edit
+  evaluates in 60 ms.
+
+**Grading**
+- New **Grade Through Breaklines** option on Grade Pad, Grade Path and Grade Line. Breaklines stay hard
+  by default; with the option on, the card regrades across them and drops the parts it regraded, so later
+  cards do not pull the old ground back.
+- A path crossing a hard line (a pad edge, a wall) is stopped at it instead of the whole card refusing to
+  grade.
+- Breakline-mode retaining walls whose rails cross a breakline or contour at another height now stop with an
+  error naming where, instead of spending seconds on a rebuild that could not succeed.
+- Retaining walls: graded walls keep their rails and insert by local triangulation; one-sided and ring rails
+  batter to daylight; a ring wall too small for its inward batter keeps its rails. Every wall inserts across
+  a 1,152-case sweep of shapes, slopes and neighbours.
+- Remesh no longer freezes straight breaklines as walls where zero-area faces lay along them, and
+  Triangulate keeps breaklines as triangulated, which removes thousands of slivers after a wall rebuild.
+
+**Layers and import**
+- Each terrain's generated output goes under its own `MoleHill {terrain}` layer root, so several terrains
+  in one document no longer share layers. Renaming a terrain moves its layers; duplicating copies its own
+  inputs only; deleting removes its empty layers.
+- Survey import writes plain geometry to a layer tree named after the survey file, outside every terrain,
+  and re-importing replaces or adds.
+
+**Other**
+- A warning when a terrain sits too far from the origin to build reliably, naming the tolerance that fits
+  when the site is too wide to move.
+- Modifier cards use one vocabulary for breaklines, boundaries, borders, creases and Protect.
+
 ## 1.0.0 — 2026-09-29
 
 First stable release; it is no longer marked as a prerelease.

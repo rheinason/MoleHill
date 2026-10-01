@@ -1,4 +1,4 @@
-using MoleHill.Rhino.Model;
+﻿using MoleHill.Rhino.Model;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.DocObjects.Tables;
@@ -372,8 +372,9 @@ internal sealed partial class TerrainController
             changed = true;
         }
 
+        // A progress message is status text: the cards show nothing that moves with it.
         if (changed)
-            RaiseStateChanged();
+            RaiseStatusChanged();
     }
 
     private void ProcessPendingBlockAttributeKeyRepairs()
@@ -512,8 +513,10 @@ internal sealed partial class TerrainController
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Any(path => terrain.EnumerateSourceSets().Any(source => source.LayerPaths.Contains(path!, StringComparer.OrdinalIgnoreCase)));
 
+            // An object a card lists by id was edited: its definition is unchanged, so only the status
+            // moves until the build lands. A layer source can gain or lose objects, so it refreshes in full.
             if (objectMatch || layerMatch)
-                ScheduleRebuild(doc, terrain.TerrainId);
+                ScheduleRebuild(doc, terrain.TerrainId, statusOnly: !layerMatch);
         }
     }
 

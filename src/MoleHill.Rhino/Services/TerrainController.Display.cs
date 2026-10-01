@@ -141,7 +141,8 @@ internal sealed partial class TerrainController
             TerrainBuildMode.Final,
             TerrainLatencyPhase.InterimVisible,
             $"{interimMesh.Faces.Count:N0} faces; outputs stale at #{previous.OutputsRevision:N0}");
-        RaiseStateChanged();
+        // The outputs, and with them everything the cards show, are carried forward unchanged.
+        RaiseStatusChanged();
     }
 
     /// <summary>
@@ -222,7 +223,9 @@ internal sealed partial class TerrainController
             result.Mode,
             TerrainLatencyPhase.SupersededPublished,
             $"{mesh.Faces.Count:N0} faces in {result.BuildElapsed.TotalMilliseconds:N0} ms");
-        RaiseStateChanged();
+        // Mid-gesture frame: outputs carried forward, so only the status moved. A full panel refresh here
+        // relaid the card stack out (66 ms) in front of the build that superseded this one.
+        RaiseStatusChanged();
         return true;
     }
 
@@ -645,6 +648,8 @@ internal sealed partial class TerrainController
     }
 
     private void RaiseStateChanged() => StateChanged?.Invoke(this, EventArgs.Empty);
+
+    private void RaiseStatusChanged() => StatusChanged?.Invoke(this, EventArgs.Empty);
 
     private void ApplyOwnedDisplayMaterials(RhinoDoc doc, TerrainDefinition terrain)
     {

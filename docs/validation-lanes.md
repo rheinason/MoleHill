@@ -229,6 +229,20 @@ Result on 2026-09-29 after the wall fixes (architecture.md, "Retaining walls: ge
 error: median 1.7% of wall height, 90th percentile 3.7%. The worst cases are rings at shallow slopes, where
 the far side's batter reaches across the ring and the probe's single-section model no longer applies.
 
+## wall-insert
+
+Also a probe. `WallInsertProbe` (`tests/MoleHill.Rhino.Tests/WallInsertProbe.cs`) runs the interactive
+lane's 100k-face fixture and raises its wall rails repeatedly, writing each edit's stage timings and the
+rail-insertion phase line (`assign`, `interfaces`, `grade`, `stitch`) as text. It first checks that
+`RhinoGeometryConversions.BuildMesh`'s pointer fill gives exactly the mesh per-element adds give. The
+request is the output path, optionally `|` and an edit count; attach `dotnet-trace` to the slot while it
+runs to see the rest.
+
+```powershell
+py -3 tools/rhino-hosted-perf.py --bin tests/MoleHill.Rhino.Tests/bin/Release/net8.0 `
+    --request "C:\temp\wall.txt|120" --entry WallInsertProbe --print-script
+```
+
 ## warnings
 
 `MoleHill.Core` compiles the vendored TriangleNet sources directly, and those sources predate nullable

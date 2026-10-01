@@ -17,7 +17,9 @@ internal sealed partial class TerrainController
     /// </summary>
     private const double BuildWakeIntervalSeconds = 0.015;
 
-    private void ScheduleRebuild(RhinoDoc doc, Guid terrainId, bool notify = true)
+    /// <param name="statusOnly">The definition did not change, only that a rebuild is coming: tell listeners
+    /// through <see cref="StatusChanged"/>, so the panel does not relay its cards out for it.</param>
+    private void ScheduleRebuild(RhinoDoc doc, Guid terrainId, bool notify = true, bool statusOnly = false)
     {
         if (!ModelUnitGuard.TryGet(doc, out _, report: false))
             return;
@@ -42,7 +44,9 @@ internal sealed partial class TerrainController
             terrain.LastBuildMessage = GetRebuildState(doc.RuntimeSerialNumber, terrainId).IsBuilding
                 ? $"Queued rebuild #{requestedVersion:N0}; current build will stop at the next safe checkpoint."
                 : $"Scheduled rebuild #{requestedVersion:N0}.";
-        if (notify)
+        if (notify && statusOnly)
+            RaiseStatusChanged();
+        else if (notify)
             RaiseStateChanged();
     }
 
@@ -228,39 +232,18 @@ internal sealed partial class TerrainController
         TerrainBuildMode mode,
         out string? warning)
     {
-        warning = null;
-        if (!terrain.ShowSlowBuildWarning)
-            return false;
-
-        TimeSpan? priorDuration = mode == TerrainBuildMode.Preview
-            ? runtimeCache.LastPreviewDuration
-            : runtimeCache.LastFinalDuration;
-        double thresholdSeconds = mode == TerrainBuildMode.Preview
-            ? PreviewWarningThresholdSeconds
-            : FinalWarningThresholdSeconds;
-        if (priorDuration.HasValue && priorDuration.Value.TotalSeconds >= thresholdSeconds)
-        {
-            warning = mode == TerrainBuildMode.Preview
-                ? $"The last preview for this terrain took {priorDuration.Value.TotalSeconds:0.##} s. Continue with another live preview?"
-                : $"The last exact rebuild for this terrain took {priorDuration.Value.TotalSeconds:0.##} s. Continue with another full rebuild?";
-            return true;
-        }
-
         Mesh? mesh = runtimeCache.DisplayState?.TerrainMesh;
-        if (mesh == null)
-            return false;
-
         bool hasExpensiveModifier = terrain.Modifiers.Any(static modifier =>
             modifier.IsEnabled &&
             modifier is RemeshModifierDefinition or GradePadModifierDefinition or GradePathModifierDefinition or RetainingWallModifierDefinition or InSituStairModifierDefinition);
-        int faceThreshold = mode == TerrainBuildMode.Preview ? PreviewWarningFaceThreshold : FinalWarningFaceThreshold;
-        if (!hasExpensiveModifier || mesh.Faces.Count < faceThreshold)
-            return false;
-
-        warning = mode == TerrainBuildMode.Preview
-            ? $"This terrain currently has {mesh.Vertices.Count:N0} verts and {mesh.Faces.Count:N0} faces with expensive live modifiers enabled. Preview may take a while. Continue?"
-            : $"This terrain currently has {mesh.Vertices.Count:N0} verts and {mesh.Faces.Count:N0} faces with expensive modifiers enabled. The exact rebuild may take a while. Continue?";
-        return true;
+        return TerrainSlowBuildWarningPolicy.ShouldWarn(
+            terrain.ShowSlowBuildWarning,
+            mode,
+            mode == TerrainBuildMode.Preview ? runtimeCache.LastPreviewDuration : runtimeCache.LastFinalDuration,
+            mesh?.Faces.Count,
+            mesh?.Vertices.Count ?? 0,
+            hasExpensiveModifier,
+            out warning);
     }
 
     private void StartBackgroundBuild(
@@ -285,7 +268,7 @@ internal sealed partial class TerrainController
         }
         terrain.LastBuildMessage = $"{(mode == TerrainBuildMode.Preview ? "Preview" : "Build")} #{buildVersion:N0}: snapshot starting...";
         WriteBuildStarted(terrain, mode, buildVersion);
-        RaiseStateChanged();
+        RaiseStatusChanged();
         var latency = new TerrainLatencyScope(
             doc.RuntimeSerialNumber,
             terrain.TerrainId,
@@ -402,7 +385,7 @@ internal sealed partial class TerrainController
         terrain.LastBuildMessage = mode == TerrainBuildMode.Preview
             ? $"Previewing terrain #{buildVersion:N0}..."
             : $"Building terrain #{buildVersion:N0}...";
-        RaiseStateChanged();
+        RaiseStatusChanged();
     }
 
     private bool BuildTerrainSynchronously(
@@ -672,6 +655,8 @@ internal sealed partial class TerrainController
     {
         TerrainBuildResult build = result.Build!;
         TerrainLatencyScope latency = LatencyScopeFor(doc, terrain, result);
+        // The first final mesh enables cards elsewhere that compare against this terrain.
+        bool firstFinal = result.Mode == TerrainBuildMode.Final && rebuildState.AppliedVersion == 0;
         build.RecordTiming("Snapshot build", result.SnapshotElapsed, $"{result.SnapshotTerrain.Modifiers.Count:N0} modifiers", MinorTimingDiagnosticThresholdMs);
         build.RecordTiming("Worker cache clone", result.WorkerCacheCloneElapsed, null, MinorTimingDiagnosticThresholdMs);
 
@@ -731,7 +716,7 @@ internal sealed partial class TerrainController
                 : string.Join(System.Environment.NewLine, build.Diagnostics.Take(8));
 
             var saveTimer = Stopwatch.StartNew();
-            Save(doc, state);
+            Save(doc, state, raiseStateChanged: false);
             saveTimer.Stop();
             latency.Mark(TerrainLatencyPhase.SaveEnd);
             build.RecordTiming("Document save", saveTimer.Elapsed, $"{state.Terrains.Count:N0} terrains", MinorTimingDiagnosticThresholdMs);
@@ -798,7 +783,41 @@ internal sealed partial class TerrainController
 
         latency.Mark(TerrainLatencyPhase.Closed, "applied");
         WriteBuildFinished(terrain, result.Mode, result.Version, commandElapsed);
-        RaiseStateChanged();
+        string? cardResults = TryComputeCardResultSignature(doc, terrain);
+        bool cardsUnchanged = !firstFinal && cardResults != null && cardResults == runtimeCache.LastCardResultSignature;
+        runtimeCache.LastCardResultSignature = cardResults;
+        if (cardsUnchanged)
+            RaiseStatusChanged();
+        else
+            RaiseStateChanged();
+    }
+
+    /// <summary>
+    /// What the cards show of this terrain's build results (see <see cref="TerrainCardResultSignature"/>);
+    /// null when it cannot be computed, which callers treat as changed.
+    /// </summary>
+    private string? TryComputeCardResultSignature(RhinoDoc doc, TerrainDefinition terrain)
+    {
+        try
+        {
+            TerrainDisplayState? displayState = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).DisplayState;
+            var diagnostics = displayState?.RuntimeOverlays
+                .Where(item => item.Channel == RuntimeOverlayChannel.Diagnostic)
+                .Select(item => (item.Owner, item.Severity))
+                ?? Enumerable.Empty<(RuntimeOverlayOwner, RuntimeOverlaySeverity)>();
+            var warnings = terrain.Modifiers
+                .Where(modifier => modifier is SmoothModifierDefinition or SculptModifierDefinition)
+                .Select(modifier => (modifier.Id, GetModifierMeshQualityWarning(doc, terrain.TerrainId, modifier.Id)));
+            return TerrainCardResultSignature.Compute(
+                terrain,
+                GetZoneAnalysisResults(doc, terrain.TerrainId),
+                diagnostics,
+                warnings);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     private static string FormatBuildMessage(
