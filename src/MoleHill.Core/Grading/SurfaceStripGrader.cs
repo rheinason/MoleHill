@@ -356,6 +356,13 @@ public static class SurfaceStripGrader
         var barrierScratch = barriers.Segments.Length > 0 ? new SpatialHashGrid2D.QueryScratch(Math.Max(barriers.Segments.Length, 1)) : null;
         var barrierCandidates = barriers.Segments.Length > 0 ? new List<int>(8) : null;
 
+        // Per vertex, the farthest a batter from this surface can reach it is its own height difference to the
+        // boundary's height range over the slope (or the max distance). Its distance to the boundary is at
+        // least its distance to the boundary's bounding box, so a vertex farther from the box than that cannot
+        // change. The influence box above uses the whole terrain's height range instead, which on a hillside
+        // covers the site: 19 stair surfaces spent 2.8 s walking every boundary from every vertex.
+        (double boxMinX, double boxMinY, double boxMaxX, double boxMaxY, double boundaryMinZ, double boundaryMaxZ) = BoundaryExtent(surface);
+
         for (int i = 0; i < outVertCount; i++)
         {
             double px = outXy[i * 2];
@@ -365,6 +372,19 @@ public static class SurfaceStripGrader
                 (px < influenceBounds.MinX || px > influenceBounds.MaxX || py < influenceBounds.MinY || py > influenceBounds.MaxY))
             {
                 continue;
+            }
+
+            double outsideX = Math.Max(0.0, Math.Max(boxMinX - px, px - boxMaxX));
+            double outsideY = Math.Max(0.0, Math.Max(boxMinY - py, py - boxMaxY));
+            if (surface.BoundaryVertexCount > 0 && (outsideX > 0.0 || outsideY > 0.0))
+            {
+                double reach = slopeRatio > 1e-12
+                    ? Math.Max(Math.Abs(origZ[i] - boundaryMinZ), Math.Abs(origZ[i] - boundaryMaxZ)) / slopeRatio
+                    : double.MaxValue;
+                if (surface.MaxDistance > 0)
+                    reach = Math.Min(reach, surface.MaxDistance);
+                if ((outsideX * outsideX) + (outsideY * outsideY) >= reach * reach)
+                    continue;
             }
 
             if (GradingGeometry2D.PointInPolygon(px, py, surface.FootprintXy, surface.FootprintVertexCount))
@@ -400,6 +420,32 @@ public static class SurfaceStripGrader
                     newZ[i] = boundaryZ + Math.Sign(dz) * rise;
             }
         }
+    }
+
+    private static (double MinX, double MinY, double MaxX, double MaxY, double MinZ, double MaxZ) BoundaryExtent(SurfaceDefinition surface)
+    {
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        double minZ = double.MaxValue, maxZ = double.MinValue;
+        for (int i = 0; i < surface.BoundaryVertexCount; i++)
+        {
+            minX = Math.Min(minX, surface.BoundaryVertices[i * 3]);
+            maxX = Math.Max(maxX, surface.BoundaryVertices[i * 3]);
+            minY = Math.Min(minY, surface.BoundaryVertices[i * 3 + 1]);
+            maxY = Math.Max(maxY, surface.BoundaryVertices[i * 3 + 1]);
+            minZ = Math.Min(minZ, surface.BoundaryVertices[i * 3 + 2]);
+            maxZ = Math.Max(maxZ, surface.BoundaryVertices[i * 3 + 2]);
+        }
+
+        // The footprint takes its heights directly, so the box must hold it too.
+        for (int i = 0; i < surface.FootprintVertexCount; i++)
+        {
+            minX = Math.Min(minX, surface.FootprintXy[i * 2]);
+            maxX = Math.Max(maxX, surface.FootprintXy[i * 2]);
+            minY = Math.Min(minY, surface.FootprintXy[i * 2 + 1]);
+            maxY = Math.Max(maxY, surface.FootprintXy[i * 2 + 1]);
+        }
+
+        return (minX, minY, maxX, maxY, minZ, maxZ);
     }
 
     private readonly record struct SurfaceInfluenceBounds(
