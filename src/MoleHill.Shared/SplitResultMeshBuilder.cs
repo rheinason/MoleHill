@@ -15,8 +15,8 @@ namespace MoleHill.Shared;
 internal static class SplitResultMeshBuilder
 {
     /// <summary>
-    /// The faces with their vertices in first-touch order, not yet oriented or compacted, for a caller
-    /// that finishes the mesh its own way (the Rhino host normalizes it).
+    /// The faces with their vertices in first-touch order, not yet oriented or compacted. The Rhino host
+    /// builds the same arrays itself and normalizes them in managed code (<c>RhinoGeometryConversions.BuildSubMesh</c>).
     /// </summary>
     public static Mesh CreateUnfinished(
         MeshAreaSplitter.SplitResult result,

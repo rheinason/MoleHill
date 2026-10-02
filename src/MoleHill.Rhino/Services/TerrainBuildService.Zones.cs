@@ -145,6 +145,8 @@ internal sealed partial class TerrainBuildService
             meshes.Add(subMesh);
         }
 
+        TimeSpan meshesElapsed = outputTimer.Elapsed;
+
         // No reference set (nor a reference terrain) is the normal case, not a missing input: it estimates
         // against this terrain's own base triangulation, same as the terrain-level Earthworks analysis.
         EarthworkAnalysisDefinition? earthwork = terrain.Analyses
@@ -194,7 +196,7 @@ internal sealed partial class TerrainBuildService
         build.RecordTiming(
             "Zones",
             totalTimer.Elapsed,
-            $"{entries.Count} boundaries over {mesh.Faces.Count:N0} source faces; resolve {resolveTimer.Elapsed.TotalSeconds:0.##} s, classify {splitTimer.Elapsed.TotalSeconds:0.##} s, output {outputTimer.Elapsed.TotalSeconds:0.##} s",
+            $"{entries.Count} boundaries over {mesh.Faces.Count:N0} source faces; resolve {resolveTimer.Elapsed.TotalSeconds:0.##} s, classify {splitTimer.Elapsed.TotalSeconds:0.##} s, output {outputTimer.Elapsed.TotalSeconds:0.##} s (meshes {meshesElapsed.TotalSeconds:0.##} s, summaries {(outputTimer.Elapsed - meshesElapsed).TotalSeconds:0.##} s)",
             StageTimingDiagnosticThresholdMs);
     }
 

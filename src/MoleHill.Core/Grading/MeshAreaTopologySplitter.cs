@@ -1128,6 +1128,12 @@ internal static class MeshAreaTopologySplitter
             extractedToGlobal[i] = pointLookup.Resolve(point, face.InterpolateZ(point));
         }
 
+        // Triangle.NET emits counter-clockwise triangles. A face that runs clockwise in plan (a sliver leaning
+        // past vertical beside a wall) must keep its own winding, or its pieces run against the neighbours'
+        // and every shared edge is traversed twice in one direction: 65 such edges on a 566k-face terrain,
+        // which the hand-off normalization then "fixed" by flipping overlapping faces.
+        bool clockwise = Cross(face.B.X - face.A.X, face.B.Y - face.A.Y, face.C.X - face.A.X, face.C.Y - face.A.Y) < 0.0;
+
         for (int faceIndex = 0; faceIndex < extracted.FaceCount; faceIndex++)
         {
             int vertex0 = extracted.Faces[faceIndex * 3];
@@ -1151,8 +1157,8 @@ internal static class MeshAreaTopologySplitter
                 continue;
 
             globalFaces.Add(g0);
-            globalFaces.Add(g1);
-            globalFaces.Add(g2);
+            globalFaces.Add(clockwise ? g2 : g1);
+            globalFaces.Add(clockwise ? g1 : g2);
         }
 
         return true;

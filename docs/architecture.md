@@ -1831,6 +1831,23 @@ digit. The normalizer takes 165 ms at 6.4 million faces (winding by a start-vert
 parallel hash partitions). Grade Pad's output mesh at 1 m fell from 2.4 s to about 0.7 s. What remains is Rhino
 filling the mesh and computing normals, which only lazy Rhino meshes between stages would remove.
 
+**When the managed path is not taken (2026-10-02).** On a 566k-face terrain 167 m from the origin, Smooth and
+the zones spent half a second each in Rhino's normalization, because the managed path refused their meshes:
+- *Remesh left vertices a micron apart.* The float merge welded 39 such groups blindly: 116 faces dropped,
+  three edges shared by four faces, and every later stage failed the winding check. `FloatCoincidentEdgeCollapser`
+  now collapses each such edge before the hand-off when the link condition allows, and moves a pair no edge
+  joins a few float steps apart. Only Remesh output goes through it: other stages rely on the float weld to
+  join seams, which separating would leave open.
+- *Smooth rebuilt a topology it never changed.* `BuildMeshWithNewHeights` reuses the incoming mesh's
+  normalized arrays when only heights moved and nothing would merge or cull (`HeightsKeepNormalForm`): 459 ms
+  to 27.
+- *The zone split flipped pieces of clockwise faces.* Triangle.NET returns counter-clockwise triangles; a
+  re-triangulated face now keeps its own winding. The split still meets plan folds left by Remesh (millimetre
+  slivers on both sides of one edge), which only Rhino's unify resolves, so the largest zones stay on the
+  Rhino path; the remaining fix is in Remesh.
+Zone meshes are now built by `BuildMesh` (managed where it can be), and zone surface areas are summed from the
+arrays rather than Rhino's AreaMassProperties (200 ms of centroid and moments nobody read).
+
 ### Interactive scale: what a warm edit costs as the terrain grows
 
 The realtime targets are stated as input-to-visible budgets, but nothing had measured how much of one

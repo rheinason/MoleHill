@@ -23,7 +23,6 @@ internal static class ZoneAnalysisCalculator
 
             result.OutputCount++;
             result.TriangleCount += faceCount;
-            result.SurfaceArea += AreaMassProperties.Compute(mesh)?.Area ?? 0.0;
 
             // Only min/max/average are read here, so skip the auto-range fit and its allocations.
             var slopes = SlopeAnalyzer.Summarize(
@@ -44,6 +43,10 @@ internal static class ZoneAnalysisCalculator
             double minZ = double.MaxValue;
             double maxZ = double.MinValue;
             double planArea = 0.0;
+
+            // Summed from the extraction, like the plan area. Rhino's AreaMassProperties also integrates the
+            // centroid and moments, which nothing reads: 200 ms over a 566k-face terrain's zones.
+            double surfaceArea = 0.0;
             for (int face = 0; face < faceCount; face++)
             {
                 int a = faces[face * 3];
@@ -53,6 +56,10 @@ internal static class ZoneAnalysisCalculator
                 double bx = vertices[b * 3], by = vertices[b * 3 + 1], bz = vertices[b * 3 + 2];
                 double cx = vertices[c * 3], cy = vertices[c * 3 + 1], cz = vertices[c * 3 + 2];
                 double area = Math.Abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) * 0.5;
+                double nx = ((by - ay) * (cz - az)) - ((bz - az) * (cy - ay));
+                double ny = ((bz - az) * (cx - ax)) - ((bx - ax) * (cz - az));
+                double nz = ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
+                surfaceArea += 0.5 * Math.Sqrt((nx * nx) + (ny * ny) + (nz * nz));
                 double averageZ = (az + bz + cz) / 3.0;
                 planArea += area;
                 elevationWeightedSum += averageZ * area;
@@ -63,6 +70,7 @@ internal static class ZoneAnalysisCalculator
             }
 
             result.PlanArea += planArea;
+            result.SurfaceArea += surfaceArea;
             if (minZ != double.MaxValue)
             {
                 result.ElevationMinZ = result.OutputCount == 1 ? minZ : Math.Min(result.ElevationMinZ, minZ);
