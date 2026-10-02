@@ -162,10 +162,19 @@ internal sealed partial class TerrainController
         _pendingRebuilds[(docSerial, terrainId, mode)] = new PendingBuildRequest(DateTime.UtcNow.AddMilliseconds(delayMs), version);
     }
 
-    private void QueuePendingDocumentSave(uint docSerial, int delayMs)
+    /// <summary>
+    /// Saves the document's terrain JSON on a later idle. <paramref name="raiseStateChanged"/> asks for the
+    /// panel refresh a direct save would raise; a queued request that wants one keeps it when a later request
+    /// does not.
+    /// </summary>
+    private void QueuePendingDocumentSave(uint docSerial, int delayMs, bool raiseStateChanged = true)
     {
-        _pendingDocumentSaves[docSerial] = DateTime.UtcNow.AddMilliseconds(delayMs);
+        bool raise = raiseStateChanged ||
+                     (_pendingDocumentSaves.TryGetValue(docSerial, out PendingDocumentSave queued) && queued.RaiseStateChanged);
+        _pendingDocumentSaves[docSerial] = new PendingDocumentSave(DateTime.UtcNow.AddMilliseconds(delayMs), raise);
     }
+
+    private readonly record struct PendingDocumentSave(DateTime Due, bool RaiseStateChanged);
 
     private void RemovePendingBuild(uint docSerial, Guid terrainId, TerrainBuildMode mode)
     {
@@ -715,11 +724,15 @@ internal sealed partial class TerrainController
                 ? "Build succeeded."
                 : string.Join(System.Environment.NewLine, build.Diagnostics.Take(8));
 
+            // The document's string table only mirrors the in-memory state (WriteDocument serializes that
+            // state when the file is saved, and undo snapshots it), so the write waits for the next idle,
+            // after the redraw. Writing it here cost 1 s per edit in a live 44k-object document, where
+            // something else reacts to document-string changes; the same write is free in a clean Rhino.
             var saveTimer = Stopwatch.StartNew();
-            Save(doc, state, raiseStateChanged: false);
+            QueuePendingDocumentSave(doc.RuntimeSerialNumber, delayMs: 0, raiseStateChanged: false);
             saveTimer.Stop();
             latency.Mark(TerrainLatencyPhase.SaveEnd);
-            build.RecordTiming("Document save", saveTimer.Elapsed, $"{state.Terrains.Count:N0} terrains", MinorTimingDiagnosticThresholdMs);
+            build.RecordTiming("Document save", saveTimer.Elapsed, $"{state.Terrains.Count:N0} terrains; queued for idle", MinorTimingDiagnosticThresholdMs);
 
             var redrawTimer = Stopwatch.StartNew();
             doc.Views.Redraw();

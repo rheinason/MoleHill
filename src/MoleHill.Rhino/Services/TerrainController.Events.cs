@@ -156,9 +156,8 @@ internal sealed partial class TerrainController
         if (_pendingDocumentSaves.Count > 0)
         {
             var saveNow = DateTime.UtcNow;
-            foreach (uint docSerial in _pendingDocumentSaves
-                         .Where(item => item.Value <= saveNow)
-                         .Select(item => item.Key)
+            foreach ((uint docSerial, PendingDocumentSave pendingSave) in _pendingDocumentSaves
+                         .Where(item => item.Value.Due <= saveNow)
                          .ToList())
             {
                 _pendingDocumentSaves.Remove(docSerial);
@@ -166,7 +165,7 @@ internal sealed partial class TerrainController
                 if (saveDoc == null || !_states.TryGetValue(docSerial, out var saveState))
                     continue;
 
-                Save(saveDoc, saveState);
+                Save(saveDoc, saveState, pendingSave.RaiseStateChanged);
             }
         }
 

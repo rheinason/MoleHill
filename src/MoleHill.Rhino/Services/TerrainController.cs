@@ -33,7 +33,7 @@ internal sealed partial class TerrainController
     private readonly TerrainDisplayConduit _displayConduit = new();
     private readonly Dictionary<uint, DocumentState> _states = new();
     private readonly Dictionary<(uint docSerial, Guid terrainId, TerrainBuildMode mode), PendingBuildRequest> _pendingRebuilds = new();
-    private readonly Dictionary<uint, DateTime> _pendingDocumentSaves = new();
+    private readonly Dictionary<uint, PendingDocumentSave> _pendingDocumentSaves = new();
     // Latency trace only: remembers which pending requests have already had their "due" moment
     // recorded, so the debounce interval and the post-debounce dispatch wait stay separable.
     private readonly HashSet<(uint docSerial, Guid terrainId, TerrainBuildMode mode, long version)> _latencyDueMarked = new();
