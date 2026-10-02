@@ -128,6 +128,30 @@ public static class MeshArrayNormalizer
         return true;
     }
 
+    /// <summary>
+    /// True when <see cref="TryNormalize"/> would hand back these arrays unchanged, given that they came from a
+    /// normalized mesh by moving vertices only in height. Height cannot change a face's plan winding or which
+    /// vertices are used, so only two things can: two vertices meeting at one float position (a merge, which
+    /// re-sorts every vertex) and a face whose corners become exactly collinear (a cull). A wall's vertical
+    /// edge, two vertices at one plan position, is where either can happen.
+    /// </summary>
+    public static bool HeightsKeepNormalForm(double[] vertices, int vertexCount, int[] faces, int faceCount)
+    {
+        if (HasFloatDuplicates(vertices, vertexCount))
+            return false;
+
+        for (int t = 0; t < faceCount; t++)
+        {
+            int a = faces[t * 3], b = faces[t * 3 + 1], c = faces[t * 3 + 2];
+            double ux = vertices[b * 3] - vertices[a * 3], uy = vertices[b * 3 + 1] - vertices[a * 3 + 1], uz = vertices[b * 3 + 2] - vertices[a * 3 + 2];
+            double wx = vertices[c * 3] - vertices[a * 3], wy = vertices[c * 3 + 1] - vertices[a * 3 + 1], wz = vertices[c * 3 + 2] - vertices[a * 3 + 2];
+            if ((uy * wz) - (uz * wy) == 0.0 && (uz * wx) - (ux * wz) == 0.0 && (ux * wy) - (uy * wx) == 0.0)
+                return false;
+        }
+
+        return true;
+    }
+
     private static bool SameFloat(double[] v, int a, int b) =>
         (float)v[a * 3] == (float)v[b * 3] && (float)v[a * 3 + 1] == (float)v[b * 3 + 1] && (float)v[a * 3 + 2] == (float)v[b * 3 + 2];
 
@@ -135,7 +159,7 @@ public static class MeshArrayNormalizer
     /// True when two vertices share a float-rounded position. Vertices are split by a hash of that position into
     /// partitions checked in parallel; equal positions always land in one partition.
     /// </summary>
-    private static bool HasFloatDuplicates(double[] v, int vertexCount)
+    internal static bool HasFloatDuplicates(double[] v, int vertexCount)
     {
         const int Partitions = 64;
         var hashes = new ulong[vertexCount];

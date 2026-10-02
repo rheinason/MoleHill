@@ -951,7 +951,18 @@ internal sealed partial class TerrainBuildService
             $"{result.Flips:N0} flips at target {target:0.###} " +
             $"({result.Faces.Length / 3:N0} faces; features and walls pinned) [{result.Timing}].");
 
-        return BuildMeshFromArrays(result.Vertices, result.Faces);
+        // The hand-off welds vertices that share a float position, blindly. A remesh can leave pairs a micron
+        // apart, and welding those dropped faces and made edges shared by four (FloatCoincidentEdgeCollapser).
+        (double[] outVertices, int[] outFaces) = FloatCoincidentEdgeCollapser.Collapse(
+            result.Vertices, result.Faces, out int collapsed, out int separated);
+        if (collapsed + separated > 0)
+        {
+            build.Diagnostics.Add(
+                $"Remesh collapsed {collapsed:N0} edge(s) and separated {separated:N0} vertex(es) shorter than float precision, " +
+                "which the mesh hand-off would otherwise have welded into folds.");
+        }
+
+        return BuildMeshFromArrays(outVertices, outFaces);
     }
 
     /// <summary>
@@ -1349,11 +1360,21 @@ internal sealed partial class TerrainBuildService
         string stageKey,
         TerrainBuildMode mode)
     {
+        var phaseTimer = Stopwatch.StartNew();
+        var phases = new System.Text.StringBuilder();
+        void Phase(string name)
+        {
+            phases.Append(phases.Length > 0 ? ", " : string.Empty).Append(name).Append(' ').Append(phaseTimer.ElapsedMilliseconds).Append(" ms");
+            phaseTimer.Restart();
+        }
+
         if (!RhinoGeometryConversions.TryExtractMeshData(mesh, out var vertices, out int vertexCount, out var faces, out int faceCount, out var errorMessage))
         {
             build.Diagnostics.Add(errorMessage ?? "Could not extract mesh data for smoothing.");
             return mesh;
         }
+
+        Phase("extract");
 
         double tolerance = GetToleranceProfile(snapshot, terrain).CurveChordTolerance;
         double effectiveStrength = Math.Clamp(modifier.Strength, 0.0, 1.0);
@@ -1406,6 +1427,7 @@ internal sealed partial class TerrainBuildService
             tolerance,
             breaklines);
 
+        Phase("inputs");
         string preparedStageKey = TerrainStageKey.CreateSmoothPrepared(stageKey);
         ulong preparedFingerprint = ComputeSmoothPreparedFingerprint(
             snapshot,
@@ -1413,6 +1435,7 @@ internal sealed partial class TerrainBuildService
             modifier,
             modifierIndex,
             ComputeMeshFingerprint(mesh));
+        Phase("fingerprint");
         MeshSmoother.PreparedSmoothingData prepared;
         if (runtimeCache.SmoothEntries.TryGetValue(preparedStageKey, out var cachedPrepared) &&
             cachedPrepared.Fingerprint == preparedFingerprint)
@@ -1438,6 +1461,7 @@ internal sealed partial class TerrainBuildService
             };
         }
 
+        Phase("prepare");
         var smoothed = MeshSmoother.SmoothPrepared(
             vertices,
             prepared,
@@ -1453,19 +1477,25 @@ internal sealed partial class TerrainBuildService
             smoothed[i * 3 + 1] = vertices[i * 3 + 1];
         }
 
+        Phase("smooth");
         if (smoothed.Any(value => double.IsNaN(value) || double.IsInfinity(value)))
         {
             build.Diagnostics.Add("Smooth produced invalid mesh data. Incoming mesh kept.");
             return mesh;
         }
 
-        var smoothedMesh = RhinoGeometryConversions.BuildMesh(smoothed, vertexCount, faces, faceCount);
+        Phase("finite check");
+        // Smoothing moves heights only, so the incoming topology is reused rather than normalized again.
+        var smoothedMesh = RhinoGeometryConversions.BuildMeshWithNewHeights(mesh, smoothed, vertexCount);
+        Phase("mesh build");
         if (smoothedMesh.Faces.Count == 0 || smoothedMesh.Vertices.Count == 0 || !smoothedMesh.IsValid)
         {
             build.Diagnostics.Add("Smooth produced an invalid mesh. Incoming mesh kept.");
             return mesh;
         }
 
+        Phase("validity");
+        build.Diagnostics.Add($"Smooth phases: {phases}.");
         return smoothedMesh;
     }
 

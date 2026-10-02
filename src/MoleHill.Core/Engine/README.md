@@ -13,6 +13,8 @@ Incremental-edit dictionaries are retained only through 250,000 vertices; larger
 caching without their memory cost.
 
 Key files:
+- `FloatCoincidentEdgeCollapser.cs` - collapses Remesh edges whose ends share a float position (or separates a
+  pair no edge joins) so the float weld at the Rhino hand-off cannot fold the surface.
 - `MeshArrayNormalizer.cs` - Rhino's mesh normalization (float-precision vertex merge with its descending
   re-sort, unused and degenerate culls, winding check) reproduced on flat arrays. The Rhino host builds
   stage meshes through it and hands on the exact arrays Rhino would have produced. Verified against

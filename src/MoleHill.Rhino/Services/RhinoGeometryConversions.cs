@@ -175,6 +175,58 @@ internal static class RhinoGeometryConversions
     }
 
     /// <summary>
+    /// <see cref="BuildMesh"/> for a stage that moved <paramref name="source"/>'s vertices in height only, as
+    /// Smooth does: the same mesh, without normalizing a topology that has not changed. On a 566k-face terrain
+    /// normalizing took 460 ms of a Smooth whose smoothing took 8. <paramref name="vertices"/> must be the
+    /// source's extracted arrays with only Z changed. When height alone could change the normal form
+    /// (<see cref="MeshArrayNormalizer.HeightsKeepNormalForm"/>), or the source is not a normalized stage mesh,
+    /// this is <see cref="BuildMesh"/> itself.
+    /// </summary>
+    public static Mesh BuildMeshWithNewHeights(Mesh source, double[] vertices, int vertexCount)
+    {
+        if (!TryGetMeshData(source, out ExtractedMeshData data, out _))
+            return source;
+
+        if (!IsNormalizedMesh(source) ||
+            data.VertexCount != vertexCount ||
+            !SamePlanPositions(data.Vertices, vertices, vertexCount) ||
+            !MeshArrayNormalizer.HeightsKeepNormalForm(vertices, vertexCount, data.Faces, data.FaceCount))
+        {
+            return BuildMesh(vertices, vertexCount, data.Faces, data.FaceCount);
+        }
+
+        var mesh = new Mesh();
+        FillMesh(mesh, vertices, vertexCount, data.Faces, data.FaceCount);
+        MeshNormalOrientation.ComputeNormalsConsistentlyWound(mesh);
+        var rounded = new double[vertexCount * 3];
+        for (int i = 0; i < rounded.Length; i++)
+            rounded[i] = (float)vertices[i];
+        CacheMeshData(mesh, new ExtractedMeshData
+        {
+            Vertices = rounded,
+            VertexCount = vertexCount,
+            Faces = data.Faces,
+            FaceCount = data.FaceCount
+        });
+        MarkNormalized(mesh);
+
+        if (Environment.GetEnvironmentVariable("MOLEHILL_VERIFY_NORMALIZE") is { Length: > 0 } verifyLog)
+            VerifyAgainstRhino(vertices, vertexCount, data.Faces, data.FaceCount, GetNormalizedMeshData(mesh), verifyLog);
+        return mesh;
+
+        static bool SamePlanPositions(double[] before, double[] after, int count)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (before[i * 3] != after[i * 3] || before[i * 3 + 1] != after[i * 3 + 1])
+                    return false;
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Writes vertices and triangles straight into an empty mesh's arrays: what
     /// <c>Vertices.Add(double, double, double)</c> and <c>Faces.AddFace</c> store, double-precision vertices
     /// included (adding a double turns them on), without a native call per element (~7 ms per 100k-face
@@ -291,14 +343,39 @@ internal static class RhinoGeometryConversions
     /// Builds the normalized sub-mesh for one area; see <see cref="SplitResultMeshBuilder"/> for how to
     /// group faces and reuse the remap across areas.
     /// </summary>
+    /// <remarks>
+    /// The area's faces and their vertices in first-touch order, the arrays <c>CreateUnfinished</c> fills a
+    /// Rhino mesh with, normalized by <see cref="BuildMesh"/> in managed code, which reproduces
+    /// <see cref="NormalizeMeshInPlace"/> exactly and hands over to Rhino whenever winding needs unifying.
+    /// Normalizing every zone through Rhino was 0.5 s of a 566k-face terrain's zones.
+    /// </remarks>
     public static Mesh BuildSubMesh(
         MeshAreaSplitter.SplitResult result,
         ReadOnlySpan<int> faceIndices,
         SubMeshVertexRemap remap)
     {
-        Mesh mesh = SplitResultMeshBuilder.CreateUnfinished(result, faceIndices, remap);
-        NormalizeMeshInPlace(mesh);
-        return mesh;
+        var faces = new int[faceIndices.Length * 3];
+        var vertices = new List<double>(faceIndices.Length * 3);
+        remap.Begin();
+        for (int f = 0; f < faceIndices.Length; f++)
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                int source = result.Faces[faceIndices[f] * 3 + k];
+                if (!remap.TryGet(source, out int index))
+                {
+                    index = vertices.Count / 3;
+                    vertices.Add(result.Vertices[source * 3]);
+                    vertices.Add(result.Vertices[source * 3 + 1]);
+                    vertices.Add(result.Vertices[source * 3 + 2]);
+                    remap.Set(source, index);
+                }
+
+                faces[f * 3 + k] = index;
+            }
+        }
+
+        return BuildMesh(vertices.ToArray(), vertices.Count / 3, faces, faceIndices.Length);
     }
 
     internal static void NormalizeMeshInPlace(Mesh mesh)
