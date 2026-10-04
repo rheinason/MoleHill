@@ -13,6 +13,8 @@ Incremental-edit dictionaries are retained only through 250,000 vertices; larger
 caching without their memory cost.
 
 Key files:
+- `TriangulationHelper.cs` - shared fallback cascade; splits segments at existing T-junction vertices
+  before constrained triangulation, preserves caller inputs and reports the first constrained failure.
 - `FloatCoincidentEdgeCollapser.cs` - collapses Remesh edges whose ends share a float position (or separates a
   pair no edge joins) so the float weld at the Rhino hand-off cannot fold the surface.
 - `MeshArrayNormalizer.cs` - Rhino's mesh normalization (float-precision vertex merge with its descending

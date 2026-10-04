@@ -211,7 +211,12 @@ try {
         $promoted = @($output | Where-Object { $_ -match 'error CS' })
         $promoted | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
         if ($exit -ne 0) {
-            throw "Owned-code warnings: $($promoted.Count). Fix them, or scope the suppression to the sources that need it."
+            if ($promoted.Count -gt 0) {
+                throw "Owned-code compiler diagnostics: $($promoted.Count). See warnings.log; fix errors or scope warning suppression to the sources that need it."
+            }
+            $buildErrors = @($output | Where-Object { $_ -match ': error ' } | Select-Object -Unique)
+            $buildErrors | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+            throw "Warnings build failed (exit $exit) with no error CS diagnostics. See warnings.log for restore, file-access or other build errors."
         }
 
         Write-Host "Projects compiled: $($compiled.Count). Owned-code warning count is 0 (the ratchet)." -ForegroundColor Green

@@ -74,32 +74,40 @@ public sealed partial class MoleHillPanel
                 HorizontalAlignment.Stretch));
         }
 
-        var availableStack = new StackLayout
+        // GridView keeps the data virtualized by the native Eto backend. Building one StackLayout
+        // row per layer made opening and filtering this picker scale with the entire document.
+        var availableGrid = new GridView
         {
-            Orientation = Orientation.Vertical,
-            Spacing = 2,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch
+            ShowHeader = false,
+            RowHeight = LayerPickerRowHeight,
+            AllowMultipleSelection = false
         };
-        var availableScroll = new Scrollable
+        var dotColumn = new GridColumn
         {
-            Content = availableStack,
-            Border = BorderType.None,
-            ExpandContentWidth = true,
-            ExpandContentHeight = false
+            HeaderText = string.Empty,
+            Width = LayerPickerDotColumnWidth,
+            Editable = false,
+            DataCell = new TextBoxCell { Binding = Binding.Property((LayerPickerEntry entry) => entry.Dot) }
         };
-        UiControls.DisableHorizontalScrolling(availableScroll);
+        var pathColumn = new GridColumn
+        {
+            HeaderText = "Layer",
+            Expand = true,
+            Editable = false,
+            DataCell = new TextBoxCell { Binding = Binding.Property((LayerPickerEntry entry) => entry.DisplayText) }
+        };
+        availableGrid.Columns.Add(dotColumn);
+        availableGrid.Columns.Add(pathColumn);
+        availableGrid.CellFormatting += (_, e) =>
+        {
+            if (e.Item is LayerPickerEntry entry && ReferenceEquals(e.Column, dotColumn))
+                e.ForegroundColor = entry.DotColor;
+        };
 
-        List<LayerPickerEntry> visibleEntries = new();
+        var availableContent = new Panel { Content = availableGrid };
+
+        IReadOnlyList<LayerPickerEntry> visibleEntries = Array.Empty<LayerPickerEntry>();
         int highlightedIndex = -1;
-
-        void EnsureHighlightedRowVisible()
-        {
-            if (highlightedIndex < 0)
-                return;
-
-            int targetY = Math.Max(0, highlightedIndex * LayerPickerRowHeight - LayerPickerRowHeight);
-            availableScroll.ScrollPosition = new Point(0, targetY);
-        }
 
         void CommitLayer(string path)
         {
@@ -127,10 +135,9 @@ public sealed partial class MoleHillPanel
                 highlightedIndex = visibleEntries.Count - 1;
             }
 
-            availableStack.Items.Clear();
             if (visibleEntries.Count == 0)
             {
-                availableStack.Items.Add(new StackLayoutItem(new Panel
+                availableContent.Content = new Panel
                 {
                     Padding = new Padding(8, 6),
                     Content = new Label
@@ -138,29 +145,16 @@ public sealed partial class MoleHillPanel
                         Text = "No matching layers.",
                         TextColor = UiTheme.MutedText
                     }
-                }, HorizontalAlignment.Stretch));
+                };
                 return;
             }
 
-            for (int index = 0; index < visibleEntries.Count; index++)
-            {
-                int capturedIndex = index;
-                LayerPickerEntry capturedEntry = visibleEntries[index];
-                var row = CreateLayerPickerRow(
-                    capturedEntry.DisplayText,
-                    capturedEntry.DotColor,
-                    highlighted: capturedIndex == highlightedIndex);
-                row.MouseDown += (_, e) =>
-                {
-                    if (e.Buttons != MouseButtons.Primary)
-                        return;
-
-                    highlightedIndex = capturedIndex;
-                    CommitLayer(capturedEntry.Path);
-                    e.Handled = true;
-                };
-                availableStack.Items.Add(new StackLayoutItem(row, HorizontalAlignment.Stretch));
-            }
+            availableContent.Content = availableGrid;
+            int rowToSelect = highlightedIndex;
+            availableGrid.DataStore = visibleEntries;
+            availableGrid.SelectRow(rowToSelect);
+            highlightedIndex = rowToSelect;
+            availableGrid.ScrollToRow(rowToSelect);
         }
 
         void MoveHighlight(int delta)
@@ -173,9 +167,35 @@ public sealed partial class MoleHillPanel
             else
                 highlightedIndex = Math.Clamp(highlightedIndex + delta, 0, visibleEntries.Count - 1);
 
-            RebuildAvailableRows();
-            EnsureHighlightedRowVisible();
+            availableGrid.SelectRow(highlightedIndex);
+            availableGrid.ScrollToRow(highlightedIndex);
         }
+
+        availableGrid.SelectionChanged += (_, _) =>
+            highlightedIndex = availableGrid.SelectedRow;
+
+        availableGrid.KeyDown += (_, e) =>
+        {
+            if (e.Key == Keys.Escape)
+            {
+                popup.Close();
+                e.Handled = true;
+            }
+            else if (e.Key == Keys.Enter && highlightedIndex >= 0 && highlightedIndex < visibleEntries.Count)
+            {
+                CommitLayer(visibleEntries[highlightedIndex].Path);
+                e.Handled = true;
+            }
+        };
+
+        availableGrid.CellClick += (_, e) =>
+        {
+            if (e.Item is LayerPickerEntry entry)
+            {
+                highlightedIndex = e.Row;
+                CommitLayer(entry.Path);
+            }
+        };
 
         searchBox.TextChanged += (_, _) =>
         {
@@ -232,7 +252,7 @@ public sealed partial class MoleHillPanel
             content.Add(new Panel { Height = 1, BackgroundColor = UiTheme.ToolbarBackground }, yscale: false);
         }
         content.Add(toolbar, yscale: false);
-        content.Add(availableScroll, yscale: true);
+        content.Add(availableContent, yscale: true);
 
         popup.Content = content;
         RebuildAvailableRows();
@@ -335,13 +355,18 @@ public sealed partial class MoleHillPanel
 
     private const int LayerPickerRowHeight = 28;
 
+    private const int LayerPickerDotColumnWidth = 24;
+
     private enum LayerPickerMode
     {
         SingleSelect,
         MultiSelect
     }
 
-    private sealed record LayerPickerEntry(string Path, string DisplayText, Color DotColor);
+    private sealed record LayerPickerEntry(string Path, string DisplayText, Color DotColor)
+    {
+        public string Dot => "●";
+    }
 
     private static string GetLeafLayerName(string layerPath) => AnalysisFormatting.GetLeafLayerName(layerPath);
 }

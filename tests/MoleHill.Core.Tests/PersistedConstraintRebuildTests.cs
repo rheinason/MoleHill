@@ -40,9 +40,9 @@ public sealed class PersistedConstraintRebuildTests
     }
 
     [Theory]
-    [InlineData(false, 0)]
-    [InlineData(true, 1)]
-    public void Rebuild_WithPersistedLine_CapsOnlyWhenTheRawLineIsPersisted(bool persistRaw, int minimumCaps)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Rebuild_WithPersistedLine_RawAndStationedLinesProduceNoCaps(bool persistRaw)
     {
         double[] raw = [0.3, 1.7, 5.0, 37.9, 13.1, 9.0];
         List<double[]> stationed = TerrainConstraintPreprocessor.Process(new List<double[]> { raw }, Array.Empty<double[]>(), Tolerance);
@@ -66,11 +66,9 @@ public sealed class PersistedConstraintRebuildTests
             });
 
         Assert.True(result.Success, result.Warning);
-        int caps = CountCaps(result.Vertices, result.Faces);
-        if (minimumCaps == 0)
-            Assert.Equal(0, caps);
-        else
-            Assert.True(caps >= minimumCaps, $"the raw line is expected to reproduce the caps (documents the failure mode), got {caps}");
+        // Shared triangulation now splits raw segments at existing station vertices too. Both
+        // representations must remain safe; requiring the old defect would reject that repair.
+        Assert.Equal(0, CountCaps(result.Vertices, result.Faces));
     }
 
     private static (double[] vertices, int[] faces) BuildTin(List<double[]> lines)

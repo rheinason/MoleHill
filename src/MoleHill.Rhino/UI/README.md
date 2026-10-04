@@ -3,6 +3,10 @@
 The dockable terrain panel (Eto.Forms) and its dialogs. Composes reusable card/editor primitives - add
 fields by composing them, not by copying boilerplate.
 
+Layer source popovers use a native `GridView` for available layers. Filtering replaces its data store;
+keyboard navigation only selects and scrolls the existing rows. Enter commits the selected layer and
+Escape closes the popup from either the search box or the grid.
+
 - `CurveProfileControl.cs` — the read-only plan-station chart in `mhInspectCurve`. It paints the curve
   coloured by the selected metric, the terrain line, violation bands, events, a scrub cursor with its
   readout, and the legend ramp that says what the colours mean. Colour comes from the service-side

@@ -56,6 +56,20 @@ function Copy-RequiredFile {
     Copy-Item -Path $Source -Destination $Destination -Force
 }
 
+function Get-RuntimeAssemblyHash {
+    param([string]$Path)
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return [System.BitConverter]::ToString($sha.ComputeHash($stream))
+    }
+    finally {
+        $sha.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Copy-RuntimeAssemblies {
     param(
         [string[]]$SourceDirectories,
@@ -76,7 +90,9 @@ function Copy-RuntimeAssemblies {
                 $destination = Join-Path $DestinationDirectory $_.Name
                 if ($copiedAssemblies.ContainsKey($_.Name)) {
                     $existing = Get-Item -Path $destination
-                    if ($existing.Length -ne $_.Length) {
+                    if ($existing.Length -ne $_.Length -or
+                        (Get-RuntimeAssemblyHash $destination) -ne
+                        (Get-RuntimeAssemblyHash $_.FullName)) {
                         throw "Conflicting runtime assembly '$($_.Name)' found in '$($copiedAssemblies[$_.Name])' and '$($_.FullName)'."
                     }
 
@@ -96,9 +112,15 @@ function Remove-DirectoryWithRetry {
         [int]$DelaySeconds = 2
     )
 
+    $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+    $allowedRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '.artifacts\yak')) + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $resolvedPath.StartsWith($allowedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove directory outside Yak staging root: '$resolvedPath'."
+    }
+
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         try {
-            Remove-Item -Path $Path -Recurse -Force
+            Remove-Item -LiteralPath $resolvedPath -Recurse -Force
             return
         }
         catch {

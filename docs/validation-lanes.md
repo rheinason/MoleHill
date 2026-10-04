@@ -272,6 +272,10 @@ version can never be overwritten) and opens the produced archive to verify it co
 Staging the right files is not evidence the archive holds them — 0.14.3-beta shipped a
 Grasshopper-only package that looked publishable.
 
+Packaging compares SHA-256 hashes of duplicate runtime assemblies from the two host builds;
+equal file size alone does not prove compatible content. Staging cleanup is restricted to a child
+directory of `.artifacts/yak`.
+
 ## SDK and runtime
 
 `global.json` records the SDK floor MoleHill is known to build with (`8.0.400`) and rolls forward to a

@@ -3,6 +3,21 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.2.1 — 2026-10-04
+
+Stable release incorporating the large-terrain, grading, layer and retaining-wall changes from
+1.1.0-beta and 1.2.0-beta, plus these fixes:
+
+- Shared triangulation splits breaklines at existing T-junction vertices, including callers outside
+  the initial TIN build, and explains the first failure when it falls back to plain Delaunay.
+- Remesh preserves manifold output at float-precision mesh hand-off; Smooth avoids unnecessary
+  Rhino normalization.
+- Zone splitting preserves each source face's winding and builds zone meshes through the shared
+  managed normalization path.
+- Terrain JSON persistence runs after redraw rather than delaying it.
+- Layer pickers use a native grid for large layer lists; keyboard navigation selects and scrolls
+  without rebuilding the filtered list, and Enter/Escape work with the grid focused.
+
 ## 1.2.0-beta — 2026-10-02
 
 A beta that makes terrains built from contours and snapped breaklines hold their lines, and makes retaining

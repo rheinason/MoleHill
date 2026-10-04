@@ -63,6 +63,27 @@ public static class TriangulationHelper
         var mesher = new GenericMesher();
         var failureDetails = new List<string>(5);
 
+        // A breakline ending on another leaves a vertex on the other's segment. Split the containing
+        // segment at that existing vertex before handing the constraints to Triangle.NET. This changes
+        // only the segment list; vertex IDs and the caller's input list remain untouched.
+        if (hasSegs)
+        {
+            double[] xyCoords = xyList.Take(vertexCount * 2).ToArray();
+            int[] segmentArray = new int[segments.Count * 2];
+            for (int i = 0; i < segments.Count; i++)
+            {
+                segmentArray[i * 2] = segments[i].a;
+                segmentArray[i * 2 + 1] = segments[i].b;
+            }
+
+            segmentArray = BreaklineTJunctions.SplitAtVertices(
+                xyCoords, segmentArray, TJunctionTolerance(xyCoords), out _);
+
+            segments = new List<(int a, int b)>(segmentArray.Length / 2);
+            for (int i = 0; i < segmentArray.Length; i += 2)
+                segments.Add((segmentArray[i], segmentArray[i + 1]));
+        }
+
         // Fewer than three vertices cannot form a triangle. Triangle.NET returns an empty mesh from
         // every constrained tier on such input and then throws a NullReferenceException inside the
         // plain-Delaunay fallback, so the caller sees "all attempts failed" plus an NRE instead of the
@@ -248,7 +269,9 @@ public static class TriangulationHelper
             {
                 Mesh = result,
                 WarningMessage = hasSegs
-                    ? "Constraints could not be enforced. Using plain Delaunay."
+                    ? failureDetails.Count > 0
+                        ? $"Constraints could not be enforced ({failureDetails[0]}). Using plain Delaunay."
+                        : "Constraints could not be enforced. Using plain Delaunay."
                     : null,
                 Flags = flags
             };
@@ -264,5 +287,13 @@ public static class TriangulationHelper
                 : $"All triangulation attempts failed. {failureSummary}",
             FailureDetails = failureDetails
         };
+    }
+
+    private static double TJunctionTolerance(double[] xyCoords)
+    {
+        double magnitude = 1.0;
+        foreach (double value in xyCoords)
+            magnitude = Math.Max(magnitude, Math.Abs(value));
+        return magnitude * 1e-9;
     }
 }
