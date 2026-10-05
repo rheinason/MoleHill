@@ -9,6 +9,9 @@ if (-not (Test-Path $rhinoDir)) { New-Item -ItemType Directory -Path $rhinoDir |
 $rhinoEmbeddedDir = "$PSScriptRoot\src\MoleHill.Rhino\EmbeddedResources"
 if (-not (Test-Path $rhinoEmbeddedDir)) { New-Item -ItemType Directory -Path $rhinoEmbeddedDir | Out-Null }
 
+$revitDir = "$PSScriptRoot\src\MoleHill.Revit\Resources"
+if (-not (Test-Path $revitDir)) { New-Item -ItemType Directory -Path $revitDir | Out-Null }
+
 function New-Icon {
     param([string]$path, [scriptblock]$draw, [int]$size = 24)
     $bmp = New-Object System.Drawing.Bitmap($size, $size)
@@ -344,6 +347,171 @@ New-Icon "$ghDir\RetainingWall.png" {
     $brush.Dispose()
 }
 
+# ── Terrain data and Toposolid icons ─────────────────────────────────────────
+# Shared motifs: the blue terrain triangle (MoleHill.png) stands for a terrain; an earth-brown slab with a
+# surveyed top stands for a Revit Toposolid.
+
+function Draw-TerrainTriangle {
+    param($g, [System.Drawing.PointF[]]$pts, [bool]$mesh = $true)
+    $fill = New-Object System.Drawing.SolidBrush((Argb 50 100 180))
+    $g.FillPolygon($fill, $pts)
+    $fill.Dispose()
+    if ($mesh) {
+        $inner = New-Object System.Drawing.Pen((Argb 150 190 240), 1.2)
+        $mid01 = PtF (($pts[0].X + $pts[1].X) / 2) (($pts[0].Y + $pts[1].Y) / 2)
+        $mid12 = PtF (($pts[1].X + $pts[2].X) / 2) (($pts[1].Y + $pts[2].Y) / 2)
+        $mid20 = PtF (($pts[2].X + $pts[0].X) / 2) (($pts[2].Y + $pts[0].Y) / 2)
+        $g.DrawPolygon($inner, @($mid01, $mid12, $mid20))
+        $inner.Dispose()
+    }
+    $out = New-Object System.Drawing.Pen((Argb 20 50 120), 2)
+    $g.DrawPolygon($out, $pts)
+    $out.Dispose()
+}
+
+function Draw-ToposolidSlab {
+    param($g, [double]$top = 9, [double]$bottom = 20)
+    $profile = @((PtF 2 ($top + 3)), (PtF 7 $top), (PtF 12 ($top + 2)), (PtF 17 ($top - 1)), (PtF 22 ($top + 2)))
+    $outline = $profile + @((PtF 22 $bottom), (PtF 2 $bottom))
+    $fill = New-Object System.Drawing.SolidBrush((Argb 176 128 84))
+    $g.FillPolygon($fill, $outline)
+    $fill.Dispose()
+    $grass = New-Object System.Drawing.Pen((Argb 70 150 60), 2.5)
+    $g.DrawLines($grass, $profile)
+    $grass.Dispose()
+    $out = New-Object System.Drawing.Pen((Argb 90 55 30), 1.5)
+    $g.DrawPolygon($out, $outline)
+    $out.Dispose()
+    return $profile
+}
+
+# BalanceGradePad - grade pad between equal cut (red) and fill (green) wedges, under a level balance beam
+New-Icon "$ghDir\BalanceGradePad.png" {
+    param($g)
+    $cut = New-Object System.Drawing.SolidBrush((Argb 210 80 60))
+    $fill = New-Object System.Drawing.SolidBrush((Argb 80 170 80))
+    $g.FillPolygon($cut, @((PtF 1 12), (PtF 10 12), (PtF 1 21)))
+    $g.FillPolygon($fill, @((PtF 14 21), (PtF 23 21), (PtF 23 12)))
+    $cut.Dispose(); $fill.Dispose()
+    $pad = New-Object System.Drawing.SolidBrush((Argb 60 120 220))
+    $padPts = @((PtF 8 16), (PtF 16 16), (PtF 17.5 21), (PtF 6.5 21))
+    $g.FillPolygon($pad, $padPts)
+    $pad.Dispose()
+    $padPen = New-Object System.Drawing.Pen((Argb 20 60 150), 1.5)
+    $g.DrawPolygon($padPen, $padPts)
+    $padPen.Dispose()
+    $beam = New-Object System.Drawing.Pen((Argb 30 30 30), 2)
+    $g.DrawLine($beam, 3, 5, 21, 5)
+    $g.DrawLine($beam, 12, 5, 12, 10)
+    $g.DrawLine($beam, 9, 10, 15, 10)
+    $g.DrawLine($beam, 3, 5, 3, 9)
+    $g.DrawLine($beam, 21, 5, 21, 9)
+    $beam.Dispose()
+}
+
+# InSituStair - stepped profile cut into a terrain slope
+New-Icon "$ghDir\InSituStair.png" {
+    param($g)
+    $steps = @((PtF 2 21), (PtF 2 17), (PtF 7 17), (PtF 7 13), (PtF 12 13), (PtF 12 9), (PtF 17 9), (PtF 17 5), (PtF 22 5), (PtF 22 21))
+    $brush = New-Object System.Drawing.SolidBrush((Argb 60 120 220))
+    $g.FillPolygon($brush, $steps)
+    $brush.Dispose()
+    $pen = New-Object System.Drawing.Pen((Argb 20 60 150), 2)
+    $g.DrawPolygon($pen, $steps)
+    $pen.Dispose()
+    $terrain = New-Object System.Drawing.Pen((Argb 60 60 60), 2)
+    $g.DrawLine($terrain, 1, 14, 22, 2)
+    $terrain.Dispose()
+}
+
+# TerrainSnapshot - terrain triangle inside viewfinder corners: a live capture of a Rhino terrain
+New-Icon "$ghDir\TerrainSnapshot.png" {
+    param($g)
+    Draw-TerrainTriangle $g @((PtF 5 19), (PtF 12 6), (PtF 19 19))
+    $pen = New-Object System.Drawing.Pen((Argb 30 30 30), 2)
+    $g.DrawLines($pen, @((PtF 1 7), (PtF 1 1), (PtF 7 1)))
+    $g.DrawLines($pen, @((PtF 17 1), (PtF 23 1), (PtF 23 7)))
+    $g.DrawLines($pen, @((PtF 23 17), (PtF 23 23), (PtF 17 23)))
+    $g.DrawLines($pen, @((PtF 7 23), (PtF 1 23), (PtF 1 17)))
+    $pen.Dispose()
+}
+
+# ConstructTerrain - whole terrain triangle with a green plus badge
+New-Icon "$ghDir\ConstructTerrain.png" {
+    param($g)
+    Draw-TerrainTriangle $g @((PtF 1 22), (PtF 10 4), (PtF 19 22))
+    $badge = New-Object System.Drawing.SolidBrush((Argb 25 157 73))
+    $g.FillEllipse($badge, 13, 1, 10, 10)
+    $badge.Dispose()
+    $plus = New-Object System.Drawing.Pen([System.Drawing.Color]::White, 2)
+    $g.DrawLine($plus, 18, 3.5, 18, 8.5)
+    $g.DrawLine($plus, 15.5, 6, 20.5, 6)
+    $plus.Dispose()
+}
+
+# DeconstructTerrain - the same triangle exploded into three separated pieces
+New-Icon "$ghDir\DeconstructTerrain.png" {
+    param($g)
+    Draw-TerrainTriangle $g @((PtF 12 1), (PtF 16.5 9.5), (PtF 7.5 9.5)) $false
+    Draw-TerrainTriangle $g @((PtF 5.5 13), (PtF 10 22), (PtF 1 22)) $false
+    Draw-TerrainTriangle $g @((PtF 18.5 13), (PtF 23 22), (PtF 14 22)) $false
+}
+
+# PartitionTerrain - one terrain triangle cut into two coloured pieces either side of a gap
+New-Icon "$ghDir\PartitionTerrain.png" {
+    param($g)
+    $left = @((PtF 1 21), (PtF 11 2.9), (PtF 11 21))
+    $right = @((PtF 13 21), (PtF 13 2.9), (PtF 23 21))
+    $leftFill = New-Object System.Drawing.SolidBrush((Argb 80 170 80))
+    $rightFill = New-Object System.Drawing.SolidBrush((Argb 70 130 210))
+    $g.FillPolygon($leftFill, $left)
+    $g.FillPolygon($rightFill, $right)
+    $pen = New-Object System.Drawing.Pen((Argb 30 30 30), 2)
+    $g.DrawPolygon($pen, $left)
+    $g.DrawPolygon($pen, $right)
+    $pen.Dispose(); $leftFill.Dispose(); $rightFill.Dispose()
+}
+
+# PrepareToposolid - Toposolid slab whose top is sampled at bold points
+New-Icon "$ghDir\PrepareToposolid.png" {
+    param($g)
+    $profile = Draw-ToposolidSlab $g 10 21
+    $dot = New-Object System.Drawing.SolidBrush((Argb 30 30 30))
+    foreach ($p in $profile) { $g.FillEllipse($dot, $p.X - 2, $p.Y - 2, 4, 4) }
+    $dot.Dispose()
+    # Point budget tick: a dashed gauge above the slab
+    $gauge = New-Object System.Drawing.Pen((Argb 50 100 180), 2)
+    $g.DrawLine($gauge, 4, 3, 20, 3)
+    $g.DrawLine($gauge, 4, 1, 4, 5)
+    $g.DrawLine($gauge, 20, 1, 20, 5)
+    $gauge.Dispose()
+}
+
+# WriteToposolids - green arrow writing down into a Toposolid slab
+New-Icon "$revitDir\WriteToposolids.png" {
+    param($g)
+    $null = Draw-ToposolidSlab $g 12 22
+    $arrow = New-Object System.Drawing.SolidBrush((Argb 25 157 73))
+    $g.FillPolygon($arrow, @((PtF 9.5 1), (PtF 14.5 1), (PtF 14.5 7), (PtF 18 7), (PtF 12 13), (PtF 6 7), (PtF 9.5 7)))
+    $arrow.Dispose()
+    $pen = New-Object System.Drawing.Pen((Argb 15 90 40), 1.2)
+    $g.DrawPolygon($pen, @((PtF 9.5 1), (PtF 14.5 1), (PtF 14.5 7), (PtF 18 7), (PtF 12 13), (PtF 6 7), (PtF 9.5 7)))
+    $pen.Dispose()
+}
+
+# InspectToposolids - magnifier over a Toposolid slab
+New-Icon "$revitDir\InspectToposolids.png" {
+    param($g)
+    $null = Draw-ToposolidSlab $g 12 22
+    $lens = New-Object System.Drawing.SolidBrush((Argb 255 255 255 200))
+    $g.FillEllipse($lens, 3, 1, 12, 12)
+    $lens.Dispose()
+    $pen = New-Object System.Drawing.Pen((Argb 30 30 30), 2.5)
+    $g.DrawEllipse($pen, 3, 1, 12, 12)
+    $g.DrawLine($pen, 13.5, 11.5, 20, 18)
+    $pen.Dispose()
+}
+
 # ── 16×16 Rhino panel tab icons ────────────────────────────────────────────
 
 # TabModifiers - 3 solid bars with left-side blue accent strip
@@ -450,7 +618,7 @@ New-Icon "$rhinoDir\ModTriangulate.png" {
 } -size 16
 
 # ModAddGeometry - triangulate badge with additive plus marker
-New-Icon "$rhinoDir\ModAddGeometry.png" {
+$drawModAddGeometry = {
     param($g)
     $pts = @(
         (New-Object System.Drawing.PointF(8, 2)),
@@ -467,7 +635,10 @@ New-Icon "$rhinoDir\ModAddGeometry.png" {
     $g.DrawLine($plusPen, 8, 5, 8, 11)
     $g.DrawLine($plusPen, 5, 8, 11, 8)
     $plusPen.Dispose()
-} -size 16
+}
+New-Icon "$rhinoDir\ModAddGeometry.png" $drawModAddGeometry -size 16
+# Grasshopper shows the same artwork at its 24 px size: the 16 px drawing, scaled 1.5x.
+New-Icon "$ghDir\AddGeometry.png" { param($g) $g.ScaleTransform(1.5, 1.5); & $drawModAddGeometry $g }
 
 # ModRemesh - filled green triangle with white internal lines
 New-Icon "$rhinoDir\ModRemesh.png" {
@@ -492,7 +663,7 @@ New-Icon "$rhinoDir\ModRemesh.png" {
 } -size 16
 
 # ModSimplify - dense triangulation reduced to a sparse mesh over the same outline
-New-Icon "$rhinoDir\ModSimplify.png" {
+$drawModSimplify = {
     param($g)
     $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 137, 123), 1.3)
     # Dense triangulation on the left.
@@ -511,10 +682,13 @@ New-Icon "$rhinoDir\ModSimplify.png" {
     $g.DrawLine($arrow, (PtF 9.2 8), (PtF 7.7 6.7))
     $g.DrawLine($arrow, (PtF 9.2 8), (PtF 7.7 9.3))
     $arrow.Dispose()
-} -size 16
+}
+New-Icon "$rhinoDir\ModSimplify.png" $drawModSimplify -size 16
+# Grasshopper shows the same artwork at its 24 px size: the 16 px drawing, scaled 1.5x.
+New-Icon "$ghDir\Simplify.png" { param($g) $g.ScaleTransform(1.5, 1.5); & $drawModSimplify $g }
 
 # ModRetopo - indigo quad grid with white field-aligned cross marks
-New-Icon "$rhinoDir\ModRetopo.png" {
+$drawModRetopo = {
     param($g)
     $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(63, 81, 181))
     $g.FillRectangle($brush, 2, 2, 12, 12)
@@ -534,7 +708,10 @@ New-Icon "$rhinoDir\ModRetopo.png" {
     $g.DrawLine($crossPen, 10, 9.5, 10, 12.5)
     $g.DrawLine($crossPen, 8.5, 11, 11.5, 11)
     $crossPen.Dispose()
-} -size 16
+}
+New-Icon "$rhinoDir\ModRetopo.png" $drawModRetopo -size 16
+# Grasshopper shows the same artwork at its 24 px size: the 16 px drawing, scaled 1.5x.
+New-Icon "$ghDir\Retopo.png" { param($g) $g.ScaleTransform(1.5, 1.5); & $drawModRetopo $g }
 
 # ModSmooth - two curves: jagged gray above, smooth purple below
 New-Icon "$rhinoDir\ModSmooth.png" {
@@ -553,7 +730,7 @@ New-Icon "$rhinoDir\ModSmooth.png" {
 } -size 16
 
 # ModProjectTo - lower terrain pulled vertically toward an upper target profile
-New-Icon "$rhinoDir\ModProjectTo.png" {
+$drawModProjectTo = {
     param($g)
     $targetPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(70, 90, 105), 1.5)
     $g.DrawLine($targetPen, 1, 4, 5, 3)
@@ -573,7 +750,10 @@ New-Icon "$rhinoDir\ModProjectTo.png" {
     $g.DrawLine($arrowPen, 11, 6, 9.5, 8)
     $g.DrawLine($arrowPen, 11, 6, 12.5, 8)
     $arrowPen.Dispose()
-} -size 16
+}
+New-Icon "$rhinoDir\ModProjectTo.png" $drawModProjectTo -size 16
+# Grasshopper shows the same artwork at its 24 px size: the 16 px drawing, scaled 1.5x.
+New-Icon "$ghDir\ProjectTo.png" { param($g) $g.ScaleTransform(1.5, 1.5); & $drawModProjectTo $g }
 
 # ModSculpt - teal sculpted mound with white brush cursor ring
 New-Icon "$rhinoDir\ModSculpt.png" {

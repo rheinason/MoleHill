@@ -22,7 +22,7 @@ public sealed class InSituStairComponent : RegistryTerrainComponent
     protected override GhComponentSpec Spec => ComponentSpec;
 
     protected override System.Drawing.Bitmap? Icon =>
-        MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.GradePath.png");
+        MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.InSituStair.png");
 
     public override Guid ComponentGuid => new("2D5B1419-4E82-4D77-93A8-6760D14F4302");
 

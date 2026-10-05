@@ -18,7 +18,7 @@ public sealed class BalanceGradePadComponent : RegistryTerrainComponent
 
     protected override GhComponentSpec Spec => ComponentSpec;
     protected override System.Drawing.Bitmap? Icon =>
-        MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.GradePad.png");
+        MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.BalanceGradePad.png");
     public override Guid ComponentGuid => new("C137B57B-76DC-4D71-A83B-65C7EC24226F");
 
     private static GhComponentSpec BuildSpec() => new()

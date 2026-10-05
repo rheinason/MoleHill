@@ -23,7 +23,7 @@ public sealed class PrepareToposolidComponent : GH_Component
 
     public override Guid ComponentGuid => new("C21D8D04-2F80-4F2D-AF14-C81A2F3923DB");
 
-    protected override System.Drawing.Bitmap? Icon => null;
+    protected override System.Drawing.Bitmap? Icon => MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.PrepareToposolid.png");
 
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {

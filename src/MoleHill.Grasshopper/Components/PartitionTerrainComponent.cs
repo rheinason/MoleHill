@@ -43,7 +43,7 @@ public sealed class PartitionTerrainComponent : GH_Component
 
     public override Guid ComponentGuid => new("EE4A022D-5125-4199-9C71-C6E6D924BF7D");
 
-    protected override System.Drawing.Bitmap? Icon => null;
+    protected override System.Drawing.Bitmap? Icon => MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.PartitionTerrain.png");
 
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {

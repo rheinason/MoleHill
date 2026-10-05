@@ -21,7 +21,7 @@ public sealed class DeconstructTerrainComponent : GH_Component
 
     public override Guid ComponentGuid => new("0A1C05E0-8497-447A-A04A-C00C07BA055D");
 
-    protected override System.Drawing.Bitmap? Icon => null;
+    protected override System.Drawing.Bitmap? Icon => MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.DeconstructTerrain.png");
 
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {

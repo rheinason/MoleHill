@@ -23,7 +23,7 @@ public sealed class ConstructTerrainComponent : GH_Component
 
     public override Guid ComponentGuid => new("6D7F0920-47D6-4B06-9C43-75A70B32815E");
 
-    protected override System.Drawing.Bitmap? Icon => null;
+    protected override System.Drawing.Bitmap? Icon => MoleHillInfo.LoadIcon("MoleHill.Grasshopper.Resources.ConstructTerrain.png");
 
     protected override void RegisterInputParams(GH_InputParamManager pManager)
     {
