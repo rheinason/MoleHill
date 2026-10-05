@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <MoleHillVersion>1.2.1</MoleHillVersion>
+    <MoleHillVersion>1.3.0-beta</MoleHillVersion>
     <BuildInParallel>false</BuildInParallel>
 
     <!--

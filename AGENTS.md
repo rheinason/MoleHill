@@ -98,10 +98,11 @@ manual confirmation rather than claiming either success or a bug.
 - **A Yak version can never be overwritten.** A bad publish is permanent and can only be corrected by
   bumping `MoleHillVersion` in `Directory.Build.props` and publishing again, so verify before pushing.
   The script now opens the built archive and refuses to push unless it contains `MoleHill.Rhino.rhp`,
-  `MoleHill.gha`, `MoleHill.Core.dll`, `MoleHill.Interop.dll` and `manifest.yml` — staging the right
+  `MoleHill.gha`, `MoleHill.Revit.gha`, `MoleHill.Core.dll`, `MoleHill.Interop.dll` and `manifest.yml` — staging the right
   files is not evidence the archive holds them.
 - The script stages a combined package under `.artifacts/yak/MoleHill-<version>/` with both
-  `MoleHill.Rhino.rhp` and `MoleHill.gha` under `net7.0/`.
+  `MoleHill.Rhino.rhp`, `MoleHill.gha` and `MoleHill.Revit.gha` under `net7.0/` (the last is net8.0-windows
+  and aborts its own load outside Rhino.Inside.Revit; see `src/MoleHill.Revit/README.md`).
 - Source the release version from `Directory.Build.props` (`MoleHillVersion`). Keep prerelease tags short, for example `0.5.0-beta` instead of `0.5.0-beta.1`, because longer version strings make the Package Manager listing wrap awkwardly inside Rhino.
 - Keep the Yak package id as `MoleHill`. Yak will warn that the Rhino content name `MoleHill.Rhino` does not match the package id; this is acceptable for the current combined package.
 - Do not rename the Rhino assembly to `MoleHill` unless the package layout changes too. The Rhino and Grasshopper builds would then collide on `MoleHill.deps.json` and `MoleHill.runtimeconfig.json` inside the same Yak package.

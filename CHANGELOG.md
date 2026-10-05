@@ -3,6 +3,32 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.3.0-beta — 2026-10-05
+
+A beta that takes MoleHill terrains into Revit without scripting, and finishes the Grasshopper icons.
+
+**Rhino.Inside.Revit**
+- New **Write Toposolids** and **Inspect Toposolids** components on a MoleHill > Revit tab, replacing the
+  three Python scripts that had to be pasted into Script components and wired input by input. Write
+  takes Prepare Toposolid's Preparation output as a single wire and creates or updates one Toposolid
+  per terrain, with its zones as subdivisions. Each element is matched by its terrain key: unchanged
+  geometry is left alone, changed geometry is replaced in one undo step, and nothing is deleted because
+  it is missing from a run.
+- The components ship in the same package and appear only inside Rhino.Inside.Revit (Revit 2025 or
+  later); plain Rhino never shows them, and no Revit or Rhino.Inside files are added to the package.
+  They have not yet been run in a Revit host, so treat the Revit step as unverified and report results.
+
+**Grasshopper**
+- Every component has its own icon. Terrain Snapshot, Construct/Deconstruct Terrain, Partition Terrain
+  and Prepare Toposolid had none; Balance Grade Pad and In-Situ Stair borrowed a sibling's; Add
+  Geometry, Project To, Simplify and Retopo were blurred 16 px images.
+
+**Editing**
+- Builds that are cancelled, superseded or fail now release the meshes they made instead of leaving
+  them to the garbage collector.
+- A debounced rebuild that falls due while Rhino is idle starts on time instead of waiting for the
+  next mouse move.
+
 ## 1.2.1 — 2026-10-04
 
 Stable release incorporating the large-terrain, grading, layer and retaining-wall changes from
