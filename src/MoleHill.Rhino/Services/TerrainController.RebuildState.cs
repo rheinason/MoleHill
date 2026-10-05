@@ -197,6 +197,14 @@ internal sealed partial class TerrainController
         if (workerTask != null && !workerTask.IsCompleted)
             rebuildState.RetiredWorkers.Add(workerTask);
 
+        // Nothing will ever read a retired worker's result, so the stage meshes it made die with it,
+        // whether it is still running or finished before anyone picked it up.
+        _ = workerTask?.ContinueWith(
+            static task => task.Result.WorkerCache.DiscardOwnedMeshOutputs(),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
         if (workerTask != null && !workerTask.IsCompleted && cancellation != null)
         {
             _ = workerTask.ContinueWith(

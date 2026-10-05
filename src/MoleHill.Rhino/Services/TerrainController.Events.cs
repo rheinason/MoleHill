@@ -461,9 +461,11 @@ internal sealed partial class TerrainController
             rebuildState.WorkerCancellation?.Dispose();
             rebuildState.WorkerCancellation = null;
 
+            BackgroundBuildResult finished = workerTask.GetAwaiter().GetResult();
             var doc = RhinoDoc.FromRuntimeSerialNumber(entry.Key.docSerial);
             if (doc == null)
             {
+                finished.WorkerCache.DiscardOwnedMeshOutputs();
                 RemoveRebuildState(entry.Key.docSerial, entry.Key.terrainId);
                 return true;
             }
@@ -472,11 +474,11 @@ internal sealed partial class TerrainController
             var terrain = state.Terrains.FirstOrDefault(item => item.TerrainId == entry.Key.terrainId);
             if (terrain == null)
             {
+                finished.WorkerCache.DiscardOwnedMeshOutputs();
                 RemoveRebuildState(entry.Key.docSerial, entry.Key.terrainId);
                 return true;
             }
 
-            BackgroundBuildResult finished = workerTask.GetAwaiter().GetResult();
             TerrainLatencyTrace.Record(
                 entry.Key.docSerial,
                 entry.Key.terrainId,

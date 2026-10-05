@@ -114,6 +114,143 @@ This work is coordinated with R03 (cancellation), which is what makes the abando
 enough to matter, and precedes R06 (scheduler extraction), which needs the ownership contract to be
 explicit before the state machine can be moved.
 
+## Source audit — 2026-10-04
+
+The gaps above remain present at release `0fceebc` (1.2.1), but the original table is not a complete
+inventory. This audit is a source trace, not a native memory measurement or proof of a permanent leak.
+
+### Build outputs and cache outputs are different allocations
+
+`StoreMeshStageCache` duplicates the computed mesh into `StageEntries[].MeshOutput` and returns the
+computed mesh for subsequent stages. `RestoreCachedMeshStage` also duplicates the cache mesh. The final
+`TerrainBuildResult.PrimaryMesh` is therefore not covered simply by disposing displaced cached meshes.
+`UpdateDisplayState` hands that build mesh to `TerrainDisplayState.TerrainMesh`, with no disposal of the
+previous display state's meshes. The baseline mesh is another duplicate made in `ApplyTriangulateStage`.
+Intermediate stage meshes can also lose their last build reference when `CurrentMesh` is replaced.
+
+Tracking only the worker cache's final contents misses those intermediate allocations, and misses
+allocations made before a stage is cached or before a failed build returns a `TerrainBuildResult`.
+Allocation registration must happen when geometry is acquired, not only when completion is processed.
+
+### Superseded does not always mean unpublished
+
+`CompleteBackgroundBuild` can call `PublishSupersededGeometry`, which publishes the result's actual
+`PrimaryMesh` and `BaseMesh` without merging its worker cache. They remain visible until the next
+display-state replacement. A blanket discard of every superseded result would dispose visible geometry.
+Ownership must transfer the published subset to the display state and discard only the unused subset.
+Preview/interim states also carry generated objects forward by reference, so an outgoing display state's
+objects cannot all be disposed merely because its meshes changed.
+
+Rejected interim callbacks are a simpler subcase: `PublishInterimGeometry` can return because the
+document, terrain or generation no longer matches, leaving its unpublished duplicated meshes to GC.
+Accepted copies need safe display retirement; rejected copies never acquired a display reader.
+
+### More native families need accounting
+
+| Family | Allocation / alias | Missing endpoint |
+|---|---|---|
+| Region boundaries | `TerrainRegionState.Duplicate` duplicates curves during worker copying and display publication | Discarded worker regions and outgoing display/cache regions |
+| Runtime overlay meshes | `RuntimeOverlayPrimitive.Mesh` and `Clone` duplicate `RegionMesh` | Worker, cached and displayed overlay copies |
+| Retaining-wall plans | `RetainingWallPlanEntries` carries plans containing Breps by reference across workers | Replaced/pruned plans and cache teardown |
+| Generated preview geometry | Brep meshing, hatch explosion and text duplication in `GeneratedRhinoObject` | Replaced preview caches and generated-object retirement |
+| Analysis preview meshes | `TerrainAnalysisPreviewBuilder` assigns fresh `PreviewTerrainMesh` values | Previous preview mesh when replaced |
+
+The wall-plan alias deserves explicit treatment: on a newly computed plan the generated wall output
+uses `wall.Brep` directly; on a cache hit it uses `DuplicateBrep`. Thus a cold plan and its generated
+output share native geometry despite the plan type's comment describing a duplicate. Disposing either
+independently would invalidate the other. Choose one consistent ownership contract before adding cleanup.
+
+`GetPreviewBrepMeshes` drops invalid/empty meshes from `Mesh.CreateFromBrep` without explicitly disposing
+them. `GetPreviewHatchCurves` drops non-curves and all exploded geometry when the curve count exceeds
+its cap. These rejected temporaries should be reclaimed immediately; retained previews need a lifecycle.
+
+### Implementation order
+
+1. Track build-owned geometry separately from borrowed cache geometry, including allocations before
+   cache insertion and intermediate outputs. Discard must be idempotent and must not invalidate the
+   shared TinEngine. Cover failed/canceled builds and already-completed workers retired before pickup.
+2. Transfer ownership explicitly to the main cache and/or display state on successful or superseded
+   publication. Account for aliases and generated outputs carried forward between states.
+3. Retire displaced display/cache geometry only after worker and display/render readers release it.
+   Extend accounting to plans, boundaries, overlays and lazy previews; reclaim rejected temporaries.
+4. Verify merge/discard/retirement invariants, then measure native private bytes during repeated edits,
+   cancellation, reset, terrain deletion and document close. Managed test success cannot establish the
+   native memory bound.
+
+No runtime cleanup was changed in this audit. Native acceptance still requires a Rhino host that can
+launch the disposable test instance; the release session's host denied process breakaway.
+
+## First fixes — 2026-10-05
+
+The contained part of step 1, where the owner is unambiguous and nothing is drawing the geometry.
+Display-state retirement, generated-object ownership and the other families above are **not** done.
+
+- **Worker stage meshes are discarded on every non-merge exit (gaps 1 and 3).** `CreateWorkerCopy` now
+  records which `MeshOutput`s it borrowed, by reference, and `DiscardOwnedMeshOutputs` disposes only
+  the rest. It never touches `TinEngine`, is idempotent, and is a no-op after a merge because
+  `ReplaceBuildCachesFrom` empties the worker's entries. It runs in a `finally` around
+  `CompleteBackgroundBuild` and the synchronous build, when `TryCompleteFinishedBuild` finds the document
+  or terrain gone, and in a continuation on every retired worker, whose result nobody reads. This is
+  safe on the superseded-published path: stage-cache meshes are always clones (`StoreMeshStageCache`),
+  never the `PrimaryMesh`/`BaseMesh` a display state holds. Cold-plan wall Breps
+  (`RetainingWallPlanEntries`) a discarded worker made are still left to the GC.
+- **The wall alias is gone.** The wall stage always publishes `wall.Brep.DuplicateBrep()`, so a cold
+  plan and its output no longer share a native Brep — which is what `RetainingWallPlanCacheEntry`'s
+  comment already claimed.
+- **Rejected preview temporaries are disposed.** `GetPreviewBrepMeshes` disposes the invalid/empty
+  meshes it filters out; `GetPreviewHatchCurves` disposes every exploded piece it does not keep.
+
+Tests: `TerrainRuntimeCacheTests.DiscardOwnedMeshOutputs_*`. The two disposal tests are
+`[RhinoNativeFact]`, so they skip under `dotnet test`; run inside a Rhino 8.35 slot they pass, with the
+rest of the class (18/18).
+
+## Native soak and the remaining families — 2026-10-05
+
+Step 4's measurement, run in a disposable Rhino 8.35 slot against the build with the fixes above. The
+controller was driven as a user drives it: source points and a wall rail moved with
+`doc.Objects.Transform`, live update on, no build called directly. Private bytes were sampled before and
+after a forced full GC (`Collect` + `WaitForPendingFinalizers`, three times); what survives the GC is
+retained, and the gap is garbage only waiting for collection.
+
+| Scene | Edits | Post-GC private bytes over the run | Peak |
+|---|---|---|---|
+| TIN only, 150×150 points (44k faces) | ~500, half rapid (builds superseded/cancelled) | 959 MB after setup, then 1014–1076 MB, no trend | 1221 MB, flat after round 1 |
+| Same survey + Grade Pad, graded Retaining Wall, zone, Slope + Elevation (slope preview active), 0.5 m contours (125 auxiliary outputs) | 320, 80 of them wall-rail edits (fresh wall plan each), ~160 cancelled builds | 1137 MB after setup, then 1155–1201 MB, no trend | 1341 MB, flat |
+
+The pre-GC excess was 50–150 MB, and it was almost all **managed** (heap 115–285 MB falling to ~90 MB
+after collection), not native geometry. Nothing retained grows.
+
+That settles the families this document left open, and the answer for them is **GC-owned, by design**,
+not an ownership object:
+
+- **Display-state meshes** (`TerrainMesh`, `BaseTerrainMesh`, `InterimTerrainMesh`, `PreviewTerrainMesh`
+  including analysis previews), **generated objects and their preview caches**, **region curves** and
+  **runtime overlays** have readers MoleHill does not schedule: the conduit, the RDK's cached
+  `RenderMeshes` (kept by the render engine across frames, keyed by `RenderHash`), bake, Sculpt
+  (`BaseTerrainMesh`) and the Grasshopper bridge. Explicit disposal would need every one of them to
+  report when it is done, for no measured gain. They become unreachable when their display state or
+  stage entry is replaced, and the finalizer releases the native side.
+- **Retaining-wall plan Breps** are cache-owned and now never aliased (see First fixes), so a replaced
+  plan is ordinary garbage on the same terms.
+- **Never `Dispose()` anything reachable from a `TerrainDisplayState`.** That is the rule that makes the
+  above safe; break it and the failure is a use-after-dispose inside a render engine.
+
+What stays explicit is what has a single owner and no outside reader: stage-cache meshes (displaced on
+merge, deferred past retired workers), worker-owned stage meshes (`DiscardOwnedMeshOutputs`), the
+snapshot's section meshes, and rejected preview temporaries.
+
+**A scheduler bug the soak found.** A debounced Final request queued while a build ran could be stranded
+after that build was cancelled: dispatch ran only from `RhinoApp.Idle`, which Windows raises once when
+the queue empties and not again until a new message arrives, and the wake timer stopped as soon as no
+build was running. Observed: a request 33 s overdue, nothing building, timer stopped, until any message
+arrived. Interactively a mouse move hides it; headless it never clears. The wake timer now also runs
+while a request is pending and dispatches due requests on its tick (`EnsureBuildWakeTimer`). With the
+same message pumping, settling went from never (10 s observed) to ~2.0 s every time across 70 settles.
+
+How to repeat the soak: the scripts were driven through the `rhino-mcp` `run_csharp` tool, which the
+router cancels at 300 s, so keep each call to a few rounds and read memory with `Process.PrivateMemorySize64`.
+A pending-build wait must pump with `RhinoApp.Wait()`; never `Thread.Sleep` on the UI thread.
+
 ## Interim published geometry (added 2026-09-19)
 
 `TerrainController.PublishInterimGeometry` shows a finished terrain mesh before its dependent outputs

@@ -136,9 +136,11 @@ internal sealed partial class TerrainBuildService
                     build.AuxiliaryObjects.Add(new GeneratedRhinoObject
                     {
                         Role = LayerRole.Walls,
-                        // A cached plan is the cache's own copy and outlives this build, so publish a
-                        // duplicate — the same contract CloneGeneratedObject keeps for the stage cache.
-                        Geometry = planFromCache ? wall.Brep.DuplicateBrep() : wall.Brep,
+                        // The plan is the cache's — a cold plan is stored above before this runs — and
+                        // outlives this build, so always publish a duplicate: the same contract
+                        // CloneGeneratedObject keeps for the stage cache. Publishing a cold plan's own
+                        // Brep left the output and the cached plan sharing one native object.
+                        Geometry = wall.Brep.DuplicateBrep(),
                         Name = $"Wall {wall.CurveA}-{wall.CurveB}",
                         Kind = GeneratedObjectKind.RetainingWall,
                         LayerPath = snapshot.LayerRoles.Path(LayerRole.Walls)

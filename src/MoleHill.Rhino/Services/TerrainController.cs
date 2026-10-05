@@ -40,7 +40,7 @@ internal sealed partial class TerrainController
     private readonly HashSet<(uint docSerial, Guid terrainId, TerrainBuildMode mode, long version, string reason)> _latencyBlockedReasons = new();
     private bool _isPumpingFinishedBuilds;
     private bool _immediateDispatchPosted;
-    /// <summary>Runs only while a build is in flight; see <see cref="EnsureBuildWakeTimer"/>.</summary>
+    /// <summary>Runs only while a build is in flight or a debounced request waits; see <see cref="EnsureBuildWakeTimer"/>.</summary>
     private UITimer? _buildWakeTimer;
     private readonly Dictionary<uint, PendingTerrainEdit> _pendingTerrainEdits = new();
     private readonly HashSet<(uint docSerial, uint undoSerial)> _terrainUndoRecords = new();

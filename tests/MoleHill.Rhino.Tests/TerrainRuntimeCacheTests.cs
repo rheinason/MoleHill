@@ -169,6 +169,61 @@ public class TerrainRuntimeCacheTests
         }
     }
 
+    [RhinoNativeFact]
+    public void DiscardOwnedMeshOutputs_DisposesOnlyMeshesTheWorkerProduced()
+    {
+        var borrowedMesh = new Mesh();
+        var ownedMesh = new Mesh();
+        try
+        {
+            var cache = new TerrainRuntimeCache();
+            cache.StageEntries["borrowed"] = new StageCacheEntry { MeshOutput = borrowedMesh };
+            TerrainRuntimeCache worker = cache.CreateWorkerCopy();
+            worker.StageEntries["owned"] = new StageCacheEntry { MeshOutput = ownedMesh };
+
+            worker.DiscardOwnedMeshOutputs();
+            worker.DiscardOwnedMeshOutputs();
+
+            Assert.True(ownedMesh.Disposed);
+            Assert.False(borrowedMesh.Disposed);
+            Assert.Same(borrowedMesh, cache.StageEntries["borrowed"].MeshOutput);
+            Assert.Empty(worker.StageEntries);
+        }
+        finally
+        {
+            borrowedMesh.Dispose();
+            ownedMesh.Dispose();
+        }
+    }
+
+    [RhinoNativeFact]
+    public void DiscardOwnedMeshOutputs_AfterMerge_LeavesMergedMeshesAlive()
+    {
+        var ownedMesh = new Mesh();
+        try
+        {
+            var cache = new TerrainRuntimeCache();
+            TerrainRuntimeCache worker = cache.CreateWorkerCopy();
+            worker.StageEntries["owned"] = new StageCacheEntry { MeshOutput = ownedMesh };
+
+            cache.ReplaceBuildCachesFrom(worker);
+            worker.DiscardOwnedMeshOutputs();
+
+            Assert.False(ownedMesh.Disposed);
+            Assert.Same(ownedMesh, cache.StageEntries["owned"].MeshOutput);
+        }
+        finally
+        {
+            ownedMesh.Dispose();
+        }
+    }
+
+    [Fact]
+    public void DiscardOwnedMeshOutputs_OnMainCache_Throws()
+    {
+        Assert.Throws<InvalidOperationException>(() => new TerrainRuntimeCache().DiscardOwnedMeshOutputs());
+    }
+
     [Fact]
     public void CloneStageCacheEntry_PreservesStructuredDiagnostics()
     {

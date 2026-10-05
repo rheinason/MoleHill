@@ -1988,6 +1988,12 @@ while a build is in flight and stops itself when none is. A timer tick is a real
 is what wakes a loop that is otherwise waiting, and an idle Rhino is left alone. The posted wake is kept
 - it costs nothing and is sometimes prompt.
 
+**Since 2026-10-05 the timer also runs while a debounced request is pending, and its tick dispatches
+due requests.** Dispatch otherwise came only from `RhinoApp.Idle`, raised once per emptied queue, so a
+request that fell due after the last message (typically one queued behind a build that was then
+cancelled) waited for the next mouse move — indefinitely in a headless slot. See
+`docs/build-result-ownership.md` → "Native soak".
+
 This is also why swapping the post to Eto's queue could not have worked: the queue was never the
 problem, and the experiment said so by measuring worse.
 

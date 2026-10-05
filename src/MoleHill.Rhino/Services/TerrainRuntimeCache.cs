@@ -86,6 +86,12 @@ internal sealed class TerrainRuntimeCache
 
     public ulong LastFinalMeshFingerprint { get; set; }
 
+    /// <summary>
+    /// On a worker copy, the stage meshes it was handed by the main cache. They stay the main cache's,
+    /// so <see cref="DiscardOwnedMeshOutputs"/> must never dispose them. Null on the main cache.
+    /// </summary>
+    private HashSet<RhinoMesh>? _borrowedMeshOutputs;
+
     public TerrainRuntimeCache CreateWorkerCopy()
     {
         var copy = new TerrainRuntimeCache
@@ -101,8 +107,13 @@ internal sealed class TerrainRuntimeCache
             PeakDependentOutputsDuration = PeakDependentOutputsDuration
         };
 
+        copy._borrowedMeshOutputs = new HashSet<RhinoMesh>(ReferenceEqualityComparer.Instance);
         foreach (var entry in StageEntries)
+        {
             copy.StageEntries[entry.Key] = TerrainRuntimeCacheCloner.CloneStageCacheEntry(entry.Value);
+            if (entry.Value.MeshOutput != null)
+                copy._borrowedMeshOutputs.Add(entry.Value.MeshOutput);
+        }
 
         foreach (var entry in GradingTopologyEntries)
             copy.GradingTopologyEntries[entry.Key] = entry.Value;
@@ -167,6 +178,29 @@ internal sealed class TerrainRuntimeCache
         source.GradingWindowMemos.Clear();
 
         return displacedMeshes;
+    }
+
+    /// <summary>
+    /// Disposes the stage meshes this worker copy produced itself, for a build whose cache will never be
+    /// merged (cancelled, failed, superseded, stale, retired, or its terrain gone). Borrowed meshes are
+    /// left alone, and so is the shared <see cref="TinEngine"/> — unlike <see cref="Clear"/>, this is safe
+    /// on a worker. Idempotent, and a no-op after <see cref="ReplaceBuildCachesFrom"/> has taken the
+    /// entries. The stage meshes are cache clones, never the build's display meshes, so a superseded
+    /// result that was published as a preview can still be discarded here.
+    /// </summary>
+    public void DiscardOwnedMeshOutputs()
+    {
+        if (_borrowedMeshOutputs == null)
+            throw new InvalidOperationException("Only a worker copy can discard its own mesh outputs.");
+
+        var owned = new List<RhinoMesh>();
+        var ownedSet = new HashSet<RhinoMesh>(ReferenceEqualityComparer.Instance);
+        foreach (var entry in StageEntries.Values)
+            if (entry.MeshOutput != null && !_borrowedMeshOutputs.Contains(entry.MeshOutput))
+                AddMeshOutput(owned, ownedSet, entry.MeshOutput);
+
+        StageEntries.Clear();
+        DisposeMeshOutputs(owned);
     }
 
     public void Clear()

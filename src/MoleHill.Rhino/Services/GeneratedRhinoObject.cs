@@ -83,9 +83,16 @@ internal sealed class GeneratedRhinoObject
 
         _previewBrepSource = source;
         MeshingParameters parameters = meshingParameters ?? MeshingParameters.QualityRenderMesh;
-        _previewBrepMeshes = (Mesh.CreateFromBrep(source, parameters) ?? Array.Empty<Mesh>())
-            .Where(mesh => mesh.IsValid && mesh.Faces.Count > 0)
-            .ToArray();
+        var kept = new List<Mesh>();
+        foreach (Mesh mesh in Mesh.CreateFromBrep(source, parameters) ?? Array.Empty<Mesh>())
+        {
+            if (mesh.IsValid && mesh.Faces.Count > 0)
+                kept.Add(mesh);
+            else
+                mesh.Dispose();
+        }
+
+        _previewBrepMeshes = kept.ToArray();
         return _previewBrepMeshes;
     }
 
@@ -120,6 +127,13 @@ internal sealed class GeneratedRhinoObject
                 var curves = exploded.OfType<Curve>().ToArray();
                 if (curves.Length > 0 && curves.Length <= MaxPreviewCurves)
                     _previewHatchCurves = curves;
+
+                // Whatever is not kept for drawing was never seen by anyone; release it now.
+                foreach (GeometryBase piece in exploded)
+                {
+                    if (piece is not Curve || !ReferenceEquals(_previewHatchCurves, curves))
+                        piece.Dispose();
+                }
             }
         }
         catch (Exception)

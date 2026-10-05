@@ -69,8 +69,9 @@ internal sealed partial class TerrainController
     /// counter is there to say which of the two remaining explanations is right before anything else is
     /// tried.
     ///
-    /// It runs only while a build is in flight and stops itself as soon as none is, so an idle Rhino is
-    /// left alone.
+    /// It runs only while a build is in flight or a debounced request is waiting, and stops itself as
+    /// soon as neither is, so an idle Rhino is left alone. The second case is not instrumentation: the
+    /// tick is what dispatches a request that falls due after the message queue has gone quiet.
     /// </summary>
     private void EnsureBuildWakeTimer()
     {
@@ -79,10 +80,27 @@ internal sealed partial class TerrainController
             _buildWakeTimer = new UITimer { Interval = BuildWakeIntervalSeconds };
             _buildWakeTimer.Elapsed += (_, _) =>
             {
-                Interlocked.Increment(ref _buildWakeTicks);
-                PumpFinishedBuilds();
-                if (!HasRunningBuild())
-                    _buildWakeTimer?.Stop();
+                if (_isWakeTicking)
+                    return;
+
+                _isWakeTicking = true;
+                try
+                {
+                    Interlocked.Increment(ref _buildWakeTicks);
+                    PumpFinishedBuilds();
+                    // A debounced request that falls due while nothing else is happening has no other way
+                    // to start: Rhino raises Idle once when its queue empties and not again until a new
+                    // message arrives, so it waited for the next mouse move. Found in a headless slot,
+                    // where nothing ever moves the mouse and a due Final build sat undispatched for 30 s+.
+                    if (!HasRunningBuild())
+                        TryDispatchPendingBuild();
+                    if (!HasRunningBuild() && _pendingRebuilds.Count == 0)
+                        _buildWakeTimer?.Stop();
+                }
+                finally
+                {
+                    _isWakeTicking = false;
+                }
             };
         }
 
@@ -103,6 +121,10 @@ internal sealed partial class TerrainController
     /// measurement rather than a third fix.
     /// </summary>
     private int _buildWakeTicks;
+
+    /// <summary>Guards the wake tick: dispatch can open the slow-build dialog, whose modal loop keeps
+    /// delivering timer messages.</summary>
+    private bool _isWakeTicking;
 
     private bool HasRunningBuild()
     {
@@ -160,6 +182,9 @@ internal sealed partial class TerrainController
     private void QueuePendingBuild(uint docSerial, Guid terrainId, TerrainBuildMode mode, long version, int delayMs)
     {
         _pendingRebuilds[(docSerial, terrainId, mode)] = new PendingBuildRequest(DateTime.UtcNow.AddMilliseconds(delayMs), version);
+        // A delayed request needs something to wake the UI thread when it falls due; see the wake tick.
+        if (delayMs > 0)
+            EnsureBuildWakeTimer();
     }
 
     /// <summary>
@@ -425,6 +450,7 @@ internal sealed partial class TerrainController
         WriteBuildStarted(terrain, mode, buildVersion);
         RaiseStateChanged();
 
+        TerrainRuntimeCache? workerCache = null;
         try
         {
             var latency = new TerrainLatencyScope(
@@ -444,7 +470,7 @@ internal sealed partial class TerrainController
             latency.Mark(TerrainLatencyPhase.SnapshotEnd);
 
             var workerCacheTimer = Stopwatch.StartNew();
-            TerrainRuntimeCache workerCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).CreateWorkerCopy();
+            workerCache = GetRuntimeCache(doc.RuntimeSerialNumber, terrain.TerrainId).CreateWorkerCopy();
             workerCacheTimer.Stop();
             latency.Mark(TerrainLatencyPhase.CloneEnd);
             latency.Mark(TerrainLatencyPhase.WorkerQueued);
@@ -490,6 +516,8 @@ internal sealed partial class TerrainController
         }
         finally
         {
+            // A no-op after a merge; otherwise disposes the stage meshes this build made.
+            workerCache?.DiscardOwnedMeshOutputs();
             rebuildState.IsBuilding = false;
             rebuildState.RunningVersion = 0;
             rebuildState.CancelRequested = false;
@@ -577,6 +605,25 @@ internal sealed partial class TerrainController
     }
 
     private void CompleteBackgroundBuild(
+        RhinoDoc doc,
+        DocumentState state,
+        TerrainDefinition terrain,
+        TerrainRebuildState rebuildState,
+        BackgroundBuildResult result)
+    {
+        try
+        {
+            CompleteBackgroundBuildCore(doc, state, terrain, rebuildState, result);
+        }
+        finally
+        {
+            // Every exit but a merge leaves stage meshes this build made that nothing will read. After a
+            // merge the worker cache is empty, so this is a no-op there.
+            result.WorkerCache.DiscardOwnedMeshOutputs();
+        }
+    }
+
+    private void CompleteBackgroundBuildCore(
         RhinoDoc doc,
         DocumentState state,
         TerrainDefinition terrain,
