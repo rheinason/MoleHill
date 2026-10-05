@@ -76,8 +76,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   An inspected curve that grades the terrain lies *in* the mesh it generated, so the inspector must beat
   the terrain twice over. (1) `CurveReviewConduit` pushes depth testing and depth writing off for its
   entire pass, not just for labels — otherwise the depth buffer hides it. (2) It draws in the
-  **`DrawForeground`** channel, *not* `PostDrawObjects`, because a MoleHill terrain preview is itself
-  drawn by a conduit (`TerrainDisplayConduit`) in `PostDrawObjects`. Two conduits sharing one channel
+  **`DrawOverlay`** channel, because a MoleHill terrain preview is itself drawn by a conduit
+  (`TerrainDisplayConduit`): surfaces in `PostDrawObjects`, linework in `DrawForeground`. Two conduits sharing one channel
   paint in registration order, and depth testing cannot save you from a later painter: the terrain mesh
   simply covered the overlay. Drawing in a channel the terrain conduit does not use puts the inspector on
   top whatever the registration order happens to be. **Any future MoleHill overlay that must sit above the
@@ -1289,6 +1289,14 @@ times per frame, including passes projecting from the light while `e.Viewport` s
 The conduit detects those (`IsShadowMapPass`: the pipeline's world-to-clip matrix disagrees with the
 viewport's in x, y or w) and draws only shaded surfaces there; points, curves and text drawn in them
 leaked onto the screen at the light's projection.
+
+**Linework is drawn once per frame, not once per pass.** Curves, text entities and dots are drawn in
+`DrawForeground` (curves depth-tested so they hide behind hills and walls; labels and dots on top), never in
+`PostDrawObjects`: a Shaded mode with skylight shadows runs about ten passes, seven indistinguishable from
+the view's own, and each re-submits every curve and label. With 2,763 contour labels that alone made a
+frame ~160 ms. Brep previews are likewise appended into one mesh per Brep (`GetPreviewBrepMeshes`), since
+each per-face mesh is a draw call in every pass. Together these took a 932k-face terrain's Shaded frame
+from ~650 ms to ~185 ms.
 
 **Per-renderer support is opt-in.** A render engine only sees this geometry if it walks the provider's
 non-object id list. Verified working against Rhino's own `ChangeQueue` pipeline (which Raytraced/Cycles

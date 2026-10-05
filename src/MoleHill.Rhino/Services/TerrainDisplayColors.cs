@@ -1,5 +1,7 @@
 using System.Drawing;
 using MoleHill.Rhino.Model;
+using Rhino;
+using Rhino.DocObjects.Tables;
 
 namespace MoleHill.Rhino.Services;
 
@@ -13,6 +15,18 @@ namespace MoleHill.Rhino.Services;
 /// </summary>
 internal static class TerrainDisplayColors
 {
+    // Layer colour by full path, per document. The conduit resolves a colour for every generated
+    // object in every display pass, and FindByFullPath was ~2 µs of that each time: on a terrain with
+    // 2,763 contour labels in a seven-pass Shaded view it alone cost ~40 ms a frame. A null value
+    // records that the path has no layer. Any layer-table change can alter a colour or a path, so it
+    // drops the document's entries.
+    private static readonly object LayerColorGate = new();
+    private static readonly Dictionary<(uint DocumentSerial, string LayerPath), Color?> LayerColors = new();
+
+    // Subscribed on the first layer lookup, not in a static constructor: subscribing needs Rhino's native
+    // runtime, and the explicit-colour path must keep working without one (managed tests use it).
+    private static bool _subscribedToLayerEvents;
+
     /// <summary>
     /// Explicit object colour wins, then the output layer as it exists in the document, then the
     /// layer the geometry was read from, and finally the appearance the layer template declares.
@@ -61,17 +75,51 @@ internal static class TerrainDisplayColors
 
     private static bool TryResolveLayerColor(global::Rhino.RhinoDoc doc, string? layerPath, out Color color)
     {
-        if (!string.IsNullOrWhiteSpace(layerPath))
+        color = default;
+        if (string.IsNullOrWhiteSpace(layerPath))
+            return false;
+
+        var key = (doc.RuntimeSerialNumber, layerPath);
+        Color? cached;
+        lock (LayerColorGate)
         {
-            int layerIndex = doc.Layers.FindByFullPath(layerPath, -1);
-            if (layerIndex >= 0 && layerIndex < doc.Layers.Count)
+            if (!_subscribedToLayerEvents)
             {
-                color = doc.Layers[layerIndex].Color;
-                return true;
+                RhinoDoc.LayerTableEvent += OnLayerTableEvent;
+                RhinoDoc.CloseDocument += OnCloseDocument;
+                _subscribedToLayerEvents = true;
+            }
+
+            if (!LayerColors.TryGetValue(key, out cached))
+            {
+                int layerIndex = doc.Layers.FindByFullPath(layerPath, -1);
+                cached = layerIndex >= 0 && layerIndex < doc.Layers.Count
+                    ? doc.Layers[layerIndex].Color
+                    : null;
+                LayerColors[key] = cached;
             }
         }
 
-        color = default;
-        return false;
+        if (cached is not Color found)
+            return false;
+
+        color = found;
+        return true;
+    }
+
+    private static void OnLayerTableEvent(object? sender, LayerTableEventArgs e) =>
+        InvalidateDocument(e.Document.RuntimeSerialNumber);
+
+    private static void OnCloseDocument(object? sender, DocumentEventArgs e) =>
+        InvalidateDocument(e.Document.RuntimeSerialNumber);
+
+    private static void InvalidateDocument(uint documentSerial)
+    {
+        lock (LayerColorGate)
+        {
+            var keys = LayerColors.Keys.Where(key => key.DocumentSerial == documentSerial).ToArray();
+            foreach (var key in keys)
+                LayerColors.Remove(key);
+        }
     }
 }

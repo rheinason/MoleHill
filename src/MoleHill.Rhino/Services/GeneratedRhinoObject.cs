@@ -75,6 +75,11 @@ internal sealed class GeneratedRhinoObject
     /// Builds the transient Brep render mesh once and reuses it for every conduit frame. Drawing a
     /// naked Brep directly asks the display pipeline to tessellate it opportunistically; on long,
     /// thin wall faces that can produce a different corner from the document object's render mesh.
+    ///
+    /// The per-face meshes are appended into one (unwelded, so creases stay sharp): each is a separate
+    /// draw call in every display pass, and a stair's or wall's faces are many and small. Measured on a
+    /// terrain whose 198 wall and stair Breps tessellated into 1,177 meshes of 36k triangles in all,
+    /// drawing them took ~330 ms of each seven-pass Shaded frame.
     /// </summary>
     internal IReadOnlyList<Mesh> GetPreviewBrepMeshes(Brep source, MeshingParameters? meshingParameters = null)
     {
@@ -90,6 +95,17 @@ internal sealed class GeneratedRhinoObject
                 kept.Add(mesh);
             else
                 mesh.Dispose();
+        }
+
+        if (kept.Count > 1)
+        {
+            var joined = new Mesh();
+            joined.Append(kept);
+            foreach (Mesh part in kept)
+                part.Dispose();
+            if (joined.Normals.Count != joined.Vertices.Count)
+                joined.Normals.ComputeNormals();
+            kept = new List<Mesh> { joined };
         }
 
         _previewBrepMeshes = kept.ToArray();

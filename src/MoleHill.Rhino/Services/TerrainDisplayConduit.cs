@@ -49,6 +49,92 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
     }
 
     /// <summary>
+    /// Lines, labels and dots, drawn once per frame. PostDrawObjects runs once per pass, and a Shaded
+    /// mode with skylight shadows makes about ten passes, seven of them indistinguishable from the
+    /// view's own. A mesh redraw is nearly free from its GPU cache, but every curve and text entity is
+    /// re-submitted: measured on a terrain with 2,763 contour labels and 733 contour lines, they cost
+    /// ~160 ms of every frame — the 3 fps a sculpt session ran at. DrawForeground runs once per frame
+    /// with the scene's depth buffer intact.
+    ///
+    /// Curves are depth-tested (testing is turned back on here), so a contour behind a hill or under a
+    /// wall stays hidden, as its bake would be. Labels and dots are drawn on top of everything, after
+    /// the curves: a label exists to be read, and one half-buried in a slope is no use.
+    /// </summary>
+    protected override void DrawForeground(DrawEventArgs e)
+    {
+        if (e.RhinoDoc == null)
+            return;
+
+        var views = TerrainController.Instance.GetPreviewViews(e.RhinoDoc);
+
+        e.Display.PushDepthTesting(true);
+        try
+        {
+            foreach (var view in views)
+                DrawTerrainLinework(e, e.RhinoDoc, view.Terrain, view.DisplayState, labels: false);
+        }
+        finally
+        {
+            e.Display.PopDepthTesting();
+        }
+
+        e.Display.PushDepthTesting(false);
+        e.Display.PushDepthWriting(false);
+        try
+        {
+            foreach (var view in views)
+                DrawTerrainLinework(e, e.RhinoDoc, view.Terrain, view.DisplayState, labels: true);
+        }
+        finally
+        {
+            e.Display.PopDepthWriting();
+            e.Display.PopDepthTesting();
+        }
+    }
+
+    /// <summary>Geometry drawn by <see cref="DrawForeground"/> rather than once per pass.</summary>
+    private static bool IsLinework(GeneratedRhinoObject generated) =>
+        generated.Geometry is Curve || IsLabel(generated);
+
+    private static bool IsLabel(GeneratedRhinoObject generated) =>
+        generated.Geometry is TextEntity or TextDot;
+
+    /// <summary>Draws the terrain's curves (<paramref name="labels"/> false) or its labels and dots.</summary>
+    private static void DrawTerrainLinework(
+        DrawEventArgs e,
+        global::Rhino.RhinoDoc doc,
+        TerrainDefinition terrain,
+        TerrainDisplayState displayState,
+        bool labels)
+    {
+        if (!terrain.IsVisible)
+            return;
+
+        bool Wanted(GeneratedRhinoObject generated) => IsLinework(generated) && IsLabel(generated) == labels;
+
+        if (terrain.ShowZoneMeshes)
+        {
+            foreach (var zone in displayState.ZoneObjects)
+            {
+                if (Wanted(zone))
+                    DrawGeneratedObject(e, doc, terrain, zone);
+            }
+        }
+
+        foreach (var auxiliary in displayState.AuxiliaryObjects)
+        {
+            if (Wanted(auxiliary) && TerrainAnalysisPreviewBuilder.ShouldDisplayGeneratedOutput(terrain, auxiliary))
+                DrawGeneratedObject(e, doc, terrain, auxiliary);
+        }
+
+        foreach (var marker in displayState.MarkerObjects)
+        {
+            if (Wanted(marker))
+                DrawGeneratedObject(e, doc, terrain, marker);
+        }
+    }
+
+    /// <summary>
     /// True while the pipeline renders a shadow map. A display mode that casts shadows (Shaded, Arctic,
     /// Rendered) calls PostDrawObjects several times per frame, and during a shadow-map pass it projects
     /// from the light while <c>e.Viewport</c> still reports the view's camera, so the only tell is the
@@ -145,20 +231,27 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
         DrawRuntimeOverlays(e, displayState);
 
+        // Linework (curves, labels, dots) is drawn once per frame by DrawForeground, not per pass.
         if (terrain.ShowZoneMeshes)
         {
             foreach (var zone in displayState.ZoneObjects)
-                DrawGeneratedObject(e, doc, terrain, zone);
+            {
+                if (!IsLinework(zone))
+                    DrawGeneratedObject(e, doc, terrain, zone);
+            }
         }
 
         foreach (var auxiliary in displayState.AuxiliaryObjects)
         {
-            if (TerrainAnalysisPreviewBuilder.ShouldDisplayGeneratedOutput(terrain, auxiliary))
+            if (!IsLinework(auxiliary) && TerrainAnalysisPreviewBuilder.ShouldDisplayGeneratedOutput(terrain, auxiliary))
                 DrawGeneratedObject(e, doc, terrain, auxiliary);
         }
 
         foreach (var marker in displayState.MarkerObjects)
-            DrawGeneratedObject(e, doc, terrain, marker);
+        {
+            if (!IsLinework(marker))
+                DrawGeneratedObject(e, doc, terrain, marker);
+        }
 
         if (displayState.ScatterObjects.Count > 0)
             DrawScatterObjects(e, doc, terrain, displayState);

@@ -102,14 +102,14 @@ internal sealed class CurveReviewConduit : DisplayConduit
     }
 
     /// <summary>
-    /// The overlay draws in the foreground channel, not <c>PostDrawObjects</c>, and this is load-bearing.
-    /// A MoleHill terrain preview is itself drawn by a conduit (<see cref="TerrainDisplayConduit"/>) in
-    /// <c>PostDrawObjects</c>. Two conduits sharing one channel paint in registration order, so the terrain
-    /// mesh painted straight over this overlay — and turning depth testing off cannot save you from a
-    /// later painter. Drawing in a channel the terrain conduit does not use puts the inspector on top
-    /// whatever the registration order happens to be.
+    /// The overlay draws in the overlay channel, and this is load-bearing. A MoleHill terrain preview is
+    /// itself drawn by a conduit (<see cref="TerrainDisplayConduit"/>): its surfaces in
+    /// <c>PostDrawObjects</c> and its linework in <c>DrawForeground</c>. Two conduits sharing one channel
+    /// paint in registration order, so the terrain painted straight over this overlay — and turning depth
+    /// testing off cannot save you from a later painter. Drawing in a channel the terrain conduit does not
+    /// use puts the inspector on top whatever the registration order happens to be.
     /// </summary>
-    protected override void DrawForeground(DrawEventArgs e)
+    protected override void DrawOverlay(DrawEventArgs e)
     {
         CurveReviewAnalysis? analysis = _analysis;
         if (analysis == null || analysis.Samples.Count < 2)

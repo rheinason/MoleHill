@@ -167,7 +167,10 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
 - `TerrainDisplayConduit.cs` / `TerrainDisplayState.cs` - transient viewport preview of generated
   objects and runtime overlays (no doc objects until bake). Overlay drawing has per-terrain budgets and
   severity ordering. `TerrainDisplayState.RenderHash` is the change stamp the render mesh provider
-  hands the RDK cache.
+  hands the RDK cache. Surfaces draw in `PostDrawObjects` (every pass); curves, text and dots draw once
+  per frame in `DrawForeground` (curves depth-tested, labels and dots on top), because shadowed Shaded modes run ~10 passes
+  and re-submitting thousands of labels per pass cost ~160 ms a frame. `TerrainDisplayColors` caches
+  layer colours per document (cleared on layer-table events) for the same reason.
 - `ScatterBlockPreview.cs` - per-definition cache the conduit draws scatter's "Real (capped)" preview
   from: members meshed once and joined per colour, drawn under a model transform. Never use
   `DrawInstanceDefinition` for scatter — per instance it is slow and leaks display memory until the
@@ -362,10 +365,10 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   radius - so they cannot drift. Plan radius is coloured by *tightness*, not raw radius, so a straight
   (infinite) and a true corner (NaN) land at opposite ends of the ramp instead of collapsing every real
   curve into one bucket. An over-limit stretch stays red whatever the metric is set to. The conduit draws
-  its whole pass with depth testing and writing off **and** in the `DrawForeground` channel rather than
-  `PostDrawObjects`: an inspected curve that grades the terrain lies inside the mesh it generated, and the
-  terrain preview is itself a conduit drawing in `PostDrawObjects`, which painted straight over the
-  overlay until the channel changed. One exact World-XY projection supplies all plan lengths and parameter
+  its whole pass with depth testing and writing off **and** in the `DrawOverlay` channel: an inspected
+  curve that grades the terrain lies inside the mesh it generated, and the terrain preview is itself a
+  conduit (surfaces in `PostDrawObjects`, linework in `DrawForeground`), which painted straight over the
+  overlay while they shared a channel. One exact World-XY projection supplies all plan lengths and parameter
   lookups; endpoint discontinuities are excluded, real plan corners remain distinct from finite radii, and
   adjacent vertical-break samples merge into one PI event.
 - `CurveReviewLabeller.cs` - the inspector's `Label` button. Picks points constrained to the inspected

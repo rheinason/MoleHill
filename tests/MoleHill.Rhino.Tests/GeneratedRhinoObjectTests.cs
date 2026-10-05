@@ -73,4 +73,18 @@ public class GeneratedRhinoObjectTests
         Assert.Same(first, second);
         Assert.All(first, mesh => Assert.True(mesh.IsValid));
     }
+
+    [RhinoNativeFact]
+    public void GetPreviewBrepMeshes_MultiFaceBrep_JoinsIntoOneMeshKeepingEveryFace()
+    {
+        using Brep brep = new Box(new BoundingBox(Point3d.Origin, new Point3d(10, 1, 3))).ToBrep();
+        Mesh[] perFace = Mesh.CreateFromBrep(brep, MeshingParameters.QualityRenderMesh);
+        var generated = new GeneratedRhinoObject { Role = LayerRole.Auxiliary, Name = "Wall" };
+
+        IReadOnlyList<Mesh> meshes = generated.GetPreviewBrepMeshes(brep);
+
+        Mesh joined = Assert.Single(meshes);
+        Assert.Equal(perFace.Sum(mesh => mesh.Faces.Count), joined.Faces.Count);
+        Assert.Equal(joined.Vertices.Count, joined.Normals.Count);
+    }
 }
