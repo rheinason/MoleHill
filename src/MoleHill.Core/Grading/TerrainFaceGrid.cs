@@ -151,7 +151,16 @@ internal class TerrainFaceGrid
         minCellY = (long)Math.Floor(minY * _invCell);
         width = (long)Math.Floor(maxX * _invCell) - minCellX + 1;
         height = (long)Math.Floor(maxY * _invCell) - minCellY + 1;
-        if (width <= 0 || height <= 0 || width * height > Math.Max(1024L, 4L * faceCount) || width * height >= int.MaxValue)
+        long cellCount = width * height;
+        if (width <= 0 || height <= 0 || cellCount >= MaxDenseCells)
+            return false;
+
+        // A table of up to four cells per face is always worth it. Beyond that it still is when the faces
+        // are large against the cells, so that every face lands in many: the memberships the hashed index
+        // would hash (twice — count, then fill) then rival the table itself. A Remesh projection grid is
+        // exactly that — half-target cells under the incoming mesh's big faces: ~1.1M cells against ~2M
+        // memberships on a 323 x 210 m site at 0.25 m, which took ~490 ms hashed.
+        if (cellCount > Math.Max(1024L, 4L * faceCount) && !MembershipsFillHalf(vertices, faces, faceCount, cellCount))
             return false;
 
         var counts = new int[(width * height) + 1];
@@ -187,6 +196,24 @@ internal class TerrainFaceGrid
         start = counts;
         items = filled;
         return true;
+    }
+
+    /// <summary>Largest dense table built, in cells (int offsets: 4 bytes each).</summary>
+    private const long MaxDenseCells = 64L * 1024 * 1024;
+
+    /// <summary>True when the faces' cell memberships number at least half of <paramref name="cellCount"/>.</summary>
+    private bool MembershipsFillHalf(double[] vertices, int[] faces, int faceCount, long cellCount)
+    {
+        long memberships = 0;
+        for (int f = 0; f < faceCount; f++)
+        {
+            GetFaceCellRange(vertices, faces, f, out long cMinX, out long cMaxX, out long cMinY, out long cMaxY);
+            memberships += (cMaxX - cMinX + 1) * (cMaxY - cMinY + 1);
+            if (memberships * 2 >= cellCount)
+                return true;
+        }
+
+        return false;
     }
 
     private void GetFaceCellRange(

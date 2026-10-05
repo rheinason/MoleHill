@@ -252,90 +252,135 @@ public static class TinInputCleaner
         if (segments.Count == 0)
             return;
 
-        while (true)
-        {
-            var adjacency = BuildAdjacency(vertices.Count, segments);
-            bool changed = false;
-
-            for (int vertexIndex = 0; vertexIndex < vertices.Count; vertexIndex++)
-            {
-                if (!adjacency.TryGetValue(vertexIndex, out var neighbors) || neighbors.Count != 2)
-                    continue;
-
-                int a = neighbors[0];
-                int b = neighbors[1];
-                if (a == b)
-                    continue;
-
-                if (ShouldCollapseSpike(vertices, a, vertexIndex, b, xyTol, zTol))
-                {
-                    ReplaceDegreeTwoVertex(segments, a, vertexIndex, b);
-                    tinySpikesCollapsed++;
-                    changed = true;
-                    break;
-                }
-
-                if (ShouldCollapseCollinear(vertices, a, vertexIndex, b, xyTol, zTol))
-                {
-                    ReplaceDegreeTwoVertex(segments, a, vertexIndex, b);
-                    collinearVerticesCollapsed++;
-                    changed = true;
-                    break;
-                }
-            }
-
-            if (!changed)
-                return;
-        }
-    }
-
-    private static Dictionary<int, List<int>> BuildAdjacency(int vertexCount, List<SegmentData> segments)
-    {
-        var adjacency = new Dictionary<int, List<int>>(vertexCount);
-        foreach (var segment in segments)
-        {
-            AddNeighbor(adjacency, segment.A, segment.B);
-            AddNeighbor(adjacency, segment.B, segment.A);
-        }
-
-        return adjacency;
-    }
-
-    private static void AddNeighbor(Dictionary<int, List<int>> adjacency, int vertex, int neighbor)
-    {
-        if (!adjacency.TryGetValue(vertex, out var neighbors))
-        {
-            neighbors = new List<int>(2);
-            adjacency[vertex] = neighbors;
-        }
-
-        if (!neighbors.Contains(neighbor))
-            neighbors.Add(neighbor);
-    }
-
-    private static void ReplaceDegreeTwoVertex(List<SegmentData> segments, int a, int vertex, int b)
-    {
-        var rebuilt = new List<SegmentData>(segments.Count);
+        // Collapses degree-2 chain vertices one at a time, always the lowest-index vertex that qualifies,
+        // replacing its two segments with one (a, b) appended after the survivors. That order defines
+        // the result (and so the triangulation), and is kept exactly. It used to be reached by
+        // rebuilding the adjacency and the segment list and rescanning from vertex 0 after every single
+        // collapse: on a terrain with 7,262 collinear vertices that was ~6 s of a 7.7 s Triangulate.
+        // A collapse only changes the neighbourhoods of a and b, so a min-queue of vertices that might
+        // qualify — every vertex once, then a and b after each collapse — visits the same sequence.
+        var alive = new List<bool>(segments.Count);
+        var incident = new List<int>[vertices.Count];
         var keys = IndexedMeshTools.CreateEdgeKeySet(segments.Count);
-
-        foreach (var segment in segments)
+        for (int s = 0; s < segments.Count; s++)
         {
-            bool remove =
-                (segment.A == a && segment.B == vertex) ||
-                (segment.A == vertex && segment.B == a) ||
-                (segment.A == b && segment.B == vertex) ||
-                (segment.A == vertex && segment.B == b);
+            alive.Add(true);
+            keys.Add(SegmentKey(segments[s].A, segments[s].B));
+            AddIncident(incident, segments[s].A, s);
+            AddIncident(incident, segments[s].B, s);
+        }
 
-            if (remove)
+        var queue = new PriorityQueue<int, int>(vertices.Count);
+        var queued = new bool[vertices.Count];
+        for (int v = 0; v < vertices.Count; v++)
+        {
+            if (incident[v] != null)
+            {
+                queue.Enqueue(v, v);
+                queued[v] = true;
+            }
+        }
+
+        while (queue.TryDequeue(out int vertexIndex, out _))
+        {
+            queued[vertexIndex] = false;
+            if (!TryGetTwoNeighbors(segments, alive, incident[vertexIndex], vertexIndex, out int a, out int b))
                 continue;
 
-            TryAddSegment(rebuilt, keys, segment.A, segment.B);
+            bool spike = ShouldCollapseSpike(vertices, a, vertexIndex, b, xyTol, zTol);
+            if (!spike && !ShouldCollapseCollinear(vertices, a, vertexIndex, b, xyTol, zTol))
+                continue;
+
+            foreach (int s in incident[vertexIndex])
+            {
+                if (!alive[s])
+                    continue;
+
+                alive[s] = false;
+                keys.Remove(SegmentKey(segments[s].A, segments[s].B));
+            }
+
+            if (keys.Add(SegmentKey(a, b)))
+            {
+                int added = segments.Count;
+                segments.Add(new SegmentData(a, b));
+                alive.Add(true);
+                AddIncident(incident, a, added);
+                AddIncident(incident, b, added);
+            }
+
+            if (spike)
+                tinySpikesCollapsed++;
+            else
+                collinearVerticesCollapsed++;
+
+            foreach (int neighbor in new[] { a, b })
+            {
+                if (!queued[neighbor])
+                {
+                    queue.Enqueue(neighbor, neighbor);
+                    queued[neighbor] = true;
+                }
+            }
         }
 
-        TryAddSegment(rebuilt, keys, a, b);
+        int write = 0;
+        for (int s = 0; s < segments.Count; s++)
+        {
+            if (alive[s])
+                segments[write++] = segments[s];
+        }
 
-        segments.Clear();
-        segments.AddRange(rebuilt);
+        segments.RemoveRange(write, segments.Count - write);
+    }
+
+    private static void AddIncident(List<int>[] incident, int vertex, int segment) =>
+        (incident[vertex] ??= new List<int>(2)).Add(segment);
+
+    /// <summary>
+    /// The vertex's distinct neighbours in segment order, when there are exactly two. Segment ids only
+    /// grow (a collapse appends), so incident lists stay in the order the segment list has them.
+    /// </summary>
+    private static bool TryGetTwoNeighbors(
+        List<SegmentData> segments,
+        List<bool> alive,
+        List<int>? incident,
+        int vertex,
+        out int a,
+        out int b)
+    {
+        a = b = -1;
+        if (incident == null)
+            return false;
+
+        // Drop dead segments in place, keeping order. Without this the end vertex of a long chain keeps
+        // every segment its collapses ever replaced, and is re-read after each one: quadratic again.
+        int write = 0;
+        for (int read = 0; read < incident.Count; read++)
+        {
+            if (alive[incident[read]])
+                incident[write++] = incident[read];
+        }
+
+        incident.RemoveRange(write, incident.Count - write);
+
+        int count = 0;
+        foreach (int s in incident)
+        {
+            int other = segments[s].A == vertex ? segments[s].B : segments[s].A;
+            if (other == a || other == b)
+                continue;
+
+            if (count == 0)
+                a = other;
+            else if (count == 1)
+                b = other;
+            else
+                return false;
+            count++;
+        }
+
+        return count == 2;
     }
 
     private static bool ShouldCollapseSpike(
