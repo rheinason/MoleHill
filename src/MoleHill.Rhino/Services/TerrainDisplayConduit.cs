@@ -123,8 +123,14 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
 
         foreach (var auxiliary in displayState.AuxiliaryObjects)
         {
-            if (Wanted(auxiliary) && TerrainAnalysisPreviewBuilder.ShouldDisplayGeneratedOutput(terrain, auxiliary))
-                DrawGeneratedObject(e, doc, terrain, auxiliary);
+            if (!Wanted(auxiliary) || !TerrainAnalysisPreviewBuilder.ShouldDisplayGeneratedOutput(terrain, auxiliary))
+                continue;
+
+            // A sculpt session traces this annotation's contours live; its built curves are stale.
+            if (!labels && TerrainController.Instance.IsReplacedBySculptLiveContours(terrain.TerrainId, auxiliary.AnalysisId))
+                continue;
+
+            DrawGeneratedObject(e, doc, terrain, auxiliary);
         }
 
         foreach (var marker in displayState.MarkerObjects)
@@ -132,6 +138,9 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
             if (Wanted(marker))
                 DrawGeneratedObject(e, doc, terrain, marker);
         }
+
+        if (!labels)
+            TerrainController.Instance.DrawSculptLiveContours(e.Display, terrain.TerrainId);
     }
 
     /// <summary>
@@ -204,7 +213,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
         switch (generated.Geometry)
         {
             case Mesh mesh:
-                e.Display.DrawMeshShaded(mesh, material);
+                e.Display.DrawMeshShaded(TerrainController.Instance.ResolveSculptZoneMesh(mesh), material);
                 break;
             case Brep brep:
                 MeshingParameters meshingParameters = doc.GetMeshingParameters(doc.MeshingParameterStyle);
@@ -777,7 +786,7 @@ internal sealed class TerrainDisplayConduit : DisplayConduit
                 e,
                 doc,
                 terrain,
-                mesh,
+                TerrainController.Instance.ResolveSculptZoneMesh(mesh),
                 generated.LayerPath,
                 generated.SourceLayerPath,
                 generated.ColorArgb,

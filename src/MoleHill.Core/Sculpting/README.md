@@ -46,5 +46,9 @@ Key files:
   sampled rectangle, with vertices pulled in on first use — a face outside it cannot contain a sample,
   so the result is unchanged while a small stroke stops paying for the whole terrain. Do not rebuild
   the whole-mesh copy: that made commit cost scale with terrain size rather than stroke size.
+- `SculptRayCaster.cs` — the session's cursor hit test: an XY face grid built once (sculpt moves Z
+  only, so footprints never change) walked front to back against the live vertex Z. It replaces
+  `Intersection.MeshLine` on the working mesh, which rebuilds Rhino's search tree after every dab
+  (702 ms per mouse move at 540k faces, against ~35 µs here). Rebuild it if topology changes.
 - `SculptStrokeUndo.cs` — per-stroke undo records (sparse old/new Z, replaced tile payloads, created
   midpoints, dirty bounds) + the linear `SculptUndoStack`.

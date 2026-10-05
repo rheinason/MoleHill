@@ -1073,7 +1073,7 @@ internal sealed partial class TerrainBuildService
             maxZ = 0.0;
     }
 
-    private static List<double> BuildContourLevels(double minZ, double maxZ, double startZ, double interval)
+    internal static List<double> BuildContourLevels(double minZ, double maxZ, double startZ, double interval)
     {
         var levels = new List<double>();
         if (!(interval > 0.0) || !double.IsFinite(interval) || maxZ < minZ)

@@ -2,6 +2,9 @@
 
 Terrain analysis math. Pure, unit-tested.
 
+- `IncrementalContourTracer.cs` / `ContourSegment.cs` — per-face elevation contour segments, re-traced
+  only for the faces whose Z changed (a sculpt dab: 1–5 ms, against ~29 ms for a full pass on 540k
+  faces). Unstitched; uses `ContourGenerator`'s own crossing rule so live and built lines coincide.
 - `ContourGenerator.cs` — single-pass marching-triangles contour extraction (one pass over faces, each
   triangle only contributes to the levels in its own value span — far faster than one mesh-plane per
   level). Returns `ContourLevel`s of `ContourPolyline`s. The Rhino side (`TerrainBuildService.Analysis.cs`)

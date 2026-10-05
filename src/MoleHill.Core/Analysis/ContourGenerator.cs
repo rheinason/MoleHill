@@ -118,7 +118,7 @@ public static class ContourGenerator
         return result;
     }
 
-    private static void AddCrossing(
+    internal static void AddCrossing(
         double px, double py, double pz, double pv,
         double qx, double qy, double qz, double qv,
         double level, Span<double> pts, ref int found)
@@ -139,7 +139,7 @@ public static class ContourGenerator
     }
 
     // First index whose value is strictly greater than <paramref name="value"/>.
-    private static int UpperBound(double[] sorted, double value)
+    internal static int UpperBound(double[] sorted, double value)
     {
         int lo = 0, hi = sorted.Length;
         while (lo < hi)

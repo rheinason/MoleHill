@@ -492,6 +492,12 @@ keeps the working mesh on screen. A floating Eto mini-toolbar (`UI/SculptToolbar
 brush/radius/strength/falloff/Done; persistent constraint sources and feather distance stay on the
 modifier card alongside Sculpt/Clear and the stored-field summary. Session exit = one document undo record.
 
+Downstream output follows the brush without a rebuild. Zones (`SculptZoneFollower`) are working copies
+bound once per session, each vertex located on its terrain face and re-interpolated per dab, and re-keyed
+to the rebuilt zone meshes after each stroke; contours (`SculptLiveContours`) are re-traced per dab from
+the session's own arrays and drawn in place of the annotation's built curves. Contour labels, and every
+other downstream output, still update at the post-stroke rebuild.
+
 Expanded **Smooth** and **Sculpt** cards inspect their incoming cached mesh when no enabled Remesh
 precedes them. A sampled Core regularity check warns when the mesh is very sparse or contains a
 meaningful proportion of triangles below an 8-degree minimum angle, recommending Remesh below the

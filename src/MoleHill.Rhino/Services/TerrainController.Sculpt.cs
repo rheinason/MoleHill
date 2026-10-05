@@ -15,15 +15,24 @@ internal sealed partial class TerrainController
     private Guid? _sculptSessionTerrainId;
     private Mesh? _sculptSessionPreviewMesh;
     private bool _sculptStrokeInProgress;
+    private SculptZoneFollower? _sculptZoneFollower;
+    private SculptLiveContours? _sculptLiveContours;
 
     internal bool IsSculptSessionActive => _sculptSessionTerrainId.HasValue;
 
     /// <summary>Takes display authority for a sculpt session: the working mesh replaces the terrain's
     /// preview mesh until <see cref="EndSculptDisplayLock"/>, surviving background build applies.</summary>
-    internal void BeginSculptDisplayLock(RhinoDoc doc, Guid terrainId, Mesh workingMesh)
+    internal void BeginSculptDisplayLock(
+        RhinoDoc doc,
+        Guid terrainId,
+        Mesh workingMesh,
+        SculptZoneFollower? zoneFollower = null,
+        SculptLiveContours? liveContours = null)
     {
         _sculptSessionTerrainId = terrainId;
         _sculptSessionPreviewMesh = workingMesh;
+        _sculptZoneFollower = zoneFollower;
+        _sculptLiveContours = liveContours;
         _sculptStrokeInProgress = false;
         TerrainPresentationMesh.SetLiveEditedMesh(workingMesh);
         RemovePendingBuild(doc.RuntimeSerialNumber, terrainId, TerrainBuildMode.Preview);
@@ -44,6 +53,8 @@ internal sealed partial class TerrainController
         _sculptSessionTerrainId = null;
         _sculptSessionPreviewMesh = null;
         _sculptStrokeInProgress = false;
+        _sculptZoneFollower = null;
+        _sculptLiveContours = null;
         TerrainPresentationMesh.SetLiveEditedMesh(null);
 
         if (releasedMesh == null)
@@ -61,6 +72,20 @@ internal sealed partial class TerrainController
         displayState.PreviewTerrainMesh = releasedMesh.DuplicateMesh();
         displayState.InvalidatePreviewBounds();
         NotifyRenderMeshesChanged(doc);
+    }
+
+    /// <summary>The mesh to draw for a generated mesh: a sculpt session's live copy of a zone, or itself.</summary>
+    internal Mesh ResolveSculptZoneMesh(Mesh mesh) =>
+        _sculptZoneFollower != null && _sculptZoneFollower.TryResolve(mesh, out Mesh working) ? working : mesh;
+
+    /// <summary>True for a built contour curve that a sculpt session's live contours are drawing over.</summary>
+    internal bool IsReplacedBySculptLiveContours(Guid terrainId, Guid? analysisId) =>
+        _sculptSessionTerrainId == terrainId && _sculptLiveContours != null && _sculptLiveContours.Replaces(analysisId);
+
+    internal void DrawSculptLiveContours(global::Rhino.Display.DisplayPipeline display, Guid terrainId)
+    {
+        if (_sculptSessionTerrainId == terrainId)
+            _sculptLiveContours?.Draw(display);
     }
 
     private bool ShouldDeferBuildForSculpt(Guid terrainId)

@@ -229,6 +229,15 @@ layer table, dimension styles, and layouts can act on. See `docs/architecture.md
   F/Shift+F adjust modes. DynTopo is
   disabled and hidden for now. `TerrainController.Sculpt.cs` holds the display lock (working mesh keeps
   `PreviewTerrainMesh` authority across background build applies; builds defer while a stroke is being painted).
+  The cursor is cast with `Core/Sculpting/SculptRayCaster`, never `Intersection.MeshLine` (Rhino rebuilds
+  that search tree after every dab: 702 ms per mouse move on 540k faces).
+- `SculptNormalPatcher.cs` - per-dab normal repair from flat arrays (vertex→face CSR built once).
+- `SculptZoneFollower.cs` - keeps zone meshes on the sculpted terrain live: working copies bound once per
+  session (each vertex located on its terrain face), re-interpolated per dab, re-keyed to the rebuilt
+  zones after each stroke. Copies, because the displayed zones are also the zone stage's cache.
+- `SculptLiveContours.cs` - contour lines traced live from the session's arrays
+  (`Core/Analysis/IncrementalContourTracer`, faces a dab touched only); drawn in place of the
+  annotation's built curves during a session. Labels stay built ones and move at the rebuild.
 - `SculptAnalysisColorizer.cs` - live slope/elevation/cut-fill coloring of the sculpt working mesh: per-dab
   vertex recolor from the freshly patched normals / Z / reference projection, with the range pinned at
   session start. Aspect deliberately has none: its colours are per-face directions and a stroke changes

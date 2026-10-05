@@ -5,7 +5,6 @@ using MoleHill.Rhino.UI;
 using Rhino;
 using Rhino.Display;
 using Rhino.Geometry;
-using Rhino.Geometry.Intersect;
 using Rhino.Input;
 using Rhino.Input.Custom;
 using RhinoMesh = Rhino.Geometry.Mesh;
@@ -44,6 +43,8 @@ internal sealed class SculptSessionController
     private Guid _terrainId;
     private Guid _modifierId;
     private SculptBrushEngine _engine = null!;
+    private SculptRayCaster _rayCaster = null!;
+    private int _rayCasterTopologyVersion;
     private SculptConstraintMask _constraintMask = null!;
     private RhinoMesh _workingMesh = null!;
     private SculptNormalPatcher _normalPatcher = null!;
@@ -51,6 +52,8 @@ internal sealed class SculptSessionController
     private SculptToolbarForm? _toolbar;
     private UITimer? _shortcutPollTimer;
     private readonly SculptUndoStack _undoStack = new();
+    private readonly SculptZoneFollower _zoneFollower = new();
+    private readonly SculptLiveContours _liveContours = new();
     private readonly List<int> _recordAffected = new();
 
     private AdjustMode _adjustMode;
@@ -97,7 +100,7 @@ internal sealed class SculptSessionController
         _yWasDown = false;
 
         uint undoRecord = _controller.BeginTerrainStateUndoRecord(doc, "Sculpt Terrain");
-        _controller.BeginSculptDisplayLock(doc, terrainId, _workingMesh);
+        _controller.BeginSculptDisplayLock(doc, terrainId, _workingMesh, _zoneFollower, _liveContours);
         ShowToolbar(doc, sculpt);
         StartShortcutPolling();
         doc.Views.Redraw();
@@ -152,7 +155,7 @@ internal sealed class SculptSessionController
         // The engine arrays and the displayed mesh must agree index-for-index, so the working mesh is
         // built 1:1 from the extracted arrays (never normalized — that can reorder vertices).
         _workingMesh = BuildIndexParityMesh(vertices, vertexCount, faces, faceCount);
-        _normalPatcher = new SculptNormalPatcher(vertexCount, faces, faceCount);
+        _normalPatcher = new SculptNormalPatcher(vertices, vertexCount, faces, faceCount);
         RhinoMesh? baseTerrainMesh = _controller.GetSculptRuntimeCache(doc, terrain.TerrainId).DisplayState?.BaseTerrainMesh;
         _analysisColorizer = SculptAnalysisColorizer.TryCreate(
             doc,
@@ -173,6 +176,11 @@ internal sealed class SculptSessionController
             : SculptConstraintMaskBuilder.Build(snapshot, snapshot.Terrain, snapshotSculpt);
         _engine = new SculptBrushEngine(
             (double[])vertices.Clone(), vertexCount, faces, faceCount, field, _constraintMask);
+        _rayCaster = new SculptRayCaster(_engine.Vertices, vertexCount, faces, faceCount);
+        _rayCasterTopologyVersion = _engine.TopologyVersion;
+        _liveContours.Bind(doc, terrain, _engine.Vertices, vertexCount, faces, faceCount);
+        if (terrain.ShowZoneMeshes && _controller.GetSculptRuntimeCache(doc, terrain.TerrainId).DisplayState is { } displayState)
+            _zoneFollower.Bind(displayState.ZoneObjects, _rayCaster, _engine.Vertices);
         return true;
     }
 
@@ -424,7 +432,24 @@ internal sealed class SculptSessionController
     private void BeginStroke(in SculptDabParams p)
     {
         _controller.SetSculptStrokeInProgress(true);
+        BindZones();
         _engine.BeginStroke(p);
+    }
+
+    /// <summary>Points the zone follower at the zones on screen now. Each post-stroke rebuild replaces
+    /// them; the follower re-keys its copies to the replacements, and binds (the expensive part) only at
+    /// the first stroke with zones shown or when a zone has really changed.</summary>
+    private void BindZones()
+    {
+        TerrainDefinition? terrain = _controller.FindTerrain(_doc, _terrainId);
+        TerrainDisplayState? displayState = _controller.GetSculptRuntimeCache(_doc, _terrainId).DisplayState;
+        if (terrain == null || displayState == null || !terrain.ShowZoneMeshes)
+            return;
+
+        if (_zoneFollower.IsBound)
+            _zoneFollower.Rebind(displayState.ZoneObjects, _rayCaster, _engine.Vertices);
+        else
+            _zoneFollower.Bind(displayState.ZoneObjects, _rayCaster, _engine.Vertices);
     }
 
     private void ApplyDab(in SculptDabParams p, double grabDeltaZ = 0.0)
@@ -437,8 +462,12 @@ internal sealed class SculptSessionController
         foreach (int i in affected)
             _workingMesh.Vertices.SetVertex(i, v[i * 3], v[i * 3 + 1], v[i * 3 + 2]);
 
-        _normalPatcher.PatchNormals(_workingMesh, affected);
+        _normalPatcher.PatchNormals(_workingMesh, _engine.Vertices, affected);
         _analysisColorizer?.Recolor(_workingMesh, _normalPatcher.LastTouchedVertices);
+        _liveContours.Update(_engine.Vertices, _normalPatcher.LastTouchedFaces);
+        _zoneFollower.Follow(
+            _engine.Vertices, _engine.Faces,
+            p.CenterX - p.Radius, p.CenterX + p.Radius, p.CenterY - p.Radius, p.CenterY + p.Radius);
     }
 
     private void DisposeWorkingMesh()
@@ -447,6 +476,29 @@ internal sealed class SculptSessionController
         _workingMesh = null!;
         _normalPatcher = null!;
         _analysisColorizer = null;
+        _rayCaster = null!;
+        _zoneFollower.Clear();
+        _liveContours.Clear();
+    }
+
+    /// <summary>The cursor ray against the engine's live vertices. Never Intersection.MeshLine on the
+    /// working mesh: every dab moves its vertices, so Rhino rebuilds the mesh's search tree on the next
+    /// cast — 702 ms per mouse move on a 540k-face terrain.</summary>
+    private bool TryCastCursorRay(Line line, out Point3d hit)
+    {
+        hit = Point3d.Unset;
+        if (_engine.TopologyVersion != _rayCasterTopologyVersion)
+        {
+            _rayCaster = new SculptRayCaster(_engine.Vertices, _engine.VertexCount, _engine.Faces, _engine.FaceCount);
+            _rayCasterTopologyVersion = _engine.TopologyVersion;
+        }
+
+        Vector3d d = line.Direction;
+        if (!_rayCaster.TryIntersect(_engine.Vertices, line.From.X, line.From.Y, line.From.Z, d.X, d.Y, d.Z, out double t))
+            return false;
+
+        hit = line.PointAt(t);
+        return true;
     }
 
     private void FinishStroke()
@@ -511,8 +563,16 @@ internal sealed class SculptSessionController
             _recordAffected.Add(m);
         }
 
-        _normalPatcher.PatchNormals(_workingMesh, _recordAffected);
+        _normalPatcher.PatchNormals(_workingMesh, _engine.Vertices, _recordAffected);
         _analysisColorizer?.Recolor(_workingMesh, _normalPatcher.LastTouchedVertices);
+        _liveContours.Update(_engine.Vertices, _normalPatcher.LastTouchedFaces);
+        if (record.HasDirtyBounds)
+        {
+            BindZones();
+            _zoneFollower.Follow(
+                _engine.Vertices, _engine.Faces,
+                record.DirtyMinX, record.DirtyMaxX, record.DirtyMinY, record.DirtyMaxY);
+        }
     }
 
     private void RefreshSculptDisplay()
@@ -720,22 +780,9 @@ internal sealed class SculptSessionController
             if (!viewport.GetFrustumLine(screenX, screenY, out Line line))
                 return false;
 
-            Point3d[] hits = Intersection.MeshLine(_session._workingMesh, line, out _);
-            if (hits is { Length: > 0 })
+            // GetFrustumLine runs near-to-far, so the nearest hit is the one nearest the camera.
+            if (_session.TryCastCursorRay(line, out Point3d best))
             {
-                // GetFrustumLine runs near-to-far: the hit nearest line.From is nearest the camera.
-                Point3d best = hits[0];
-                double bestDist = best.DistanceToSquared(line.From);
-                for (int i = 1; i < hits.Length; i++)
-                {
-                    double d = hits[i].DistanceToSquared(line.From);
-                    if (d < bestDist)
-                    {
-                        bestDist = d;
-                        best = hits[i];
-                    }
-                }
-
                 hit = best;
                 _lastHitZ = best.Z;
                 _hasHitZ = true;
@@ -756,108 +803,6 @@ internal sealed class SculptSessionController
             }
 
             return false;
-        }
-    }
-}
-
-/// <summary>
-/// Incremental normal updates for the sculpt working mesh: a vertex→face CSR index built once per
-/// session; per dab, only faces incident to moved vertices get fresh face normals and only vertices
-/// of those faces get re-averaged vertex normals — full-mesh ComputeNormals would dominate the
-/// per-dab cost on large terrains.
-/// </summary>
-internal sealed class SculptNormalPatcher
-{
-    private readonly int[] _faces;
-    private readonly int[] _vertexFaceOffsets;
-    private readonly int[] _vertexFaceIndices;
-    private readonly int[] _faceStamps;
-    private readonly int[] _vertexStamps;
-    private readonly List<int> _touchedFaces = new();
-    private readonly List<int> _touchedVertices = new();
-    private int _stamp;
-
-    public SculptNormalPatcher(int vertexCount, int[] faces, int faceCount)
-    {
-        _faces = faces;
-        _faceStamps = new int[faceCount];
-        _vertexStamps = new int[vertexCount];
-
-        var counts = new int[vertexCount];
-        for (int f = 0; f < faceCount; f++)
-        {
-            counts[faces[f * 3]]++;
-            counts[faces[f * 3 + 1]]++;
-            counts[faces[f * 3 + 2]]++;
-        }
-
-        _vertexFaceOffsets = new int[vertexCount + 1];
-        for (int i = 0; i < vertexCount; i++)
-            _vertexFaceOffsets[i + 1] = _vertexFaceOffsets[i] + counts[i];
-
-        _vertexFaceIndices = new int[_vertexFaceOffsets[vertexCount]];
-        var cursors = new int[vertexCount];
-        Array.Copy(_vertexFaceOffsets, cursors, vertexCount);
-        for (int f = 0; f < faceCount; f++)
-        {
-            _vertexFaceIndices[cursors[_faces[f * 3]]++] = f;
-            _vertexFaceIndices[cursors[_faces[f * 3 + 1]]++] = f;
-            _vertexFaceIndices[cursors[_faces[f * 3 + 2]]++] = f;
-        }
-    }
-
-    /// <summary>Vertices re-averaged by the last <see cref="PatchNormals"/> call (the moved vertices
-    /// plus their one-ring). Backed by a reused buffer — consume before the next patch.</summary>
-    public IReadOnlyList<int> LastTouchedVertices => _touchedVertices;
-
-    public void PatchNormals(RhinoMesh mesh, IReadOnlyList<int> movedVertices)
-    {
-        _stamp++;
-        _touchedFaces.Clear();
-        _touchedVertices.Clear();
-
-        foreach (int v in movedVertices)
-        {
-            for (int k = _vertexFaceOffsets[v]; k < _vertexFaceOffsets[v + 1]; k++)
-            {
-                int f = _vertexFaceIndices[k];
-                if (_faceStamps[f] == _stamp)
-                    continue;
-
-                _faceStamps[f] = _stamp;
-                _touchedFaces.Add(f);
-            }
-        }
-
-        foreach (int f in _touchedFaces)
-        {
-            var a = mesh.Vertices[_faces[f * 3]];
-            var b = mesh.Vertices[_faces[f * 3 + 1]];
-            var c = mesh.Vertices[_faces[f * 3 + 2]];
-            var normal = Vector3d.CrossProduct(
-                new Vector3d(b.X - a.X, b.Y - a.Y, b.Z - a.Z),
-                new Vector3d(c.X - a.X, c.Y - a.Y, c.Z - a.Z));
-            normal.Unitize();
-            mesh.FaceNormals.SetFaceNormal(f, normal);
-
-            for (int corner = 0; corner < 3; corner++)
-            {
-                int v = _faces[f * 3 + corner];
-                if (_vertexStamps[v] == _stamp)
-                    continue;
-
-                _vertexStamps[v] = _stamp;
-                _touchedVertices.Add(v);
-            }
-        }
-
-        foreach (int v in _touchedVertices)
-        {
-            var sum = Vector3d.Zero;
-            for (int k = _vertexFaceOffsets[v]; k < _vertexFaceOffsets[v + 1]; k++)
-                sum += mesh.FaceNormals[_vertexFaceIndices[k]];
-            sum.Unitize();
-            mesh.Normals.SetNormal(v, sum);
         }
     }
 }
