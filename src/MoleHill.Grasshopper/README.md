@@ -43,8 +43,10 @@ Zones never cause implicit partitioning. Keeping region metadata separate from t
 definition pass through untouched, be partitioned into one-terrain-per-surface workflows, or be manually
 cut/joined and reconstructed with ordinary Grasshopper tools.
 The default Revit flow is `Partition Terrain -> standard GH editing/transforms -> Prepare Toposolid`, with
-one independent Toposolid per branch. Optional Rhino.Inside.Revit Python adapters are kept outside the GHA
-under `examples/RhinoInside.Revit/`; subdivisions are a separate opt-in host-following workflow.
+one independent Toposolid per branch. The Revit step is the separate `MoleHill.Revit.gha`
+(`src/MoleHill.Revit/`), which reads the `Preparation` output through the `MoleHill.Interop`
+`IToposolidPreparation` contract that `ToposolidPreparationData` implements; subdivisions are written
+on their host from the same package.
 
 The `Grade Path` component appends optional **Width Edges** and **Max Edge Distance** inputs after its
 legacy ports. Leaving Width Edges empty is the constant-width path (there is no separate toggle port —

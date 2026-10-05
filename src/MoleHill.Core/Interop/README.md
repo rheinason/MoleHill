@@ -35,5 +35,5 @@ Pure, host-independent exchange algorithms and formats.
   the largest errors up to the requested point budget.
 
 Revit API calls do not belong here. The Grasshopper host validates/converts Rhino curves and meshes around
-this pure reducer; optional Python adapters under `examples/RhinoInside.Revit/` own the small Revit
+this pure reducer; `MoleHill.Revit.gha` (`src/MoleHill.Revit/`) owns the small Revit
 transaction boundary.

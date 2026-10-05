@@ -17,6 +17,7 @@ as a terminal quad Mesh route; it intentionally does not emit typed Terrain beca
 components require triangular 2.5D topology. These routes are covered by registration smoke tests; a
 saved modifier graph with matched native output remains part of the acceptance backlog.
 
-For the Revit boundary workflow, use the prepared scripts under `examples/RhinoInside.Revit/` with the
-documented `Partition Terrain -> Prepare Toposolid` flow. The Revit transaction step remains labelled
-unverified because no Revit host is available in this environment.
+For the Revit boundary workflow, wire `Partition Terrain -> Prepare Toposolid -> Write Toposolids`; the
+last is on the MoleHill > Revit tab, which appears only inside Rhino.Inside.Revit. The Revit step
+remains labelled unverified because no Revit host is available in this environment
+(see `src/MoleHill.Revit/README.md`).

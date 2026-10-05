@@ -15,6 +15,7 @@ public class ComponentIconGuardTests
 
     [Theory]
     [InlineData("src/MoleHill.Grasshopper/Components", "src/MoleHill.Grasshopper/Resources", "MoleHill.Grasshopper.Resources.")]
+    [InlineData("src/MoleHill.Revit/Components", "src/MoleHill.Revit/Resources", "")]
     public void EveryComponentIcon_NamesAnExistingResource(string componentDirectory, string resourceDirectory, string resourcePrefix)
     {
         string root = FindRepositoryRoot();

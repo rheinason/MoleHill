@@ -57,6 +57,8 @@
     <Compile Include="..\..\src\MoleHill.Grasshopper\Types\*.cs" LinkBase="Grasshopper\Types" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\Utilities\*.cs" LinkBase="Grasshopper\Utilities" />
     <Compile Include="..\..\src\MoleHill.Grasshopper\Registry\*.cs" LinkBase="Grasshopper\Registry" />
+    <!-- Only the Revit-free planner: the rest of MoleHill.Revit needs RevitAPI, which no test can load. -->
+    <Compile Include="..\..\src\MoleHill.Revit\Planning\*.cs" LinkBase="Revit\Planning" />
   </ItemGroup>
 
   <Import Project="..\..\src\MoleHill.Shared\MoleHill.Shared.props" />

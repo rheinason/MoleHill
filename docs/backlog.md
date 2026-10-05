@@ -185,7 +185,9 @@ schema rows. The real work is the constraint interaction, below.
 ### B7 — Grasshopper terrain workflow redesign
 
 **In progress.** The live reference/contract foundation, terrain-aware Grade Pad and bracketed balance
-helper are implemented. Disposable Rhino 8/Grasshopper validation covers independent bindings,
+helper are implemented. Since 2026-10-05 the Revit step is compiled: Write/Inspect Toposolids in
+`MoleHill.Revit.gha` replace the pasted Python adapters (one wire from Prepare Toposolid; hidden outside
+Revit; unverified in a Revit host). Disposable Rhino 8/Grasshopper validation covers independent bindings,
 rename and panel-selection stability, `.gh` save/reopen, frozen lifecycle, failed-status holding,
 and native `.3dm` source reopen. Full scope, remaining modifier/zone/Revit/usability phases,
 legacy `.gh` component/wire upgrade by direct deserialization (the normal `GH_DocumentIO.Open` path

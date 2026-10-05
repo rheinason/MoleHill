@@ -10,6 +10,7 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
                                           ←  MoleHill.Rhino       (Rhino host)
                             MoleHill.Shared (small shared types)
                             MoleHill.Interop (Rhino/GH bridge DTOs and interface)
+                            MoleHill.Interop  ←  MoleHill.Revit (Rhino.Inside.Revit GH host; RevitAPI)
 ```
 
 - **`src/TriangleNet/`** — vendored Triangle.NET CDT engine. Do not refactor; treat as a library.
@@ -17,7 +18,8 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   Sub-namespaces: `Engine/` (triangulation), `Processing/` (input prep), `Grading/` (pad/path),
   `Analysis/` (contours, slope, waterflow), `Scattering/` (object scatter sampling), `Sculpting/` (brush engine +
   displacement field).
-- **`src/MoleHill.Interop/`** — separately shipped, versioned RhinoCommon-only snapshot bridge contract.
+- **`src/MoleHill.Interop/`** — separately shipped, versioned RhinoCommon-only snapshot bridge contract,
+  plus `IToposolidPreparation`, the package `MoleHill.gha` hands to `MoleHill.Revit.gha`.
   Rhino and Grasshopper reference the same assembly; the GHA discovers the Rhino bridge instance by
   type and reads snapshot fields through the interface. ILRepack leaves Interop outside the GHA.
 - **`src/MoleHill.Shared/`** — RhinoCommon-dependent source that both hosts need (retaining-wall
@@ -25,6 +27,10 @@ TriangleNet (vendored)  ←  MoleHill.Core  ←  MoleHill.Grasshopper (GH host)
   assembly: each host and its test project imports `MoleHill.Shared.props`, which compiles every
   `*.cs` in the folder, so a new shared file needs no project edits.
 - **`src/MoleHill.Grasshopper/`** — GH components; thin wrappers over Core. Merged into `MoleHill.gha`.
+- **`src/MoleHill.Revit/`** — `MoleHill.Revit.gha`: Write/Inspect Toposolids for Rhino.Inside.Revit
+  (Revit 2025+, net8.0-windows). The only assembly referencing `RevitAPI`, as a build-time reference
+  package; `MoleHillRevitPriority` aborts its load outside Revit, so it ships to everyone in the Yak
+  package without appearing in plain Rhino. See its README.
 - **`src/MoleHill.Rhino/`** — the Rhino plugin: dockable panel UI (`UI/`, Eto.Forms), commands
   (`Commands/`), the terrain definition model (`Model/`), and the build/persistence services
   (`Services/`). **All Rhino API use lives here; all reusable math lives in Core.**
@@ -216,11 +222,16 @@ transforms remain visible and user-controlled in Grasshopper; the downstream ada
 document units to Revit internal feet exactly once.
 
 The default downstream shape is `Partition Terrain -> ordinary GH edits/transforms -> Prepare Toposolid`,
-with one independent Toposolid per branch. Optional Python 3 adapters under `examples/RhinoInside.Revit/`
-perform only create/update/inspect/subdivision transactions and stable-key/fingerprint synchronization.
-They are not shipped inside `MoleHill.gha`, so neither MoleHill host has a Revit or Rhino.Inside.Revit
-assembly dependency. Subdivisions remain a separate opt-in operation because they follow their host rather
-than behaving as independently editable terrain surfaces.
+with one independent Toposolid per branch. The Revit transaction is
+`MoleHill.Revit.gha` (`src/MoleHill.Revit/`): **Write Toposolids** takes the Prepare Toposolid package
+list directly and performs only create/update and stable-key/fingerprint synchronization, plus the
+package's subdivisions on their host; **Inspect Toposolids** reads identity and shape back. It is the one
+assembly that references `RevitAPI` (reference-only at build; never shipped), and its
+`GH_AssemblyPriority` aborts the load outside Revit, so the Yak package carries it to everyone while
+plain Rhino never shows it. The package crosses assemblies as `MoleHill.Interop.IToposolidPreparation`.
+`MoleHill.gha` and the `.rhp` still have no Revit or Rhino.Inside.Revit dependency. Subdivisions follow
+their host rather than behaving as independently editable terrain surfaces, so a replaced host gets new
+ones; absence of a key never deletes an element.
 
 The Rhino panel retains runtime-only `ZoneAnalysisSummary` values from the last completed final build.
 These summaries are calculated from resolved zone output after overlap and priority rules, so plan area,

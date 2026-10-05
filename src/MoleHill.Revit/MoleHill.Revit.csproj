@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Rhino.Inside.Revit components, as a second .gha shipped in the same Yak package. It is its own assembly
+    because it references RevitAPI, which MoleHill.gha must never do: MoleHillRevitPriority aborts its load
+    in any Grasshopper not running inside Revit, so a plain Rhino never sees these components.
+
+    net8.0-windows because Revit 2025's API is .NET 8 (2024 and earlier run Rhino.Inside on .NET Framework,
+    where no MoleHill assembly loads). The RevitAPI package holds reference assemblies only, so nothing of
+    Autodesk's is copied or shipped; Revit supplies the real one at runtime. Compiling against 2025 keeps
+    every call available in 2025 and later.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>MoleHill.Revit</RootNamespace>
+    <AssemblyName>MoleHill.Revit</AssemblyName>
+    <TargetExt>.gha</TargetExt>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <NoWarn>NU1701;CA1416</NoWarn>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Version>$(MoleHillVersion)</Version>
+    <InformationalVersion>$(MoleHillVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Title>MoleHill for Rhino.Inside.Revit</Title>
+    <Company>MoleHill Authors</Company>
+    <Authors>rheinason</Authors>
+    <Description>Writes MoleHill terrains to Revit Toposolids inside Rhino.Inside.Revit.</Description>
+    <RepositoryUrl>https://github.com/rheinason/MoleHill</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Shipped once, beside the .rhp and MoleHill.gha; the shared contract only works as one copy. -->
+    <ProjectReference Include="..\MoleHill.Interop\MoleHill.Interop.csproj" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\*.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grasshopper" Version="8.9.24194.18121" ExcludeAssets="runtime" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.4.50" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

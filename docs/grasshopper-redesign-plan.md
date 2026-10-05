@@ -38,7 +38,7 @@ outputs) and the expected missing-boundary/elevation warnings.
 | Phase 1 contracts and references | Interop bridge, identity/fingerprint contract, live/frozen reference lifecycle, current-graph save/reopen, direct legacy component/wire migration | Normal legacy `GH_DocumentIO.Open` completion path; native build-exception fixture |
 | Phase 2 first workflow | Grade Pad, balance helper (now typed Terrain-aware), typed Terrain migration, live multi-branch and stale/frozen tracing | Matched native Grade Pad fixture and terrain-aware chosen-input workflow |
 | Phase 3 modifier coverage | Add Geometry, Project To, Mesh Simplify, Mesh Smooth, Remesh, Retaining Wall, Grade Path, In-Situ Stair, and Retopo routes with diagnostics and preserved terminal semantics; live Rhino 8 discovery enumerated all 18 installed MoleHill components, including every new route | Remaining modifier routes, constraint-aware parity fixtures, Retopo native comparison |
-| Phase 4 zones/Revit | Partition holes, overlap priority, remainder, stable keys, the native zone boundary priority comparator moved to Core, Toposolid adapters and README; all three Rhino.Inside.Revit Python adapters pass syntax compilation; environment probe found no Revit or Rhino.Inside.Revit installation | GH priority metadata and resolver use, full multi-zone live acceptance graph and configured `.gh` Revit examples; Revit transaction execution requires a Revit host |
+| Phase 4 zones/Revit | Partition holes, overlap priority, remainder, stable keys, the native zone boundary priority comparator moved to Core, Toposolid preparation; 2026-10-05: the Python adapters replaced by the compiled `MoleHill.Revit.gha` (Write/Inspect Toposolids, one-wire input, self-hiding outside Revit), its planner unit-tested; environment probe found no Revit or Rhino.Inside.Revit installation | GH priority metadata and resolver use, full multi-zone live acceptance graph; Revit transaction execution requires a Revit host |
 | Phase 5 usability/release | Native artwork, validated Snapshot example, live-saved `ModifierRoutesInventory.gh`, performance baseline, Yak package | Working modifier study examples with matched outputs and final release review |
 Backlog: [B7](backlog.md#b7--grasshopper-terrain-workflow-redesign) umbrella, tracked as sub-items
 B7a–B7e (see [Delivery sequence](#delivery-sequence)).
@@ -116,7 +116,7 @@ The [GH project README](../src/MoleHill.Grasshopper/README.md) and
   data; passing through such a component is not sufficient to preserve the terrain contract.
 - The snapshot currently combines hard and elevation constraints into one curve collection. Audit
   whether each downstream operation needs their distinction before promising constraint parity.
-- `Prepare Toposolid` and optional Python adapters exist. Treat these as a foundation to verify and
+- `Prepare Toposolid` and the Write/Inspect Toposolids components exist. Treat these as a foundation to verify and
   improve; source code and documentation alone do not establish an end-to-end Revit workflow.
 
 ### Live verification — 2026-09-16
@@ -328,7 +328,7 @@ including holes, overlap priority, remainder, rename, and reorder. Check geometr
 
 ## 4. Ready for Rhino.Inside.Revit
 
-Use the existing [adapter workflow](../examples/RhinoInside.Revit/README.md) as the starting point:
+Use the existing [Revit components](../src/MoleHill.Revit/README.md) as the starting point:
 
 ```text
 Terrain Reference / Construct Terrain
@@ -337,14 +337,22 @@ Terrain Reference / Construct Terrain
   → coordinate placement → Prepare Toposolid → Revit create/update
 ```
 
-**Delivery: configured example definitions (decided).** Ship small, runnable `.gh` examples with the
-existing Python adapters pre-wired in labelled groups, sensible defaults, and a README. No compiled
-Revit-dependent code and no packaged adapter: MoleHill cannot test a Revit host (D8), so the Revit step
-stays as readable, user-editable scripts. The examples must not require users to wire many undocumented
-parallel inputs. Keep Core geometry work and Revit transactions separate.
+**Delivery: compiled components in their own assembly (revised 2026-10-05).** The earlier decision was
+pasted Python adapters in configured `.gh` examples. In practice, each script meant creating up to nine
+typed inputs by hand. Write Toposolids and Inspect Toposolids now live in `MoleHill.Revit.gha`
+([README](../src/MoleHill.Revit/README.md)).
+
+- **Wiring.** Write Toposolids takes Prepare Toposolid's `Preparation` package list as a single wire and
+  writes subdivisions from the same package.
+- **Packaging.** It ships in the Yak package and aborts its own load outside Revit, so plain Rhino
+  never shows it.
+- **No Revit dependency elsewhere.** It references Revit's API only as a build-time reference assembly,
+  so neither `MoleHill.gha` nor the `.rhp` gains one.
+- **Separation.** Core geometry work and Revit transactions stay separate: everything that can be
+  decided without Revit is in a tested planner.
 
 **Revit-host verification is descoped (decided).** MoleHill verifies everything up to the Revit
-boundary. The Revit create/update step ships as configured examples and adapters, labelled
+boundary. The Revit create/update step ships as compiled components, labelled
 **unverified in Revit**. No environment is available to test them in a Revit host, and `rhino-mcp`
 cannot drive one.
 
@@ -474,7 +482,7 @@ Settled in the follow-up review:
 | D11 | Reference picker and freeze UX | Live auto-refresh by default; right-click menu of terrains (stored by GUID) with Follow / Freeze / Resume live; mode always shown in the message bar; a non-empty text input overrides the menu | Section 1 |
 | D12 | Zone fidelity | Key, name, outlines, stack index, priority-by-elevation, enabled, colour (+ override), layer, material, split hint | Section 3 |
 | D13 | Zone priority in GH | Carry raw and resolved zones; re-resolve with the native resolver after moving it to Core | Section 3 |
-| D14 | Revit delivery form | Configured example `.gh` files with the pre-wired Python adapters; no packaged adapter | Section 4 |
+| D14 | Revit delivery form | **Revised 2026-10-05:** compiled components in `MoleHill.Revit.gha`, shipped in the Yak package and self-hiding outside Revit. The pasted Python adapters were too cumbersome to set up. Still unverified in Revit (D8) | Section 4 |
 
 The source document identity is stored in Rhino document strings and minted when a terrain is saved
 or explicitly chosen for binding. Save the Rhino document after choosing a terrain for durable

@@ -255,11 +255,11 @@ try {
         }
         $entries | Set-Content -Encoding utf8 -Path (Join-Path $laneResults 'package-contents.txt')
 
-        $required = @('MoleHill.Rhino.rhp', 'MoleHill.gha', 'MoleHill.Core.dll', 'MoleHill.Interop.dll', 'manifest.yml')
+        $required = @('MoleHill.Rhino.rhp', 'MoleHill.gha', 'MoleHill.Revit.gha', 'MoleHill.Core.dll', 'MoleHill.Interop.dll', 'manifest.yml')
         $missing = @($required | Where-Object { $name = $_; -not ($entries | Where-Object { $_ -like "*$name" }) })
         Write-Host "Archive: $($archive.FullName) ($($entries.Count) entries)"
         if ($missing.Count -gt 0) { throw "Package is missing: $($missing -join ', ')" }
-        Write-Host 'Archive contains the Rhino plugin, the merged Grasshopper assembly and Interop.' -ForegroundColor Green
+        Write-Host 'Archive contains the Rhino plugin, both Grasshopper assemblies and Interop.' -ForegroundColor Green
     }
 
     function Invoke-HostedPerf {

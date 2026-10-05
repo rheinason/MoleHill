@@ -49,9 +49,11 @@ region data only; `Partition Terrain` is the explicit operation that turns them 
 pieces. Terrain Snapshot requires the MoleHill Rhino plugin from the combined package and rejects
 preview/deferred builds so downstream geometry never silently changes from approximate to final.
 `Prepare Toposolid` leaves coordinates in the incoming Rhino model space, retains explicit unit metadata,
-and performs adaptive point reduction in compiled Core code. Optional Rhino.Inside.Revit Python 3
-create/update, inspect, and subdivision adapters live under `examples/RhinoInside.Revit/`; Revit assemblies
-are not dependencies of the MoleHill package.
+and performs adaptive point reduction in compiled Core code. Inside Rhino.Inside.Revit
+(Revit 2025+), a MoleHill > Revit tab adds **Write Toposolids** (create/update Toposolids and their
+subdivisions from the Prepare Toposolid package, matched by stable key) and **Inspect Toposolids**. They
+ship in the same package as `MoleHill.Revit.gha` and stay hidden in plain Rhino; Revit's API is never
+copied into the package. The Revit step is not yet verified in a Revit host.
 
 ### Surface
 | Component | Description |

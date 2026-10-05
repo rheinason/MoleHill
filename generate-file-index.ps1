@@ -3,7 +3,7 @@
 # header comment (// or /// <summary>). Run: pwsh ./generate-file-index.ps1
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projects = @('src/MoleHill.Core', 'src/MoleHill.Interop', 'src/MoleHill.Rhino', 'src/MoleHill.Grasshopper', 'src/MoleHill.Shared')
+$projects = @('src/MoleHill.Core', 'src/MoleHill.Interop', 'src/MoleHill.Rhino', 'src/MoleHill.Grasshopper', 'src/MoleHill.Revit', 'src/MoleHill.Shared')
 
 function Get-Summary([string]$path) {
     # -Encoding UTF8 is required: Windows PowerShell 5.1 otherwise decodes these UTF-8 sources as

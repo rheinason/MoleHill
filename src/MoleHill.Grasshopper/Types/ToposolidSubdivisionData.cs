@@ -1,9 +1,10 @@
 // One stable named subdivision profile set carried by a Toposolid preparation package.
+using MoleHill.Interop;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Types;
 
-public sealed class ToposolidSubdivisionData
+public sealed class ToposolidSubdivisionData : IToposolidSubdivision
 {
     public ToposolidSubdivisionData(
         string name,

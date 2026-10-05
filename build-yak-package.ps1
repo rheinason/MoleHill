@@ -168,10 +168,12 @@ if (Test-Path $nugetPackages) {
 
 $rhinoProject = Join-Path $repoRoot "src\MoleHill.Rhino\MoleHill.Rhino.csproj"
 $grasshopperProject = Join-Path $repoRoot "src\MoleHill.Grasshopper\MoleHill.Grasshopper.csproj"
+$revitProject = Join-Path $repoRoot "src\MoleHill.Revit\MoleHill.Revit.csproj"
 
 $buildRoot = Join-Path $repoRoot ".artifacts\yak-build\$version-$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))"
 $rhinoOutput = Join-Path $buildRoot "rhino"
 $grasshopperOutput = Join-Path $buildRoot "grasshopper"
+$revitOutput = Join-Path $buildRoot "revit"
 $stageRoot = Join-Path $repoRoot ".artifacts\yak\MoleHill-$version"
 $packageContentRoot = Join-Path $stageRoot "net7.0"
 $miscDirectory = Join-Path $packageContentRoot "misc"
@@ -199,6 +201,16 @@ Invoke-StepWithRetry "dotnet" @(
     "-p:BuildYakPackage=false",
     "-p:SkipGrasshopperLibraryCopy=True"
 )
+# The Rhino.Inside.Revit components: a second .gha that aborts its own load outside Revit, so it ships to
+# everyone (see src/MoleHill.Revit/README.md). It is net8.0-windows but lands in the same folder.
+Invoke-Step "dotnet" @(
+    "build",
+    $revitProject,
+    "-c", $Configuration,
+    "--no-restore",
+    "-p:OutputPath=$revitOutput\",
+    "-p:AppendTargetFrameworkToOutputPath=false"
+)
 
 if (Test-Path $stageRoot) {
     Remove-DirectoryWithRetry $stageRoot
@@ -216,6 +228,8 @@ $filesToCopy = @(
     @{ Source = Join-Path $grasshopperOutput "MoleHill.gha"; Destination = Join-Path $packageContentRoot "MoleHill.gha" }
     @{ Source = Join-Path $grasshopperOutput "MoleHill.deps.json"; Destination = Join-Path $packageContentRoot "MoleHill.deps.json" }
     @{ Source = Join-Path $grasshopperOutput "MoleHill.runtimeconfig.json"; Destination = Join-Path $packageContentRoot "MoleHill.runtimeconfig.json" }
+    @{ Source = Join-Path $revitOutput "MoleHill.Revit.gha"; Destination = Join-Path $packageContentRoot "MoleHill.Revit.gha" }
+    @{ Source = Join-Path $revitOutput "MoleHill.Revit.deps.json"; Destination = Join-Path $packageContentRoot "MoleHill.Revit.deps.json" }
     @{ Source = Join-Path $repoRoot "README.md"; Destination = Join-Path $miscDirectory "README.md" }
     @{ Source = Join-Path $repoRoot "LICENSE"; Destination = Join-Path $miscDirectory "LICENSE.txt" }
     @{ Source = Join-Path $repoRoot "src\MoleHill.Grasshopper\Resources\MoleHill.png"; Destination = Join-Path $stageRoot "icon.png" }
@@ -285,6 +299,7 @@ try {
     $requiredEntries = @(
         "MoleHill.Rhino.rhp",
         "MoleHill.gha",
+        "MoleHill.Revit.gha",
         "MoleHill.Core.dll",
         "MoleHill.Interop.dll",
         "manifest.yml"

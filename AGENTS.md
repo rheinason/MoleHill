@@ -5,6 +5,8 @@
 - `src/TriangleNet/`: vendored triangulation engine and meshing internals.
 - `src/MoleHill.Core/`: reusable terrain logic in `Engine/`, `Processing/`, `Grading/`, `Analysis/`, and `Scattering/`.
 - `src/MoleHill.Grasshopper/`: Grasshopper plugin code in `Components/`, `Utilities/`, `Resources/`, and plugin metadata in `MoleHillInfo.cs`.
+- `src/MoleHill.Interop/`: contracts shared by separately loaded assemblies (terrain snapshot bridge, `IToposolidPreparation`).
+- `src/MoleHill.Revit/`: `MoleHill.Revit.gha`, the Rhino.Inside.Revit components; the only `RevitAPI` reference, hidden outside Revit by its `GH_AssemblyPriority`.
 - `src/MoleHill.Rhino/`: Rhino plugin code in `Commands/`, `UI/`, `Services/`, `Model/`, `Resources/`, and `EmbeddedResources/`.
 
 Automated tests live in `tests/MoleHill.Core.Tests/` and `tests/MoleHill.Grasshopper.Tests/`. Utility scripts remain at repo root, including `generate-icons.ps1`, `generate-toolbar-icons.ps1`, `generate-new-icons.ps1`, `build-yak-package.ps1`, and `generate-file-index.ps1`.

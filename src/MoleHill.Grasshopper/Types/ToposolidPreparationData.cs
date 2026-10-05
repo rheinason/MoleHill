@@ -1,9 +1,10 @@
 // Revit-neutral, validated preparation package for a downstream Rhino.Inside.Revit Toposolid creator.
+using MoleHill.Interop;
 using Rhino.Geometry;
 
 namespace MoleHill.Grasshopper.Types;
 
-public sealed class ToposolidPreparationData
+public sealed class ToposolidPreparationData : IToposolidPreparation
 {
     public ToposolidPreparationData(
         IEnumerable<Curve> profiles,
@@ -46,6 +47,8 @@ public sealed class ToposolidPreparationData
     public IReadOnlyList<Point3d> ElevationPoints { get; }
 
     public IReadOnlyList<ToposolidSubdivisionData> Subdivisions { get; }
+
+    IReadOnlyList<IToposolidSubdivision> IToposolidPreparation.SubdivisionProfiles => Subdivisions;
 
     /// <summary>Transformed source constraints. Revit creation does not guarantee them as TIN edges.</summary>
     public IReadOnlyList<Curve> Breaklines { get; }
