@@ -398,6 +398,8 @@ close flags — all four in v1). Output is ordinary Rhino curves and points on n
 
 ### B12 — Crest and toe rounding, as a Smooth mode
 
+**Reconfirmed 2026-10-02** as a wanted terrain-shaping feature.
+
 **Reference:** Blender's Bevel, applied to creases rather than to edges of a solid.
 
 **What it is:** grading produces razor-sharp batter crests and toes; real ground does not. Round creases
@@ -551,7 +553,32 @@ and the Waterflow sources), so routes and level areas reuse that; only the width
 
 ---
 
+### B14 — Paint where a modifier applies
+
+**Accepted 2026-10-02; not scheduled.** Paint an editable influence mask on the terrain to control
+where a modifier acts. Start with Smooth: full influence where painted, none outside, and a soft
+transition at the edge. Brush radius and strength, erase, soften and invert make the region adjustable
+without drawing a precise boundary curve for every local edit.
+
+The mask is authored input, visible as a viewport overlay and saved with the modifier. Users must be
+able to inspect and revise it after reopening the document. Painting changes the mask; the modifier's
+existing parameters still describe what happens within it. Existing breakline and Protect behavior
+must remain respected. Define how the mask combines with existing boundaries before implementation.
+
+Keep the interaction consistent with Sculpt and Rhino's undo workflow. This extends where an operation
+applies; grab-and-pull terrain shaping already belongs to Sculpt. Start with one useful modifier and
+prove that its mask remains attached to the intended region through terrain edits and remeshing before
+extending support. Compatibility with other modifiers needs an explicit decision per operation.
+
+---
+
 ## Explicitly declined
+
+- **Viewport grading handles that override authored inputs.** Declined 2026-10-02: pad/path/wall
+  handles introduce a less controllable, un-Rhino editing surface and break the rule that drawn inputs
+  say what the terrain will do. Edit the source geometry directly with Rhino's controls.
+- **Generic shaping strength and variation controls.** Declined 2026-10-02 as difficult to recreate
+  and intuit. Do not add a separate variation system or a blanket strength slider across operations.
 
 - **A table-based curve / feature-line elevation editor** (Civil 3D's feature-line elevation editor: a
   grid of stations with elevation, grade in, grade out, insert PI). Declined as un-Rhino. Editing
@@ -582,8 +609,9 @@ shipped and are kept only to record where they were wrong.)*
 - **Setting-out / stakeout point export.** A CSV of grid points or triangle vertices at a stated
   interval. Nearly free now that B4's `Core/Reporting` CSV writer exists, and LandXML export already covers the
   machine-control case.
-- **Batch cross-sections at a stationed interval**, with cut/fill area per section and page-space
-  layout. The section annotation already exists; what is missing is the *series* and the tabulation.
+- **Cut/fill area tables per cross-section.** Stationed section series, grid arrangement, station labels
+  and cut/fill shading already exist in Cross-Sections. The remaining proposal is to measure the true
+  cut/fill areas per station and expose them as a table/export, independent of drawing exaggeration.
 
 ### Blender-modifier analogues
 
@@ -592,6 +620,14 @@ only where 2.5D terrain makes the idea *simpler* than it is in Blender, and wher
 already own the problem.
 
 - **Crest and toe rounding** — promoted to **B12**, as a mode on the Smooth modifier.
+- **Landform stamp brush for Sculpt.** Raised 2026-10-02 as a potentially useful brush: apply a
+  mound, hollow, berm or custom height patch with adjustable size, orientation and strength. Explore
+  this within the existing Sculpt interaction and saved edits, rather than a separate stamp-object
+  workflow. Still a candidate, not an accepted implementation scope.
+- **Cage editing of input geometry.** The preference expressed 2026-10-02 is to manipulate the source
+  inputs directly with a cage, using Rhino's editing model. A separate terrain lattice would be harder
+  to control and adjust; do not treat it as a requested new modifier. Grab-and-pull sculpting and
+  curve-driven ridge/valley shaping already exist and are not new backlog features.
 - **Angle-of-repose relaxation** (the useful half of an erosion modifier — Blender's thermal-erosion
   addons). Enforce a maximum stable slope across the whole terrain: iteratively move material from
   anything steeper than the repose angle to its downhill neighbours until nothing exceeds it. Answers
