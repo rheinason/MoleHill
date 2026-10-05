@@ -3,6 +3,21 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.3.1-beta — 2026-10-06
+
+A beta that makes sculpting responsive on large terrains and reduces rebuild and display work.
+
+**Sculpting**
+- The brush follows the cursor on large terrains without rebuilding the mesh's search tree after
+  every dab. Surface normals update around the brush as the ground changes.
+- Zone surfaces and contour annotations follow the brush during a stroke, instead of waiting for
+  the rebuild after the stroke ends.
+
+**Rebuilds and display**
+- Triangulate cleans up survey points and breakline inputs with less repeated work; Remesh builds
+  its projection grid more efficiently.
+- Terrain linework draws once per frame, avoiding repeated curve draws in additional display passes.
+
 ## 1.3.0-beta — 2026-10-05
 
 A beta that takes MoleHill terrains into Revit without scripting, and finishes the Grasshopper icons.
