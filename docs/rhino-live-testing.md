@@ -4,8 +4,9 @@ The repeatable procedure for testing Rhino-hosted UI and commands such as `mhIns
 
 **Drive Rhino through the `rhino-mcp` router, not through synthetic keystrokes.** The router
 (`mcp__rhino-mcp__*`) spawns a disposable Rhino, runs commands and RhinoCommon scripts inside it, and
-returns their output as data. That gives deterministic, inspectable results and never touches the
-user's own Rhino session. `WScript.Shell`/`SendKeys` and `user32` cursor calls are a fallback for
+returns their output as data. That gives deterministic, inspectable results. Prefer disposable slots;
+when the host blocks spawning, use the explicitly designated user-started test session below.
+`WScript.Shell`/`SendKeys` and `user32` cursor calls are a fallback for
 genuine pointer gestures only — they are blind, focus-dependent, and cannot report what happened.
 
 ## 1. Build before launching
@@ -44,6 +45,38 @@ spawn_slot(version: "8")   →   { slotId, port, pid, adopted }
 Record `slotId` and `pid`; pass `slot` explicitly on every later call. `close_slot` normally kills
 exactly that instance.
 
+### User-started test session when breakaway is blocked
+
+Build first, then have the user start Rhino 8 with an empty document intended for testing and run
+`MCPStart`. `MCPConnect` wires the assistant's configuration; its "wired the RhinoAI MCP server into
+Codex" message does **not** establish that the current Rhino is listening. McNeel documents these
+commands in its [connection guide](https://mcneel.github.io/RhinoAI/docs/getting-started/copilot/)
+and [plugin startup instructions](https://mcneel.github.io/RhinoAI/docs/getting-started/connector/).
+
+1. Call `list_slots` **before** `spawn_slot`. The router adopts advertised user-started sessions.
+2. Record the returned slot ID/PID and confirm it is the designated test session. Pass `slot`
+   explicitly on every call; if several sessions are listed, do not guess which one to use.
+3. Probe with `get_context` and a read-only `run_csharp` using `__rhino_doc__`, then verify the exact
+   plugin path and module version as in §3. Adoption alone is not a successful live test.
+4. Preserve existing document content and selection. Track test-created object IDs and remove only
+   those objects during cleanup. Do not clear, replace, close or save the user's document.
+5. Leave the Rhino window open. `close_slot` refuses adopted slots; ask the user to close this window
+   before rebuilding a loaded plugin. Do not terminate a user-started Rhino by PID.
+
+If `list_slots` returns an empty array, ask for the `MCPStart` command output. On 2026-10-05,
+`MCPConnect` updated Codex's configuration but left the router's list empty and
+`%APPDATA%\McNeel\Rhinoceros\ai\listeners` empty. Do not treat configuration wiring as listener
+startup or claim adoption worked without a returned slot and successful probe.
+
+Verified on 2026-10-05 through Codex's MCP connection after `MCPStart`: slot `aardvark`, PID 24688,
+port 10500, `adopted: true`, Rhino `8.35.26251.13001`. `get_context` returned an empty document;
+`run_csharp` found MoleHill loaded from this checkout's `bin/Debug/net7.0/MoleHill.Rhino.rhp`
+(module version `379f3ac1-44a4-4133-aceb-0e1af46b19aa`). `run_command("_SelNone")` returned `Done.`;
+an in-memory native mesh probe asserted a valid closed 2×3×4 box with volume 24 and confirmed the
+document remained empty. This establishes router discovery, C# execution, command dispatch and native
+geometry access, not acceptance of a particular MoleHill workflow or a fresh build. The user-started
+Rhino was left open.
+
 If the desktop MCP connection reports Windows error 5 while spawning, its parent Job Object may
 block the router's managed Rhino breakaway. The repository's
 [`tools/rhino-live-client.py`](../tools/rhino-live-client.py) starts the same installed router from a
@@ -55,6 +88,36 @@ canvas solves, and rechecked on 2026-09-16 by spawning slot `aardvark` (PID 3344
 `run_csharp` probe with the router's `script` argument, and closing that exact slot successfully. A
 sandboxed shell may still block process launch; use the host's approved unsandboxed
 command execution when that happens. The normal build-before-spawn and exact-slot rules still apply.
+
+**For Codex, try approved host execution before falling back to a user-started Rhino.** On
+2026-10-05 the desktop MCP `spawn_slot` still failed with error 5, but the standalone client launched
+and closed an owned Rhino when run with `exec_command(sandbox_permissions: "require_escalated",
+tty: true)`. Use an actual Python executable; if `python` resolves to a Windows Store alias that
+cannot launch, discover the bundled executable with `load_workspace_dependencies`.
+Keep the returned shell session alive and send one JSON line at a time with `write_stdin`:
+
+```json
+{"tool":"spawn_slot","args":{"version":"8"}}
+{"tool":"run_csharp","args":{"slot":"$lastSlot","script":"Console.WriteLine(__rhino_doc__.Objects.Count);"}}
+{"tool":"close_slot","args":{"slot":"$lastSlot"}}
+{"tool":"list_slots","args":{}}
+{"tool":"quit"}
+```
+
+Inspect each result before sending dependent work. Test commands and verification scripts belong
+between the probe and close. **Close through the same client that spawned the slot**, not a second
+router that may see it as adopted. The client defaults `RHINO_MCP_STARTUP_TIMEOUT` to 300 seconds
+(preserving an explicit environment value) and tracks a slot for exit cleanup only after `spawn_slot`;
+listing someone else's session must never make it the cleanup target.
+
+Full cycle verified on 2026-10-05: `dotnet build MoleHill.sln --no-restore -v minimal` succeeded with
+zero warnings/errors; standalone router 0.3.0 spawned `aardvark`, PID 30168, `adopted: false`, Rhino
+`8.35.26251.13001`. A C# probe verified the checkout's Debug `.rhp` path and matched its loaded module
+version to the freshly built file (`9311d13f-6716-4e60-ace3-94e2b58e9a1b`). Two preselected crossing
+10 m lines were passed to `mhSplitAtIntersections`; document assertions confirmed four valid 5 m
+segments with an endpoint at the intersection and 20 m total length. One `_Undo` restored the two
+10 m originals. `close_slot` returned `closed: true` and reported a graceful exit; subsequent
+`list_slots` returned an empty array and `Get-Process -Name Rhino` found no remaining Rhino.
 
 **`adopted` does not mean "the user started it".** It means "this router session did not spawn it", and a
 Rhino the router spawned earlier can become adopted — after the router loses track of it (see §7 on
@@ -233,11 +296,14 @@ it leaves the curve alone:
   sandboxed runner, which wants killing the agent to kill everything it started — gets `ERROR_ACCESS_DENIED`
   before Rhino ever starts, and `list_slots` shows nothing.
 
-  Nothing on the agent side fixes this: the build path, the `version: "8"` string, and the call order
-  are all irrelevant to it, so **do not re-verify the build or retry with different arguments**, and do
-  not work around it by launching `Rhino.exe` yourself — an unmanaged Rhino is adopted, refuses
-  `close_slot`, and holds the build lock (see §2). Say the live test is blocked by the host launcher
-  policy, hand it to a session whose host permits breakaway, or ask the user to run it.
+  The build path and the `version: "8"` string do not fix the launch restriction, so **do not
+  re-verify the build or retry with different arguments**. First try the standalone client through
+  approved host execution (§2), keeping that router alive to own and close the slot. If that route
+  is also blocked, use the user-started test-session route in §2: have the user start Rhino and run
+  `MCPStart`, then call `list_slots` to adopt it. This avoids
+  launching a process through the restricted router, but requires user-managed window cleanup before
+  rebuilding. If no session is advertised, report that live testing remains unverified and ask for
+  the startup command output, or hand testing to a host that permits breakaway.
 - **Modal-dialog commands wedge the slot.** `_PlugInManager`, `_Options` and friends open a dialog;
   `run_command` never returns, and after aborting the tool call the slot stays inside a command.
   Recovery is `close_slot` + `spawn_slot` — there is no in-place unwedge. Use script APIs, or the
@@ -290,10 +356,11 @@ Keep the reproduction minimal: one curve, one command, one transition.
 
 ## 10. Cleanup and evidence
 
-`close_slot` the exact slot, delete temporary traces, rebuild if code changed, and run the relevant
+`close_slot` the exact owned slot (leave a user-started test session open as described in §2),
+delete temporary traces, rebuild if code changed, and run the relevant
 tests (normally the full solution). Finish with `git status --short` and `git diff --check`.
 
-**Then check no Rhino is left running.** `close_slot` reporting `closed: true` only accounts for the slot
+**Then check no owned test Rhino is left running.** `close_slot` reporting `closed: true` only accounts for the slot
 named; `list_slots` plus the `Get-CimInstance` query in §2 accounts for the processes. A leaked
 router-spawned Rhino is invisible until the next build fails on a file lock, by which point the cause is
 several steps behind.

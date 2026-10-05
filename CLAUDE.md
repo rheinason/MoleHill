@@ -45,7 +45,11 @@ Close Rhino before rebuilding — Rhino holds a lock on the `.gha` file in `%App
 
 For live Rhino testing, the maintainer drives a disposable slot through a local `rhino-mcp` router (not part of this
 repository; contributors can test by hand in Rhino instead). Drive a disposable `rhino-mcp` slot (`spawn_slot` → `run_csharp`/`run_command`
-→ `close_slot`) as described in `docs/rhino-live-testing.md`. Assert on document state, not on
+→ `close_slot`) as described in `docs/rhino-live-testing.md`. If desktop spawning fails with Windows
+error 5, first run `tools/rhino-live-client.py` through approved unsandboxed shell execution and keep
+the client alive for spawn/test/close. If that also fails, the user can start a dedicated test Rhino and run `MCPStart`;
+call `list_slots` to adopt it and leave that user-started window open (§2 of the guide). `MCPConnect`
+wires configuration, not proof of listener startup. Assert on document state, not on
 keystrokes: never `SendKeys` a workflow, never terminate a broad set of Rhino processes, and never
 use guessed desktop coordinates as evidence — window bounds come from `GetWindowRect` on the slot PID.
 

@@ -53,10 +53,12 @@ def use_slot(value, slot):
 
 
 def main():
+    router_env = os.environ.copy()
+    router_env.setdefault("RHINO_MCP_STARTUP_TIMEOUT", "300")
     process = subprocess.Popen(
         [str(find_router()), "--default-version", "8"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=sys.stderr,
-        text=True, encoding="utf-8", bufsize=1,
+        text=True, encoding="utf-8", bufsize=1, env=router_env,
     )
     request_id = 0
     slot = None
@@ -88,8 +90,9 @@ def main():
                     break
                 args = use_slot(step.get("args", {}), slot)
                 result = request("tools/call", {"name": step["tool"], "arguments": args})
-                if returned := find_value(result, "slotId"):
-                    slot = returned
+                if step["tool"] == "spawn_slot":
+                    if returned := find_value(result, "slotId"):
+                        slot = returned
                 if step["tool"] == "close_slot" and find_value(result, "closed"):
                     slot = None
                 print("MCP_RESULT=" + json.dumps(result, separators=(",", ":")), flush=True)

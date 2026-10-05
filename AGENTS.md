@@ -72,6 +72,12 @@ version: build with Rhino closed, `spawn_slot` a disposable Rhino through the `r
 the exact `.rhp` with `Rhino.PlugIns.PlugIn.LoadPlugIn` and confirm it was not blocked, build the
 scene and the selection from `run_csharp`, invoke the command with `run_command`, and assert on
 document state via `run_csharp`/`list_objects`/`get_context`. `close_slot` the exact slot when done.
+If desktop `spawn_slot` fails with Windows error 5, use `tools/rhino-live-client.py` through approved
+unsandboxed shell execution first (§2 of the guide). Keep that client alive for spawn, test and close;
+it owns the disposable Rhino and can close it. If host execution also blocks launch, have the user
+start a dedicated test Rhino and run `MCPStart`, then call `list_slots` to adopt it. `MCPConnect`
+configures Codex but does not establish listener startup. Leave user-started Rhino open and clean up
+only test-created objects.
 
 Screenshots are supporting evidence only: `get_viewport_image` shows the viewport, and Eto forms must
 be captured from real `GetWindowRect` bounds filtered by the slot PID. Never `SendKeys` a workflow,
