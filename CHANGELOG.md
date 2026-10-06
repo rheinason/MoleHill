@@ -3,6 +3,42 @@
 Released through Rhino's Package Manager (Yak) as `MoleHill`. Versions before 1.0.0 were
 beta prereleases. Earlier versions are recorded only in the git history.
 
+## 1.3.2-beta — 2026-10-06
+
+A beta that stops terrains tearing where new data, zones or boundaries cross thin triangles, and makes
+Hide boundaries work on large surveys.
+
+**Terrain robustness**
+- Add Geometry no longer crashes or folds the terrain when its lines cross bands of thin contour
+  triangles. Each crossing is placed once on the edge both neighbouring triangles share, and a result
+  that would overlap is retried in one piece or rebuilt instead.
+- Zones no longer come out with overlapping seams or pinhole slits on surveys with thin triangles, and
+  their area matches the terrain exactly. A damaged split is now reported in the build messages.
+- Hide (and Show/Outer) boundaries no longer silently do nothing: triangles just outside the curve are
+  kept, so the trimmed edge stays closed and the trim is accepted.
+- Smooth no longer opens a hairline slit where Remesh left a flat sliver triangle.
+- Triangulate repairs crossing and duplicate breaklines and contours before triangulating (without
+  removing deliberate breakline stations), and reports places where two sources cross at different
+  heights — usually two overlapping contour sets.
+- Lines that run past the terrain edge are stored as inserted, so later rebuilds keep them crisp.
+- The "far from the world origin" warning measures against the tolerance the terrain actually works at,
+  so ordinary sites a few kilometres from the origin no longer warn.
+
+**Grading and walls**
+- Grade Path and Grade Pad batters no longer form thin near-vertical spikes where the daylight line
+  turns tightly across a terrain crease.
+- Retaining-wall solids from joined rails with different grades line up their corners instead of
+  folding; stepped wall tops keep their steps.
+
+**Annotations and comparisons**
+- New **Legend** annotation keyed to whatever analysis colours the terrain; annotation styles are
+  visible and editable on the Annotations tab.
+- Cut/Fill, Earthworks and section cards say when the compared terrain is unbuilt or out of date, and
+  can rebuild it in place.
+
+**Performance**
+- Grading allocates less and no longer stalls on garbage collection during large builds.
+
 ## 1.3.1-beta — 2026-10-06
 
 A beta that makes sculpting responsive on large terrains and reduces rebuild and display work.
